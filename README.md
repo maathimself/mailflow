@@ -1,12 +1,11 @@
 # MailFlow
 
 A self-hosted, unified webmail client. Connect multiple IMAP/SMTP accounts (Gmail, iCloud,
-Outlook, custom) and read them all in one clean interface. Currently I am hosting it myself 
-through a reverse proxy (Netbird) and a pincode for added security. So far it has been
-working great though not perfect. If you encounter any issues please open an issue [here](https://github.com/maathimself/mailflow/issues)
-This software is in beta, you are likely to encounter issues. I assume no responsibility
-for any issues that may occur. Please have a look at the [Security Notes](https://github.com/maathimself/mailflow/tree/main?tab=readme-ov-file#security-notes) 
-section below.
+Outlook, custom) and read them all in one clean interface.
+
+This software is in beta — you may encounter issues. Please open an issue [here](https://github.com/maathimself/mailflow/issues)
+if you do. See the [Security Notes](https://github.com/maathimself/mailflow/tree/main?tab=readme-ov-file#security-notes)
+section before deploying.
 
 
 ## Features
@@ -183,6 +182,8 @@ on an internal Docker network.
 - The first registered user becomes the admin automatically
 - Close open registration in Settings → Users once you've set up your accounts
 - Use the invite system to onboard additional users
+- Enable two-factor authentication (TOTP) in Settings → Security for extra account protection
 - Session cookies are `HttpOnly`, `Secure`, `SameSite=Lax` with a 7-day TTL
 - Passwords are bcrypt-hashed (cost factor 12)
+- Login and registration endpoints are rate-limited (10 attempts per 15 minutes per IP)
 - Database and Redis are not exposed outside the Docker network
