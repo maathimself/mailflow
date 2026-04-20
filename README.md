@@ -187,3 +187,4 @@ on an internal Docker network.
 - Passwords are bcrypt-hashed (cost factor 12)
 - Login and registration endpoints are rate-limited (10 attempts per 15 minutes per IP)
 - Database and Redis are not exposed outside the Docker network
+- IMAP/SMTP credentials are stored at rest in the database (standard for webmail clients — protect access to your server and database volume accordingly)
