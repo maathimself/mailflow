@@ -1,7 +1,13 @@
 # MailFlow
 
 A self-hosted, unified webmail client. Connect multiple IMAP/SMTP accounts (Gmail, iCloud,
-Outlook, custom) and read them all in one clean interface.
+Outlook, custom) and read them all in one clean interface. Currently I am hosting it myself 
+through a reverse proxy (Netbird) and a pincode for added security. So far it has been
+working great though not perfect. If you encounter any issues please open an issue [here](https://github.com/maathimself/mailflow/issues)
+This software is in beta, you are likely to encounter issues. I assume no responsibility
+for any issues that may occur. Please have a look at the [Security Notes](https://github.com/maathimself/mailflow/tree/main?tab=readme-ov-file#security-notes) 
+section below.
+
 
 ## Features
 
