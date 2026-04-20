@@ -29,8 +29,6 @@ section below.
 ### Prerequisites
 
 - A server with Docker and Docker Compose installed
-- A domain name with an A record pointing to the server
-- Ports **80** and **443** open in your firewall
 
 ### 1. Get the code
 
