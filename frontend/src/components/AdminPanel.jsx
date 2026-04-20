@@ -1460,7 +1460,313 @@ const TABS = [
     adminOnly: true,
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>,
   },
+  {
+    id: 'security', label: 'Security',
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>,
+  },
 ];
+
+// ─── Security Tab (TOTP 2FA) ──────────────────────────────────────────────────
+function SecurityTab() {
+  const { user, setUser } = useStore();
+  const [step, setStep] = useState('idle'); // 'idle' | 'scan' | 'verify'
+  const [setupData, setSetupData] = useState(null); // { qrCode, secret }
+  const [verifyCode, setVerifyCode] = useState('');
+  const [showDisable, setShowDisable] = useState(false);
+  const [disablePassword, setDisablePassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  const totpEnabled = user?.totpEnabled;
+
+  const startSetup = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const data = await api.totp.setup();
+      setSetupData(data);
+      setStep('scan');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const verifyEnable = async (e) => {
+    e.preventDefault();
+    if (verifyCode.length !== 6) return;
+    setLoading(true);
+    setError('');
+    try {
+      await api.totp.enable(verifyCode);
+      setUser({ ...user, totpEnabled: true });
+      setStep('idle');
+      setSetupData(null);
+      setVerifyCode('');
+      setSuccess('Two-factor authentication enabled.');
+      setTimeout(() => setSuccess(''), 4000);
+    } catch (err) {
+      setError(err.message);
+      setVerifyCode('');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const disableTotp = async (e) => {
+    e.preventDefault();
+    if (!disablePassword) return;
+    setLoading(true);
+    setError('');
+    try {
+      await api.totp.disable(disablePassword);
+      setUser({ ...user, totpEnabled: false });
+      setShowDisable(false);
+      setDisablePassword('');
+      setSuccess('Two-factor authentication disabled.');
+      setTimeout(() => setSuccess(''), 4000);
+    } catch (err) {
+      setError(err.message);
+      setDisablePassword('');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const cancelSetup = () => {
+    setStep('idle');
+    setSetupData(null);
+    setVerifyCode('');
+    setError('');
+  };
+
+  return (
+    <div style={{ maxWidth: 520 }}>
+      <h2 style={{ margin: '0 0 4px', fontSize: 17, fontWeight: 600, color: 'var(--text-primary)' }}>Security</h2>
+      <p style={{ margin: '0 0 28px', fontSize: 13, color: 'var(--text-tertiary)' }}>
+        Manage two-factor authentication for your account.
+      </p>
+
+      {/* Status card */}
+      <div style={{
+        background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+        borderRadius: 12, padding: '20px 24px', marginBottom: 20,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{
+              width: 40, height: 40, borderRadius: 10,
+              background: totpEnabled ? 'rgba(34,197,94,0.12)' : 'var(--bg-tertiary)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                stroke={totpEnabled ? '#22c55e' : 'var(--text-tertiary)'} strokeWidth="1.75">
+                <rect x="5" y="11" width="14" height="10" rx="2"/>
+                <path d="M8 11V7a4 4 0 018 0v4"/>
+                {totpEnabled && <circle cx="12" cy="16" r="1" fill="#22c55e" stroke="none"/>}
+              </svg>
+            </div>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>
+                Authenticator app
+              </div>
+              <div style={{ fontSize: 12, color: totpEnabled ? '#22c55e' : 'var(--text-tertiary)', marginTop: 2 }}>
+                {totpEnabled ? 'Enabled' : 'Not configured'}
+              </div>
+            </div>
+          </div>
+          {!totpEnabled && step === 'idle' && (
+            <button
+              onClick={startSetup}
+              disabled={loading}
+              style={{
+                padding: '8px 16px', background: 'var(--accent)', border: 'none',
+                borderRadius: 7, color: 'white', fontSize: 13, fontWeight: 500,
+                cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.6 : 1,
+                flexShrink: 0,
+              }}
+            >
+              {loading ? 'Loading…' : 'Set up'}
+            </button>
+          )}
+          {totpEnabled && !showDisable && (
+            <button
+              onClick={() => { setShowDisable(true); setError(''); }}
+              style={{
+                padding: '8px 16px', background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+                borderRadius: 7, color: 'var(--red)', fontSize: 13, fontWeight: 500,
+                cursor: 'pointer', flexShrink: 0,
+              }}
+            >
+              Disable
+            </button>
+          )}
+        </div>
+
+        {/* Setup: scan QR */}
+        {step === 'scan' && setupData && (
+          <div style={{ marginTop: 24, borderTop: '1px solid var(--border)', paddingTop: 20 }}>
+            <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--text-secondary)' }}>
+              Scan this QR code with your authenticator app (e.g. Google Authenticator, Authy).
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
+              <img
+                src={setupData.qrCode}
+                alt="QR code"
+                style={{ width: 180, height: 180, borderRadius: 8, background: 'white', padding: 8 }}
+              />
+            </div>
+            <p style={{ margin: '0 0 6px', fontSize: 12, color: 'var(--text-tertiary)', textAlign: 'center' }}>
+              Can't scan? Enter this key manually:
+            </p>
+            <div style={{
+              fontFamily: 'monospace', fontSize: 13, letterSpacing: '0.1em',
+              color: 'var(--text-secondary)', textAlign: 'center',
+              background: 'var(--bg-tertiary)', borderRadius: 6, padding: '8px 12px',
+              marginBottom: 20, wordBreak: 'break-all',
+            }}>
+              {setupData.secret}
+            </div>
+            <button
+              onClick={() => setStep('verify')}
+              style={{
+                width: '100%', padding: '10px', background: 'var(--accent)', border: 'none',
+                borderRadius: 7, color: 'white', fontSize: 13, fontWeight: 500, cursor: 'pointer',
+              }}
+            >
+              Next: verify code →
+            </button>
+            <button
+              onClick={cancelSetup}
+              style={{
+                width: '100%', padding: '8px', background: 'none', border: 'none',
+                color: 'var(--text-tertiary)', fontSize: 13, cursor: 'pointer', marginTop: 8,
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
+        {/* Setup: verify code */}
+        {step === 'verify' && (
+          <div style={{ marginTop: 24, borderTop: '1px solid var(--border)', paddingTop: 20 }}>
+            <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--text-secondary)' }}>
+              Enter the 6-digit code from your authenticator app to confirm setup.
+            </p>
+            <form onSubmit={verifyEnable} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={6}
+                value={verifyCode}
+                onChange={e => setVerifyCode(e.target.value.replace(/\D/g, ''))}
+                autoFocus
+                placeholder="000000"
+                style={{
+                  width: '100%', padding: '12px 14px',
+                  background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+                  borderRadius: 8, color: 'var(--text-primary)', fontSize: 22,
+                  letterSpacing: '0.3em', textAlign: 'center',
+                  outline: 'none', boxSizing: 'border-box', fontVariantNumeric: 'tabular-nums',
+                }}
+                onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+                onBlur={e => e.target.style.borderColor = 'var(--border)'}
+              />
+              <button
+                type="submit"
+                disabled={loading || verifyCode.length !== 6}
+                style={{
+                  padding: '10px', background: 'var(--accent)', border: 'none',
+                  borderRadius: 7, color: 'white', fontSize: 13, fontWeight: 500,
+                  cursor: loading || verifyCode.length !== 6 ? 'not-allowed' : 'pointer',
+                  opacity: loading || verifyCode.length !== 6 ? 0.6 : 1,
+                }}
+              >
+                {loading ? 'Verifying…' : 'Enable 2FA'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setStep('scan')}
+                style={{
+                  background: 'none', border: 'none', color: 'var(--text-tertiary)',
+                  fontSize: 13, cursor: 'pointer', padding: 0,
+                }}
+              >
+                ← Back
+              </button>
+            </form>
+          </div>
+        )}
+
+        {/* Disable flow */}
+        {showDisable && (
+          <div style={{ marginTop: 24, borderTop: '1px solid var(--border)', paddingTop: 20 }}>
+            <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--text-secondary)' }}>
+              Enter your password to disable two-factor authentication.
+            </p>
+            <form onSubmit={disableTotp} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <input
+                type="password"
+                value={disablePassword}
+                onChange={e => setDisablePassword(e.target.value)}
+                autoFocus
+                placeholder="Your password"
+                style={{ ...inputStyle }}
+                onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+                onBlur={e => e.target.style.borderColor = 'var(--border)'}
+              />
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  type="submit"
+                  disabled={loading || !disablePassword}
+                  style={{
+                    flex: 1, padding: '10px', background: 'var(--red)', border: 'none',
+                    borderRadius: 7, color: 'white', fontSize: 13, fontWeight: 500,
+                    cursor: loading || !disablePassword ? 'not-allowed' : 'pointer',
+                    opacity: loading || !disablePassword ? 0.6 : 1,
+                  }}
+                >
+                  {loading ? 'Disabling…' : 'Disable 2FA'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setShowDisable(false); setDisablePassword(''); setError(''); }}
+                  style={{
+                    padding: '10px 16px', background: 'var(--bg-tertiary)',
+                    border: '1px solid var(--border)', borderRadius: 7,
+                    color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer',
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {/* Error / success */}
+        {error && (
+          <div style={{
+            marginTop: 12, padding: '10px 14px', background: 'rgba(248,113,113,0.1)',
+            border: '1px solid rgba(248,113,113,0.3)', borderRadius: 8,
+            color: 'var(--red)', fontSize: 13,
+          }}>{error}</div>
+        )}
+        {success && (
+          <div style={{
+            marginTop: 12, padding: '10px 14px', background: 'rgba(34,197,94,0.1)',
+            border: '1px solid rgba(34,197,94,0.3)', borderRadius: 8,
+            color: '#22c55e', fontSize: 13,
+          }}>{success}</div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function AdminPanel() {
   const { setShowAdmin, adminTab, setAdminTab, user } = useStore();
@@ -1545,6 +1851,7 @@ export default function AdminPanel() {
           {adminTab === 'layouts' && <LayoutsTab />}
           {adminTab === 'integrations' && <IntegrationsTab />}
           {adminTab === 'users' && <UsersTab />}
+          {adminTab === 'security' && <SecurityTab />}
         </div>
       </div>
     </div>

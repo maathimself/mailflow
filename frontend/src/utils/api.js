@@ -35,6 +35,14 @@ export const api = {
   getRegistrationStatus: () => request('GET', '/auth/registration-status'),
   validateInvite: (token) => request('GET', `/auth/invite/${token}`),
 
+  // TOTP / 2FA
+  totp: {
+    setup: () => request('GET', '/totp/setup'),
+    enable: (code) => request('POST', '/totp/enable', { code }),
+    disable: (password) => request('POST', '/totp/disable', { password }),
+    challenge: (code) => request('POST', '/auth/2fa/challenge', { code }),
+  },
+
   // Admin
   admin: {
     getUsers: () => request('GET', '/admin/users'),

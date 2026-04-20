@@ -13,6 +13,8 @@ export default function LoginPage() {
   const [registrationOpen, setRegistrationOpen] = useState(null); // null = loading
   const [inviteToken, setInviteToken] = useState(null);
   const [inviteEmail, setInviteEmail] = useState(null);
+  const [totpRequired, setTotpRequired] = useState(false);
+  const [totpCode, setTotpCode] = useState('');
 
   useEffect(() => {
     // Check for invite token in URL
@@ -46,6 +48,11 @@ export default function LoginPage() {
       let data;
       if (mode === 'login') {
         data = await api.login(username, password);
+        if (data.requiresTOTP) {
+          setTotpRequired(true);
+          setLoading(false);
+          return;
+        }
       } else {
         data = await api.register(username, password, inviteToken || undefined);
       }
@@ -53,6 +60,23 @@ export default function LoginPage() {
       await loadPreferences();
     } catch (err) {
       setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const submitTotp = async (e) => {
+    e.preventDefault();
+    if (!totpCode.trim()) return;
+    setLoading(true);
+    setError('');
+    try {
+      const data = await api.totp.challenge(totpCode.trim());
+      setUser(data.user);
+      await loadPreferences();
+    } catch (err) {
+      setError(err.message);
+      setTotpCode('');
     } finally {
       setLoading(false);
     }
@@ -99,6 +123,79 @@ export default function LoginPage() {
           background: 'var(--bg-secondary)', border: '1px solid var(--border)',
           borderRadius: 16, padding: 32,
         }}>
+          {totpRequired ? (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                <div style={{
+                  width: 36, height: 36, borderRadius: 10,
+                  background: 'var(--bg-tertiary)', display: 'flex',
+                  alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.75">
+                    <rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/>
+                    <circle cx="12" cy="16" r="1" fill="var(--accent)" stroke="none"/>
+                  </svg>
+                </div>
+                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 500, color: 'var(--text-primary)' }}>
+                  Two-factor auth
+                </h2>
+              </div>
+              <p style={{ margin: '0 0 20px', fontSize: 13, color: 'var(--text-tertiary)' }}>
+                Enter the 6-digit code from your authenticator app.
+              </p>
+              <form onSubmit={submitTotp} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={6}
+                  value={totpCode}
+                  onChange={e => setTotpCode(e.target.value.replace(/\D/g, ''))}
+                  autoFocus
+                  placeholder="000000"
+                  style={{
+                    width: '100%', padding: '12px 14px',
+                    background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+                    borderRadius: 8, color: 'var(--text-primary)', fontSize: 22,
+                    letterSpacing: '0.3em', textAlign: 'center',
+                    outline: 'none', boxSizing: 'border-box', fontVariantNumeric: 'tabular-nums',
+                  }}
+                  onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+                  onBlur={e => e.target.style.borderColor = 'var(--border)'}
+                />
+                {error && (
+                  <div style={{
+                    padding: '10px 14px', background: 'rgba(248,113,113,0.1)',
+                    border: '1px solid rgba(248,113,113,0.3)', borderRadius: 8,
+                    color: 'var(--red)', fontSize: 13,
+                  }}>{error}</div>
+                )}
+                <button
+                  type="submit"
+                  disabled={loading || totpCode.length !== 6}
+                  style={{
+                    padding: '11px 24px', background: 'var(--accent)',
+                    border: 'none', borderRadius: 8, color: 'white',
+                    fontSize: 14, fontWeight: 500, cursor: loading ? 'not-allowed' : 'pointer',
+                    opacity: loading || totpCode.length !== 6 ? 0.6 : 1, marginTop: 4,
+                  }}
+                >
+                  {loading ? 'Verifying…' : 'Verify'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setTotpRequired(false); setTotpCode(''); setError(''); }}
+                  style={{
+                    background: 'none', border: 'none', color: 'var(--text-tertiary)',
+                    fontSize: 13, cursor: 'pointer', padding: 0,
+                  }}
+                >
+                  ← Back to login
+                </button>
+              </form>
+            </>
+          ) : (
+          <>
           <h2 style={{ margin: '0 0 4px', fontSize: 18, fontWeight: 500, color: 'var(--text-primary)' }}>
             {mode === 'login' ? 'Sign in' : 'Create account'}
           </h2>
@@ -180,9 +277,11 @@ export default function LoginPage() {
               {loading ? 'Please wait…' : (mode === 'login' ? 'Sign in' : 'Create account')}
             </button>
           </form>
+          </>
+          )}
         </div>
 
-        {showToggle && (
+        {!totpRequired && showToggle && (
           <p style={{ textAlign: 'center', marginTop: 20, fontSize: 13, color: 'var(--text-tertiary)' }}>
             {mode === 'login' ? "Don't have an account? " : 'Already have an account? '}
             <button

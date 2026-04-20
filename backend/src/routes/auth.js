@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
+import { authenticator } from 'otplib';
 import { query } from '../services/db.js';
 import { imapManager } from '../index.js';
 
@@ -112,6 +113,13 @@ router.post('/login', authLimiter, async (req, res) => {
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
 
+    // If 2FA is enabled, require a TOTP challenge before creating a full session
+    if (user.totp_enabled) {
+      req.session.pendingUserId = user.id;
+      req.session.pendingTOTPExpiry = Date.now() + 5 * 60 * 1000; // 5-minute window
+      return res.json({ requiresTOTP: true });
+    }
+
     req.session.userId = user.id;
     req.session.username = user.username;
     req.session.isAdmin = user.is_admin;
@@ -125,6 +133,40 @@ router.post('/login', authLimiter, async (req, res) => {
   }
 });
 
+// Second step of login when 2FA is enabled
+router.post('/2fa/challenge', authLimiter, async (req, res) => {
+  const { code } = req.body;
+  if (!code) return res.status(400).json({ error: 'Code required' });
+
+  if (!req.session.pendingUserId) {
+    return res.status(400).json({ error: 'No pending authentication' });
+  }
+  if (Date.now() > (req.session.pendingTOTPExpiry || 0)) {
+    delete req.session.pendingUserId;
+    delete req.session.pendingTOTPExpiry;
+    return res.status(400).json({ error: 'Authentication timed out. Please log in again.' });
+  }
+
+  const result = await query('SELECT * FROM users WHERE id = $1', [req.session.pendingUserId]);
+  const user = result.rows[0];
+  if (!user || !user.totp_secret) {
+    return res.status(401).json({ error: 'Authentication failed' });
+  }
+
+  if (!authenticator.verify({ token: String(code).replace(/\s/g, ''), secret: user.totp_secret })) {
+    return res.status(401).json({ error: 'Invalid code' });
+  }
+
+  delete req.session.pendingUserId;
+  delete req.session.pendingTOTPExpiry;
+  req.session.userId = user.id;
+  req.session.username = user.username;
+  req.session.isAdmin = user.is_admin;
+
+  imapManager.connectAllForUser(user.id);
+  res.json({ user: { id: user.id, username: user.username, isAdmin: user.is_admin } });
+});
+
 router.post('/logout', (req, res) => {
   req.session.destroy();
   res.json({ ok: true });
@@ -132,12 +174,11 @@ router.post('/logout', (req, res) => {
 
 router.get('/me', async (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
-  const result = await query('SELECT id, username, is_admin FROM users WHERE id = $1', [req.session.userId]);
+  const result = await query('SELECT id, username, is_admin, totp_enabled FROM users WHERE id = $1', [req.session.userId]);
   const user = result.rows[0];
   if (!user) return res.status(401).json({ error: 'Not authenticated' });
-  // Refresh isAdmin in session in case it was changed
   req.session.isAdmin = user.is_admin;
-  res.json({ user: { id: user.id, username: user.username, isAdmin: user.is_admin } });
+  res.json({ user: { id: user.id, username: user.username, isAdmin: user.is_admin, totpEnabled: user.totp_enabled } });
 });
 
 // Public endpoint: check if registration is open (used by login page)

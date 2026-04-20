@@ -15,6 +15,7 @@ import accountRoutes from './routes/accounts.js';
 import mailRoutes from './routes/mail.js';
 import searchRoutes from './routes/search.js';
 import adminRoutes from './routes/admin.js';
+import totpRoutes from './routes/totp.js';
 import { initDb, query } from './services/db.js';
 import { setupWebSocket } from './services/websocket.js';
 import { ImapManager } from './services/imapManager.js';
@@ -80,6 +81,7 @@ app.use('/api/mail', mailRoutes);
 app.use('/api/mail', sendRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/totp', totpRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
