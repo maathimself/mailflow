@@ -1,0 +1,202 @@
+import { useState, useEffect } from 'react';
+import { useStore } from '../store/index.js';
+import { api } from '../utils/api.js';
+import LogoMark from './LogoMark.jsx';
+
+export default function LoginPage() {
+  const { setUser, loadPreferences } = useStore();
+  const [mode, setMode] = useState('login');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [registrationOpen, setRegistrationOpen] = useState(null); // null = loading
+  const [inviteToken, setInviteToken] = useState(null);
+  const [inviteEmail, setInviteEmail] = useState(null);
+
+  useEffect(() => {
+    // Check for invite token in URL
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('invite');
+    if (token) {
+      api.validateInvite(token)
+        .then(data => {
+          setInviteToken(token);
+          setInviteEmail(data.email);
+          setMode('register');
+          window.history.replaceState({}, '', '/register?invite=' + token);
+        })
+        .catch(() => {
+          setError('This invite link is invalid or has expired.');
+        });
+    }
+
+    // Check if open registration is enabled
+    api.getRegistrationStatus()
+      .then(data => setRegistrationOpen(data.open))
+      .catch(() => setRegistrationOpen(true)); // fail open if unreachable
+  }, []);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!username || !password) return;
+    setLoading(true);
+    setError('');
+    try {
+      let data;
+      if (mode === 'login') {
+        data = await api.login(username, password);
+      } else {
+        data = await api.register(username, password, inviteToken || undefined);
+      }
+      setUser(data.user);
+      await loadPreferences();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const canRegister = registrationOpen || inviteToken;
+  const showToggle = mode === 'login' ? canRegister : true;
+
+  return (
+    <div style={{
+      minHeight: '100vh', display: 'flex', alignItems: 'center',
+      justifyContent: 'center', background: 'var(--bg-primary)',
+      padding: 24,
+    }}>
+      {/* Background decoration */}
+      <div style={{ position: 'fixed', inset: 0, overflow: 'hidden', pointerEvents: 'none', zIndex: 0 }}>
+        <div style={{
+          position: 'absolute', top: '-20%', left: '60%',
+          width: 600, height: 600, borderRadius: '50%',
+          background: 'radial-gradient(circle, rgba(124,106,247,0.08) 0%, transparent 70%)',
+        }} />
+        <div style={{
+          position: 'absolute', bottom: '-10%', left: '-10%',
+          width: 400, height: 400, borderRadius: '50%',
+          background: 'radial-gradient(circle, rgba(124,106,247,0.05) 0%, transparent 70%)',
+        }} />
+      </div>
+
+      <div style={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: 380 }}>
+        {/* Logo */}
+        <div style={{ marginBottom: 40, textAlign: 'center' }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+            <LogoMark size={44} />
+            <span style={{ display: 'flex', alignItems: 'baseline' }}>
+              <span style={{ fontFamily: "'Syne', sans-serif", fontSize: 30, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.03em' }}>Mail</span>
+              <span style={{ fontFamily: "'Syne', sans-serif", fontSize: 30, fontWeight: 600, color: 'var(--accent)', letterSpacing: '-0.03em' }}>Flow</span>
+            </span>
+          </div>
+          <p style={{ color: 'var(--text-tertiary)', fontSize: 14, margin: 0 }}>Your unified inbox</p>
+        </div>
+
+        {/* Card */}
+        <div style={{
+          background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+          borderRadius: 16, padding: 32,
+        }}>
+          <h2 style={{ margin: '0 0 4px', fontSize: 18, fontWeight: 500, color: 'var(--text-primary)' }}>
+            {mode === 'login' ? 'Sign in' : 'Create account'}
+          </h2>
+          {mode === 'register' && inviteEmail && (
+            <p style={{ margin: '0 0 20px', fontSize: 13, color: 'var(--text-tertiary)' }}>
+              Invited as <span style={{ color: 'var(--text-secondary)' }}>{inviteEmail}</span>
+            </p>
+          )}
+          {mode === 'register' && !inviteEmail && (
+            <p style={{ margin: '0 0 20px' }} />
+          )}
+          {mode === 'login' && (
+            <p style={{ margin: '0 0 20px' }} />
+          )}
+
+          <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                Username
+              </label>
+              <input
+                type="text"
+                value={username}
+                onChange={e => setUsername(e.target.value)}
+                autoFocus
+                style={{
+                  width: '100%', padding: '10px 14px',
+                  background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+                  borderRadius: 8, color: 'var(--text-primary)', fontSize: 14,
+                  outline: 'none', transition: 'border-color 0.15s', boxSizing: 'border-box',
+                }}
+                onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+                onBlur={e => e.target.style.borderColor = 'var(--border)'}
+              />
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                Password
+              </label>
+              <input
+                type="password"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                style={{
+                  width: '100%', padding: '10px 14px',
+                  background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+                  borderRadius: 8, color: 'var(--text-primary)', fontSize: 14,
+                  outline: 'none', transition: 'border-color 0.15s', boxSizing: 'border-box',
+                }}
+                onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+                onBlur={e => e.target.style.borderColor = 'var(--border)'}
+              />
+            </div>
+
+            {error && (
+              <div style={{
+                padding: '10px 14px', background: 'rgba(248,113,113,0.1)',
+                border: '1px solid rgba(248,113,113,0.3)', borderRadius: 8,
+                color: 'var(--red)', fontSize: 13,
+              }}>
+                {error}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading || !username || !password}
+              style={{
+                padding: '11px 24px', background: 'var(--accent)',
+                border: 'none', borderRadius: 8, color: 'white',
+                fontSize: 14, fontWeight: 500, cursor: loading ? 'not-allowed' : 'pointer',
+                opacity: loading || !username || !password ? 0.6 : 1,
+                transition: 'opacity 0.15s, transform 0.1s', marginTop: 4,
+              }}
+              onMouseDown={e => e.target.style.transform = 'scale(0.98)'}
+              onMouseUp={e => e.target.style.transform = 'scale(1)'}
+            >
+              {loading ? 'Please wait…' : (mode === 'login' ? 'Sign in' : 'Create account')}
+            </button>
+          </form>
+        </div>
+
+        {showToggle && (
+          <p style={{ textAlign: 'center', marginTop: 20, fontSize: 13, color: 'var(--text-tertiary)' }}>
+            {mode === 'login' ? "Don't have an account? " : 'Already have an account? '}
+            <button
+              onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(''); }}
+              style={{
+                background: 'none', border: 'none', color: 'var(--accent)',
+                cursor: 'pointer', fontSize: 13, padding: 0,
+              }}
+            >
+              {mode === 'login' ? 'Register' : 'Sign in'}
+            </button>
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}

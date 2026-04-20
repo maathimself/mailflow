@@ -1,0 +1,1552 @@
+import { useState, useEffect } from 'react';
+import { useStore } from '../store/index.js';
+import { api } from '../utils/api.js';
+import { THEMES, applyTheme } from '../themes.js';
+import { FONT_SETS, applyFontSet } from '../fonts.js';
+import { LAYOUTS, applyLayout } from '../layouts.js';
+
+// ─── Shared field component ───────────────────────────────────────────────────
+function Field({ label, required, children }) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <label style={{ display: 'block', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 5 }}>
+        {label} {required && <span style={{ color: 'var(--red)' }}>*</span>}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+const inputStyle = {
+  width: '100%', padding: '9px 12px',
+  background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+  borderRadius: 7, color: 'var(--text-primary)', fontSize: 13,
+  outline: 'none', transition: 'border-color 0.15s', boxSizing: 'border-box',
+};
+
+// ─── Color picker ─────────────────────────────────────────────────────────────
+const COLORS = [
+  '#6366f1','#8b5cf6','#ec4899','#ef4444',
+  '#f97316','#eab308','#22c55e','#06b6d4','#3b82f6','#14b8a6',
+];
+
+// ─── IMAP presets ─────────────────────────────────────────────────────────────
+// Note: Microsoft 365 / Outlook is intentionally excluded here — it requires
+// OAuth2 (not app passwords) and is handled via the Integrations tab instead.
+const PRESETS = {
+  gmail:   { label: 'Gmail',   imap_host: 'imap.gmail.com',   imap_port: 993, smtp_host: 'smtp.gmail.com',   smtp_port: 587 },
+  icloud:  { label: 'iCloud',  imap_host: 'imap.mail.me.com', imap_port: 993, smtp_host: 'smtp.mail.me.com', smtp_port: 587 },
+  custom:  { label: 'Custom' },
+};
+
+// ─── Account Form (Add or Edit) ───────────────────────────────────────────────
+function AccountForm({ initial, onSave, onCancel }) {
+  const isEdit = !!initial?.id;
+  const [form, setForm] = useState(initial || {
+    name: '', email_address: '', color: '#6366f1', protocol: 'imap',
+    imap_host: '', imap_port: 993, imap_tls: true,
+    smtp_host: '', smtp_port: 587, smtp_tls: 'STARTTLS',
+    auth_user: '', auth_pass: '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [showPass, setShowPass] = useState(false);
+  const [selectedPreset, setSelectedPreset] = useState(null);
+
+  const set = (key, val) => setForm(f => ({ ...f, [key]: val }));
+
+  const handlePreset = (key) => {
+    const p = PRESETS[key];
+    if (p.imap_host) setForm(f => ({ ...f, ...p, label: undefined }));
+    setSelectedPreset(key);
+  };
+
+  const handleSubmit = async () => {
+    if (!form.email_address || !form.auth_user || !form.imap_host) {
+      setError('Email, username, and IMAP host are required');
+      return;
+    }
+    if (!isEdit && !form.auth_pass) {
+      setError('Password is required for new accounts');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      await onSave(form);
+    } catch (err) {
+      setError(err.message);
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div>
+      {/* Presets (add only) */}
+      {!isEdit && (
+        <div style={{ display: 'flex', gap: 6, marginBottom: 18, flexWrap: 'wrap' }}>
+          {Object.entries(PRESETS).map(([key, p]) => {
+            const active = selectedPreset === key;
+            return (
+              <button key={key} onClick={() => handlePreset(key)} style={{
+                padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 500,
+                border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+                background: active ? 'var(--accent-dim)' : 'transparent',
+                color: active ? 'var(--accent)' : 'var(--text-secondary)',
+                cursor: 'pointer', transition: 'all 0.12s',
+              }}>
+                {p.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Color */}
+      <Field label="Account color">
+        <div style={{ display: 'flex', gap: 6 }}>
+          {COLORS.map(c => (
+            <button key={c} onClick={() => set('color', c)} style={{
+              width: 24, height: 24, borderRadius: '50%', background: c,
+              border: `2px solid ${form.color === c ? 'white' : 'transparent'}`,
+              cursor: 'pointer', outline: 'none', padding: 0,
+              boxShadow: form.color === c ? `0 0 0 1px ${c}` : 'none',
+            }} />
+          ))}
+        </div>
+      </Field>
+
+      <Field label="Display name" required>
+        <input value={form.name || ''} onChange={e => set('name', e.target.value)}
+          placeholder="e.g. Work Gmail" style={inputStyle}
+          onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+          onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+      </Field>
+
+      {!isEdit && (
+        <Field label="Email address" required>
+          <input value={form.email_address || ''} onChange={e => set('email_address', e.target.value)}
+            placeholder="you@example.com" style={inputStyle}
+            onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+            onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+        </Field>
+      )}
+
+      <Field label="Username (IMAP login)" required>
+        <input value={form.auth_user || ''} onChange={e => set('auth_user', e.target.value)}
+          placeholder="Usually your email address" style={inputStyle}
+          onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+          onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+      </Field>
+
+      <Field label={isEdit ? 'New password (leave blank to keep current)' : 'Password / App password'} required={!isEdit}>
+        <div style={{ position: 'relative' }}>
+          <input type={showPass ? 'text' : 'password'}
+            value={form.auth_pass || ''} onChange={e => set('auth_pass', e.target.value)}
+            placeholder={isEdit ? '••••••••' : 'App password'}
+            style={{ ...inputStyle, paddingRight: 36 }}
+            onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+            onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+          <button onClick={() => setShowPass(!showPass)} style={{
+            position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+            background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer',
+            display: 'flex', padding: 2,
+          }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              {showPass
+                ? <><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></>
+                : <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>
+              }
+            </svg>
+          </button>
+        </div>
+      </Field>
+
+      <div style={{ height: 1, background: 'var(--border-subtle)', margin: '16px 0' }} />
+      <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 10, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+        IMAP Settings
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px', gap: 10 }}>
+        <Field label="IMAP Host" required>
+          <input value={form.imap_host || ''} onChange={e => set('imap_host', e.target.value)}
+            placeholder="imap.gmail.com" style={inputStyle}
+            onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+            onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+        </Field>
+        <Field label="Port">
+          <input type="number" value={form.imap_port || 993} onChange={e => set('imap_port', parseInt(e.target.value))}
+            style={inputStyle}
+            onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+            onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+        </Field>
+      </div>
+
+      <div style={{ height: 1, background: 'var(--border-subtle)', margin: '4px 0 16px' }} />
+      <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 10, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+        SMTP Settings
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px', gap: 10 }}>
+        <Field label="SMTP Host">
+          <input value={form.smtp_host || ''} onChange={e => set('smtp_host', e.target.value)}
+            placeholder="smtp.gmail.com" style={inputStyle}
+            onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+            onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+        </Field>
+        <Field label="Port">
+          <input type="number" value={form.smtp_port || 587} onChange={e => set('smtp_port', parseInt(e.target.value))}
+            style={inputStyle}
+            onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+            onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+        </Field>
+      </div>
+
+      {error && (
+        <div style={{
+          padding: '10px 14px', background: 'rgba(248,113,113,0.1)',
+          border: '1px solid rgba(248,113,113,0.3)', borderRadius: 8,
+          color: 'var(--red)', fontSize: 13, marginBottom: 14,
+        }}>
+          {error}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+        <button onClick={handleSubmit} disabled={saving} style={{
+          flex: 1, padding: '10px', background: 'var(--accent)',
+          border: 'none', borderRadius: 8, color: 'white',
+          fontSize: 13, fontWeight: 500, cursor: saving ? 'not-allowed' : 'pointer',
+          opacity: saving ? 0.7 : 1,
+        }}>
+          {saving ? 'Saving…' : (isEdit ? 'Save changes' : 'Add account')}
+        </button>
+        <button onClick={onCancel} style={{
+          padding: '10px 16px', background: 'var(--bg-tertiary)',
+          border: '1px solid var(--border)', borderRadius: 8,
+          color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13,
+        }}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Accounts Tab ─────────────────────────────────────────────────────────────
+function AccountsTab() {
+  const { accounts, setAccounts, updateAccount } = useStore();
+  const [subview, setSubview] = useState('list'); // 'list' | 'add' | 'edit'
+  const [editTarget, setEditTarget] = useState(null);
+
+  const handleAdd = async (form) => {
+    const account = await api.addAccount(form);
+    setAccounts([...accounts, account]);
+    setSubview('list');
+  };
+
+  const handleEdit = async (form) => {
+    const updates = { name: form.name, color: form.color, smtp_host: form.smtp_host, smtp_port: form.smtp_port };
+    if (form.auth_pass) updates.auth_pass = form.auth_pass;
+    if (form.auth_user) updates.auth_user = form.auth_user;
+    await api.updateAccount(editTarget.id, updates);
+    updateAccount(editTarget.id, updates);
+    setSubview('list');
+    setEditTarget(null);
+  };
+
+  const handleDelete = async (id) => {
+    if (!confirm('Remove this account? All synced messages will be deleted.')) return;
+    await api.deleteAccount(id);
+    setAccounts(accounts.filter(a => a.id !== id));
+  };
+
+  const handleReconnect = async (id) => {
+    await api.reconnectAccount(id);
+    updateAccount(id, { sync_error: null });
+  };
+
+  if (subview === 'add') {
+    return (
+      <div>
+        <button onClick={() => setSubview('list')} style={{
+          display: 'flex', alignItems: 'center', gap: 6,
+          background: 'none', border: 'none', color: 'var(--text-secondary)',
+          cursor: 'pointer', fontSize: 13, padding: '0 0 16px 0',
+        }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <polyline points="15 18 9 12 15 6"/>
+          </svg>
+          Back to accounts
+        </button>
+        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 20 }}>
+          Add account
+        </div>
+        <AccountForm onSave={handleAdd} onCancel={() => setSubview('list')} />
+      </div>
+    );
+  }
+
+  if (subview === 'edit' && editTarget) {
+    return (
+      <div>
+        <button onClick={() => { setSubview('list'); setEditTarget(null); }} style={{
+          display: 'flex', alignItems: 'center', gap: 6,
+          background: 'none', border: 'none', color: 'var(--text-secondary)',
+          cursor: 'pointer', fontSize: 13, padding: '0 0 16px 0',
+        }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <polyline points="15 18 9 12 15 6"/>
+          </svg>
+          Back to accounts
+        </button>
+        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+          Edit account
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 20 }}>
+          {editTarget.email_address}
+        </div>
+        <AccountForm initial={editTarget} onSave={handleEdit} onCancel={() => { setSubview('list'); setEditTarget(null); }} />
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>
+          Email accounts
+        </div>
+        <button onClick={() => setSubview('add')} style={{
+          display: 'flex', alignItems: 'center', gap: 6,
+          padding: '7px 12px', background: 'var(--accent)',
+          border: 'none', borderRadius: 7, color: 'white',
+          cursor: 'pointer', fontSize: 12, fontWeight: 500,
+        }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          Add account
+        </button>
+      </div>
+
+      {accounts.length === 0 && (
+        <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-tertiary)', fontSize: 14 }}>
+          No accounts added yet
+        </div>
+      )}
+
+      {accounts.map(account => (
+        <div key={account.id} style={{
+          border: '1px solid var(--border-subtle)', borderRadius: 10,
+          background: 'var(--bg-tertiary)', marginBottom: 10, overflow: 'hidden',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px' }}>
+            <div style={{
+              width: 38, height: 38, borderRadius: '50%', flexShrink: 0,
+              background: account.color, display: 'flex', alignItems: 'center',
+              justifyContent: 'center', fontSize: 15, fontWeight: 600, color: 'white',
+            }}>
+              {account.name?.[0]?.toUpperCase() || '?'}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>
+                {account.name}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1 }}>
+                {account.email_address}
+              </div>
+              <div style={{ fontSize: 11, marginTop: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
+                {account.sync_error ? (
+                  <span style={{ color: 'var(--red)' }}>⚠ {account.sync_error}</span>
+                ) : (
+                  <>
+                    <span style={{ color: 'var(--green)' }}>● Connected</span>
+                    <span style={{ color: 'var(--text-tertiary)' }}>
+                      {account.imap_host}:{account.imap_port}
+                    </span>
+                  </>
+                )}
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+              {account.sync_error && (
+                <IconBtn onClick={() => handleReconnect(account.id)} title="Reconnect">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <polyline points="23 4 23 10 17 10"/>
+                    <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/>
+                  </svg>
+                </IconBtn>
+              )}
+              <IconBtn onClick={() => { setEditTarget(account); setSubview('edit'); }} title="Edit">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+                  <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
+              </IconBtn>
+              <IconBtn onClick={() => handleDelete(account.id)} title="Remove" danger>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="3 6 5 6 21 6"/>
+                  <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
+                </svg>
+              </IconBtn>
+            </div>
+          </div>
+
+          {/* Connection details bar */}
+          <div style={{
+            padding: '8px 14px', borderTop: '1px solid var(--border-subtle)',
+            background: 'var(--bg-secondary)',
+            display: 'flex', gap: 20, flexWrap: 'wrap',
+          }}>
+            {[
+              ['IMAP', `${account.imap_host}:${account.imap_port}`],
+              ['SMTP', `${account.smtp_host}:${account.smtp_port}`],
+              ['Last sync', account.last_sync ? new Date(account.last_sync).toLocaleTimeString() : 'Never'],
+            ].map(([label, val]) => (
+              <div key={label} style={{ fontSize: 11 }}>
+                <span style={{ color: 'var(--text-tertiary)' }}>{label} </span>
+                <span style={{ color: 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace' }}>{val}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Themes Tab ───────────────────────────────────────────────────────────────
+function ThemesTab() {
+  const { theme, setTheme } = useStore();
+
+  const handleSelect = (key) => {
+    setTheme(key);
+    applyTheme(key);
+  };
+
+  return (
+    <div>
+      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+        Appearance
+      </div>
+      <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 20 }}>
+        Choose a color theme for the interface
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}>
+        {Object.entries(THEMES).map(([key, t]) => (
+          <button
+            key={key}
+            onClick={() => handleSelect(key)}
+            style={{
+              background: theme === key ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
+              border: `2px solid ${theme === key ? 'var(--accent)' : 'var(--border-subtle)'}`,
+              borderRadius: 10, padding: '12px', cursor: 'pointer',
+              textAlign: 'left', transition: 'all 0.15s',
+              outline: 'none',
+            }}
+            onMouseEnter={e => { if (theme !== key) e.currentTarget.style.borderColor = 'var(--border)'; }}
+            onMouseLeave={e => { if (theme !== key) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
+          >
+            {/* Color swatches */}
+            <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
+              {t.preview.map((c, i) => (
+                <div key={i} style={{
+                  flex: i === 0 ? 2 : 1, height: 28, borderRadius: 5,
+                  background: c,
+                  border: '1px solid rgba(255,255,255,0.1)',
+                }} />
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
+                  {t.label}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>
+                  {t.description}
+                </div>
+              </div>
+              {theme === key && (
+                <div style={{
+                  width: 18, height: 18, borderRadius: '50%',
+                  background: 'var(--accent)', display: 'flex',
+                  alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                }}>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3">
+                    <polyline points="20 6 9 17 4 12"/>
+                  </svg>
+                </div>
+              )}
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Admin Panel Shell ────────────────────────────────────────────────────────
+function IconBtn({ children, onClick, title, danger }) {
+  const [hov, setHov] = useState(false);
+  return (
+    <button onClick={onClick} title={title}
+      onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
+      style={{
+        background: hov ? (danger ? 'rgba(248,113,113,0.1)' : 'var(--bg-hover)') : 'transparent',
+        border: `1px solid ${hov ? (danger ? 'rgba(248,113,113,0.3)' : 'var(--border)') : 'transparent'}`,
+        borderRadius: 6, padding: '5px', color: danger && hov ? 'var(--red)' : 'var(--text-tertiary)',
+        cursor: 'pointer', display: 'flex', alignItems: 'center', transition: 'all 0.1s',
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+// ─── Fonts Tab ───────────────────────────────────────────────────────────────
+function FontsTab() {
+  const { fontSet, setFontSet } = useStore();
+  const [loaded, setLoaded] = useState({});
+
+  const handleSelect = (key) => {
+    setFontSet(key);
+    applyFontSet(key);
+  };
+
+  // Mark fonts as loaded after a tick so we can show them in their own typeface
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const l = {};
+      Object.keys(FONT_SETS).forEach(k => { l[k] = true; });
+      setLoaded(l);
+    }, 800);
+    return () => clearTimeout(timer);
+  }, []);
+
+  return (
+    <div>
+      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+        Typography
+      </div>
+      <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 20 }}>
+        Choose a font pairing for the interface
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {Object.entries(FONT_SETS).map(([key, set]) => {
+          const isActive = fontSet === key;
+          return (
+            <button
+              key={key}
+              onClick={() => handleSelect(key)}
+              style={{
+                background: isActive ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
+                border: `2px solid ${isActive ? 'var(--accent)' : 'var(--border-subtle)'}`,
+                borderRadius: 10, padding: '14px 16px', cursor: 'pointer',
+                textAlign: 'left', transition: 'all 0.15s', outline: 'none',
+                display: 'flex', alignItems: 'center', gap: 16,
+              }}
+              onMouseEnter={e => { if (!isActive) e.currentTarget.style.borderColor = 'var(--border)'; }}
+              onMouseLeave={e => { if (!isActive) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
+            >
+              {/* Font specimen */}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{
+                  fontFamily: set.vars['--font-display'],
+                  fontSize: 22, fontWeight: 400, lineHeight: 1.1,
+                  color: 'var(--text-primary)', marginBottom: 4,
+                  letterSpacing: '-0.01em',
+                }}>
+                  {set.label}
+                </div>
+                <div style={{
+                  fontFamily: set.vars['--font-sans'],
+                  fontSize: 12, color: 'var(--text-tertiary)',
+                  marginBottom: 8,
+                }}>
+                  {set.description}
+                </div>
+                {/* Specimen text */}
+                <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
+                    <span style={{ color: 'var(--text-tertiary)', marginRight: 4, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      Display
+                    </span>
+                    <span style={{
+                      fontFamily: set.vars['--font-display'],
+                      color: isActive ? 'var(--accent)' : 'var(--text-secondary)',
+                      fontSize: 13,
+                    }}>
+                      {set.preview.heading}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
+                    <span style={{ color: 'var(--text-tertiary)', marginRight: 4, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      Body
+                    </span>
+                    <span style={{
+                      fontFamily: set.vars['--font-sans'],
+                      color: isActive ? 'var(--accent)' : 'var(--text-secondary)',
+                      fontSize: 13,
+                    }}>
+                      {set.preview.body}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
+                    <span style={{ color: 'var(--text-tertiary)', marginRight: 4, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      Mono
+                    </span>
+                    <span style={{
+                      fontFamily: set.vars['--font-mono'],
+                      color: isActive ? 'var(--accent)' : 'var(--text-secondary)',
+                      fontSize: 12,
+                    }}>
+                      code_01
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Active check */}
+              {isActive && (
+                <div style={{
+                  width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
+                  background: 'var(--accent)', display: 'flex',
+                  alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3">
+                    <polyline points="20 6 9 17 4 12"/>
+                  </svg>
+                </div>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── Layout Diagram ───────────────────────────────────────────────────────────
+function LayoutDiagram({ layoutKey, layoutConfig, active }) {
+  const isColumn = layoutConfig.direction === 'column';
+  const accent = active ? 'var(--accent)' : 'var(--border)';
+  const bg1 = active ? 'var(--accent-dim)' : 'var(--bg-elevated)';
+  const bg2 = active ? 'rgba(124,106,247,0.08)' : 'var(--bg-tertiary)';
+
+  // Sidebar width fraction (always ~15% of diagram)
+  const sw = 14;
+  // List width fraction: derived from listWidth relative to 340 baseline
+  const lw = isColumn ? 50 : Math.round(10 + (layoutConfig.listWidth / 460) * 32);
+  const rw = 72 - lw; // reading pane width
+
+  if (isColumn) {
+    // Vertical split: sidebar left, right side has list on top + reading pane below
+    return (
+      <svg width="80" height="52" viewBox="0 0 80 52" xmlns="http://www.w3.org/2000/svg">
+        {/* Outer border */}
+        <rect x="0.5" y="0.5" width="79" height="51" rx="4" fill="var(--bg-secondary)" stroke={accent} strokeWidth={active ? 1.5 : 1}/>
+        {/* Sidebar */}
+        <rect x="1" y="1" width={sw} height="50" rx="3" fill={bg1}/>
+        {/* List (top half of content) */}
+        <rect x={sw + 2} y="1" width={72} height="24" fill={bg2}/>
+        {/* Reading pane (bottom half) */}
+        <rect x={sw + 2} y="27" width={72} height="24" fill="var(--bg-secondary)"/>
+        {/* Divider */}
+        <line x1={sw + 2} y1="26" x2="79" y2="26" stroke={accent} strokeWidth="0.8"/>
+        {/* Sidebar lines */}
+        <rect x="4" y="8" width={sw - 6} height="2" rx="1" fill={accent} opacity="0.5"/>
+        <rect x="4" y="14" width={sw - 8} height="2" rx="1" fill={accent} opacity="0.3"/>
+        <rect x="4" y="20" width={sw - 7} height="2" rx="1" fill={accent} opacity="0.3"/>
+        {/* List rows */}
+        <rect x={sw + 5} y="5" width="30" height="1.5" rx="0.75" fill={accent} opacity="0.5"/>
+        <rect x={sw + 5} y="9" width="45" height="1.5" rx="0.75" fill={accent} opacity="0.3"/>
+        <rect x={sw + 5} y="14" width="28" height="1.5" rx="0.75" fill={accent} opacity="0.4"/>
+        <rect x={sw + 5} y="18" width="40" height="1.5" rx="0.75" fill={accent} opacity="0.25"/>
+        {/* Reading pane lines */}
+        <rect x={sw + 5} y="31" width="40" height="2" rx="1" fill={accent} opacity="0.4"/>
+        <rect x={sw + 5} y="36" width="55" height="1.5" rx="0.75" fill={accent} opacity="0.2"/>
+        <rect x={sw + 5} y="40" width="50" height="1.5" rx="0.75" fill={accent} opacity="0.2"/>
+        <rect x={sw + 5} y="44" width="35" height="1.5" rx="0.75" fill={accent} opacity="0.15"/>
+      </svg>
+    );
+  }
+
+  return (
+    <svg width="80" height="52" viewBox="0 0 80 52" xmlns="http://www.w3.org/2000/svg">
+      {/* Outer border */}
+      <rect x="0.5" y="0.5" width="79" height="51" rx="4" fill="var(--bg-secondary)" stroke={accent} strokeWidth={active ? 1.5 : 1}/>
+      {/* Sidebar */}
+      <rect x="1" y="1" width={sw} height="50" rx="3" fill={bg1}/>
+      {/* Message list */}
+      <rect x={sw + 2} y="1" width={lw} height="50" fill={bg2}/>
+      {/* Reading pane */}
+      <rect x={sw + lw + 3} y="1" width={rw - 3} height="50" fill="var(--bg-secondary)"/>
+      {/* Dividers */}
+      <line x1={sw + 1} y1="1" x2={sw + 1} y2="51" stroke={accent} strokeWidth="0.8"/>
+      <line x1={sw + lw + 2} y1="1" x2={sw + lw + 2} y2="51" stroke={accent} strokeWidth="0.8"/>
+      {/* Sidebar lines */}
+      <rect x="3" y="8" width={sw - 4} height="1.5" rx="0.75" fill={accent} opacity="0.5"/>
+      <rect x="3" y="13" width={sw - 6} height="1.5" rx="0.75" fill={accent} opacity="0.3"/>
+      <rect x="3" y="18" width={sw - 5} height="1.5" rx="0.75" fill={accent} opacity="0.3"/>
+      <rect x="3" y="23" width={sw - 7} height="1.5" rx="0.75" fill={accent} opacity="0.2"/>
+      {/* List rows */}
+      <rect x={sw + 4} y="5" width={lw - 6} height="1.5" rx="0.75" fill={accent} opacity="0.6"/>
+      <rect x={sw + 4} y="9" width={lw - 4} height="1" rx="0.5" fill={accent} opacity="0.3"/>
+      <line x1={sw + 2} y1="13" x2={sw + lw + 1} y2="13" stroke={accent} strokeWidth="0.5" opacity="0.3"/>
+      <rect x={sw + 4} y="15" width={lw - 7} height="1.5" rx="0.75" fill={accent} opacity="0.5"/>
+      <rect x={sw + 4} y="19" width={lw - 4} height="1" rx="0.5" fill={accent} opacity="0.25"/>
+      <line x1={sw + 2} y1="23" x2={sw + lw + 1} y2="23" stroke={accent} strokeWidth="0.5" opacity="0.3"/>
+      <rect x={sw + 4} y="25" width={lw - 6} height="1.5" rx="0.75" fill={accent} opacity="0.45"/>
+      <rect x={sw + 4} y="29" width={lw - 5} height="1" rx="0.5" fill={accent} opacity="0.2"/>
+      {/* Reading pane content */}
+      <rect x={sw + lw + 5} y="7" width={rw - 10} height="2.5" rx="1" fill={accent} opacity="0.5"/>
+      <rect x={sw + lw + 5} y="13" width={rw - 8} height="1.5" rx="0.75" fill={accent} opacity="0.2"/>
+      <rect x={sw + lw + 5} y="17" width={rw - 12} height="1.5" rx="0.75" fill={accent} opacity="0.2"/>
+      <rect x={sw + lw + 5} y="21" width={rw - 9} height="1.5" rx="0.75" fill={accent} opacity="0.15"/>
+      <rect x={sw + lw + 5} y="25" width={rw - 14} height="1.5" rx="0.75" fill={accent} opacity="0.15"/>
+    </svg>
+  );
+}
+
+// ─── Layouts Tab ──────────────────────────────────────────────────────────────
+function LayoutsTab() {
+  const { layout, setLayout } = useStore();
+
+  const handleSelect = (key) => {
+    setLayout(key);
+    applyLayout(key);
+  };
+
+  return (
+    <div>
+      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+        Layout
+      </div>
+      <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 20 }}>
+        Choose how the sidebar, message list, and reading pane are arranged
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10 }}>
+        {Object.entries(LAYOUTS).map(([key, l]) => {
+          const isActive = layout === key;
+          return (
+            <button
+              key={key}
+              onClick={() => handleSelect(key)}
+              style={{
+                background: isActive ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
+                border: `2px solid ${isActive ? 'var(--accent)' : 'var(--border-subtle)'}`,
+                borderRadius: 10, padding: '14px', cursor: 'pointer',
+                textAlign: 'left', transition: 'all 0.15s', outline: 'none',
+                display: 'flex', alignItems: 'center', gap: 14,
+              }}
+              onMouseEnter={e => { if (!isActive) e.currentTarget.style.borderColor = 'var(--border)'; }}
+              onMouseLeave={e => { if (!isActive) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
+            >
+              <div style={{ flexShrink: 0 }}>
+                <LayoutDiagram layoutKey={key} layoutConfig={l} active={isActive} />
+              </div>
+
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+                }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
+                    {l.label}
+                  </div>
+                  {isActive && (
+                    <div style={{
+                      width: 18, height: 18, borderRadius: '50%', flexShrink: 0,
+                      background: 'var(--accent)', display: 'flex',
+                      alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3">
+                        <polyline points="20 6 9 17 4 12"/>
+                      </svg>
+                    </div>
+                  )}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4, lineHeight: 1.4 }}>
+                  {l.description}
+                </div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── Integrations Tab ────────────────────────────────────────────────────────
+function IntegrationsTab() {
+  const { setAccounts } = useStore();
+  const [configs, setConfigs] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [msForm, setMsForm] = useState({ clientId: '', clientSecret: '', tenantId: '', redirectUri: '' });
+  const [msExpanded, setMsExpanded] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState('');
+  const [connectingMs, setConnectingMs] = useState(false);
+
+  useEffect(() => {
+    api.getIntegrations()
+      .then(data => {
+        setConfigs(data);
+        if (data.microsoft) {
+          setMsForm({
+            clientId: data.microsoft.clientId || '',
+            clientSecret: data.microsoft.clientSecret || '',
+            tenantId: data.microsoft.tenantId || '',
+            redirectUri: data.microsoft.redirectUri || '',
+          });
+          setMsExpanded(true);
+        }
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
+
+    // Listen for oauth_success / oauth_error messages from the OAuth popup tab.
+    // URL-param detection has been moved to MailApp so it works regardless of
+    // which tab/modal is currently open.
+    const handleMessage = (e) => {
+      if (e.data?.type === 'oauth_success' && e.data?.provider === 'microsoft') {
+        setSaveMsg('Microsoft 365 account connected successfully! Check the Accounts tab.');
+        setConnectingMs(false);
+        // Reload both so the new account appears in the sidebar immediately
+        api.getIntegrations().then(setConfigs).catch(console.error);
+        api.getAccounts().then(setAccounts).catch(console.error);
+      } else if (e.data?.type === 'oauth_error') {
+        setSaveMsg('Error: ' + e.data.error);
+        setConnectingMs(false);
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
+
+  const handleSaveMs = async () => {
+    if (!msForm.clientId || !msForm.tenantId || !msForm.redirectUri) {
+      setSaveMsg('Client ID, Tenant ID, and Redirect URI are required');
+      return;
+    }
+    setSaving(true);
+    setSaveMsg('');
+    try {
+      await api.saveIntegration('microsoft', msForm);
+      // Update local state so "Connect account" button enables immediately
+      // without requiring a page reload.
+      setConfigs(prev => ({
+        ...prev,
+        microsoft: { clientId: msForm.clientId, tenantId: msForm.tenantId, redirectUri: msForm.redirectUri },
+      }));
+      setSaveMsg('Configuration saved. Click "Connect account" to authorize.');
+    } catch (err) {
+      setSaveMsg('Error: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleConnectMs = () => {
+    setConnectingMs(true);
+    // Use a real anchor click so the browser treats it as a normal navigation
+    // window.open gets intercepted by some browser extensions (e.g. claude.ai in Zen)
+    const a = document.createElement('a');
+    a.href = '/oauth/microsoft';
+    a.target = '_blank';
+    a.rel = 'opener';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => setConnectingMs(false), 5000);
+  };
+
+  const msConfigured = configs.microsoft?.clientId;
+
+  return (
+    <div>
+      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+        Integrations
+      </div>
+      <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 24 }}>
+        Connect OAuth providers for accounts that don't support app passwords
+      </div>
+
+      {loading && <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>Loading…</div>}
+
+      {!loading && (
+        <div>
+          {/* Microsoft 365 */}
+          <div style={{
+            border: '1px solid var(--border-subtle)', borderRadius: 12,
+            overflow: 'hidden', marginBottom: 12,
+          }}>
+            {/* Header */}
+            <div
+              onClick={() => setMsExpanded(!msExpanded)}
+              style={{
+                padding: '14px 16px', display: 'flex', alignItems: 'center',
+                gap: 12, cursor: 'pointer', background: 'var(--bg-tertiary)',
+                transition: 'background 0.1s',
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+            >
+              {/* Microsoft icon */}
+              <svg width="20" height="20" viewBox="0 0 21 21" fill="none">
+                <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
+                <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
+                <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
+                <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
+              </svg>
+
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>
+                  Microsoft 365 / Entra
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1 }}>
+                  OAuth2 for work/school accounts that require modern authentication
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {msConfigured ? (
+                  <span style={{
+                    fontSize: 11, padding: '3px 8px', borderRadius: 20,
+                    background: 'rgba(74,222,128,0.1)', color: 'var(--green)',
+                    border: '1px solid rgba(74,222,128,0.2)', fontWeight: 500,
+                  }}>
+                    Configured
+                  </span>
+                ) : (
+                  <span style={{
+                    fontSize: 11, padding: '3px 8px', borderRadius: 20,
+                    background: 'var(--bg-elevated)', color: 'var(--text-tertiary)',
+                    border: '1px solid var(--border)',
+                  }}>
+                    Not configured
+                  </span>
+                )}
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                  stroke="var(--text-tertiary)" strokeWidth="2"
+                  style={{ transform: msExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>
+                  <polyline points="6 9 12 15 18 9"/>
+                </svg>
+              </div>
+            </div>
+
+            {/* Expanded form */}
+            {msExpanded && (
+              <div style={{ padding: '16px', borderTop: '1px solid var(--border-subtle)' }}>
+                {/* Setup instructions */}
+                <div style={{
+                  padding: '12px 14px', borderRadius: 8, marginBottom: 16,
+                  background: 'rgba(124,106,247,0.06)',
+                  border: '1px solid rgba(124,106,247,0.15)',
+                  fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7,
+                }}>
+                  <div style={{ fontWeight: 600, color: 'var(--accent)', marginBottom: 6 }}>
+                    Azure App Registration setup
+                  </div>
+                  <ol style={{ margin: 0, paddingLeft: 18 }}>
+                    <li>Go to <strong>portal.azure.com</strong> → Microsoft Entra ID → App registrations → New registration</li>
+                    <li>Set redirect URI type to <strong>Web</strong> and paste the URI shown below</li>
+                    <li>API permissions → Add a permission → <strong>APIs my organization uses</strong> → <em>Office 365 Exchange Online</em> → Delegated → <code>IMAP.AccessAsUser.All</code> and <code>SMTP.Send</code></li>
+                    <li>API permissions → Add a permission → <strong>Microsoft Graph</strong> → Delegated → <code>offline_access</code>, <code>openid</code>, <code>email</code>, <code>profile</code></li>
+                    <li>Click <strong>Grant admin consent</strong> for your organization</li>
+                    <li>Certificates &amp; secrets → New client secret — copy the <em>Value</em> (not the ID)</li>
+                  </ol>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                  <Field label="Application (Client) ID" required>
+                    <input value={msForm.clientId} onChange={e => setMsForm(f => ({ ...f, clientId: e.target.value }))}
+                      placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                      style={{ ...inputStyle, fontFamily: 'JetBrains Mono, monospace', fontSize: 12 }}
+                      onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+                      onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+                  </Field>
+                  <Field label="Directory (Tenant) ID" required>
+                    <input value={msForm.tenantId} onChange={e => setMsForm(f => ({ ...f, tenantId: e.target.value }))}
+                      placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                      style={{ ...inputStyle, fontFamily: 'JetBrains Mono, monospace', fontSize: 12 }}
+                      onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+                      onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+                  </Field>
+                </div>
+
+                <Field label="Client Secret" required>
+                  <input type="password" value={msForm.clientSecret}
+                    onChange={e => setMsForm(f => ({ ...f, clientSecret: e.target.value }))}
+                    placeholder="Client secret value from Azure"
+                    style={inputStyle}
+                    onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+                    onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+                </Field>
+
+                <Field label="Redirect URI" required>
+                  <input value={msForm.redirectUri}
+                    onChange={e => setMsForm(f => ({ ...f, redirectUri: e.target.value }))}
+                    placeholder={`http://${window.location.hostname}:8080/oauth/microsoft/callback`}
+                    style={inputStyle}
+                    onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+                    onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 5 }}>
+                    This must exactly match the redirect URI registered in Azure. Suggested:&nbsp;
+                    <code style={{ fontFamily: 'JetBrains Mono, monospace', color: 'var(--accent)' }}>
+                      {`${window.location.protocol}//${window.location.hostname}${window.location.port ? ':' + window.location.port : ''}/oauth/microsoft/callback`}
+                    </code>
+                  </div>
+                </Field>
+
+                {saveMsg && (
+                  <div style={{
+                    padding: '10px 14px', borderRadius: 8, marginBottom: 12, fontSize: 13,
+                    background: saveMsg.startsWith('Error') ? 'rgba(248,113,113,0.1)' : 'rgba(74,222,128,0.1)',
+                    border: `1px solid ${saveMsg.startsWith('Error') ? 'rgba(248,113,113,0.3)' : 'rgba(74,222,128,0.2)'}`,
+                    color: saveMsg.startsWith('Error') ? 'var(--red)' : 'var(--green)',
+                  }}>
+                    {saveMsg}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={handleSaveMs} disabled={saving} style={{
+                    padding: '9px 16px', background: 'var(--bg-elevated)',
+                    border: '1px solid var(--border)', borderRadius: 8,
+                    color: 'var(--text-primary)', cursor: saving ? 'not-allowed' : 'pointer',
+                    fontSize: 13, fontWeight: 500, opacity: saving ? 0.7 : 1,
+                  }}>
+                    {saving ? 'Saving…' : 'Save configuration'}
+                  </button>
+
+                  <button
+                    onClick={handleConnectMs}
+                    disabled={!msConfigured || connectingMs}
+                    title={!msConfigured ? 'Save configuration first' : ''}
+                    style={{
+                      padding: '9px 16px', background: msConfigured ? 'var(--accent)' : 'var(--bg-elevated)',
+                      border: `1px solid ${msConfigured ? 'var(--accent)' : 'var(--border)'}`,
+                      borderRadius: 8, color: msConfigured ? 'white' : 'var(--text-tertiary)',
+                      cursor: msConfigured && !connectingMs ? 'pointer' : 'not-allowed',
+                      fontSize: 13, fontWeight: 500,
+                      opacity: !msConfigured || connectingMs ? 0.6 : 1,
+                      display: 'flex', alignItems: 'center', gap: 6,
+                    }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 21 21" fill="none">
+                      <rect x="1" y="1" width="9" height="9" fill="currentColor" opacity="0.9"/>
+                      <rect x="11" y="1" width="9" height="9" fill="currentColor" opacity="0.7"/>
+                      <rect x="1" y="11" width="9" height="9" fill="currentColor" opacity="0.7"/>
+                      <rect x="11" y="11" width="9" height="9" fill="currentColor" opacity="0.5"/>
+                    </svg>
+                    {connectingMs ? 'Redirecting…' : 'Connect Microsoft account'}
+                  </button>
+
+                  {msConfigured && (
+                    <button onClick={async () => {
+                      await api.deleteIntegration('microsoft');
+                      setConfigs(c => { const n = {...c}; delete n.microsoft; return n; });
+                      setMsForm({ clientId: '', clientSecret: '', tenantId: '', redirectUri: '' });
+                      setSaveMsg('');
+                    }} style={{
+                      padding: '9px 12px', background: 'transparent',
+                      border: '1px solid transparent', borderRadius: 8,
+                      color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 13,
+                      marginLeft: 'auto',
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.color = 'var(--red)'; e.currentTarget.style.borderColor = 'rgba(248,113,113,0.3)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.borderColor = 'transparent'; }}
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Users Tab ────────────────────────────────────────────────────────────────
+function UsersTab() {
+  const { user: currentUser } = useStore();
+  const [users, setUsers] = useState([]);
+  const [invites, setInvites] = useState([]);
+  const [regOpen, setRegOpen] = useState(null); // null = loading
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [inviteMsg, setInviteMsg] = useState(null); // { type: 'ok'|'error', text, url? }
+  const [loading, setLoading] = useState(true);
+  const [copiedId, setCopiedId] = useState(null);
+
+  useEffect(() => {
+    Promise.all([
+      api.admin.getUsers(),
+      api.admin.getSettings(),
+      api.admin.getInvites(),
+    ]).then(([usersData, settingsData, invitesData]) => {
+      setUsers(usersData.users);
+      setRegOpen(settingsData.settings.registration_open === 'true');
+      setInvites(invitesData.invites);
+    }).catch(console.error).finally(() => setLoading(false));
+  }, []);
+
+  const handleToggleAdmin = async (u) => {
+    const newVal = !u.isAdmin;
+    await api.admin.updateUser(u.id, { isAdmin: newVal });
+    setUsers(us => us.map(x => x.id === u.id ? { ...x, isAdmin: newVal } : x));
+  };
+
+  const handleDeleteUser = async (u) => {
+    if (!confirm(`Delete user "${u.username}"? This cannot be undone.`)) return;
+    await api.admin.deleteUser(u.id);
+    setUsers(us => us.filter(x => x.id !== u.id));
+  };
+
+  const handleToggleReg = async () => {
+    const newVal = !regOpen;
+    await api.admin.updateSettings({ registration_open: newVal });
+    setRegOpen(newVal);
+  };
+
+  const handleSendInvite = async () => {
+    if (!inviteEmail.includes('@')) return;
+    setInviteLoading(true);
+    setInviteMsg(null);
+    try {
+      const data = await api.admin.createInvite(inviteEmail);
+      setInviteEmail('');
+      if (data.emailSent) {
+        setInviteMsg({ type: 'ok', text: `Invite sent to ${inviteEmail}`, url: data.inviteUrl });
+      } else {
+        setInviteMsg({ type: 'ok', text: 'Invite created (email not sent — no SMTP account configured).', url: data.inviteUrl });
+      }
+      // Reload invites to get proper data from server
+      api.admin.getInvites().then(d => setInvites(d.invites)).catch(() => {});
+    } catch (err) {
+      setInviteMsg({ type: 'error', text: err.message });
+    } finally {
+      setInviteLoading(false);
+    }
+  };
+
+  const handleRevokeInvite = async (id) => {
+    await api.admin.deleteInvite(id);
+    setInvites(inv => inv.filter(i => i.id !== id));
+  };
+
+  const copyInviteUrl = (url, id) => {
+    navigator.clipboard.writeText(url).then(() => {
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
+    });
+  };
+
+  if (loading) {
+    return <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>Loading…</div>;
+  }
+
+  const pendingInvites = invites.filter(i => !i.used_at && new Date(i.expires_at) > new Date());
+  const usedOrExpiredInvites = invites.filter(i => i.used_at || new Date(i.expires_at) <= new Date());
+
+  return (
+    <div>
+      {/* ── Users ── */}
+      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+        Users
+      </div>
+      <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 16 }}>
+        Manage user accounts and admin privileges
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 28 }}>
+        {users.map(u => (
+          <div key={u.id} style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            padding: '10px 12px', borderRadius: 8,
+            background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)',
+          }}>
+            <div style={{
+              width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
+              background: u.isAdmin ? 'var(--accent)' : 'var(--bg-elevated)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 13, fontWeight: 600, color: u.isAdmin ? 'white' : 'var(--text-secondary)',
+              border: '1px solid var(--border)',
+            }}>
+              {u.username[0].toUpperCase()}
+            </div>
+
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
+                  {u.username}
+                </span>
+                {u.isAdmin && (
+                  <span style={{
+                    fontSize: 10, padding: '2px 6px', borderRadius: 20,
+                    background: 'rgba(124,106,247,0.15)', color: 'var(--accent)',
+                    border: '1px solid rgba(124,106,247,0.25)', fontWeight: 600,
+                    letterSpacing: '0.04em', textTransform: 'uppercase',
+                  }}>
+                    Admin
+                  </span>
+                )}
+                {u.id === currentUser?.id && (
+                  <span style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>(you)</span>
+                )}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1 }}>
+                Joined {new Date(u.created_at).toLocaleDateString()}
+              </div>
+            </div>
+
+            {u.id !== currentUser?.id && (
+              <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
+                <button
+                  onClick={() => handleToggleAdmin(u)}
+                  title={u.isAdmin ? 'Remove admin' : 'Make admin'}
+                  style={{
+                    padding: '5px 10px', borderRadius: 6, fontSize: 11, fontWeight: 500,
+                    border: '1px solid var(--border)',
+                    background: u.isAdmin ? 'var(--bg-elevated)' : 'transparent',
+                    color: u.isAdmin ? 'var(--text-secondary)' : 'var(--accent)',
+                    cursor: 'pointer', transition: 'all 0.1s',
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent)'}
+                  onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
+                >
+                  {u.isAdmin ? 'Remove admin' : 'Make admin'}
+                </button>
+                <IconBtn onClick={() => handleDeleteUser(u)} title="Delete user" danger>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <polyline points="3 6 5 6 21 6"/>
+                    <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
+                  </svg>
+                </IconBtn>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* ── Registration ── */}
+      <div style={{ height: 1, background: 'var(--border-subtle)', marginBottom: 20 }} />
+      <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+        Open registration
+      </div>
+      <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 12 }}>
+        When enabled, anyone can create an account without an invite link.
+      </div>
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '12px 14px', borderRadius: 8,
+        background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)',
+        marginBottom: 28,
+      }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
+            {regOpen ? 'Registration is open' : 'Registration is closed'}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>
+            {regOpen ? 'Anyone can sign up' : 'Only users with an invite link can register'}
+          </div>
+        </div>
+        <button
+          onClick={handleToggleReg}
+          style={{
+            width: 44, height: 24, borderRadius: 12,
+            background: regOpen ? 'var(--accent)' : 'var(--bg-elevated)',
+            border: `1px solid ${regOpen ? 'var(--accent)' : 'var(--border)'}`,
+            cursor: 'pointer', position: 'relative', transition: 'all 0.2s',
+            flexShrink: 0,
+          }}
+        >
+          <div style={{
+            position: 'absolute', top: 3, left: regOpen ? 22 : 3,
+            width: 16, height: 16, borderRadius: '50%',
+            background: 'white', transition: 'left 0.2s',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+          }} />
+        </button>
+      </div>
+
+      {/* ── Invite ── */}
+      <div style={{ height: 1, background: 'var(--border-subtle)', marginBottom: 20 }} />
+      <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+        Invite a user
+      </div>
+      <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 12 }}>
+        Generate a single-use invite link valid for 7 days. An email will be sent if you have an SMTP account configured.
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+        <input
+          type="email"
+          value={inviteEmail}
+          onChange={e => setInviteEmail(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleSendInvite()}
+          placeholder="email@example.com"
+          style={{ ...inputStyle, flex: 1 }}
+          onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+          onBlur={e => e.target.style.borderColor = 'var(--border)'}
+        />
+        <button
+          onClick={handleSendInvite}
+          disabled={inviteLoading || !inviteEmail.includes('@')}
+          style={{
+            padding: '9px 16px', background: 'var(--accent)',
+            border: 'none', borderRadius: 7, color: 'white',
+            fontSize: 13, fontWeight: 500, cursor: inviteLoading ? 'not-allowed' : 'pointer',
+            opacity: inviteLoading || !inviteEmail.includes('@') ? 0.6 : 1,
+            flexShrink: 0,
+          }}
+        >
+          {inviteLoading ? 'Sending…' : 'Send invite'}
+        </button>
+      </div>
+
+      {inviteMsg && (
+        <div style={{
+          padding: '10px 14px', borderRadius: 8, marginBottom: 12, fontSize: 13,
+          background: inviteMsg.type === 'error' ? 'rgba(248,113,113,0.1)' : 'rgba(74,222,128,0.1)',
+          border: `1px solid ${inviteMsg.type === 'error' ? 'rgba(248,113,113,0.3)' : 'rgba(74,222,128,0.2)'}`,
+          color: inviteMsg.type === 'error' ? 'var(--red)' : 'var(--green)',
+        }}>
+          {inviteMsg.text}
+          {inviteMsg.url && inviteMsg.type === 'ok' && (
+            <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <code style={{
+                fontSize: 11, color: 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace',
+                background: 'var(--bg-tertiary)', padding: '3px 6px', borderRadius: 4,
+                flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                display: 'block',
+              }}>
+                {inviteMsg.url}
+              </code>
+              <button
+                onClick={() => navigator.clipboard.writeText(inviteMsg.url)}
+                style={{
+                  padding: '4px 10px', borderRadius: 6, fontSize: 11,
+                  background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+                  color: 'var(--text-secondary)', cursor: 'pointer', flexShrink: 0,
+                }}
+              >
+                Copy
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Pending invites */}
+      {pendingInvites.length > 0 && (
+        <>
+          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 8, marginTop: 16 }}>
+            Pending invites
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            {pendingInvites.map(inv => {
+              const invUrl = `${window.location.origin}/register?invite=${inv.token}`;
+              return (
+                <div key={inv.id} style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '8px 12px', borderRadius: 8,
+                  background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)',
+                }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500 }}>
+                      {inv.email}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1 }}>
+                      Expires {new Date(inv.expires_at).toLocaleDateString()}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => copyInviteUrl(invUrl, inv.id)}
+                    title="Copy invite link"
+                    style={{
+                      padding: '4px 10px', borderRadius: 6, fontSize: 11,
+                      background: copiedId === inv.id ? 'rgba(74,222,128,0.1)' : 'var(--bg-elevated)',
+                      border: `1px solid ${copiedId === inv.id ? 'rgba(74,222,128,0.3)' : 'var(--border)'}`,
+                      color: copiedId === inv.id ? 'var(--green)' : 'var(--text-secondary)',
+                      cursor: 'pointer', flexShrink: 0, transition: 'all 0.15s',
+                    }}
+                  >
+                    {copiedId === inv.id ? 'Copied!' : 'Copy link'}
+                  </button>
+                  <IconBtn onClick={() => handleRevokeInvite(inv.id)} title="Revoke" danger>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                  </IconBtn>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {/* Used/expired invites */}
+      {usedOrExpiredInvites.length > 0 && (
+        <>
+          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 8, marginTop: 16 }}>
+            Used / expired
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            {usedOrExpiredInvites.map(inv => (
+              <div key={inv.id} style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '8px 12px', borderRadius: 8,
+                background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)',
+                opacity: 0.6,
+              }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500 }}>
+                    {inv.email}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1 }}>
+                    {inv.used_at
+                      ? `Used by ${inv.used_by_username || 'unknown'} on ${new Date(inv.used_at).toLocaleDateString()}`
+                      : `Expired ${new Date(inv.expires_at).toLocaleDateString()}`}
+                  </div>
+                </div>
+                <IconBtn onClick={() => handleRevokeInvite(inv.id)} title="Delete" danger>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <polyline points="3 6 5 6 21 6"/>
+                    <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
+                  </svg>
+                </IconBtn>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+const TABS = [
+  {
+    id: 'accounts', label: 'Accounts',
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>,
+  },
+  {
+    id: 'themes', label: 'Appearance',
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>,
+  },
+  {
+    id: 'fonts', label: 'Typography',
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>,
+  },
+  {
+    id: 'layouts', label: 'Layout',
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="9" y1="12" x2="21" y2="12"/></svg>,
+  },
+  {
+    id: 'integrations', label: 'Integrations',
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="12" cy="12" r="3"/><path d="M6.343 6.343a8 8 0 000 11.314M17.657 6.343a8 8 0 010 11.314M3 12h1m16 0h1M12 3v1m0 16v1"/></svg>,
+  },
+  {
+    id: 'users', label: 'Users',
+    adminOnly: true,
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>,
+  },
+];
+
+export default function AdminPanel() {
+  const { setShowAdmin, adminTab, setAdminTab, user } = useStore();
+  const visibleTabs = TABS.filter(t => !t.adminOnly || user?.isAdmin);
+
+  return (
+    <div
+      onClick={e => e.target === e.currentTarget && setShowAdmin(false)}
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        zIndex: 2000, padding: 24,
+      }}
+    >
+      <div style={{
+        background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+        borderRadius: 16, width: '100%', maxWidth: 680,
+        height: '82vh', maxHeight: 700, display: 'flex', overflow: 'hidden',
+        boxShadow: '0 24px 80px rgba(0,0,0,0.6)',
+      }}>
+        {/* Left sidebar */}
+        <div style={{
+          width: 180, borderRight: '1px solid var(--border-subtle)',
+          background: 'var(--bg-primary)', padding: '20px 10px',
+          display: 'flex', flexDirection: 'column', flexShrink: 0,
+        }}>
+          <div style={{
+            fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 600,
+            letterSpacing: '0.07em', textTransform: 'uppercase',
+            padding: '0 8px', marginBottom: 10,
+          }}>
+            Settings
+          </div>
+
+          {visibleTabs.map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setAdminTab(tab.id)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 9,
+                padding: '8px 10px', borderRadius: 7, border: 'none',
+                background: adminTab === tab.id ? 'var(--bg-hover)' : 'transparent',
+                color: adminTab === tab.id ? 'var(--text-primary)' : 'var(--text-secondary)',
+                cursor: 'pointer', fontSize: 13, fontWeight: adminTab === tab.id ? 500 : 400,
+                width: '100%', textAlign: 'left', transition: 'all 0.1s',
+              }}
+              onMouseEnter={e => { if (adminTab !== tab.id) e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
+              onMouseLeave={e => { if (adminTab !== tab.id) e.currentTarget.style.background = 'transparent'; }}
+            >
+              <span style={{ color: adminTab === tab.id ? 'var(--accent)' : 'var(--text-tertiary)' }}>
+                {tab.icon}
+              </span>
+              {tab.label}
+            </button>
+          ))}
+
+          <div style={{ flex: 1 }} />
+
+          <button
+            onClick={() => setShowAdmin(false)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 9,
+              padding: '8px 10px', borderRadius: 7, border: 'none',
+              background: 'transparent', color: 'var(--text-tertiary)',
+              cursor: 'pointer', fontSize: 13, width: '100%', textAlign: 'left',
+            }}
+            onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+            Close
+          </button>
+        </div>
+
+        {/* Content */}
+        <div style={{ flex: 1, overflow: 'auto', padding: '24px' }}>
+          {adminTab === 'accounts' && <AccountsTab />}
+          {adminTab === 'themes' && <ThemesTab />}
+          {adminTab === 'fonts' && <FontsTab />}
+          {adminTab === 'layouts' && <LayoutsTab />}
+          {adminTab === 'integrations' && <IntegrationsTab />}
+          {adminTab === 'users' && <UsersTab />}
+        </div>
+      </div>
+    </div>
+  );
+}

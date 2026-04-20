@@ -1,0 +1,99 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-primary: #0f0f11;
+  --bg-secondary: #161619;
+  --bg-tertiary: #1e1e23;
+  --bg-elevated: #242429;
+  --bg-hover: #2a2a30;
+  --border: #2e2e35;
+  --border-subtle: #232328;
+  --text-primary: #e8e8ed;
+  --text-secondary: #9898a8;
+  --text-tertiary: #5a5a6a;
+  --accent: #7c6af7;
+  --accent-dim: #3d3569;
+  --accent-glow: rgba(124, 106, 247, 0.15);
+  --green: #4ade80;
+  --red: #f87171;
+  --amber: #fbbf24;
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-sans, 'DM Sans', sans-serif);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-tertiary); }
+
+/* Email body iframe reset */
+.email-body-frame {
+  border: none;
+  width: 100%;
+  background: white;
+  border-radius: 8px;
+}
+
+/* Smooth transitions */
+.transition-all { transition: all 0.15s ease; }
+
+/* Focus rings */
+*:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Selection */
+::selection { background: var(--accent-dim); color: var(--text-primary); }
+
+/* Sync icon rotation */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* Unread indicator pulse */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.15); }
+}
+
+.unread-dot { animation: pulse-dot 2s ease-in-out infinite; }
+
+/* Message row hover */
+@keyframes slide-in {
+  from { opacity: 0; transform: translateX(-4px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.message-row-enter { animation: slide-in 0.15s ease forwards; }
+
+/* Notification toast */
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(100%); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes toast-out {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(100%); }
+}
+
+.toast-enter { animation: toast-in 0.2s ease forwards; }
+.toast-exit { animation: toast-out 0.2s ease forwards; }

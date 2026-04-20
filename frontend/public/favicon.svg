@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#9B82FF"/>
+      <stop offset="100%" stop-color="#5340D6"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="rgba(255,255,255,0.14)"/>
+      <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
+    </linearGradient>
+    <clipPath id="ec">
+      <rect x="5" y="10.5" width="22" height="15" rx="2.5"/>
+    </clipPath>
+  </defs>
+
+  <!-- Background -->
+  <rect width="32" height="32" rx="7.5" fill="url(#bg)"/>
+  <!-- Subtle top-gloss highlight -->
+  <rect width="32" height="16" rx="7.5" fill="url(#shine)"/>
+
+  <!-- Envelope drop shadow (depth) -->
+  <rect x="5" y="11.5" width="22" height="15" rx="2.5" fill="rgba(0,0,0,0.18)"/>
+
+  <!-- Envelope body -->
+  <rect x="5" y="10.5" width="22" height="15" rx="2.5" fill="white"/>
+
+  <!-- Flap top-triangle shading (fold shadow) -->
+  <path d="M5,10.5 L16,20.5 L27,10.5 Z"
+        fill="rgba(83,64,214,0.10)"
+        clip-path="url(#ec)"/>
+
+  <!-- Flap fold line — crisp V indicating envelope crease -->
+  <path d="M5,10.5 L16,20.5 L27,10.5"
+        fill="none"
+        stroke="rgba(83,64,214,0.38)"
+        stroke-width="1.4"
+        stroke-linejoin="round"
+        clip-path="url(#ec)"/>
+
+  <!-- Bottom corner seam lines -->
+  <line x1="5"  y1="25.5" x2="13" y2="20" stroke="rgba(83,64,214,0.16)" stroke-width="1.1"/>
+  <line x1="27" y1="25.5" x2="19" y2="20" stroke="rgba(83,64,214,0.16)" stroke-width="1.1"/>
+</svg>
