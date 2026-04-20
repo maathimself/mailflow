@@ -12,7 +12,7 @@ services:
     ports:
       - "${APP_PORT:-443}:443"
     volumes:
-      - ./certs:/etc/nginx/ssl:ro
+      - ./certs:/etc/nginx/ssl
     depends_on:
       - backend
     networks:
