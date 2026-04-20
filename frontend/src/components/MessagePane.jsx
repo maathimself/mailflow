@@ -123,8 +123,13 @@ export default function MessagePane() {
 
     const setHeight = () => {
       try {
-        const h = iframe.contentDocument?.documentElement?.scrollHeight
-               || iframe.contentDocument?.body?.scrollHeight;
+        const doc = iframe.contentDocument;
+        if (!doc?.body) return;
+        // Use body.scrollHeight (excludes body margins) and add the 32px of
+        // margin we inject (16px top + 16px bottom) to get the exact content height.
+        // documentElement.scrollHeight already includes those margins, so using it
+        // and adding 32 again causes double-counting and extra blank space.
+        const h = doc.body.scrollHeight;
         if (h && h > 0) iframe.style.height = (h + 32) + 'px';
       } catch (_) {}
     };
