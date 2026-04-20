@@ -84,6 +84,14 @@ router.post('/register', authLimiter, async (req, res) => {
       );
     }
 
+    // Create session so the user is immediately logged in after registering
+    req.session.userId = newUser.id;
+    req.session.username = newUser.username;
+    req.session.isAdmin = newUser.is_admin;
+
+    // Start IMAP connections (no accounts yet on first register, harmless)
+    imapManager.connectAllForUser(newUser.id);
+
     res.json({ user: { id: newUser.id, username: newUser.username, isAdmin: newUser.is_admin } });
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ error: 'Username already taken' });
