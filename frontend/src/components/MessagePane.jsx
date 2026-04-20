@@ -546,7 +546,12 @@ export default function MessagePane() {
                     blockquote { border-left: 3px solid #ddd; margin: 0; padding-left: 12px; color: #555; }
                     table { max-width: 100%; }
                   </style>
-                </head><body>${body.html}</body></html>`}
+                </head><body>${
+                  // Add rel="noopener noreferrer" to all links so new tabs don't retain an
+                  // opener reference. Without this, sites with COOP: same-origin (e.g. Stripe)
+                  // block the navigation and show a browser security warning.
+                  body.html.replace(/<a(\s)/gi, '<a rel="noopener noreferrer"$1')
+                }</body></html>`}
                 style={{ width: '100%', minHeight: 100, border: 'none', display: 'block' }}
                 sandbox="allow-same-origin allow-popups"
                 title="Email content"

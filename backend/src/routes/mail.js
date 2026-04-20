@@ -64,11 +64,19 @@ function sanitizeEmail(html) {
       '*': ['style', 'class', 'id', 'align', 'valign', 'width', 'height',
              'bgcolor', 'color', 'border', 'cellpadding', 'cellspacing',
              'colspan', 'rowspan', 'nowrap', 'dir', 'lang'],
-      'a': ['href', 'name', 'target', 'title'],
+      'a': ['href', 'name', 'target', 'title', 'rel'],
       'img': ['src', 'alt', 'width', 'height', 'border'],
       'table': ['summary'],
       'td': ['abbr', 'axis', 'headers', 'scope'],
       'th': ['abbr', 'axis', 'headers', 'scope'],
+    },
+    transformTags: {
+      // Ensure all links open safely — no opener reference so sites with
+      // COOP: same-origin (e.g. Stripe, GitHub) don't show a security warning.
+      'a': (tagName, attribs) => ({
+        tagName,
+        attribs: { ...attribs, rel: 'noopener noreferrer' },
+      }),
     },
     allowedSchemes: ['http', 'https', 'mailto', 'cid', 'data'],
     allowedSchemesByTag: {
