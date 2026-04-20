@@ -553,7 +553,7 @@ export default function MessagePane() {
                   body.html.replace(/<a(\s)/gi, '<a rel="noopener noreferrer"$1')
                 }</body></html>`}
                 style={{ width: '100%', minHeight: 100, border: 'none', display: 'block' }}
-                sandbox="allow-same-origin allow-popups"
+                sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
                 title="Email content"
               />
             </div>
