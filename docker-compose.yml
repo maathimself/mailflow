@@ -1,0 +1,120 @@
+services:
+
+  # ── Frontend (nginx — serves React SPA + proxies API) ───────────────────────
+  # Default mode: exposes HTTPS directly on APP_PORT using certs in ./certs/
+  # Production mode (--profile https): Caddy handles TLS instead (see below)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: mailflow-frontend
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-443}:443"
+    volumes:
+      - ./certs:/etc/nginx/ssl:ro
+    depends_on:
+      - backend
+    networks:
+      - mailflow
+
+  # ── Backend API ──────────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mailflow-backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      SESSION_SECRET: ${SESSION_SECRET}
+      APP_URL: ${APP_URL:-}
+      FRONTEND_URL: ${APP_URL:-}
+      DB_HOST: postgres
+      DB_NAME: mailflow
+      DB_USER: mailflow
+      DB_PASSWORD: ${DB_PASSWORD}
+      REDIS_URL: redis://redis:6379
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - mailflow
+
+  # ── PostgreSQL ───────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: mailflow-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mailflow
+      POSTGRES_USER: mailflow
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mailflow -d mailflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - mailflow
+
+  # ── Redis (sessions + caching) ───────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: mailflow-redis
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    networks:
+      - mailflow
+
+  # ── Caddy (automatic HTTPS via Let's Encrypt — production only) ──────────────
+  # Only starts when you run: docker compose --profile https up -d --build
+  # Requires DOMAIN and APP_URL to be set in .env, and ports 80/443 to be open.
+  # When using this profile, remove the ports: and volumes: from frontend above
+  # (or use docker-compose.https.yml override instead).
+  caddy:
+    profiles: ["https"]
+    image: caddy:2-alpine
+    container_name: mailflow-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
+    networks:
+      - mailflow
+
+volumes:
+  postgres_data:
+  redis_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  mailflow:
+    driver: bridge

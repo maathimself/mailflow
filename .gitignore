@@ -1,0 +1,27 @@
+# Environment — never commit real secrets
+.env
+*.env.local
+
+# Dependencies
+node_modules/
+
+# Build output
+frontend/dist/
+frontend/.vite/
+
+# TLS certs (generated locally or via Let's Encrypt)
+certs/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo

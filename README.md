@@ -1,2 +1,184 @@
-# mailflow
-A self-hosted, unified webmail client.
+# MailFlow
+
+A self-hosted, unified webmail client. Connect multiple IMAP/SMTP accounts (Gmail, iCloud,
+Outlook, custom) and read them all in one clean interface.
+
+## Features
+
+- **Unified inbox** — all accounts merged in one view, sorted by date
+- **Multiple layouts** — classic, compact, wide reader, vertical split, and more
+- **Multiple themes** — dark, light, and several color schemes
+- **Full-text search** — across all connected accounts simultaneously
+- **Real-time notifications** — WebSocket-powered new-mail toasts
+- **Reply / Forward / Compose** — correct per-account SMTP routing
+- **Folder navigation** — expand any account to browse folders
+- **Star, delete, mark read** — synced back to IMAP
+- **User management** — admin panel, invite-only registration, invite emails
+- **Microsoft 365 / OAuth2** — for work accounts that require modern auth
+
+---
+
+## Production Deployment
+
+### Prerequisites
+
+- A server with Docker and Docker Compose installed
+- A domain name with an A record pointing to the server
+- Ports **80** and **443** open in your firewall
+
+### 1. Get the code
+
+```bash
+git clone <repo-url> mailflow
+cd mailflow
+```
+
+### 2. Configure environment
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` — the required fields are:
+
+| Variable | Description |
+|---|---|
+| `DOMAIN` | Your domain, e.g. `mail.example.com` |
+| `APP_URL` | Full URL, e.g. `https://mail.example.com` |
+| `SESSION_SECRET` | Random 64-char hex — `openssl rand -hex 32` |
+| `DB_PASSWORD` | Random password — `openssl rand -hex 16` |
+| `ACME_EMAIL` | Email for Let's Encrypt notifications |
+
+### 3. Build and start
+
+```bash
+docker compose up -d --build
+```
+
+First build takes 2–3 minutes. Caddy will automatically obtain a TLS certificate
+from Let's Encrypt — this takes a few seconds on first start and renews automatically.
+
+### 4. Create your admin account
+
+Open `https://your-domain.com` in a browser. The **first account registered becomes
+the admin**. After registering, you can close registration and manage users from the
+settings panel → Users tab.
+
+### 5. Add your email accounts
+
+In the settings panel → Accounts → Add Account.
+Select a preset (Gmail, iCloud) or Custom for any IMAP server.
+
+---
+
+## Email Provider Setup
+
+### Gmail
+
+Gmail requires an **App Password** (not your normal password):
+
+1. Enable 2-step verification on your Google account
+2. Go to [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)
+3. Create a new App Password — name it "MailFlow"
+4. Use the 16-character password in the MailFlow account form
+
+| Setting | Value |
+|---|---|
+| IMAP Host | `imap.gmail.com` |
+| IMAP Port | `993` |
+| SMTP Host | `smtp.gmail.com` |
+| SMTP Port | `587` |
+| Username | your Gmail address |
+
+### iCloud / Apple Mail
+
+1. Go to [appleid.apple.com](https://appleid.apple.com) → Sign-In and Security → App-Specific Passwords
+2. Generate a password — name it "MailFlow"
+
+| Setting | Value |
+|---|---|
+| IMAP Host | `imap.mail.me.com` |
+| IMAP Port | `993` |
+| SMTP Host | `smtp.mail.me.com` |
+| SMTP Port | `587` |
+| Username | your full iCloud email (`you@icloud.com`) |
+
+### Microsoft 365 / Outlook (OAuth2)
+
+Work/school accounts that require modern authentication:
+
+1. In MailFlow settings → Integrations → Microsoft 365 — follow the Azure App
+   Registration instructions shown there
+2. After saving the config, click **Connect Microsoft account**
+
+### Custom IMAP
+
+Any standard IMAP/SMTP server works. Use port 993 for IMAP (TLS) and
+587 (STARTTLS) or 465 (TLS) for SMTP.
+
+---
+
+## Management
+
+```bash
+# View all logs
+docker compose logs -f
+
+# View backend logs only
+docker compose logs -f backend
+
+# Stop
+docker compose down
+
+# Stop and delete all data (destructive)
+docker compose down -v
+
+# Rebuild after a code update
+docker compose up -d --build
+```
+
+## Backup and Restore
+
+```bash
+# Backup database
+docker exec mailflow-postgres pg_dump -U mailflow mailflow \
+  > mailflow-$(date +%Y%m%d).sql
+
+# Restore database
+cat mailflow-YYYYMMDD.sql | \
+  docker exec -i mailflow-postgres psql -U mailflow -d mailflow
+```
+
+---
+
+## Architecture
+
+```
+Browser (HTTPS)
+  │
+  ▼
+Caddy  (ports 80/443 — TLS termination, auto Let's Encrypt)
+  │
+  ▼
+nginx  (frontend container — React SPA + API proxy)
+  │
+  ├── /api/*  → Node.js backend (port 3000)
+  ├── /oauth/ → Node.js backend (port 3000)
+  └── /ws     → Node.js backend WebSocket (port 3000)
+                    │
+                    ├── PostgreSQL  (messages, accounts, users)
+                    ├── Redis       (sessions)
+                    └── IMAP        (outbound to mail servers)
+```
+
+Only Caddy is exposed publicly (ports 80/443). All other containers communicate
+on an internal Docker network.
+
+## Security notes
+
+- The first registered user becomes the admin automatically
+- Close open registration in Settings → Users once you've set up your accounts
+- Use the invite system to onboard additional users
+- Session cookies are `HttpOnly`, `Secure`, `SameSite=Lax` with a 7-day TTL
+- Passwords are bcrypt-hashed (cost factor 12)
+- Database and Redis are not exposed outside the Docker network

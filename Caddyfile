@@ -1,0 +1,8 @@
+{
+    # Email for Let's Encrypt expiry notifications (optional but recommended)
+    email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+    reverse_proxy frontend:80
+}
