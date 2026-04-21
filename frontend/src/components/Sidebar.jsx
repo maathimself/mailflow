@@ -578,12 +578,27 @@ export default function Sidebar() {
                 onClick={() => setSelectedAccount(account.id, 'INBOX')}
                 onContextMenu={!sidebarCollapsed ? (e) => openAccountCtxMenu(e, account) : undefined}
               >
-                {/* Color dot */}
-                <div style={{
-                  width: 8, height: 8, borderRadius: '50%',
-                  background: account.color, flexShrink: 0,
-                  boxShadow: account.sync_error ? '0 0 0 2px rgba(248,113,113,0.4)' : 'none',
-                }} />
+                {/* Account indicator */}
+                {sidebarCollapsed ? (
+                  <div style={{
+                    width: 28, height: 28, borderRadius: 7,
+                    background: account.color + '22',
+                    border: `1px solid ${account.color}66`,
+                    flexShrink: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 12, fontWeight: 600, color: account.color,
+                    outline: account.sync_error ? '2px solid rgba(248,113,113,0.5)' : 'none',
+                    userSelect: 'none',
+                  }}>
+                    {(account.name || account.email_address || '?').charAt(0).toUpperCase()}
+                  </div>
+                ) : (
+                  <div style={{
+                    width: 8, height: 8, borderRadius: '50%',
+                    background: account.color, flexShrink: 0,
+                    boxShadow: account.sync_error ? '0 0 0 2px rgba(248,113,113,0.4)' : 'none',
+                  }} />
+                )}
 
                 {!sidebarCollapsed && (
                   <>

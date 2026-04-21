@@ -75,8 +75,12 @@ export const useStore = create((set, get) => ({
   })),
 
   // UI state
-  sidebarCollapsed: false,
-  toggleSidebar: () => set(state => ({ sidebarCollapsed: !state.sidebarCollapsed })),
+  sidebarCollapsed: localStorage.getItem('mailflow_sidebar_collapsed') === 'true',
+  toggleSidebar: () => set(state => {
+    const next = !state.sidebarCollapsed;
+    localStorage.setItem('mailflow_sidebar_collapsed', String(next));
+    return { sidebarCollapsed: next };
+  }),
   composing: false,
   composeData: null,
   openCompose: (data = null) => set({ composing: true, composeData: data }),
