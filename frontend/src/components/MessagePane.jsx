@@ -134,9 +134,11 @@ export default function MessagePane() {
       } catch (_) {}
     };
 
-    iframe.onload = () => {
+    const onLoaded = () => {
       setHeight();
-      // Watch the iframe body for layout changes (e.g. images loading in)
+
+      // Watch the iframe body for layout changes triggered by images or
+      // web fonts loading after the initial paint.
       try {
         roRef.current?.disconnect();
         if (window.ResizeObserver && iframe.contentDocument?.body) {
@@ -144,9 +146,33 @@ export default function MessagePane() {
           roRef.current.observe(iframe.contentDocument.body);
         }
       } catch (_) {}
+
+      // Additionally attach load listeners directly to any images that
+      // haven't finished loading yet — ResizeObserver won't fire for images
+      // that are fully loaded before they're observed.
+      try {
+        const imgs = iframe.contentDocument?.querySelectorAll('img') ?? [];
+        imgs.forEach(img => {
+          if (!img.complete) {
+            img.addEventListener('load',  setHeight, { once: true });
+            img.addEventListener('error', setHeight, { once: true });
+          }
+        });
+      } catch (_) {}
     };
 
+    // React effects run after the paint. If the iframe's srcDoc loaded
+    // synchronously (common for small emails), the load event has already
+    // fired before we get here — setting iframe.onload would be too late.
+    // Check readyState first; fall back to the load event for slow loads.
+    if (iframe.contentDocument?.readyState === 'complete') {
+      onLoaded();
+    } else {
+      iframe.addEventListener('load', onLoaded, { once: true });
+    }
+
     return () => {
+      iframe.removeEventListener('load', onLoaded);
       roRef.current?.disconnect();
       roRef.current = null;
     };
