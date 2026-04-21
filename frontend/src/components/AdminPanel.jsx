@@ -715,7 +715,7 @@ function LayoutDiagram({ layoutKey, layoutConfig, active }) {
 
 // ─── Layouts Tab ──────────────────────────────────────────────────────────────
 function LayoutsTab() {
-  const { layout, setLayout } = useStore();
+  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode } = useStore();
 
   const handleSelect = (key) => {
     setLayout(key);
@@ -778,6 +778,70 @@ function LayoutsTab() {
             </button>
           );
         })}
+      </div>
+
+      {/* Message list behaviour */}
+      <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 16 }}>
+          Message List
+        </div>
+
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>Scrolling mode</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {[
+              { id: 'infinite',   label: 'Infinite scroll', desc: 'Auto-loads as you scroll down' },
+              { id: 'paginated',  label: 'Paginated',       desc: 'Navigate with Prev / Next buttons' },
+            ].map(({ id, label, desc }) => {
+              const active = scrollMode === id;
+              return (
+                <button
+                  key={id}
+                  onClick={() => setScrollMode(id)}
+                  style={{
+                    flex: 1, padding: '10px 12px', textAlign: 'left',
+                    background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
+                    border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
+                    borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s', outline: 'none',
+                  }}
+                  onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; }}
+                  onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
+                >
+                  <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{label}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{desc}</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
+            {scrollMode === 'paginated' ? 'Emails per page' : 'Emails loaded per batch'}
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {[25, 50, 100, 200].map(n => {
+              const active = pageSize === n;
+              return (
+                <button
+                  key={n}
+                  onClick={() => setPageSize(n)}
+                  style={{
+                    flex: 1, padding: '7px 4px', fontSize: 13, fontWeight: 500,
+                    background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
+                    border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
+                    borderRadius: 7, cursor: 'pointer', transition: 'all 0.15s', outline: 'none',
+                    color: active ? 'var(--accent)' : 'var(--text-secondary)',
+                  }}
+                  onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; }}
+                  onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
+                >
+                  {n}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
     </div>
   );

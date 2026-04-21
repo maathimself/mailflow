@@ -23,7 +23,7 @@ export default function MessageList() {
     setSelectedMessage, updateMessage, removeMessage, decrementUnread,
     searchQuery, setSearchQuery, isSearching, setIsSearching,
     searchResults, setSearchResults, openCompose, accountsReady, accounts,
-    messagesRefreshToken, layout,
+    messagesRefreshToken, layout, pageSize, setPageSize, scrollMode,
   } = useStore();
 
   const currentLayout = LAYOUTS[layout] || LAYOUTS.classic;
@@ -31,12 +31,14 @@ export default function MessageList() {
   const isNarrow = !isColumn && currentLayout.listWidth <= 260;
 
   const [unreadOnly, setUnreadOnly] = useState(false);
-  const [pageSize, setPageSize] = useState(50);
+  const [currentPage, setCurrentPage] = useState(1);
+  const currentPageRef = useRef(1);
   const [syncing, setSyncing] = useState(false);
   const [folderSyncing, setFolderSyncing] = useState(false);
   const [contextMenu, setContextMenu] = useState(null); // { x, y, message }
-  const PAGE_SIZE = pageSize;
   const listRef = useRef(null);
+
+  useEffect(() => { currentPageRef.current = currentPage; }, [currentPage]);
   const searchTimer = useRef(null);
 
   // Reset and load fresh when account/folder/filter changes
@@ -51,8 +53,9 @@ export default function MessageList() {
       setLoadingMessages(true);
       setMessagesOffset(0);
       setHasMoreMessages(true);
+      setCurrentPage(1);
       try {
-        const params = { limit: PAGE_SIZE, offset: 0 };
+        const params = { limit: pageSize, offset: 0 };
         if (selectedAccountId) {
           params.accountId = selectedAccountId;
           params.folder = selectedFolder;
@@ -84,7 +87,7 @@ export default function MessageList() {
     };
     run();
     return () => { cancelled = true; };
-  }, [selectedAccountId, selectedFolder, unreadOnly, pageSize, accountsReady, accounts.length, messagesRefreshToken]);
+  }, [selectedAccountId, selectedFolder, unreadOnly, pageSize, scrollMode, accountsReady, accounts.length, messagesRefreshToken]);
 
   // Load next page (called by scroll or button)
   const loadMore = useCallback(async () => {
@@ -93,7 +96,7 @@ export default function MessageList() {
     try {
       // Read current offset directly from store to avoid stale closure
       const currentOffset = useStore.getState().messagesOffset;
-      const params = { limit: PAGE_SIZE, offset: currentOffset };
+      const params = { limit: pageSize, offset: currentOffset };
       if (selectedAccountId) {
         params.accountId = selectedAccountId;
         params.folder = selectedFolder;
@@ -113,22 +116,31 @@ export default function MessageList() {
   // Listen for backfill refresh events from WebSocket
   useEffect(() => {
     const handler = () => {
-      // Only refresh if we're not currently loading and not searching
       if (!useStore.getState().loadingMessages && !searchQuery.trim()) {
         const run = async () => {
           try {
-            const currentOffset = useStore.getState().messagesOffset;
-            const params = { limit: currentOffset || PAGE_SIZE, offset: 0 };
-            if (selectedAccountId) {
-              params.accountId = selectedAccountId;
-              params.folder = selectedFolder;
+            const state = useStore.getState();
+            const ps = state.pageSize;
+            const sm = state.scrollMode;
+            let params;
+            if (sm === 'paginated') {
+              const pg = currentPageRef.current;
+              params = { limit: ps, offset: (pg - 1) * ps };
+            } else {
+              const currentOffset = state.messagesOffset;
+              params = { limit: currentOffset || ps, offset: 0 };
             }
+            if (selectedAccountId) { params.accountId = selectedAccountId; params.folder = selectedFolder; }
             if (unreadOnly) params.unreadOnly = 'true';
             const data = await api.getMessages(params);
             setMessagesTotal(data.total);
             setMessages(data.messages);
-            setMessagesOffset(data.messages.length);
-            setHasMoreMessages(data.messages.length < data.total);
+            if (sm === 'paginated') {
+              setHasMoreMessages(false);
+            } else {
+              setMessagesOffset(data.messages.length);
+              setHasMoreMessages(data.messages.length < data.total);
+            }
           } catch (_) {}
         };
         run();
@@ -162,12 +174,35 @@ export default function MessageList() {
 
   // Infinite scroll
   const handleScroll = useCallback(() => {
+    if (scrollMode !== 'infinite') return;
     if (!listRef.current || loadingMessages || !hasMoreMessages) return;
     const { scrollTop, scrollHeight, clientHeight } = listRef.current;
     if (scrollTop + clientHeight >= scrollHeight - 300) {
       loadMore();
     }
-  }, [loadMore, loadingMessages, hasMoreMessages]);
+  }, [scrollMode, loadMore, loadingMessages, hasMoreMessages]);
+
+  // Load a specific page (paginated mode)
+  const loadPage = useCallback(async (pageNum) => {
+    if (loadingMessages) return;
+    setLoadingMessages(true);
+    setCurrentPage(pageNum);
+    try {
+      const params = { limit: pageSize, offset: (pageNum - 1) * pageSize };
+      if (selectedAccountId) { params.accountId = selectedAccountId; params.folder = selectedFolder; }
+      if (unreadOnly) params.unreadOnly = 'true';
+      const data = await api.getMessages(params);
+      setMessagesTotal(data.total);
+      setMessages(data.messages);
+      setMessagesOffset((pageNum - 1) * pageSize + data.messages.length);
+      setHasMoreMessages(false);
+      if (listRef.current) listRef.current.scrollTop = 0;
+    } catch (err) {
+      console.error('Failed to load page:', err);
+    } finally {
+      setLoadingMessages(false);
+    }
+  }, [selectedAccountId, selectedFolder, unreadOnly, pageSize, loadingMessages]);
 
   const handleSync = async () => {
     if (syncing) return;
@@ -539,40 +574,78 @@ export default function MessageList() {
           />
         )}
 
-        {loadingMessages && displayMessages.length > 0 && (
-          <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12 }}>
+        {/* Infinite scroll footer */}
+        {scrollMode === 'infinite' && (<>
+          {loadingMessages && displayMessages.length > 0 && (
+            <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12 }}>
+              <div style={{
+                width: 16, height: 16, margin: '0 auto 6px',
+                border: '2px solid var(--border)', borderTopColor: 'var(--accent)',
+                borderRadius: '50%', animation: 'spin 0.8s linear infinite', display: 'inline-block',
+              }} />
+              <div>Loading more…</div>
+            </div>
+          )}
+          {!loadingMessages && hasMoreMessages && displayMessages.length > 0 && (
+            <div style={{ padding: '12px 16px', textAlign: 'center' }}>
+              <button
+                onClick={loadMore}
+                style={{
+                  padding: '7px 20px', background: 'transparent',
+                  border: '1px solid var(--border)', borderRadius: 7,
+                  color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12,
+                  transition: 'all 0.1s',
+                }}
+                onMouseEnter={e => { e.target.style.borderColor = 'var(--accent)'; e.target.style.color = 'var(--accent)'; }}
+                onMouseLeave={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.color = 'var(--text-secondary)'; }}
+              >
+                Load more
+              </button>
+            </div>
+          )}
+          {!loadingMessages && !hasMoreMessages && displayMessages.length > 0 && (
+            <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 11 }}>
+              All {messagesTotal} messages loaded
+            </div>
+          )}
+        </>)}
+
+        {/* Pagination footer */}
+        {scrollMode === 'paginated' && !loadingMessages && messagesTotal > 0 && (() => {
+          const totalPages = Math.ceil(messagesTotal / pageSize) || 1;
+          const btnStyle = (disabled) => ({
+            padding: '5px 14px', fontSize: 12, borderRadius: 6, cursor: disabled ? 'default' : 'pointer',
+            background: disabled ? 'transparent' : 'var(--bg-tertiary)',
+            border: '1px solid var(--border)',
+            color: disabled ? 'var(--text-tertiary)' : 'var(--text-secondary)',
+            transition: 'all 0.1s',
+          });
+          return (
             <div style={{
-              width: 16, height: 16, margin: '0 auto 6px',
-              border: '2px solid var(--border)', borderTopColor: 'var(--accent)',
-              borderRadius: '50%', animation: 'spin 0.8s linear infinite', display: 'inline-block',
-            }} />
-            <div>Loading more…</div>
-          </div>
-        )}
-
-        {!loadingMessages && hasMoreMessages && displayMessages.length > 0 && (
-          <div style={{ padding: '12px 16px', textAlign: 'center' }}>
-            <button
-              onClick={loadMore}
-              style={{
-                padding: '7px 20px', background: 'transparent',
-                border: '1px solid var(--border)', borderRadius: 7,
-                color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12,
-                transition: 'all 0.1s',
-              }}
-              onMouseEnter={e => { e.target.style.borderColor = 'var(--accent)'; e.target.style.color = 'var(--accent)'; }}
-              onMouseLeave={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.color = 'var(--text-secondary)'; }}
-            >
-              Load more
-            </button>
-          </div>
-        )}
-
-        {!loadingMessages && !hasMoreMessages && displayMessages.length > 0 && (
-          <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 11 }}>
-            All {messagesTotal} messages loaded
-          </div>
-        )}
+              padding: '10px 16px', display: 'flex', alignItems: 'center',
+              justifyContent: 'space-between', borderTop: '1px solid var(--border-subtle)',
+              flexShrink: 0,
+            }}>
+              <button
+                onClick={() => loadPage(currentPage - 1)}
+                disabled={currentPage <= 1}
+                style={btnStyle(currentPage <= 1)}
+                onMouseEnter={e => { if (currentPage > 1) { e.target.style.borderColor = 'var(--accent)'; e.target.style.color = 'var(--accent)'; }}}
+                onMouseLeave={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.color = currentPage <= 1 ? 'var(--text-tertiary)' : 'var(--text-secondary)'; }}
+              >← Prev</button>
+              <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                Page {currentPage} of {totalPages}
+              </span>
+              <button
+                onClick={() => loadPage(currentPage + 1)}
+                disabled={currentPage >= totalPages}
+                style={btnStyle(currentPage >= totalPages)}
+                onMouseEnter={e => { if (currentPage < totalPages) { e.target.style.borderColor = 'var(--accent)'; e.target.style.color = 'var(--accent)'; }}}
+                onMouseLeave={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.color = currentPage >= totalPages ? 'var(--text-tertiary)' : 'var(--text-secondary)'; }}
+              >Next →</button>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );

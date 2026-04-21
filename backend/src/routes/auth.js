@@ -207,7 +207,7 @@ router.get('/preferences', async (req, res) => {
 
 router.patch('/preferences', async (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
-  const { theme, font, layout, notificationSound } = req.body;
+  const { theme, font, layout, notificationSound, pageSize, scrollMode } = req.body;
   await query(`
     UPDATE users
     SET preferences = preferences
@@ -215,8 +215,10 @@ router.patch('/preferences', async (req, res) => {
       || CASE WHEN $3::text IS NOT NULL THEN jsonb_build_object('font',   $3::text) ELSE '{}'::jsonb END
       || CASE WHEN $4::text IS NOT NULL THEN jsonb_build_object('layout', $4::text) ELSE '{}'::jsonb END
       || CASE WHEN $5::text IS NOT NULL THEN jsonb_build_object('notificationSound', $5::text) ELSE '{}'::jsonb END
+      || CASE WHEN $6::text IS NOT NULL THEN jsonb_build_object('pageSize', $6::text) ELSE '{}'::jsonb END
+      || CASE WHEN $7::text IS NOT NULL THEN jsonb_build_object('scrollMode', $7::text) ELSE '{}'::jsonb END
     WHERE id = $1
-  `, [req.session.userId, theme ?? null, font ?? null, layout ?? null, notificationSound ?? null]);
+  `, [req.session.userId, theme ?? null, font ?? null, layout ?? null, notificationSound ?? null, pageSize ?? null, scrollMode ?? null]);
   res.json({ ok: true });
 });
 

@@ -81,6 +81,18 @@ export const useStore = create((set, get) => ({
     localStorage.setItem('mailflow_sidebar_collapsed', String(next));
     return { sidebarCollapsed: next };
   }),
+  pageSize: parseInt(localStorage.getItem('mailflow_page_size')) || 50,
+  setPageSize: (size) => {
+    localStorage.setItem('mailflow_page_size', String(size));
+    set({ pageSize: size });
+    api.savePreferences({ pageSize: String(size) }).catch(() => {});
+  },
+  scrollMode: localStorage.getItem('mailflow_scroll_mode') || 'infinite',
+  setScrollMode: (mode) => {
+    localStorage.setItem('mailflow_scroll_mode', mode);
+    set({ scrollMode: mode });
+    api.savePreferences({ scrollMode: mode }).catch(() => {});
+  },
   notificationSound: localStorage.getItem('mailflow_notification_sound') || 'tritone',
   setNotificationSound: (sound) => {
     localStorage.setItem('mailflow_notification_sound', sound);
@@ -181,6 +193,15 @@ export const useStore = create((set, get) => ({
       if (prefs.notificationSound) {
         localStorage.setItem('mailflow_notification_sound', prefs.notificationSound);
         set({ notificationSound: prefs.notificationSound });
+      }
+      if (prefs.pageSize) {
+        const n = parseInt(prefs.pageSize);
+        localStorage.setItem('mailflow_page_size', String(n));
+        set({ pageSize: n });
+      }
+      if (prefs.scrollMode) {
+        localStorage.setItem('mailflow_scroll_mode', prefs.scrollMode);
+        set({ scrollMode: prefs.scrollMode });
       }
     } catch (_) {}
   },
