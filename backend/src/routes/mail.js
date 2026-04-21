@@ -63,9 +63,17 @@ function sanitizeEmail(html) {
     allowedAttributes: {
       '*': ['style', 'class', 'id', 'align', 'valign', 'width', 'height',
              'bgcolor', 'color', 'border', 'cellpadding', 'cellspacing',
-             'colspan', 'rowspan', 'nowrap', 'dir', 'lang'],
+             'colspan', 'rowspan', 'nowrap', 'dir', 'lang',
+             // 'background' is an old HTML attribute used on table/td/tr for
+             // background images — common in marketing emails.
+             'background'],
       'a': ['href', 'name', 'target', 'title', 'rel'],
-      'img': ['src', 'alt', 'width', 'height', 'border'],
+      'img': ['src', 'alt', 'width', 'height', 'border',
+              // srcset is required for responsive images — many senders
+              // (LinkedIn, etc.) use srcset as the primary image source and
+              // put a 1×1 tracking pixel in src as the fallback.  Without
+              // srcset, only the tracker is visible.
+              'srcset', 'sizes'],
       'table': ['summary'],
       'td': ['abbr', 'axis', 'headers', 'scope'],
       'th': ['abbr', 'axis', 'headers', 'scope'],
@@ -77,6 +85,25 @@ function sanitizeEmail(html) {
         tagName,
         attribs: { ...attribs, rel: 'noopener noreferrer' },
       }),
+      // Upgrade http:// → https:// for image sources.  Many marketing emails
+      // still use plain-http image URLs which are blocked as mixed content on
+      // an https host, causing the images to silently fail.
+      'img': (tagName, attribs) => {
+        const upgrade = url => (typeof url === 'string' && url.startsWith('http://'))
+          ? 'https://' + url.slice(7)
+          : url;
+        const out = { ...attribs };
+        if (out.src)    out.src    = upgrade(out.src);
+        if (out.srcset) out.srcset = out.srcset
+          .split(',')
+          .map(part => {
+            const [url, ...rest] = part.trim().split(/\s+/);
+            return [upgrade(url), ...rest].join(' ');
+          })
+          .join(', ');
+        if (out.background) out.background = upgrade(out.background);
+        return { tagName, attribs: out };
+      },
     },
     allowedSchemes: ['http', 'https', 'mailto', 'cid', 'data'],
     allowedSchemesByTag: {
@@ -175,10 +202,11 @@ router.get('/messages/:id/body', async (req, res) => {
   const message = result.rows[0];
 
   // Return cached body if available — but re-fetch when the cached HTML still
-  // contains unresolved cid: references (inline images cached before CID resolution
-  // was added, or emails where image parts weren't fetched during the initial sync).
-  const hasCidRefs = message.body_html && /\bcid:/i.test(message.body_html);
-  if ((message.body_html || message.body_text) && !hasCidRefs) {
+  // contains unresolved cid: references, or http:// image URLs that were cached
+  // before the http→https upgrade was added (would be blocked as mixed content).
+  const hasCidRefs  = message.body_html && /\bcid:/i.test(message.body_html);
+  const hasHttpImgs = message.body_html && /<img[^>]+src=["']http:\/\//i.test(message.body_html);
+  if ((message.body_html || message.body_text) && !hasCidRefs && !hasHttpImgs) {
     const attachments = message.attachments
       ? (typeof message.attachments === 'string' ? JSON.parse(message.attachments) : message.attachments)
       : [];

@@ -1133,9 +1133,10 @@ export class ImapManager {
               ? buf.toString('ascii').replace(/\s/g, '')
               : buf.toString('base64');
             const dataUri = `data:${img.type};base64,${b64}`;
-            // cid: refs appear with and without angle brackets; match both
+            // cid: refs appear with and without angle brackets — match both.
+            // e.g.  src="cid:abc123"  and  src="cid:<abc123>"
             const escapedCid = img.cid.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            html = html.replace(new RegExp(`cid:${escapedCid}`, 'gi'), dataUri);
+            html = html.replace(new RegExp(`cid:<?${escapedCid}>?`, 'gi'), dataUri);
           }
         }
       } finally {
