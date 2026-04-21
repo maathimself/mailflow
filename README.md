@@ -1,3 +1,4 @@
+![Logo](https://mailflow-assets-688224703622-us-east-2-an.s3.us-east-2.amazonaws.com/mailflow-logo.png)
 # MailFlow
 
 A self-hosted, unified webmail client. Connect multiple IMAP/SMTP accounts (Gmail, iCloud,
