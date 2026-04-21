@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useStore } from '../store/index.js';
+import { playNotificationSound } from '../utils/notificationSounds.js';
 
 export function useWebSocket() {
   const wsRef = useRef(null);
@@ -50,6 +51,8 @@ export function useWebSocket() {
             body: latest.subject || '(no subject)',
             count,
           });
+          const { notificationSound, customSoundDataUrl } = useStore.getState();
+          playNotificationSound(notificationSound, customSoundDataUrl);
 
           // If we're viewing this account's inbox or unified inbox, prepend
           const store = useStore.getState();

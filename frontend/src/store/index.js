@@ -81,6 +81,21 @@ export const useStore = create((set, get) => ({
     localStorage.setItem('mailflow_sidebar_collapsed', String(next));
     return { sidebarCollapsed: next };
   }),
+  notificationSound: localStorage.getItem('mailflow_notification_sound') || 'tritone',
+  setNotificationSound: (sound) => {
+    localStorage.setItem('mailflow_notification_sound', sound);
+    set({ notificationSound: sound });
+    api.savePreferences({ notificationSound: sound }).catch(() => {});
+  },
+  customSoundDataUrl: localStorage.getItem('mailflow_custom_sound') || null,
+  setCustomSoundDataUrl: (dataUrl) => {
+    if (dataUrl) {
+      localStorage.setItem('mailflow_custom_sound', dataUrl);
+    } else {
+      localStorage.removeItem('mailflow_custom_sound');
+    }
+    set({ customSoundDataUrl: dataUrl });
+  },
   composing: false,
   composeData: null,
   openCompose: (data = null) => set({ composing: true, composeData: data }),
@@ -162,6 +177,10 @@ export const useStore = create((set, get) => ({
         localStorage.setItem('mailflow_layout', prefs.layout);
         set({ layout: prefs.layout });
         applyLayout(prefs.layout);
+      }
+      if (prefs.notificationSound) {
+        localStorage.setItem('mailflow_notification_sound', prefs.notificationSound);
+        set({ notificationSound: prefs.notificationSound });
       }
     } catch (_) {}
   },

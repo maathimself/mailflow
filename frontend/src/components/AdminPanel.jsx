@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { THEMES, applyTheme } from '../themes.js';
 import { FONT_SETS, applyFontSet } from '../fonts.js';
 import { LAYOUTS, applyLayout } from '../layouts.js';
+import { NOTIFICATION_SOUNDS, playNotificationSound, playCustomSound, warmUpAudioContext } from '../utils/notificationSounds.js';
 
 // ─── Shared field component ───────────────────────────────────────────────────
 function Field({ label, required, children }) {
@@ -1434,6 +1435,187 @@ function UsersTab() {
   );
 }
 
+// ─── Notifications Tab ────────────────────────────────────────────────────────
+function NotificationsTab() {
+  const { notificationSound, setNotificationSound, customSoundDataUrl, setCustomSoundDataUrl } = useStore();
+  const fileInputRef = useRef(null);
+  const [customFileName, setCustomFileName] = useState(
+    () => localStorage.getItem('mailflow_custom_sound_name') || ''
+  );
+  const [uploadError, setUploadError] = useState('');
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setUploadError('');
+    if (file.size > 2 * 1024 * 1024) {
+      setUploadError('File must be under 2 MB.');
+      e.target.value = '';
+      return;
+    }
+    // Unlock AudioContext while we're inside a user-gesture handler.
+    warmUpAudioContext();
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target.result;
+      setCustomSoundDataUrl(dataUrl);
+      setCustomFileName(file.name);
+      localStorage.setItem('mailflow_custom_sound_name', file.name);
+      setNotificationSound('custom');
+      // Preview immediately so the user knows it worked.
+      playCustomSound(dataUrl);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const items = [
+    { id: 'none', label: 'None', description: 'No sound notification' },
+    ...Object.entries(NOTIFICATION_SOUNDS).map(([id, s]) => ({ id, ...s })),
+  ];
+
+  const iconVolume = (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+      <path d="M15.54 8.46a5 5 0 010 7.07"/>
+      <path d="M19.07 4.93a10 10 0 010 14.14"/>
+    </svg>
+  );
+
+  const checkmark = (
+    <div style={{
+      width: 16, height: 16, borderRadius: '50%', flexShrink: 0, marginLeft: 6,
+      background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }}>
+      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3.5">
+        <polyline points="20 6 9 17 4 12"/>
+      </svg>
+    </div>
+  );
+
+  return (
+    <div>
+      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+        Notifications
+      </div>
+      <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 20 }}>
+        Choose a sound to play when new mail arrives. Click a card to select and preview.
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(148px, 1fr))', gap: 10, alignItems: 'start' }}>
+        {items.map(({ id, label, description }) => {
+          const selected = notificationSound === id;
+          return (
+            <button
+              key={id}
+              onClick={() => {
+                setNotificationSound(id);
+                if (id !== 'none') playNotificationSound(id);
+              }}
+              style={{
+                background: selected ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
+                border: `2px solid ${selected ? 'var(--accent)' : 'var(--border-subtle)'}`,
+                borderRadius: 10, padding: '12px 12px 10px',
+                cursor: 'pointer', textAlign: 'left',
+                transition: 'all 0.15s', outline: 'none',
+              }}
+              onMouseEnter={e => { if (!selected) e.currentTarget.style.borderColor = 'var(--border)'; }}
+              onMouseLeave={e => { if (!selected) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
+            >
+              <div style={{ marginBottom: 8, color: selected ? 'var(--accent)' : 'var(--text-tertiary)' }}>
+                {id === 'none' ? (
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+                    <line x1="1" y1="1" x2="23" y2="23"/>
+                    <path d="M9 9v3a3 3 0 005.12 2.12M15 9.34V4a3 3 0 00-5.94-.6"/>
+                    <path d="M17 16.95A7 7 0 015 12v-2m14 0v2a7 7 0 01-.11 1.23M12 20v4M8 20h8"/>
+                  </svg>
+                ) : iconVolume}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{label}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>{description}</div>
+                </div>
+                {selected && checkmark}
+              </div>
+            </button>
+          );
+        })}
+
+        {/* Custom upload card */}
+        {(() => {
+          const selected = notificationSound === 'custom';
+          return (
+            <div
+              onClick={() => {
+                setNotificationSound('custom');
+                if (customSoundDataUrl) playCustomSound(customSoundDataUrl);
+              }}
+              style={{
+                background: selected ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
+                border: `2px solid ${selected ? 'var(--accent)' : 'var(--border-subtle)'}`,
+                borderRadius: 10, padding: '12px 12px 10px',
+                cursor: 'pointer', textAlign: 'left',
+                transition: 'all 0.15s', outline: 'none',
+                display: 'flex', flexDirection: 'column', gap: 6,
+              }}
+              onMouseEnter={e => { if (!selected) e.currentTarget.style.borderColor = 'var(--border)'; }}
+              onMouseLeave={e => { if (!selected) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
+            >
+              <div style={{ color: selected ? 'var(--accent)' : 'var(--text-tertiary)' }}>
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+                  <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                  <polyline points="17 8 12 3 7 8"/>
+                  <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>Custom</div>
+                  <div style={{
+                    fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2,
+                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                    maxWidth: 110,
+                  }}>
+                    {customFileName || 'Upload audio file'}
+                  </div>
+                </div>
+                {selected && checkmark}
+              </div>
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="audio/*"
+                style={{ display: 'none' }}
+                onChange={handleFileUpload}
+              />
+              <button
+                onClick={e => { e.stopPropagation(); fileInputRef.current?.click(); }}
+                style={{
+                  marginTop: 2, padding: '4px 8px', fontSize: 11, fontWeight: 500,
+                  background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+                  borderRadius: 5, cursor: 'pointer', color: 'var(--text-secondary)',
+                  alignSelf: 'flex-start', transition: 'background 0.1s',
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'var(--bg-secondary)'}
+              >
+                {customFileName ? 'Change file' : 'Upload'}
+              </button>
+
+              {uploadError && (
+                <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 2 }}>{uploadError}</div>
+              )}
+            </div>
+          );
+        })()}
+      </div>
+    </div>
+  );
+}
+
 const TABS = [
   {
     id: 'accounts', label: 'Accounts',
@@ -1463,6 +1645,10 @@ const TABS = [
   {
     id: 'security', label: 'Security',
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>,
+  },
+  {
+    id: 'notifications', label: 'Notifications',
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 010 7.07"/><path d="M19.07 4.93a10 10 0 010 14.14"/></svg>,
   },
 ];
 
@@ -1852,6 +2038,7 @@ export default function AdminPanel() {
           {adminTab === 'integrations' && <IntegrationsTab />}
           {adminTab === 'users' && <UsersTab />}
           {adminTab === 'security' && <SecurityTab />}
+          {adminTab === 'notifications' && <NotificationsTab />}
         </div>
       </div>
     </div>
