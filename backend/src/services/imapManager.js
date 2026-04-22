@@ -649,8 +649,20 @@ export class ImapManager {
           fetchQuery.bodyParts = prefetchBody ? BODY_PREFETCH_PARTS : SNIPPET_PARTS;
         }
 
+        // Highest UID we already have in DB for this account/folder — used as the
+        // watermark for Phase 1 new-message detection.
+        const { rows: [{ max_uid }] } = await query(
+          'SELECT COALESCE(MAX(uid), 0) as max_uid FROM messages WHERE account_id = $1 AND folder = $2',
+          [account.id, folder]
+        );
+        const maxKnownUid = Number(max_uid);
+
         const newMessages = [];
-        for await (const msg of client.fetch(fetchRange, fetchQuery)) {
+
+        // Insert/update a single fetched message and track it as new if appropriate.
+        // Called from both Phase 1 and Phase 2; ON CONFLICT handles deduplication so
+        // a message processed in both phases is never double-counted.
+        const processMsg = async (msg) => {
           try {
             const parsed = await parseMessage(msg);
             let safeHtml = null, text = null, atts = [];
@@ -693,6 +705,25 @@ export class ImapManager {
           } catch (parseErr) {
             console.error('Message sync parse error:', parseErr.message);
           }
+        };
+
+        // Phase 1 — UID-watermark fetch: guaranteed to find ALL messages that arrived
+        // since the last sync, regardless of how many there are.  The sequence-range
+        // approach below is limited to `limit` messages and would silently miss older
+        // arrivals in the batch when more than `limit` messages arrive between ticks.
+        // Skipped on first sync (maxKnownUid=0) because backfill owns initial population.
+        if (maxKnownUid > 0) {
+          for await (const msg of client.fetch(`${maxKnownUid + 1}:*`, fetchQuery, { uid: true })) {
+            await processMsg(msg);
+          }
+        }
+
+        // Phase 2 — Sequence-range fetch: syncs flag changes (is_read, is_starred) for
+        // recent messages, and handles the first-sync case (maxKnownUid=0).
+        // Messages already inserted by Phase 1 are processed again here but the
+        // ON CONFLICT DO UPDATE is idempotent and xmax=0 prevents double-notification.
+        for await (const msg of client.fetch(fetchRange, fetchQuery)) {
+          await processMsg(msg);
         }
 
         if (newMessages.length > 0) {
@@ -787,21 +818,23 @@ export class ImapManager {
 
       const serverTotal = serverUids.length;
 
-      // Quick completeness check: skip the full UID diff only when the DB count is
-      // >= the server total (meaning we have at least as many messages as the server,
-      // which is the normal state after deletions — the server drops a message but we
-      // keep it in the DB).  tolerance = 0 ensures even a single new message on the
-      // server triggers the UID diff and gets fetched.  The UID diff itself is cheap
-      // (one SEARCH ALL + one indexed DB query) so skipping it only saves ~50 ms.
-      const tolerance = 0;
-      const dbCountResult = await query(
-        'SELECT COUNT(*) as count FROM messages WHERE account_id = $1 AND folder = $2',
+      // Early-exit check using max UID rather than row count.
+      // Row-count comparison is unreliable: mailflow retains deleted messages in the DB
+      // so dbCount can exceed serverTotal even when new messages have arrived with
+      // higher UIDs.  Comparing the highest UID we have against the server's highest
+      // UID is correct because IMAP UIDs are monotonically increasing — if our max
+      // matches the server's max, there is nothing new to fetch.
+      const dbSummaryResult = await query(
+        'SELECT COUNT(*) as count, COALESCE(MAX(uid), 0) as max_uid FROM messages WHERE account_id = $1 AND folder = $2',
         [account.id, folder]
       );
-      const dbCount = parseInt(dbCountResult.rows[0].count);
+      const dbCount = parseInt(dbSummaryResult.rows[0].count);
+      const maxDbUid = Number(dbSummaryResult.rows[0].max_uid);
+      // serverUids from UID SEARCH ALL are in ascending order per IMAP RFC 3501
+      const maxServerUid = serverUids.length > 0 ? serverUids[serverUids.length - 1] : 0;
 
-      if (dbCount >= serverTotal - tolerance) {
-        console.log(`Backfill already complete for ${account.email_address}: ${dbCount}/${serverTotal}`);
+      if (maxServerUid > 0 && maxDbUid >= maxServerUid) {
+        console.log(`Backfill already complete for ${account.email_address}: maxDbUid=${maxDbUid}, maxServerUid=${maxServerUid}`);
         return;
       }
 
