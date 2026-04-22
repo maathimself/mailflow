@@ -93,6 +93,12 @@ export const useStore = create((set, get) => ({
     set({ scrollMode: mode });
     api.savePreferences({ scrollMode: mode }).catch(() => {});
   },
+  syncInterval: parseInt(localStorage.getItem('mailflow_sync_interval')) || 60,
+  setSyncInterval: (seconds) => {
+    localStorage.setItem('mailflow_sync_interval', String(seconds));
+    set({ syncInterval: seconds });
+    api.savePreferences({ syncInterval: String(seconds) }).catch(() => {});
+  },
   notificationSound: localStorage.getItem('mailflow_notification_sound') || 'tritone',
   setNotificationSound: (sound) => {
     localStorage.setItem('mailflow_notification_sound', sound);
@@ -202,6 +208,11 @@ export const useStore = create((set, get) => ({
       if (prefs.scrollMode) {
         localStorage.setItem('mailflow_scroll_mode', prefs.scrollMode);
         set({ scrollMode: prefs.scrollMode });
+      }
+      if (prefs.syncInterval) {
+        const n = parseInt(prefs.syncInterval);
+        localStorage.setItem('mailflow_sync_interval', String(n));
+        set({ syncInterval: n });
       }
     } catch (_) {}
   },

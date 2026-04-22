@@ -369,6 +369,7 @@ export class ImapManager {
     this.syncingAccounts = new Set(); // prevent overlapping interval syncs
     this.syncThrottleSkips = new Map(); // accountId -> remaining ticks to skip when throttled
     this.connectingAccounts = new Set(); // prevent concurrent connectAccount calls for same account
+    this.userSyncIntervalMs = new Map(); // userId -> interval ms (user-configurable)
 
     // Health check: every 90 seconds, find any enabled IMAP accounts that have no
     // active connection and no in-progress connect attempt, and reconnect them.
@@ -470,79 +471,8 @@ export class ImapManager {
         console.error(`Backfill error for ${account.email_address}:`, err.message)
       );
 
-      const interval = setInterval(async () => {
-        // Back off when the server is throttling us — skip this tick
-        const skips = this.syncThrottleSkips.get(account.id) || 0;
-        if (skips > 0) {
-          this.syncThrottleSkips.set(account.id, skips - 1);
-          return;
-        }
-
-        // Skip this tick if the previous one hasn't finished yet.
-        if (this.syncingAccounts.has(account.id)) return;
-        this.syncingAccounts.add(account.id);
-        try {
-          let activeClient = this.connections.get(account.id);
-          if (!activeClient) {
-            console.log(`Reconnecting ${account.email_address}...`);
-            try {
-              // Re-fetch from DB to pick up any updated OAuth tokens
-              const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [account.id]);
-              if (!accountResult.rows.length) return;
-              const freshAccount = await ensureFreshToken(accountResult.rows[0]);
-              activeClient = new ImapFlow(makeClientCfg(freshAccount));
-              await Promise.race([
-                activeClient.connect(),
-                new Promise((_, reject) =>
-                  setTimeout(() => reject(new Error('IMAP connection timeout (30s)')), 30000)
-                ),
-              ]);
-              activeClient.on('close', () => {
-                if (this.connections.get(account.id) === activeClient) {
-                  this.connections.delete(account.id);
-                }
-              });
-              activeClient.on('error', (err) => {
-                console.error(`IMAP error for ${account.email_address}:`, err.message);
-              });
-              this.connections.set(account.id, activeClient);
-              console.log(`Reconnected ${account.email_address}`);
-            } catch (reconnErr) {
-              console.error(`Reconnect failed for ${account.email_address}:`, reconnErr.message);
-              return;
-            }
-          }
-          // The periodic sync uses noBodyParts=true so slow servers (e.g. purelymail.com)
-          // don't time out fetching 3–8 body parts × 50 messages. Envelope/flags/uid are
-          // enough to detect new messages and flag changes. Snippets come from backfill.
-          // Also race against a wall-clock timeout: commandTimeout guards IMAP commands but
-          // a half-open TCP socket never sends bytes so commandTimeout never fires. The
-          // wall-clock ensures syncingAccounts is always released within one interval.
-          await Promise.race([
-            this.syncMessages(account, activeClient, 'INBOX', 50, false, true),
-            new Promise((_, reject) =>
-              setTimeout(() => reject(new Error('Sync wall-clock timeout (55s)')), 55000)
-            ),
-          ]);
-          // Notify frontend so the refresh icon animates on auto-poll
-          this.broadcast({ type: 'sync_complete', accountId: account.id }, account.user_id);
-        } catch (err) {
-          const detail = extractImapError(err);
-          console.error(`Sync error for ${account.email_address}:`, detail);
-          // If the server is throttling, back off for ~5 minutes (4 skipped 60s ticks + this one)
-          if (detail.includes('THROTTLED') || detail.includes('throttl')) {
-            this.syncThrottleSkips.set(account.id, 4);
-          }
-          const dead = this.connections.get(account.id);
-          if (dead) {
-            this.connections.delete(account.id);
-            try { dead.logout(); } catch (_) {}
-          }
-        } finally {
-          this.syncingAccounts.delete(account.id);
-        }
-      }, 60000);
-      this.syncIntervals.set(account.id, interval);
+      const intervalMs = this.userSyncIntervalMs.get(account.user_id) || 60000;
+      this._startSyncInterval(account, intervalMs);
 
       console.log(`Connected account: ${account.email_address}`);
       this.broadcast({ type: 'account_connected', accountId: account.id }, account.user_id);
@@ -569,6 +499,92 @@ export class ImapManager {
     }
     this.syncThrottleSkips.delete(accountId);
     evictPool(accountId);
+  }
+
+  // Extracted sync tick — runs on every interval tick for an account.
+  async _syncTick(account) {
+    const skips = this.syncThrottleSkips.get(account.id) || 0;
+    if (skips > 0) {
+      this.syncThrottleSkips.set(account.id, skips - 1);
+      return;
+    }
+    if (this.syncingAccounts.has(account.id)) return;
+    this.syncingAccounts.add(account.id);
+    try {
+      let activeClient = this.connections.get(account.id);
+      if (!activeClient) {
+        console.log(`Reconnecting ${account.email_address}...`);
+        try {
+          const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [account.id]);
+          if (!accountResult.rows.length) return;
+          const freshAccount = await ensureFreshToken(accountResult.rows[0]);
+          activeClient = new ImapFlow(makeClientCfg(freshAccount));
+          await Promise.race([
+            activeClient.connect(),
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error('IMAP connection timeout (30s)')), 30000)
+            ),
+          ]);
+          activeClient.on('close', () => {
+            if (this.connections.get(account.id) === activeClient) {
+              this.connections.delete(account.id);
+            }
+          });
+          activeClient.on('error', (err) => {
+            console.error(`IMAP error for ${account.email_address}:`, err.message);
+          });
+          this.connections.set(account.id, activeClient);
+          console.log(`Reconnected ${account.email_address}`);
+        } catch (reconnErr) {
+          console.error(`Reconnect failed for ${account.email_address}:`, reconnErr.message);
+          return;
+        }
+      }
+      // noBodyParts=true: envelope/flags/uid only — avoids slow servers timing out on body fetches.
+      // Wall-clock timeout guards against half-open TCP sockets that never trigger commandTimeout.
+      await Promise.race([
+        this.syncMessages(account, activeClient, 'INBOX', 50, false, true),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Sync wall-clock timeout (55s)')), 55000)
+        ),
+      ]);
+      this.broadcast({ type: 'sync_complete', accountId: account.id }, account.user_id);
+    } catch (err) {
+      const detail = extractImapError(err);
+      console.error(`Sync error for ${account.email_address}:`, detail);
+      if (detail.includes('THROTTLED') || detail.includes('throttl')) {
+        this.syncThrottleSkips.set(account.id, 4);
+      }
+      const dead = this.connections.get(account.id);
+      if (dead) {
+        this.connections.delete(account.id);
+        try { dead.logout(); } catch (_) {}
+      }
+    } finally {
+      this.syncingAccounts.delete(account.id);
+    }
+  }
+
+  _startSyncInterval(account, ms) {
+    const interval = setInterval(() => this._syncTick(account), ms);
+    this.syncIntervals.set(account.id, interval);
+  }
+
+  // Called when a user changes their sync interval preference — replaces running
+  // intervals for all their active accounts without disconnecting.
+  async updateSyncIntervalForUser(userId, newMs) {
+    this.userSyncIntervalMs.set(userId, newMs);
+    const result = await query(
+      "SELECT * FROM email_accounts WHERE user_id = $1 AND enabled = true AND protocol = 'imap'",
+      [userId]
+    );
+    for (const acc of result.rows) {
+      if (this.syncIntervals.has(acc.id)) {
+        clearInterval(this.syncIntervals.get(acc.id));
+        this.syncIntervals.delete(acc.id);
+        this._startSyncInterval(acc, newMs);
+      }
+    }
   }
 
   async syncFolders(account, client) {

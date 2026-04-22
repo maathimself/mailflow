@@ -207,7 +207,7 @@ router.get('/preferences', async (req, res) => {
 
 router.patch('/preferences', async (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
-  const { theme, font, layout, notificationSound, pageSize, scrollMode } = req.body;
+  const { theme, font, layout, notificationSound, pageSize, scrollMode, syncInterval } = req.body;
   await query(`
     UPDATE users
     SET preferences = preferences
@@ -217,8 +217,17 @@ router.patch('/preferences', async (req, res) => {
       || CASE WHEN $5::text IS NOT NULL THEN jsonb_build_object('notificationSound', $5::text) ELSE '{}'::jsonb END
       || CASE WHEN $6::text IS NOT NULL THEN jsonb_build_object('pageSize', $6::text) ELSE '{}'::jsonb END
       || CASE WHEN $7::text IS NOT NULL THEN jsonb_build_object('scrollMode', $7::text) ELSE '{}'::jsonb END
+      || CASE WHEN $8::text IS NOT NULL THEN jsonb_build_object('syncInterval', $8::text) ELSE '{}'::jsonb END
     WHERE id = $1
-  `, [req.session.userId, theme ?? null, font ?? null, layout ?? null, notificationSound ?? null, pageSize ?? null, scrollMode ?? null]);
+  `, [req.session.userId, theme ?? null, font ?? null, layout ?? null, notificationSound ?? null, pageSize ?? null, scrollMode ?? null, syncInterval ?? null]);
+
+  if (syncInterval != null) {
+    const ms = parseInt(syncInterval) * 1000;
+    if (ms >= 15000 && ms <= 120000) {
+      imapManager.updateSyncIntervalForUser(req.session.userId, ms).catch(console.error);
+    }
+  }
+
   res.json({ ok: true });
 });
 

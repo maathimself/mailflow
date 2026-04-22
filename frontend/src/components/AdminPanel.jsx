@@ -715,7 +715,7 @@ function LayoutDiagram({ layoutKey, layoutConfig, active }) {
 
 // ─── Layouts Tab ──────────────────────────────────────────────────────────────
 function LayoutsTab() {
-  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode } = useStore();
+  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, syncInterval, setSyncInterval } = useStore();
 
   const handleSelect = (key) => {
     setLayout(key);
@@ -841,6 +841,43 @@ function LayoutsTab() {
               );
             })}
           </div>
+        </div>
+      </div>
+
+      {/* Sync interval */}
+      <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+          Sync Frequency
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12 }}>
+          How often mailflow checks for new emails
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {[
+            { value: 15,  label: '15s' },
+            { value: 30,  label: '30s' },
+            { value: 60,  label: '60s' },
+            { value: 120, label: '2 min' },
+          ].map(({ value, label }) => {
+            const active = syncInterval === value;
+            return (
+              <button
+                key={value}
+                onClick={() => setSyncInterval(value)}
+                style={{
+                  flex: 1, padding: '7px 4px', fontSize: 13, fontWeight: 500,
+                  background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
+                  border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
+                  borderRadius: 7, cursor: 'pointer', transition: 'all 0.15s', outline: 'none',
+                  color: active ? 'var(--accent)' : 'var(--text-secondary)',
+                }}
+                onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; }}
+                onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
+              >
+                {label}
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>
