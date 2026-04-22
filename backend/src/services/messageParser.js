@@ -150,7 +150,7 @@ export async function parseMessage(msg) {
     fromEmail,
     to: mapAddrs(envelope.to),
     cc: mapAddrs(envelope.cc),
-    date: envelope.date || new Date(),
+    date: msg.internalDate || envelope.date || new Date(),
     snippet,
     isRead,
     isStarred,

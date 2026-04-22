@@ -625,6 +625,7 @@ export class ImapManager {
           uid: true, flags: true, envelope: true,
           bodyStructure: true,
           size: true,
+          internalDate: true,
         };
         if (!isGmail && !noBodyParts) {
           // Always fetch SNIPPET_PARTS so parseMessage can build a clean snippet.
@@ -856,6 +857,7 @@ export class ImapManager {
             const bfQuery = {
               uid: true, flags: true, envelope: true,
               bodyStructure: true, size: true,
+              internalDate: true,
             };
             if (bodyParts.length > 0) bfQuery.bodyParts = bodyParts;
 
