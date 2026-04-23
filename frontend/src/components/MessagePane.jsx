@@ -38,7 +38,7 @@ export default function MessagePane() {
   const [downloadingPart, setDownloadingPart] = useState(null);
   const [showReplyMenu, setShowReplyMenu] = useState(false);
   const iframeRef = useRef(null);
-  const roRef = useRef(null); // ResizeObserver watching the iframe body
+  const roRef = useRef(null);
   const bodyCache = useRef({}); // messageId -> body, so revisiting is instant (capped at 50)
   const bodyCacheOrder = useRef([]); // insertion-order keys for LRU eviction
 
@@ -113,94 +113,74 @@ export default function MessagePane() {
     return () => { cancelled = true; };
   }, [selectedMessageId, retryKey]);
 
-  // Resize the iframe to fit its content. Runs whenever body changes.
-  // Uses allow-same-origin to read contentDocument directly — safe because
-  // allow-scripts is NOT set, so no JavaScript (including email scripts)
-  // can run inside the iframe and escape the sandbox.
+  // Size the iframe to its full content height so no internal scrollbar appears.
+  // The outer overflow:auto container is the only scrollbar the user sees.
   useEffect(() => {
-    if (!iframeRef.current || !body?.html) return;
     const iframe = iframeRef.current;
+    if (!iframe || !body?.html) return;
 
-    let rafId = 0;
+    let rafId;
 
     const setHeight = () => {
-      try {
-        const doc = iframe.contentDocument;
-        if (!doc?.body) return;
-        // documentElement.scrollHeight is more reliable than body.scrollHeight for
-        // marketing emails that ship a full <html>/<head>/<body> structure inside
-        // their HTML payload. The browser's HTML5 parser merges nested <body> tags
-        // and can position content outside document.body, causing body.scrollHeight
-        // to return 0 or a small value while the actual document is much taller.
-        // documentElement.scrollHeight captures the full document height regardless
-        // of where content lands in the tree, and already includes body margins so
-        // no offset is needed. Fall back to body.scrollHeight + 32 if documentElement
-        // is unavailable.
-        const h = doc.documentElement?.scrollHeight || (doc.body.scrollHeight + 32);
-        if (h > 0) iframe.style.height = h + 'px';
-      } catch (_) {}
+      const doc = iframe.contentDocument;
+      if (!doc) return;
+      const el = doc.documentElement;
+      const b = doc.body;
+
+      // Clear any previously injected overflow so scrollHeight reflects full content
+      if (el) el.style.overflow = '';
+      if (b) b.style.overflow = '';
+
+      const h = Math.max(
+        el ? el.scrollHeight : 0,
+        el ? el.offsetHeight : 0,
+        b ? b.scrollHeight : 0,
+        b ? b.offsetHeight : 0,
+      );
+
+      if (h > 0) {
+        iframe.style.height = (h + 2) + 'px';
+        // Inject overflow:hidden so the document itself can never show a scrollbar
+        if (el) el.style.overflow = 'hidden';
+      }
     };
 
     const onLoaded = () => {
-      // Measure immediately, then once more after the next paint to catch any
-      // layout that finalises after the load event fires (complex table-based
-      // emails, web fonts, etc.).
       setHeight();
       rafId = requestAnimationFrame(setHeight);
 
-      // Watch the full document (not just body) for layout changes triggered
-      // by images or web fonts loading after the initial paint. documentElement
-      // captures content outside body that HTML5 parsers can create for complex
-      // marketing emails with nested html/body tags.
-      try {
-        roRef.current?.disconnect();
-        const root = iframe.contentDocument?.documentElement || iframe.contentDocument?.body;
-        if (window.ResizeObserver && root) {
-          roRef.current = new ResizeObserver(setHeight);
-          roRef.current.observe(root);
-        }
-      } catch (_) {}
+      const doc = iframe.contentDocument;
+      if (!doc) return;
 
-      // Additionally attach load listeners directly to any images that
-      // haven't finished loading yet — ResizeObserver won't fire for images
-      // that are fully loaded before they're observed.
-      try {
-        const imgs = iframe.contentDocument?.querySelectorAll('img') ?? [];
-        imgs.forEach(img => {
-          if (!img.complete) {
-            img.addEventListener('load',  setHeight, { once: true });
-            img.addEventListener('error', setHeight, { once: true });
-          }
-        });
-      } catch (_) {}
+      // Re-measure after each lazy-loaded image settles
+      doc.querySelectorAll('img').forEach(img => {
+        if (!img.complete) {
+          img.addEventListener('load', () => requestAnimationFrame(setHeight), { once: true });
+          img.addEventListener('error', () => requestAnimationFrame(setHeight), { once: true });
+        }
+      });
+
+      // Observe body (not documentElement) — once overflow:hidden is set on <html>
+      // the documentElement stops growing, so body gives accurate resize signals
+      const root = doc.body || doc.documentElement;
+      if (window.ResizeObserver && root) {
+        roRef.current = new ResizeObserver(() => requestAnimationFrame(setHeight));
+        roRef.current.observe(root);
+      }
     };
 
-    // Always register the load event — it fires after ALL subresources are
-    // done and gives the definitive correct height.
-    //
-    // Do NOT use an if/else here. When React changes srcDoc, the browser starts
-    // a new navigation inside the iframe. The effect may run while readyState is
-    // briefly 'complete' on a transitional blank document (before the new
-    // navigation begins). If we skip the load listener in that case, the real
-    // document loads silently with no height measurement.
     iframe.addEventListener('load', onLoaded, { once: true });
-
-    // Early estimate: if readyState is already 'complete' this likely means the
-    // same email is being revisited (srcDoc unchanged) and no new load event will
-    // fire, or the document loaded extremely fast. Measure now so the user sees
-    // a height immediately while waiting for any slow subresources.
+    // Early pass when iframe is already complete (cached / fast body)
     if (iframe.contentDocument?.readyState === 'complete') {
-      setHeight();
-      rafId = requestAnimationFrame(setHeight);
+      onLoaded();
     }
 
     return () => {
       cancelAnimationFrame(rafId);
+      if (roRef.current) { roRef.current.disconnect(); roRef.current = null; }
       iframe.removeEventListener('load', onLoaded);
-      roRef.current?.disconnect();
-      roRef.current = null;
     };
-  }, [body]);
+  }, [body?.html, selectedMessageId]);
 
   const handleDownload = async (messageId, part, filename) => {
     setDownloadingPart(part);
@@ -324,7 +304,7 @@ export default function MessagePane() {
       flex: 1, display: 'flex', flexDirection: 'column',
       overflow: 'hidden', background: 'var(--bg-primary)',
     }}>
-      {/* Toolbar */}
+      {/* Toolbar — always pinned at top, never scrolls */}
       <div style={{
         padding: '12px 20px', borderBottom: '1px solid var(--border-subtle)',
         display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
@@ -410,8 +390,9 @@ export default function MessagePane() {
         </PaneBtn>
       </div>
 
-      {/* Scrollable content */}
-      <div style={{ flex: 1, overflow: 'auto', padding: '24px 28px' }}>
+      {/* Single scroll container — sender card + email body scroll together */}
+      <div style={{ flex: 1, overflow: 'auto', background: 'var(--bg-primary)' }}>
+      <div style={{ padding: '24px 28px 0' }}>
 
         {/* Sender card — subject lives here as the card header */}
         <div style={{
@@ -538,13 +519,14 @@ export default function MessagePane() {
           </div>
         )}
 
-        {/* Body */}
+        {/* Loading */}
         {loadingBody && (
           <div style={{ color: 'var(--text-tertiary)', fontSize: 14, padding: '20px 0' }}>
             Loading…
           </div>
         )}
 
+        {/* Error */}
         {!loadingBody && bodyError && (
           <div style={{
             display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
@@ -576,66 +558,74 @@ export default function MessagePane() {
           </div>
         )}
 
-        {!loadingBody && !bodyError && body && (
-          body.html ? (
-            <div style={{
-              background: 'white', borderRadius: 10, overflow: 'hidden',
-              border: '1px solid var(--border-subtle)',
-            }}>
-              <iframe
-                ref={iframeRef}
-                srcDoc={`<!DOCTYPE html><html><head><meta charset="utf-8">
-                  <meta name="viewport" content="width=device-width,initial-scale=1">
-                  <base target="_blank">
-                  <style>
-                    body { margin: 16px; font-family: -apple-system, Arial, sans-serif;
-                           font-size: 14px; line-height: 1.6; color: #1a1a1a; word-wrap: break-word; }
-                    img { max-width: 100%; height: auto; }
-                    a { color: #6366f1; }
-                    pre, code { overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
-                    blockquote { border-left: 3px solid #ddd; margin: 0; padding-left: 12px; color: #555; }
-                    table { max-width: 100%; }
-                  </style>
-                </head><body>${
-                  // Add rel="noopener noreferrer" to all links so new tabs don't retain an
-                  // opener reference. Without this, sites with COOP: same-origin (e.g. Stripe)
-                  // block the navigation and show a browser security warning.
-                  body.html.replace(/<a(\s)/gi, '<a rel="noopener noreferrer"$1')
-                }</body></html>`}
-                style={{ width: '100%', minHeight: 100, border: 'none', display: 'block' }}
-                sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-                title="Email content"
-              />
+        {/* No content */}
+        {!loadingBody && !bodyError && body && !body.html && !body.text && (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 12, padding: '20px 0' }}>
+            <div style={{ fontSize: 14, color: 'var(--text-tertiary)' }}>
+              No message content found.
             </div>
-          ) : body.text ? (
-            <pre style={{
-              whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-              fontSize: 14, color: 'var(--text-primary)', lineHeight: 1.7,
-              fontFamily: 'DM Sans, sans-serif', margin: 0,
-            }}>
-              {body.text}
-            </pre>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 12, padding: '20px 0' }}>
-              <div style={{ fontSize: 14, color: 'var(--text-tertiary)' }}>
-                No message content found.
-              </div>
-              <button
-                onClick={() => { delete bodyCache.current[selectedMessageId]; setRetryKey(k => k + 1); }}
-                style={{
-                  background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-                  borderRadius: 6, padding: '6px 14px', cursor: 'pointer',
-                  color: 'var(--text-secondary)', fontSize: 13,
-                }}
-                onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-tertiary)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg-secondary)'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
-              >
-                Retry
-              </button>
-            </div>
-          )
+            <button
+              onClick={() => { delete bodyCache.current[selectedMessageId]; setRetryKey(k => k + 1); }}
+              style={{
+                background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+                borderRadius: 6, padding: '6px 14px', cursor: 'pointer',
+                color: 'var(--text-secondary)', fontSize: 13,
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-tertiary)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg-secondary)'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+            >
+              Retry
+            </button>
+          </div>
         )}
       </div>
+
+      {/* HTML email — iframe sized to full content height; outer container scrolls */}
+      {!loadingBody && !bodyError && body?.html && (
+        <div style={{ padding: '0 28px 24px' }}>
+          <div style={{
+            background: 'white', borderRadius: 10,
+            border: '1px solid var(--border-subtle)',
+            overflow: 'hidden',
+          }}>
+            <iframe
+              ref={iframeRef}
+              srcDoc={`<!DOCTYPE html><html><head><meta charset="utf-8">
+                <meta name="viewport" content="width=device-width,initial-scale=1">
+                <base target="_blank">
+                <style>
+                  body { margin: 16px; font-family: -apple-system, Arial, sans-serif;
+                         font-size: 14px; line-height: 1.6; color: #1a1a1a; word-wrap: break-word; }
+                  img { max-width: 100%; height: auto; }
+                  a { color: #6366f1; }
+                  pre, code { overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
+                  blockquote { border-left: 3px solid #ddd; margin: 0; padding-left: 12px; color: #555; }
+                  table { max-width: 100%; }
+                </style>
+              </head><body>${
+                body.html.replace(/<a(\s)/gi, '<a rel="noopener noreferrer"$1')
+              }</body></html>`}
+              scrolling="no"
+              style={{ width: '100%', border: 'none', display: 'block', height: '300px' }}
+              sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+              title="Email content"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Plain-text email — no internal scroll, outer container handles it */}
+      {!loadingBody && !bodyError && body?.text && !body?.html && (
+        <pre style={{
+          margin: 0, padding: '0 28px 24px',
+          whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+          fontSize: 14, color: 'var(--text-primary)', lineHeight: 1.7,
+          fontFamily: 'DM Sans, sans-serif',
+        }}>
+          {body.text}
+        </pre>
+      )}
+      </div>{/* end single scroll container */}
     </div>
   );
 }
