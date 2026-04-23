@@ -1,4 +1,7 @@
-![Logo](mailflow-logo.png)
+﻿<p align="center">
+  <img src="mailflow-logo.png" width="150" alt="Invenicum Logo">
+</p>
+
 # MailFlow
 
 A self-hosted, unified webmail client. Connect multiple IMAP/SMTP accounts (Gmail, iCloud,
