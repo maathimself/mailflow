@@ -1,5 +1,5 @@
 ﻿<p align="center">
-  <img src="mailflow-logo.png" width="150" alt="Invenicum Logo">
+  <img src="mailflow-logo.png" width="200" alt="MailFlow Logo">
 </p>
 
 # MailFlow
@@ -36,7 +36,7 @@ section before deploying.
 ### 1. Get the code
 
 ```bash
-git clone <repo-url> mailflow
+git clone https://github.com/maathimself/mailflow.git mailflow
 cd mailflow
 ```
 
@@ -50,7 +50,6 @@ Edit `.env` — the required fields are:
 
 | Variable | Description |
 |---|---|
-| `DOMAIN` | Your domain, e.g. `mail.example.com` |
 | `APP_URL` | Full URL, e.g. `https://mail.example.com` |
 | `SESSION_SECRET` | Random 64-char hex — `openssl rand -hex 32` |
 | `DB_PASSWORD` | Random password — `openssl rand -hex 16` |
