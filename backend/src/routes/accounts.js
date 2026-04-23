@@ -10,7 +10,7 @@ router.get('/', async (req, res) => {
   const result = await query(
     `SELECT id, name, email_address, color, protocol, imap_host, imap_port,
             smtp_host, smtp_port, auth_user, oauth_provider, enabled,
-            last_sync, sync_error, sort_order, created_at
+            last_sync, sync_error, sort_order, folder_mappings, created_at
      FROM email_accounts WHERE user_id = $1 ORDER BY sort_order, created_at`,
     [req.session.userId]
   );
@@ -67,7 +67,7 @@ router.put('/:id', async (req, res) => {
   const check = await query('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
 
-  const allowed = ['name', 'color', 'enabled', 'auth_pass', 'sort_order', 'smtp_host', 'smtp_port'];
+  const allowed = ['name', 'color', 'enabled', 'auth_pass', 'sort_order', 'smtp_host', 'smtp_port', 'folder_mappings'];
   const sets = [];
   const values = [];
   let i = 1;

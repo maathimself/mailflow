@@ -19,7 +19,7 @@ function normalizeTo(arr) {
 
 
 export default function ComposeModal() {
-  const { closeCompose, composeData, accounts } = useStore();
+  const { closeCompose, composeData, accounts, addNotification } = useStore();
 
   const [to, setTo] = useState(() => normalizeTo(composeData?.to) || '');
   const [cc, setCc] = useState(() => normalizeTo(composeData?.cc) || '');
@@ -84,6 +84,7 @@ export default function ComposeModal() {
         inReplyTo: composeData?.inReplyTo,
       });
       closeCompose();
+      addNotification({ title: 'Message sent', body: subject || '(no subject)' });
     } catch (err) {
       setError(err.message);
       setSending(false);

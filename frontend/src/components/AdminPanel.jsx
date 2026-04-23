@@ -237,8 +237,12 @@ function AccountForm({ initial, onSave, onCancel }) {
 // ─── Accounts Tab ─────────────────────────────────────────────────────────────
 function AccountsTab() {
   const { accounts, setAccounts, updateAccount } = useStore();
-  const [subview, setSubview] = useState('list'); // 'list' | 'add' | 'edit'
+  const [subview, setSubview] = useState('list'); // 'list' | 'add' | 'edit' | 'folders'
   const [editTarget, setEditTarget] = useState(null);
+  const [folderMappings, setFolderMappings] = useState({});
+  const [availableFolders, setAvailableFolders] = useState([]);
+  const [foldersLoading, setFoldersLoading] = useState(false);
+  const [foldersSaving, setFoldersSaving] = useState(false);
 
   const handleAdd = async (form) => {
     const account = await api.addAccount(form);
@@ -265,6 +269,39 @@ function AccountsTab() {
   const handleReconnect = async (id) => {
     await api.reconnectAccount(id);
     updateAccount(id, { sync_error: null });
+  };
+
+  const handleFolderMappingOpen = async (account) => {
+    setEditTarget(account);
+    setFolderMappings(account.folder_mappings || {});
+    setSubview('folders');
+    setFoldersLoading(true);
+    try {
+      const folders = await api.getFolders(account.id);
+      setAvailableFolders(folders);
+    } catch (err) {
+      console.error('Failed to load folders:', err);
+    } finally {
+      setFoldersLoading(false);
+    }
+  };
+
+  const handleFolderMappingsSave = async () => {
+    setFoldersSaving(true);
+    try {
+      const cleanMappings = {};
+      for (const [key, val] of Object.entries(folderMappings)) {
+        if (val) cleanMappings[key] = val;
+      }
+      await api.updateAccount(editTarget.id, { folder_mappings: cleanMappings });
+      updateAccount(editTarget.id, { folder_mappings: cleanMappings });
+      setSubview('list');
+      setEditTarget(null);
+    } catch (err) {
+      console.error('Failed to save folder mappings:', err);
+    } finally {
+      setFoldersSaving(false);
+    }
   };
 
   if (subview === 'add') {
@@ -308,6 +345,87 @@ function AccountsTab() {
           {editTarget.email_address}
         </div>
         <AccountForm initial={editTarget} onSave={handleEdit} onCancel={() => { setSubview('list'); setEditTarget(null); }} />
+      </div>
+    );
+  }
+
+  if (subview === 'folders' && editTarget) {
+    const FOLDER_ROLES = [
+      { key: 'sent',    label: 'Sent',        specialUse: '\\Sent' },
+      { key: 'drafts',  label: 'Drafts',      specialUse: '\\Drafts' },
+      { key: 'trash',   label: 'Trash',       specialUse: '\\Trash' },
+      { key: 'spam',    label: 'Spam / Junk', specialUse: '\\Junk' },
+      { key: 'archive', label: 'Archive',     specialUse: '\\Archive' },
+    ];
+    const selectStyle = {
+      width: '100%', padding: '8px 10px',
+      background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+      borderRadius: 7, color: 'var(--text-primary)', fontSize: 13,
+      outline: 'none', cursor: 'pointer',
+    };
+    return (
+      <div>
+        <button onClick={() => { setSubview('list'); setEditTarget(null); }} style={{
+          display: 'flex', alignItems: 'center', gap: 6,
+          background: 'none', border: 'none', color: 'var(--text-secondary)',
+          cursor: 'pointer', fontSize: 13, padding: '0 0 16px 0',
+        }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <polyline points="15 18 9 12 15 6"/>
+          </svg>
+          Back to accounts
+        </button>
+        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+          Folder mappings
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 20 }}>
+          {editTarget.email_address}
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 16, lineHeight: 1.6, padding: '10px 12px', background: 'var(--bg-tertiary)', borderRadius: 8, border: '1px solid var(--border-subtle)' }}>
+          Map each mail role to a specific folder. Select <strong>Auto-detect</strong> to let MailFlow use the folder your server has tagged for that role.
+        </div>
+        {foldersLoading ? (
+          <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-tertiary)', fontSize: 13 }}>
+            Loading folders…
+          </div>
+        ) : (
+          FOLDER_ROLES.map(role => {
+            const autoFolder = availableFolders.find(f => f.special_use === role.specialUse);
+            return (
+              <div key={role.key} style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 5 }}>
+                  {role.label}
+                </label>
+                <select
+                  value={folderMappings[role.key] || ''}
+                  onChange={e => setFolderMappings(m => ({ ...m, [role.key]: e.target.value }))}
+                  style={selectStyle}
+                >
+                  <option value="" style={{ background: 'var(--bg-tertiary)' }}>
+                    {autoFolder ? `Auto-detect (${autoFolder.path})` : 'Auto-detect (none found)'}
+                  </option>
+                  {availableFolders.map(f => (
+                    <option key={f.path} value={f.path} style={{ background: 'var(--bg-tertiary)' }}>
+                      {f.path}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            );
+          })
+        )}
+        <button
+          onClick={handleFolderMappingsSave}
+          disabled={foldersSaving || foldersLoading}
+          style={{
+            marginTop: 8, padding: '9px 20px', background: 'var(--accent)',
+            border: 'none', borderRadius: 7, color: 'white',
+            fontSize: 13, fontWeight: 500, cursor: (foldersSaving || foldersLoading) ? 'not-allowed' : 'pointer',
+            opacity: (foldersSaving || foldersLoading) ? 0.7 : 1,
+          }}
+        >
+          {foldersSaving ? 'Saving…' : 'Save mappings'}
+        </button>
       </div>
     );
   }
@@ -383,6 +501,11 @@ function AccountsTab() {
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
                   <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
+              </IconBtn>
+              <IconBtn onClick={() => handleFolderMappingOpen(account)} title="Folder mappings">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
                 </svg>
               </IconBtn>
               <IconBtn onClick={() => handleDelete(account.id)} title="Remove" danger>

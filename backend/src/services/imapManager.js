@@ -855,8 +855,12 @@ export class ImapManager {
       // serverUids from UID SEARCH ALL are in ascending order per IMAP RFC 3501
       const maxServerUid = serverUids.length > 0 ? serverUids[serverUids.length - 1] : 0;
 
-      if (maxServerUid > 0 && maxDbUid >= maxServerUid) {
-        console.log(`Backfill already complete for ${account.email_address}: maxDbUid=${maxDbUid}, maxServerUid=${maxServerUid}`);
+      // Both conditions must hold: we have the newest message (max UID matches) AND
+      // we have at least as many messages as the server.  Checking only max UID is
+      // insufficient — syncMessages always fetches the most-recent N messages, so
+      // maxDbUid == maxServerUid even when thousands of older messages are missing.
+      if (maxServerUid > 0 && maxDbUid >= maxServerUid && dbCount >= serverTotal) {
+        console.log(`Backfill already complete for ${account.email_address}: maxDbUid=${maxDbUid}, maxServerUid=${maxServerUid}, dbCount=${dbCount}`);
         return;
       }
 
@@ -1065,14 +1069,26 @@ export class ImapManager {
   // Syncs the most recent messages in a specific folder on demand.
   // Called when the user navigates to a folder that has no local messages yet.
   // Uses a pooled connection — does NOT touch the main sync connection.
+  async appendToSent(account, folder, rawMessage) {
+    await withFreshClient(account, async (client) => {
+      await client.append(folder, rawMessage, ['\\Seen']);
+    });
+    console.log(`Appended sent message to IMAP ${account.email_address}/${folder}`);
+  }
+
   async syncFolderOnDemand(account, folder) {
     const key = `${account.id}:${folder}`;
-    if (this.onDemandSyncing.has(key)) return;
+    if (this.onDemandSyncing.has(key)) {
+      console.log(`syncFolderOnDemand skipped (already running): ${account.email_address}/${folder}`);
+      return;
+    }
     this.onDemandSyncing.add(key);
+    console.log(`syncFolderOnDemand start: ${account.email_address}/${folder}`);
     try {
       await withFreshClient(account, async (client) => {
         await this.syncMessages(account, client, folder, 100, false, true);
       });
+      console.log(`syncFolderOnDemand done: ${account.email_address}/${folder}`);
       // sync_complete fires mailflow:refresh in the frontend, reloading the message list
       this.broadcast({ type: 'sync_complete', accountId: account.id }, account.user_id);
     } catch (err) {
