@@ -130,6 +130,12 @@ function walkStructure(node, results) {
       encoding: node.encoding || '',
       charset: node.parameters?.charset || 'utf-8',
     });
+  } else if (type === 'application/xhtml+xml') {
+    results.textParts.push({
+      part: node.part || '1', type: 'text/html',
+      encoding: node.encoding || '',
+      charset: node.parameters?.charset || 'utf-8',
+    });
   } else if (type === 'text/plain') {
     results.textParts.push({
       part: node.part || '1', type,
@@ -1114,6 +1120,11 @@ export class ImapManager {
       let html = null;
       let text = null;
       let attachments = [];
+      // Always address by UID string with uid:true option — direct UID FETCH avoids
+      // the two-step SEARCH+FETCH path that object-range syntax triggers, which can
+      // silently return nothing on stale connections or when a server-side search
+      // quota is hit.
+      const uidStr = String(uid);
 
       const lock = await client.getMailboxLock(folder);
       try {
@@ -1125,11 +1136,16 @@ export class ImapManager {
         let structure = null;
         const prefetched = new Map(); // part number -> Buffer
 
-        for await (const msg of client.fetch({ uid }, { uid: true, bodyStructure: true })) {
+        for await (const msg of client.fetch(uidStr, { uid: true, bodyStructure: true }, { uid: true })) {
           structure = msg.bodyStructure;
         }
 
-        if (!structure) return { html: null, text: null, attachments: [] };
+        if (!structure) {
+          // Throw a transient error so the outer retry logic gets a fresh connection
+          // before giving up — an empty UID FETCH response often means a stale or
+          // half-open pool connection, not a missing message.
+          throw new Error('Command failed');
+        }
 
         const results = { textParts: [], attachments: [], inlineImages: [] };
         walkStructure(structure, results);
@@ -1139,8 +1155,9 @@ export class ImapManager {
           const rootType = (structure.type || '').toLowerCase();
           results.textParts.push({
             part: structure.part || '1',
-            type: (rootType === 'text/html' || rootType === 'text/plain') ? rootType : 'text/plain',
+            type: (rootType === 'text/html' || rootType === 'text/plain' || rootType === 'application/xhtml+xml') ? 'text/html' : 'text/plain',
             encoding: structure.encoding || '',
+            charset: structure.parameters?.charset || 'utf-8',
           });
         }
 
@@ -1155,12 +1172,30 @@ export class ImapManager {
           ])
         ];
         if (needed.length > 0) {
-          for await (const msg of client.fetch({ uid }, { uid: true, bodyParts: needed })) {
+          // Initial batched fetch — one round-trip for all needed parts.
+          for await (const msg of client.fetch(uidStr, { uid: true, bodyParts: needed }, { uid: true })) {
             if (msg.bodyParts) {
               for (const [k, v] of msg.bodyParts) {
-                if (v) prefetched.set(k, v);
+                if (v != null) prefetched.set(k, v);
               }
             }
+          }
+
+          // Per-part individual retry for any text/image part that came back missing or
+          // zero-length from the batched fetch.  Some IMAP servers (confirmed on
+          // purelymail.com) return a 0-byte literal for non-empty parts when one sibling
+          // part in the same FETCH command happens to be empty — the batched
+          // BODY[1] BODY[2] response is malformed, but BODY[2] alone works correctly.
+          const individualParts = [...results.textParts, ...(results.inlineImages || [])];
+          for (const part of individualParts) {
+            const existing = prefetched.get(part.part);
+            if (existing && existing.length > 0) continue; // already have content
+            try {
+              for await (const msg of client.fetch(uidStr, { uid: true, bodyParts: [part.part] }, { uid: true })) {
+                const v = msg.bodyParts?.get(part.part);
+                if (v && v.length > 0) prefetched.set(part.part, v);
+              }
+            } catch (_) {} // don't let a single part failure block others
           }
         }
 
@@ -1220,6 +1255,13 @@ export class ImapManager {
           return await doFetch();
         } catch (retryErr) {
           const retryDetail = extractImapError(retryErr);
+          // 'Command failed' on the retry means the UID FETCH returned nothing both
+          // times — the message may not exist on the server (deleted, UID mismatch).
+          // Return null gracefully rather than surfacing a confusing error to the UI.
+          if (retryDetail === 'Command failed') {
+            console.warn(`fetchMessageBody: uid=${uid} folder=${folder} account=${account.email_address} — no body after retry; message may be missing on server`);
+            return { html: null, text: null, attachments: [] };
+          }
           const wrapped = new Error(retryDetail);
           wrapped.imapError = true;
           throw wrapped;
@@ -1236,7 +1278,7 @@ export class ImapManager {
       const lock = await client.getMailboxLock(folder);
       try {
         let headers = '';
-        for await (const msg of client.fetch({ uid }, { uid: true, headers: true })) {
+        for await (const msg of client.fetch(String(uid), { uid: true, headers: true }, { uid: true })) {
           if (msg.headers) {
             headers = msg.headers.toString();
           }
@@ -1254,15 +1296,16 @@ export class ImapManager {
       try {
         let buffer = null;
         let encoding = 'base64';
+        const uidStr = String(uid);
 
-        for await (const msg of client.fetch({ uid }, { uid: true, bodyStructure: true })) {
+        for await (const msg of client.fetch(uidStr, { uid: true, bodyStructure: true }, { uid: true })) {
           const r = { textParts: [], attachments: [] };
           walkStructure(msg.bodyStructure, r);
           const att = r.attachments.find(a => a.part === partNum);
           if (att) encoding = att.encoding;
         }
 
-        for await (const msg of client.fetch({ uid }, { uid: true, bodyParts: [partNum] })) {
+        for await (const msg of client.fetch(uidStr, { uid: true, bodyParts: [partNum] }, { uid: true })) {
           const buf = msg.bodyParts?.get(partNum);
           if (buf) {
             buffer = encoding.toLowerCase() === 'base64'

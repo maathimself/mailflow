@@ -231,14 +231,17 @@ router.get('/messages/:id/body', async (req, res) => {
     const safeHtml = html ? sanitizeEmail(html) : null;
     const snip = snippetFromBody(text, safeHtml || html);
 
-    // Cache body + backfill snippet
-    await query(
-      `UPDATE messages
-       SET body_html = $1, body_text = $2, attachments = $3,
-           snippet = CASE WHEN snippet IS NULL OR snippet = '' THEN $5 ELSE snippet END
-       WHERE id = $4`,
-      [safeHtml, text, JSON.stringify(attachments || []), id, snip]
-    );
+    // Only cache when we actually got body content — don't overwrite a prior
+    // successful cache with null if a transient IMAP fetch returns nothing.
+    if (safeHtml || text || (attachments && attachments.length > 0)) {
+      await query(
+        `UPDATE messages
+         SET body_html = $1, body_text = $2, attachments = $3,
+             snippet = CASE WHEN snippet IS NULL OR snippet = '' THEN $5 ELSE snippet END
+         WHERE id = $4`,
+        [safeHtml, text, JSON.stringify(attachments || []), id, snip]
+      );
+    }
 
     res.json({ html: safeHtml, text, attachments: attachments || [] });
   } catch (err) {
