@@ -121,29 +121,43 @@ export default function MessagePane() {
     if (!iframeRef.current || !body?.html) return;
     const iframe = iframeRef.current;
 
+    let rafId = 0;
+
     const setHeight = () => {
       try {
         const doc = iframe.contentDocument;
         if (!doc?.body) return;
-        // Use body.scrollHeight (excludes body margins) and add the 32px of
-        // margin we inject (16px top + 16px bottom) to get the exact content height.
-        // documentElement.scrollHeight already includes those margins, so using it
-        // and adding 32 again causes double-counting and extra blank space.
-        const h = doc.body.scrollHeight;
-        if (h && h > 0) iframe.style.height = (h + 32) + 'px';
+        // documentElement.scrollHeight is more reliable than body.scrollHeight for
+        // marketing emails that ship a full <html>/<head>/<body> structure inside
+        // their HTML payload. The browser's HTML5 parser merges nested <body> tags
+        // and can position content outside document.body, causing body.scrollHeight
+        // to return 0 or a small value while the actual document is much taller.
+        // documentElement.scrollHeight captures the full document height regardless
+        // of where content lands in the tree, and already includes body margins so
+        // no offset is needed. Fall back to body.scrollHeight + 32 if documentElement
+        // is unavailable.
+        const h = doc.documentElement?.scrollHeight || (doc.body.scrollHeight + 32);
+        if (h > 0) iframe.style.height = h + 'px';
       } catch (_) {}
     };
 
     const onLoaded = () => {
+      // Measure immediately, then once more after the next paint to catch any
+      // layout that finalises after the load event fires (complex table-based
+      // emails, web fonts, etc.).
       setHeight();
+      rafId = requestAnimationFrame(setHeight);
 
-      // Watch the iframe body for layout changes triggered by images or
-      // web fonts loading after the initial paint.
+      // Watch the full document (not just body) for layout changes triggered
+      // by images or web fonts loading after the initial paint. documentElement
+      // captures content outside body that HTML5 parsers can create for complex
+      // marketing emails with nested html/body tags.
       try {
         roRef.current?.disconnect();
-        if (window.ResizeObserver && iframe.contentDocument?.body) {
+        const root = iframe.contentDocument?.documentElement || iframe.contentDocument?.body;
+        if (window.ResizeObserver && root) {
           roRef.current = new ResizeObserver(setHeight);
-          roRef.current.observe(iframe.contentDocument.body);
+          roRef.current.observe(root);
         }
       } catch (_) {}
 
@@ -161,17 +175,27 @@ export default function MessagePane() {
       } catch (_) {}
     };
 
-    // React effects run after the paint. If the iframe's srcDoc loaded
-    // synchronously (common for small emails), the load event has already
-    // fired before we get here — setting iframe.onload would be too late.
-    // Check readyState first; fall back to the load event for slow loads.
+    // Always register the load event — it fires after ALL subresources are
+    // done and gives the definitive correct height.
+    //
+    // Do NOT use an if/else here. When React changes srcDoc, the browser starts
+    // a new navigation inside the iframe. The effect may run while readyState is
+    // briefly 'complete' on a transitional blank document (before the new
+    // navigation begins). If we skip the load listener in that case, the real
+    // document loads silently with no height measurement.
+    iframe.addEventListener('load', onLoaded, { once: true });
+
+    // Early estimate: if readyState is already 'complete' this likely means the
+    // same email is being revisited (srcDoc unchanged) and no new load event will
+    // fire, or the document loaded extremely fast. Measure now so the user sees
+    // a height immediately while waiting for any slow subresources.
     if (iframe.contentDocument?.readyState === 'complete') {
-      onLoaded();
-    } else {
-      iframe.addEventListener('load', onLoaded, { once: true });
+      setHeight();
+      rafId = requestAnimationFrame(setHeight);
     }
 
     return () => {
+      cancelAnimationFrame(rafId);
       iframe.removeEventListener('load', onLoaded);
       roRef.current?.disconnect();
       roRef.current = null;
