@@ -45,9 +45,19 @@ function snippetFromBody(text, html) {
   return '';
 }
 
+// Strip the <head> element from email HTML, preserving any <style> blocks inside it.
+// See imapManager.js for the full explanation of why this is necessary.
+function stripEmailHead(html) {
+  if (!html) return html;
+  return html.replace(/<head\b[^>]*>([\s\S]*?)<\/head>/gi, (_, headContent) => {
+    const styles = headContent.match(/<style\b[^>]*>[\s\S]*?<\/style>/gi) || [];
+    return styles.join('');
+  });
+}
+
 // Sanitize HTML email body — permissive but safe
 function sanitizeEmail(html) {
-  return sanitizeHtml(html, {
+  return sanitizeHtml(stripEmailHead(html), {
     allowVulnerableTags: true,
     allowedTags: [
       'html','head','body','div','span','p','br','hr',
@@ -210,15 +220,22 @@ router.get('/messages/:id/body', async (req, res) => {
     const attachments = message.attachments
       ? (typeof message.attachments === 'string' ? JSON.parse(message.attachments) : message.attachments)
       : [];
+    // Apply head-stripping to already-cached HTML so emails stored before this
+    // fix was deployed are cleaned up immediately on first view.
+    const html = message.body_html ? stripEmailHead(message.body_html) : null;
+    if (html !== message.body_html) {
+      // Update cache so subsequent views don't need to re-strip
+      query('UPDATE messages SET body_html = $1 WHERE id = $2', [html, id]).catch(() => {});
+    }
     // Backfill snippet for messages that have a body cached but no snippet yet
     if (!message.snippet) {
-      const snip = snippetFromBody(message.body_text, message.body_html);
+      const snip = snippetFromBody(message.body_text, html);
       if (snip) {
         query('UPDATE messages SET snippet = $1 WHERE id = $2 AND (snippet IS NULL OR snippet = \'\')',
           [snip, id]).catch(() => {});
       }
     }
-    return res.json({ html: message.body_html, text: message.body_text, attachments });
+    return res.json({ html, text: message.body_text, attachments });
   }
 
   // Fetch from IMAP

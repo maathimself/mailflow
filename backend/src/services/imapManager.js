@@ -4,9 +4,25 @@ import { query } from './db.js';
 import { parseMessage } from './messageParser.js';
 import { refreshMicrosoftToken } from '../routes/oauth.js';
 
+// Strip the <head> element from email HTML, preserving any <style> blocks inside it.
+//
+// Why: sanitize-html's 'discard' mode removes disallowed tags (e.g. <title>) but
+// keeps their text content.  Non-whitespace text inside <head> is moved to <body>
+// by the HTML5 parser (it treats it as an implicit body-start), so text like
+// "Document" or "Buffalo Tech Systems" from a <title> tag renders visibly at the
+// top of the email.  Stripping <head> entirely (while rescuing <style> blocks, which
+// contain layout CSS) prevents this and has no effect on the visible email content.
+function stripEmailHead(html) {
+  if (!html) return html;
+  return html.replace(/<head\b[^>]*>([\s\S]*?)<\/head>/gi, (_, headContent) => {
+    const styles = headContent.match(/<style\b[^>]*>[\s\S]*?<\/style>/gi) || [];
+    return styles.join('');
+  });
+}
+
 // Shared sanitizer — same config as the route so cached bodies are consistent
 function sanitizeEmail(html) {
-  return sanitizeHtml(html, {
+  return sanitizeHtml(stripEmailHead(html), {
     allowVulnerableTags: true,
     allowedTags: [
       'html','head','body','div','span','p','br','hr',
