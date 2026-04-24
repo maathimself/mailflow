@@ -4,6 +4,7 @@ import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { refreshMicrosoftToken } from './oauth.js';
+import { decrypt } from '../services/encryption.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -34,10 +35,10 @@ router.post('/send', async (req, res) => {
       smtpAuth = {
         type: 'OAuth2',
         user: account.auth_user || account.email_address,
-        accessToken: account.oauth_access_token,
+        accessToken: decrypt(account.oauth_access_token),
       };
     } else {
-      smtpAuth = { user: account.auth_user, pass: account.auth_pass };
+      smtpAuth = { user: account.auth_user, pass: decrypt(account.auth_pass) };
     }
 
     const transport = nodemailer.createTransport({
@@ -45,7 +46,7 @@ router.post('/send', async (req, res) => {
       port: account.smtp_port,
       secure: account.smtp_port === 465,
       auth: smtpAuth,
-      tls: { rejectUnauthorized: false },
+      tls: { rejectUnauthorized: !account.imap_skip_tls_verify },
     });
 
     // Use a stable Message-ID so the SMTP copy and any IMAP APPEND reference the same message.

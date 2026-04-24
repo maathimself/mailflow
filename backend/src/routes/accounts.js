@@ -2,15 +2,28 @@ import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { imapManager } from '../index.js';
+import { encrypt } from '../services/encryption.js';
 
 const router = Router();
 router.use(requireAuth);
+
+// Fields safe to return to the client — matches the GET list, excludes credentials and tokens
+const SAFE_FIELDS = [
+  'id', 'name', 'email_address', 'color', 'protocol',
+  'imap_host', 'imap_port', 'smtp_host', 'smtp_port',
+  'auth_user', 'oauth_provider', 'enabled',
+  'last_sync', 'sync_error', 'sort_order', 'folder_mappings',
+  'imap_skip_tls_verify', 'created_at',
+];
+function safeAccount(row) {
+  return Object.fromEntries(SAFE_FIELDS.map(k => [k, row[k]]));
+}
 
 router.get('/', async (req, res) => {
   const result = await query(
     `SELECT id, name, email_address, color, protocol, imap_host, imap_port,
             smtp_host, smtp_port, auth_user, oauth_provider, enabled,
-            last_sync, sync_error, sort_order, folder_mappings, created_at
+            last_sync, sync_error, sort_order, folder_mappings, imap_skip_tls_verify, created_at
      FROM email_accounts WHERE user_id = $1 ORDER BY sort_order, created_at`,
     [req.session.userId]
   );
@@ -41,18 +54,18 @@ router.post('/', async (req, res) => {
     `, [
       req.session.userId, name, email_address, color, protocol,
       imap_host, imap_port, imap_tls, smtp_host, smtp_port, smtp_tls,
-      auth_user, auth_pass, oauth_provider, oauth_access_token, oauth_refresh_token,
+      auth_user, encrypt(auth_pass), oauth_provider, encrypt(oauth_access_token), encrypt(oauth_refresh_token),
       jmap_session_url
     ]);
 
     const account = result.rows[0];
 
-    // Immediately try to connect
+    // Immediately try to connect — needs full credentials from DB row
     if (protocol === 'imap') {
       imapManager.connectAccount(account).catch(console.error);
     }
 
-    res.json(account);
+    res.json(safeAccount(account));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to add account' });
@@ -67,14 +80,15 @@ router.put('/:id', async (req, res) => {
   const check = await query('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
 
-  const allowed = ['name', 'color', 'enabled', 'auth_pass', 'sort_order', 'smtp_host', 'smtp_port', 'folder_mappings'];
+  const allowed = ['name', 'color', 'enabled', 'auth_pass', 'sort_order', 'smtp_host', 'smtp_port', 'folder_mappings', 'imap_skip_tls_verify'];
   const sets = [];
   const values = [];
   let i = 1;
   for (const key of allowed) {
     if (key in updates) {
       sets.push(`${key} = $${i++}`);
-      values.push(updates[key]);
+      const value = (key === 'auth_pass' && updates[key]) ? encrypt(updates[key]) : updates[key];
+      values.push(value);
     }
   }
   if (!sets.length) return res.status(400).json({ error: 'No valid fields to update' });
@@ -84,7 +98,7 @@ router.put('/:id', async (req, res) => {
     `UPDATE email_accounts SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`,
     values
   );
-  res.json(result.rows[0]);
+  res.json(safeAccount(result.rows[0]));
 });
 
 router.delete('/:id', async (req, res) => {

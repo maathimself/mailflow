@@ -1,8 +1,7 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
-import crypto from 'crypto';
 import { authenticator } from 'otplib';
-import { query } from '../services/db.js';
+import { query, pool } from '../services/db.js';
 import { imapManager } from '../index.js';
 
 const router = Router();
@@ -10,6 +9,13 @@ const router = Router();
 // Simple in-memory rate limiter — no extra dependency required.
 // Buckets are keyed by IP; entries expire after the window elapses.
 const rateBuckets = new Map();
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, bucket] of rateBuckets) {
+    if (now > bucket.resetAt) rateBuckets.delete(key);
+  }
+}, 5 * 60 * 1000);
+
 function rateLimit(maxRequests, windowMs) {
   return (req, res, next) => {
     const key = req.ip;
@@ -33,71 +39,86 @@ router.post('/register', authLimiter, async (req, res) => {
   const { username, password, inviteToken } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
 
+  // Hash before opening the transaction — bcrypt is intentionally slow and we
+  // don't want to hold a DB connection open while it runs.
+  const hash = await bcrypt.hash(password, 12);
+
+  const client = await pool.connect();
   try {
-    // Check if this is the very first user (no rows in users table)
-    const countResult = await query('SELECT COUNT(*) as count FROM users');
+    await client.query('BEGIN');
+
+    // Advisory lock serializes the "first user becomes admin" check and invite
+    // token validation across concurrent registrations.  Released automatically
+    // at COMMIT / ROLLBACK.  The magic number is arbitrary but fixed.
+    await client.query('SELECT pg_advisory_xact_lock(7936352)');
+
+    const countResult = await client.query('SELECT COUNT(*) as count FROM users');
     const isFirstUser = parseInt(countResult.rows[0].count) === 0;
 
     if (!isFirstUser) {
-      // Not the first user — check registration policy
-      const settingResult = await query(
+      const settingResult = await client.query(
         "SELECT value FROM system_settings WHERE key = 'registration_open'"
       );
       const registrationOpen = settingResult.rows[0]?.value === 'true';
 
       if (!registrationOpen) {
-        // Registration closed — require a valid invite token
         if (!inviteToken) {
+          await client.query('ROLLBACK');
           return res.status(403).json({ error: 'Registration is currently by invitation only.' });
         }
-        const inviteResult = await query(
-          `SELECT * FROM invites
-           WHERE token = $1 AND used_at IS NULL AND expires_at > NOW()`,
+        // FOR UPDATE locks the invite row so a second concurrent request using
+        // the same token blocks until this transaction commits or rolls back.
+        const inviteResult = await client.query(
+          `SELECT id FROM invites
+           WHERE token = $1 AND used_at IS NULL AND expires_at > NOW()
+           FOR UPDATE`,
           [inviteToken]
         );
         if (!inviteResult.rows.length) {
+          await client.query('ROLLBACK');
           return res.status(403).json({ error: 'Invalid or expired invite link.' });
         }
       } else if (inviteToken) {
-        // Registration open but a token was provided — still validate it (non-fatal if invalid)
-        const inviteResult = await query(
-          `SELECT * FROM invites WHERE token = $1 AND used_at IS NULL AND expires_at > NOW()`,
+        const inviteResult = await client.query(
+          `SELECT id FROM invites
+           WHERE token = $1 AND used_at IS NULL AND expires_at > NOW()
+           FOR UPDATE`,
           [inviteToken]
         );
         if (!inviteResult.rows.length) {
+          await client.query('ROLLBACK');
           return res.status(403).json({ error: 'Invalid or expired invite link.' });
         }
       }
     }
 
-    const hash = await bcrypt.hash(password, 12);
-    const result = await query(
+    const result = await client.query(
       'INSERT INTO users (username, password_hash, is_admin) VALUES ($1, $2, $3) RETURNING id, username, is_admin',
       [username.toLowerCase().trim(), hash, isFirstUser]
     );
     const newUser = result.rows[0];
 
-    // Mark invite as used
     if (inviteToken) {
-      await query(
+      await client.query(
         `UPDATE invites SET used_by = $1, used_at = NOW() WHERE token = $2`,
         [newUser.id, inviteToken]
       );
     }
 
-    // Create session so the user is immediately logged in after registering
+    await client.query('COMMIT');
+
     req.session.userId = newUser.id;
     req.session.username = newUser.username;
     req.session.isAdmin = newUser.is_admin;
-
-    // Start IMAP connections (no accounts yet on first register, harmless)
     imapManager.connectAllForUser(newUser.id);
-
     res.json({ user: { id: newUser.id, username: newUser.username, isAdmin: newUser.is_admin } });
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     if (err.code === '23505') return res.status(409).json({ error: 'Username already taken' });
     console.error('Registration error:', err.message);
     res.status(500).json({ error: 'Registration failed' });
+  } finally {
+    client.release();
   }
 });
 

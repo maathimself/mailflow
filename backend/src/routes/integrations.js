@@ -1,31 +1,14 @@
 import { Router } from 'express';
 import { query } from '../services/db.js';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, requireAdmin } from '../middleware/auth.js';
 
 const router = Router();
 router.use(requireAuth);
 
-// Ensure the integrations config table exists
-async function ensureTable() {
-  await query(`
-    CREATE TABLE IF NOT EXISTS integration_config (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      provider VARCHAR(50) NOT NULL,
-      config JSONB NOT NULL DEFAULT '{}',
-      created_at TIMESTAMPTZ DEFAULT NOW(),
-      updated_at TIMESTAMPTZ DEFAULT NOW(),
-      UNIQUE(user_id, provider)
-    )
-  `);
-}
-
-// Get all integration configs for this user (secrets redacted)
+// Get all integration configs (secrets redacted)
 router.get('/', async (req, res) => {
-  await ensureTable();
   const result = await query(
-    'SELECT provider, config, updated_at FROM integration_config WHERE user_id = $1',
-    [req.session.userId]
+    'SELECT provider, config, updated_at FROM integration_config'
   );
 
   // Redact secrets from response
@@ -38,9 +21,8 @@ router.get('/', async (req, res) => {
   res.json(configs);
 });
 
-// Save/update integration config
-router.post('/:provider', async (req, res) => {
-  await ensureTable();
+// Save/update integration config — admin only (writes affect global OAuth env vars)
+router.post('/:provider', requireAdmin, async (req, res) => {
   const { provider } = req.params;
   const allowed = ['microsoft', 'google'];
   if (!allowed.includes(provider)) return res.status(400).json({ error: 'Unknown provider' });
@@ -50,8 +32,8 @@ router.post('/:provider', async (req, res) => {
   // If clientSecret is redacted, keep the existing value
   if (config.clientSecret === '••••••••') {
     const existing = await query(
-      'SELECT config FROM integration_config WHERE user_id = $1 AND provider = $2',
-      [req.session.userId, provider]
+      'SELECT config FROM integration_config WHERE provider = $1',
+      [provider]
     );
     if (existing.rows.length) {
       config.clientSecret = existing.rows[0].config.clientSecret;
@@ -61,11 +43,11 @@ router.post('/:provider', async (req, res) => {
   }
 
   await query(`
-    INSERT INTO integration_config (user_id, provider, config)
-    VALUES ($1, $2, $3)
-    ON CONFLICT (user_id, provider) DO UPDATE
-    SET config = $3, updated_at = NOW()
-  `, [req.session.userId, provider, config]);
+    INSERT INTO integration_config (provider, config)
+    VALUES ($1, $2)
+    ON CONFLICT (provider) DO UPDATE
+    SET config = EXCLUDED.config, updated_at = NOW()
+  `, [provider, config]);
 
   // Write to process.env so oauth routes pick them up immediately
   if (provider === 'microsoft') {
@@ -80,12 +62,11 @@ router.post('/:provider', async (req, res) => {
   res.json({ ok: true });
 });
 
-// Delete integration config
-router.delete('/:provider', async (req, res) => {
-  await ensureTable();
+// Delete integration config — admin only
+router.delete('/:provider', requireAdmin, async (req, res) => {
   await query(
-    'DELETE FROM integration_config WHERE user_id = $1 AND provider = $2',
-    [req.session.userId, req.params.provider]
+    'DELETE FROM integration_config WHERE provider = $1',
+    [req.params.provider]
   );
   res.json({ ok: true });
 });
@@ -93,7 +74,6 @@ router.delete('/:provider', async (req, res) => {
 // Load saved configs into process.env on startup
 export async function loadIntegrationConfigs() {
   try {
-    await ensureTable();
     const result = await query('SELECT provider, config FROM integration_config');
     for (const row of result.rows) {
       if (row.provider === 'microsoft') {

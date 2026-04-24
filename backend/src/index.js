@@ -16,7 +16,7 @@ import mailRoutes from './routes/mail.js';
 import searchRoutes from './routes/search.js';
 import adminRoutes from './routes/admin.js';
 import totpRoutes from './routes/totp.js';
-import { initDb, query } from './services/db.js';
+import { initDb, encryptExistingCredentials, query } from './services/db.js';
 import { setupWebSocket } from './services/websocket.js';
 import { ImapManager } from './services/imapManager.js';
 
@@ -65,7 +65,9 @@ app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:5173',
   credentials: true
 }));
-app.use(express.json({ limit: '50mb' }));
+// Larger body limit for the send endpoint — attachments can be base64-encoded
+app.use('/api/mail/send', express.json({ limit: '50mb' }));
+app.use(express.json({ limit: '1mb' }));
 app.use(sessionMiddleware);
 
 // Make imap manager available globally
@@ -91,6 +93,9 @@ setupWebSocket(wss, sessionMiddleware, imapManager);
 // Init DB then start
 await initDb();
 console.log('Database initialized');
+
+// Encrypt any plaintext credentials left in the DB from before this feature was added
+await encryptExistingCredentials();
 
 // Load OAuth integration configs from DB into process.env
 await loadIntegrationConfigs();

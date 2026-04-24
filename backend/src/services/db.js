@@ -1,4 +1,5 @@
 import pg from 'pg';
+import { encrypt, isEncrypted } from './encryption.js';
 
 const { Pool } = pg;
 
@@ -117,6 +118,30 @@ export async function initDb() {
       ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN NOT NULL DEFAULT false;
 
       ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS folder_mappings JSONB NOT NULL DEFAULT '{}'::jsonb;
+      ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS imap_skip_tls_verify BOOLEAN NOT NULL DEFAULT false;
+
+      CREATE TABLE IF NOT EXISTS integration_config (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        provider VARCHAR(50) NOT NULL,
+        config JSONB NOT NULL DEFAULT '{}',
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(user_id, provider)
+      );
+
+      -- Migrate integration_config to a global, per-provider table (no per-user scoping).
+      -- All four statements are idempotent: safe on fresh installs and repeated restarts.
+      ALTER TABLE integration_config ALTER COLUMN user_id DROP NOT NULL;
+      ALTER TABLE integration_config DROP CONSTRAINT IF EXISTS integration_config_user_id_provider_key;
+      DELETE FROM integration_config WHERE id NOT IN (
+        SELECT DISTINCT ON (provider) id
+        FROM integration_config
+        ORDER BY provider, updated_at DESC NULLS LAST
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS integration_config_provider_idx
+        ON integration_config (provider);
+      UPDATE integration_config SET user_id = NULL WHERE user_id IS NOT NULL;
 
       CREATE TABLE IF NOT EXISTS system_settings (
         key VARCHAR(100) PRIMARY KEY,
@@ -144,4 +169,39 @@ export async function initDb() {
 
 export async function query(text, params) {
   return pool.query(text, params);
+}
+
+// One-time startup migration: encrypt any plaintext credentials still in the DB.
+// Safe to run on every startup — already-encrypted values are skipped by isEncrypted().
+export async function encryptExistingCredentials() {
+  if (!process.env.ENCRYPTION_KEY) {
+    console.warn('ENCRYPTION_KEY not set — stored credentials are NOT encrypted. Set ENCRYPTION_KEY in .env to enable at-rest encryption.');
+    return;
+  }
+
+  const result = await pool.query(
+    'SELECT id, auth_pass, oauth_access_token, oauth_refresh_token FROM email_accounts'
+  );
+
+  let count = 0;
+  for (const row of result.rows) {
+    const updates = {};
+    if (row.auth_pass && !isEncrypted(row.auth_pass))
+      updates.auth_pass = encrypt(row.auth_pass);
+    if (row.oauth_access_token && !isEncrypted(row.oauth_access_token))
+      updates.oauth_access_token = encrypt(row.oauth_access_token);
+    if (row.oauth_refresh_token && !isEncrypted(row.oauth_refresh_token))
+      updates.oauth_refresh_token = encrypt(row.oauth_refresh_token);
+
+    if (Object.keys(updates).length) {
+      const keys = Object.keys(updates);
+      const sets = keys.map((k, i) => `${k} = $${i + 1}`);
+      await pool.query(
+        `UPDATE email_accounts SET ${sets.join(', ')} WHERE id = $${keys.length + 1}`,
+        [...Object.values(updates), row.id]
+      );
+      count++;
+    }
+  }
+  if (count > 0) console.log(`Encrypted credentials for ${count} account(s)`);
 }

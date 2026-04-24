@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import { query } from '../services/db.js';
 import { requireAdmin } from '../middleware/auth.js';
+import { decrypt } from '../services/encryption.js';
 
 const router = Router();
 router.use(requireAdmin);
@@ -115,10 +116,10 @@ router.post('/invites', async (req, res) => {
         smtpAuth = {
           type: 'OAuth2',
           user: account.auth_user || account.email_address,
-          accessToken: account.oauth_access_token,
+          accessToken: decrypt(account.oauth_access_token),
         };
       } else {
-        smtpAuth = { user: account.auth_user, pass: account.auth_pass };
+        smtpAuth = { user: account.auth_user, pass: decrypt(account.auth_pass) };
       }
 
       const transport = nodemailer.createTransport({
@@ -126,7 +127,7 @@ router.post('/invites', async (req, res) => {
         port: account.smtp_port,
         secure: account.smtp_port === 465,
         auth: smtpAuth,
-        tls: { rejectUnauthorized: false },
+        tls: { rejectUnauthorized: !account.imap_skip_tls_verify },
       });
 
       await transport.sendMail({

@@ -38,7 +38,7 @@ router.get('/', async (req, res) => {
           @@ plainto_tsquery('english', $1)
     ORDER BY rank DESC, m.date DESC
     LIMIT $3
-  `, [q.trim(), targetIds, parseInt(limit)]);
+  `, [q.trim(), targetIds, Math.min(parseInt(limit) || 50, 200)]);
 
   res.json({ messages: result.rows, query: q });
 });

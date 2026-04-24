@@ -52,10 +52,9 @@ export default function MailApp() {
     document.title = count > 0 ? `(${count}) MailFlow` : 'MailFlow';
   }, [unreadCounts, selectedAccountId]);
 
-  // Handle OAuth callback redirects (e.g. /?oauth_success=microsoft).
-  // This lives here rather than inside IntegrationsTab because the OAuth popup
-  // loads a fresh app instance where the admin panel isn't open, so any check
-  // inside IntegrationsTab would never run.
+  // Handle same-tab OAuth callback redirects (e.g. /?oauth_success=microsoft).
+  // The popup case (window.opener present) is handled earlier in App.jsx before
+  // auth is checked, so MailApp never mounts in that context.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const provider = params.get('oauth_success');
@@ -63,24 +62,13 @@ export default function MailApp() {
 
     if (provider) {
       window.history.replaceState({}, '', '/');
-      if (window.opener) {
-        // We're in the OAuth popup tab — notify the opener and close
-        window.opener.postMessage({ type: 'oauth_success', provider }, '*');
-        window.close();
-      } else {
-        // Same-tab redirect — reload accounts and open the Accounts tab
-        api.getAccounts()
-          .then(accounts => { setAccounts(accounts); })
-          .catch(console.error);
-        setAdminTab('accounts');
-        setShowAdmin(true);
-      }
+      api.getAccounts()
+        .then(accounts => { setAccounts(accounts); })
+        .catch(console.error);
+      setAdminTab('accounts');
+      setShowAdmin(true);
     } else if (oauthError) {
       window.history.replaceState({}, '', '/');
-      if (window.opener) {
-        window.opener.postMessage({ type: 'oauth_error', error: oauthError }, '*');
-        window.close();
-      }
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 

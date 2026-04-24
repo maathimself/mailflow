@@ -44,9 +44,6 @@ export const useStore = create((set, get) => ({
     messages: state.messages.filter(m => m.id !== id),
     selectedMessageId: state.selectedMessageId === id ? null : state.selectedMessageId,
   })),
-  prependMessages: (newMessages) => set(state => ({
-    messages: [...newMessages, ...state.messages]
-  })),
   messagesOffset: 0,
   setMessagesOffset: (offset) => set({ messagesOffset: offset }),
   messagesTotal: 0,
@@ -66,6 +63,11 @@ export const useStore = create((set, get) => ({
     if (byAccount[accountId] > 0) byAccount[accountId]--;
     const total = Math.max(0, state.unreadCounts.total - 1);
     return { unreadCounts: { total, byAccount } };
+  }),
+  incrementUnread: (accountId) => set(state => {
+    const byAccount = { ...state.unreadCounts.byAccount };
+    byAccount[accountId] = (byAccount[accountId] || 0) + 1;
+    return { unreadCounts: { total: state.unreadCounts.total + 1, byAccount } };
   }),
 
   // Folders
@@ -137,12 +139,6 @@ export const useStore = create((set, get) => ({
   removeNotification: (id) => set(state => ({
     notifications: state.notifications.filter(n => n.id !== id)
   })),
-
-  // Account settings modal
-  showAccountSettings: false,
-  setShowAccountSettings: (v) => set({ showAccountSettings: v }),
-  editingAccount: null,
-  setEditingAccount: (a) => set({ editingAccount: a }),
 
   // Admin panel
   showAdmin: false,

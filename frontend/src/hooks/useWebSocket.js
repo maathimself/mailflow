@@ -5,7 +5,7 @@ import { playNotificationSound } from '../utils/notificationSounds.js';
 export function useWebSocket() {
   const wsRef = useRef(null);
   const reconnectTimer = useRef(null);
-  const { addNotification, prependMessages, selectedAccountId, selectedFolder, updateAccount } = useStore();
+  const { addNotification, updateAccount } = useStore();
 
   const connect = useCallback(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';

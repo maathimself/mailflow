@@ -1,59 +1,13 @@
 import { ImapFlow } from 'imapflow';
-import sanitizeHtml from 'sanitize-html';
 import { query } from './db.js';
 import { parseMessage } from './messageParser.js';
 import { refreshMicrosoftToken } from '../routes/oauth.js';
+import { sanitizeEmail } from './emailSanitizer.js';
+import { decrypt } from './encryption.js';
 
-// Strip the <head> element from email HTML, preserving any <style> blocks inside it.
-//
-// Why: sanitize-html's 'discard' mode removes disallowed tags (e.g. <title>) but
-// keeps their text content.  Non-whitespace text inside <head> is moved to <body>
-// by the HTML5 parser (it treats it as an implicit body-start), so text like
-// "Document" or "Buffalo Tech Systems" from a <title> tag renders visibly at the
-// top of the email.  Stripping <head> entirely (while rescuing <style> blocks, which
-// contain layout CSS) prevents this and has no effect on the visible email content.
-function stripEmailHead(html) {
-  if (!html) return html;
-  return html.replace(/<head\b[^>]*>([\s\S]*?)<\/head>/gi, (_, headContent) => {
-    const styles = headContent.match(/<style\b[^>]*>[\s\S]*?<\/style>/gi) || [];
-    return styles.join('');
-  });
-}
-
-// Shared sanitizer — same config as the route so cached bodies are consistent
-function sanitizeEmail(html) {
-  return sanitizeHtml(stripEmailHead(html), {
-    allowVulnerableTags: true,
-    allowedTags: [
-      'html','head','body','div','span','p','br','hr',
-      'h1','h2','h3','h4','h5','h6',
-      'ul','ol','li','dl','dt','dd',
-      'table','thead','tbody','tfoot','tr','th','td','caption','colgroup','col',
-      'a','img','figure','figcaption',
-      'strong','b','em','i','u','s','del','ins','sub','sup','small','big',
-      'blockquote','pre','code','tt','kbd','samp',
-      'center','font','strike','style',
-    ],
-    allowedAttributes: {
-      '*': ['style','class','id','align','valign','width','height',
-            'bgcolor','color','border','cellpadding','cellspacing',
-            'colspan','rowspan','nowrap','dir','lang'],
-      'a': ['href','name','target','title'],
-      'img': ['src','alt','width','height','border'],
-      'table': ['summary'],
-      'td': ['abbr','axis','headers','scope'],
-      'th': ['abbr','axis','headers','scope'],
-    },
-    allowedSchemes: ['http','https','mailto','cid','data'],
-    allowedSchemesByTag: { img: ['http','https','cid','data'] },
-    disallowedTagsMode: 'discard',
-  });
-}
 
 // Body parts that cover ~99% of real-world email structures (used for full body caching)
 const BODY_PREFETCH_PARTS = ['1', '1.1', '1.2', '2', '2.1', '2.2', '1.1.1', '1.2.1'];
-// Minimal parts needed just to build a snippet (plain/html of simple and multipart/alternative)
-const SNIPPET_PARTS = ['1', '1.1', '1.2'];
 
 // Extract html/text/attachments from an already-fetched msg (no extra IMAP round-trip)
 function extractBodyFromMsg(msg) {
@@ -264,9 +218,9 @@ function makeClientCfg(account) {
     host: account.imap_host,
     port: account.imap_port,
     secure: account.imap_tls,
-    auth: { user: account.auth_user, pass: account.auth_pass },
+    auth: { user: account.auth_user, pass: decrypt(account.auth_pass) },
     logger: false,
-    tls: { rejectUnauthorized: false },
+    tls: { rejectUnauthorized: !account.imap_skip_tls_verify },
     // Prevent IMAP commands from hanging forever on half-open TCP connections.
     // Without this, a silently-dead connection causes every sync call to wait
     // indefinitely — the refresh button spins forever and auto-poll stops working.
@@ -277,7 +231,7 @@ function makeClientCfg(account) {
       && account.oauth_access_token) {
     cfg.auth = {
       user: account.auth_user || account.email_address,
-      accessToken: account.oauth_access_token,
+      accessToken: decrypt(account.oauth_access_token),
     };
   }
   return cfg;
@@ -367,13 +321,14 @@ async function withFreshClient(account, fn) {
   try {
     return await fn(client);
   } catch (err) {
-    // On error, evict this client from pool so next call gets a fresh one
+    // On error, evict this client from pool so next call gets a fresh one.
+    // Do not logout here — releasePooledClient in finally detects the client is
+    // no longer in pool.clients and calls logout exactly once.
     const pool = connectionPools.get(account.id);
     if (pool) {
       pool.inUse.delete(client);
       pool.clients = pool.clients.filter(c => c !== client);
     }
-    try { client.logout(); } catch (_) {}
     throw err;
   } finally {
     releasePooledClient(account, client);
@@ -666,9 +621,7 @@ export class ImapManager {
           internalDate: true,
         };
         if (!isGmail && !noBodyParts) {
-          // Always fetch SNIPPET_PARTS so parseMessage can build a clean snippet.
-          // BODY_PREFETCH_PARTS is a superset; no redundancy when prefetchBody=true.
-          fetchQuery.bodyParts = prefetchBody ? BODY_PREFETCH_PARTS : SNIPPET_PARTS;
+          fetchQuery.bodyParts = BODY_PREFETCH_PARTS;
         }
 
         // Highest UID we already have in DB for this account/folder — used as the
@@ -1327,17 +1280,16 @@ export class ImapManager {
       const lock = await client.getMailboxLock(folder);
       try {
         let buffer = null;
-        let encoding = 'base64';
         const uidStr = String(uid);
 
-        for await (const msg of client.fetch(uidStr, { uid: true, bodyStructure: true }, { uid: true })) {
-          const r = { textParts: [], attachments: [] };
-          walkStructure(msg.bodyStructure, r);
-          const att = r.attachments.find(a => a.part === partNum);
-          if (att) encoding = att.encoding;
-        }
-
-        for await (const msg of client.fetch(uidStr, { uid: true, bodyParts: [partNum] }, { uid: true })) {
+        for await (const msg of client.fetch(uidStr, { uid: true, bodyStructure: true, bodyParts: [partNum] }, { uid: true })) {
+          let encoding = 'base64';
+          if (msg.bodyStructure) {
+            const r = { textParts: [], attachments: [] };
+            walkStructure(msg.bodyStructure, r);
+            const att = r.attachments.find(a => a.part === partNum);
+            if (att) encoding = att.encoding;
+          }
           const buf = msg.bodyParts?.get(partNum);
           if (buf) {
             buffer = encoding.toLowerCase() === 'base64'

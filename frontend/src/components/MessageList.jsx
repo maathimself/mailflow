@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
-import { formatDistanceToNowStrict, format, isToday, isYesterday, isThisYear } from 'date-fns';
+import { format, isToday, isYesterday, isThisYear } from 'date-fns';
 import { LAYOUTS } from '../layouts.js';
 import ContextMenu from './ContextMenu.jsx';
 
@@ -20,7 +20,8 @@ export default function MessageList() {
     appendMessages, messagesTotal, setMessagesTotal, messagesOffset,
     setMessagesOffset, hasMoreMessages, setHasMoreMessages,
     loadingMessages, setLoadingMessages, selectedMessageId,
-    setSelectedMessage, updateMessage, removeMessage, decrementUnread,
+    setSelectedMessage, updateMessage, removeMessage,
+    decrementUnread, incrementUnread, addNotification,
     searchQuery, setSearchQuery, isSearching, setIsSearching,
     searchResults, setSearchResults, openCompose, accountsReady, accounts,
     messagesRefreshToken, layout, pageSize, setPageSize, scrollMode,
@@ -312,8 +313,13 @@ export default function MessageList() {
         });
         break;
       case 'delete':
-        removeMessage(message.id);
-        api.deleteMessage(message.id).catch(console.error);
+        try {
+          await api.deleteMessage(message.id);
+          removeMessage(message.id);
+        } catch (err) {
+          console.error('deleteMessage failed:', err.message);
+          addNotification({ title: 'Delete failed', body: 'Could not delete message. Please try again.' });
+        }
         break;
       default:
         break;
@@ -329,8 +335,8 @@ export default function MessageList() {
       // Then sync to server — log errors instead of silently swallowing
       api.markRead(message.id, true).catch(err => {
         console.error('markRead failed:', err.message);
-        // Revert optimistic update on failure
         updateMessage(message.id, { is_read: false });
+        incrementUnread(message.account_id);
       });
     }
   };

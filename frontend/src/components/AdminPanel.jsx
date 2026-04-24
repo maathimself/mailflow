@@ -1039,6 +1039,7 @@ function IntegrationsTab() {
     // URL-param detection has been moved to MailApp so it works regardless of
     // which tab/modal is currently open.
     const handleMessage = (e) => {
+      if (e.origin !== window.location.origin) return;
       if (e.data?.type === 'oauth_success' && e.data?.provider === 'microsoft') {
         setSaveMsg('Microsoft 365 account connected successfully! Check the Accounts tab.');
         setConnectingMs(false);

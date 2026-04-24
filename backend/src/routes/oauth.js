@@ -2,11 +2,11 @@ import { randomBytes } from 'crypto';
 import { Router } from 'express';
 import { query } from '../services/db.js';
 import { imapManager } from '../index.js';
+import { encrypt, decrypt } from '../services/encryption.js';
 
 const router = Router();
 
 const MICROSOFT_AUTH_URL = 'https://login.microsoftonline.com';
-const MICROSOFT_GRAPH_URL = 'https://graph.microsoft.com/v1.0';
 
 function getMsConfig() {
   return {
@@ -120,7 +120,7 @@ router.get('/microsoft/callback', async (req, res) => {
           oauth_access_token = $1, oauth_refresh_token = $2, oauth_token_expiry = $3,
           name = $4, sync_error = NULL
         WHERE id = $5
-      `, [access_token, refresh_token, expiry, displayName || email, accountId]);
+      `, [encrypt(access_token), encrypt(refresh_token), expiry, displayName || email, accountId]);
     } else {
       // Create new account
       const colors = ['#0078d4', '#106ebe', '#005a9e', '#004578'];
@@ -138,7 +138,7 @@ router.get('/microsoft/callback', async (req, res) => {
           $3,
           'microsoft', $5, $6, $7)
         RETURNING *
-      `, [userId, displayName, email, color, access_token, refresh_token, expiry]);
+      `, [userId, displayName, email, color, encrypt(access_token), encrypt(refresh_token), expiry]);
       accountId = result.rows[0].id;
     }
 
@@ -167,7 +167,7 @@ export async function refreshMicrosoftToken(account) {
     body: new URLSearchParams({
       client_id: clientId,
       client_secret: clientSecret,
-      refresh_token: account.oauth_refresh_token,
+      refresh_token: decrypt(account.oauth_refresh_token),
       grant_type: 'refresh_token',
       scope: 'https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send offline_access',
     }),
@@ -185,8 +185,9 @@ export async function refreshMicrosoftToken(account) {
       oauth_refresh_token = COALESCE($2, oauth_refresh_token),
       oauth_token_expiry = $3
     WHERE id = $4
-  `, [access_token, refresh_token || null, expiry, account.id]);
+  `, [encrypt(access_token), refresh_token ? encrypt(refresh_token) : null, expiry, account.id]);
 
+  // Return plaintext tokens so callers can use them immediately without decrypting
   return { ...account, oauth_access_token: access_token, oauth_token_expiry: expiry };
 }
 

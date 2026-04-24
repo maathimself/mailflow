@@ -653,22 +653,3 @@ function PaneBtn({ children, onClick, title, danger }) {
   );
 }
 
-function MetaField({ label, value, mono, truncate }) {
-  return (
-    <div style={{ fontSize: 11 }}>
-      <span style={{ color: 'var(--text-tertiary)', marginRight: 4 }}>{label}:</span>
-      <span style={{
-        color: 'var(--text-secondary)',
-        fontFamily: mono ? 'JetBrains Mono, monospace' : 'inherit',
-        fontSize: mono ? 10 : 11,
-        ...(truncate ? {
-          display: 'inline-block', maxWidth: 180,
-          overflow: 'hidden', textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap', verticalAlign: 'bottom',
-        } : {}),
-      }}>
-        {value}
-      </span>
-    </div>
-  );
-}
