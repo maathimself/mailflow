@@ -5,6 +5,21 @@ import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { refreshMicrosoftToken } from './oauth.js';
 import { decrypt } from '../services/encryption.js';
+import sanitizeHtml from 'sanitize-html';
+
+function escapeHtml(str) {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function textToHtml(text) {
+  return '<div style="font-family:sans-serif;font-size:14px;line-height:1.6">' +
+    text.split('\n').map(l => `<p style="margin:0">${escapeHtml(l) || '&nbsp;'}</p>`).join('') +
+    '</div>';
+}
+
+function sigToPlainText(html) {
+  return sanitizeHtml(html, { allowedTags: [], allowedAttributes: {} }).trim();
+}
 
 const router = Router();
 router.use(requireAuth);
@@ -57,7 +72,14 @@ router.post('/send', async (req, res) => {
       to: to.join(', '),
       cc: cc.join(', ') || undefined,
       subject,
-      text: body,
+      text: account.signature
+        ? body + '\n\n-- \n' + sigToPlainText(account.signature)
+        : body,
+      ...(account.signature ? {
+        html: textToHtml(body) +
+          '<div style="margin-top:16px;padding-top:12px;border-top:1px solid #e0e0e0;color:#555;font-size:13px">' +
+          account.signature + '</div>',
+      } : {}),
     };
     if (inReplyTo) {
       mailOptions.inReplyTo = inReplyTo;

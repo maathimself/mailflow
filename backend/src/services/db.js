@@ -119,6 +119,7 @@ export async function initDb() {
 
       ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS folder_mappings JSONB NOT NULL DEFAULT '{}'::jsonb;
       ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS imap_skip_tls_verify BOOLEAN NOT NULL DEFAULT false;
+      ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS signature TEXT;
 
       CREATE TABLE IF NOT EXISTS integration_config (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

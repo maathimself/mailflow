@@ -21,6 +21,9 @@ function normalizeTo(arr) {
 export default function ComposeModal() {
   const { closeCompose, composeData, accounts, addNotification } = useStore();
 
+  const isReply = !!(composeData?.isReply || composeData?.isReplyAll);
+  const isForward = !!composeData?.isForward;
+
   const [to, setTo] = useState(() => normalizeTo(composeData?.to) || '');
   const [cc, setCc] = useState(() => normalizeTo(composeData?.cc) || '');
   const [subject, setSubject] = useState(() => composeData?.subject || '');
@@ -37,9 +40,11 @@ export default function ComposeModal() {
     if (composeData?.subject) setSubject(composeData.subject);
     if (composeData?.body !== undefined) setBody(composeData.body);
   }, []);
+
   const [fromAccountId, setFromAccountId] = useState(
     composeData?.accountId || accounts[0]?.id || ''
   );
+
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const [minimized, setMinimized] = useState(false);
@@ -47,10 +52,7 @@ export default function ComposeModal() {
   const replyTypeRef = useRef(null);
   const textareaRef = useRef(null);
 
-  const isReply = !!(composeData?.isReply || composeData?.isReplyAll);
-  const isForward = !!composeData?.isForward;
-
-  // Position cursor at top of textarea for replies
+  // Position cursor at top for replies/forwards
   useEffect(() => {
     if ((isReply || isForward) && textareaRef.current) {
       textareaRef.current.setSelectionRange(0, 0);
@@ -301,6 +303,23 @@ export default function ComposeModal() {
             boxSizing: 'border-box', whiteSpace: 'pre-wrap',
           }}
         />
+
+        {/* Signature preview */}
+        {(() => {
+          const sig = accounts.find(a => a.id === fromAccountId)?.signature;
+          if (!sig) return null;
+          return (
+            <div style={{ borderTop: '1px solid var(--border-subtle)', padding: '10px 14px' }}>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 6, userSelect: 'none' }}>
+                -- signature
+              </div>
+              <div
+                style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}
+                dangerouslySetInnerHTML={{ __html: sig }}
+              />
+            </div>
+          );
+        })()}
       </div>
 
       {/* Footer */}

@@ -5,6 +5,7 @@ import { THEMES, applyTheme } from '../themes.js';
 import { FONT_SETS, applyFontSet } from '../fonts.js';
 import { LAYOUTS, applyLayout } from '../layouts.js';
 import { NOTIFICATION_SOUNDS, playNotificationSound, playCustomSound, warmUpAudioContext } from '../utils/notificationSounds.js';
+import SignatureEditor from './SignatureEditor.jsx';
 
 // ─── Shared field component ───────────────────────────────────────────────────
 function Field({ label, required, children }) {
@@ -203,6 +204,15 @@ function AccountForm({ initial, onSave, onCancel }) {
         </Field>
       </div>
 
+      <div style={{ height: 1, background: 'var(--border-subtle)', margin: '16px 0' }} />
+      <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 10, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+        Signature
+      </div>
+      <SignatureEditor
+        value={form.signature || ''}
+        onChange={val => set('signature', val)}
+      />
+
       {error && (
         <div style={{
           padding: '10px 14px', background: 'rgba(248,113,113,0.1)',
@@ -251,7 +261,7 @@ function AccountsTab() {
   };
 
   const handleEdit = async (form) => {
-    const updates = { name: form.name, color: form.color, smtp_host: form.smtp_host, smtp_port: form.smtp_port };
+    const updates = { name: form.name, color: form.color, smtp_host: form.smtp_host, smtp_port: form.smtp_port, signature: form.signature || null };
     if (form.auth_pass) updates.auth_pass = form.auth_pass;
     if (form.auth_user) updates.auth_user = form.auth_user;
     await api.updateAccount(editTarget.id, updates);

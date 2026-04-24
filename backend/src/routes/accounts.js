@@ -13,7 +13,7 @@ const SAFE_FIELDS = [
   'imap_host', 'imap_port', 'smtp_host', 'smtp_port',
   'auth_user', 'oauth_provider', 'enabled',
   'last_sync', 'sync_error', 'sort_order', 'folder_mappings',
-  'imap_skip_tls_verify', 'created_at',
+  'imap_skip_tls_verify', 'signature', 'created_at',
 ];
 function safeAccount(row) {
   return Object.fromEntries(SAFE_FIELDS.map(k => [k, row[k]]));
@@ -23,7 +23,7 @@ router.get('/', async (req, res) => {
   const result = await query(
     `SELECT id, name, email_address, color, protocol, imap_host, imap_port,
             smtp_host, smtp_port, auth_user, oauth_provider, enabled,
-            last_sync, sync_error, sort_order, folder_mappings, imap_skip_tls_verify, created_at
+            last_sync, sync_error, sort_order, folder_mappings, imap_skip_tls_verify, signature, created_at
      FROM email_accounts WHERE user_id = $1 ORDER BY sort_order, created_at`,
     [req.session.userId]
   );
@@ -37,7 +37,7 @@ router.post('/', async (req, res) => {
     smtp_host, smtp_port = 587, smtp_tls = 'STARTTLS',
     auth_user, auth_pass,
     oauth_provider, oauth_access_token, oauth_refresh_token,
-    jmap_session_url
+    jmap_session_url, signature = null
   } = req.body;
 
   if (!name || !email_address) return res.status(400).json({ error: 'Name and email required' });
@@ -48,14 +48,14 @@ router.post('/', async (req, res) => {
         user_id, name, email_address, color, protocol,
         imap_host, imap_port, imap_tls, smtp_host, smtp_port, smtp_tls,
         auth_user, auth_pass, oauth_provider, oauth_access_token, oauth_refresh_token,
-        jmap_session_url
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+        jmap_session_url, signature
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
       RETURNING *
     `, [
       req.session.userId, name, email_address, color, protocol,
       imap_host, imap_port, imap_tls, smtp_host, smtp_port, smtp_tls,
       auth_user, encrypt(auth_pass), oauth_provider, encrypt(oauth_access_token), encrypt(oauth_refresh_token),
-      jmap_session_url
+      jmap_session_url, signature || null
     ]);
 
     const account = result.rows[0];
@@ -80,7 +80,7 @@ router.put('/:id', async (req, res) => {
   const check = await query('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
 
-  const allowed = ['name', 'color', 'enabled', 'auth_pass', 'sort_order', 'smtp_host', 'smtp_port', 'folder_mappings', 'imap_skip_tls_verify'];
+  const allowed = ['name', 'color', 'enabled', 'auth_pass', 'sort_order', 'smtp_host', 'smtp_port', 'folder_mappings', 'imap_skip_tls_verify', 'signature'];
   const sets = [];
   const values = [];
   let i = 1;
