@@ -16,9 +16,30 @@ export function stripEmailHead(html) {
   });
 }
 
+function upgradeUrl(url) {
+  return typeof url === 'string' && url.startsWith('http://') ? 'https://' + url.slice(7) : url;
+}
+
+// Upgrade http:// → https:// inside CSS url() expressions.
+// Handles both quoted (url('http://...'), url("http://...")) and unquoted (url(http://...)) forms.
+function upgradeStyleUrls(style) {
+  if (!style) return style;
+  return style.replace(/url\(\s*(['"]?)http:\/\//gi, (_, q) => `url(${q}https://`);
+}
+
+// Post-process sanitized HTML to upgrade http:// URLs inside <style> blocks.
+// sanitize-html only transforms attributes, not element text content, so <style>
+// block CSS must be handled separately after sanitization.
+function upgradeStyleBlocks(html) {
+  if (!html) return html;
+  return html.replace(/(<style\b[^>]*>)([\s\S]*?)(<\/style>)/gi, (_, open, content, close) => {
+    return open + content.replace(/url\(\s*(['"]?)http:\/\//gi, (_, q) => `url(${q}https://`) + close;
+  });
+}
+
 // Sanitize HTML email body — permissive but safe.
 export function sanitizeEmail(html) {
-  return sanitizeHtml(stripEmailHead(html), {
+  const sanitized = sanitizeHtml(stripEmailHead(html), {
     allowVulnerableTags: true,
     allowedTags: [
       'html','head','body','div','span','p','br','hr',
@@ -56,23 +77,33 @@ export function sanitizeEmail(html) {
         tagName,
         attribs: { ...attribs, rel: 'noopener noreferrer' },
       }),
-      // Upgrade http:// → https:// for image sources.  Many marketing emails
-      // still use plain-http image URLs which are blocked as mixed content on
-      // an https host, causing the images to silently fail.
+      // Upgrade http:// → https:// for image sources and inline style url() refs.
+      // Many marketing emails still use plain-http image URLs which are blocked as
+      // mixed content on an https host, causing images to silently fail.
       'img': (tagName, attribs) => {
-        const upgrade = url => (typeof url === 'string' && url.startsWith('http://'))
-          ? 'https://' + url.slice(7)
-          : url;
         const out = { ...attribs };
-        if (out.src)    out.src    = upgrade(out.src);
+        if (out.src)    out.src    = upgradeUrl(out.src);
         if (out.srcset) out.srcset = out.srcset
           .split(',')
           .map(part => {
             const [url, ...rest] = part.trim().split(/\s+/);
-            return [upgrade(url), ...rest].join(' ');
+            return [upgradeUrl(url), ...rest].join(' ');
           })
           .join(', ');
-        if (out.background) out.background = upgrade(out.background);
+        if (out.background) out.background = upgradeUrl(out.background);
+        if (out.style) out.style = upgradeStyleUrls(out.style);
+        return { tagName, attribs: out };
+      },
+      // Wildcard: upgrade background attribute and inline style url() for all
+      // elements that don't have a specific transform above.  sanitize-html uses
+      // the specific-tag transform when one exists and falls back to '*', so this
+      // fires for <table>, <td>, <tr>, <div>, <body>, etc. — all the elements
+      // that marketing emails (like eBay's) use for table-based background images
+      // and CSS background-image declarations.
+      '*': (tagName, attribs) => {
+        const out = { ...attribs };
+        if (out.background) out.background = upgradeUrl(out.background);
+        if (out.style) out.style = upgradeStyleUrls(out.style);
         return { tagName, attribs: out };
       },
     },
@@ -82,4 +113,8 @@ export function sanitizeEmail(html) {
     },
     disallowedTagsMode: 'discard',
   });
+
+  // Upgrade http:// URLs in <style> block CSS content — sanitize-html's transformTags
+  // only handles attributes, so CSS url() inside <style> blocks must be fixed afterward.
+  return upgradeStyleBlocks(sanitized);
 }

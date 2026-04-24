@@ -137,7 +137,14 @@ router.get('/messages/:id/body', async (req, res) => {
   // contains unresolved cid: references, or http:// image URLs that were cached
   // before the http→https upgrade was added (would be blocked as mixed content).
   const hasCidRefs  = message.body_html && /\bcid:/i.test(message.body_html);
-  const hasHttpImgs = message.body_html && /<img[^>]+src=["']http:\/\//i.test(message.body_html);
+  const hasHttpImgs = message.body_html && (
+    // <img src="http://"> cached before the http→https upgrade
+    /<img[^>]+src=["']http:\/\//i.test(message.body_html) ||
+    // background="http://" on table/td/tr elements (marketing email table layouts)
+    /background=["']http:\/\//i.test(message.body_html) ||
+    // CSS url(http://) in inline style attributes or <style> blocks
+    /url\(\s*['"]?http:\/\//i.test(message.body_html)
+  );
   if ((message.body_html || message.body_text) && !hasCidRefs && !hasHttpImgs) {
     const attachments = message.attachments
       ? (typeof message.attachments === 'string' ? JSON.parse(message.attachments) : message.attachments)
