@@ -24,12 +24,9 @@ function sigToPlainText(html) {
 const router = Router();
 router.use(requireAuth);
 
-// Providers whose SMTP servers automatically save sent mail to the IMAP Sent folder.
-// For these we skip IMAP APPEND and just sync after a delay.
-const AUTO_SAVE_SMTP = ['gmail.com', 'googlemail.com', 'smtp.mail.me.com', 'office365.com', 'outlook.com', 'live.com', 'hotmail.com'];
 
 router.post('/send', async (req, res) => {
-  const { accountId, to, cc = [], subject, body, inReplyTo } = req.body;
+  const { accountId, to, cc = [], subject, body, inReplyTo, references } = req.body;
   if (!accountId || !to?.length) return res.status(400).json({ error: 'accountId and to required' });
 
   const result = await query(
@@ -83,14 +80,14 @@ router.post('/send', async (req, res) => {
     };
     if (inReplyTo) {
       mailOptions.inReplyTo = inReplyTo;
-      mailOptions.references = inReplyTo;
+      // Use the full prior references chain if available; fall back to just inReplyTo.
+      mailOptions.references = references || inReplyTo;
     }
 
-    // Determine if this SMTP server auto-saves sent mail to IMAP.
-    // OAuth providers (Gmail, Microsoft) always auto-save; standard SMTP hosts are checked by name.
-    const smtpHost = (account.smtp_host || '').toLowerCase();
-    const serverAutoSaves = !!account.oauth_provider ||
-      AUTO_SAVE_SMTP.some(h => smtpHost.includes(h));
+    // OAuth providers (Gmail, Microsoft) save sent mail to IMAP automatically via their
+    // servers — skip APPEND and sync after a delay.  All other accounts use direct IMAP
+    // APPEND so sent mail reliably appears regardless of what the SMTP server does.
+    const serverAutoSaves = !!account.oauth_provider;
 
     // For servers that don't auto-save, generate the raw MIME now so we can APPEND it.
     let rawMessage = null;

@@ -81,8 +81,9 @@ router.get('/messages', async (req, res) => {
   values.push(Math.max(parseInt(offset) || 0, 0));
 
   const result = await query(`
-    SELECT m.id, m.uid, m.folder, m.subject, m.from_name, m.from_email,
-           m.to_addresses, m.date, m.snippet, m.is_read, m.is_starred,
+    SELECT m.id, m.uid, m.folder, m.message_id, m.subject, m.from_name, m.from_email,
+           m.to_addresses, m.cc_addresses, m.reply_to, m.in_reply_to,
+           m.date, m.snippet, m.is_read, m.is_starred,
            m.has_attachments, m.account_id,
            a.name as account_name, a.email_address as account_email, a.color as account_color
     FROM messages m

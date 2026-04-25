@@ -291,25 +291,59 @@ export default function MessageList() {
         break;
       }
       case 'reply':
+      case 'replyAll': {
+        const replyAll = action === 'replyAll';
+
+        const replyToArr = Array.isArray(message.reply_to)
+          ? message.reply_to
+          : (() => { try { return JSON.parse(message.reply_to || '[]'); } catch (_) { return []; } })();
+        const replyTarget = (replyToArr.length && replyToArr[0].email)
+          ? replyToArr[0]
+          : { name: message.from_name || '', email: message.from_email || '' };
+        const sender = replyTarget.email ? [replyTarget] : [];
+
+        const myEmail = accounts.find(a => a.id === message.account_id)?.email_address || '';
+
+        const allRecipients = (() => {
+          try {
+            const toArr = Array.isArray(message.to_addresses)
+              ? message.to_addresses
+              : JSON.parse(message.to_addresses || '[]');
+            const ccArr = Array.isArray(message.cc_addresses)
+              ? message.cc_addresses
+              : JSON.parse(message.cc_addresses || '[]');
+            return [...toArr, ...ccArr].filter(
+              t => t.email && t.email !== myEmail && t.email !== replyTarget.email
+            );
+          } catch (_) { return []; }
+        })();
+
+        const referencesChain = [message.in_reply_to, message.message_id]
+          .filter(Boolean).join(' ').trim() || null;
+
         openCompose({
-          to: message.from_email ? [{ name: message.from_name, email: message.from_email }] : [],
+          to: sender,
+          cc: replyAll ? allRecipients : [],
           subject: message.subject?.startsWith('Re:') ? message.subject : `Re: ${message.subject}`,
+          body: '',
+          quotedBody: '',
           inReplyTo: message.message_id,
+          references: referencesChain,
           accountId: message.account_id,
+          isReply: true,
+          isReplyAll: replyAll,
+          originalFrom: sender,
+          allRecipients,
         });
         break;
-      case 'replyAll':
-        openCompose({
-          to: message.from_email ? [{ name: message.from_name, email: message.from_email }] : [],
-          subject: message.subject?.startsWith('Re:') ? message.subject : `Re: ${message.subject}`,
-          inReplyTo: message.message_id,
-          accountId: message.account_id,
-        });
-        break;
+      }
       case 'forward':
         openCompose({
           subject: message.subject?.startsWith('Fwd:') ? message.subject : `Fwd: ${message.subject}`,
+          body: '',
+          quotedBody: '',
           accountId: message.account_id,
+          isForward: true,
         });
         break;
       case 'delete':

@@ -121,6 +121,9 @@ export async function initDb() {
       ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS imap_skip_tls_verify BOOLEAN NOT NULL DEFAULT false;
       ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS signature TEXT;
 
+      ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to JSONB DEFAULT '[]';
+      ALTER TABLE messages ADD COLUMN IF NOT EXISTS in_reply_to TEXT;
+
       CREATE TABLE IF NOT EXISTS integration_config (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,

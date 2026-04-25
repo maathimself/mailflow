@@ -28,6 +28,7 @@ export default function ComposeModal() {
   const [cc, setCc] = useState(() => normalizeTo(composeData?.cc) || '');
   const [subject, setSubject] = useState(() => composeData?.subject || '');
   const [body, setBody] = useState(() => composeData?.body || '');
+  const [quotedBody, setQuotedBody] = useState(() => composeData?.quotedBody || '');
   const [showCc, setShowCc] = useState(() => !!(composeData?.cc?.length));
 
   // Re-apply on mount — guards against Zustand state not being ready during first render
@@ -39,6 +40,7 @@ export default function ComposeModal() {
     if (composeData?.cc?.length) { setCc(normalizeTo(composeData.cc)); setShowCc(true); }
     if (composeData?.subject) setSubject(composeData.subject);
     if (composeData?.body !== undefined) setBody(composeData.body);
+    if (composeData?.quotedBody !== undefined) setQuotedBody(composeData.quotedBody);
   }, []);
 
   const [fromAccountId, setFromAccountId] = useState(
@@ -82,8 +84,9 @@ export default function ComposeModal() {
         to: to.split(',').map(s => s.trim()).filter(Boolean),
         cc: cc ? cc.split(',').map(s => s.trim()).filter(Boolean) : [],
         subject,
-        body,
+        body: body + (quotedBody || ''),
         inReplyTo: composeData?.inReplyTo,
+        references: composeData?.references || undefined,
       });
       closeCompose();
       addNotification({ title: 'Message sent', body: subject || '(no subject)' });
@@ -294,7 +297,7 @@ export default function ComposeModal() {
           placeholder="Write your message…"
           autoFocus={isReply || isForward}
           style={{
-            width: '100%', minHeight: isReply || isForward ? 260 : 200,
+            width: '100%', minHeight: isReply || isForward ? 120 : 200,
             padding: '12px 14px',
             background: 'transparent', border: 'none',
             color: 'var(--text-primary)', fontSize: 13, lineHeight: 1.7,
@@ -304,12 +307,12 @@ export default function ComposeModal() {
           }}
         />
 
-        {/* Signature preview */}
+        {/* Signature preview — always between the reply text and the quoted block */}
         {(() => {
           const sig = accounts.find(a => a.id === fromAccountId)?.signature;
           if (!sig) return null;
           return (
-            <div style={{ borderTop: '1px solid var(--border-subtle)', padding: '10px 14px' }}>
+            <div style={{ padding: '0 14px 10px' }}>
               <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 6, userSelect: 'none' }}>
                 -- signature
               </div>
@@ -320,6 +323,25 @@ export default function ComposeModal() {
             </div>
           );
         })()}
+
+        {/* Quoted / forwarded text — shown below the signature for replies and forwards */}
+        {quotedBody ? (
+          <textarea
+            value={quotedBody}
+            onChange={e => setQuotedBody(e.target.value)}
+            style={{
+              width: '100%', minHeight: 120,
+              padding: '10px 14px',
+              background: 'transparent',
+              borderTop: '1px solid var(--border-subtle)', borderBottom: 'none',
+              borderLeft: 'none', borderRight: 'none',
+              color: 'var(--text-tertiary)', fontSize: 12, lineHeight: 1.6,
+              resize: 'vertical', outline: 'none',
+              fontFamily: 'var(--font-sans, DM Sans, sans-serif)',
+              boxSizing: 'border-box', whiteSpace: 'pre-wrap',
+            }}
+          />
+        ) : null}
       </div>
 
       {/* Footer */}

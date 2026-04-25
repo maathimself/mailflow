@@ -651,15 +651,18 @@ export class ImapManager {
               INSERT INTO messages (
                 account_id, uid, folder, message_id, subject,
                 from_name, from_email, to_addresses, cc_addresses,
+                reply_to, in_reply_to,
                 date, snippet, is_read, is_starred, has_attachments, flags,
                 body_html, body_text, attachments
-              ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+              ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
               ON CONFLICT (account_id, uid, folder) DO UPDATE
               SET from_name = $6, from_email = $7,
                   to_addresses = $8, cc_addresses = $9,
+                  reply_to = COALESCE(NULLIF(messages.reply_to::text, '[]'), EXCLUDED.reply_to::text)::jsonb,
+                  in_reply_to = COALESCE(messages.in_reply_to, EXCLUDED.in_reply_to),
                   snippet = CASE WHEN EXCLUDED.snippet != '' THEN EXCLUDED.snippet
                                  ELSE messages.snippet END,
-                  is_read = $12, is_starred = $13, flags = $15,
+                  is_read = $14, is_starred = $15, flags = $17,
                   body_html = COALESCE(messages.body_html, EXCLUDED.body_html),
                   body_text = COALESCE(messages.body_text, EXCLUDED.body_text),
                   attachments = COALESCE(messages.attachments::text, EXCLUDED.attachments::text)::jsonb
@@ -669,6 +672,7 @@ export class ImapManager {
               sanitizeStr(parsed.messageId), sanitizeStr(parsed.subject),
               sanitizeStr(parsed.fromName), sanitizeStr(parsed.fromEmail),
               JSON.stringify(parsed.to), JSON.stringify(parsed.cc),
+              JSON.stringify(parsed.replyTo || []), sanitizeStr(parsed.inReplyTo),
               safeDate(parsed.date), sanitizeStr(parsed.snippet),
               parsed.isRead, parsed.isStarred,
               parsed.hasAttachments, JSON.stringify(parsed.flags),
@@ -905,12 +909,15 @@ export class ImapManager {
                   INSERT INTO messages (
                     account_id, uid, folder, message_id, subject,
                     from_name, from_email, to_addresses, cc_addresses,
+                    reply_to, in_reply_to,
                     date, snippet, is_read, is_starred, has_attachments, flags,
                     body_html, body_text, attachments
-                  ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+                  ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
                   ON CONFLICT (account_id, uid, folder) DO UPDATE
                   SET from_name = $6, from_email = $7,
                       to_addresses = $8, cc_addresses = $9,
+                      reply_to = COALESCE(NULLIF(messages.reply_to::text, '[]'), EXCLUDED.reply_to::text)::jsonb,
+                      in_reply_to = COALESCE(messages.in_reply_to, EXCLUDED.in_reply_to),
                       snippet = CASE WHEN EXCLUDED.snippet != '' THEN EXCLUDED.snippet
                                      ELSE messages.snippet END,
                       body_html = COALESCE(messages.body_html, EXCLUDED.body_html),
@@ -921,6 +928,7 @@ export class ImapManager {
                   sanitizeStr(parsed.messageId), sanitizeStr(parsed.subject),
                   sanitizeStr(parsed.fromName), sanitizeStr(parsed.fromEmail),
                   JSON.stringify(parsed.to), JSON.stringify(parsed.cc),
+                  JSON.stringify(parsed.replyTo || []), sanitizeStr(parsed.inReplyTo),
                   safeDate(parsed.date), sanitizeStr(parsed.snippet),
                   parsed.isRead, parsed.isStarred,
                   parsed.hasAttachments, JSON.stringify(parsed.flags),

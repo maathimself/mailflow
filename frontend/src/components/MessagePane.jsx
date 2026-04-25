@@ -236,29 +236,55 @@ export default function MessagePane() {
     const quotedText = body?.text
       ? `\n\n---\nOn ${date}, ${fromStr} wrote:\n${body.text.split('\n').map(l => '> ' + l).join('\n')}`
       : '';
-    const sender = (message.from_email || message.from_name)
-      ? [{ name: message.from_name || '', email: message.from_email || '' }]
-      : [];
+
+    // Fix: use Reply-To if present, otherwise fall back to From.
+    const replyToArr = Array.isArray(message.reply_to)
+      ? message.reply_to
+      : (() => { try { return JSON.parse(message.reply_to || '[]'); } catch (_) { return []; } })();
+    const replyTarget = (replyToArr.length && replyToArr[0].email)
+      ? replyToArr[0]
+      : { name: message.from_name || '', email: message.from_email || '' };
+    const sender = replyTarget.email ? [replyTarget] : [];
+
     const myEmail = accounts.find(a => a.id === message.account_id)?.email_address || '';
-    const ccList = (() => {
-      if (!replyAll) return [];
+
+    // Fix: build the full Reply All CC from both To and Cc of the original message,
+    // excluding the user's own address and the reply target (who goes in To).
+    // Always computed so the in-compose toggle can switch modes correctly.
+    const allRecipients = (() => {
       try {
-        const arr = Array.isArray(message.to_addresses)
+        const toArr = Array.isArray(message.to_addresses)
           ? message.to_addresses
           : JSON.parse(message.to_addresses || '[]');
-        return arr.filter(t => t.email && t.email !== myEmail);
+        const ccArr = Array.isArray(message.cc_addresses)
+          ? message.cc_addresses
+          : JSON.parse(message.cc_addresses || '[]');
+        return [...toArr, ...ccArr].filter(
+          t => t.email && t.email !== myEmail && t.email !== replyTarget.email
+        );
       } catch (_) { return []; }
     })();
+
+    // Fix: build the full References chain for proper thread linking.
+    // Outgoing References = prior in_reply_to chain + the message we're replying to.
+    const referencesChain = [message.in_reply_to, message.message_id]
+      .filter(Boolean).join(' ').trim() || null;
+
     setShowReplyMenu(false);
     openCompose({
       to: sender,
-      cc: ccList,
+      cc: replyAll ? allRecipients : [],
       subject: message.subject?.startsWith('Re:') ? message.subject : `Re: ${message.subject}`,
-      body: quotedText,
+      body: '',
+      quotedBody: quotedText,
       inReplyTo: message.message_id,
+      references: referencesChain,
       accountId: message.account_id,
       isReply: true,
       isReplyAll: replyAll,
+      // Passed so the in-compose Reply ↔ Reply All toggle can reconstruct recipients.
+      originalFrom: sender,
+      allRecipients,
     });
   };
 
@@ -270,7 +296,8 @@ export default function MessagePane() {
     const fwdText = `\n\n---------- Forwarded message ----------\nFrom: ${fromStr}\nDate: ${date}\nSubject: ${message.subject || ''}\n\n${body?.text || ''}`;
     openCompose({
       subject: message.subject?.startsWith('Fwd:') ? message.subject : `Fwd: ${message.subject}`,
-      body: fwdText,
+      body: '',
+      quotedBody: fwdText,
       accountId: message.account_id,
       isForward: true,
     });
