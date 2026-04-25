@@ -50,9 +50,6 @@ section before deploying.
     <td align="center"><img src="media/mailflow-ss-layout.png" alt="Layout options"><br><sub>Layout options</sub></td>
     <td align="center"><img src="media/mailflow-ss-appearance.png" alt="Appearance settings"><br><sub>Appearance settings</sub></td>
   </tr>
-  <tr>
-    <td align="center" colspan="2"><img src="media/mailflow-ss-typography.png" alt="Typography settings"><br><sub>Typography settings</sub></td>
-  </tr>
 </table>
 
 ---
