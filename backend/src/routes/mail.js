@@ -20,11 +20,30 @@ function isValidFolderName(name) {
   return typeof name === 'string' && name.length > 0 && name.length <= 255 && !/[\x00-\x1f\x7f]/.test(name);
 }
 
+// Regex matching zero-width and invisible Unicode chars that corrupt preview snippets.
+// Built from code points to avoid embedding invisible characters in source.
+const INVISIBLE_CHARS_RE = new RegExp(
+  [0x00AD, 0x200B, 0x200C, 0x200D, 0x200E, 0x200F, 0xFEFF]
+    .map(n => String.fromCodePoint(n)).join('|'),
+  'g'
+);
+
+// Returns true if a snippet contains undecoded HTML entities (&zwnj; &shy; etc.)
+// that indicate it was generated before the entity-stripping fix and needs refresh.
+function snippetIsGarbled(s) {
+  return s && /&[a-z][a-z0-9]*;/i.test(s);
+}
+
 // Extract a plain-text snippet from a message body for list previews.
 // Prefers plain text; strips HTML tags from html-only bodies.
 function snippetFromBody(text, html) {
   if (text) {
-    return text.replace(/\s+/g, ' ').trim().substring(0, 200);
+    // Apply entity stripping to the plain-text path too — some senders
+    // (marketing tools, broken generators) embed HTML entities in text/plain parts.
+    return text
+      .replace(/&[a-z][a-z0-9]*;/gi, ' ')
+      .replace(INVISIBLE_CHARS_RE, '')
+      .replace(/\s+/g, ' ').trim().substring(0, 200);
   }
   if (html) {
     return html
@@ -38,6 +57,9 @@ function snippetFromBody(text, html) {
       .replace(/&quot;/gi, '"')
       .replace(/&#x([0-9A-Fa-f]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
       .replace(/&#([0-9]+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
+      // Catch-all: any remaining named HTML entities (&zwnj; &shy; &hellip; etc.)
+      .replace(/&[a-z][a-z0-9]*;/gi, ' ')
+      .replace(INVISIBLE_CHARS_RE, '')
       .replace(/\s+/g, ' ')
       .trim()
       .substring(0, 200);
@@ -157,12 +179,12 @@ router.get('/messages/:id/body', async (req, res) => {
       // Update cache so subsequent views don't need to re-strip
       query('UPDATE messages SET body_html = $1 WHERE id = $2', [html, id]).catch(() => {});
     }
-    // Backfill snippet for messages that have a body cached but no snippet yet
-    if (!message.snippet) {
+    // Backfill snippet when absent, or regenerate if garbled (undecoded HTML entities
+    // from before the entity-stripping fix — e.g. "&zwnj;" in preview text).
+    if (!message.snippet || snippetIsGarbled(message.snippet)) {
       const snip = snippetFromBody(message.body_text, html);
       if (snip) {
-        query('UPDATE messages SET snippet = $1 WHERE id = $2 AND (snippet IS NULL OR snippet = \'\')',
-          [snip, id]).catch(() => {});
+        query('UPDATE messages SET snippet = $1 WHERE id = $2', [snip, id]).catch(() => {});
       }
     }
     return res.json({ html, text: message.body_text, attachments });

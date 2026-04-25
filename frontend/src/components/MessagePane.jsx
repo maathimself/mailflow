@@ -433,7 +433,7 @@ export default function MessagePane() {
             borderBottom: '1px solid var(--border-subtle)',
             fontSize: 17, fontWeight: 600,
             color: 'var(--text-primary)', lineHeight: 1.3,
-            fontFamily: 'inherit',
+            fontFamily: 'var(--font-display)',
           }}>
             {message.subject || '(no subject)'}
           </div>

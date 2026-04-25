@@ -160,6 +160,7 @@ export const useStore = create((set, get) => ({
   setFontSet: (fontSet) => {
     localStorage.setItem('mailflow_font', fontSet);
     set({ fontSet });
+    applyFontSet(fontSet);
     api.savePreferences({ font: fontSet }).catch(() => {}); // fire-and-forget
   },
 

@@ -8,7 +8,7 @@ export const FONT_SETS = {
   default: {
     label: 'MailFlow Default',
     description: 'DM Sans × Fraunces — refined and contemporary',
-    preview: { heading: 'Fraunces', body: 'DM Sans' },
+    preview: { heading: 'Fraunces', body: 'DM Sans', mono: 'JetBrains Mono' },
     vars: {
       '--font-sans': "'DM Sans', sans-serif",
       '--font-mono': "'JetBrains Mono', monospace",
@@ -20,7 +20,7 @@ export const FONT_SETS = {
   editorial: {
     label: 'Editorial',
     description: 'Playfair Display × Lato — newspaper gravitas',
-    preview: { heading: 'Playfair Display', body: 'Lato' },
+    preview: { heading: 'Playfair Display', body: 'Lato', mono: 'Fira Code' },
     vars: {
       '--font-sans': "'Lato', sans-serif",
       '--font-mono': "'Fira Code', monospace",
@@ -32,7 +32,7 @@ export const FONT_SETS = {
   geometric: {
     label: 'Geometric',
     description: 'Outfit × Plus Jakarta Sans — clean and modern',
-    preview: { heading: 'Outfit', body: 'Plus Jakarta Sans' },
+    preview: { heading: 'Outfit', body: 'Plus Jakarta Sans', mono: 'Space Mono' },
     vars: {
       '--font-sans': "'Plus Jakarta Sans', sans-serif",
       '--font-mono': "'Space Mono', monospace",
@@ -43,20 +43,20 @@ export const FONT_SETS = {
 
   humanist: {
     label: 'Humanist',
-    description: 'Nunito × Libre Baskerville — warm and readable',
-    preview: { heading: 'Libre Baskerville', body: 'Nunito' },
+    description: 'Libre Baskerville × Mulish — warm and readable',
+    preview: { heading: 'Libre Baskerville', body: 'Mulish', mono: 'Inconsolata' },
     vars: {
-      '--font-sans': "'Nunito', sans-serif",
+      '--font-sans': "'Mulish', sans-serif",
       '--font-mono': "'Inconsolata', monospace",
       '--font-display': "'Libre Baskerville', serif",
     },
-    googleFonts: 'family=Nunito:wght@300;400;500;600&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Inconsolata:wght@400;500',
+    googleFonts: 'family=Mulish:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Inconsolata:wght@400;500',
   },
 
   grotesque: {
     label: 'Grotesque',
     description: 'Syne × IBM Plex Sans — Swiss-style precision',
-    preview: { heading: 'Syne', body: 'IBM Plex Sans' },
+    preview: { heading: 'Syne', body: 'IBM Plex Sans', mono: 'IBM Plex Mono' },
     vars: {
       '--font-sans': "'IBM Plex Sans', sans-serif",
       '--font-mono': "'IBM Plex Mono', monospace",
@@ -68,7 +68,7 @@ export const FONT_SETS = {
   literary: {
     label: 'Literary',
     description: 'Cormorant × Raleway — elegant and expressive',
-    preview: { heading: 'Cormorant Garamond', body: 'Raleway' },
+    preview: { heading: 'Cormorant Garamond', body: 'Raleway', mono: 'Courier Prime' },
     vars: {
       '--font-sans': "'Raleway', sans-serif",
       '--font-mono': "'Courier Prime', monospace",
@@ -80,7 +80,7 @@ export const FONT_SETS = {
   technical: {
     label: 'Technical',
     description: 'Geist × Geist Mono — developer aesthetic',
-    preview: { heading: 'Geist', body: 'Geist' },
+    preview: { heading: 'Geist', body: 'Geist', mono: 'Geist Mono' },
     vars: {
       '--font-sans': "'Geist', sans-serif",
       '--font-mono': "'Geist Mono', monospace",
@@ -92,7 +92,7 @@ export const FONT_SETS = {
   rounded: {
     label: 'Rounded',
     description: 'Quicksand × Nunito — friendly and approachable',
-    preview: { heading: 'Quicksand', body: 'Nunito' },
+    preview: { heading: 'Quicksand', body: 'Nunito', mono: 'Fira Code' },
     vars: {
       '--font-sans': "'Nunito', sans-serif",
       '--font-mono': "'Fira Code', monospace",
@@ -104,7 +104,7 @@ export const FONT_SETS = {
   academic: {
     label: 'Academic',
     description: 'EB Garamond × Source Sans — scholarly and timeless',
-    preview: { heading: 'EB Garamond', body: 'Source Sans 3' },
+    preview: { heading: 'EB Garamond', body: 'Source Sans 3', mono: 'Source Code Pro' },
     vars: {
       '--font-sans': "'Source Sans 3', sans-serif",
       '--font-mono': "'Source Code Pro', monospace",
@@ -116,7 +116,7 @@ export const FONT_SETS = {
   futurist: {
     label: 'Futurist',
     description: 'Space Grotesk × Oxanium — sci-fi forward',
-    preview: { heading: 'Oxanium', body: 'Space Grotesk' },
+    preview: { heading: 'Oxanium', body: 'Space Grotesk', mono: 'Space Mono' },
     vars: {
       '--font-sans': "'Space Grotesk', sans-serif",
       '--font-mono': "'Space Mono', monospace",
@@ -128,7 +128,7 @@ export const FONT_SETS = {
   bodoni: {
     label: 'Bodoni',
     description: 'Bodoni Moda × Karla — high-contrast classical elegance',
-    preview: { heading: 'Bodoni Moda', body: 'Karla' },
+    preview: { heading: 'Bodoni Moda', body: 'Karla', mono: 'JetBrains Mono' },
     vars: {
       '--font-sans': "'Karla', sans-serif",
       '--font-mono': "'JetBrains Mono', monospace",
@@ -140,7 +140,7 @@ export const FONT_SETS = {
   poppins: {
     label: 'Poppins',
     description: 'Poppins — geometric rounded modern',
-    preview: { heading: 'Poppins', body: 'Poppins' },
+    preview: { heading: 'Poppins', body: 'Poppins', mono: 'Fira Code' },
     vars: {
       '--font-sans': "'Poppins', sans-serif",
       '--font-mono': "'Fira Code', monospace",
@@ -152,7 +152,7 @@ export const FONT_SETS = {
   cinzel: {
     label: 'Cinzel',
     description: 'Cinzel × Spectral — Roman classical authority',
-    preview: { heading: 'Cinzel', body: 'Spectral' },
+    preview: { heading: 'Cinzel', body: 'Spectral', mono: 'Courier Prime' },
     vars: {
       '--font-sans': "'Spectral', serif",
       '--font-mono': "'Courier Prime', monospace",
@@ -164,19 +164,19 @@ export const FONT_SETS = {
   typewriter: {
     label: 'Typewriter',
     description: 'Special Elite × Crimson Pro — vintage press feel',
-    preview: { heading: 'Special Elite', body: 'Crimson Pro' },
+    preview: { heading: 'Special Elite', body: 'Crimson Pro', mono: 'Courier Prime' },
     vars: {
       '--font-sans': "'Crimson Pro', serif",
-      '--font-mono': "'Special Elite', cursive",
+      '--font-mono': "'Courier Prime', monospace",
       '--font-display': "'Special Elite', cursive",
     },
-    googleFonts: 'family=Special+Elite&family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,400',
+    googleFonts: 'family=Special+Elite&family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,400&family=Courier+Prime:wght@400;700',
   },
 
   newspaper: {
     label: 'Newspaper',
     description: 'Oswald × Lora — bold editorial contrast',
-    preview: { heading: 'Oswald', body: 'Lora' },
+    preview: { heading: 'Oswald', body: 'Lora', mono: 'Courier Prime' },
     vars: {
       '--font-sans': "'Lora', serif",
       '--font-mono': "'Courier Prime', monospace",
@@ -188,19 +188,20 @@ export const FONT_SETS = {
   magazine: {
     label: 'Magazine',
     description: 'Abril Fatface × Barlow — glossy bold impact',
-    preview: { heading: 'Abril Fatface', body: 'Barlow' },
+    preview: { heading: 'Abril Fatface', body: 'Barlow', mono: 'Fira Code' },
     vars: {
       '--font-sans': "'Barlow', sans-serif",
       '--font-mono': "'Fira Code', monospace",
-      '--font-display': "'Abril Fatface', display",
+      '--font-display': "'Abril Fatface', cursive",
     },
     googleFonts: 'family=Abril+Fatface&family=Barlow:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Fira+Code:wght@400;500',
   },
 
+
   swiss: {
     label: 'Swiss',
     description: 'Onest × Figtree — neutral Swiss modernism',
-    preview: { heading: 'Onest', body: 'Figtree' },
+    preview: { heading: 'Onest', body: 'Figtree', mono: 'Space Mono' },
     vars: {
       '--font-sans': "'Figtree', sans-serif",
       '--font-mono': "'Space Mono', monospace",
@@ -212,7 +213,7 @@ export const FONT_SETS = {
   manrope: {
     label: 'Manrope',
     description: 'Manrope — geometric grotesk unity',
-    preview: { heading: 'Manrope', body: 'Manrope' },
+    preview: { heading: 'Manrope', body: 'Manrope', mono: 'JetBrains Mono' },
     vars: {
       '--font-sans': "'Manrope', sans-serif",
       '--font-mono': "'JetBrains Mono', monospace",
@@ -223,20 +224,20 @@ export const FONT_SETS = {
 
   studio: {
     label: 'Studio',
-    description: 'Bebas Neue × Work Sans — bold branding energy',
-    preview: { heading: 'Bebas Neue', body: 'Work Sans' },
+    description: 'Bebas Neue × Barlow — bold branding energy',
+    preview: { heading: 'Bebas Neue', body: 'Barlow', mono: 'Space Mono' },
     vars: {
-      '--font-sans': "'Work Sans', sans-serif",
+      '--font-sans': "'Barlow', sans-serif",
       '--font-mono': "'Space Mono', monospace",
-      '--font-display': "'Bebas Neue', display",
+      '--font-display': "'Bebas Neue', sans-serif",
     },
-    googleFonts: 'family=Bebas+Neue&family=Work+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Space+Mono:wght@400;700',
+    googleFonts: 'family=Bebas+Neue&family=Barlow:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Space+Mono:wght@400;700',
   },
 
   ink: {
     label: 'Ink',
     description: 'Merriweather × Merriweather Sans — warm print companion',
-    preview: { heading: 'Merriweather', body: 'Merriweather Sans' },
+    preview: { heading: 'Merriweather', body: 'Merriweather Sans', mono: 'Inconsolata' },
     vars: {
       '--font-sans': "'Merriweather Sans', sans-serif",
       '--font-mono': "'Inconsolata', monospace",
@@ -248,7 +249,7 @@ export const FONT_SETS = {
   atlas: {
     label: 'Atlas',
     description: 'Josefin Slab × Josefin Sans — geometric slab harmony',
-    preview: { heading: 'Josefin Slab', body: 'Josefin Sans' },
+    preview: { heading: 'Josefin Slab', body: 'Josefin Sans', mono: 'Space Mono' },
     vars: {
       '--font-sans': "'Josefin Sans', sans-serif",
       '--font-mono': "'Space Mono', monospace",
@@ -260,7 +261,7 @@ export const FONT_SETS = {
   noto: {
     label: 'Noto',
     description: 'Noto Serif × Noto Sans — universal multilingual clarity',
-    preview: { heading: 'Noto Serif', body: 'Noto Sans' },
+    preview: { heading: 'Noto Serif', body: 'Noto Sans', mono: 'Noto Sans Mono' },
     vars: {
       '--font-sans': "'Noto Sans', sans-serif",
       '--font-mono': "'Noto Sans Mono', monospace",
@@ -272,7 +273,7 @@ export const FONT_SETS = {
   heritage: {
     label: 'Heritage',
     description: 'Cardo × Cabin — old-world serif meets modern sans',
-    preview: { heading: 'Cardo', body: 'Cabin' },
+    preview: { heading: 'Cardo', body: 'Cabin', mono: 'Courier Prime' },
     vars: {
       '--font-sans': "'Cabin', sans-serif",
       '--font-mono': "'Courier Prime', monospace",
@@ -284,7 +285,7 @@ export const FONT_SETS = {
   gothic: {
     label: 'Gothic',
     description: 'Cinzel Decorative × Lora — ornate and ceremonial',
-    preview: { heading: 'Cinzel Decorative', body: 'Lora' },
+    preview: { heading: 'Cinzel Decorative', body: 'Lora', mono: 'Courier Prime' },
     vars: {
       '--font-sans': "'Lora', serif",
       '--font-mono': "'Courier Prime', monospace",
@@ -296,7 +297,7 @@ export const FONT_SETS = {
   retro: {
     label: 'Retro',
     description: 'Pacifico × Josefin Sans — playful vintage charm',
-    preview: { heading: 'Pacifico', body: 'Josefin Sans' },
+    preview: { heading: 'Pacifico', body: 'Josefin Sans', mono: 'Special Elite' },
     vars: {
       '--font-sans': "'Josefin Sans', sans-serif",
       '--font-mono': "'Special Elite', cursive",
@@ -308,7 +309,7 @@ export const FONT_SETS = {
   yeseva: {
     label: 'Display',
     description: 'Yeseva One × Karla — dramatic display contrast',
-    preview: { heading: 'Yeseva One', body: 'Karla' },
+    preview: { heading: 'Yeseva One', body: 'Karla', mono: 'Fira Code' },
     vars: {
       '--font-sans': "'Karla', sans-serif",
       '--font-mono': "'Fira Code', monospace",
@@ -320,7 +321,7 @@ export const FONT_SETS = {
   terminal: {
     label: 'Terminal',
     description: 'Share Tech Mono — pure monospace terminal',
-    preview: { heading: 'Share Tech Mono', body: 'Share Tech Mono' },
+    preview: { heading: 'Share Tech Mono', body: 'Share Tech Mono', mono: 'Share Tech Mono' },
     vars: {
       '--font-sans': "'Share Tech Mono', monospace",
       '--font-mono': "'Share Tech Mono', monospace",
@@ -332,7 +333,7 @@ export const FONT_SETS = {
   pt: {
     label: 'PT Classic',
     description: 'PT Serif × PT Sans — Russian typographic tradition',
-    preview: { heading: 'PT Serif', body: 'PT Sans' },
+    preview: { heading: 'PT Serif', body: 'PT Sans', mono: 'PT Mono' },
     vars: {
       '--font-sans': "'PT Sans', sans-serif",
       '--font-mono': "'PT Mono', monospace",
@@ -344,7 +345,7 @@ export const FONT_SETS = {
   marcellus: {
     label: 'Marcellus',
     description: 'Marcellus SC × Open Sans — small caps authority',
-    preview: { heading: 'Marcellus SC', body: 'Open Sans' },
+    preview: { heading: 'Marcellus SC', body: 'Open Sans', mono: 'Source Code Pro' },
     vars: {
       '--font-sans': "'Open Sans', sans-serif",
       '--font-mono': "'Source Code Pro', monospace",
@@ -356,7 +357,7 @@ export const FONT_SETS = {
   monochrome: {
     label: 'Monochrome',
     description: 'JetBrains Mono — pure programmer aesthetic',
-    preview: { heading: 'JetBrains Mono', body: 'JetBrains Mono' },
+    preview: { heading: 'JetBrains Mono', body: 'JetBrains Mono', mono: 'JetBrains Mono' },
     vars: {
       '--font-sans': "'JetBrains Mono', monospace",
       '--font-mono': "'JetBrains Mono', monospace",
@@ -368,7 +369,7 @@ export const FONT_SETS = {
   rozha: {
     label: 'Rozha',
     description: 'Rozha One × Barlow — bold Indian type meets European sans',
-    preview: { heading: 'Rozha One', body: 'Barlow' },
+    preview: { heading: 'Rozha One', body: 'Barlow', mono: 'Fira Code' },
     vars: {
       '--font-sans': "'Barlow', sans-serif",
       '--font-mono': "'Fira Code', monospace",
@@ -379,20 +380,20 @@ export const FONT_SETS = {
 
   spectral: {
     label: 'Spectral',
-    description: 'Spectral × Open Sans — screen-optimized serif',
-    preview: { heading: 'Spectral', body: 'Open Sans' },
+    description: 'Spectral × Lato — screen-optimized serif',
+    preview: { heading: 'Spectral', body: 'Lato', mono: 'Source Code Pro' },
     vars: {
-      '--font-sans': "'Open Sans', sans-serif",
+      '--font-sans': "'Lato', sans-serif",
       '--font-mono': "'Source Code Pro', monospace",
       '--font-display': "'Spectral', serif",
     },
-    googleFonts: 'family=Spectral:ital,wght@0,300;0,400;0,600;1,400&family=Open+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Source+Code+Pro:wght@400;500',
+    googleFonts: 'family=Spectral:ital,wght@0,300;0,400;0,600;1,400&family=Lato:wght@300;400;700&family=Source+Code+Pro:wght@400;500',
   },
 
   work: {
     label: 'Work Sans',
     description: 'Work Sans — clean variable workhorse',
-    preview: { heading: 'Work Sans', body: 'Work Sans' },
+    preview: { heading: 'Work Sans', body: 'Work Sans', mono: 'JetBrains Mono' },
     vars: {
       '--font-sans': "'Work Sans', sans-serif",
       '--font-mono': "'JetBrains Mono', monospace",
@@ -403,20 +404,20 @@ export const FONT_SETS = {
 
   neuton: {
     label: 'Neuton',
-    description: 'Neuton × Open Sans — refined book serif',
-    preview: { heading: 'Neuton', body: 'Open Sans' },
+    description: 'Neuton × Hind — refined book serif',
+    preview: { heading: 'Neuton', body: 'Hind', mono: 'Inconsolata' },
     vars: {
-      '--font-sans': "'Open Sans', sans-serif",
+      '--font-sans': "'Hind', sans-serif",
       '--font-mono': "'Inconsolata', monospace",
       '--font-display': "'Neuton', serif",
     },
-    googleFonts: 'family=Neuton:ital,wght@0,300;0,400;0,700;1,400&family=Open+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Inconsolata:wght@400;500',
+    googleFonts: 'family=Neuton:ital,wght@0,300;0,400;0,700;1,400&family=Hind:wght@300;400;500;600&family=Inconsolata:wght@400;500',
   },
 
   cabin: {
     label: 'Cabin',
     description: 'Cabin — humanist sans crafted for digital',
-    preview: { heading: 'Cabin', body: 'Cabin' },
+    preview: { heading: 'Cabin', body: 'Cabin', mono: 'Source Code Pro' },
     vars: {
       '--font-sans': "'Cabin', sans-serif",
       '--font-mono': "'Source Code Pro', monospace",
@@ -426,27 +427,29 @@ export const FONT_SETS = {
   },
 };
 
-let loadedFonts = new Set();
+const loadedFonts = new Set();
 
+// Inject the Google Fonts <link> for a font set without changing any CSS vars.
+// Safe to call multiple times — deduplicates by fontKey.
+export function loadFontSet(fontKey) {
+  const set = FONT_SETS[fontKey];
+  if (!set?.googleFonts || loadedFonts.has(fontKey)) return;
+  if (!document.getElementById(`font-link-${fontKey}`)) {
+    const link = document.createElement('link');
+    link.id = `font-link-${fontKey}`;
+    link.rel = 'stylesheet';
+    link.href = `https://fonts.googleapis.com/css2?${set.googleFonts}&display=swap`;
+    document.head.appendChild(link);
+  }
+  loadedFonts.add(fontKey);
+}
+
+// Apply a font set: inject Google Fonts and update the CSS custom properties.
 export function applyFontSet(fontKey) {
   const set = FONT_SETS[fontKey] || FONT_SETS.default;
   const root = document.documentElement;
-
-  // Apply CSS variables
   for (const [key, value] of Object.entries(set.vars)) {
     root.style.setProperty(key, value);
   }
-
-  // Load Google Fonts if not already loaded
-  if (!loadedFonts.has(fontKey) && set.googleFonts) {
-    const existing = document.getElementById(`font-link-${fontKey}`);
-    if (!existing) {
-      const link = document.createElement('link');
-      link.id = `font-link-${fontKey}`;
-      link.rel = 'stylesheet';
-      link.href = `https://fonts.googleapis.com/css2?${set.googleFonts}&display=swap`;
-      document.head.appendChild(link);
-    }
-    loadedFonts.add(fontKey);
-  }
+  loadFontSet(fontKey);
 }

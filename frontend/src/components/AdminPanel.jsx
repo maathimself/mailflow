@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { THEMES, applyTheme } from '../themes.js';
-import { FONT_SETS, applyFontSet } from '../fonts.js';
+import { FONT_SETS, loadFontSet } from '../fonts.js';
 import { LAYOUTS, applyLayout } from '../layouts.js';
 import { NOTIFICATION_SOUNDS, playNotificationSound, playCustomSound, warmUpAudioContext } from '../utils/notificationSounds.js';
 import SignatureEditor from './SignatureEditor.jsx';
@@ -643,27 +643,37 @@ function IconBtn({ children, onClick, title, danger }) {
 // ─── Fonts Tab ───────────────────────────────────────────────────────────────
 function FontsTab() {
   const { fontSet, setFontSet } = useStore();
-  const [loaded, setLoaded] = useState({});
+  const [fontsReady, setFontsReady] = useState(false);
 
   const handleSelect = (key) => {
     setFontSet(key);
-    applyFontSet(key);
   };
 
-  // Mark fonts as loaded after a tick so we can show them in their own typeface
+  // Load Google Fonts for every set so specimens render in their own typefaces.
+  // Use document.fonts.ready (the proper font-loading API) plus a minimum 500ms
+  // so newly-appended <link> tags have time to register their @font-face rules
+  // before the promise resolves. A 4s fallback handles blocked or slow loads.
   useEffect(() => {
-    const timer = setTimeout(() => {
-      const l = {};
-      Object.keys(FONT_SETS).forEach(k => { l[k] = true; });
-      setLoaded(l);
-    }, 800);
-    return () => clearTimeout(timer);
+    Object.keys(FONT_SETS).forEach(k => loadFontSet(k));
+    let done = false;
+    const finish = () => { if (!done) { done = true; setFontsReady(true); } };
+    Promise.all([
+      document.fonts.ready,
+      new Promise(r => setTimeout(r, 500)),
+    ]).then(finish);
+    const fallback = setTimeout(finish, 4000);
+    return () => clearTimeout(fallback);
   }, []);
 
   return (
     <div>
-      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-        Typography
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 4 }}>
+        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>
+          Typography
+        </div>
+        {!fontsReady && (
+          <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>Loading fonts…</div>
+        )}
       </div>
       <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 20 }}>
         Choose a font pairing for the interface
@@ -738,7 +748,7 @@ function FontsTab() {
                       color: isActive ? 'var(--accent)' : 'var(--text-secondary)',
                       fontSize: 12,
                     }}>
-                      code_01
+                      {set.preview.mono}
                     </span>
                   </div>
                 </div>

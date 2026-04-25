@@ -1,3 +1,12 @@
+// Regex matching zero-width and invisible Unicode chars that corrupt preview snippets:
+// U+00AD soft-hyphen, U+200B zero-width space, U+200C ZWNJ, U+200D ZWJ,
+// U+200E LTR mark, U+200F RTL mark, U+FEFF BOM / zero-width no-break space.
+const INVISIBLE_CHARS_RE = new RegExp(
+  [0x00AD, 0x200B, 0x200C, 0x200D, 0x200E, 0x200F, 0xFEFF]
+    .map(n => String.fromCodePoint(n)).join('|'),
+  'g'
+);
+
 // Walk bodyStructure to find the best text part for a snippet.
 // Prefers text/plain; falls back to text/html.
 function findSnippetPart(structure) {
@@ -128,10 +137,17 @@ export async function parseMessage(msg) {
             .replace(/&quot;/gi, '"')
             .replace(/&apos;/gi, "'")
             .replace(/&#x([0-9A-Fa-f]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
-            .replace(/&#([0-9]+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)));
+            .replace(/&#([0-9]+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
+            // Catch-all: any remaining named HTML entities (&zwnj; &shy; &hellip; etc.)
+            .replace(/&[a-z][a-z0-9]*;/gi, ' ');
         }
 
-        snippet = text.replace(/\s+/g, ' ').trim().substring(0, 200);
+        // Entity catch-all also covers plain-text parts whose senders embed HTML
+        // entities (e.g. &zwnj;) directly in a text/plain body.
+        snippet = text
+          .replace(/&[a-z][a-z0-9]*;/gi, ' ')
+          .replace(INVISIBLE_CHARS_RE, '')
+          .replace(/\s+/g, ' ').trim().substring(0, 200);
       } catch (_) {}
     }
   }
