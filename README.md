@@ -1,5 +1,5 @@
 ﻿<p align="center">
-  <img src="mailflow-logo.png" width="200" alt="MailFlow Logo">
+  <img src="media/mailflow-logo.png" width="200" alt="MailFlow Logo">
 </p>
 
 # MailFlow
@@ -24,6 +24,36 @@ section before deploying.
 - **Star, delete, mark read** — synced back to IMAP
 - **User management** — admin panel, invite-only registration, invite emails
 - **Microsoft 365 / OAuth2** — for work accounts that require modern auth
+
+---
+
+## Screenshots
+
+<table>
+  <tr>
+    <td align="center"><img src="media/mailflow-ss-default.png" alt="Default dark theme"><br><sub>Default dark theme</sub></td>
+    <td align="center"><img src="media/mailflow-ss-light.png" alt="Light theme"><br><sub>Light theme</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="media/mailflow-ss-catppuccin.png" alt="Catppuccin theme"><br><sub>Catppuccin theme</sub></td>
+    <td align="center"><img src="media/mailflow-ss-gruvbox.png" alt="Gruvbox theme"><br><sub>Gruvbox theme</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="media/mailflow-ss-compose.png" alt="Compose window"><br><sub>Compose window</sub></td>
+    <td align="center"><img src="media/mailflow-ss-collapsed-sidebar.png" alt="Collapsed sidebar"><br><sub>Collapsed sidebar</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="media/mailflow-ss-accounts.png" alt="Account management"><br><sub>Account management</sub></td>
+    <td align="center"><img src="media/mailflow-ss-accounts-expanded.png" alt="Folder navigation"><br><sub>Folder navigation</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="media/mailflow-ss-layout.png" alt="Layout options"><br><sub>Layout options</sub></td>
+    <td align="center"><img src="media/mailflow-ss-appearance.png" alt="Appearance settings"><br><sub>Appearance settings</sub></td>
+  </tr>
+  <tr>
+    <td align="center" colspan="2"><img src="media/mailflow-ss-typography.png" alt="Typography settings"><br><sub>Typography settings</sub></td>
+  </tr>
+</table>
 
 ---
 
