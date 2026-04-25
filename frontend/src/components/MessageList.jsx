@@ -5,6 +5,16 @@ import { format, isToday, isYesterday, isThisYear } from 'date-fns';
 import { LAYOUTS } from '../layouts.js';
 import ContextMenu from './ContextMenu.jsx';
 
+// Folder icon for move picker
+function FolderIcon({ specialUse, size = 13 }) {
+  const s = (specialUse || '').toLowerCase();
+  if (s.includes('sent'))   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>;
+  if (s.includes('trash'))  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>;
+  if (s.includes('draft'))  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>;
+  if (s.includes('spam') || s.includes('junk')) return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>;
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>;
+}
+
 function formatDate(dateStr) {
   if (!dateStr) return '';
   const d = new Date(dateStr);
@@ -39,8 +49,42 @@ export default function MessageList() {
   const [contextMenu, setContextMenu] = useState(null); // { x, y, message }
   const listRef = useRef(null);
 
+  // Bulk selection state
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [showFolderPicker, setShowFolderPicker] = useState(false);
+  const [pickerFolders, setPickerFolders] = useState([]);
+  const [pickerLoading, setPickerLoading] = useState(false);
+  const folderPickerRef = useRef(null);
+
   useEffect(() => { currentPageRef.current = currentPage; }, [currentPage]);
   const searchTimer = useRef(null);
+
+  // Clear selection whenever the message list resets (nav, folder change, etc.)
+  useEffect(() => {
+    setSelectedIds(new Set());
+    setShowFolderPicker(false);
+  }, [messagesRefreshToken]);
+
+  // Escape clears selection; click-outside closes folder picker
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        setShowFolderPicker(false);
+        setSelectedIds(new Set());
+      }
+    };
+    const onPointer = (e) => {
+      if (folderPickerRef.current && !folderPickerRef.current.contains(e.target)) {
+        setShowFolderPicker(false);
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('pointerdown', onPointer);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('pointerdown', onPointer);
+    };
+  }, []);
 
   // Reset and load fresh when account/folder/filter changes
   useEffect(() => {
@@ -266,6 +310,67 @@ export default function MessageList() {
     }
   };
 
+  // ── Bulk selection helpers ───────────────────────────────────
+  const toggleSelect = useCallback((id) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }, []);
+
+  const selectAll = useCallback((msgs) => {
+    setSelectedIds(new Set(msgs.map(m => m.id)));
+  }, []);
+
+  const clearSelection = useCallback(() => {
+    setSelectedIds(new Set());
+    setShowFolderPicker(false);
+  }, []);
+
+  const handleBulkDelete = useCallback(async (ids, msgs) => {
+    // Optimistically remove from UI
+    ids.forEach(id => removeMessage(id));
+    msgs.forEach(msg => { if (!msg.is_read) decrementUnread(msg.account_id); });
+    setSelectedIds(new Set());
+    setShowFolderPicker(false);
+    try {
+      await api.bulkDelete(ids);
+    } catch (err) {
+      console.error('Bulk delete failed:', err);
+      addNotification({ title: 'Delete failed', body: `Could not delete ${ids.length} message(s).` });
+    }
+  }, [removeMessage, decrementUnread, addNotification]);
+
+  const handleBulkMove = useCallback(async (ids, folder) => {
+    ids.forEach(id => removeMessage(id));
+    setSelectedIds(new Set());
+    setShowFolderPicker(false);
+    try {
+      await api.bulkMove(ids, folder);
+    } catch (err) {
+      console.error('Bulk move failed:', err);
+      addNotification({ title: 'Move failed', body: `Could not move ${ids.length} message(s).` });
+    }
+  }, [removeMessage, addNotification]);
+
+  const handleOpenFolderPicker = useCallback(async (selectedMsgs) => {
+    if (showFolderPicker) { setShowFolderPicker(false); return; }
+    const accountIds = [...new Set(selectedMsgs.map(m => m.account_id))];
+    if (accountIds.length !== 1) return;
+    setShowFolderPicker(true);
+    setPickerLoading(true);
+    try {
+      const data = await api.getFolders(accountIds[0]);
+      setPickerFolders(Array.isArray(data) ? data : (data.folders || []));
+    } catch (err) {
+      console.error('Failed to load folders:', err);
+    } finally {
+      setPickerLoading(false);
+    }
+  }, [showFolderPicker]);
+  // ─────────────────────────────────────────────────────────────
+
   const handleContextAction = async (action, message) => {
     switch (action) {
       case 'open':
@@ -346,6 +451,9 @@ export default function MessageList() {
           isForward: true,
         });
         break;
+      case 'bulkSelect':
+        setSelectedIds(new Set([message.id]));
+        break;
       case 'delete':
         try {
           await api.deleteMessage(message.id);
@@ -381,6 +489,14 @@ export default function MessageList() {
   const label = searchQuery.trim()
     ? `Search: "${searchQuery}"`
     : isUnified ? 'All Inboxes' : selectedFolder;
+
+  // Derived bulk-selection values (computed fresh each render, no stale closure risk)
+  const selectionMode = selectedIds.size > 0;
+  const selectedMsgs = displayMessages.filter(m => selectedIds.has(m.id));
+  const selectedCount = selectedIds.size;
+  const allSelected = displayMessages.length > 0 && selectedIds.size === displayMessages.length;
+  const selectedAccountIds = [...new Set(selectedMsgs.map(m => m.account_id))];
+  const canMove = selectedAccountIds.length === 1;
 
   return (
     <div style={{
@@ -587,13 +703,139 @@ export default function MessageList() {
           </div>
         )}
 
+        {/* ── Bulk-action toolbar ───────────────────────────── */}
+        {selectionMode && (
+          <div style={{
+            position: 'sticky', top: 0, zIndex: 10,
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '7px 10px',
+            background: 'var(--bg-elevated)',
+            borderBottom: '1px solid var(--border)',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.18)',
+          }}>
+            {/* Select-all checkbox */}
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={e => e.target.checked ? selectAll(displayMessages) : clearSelection()}
+              title={allSelected ? 'Deselect all' : 'Select all'}
+              style={{ cursor: 'pointer', accentColor: 'var(--accent)', flexShrink: 0 }}
+            />
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)', flex: 1, userSelect: 'none' }}>
+              {selectedCount} selected
+            </span>
+
+            {/* Delete button */}
+            <BulkBtn
+              title="Delete selected"
+              onClick={() => handleBulkDelete([...selectedIds], selectedMsgs)}
+              danger
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
+              </svg>
+              Delete
+            </BulkBtn>
+
+            {/* Move button + folder picker */}
+            <div style={{ position: 'relative' }} ref={folderPickerRef}>
+              <BulkBtn
+                title={canMove ? 'Move to folder' : 'Select messages from one account to move'}
+                onClick={() => handleOpenFolderPicker(selectedMsgs)}
+                disabled={!canMove}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+                </svg>
+                Move
+              </BulkBtn>
+
+              {showFolderPicker && (
+                <div style={{
+                  position: 'absolute', top: 'calc(100% + 4px)', right: 0,
+                  background: 'var(--bg-elevated)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 8,
+                  boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
+                  minWidth: 200, maxWidth: 280,
+                  maxHeight: 320, overflowY: 'auto',
+                  zIndex: 100,
+                }}>
+                  {pickerLoading ? (
+                    <div style={{ padding: '20px 16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12 }}>
+                      Loading folders…
+                    </div>
+                  ) : pickerFolders.length === 0 ? (
+                    <div style={{ padding: '20px 16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12 }}>
+                      No folders found
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{ padding: '8px 12px 4px', fontSize: 10, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                        Move to folder
+                      </div>
+                      {pickerFolders
+                        .filter(f => f.path !== selectedFolder)
+                        .map(f => (
+                          <button
+                            key={f.path}
+                            onClick={() => handleBulkMove([...selectedIds], f.path)}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: 8,
+                              width: '100%', padding: '8px 12px',
+                              background: 'none', border: 'none',
+                              color: 'var(--text-primary)', fontSize: 13,
+                              cursor: 'pointer', textAlign: 'left',
+                              transition: 'background 0.1s',
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+                            onMouseLeave={e => e.currentTarget.style.background = 'none'}
+                          >
+                            <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}>
+                              <FolderIcon specialUse={f.special_use} />
+                            </span>
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {f.name}
+                            </span>
+                          </button>
+                        ))
+                      }
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Clear selection */}
+            <button
+              onClick={clearSelection}
+              title="Clear selection"
+              style={{
+                background: 'none', border: 'none', cursor: 'pointer',
+                color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center',
+                padding: 4, borderRadius: 4,
+              }}
+              onMouseEnter={e => e.currentTarget.style.color = 'var(--text-primary)'}
+              onMouseLeave={e => e.currentTarget.style.color = 'var(--text-tertiary)'}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
+          </div>
+        )}
+
         {displayMessages.map(message => (
           <MessageRow
             key={message.id}
             message={message}
             selected={selectedMessageId === message.id}
+            isChecked={selectedIds.has(message.id)}
+            selectionMode={selectionMode}
             showAccount={isUnified}
             onSelect={handleSelect}
+            onToggleSelect={toggleSelect}
             onMarkRead={handleMarkRead}
             onStar={handleStar}
             onDelete={handleDelete}
@@ -691,16 +933,26 @@ export default function MessageList() {
   );
 }
 
-function MessageRow({ message, selected, showAccount, onSelect, onMarkRead, onStar, onDelete, onContextMenu }) {
+function MessageRow({ message, selected, isChecked, selectionMode, showAccount, onSelect, onToggleSelect, onMarkRead, onStar, onDelete, onContextMenu }) {
   const [hovered, setHovered] = useState(false);
 
-  const bg = selected
+  const bg = (selected && !selectionMode)
     ? 'var(--bg-elevated)'
-    : hovered ? 'var(--bg-tertiary)' : 'transparent';
+    : (isChecked ? 'var(--accent-dim)' : (hovered ? 'var(--bg-tertiary)' : 'transparent'));
+
+  const showCheckbox = selectionMode;
+
+  const handleClick = () => {
+    if (selectionMode) {
+      onToggleSelect(message.id);
+    } else {
+      onSelect(message);
+    }
+  };
 
   return (
     <div
-      onClick={() => onSelect(message)}
+      onClick={handleClick}
       onContextMenu={e => onContextMenu(e, message)}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -711,16 +963,31 @@ function MessageRow({ message, selected, showAccount, onSelect, onMarkRead, onSt
         position: 'relative',
       }}
     >
-      {/* Unread indicator — fixed accent color so it's always distinct from the account dot */}
-      {!message.is_read && (
+      {/* Left indicator: checkbox on hover/selection-mode, unread dot otherwise */}
+      {showCheckbox ? (
         <div style={{
-          position: 'absolute', left: 3, top: '50%', transform: 'translateY(-50%)',
-          width: 7, height: 7, borderRadius: '50%',
-          background: 'var(--accent)',
-        }} />
+          position: 'absolute', left: 4, top: '50%', transform: 'translateY(-50%)',
+          display: 'flex', alignItems: 'center',
+        }}>
+          <input
+            type="checkbox"
+            checked={isChecked}
+            onChange={() => {}}
+            onClick={e => { e.stopPropagation(); onToggleSelect(message.id); }}
+            style={{ cursor: 'pointer', width: 14, height: 14, accentColor: 'var(--accent)' }}
+          />
+        </div>
+      ) : (
+        !message.is_read && (
+          <div style={{
+            position: 'absolute', left: 3, top: '50%', transform: 'translateY(-50%)',
+            width: 7, height: 7, borderRadius: '50%',
+            background: 'var(--accent)',
+          }} />
+        )
       )}
 
-      <div style={{ paddingLeft: message.is_read ? 0 : 6 }}>
+      <div style={{ paddingLeft: showCheckbox ? 22 : (message.is_read ? 0 : 6) }}>
         {/* Row 1: From + date */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: 1 }}>
@@ -830,6 +1097,33 @@ function ActionBtn({ children, onClick, title }) {
         color: 'var(--text-tertiary)', cursor: 'pointer',
         display: 'flex', alignItems: 'center',
         transition: 'background 0.1s, color 0.1s',
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function BulkBtn({ children, onClick, title, disabled, danger }) {
+  const [hov, setHov] = useState(false);
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      disabled={disabled}
+      onMouseEnter={() => { if (!disabled) setHov(true); }}
+      onMouseLeave={() => setHov(false)}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 5,
+        padding: '4px 10px', borderRadius: 6, fontSize: 12, fontWeight: 500,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        border: `1px solid ${hov && !disabled ? (danger ? 'var(--red, #ef4444)' : 'var(--accent)') : 'var(--border)'}`,
+        background: hov && !disabled ? (danger ? 'rgba(239,68,68,0.1)' : 'var(--accent-dim)') : 'var(--bg-tertiary)',
+        color: disabled ? 'var(--text-tertiary)' : (hov && danger ? 'var(--red, #ef4444)' : (hov ? 'var(--accent)' : 'var(--text-secondary)')),
+        opacity: disabled ? 0.5 : 1,
+        transition: 'all 0.15s',
+        whiteSpace: 'nowrap',
+        flexShrink: 0,
       }}
     >
       {children}

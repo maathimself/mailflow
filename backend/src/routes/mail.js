@@ -488,6 +488,95 @@ router.post('/folders/empty', async (req, res) => {
   res.json({ ok: true });
 });
 
+// Bulk delete (move to trash)
+router.post('/messages/bulk-delete', async (req, res) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: 'ids array required' });
+  }
+
+  const placeholders = ids.map((_, i) => `$${i + 2}`).join(',');
+  const result = await query(
+    `SELECT m.*, a.user_id FROM messages m
+     JOIN email_accounts a ON m.account_id = a.id
+     WHERE m.id IN (${placeholders}) AND a.user_id = $1`,
+    [req.session.userId, ...ids]
+  );
+
+  const owned = result.rows;
+  if (!owned.length) return res.json({ ok: true, deleted: [] });
+
+  const ownedIds = owned.map(m => m.id);
+  const ownedPlaceholders = ownedIds.map((_, i) => `$${i + 1}`).join(',');
+  await query(`UPDATE messages SET is_deleted = true WHERE id IN (${ownedPlaceholders})`, ownedIds);
+
+  // Group by account_id then move each group to trash (best-effort, fire-and-forget)
+  const byAccount = {};
+  for (const msg of owned) {
+    (byAccount[msg.account_id] = byAccount[msg.account_id] || []).push(msg);
+  }
+  for (const [accountId, msgs] of Object.entries(byAccount)) {
+    const trash = await query(
+      `SELECT path FROM folders WHERE account_id = $1 AND (special_use = '\\Trash' OR lower(name) LIKE '%trash%') LIMIT 1`,
+      [accountId]
+    );
+    if (!trash.rows.length) continue;
+    const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
+    const account = accountResult.rows[0];
+    for (const msg of msgs) {
+      imapManager.moveMessage(account, msg.uid, msg.folder, trash.rows[0].path)
+        .catch(err => console.error(`bulk-delete IMAP move ${msg.id}:`, err.message));
+    }
+  }
+
+  res.json({ ok: true, deleted: ownedIds });
+});
+
+// Bulk move to folder
+router.post('/messages/bulk-move', async (req, res) => {
+  const { ids, folder } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0 || !folder) {
+    return res.status(400).json({ error: 'ids array and folder required' });
+  }
+
+  const placeholders = ids.map((_, i) => `$${i + 2}`).join(',');
+  const result = await query(
+    `SELECT m.*, a.user_id FROM messages m
+     JOIN email_accounts a ON m.account_id = a.id
+     WHERE m.id IN (${placeholders}) AND a.user_id = $1`,
+    [req.session.userId, ...ids]
+  );
+
+  const owned = result.rows;
+  if (!owned.length) return res.json({ ok: true, moved: [] });
+
+  const byAccount = {};
+  for (const msg of owned) {
+    (byAccount[msg.account_id] = byAccount[msg.account_id] || []).push(msg);
+  }
+
+  const movedIds = [];
+  for (const [accountId, msgs] of Object.entries(byAccount)) {
+    const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
+    const account = accountResult.rows[0];
+    for (const msg of msgs) {
+      try {
+        await imapManager.moveMessage(account, msg.uid, msg.folder, folder);
+        movedIds.push(msg.id);
+      } catch (err) {
+        console.error(`bulk-move IMAP ${msg.id}:`, err.message);
+      }
+    }
+  }
+
+  if (movedIds.length > 0) {
+    const mp = movedIds.map((_, i) => `$${i + 2}`).join(',');
+    await query(`UPDATE messages SET folder = $1 WHERE id IN (${mp})`, [folder, ...movedIds]);
+  }
+
+  res.json({ ok: true, moved: movedIds });
+});
+
 // Delete (move to trash)
 router.delete('/messages/:id', async (req, res) => {
   const { id } = req.params;

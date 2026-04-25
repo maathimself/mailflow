@@ -73,6 +73,8 @@ export const api = {
   markStarred: (id, starred) => request('PATCH', `/mail/messages/${id}/star`, { starred }),
   markAllRead: (accountId, folder) => request('POST', '/mail/mark-all-read', { accountId, folder }),
   deleteMessage: (id) => request('DELETE', `/mail/messages/${id}`),
+  bulkDelete: (ids) => request('POST', '/mail/messages/bulk-delete', { ids }),
+  bulkMove: (ids, folder) => request('POST', '/mail/messages/bulk-move', { ids, folder }),
   getUnreadCounts: () => request('GET', '/mail/unread-counts'),
 
   getMessageHeaders: (id) => request('GET', `/mail/messages/${id}/headers`),

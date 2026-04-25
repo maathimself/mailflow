@@ -215,6 +215,11 @@ export default function ContextMenu({ x, y, message, onClose, onAction }) {
           </svg>,
           action: () => onAction('toggleStar'),
         },
+        {
+          label: 'Select',
+          icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="3" y="3" width="18" height="18" rx="3"/><polyline points="9 12 11 14 15 10"/></svg>,
+          action: () => onAction('bulkSelect'),
+        },
       ]
     },
     {
