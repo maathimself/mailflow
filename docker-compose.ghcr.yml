@@ -1,0 +1,133 @@
+# MailFlow — pre-built image install
+#
+# Quick start:
+#   curl -o docker-compose.yml https://raw.githubusercontent.com/maathimself/mailflow/main/docker-compose.ghcr.yml
+#   curl -o .env               https://raw.githubusercontent.com/maathimself/mailflow/main/.env.example
+#   # edit .env, then:
+#   docker compose up -d
+#
+# To pin a specific version instead of latest, set MAILFLOW_VERSION in your .env:
+#   MAILFLOW_VERSION=0.7.0
+
+services:
+
+  # ── Frontend (nginx — serves React SPA + proxies API) ───────────────────────
+  frontend:
+    image: ghcr.io/maathimself/mailflow-frontend:${MAILFLOW_VERSION:-latest}
+    container_name: mailflow-frontend
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-443}:443"
+    volumes:
+      - ./certs:/etc/nginx/ssl
+    depends_on:
+      - backend
+    networks:
+      - mailflow
+
+  # ── Backend API ──────────────────────────────────────────────────────────────
+  backend:
+    image: ghcr.io/maathimself/mailflow-backend:${MAILFLOW_VERSION:-latest}
+    container_name: mailflow-backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      SESSION_SECRET: ${SESSION_SECRET}
+      APP_URL: ${APP_URL:-}
+      FRONTEND_URL: ${APP_URL:-}
+      DB_HOST: postgres
+      DB_NAME: mailflow
+      DB_USER: mailflow
+      DB_PASSWORD: ${DB_PASSWORD}
+      REDIS_URL: redis://redis:6379
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - mailflow
+
+  # ── PostgreSQL ───────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: mailflow-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mailflow
+      POSTGRES_USER: mailflow
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mailflow -d mailflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - mailflow
+
+  # ── Redis (sessions + caching) ───────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: mailflow-redis
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    networks:
+      - mailflow
+
+  # ── Caddy (automatic HTTPS via Let's Encrypt — optional) ────────────────────
+  # Only starts when you run: docker compose --profile https up -d
+  # Requires DOMAIN and ACME_EMAIL to be set in .env, and ports 80/443 open.
+  # When using this profile, remove the ports: block from the frontend service above.
+  caddy:
+    profiles: ["https"]
+    image: caddy:2-alpine
+    container_name: mailflow-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+    depends_on:
+      - frontend
+    networks:
+      - mailflow
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  mailflow:
+    driver: bridge
+
+configs:
+  caddyfile:
+    content: |
+      {
+          email {$ACME_EMAIL}
+      }
+
+      {$DOMAIN} {
+          reverse_proxy frontend:80
+      }

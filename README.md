@@ -54,7 +54,76 @@ section before deploying.
 
 ---
 
-## Production Deployment
+## Installation
+
+There are two ways to run MailFlow. The pre-built image method is recommended for most users.
+
+---
+
+## Option A — Pre-built images (recommended)
+
+No cloning or building required. Docker pulls the pre-built images directly from GHCR.
+
+### Prerequisites
+
+- A server with Docker and Docker Compose installed
+
+### 1. Download the compose file and default config
+
+```bash
+curl -o docker-compose.yml https://raw.githubusercontent.com/maathimself/mailflow/main/docker-compose.ghcr.yml
+curl -o .env               https://raw.githubusercontent.com/maathimself/mailflow/main/.env.example
+```
+
+### 2. Configure environment
+
+Edit `.env` — the required fields are:
+
+| Variable | Description |
+|---|---|
+| `APP_URL` | Full URL, e.g. `https://mail.example.com` |
+| `SESSION_SECRET` | `openssl rand -hex 32` |
+| `DB_PASSWORD` | `openssl rand -hex 16` |
+| `ENCRYPTION_KEY` | `openssl rand -hex 32` |
+
+### 3. Start
+
+```bash
+docker compose up -d
+```
+
+MailFlow will be available on port 443 with a self-signed certificate.
+
+**Optional — automatic HTTPS via Let's Encrypt:** set `DOMAIN` and `ACME_EMAIL` in `.env`,
+remove the `ports:` block from the `frontend` service, then start with:
+
+```bash
+docker compose --profile https up -d
+```
+
+### 4. Create your admin account
+
+Open `https://your-domain.com` in a browser. The **first account registered becomes
+the admin**. After registering, you can close registration and manage users from the
+settings panel → Users tab.
+
+### 5. Add your email accounts
+
+In the settings panel → Accounts → Add Account.
+Select a preset (Gmail, iCloud) or Custom for any IMAP server.
+
+### Updating
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+To pin to a specific version instead of `latest`, add `MAILFLOW_VERSION=0.7.0` to your `.env`.
+
+---
+
+## Option B — Build from source
 
 ### Prerequisites
 
@@ -78,8 +147,9 @@ Edit `.env` — the required fields are:
 | Variable | Description |
 |---|---|
 | `APP_URL` | Full URL, e.g. `https://mail.example.com` |
-| `SESSION_SECRET` | Random 64-char hex — `openssl rand -hex 32` |
-| `DB_PASSWORD` | Random password — `openssl rand -hex 16` |
+| `SESSION_SECRET` | `openssl rand -hex 32` |
+| `DB_PASSWORD` | `openssl rand -hex 16` |
+| `ENCRYPTION_KEY` | `openssl rand -hex 32` |
 | `ACME_EMAIL` | Email for Let's Encrypt notifications |
 
 ### 3. Build and start
@@ -166,7 +236,10 @@ docker compose down
 # Stop and delete all data (destructive)
 docker compose down -v
 
-# Rebuild after a code update
+# Update to latest images (pre-built install)
+docker compose pull && docker compose up -d
+
+# Rebuild after a code change (build-from-source install)
 docker compose up -d --build
 ```
 
