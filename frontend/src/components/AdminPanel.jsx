@@ -6,6 +6,7 @@ import { FONT_SETS, loadFontSet } from '../fonts.js';
 import { LAYOUTS, applyLayout } from '../layouts.js';
 import { NOTIFICATION_SOUNDS, playNotificationSound, playCustomSound, warmUpAudioContext } from '../utils/notificationSounds.js';
 import SignatureEditor from './SignatureEditor.jsx';
+import { getEffectiveShortcuts, getGroupedActions, ACTION_DEFS } from '../utils/defaultShortcuts.js';
 
 // ─── Shared field component ───────────────────────────────────────────────────
 function Field({ label, required, children }) {
@@ -247,12 +248,19 @@ function AccountForm({ initial, onSave, onCancel }) {
 // ─── Accounts Tab ─────────────────────────────────────────────────────────────
 function AccountsTab() {
   const { accounts, setAccounts, updateAccount } = useStore();
-  const [subview, setSubview] = useState('list'); // 'list' | 'add' | 'edit' | 'folders'
+  const [subview, setSubview] = useState('list'); // 'list' | 'add' | 'edit' | 'folders' | 'aliases'
   const [editTarget, setEditTarget] = useState(null);
   const [folderMappings, setFolderMappings] = useState({});
   const [availableFolders, setAvailableFolders] = useState([]);
   const [foldersLoading, setFoldersLoading] = useState(false);
   const [foldersSaving, setFoldersSaving] = useState(false);
+
+  // Alias form state
+  const [aliasFormMode, setAliasFormMode] = useState(null); // null | 'add' | 'edit'
+  const [aliasFormData, setAliasFormData] = useState({ name: '', email: '', reply_to: '', signature: '' });
+  const [aliasFormId, setAliasFormId] = useState(null);
+  const [aliasFormError, setAliasFormError] = useState('');
+  const [aliasFormSaving, setAliasFormSaving] = useState(false);
 
   const handleAdd = async (form) => {
     const account = await api.addAccount(form);
@@ -314,6 +322,70 @@ function AccountsTab() {
     }
   };
 
+  const handleAliasOpen = (account) => {
+    setEditTarget(account);
+    setAliasFormMode(null);
+    setAliasFormData({ name: '', email: '', reply_to: '', signature: '' });
+    setAliasFormError('');
+    setSubview('aliases');
+  };
+
+  const handleAliasSave = async () => {
+    if (!aliasFormData.name || !aliasFormData.email) {
+      setAliasFormError('Name and email are required');
+      return;
+    }
+    setAliasFormSaving(true);
+    setAliasFormError('');
+    try {
+      const payload = {
+        name: aliasFormData.name,
+        email: aliasFormData.email,
+        reply_to: aliasFormData.reply_to || null,
+        signature: aliasFormData.signature || null,
+      };
+      let saved;
+      if (aliasFormMode === 'add') {
+        saved = await api.addAlias(editTarget.id, payload);
+        const newAliases = [...(editTarget.aliases || []), saved];
+        updateAccount(editTarget.id, { aliases: newAliases });
+        setEditTarget(t => ({ ...t, aliases: newAliases }));
+      } else {
+        saved = await api.updateAlias(editTarget.id, aliasFormId, payload);
+        const newAliases = (editTarget.aliases || []).map(a => a.id === aliasFormId ? saved : a);
+        updateAccount(editTarget.id, { aliases: newAliases });
+        setEditTarget(t => ({ ...t, aliases: newAliases }));
+      }
+      setAliasFormMode(null);
+      setAliasFormData({ name: '', email: '', reply_to: '', signature: '' });
+      setAliasFormId(null);
+    } catch (err) {
+      setAliasFormError(err.message);
+    } finally {
+      setAliasFormSaving(false);
+    }
+  };
+
+  const handleAliasEdit = (alias) => {
+    setAliasFormId(alias.id);
+    setAliasFormData({
+      name: alias.name,
+      email: alias.email,
+      reply_to: alias.reply_to || '',
+      signature: alias.signature || '',
+    });
+    setAliasFormError('');
+    setAliasFormMode('edit');
+  };
+
+  const handleAliasDelete = async (aliasId) => {
+    if (!confirm('Delete this alias? This cannot be undone.')) return;
+    await api.deleteAlias(editTarget.id, aliasId);
+    const newAliases = (editTarget.aliases || []).filter(a => a.id !== aliasId);
+    updateAccount(editTarget.id, { aliases: newAliases });
+    setEditTarget(t => ({ ...t, aliases: newAliases }));
+  };
+
   if (subview === 'add') {
     return (
       <div>
@@ -355,6 +427,179 @@ function AccountsTab() {
           {editTarget.email_address}
         </div>
         <AccountForm initial={editTarget} onSave={handleEdit} onCancel={() => { setSubview('list'); setEditTarget(null); }} />
+      </div>
+    );
+  }
+
+  if (subview === 'aliases' && editTarget) {
+    const backBtn = (
+      <button onClick={() => { setSubview('list'); setEditTarget(null); setAliasFormMode(null); setAliasFormError(''); }} style={{
+        display: 'flex', alignItems: 'center', gap: 6,
+        background: 'none', border: 'none', color: 'var(--text-secondary)',
+        cursor: 'pointer', fontSize: 13, padding: '0 0 16px 0',
+      }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <polyline points="15 18 9 12 15 6"/>
+        </svg>
+        Back to accounts
+      </button>
+    );
+
+    if (aliasFormMode) {
+      return (
+        <div>
+          {backBtn}
+          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+            {aliasFormMode === 'add' ? 'New alias' : 'Edit alias'}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 20 }}>
+            {editTarget.email_address}
+          </div>
+
+          <Field label="Display name" required>
+            <input value={aliasFormData.name} onChange={e => setAliasFormData(f => ({ ...f, name: e.target.value }))}
+              placeholder="e.g. Support Team" style={inputStyle}
+              onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+              onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+          </Field>
+          <Field label="Email address" required>
+            <input value={aliasFormData.email} onChange={e => setAliasFormData(f => ({ ...f, email: e.target.value }))}
+              placeholder="support@example.com" style={inputStyle}
+              onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+              onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+          </Field>
+          <Field label="Reply-To (optional)">
+            <input value={aliasFormData.reply_to} onChange={e => setAliasFormData(f => ({ ...f, reply_to: e.target.value }))}
+              placeholder="Leave blank to use the alias address" style={inputStyle}
+              onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+              onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+          </Field>
+
+          <div style={{ height: 1, background: 'var(--border-subtle)', margin: '16px 0' }} />
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+            Signature
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 10 }}>
+            Optional — leave blank to inherit the account signature.
+          </div>
+          <SignatureEditor
+            value={aliasFormData.signature}
+            onChange={val => setAliasFormData(f => ({ ...f, signature: val }))}
+          />
+
+          {aliasFormError && (
+            <div style={{
+              padding: '10px 14px', background: 'rgba(248,113,113,0.1)',
+              border: '1px solid rgba(248,113,113,0.3)', borderRadius: 8,
+              color: 'var(--red)', fontSize: 13, marginBottom: 14,
+            }}>
+              {aliasFormError}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+            <button onClick={handleAliasSave} disabled={aliasFormSaving} style={{
+              flex: 1, padding: '10px', background: 'var(--accent)',
+              border: 'none', borderRadius: 8, color: 'white',
+              fontSize: 13, fontWeight: 500, cursor: aliasFormSaving ? 'not-allowed' : 'pointer',
+              opacity: aliasFormSaving ? 0.7 : 1,
+            }}>
+              {aliasFormSaving ? 'Saving…' : 'Save alias'}
+            </button>
+            <button onClick={() => { setAliasFormMode(null); setAliasFormError(''); }} style={{
+              padding: '10px 16px', background: 'var(--bg-tertiary)',
+              border: '1px solid var(--border)', borderRadius: 8,
+              color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13,
+            }}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    const aliases = editTarget.aliases || [];
+    return (
+      <div>
+        {backBtn}
+        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+          Aliases
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 16 }}>
+          {editTarget.email_address}
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 16, lineHeight: 1.6, padding: '10px 12px', background: 'var(--bg-tertiary)', borderRadius: 8, border: '1px solid var(--border-subtle)' }}>
+          Aliases let you send from a different name or address using this account's SMTP credentials. Select an alias in the <strong>From</strong> field when composing. MailFlow will automatically reply from an alias if a message was addressed to it.
+        </div>
+
+        <button
+          onClick={() => { setAliasFormData({ name: '', email: '', reply_to: '', signature: '' }); setAliasFormMode('add'); }}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '7px 12px', background: 'var(--accent)',
+            border: 'none', borderRadius: 7, color: 'white',
+            cursor: 'pointer', fontSize: 12, fontWeight: 500, marginBottom: 16,
+          }}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          Add alias
+        </button>
+
+        {aliases.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-tertiary)', fontSize: 13 }}>
+            No aliases yet
+          </div>
+        ) : (
+          aliases.map(alias => (
+            <div key={alias.id} style={{
+              display: 'flex', alignItems: 'center', gap: 12,
+              padding: '12px 14px', marginBottom: 8,
+              border: '1px solid var(--border-subtle)', borderRadius: 10,
+              background: 'var(--bg-tertiary)',
+            }}>
+              <div style={{
+                width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
+                background: 'var(--bg-hover)', display: 'flex',
+                alignItems: 'center', justifyContent: 'center',
+                color: 'var(--text-secondary)',
+              }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+                  <circle cx="12" cy="8" r="4"/>
+                  <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
+                </svg>
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
+                  {alias.name}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1 }}>
+                  {alias.email}
+                </div>
+                {alias.reply_to && (
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1 }}>
+                    Reply-To: {alias.reply_to}
+                  </div>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                <IconBtn onClick={() => handleAliasEdit(alias)} title="Edit alias">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+                    <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                  </svg>
+                </IconBtn>
+                <IconBtn onClick={() => handleAliasDelete(alias.id)} title="Delete alias" danger>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <polyline points="3 6 5 6 21 6"/>
+                    <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
+                  </svg>
+                </IconBtn>
+              </div>
+            </div>
+          ))
+        )}
       </div>
     );
   }
@@ -516,6 +761,12 @@ function AccountsTab() {
               <IconBtn onClick={() => handleFolderMappingOpen(account)} title="Folder mappings">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+                </svg>
+              </IconBtn>
+              <IconBtn onClick={() => handleAliasOpen(account)} title="Aliases">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="8" r="4"/>
+                  <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
                 </svg>
               </IconBtn>
               <IconBtn onClick={() => handleDelete(account.id)} title="Remove" danger>
@@ -1895,7 +2146,412 @@ const TABS = [
     id: 'notifications', label: 'Notifications',
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 010 7.07"/><path d="M19.07 4.93a10 10 0 010 14.14"/></svg>,
   },
+  {
+    id: 'privacy', label: 'Privacy',
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>,
+  },
+  {
+    id: 'shortcuts', label: 'Shortcuts',
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="2" y="7" width="6" height="4" rx="1"/><rect x="9" y="7" width="6" height="4" rx="1"/><rect x="16" y="7" width="6" height="4" rx="1"/><rect x="2" y="13" width="9" height="4" rx="1"/><rect x="13" y="13" width="9" height="4" rx="1"/></svg>,
+  },
 ];
+
+// ─── Shortcuts Tab ───────────────────────────────────────────────────────────
+function ShortcutsTab() {
+  const { shortcuts, setShortcuts } = useStore();
+  const [recording, setRecording] = useState(null); // action name currently being recorded
+  const [pendingConflict, setPendingConflict] = useState(null); // { action: conflictingAction, key }
+
+  const effective = getEffectiveShortcuts(shortcuts);
+  const groups = getGroupedActions();
+
+  // Listen for key presses while recording
+  useEffect(() => {
+    if (!recording) return;
+    const handler = (e) => {
+      // Ignore pure modifier keys
+      if (['Shift', 'Control', 'Meta', 'Alt', 'CapsLock', 'Tab'].includes(e.key)) return;
+      e.preventDefault();
+
+      if (e.key === 'Escape') {
+        setRecording(null);
+        setPendingConflict(null);
+        return;
+      }
+
+      const key = e.key;
+
+      // Detect conflicts with other actions (excluding the one being edited)
+      const conflictEntry = Object.entries(effective).find(([a, k]) => k === key && a !== recording);
+      if (conflictEntry) {
+        setPendingConflict({ action: conflictEntry[0], key });
+      } else {
+        setPendingConflict(null);
+      }
+
+      const updated = { ...shortcuts, [recording]: key };
+      setShortcuts(updated);
+      setRecording(null);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [recording, effective, shortcuts]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const clearShortcut = (action) => {
+    const updated = { ...shortcuts, [action]: null };
+    setShortcuts(updated);
+    setPendingConflict(null);
+  };
+
+  const resetAction = (action) => {
+    const updated = { ...shortcuts };
+    delete updated[action];
+    setShortcuts(updated);
+    setPendingConflict(null);
+  };
+
+  const resetAll = () => {
+    setShortcuts({});
+    setRecording(null);
+    setPendingConflict(null);
+  };
+
+  const kbdStyle = {
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    minWidth: 26, height: 22, padding: '0 6px',
+    background: 'var(--bg-primary)', border: '1px solid var(--border)',
+    borderBottomWidth: 2, borderRadius: 4,
+    fontSize: 12, fontFamily: 'monospace', fontWeight: 600,
+    color: 'var(--text-primary)',
+  };
+
+  const renderKey = (action, key) => {
+    const isRec = recording === action;
+    if (isRec) {
+      return (
+        <span style={{
+          display: 'inline-flex', alignItems: 'center',
+          padding: '2px 10px', borderRadius: 4,
+          background: 'var(--accent-dim)', border: '1px solid var(--accent)',
+          fontSize: 11, color: 'var(--accent)', fontStyle: 'italic',
+        }}>
+          Press a key…
+        </span>
+      );
+    }
+    if (!key) {
+      return <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>—</span>;
+    }
+    // Multi-char keys like 'gi': render each character as separate kbd with "then"
+    if (key.length > 1) {
+      return (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+          {[...key].map((c, i) => (
+            <span key={i} style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+              <kbd style={kbdStyle}>{c}</kbd>
+              {i < key.length - 1 && <span style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>then</span>}
+            </span>
+          ))}
+        </span>
+      );
+    }
+    return <kbd style={kbdStyle}>{key}</kbd>;
+  };
+
+  return (
+    <div style={{ maxWidth: 640 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>Keyboard Shortcuts</div>
+          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3 }}>
+            Click a key binding to reassign it. Press <kbd style={{ ...kbdStyle, fontSize: 10 }}>Esc</kbd> to cancel recording.
+          </div>
+        </div>
+        <button
+          onClick={resetAll}
+          style={{
+            background: 'none', border: '1px solid var(--border)', borderRadius: 7,
+            padding: '6px 14px', cursor: 'pointer', fontSize: 12,
+            color: 'var(--text-secondary)', flexShrink: 0,
+          }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.color = 'var(--accent)'; }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+        >
+          Reset all to defaults
+        </button>
+      </div>
+
+      {pendingConflict && (
+        <div style={{
+          marginBottom: 16, padding: '10px 14px',
+          background: 'rgba(234, 179, 8, 0.1)', border: '1px solid rgba(234, 179, 8, 0.4)',
+          borderRadius: 7, fontSize: 12, color: 'var(--text-secondary)',
+        }}>
+          Key <kbd style={{ ...kbdStyle, fontSize: 11 }}>{pendingConflict.key}</kbd> was already assigned to
+          <strong style={{ color: 'var(--text-primary)', marginLeft: 4 }}>{ACTION_DEFS[pendingConflict.action]?.label}</strong>
+          — it has been reassigned.
+        </div>
+      )}
+
+      {Object.entries(groups).map(([groupName, actions]) => (
+        <div key={groupName} style={{ marginBottom: 24 }}>
+          <div style={{
+            fontSize: 11, fontWeight: 600, color: 'var(--text-tertiary)',
+            textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6,
+          }}>
+            {groupName}
+          </div>
+          <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+            {actions.map(({ action, description }, i) => {
+              const key = effective[action];
+              const isDefault = !(action in shortcuts);
+              const isRec = recording === action;
+              return (
+                <div
+                  key={action}
+                  style={{
+                    display: 'flex', alignItems: 'center',
+                    padding: '10px 14px', gap: 12,
+                    borderBottom: i < actions.length - 1 ? '1px solid var(--border-subtle)' : 'none',
+                    background: isRec ? 'var(--accent-dim)' : 'transparent',
+                    transition: 'background 0.1s',
+                  }}
+                >
+                  <span style={{ flex: 1, fontSize: 13, color: 'var(--text-secondary)' }}>
+                    {description}
+                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                    <button
+                      onClick={() => setRecording(isRec ? null : action)}
+                      title={isRec ? 'Cancel recording' : 'Click to reassign shortcut'}
+                      style={{
+                        background: 'none', border: 'none', cursor: 'pointer',
+                        padding: 0, display: 'flex', alignItems: 'center',
+                      }}
+                    >
+                      {renderKey(action, key)}
+                    </button>
+                    {!isDefault && (
+                      <button
+                        onClick={() => resetAction(action)}
+                        title="Reset to default"
+                        style={{
+                          background: 'none', border: 'none', cursor: 'pointer',
+                          color: 'var(--text-tertiary)', padding: 2,
+                          fontSize: 11, display: 'flex', alignItems: 'center',
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.color = 'var(--accent)'}
+                        onMouseLeave={e => e.currentTarget.style.color = 'var(--text-tertiary)'}
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                          <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/>
+                        </svg>
+                      </button>
+                    )}
+                    {key && !isRec && (
+                      <button
+                        onClick={() => clearShortcut(action)}
+                        title="Remove shortcut"
+                        style={{
+                          background: 'none', border: 'none', cursor: 'pointer',
+                          color: 'var(--text-tertiary)', padding: 2,
+                          display: 'flex', alignItems: 'center',
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.color = 'var(--red, #ef4444)'}
+                        onMouseLeave={e => e.currentTarget.style.color = 'var(--text-tertiary)'}
+                      >
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+
+      <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4 }}>
+        Press <kbd style={{ ...kbdStyle, fontSize: 10 }}>?</kbd> anywhere in the app to see the current shortcut reference.
+      </div>
+    </div>
+  );
+}
+
+// ─── Privacy Tab ─────────────────────────────────────────────────────────────
+function PrivacyTab() {
+  const { blockRemoteImages, setBlockRemoteImages, imageWhitelist, setImageWhitelist } = useStore();
+  const [newAddress, setNewAddress] = useState('');
+  const [newDomain,  setNewDomain]  = useState('');
+
+  const addAddress = () => {
+    const val = newAddress.trim().toLowerCase();
+    if (!val || !val.includes('@')) return;
+    const updated = {
+      ...imageWhitelist,
+      addresses: [...new Set([...(imageWhitelist.addresses || []), val])],
+    };
+    setImageWhitelist(updated);
+    setNewAddress('');
+  };
+
+  const removeAddress = (addr) => {
+    setImageWhitelist({
+      ...imageWhitelist,
+      addresses: (imageWhitelist.addresses || []).filter(a => a !== addr),
+    });
+  };
+
+  const addDomain = () => {
+    const val = newDomain.trim().toLowerCase().replace(/^@/, '');
+    if (!val || val.includes('@')) return;
+    const updated = {
+      ...imageWhitelist,
+      domains: [...new Set([...(imageWhitelist.domains || []), val])],
+    };
+    setImageWhitelist(updated);
+    setNewDomain('');
+  };
+
+  const removeDomain = (domain) => {
+    setImageWhitelist({
+      ...imageWhitelist,
+      domains: (imageWhitelist.domains || []).filter(d => d !== domain),
+    });
+  };
+
+  const sectionHead = { fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 };
+  const pill = {
+    display: 'inline-flex', alignItems: 'center', gap: 6,
+    background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+    borderRadius: 20, padding: '3px 10px 3px 12px', fontSize: 12,
+    color: 'var(--text-secondary)',
+  };
+  const addRow = { display: 'flex', gap: 8, marginTop: 10 };
+
+  return (
+    <div>
+      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>Privacy</div>
+      <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 24 }}>
+        Control whether remote images in emails are loaded automatically
+      </div>
+
+      {/* Toggle */}
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '14px 16px', background: 'var(--bg-secondary)',
+        border: '1px solid var(--border)', borderRadius: 10, marginBottom: 24,
+      }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>Block remote images</div>
+          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3 }}>
+            Prevents tracking pixels and remote image loading by default
+          </div>
+        </div>
+        <button
+          onClick={() => setBlockRemoteImages(!blockRemoteImages)}
+          style={{
+            width: 42, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer',
+            background: blockRemoteImages ? 'var(--accent)' : 'var(--bg-tertiary)',
+            position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+          }}
+        >
+          <span style={{
+            position: 'absolute', top: 3, width: 18, height: 18, borderRadius: '50%',
+            background: 'white', transition: 'left 0.2s',
+            left: blockRemoteImages ? 21 : 3,
+          }} />
+        </button>
+      </div>
+
+      {blockRemoteImages && (
+        <>
+          {/* Allowed senders */}
+          <div style={{ marginBottom: 24 }}>
+            <div style={sectionHead}>Allowed senders</div>
+            <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 10 }}>
+              Images are always loaded from these sender addresses
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {(imageWhitelist.addresses || []).length === 0 && (
+                <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>No addresses added yet</span>
+              )}
+              {(imageWhitelist.addresses || []).map(addr => (
+                <span key={addr} style={pill}>
+                  {addr}
+                  <button onClick={() => removeAddress(addr)} style={{
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    color: 'var(--text-tertiary)', padding: 0, lineHeight: 1,
+                    display: 'flex', alignItems: 'center',
+                  }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                  </button>
+                </span>
+              ))}
+            </div>
+            <div style={addRow}>
+              <input
+                value={newAddress}
+                onChange={e => setNewAddress(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && addAddress()}
+                placeholder="sender@example.com"
+                style={{ ...inputStyle, flex: 1, maxWidth: 280 }}
+              />
+              <button onClick={addAddress} style={{
+                padding: '8px 14px', background: 'var(--accent)', border: 'none',
+                borderRadius: 7, color: 'white', fontSize: 13, fontWeight: 500, cursor: 'pointer',
+              }}>Add</button>
+            </div>
+          </div>
+
+          {/* Allowed domains */}
+          <div>
+            <div style={sectionHead}>Allowed domains</div>
+            <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 10 }}>
+              Images are always loaded from senders whose email is at these domains
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {(imageWhitelist.domains || []).length === 0 && (
+                <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>No domains added yet</span>
+              )}
+              {(imageWhitelist.domains || []).map(domain => (
+                <span key={domain} style={pill}>
+                  @{domain}
+                  <button onClick={() => removeDomain(domain)} style={{
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    color: 'var(--text-tertiary)', padding: 0, lineHeight: 1,
+                    display: 'flex', alignItems: 'center',
+                  }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                  </button>
+                </span>
+              ))}
+            </div>
+            <div style={addRow}>
+              <input
+                value={newDomain}
+                onChange={e => setNewDomain(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && addDomain()}
+                placeholder="example.com"
+                style={{ ...inputStyle, flex: 1, maxWidth: 280 }}
+              />
+              <button onClick={addDomain} style={{
+                padding: '8px 14px', background: 'var(--accent)', border: 'none',
+                borderRadius: 7, color: 'white', fontSize: 13, fontWeight: 500, cursor: 'pointer',
+              }}>Add</button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 // ─── Security Tab (TOTP 2FA) ──────────────────────────────────────────────────
 function SecurityTab() {
@@ -2284,6 +2940,8 @@ export default function AdminPanel() {
           {adminTab === 'users' && <UsersTab />}
           {adminTab === 'security' && <SecurityTab />}
           {adminTab === 'notifications' && <NotificationsTab />}
+          {adminTab === 'privacy' && <PrivacyTab />}
+          {adminTab === 'shortcuts' && <ShortcutsTab />}
         </div>
       </div>
     </div>

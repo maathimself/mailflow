@@ -4,6 +4,7 @@ import { api } from '../utils/api.js';
 import { format, isToday, isYesterday, isThisYear } from 'date-fns';
 import { LAYOUTS } from '../layouts.js';
 import ContextMenu from './ContextMenu.jsx';
+import { shortcutBus } from '../utils/shortcutBus.js';
 
 // Folder icon for move picker
 function FolderIcon({ specialUse, size = 13 }) {
@@ -48,6 +49,7 @@ export default function MessageList() {
   const [folderSyncing, setFolderSyncing] = useState(false);
   const [contextMenu, setContextMenu] = useState(null); // { x, y, message }
   const listRef = useRef(null);
+  const searchInputRef = useRef(null); // for focusSearch shortcut
 
   // Bulk selection state
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -58,6 +60,11 @@ export default function MessageList() {
 
   useEffect(() => { currentPageRef.current = currentPage; }, [currentPage]);
   const searchTimer = useRef(null);
+
+  // Ref that always holds the latest values needed by shortcut handlers.
+  // Updated synchronously on every render so handlers are never stale.
+  const scRef = useRef({});
+  scRef.current = { messages, selectedIds, setSelectedIds, updateMessage, decrementUnread, addNotification };
 
   // Clear selection whenever the message list resets (nav, folder change, etc.)
   useEffect(() => {
@@ -179,7 +186,15 @@ export default function MessageList() {
             if (unreadOnly) params.unreadOnly = 'true';
             const data = await api.getMessages(params);
             setMessagesTotal(data.total);
-            setMessages(data.messages);
+            // If the unread filter is on and the currently open message was just marked
+            // read, the server won't return it — preserve it so the user can keep reading.
+            let msgs = data.messages;
+            const activeId = useStore.getState().selectedMessageId;
+            if (unreadOnly && activeId && !msgs.some(m => m.id === activeId)) {
+              const kept = useStore.getState().messages.find(m => m.id === activeId);
+              if (kept) msgs = [kept, ...msgs];
+            }
+            setMessages(msgs);
             if (sm === 'paginated') {
               setHasMoreMessages(false);
             } else {
@@ -354,6 +369,139 @@ export default function MessageList() {
     }
   }, [removeMessage, addNotification]);
 
+  const handleBulkArchive = useCallback(async (ids, msgs) => {
+    ids.forEach(id => removeMessage(id));
+    msgs.forEach(msg => { if (!msg.is_read) decrementUnread(msg.account_id); });
+    setSelectedIds(new Set());
+    setShowFolderPicker(false);
+    try {
+      const result = await api.bulkArchive(ids);
+      if (result.noArchiveFolder?.length) {
+        addNotification({ title: 'No archive folder', body: 'One or more accounts have no archive folder configured. Set one in Settings → Accounts → Folder Mappings.' });
+      }
+    } catch (err) {
+      console.error('Bulk archive failed:', err);
+      addNotification({ title: 'Archive failed', body: `Could not archive ${ids.length} message(s).` });
+    }
+  }, [removeMessage, decrementUnread, addNotification]);
+
+  // Keep refs to bulk handlers so the shortcut effect (registered once) is never stale
+  const bulkDeleteRef  = useRef(handleBulkDelete);
+  const bulkArchiveRef = useRef(handleBulkArchive);
+  useEffect(() => { bulkDeleteRef.current  = handleBulkDelete;  }, [handleBulkDelete]);
+  useEffect(() => { bulkArchiveRef.current = handleBulkArchive; }, [handleBulkArchive]);
+
+  // Subscribe to keyboard shortcut actions that belong to the message list.
+  // Registered once ([] deps); all live state is read through scRef/bulkDeleteRef/bulkArchiveRef.
+  useEffect(() => {
+    const getState = () => useStore.getState();
+
+    const onNext = () => {
+      const { messages, selectedMessageId, setSelectedMessage } = getState();
+      if (!messages.length) return;
+      const idx = messages.findIndex(m => m.id === selectedMessageId);
+      const next = messages[idx + 1] ?? messages[0];
+      setSelectedMessage(next.id);
+    };
+
+    const onPrev = () => {
+      const { messages, selectedMessageId, setSelectedMessage } = getState();
+      if (!messages.length) return;
+      const idx = messages.findIndex(m => m.id === selectedMessageId);
+      const prev = idx <= 0 ? messages[messages.length - 1] : messages[idx - 1];
+      setSelectedMessage(prev.id);
+    };
+
+    const onOpen = () => {
+      const { messages, selectedMessageId, setSelectedMessage } = getState();
+      if (selectedMessageId || !messages.length) return;
+      setSelectedMessage(messages[0].id);
+    };
+
+    const onSelect = () => {
+      const { selectedMessageId } = getState();
+      if (!selectedMessageId) return;
+      scRef.current.setSelectedIds(prev => {
+        const next = new Set(prev);
+        if (next.has(selectedMessageId)) next.delete(selectedMessageId);
+        else next.add(selectedMessageId);
+        return next;
+      });
+    };
+
+    const onArchive = () => {
+      const { messages, selectedMessageId, removeMessage, decrementUnread, addNotification } = getState();
+      const ids = [...scRef.current.selectedIds];
+      if (ids.length > 0) {
+        const msgs = messages.filter(m => ids.includes(m.id));
+        bulkArchiveRef.current(ids, msgs);
+      } else if (selectedMessageId) {
+        const msg = messages.find(m => m.id === selectedMessageId);
+        if (!msg) return;
+        removeMessage(selectedMessageId);
+        if (!msg.is_read) decrementUnread(msg.account_id);
+        api.bulkArchive([selectedMessageId]).then(result => {
+          if (result.noArchiveFolder?.length) {
+            addNotification({ title: 'No archive folder', body: 'No archive folder configured. Set one in Settings → Accounts → Folder Mappings.' });
+          }
+        }).catch(console.error);
+      }
+    };
+
+    const onDelete = () => {
+      const { messages, selectedMessageId } = getState();
+      const ids = [...scRef.current.selectedIds];
+      if (ids.length > 0) {
+        const msgs = messages.filter(m => ids.includes(m.id));
+        bulkDeleteRef.current(ids, msgs);
+      } else if (selectedMessageId) {
+        const msg = messages.find(m => m.id === selectedMessageId);
+        if (!msg) return;
+        const { removeMessage, decrementUnread } = getState();
+        removeMessage(selectedMessageId);
+        if (!msg.is_read) decrementUnread(msg.account_id);
+        api.deleteMessage(selectedMessageId).catch(console.error);
+      }
+    };
+
+    const onToggleRead = () => {
+      const { messages, selectedMessageId, updateMessage, decrementUnread, incrementUnread } = getState();
+      if (!selectedMessageId) return;
+      const msg = messages.find(m => m.id === selectedMessageId);
+      if (!msg) return;
+      const newRead = !msg.is_read;
+      updateMessage(selectedMessageId, { is_read: newRead });
+      if (newRead) decrementUnread(msg.account_id);
+      else         incrementUnread(msg.account_id);
+      api.markRead(selectedMessageId, newRead).catch(console.error);
+    };
+
+    const onFocusSearch = () => {
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    };
+
+    shortcutBus.on('nextMessage',   onNext);
+    shortcutBus.on('prevMessage',   onPrev);
+    shortcutBus.on('openMessage',   onOpen);
+    shortcutBus.on('selectMessage', onSelect);
+    shortcutBus.on('archive',       onArchive);
+    shortcutBus.on('delete',        onDelete);
+    shortcutBus.on('toggleRead',    onToggleRead);
+    shortcutBus.on('focusSearch',   onFocusSearch);
+
+    return () => {
+      shortcutBus.off('nextMessage',   onNext);
+      shortcutBus.off('prevMessage',   onPrev);
+      shortcutBus.off('openMessage',   onOpen);
+      shortcutBus.off('selectMessage', onSelect);
+      shortcutBus.off('archive',       onArchive);
+      shortcutBus.off('delete',        onDelete);
+      shortcutBus.off('toggleRead',    onToggleRead);
+      shortcutBus.off('focusSearch',   onFocusSearch);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleOpenFolderPicker = useCallback(async (selectedMsgs) => {
     if (showFolderPicker) { setShowFolderPicker(false); return; }
     const accountIds = [...new Set(selectedMsgs.map(m => m.account_id))];
@@ -371,7 +519,7 @@ export default function MessageList() {
   }, [showFolderPicker]);
   // ─────────────────────────────────────────────────────────────
 
-  const handleContextAction = async (action, message) => {
+  const handleContextAction = async (action, message, data) => {
     switch (action) {
       case 'open':
         handleSelect(message);
@@ -454,6 +602,32 @@ export default function MessageList() {
       case 'bulkSelect':
         setSelectedIds(new Set([message.id]));
         break;
+      case 'archive': {
+        removeMessage(message.id);
+        if (!message.is_read) decrementUnread(message.account_id);
+        try {
+          const result = await api.bulkArchive([message.id]);
+          if (result.noArchiveFolder?.length) {
+            addNotification({ title: 'No archive folder', body: 'No archive folder configured for this account. Set one in Settings → Accounts → Folder Mappings.' });
+          }
+        } catch (err) {
+          console.error('Archive failed:', err.message);
+          addNotification({ title: 'Archive failed', body: 'Could not archive message. Please try again.' });
+        }
+        break;
+      }
+      case 'moveTo': {
+        const folder = data;
+        if (!folder) break;
+        removeMessage(message.id);
+        try {
+          await api.bulkMove([message.id], folder);
+        } catch (err) {
+          console.error('Move failed:', err.message);
+          addNotification({ title: 'Move failed', body: 'Could not move message. Please try again.' });
+        }
+        break;
+      }
       case 'delete':
         try {
           await api.deleteMessage(message.id);
@@ -640,6 +814,7 @@ export default function MessageList() {
             </svg>
           </div>
           <input
+            ref={searchInputRef}
             type="text"
             placeholder="Search messages…"
             value={searchQuery}
@@ -724,6 +899,20 @@ export default function MessageList() {
             <span style={{ fontSize: 12, color: 'var(--text-secondary)', flex: 1, userSelect: 'none' }}>
               {selectedCount} selected
             </span>
+
+            {/* Archive button */}
+            <BulkBtn
+              title="Archive selected"
+              onClick={() => handleBulkArchive([...selectedIds], selectedMsgs)}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="2" y="3" width="20" height="5" rx="1"/>
+                <path d="M4 8v11a1 1 0 001 1h14a1 1 0 001-1V8"/>
+                <polyline points="9 13 12 16 15 13"/>
+                <line x1="12" y1="11" x2="12" y2="16"/>
+              </svg>
+              Archive
+            </BulkBtn>
 
             {/* Delete button */}
             <BulkBtn
@@ -852,7 +1041,7 @@ export default function MessageList() {
             y={contextMenu.y}
             message={contextMenu.message}
             onClose={() => setContextMenu(null)}
-            onAction={(action) => handleContextAction(action, contextMenu.message)}
+            onAction={(action, data) => handleContextAction(action, contextMenu.message, data)}
           />
         )}
 

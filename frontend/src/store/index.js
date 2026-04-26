@@ -173,6 +173,26 @@ export const useStore = create((set, get) => ({
     api.savePreferences({ layout }).catch(() => {}); // fire-and-forget
   },
 
+  // Image privacy
+  blockRemoteImages: true,
+  imageWhitelist: { addresses: [], domains: [] },
+  setBlockRemoteImages: (val) => {
+    set({ blockRemoteImages: val });
+    return api.savePreferences({ blockRemoteImages: val }).catch(() => {});
+  },
+  setImageWhitelist: (whitelist) => {
+    set({ imageWhitelist: whitelist });
+    return api.savePreferences({ imageWhitelist: whitelist }).catch(() => {});
+  },
+
+  // Keyboard shortcuts — stores only user overrides (action → key).
+  // Merged with defaults at use-time via getEffectiveShortcuts().
+  shortcuts: {},
+  setShortcuts: (overrides) => {
+    set({ shortcuts: overrides });
+    return api.savePreferences({ shortcuts: overrides }).catch(() => {});
+  },
+
   // Fetch server preferences and apply them — call after any successful login.
   // Sets localStorage so subsequent page loads apply the right values instantly.
   loadPreferences: async () => {
@@ -211,6 +231,11 @@ export const useStore = create((set, get) => ({
         localStorage.setItem('mailflow_sync_interval', String(n));
         set({ syncInterval: n });
       }
+      // blockRemoteImages: explicit false disables blocking; anything else keeps the default (true)
+      if (prefs.blockRemoteImages === false) set({ blockRemoteImages: false });
+      else if (prefs.blockRemoteImages === true) set({ blockRemoteImages: true });
+      if (prefs.imageWhitelist) set({ imageWhitelist: prefs.imageWhitelist });
+      if (prefs.shortcuts) set({ shortcuts: prefs.shortcuts });
     } catch (_) {}
   },
 }));

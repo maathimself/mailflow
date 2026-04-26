@@ -223,10 +223,37 @@ export default function Sidebar() {
   const {
     accounts, unreadCounts, selectedAccountId, selectedFolder,
     setSelectedAccount, setShowAdmin, setAdminTab, openCompose,
-    folders, setFolders, user, setUser, sidebarCollapsed, toggleSidebar
+    folders, setFolders, user, setUser, sidebarCollapsed, toggleSidebar,
+    blockRemoteImages, setBlockRemoteImages,
   } = useStore();
 
   const [expandedAccounts, setExpandedAccounts] = useState({});
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [userMenuPos, setUserMenuPos] = useState({ bottom: 0, left: 0 });
+  const userMenuBtnRef = useRef(null);
+  const userMenuPopoverRef = useRef(null);
+
+  // Close user menu on outside click
+  useEffect(() => {
+    if (!userMenuOpen) return;
+    const handler = (e) => {
+      if (
+        userMenuBtnRef.current && !userMenuBtnRef.current.contains(e.target) &&
+        userMenuPopoverRef.current && !userMenuPopoverRef.current.contains(e.target)
+      ) {
+        setUserMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [userMenuOpen]);
+
+  const openUserMenu = () => {
+    if (!userMenuBtnRef.current) return;
+    const rect = userMenuBtnRef.current.getBoundingClientRect();
+    setUserMenuPos({ bottom: window.innerHeight - rect.top + 6, left: rect.left });
+    setUserMenuOpen(v => !v);
+  };
 
   // Context menus
   const [folderCtxMenu, setFolderCtxMenu] = useState(null); // {x, y, accountId, folderObj}
@@ -823,24 +850,129 @@ export default function Sidebar() {
         })}
       </nav>
 
-      {/* Bottom actions */}
-      <div style={{
-        padding: '8px', borderTop: '1px solid var(--border-subtle)',
-        display: 'flex', flexDirection: 'column', gap: 2,
-      }}>
-        <NavItem
-          icon={ICONS.settings}
-          label="Settings"
-          collapsed={sidebarCollapsed}
-          onClick={() => { setAdminTab('accounts'); setShowAdmin(true); }}
-        />
-        <NavItem
-          icon={ICONS.logout}
-          label="Sign out"
-          collapsed={sidebarCollapsed}
-          onClick={handleLogout}
-        />
+      {/* Bottom — user menu button */}
+      <div style={{ padding: '8px', borderTop: '1px solid var(--border-subtle)' }}>
+        <div
+          ref={userMenuBtnRef}
+          onClick={openUserMenu}
+          style={{
+            display: 'flex', alignItems: 'center',
+            gap: 8, padding: sidebarCollapsed ? '7px' : '7px 10px',
+            borderRadius: 8, cursor: 'pointer',
+            background: userMenuOpen ? 'var(--bg-hover)' : 'transparent',
+            transition: 'background 0.1s',
+            justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+          }}
+          onMouseEnter={e => { if (!userMenuOpen) e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
+          onMouseLeave={e => { if (!userMenuOpen) e.currentTarget.style.background = 'transparent'; }}
+        >
+          {/* Avatar initial */}
+          <div style={{
+            width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
+            background: 'var(--accent)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 12, fontWeight: 700, color: 'white',
+          }}>
+            {(user?.username || '?')[0].toUpperCase()}
+          </div>
+          {!sidebarCollapsed && (
+            <>
+              <span style={{
+                flex: 1, fontSize: 13, fontWeight: 500,
+                color: 'var(--text-primary)',
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>
+                {user?.username || 'Account'}
+              </span>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                stroke="var(--text-tertiary)" strokeWidth="2" style={{ flexShrink: 0 }}>
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </>
+          )}
+        </div>
       </div>
+
+      {/* User menu popover */}
+      {userMenuOpen && (
+        <div
+          ref={userMenuPopoverRef}
+          style={{
+            position: 'fixed',
+            bottom: userMenuPos.bottom,
+            left: userMenuPos.left,
+            width: 230,
+            background: 'var(--bg-secondary)',
+            border: '1px solid var(--border)',
+            borderRadius: 10,
+            zIndex: 4000,
+            boxShadow: '0 8px 40px rgba(0,0,0,0.45)',
+            overflow: 'hidden',
+          }}
+        >
+          {/* Header */}
+          <div style={{ padding: '10px 13px 9px', borderBottom: '1px solid var(--border-subtle)' }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
+              {user?.username || 'Account'}
+            </div>
+            {user?.email && (
+              <div style={{
+                fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>
+                {user.email}
+              </div>
+            )}
+          </div>
+
+          {/* Block remote images toggle */}
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '8px 13px', gap: 10,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+              <span style={{ color: 'var(--text-tertiary)', display: 'flex' }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" strokeWidth="1.75">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                </svg>
+              </span>
+              <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>Block images</span>
+            </div>
+            <button
+              onClick={() => setBlockRemoteImages(!blockRemoteImages)}
+              style={{
+                width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer',
+                background: blockRemoteImages ? 'var(--accent)' : 'var(--bg-tertiary)',
+                position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+                padding: 0,
+              }}
+            >
+              <span style={{
+                position: 'absolute', top: 2, width: 16, height: 16, borderRadius: '50%',
+                background: 'white', transition: 'left 0.2s',
+                left: blockRemoteImages ? 18 : 2,
+              }} />
+            </button>
+          </div>
+
+          <div style={{ height: 1, background: 'var(--border-subtle)', margin: '2px 0' }} />
+
+          {/* Settings */}
+          <CtxMenuItem
+            icon={ICONS.settings}
+            label="Settings"
+            onClick={() => { setAdminTab('accounts'); setShowAdmin(true); setUserMenuOpen(false); }}
+          />
+
+          {/* Sign out */}
+          <CtxMenuItem
+            icon={ICONS.logout}
+            label="Sign out"
+            danger
+            onClick={() => { setUserMenuOpen(false); handleLogout(); }}
+          /></div>
+      )}
 
       {/* Context menus */}
       {folderCtxMenu && (

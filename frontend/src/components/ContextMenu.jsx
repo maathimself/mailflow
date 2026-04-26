@@ -162,6 +162,9 @@ function HeaderModal({ messageId, subject, onClose }) {
 export default function ContextMenu({ x, y, message, onClose, onAction }) {
   const menuRef = useRef(null);
   const [showHeaderModal, setShowHeaderModal] = useState(false);
+  const [moveView, setMoveView] = useState(false);
+  const [moveFolders, setMoveFolders] = useState(null);
+  const [moveFoldersLoading, setMoveFoldersLoading] = useState(false);
 
   // Adjust position to stay within viewport
   const [pos, setPos] = useState({ x, y });
@@ -175,6 +178,20 @@ export default function ContextMenu({ x, y, message, onClose, onAction }) {
       y: y + rect.height > vh ? y - rect.height : y,
     });
   }, [x, y]);
+
+  const handleMoveClick = async () => {
+    setMoveView(true);
+    if (moveFolders) return; // already loaded
+    setMoveFoldersLoading(true);
+    try {
+      const data = await api.getFolders(message.account_id);
+      setMoveFolders(Array.isArray(data) ? data : (data.folders || []));
+    } catch (_) {
+      setMoveFolders([]);
+    } finally {
+      setMoveFoldersLoading(false);
+    }
+  };
 
   // Close on outside click or Escape
   useEffect(() => {
@@ -239,6 +256,18 @@ export default function ContextMenu({ x, y, message, onClose, onAction }) {
           label: 'Forward',
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polyline points="15 17 20 12 15 7"/><path d="M4 18v-2a4 4 0 014-4h12"/></svg>,
           action: () => onAction('forward'),
+        },
+        {
+          label: 'Move to folder',
+          icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>,
+          action: handleMoveClick,
+          keepOpen: true,
+          hasSubmenu: true,
+        },
+        {
+          label: 'Archive',
+          icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a1 1 0 001 1h14a1 1 0 001-1V8"/><polyline points="9 13 12 16 15 13"/><line x1="12" y1="11" x2="12" y2="16"/></svg>,
+          action: () => onAction('archive'),
         },
       ]
     },
@@ -324,26 +353,71 @@ export default function ContextMenu({ x, y, message, onClose, onAction }) {
           </div>
         </div>
 
-        {/* Groups */}
-        {items.map((group, gi) => (
-          <div key={gi}>
-            {gi > 0 && <div style={{ height: 1, background: 'var(--border-subtle)', margin: '3px 0' }} />}
-            {group.actions.map((item, ai) => (
-              <MenuItem
-                key={ai}
-                icon={item.icon}
-                label={item.label}
-                danger={item.danger}
-                onClick={() => {
-                  item.action();
-                  if (!item.keepOpen) onClose();
-                }}
-              />
+        {moveView ? (
+          /* Folder picker view */
+          <>
+            <div
+              onClick={() => setMoveView(false)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '8px 14px', cursor: 'pointer',
+                borderBottom: '1px solid var(--border-subtle)',
+                color: 'var(--text-secondary)', fontSize: 12,
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <polyline points="15 18 9 12 15 6"/>
+              </svg>
+              Move to folder
+            </div>
+            <div style={{ maxHeight: 240, overflow: 'auto' }}>
+              {moveFoldersLoading ? (
+                <div style={{ padding: '12px 14px', color: 'var(--text-tertiary)', fontSize: 12 }}>
+                  Loading folders…
+                </div>
+              ) : moveFolders?.length === 0 ? (
+                <div style={{ padding: '12px 14px', color: 'var(--text-tertiary)', fontSize: 12 }}>
+                  No folders found
+                </div>
+              ) : (
+                (moveFolders || [])
+                  .filter(f => f.path !== message.folder)
+                  .map(folder => (
+                    <FolderMenuItem
+                      key={folder.path}
+                      folder={folder}
+                      onClick={() => { onAction('moveTo', folder.path); onClose(); }}
+                    />
+                  ))
+              )}
+            </div>
+          </>
+        ) : (
+          /* Normal groups */
+          <>
+            {items.map((group, gi) => (
+              <div key={gi}>
+                {gi > 0 && <div style={{ height: 1, background: 'var(--border-subtle)', margin: '3px 0' }} />}
+                {group.actions.map((item, ai) => (
+                  <MenuItem
+                    key={ai}
+                    icon={item.icon}
+                    label={item.label}
+                    danger={item.danger}
+                    hasSubmenu={item.hasSubmenu}
+                    onClick={() => {
+                      item.action();
+                      if (!item.keepOpen) onClose();
+                    }}
+                  />
+                ))}
+              </div>
             ))}
-          </div>
-        ))}
-
-        <div style={{ height: 4 }} />
+            <div style={{ height: 4 }} />
+          </>
+        )}
       </div>
 
       {showHeaderModal && (
@@ -357,7 +431,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction }) {
   );
 }
 
-function MenuItem({ icon, label, onClick, danger }) {
+function MenuItem({ icon, label, onClick, danger, hasSubmenu }) {
   const [hov, setHov] = useState(false);
   return (
     <div
@@ -376,7 +450,47 @@ function MenuItem({ icon, label, onClick, danger }) {
       <span style={{ flexShrink: 0, color: danger && hov ? 'var(--red)' : 'var(--text-tertiary)', display: 'flex' }}>
         {icon}
       </span>
-      {label}
+      <span style={{ flex: 1 }}>{label}</span>
+      {hasSubmenu && (
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="2.5">
+          <polyline points="9 18 15 12 9 6"/>
+        </svg>
+      )}
+    </div>
+  );
+}
+
+function FolderMenuItem({ folder, onClick }) {
+  const [hov, setHov] = useState(false);
+  const su = (folder.special_use || '').toLowerCase();
+  const icon = su.includes('sent')
+    ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+    : su.includes('trash')
+    ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
+    : su.includes('draft')
+    ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+    : su.includes('spam') || su.includes('junk')
+    ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>;
+
+  return (
+    <div
+      onClick={onClick}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 10,
+        padding: '7px 14px', cursor: 'pointer',
+        background: hov ? 'var(--bg-hover)' : 'transparent',
+        color: 'var(--text-primary)',
+        transition: 'background 0.08s',
+        fontSize: 13,
+      }}
+    >
+      <span style={{ flexShrink: 0, color: 'var(--text-tertiary)', display: 'flex' }}>{icon}</span>
+      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {folder.name || folder.path}
+      </span>
     </div>
   );
 }

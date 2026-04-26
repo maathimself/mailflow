@@ -165,6 +165,16 @@ export async function initDb() {
         expires_at TIMESTAMPTZ NOT NULL,
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
+
+      CREATE TABLE IF NOT EXISTS account_aliases (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        account_id UUID NOT NULL REFERENCES email_accounts(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        email VARCHAR(255) NOT NULL,
+        reply_to VARCHAR(255),
+        signature TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
     `);
   } finally {
     client.release();

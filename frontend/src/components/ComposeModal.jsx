@@ -43,9 +43,32 @@ export default function ComposeModal() {
     if (composeData?.quotedBody !== undefined) setQuotedBody(composeData.quotedBody);
   }, []);
 
-  const [fromAccountId, setFromAccountId] = useState(
-    composeData?.accountId || accounts[0]?.id || ''
-  );
+  const initialFromValue = () => {
+    if (composeData?.aliasId && composeData?.accountId) {
+      return `alias:${composeData.aliasId}:${composeData.accountId}`;
+    }
+    const acctId = composeData?.accountId || accounts[0]?.id || '';
+    return acctId ? `account:${acctId}` : '';
+  };
+  const [fromValue, setFromValue] = useState(initialFromValue);
+
+  const resolveFrom = (val) => {
+    if (!val) return { accountId: '', aliasId: null };
+    if (val.startsWith('alias:')) {
+      const parts = val.split(':');
+      return { aliasId: parts[1], accountId: parts[2] };
+    }
+    return { accountId: val.replace('account:', ''), aliasId: null };
+  };
+
+  const fromResolved = resolveFrom(fromValue);
+  const fromAccount = accounts.find(a => a.id === fromResolved.accountId);
+  const fromAlias = fromResolved.aliasId
+    ? fromAccount?.aliases?.find(al => al.id === fromResolved.aliasId)
+    : null;
+  const fromSignature = fromAlias
+    ? (fromAlias.signature !== null && fromAlias.signature !== undefined ? fromAlias.signature : fromAccount?.signature || null)
+    : (fromAccount?.signature || null);
 
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
@@ -75,12 +98,14 @@ export default function ComposeModal() {
   }, [showReplyType]);
 
   const handleSend = async () => {
-    if (!to.trim() || !fromAccountId) return;
+    const { accountId, aliasId } = resolveFrom(fromValue);
+    if (!to.trim() || !accountId) return;
     setSending(true);
     setError('');
     try {
       await api.post('/mail/send', {
-        accountId: fromAccountId,
+        accountId,
+        ...(aliasId ? { aliasId } : {}),
         to: to.split(',').map(s => s.trim()).filter(Boolean),
         cc: cc ? cc.split(',').map(s => s.trim()).filter(Boolean) : [],
         subject,
@@ -239,15 +264,32 @@ export default function ComposeModal() {
         <div style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--border-subtle)', padding: '0 12px' }}>
           <span style={{ fontSize: 12, color: 'var(--text-tertiary)', width: 52, flexShrink: 0 }}>From</span>
           <select
-            value={fromAccountId}
-            onChange={e => setFromAccountId(e.target.value)}
+            value={fromValue}
+            onChange={e => setFromValue(e.target.value)}
             style={{ flex: 1, padding: '8px 4px', background: 'transparent', border: 'none', color: 'var(--text-primary)', fontSize: 13, outline: 'none', cursor: 'pointer' }}
           >
-            {accounts.map(a => (
-              <option key={a.id} value={a.id} style={{ background: 'var(--bg-tertiary)' }}>
-                {a.name} &lt;{a.email_address}&gt;
-              </option>
-            ))}
+            {accounts.map(a => {
+              const aliases = a.aliases || [];
+              if (!aliases.length) {
+                return (
+                  <option key={a.id} value={`account:${a.id}`} style={{ background: 'var(--bg-tertiary)' }}>
+                    {a.name} &lt;{a.email_address}&gt;
+                  </option>
+                );
+              }
+              return (
+                <optgroup key={a.id} label={a.name} style={{ background: 'var(--bg-tertiary)' }}>
+                  <option value={`account:${a.id}`} style={{ background: 'var(--bg-tertiary)' }}>
+                    {a.name} &lt;{a.email_address}&gt;
+                  </option>
+                  {aliases.map(alias => (
+                    <option key={alias.id} value={`alias:${alias.id}:${a.id}`} style={{ background: 'var(--bg-tertiary)' }}>
+                      {alias.name} &lt;{alias.email}&gt;
+                    </option>
+                  ))}
+                </optgroup>
+              );
+            })}
           </select>
         </div>
 
@@ -308,21 +350,17 @@ export default function ComposeModal() {
         />
 
         {/* Signature preview — always between the reply text and the quoted block */}
-        {(() => {
-          const sig = accounts.find(a => a.id === fromAccountId)?.signature;
-          if (!sig) return null;
-          return (
-            <div style={{ padding: '0 14px 10px' }}>
-              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 6, userSelect: 'none' }}>
-                -- signature
-              </div>
-              <div
-                style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}
-                dangerouslySetInnerHTML={{ __html: sig }}
-              />
+        {fromSignature ? (
+          <div style={{ padding: '0 14px 10px' }}>
+            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 6, userSelect: 'none' }}>
+              -- signature
             </div>
-          );
-        })()}
+            <div
+              style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}
+              dangerouslySetInnerHTML={{ __html: fromSignature }}
+            />
+          </div>
+        ) : null}
 
         {/* Quoted / forwarded text — shown below the signature for replies and forwards */}
         {quotedBody ? (

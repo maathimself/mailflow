@@ -118,3 +118,69 @@ export function sanitizeEmail(html) {
   // only handles attributes, so CSS url() inside <style> blocks must be fixed afterward.
   return upgradeStyleBlocks(sanitized);
 }
+
+// Returns true if the sanitized HTML contains any remote http/https image references.
+export function hasRemoteImages(html) {
+  if (!html) return false;
+  return (
+    /<img\b[^>]*\ssrc=["']https?:\/\//i.test(html) ||
+    /<img\b[^>]*\ssrcset=["'][^"']*https?:\/\//i.test(html) ||
+    /\sbackground=["']https?:\/\//i.test(html) ||
+    /url\(\s*['"]?https?:\/\//i.test(html)
+  );
+}
+
+// Rewrite remote http/https image references so the browser makes no network requests.
+// Stores the original URL in data-mailflow-src (img), data-mailflow-srcset (srcset),
+// or data-mailflow-bg (background attribute) so the UI can restore them when the user
+// chooses to load images.  data: and cid: sources are always left intact.
+// Never call this on HTML that will be written back to the database — apply only at
+// response time so the canonical cached body remains unmodified.
+export function blockRemoteImages(html) {
+  if (!html) return html;
+
+  // Block <img src="https://..."> — zero out src, preserve URL in data attribute
+  let out = html.replace(
+    /(<img\b[^>]*?)\ssrc=(["'])(https?:\/\/[^\s"']*)\2/gi,
+    '$1 src=$2$2 data-mailflow-src=$2$3$2'
+  );
+
+  // Block img srcset when it contains any remote URLs
+  out = out.replace(
+    /(<img\b[^>]*?)\ssrcset=(["'])([^"']*)\2/gi,
+    (_, pre, q, val) =>
+      /https?:\/\//i.test(val)
+        ? `${pre} data-mailflow-srcset=${q}${val}${q}`
+        : `${pre} srcset=${q}${val}${q}`
+  );
+
+  // Block background="https://..." attribute (table-based marketing email layouts)
+  out = out.replace(
+    /(\s)background=(["'])(https?:\/\/[^\s"']*)\2/gi,
+    '$1data-mailflow-bg=$2$3$2 background=$2$2'
+  );
+
+  // Block CSS url(https://...) in inline style= attributes (double-quoted by sanitize-html)
+  out = out.replace(
+    /\sstyle="([^"]*)"/gi,
+    (_, styleVal) => {
+      const blocked = styleVal.replace(
+        /url\(\s*(['"]?)https?:\/\/[^'")]+\1\s*\)/gi,
+        'url("")'
+      );
+      return ` style="${blocked}"`;
+    }
+  );
+
+  // Block CSS url(https://...) in <style> blocks
+  out = out.replace(
+    /(<style\b[^>]*>)([\s\S]*?)(<\/style>)/gi,
+    (_, open, content, close) =>
+      open + content.replace(
+        /url\(\s*(['"]?)https?:\/\/[^'")]+\1\s*\)/gi,
+        'url("")'
+      ) + close
+  );
+
+  return out;
+}

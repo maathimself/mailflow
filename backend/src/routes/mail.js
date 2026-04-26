@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { imapManager } from '../index.js';
-import { sanitizeEmail, stripEmailHead } from '../services/emailSanitizer.js';
+import { sanitizeEmail, stripEmailHead, hasRemoteImages, blockRemoteImages } from '../services/emailSanitizer.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -118,6 +118,21 @@ router.get('/messages', async (req, res) => {
   res.json({ messages: result.rows, total: parseInt(countResult.rows[0].count) });
 });
 
+// Returns true if remote images should be blocked for this message given the user's preferences.
+// Default behaviour (no preference set) is to block.
+function shouldBlockImages(prefs, message) {
+  if (prefs?.blockRemoteImages === false) return false;
+  const senderEmail = (message.from_email || '').toLowerCase();
+  const atIdx = senderEmail.indexOf('@');
+  const senderDomain = atIdx >= 0 ? senderEmail.slice(atIdx + 1) : '';
+  const whitelist = prefs?.imageWhitelist || {};
+  const allowedAddresses = (whitelist.addresses || []).map(a => a.toLowerCase());
+  const allowedDomains   = (whitelist.domains   || []).map(d => d.toLowerCase());
+  if (senderEmail && allowedAddresses.includes(senderEmail)) return false;
+  if (senderDomain && allowedDomains.includes(senderDomain)) return false;
+  return true;
+}
+
 // Unread counts
 router.get('/unread-counts', async (req, res) => {
   const accountsResult = await query(
@@ -148,8 +163,9 @@ router.get('/messages/:id/body', async (req, res) => {
   const { id } = req.params;
 
   const result = await query(`
-    SELECT m.*, a.user_id FROM messages m
+    SELECT m.*, a.user_id, u.preferences FROM messages m
     JOIN email_accounts a ON m.account_id = a.id
+    JOIN users u ON u.id = a.user_id
     WHERE m.id = $1 AND a.user_id = $2
   `, [id, req.session.userId]);
 
@@ -187,7 +203,17 @@ router.get('/messages/:id/body', async (req, res) => {
         query('UPDATE messages SET snippet = $1 WHERE id = $2', [snip, id]).catch(() => {});
       }
     }
-    return res.json({ html, text: message.body_text, attachments });
+
+    // Apply remote-image blocking at response time — never write the blocked variant
+    // back to the DB so the canonical cached HTML always has images intact.
+    const skipBlocking = req.query.remoteImages === '1';
+    let responseHtml = html;
+    let hasBlockedRemoteImages = false;
+    if (!skipBlocking && html && shouldBlockImages(message.preferences, message) && hasRemoteImages(html)) {
+      responseHtml = blockRemoteImages(html);
+      hasBlockedRemoteImages = true;
+    }
+    return res.json({ html: responseHtml, text: message.body_text, attachments, hasBlockedRemoteImages });
   }
 
   // Fetch from IMAP
@@ -212,7 +238,16 @@ router.get('/messages/:id/body', async (req, res) => {
       );
     }
 
-    res.json({ html: safeHtml, text, attachments: attachments || [] });
+    // Apply remote-image blocking at response time — safeHtml (unblocked) is what
+    // was written to the DB cache above, preserving the canonical body.
+    const skipBlocking = req.query.remoteImages === '1';
+    let responseHtml = safeHtml;
+    let hasBlockedRemoteImages = false;
+    if (!skipBlocking && safeHtml && shouldBlockImages(message.preferences, message) && hasRemoteImages(safeHtml)) {
+      responseHtml = blockRemoteImages(safeHtml);
+      hasBlockedRemoteImages = true;
+    }
+    res.json({ html: responseHtml, text, attachments: attachments || [], hasBlockedRemoteImages });
   } catch (err) {
     const msg = err.message || 'Unknown error';
     console.error('Body fetch error:', msg);
@@ -575,6 +610,73 @@ router.post('/messages/bulk-move', async (req, res) => {
   }
 
   res.json({ ok: true, moved: movedIds });
+});
+
+// Bulk archive — moves messages to the archive folder for each account
+router.post('/messages/bulk-archive', async (req, res) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: 'ids array required' });
+  }
+
+  const placeholders = ids.map((_, i) => `$${i + 2}`).join(',');
+  const result = await query(
+    `SELECT m.*, a.user_id, a.folder_mappings FROM messages m
+     JOIN email_accounts a ON m.account_id = a.id
+     WHERE m.id IN (${placeholders}) AND a.user_id = $1`,
+    [req.session.userId, ...ids]
+  );
+
+  const owned = result.rows;
+  if (!owned.length) return res.json({ ok: true, archived: [], noArchiveFolder: [] });
+
+  const byAccount = {};
+  for (const msg of owned) {
+    (byAccount[msg.account_id] = byAccount[msg.account_id] || []).push(msg);
+  }
+
+  const archivedIds = [];
+  const noArchiveFolder = [];
+
+  for (const [accountId, msgs] of Object.entries(byAccount)) {
+    // Resolve archive folder: explicit mapping > special_use > name heuristic
+    let archiveFolder = msgs[0].folder_mappings?.archive || null;
+    if (!archiveFolder) {
+      const folderResult = await query(
+        `SELECT path FROM folders WHERE account_id = $1
+         AND (special_use = '\\Archive' OR lower(name) LIKE '%archive%') LIMIT 1`,
+        [accountId]
+      );
+      archiveFolder = folderResult.rows[0]?.path || null;
+    }
+    if (!archiveFolder) {
+      noArchiveFolder.push(accountId);
+      continue;
+    }
+
+    const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
+    const account = accountResult.rows[0];
+    for (const msg of msgs) {
+      try {
+        await imapManager.moveMessage(account, msg.uid, msg.folder, archiveFolder);
+        archivedIds.push({ id: msg.id, folder: archiveFolder });
+      } catch (err) {
+        console.error(`bulk-archive IMAP ${msg.id}:`, err.message);
+      }
+    }
+  }
+
+  // Update DB folder for successfully archived messages, grouped by destination
+  const byFolder = {};
+  for (const { id, folder } of archivedIds) {
+    (byFolder[folder] = byFolder[folder] || []).push(id);
+  }
+  for (const [folder, folderIds] of Object.entries(byFolder)) {
+    const fp = folderIds.map((_, i) => `$${i + 2}`).join(',');
+    await query(`UPDATE messages SET folder = $1 WHERE id IN (${fp})`, [folder, ...folderIds]);
+  }
+
+  res.json({ ok: true, archived: archivedIds.map(a => a.id), noArchiveFolder });
 });
 
 // Delete (move to trash)

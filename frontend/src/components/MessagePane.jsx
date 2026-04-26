@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { format } from 'date-fns';
+import { shortcutBus } from '../utils/shortcutBus.js';
 
 function formatBytes(bytes) {
   if (!bytes) return '';
@@ -25,7 +26,8 @@ function fileIcon(type) {
 export default function MessagePane() {
   const {
     messages, searchResults, searchQuery, selectedMessageId,
-    updateMessage, removeMessage, decrementUnread, openCompose, accounts,
+    updateMessage, removeMessage, decrementUnread, openCompose, accounts, addNotification,
+    imageWhitelist, setImageWhitelist,
   } = useStore();
 
   const allMessages = searchQuery.trim() ? searchResults : messages;
@@ -37,10 +39,15 @@ export default function MessagePane() {
   const [loadingBody, setLoadingBody] = useState(false);
   const [downloadingPart, setDownloadingPart] = useState(null);
   const [showReplyMenu, setShowReplyMenu] = useState(false);
+  const [savingAllow, setSavingAllow] = useState(false);
   const iframeRef = useRef(null);
   const roRef = useRef(null);
   const bodyCache = useRef({}); // messageId -> body, so revisiting is instant (capped at 50)
   const bodyCacheOrder = useRef([]); // insertion-order keys for LRU eviction
+  // Session-scoped set of message IDs where the user has clicked "Load images once"
+  const imagesRequestedRef = useRef(new Set());
+  // Ref holding the latest pane action handlers so shortcut subscriptions ([] deps) never go stale
+  const paneActionsRef = useRef({});
 
   useEffect(() => {
     if (!selectedMessageId) {
@@ -51,14 +58,19 @@ export default function MessagePane() {
     }
 
     // Serve from cache when available — avoids re-fetching on revisit.
-    // Only use the cache if the body has actual content; a cached empty result
-    // should be re-fetched so transient failures don't stick permanently.
+    // Skip the cache (or clear a stale blocked entry) when the user has explicitly
+    // requested images for this message so we re-fetch with ?remoteImages=1.
+    const wantsImages = imagesRequestedRef.current.has(selectedMessageId);
     const cached = bodyCache.current[selectedMessageId];
     if (cached && (cached.html || cached.text)) {
-      setBody(cached);
-      setBodyError(null);
-      setLoadingBody(false);
-      return;
+      if (!wantsImages || !cached.hasBlockedRemoteImages) {
+        setBody(cached);
+        setBodyError(null);
+        setLoadingBody(false);
+        return;
+      }
+      // Cache has the blocked version but user wants images — evict and re-fetch
+      delete bodyCache.current[selectedMessageId];
     }
 
     // Clear previous content immediately so stale body never shows for a new message
@@ -74,7 +86,7 @@ export default function MessagePane() {
     // connection, etc.) with a short delay before surfacing a permanent error.
     const fetchWithRetry = async (id, attemptsLeft = 3) => {
       try {
-        return await api.getMessageBody(id);
+        return await api.getMessageBody(id, imagesRequestedRef.current.has(id));
       } catch (err) {
         const isNotFound = /not found/i.test(err.message);
         const isTransient = /Command failed|Command canceled|timed out|ECONNRESET|socket hang up|EPIPE/i.test(err.message);
@@ -182,6 +194,134 @@ export default function MessagePane() {
     };
   }, [body?.html, selectedMessageId]);
 
+  const handleReply = (replyAll = false) => {
+    if (!message) return;
+    const date = message.date ? new Date(message.date).toLocaleString() : '';
+    const fromStr = message.from_name
+      ? `${message.from_name} <${message.from_email}>`
+      : message.from_email || '';
+    const quotedText = body?.text
+      ? `\n\n---\nOn ${date}, ${fromStr} wrote:\n${body.text.split('\n').map(l => '> ' + l).join('\n')}`
+      : '';
+
+    const replyToArr = Array.isArray(message.reply_to)
+      ? message.reply_to
+      : (() => { try { return JSON.parse(message.reply_to || '[]'); } catch (_) { return []; } })();
+    const replyTarget = (replyToArr.length && replyToArr[0].email)
+      ? replyToArr[0]
+      : { name: message.from_name || '', email: message.from_email || '' };
+    const sender = replyTarget.email ? [replyTarget] : [];
+
+    const myAccount = accounts.find(a => a.id === message.account_id);
+    const myEmail = myAccount?.email_address || '';
+
+    const replyAliasId = (() => {
+      const aliases = myAccount?.aliases || [];
+      if (!aliases.length) return null;
+      try {
+        const toArr = Array.isArray(message.to_addresses)
+          ? message.to_addresses
+          : JSON.parse(message.to_addresses || '[]');
+        const ccArr = Array.isArray(message.cc_addresses)
+          ? message.cc_addresses
+          : JSON.parse(message.cc_addresses || '[]');
+        const allEmails = [...toArr, ...ccArr].map(t => t.email?.toLowerCase()).filter(Boolean);
+        const match = aliases.find(al => allEmails.includes(al.email.toLowerCase()));
+        return match ? match.id : null;
+      } catch (_) { return null; }
+    })();
+
+    const myAddresses = new Set([
+      myEmail.toLowerCase(),
+      ...(myAccount?.aliases || []).map(al => al.email.toLowerCase()),
+    ]);
+    const allRecipients = (() => {
+      try {
+        const toArr = Array.isArray(message.to_addresses)
+          ? message.to_addresses
+          : JSON.parse(message.to_addresses || '[]');
+        const ccArr = Array.isArray(message.cc_addresses)
+          ? message.cc_addresses
+          : JSON.parse(message.cc_addresses || '[]');
+        return [...toArr, ...ccArr].filter(
+          t => t.email && !myAddresses.has(t.email.toLowerCase()) && t.email !== replyTarget.email
+        );
+      } catch (_) { return []; }
+    })();
+
+    const referencesChain = [message.in_reply_to, message.message_id]
+      .filter(Boolean).join(' ').trim() || null;
+
+    setShowReplyMenu(false);
+    openCompose({
+      to: sender,
+      cc: replyAll ? allRecipients : [],
+      subject: message.subject?.startsWith('Re:') ? message.subject : `Re: ${message.subject}`,
+      body: '',
+      quotedBody: quotedText,
+      inReplyTo: message.message_id,
+      references: referencesChain,
+      accountId: message.account_id,
+      aliasId: replyAliasId,
+      isReply: true,
+      isReplyAll: replyAll,
+      originalFrom: sender,
+      allRecipients,
+    });
+  };
+
+  const handleForward = () => {
+    if (!message) return;
+    const date = message.date ? new Date(message.date).toLocaleString() : '';
+    const fromStr = message.from_name
+      ? `${message.from_name} <${message.from_email}>`
+      : message.from_email || '';
+    const fwdText = `\n\n---------- Forwarded message ----------\nFrom: ${fromStr}\nDate: ${date}\nSubject: ${message.subject || ''}\n\n${body?.text || ''}`;
+    openCompose({
+      subject: message.subject?.startsWith('Fwd:') ? message.subject : `Fwd: ${message.subject}`,
+      body: '',
+      quotedBody: fwdText,
+      accountId: message.account_id,
+      isForward: true,
+    });
+  };
+
+  const handleStarToggle = async () => {
+    if (!message) return;
+    const newVal = !message.is_starred;
+    await api.markStarred(message.id, newVal);
+    updateMessage(message.id, { is_starred: newVal });
+  };
+
+  // Keep pane action refs current every render
+  paneActionsRef.current = {
+    reply:      () => handleReply(false),
+    replyAll:   () => handleReply(true),
+    forward:    handleForward,
+    toggleStar: handleStarToggle,
+  };
+
+  // Subscribe to keyboard shortcut actions that belong to the message pane.
+  // Registered once ([] deps); live state is accessed through paneActionsRef.
+  useEffect(() => {
+    const onReply      = () => paneActionsRef.current.reply();
+    const onReplyAll   = () => paneActionsRef.current.replyAll();
+    const onForward    = () => paneActionsRef.current.forward();
+    const onToggleStar = () => paneActionsRef.current.toggleStar();
+
+    shortcutBus.on('reply',      onReply);
+    shortcutBus.on('replyAll',   onReplyAll);
+    shortcutBus.on('forward',    onForward);
+    shortcutBus.on('toggleStar', onToggleStar);
+
+    return () => {
+      shortcutBus.off('reply',      onReply);
+      shortcutBus.off('replyAll',   onReplyAll);
+      shortcutBus.off('forward',    onForward);
+      shortcutBus.off('toggleStar', onToggleStar);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleDownload = async (messageId, part, filename) => {
     setDownloadingPart(part);
     try {
@@ -228,81 +368,6 @@ export default function MessagePane() {
     );
   }
 
-  const handleReply = (replyAll = false) => {
-    const date = message.date ? new Date(message.date).toLocaleString() : '';
-    const fromStr = message.from_name
-      ? `${message.from_name} <${message.from_email}>`
-      : message.from_email || '';
-    const quotedText = body?.text
-      ? `\n\n---\nOn ${date}, ${fromStr} wrote:\n${body.text.split('\n').map(l => '> ' + l).join('\n')}`
-      : '';
-
-    // Fix: use Reply-To if present, otherwise fall back to From.
-    const replyToArr = Array.isArray(message.reply_to)
-      ? message.reply_to
-      : (() => { try { return JSON.parse(message.reply_to || '[]'); } catch (_) { return []; } })();
-    const replyTarget = (replyToArr.length && replyToArr[0].email)
-      ? replyToArr[0]
-      : { name: message.from_name || '', email: message.from_email || '' };
-    const sender = replyTarget.email ? [replyTarget] : [];
-
-    const myEmail = accounts.find(a => a.id === message.account_id)?.email_address || '';
-
-    // Fix: build the full Reply All CC from both To and Cc of the original message,
-    // excluding the user's own address and the reply target (who goes in To).
-    // Always computed so the in-compose toggle can switch modes correctly.
-    const allRecipients = (() => {
-      try {
-        const toArr = Array.isArray(message.to_addresses)
-          ? message.to_addresses
-          : JSON.parse(message.to_addresses || '[]');
-        const ccArr = Array.isArray(message.cc_addresses)
-          ? message.cc_addresses
-          : JSON.parse(message.cc_addresses || '[]');
-        return [...toArr, ...ccArr].filter(
-          t => t.email && t.email !== myEmail && t.email !== replyTarget.email
-        );
-      } catch (_) { return []; }
-    })();
-
-    // Fix: build the full References chain for proper thread linking.
-    // Outgoing References = prior in_reply_to chain + the message we're replying to.
-    const referencesChain = [message.in_reply_to, message.message_id]
-      .filter(Boolean).join(' ').trim() || null;
-
-    setShowReplyMenu(false);
-    openCompose({
-      to: sender,
-      cc: replyAll ? allRecipients : [],
-      subject: message.subject?.startsWith('Re:') ? message.subject : `Re: ${message.subject}`,
-      body: '',
-      quotedBody: quotedText,
-      inReplyTo: message.message_id,
-      references: referencesChain,
-      accountId: message.account_id,
-      isReply: true,
-      isReplyAll: replyAll,
-      // Passed so the in-compose Reply ↔ Reply All toggle can reconstruct recipients.
-      originalFrom: sender,
-      allRecipients,
-    });
-  };
-
-  const handleForward = () => {
-    const date = message.date ? new Date(message.date).toLocaleString() : '';
-    const fromStr = message.from_name
-      ? `${message.from_name} <${message.from_email}>`
-      : message.from_email || '';
-    const fwdText = `\n\n---------- Forwarded message ----------\nFrom: ${fromStr}\nDate: ${date}\nSubject: ${message.subject || ''}\n\n${body?.text || ''}`;
-    openCompose({
-      subject: message.subject?.startsWith('Fwd:') ? message.subject : `Fwd: ${message.subject}`,
-      body: '',
-      quotedBody: fwdText,
-      accountId: message.account_id,
-      isForward: true,
-    });
-  };
-
   const handleDelete = async () => {
     try {
       await api.deleteMessage(message.id);
@@ -310,10 +375,64 @@ export default function MessagePane() {
     } catch (err) { console.error(err); }
   };
 
-  const handleStarToggle = async () => {
-    const newVal = !message.is_starred;
-    await api.markStarred(message.id, newVal);
-    updateMessage(message.id, { is_starred: newVal });
+  const handleArchive = async () => {
+    removeMessage(message.id);
+    try {
+      const result = await api.bulkArchive([message.id]);
+      if (result.noArchiveFolder?.length) {
+        addNotification({ title: 'No archive folder', body: 'No archive folder configured for this account. Set one in Settings → Accounts → Folder Mappings.' });
+      }
+    } catch (err) {
+      console.error('Archive failed:', err);
+      addNotification({ title: 'Archive failed', body: 'Could not archive message.' });
+    }
+  };
+
+  const handleLoadImages = () => {
+    imagesRequestedRef.current.add(selectedMessageId);
+    delete bodyCache.current[selectedMessageId];
+    setRetryKey(k => k + 1);
+  };
+
+  const handleAllowSender = async () => {
+    const senderEmail = message.from_email?.toLowerCase();
+    if (!senderEmail) return;
+    const newList = {
+      ...imageWhitelist,
+      addresses: [...new Set([...(imageWhitelist.addresses || []), senderEmail])],
+    };
+    setSavingAllow(true);
+    try {
+      await api.savePreferences({ imageWhitelist: newList });
+      setImageWhitelist(newList);
+      delete bodyCache.current[selectedMessageId];
+      setRetryKey(k => k + 1);
+    } catch (_) {
+      addNotification({ title: 'Could not save preference', body: 'Failed to update image whitelist.' });
+    } finally {
+      setSavingAllow(false);
+    }
+  };
+
+  const handleAllowDomain = async () => {
+    const senderEmail = message.from_email?.toLowerCase() || '';
+    const senderDomain = senderEmail.includes('@') ? senderEmail.split('@')[1] : '';
+    if (!senderDomain) return;
+    const newList = {
+      ...imageWhitelist,
+      domains: [...new Set([...(imageWhitelist.domains || []), senderDomain])],
+    };
+    setSavingAllow(true);
+    try {
+      await api.savePreferences({ imageWhitelist: newList });
+      setImageWhitelist(newList);
+      delete bodyCache.current[selectedMessageId];
+      setRetryKey(k => k + 1);
+    } catch (_) {
+      addNotification({ title: 'Could not save preference', body: 'Failed to update image whitelist.' });
+    } finally {
+      setSavingAllow(false);
+    }
   };
 
   const toList = (() => {
@@ -397,6 +516,16 @@ export default function MessagePane() {
             <polyline points="15 17 20 12 15 7"/><path d="M4 18v-2a4 4 0 014-4h12"/>
           </svg>
           Forward
+        </PaneBtn>
+
+        <PaneBtn onClick={handleArchive} title="Archive">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+            <rect x="2" y="3" width="20" height="5" rx="1"/>
+            <path d="M4 8v11a1 1 0 001 1h14a1 1 0 001-1V8"/>
+            <polyline points="9 13 12 16 15 13"/>
+            <line x1="12" y1="11" x2="12" y2="16"/>
+          </svg>
+          Archive
         </PaneBtn>
 
         <div style={{ flex: 1 }} />
@@ -610,6 +739,47 @@ export default function MessagePane() {
       {/* HTML email — iframe sized to full content height; outer container scrolls */}
       {!loadingBody && !bodyError && body?.html && (
         <div style={{ padding: '0 28px 24px' }}>
+          {body.hasBlockedRemoteImages && (
+            <div style={{
+              marginBottom: 10, padding: '9px 14px',
+              background: 'var(--bg-secondary)',
+              border: '1px solid var(--border)',
+              borderLeft: '3px solid var(--accent)',
+              borderRadius: 8,
+              display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+              fontSize: 12, color: 'var(--text-secondary)',
+            }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                stroke="var(--accent)" strokeWidth="2" style={{ flexShrink: 0 }}>
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              </svg>
+              <span>Remote images were blocked.</span>
+              <div style={{ display: 'flex', gap: 6, marginLeft: 'auto', flexWrap: 'wrap' }}>
+                {[
+                  { label: 'Load images', handler: handleLoadImages, disabled: false },
+                  message.from_email && {
+                    label: `Always allow from ${message.from_email}`,
+                    handler: handleAllowSender, disabled: savingAllow,
+                  },
+                  (message.from_email?.includes('@')) && {
+                    label: `Always allow from @${message.from_email.split('@')[1]}`,
+                    handler: handleAllowDomain, disabled: savingAllow,
+                  },
+                ].filter(Boolean).map(({ label, handler, disabled }) => (
+                  <button key={label} onClick={handler} disabled={disabled}
+                    style={{
+                      background: 'none', border: '1px solid var(--border)',
+                      borderRadius: 5, padding: '3px 9px', cursor: disabled ? 'default' : 'pointer',
+                      color: 'var(--accent)', fontSize: 11, fontWeight: 500,
+                      opacity: disabled ? 0.5 : 1,
+                    }}
+                    onMouseEnter={e => { if (!disabled) e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}
+                  >{label}</button>
+                ))}
+              </div>
+            </div>
+          )}
           <div style={{
             background: 'white', borderRadius: 10,
             border: '1px solid var(--border-subtle)',

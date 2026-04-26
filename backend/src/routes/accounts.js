@@ -27,7 +27,23 @@ router.get('/', async (req, res) => {
      FROM email_accounts WHERE user_id = $1 ORDER BY sort_order, created_at`,
     [req.session.userId]
   );
-  res.json(result.rows);
+
+  // Attach aliases to each account in one query
+  const accountIds = result.rows.map(a => a.id);
+  let aliasMap = {};
+  if (accountIds.length) {
+    const aliasResult = await query(
+      `SELECT id, account_id, name, email, reply_to, signature, created_at
+       FROM account_aliases WHERE account_id = ANY($1) ORDER BY created_at`,
+      [accountIds]
+    );
+    for (const alias of aliasResult.rows) {
+      if (!aliasMap[alias.account_id]) aliasMap[alias.account_id] = [];
+      aliasMap[alias.account_id].push(alias);
+    }
+  }
+
+  res.json(result.rows.map(a => ({ ...a, aliases: aliasMap[a.id] || [] })));
 });
 
 router.post('/', async (req, res) => {
@@ -127,6 +143,70 @@ router.post('/:id/reconnect', async (req, res) => {
   if (!result.rows.length) return res.status(404).json({ error: 'Account not found' });
 
   imapManager.connectAccount(result.rows[0]).catch(console.error);
+  res.json({ ok: true });
+});
+
+// ── Alias CRUD ─────────────────────────────────────────────────────────────
+
+router.get('/:id/aliases', async (req, res) => {
+  const { id } = req.params;
+  const check = await query('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
+  if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
+
+  const result = await query(
+    'SELECT id, account_id, name, email, reply_to, signature, created_at FROM account_aliases WHERE account_id = $1 ORDER BY created_at',
+    [id]
+  );
+  res.json(result.rows);
+});
+
+router.post('/:id/aliases', async (req, res) => {
+  const { id } = req.params;
+  const { name, email, reply_to, signature } = req.body;
+  if (!name || !email) return res.status(400).json({ error: 'Name and email required' });
+
+  const check = await query('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
+  if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
+
+  const result = await query(
+    'INSERT INTO account_aliases (account_id, name, email, reply_to, signature) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+    [id, name, email, reply_to || null, signature || null]
+  );
+  res.json(result.rows[0]);
+});
+
+router.put('/:id/aliases/:aliasId', async (req, res) => {
+  const { id, aliasId } = req.params;
+  const { name, email, reply_to, signature } = req.body;
+  if (!name || !email) return res.status(400).json({ error: 'Name and email required' });
+
+  const check = await query(
+    `SELECT a.id FROM account_aliases a
+     JOIN email_accounts e ON a.account_id = e.id
+     WHERE a.id = $1 AND e.user_id = $2 AND e.id = $3`,
+    [aliasId, req.session.userId, id]
+  );
+  if (!check.rows.length) return res.status(404).json({ error: 'Alias not found' });
+
+  const result = await query(
+    'UPDATE account_aliases SET name = $1, email = $2, reply_to = $3, signature = $4 WHERE id = $5 RETURNING *',
+    [name, email, reply_to || null, signature || null, aliasId]
+  );
+  res.json(result.rows[0]);
+});
+
+router.delete('/:id/aliases/:aliasId', async (req, res) => {
+  const { id, aliasId } = req.params;
+
+  const check = await query(
+    `SELECT a.id FROM account_aliases a
+     JOIN email_accounts e ON a.account_id = e.id
+     WHERE a.id = $1 AND e.user_id = $2 AND e.id = $3`,
+    [aliasId, req.session.userId, id]
+  );
+  if (!check.rows.length) return res.status(404).json({ error: 'Alias not found' });
+
+  await query('DELETE FROM account_aliases WHERE id = $1', [aliasId]);
   res.json({ ok: true });
 });
 

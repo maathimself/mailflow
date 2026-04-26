@@ -26,7 +26,7 @@ router.use(requireAuth);
 
 
 router.post('/send', async (req, res) => {
-  const { accountId, to, cc = [], subject, body, inReplyTo, references } = req.body;
+  const { accountId, aliasId, to, cc = [], subject, body, inReplyTo, references } = req.body;
   if (!accountId || !to?.length) return res.status(400).json({ error: 'accountId and to required' });
 
   const result = await query(
@@ -35,6 +35,27 @@ router.post('/send', async (req, res) => {
   );
   if (!result.rows.length) return res.status(404).json({ error: 'Account not found' });
   let account = result.rows[0];
+
+  // Resolve the From identity — account by default, alias if requested
+  let fromName = account.name;
+  let fromEmail = account.email_address;
+  let fromSignature = account.signature;
+  let fromReplyTo = null;
+
+  if (aliasId) {
+    const aliasResult = await query(
+      'SELECT * FROM account_aliases WHERE id = $1 AND account_id = $2',
+      [aliasId, accountId]
+    );
+    if (aliasResult.rows.length) {
+      const alias = aliasResult.rows[0];
+      fromName = alias.name;
+      fromEmail = alias.email;
+      fromReplyTo = alias.reply_to || null;
+      // Use alias signature when explicitly set; null means "no signature", undefined means "inherit"
+      if (alias.signature !== null) fromSignature = alias.signature;
+    }
+  }
 
   try {
     if (account.oauth_provider === 'microsoft') {
@@ -62,20 +83,21 @@ router.post('/send', async (req, res) => {
     });
 
     // Use a stable Message-ID so the SMTP copy and any IMAP APPEND reference the same message.
-    const domain = account.email_address.split('@')[1] || 'mailflow.local';
+    const domain = fromEmail.split('@')[1] || 'mailflow.local';
     const mailOptions = {
       messageId: `<${randomBytes(16).toString('hex')}@${domain}>`,
-      from: `${account.name} <${account.email_address}>`,
+      from: `${fromName} <${fromEmail}>`,
+      ...(fromReplyTo ? { replyTo: fromReplyTo } : {}),
       to: to.join(', '),
       cc: cc.join(', ') || undefined,
       subject,
-      text: account.signature
-        ? body + '\n\n-- \n' + sigToPlainText(account.signature)
+      text: fromSignature
+        ? body + '\n\n-- \n' + sigToPlainText(fromSignature)
         : body,
-      ...(account.signature ? {
+      ...(fromSignature ? {
         html: textToHtml(body) +
           '<div style="margin-top:16px;padding-top:12px;border-top:1px solid #e0e0e0;color:#555;font-size:13px">' +
-          account.signature + '</div>',
+          fromSignature + '</div>',
       } : {}),
     };
     if (inReplyTo) {

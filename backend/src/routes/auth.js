@@ -228,7 +228,11 @@ router.get('/preferences', async (req, res) => {
 
 router.patch('/preferences', async (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
-  const { theme, font, layout, notificationSound, pageSize, scrollMode, syncInterval } = req.body;
+  const { theme, font, layout, notificationSound, pageSize, scrollMode, syncInterval,
+          blockRemoteImages, imageWhitelist, shortcuts } = req.body;
+  // JSONB fields must be serialised to strings for the ::jsonb cast
+  const imageWhitelistJson = imageWhitelist != null ? JSON.stringify(imageWhitelist) : null;
+  const shortcutsJson      = shortcuts      != null ? JSON.stringify(shortcuts)      : null;
   await query(`
     UPDATE users
     SET preferences = preferences
@@ -239,8 +243,13 @@ router.patch('/preferences', async (req, res) => {
       || CASE WHEN $6::text IS NOT NULL THEN jsonb_build_object('pageSize', $6::text) ELSE '{}'::jsonb END
       || CASE WHEN $7::text IS NOT NULL THEN jsonb_build_object('scrollMode', $7::text) ELSE '{}'::jsonb END
       || CASE WHEN $8::text IS NOT NULL THEN jsonb_build_object('syncInterval', $8::text) ELSE '{}'::jsonb END
+      || CASE WHEN $9::boolean IS NOT NULL THEN jsonb_build_object('blockRemoteImages', $9::boolean) ELSE '{}'::jsonb END
+      || CASE WHEN $10::jsonb IS NOT NULL THEN jsonb_build_object('imageWhitelist', $10::jsonb) ELSE '{}'::jsonb END
+      || CASE WHEN $11::jsonb IS NOT NULL THEN jsonb_build_object('shortcuts', $11::jsonb) ELSE '{}'::jsonb END
     WHERE id = $1
-  `, [req.session.userId, theme ?? null, font ?? null, layout ?? null, notificationSound ?? null, pageSize ?? null, scrollMode ?? null, syncInterval ?? null]);
+  `, [req.session.userId, theme ?? null, font ?? null, layout ?? null, notificationSound ?? null,
+      pageSize ?? null, scrollMode ?? null, syncInterval ?? null,
+      blockRemoteImages ?? null, imageWhitelistJson, shortcutsJson]);
 
   if (syncInterval != null) {
     const ms = parseInt(syncInterval) * 1000;

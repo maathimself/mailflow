@@ -62,19 +62,25 @@ export const api = {
   deleteAccount: (id) => request('DELETE', `/accounts/${id}`),
   reconnectAccount: (id) => request('POST', `/accounts/${id}/reconnect`),
   getFolders: (accountId) => request('GET', `/accounts/${accountId}/folders`),
+  getAliases: (accountId) => request('GET', `/accounts/${accountId}/aliases`),
+  addAlias: (accountId, data) => request('POST', `/accounts/${accountId}/aliases`, data),
+  updateAlias: (accountId, aliasId, data) => request('PUT', `/accounts/${accountId}/aliases/${aliasId}`, data),
+  deleteAlias: (accountId, aliasId) => request('DELETE', `/accounts/${accountId}/aliases/${aliasId}`),
 
   // Mail
   getMessages: (params) => {
     const qs = new URLSearchParams(params).toString();
     return request('GET', `/mail/messages?${qs}`);
   },
-  getMessageBody: (id) => request('GET', `/mail/messages/${id}/body`),
+  getMessageBody: (id, remoteImages = false) =>
+    request('GET', `/mail/messages/${id}/body${remoteImages ? '?remoteImages=1' : ''}`),
   markRead: (id, read) => request('PATCH', `/mail/messages/${id}/read`, { read }),
   markStarred: (id, starred) => request('PATCH', `/mail/messages/${id}/star`, { starred }),
   markAllRead: (accountId, folder) => request('POST', '/mail/mark-all-read', { accountId, folder }),
   deleteMessage: (id) => request('DELETE', `/mail/messages/${id}`),
   bulkDelete: (ids) => request('POST', '/mail/messages/bulk-delete', { ids }),
   bulkMove: (ids, folder) => request('POST', '/mail/messages/bulk-move', { ids, folder }),
+  bulkArchive: (ids) => request('POST', '/mail/messages/bulk-archive', { ids }),
   getUnreadCounts: () => request('GET', '/mail/unread-counts'),
 
   getMessageHeaders: (id) => request('GET', `/mail/messages/${id}/headers`),
