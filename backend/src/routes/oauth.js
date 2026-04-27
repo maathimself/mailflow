@@ -54,6 +54,15 @@ router.get('/microsoft/callback', async (req, res) => {
     return res.redirect(`/?oauth_error=${encodeURIComponent(error_description || error)}`);
   }
 
+  // Validate CSRF nonce BEFORE making any external requests
+  if (!state || state !== req.session.oauthNonce) {
+    return res.redirect(`/?oauth_error=${encodeURIComponent('Invalid OAuth state — please try again')}`);
+  }
+  const userId = req.session.oauthUserId;
+  if (!userId) return res.redirect(`/?oauth_error=${encodeURIComponent('OAuth session expired — please try again')}`);
+  delete req.session.oauthNonce;
+  delete req.session.oauthUserId;
+
   const { clientId, clientSecret, tenantId, redirectUri } = getMsConfig();
 
   try {
@@ -95,15 +104,6 @@ router.get('/microsoft/callback', async (req, res) => {
     }
 
     if (!email) throw new Error('Could not retrieve email address from Microsoft profile — ensure the openid, email, and profile scopes are granted');
-
-    // Verify the CSRF nonce and recover the userId from the session
-    if (!state || state !== req.session.oauthNonce) {
-      throw new Error('Invalid OAuth state — please try again');
-    }
-    const userId = req.session.oauthUserId;
-    if (!userId) throw new Error('OAuth session expired — please try again');
-    delete req.session.oauthNonce;
-    delete req.session.oauthUserId;
 
     // Check if this account already exists
     const existing = await query(

@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { authenticator } from 'otplib';
 import { query, pool } from '../services/db.js';
 import { imapManager } from '../index.js';
+import { decrypt } from '../services/encryption.js';
 
 const router = Router();
 
@@ -174,7 +175,7 @@ router.post('/2fa/challenge', authLimiter, async (req, res) => {
     return res.status(401).json({ error: 'Authentication failed' });
   }
 
-  if (!authenticator.verify({ token: String(code).replace(/\s/g, ''), secret: user.totp_secret })) {
+  if (!authenticator.verify({ token: String(code).replace(/\s/g, ''), secret: decrypt(user.totp_secret) })) {
     return res.status(401).json({ error: 'Invalid code' });
   }
 

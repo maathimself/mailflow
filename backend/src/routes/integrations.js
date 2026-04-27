@@ -68,6 +68,12 @@ router.delete('/:provider', requireAdmin, async (req, res) => {
     'DELETE FROM integration_config WHERE provider = $1',
     [req.params.provider]
   );
+  if (req.params.provider === 'microsoft') {
+    delete process.env.MS_CLIENT_ID;
+    delete process.env.MS_CLIENT_SECRET;
+    delete process.env.MS_TENANT_ID;
+    delete process.env.MS_REDIRECT_URI;
+  }
   res.json({ ok: true });
 });
 

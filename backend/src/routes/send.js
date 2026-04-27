@@ -52,7 +52,7 @@ router.post('/send', async (req, res) => {
       fromName = alias.name;
       fromEmail = alias.email;
       fromReplyTo = alias.reply_to || null;
-      // Use alias signature when explicitly set; null means "no signature", undefined means "inherit"
+      // null (DB default) means inherit from account; only override when alias has an explicit signature set
       if (alias.signature !== null) fromSignature = alias.signature;
     }
   }

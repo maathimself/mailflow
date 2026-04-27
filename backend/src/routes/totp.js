@@ -4,6 +4,7 @@ import QRCode from 'qrcode';
 import bcrypt from 'bcryptjs';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { encrypt } from '../services/encryption.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -62,7 +63,7 @@ router.post('/enable', totpLimiter, async (req, res) => {
 
   await query(
     'UPDATE users SET totp_secret = $1, totp_enabled = true WHERE id = $2',
-    [secret, req.session.userId]
+    [encrypt(secret), req.session.userId]
   );
   delete req.session.pendingTOTPSecret;
 
