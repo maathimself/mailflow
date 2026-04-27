@@ -1,0 +1,71 @@
+MailFlow Commercial License
+Version 1.0
+
+Copyright (c) 2026 matthew. All rights reserved.
+
+DEFINITIONS
+
+"Software" means the MailFlow source code, binaries, and associated files.
+"Licensor" means the copyright holder of the Software.
+"Licensee" means the individual or entity purchasing this license.
+"Installation" means a single running deployment of the Software.
+
+GRANT OF LICENSE
+
+Subject to payment of the applicable license fee ($500 USD per Installation),
+the Licensor grants the Licensee a non-exclusive, non-transferable,
+non-sublicensable, worldwide license to:
+
+  1. Use, copy, and modify the Software for one Installation.
+  2. Deploy that Installation for any internal or commercial purpose.
+  3. Use the Software without the obligations of the GNU Affero General
+     Public License, Version 3 (AGPL-3.0).
+
+RESTRICTIONS
+
+The Licensee may not:
+
+  1. Redistribute, resell, sublicense, or transfer the Software or this
+     license to any third party.
+  2. Use one license to cover more than one Installation. Each distinct
+     production deployment requires a separate license.
+  3. Remove or alter any copyright, trademark, or attribution notices.
+
+OWNERSHIP
+
+The Software and all intellectual property rights therein remain the sole
+property of the Licensor. This license grants no ownership rights.
+
+NO WARRANTY
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED. THE LICENSOR MAKES NO WARRANTIES REGARDING MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE, OR NON-INFRINGEMENT.
+
+LIMITATION OF LIABILITY
+
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE LICENSOR SHALL NOT BE LIABLE FOR
+ANY INDIRECT, INCIDENTAL, SPECIAL, OR CONSEQUENTIAL DAMAGES ARISING FROM USE
+OF THE SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. THE
+LICENSOR'S TOTAL LIABILITY SHALL NOT EXCEED THE LICENSE FEE PAID.
+
+TERMINATION
+
+This license terminates automatically if the Licensee breaches any of its
+terms. Upon termination, the Licensee must cease all use and destroy all
+copies of the Software.
+
+GOVERNING LAW
+
+This agreement is governed by applicable law. Any disputes shall be resolved
+in the jurisdiction where the Licensor resides.
+
+ENTIRE AGREEMENT
+
+This document constitutes the entire agreement between the parties regarding
+commercial use of the Software and supersedes all prior agreements.
+
+---
+
+To purchase a commercial license, visit: https://getmailflow.lemonsqueezy.com/checkout/buy/22f19f8c-3f69-432a-ad7a-3d3c0f820b7d
+For licensing enquiries: https://github.com/maathimself/mailflow/issues
