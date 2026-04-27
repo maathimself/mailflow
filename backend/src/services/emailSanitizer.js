@@ -20,6 +20,45 @@ function upgradeUrl(url) {
   return typeof url === 'string' && url.startsWith('http://') ? 'https://' + url.slice(7) : url;
 }
 
+// eBay's imageser service (svcs.ebay.com/imageser) wraps real product images
+// behind a session-authenticated rendering layer.  Cross-site iframe requests
+// never carry eBay cookies (SameSite policy), so imageser returns 1 byte instead
+// of the actual image.  The real URL is always in the `imageUrl` query parameter
+// and is publicly accessible from i.ebayimg.com.  Extract and use it directly.
+function unwrapEbayImgUrl(url) {
+  if (!url || !url.includes('svcs.ebay.com/imageser')) return url;
+  try {
+    const u = new URL(url);
+    if (u.hostname === 'svcs.ebay.com' && u.pathname.startsWith('/imageser/')) {
+      const direct = u.searchParams.get('imageUrl');
+      if (direct && direct.startsWith('https://')) return direct;
+    }
+  } catch (_) {}
+  return url;
+}
+
+// Rewrite any eBay imageser src URLs remaining in already-cached HTML.
+// Applied at serve-time for emails stored before this fix was deployed.
+// The src attribute value in stored HTML has & escaped as &amp;, so we decode
+// it before parsing the URL.
+export function rewriteEbayImageserUrls(html) {
+  if (!html || !html.includes('svcs.ebay.com/imageser')) return html;
+  return html.replace(
+    /(<img\b[^>]*?\s)src=(["'])(https:\/\/svcs\.ebay\.com\/imageser\/[^"']*)\2/gi,
+    (match, pre, q, url) => {
+      try {
+        const cleanUrl = url.replace(/&amp;/g, '&');
+        const u = new URL(cleanUrl);
+        if (u.hostname === 'svcs.ebay.com' && u.pathname.startsWith('/imageser/')) {
+          const direct = u.searchParams.get('imageUrl');
+          if (direct && direct.startsWith('https://')) return `${pre}src=${q}${direct}${q}`;
+        }
+      } catch (_) {}
+      return match;
+    }
+  );
+}
+
 // Upgrade http:// → https:// inside CSS url() expressions.
 // Handles both quoted (url('http://...'), url("http://...")) and unquoted (url(http://...)) forms.
 function upgradeStyleUrls(style) {
@@ -82,7 +121,7 @@ export function sanitizeEmail(html) {
       // mixed content on an https host, causing images to silently fail.
       'img': (tagName, attribs) => {
         const out = { ...attribs };
-        if (out.src)    out.src    = upgradeUrl(out.src);
+        if (out.src)    out.src    = unwrapEbayImgUrl(upgradeUrl(out.src));
         if (out.srcset) out.srcset = out.srcset
           .split(',')
           .map(part => {

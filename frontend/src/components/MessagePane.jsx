@@ -405,7 +405,11 @@ export default function MessagePane() {
     try {
       await api.savePreferences({ imageWhitelist: newList });
       setImageWhitelist(newList);
-      delete bodyCache.current[selectedMessageId];
+      // Evict all blocked cache entries so they re-fetch with images unblocked
+      for (const id of Object.keys(bodyCache.current)) {
+        if (bodyCache.current[id]?.hasBlockedRemoteImages) delete bodyCache.current[id];
+      }
+      bodyCacheOrder.current = bodyCacheOrder.current.filter(id => bodyCache.current[id]);
       setRetryKey(k => k + 1);
     } catch (_) {
       addNotification({ title: 'Could not save preference', body: 'Failed to update image whitelist.' });
@@ -426,7 +430,11 @@ export default function MessagePane() {
     try {
       await api.savePreferences({ imageWhitelist: newList });
       setImageWhitelist(newList);
-      delete bodyCache.current[selectedMessageId];
+      // Evict all blocked cache entries so they re-fetch with images unblocked
+      for (const id of Object.keys(bodyCache.current)) {
+        if (bodyCache.current[id]?.hasBlockedRemoteImages) delete bodyCache.current[id];
+      }
+      bodyCacheOrder.current = bodyCacheOrder.current.filter(id => bodyCache.current[id]);
       setRetryKey(k => k + 1);
     } catch (_) {
       addNotification({ title: 'Could not save preference', body: 'Failed to update image whitelist.' });

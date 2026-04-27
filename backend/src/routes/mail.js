@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { imapManager } from '../index.js';
-import { sanitizeEmail, stripEmailHead, hasRemoteImages, blockRemoteImages } from '../services/emailSanitizer.js';
+import { sanitizeEmail, stripEmailHead, hasRemoteImages, blockRemoteImages, rewriteEbayImageserUrls } from '../services/emailSanitizer.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -190,10 +190,20 @@ router.get('/messages/:id/body', async (req, res) => {
       : [];
     // Apply head-stripping to already-cached HTML so emails stored before this
     // fix was deployed are cleaned up immediately on first view.
-    const html = message.body_html ? stripEmailHead(message.body_html) : null;
+    let html = message.body_html ? stripEmailHead(message.body_html) : null;
     if (html !== message.body_html) {
       // Update cache so subsequent views don't need to re-strip
       query('UPDATE messages SET body_html = $1 WHERE id = $2', [html, id]).catch(() => {});
+    }
+    // Rewrite eBay imageser URLs to direct image URLs for emails cached before this fix.
+    // imageser requires eBay session cookies (never sent cross-site) and returns 1 byte
+    // without them; the real image is always in the `imageUrl` query parameter.
+    if (html && html.includes('svcs.ebay.com/imageser')) {
+      const rewritten = rewriteEbayImageserUrls(html);
+      if (rewritten !== html) {
+        html = rewritten;
+        query('UPDATE messages SET body_html = $1 WHERE id = $2', [html, id]).catch(() => {});
+      }
     }
     // Backfill snippet when absent, or regenerate if garbled (undecoded HTML entities
     // from before the entity-stripping fix — e.g. "&zwnj;" in preview text).
