@@ -615,6 +615,9 @@ router.post('/messages/bulk-move', async (req, res) => {
   if (ids.length > 500) {
     return res.status(400).json({ error: 'Too many ids — maximum 500 per request' });
   }
+  if (!isValidFolderName(folder)) {
+    return res.status(400).json({ error: 'Invalid destination folder' });
+  }
 
   const result = await query(
     `SELECT m.*, a.user_id FROM messages m
@@ -633,6 +636,15 @@ router.post('/messages/bulk-move', async (req, res) => {
 
   const movedIds = [];
   for (const [accountId, msgs] of Object.entries(byAccount)) {
+    // Verify the destination folder exists for this account
+    const folderCheck = await query(
+      'SELECT 1 FROM folders WHERE account_id = $1 AND path = $2',
+      [accountId, folder]
+    );
+    if (!folderCheck.rows.length) {
+      console.warn(`bulk-move: folder "${folder}" not found for account ${accountId}, skipping`);
+      continue;
+    }
     const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
     const account = accountResult.rows[0];
     for (const msg of msgs) {

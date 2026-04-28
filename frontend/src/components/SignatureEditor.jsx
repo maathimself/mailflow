@@ -110,7 +110,7 @@ export default function SignatureEditor({ value, onChange }) {
     }}>
       {/* Toolbar */}
       <div style={{
-        display: 'flex', alignItems: 'center', gap: 1,
+        display: 'flex', alignItems: 'center',
         padding: '5px 8px', borderBottom: '1px solid var(--border-subtle)',
         flexWrap: 'wrap', gap: 2,
       }}>

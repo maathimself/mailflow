@@ -1,12 +1,13 @@
 import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { encrypt, decrypt, isEncrypted } from '../services/encryption.js';
 
 const router = Router();
 router.use(requireAuth);
 
-// Get all integration configs (secrets redacted)
-router.get('/', async (req, res) => {
+// Get all integration configs (secrets redacted) — admin only (exposes OAuth client IDs)
+router.get('/', requireAdmin, async (req, res) => {
   const result = await query(
     'SELECT provider, config, updated_at FROM integration_config'
   );
@@ -29,7 +30,7 @@ router.post('/:provider', requireAdmin, async (req, res) => {
 
   const config = req.body;
 
-  // If clientSecret is redacted, keep the existing value
+  // If clientSecret is redacted, keep the existing stored value (already encrypted or legacy plaintext)
   if (config.clientSecret === '••••••••') {
     const existing = await query(
       'SELECT config FROM integration_config WHERE provider = $1',
@@ -42,6 +43,11 @@ router.post('/:provider', requireAdmin, async (req, res) => {
     }
   }
 
+  // Encrypt clientSecret at rest — handles both new writes and migration of legacy plaintext values
+  if (config.clientSecret && !isEncrypted(config.clientSecret)) {
+    config.clientSecret = encrypt(config.clientSecret);
+  }
+
   await query(`
     INSERT INTO integration_config (provider, config)
     VALUES ($1, $2)
@@ -49,12 +55,10 @@ router.post('/:provider', requireAdmin, async (req, res) => {
     SET config = EXCLUDED.config, updated_at = NOW()
   `, [provider, config]);
 
-  // Write to process.env so oauth routes pick them up immediately
+  // Write plaintext values to process.env so oauth routes pick them up immediately
   if (provider === 'microsoft') {
     if (config.clientId) process.env.MS_CLIENT_ID = config.clientId;
-    if (config.clientSecret && config.clientSecret !== '••••••••') {
-      process.env.MS_CLIENT_SECRET = config.clientSecret;
-    }
+    if (config.clientSecret) process.env.MS_CLIENT_SECRET = decrypt(config.clientSecret);
     if (config.tenantId) process.env.MS_TENANT_ID = config.tenantId;
     if (config.redirectUri) process.env.MS_REDIRECT_URI = config.redirectUri;
   }
@@ -85,7 +89,8 @@ export async function loadIntegrationConfigs() {
       if (row.provider === 'microsoft') {
         const c = row.config;
         if (c.clientId) process.env.MS_CLIENT_ID = c.clientId;
-        if (c.clientSecret) process.env.MS_CLIENT_SECRET = c.clientSecret;
+        // decrypt() returns value unchanged for plaintext (migration fallback)
+        if (c.clientSecret) process.env.MS_CLIENT_SECRET = decrypt(c.clientSecret);
         if (c.tenantId) process.env.MS_TENANT_ID = c.tenantId;
         if (c.redirectUri) process.env.MS_REDIRECT_URI = c.redirectUri;
       }

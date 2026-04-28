@@ -102,7 +102,10 @@ const SAFE_FIELDS = [
   'imap_skip_tls_verify', 'signature', 'created_at',
 ];
 function safeAccount(row) {
-  return Object.fromEntries(SAFE_FIELDS.map(k => [k, row[k]]));
+  const obj = Object.fromEntries(SAFE_FIELDS.map(k => [k, row[k]]));
+  // Sanitize on read so legacy values stored before the write-time sanitizer are safe
+  if (obj.signature) obj.signature = sanitizeSignature(obj.signature);
+  return obj;
 }
 
 router.get('/', async (req, res) => {
@@ -129,7 +132,14 @@ router.get('/', async (req, res) => {
     }
   }
 
-  res.json(result.rows.map(a => ({ ...a, aliases: aliasMap[a.id] || [] })));
+  res.json(result.rows.map(a => ({
+    ...a,
+    signature: a.signature ? sanitizeSignature(a.signature) : a.signature,
+    aliases: (aliasMap[a.id] || []).map(alias => ({
+      ...alias,
+      signature: alias.signature ? sanitizeSignature(alias.signature) : alias.signature,
+    })),
+  })));
 });
 
 router.post('/', async (req, res) => {
@@ -263,7 +273,10 @@ router.get('/:id/aliases', async (req, res) => {
     'SELECT id, account_id, name, email, reply_to, signature, created_at FROM account_aliases WHERE account_id = $1 ORDER BY created_at',
     [id]
   );
-  res.json(result.rows);
+  res.json(result.rows.map(alias => ({
+    ...alias,
+    signature: alias.signature ? sanitizeSignature(alias.signature) : alias.signature,
+  })));
 });
 
 router.post('/:id/aliases', async (req, res) => {

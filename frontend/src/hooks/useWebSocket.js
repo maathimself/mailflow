@@ -6,6 +6,7 @@ import { playNotificationSound } from '../utils/notificationSounds.js';
 export function useWebSocket() {
   const wsRef = useRef(null);
   const reconnectTimer = useRef(null);
+  const mountedRef = useRef(true);
   const { addNotification, updateAccount } = useStore();
 
   const connect = useCallback(() => {
@@ -30,8 +31,10 @@ export function useWebSocket() {
 
     ws.onclose = () => {
       clearInterval(ws._pingInterval);
-      // Reconnect after 3s
-      reconnectTimer.current = setTimeout(connect, 3000);
+      // Only reconnect if the hook is still mounted
+      if (mountedRef.current) {
+        reconnectTimer.current = setTimeout(connect, 3000);
+      }
     };
 
     ws.onerror = () => ws.close();
@@ -120,8 +123,10 @@ export function useWebSocket() {
   }, [addNotification, updateAccount]);
 
   useEffect(() => {
+    mountedRef.current = true;
     connect();
     return () => {
+      mountedRef.current = false;
       clearTimeout(reconnectTimer.current);
       if (wsRef.current) wsRef.current.close();
     };

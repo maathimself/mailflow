@@ -115,6 +115,8 @@ router.post('/register', authLimiter, async (req, res) => {
 
     await client.query('COMMIT');
 
+    // Regenerate session ID to prevent session fixation before elevating privileges
+    await new Promise((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
     req.session.userId = newUser.id;
     req.session.username = newUser.username;
     req.session.isAdmin = newUser.is_admin;
@@ -141,6 +143,9 @@ router.post('/login', authLimiter, async (req, res) => {
 
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
+
+    // Regenerate session ID before storing any auth state to prevent session fixation
+    await new Promise((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
 
     // If 2FA is enabled, require a TOTP challenge before creating a full session
     if (user.totp_enabled) {
@@ -186,8 +191,8 @@ router.post('/2fa/challenge', authLimiter, async (req, res) => {
     return res.status(401).json({ error: 'Invalid code' });
   }
 
-  delete req.session.pendingUserId;
-  delete req.session.pendingTOTPExpiry;
+  // Regenerate session ID before elevating from pending to fully authenticated
+  await new Promise((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
   req.session.userId = user.id;
   req.session.username = user.username;
   req.session.isAdmin = user.is_admin;
