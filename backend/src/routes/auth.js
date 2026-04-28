@@ -99,6 +99,13 @@ router.post('/register', authLimiter, async (req, res) => {
     );
     const newUser = result.rows[0];
 
+    if (isFirstUser) {
+      await client.query(
+        `INSERT INTO system_settings (key, value, updated_at) VALUES ('registration_open', 'false', NOW())
+         ON CONFLICT (key) DO UPDATE SET value = 'false', updated_at = NOW()`
+      );
+    }
+
     if (inviteToken) {
       await client.query(
         `UPDATE invites SET used_by = $1, used_at = NOW() WHERE token = $2`,
