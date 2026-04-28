@@ -48,6 +48,9 @@ export default function MessageList() {
   const [syncing, setSyncing] = useState(false);
   const [folderSyncing, setFolderSyncing] = useState(false);
   const [contextMenu, setContextMenu] = useState(null); // { x, y, message }
+  const [searchFocused, setSearchFocused] = useState(false);
+  const [searchHasMore, setSearchHasMore] = useState(false);
+  const [searchLoadingMore, setSearchLoadingMore] = useState(false);
   const listRef = useRef(null);
   const searchInputRef = useRef(null); // for focusSearch shortcut
 
@@ -211,18 +214,22 @@ export default function MessageList() {
   }, [selectedAccountId, selectedFolder, unreadOnly, searchQuery]);
 
   // Search
+  const SEARCH_PAGE = 50;
   useEffect(() => {
     clearTimeout(searchTimer.current);
     if (!searchQuery.trim()) {
       setIsSearching(false);
       setSearchResults([]);
+      setSearchHasMore(false);
       return;
     }
     setIsSearching(true);
+    setSearchHasMore(false);
     searchTimer.current = setTimeout(async () => {
       try {
-        const data = await api.search(searchQuery, selectedAccountId || undefined);
+        const data = await api.search(searchQuery, selectedAccountId || undefined, { offset: 0 });
         setSearchResults(data.messages);
+        setSearchHasMore(data.messages.length === SEARCH_PAGE);
       } catch (err) {
         console.error('Search failed:', err);
       } finally {
@@ -231,6 +238,25 @@ export default function MessageList() {
     }, 300);
     return () => clearTimeout(searchTimer.current);
   }, [searchQuery, selectedAccountId]);
+
+  const loadMoreSearch = useCallback(async () => {
+    if (searchLoadingMore) return;
+    const qSnapshot = searchQuery; // capture before async gap
+    setSearchLoadingMore(true);
+    try {
+      const offset = useStore.getState().searchResults.length;
+      const data = await api.search(qSnapshot, selectedAccountId || undefined, { offset });
+      // Discard results if the query changed while we were fetching
+      if (useStore.getState().searchQuery !== qSnapshot) return;
+      const current = useStore.getState().searchResults;
+      useStore.setState({ searchResults: [...current, ...data.messages] });
+      setSearchHasMore(data.messages.length === SEARCH_PAGE);
+    } catch (err) {
+      console.error('Search load more failed:', err);
+    } finally {
+      setSearchLoadingMore(false);
+    }
+  }, [searchQuery, selectedAccountId, searchLoadingMore]);
 
   // Infinite scroll
   const handleScroll = useCallback(() => {
@@ -816,17 +842,17 @@ export default function MessageList() {
           <input
             ref={searchInputRef}
             type="text"
-            placeholder="Search messages…"
+            placeholder="Search…"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             style={{
               width: '100%', padding: '8px 10px 8px 32px',
               background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
               borderRadius: 8, color: 'var(--text-primary)', fontSize: 13,
-              outline: 'none',
+              outline: 'none', boxSizing: 'border-box',
             }}
-            onFocus={e => e.target.style.borderColor = 'var(--accent)'}
-            onBlur={e => e.target.style.borderColor = 'var(--border)'}
+            onFocus={e => { e.target.style.borderColor = 'var(--accent)'; setSearchFocused(true); }}
+            onBlur={e => { e.target.style.borderColor = 'var(--border)'; setSearchFocused(false); }}
           />
           {searchQuery && (
             <button
@@ -841,6 +867,47 @@ export default function MessageList() {
                 <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
               </svg>
             </button>
+          )}
+
+          {/* Operator hints — shown when focused with an empty query */}
+          {searchFocused && !searchQuery && (
+            <div style={{
+              position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, zIndex: 100,
+              background: 'var(--bg-elevated, var(--bg-secondary))',
+              border: '1px solid var(--border)',
+              borderRadius: 8,
+              boxShadow: '0 6px 20px rgba(0,0,0,0.25)',
+              padding: '10px 12px',
+            }}>
+              <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-tertiary)', marginBottom: 8 }}>
+                Search operators
+              </div>
+              {[
+                { op: 'from:amazon',      desc: 'From sender' },
+                { op: 'subject:invoice',  desc: 'In subject' },
+                { op: 'to:john',          desc: 'To / CC' },
+                { op: 'has:attachment',   desc: 'Has attachment' },
+                { op: 'is:unread',        desc: 'Unread only' },
+                { op: 'is:starred',       desc: 'Starred only' },
+                { op: 'after:2024-01-01', desc: 'After date' },
+                { op: 'before:2024-12-31',desc: 'Before date' },
+              ].map(({ op, desc }) => (
+                <div
+                  key={op}
+                  onMouseDown={e => { e.preventDefault(); setSearchQuery(op.endsWith(':') ? op : op.split(':')[0] + ':'); searchInputRef.current?.focus(); }}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '3px 0', cursor: 'pointer', borderRadius: 4,
+                  }}
+                >
+                  <code style={{ fontSize: 12, color: 'var(--accent)', fontFamily: 'monospace' }}>{op}</code>
+                  <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{desc}</span>
+                </div>
+              ))}
+              <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border-subtle)', fontSize: 10, color: 'var(--text-tertiary)' }}>
+                Combine operators with keywords · e.g. <code style={{ fontFamily: 'monospace' }}>from:amazon invoice</code>
+              </div>
+            </div>
           )}
         </div>
       </div>
@@ -1047,38 +1114,75 @@ export default function MessageList() {
 
         {/* Infinite scroll footer */}
         {scrollMode === 'infinite' && (<>
-          {loadingMessages && displayMessages.length > 0 && (
-            <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12 }}>
-              <div style={{
-                width: 16, height: 16, margin: '0 auto 6px',
-                border: '2px solid var(--border)', borderTopColor: 'var(--accent)',
-                borderRadius: '50%', animation: 'spin 0.8s linear infinite', display: 'inline-block',
-              }} />
-              <div>Loading more…</div>
-            </div>
-          )}
-          {!loadingMessages && hasMoreMessages && displayMessages.length > 0 && (
-            <div style={{ padding: '12px 16px', textAlign: 'center' }}>
-              <button
-                onClick={loadMore}
-                style={{
-                  padding: '7px 20px', background: 'transparent',
-                  border: '1px solid var(--border)', borderRadius: 7,
-                  color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12,
-                  transition: 'all 0.1s',
-                }}
-                onMouseEnter={e => { e.target.style.borderColor = 'var(--accent)'; e.target.style.color = 'var(--accent)'; }}
-                onMouseLeave={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.color = 'var(--text-secondary)'; }}
-              >
-                Load more
-              </button>
-            </div>
-          )}
-          {!loadingMessages && !hasMoreMessages && displayMessages.length > 0 && (
-            <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 11 }}>
-              All {messagesTotal} messages loaded
-            </div>
-          )}
+          {/* Search mode: load more search results */}
+          {searchQuery.trim() ? (<>
+            {searchLoadingMore && (
+              <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12 }}>
+                <div style={{
+                  width: 16, height: 16, margin: '0 auto 6px',
+                  border: '2px solid var(--border)', borderTopColor: 'var(--accent)',
+                  borderRadius: '50%', animation: 'spin 0.8s linear infinite', display: 'inline-block',
+                }} />
+                <div>Loading more…</div>
+              </div>
+            )}
+            {!searchLoadingMore && searchHasMore && displayMessages.length > 0 && (
+              <div style={{ padding: '12px 16px', textAlign: 'center' }}>
+                <button
+                  onClick={loadMoreSearch}
+                  style={{
+                    padding: '7px 20px', background: 'transparent',
+                    border: '1px solid var(--border)', borderRadius: 7,
+                    color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12,
+                    transition: 'all 0.1s',
+                  }}
+                  onMouseEnter={e => { e.target.style.borderColor = 'var(--accent)'; e.target.style.color = 'var(--accent)'; }}
+                  onMouseLeave={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.color = 'var(--text-secondary)'; }}
+                >
+                  Load more results
+                </button>
+              </div>
+            )}
+            {!searchLoadingMore && !searchHasMore && displayMessages.length > 0 && (
+              <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 11 }}>
+                {displayMessages.length} result{displayMessages.length !== 1 ? 's' : ''}
+              </div>
+            )}
+          </>) : (<>
+            {/* Regular message list: load more normal messages */}
+            {loadingMessages && displayMessages.length > 0 && (
+              <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12 }}>
+                <div style={{
+                  width: 16, height: 16, margin: '0 auto 6px',
+                  border: '2px solid var(--border)', borderTopColor: 'var(--accent)',
+                  borderRadius: '50%', animation: 'spin 0.8s linear infinite', display: 'inline-block',
+                }} />
+                <div>Loading more…</div>
+              </div>
+            )}
+            {!loadingMessages && hasMoreMessages && displayMessages.length > 0 && (
+              <div style={{ padding: '12px 16px', textAlign: 'center' }}>
+                <button
+                  onClick={loadMore}
+                  style={{
+                    padding: '7px 20px', background: 'transparent',
+                    border: '1px solid var(--border)', borderRadius: 7,
+                    color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12,
+                    transition: 'all 0.1s',
+                  }}
+                  onMouseEnter={e => { e.target.style.borderColor = 'var(--accent)'; e.target.style.color = 'var(--accent)'; }}
+                  onMouseLeave={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.color = 'var(--text-secondary)'; }}
+                >
+                  Load more
+                </button>
+              </div>
+            )}
+            {!loadingMessages && !hasMoreMessages && displayMessages.length > 0 && (
+              <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 11 }}>
+                All {messagesTotal} messages loaded
+              </div>
+            )}
+          </>)}
         </>)}
 
         {/* Pagination footer */}
