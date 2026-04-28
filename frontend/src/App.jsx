@@ -46,7 +46,7 @@ export default function App() {
   if (checking) {
     return (
       <div style={{
-        height: '100vh', display: 'flex', alignItems: 'center',
+        height: 'var(--app-height, 100svh)', display: 'flex', alignItems: 'center',
         justifyContent: 'center', background: 'var(--bg-primary)'
       }}>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>

@@ -174,8 +174,8 @@ export default function ContextMenu({ x, y, message, onClose, onAction }) {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     setPos({
-      x: x + rect.width > vw ? x - rect.width : x,
-      y: y + rect.height > vh ? y - rect.height : y,
+      x: Math.max(0, x + rect.width  > vw ? x - rect.width  : x),
+      y: Math.max(0, y + rect.height > vh ? y - rect.height : y),
     });
   }, [x, y]);
 

@@ -3,6 +3,8 @@
 @tailwind utilities;
 
 :root {
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
   --bg-primary: #0f0f11;
   --bg-secondary: #161619;
   --bg-tertiary: #1e1e23;
@@ -27,8 +29,13 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* 100dvh tracks the visible viewport on iOS Safari (excludes address bar).
+   Fall back to -webkit-fill-available → 100% for older devices. */
+html {
+  height: -webkit-fill-available;
+}
+
 html, body, #root {
-  height: 100%;
   margin: 0;
   padding: 0;
   background: var(--bg-primary);
@@ -36,22 +43,26 @@ html, body, #root {
   font-family: var(--font-sans, 'DM Sans', sans-serif);
 }
 
-/* Custom scrollbar */
-::-webkit-scrollbar { width: 4px; height: 4px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-::-webkit-scrollbar-thumb:hover { background: var(--text-tertiary); }
-
-/* Email body iframe reset */
-.email-body-frame {
-  border: none;
-  width: 100%;
-  background: white;
-  border-radius: 8px;
+body, #root {
+  height: 100%;
+  min-height: -webkit-fill-available;
 }
 
-/* Smooth transitions */
-.transition-all { transition: all 0.15s ease; }
+/* Used by MailApp root div — dvh on modern browsers, svh as middle ground */
+:root {
+  --app-height: 100svh;
+}
+@supports (height: 100dvh) {
+  :root {
+    --app-height: 100dvh;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; transition: background 0.2s; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-tertiary); }
 
 /* Focus rings */
 *:focus-visible {
@@ -76,14 +87,6 @@ html, body, #root {
 
 .unread-dot { animation: pulse-dot 2s ease-in-out infinite; }
 
-/* Message row hover */
-@keyframes slide-in {
-  from { opacity: 0; transform: translateX(-4px); }
-  to { opacity: 1; transform: translateX(0); }
-}
-
-.message-row-enter { animation: slide-in 0.15s ease forwards; }
-
 /* Notification toast */
 @keyframes toast-in {
   from { opacity: 0; transform: translateX(100%); }
@@ -97,3 +100,47 @@ html, body, #root {
 
 .toast-enter { animation: toast-in 0.2s ease forwards; }
 .toast-exit { animation: toast-out 0.2s ease forwards; }
+
+/* Generic fade-in */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Message pane fade when switching messages */
+@keyframes pane-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Skeleton loader shimmer */
+@keyframes skeleton-shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position:  400px 0; }
+}
+
+.skeleton-line {
+  border-radius: 4px;
+  background: linear-gradient(
+    90deg,
+    var(--bg-tertiary) 25%,
+    var(--bg-elevated) 50%,
+    var(--bg-tertiary) 75%
+  );
+  background-size: 800px 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+/* Prevent iOS Safari from zooming in when focusing inputs smaller than 16px */
+@supports (-webkit-touch-callout: none) {
+  input, textarea, select { font-size: 16px !important; }
+}
+
+/* Respect reduced-motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

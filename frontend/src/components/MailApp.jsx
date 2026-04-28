@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { useWebSocket } from '../hooks/useWebSocket.js';
+import { useMobile } from '../hooks/useMobile.js';
 import { LAYOUTS } from '../layouts.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
-import { buildKeyMap, getEffectiveShortcuts, getGroupedActions, ACTION_DEFS } from '../utils/defaultShortcuts.js';
+import { buildKeyMap, getEffectiveShortcuts, getGroupedActions } from '../utils/defaultShortcuts.js';
 import Sidebar from './Sidebar.jsx';
 import MessageList from './MessageList.jsx';
 import MessagePane from './MessagePane.jsx';
@@ -17,12 +18,39 @@ export default function MailApp() {
     setAccounts, setUnreadCounts, showAdmin,
     setShowAdmin, setAdminTab, composing, sidebarCollapsed, layout,
     unreadCounts, selectedAccountId, openCompose, setSelectedAccount,
-    shortcuts,
+    shortcuts, selectedMessageId, setSelectedMessage,
+    mobileSidebarOpen, setMobileSidebarOpen,
   } = useStore();
 
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
+  const isMobile = useMobile();
 
   const currentLayout = LAYOUTS[layout] || LAYOUTS.classic;
+
+  // Push a history entry when an email is opened on mobile so that the browser's
+  // native back gesture (iOS swipe, Android back button) pops an in-app state
+  // instead of leaving MailFlow entirely.
+  const prevMessageIdRef = useRef(selectedMessageId);
+  const selectedMessageIdRef = useRef(selectedMessageId);
+  useEffect(() => { selectedMessageIdRef.current = selectedMessageId; }, [selectedMessageId]);
+
+  useEffect(() => {
+    if (!isMobile) return;
+    const prev = prevMessageIdRef.current;
+    prevMessageIdRef.current = selectedMessageId;
+    if (selectedMessageId && !prev) {
+      history.pushState({ mailflow: 'message' }, '', '/');
+    }
+  }, [isMobile, selectedMessageId]);
+
+  useEffect(() => {
+    if (!isMobile) return;
+    const handler = () => {
+      if (selectedMessageIdRef.current) setSelectedMessage(null);
+    };
+    window.addEventListener('popstate', handler);
+    return () => window.removeEventListener('popstate', handler);
+  }, [isMobile, setSelectedMessage]);
 
   useWebSocket();
 
@@ -180,19 +208,49 @@ export default function MailApp() {
 
   return (
     <div style={{
-      display: 'flex', height: '100vh', overflow: 'hidden',
+      display: 'flex', height: 'var(--app-height, 100svh)', overflow: 'hidden',
       background: 'var(--bg-primary)',
     }}>
-      <Sidebar />
-
-      <div style={{
-        flex: 1, display: 'flex', overflow: 'hidden',
-        minWidth: 0, flexDirection: currentLayout.direction,
-        height: '100%',
-      }}>
-        <MessageList />
-        <MessagePane />
-      </div>
+      {isMobile ? (
+        <>
+          {/* Backdrop — covers full screen including status bar area */}
+          {mobileSidebarOpen && (
+            <div
+              onClick={() => setMobileSidebarOpen(false)}
+              style={{
+                position: 'fixed', inset: 0, zIndex: 900,
+                background: 'rgba(0,0,0,0.45)',
+              }}
+            />
+          )}
+          {/* Slide-in sidebar drawer */}
+          <div style={{
+            position: 'fixed', left: 0, top: 0, bottom: 0,
+            width: 260, zIndex: 901,
+            transform: mobileSidebarOpen ? 'translateX(0)' : 'translateX(-100%)',
+            transition: 'transform 0.25s cubic-bezier(0.25,0.46,0.45,0.94)',
+            boxShadow: mobileSidebarOpen ? '4px 0 32px rgba(0,0,0,0.45)' : 'none',
+          }}>
+            <Sidebar />
+          </div>
+          {/* Single active pane */}
+          <div style={{ flex: 1, display: 'flex', overflow: 'hidden', height: '100%' }}>
+            {selectedMessageId ? <MessagePane /> : <MessageList />}
+          </div>
+        </>
+      ) : (
+        <>
+          <Sidebar />
+          <div style={{
+            flex: 1, display: 'flex', overflow: 'hidden',
+            minWidth: 0, flexDirection: currentLayout.direction,
+            height: '100%',
+          }}>
+            <MessageList />
+            <MessagePane />
+          </div>
+        </>
+      )}
 
       {composing && <ComposeModal />}
       {showAdmin && <AdminPanel />}

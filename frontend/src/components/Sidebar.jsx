@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
+import { useMobile } from '../hooks/useMobile.js';
 import LogoMark from './LogoMark.jsx';
 
 const ICONS = {
@@ -223,9 +224,18 @@ export default function Sidebar() {
   const {
     accounts, unreadCounts, selectedAccountId, selectedFolder,
     setSelectedAccount, setShowAdmin, setAdminTab, openCompose,
-    folders, setFolders, user, setUser, sidebarCollapsed, toggleSidebar,
-    blockRemoteImages, setBlockRemoteImages,
+    folders, setFolders, user, setUser, sidebarCollapsed: sidebarCollapsedPref, toggleSidebar,
+    blockRemoteImages, setBlockRemoteImages, setMobileSidebarOpen,
   } = useStore();
+
+  const isMobile = useMobile();
+  // On mobile the sidebar is always expanded (shown as an overlay drawer)
+  const sidebarCollapsed = isMobile ? false : sidebarCollapsedPref;
+
+  // Close the mobile drawer whenever the user navigates to a different folder/account
+  useEffect(() => {
+    if (isMobile) setMobileSidebarOpen(false);
+  }, [selectedAccountId, selectedFolder]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [expandedAccounts, setExpandedAccounts] = useState({});
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -490,7 +500,7 @@ export default function Sidebar() {
     <div style={{
       width: sidebarCollapsed ? 60 : 240,
       minWidth: sidebarCollapsed ? 60 : 240,
-      height: '100vh',
+      height: isMobile ? '100%' : '100vh',
       background: 'var(--bg-secondary)',
       borderRight: '1px solid var(--border-subtle)',
       display: 'flex',
@@ -500,9 +510,11 @@ export default function Sidebar() {
     }}>
       {/* Header */}
       <div style={{
-        padding: '16px 12px', display: 'flex', alignItems: 'center',
+        paddingTop: 'calc(var(--sat) + 16px)',
+        paddingBottom: 16, paddingLeft: 12, paddingRight: 12,
+        display: 'flex', alignItems: 'center',
         justifyContent: 'space-between', borderBottom: '1px solid var(--border-subtle)',
-        minHeight: 56,
+        minHeight: 56, flexShrink: 0,
       }}>
         {!sidebarCollapsed && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
@@ -527,15 +539,24 @@ export default function Sidebar() {
             </span>
           </div>
         )}
-        <button onClick={toggleSidebar} style={{
-          background: 'none', border: 'none', color: 'var(--text-tertiary)',
-          cursor: 'pointer', padding: 6, borderRadius: 6,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          marginLeft: sidebarCollapsed ? 'auto' : 0,
-        }}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-            <line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/>
-          </svg>
+        <button
+          onClick={isMobile ? () => setMobileSidebarOpen(false) : toggleSidebar}
+          style={{
+            background: 'none', border: 'none', color: 'var(--text-tertiary)',
+            cursor: 'pointer', padding: 6, borderRadius: 6,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            marginLeft: sidebarCollapsed ? 'auto' : 0,
+          }}
+        >
+          {isMobile ? (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          ) : (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+              <line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/>
+            </svg>
+          )}
         </button>
       </div>
 
@@ -850,51 +871,160 @@ export default function Sidebar() {
         })}
       </nav>
 
-      {/* Bottom — user menu button */}
-      <div style={{ padding: '8px', borderTop: '1px solid var(--border-subtle)' }}>
-        <div
-          ref={userMenuBtnRef}
-          onClick={openUserMenu}
-          style={{
-            display: 'flex', alignItems: 'center',
-            gap: 8, padding: sidebarCollapsed ? '7px' : '7px 10px',
-            borderRadius: 8, cursor: 'pointer',
-            background: userMenuOpen ? 'var(--bg-hover)' : 'transparent',
-            transition: 'background 0.1s',
-            justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
-          }}
-          onMouseEnter={e => { if (!userMenuOpen) e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
-          onMouseLeave={e => { if (!userMenuOpen) e.currentTarget.style.background = 'transparent'; }}
-        >
-          {/* Avatar initial */}
+      {/* Bottom — mobile: inline user section; desktop: user menu button */}
+      {isMobile ? (
+        <div style={{ borderTop: '1px solid var(--border-subtle)', flexShrink: 0 }}>
+          {/* User identity */}
           <div style={{
-            width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
-            background: 'var(--accent)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 12, fontWeight: 700, color: 'white',
+            display: 'flex', alignItems: 'center', gap: 10,
+            padding: '12px 14px 10px',
           }}>
-            {(user?.username || '?')[0].toUpperCase()}
-          </div>
-          {!sidebarCollapsed && (
-            <>
-              <span style={{
-                flex: 1, fontSize: 13, fontWeight: 500,
-                color: 'var(--text-primary)',
+            <div style={{
+              width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
+              background: 'var(--accent)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 14, fontWeight: 700, color: 'white',
+            }}>
+              {(user?.username || '?')[0].toUpperCase()}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{
+                fontSize: 14, fontWeight: 600, color: 'var(--text-primary)',
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
               }}>
                 {user?.username || 'Account'}
-              </span>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-                stroke="var(--text-tertiary)" strokeWidth="2" style={{ flexShrink: 0 }}>
-                <polyline points="6 9 12 15 18 9"/>
-              </svg>
-            </>
-          )}
-        </div>
-      </div>
+              </div>
+              {user?.email && (
+                <div style={{
+                  fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1,
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}>
+                  {user.email}
+                </div>
+              )}
+            </div>
+          </div>
 
-      {/* User menu popover */}
-      {userMenuOpen && (
+          {/* Block remote images */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            padding: '8px 14px', cursor: 'default',
+          }}>
+            <span style={{ color: 'var(--text-tertiary)', display: 'flex', flexShrink: 0 }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              </svg>
+            </span>
+            <span style={{ flex: 1, fontSize: 13, color: 'var(--text-primary)' }}>Block images</span>
+            <button
+              onClick={() => setBlockRemoteImages(!blockRemoteImages)}
+              style={{
+                width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer',
+                background: blockRemoteImages ? 'var(--accent)' : 'var(--bg-tertiary)',
+                position: 'relative', transition: 'background 0.2s', flexShrink: 0, padding: 0,
+                WebkitTapHighlightColor: 'transparent',
+              }}
+            >
+              <span style={{
+                position: 'absolute', top: 2, width: 16, height: 16, borderRadius: '50%',
+                background: 'white', transition: 'left 0.2s',
+                left: blockRemoteImages ? 18 : 2,
+              }} />
+            </button>
+          </div>
+
+          {/* Settings */}
+          <div
+            onClick={() => { setAdminTab('accounts'); setShowAdmin(true); setMobileSidebarOpen(false); }}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              padding: '8px 14px', cursor: 'pointer',
+              WebkitTapHighlightColor: 'transparent',
+            }}
+            onTouchStart={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+            onTouchEnd={e => e.currentTarget.style.background = ''}
+            onTouchCancel={e => e.currentTarget.style.background = ''}
+          >
+            <span style={{ color: 'var(--text-tertiary)', display: 'flex', flexShrink: 0 }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+                <circle cx="12" cy="12" r="3"/>
+                <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+              </svg>
+            </span>
+            <span style={{ flex: 1, fontSize: 13, color: 'var(--text-primary)' }}>Settings</span>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="2" style={{ flexShrink: 0 }}>
+              <polyline points="9 18 15 12 9 6"/>
+            </svg>
+          </div>
+
+          {/* Sign out */}
+          <div
+            onClick={handleLogout}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              paddingTop: 8, paddingLeft: 14, paddingRight: 14,
+              paddingBottom: 'calc(var(--sab) + 12px)', cursor: 'pointer',
+              WebkitTapHighlightColor: 'transparent',
+            }}
+            onTouchStart={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+            onTouchEnd={e => e.currentTarget.style.background = ''}
+            onTouchCancel={e => e.currentTarget.style.background = ''}
+          >
+            <span style={{ color: 'var(--red, #f87171)', display: 'flex', flexShrink: 0 }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+                <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/>
+                <polyline points="16 17 21 12 16 7"/>
+                <line x1="21" y1="12" x2="9" y2="12"/>
+              </svg>
+            </span>
+            <span style={{ flex: 1, fontSize: 13, color: 'var(--red, #f87171)' }}>Sign out</span>
+          </div>
+        </div>
+      ) : (
+        <div style={{ padding: '8px', borderTop: '1px solid var(--border-subtle)' }}>
+          <div
+            ref={userMenuBtnRef}
+            onClick={openUserMenu}
+            style={{
+              display: 'flex', alignItems: 'center',
+              gap: 8, padding: sidebarCollapsed ? '7px' : '7px 10px',
+              borderRadius: 8, cursor: 'pointer',
+              background: userMenuOpen ? 'var(--bg-hover)' : 'transparent',
+              transition: 'background 0.1s',
+              justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+            }}
+            onMouseEnter={e => { if (!userMenuOpen) e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
+            onMouseLeave={e => { if (!userMenuOpen) e.currentTarget.style.background = 'transparent'; }}
+          >
+            <div style={{
+              width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
+              background: 'var(--accent)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 12, fontWeight: 700, color: 'white',
+            }}>
+              {(user?.username || '?')[0].toUpperCase()}
+            </div>
+            {!sidebarCollapsed && (
+              <>
+                <span style={{
+                  flex: 1, fontSize: 13, fontWeight: 500,
+                  color: 'var(--text-primary)',
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}>
+                  {user?.username || 'Account'}
+                </span>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                  stroke="var(--text-tertiary)" strokeWidth="2" style={{ flexShrink: 0 }}>
+                  <polyline points="6 9 12 15 18 9"/>
+                </svg>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* User menu — desktop popover */}
+      {userMenuOpen && !isMobile && (
         <div
           ref={userMenuPopoverRef}
           style={{
@@ -910,7 +1040,6 @@ export default function Sidebar() {
             overflow: 'hidden',
           }}
         >
-          {/* Header */}
           <div style={{ padding: '10px 13px 9px', borderBottom: '1px solid var(--border-subtle)' }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
               {user?.username || 'Account'}
@@ -924,16 +1053,13 @@ export default function Sidebar() {
               </div>
             )}
           </div>
-
-          {/* Block remote images toggle */}
           <div style={{
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
             padding: '8px 13px', gap: 10,
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
               <span style={{ color: 'var(--text-tertiary)', display: 'flex' }}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
-                  stroke="currentColor" strokeWidth="1.75">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
                   <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
                 </svg>
               </span>
@@ -944,8 +1070,7 @@ export default function Sidebar() {
               style={{
                 width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer',
                 background: blockRemoteImages ? 'var(--accent)' : 'var(--bg-tertiary)',
-                position: 'relative', transition: 'background 0.2s', flexShrink: 0,
-                padding: 0,
+                position: 'relative', transition: 'background 0.2s', flexShrink: 0, padding: 0,
               }}
             >
               <span style={{
@@ -955,24 +1080,14 @@ export default function Sidebar() {
               }} />
             </button>
           </div>
-
           <div style={{ height: 1, background: 'var(--border-subtle)', margin: '2px 0' }} />
-
-          {/* Settings */}
-          <CtxMenuItem
-            icon={ICONS.settings}
-            label="Settings"
-            onClick={() => { setAdminTab('accounts'); setShowAdmin(true); setUserMenuOpen(false); }}
-          />
-
-          {/* Sign out */}
-          <CtxMenuItem
-            icon={ICONS.logout}
-            label="Sign out"
-            danger
-            onClick={() => { setUserMenuOpen(false); handleLogout(); }}
-          /></div>
+          <CtxMenuItem icon={ICONS.settings} label="Settings"
+            onClick={() => { setAdminTab('accounts'); setShowAdmin(true); setUserMenuOpen(false); }} />
+          <CtxMenuItem icon={ICONS.logout} label="Sign out" danger
+            onClick={() => { setUserMenuOpen(false); handleLogout(); }} />
+        </div>
       )}
+
 
       {/* Context menus */}
       {folderCtxMenu && (

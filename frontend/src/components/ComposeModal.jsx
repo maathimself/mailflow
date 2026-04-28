@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
+import { useMobile } from '../hooks/useMobile.js';
 
 // Normalize address arrays to comma-separated string
 // Handles: plain strings, {email} objects, {name, email} objects
@@ -16,10 +17,9 @@ function normalizeTo(arr) {
   }).filter(Boolean).join(', ');
 }
 
-
-
 export default function ComposeModal() {
   const { closeCompose, composeData, accounts, addNotification } = useStore();
+  const isMobile = useMobile();
 
   const isReply = !!(composeData?.isReply || composeData?.isReplyAll);
   const isForward = !!composeData?.isForward;
@@ -70,12 +70,26 @@ export default function ComposeModal() {
     ? (fromAlias.signature !== null && fromAlias.signature !== undefined ? fromAlias.signature : fromAccount?.signature || null)
     : (fromAccount?.signature || null);
 
+  const [replyAll, setReplyAll] = useState(() => !!composeData?.isReplyAll);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const [minimized, setMinimized] = useState(false);
   const [showReplyType, setShowReplyType] = useState(false);
   const replyTypeRef = useRef(null);
   const textareaRef = useRef(null);
+
+  // Track visible viewport height so the compose panel shrinks with the keyboard
+  const [viewportHeight, setViewportHeight] = useState(
+    () => window.visualViewport?.height ?? window.innerHeight
+  );
+  useEffect(() => {
+    if (!isMobile) return;
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const onResize = () => setViewportHeight(vv.height);
+    vv.addEventListener('resize', onResize);
+    return () => vv.removeEventListener('resize', onResize);
+  }, [isMobile]);
 
   // Position cursor at top for replies/forwards
   useEffect(() => {
@@ -96,6 +110,13 @@ export default function ComposeModal() {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [showReplyType]);
+
+  const handleKeyDown = (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      handleSend();
+    }
+  };
 
   const handleSend = async () => {
     const { accountId, aliasId } = resolveFrom(fromValue);
@@ -121,6 +142,290 @@ export default function ComposeModal() {
     }
   };
 
+  const modeLabel = isReply
+    ? (replyAll ? 'Reply All' : 'Reply')
+    : isForward ? 'Forward' : 'New Message';
+
+  const sendSpinner = (
+    <div style={{
+      width: 14, height: 14, borderRadius: '50%',
+      border: '2px solid rgba(255,255,255,0.35)', borderTopColor: 'white',
+      animation: 'spin 0.7s linear infinite', flexShrink: 0,
+    }} />
+  );
+  const sendIcon = (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <line x1="22" y1="2" x2="11" y2="13"/>
+      <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+    </svg>
+  );
+
+  // ── Mobile full-screen compose ──────────────────────────────────────────────
+  if (isMobile) {
+    const switchToReply = () => {
+      setTo(normalizeTo(composeData?.originalFrom || composeData?.to) || '');
+      setCc(''); setShowCc(false);
+      setReplyAll(false);
+      setShowReplyType(false);
+    };
+    const switchToReplyAll = () => {
+      setTo(normalizeTo(composeData?.originalFrom || composeData?.to) || '');
+      const allRecipients = normalizeTo(composeData?.allRecipients || []);
+      if (allRecipients) { setCc(allRecipients); setShowCc(true); }
+      setReplyAll(true);
+      setShowReplyType(false);
+    };
+
+    const fieldStyle = {
+      display: 'flex', alignItems: 'center',
+      borderBottom: '1px solid var(--border-subtle)',
+      padding: '0 16px', flexShrink: 0,
+    };
+    const labelStyle = {
+      fontSize: 13, color: 'var(--text-tertiary)',
+      width: 60, flexShrink: 0,
+    };
+    const mobileInputStyle = {
+      flex: 1, padding: '12px 0',
+      background: 'transparent', border: 'none',
+      color: 'var(--text-primary)', fontSize: 16,
+      outline: 'none', width: '100%',
+    };
+
+    return (
+      <div
+        onKeyDown={handleKeyDown}
+        style={{
+          position: 'fixed', top: 0, left: 0, right: 0,
+          height: viewportHeight,
+          paddingTop: 'var(--sat)',
+          background: 'var(--bg-secondary)',
+          zIndex: 2000,
+          display: 'flex', flexDirection: 'column',
+        }}
+      >
+        {/* Header */}
+        <div style={{
+          display: 'flex', alignItems: 'center',
+          padding: '10px 14px', flexShrink: 0,
+          borderBottom: '1px solid var(--border-subtle)',
+        }}>
+          <button
+            onClick={closeCompose}
+            style={{
+              background: 'none', border: 'none',
+              color: 'var(--accent)', fontSize: 16,
+              cursor: 'pointer', padding: '4px 0', minWidth: 60,
+              WebkitTapHighlightColor: 'transparent',
+            }}
+          >
+            Cancel
+          </button>
+          <span style={{
+            flex: 1, textAlign: 'center',
+            fontSize: 16, fontWeight: 600, color: 'var(--text-primary)',
+          }}>
+            {modeLabel}
+          </span>
+          <button
+            onClick={handleSend}
+            disabled={sending || !to.trim()}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              minWidth: 60, justifyContent: 'flex-end',
+              background: 'none', border: 'none',
+              color: sending || !to.trim() ? 'var(--text-tertiary)' : 'var(--accent)',
+              fontSize: 16, fontWeight: 600,
+              cursor: sending || !to.trim() ? 'default' : 'pointer',
+              padding: '4px 0',
+              WebkitTapHighlightColor: 'transparent',
+              transition: 'color 0.15s',
+            }}
+          >
+            {sending ? sendSpinner : 'Send'}
+          </button>
+        </div>
+
+        {/* Reply/Reply All toggle */}
+        {isReply && (
+          <div style={{
+            display: 'flex',
+            borderBottom: '1px solid var(--border-subtle)',
+            flexShrink: 0,
+          }}>
+            {[
+              { label: 'Reply', active: !replyAll, onTap: switchToReply },
+              { label: 'Reply All', active: replyAll, onTap: switchToReplyAll },
+            ].map(({ label, active, onTap }) => (
+              <button
+                key={label}
+                onClick={onTap}
+                style={{
+                  flex: 1, padding: '9px 0',
+                  background: 'none', border: 'none',
+                  borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
+                  color: active ? 'var(--accent)' : 'var(--text-tertiary)',
+                  fontSize: 13, fontWeight: active ? 600 : 400,
+                  cursor: 'pointer',
+                  WebkitTapHighlightColor: 'transparent',
+                  transition: 'color 0.15s, border-color 0.15s',
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Scrollable fields + body */}
+        <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+          {/* From */}
+          <div style={fieldStyle}>
+            <span style={labelStyle}>From</span>
+            <select
+              value={fromValue}
+              onChange={e => setFromValue(e.target.value)}
+              style={{ ...mobileInputStyle, cursor: 'pointer' }}
+            >
+              {accounts.map(a => {
+                const aliases = a.aliases || [];
+                if (!aliases.length) {
+                  return (
+                    <option key={a.id} value={`account:${a.id}`} style={{ background: 'var(--bg-tertiary)' }}>
+                      {a.name} &lt;{a.email_address}&gt;
+                    </option>
+                  );
+                }
+                return (
+                  <optgroup key={a.id} label={a.name} style={{ background: 'var(--bg-tertiary)' }}>
+                    <option value={`account:${a.id}`} style={{ background: 'var(--bg-tertiary)' }}>
+                      {a.name} &lt;{a.email_address}&gt;
+                    </option>
+                    {aliases.map(alias => (
+                      <option key={alias.id} value={`alias:${alias.id}:${a.id}`} style={{ background: 'var(--bg-tertiary)' }}>
+                        {alias.name} &lt;{alias.email}&gt;
+                      </option>
+                    ))}
+                  </optgroup>
+                );
+              })}
+            </select>
+          </div>
+
+          {/* To */}
+          <div style={fieldStyle}>
+            <span style={labelStyle}>To</span>
+            <input
+              type="text" value={to} onChange={e => setTo(e.target.value)}
+              placeholder="recipient@example.com"
+              autoFocus={!isReply && !isForward}
+              style={mobileInputStyle}
+            />
+            {!showCc && (
+              <button
+                onClick={() => setShowCc(true)}
+                style={{
+                  background: 'none', border: 'none',
+                  color: 'var(--text-tertiary)', cursor: 'pointer',
+                  fontSize: 13, padding: '4px 0 4px 8px',
+                  WebkitTapHighlightColor: 'transparent',
+                }}
+              >
+                Cc
+              </button>
+            )}
+          </div>
+
+          {/* Cc */}
+          {showCc && (
+            <div style={fieldStyle}>
+              <span style={labelStyle}>Cc</span>
+              <input
+                type="text" value={cc} onChange={e => setCc(e.target.value)}
+                placeholder="cc@example.com"
+                style={mobileInputStyle}
+              />
+            </div>
+          )}
+
+          {/* Subject */}
+          <div style={fieldStyle}>
+            <span style={labelStyle}>Subject</span>
+            <input
+              type="text" value={subject} onChange={e => setSubject(e.target.value)}
+              placeholder="Subject"
+              style={mobileInputStyle}
+            />
+          </div>
+
+          {/* Body */}
+          <textarea
+            ref={textareaRef}
+            value={body}
+            onChange={e => setBody(e.target.value)}
+            placeholder="Write your message…"
+            autoFocus={isReply || isForward}
+            style={{
+              flex: 1, minHeight: 200,
+              padding: '14px 16px',
+              background: 'transparent', border: 'none',
+              color: 'var(--text-primary)', fontSize: 16, lineHeight: 1.7,
+              resize: 'none', outline: 'none',
+              fontFamily: 'var(--font-sans, DM Sans, sans-serif)',
+              boxSizing: 'border-box', whiteSpace: 'pre-wrap',
+            }}
+          />
+
+          {/* Signature */}
+          {fromSignature && (
+            <div style={{ padding: '0 16px 12px', borderTop: '1px solid var(--border-subtle)' }}>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', margin: '8px 0 6px', userSelect: 'none' }}>
+                -- signature
+              </div>
+              <div
+                style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}
+                dangerouslySetInnerHTML={{ __html: fromSignature }}
+              />
+            </div>
+          )}
+
+          {/* Quoted body */}
+          {quotedBody && (
+            <textarea
+              value={quotedBody}
+              onChange={e => setQuotedBody(e.target.value)}
+              style={{
+                width: '100%', minHeight: 120,
+                padding: '10px 16px',
+                background: 'transparent',
+                border: 'none', borderTop: '1px solid var(--border-subtle)',
+                color: 'var(--text-tertiary)', fontSize: 13, lineHeight: 1.6,
+                resize: 'none', outline: 'none',
+                fontFamily: 'var(--font-sans, DM Sans, sans-serif)',
+                boxSizing: 'border-box', whiteSpace: 'pre-wrap',
+              }}
+            />
+          )}
+
+          {/* Error */}
+          {error && (
+            <div style={{
+              padding: '10px 16px', flexShrink: 0,
+              fontSize: 13, color: 'var(--red)',
+            }}>
+              {error}
+            </div>
+          )}
+
+          {/* Bottom safe area spacer */}
+          <div style={{ height: 'var(--sab)', flexShrink: 0 }} />
+        </div>
+      </div>
+    );
+  }
+
+  // ── Desktop compose (unchanged) ─────────────────────────────────────────────
+
   const inputStyle = {
     width: '100%', padding: '8px 12px',
     background: 'var(--bg-tertiary)', border: 'none',
@@ -128,10 +433,6 @@ export default function ComposeModal() {
     color: 'var(--text-primary)', fontSize: 13,
     outline: 'none',
   };
-
-  const modeLabel = isReply
-    ? (composeData?.isReplyAll ? 'Reply All' : 'Reply')
-    : isForward ? 'Forward' : 'New Message';
 
   if (minimized) {
     return (
@@ -157,22 +458,24 @@ export default function ComposeModal() {
   }
 
   return (
-    <div style={{
-      position: 'fixed', bottom: 0, right: 24,
-      width: 540, maxWidth: 'calc(100vw - 48px)',
-      background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-      borderBottom: 'none', borderRadius: '10px 10px 0 0',
-      boxShadow: '0 -8px 40px rgba(0,0,0,0.5)',
-      zIndex: 1000, display: 'flex', flexDirection: 'column',
-      maxHeight: '75vh',
-    }}>
+    <div
+      onKeyDown={handleKeyDown}
+      style={{
+        position: 'fixed', bottom: 0, right: 24,
+        width: 540, maxWidth: 'calc(100vw - 48px)',
+        background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+        borderBottom: 'none', borderRadius: '10px 10px 0 0',
+        boxShadow: '0 -8px 40px rgba(0,0,0,0.5)',
+        zIndex: 1000, display: 'flex', flexDirection: 'column',
+        maxHeight: '75vh',
+      }}
+    >
       {/* Title bar */}
       <div style={{
         padding: '10px 14px', display: 'flex', alignItems: 'center',
         justifyContent: 'space-between', borderBottom: '1px solid var(--border-subtle)',
         flexShrink: 0,
       }}>
-        {/* Reply type switcher */}
         {isReply ? (
           <div ref={replyTypeRef} style={{ position: 'relative' }}>
             <button
@@ -186,7 +489,7 @@ export default function ComposeModal() {
               onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
               onMouseLeave={e => e.currentTarget.style.background = 'none'}
             >
-              {composeData?.isReplyAll ? (
+              {replyAll ? (
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
                   <polyline points="7 17 2 12 7 7"/><polyline points="12 17 7 12 12 7"/>
                   <path d="M22 18v-2a4 4 0 00-4-4H7"/>
@@ -196,7 +499,7 @@ export default function ComposeModal() {
                   <polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 00-4-4H4"/>
                 </svg>
               )}
-              {composeData?.isReplyAll ? 'Reply All' : 'Reply'}
+              {replyAll ? 'Reply All' : 'Reply'}
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <polyline points="6 9 12 15 18 9"/>
               </svg>
@@ -212,26 +515,23 @@ export default function ComposeModal() {
                 <DropItem
                   icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 00-4-4H4"/></svg>}
                   label="Reply"
-                  active={!composeData?.isReplyAll}
+                  active={!replyAll}
                   onClick={() => {
-                    // Switch to reply — reset to just sender
                     setTo(normalizeTo(composeData?.originalFrom || composeData?.to) || '');
-                    setCc('');
-                    setShowCc(false);
-                    composeData.isReplyAll = false;
+                    setCc(''); setShowCc(false);
+                    setReplyAll(false);
                     setShowReplyType(false);
                   }}
                 />
                 <DropItem
                   icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polyline points="7 17 2 12 7 7"/><polyline points="12 17 7 12 12 7"/><path d="M22 18v-2a4 4 0 00-4-4H7"/></svg>}
                   label="Reply All"
-                  active={!!composeData?.isReplyAll}
+                  active={replyAll}
                   onClick={() => {
-                    // Switch to reply all — add original recipients to cc
                     setTo(normalizeTo(composeData?.originalFrom || composeData?.to) || '');
                     const allRecipients = normalizeTo(composeData?.allRecipients || []);
                     if (allRecipients) { setCc(allRecipients); setShowCc(true); }
-                    composeData.isReplyAll = true;
+                    setReplyAll(true);
                     setShowReplyType(false);
                   }}
                 />
@@ -349,7 +649,6 @@ export default function ComposeModal() {
           }}
         />
 
-        {/* Signature preview — always between the reply text and the quoted block */}
         {fromSignature ? (
           <div style={{ padding: '0 14px 10px' }}>
             <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 6, userSelect: 'none' }}>
@@ -362,7 +661,6 @@ export default function ComposeModal() {
           </div>
         ) : null}
 
-        {/* Quoted / forwarded text — shown below the signature for replies and forwards */}
         {quotedBody ? (
           <textarea
             value={quotedBody}
@@ -390,6 +688,7 @@ export default function ComposeModal() {
         <button
           onClick={handleSend}
           disabled={sending || !to.trim()}
+          title={sending ? undefined : 'Send (Ctrl+Enter)'}
           style={{
             padding: '8px 20px', background: 'var(--accent)',
             border: 'none', borderRadius: 7, color: 'white',
@@ -397,12 +696,10 @@ export default function ComposeModal() {
             cursor: sending || !to.trim() ? 'not-allowed' : 'pointer',
             opacity: sending || !to.trim() ? 0.6 : 1,
             display: 'flex', alignItems: 'center', gap: 6,
+            transition: 'opacity 0.15s',
           }}
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <line x1="22" y1="2" x2="11" y2="13"/>
-            <polygon points="22 2 15 22 11 13 2 9 22 2"/>
-          </svg>
+          {sending ? sendSpinner : sendIcon}
           {sending ? 'Sending…' : 'Send'}
         </button>
 

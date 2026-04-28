@@ -44,28 +44,31 @@ export function useWebSocket() {
   const handleMessage = useCallback((data) => {
     switch (data.type) {
       case 'new_messages': {
-        // Show notification
         const { messages, count, accountId } = data;
         if (messages && messages.length > 0) {
-          const latest = messages[0];
-          addNotification({
-            type: 'new_mail',
-            accountId,
-            title: latest.fromName || latest.fromEmail || 'New message',
-            body: latest.subject || '(no subject)',
-            count,
-          });
-          const { notificationSound, customSoundDataUrl } = useStore.getState();
-          playNotificationSound(notificationSound, customSoundDataUrl);
+          // Only notify on the tab the user is actively looking at.
+          // When MailFlow is open on multiple devices (or tabs), this prevents
+          // duplicate notification sounds — only the visible/focused instance reacts.
+          if (document.visibilityState === 'visible') {
+            const latest = messages[0];
+            addNotification({
+              type: 'new_mail',
+              accountId,
+              title: latest.fromName || latest.fromEmail || 'New message',
+              body: latest.subject || '(no subject)',
+              count,
+            });
+            const { notificationSound, customSoundDataUrl } = useStore.getState();
+            playNotificationSound(notificationSound, customSoundDataUrl);
+          }
 
-          // If we're viewing this account's inbox or unified inbox, prepend
+          // Always refresh the message list on all tabs so new mail appears
           const store = useStore.getState();
           const isRelevant =
-            store.selectedAccountId === null || // unified inbox
+            store.selectedAccountId === null ||
             store.selectedAccountId === accountId;
 
           if (isRelevant && store.selectedFolder === 'INBOX') {
-            // Refresh the message list so new mail appears immediately
             window.dispatchEvent(new CustomEvent('mailflow:refresh'));
           }
         }

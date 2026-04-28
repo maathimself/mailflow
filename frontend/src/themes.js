@@ -540,10 +540,15 @@ export function applyTheme(themeName) {
     root.style.setProperty(key, value);
   }
 
+  // Sync PWA/browser chrome colour with the active accent.
+  const accent = theme.vars['--accent'];
+  if (accent && accent.startsWith('#')) {
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', accent);
+  }
+
   // Update browser tab favicon to match the active accent colour.
   // Remove and re-add the element — browsers (especially Chrome) ignore href
   // changes on an existing <link rel="icon"> due to aggressive favicon caching.
-  const accent = theme.vars['--accent'];
   if (accent && accent.startsWith('#')) {
     const svgStr = buildFaviconSvg(accent);
     const dataUri = 'data:image/svg+xml,' + encodeURIComponent(svgStr);

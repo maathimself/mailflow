@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useStore } from '../store/index.js';
+import { useMobile } from '../hooks/useMobile.js';
 import { api } from '../utils/api.js';
 import { THEMES, applyTheme } from '../themes.js';
 import { FONT_SETS, loadFontSet } from '../fonts.js';
@@ -732,7 +733,10 @@ function AccountsTab() {
               </div>
               <div style={{ fontSize: 11, marginTop: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
                 {account.sync_error ? (
-                  <span style={{ color: 'var(--red)' }}>⚠ {account.sync_error}</span>
+                  <span style={{
+                    color: 'var(--red)',
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  }}>⚠ {account.sync_error}</span>
                 ) : (
                   <>
                     <span style={{ color: 'var(--green)' }}>● Connected</span>
@@ -2857,7 +2861,83 @@ function SecurityTab() {
 
 export default function AdminPanel() {
   const { setShowAdmin, adminTab, setAdminTab, user } = useStore();
+  const isMobile = useMobile();
   const visibleTabs = TABS.filter(t => !t.adminOnly || user?.isAdmin);
+
+  if (isMobile) {
+    return (
+      <div style={{
+        position: 'fixed', inset: 0, zIndex: 2000,
+        background: 'var(--bg-secondary)',
+        display: 'flex', flexDirection: 'column',
+      }}>
+        {/* Mobile header */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          paddingTop: 'calc(var(--sat) + 14px)',
+          paddingBottom: 14, paddingLeft: 16, paddingRight: 16,
+          borderBottom: '1px solid var(--border-subtle)',
+          flexShrink: 0,
+        }}>
+          <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>Settings</span>
+          <button
+            onClick={() => setShowAdmin(false)}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: 'var(--text-tertiary)', padding: 6, display: 'flex',
+            }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+
+        {/* Horizontal scrollable tab bar */}
+        <div className="admin-tabs" style={{
+          display: 'flex', gap: 6, padding: '10px 12px',
+          overflowX: 'auto', flexShrink: 0,
+          borderBottom: '1px solid var(--border-subtle)',
+          WebkitOverflowScrolling: 'touch',
+          scrollbarWidth: 'none',
+        }}>
+          <style>{`.admin-tabs::-webkit-scrollbar { display: none; }`}</style>
+          {visibleTabs.map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setAdminTab(tab.id)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '7px 12px', borderRadius: 20, border: 'none',
+                background: adminTab === tab.id ? 'var(--accent)' : 'var(--bg-tertiary)',
+                color: adminTab === tab.id ? '#fff' : 'var(--text-secondary)',
+                cursor: 'pointer', fontSize: 13, fontWeight: 500,
+                whiteSpace: 'nowrap', flexShrink: 0,
+                WebkitTapHighlightColor: 'transparent',
+              }}
+            >
+              <span style={{ display: 'flex', opacity: adminTab === tab.id ? 1 : 0.7 }}>{tab.icon}</span>
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Content — full width, scrollable */}
+        <div style={{ flex: 1, overflow: 'auto', padding: '20px 16px' }}>
+          {adminTab === 'accounts' && <AccountsTab />}
+          {adminTab === 'themes' && <ThemesTab />}
+          {adminTab === 'fonts' && <FontsTab />}
+          {adminTab === 'layouts' && <LayoutsTab />}
+          {adminTab === 'integrations' && <IntegrationsTab />}
+          {adminTab === 'users' && <UsersTab />}
+          {adminTab === 'security' && <SecurityTab />}
+          {adminTab === 'notifications' && <NotificationsTab />}
+          {adminTab === 'privacy' && <PrivacyTab />}
+          {adminTab === 'shortcuts' && <ShortcutsTab />}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

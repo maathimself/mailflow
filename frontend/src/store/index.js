@@ -146,6 +146,9 @@ export const useStore = create((set, get) => ({
   setShowAdmin: (v) => set({ showAdmin: v }),
   setAdminTab: (t) => set({ adminTab: t }),
 
+  // Mobile navigation
+  mobileSidebarOpen: false,
+  setMobileSidebarOpen: (v) => set({ mobileSidebarOpen: v }),
   // Theme
   theme: localStorage.getItem('mailflow_theme') || 'dark',
   setTheme: (theme) => {

@@ -1,8 +1,9 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { format } from 'date-fns';
 import { shortcutBus } from '../utils/shortcutBus.js';
+import { useMobile } from '../hooks/useMobile.js';
 
 function formatBytes(bytes) {
   if (!bytes) return '';
@@ -25,10 +26,15 @@ function fileIcon(type) {
 
 export default function MessagePane() {
   const {
-    messages, searchResults, searchQuery, selectedMessageId,
+    messages, searchResults, searchQuery, selectedMessageId, setSelectedMessage,
     updateMessage, removeMessage, decrementUnread, openCompose, accounts, addNotification,
     imageWhitelist, setImageWhitelist,
   } = useStore();
+
+  const isMobile = useMobile();
+  const paneRef = useRef(null);
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
 
   const allMessages = searchQuery.trim() ? searchResults : messages;
   const message = allMessages.find(m => m.id === selectedMessageId);
@@ -127,33 +133,32 @@ export default function MessagePane() {
 
   // Size the iframe to its full content height so no internal scrollbar appears.
   // The outer overflow:auto container is the only scrollbar the user sees.
+  //
+  // Key design: overflow:hidden is injected via the srcDoc <style> (with !important)
+  // so email CSS can never make html/body fill the iframe height.  We never toggle
+  // overflow here, which eliminates the feedback loop where clearing overflow lets
+  // percentage-height elements expand → body grows → observer fires → repeat.
   useEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe || !body?.html) return;
 
     let rafId;
+    let lastH = 0;
 
     const setHeight = () => {
       const doc = iframe.contentDocument;
       if (!doc) return;
       const el = doc.documentElement;
-      const b = doc.body;
-
-      // Clear any previously injected overflow so scrollHeight reflects full content
-      if (el) el.style.overflow = '';
-      if (b) b.style.overflow = '';
-
-      const h = Math.max(
+      const b  = doc.body;
+      const h  = Math.max(
         el ? el.scrollHeight : 0,
         el ? el.offsetHeight : 0,
-        b ? b.scrollHeight : 0,
-        b ? b.offsetHeight : 0,
+        b  ? b.scrollHeight  : 0,
+        b  ? b.offsetHeight  : 0,
       );
-
-      if (h > 0) {
-        iframe.style.height = (h + 2) + 'px';
-        // Inject overflow:hidden so the document itself can never show a scrollbar
-        if (el) el.style.overflow = 'hidden';
+      if (h > lastH) {
+        lastH = h;
+        iframe.style.height = h + 'px';
       }
     };
 
@@ -167,13 +172,14 @@ export default function MessagePane() {
       // Re-measure after each lazy-loaded image settles
       doc.querySelectorAll('img').forEach(img => {
         if (!img.complete) {
-          img.addEventListener('load', () => requestAnimationFrame(setHeight), { once: true });
+          img.addEventListener('load',  () => requestAnimationFrame(setHeight), { once: true });
           img.addEventListener('error', () => requestAnimationFrame(setHeight), { once: true });
         }
       });
 
-      // Observe body (not documentElement) — once overflow:hidden is set on <html>
-      // the documentElement stops growing, so body gives accurate resize signals
+      // Watch for content that reflows after load (web fonts, dynamic content).
+      // Guard: only grow — never shrink on observer fires — so any residual loop
+      // stalls immediately once height stabilises.
       const root = doc.body || doc.documentElement;
       if (window.ResizeObserver && root) {
         roRef.current = new ResizeObserver(() => requestAnimationFrame(setHeight));
@@ -182,7 +188,6 @@ export default function MessagePane() {
     };
 
     iframe.addEventListener('load', onLoaded, { once: true });
-    // Early pass when iframe is already complete (cached / fast body)
     if (iframe.contentDocument?.readyState === 'complete') {
       onLoaded();
     }
@@ -193,6 +198,70 @@ export default function MessagePane() {
       iframe.removeEventListener('load', onLoaded);
     };
   }, [body?.html, selectedMessageId]);
+
+  // Fade in pane content when switching messages on desktop
+  useEffect(() => {
+    if (isMobile || !selectedMessageId || !paneRef.current) return;
+    const el = paneRef.current;
+    el.style.animation = 'none';
+    // eslint-disable-next-line no-unused-expressions
+    el.offsetHeight; // force reflow to restart animation
+    el.style.animation = 'pane-fade-in 0.15s ease';
+  }, [selectedMessageId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Swipe-back gesture: right-swipe from left edge returns to message list on mobile
+  useEffect(() => {
+    if (!isMobile) return;
+    const el = paneRef.current;
+    if (!el) return;
+
+    let startX = 0, startY = 0, dir = null, active = false;
+
+    const onStart = (e) => {
+      const t = e.touches[0];
+      if (t.clientX > 32) return; // only activate from the left edge
+      startX = t.clientX; startY = t.clientY;
+      dir = null; active = false;
+    };
+
+    const onMove = (e) => {
+      const t = e.touches[0];
+      const dx = t.clientX - startX;
+      const dy = t.clientY - startY;
+      if (!dir) {
+        if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
+        dir = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
+      }
+      if (dir === 'v' || dx < 0) return;
+      e.preventDefault();
+      active = true;
+      el.style.transition = 'none';
+      el.style.transform = `translateX(${dx}px)`;
+    };
+
+    const onEnd = (e) => {
+      if (!active) return;
+      active = false;
+      const dx = e.changedTouches[0].clientX - startX;
+      if (dx > 80) {
+        el.style.transition = 'transform 0.22s ease';
+        el.style.transform = `translateX(${window.innerWidth}px)`;
+        setTimeout(() => { if (mountedRef.current) history.back(); }, 220);
+      } else {
+        el.style.transition = 'transform 0.25s ease';
+        el.style.transform = 'translateX(0)';
+      }
+    };
+
+    el.addEventListener('touchstart', onStart, { passive: true });
+    el.addEventListener('touchmove', onMove, { passive: false });
+    el.addEventListener('touchend', onEnd, { passive: true });
+    return () => {
+      el.removeEventListener('touchstart', onStart);
+      el.removeEventListener('touchmove', onMove);
+      el.removeEventListener('touchend', onEnd);
+    };
+  }, [isMobile, setSelectedMessage]);
 
   const handleReply = (replyAll = false) => {
     if (!message) return;
@@ -348,22 +417,48 @@ export default function MessagePane() {
   if (!message) {
     return (
       <div style={{
-        flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: 'var(--bg-primary)', flexDirection: 'column', gap: 12,
+        flex: 1, display: 'flex', flexDirection: 'column',
+        background: 'var(--bg-primary)',
       }}>
+        {isMobile && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            padding: '10px 14px', borderBottom: '1px solid var(--border-subtle)',
+            background: 'var(--bg-secondary)', flexShrink: 0,
+          }}>
+            <button
+              onClick={() => setSelectedMessage(null)}
+              style={{
+                background: 'none', border: 'none', color: 'var(--accent)',
+                cursor: 'pointer', display: 'flex', alignItems: 'center',
+                gap: 2, padding: '4px 0', fontSize: 15, fontWeight: 500,
+              }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <polyline points="15 18 9 12 15 6"/>
+              </svg>
+              Back
+            </button>
+          </div>
+        )}
         <div style={{
-          width: 48, height: 48, borderRadius: 14,
-          background: 'var(--bg-secondary)', display: 'flex',
-          alignItems: 'center', justifyContent: 'center', color: 'var(--text-tertiary)',
+          flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          flexDirection: 'column', gap: 12,
         }}>
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
-            <polyline points="22,6 12,13 2,6"/>
-          </svg>
+          <div style={{
+            width: 48, height: 48, borderRadius: 14,
+            background: 'var(--bg-secondary)', display: 'flex',
+            alignItems: 'center', justifyContent: 'center', color: 'var(--text-tertiary)',
+          }}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+              <polyline points="22,6 12,13 2,6"/>
+            </svg>
+          </div>
+          <p style={{ color: 'var(--text-tertiary)', fontSize: 14, margin: 0 }}>
+            Select a message to read
+          </p>
         </div>
-        <p style={{ color: 'var(--text-tertiary)', fontSize: 14, margin: 0 }}>
-          Select a message to read
-        </p>
       </div>
     );
   }
@@ -454,10 +549,48 @@ export default function MessagePane() {
   const attachments = body?.attachments || [];
 
   return (
-    <div style={{
-      flex: 1, display: 'flex', flexDirection: 'column',
-      overflow: 'hidden', background: 'var(--bg-primary)',
-    }}>
+    <div
+      ref={paneRef}
+      style={{
+        flex: 1, display: 'flex', flexDirection: 'column',
+        overflow: 'hidden', background: 'var(--bg-primary)',
+        animation: isMobile ? 'mobileSlideIn 0.22s ease' : 'none',
+      }}
+    >
+      {isMobile && <style>{`@keyframes mobileSlideIn { from { transform: translateX(100%) } to { transform: translateX(0) } }`}</style>}
+
+      {/* Mobile back bar */}
+      {isMobile && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          paddingTop: 'calc(var(--sat) + 10px)',
+          paddingBottom: 10, paddingLeft: 14, paddingRight: 14,
+          borderBottom: '1px solid var(--border-subtle)',
+          background: 'var(--bg-secondary)', flexShrink: 0,
+        }}>
+          <button
+            onClick={() => history.back()}
+            style={{
+              background: 'none', border: 'none', color: 'var(--accent)',
+              cursor: 'pointer', display: 'flex', alignItems: 'center',
+              gap: 2, padding: '4px 0', fontSize: 15, fontWeight: 500,
+            }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <polyline points="15 18 9 12 15 6"/>
+            </svg>
+            Back
+          </button>
+          <div style={{
+            flex: 1, minWidth: 0,
+            fontSize: 14, fontWeight: 500, color: 'var(--text-primary)',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>
+            {message?.subject || ''}
+          </div>
+        </div>
+      )}
+
       {/* Toolbar — always pinned at top, never scrolls */}
       <div style={{
         padding: '12px 20px', borderBottom: '1px solid var(--border-subtle)',
@@ -556,12 +689,17 @@ export default function MessagePane() {
 
       {/* Single scroll container — sender card + email body scroll together */}
       <div style={{ flex: 1, overflow: 'auto', background: 'var(--bg-primary)' }}>
-      <div style={{ padding: '24px 28px 0' }}>
+      <div style={{ padding: isMobile ? '12px 0 0' : '24px 28px 0' }}>
 
         {/* Sender card — subject lives here as the card header */}
         <div style={{
-          marginBottom: 24, background: 'var(--bg-secondary)',
-          borderRadius: 10, border: '1px solid var(--border-subtle)',
+          marginBottom: isMobile ? 12 : 24,
+          marginLeft: isMobile ? 0 : undefined,
+          marginRight: isMobile ? 0 : undefined,
+          background: 'var(--bg-secondary)',
+          borderRadius: isMobile ? 0 : 10,
+          border: isMobile ? 'none' : '1px solid var(--border-subtle)',
+          borderBottom: '1px solid var(--border-subtle)',
           overflow: 'hidden',
         }}>
           {/* Subject */}
@@ -615,7 +753,7 @@ export default function MessagePane() {
             </div>
 
             {/* Date + account */}
-            <div style={{ flexShrink: 0, textAlign: 'right' }}>
+            <div style={{ flexShrink: 1, minWidth: 80, textAlign: 'right' }}>
               <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
                 {message.date ? format(new Date(message.date), 'MMM d, yyyy h:mm a') : ''}
               </div>
@@ -746,7 +884,7 @@ export default function MessagePane() {
 
       {/* HTML email — iframe sized to full content height; outer container scrolls */}
       {!loadingBody && !bodyError && body?.html && (
-        <div style={{ padding: '0 28px 24px' }}>
+        <div style={{ padding: isMobile ? '0 0 16px' : '0 28px 24px' }}>
           {body.hasBlockedRemoteImages && (
             <div style={{
               marginBottom: 10, padding: '9px 14px',
@@ -789,8 +927,9 @@ export default function MessagePane() {
             </div>
           )}
           <div style={{
-            background: 'white', borderRadius: 10,
-            border: '1px solid var(--border-subtle)',
+            background: 'white',
+            borderRadius: isMobile ? 0 : 10,
+            border: isMobile ? 'none' : '1px solid var(--border-subtle)',
             overflow: 'hidden',
           }}>
             <iframe
@@ -799,6 +938,9 @@ export default function MessagePane() {
                 <meta name="viewport" content="width=device-width,initial-scale=1">
                 <base target="_blank">
                 <style>
+                  /* Prevent percentage-height elements from filling the iframe,
+                     which would cause a ResizeObserver growth feedback loop. */
+                  html, body { height: auto !important; min-height: 0 !important; }
                   body { margin: 16px; font-family: -apple-system, Arial, sans-serif;
                          font-size: 14px; line-height: 1.6; color: #1a1a1a; word-wrap: break-word; }
                   img { max-width: 100%; height: auto; }
@@ -822,7 +964,7 @@ export default function MessagePane() {
       {/* Plain-text email — no internal scroll, outer container handles it */}
       {!loadingBody && !bodyError && body?.text && !body?.html && (
         <pre style={{
-          margin: 0, padding: '0 28px 24px',
+          margin: 0, padding: isMobile ? '0 12px 16px' : '0 28px 24px',
           whiteSpace: 'pre-wrap', wordBreak: 'break-word',
           fontSize: 14, color: 'var(--text-primary)', lineHeight: 1.7,
           fontFamily: 'DM Sans, sans-serif',

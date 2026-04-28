@@ -3,6 +3,7 @@ import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { format, isToday, isYesterday, isThisYear } from 'date-fns';
 import { LAYOUTS } from '../layouts.js';
+import { useMobile } from '../hooks/useMobile.js';
 import ContextMenu from './ContextMenu.jsx';
 import { shortcutBus } from '../utils/shortcutBus.js';
 
@@ -36,7 +37,10 @@ export default function MessageList() {
     searchQuery, setSearchQuery, isSearching, setIsSearching,
     searchResults, setSearchResults, openCompose, accountsReady, accounts,
     messagesRefreshToken, layout, pageSize, setPageSize, scrollMode,
+    setMobileSidebarOpen,
   } = useStore();
+
+  const isMobile = useMobile();
 
   const currentLayout = LAYOUTS[layout] || LAYOUTS.classic;
   const isColumn = currentLayout.direction === 'column';
@@ -47,6 +51,7 @@ export default function MessageList() {
   const currentPageRef = useRef(1);
   const [syncing, setSyncing] = useState(false);
   const [folderSyncing, setFolderSyncing] = useState(false);
+  const [showScrollTop, setShowScrollTop] = useState(false);
   const [contextMenu, setContextMenu] = useState(null); // { x, y, message }
   const [searchFocused, setSearchFocused] = useState(false);
   const [searchHasMore, setSearchHasMore] = useState(false);
@@ -258,11 +263,12 @@ export default function MessageList() {
     }
   }, [searchQuery, selectedAccountId, searchLoadingMore]);
 
-  // Infinite scroll
+  // Infinite scroll + scroll-to-top visibility
   const handleScroll = useCallback(() => {
-    if (scrollMode !== 'infinite') return;
-    if (!listRef.current || loadingMessages || !hasMoreMessages) return;
+    if (!listRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = listRef.current;
+    setShowScrollTop(scrollTop > 400);
+    if (scrollMode !== 'infinite' || loadingMessages || !hasMoreMessages) return;
     if (scrollTop + clientHeight >= scrollHeight - 300) {
       loadMore();
     }
@@ -350,6 +356,33 @@ export default function MessageList() {
       console.error(err);
     }
   };
+
+  // Mobile swipe action handlers (no event object needed)
+  const handleSwipeDelete = useCallback(async (message) => {
+    removeMessage(message.id);
+    if (!message.is_read) decrementUnread(message.account_id);
+    try {
+      await api.deleteMessage(message.id);
+    } catch (err) {
+      console.error('swipe delete failed:', err.message);
+      addNotification({ title: 'Delete failed', body: 'Could not delete message.' });
+    }
+  }, [removeMessage, decrementUnread, addNotification]);
+
+  const handleSwipeToggleRead = useCallback(async (message) => {
+    const newRead = !message.is_read;
+    updateMessage(message.id, { is_read: newRead });
+    if (newRead) decrementUnread(message.account_id);
+    else incrementUnread(message.account_id);
+    try {
+      await api.markRead(message.id, newRead);
+    } catch (err) {
+      console.error('swipe toggle read failed:', err.message);
+      updateMessage(message.id, { is_read: !newRead });
+      if (newRead) incrementUnread(message.account_id);
+      else decrementUnread(message.account_id);
+    }
+  }, [updateMessage, decrementUnread, incrementUnread]);
 
   // ── Bulk selection helpers ───────────────────────────────────
   const toggleSelect = useCallback((id) => {
@@ -700,18 +733,104 @@ export default function MessageList() {
 
   return (
     <div style={{
-      width: isColumn ? '100%' : currentLayout.listWidth,
-      minWidth: isColumn ? undefined : Math.max(180, currentLayout.listWidth - 80),
-      flex: isColumn ? '0 0 42%' : undefined,
-      minHeight: isColumn ? 0 : undefined,
-      borderRight: isColumn ? 'none' : '1px solid var(--border-subtle)',
-      borderBottom: isColumn ? '1px solid var(--border-subtle)' : 'none',
+      width: isMobile ? '100%' : (isColumn ? '100%' : currentLayout.listWidth),
+      minWidth: isMobile ? undefined : (isColumn ? undefined : Math.max(180, currentLayout.listWidth - 80)),
+      flex: isMobile ? 1 : (isColumn ? '0 0 42%' : undefined),
+      minHeight: isColumn && !isMobile ? 0 : undefined,
+      borderRight: (isMobile || isColumn) ? 'none' : '1px solid var(--border-subtle)',
+      borderBottom: (!isMobile && isColumn) ? '1px solid var(--border-subtle)' : 'none',
       display: 'flex', flexDirection: 'column',
-      height: isColumn ? undefined : '100vh',
+      height: (isMobile || isColumn) ? undefined : '100vh',
       background: 'var(--bg-primary)',
     }}>
-      {/* Header */}
-      <div style={{
+
+      {/* ── Mobile header ───────────────────────────────────────────────── */}
+      {isMobile && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 4,
+          paddingTop: 'calc(var(--sat) + 10px)',
+          paddingBottom: 10, paddingLeft: 12, paddingRight: 12,
+          borderBottom: '1px solid var(--border-subtle)',
+          background: 'var(--bg-secondary)', flexShrink: 0,
+        }}>
+          {/* Hamburger */}
+          <button
+            onClick={() => setMobileSidebarOpen(true)}
+            style={{
+              background: 'none', border: 'none', color: 'var(--text-secondary)',
+              cursor: 'pointer', padding: '6px', borderRadius: 7,
+              display: 'flex', alignItems: 'center',
+            }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+              <line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/>
+            </svg>
+          </button>
+
+          {/* Folder / account title */}
+          <h2 style={{
+            flex: 1, margin: 0, fontSize: 16, fontWeight: 600,
+            color: 'var(--text-primary)', overflow: 'hidden',
+            textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>
+            {label}
+          </h2>
+
+          {/* Unread filter */}
+          <button
+            onClick={() => setUnreadOnly(!unreadOnly)}
+            title={unreadOnly ? 'Show all' : 'Unread only'}
+            style={{
+              background: unreadOnly ? 'var(--accent-dim)' : 'none',
+              border: `1px solid ${unreadOnly ? 'var(--accent)' : 'transparent'}`,
+              borderRadius: 6, padding: '5px 7px',
+              color: unreadOnly ? 'var(--accent)' : 'var(--text-tertiary)',
+              cursor: 'pointer', fontSize: 11, fontWeight: 500,
+            }}
+          >
+            Unread
+          </button>
+
+          {/* Sync */}
+          <button
+            onClick={handleSync}
+            disabled={syncing}
+            title="Sync"
+            style={{
+              background: 'none', border: 'none',
+              color: syncing ? 'var(--accent)' : 'var(--text-tertiary)',
+              cursor: syncing ? 'not-allowed' : 'pointer',
+              padding: '6px', borderRadius: 7, display: 'flex',
+            }}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+              style={{ animation: syncing ? 'spin 0.8s linear infinite' : 'none' }}>
+              <polyline points="23 4 23 10 17 10"/>
+              <polyline points="1 20 1 14 7 14"/>
+              <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+            </svg>
+          </button>
+
+          {/* Compose */}
+          <button
+            onClick={() => openCompose()}
+            title="Compose"
+            style={{
+              background: 'var(--accent)', border: 'none',
+              color: 'white', cursor: 'pointer',
+              padding: '6px 8px', borderRadius: 7, display: 'flex', alignItems: 'center',
+            }}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+              <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+            </svg>
+          </button>
+        </div>
+      )}
+
+      {/* ── Desktop header ──────────────────────────────────────────────── */}
+      {!isMobile && <div style={{
         padding: '14px 16px 10px', borderBottom: '1px solid var(--border-subtle)',
       }}>
         {/* Title row: label + count + sync (always fits) */}
@@ -910,23 +1029,77 @@ export default function MessageList() {
             </div>
           )}
         </div>
-      </div>
+      </div>}
+
+      {/* Mobile search bar (rendered outside the scrollable list so it stays pinned) */}
+      {isMobile && (
+        <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border-subtle)', flexShrink: 0 }}>
+          <div style={{ position: 'relative' }}>
+            <div style={{
+              position: 'absolute', left: 10, top: '50%',
+              transform: 'translateY(-50%)', color: 'var(--text-tertiary)',
+              pointerEvents: 'none',
+            }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+            </div>
+            <input
+              ref={searchInputRef}
+              type="text"
+              placeholder="Search…"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              style={{
+                width: '100%', padding: '8px 10px 8px 32px',
+                background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+                borderRadius: 8, color: 'var(--text-primary)', fontSize: 13,
+                outline: 'none', boxSizing: 'border-box',
+              }}
+              onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+              onBlur={e => e.target.style.borderColor = 'var(--border)'}
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                style={{
+                  position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+                  background: 'none', border: 'none', color: 'var(--text-tertiary)',
+                  cursor: 'pointer', padding: 2, display: 'flex',
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Message list */}
-      <div
-        ref={listRef}
-        onScroll={handleScroll}
-        style={{ flex: 1, overflow: 'auto' }}
-      >
+      <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
+        <div
+          ref={listRef}
+          onScroll={handleScroll}
+          style={{ height: '100%', overflow: 'auto' }}
+        >
         {loadingMessages && displayMessages.length === 0 && (
-          <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-tertiary)' }}>
-            <div style={{
-              width: 24, height: 24, margin: '0 auto 12px',
-              border: '2px solid var(--border)', borderTopColor: 'var(--accent)',
-              borderRadius: '50%', animation: 'spin 0.8s linear infinite',
-            }} />
-            <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
-            Loading messages…
+          <div>
+            {Array.from({ length: 7 }).map((_, i) => (
+              <div key={i} style={{
+                display: 'flex', alignItems: 'center', gap: 12,
+                padding: '12px 14px', borderBottom: '1px solid var(--border-subtle)',
+                opacity: 1 - i * 0.1,
+              }}>
+                <div className="skeleton-line" style={{ width: 36, height: 36, borderRadius: '50%', flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="skeleton-line" style={{ height: 12, width: `${55 + (i % 3) * 15}%`, marginBottom: 8 }} />
+                  <div className="skeleton-line" style={{ height: 11, width: `${70 + (i % 2) * 20}%` }} />
+                </div>
+                <div className="skeleton-line" style={{ width: 36, height: 11, flexShrink: 0, borderRadius: 4 }} />
+              </div>
+            ))}
           </div>
         )}
 
@@ -1099,6 +1272,9 @@ export default function MessageList() {
               e.preventDefault();
               setContextMenu({ x: e.clientX, y: e.clientY, message: msg });
             }}
+            isMobile={isMobile}
+            onSwipeLeft={handleSwipeDelete}
+            onSwipeRight={handleSwipeToggleRead}
           />
         ))}
 
@@ -1221,17 +1397,124 @@ export default function MessageList() {
             </div>
           );
         })()}
+        </div>
+
+        {/* Scroll-to-top button */}
+        {showScrollTop && (
+          <button
+            onClick={() => { if (listRef.current) listRef.current.scrollTo({ top: 0, behavior: 'smooth' }); }}
+            title="Back to top"
+            style={{
+              position: 'absolute', bottom: 20, right: 16, zIndex: 20,
+              width: 36, height: 36, borderRadius: '50%',
+              background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+              color: 'var(--text-secondary)', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 2px 12px rgba(0,0,0,0.4)',
+              transition: 'color 0.15s, border-color 0.15s',
+              animation: 'fade-in 0.15s ease',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
+            onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.borderColor = 'var(--border)'; }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <polyline points="18 15 12 9 6 15"/>
+            </svg>
+          </button>
+        )}
       </div>
     </div>
   );
 }
 
-function MessageRow({ message, selected, isChecked, selectionMode, showAccount, onSelect, onToggleSelect, onMarkRead, onStar, onDelete, onContextMenu }) {
+function MessageRow({ message, selected, isChecked, selectionMode, showAccount, onSelect, onToggleSelect, onMarkRead, onStar, onDelete, onContextMenu, isMobile, onSwipeLeft, onSwipeRight }) {
   const [hovered, setHovered] = useState(false);
+  const contentRef = useRef(null);
+  const swipeBgLeftRef = useRef(null);
+  const swipeBgRightRef = useRef(null);
+  const swipeRef = useRef({ active: false, startX: 0, startY: 0, dir: null, x: 0 });
 
+  const SWIPE_THRESHOLD = 72;
+
+  const springBack = useCallback(() => {
+    const el = contentRef.current;
+    if (!el) return;
+    el.style.transition = 'transform 0.25s cubic-bezier(0.25,0.46,0.45,0.94)';
+    el.style.transform = 'translateX(0)';
+    setTimeout(() => {
+      if (swipeBgLeftRef.current)  swipeBgLeftRef.current.style.display  = 'none';
+      if (swipeBgRightRef.current) swipeBgRightRef.current.style.display = 'none';
+    }, 260);
+  }, []);
+
+  useEffect(() => {
+    if (!isMobile) return;
+    const el = contentRef.current;
+    if (!el) return;
+
+    const showBgs = () => {
+      if (swipeBgLeftRef.current)  swipeBgLeftRef.current.style.display  = 'flex';
+      if (swipeBgRightRef.current) swipeBgRightRef.current.style.display = 'flex';
+    };
+    const hideBgs = () => {
+      if (swipeBgLeftRef.current)  swipeBgLeftRef.current.style.display  = 'none';
+      if (swipeBgRightRef.current) swipeBgRightRef.current.style.display = 'none';
+    };
+
+    const onStart = (e) => {
+      const t = e.touches[0];
+      swipeRef.current = { active: false, startX: t.clientX, startY: t.clientY, dir: null, x: 0 };
+      showBgs();
+    };
+
+    const onMove = (e) => {
+      const s = swipeRef.current;
+      const t = e.touches[0];
+      const dx = t.clientX - s.startX;
+      const dy = t.clientY - s.startY;
+      if (!s.dir) {
+        if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+        s.dir = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
+      }
+      if (s.dir === 'v') return;
+      e.preventDefault();
+      s.active = true;
+      s.x = Math.max(-160, Math.min(160, dx));
+      el.style.transition = 'none';
+      el.style.transform = `translateX(${s.x}px)`;
+    };
+
+    const onEnd = () => {
+      const s = swipeRef.current;
+      if (!s.active) { s.dir = null; hideBgs(); return; }
+      const x = s.x;
+      s.active = false; s.dir = null; s.x = 0;
+      springBack();
+      if (x < -SWIPE_THRESHOLD) {
+        onSwipeLeft && onSwipeLeft(message);
+      } else if (x > SWIPE_THRESHOLD) {
+        onSwipeRight && onSwipeRight(message);
+      }
+    };
+
+    el.addEventListener('touchstart', onStart, { passive: true });
+    el.addEventListener('touchmove', onMove, { passive: false });
+    el.addEventListener('touchend', onEnd, { passive: true });
+    el.addEventListener('touchcancel', springBack, { passive: true });
+    return () => {
+      el.removeEventListener('touchstart', onStart);
+      el.removeEventListener('touchmove', onMove);
+      el.removeEventListener('touchend', onEnd);
+      el.removeEventListener('touchcancel', springBack);
+    };
+  }, [isMobile, message, onSwipeLeft, onSwipeRight, springBack]);
+
+  // On mobile the row content must be opaque — swipe action panels sit behind it
+  // and would show through a transparent background.
+  const bgDefault = isMobile ? 'var(--bg-primary)' : 'transparent';
   const bg = (selected && !selectionMode)
     ? 'var(--bg-elevated)'
-    : (isChecked ? 'var(--accent-dim)' : (hovered ? 'var(--bg-tertiary)' : 'transparent'));
+    : (isChecked ? 'var(--accent-dim)' : (hovered ? 'var(--bg-tertiary)' : bgDefault));
 
   const showCheckbox = selectionMode;
 
@@ -1245,17 +1528,61 @@ function MessageRow({ message, selected, isChecked, selectionMode, showAccount, 
 
   return (
     <div
-      onClick={handleClick}
-      onContextMenu={e => onContextMenu(e, message)}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      onMouseEnter={() => !isMobile && setHovered(true)}
+      onMouseLeave={() => !isMobile && setHovered(false)}
       style={{
-        padding: 'var(--layout-row-py, 11px) var(--layout-row-px, 14px)',
-        cursor: 'pointer', background: bg, transition: 'background 0.1s',
-        borderBottom: '1px solid var(--border-subtle)',
         position: 'relative',
+        overflow: 'hidden',
+        borderBottom: '1px solid var(--border-subtle)',
       }}
     >
+      {/* Swipe background: left side — mark read/unread (revealed by right swipe) */}
+      {isMobile && (
+        <div ref={swipeBgLeftRef} style={{
+          position: 'absolute', left: 0, top: 0, bottom: 0, width: '50%',
+          background: 'var(--accent)',
+          display: 'none', alignItems: 'center', justifyContent: 'flex-start',
+          paddingLeft: 20, gap: 6,
+        }}>
+          <svg width="18" height="18" viewBox="0 0 24 24"
+            fill={message.is_read ? 'none' : 'white'} stroke="white" strokeWidth="2">
+            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+          <span style={{ color: 'white', fontSize: 12, fontWeight: 600 }}>
+            {message.is_read ? 'Unread' : 'Read'}
+          </span>
+        </div>
+      )}
+
+      {/* Swipe background: right side — delete (revealed by left swipe) */}
+      {isMobile && (
+        <div ref={swipeBgRightRef} style={{
+          position: 'absolute', right: 0, top: 0, bottom: 0, width: '50%',
+          background: 'var(--red, #ef4444)',
+          display: 'none', alignItems: 'center', justifyContent: 'flex-end',
+          paddingRight: 20, gap: 6,
+        }}>
+          <span style={{ color: 'white', fontSize: 12, fontWeight: 600 }}>Delete</span>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+            <polyline points="3 6 5 6 21 6"/>
+            <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
+          </svg>
+        </div>
+      )}
+
+      {/* Foreground row content */}
+      <div
+        ref={isMobile ? contentRef : undefined}
+        onClick={handleClick}
+        onContextMenu={!isMobile ? (e => onContextMenu(e, message)) : undefined}
+        style={{
+          padding: 'var(--layout-row-py, 11px) var(--layout-row-px, 14px)',
+          cursor: 'pointer', background: bg, transition: 'background 0.1s',
+          position: 'relative',
+          willChange: isMobile ? 'transform' : undefined,
+        }}
+      >
       {/* Left indicator: checkbox on hover/selection-mode, unread dot otherwise */}
       {showCheckbox ? (
         <div style={{
@@ -1372,6 +1699,7 @@ function MessageRow({ message, selected, isChecked, selectionMode, showAccount, 
           </ActionBtn>
         </div>
       )}
+      </div>
     </div>
   );
 }
