@@ -158,6 +158,40 @@ export function sanitizeEmail(html) {
   return upgradeStyleBlocks(sanitized);
 }
 
+// Sanitize user-authored signature HTML — allows common formatting and images
+// but strips all event handlers and scripts. Stricter than sanitizeEmail().
+export function sanitizeSignature(html) {
+  if (!html) return html;
+  return sanitizeHtml(html, {
+    allowedTags: [
+      'a', 'b', 'strong', 'i', 'em', 'u', 's', 'del',
+      'p', 'br', 'div', 'span', 'img',
+      'ul', 'ol', 'li',
+      'h1', 'h2', 'h3', 'hr',
+      'table', 'thead', 'tbody', 'tr', 'th', 'td',
+      'font', 'center',
+    ],
+    allowedAttributes: {
+      '*': ['style', 'class'],
+      'a': ['href', 'target', 'rel'],
+      'img': ['src', 'alt', 'width', 'height'],
+      'font': ['color', 'size', 'face'],
+      'td': ['colspan', 'rowspan', 'align', 'valign', 'width', 'height', 'bgcolor'],
+      'th': ['colspan', 'rowspan', 'align', 'valign'],
+      'table': ['width', 'cellpadding', 'cellspacing', 'border', 'align', 'bgcolor'],
+    },
+    allowedSchemes: ['https', 'mailto'],
+    allowedSchemesByTag: { img: ['https', 'data'] },
+    transformTags: {
+      'a': (tagName, attribs) => ({
+        tagName,
+        attribs: { ...attribs, rel: 'noopener noreferrer', target: '_blank' },
+      }),
+    },
+    disallowedTagsMode: 'discard',
+  });
+}
+
 // Returns true if the sanitized HTML contains any remote http/https image references.
 export function hasRemoteImages(html) {
   if (!html) return false;

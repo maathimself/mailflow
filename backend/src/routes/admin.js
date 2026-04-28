@@ -92,9 +92,10 @@ router.post('/invites', async (req, res) => {
     [email.trim().toLowerCase(), token, req.session.userId, expiresAt]
   );
 
-  // Build the invite URL — use APP_URL env var or fall back to request origin
-  const appUrl = process.env.APP_URL ||
-    `${req.protocol}://${req.get('host')}`;
+  const appUrl = process.env.APP_URL;
+  if (!appUrl) {
+    return res.status(500).json({ error: 'APP_URL is not configured — set it in .env before sending invites.' });
+  }
   const inviteUrl = `${appUrl}/register?invite=${token}`;
 
   // Try to send an invite email via the admin's first SMTP-enabled account

@@ -539,21 +539,22 @@ router.post('/messages/bulk-delete', async (req, res) => {
   if (!Array.isArray(ids) || ids.length === 0) {
     return res.status(400).json({ error: 'ids array required' });
   }
+  if (ids.length > 500) {
+    return res.status(400).json({ error: 'Too many ids — maximum 500 per request' });
+  }
 
-  const placeholders = ids.map((_, i) => `$${i + 2}`).join(',');
   const result = await query(
     `SELECT m.*, a.user_id FROM messages m
      JOIN email_accounts a ON m.account_id = a.id
-     WHERE m.id IN (${placeholders}) AND a.user_id = $1`,
-    [req.session.userId, ...ids]
+     WHERE m.id = ANY($2::uuid[]) AND a.user_id = $1`,
+    [req.session.userId, ids]
   );
 
   const owned = result.rows;
   if (!owned.length) return res.json({ ok: true, deleted: [] });
 
   const ownedIds = owned.map(m => m.id);
-  const ownedPlaceholders = ownedIds.map((_, i) => `$${i + 1}`).join(',');
-  await query(`UPDATE messages SET is_deleted = true WHERE id IN (${ownedPlaceholders})`, ownedIds);
+  await query('UPDATE messages SET is_deleted = true WHERE id = ANY($1::uuid[])', [ownedIds]);
 
   // Group by account_id then move each group to trash (best-effort, fire-and-forget)
   const byAccount = {};
@@ -583,13 +584,15 @@ router.post('/messages/bulk-move', async (req, res) => {
   if (!Array.isArray(ids) || ids.length === 0 || !folder) {
     return res.status(400).json({ error: 'ids array and folder required' });
   }
+  if (ids.length > 500) {
+    return res.status(400).json({ error: 'Too many ids — maximum 500 per request' });
+  }
 
-  const placeholders = ids.map((_, i) => `$${i + 2}`).join(',');
   const result = await query(
     `SELECT m.*, a.user_id FROM messages m
      JOIN email_accounts a ON m.account_id = a.id
-     WHERE m.id IN (${placeholders}) AND a.user_id = $1`,
-    [req.session.userId, ...ids]
+     WHERE m.id = ANY($2::uuid[]) AND a.user_id = $1`,
+    [req.session.userId, ids]
   );
 
   const owned = result.rows;
@@ -615,8 +618,7 @@ router.post('/messages/bulk-move', async (req, res) => {
   }
 
   if (movedIds.length > 0) {
-    const mp = movedIds.map((_, i) => `$${i + 2}`).join(',');
-    await query(`UPDATE messages SET folder = $1 WHERE id IN (${mp})`, [folder, ...movedIds]);
+    await query('UPDATE messages SET folder = $1 WHERE id = ANY($2::uuid[])', [folder, movedIds]);
   }
 
   res.json({ ok: true, moved: movedIds });
@@ -628,13 +630,15 @@ router.post('/messages/bulk-archive', async (req, res) => {
   if (!Array.isArray(ids) || ids.length === 0) {
     return res.status(400).json({ error: 'ids array required' });
   }
+  if (ids.length > 500) {
+    return res.status(400).json({ error: 'Too many ids — maximum 500 per request' });
+  }
 
-  const placeholders = ids.map((_, i) => `$${i + 2}`).join(',');
   const result = await query(
     `SELECT m.*, a.user_id, a.folder_mappings FROM messages m
      JOIN email_accounts a ON m.account_id = a.id
-     WHERE m.id IN (${placeholders}) AND a.user_id = $1`,
-    [req.session.userId, ...ids]
+     WHERE m.id = ANY($2::uuid[]) AND a.user_id = $1`,
+    [req.session.userId, ids]
   );
 
   const owned = result.rows;
@@ -682,8 +686,7 @@ router.post('/messages/bulk-archive', async (req, res) => {
     (byFolder[folder] = byFolder[folder] || []).push(id);
   }
   for (const [folder, folderIds] of Object.entries(byFolder)) {
-    const fp = folderIds.map((_, i) => `$${i + 2}`).join(',');
-    await query(`UPDATE messages SET folder = $1 WHERE id IN (${fp})`, [folder, ...folderIds]);
+    await query('UPDATE messages SET folder = $1 WHERE id = ANY($2::uuid[])', [folder, folderIds]);
   }
 
   res.json({ ok: true, archived: archivedIds.map(a => a.id), noArchiveFolder });

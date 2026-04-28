@@ -1,8 +1,65 @@
 import { Router } from 'express';
+import { isIPv4, isIPv6 } from 'net';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { imapManager } from '../index.js';
 import { encrypt } from '../services/encryption.js';
+import { sanitizeSignature } from '../services/emailSanitizer.js';
+
+const ALLOWED_IMAP_PORTS = new Set([143, 993]);
+const ALLOWED_SMTP_PORTS = new Set([25, 465, 587]);
+
+function ipv4ToLong(ip) {
+  const parts = ip.split('.').map(Number);
+  return ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0;
+}
+
+function inCidr(ip, base, bits) {
+  const mask = bits === 0 ? 0 : ((~0 << (32 - bits)) >>> 0);
+  return (ipv4ToLong(ip) & mask) === (ipv4ToLong(base) & mask);
+}
+
+function isPrivateIPv4(ip) {
+  return (
+    inCidr(ip, '0.0.0.0', 8)      ||  // 0.x.x.x
+    inCidr(ip, '10.0.0.0', 8)     ||  // private
+    inCidr(ip, '100.64.0.0', 10)  ||  // CGNAT shared
+    inCidr(ip, '127.0.0.0', 8)    ||  // loopback
+    inCidr(ip, '169.254.0.0', 16) ||  // link-local (AWS metadata)
+    inCidr(ip, '172.16.0.0', 12)  ||  // private
+    inCidr(ip, '192.0.0.0', 24)   ||  // IETF protocol assignments
+    inCidr(ip, '192.168.0.0', 16) ||  // private
+    inCidr(ip, '198.18.0.0', 15)  ||  // benchmarking
+    inCidr(ip, '240.0.0.0', 4)    ||  // reserved
+    ip === '255.255.255.255'
+  );
+}
+
+function isPrivateIPv6(ip) {
+  const h = ip.toLowerCase();
+  return h === '::1' || h.startsWith('fc') || h.startsWith('fd') || h.startsWith('fe80');
+}
+
+// Returns an error string if the host is blocked, null if acceptable.
+function validateHost(host) {
+  if (!host || typeof host !== 'string') return null;
+  const h = host.trim().toLowerCase();
+  if (h === 'localhost' || h.endsWith('.local') || h.endsWith('.localhost') || h.endsWith('.internal')) {
+    return 'Host cannot be a local address';
+  }
+  const bare = h.startsWith('[') && h.endsWith(']') ? h.slice(1, -1) : h;
+  if (isIPv4(bare) && isPrivateIPv4(bare)) return 'Host cannot be a private or reserved IP address';
+  if (isIPv6(bare) && isPrivateIPv6(bare)) return 'Host cannot be a private or reserved IP address';
+  return null;
+}
+
+function validatePort(port, allowed) {
+  const n = Number(port);
+  if (!Number.isInteger(n) || !allowed.has(n)) {
+    return `Port ${port} is not allowed. Allowed: ${[...allowed].join(', ')}`;
+  }
+  return null;
+}
 
 const router = Router();
 router.use(requireAuth);
@@ -58,6 +115,15 @@ router.post('/', async (req, res) => {
 
   if (!name || !email_address) return res.status(400).json({ error: 'Name and email required' });
 
+  if (imap_host) {
+    const err = validateHost(imap_host) || validatePort(imap_port, ALLOWED_IMAP_PORTS);
+    if (err) return res.status(400).json({ error: `IMAP: ${err}` });
+  }
+  if (smtp_host) {
+    const err = validateHost(smtp_host) || validatePort(smtp_port, ALLOWED_SMTP_PORTS);
+    if (err) return res.status(400).json({ error: `SMTP: ${err}` });
+  }
+
   try {
     const result = await query(`
       INSERT INTO email_accounts (
@@ -71,7 +137,7 @@ router.post('/', async (req, res) => {
       req.session.userId, name, email_address, color, protocol,
       imap_host, imap_port, imap_tls, smtp_host, smtp_port, smtp_tls,
       auth_user, encrypt(auth_pass), oauth_provider, encrypt(oauth_access_token), encrypt(oauth_refresh_token),
-      jmap_session_url, signature || null
+      jmap_session_url, sanitizeSignature(signature) || null
     ]);
 
     const account = result.rows[0];
@@ -96,6 +162,15 @@ router.put('/:id', async (req, res) => {
   const check = await query('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
 
+  if ('smtp_host' in updates && updates.smtp_host) {
+    const err = validateHost(updates.smtp_host);
+    if (err) return res.status(400).json({ error: `SMTP: ${err}` });
+  }
+  if ('smtp_port' in updates && updates.smtp_port !== undefined && updates.smtp_port !== null) {
+    const err = validatePort(updates.smtp_port, ALLOWED_SMTP_PORTS);
+    if (err) return res.status(400).json({ error: `SMTP: ${err}` });
+  }
+
   const allowed = ['name', 'color', 'enabled', 'auth_pass', 'sort_order', 'smtp_host', 'smtp_port', 'folder_mappings', 'imap_skip_tls_verify', 'signature'];
   const sets = [];
   const values = [];
@@ -103,7 +178,9 @@ router.put('/:id', async (req, res) => {
   for (const key of allowed) {
     if (key in updates) {
       sets.push(`${key} = $${i++}`);
-      const value = (key === 'auth_pass' && updates[key]) ? encrypt(updates[key]) : updates[key];
+      const value = (key === 'auth_pass' && updates[key]) ? encrypt(updates[key])
+        : (key === 'signature') ? sanitizeSignature(updates[key]) || null
+        : updates[key];
       values.push(value);
     }
   }
@@ -170,7 +247,7 @@ router.post('/:id/aliases', async (req, res) => {
 
   const result = await query(
     'INSERT INTO account_aliases (account_id, name, email, reply_to, signature) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-    [id, name, email, reply_to || null, signature || null]
+    [id, name, email, reply_to || null, sanitizeSignature(signature) || null]
   );
   res.json(result.rows[0]);
 });
@@ -190,7 +267,7 @@ router.put('/:id/aliases/:aliasId', async (req, res) => {
 
   const result = await query(
     'UPDATE account_aliases SET name = $1, email = $2, reply_to = $3, signature = $4 WHERE id = $5 RETURNING *',
-    [name, email, reply_to || null, signature || null, aliasId]
+    [name, email, reply_to || null, sanitizeSignature(signature) || null, aliasId]
   );
   res.json(result.rows[0]);
 });

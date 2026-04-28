@@ -42,6 +42,10 @@ if (!process.env.DB_PASSWORD) {
   console.error('FATAL: DB_PASSWORD must be set. Exiting.');
   process.exit(1);
 }
+if (!process.env.ENCRYPTION_KEY || process.env.ENCRYPTION_KEY.length !== 64) {
+  console.error('FATAL: ENCRYPTION_KEY must be set and exactly 64 hex characters (32 bytes). Generate one with: openssl rand -hex 32');
+  process.exit(1);
+}
 
 // Session
 const sessionMiddleware = session({
