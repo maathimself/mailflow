@@ -96,6 +96,9 @@ export async function initDb() {
       CREATE INDEX IF NOT EXISTS idx_messages_search ON messages USING gin(
         to_tsvector('english', coalesce(subject,'') || ' ' || coalesce(from_name,'') || ' ' || coalesce(from_email,'') || ' ' || coalesce(snippet,''))
       );
+      CREATE INDEX IF NOT EXISTS idx_messages_body ON messages USING gin(
+        to_tsvector('english', coalesce(body_text,''))
+      );
 
       CREATE TABLE IF NOT EXISTS folders (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
