@@ -225,7 +225,7 @@ export default function Sidebar() {
     accounts, unreadCounts, selectedAccountId, selectedFolder,
     setSelectedAccount, setShowAdmin, setAdminTab, openCompose,
     folders, setFolders, user, setUser, sidebarCollapsed: sidebarCollapsedPref, toggleSidebar,
-    blockRemoteImages, setBlockRemoteImages, setMobileSidebarOpen,
+    blockRemoteImages, setBlockRemoteImages, setMobileSidebarOpen, addNotification,
   } = useStore();
 
   const isMobile = useMobile();
@@ -281,6 +281,7 @@ export default function Sidebar() {
   // Loading state for folder ops
   const [folderOpLoading, setFolderOpLoading] = useState(false);
   const [folderOpError, setFolderOpError] = useState(null);
+  const [confirmDialog, setConfirmDialog] = useState(null); // { message, onConfirm }
 
   const toggleAccount = (id) => {
     setExpandedAccounts(prev => ({ ...prev, [id]: !prev[id] }));
@@ -363,32 +364,40 @@ export default function Sidebar() {
     }
   };
 
-  const handleDeleteFolder = async (accountId, folderPath) => {
+  const handleDeleteFolder = (accountId, folderPath) => {
     const name = folderPath.split('/').pop();
-    if (!window.confirm(`Delete folder "${name}"? All messages in it will be permanently deleted.`)) return;
-    try {
-      await api.deleteFolder(accountId, folderPath);
-      const updated = await api.getFolders(accountId);
-      setFolders(accountId, updated);
-      if (selectedAccountId === accountId && selectedFolder === folderPath) {
-        setSelectedAccount(accountId, 'INBOX');
-      }
-    } catch (err) {
-      alert('Failed to delete folder: ' + err.message);
-    }
+    setConfirmDialog({
+      message: `Delete folder "${name}"? All messages in it will be permanently deleted.`,
+      onConfirm: async () => {
+        try {
+          await api.deleteFolder(accountId, folderPath);
+          const updated = await api.getFolders(accountId);
+          setFolders(accountId, updated);
+          if (selectedAccountId === accountId && selectedFolder === folderPath) {
+            setSelectedAccount(accountId, 'INBOX');
+          }
+        } catch (err) {
+          addNotification({ title: 'Delete failed', body: err.message });
+        }
+      },
+    });
   };
 
-  const handleEmptyFolder = async (accountId, folderPath) => {
+  const handleEmptyFolder = (accountId, folderPath) => {
     const name = folderPath.split('/').pop();
-    if (!window.confirm(`Empty "${name}"? All messages in this folder will be permanently deleted.`)) return;
-    try {
-      await api.emptyFolder(accountId, folderPath);
-      if (selectedAccountId === accountId && selectedFolder === folderPath) {
-        window.dispatchEvent(new CustomEvent('mailflow:refresh'));
-      }
-    } catch (err) {
-      alert('Failed to empty folder: ' + err.message);
-    }
+    setConfirmDialog({
+      message: `Empty "${name}"? All messages in this folder will be permanently deleted.`,
+      onConfirm: async () => {
+        try {
+          await api.emptyFolder(accountId, folderPath);
+          if (selectedAccountId === accountId && selectedFolder === folderPath) {
+            window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+          }
+        } catch (err) {
+          addNotification({ title: 'Empty failed', body: err.message });
+        }
+      },
+    });
   };
 
   const handleStartCreateFolder = (accountId) => {
@@ -1109,6 +1118,33 @@ export default function Sidebar() {
           items={buildAccountMenuItems(accountCtxMenu.account)}
           onClose={() => setAccountCtxMenu(null)}
         />
+      )}
+      {confirmDialog && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9000,
+          background: 'rgba(0,0,0,0.55)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: 24,
+        }} onClick={() => setConfirmDialog(null)}>
+          <div style={{
+            background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)',
+            borderRadius: 12, padding: '24px 24px 20px', maxWidth: 360, width: '100%',
+          }} onClick={e => e.stopPropagation()}>
+            <p style={{ margin: '0 0 20px', fontSize: 14, color: 'var(--text-primary)', lineHeight: 1.5 }}>
+              {confirmDialog.message}
+            </p>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={() => setConfirmDialog(null)} style={{
+                padding: '7px 16px', borderRadius: 7, border: '1px solid var(--border-subtle)',
+                background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13,
+              }}>Cancel</button>
+              <button onClick={() => { const fn = confirmDialog.onConfirm; setConfirmDialog(null); fn(); }} style={{
+                padding: '7px 16px', borderRadius: 7, border: 'none',
+                background: '#dc2626', color: 'white', cursor: 'pointer', fontSize: 13, fontWeight: 500,
+              }}>Delete</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

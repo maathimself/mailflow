@@ -3,10 +3,16 @@ import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { playNotificationSound } from '../utils/notificationSounds.js';
 
+// Auth-related close codes that should not trigger reconnect
+const NO_RECONNECT_CODES = new Set([4001, 4003]);
+const BACKOFF_BASE = 1000;
+const BACKOFF_MAX = 30000;
+
 export function useWebSocket() {
   const wsRef = useRef(null);
   const reconnectTimer = useRef(null);
   const mountedRef = useRef(true);
+  const reconnectAttempt = useRef(0);
   const { addNotification, updateAccount } = useStore();
 
   const connect = useCallback(() => {
@@ -15,6 +21,7 @@ export function useWebSocket() {
 
     ws.onopen = () => {
       console.log('WebSocket connected');
+      reconnectAttempt.current = 0;
       // Ping every 30s to keep alive
       const pingInterval = setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping' }));
@@ -29,12 +36,14 @@ export function useWebSocket() {
       } catch (_) {}
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       clearInterval(ws._pingInterval);
-      // Only reconnect if the hook is still mounted
-      if (mountedRef.current) {
-        reconnectTimer.current = setTimeout(connect, 3000);
-      }
+      if (!mountedRef.current || NO_RECONNECT_CODES.has(event.code)) return;
+      const attempt = reconnectAttempt.current;
+      const delay = Math.min(BACKOFF_BASE * 2 ** attempt, BACKOFF_MAX);
+      const jitter = Math.random() * 0.3 * delay;
+      reconnectAttempt.current = attempt + 1;
+      reconnectTimer.current = setTimeout(connect, delay + jitter);
     };
 
     ws.onerror = () => ws.close();
