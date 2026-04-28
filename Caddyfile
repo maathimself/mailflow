@@ -4,5 +4,9 @@
 }
 
 {$DOMAIN} {
-    reverse_proxy frontend:80
+    reverse_proxy frontend:443 {
+        transport http {
+            tls_insecure_skip_verify
+        }
+    }
 }
