@@ -347,6 +347,7 @@ export class ImapManager {
     this.syncThrottleSkips = new Map(); // accountId -> remaining ticks to skip when throttled
     this.connectingAccounts = new Set(); // prevent concurrent connectAccount calls for same account
     this.userSyncIntervalMs = new Map(); // userId -> interval ms (user-configurable)
+    this.snippetIndexerRunning = new Set(); // accountId — prevent duplicate snippet-index runs
 
     // Health check: every 90 seconds, find any enabled IMAP accounts that have no
     // active connection and no in-progress connect attempt, and reconnect them.
@@ -1024,6 +1025,128 @@ export class ImapManager {
       }
     } finally {
       this.backfillAllRunning.delete(account.id);
+      this.startSnippetIndexer(account).catch(err =>
+        console.error(`Snippet indexer failed for ${account.email_address}:`, err.message)
+      );
+    }
+  }
+
+  // Background job that fetches text snippets for messages that were backfilled without
+  // body parts (the common case — backfill runs metadata-only for speed). Runs per-account
+  // after backfill completes, and also at connect time for existing accounts.
+  // Non-Gmail only: Gmail throttles BODY content fetches too aggressively to do this at scale.
+  // Processes most-recent messages first so the most useful results are indexed quickly.
+  async startSnippetIndexer(account) {
+    const isGmail = (account.imap_host || '').toLowerCase().includes('gmail') ||
+                    (account.imap_host || '').toLowerCase().includes('google');
+    if (isGmail) return; // Skip — Gmail throttles body fetches heavily
+
+    if (this.snippetIndexerRunning.has(account.id)) return;
+    this.snippetIndexerRunning.add(account.id);
+
+    // Rate limit: conservative batches so this doesn't affect normal usage
+    const cfg = backfillConfig(account);
+    const batchSize = 50;
+    const batchDelay = Math.max(cfg.batchDelay, 2000); // at least 2s between batches
+
+    let siClient = null;
+    try {
+      // Check if there's anything to index before opening a connection
+      const countResult = await query(
+        "SELECT count(*) FROM messages WHERE account_id = $1 AND (snippet IS NULL OR snippet = '')",
+        [account.id]
+      );
+      const totalMissing = parseInt(countResult.rows[0].count);
+      if (totalMissing === 0) return;
+
+      console.log(`Snippet indexer: ${account.email_address} has ${totalMissing} messages without snippets`);
+
+      const openClient = async () => {
+        if (siClient) { try { await siClient.logout(); } catch (_) {} siClient = null; }
+        const row = (await query('SELECT * FROM email_accounts WHERE id = $1', [account.id])).rows[0];
+        if (!row) throw new Error('Account deleted');
+        const fresh = await ensureFreshToken(row);
+        const c = new ImapFlow(makeClientCfg(fresh));
+        c.on('error', err => console.error(`Snippet indexer IMAP error ${account.email_address}:`, err.message));
+        await Promise.race([
+          c.connect(),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('Connection timeout')), 30000)),
+        ]);
+        siClient = c;
+      };
+
+      await openClient();
+
+      // Get distinct folders that have unindexed messages
+      const foldersResult = await query(
+        `SELECT folder, count(*) as cnt FROM messages
+         WHERE account_id = $1 AND (snippet IS NULL OR snippet = '')
+         GROUP BY folder ORDER BY cnt DESC`,
+        [account.id]
+      );
+
+      let batchCount = 0;
+      for (const { folder } of foldersResult.rows) {
+        let done = false;
+        while (!done) {
+          // Stop if account was deleted
+          const alive = await query('SELECT id FROM email_accounts WHERE id = $1', [account.id]);
+          if (!alive.rows.length) return;
+
+          // Reconnect periodically to keep the connection fresh
+          if (batchCount > 0 && batchCount % 20 === 0) {
+            await openClient().catch(err => {
+              console.error(`Snippet indexer reconnect failed: ${err.message}`);
+            });
+          }
+
+          const batchResult = await query(
+            `SELECT uid FROM messages
+             WHERE account_id = $1 AND folder = $2 AND (snippet IS NULL OR snippet = '')
+             ORDER BY date DESC LIMIT $3`,
+            [account.id, folder, batchSize]
+          );
+          if (!batchResult.rows.length) { done = true; break; }
+
+          const uids = batchResult.rows.map(r => r.uid);
+          try {
+            const lock = await siClient.getMailboxLock(folder);
+            try {
+              for await (const msg of siClient.fetch(uids.join(','), {
+                uid: true, envelope: true, bodyStructure: true,
+                bodyParts: ['1', '1.1', '1.2'],
+              }, { uid: true })) {
+                try {
+                  const parsed = await parseMessage(msg);
+                  if (parsed.snippet) {
+                    await query(
+                      `UPDATE messages SET snippet = $1
+                       WHERE account_id = $2 AND uid = $3 AND folder = $4
+                         AND (snippet IS NULL OR snippet = '')`,
+                      [sanitizeStr(parsed.snippet), account.id, msg.uid, folder]
+                    );
+                  }
+                } catch (_) {}
+              }
+            } finally {
+              lock.release();
+            }
+            batchCount++;
+          } catch (err) {
+            console.error(`Snippet indexer batch error ${account.email_address}/${folder}:`, err.message);
+            await new Promise(r => setTimeout(r, cfg.errorDelay));
+          }
+
+          await new Promise(r => setTimeout(r, batchDelay));
+        }
+      }
+
+      console.log(`Snippet indexer complete for ${account.email_address} (${batchCount} batches)`);
+    } catch (err) {
+      console.error(`Snippet indexer error ${account.email_address}:`, err.message);
+    } finally {
+      if (siClient) { try { await siClient.logout(); } catch (_) {} }
+      this.snippetIndexerRunning.delete(account.id);
     }
   }
 
