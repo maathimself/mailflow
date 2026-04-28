@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useStore } from '../store/index.js';
+import { api } from '../utils/api.js';
 import { playNotificationSound } from '../utils/notificationSounds.js';
 
 export function useWebSocket() {
@@ -108,6 +109,11 @@ export function useWebSocket() {
       case 'sync_complete': {
         window.dispatchEvent(new CustomEvent('mailflow:refresh'));
         window.dispatchEvent(new CustomEvent('mailflow:sync_done'));
+        // Re-fetch unread counts so sidebar badges reflect messages marked read
+        // in external clients (the message list refresh alone doesn't update counts)
+        api.getUnreadCounts().then(counts => {
+          useStore.setState({ unreadCounts: counts });
+        }).catch(() => {});
         break;
       }
     }
