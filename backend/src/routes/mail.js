@@ -507,8 +507,8 @@ router.post('/folders/delete', async (req, res) => {
   try {
     await imapManager.deleteFolder(check.rows[0], path);
   } catch (err) {
-    console.warn(`IMAP deleteFolder warning for ${path}:`, err.message);
-    // Continue — remove from DB even if IMAP fails
+    console.error(`IMAP deleteFolder failed for ${path}:`, err.message);
+    return res.status(500).json({ error: 'Failed to delete folder on server' });
   }
   await query('DELETE FROM folders WHERE account_id = $1 AND path = $2', [accountId, path]);
   await query('DELETE FROM messages WHERE account_id = $1 AND folder = $2', [accountId, path]);
@@ -554,8 +554,8 @@ router.post('/folders/empty', async (req, res) => {
   try {
     await imapManager.emptyFolder(check.rows[0], path);
   } catch (err) {
-    console.warn(`IMAP emptyFolder warning for ${path}:`, err.message);
-    // Continue — clean up DB regardless
+    console.error(`IMAP emptyFolder failed for ${path}:`, err.message);
+    return res.status(500).json({ error: 'Failed to empty folder on server' });
   }
   await query('DELETE FROM messages WHERE account_id = $1 AND folder = $2', [accountId, path]);
   res.json({ ok: true });
@@ -581,29 +581,41 @@ router.post('/messages/bulk-delete', async (req, res) => {
   const owned = result.rows;
   if (!owned.length) return res.json({ ok: true, deleted: [] });
 
-  const ownedIds = owned.map(m => m.id);
-  await query('UPDATE messages SET is_deleted = true WHERE id = ANY($1::uuid[])', [ownedIds]);
-
-  // Group by account_id then move each group to trash (best-effort, fire-and-forget)
+  // Group by account, attempt IMAP moves concurrently, then only update DB for successes.
   const byAccount = {};
   for (const msg of owned) {
     (byAccount[msg.account_id] = byAccount[msg.account_id] || []).push(msg);
   }
+
+  const succeededIds = [];
   for (const [accountId, msgs] of Object.entries(byAccount)) {
     const trash = await query(
       `SELECT path FROM folders WHERE account_id = $1 AND (special_use = '\\Trash' OR lower(name) LIKE '%trash%') LIMIT 1`,
       [accountId]
     );
-    if (!trash.rows.length) continue;
+    if (!trash.rows.length) {
+      // No trash folder — mark deleted without an IMAP move
+      succeededIds.push(...msgs.map(m => m.id));
+      continue;
+    }
     const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
     const account = accountResult.rows[0];
-    for (const msg of msgs) {
-      imapManager.moveMessage(account, msg.uid, msg.folder, trash.rows[0].path)
-        .catch(err => console.error(`bulk-delete IMAP move ${msg.id}:`, err.message));
-    }
+    const results = await Promise.allSettled(
+      msgs.map(msg => imapManager.moveMessage(account, msg.uid, msg.folder, trash.rows[0].path))
+    );
+    results.forEach((r, i) => {
+      if (r.status === 'fulfilled') {
+        succeededIds.push(msgs[i].id);
+      } else {
+        console.error(`bulk-delete IMAP move ${msgs[i].id}:`, r.reason.message);
+      }
+    });
   }
 
-  res.json({ ok: true, deleted: ownedIds });
+  if (succeededIds.length) {
+    await query('UPDATE messages SET is_deleted = true WHERE id = ANY($1::uuid[])', [succeededIds]);
+  }
+  res.json({ ok: true, deleted: succeededIds });
 });
 
 // Bulk move to folder
@@ -745,8 +757,6 @@ router.delete('/messages/:id', async (req, res) => {
   if (!result.rows.length) return res.status(404).json({ error: 'Message not found' });
   const message = result.rows[0];
 
-  await query('UPDATE messages SET is_deleted = true WHERE id = $1', [id]);
-
   const trashFolder = await query(`
     SELECT path FROM folders
     WHERE account_id = $1 AND (special_use = '\\Trash' OR lower(name) LIKE '%trash%')
@@ -758,10 +768,12 @@ router.delete('/messages/:id', async (req, res) => {
     try {
       await imapManager.moveMessage(accountResult.rows[0], message.uid, message.folder, trashFolder.rows[0].path);
     } catch (err) {
-      console.error('IMAP move failed:', err.message);
+      console.error('IMAP move to trash failed:', err.message);
+      return res.status(500).json({ error: 'Failed to delete message' });
     }
   }
 
+  await query('UPDATE messages SET is_deleted = true WHERE id = $1', [id]);
   res.json({ ok: true });
 });
 

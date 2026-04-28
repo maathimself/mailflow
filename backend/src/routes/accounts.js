@@ -230,7 +230,27 @@ router.put('/:id', async (req, res) => {
     `UPDATE email_accounts SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`,
     values
   );
-  res.json(safeAccount(result.rows[0]));
+  const updated = result.rows[0];
+  res.json(safeAccount(updated));
+
+  // Sync live IMAP state after DB update (fire-and-forget, non-fatal)
+  const isDisabling = 'enabled' in updates && !updates.enabled;
+  const needsReconnect = !isDisabling && (
+    'enabled' in updates ||        // re-enabling
+    'auth_pass' in updates ||      // password changed
+    'imap_skip_tls_verify' in updates  // TLS setting changed
+  );
+
+  if (isDisabling) {
+    imapManager.disconnectAccount(id).catch(err =>
+      console.error(`Failed to disconnect account ${id} after disable:`, err.message)
+    );
+  } else if (needsReconnect && updated.protocol === 'imap' && updated.enabled) {
+    imapManager.disconnectAccount(id)
+      .then(() => query('SELECT * FROM email_accounts WHERE id = $1', [id]))
+      .then(r => { if (r.rows.length) return imapManager.connectAccount(r.rows[0]); })
+      .catch(err => console.error(`Failed to reconnect account ${id} after update:`, err.message));
+  }
 });
 
 router.delete('/:id', async (req, res) => {

@@ -180,6 +180,14 @@ export async function initDb() {
       );
 
       ALTER TABLE folders ADD COLUMN IF NOT EXISTS uid_validity BIGINT;
+
+      CREATE INDEX IF NOT EXISTS idx_messages_list
+        ON messages(account_id, folder, date DESC)
+        WHERE is_deleted = false;
+
+      CREATE INDEX IF NOT EXISTS idx_messages_list_unread
+        ON messages(account_id, folder, date DESC)
+        WHERE is_deleted = false AND is_read = false;
     `);
   } finally {
     client.release();
