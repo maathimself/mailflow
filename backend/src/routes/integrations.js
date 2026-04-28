@@ -24,7 +24,7 @@ router.get('/', async (req, res) => {
 // Save/update integration config — admin only (writes affect global OAuth env vars)
 router.post('/:provider', requireAdmin, async (req, res) => {
   const { provider } = req.params;
-  const allowed = ['microsoft', 'google'];
+  const allowed = ['microsoft'];
   if (!allowed.includes(provider)) return res.status(400).json({ error: 'Unknown provider' });
 
   const config = req.body;

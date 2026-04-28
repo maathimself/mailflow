@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { isIPv4, isIPv6 } from 'net';
+import { promises as dnsPromises } from 'dns';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { imapManager } from '../index.js';
@@ -40,8 +41,8 @@ function isPrivateIPv6(ip) {
   return h === '::1' || h.startsWith('fc') || h.startsWith('fd') || h.startsWith('fe80');
 }
 
-// Returns an error string if the host is blocked, null if acceptable.
-function validateHost(host) {
+// Synchronous check: literal IPs and reserved hostnames.
+function validateHostLiteral(host) {
   if (!host || typeof host !== 'string') return null;
   const h = host.trim().toLowerCase();
   if (h === 'localhost' || h.endsWith('.local') || h.endsWith('.localhost') || h.endsWith('.internal')) {
@@ -50,6 +51,34 @@ function validateHost(host) {
   const bare = h.startsWith('[') && h.endsWith(']') ? h.slice(1, -1) : h;
   if (isIPv4(bare) && isPrivateIPv4(bare)) return 'Host cannot be a private or reserved IP address';
   if (isIPv6(bare) && isPrivateIPv6(bare)) return 'Host cannot be a private or reserved IP address';
+  return null;
+}
+
+// Async check: resolve A/AAAA records and reject any that are private/reserved.
+// Prevents SSRF via controlled hostnames that resolve to internal addresses.
+async function validateHost(host) {
+  const literalErr = validateHostLiteral(host);
+  if (literalErr) return literalErr;
+
+  const h = host.trim().toLowerCase();
+  const bare = h.startsWith('[') && h.endsWith(']') ? h.slice(1, -1) : h;
+
+  // Already a literal IP — validated above.
+  if (isIPv4(bare) || isIPv6(bare)) return null;
+
+  // Resolve A and AAAA records. Ignore DNS errors — if the host can't be resolved,
+  // the IMAP/SMTP connection will fail naturally; the concern is hosts that DO resolve
+  // to private ranges.
+  const [v4, v6] = await Promise.all([
+    dnsPromises.resolve4(bare).catch(() => []),
+    dnsPromises.resolve6(bare).catch(() => []),
+  ]);
+
+  for (const addr of [...v4, ...v6]) {
+    if (isIPv4(addr) && isPrivateIPv4(addr)) return 'Host resolves to a private or reserved IP address';
+    if (isIPv6(addr) && isPrivateIPv6(addr)) return 'Host resolves to a private or reserved IP address';
+  }
+
   return null;
 }
 
@@ -110,17 +139,17 @@ router.post('/', async (req, res) => {
     smtp_host, smtp_port = 587, smtp_tls = 'STARTTLS',
     auth_user, auth_pass,
     oauth_provider, oauth_access_token, oauth_refresh_token,
-    jmap_session_url, signature = null
+    signature = null
   } = req.body;
 
   if (!name || !email_address) return res.status(400).json({ error: 'Name and email required' });
 
   if (imap_host) {
-    const err = validateHost(imap_host) || validatePort(imap_port, ALLOWED_IMAP_PORTS);
+    const err = (await validateHost(imap_host)) || validatePort(imap_port, ALLOWED_IMAP_PORTS);
     if (err) return res.status(400).json({ error: `IMAP: ${err}` });
   }
   if (smtp_host) {
-    const err = validateHost(smtp_host) || validatePort(smtp_port, ALLOWED_SMTP_PORTS);
+    const err = (await validateHost(smtp_host)) || validatePort(smtp_port, ALLOWED_SMTP_PORTS);
     if (err) return res.status(400).json({ error: `SMTP: ${err}` });
   }
 
@@ -130,14 +159,14 @@ router.post('/', async (req, res) => {
         user_id, name, email_address, color, protocol,
         imap_host, imap_port, imap_tls, smtp_host, smtp_port, smtp_tls,
         auth_user, auth_pass, oauth_provider, oauth_access_token, oauth_refresh_token,
-        jmap_session_url, signature
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+        signature
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
       RETURNING *
     `, [
       req.session.userId, name, email_address, color, protocol,
       imap_host, imap_port, imap_tls, smtp_host, smtp_port, smtp_tls,
       auth_user, encrypt(auth_pass), oauth_provider, encrypt(oauth_access_token), encrypt(oauth_refresh_token),
-      jmap_session_url, sanitizeSignature(signature) || null
+      sanitizeSignature(signature) || null
     ]);
 
     const account = result.rows[0];
@@ -163,7 +192,7 @@ router.put('/:id', async (req, res) => {
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
 
   if ('smtp_host' in updates && updates.smtp_host) {
-    const err = validateHost(updates.smtp_host);
+    const err = await validateHost(updates.smtp_host);
     if (err) return res.status(400).json({ error: `SMTP: ${err}` });
   }
   if ('smtp_port' in updates && updates.smtp_port !== undefined && updates.smtp_port !== null) {

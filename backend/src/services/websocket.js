@@ -1,5 +1,19 @@
+// Derive the expected origin from APP_URL once at startup.
+// If APP_URL is not set, origin validation is skipped (dev / unconfigured installs).
+const ALLOWED_ORIGIN = (() => {
+  try { return process.env.APP_URL ? new URL(process.env.APP_URL).origin : null; } catch (_) { return null; }
+})();
+
 export function setupWebSocket(wss, sessionMiddleware, imapManager) {
   wss.on('connection', (ws, req) => {
+    // Reject cross-origin WebSocket connections when APP_URL is configured.
+    // Browsers always send Origin on WS upgrades; absence means a non-browser client.
+    const origin = req.headers.origin;
+    if (ALLOWED_ORIGIN && origin && origin !== ALLOWED_ORIGIN) {
+      ws.close(1008, 'Forbidden');
+      return;
+    }
+
     // Parse session from upgrade request
     const fakeRes = {
       getHeader: () => {},

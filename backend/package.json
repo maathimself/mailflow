@@ -22,6 +22,7 @@
     "node-html-parser": "^6.1.13",
     "sanitize-html": "^2.12.1",
     "googleapis": "^144.0.0",
+    "jose": "^6.2.3",
     "luxon": "^3.4.4",
     "otplib": "^12.0.1",
     "qrcode": "^1.5.3"

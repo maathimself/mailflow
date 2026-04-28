@@ -82,8 +82,8 @@ export default function MailApp() {
     };
 
     const handler = (e) => {
-      // Never intercept when the compose modal is open or an input is focused
-      if (composingRef.current) return;
+      // Never intercept when the compose modal or admin panel is open, or an input is focused
+      if (composingRef.current || showAdminRef.current) return;
       const tag = e.target.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
       // Leave browser shortcuts (Ctrl/Cmd/Alt combos) alone

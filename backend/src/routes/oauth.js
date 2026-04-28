@@ -1,8 +1,20 @@
 import { randomBytes } from 'crypto';
 import { Router } from 'express';
+import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { query } from '../services/db.js';
 import { imapManager } from '../index.js';
 import { encrypt, decrypt } from '../services/encryption.js';
+
+// Cache JWKS fetchers per tenant — createRemoteJWKSet handles caching internally.
+const jwksCache = new Map();
+function getMsJwks(tenantId) {
+  if (!jwksCache.has(tenantId)) {
+    jwksCache.set(tenantId, createRemoteJWKSet(
+      new URL(`https://login.microsoftonline.com/${tenantId}/discovery/v2.0/keys`)
+    ));
+  }
+  return jwksCache.get(tenantId);
+}
 
 const router = Router();
 
@@ -87,20 +99,28 @@ router.get('/microsoft/callback', async (req, res) => {
     const { access_token, refresh_token, expires_in, id_token } = tokens;
     const expiry = new Date(Date.now() + expires_in * 1000);
 
-    // Extract user info from the id_token JWT payload.
-    // The access_token is scoped to outlook.office.com (for IMAP/SMTP), so it cannot
-    // be used with graph.microsoft.com — different token audience. Decoding the id_token
-    // (returned whenever openid+email+profile scopes are granted) avoids that problem.
+    // Validate the id_token via Microsoft's JWKS, then extract user info.
+    // The access_token is scoped to outlook.office.com (IMAP/SMTP) and cannot be used
+    // with graph.microsoft.com, so id_token is the right source for email/name.
     let email = null;
     let displayName = null;
     if (id_token) {
+      const jwks = getMsJwks(tenantId);
+      const verifyOpts = { audience: clientId };
+      // For multi-tenant ('common'/'organizations'/'consumers'), issuers vary per tenant,
+      // so we skip issuer validation and rely on audience + signature instead.
+      const fixedTenants = new Set(['common', 'organizations', 'consumers']);
+      if (!fixedTenants.has(tenantId)) {
+        verifyOpts.issuer = `https://login.microsoftonline.com/${tenantId}/v2.0`;
+      }
       try {
-        const payload = JSON.parse(
-          Buffer.from(id_token.split('.')[1], 'base64url').toString('utf8')
-        );
+        const { payload } = await jwtVerify(id_token, jwks, verifyOpts);
         email = payload.email || payload.preferred_username || null;
         displayName = payload.name || null;
-      } catch (_) {}
+      } catch (jwtErr) {
+        console.error('Microsoft id_token validation failed:', jwtErr.message);
+        throw new Error('Could not validate Microsoft identity token — please try again');
+      }
     }
 
     if (!email) throw new Error('Could not retrieve email address from Microsoft profile — ensure the openid, email, and profile scopes are granted');

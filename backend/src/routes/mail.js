@@ -97,7 +97,35 @@ router.get('/messages', async (req, res) => {
   if (unreadOnly === 'true') whereConditions.push('m.is_read = false');
 
   const where = whereConditions.join(' AND ');
-  const countResult = await query(`SELECT COUNT(*) FROM messages m WHERE ${where}`, values);
+
+  // Use cached counts from the folders table instead of an expensive COUNT(*).
+  // These are kept current by the sync process and are accurate within one sync cycle.
+  let total = 0;
+  try {
+    if (accountId && userAccountIds.includes(accountId)) {
+      const r = await query(
+        'SELECT total_count, unread_count FROM folders WHERE account_id = $1 AND path = $2',
+        [accountId, folder]
+      );
+      if (r.rows.length) {
+        total = unreadOnly === 'true' ? (r.rows[0].unread_count ?? 0) : (r.rows[0].total_count ?? 0);
+      }
+    } else {
+      // Unified inbox: sum INBOX counts across all enabled accounts
+      const r = unreadOnly === 'true'
+        ? await query(
+            "SELECT COALESCE(SUM(unread_count), 0)::int AS n FROM folders WHERE account_id = ANY($1) AND path = 'INBOX'",
+            [userAccountIds]
+          )
+        : await query(
+            "SELECT COALESCE(SUM(total_count), 0)::int AS n FROM folders WHERE account_id = ANY($1) AND path = 'INBOX'",
+            [userAccountIds]
+          );
+      total = r.rows[0]?.n ?? 0;
+    }
+  } catch (_) {
+    total = 0;
+  }
 
   values.push(Math.min(Math.max(parseInt(limit) || 50, 1), 200));
   values.push(Math.max(parseInt(offset) || 0, 0));
@@ -115,7 +143,7 @@ router.get('/messages', async (req, res) => {
     LIMIT $${p++} OFFSET $${p++}
   `, values);
 
-  res.json({ messages: result.rows, total: parseInt(countResult.rows[0].count) });
+  res.json({ messages: result.rows, total });
 });
 
 // Returns true if remote images should be blocked for this message given the user's preferences.

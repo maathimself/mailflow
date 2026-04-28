@@ -1044,10 +1044,13 @@ export class ImapManager {
     if (this.snippetIndexerRunning.has(account.id)) return;
     this.snippetIndexerRunning.add(account.id);
 
-    // Rate limit: conservative batches so this doesn't affect normal usage
+    // Rate limit: conservative batches so this doesn't affect normal usage.
+    // Cap per run so a large account doesn't occupy an IMAP connection indefinitely;
+    // the indexer resumes from where it left off on the next server startup.
     const cfg = backfillConfig(account);
     const batchSize = 50;
     const batchDelay = Math.max(cfg.batchDelay, 2000); // at least 2s between batches
+    const MAX_BATCHES_PER_RUN = 200; // 10,000 messages max per session
 
     let siClient = null;
     try {
@@ -1098,6 +1101,15 @@ export class ImapManager {
             await openClient().catch(err => {
               console.error(`Snippet indexer reconnect failed: ${err.message}`);
             });
+          }
+
+          if (batchCount >= MAX_BATCHES_PER_RUN) {
+            const remaining = await query(
+              "SELECT count(*) FROM messages WHERE account_id = $1 AND (snippet IS NULL OR snippet = '')",
+              [account.id]
+            );
+            console.log(`Snippet indexer paused for ${account.email_address} after ${batchCount} batches — ${remaining.rows[0].count} remaining, will resume on next startup`);
+            return;
           }
 
           const batchResult = await query(

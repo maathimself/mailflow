@@ -43,8 +43,9 @@ router.get('/setup', async (req, res) => {
   const otpauthUrl = authenticator.keyuri(username, 'MailFlow', secret);
   const qrCode = await QRCode.toDataURL(otpauthUrl);
 
-  // Hold the secret in the session until the user verifies it
+  // Hold the secret in the session until the user verifies it (10 min TTL)
   req.session.pendingTOTPSecret = secret;
+  req.session.pendingTOTPExpiry = Date.now() + 10 * 60 * 1000;
 
   res.json({ secret, qrCode });
 });
@@ -55,7 +56,13 @@ router.post('/enable', totpLimiter, async (req, res) => {
   if (!code) return res.status(400).json({ error: 'Code required' });
 
   const secret = req.session.pendingTOTPSecret;
+  const expiry = req.session.pendingTOTPExpiry;
   if (!secret) return res.status(400).json({ error: 'No pending setup found. Start over.' });
+  if (!expiry || Date.now() > expiry) {
+    delete req.session.pendingTOTPSecret;
+    delete req.session.pendingTOTPExpiry;
+    return res.status(400).json({ error: 'Setup session expired. Start over.' });
+  }
 
   if (!authenticator.verify({ token: String(code).replace(/\s/g, ''), secret })) {
     return res.status(400).json({ error: 'Invalid code — check your device clock and try again.' });
@@ -66,7 +73,15 @@ router.post('/enable', totpLimiter, async (req, res) => {
     [encrypt(secret), req.session.userId]
   );
   delete req.session.pendingTOTPSecret;
+  delete req.session.pendingTOTPExpiry;
 
+  res.json({ ok: true });
+});
+
+// POST /api/totp/cancel — discard a pending setup without enabling TOTP
+router.post('/cancel', (req, res) => {
+  delete req.session.pendingTOTPSecret;
+  delete req.session.pendingTOTPExpiry;
   res.json({ ok: true });
 });
 

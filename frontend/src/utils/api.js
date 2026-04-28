@@ -40,6 +40,7 @@ export const api = {
     setup: () => request('GET', '/totp/setup'),
     enable: (code) => request('POST', '/totp/enable', { code }),
     disable: (password) => request('POST', '/totp/disable', { password }),
+    cancel: () => request('POST', '/totp/cancel'),
     challenge: (code) => request('POST', '/auth/2fa/challenge', { code }),
   },
 

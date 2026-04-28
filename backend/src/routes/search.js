@@ -5,6 +5,31 @@ import { requireAuth } from '../middleware/auth.js';
 const router = Router();
 router.use(requireAuth);
 
+// Simple in-memory rate limiter: 20 searches per minute per user.
+const searchBuckets = new Map();
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, b] of searchBuckets) {
+    if (now > b.resetAt) searchBuckets.delete(k);
+  }
+}, 60_000);
+
+function searchLimiter(req, res, next) {
+  const key = req.session.userId;
+  const now = Date.now();
+  const b = searchBuckets.get(key);
+  if (!b || now > b.resetAt) {
+    searchBuckets.set(key, { count: 1, resetAt: now + 60_000 });
+    return next();
+  }
+  if (b.count >= 20) {
+    res.setHeader('Retry-After', Math.ceil((b.resetAt - now) / 1000));
+    return res.status(429).json({ error: 'Too many search requests. Try again shortly.' });
+  }
+  b.count++;
+  next();
+}
+
 // Parse "from:amazon subject:invoice hello world" into structured operators + free-text terms.
 // Supports: from: to: subject: has: is: after: before:
 // Quoted values: from:"John Smith"
@@ -28,7 +53,7 @@ function parseSearchQuery(raw) {
   return { ops, terms };
 }
 
-router.get('/', async (req, res) => {
+router.get('/', searchLimiter, async (req, res) => {
   const { q, accountId, limit = 50, offset = 0 } = req.query;
   const trimmed = (q || '').trim();
   if (!trimmed) return res.json({ messages: [] });
@@ -94,6 +119,7 @@ router.get('/', async (req, res) => {
   // AND between all terms: every word must appear somewhere in the email.
 
   for (const term of terms.slice(0, 10)) {
+    if (term.length < 2) continue; // single-char terms are too broad and expensive
     params.push(`%${term}%`); // ILIKE pattern
     const likeIdx = p++;
 
