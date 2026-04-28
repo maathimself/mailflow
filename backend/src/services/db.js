@@ -178,6 +178,8 @@ export async function initDb() {
         signature TEXT,
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
+
+      ALTER TABLE folders ADD COLUMN IF NOT EXISTS uid_validity BIGINT;
     `);
   } finally {
     client.release();

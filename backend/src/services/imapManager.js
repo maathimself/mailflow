@@ -348,6 +348,7 @@ export class ImapManager {
     this.connectingAccounts = new Set(); // prevent concurrent connectAccount calls for same account
     this.userSyncIntervalMs = new Map(); // userId -> interval ms (user-configurable)
     this.snippetIndexerRunning = new Set(); // accountId — prevent duplicate snippet-index runs
+    this.syncTickCount = new Map(); // accountId -> successful sync ticks (for reconcile scheduling)
 
     // Health check: every 90 seconds, find any enabled IMAP accounts that have no
     // active connection and no in-progress connect attempt, and reconnect them.
@@ -468,14 +469,16 @@ export class ImapManager {
   }
 
   async disconnectAccount(accountId) {
-    const interval = this.syncIntervals.get(accountId);
-    if (interval) { clearInterval(interval); this.syncIntervals.delete(accountId); }
+    const timer = this.syncIntervals.get(accountId);
+    // clearTimeout works for both setTimeout and setInterval Timeout objects in Node.js
+    if (timer) { clearTimeout(timer); this.syncIntervals.delete(accountId); }
     const client = this.connections.get(accountId);
     if (client) {
       try { await client.logout(); } catch (_) {}
       this.connections.delete(accountId);
     }
     this.syncThrottleSkips.delete(accountId);
+    this.syncTickCount.delete(accountId);
     evictPool(accountId);
   }
 
@@ -527,6 +530,18 @@ export class ImapManager {
         ),
       ]);
       this.broadcast({ type: 'sync_complete', accountId: account.id }, account.user_id);
+
+      // Reconcile remote deletes every 10 successful ticks (~10 min at 60 s interval).
+      // Uses a pooled connection so it never blocks the sync client.
+      const ticks = (this.syncTickCount.get(account.id) || 0) + 1;
+      this.syncTickCount.set(account.id, ticks);
+      if (ticks % 10 === 0) {
+        setImmediate(() => {
+          this.reconcileDeletes(account).catch(err =>
+            console.error(`Reconcile error for ${account.email_address}:`, err.message)
+          );
+        });
+      }
     } catch (err) {
       const detail = extractImapError(err);
       console.error(`Sync error for ${account.email_address}:`, detail);
@@ -544,8 +559,17 @@ export class ImapManager {
   }
 
   _startSyncInterval(account, ms) {
-    const interval = setInterval(() => this._syncTick(account), ms);
-    this.syncIntervals.set(account.id, interval);
+    // Stagger the first tick by a random offset within [0, min(ms, 30s)] so that
+    // many accounts starting simultaneously (e.g. after a container restart) don't
+    // all hit their mail servers at the same instant.
+    const jitter = Math.floor(Math.random() * Math.min(ms, 30000));
+    const t = setTimeout(() => {
+      if (!this.syncIntervals.has(account.id)) return; // disconnected during jitter window
+      this._syncTick(account);
+      const interval = setInterval(() => this._syncTick(account), ms);
+      this.syncIntervals.set(account.id, interval);
+    }, jitter);
+    this.syncIntervals.set(account.id, t);
   }
 
   // Called when a user changes their sync interval preference — replaces running
@@ -558,7 +582,7 @@ export class ImapManager {
     );
     for (const acc of result.rows) {
       if (this.syncIntervals.has(acc.id)) {
-        clearInterval(this.syncIntervals.get(acc.id));
+        clearTimeout(this.syncIntervals.get(acc.id));
         this.syncIntervals.delete(acc.id);
         this._startSyncInterval(acc, newMs);
       }
@@ -602,12 +626,33 @@ export class ImapManager {
         const mailbox = client.mailbox;
         if (!mailbox || mailbox.exists === 0) return;
 
+        // UIDVALIDITY check — detects server-side mailbox rebuilds (migration, restore).
+        // If UIDVALIDITY changed, all stored UIDs for this folder are invalid; purge them
+        // and let backfill re-populate from the new UID epoch.
+        const currentValidity = mailbox.uidValidity ? Number(mailbox.uidValidity) : null;
+        if (currentValidity) {
+          const foldRow = await query(
+            'SELECT uid_validity FROM folders WHERE account_id = $1 AND path = $2',
+            [account.id, folder]
+          );
+          const storedValidity = foldRow.rows[0]?.uid_validity ? Number(foldRow.rows[0].uid_validity) : null;
+          if (storedValidity !== null && storedValidity !== currentValidity) {
+            console.warn(`UIDVALIDITY changed for ${account.email_address}/${folder}: ${storedValidity} → ${currentValidity}. Purging stale messages and re-backfilling.`);
+            await query('DELETE FROM messages WHERE account_id = $1 AND folder = $2', [account.id, folder]);
+            setImmediate(() => {
+              this.backfillMessages(account, folder).catch(err =>
+                console.error(`Post-UIDVALIDITY backfill error for ${account.email_address}/${folder}:`, err.message)
+              );
+            });
+          }
+        }
+
         await query(`
-          INSERT INTO folders (account_id, path, name, total_count, unread_count)
-          VALUES ($1, $2, $2, $3, $4)
+          INSERT INTO folders (account_id, path, name, total_count, unread_count, uid_validity)
+          VALUES ($1, $2, $2, $3, $4, $5)
           ON CONFLICT (account_id, path) DO UPDATE
-          SET total_count = $3, unread_count = $4, updated_at = NOW()
-        `, [account.id, folder, mailbox.exists, mailbox.unseen || 0]);
+          SET total_count = $3, unread_count = $4, uid_validity = COALESCE($5, folders.uid_validity), updated_at = NOW()
+        `, [account.id, folder, mailbox.exists, mailbox.unseen || 0, currentValidity]);
 
         const fetchRange = mailbox.exists > limit
           ? `${mailbox.exists - limit + 1}:${mailbox.exists}` : '1:*';
@@ -791,6 +836,26 @@ export class ImapManager {
             return;
           }
           serverUids = await bfClient.search({ all: true }, { uid: true });
+
+          // UIDVALIDITY check — if this backfill connection sees a different epoch than
+          // what is stored, purge stale rows so the diff below re-fetches everything.
+          const currentValidity = bfClient.mailbox?.uidValidity ? Number(bfClient.mailbox.uidValidity) : null;
+          if (currentValidity) {
+            const foldRow = await query(
+              'SELECT uid_validity FROM folders WHERE account_id = $1 AND path = $2',
+              [account.id, folder]
+            );
+            const storedValidity = foldRow.rows[0]?.uid_validity ? Number(foldRow.rows[0].uid_validity) : null;
+            if (storedValidity !== null && storedValidity !== currentValidity) {
+              console.warn(`Backfill: UIDVALIDITY changed for ${account.email_address}/${folder}: ${storedValidity} → ${currentValidity}. Purging stale messages.`);
+              await query('DELETE FROM messages WHERE account_id = $1 AND folder = $2', [account.id, folder]);
+            }
+            // Always keep stored validity current
+            await query(
+              'UPDATE folders SET uid_validity = $1 WHERE account_id = $2 AND path = $3',
+              [currentValidity, account.id, folder]
+            );
+          }
         } finally {
           lock.release();
         }
@@ -1550,20 +1615,28 @@ export class ImapManager {
       : result.rows;
 
     await Promise.all(accounts.map(async (account) => {
+      // Guard against overlapping syncs — interval sync may already be running
+      if (this.syncingAccounts.has(account.id)) {
+        console.log(`syncNow: ${account.email_address} already syncing, skipping`);
+        return;
+      }
       const client = this.connections.get(account.id);
       if (!client) {
-        // No persistent connection — reconnect now (also performs an initial sync)
         console.log(`syncNow: ${account.email_address} not connected, reconnecting`);
         await this.connectAccount(account);
         return;
       }
+      this.syncingAccounts.add(account.id);
       try {
-        await this.syncMessages(account, client, 'INBOX', 50);
+        // noBodyParts=true: metadata-only, same as the periodic interval sync.
+        // Bodies are cached on first open; fetching them here would slow manual refresh.
+        await this.syncMessages(account, client, 'INBOX', 50, false, true);
         console.log(`syncNow complete: ${account.email_address}`);
       } catch (err) {
         console.error(`syncNow error for ${account.email_address}:`, err.message);
-        // Remove dead connection so next call reconnects it
         this.connections.delete(account.id);
+      } finally {
+        this.syncingAccounts.delete(account.id);
       }
     }));
 
@@ -1579,7 +1652,61 @@ export class ImapManager {
     });
   }
 
+  // Compare the server's INBOX UID set against our DB and hard-delete any rows
+  // whose UIDs no longer exist on the server (deleted by another IMAP client).
+  // Uses a pooled connection so it never contends with the persistent sync client.
+  async reconcileDeletes(account) {
+    const folder = 'INBOX';
+    let serverUids;
+    try {
+      await withFreshClient(account, async (client) => {
+        const lock = await client.getMailboxLock(folder);
+        try {
+          serverUids = await client.search({ all: true }, { uid: true });
+        } finally {
+          lock.release();
+        }
+      });
+    } catch (err) {
+      // Connection failure — skip this reconcile cycle silently
+      console.warn(`Reconcile: could not fetch server UIDs for ${account.email_address}: ${extractImapError(err)}`);
+      return;
+    }
+
+    const serverUidSet = new Set(serverUids);
+    const dbResult = await query(
+      'SELECT uid FROM messages WHERE account_id = $1 AND folder = $2',
+      [account.id, folder]
+    );
+    const orphanUids = dbResult.rows
+      .map(r => Number(r.uid))
+      .filter(uid => !serverUidSet.has(uid));
+
+    if (orphanUids.length === 0) return;
+
+    console.log(`Reconcile: removing ${orphanUids.length} server-deleted message(s) from ${account.email_address}/${folder}`);
+    await query(
+      'DELETE FROM messages WHERE account_id = $1 AND folder = $2 AND uid = ANY($3::bigint[])',
+      [account.id, folder, orphanUids]
+    );
+    this.broadcast({ type: 'sync_complete', accountId: account.id }, account.user_id);
+  }
+
   async connectAllForUser(userId) {
+    // Load the user's preferred sync interval before starting any account intervals.
+    // Without this, a user who set e.g. 30 s would silently revert to 60 s after
+    // a container restart until they next change the setting.
+    try {
+      const prefResult = await query('SELECT preferences FROM users WHERE id = $1', [userId]);
+      const prefs = prefResult.rows[0]?.preferences || {};
+      const sec = parseInt(prefs.syncInterval);
+      if (sec >= 15 && sec <= 120) {
+        this.userSyncIntervalMs.set(userId, sec * 1000);
+      }
+    } catch (err) {
+      console.warn(`Failed to load sync preference for user ${userId}:`, err.message);
+    }
+
     const result = await query(
       'SELECT * FROM email_accounts WHERE user_id = $1 AND enabled = true AND protocol = $2',
       [userId, 'imap']
