@@ -14,14 +14,31 @@ function formatBytes(bytes) {
 
 function fileIcon(type) {
   const t = (type || '').toLowerCase();
-  if (t.startsWith('image/')) return '🖼';
-  if (t === 'application/pdf') return '📄';
-  if (t.includes('word') || t.includes('document')) return '📝';
-  if (t.includes('sheet') || t.includes('excel') || t.includes('csv')) return '📊';
-  if (t.includes('zip') || t.includes('compressed') || t.includes('archive')) return '🗜';
-  if (t.startsWith('video/')) return '🎬';
-  if (t.startsWith('audio/')) return '🎵';
-  return '📎';
+  const p = { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.75 };
+  if (t.startsWith('image/')) return (
+    <svg {...p}><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+  );
+  if (t === 'application/pdf') return (
+    <svg {...p}><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+  );
+  if (t.includes('word') || t.includes('document')) return (
+    <svg {...p}><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+  );
+  if (t.includes('sheet') || t.includes('excel') || t.includes('csv')) return (
+    <svg {...p}><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="10" y1="13" x2="10" y2="17"/><line x1="8" y1="15" x2="12" y2="15"/></svg>
+  );
+  if (t.includes('zip') || t.includes('compressed') || t.includes('archive')) return (
+    <svg {...p}><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="11" x2="16" y2="11"/></svg>
+  );
+  if (t.startsWith('video/')) return (
+    <svg {...p}><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+  );
+  if (t.startsWith('audio/')) return (
+    <svg {...p}><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+  );
+  return (
+    <svg {...p}><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+  );
 }
 
 export default function MessagePane() {
@@ -797,7 +814,7 @@ export default function MessagePane() {
                   onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
                   onMouseLeave={e => e.currentTarget.style.background = 'var(--bg-secondary)'}
                 >
-                  <span style={{ fontSize: 18, lineHeight: 1 }}>{fileIcon(att.type)}</span>
+                  <span style={{ display: 'flex', flexShrink: 0, color: 'var(--text-secondary)' }}>{fileIcon(att.type)}</span>
                   <div style={{ minWidth: 0, textAlign: 'left' }}>
                     <div style={{
                       fontSize: 12, fontWeight: 500,
@@ -821,10 +838,17 @@ export default function MessagePane() {
           </div>
         )}
 
-        {/* Loading */}
+        {/* Loading — skeleton body lines */}
         {loadingBody && (
-          <div style={{ color: 'var(--text-tertiary)', fontSize: 14, padding: '20px 0' }}>
-            Loading…
+          <div style={{ padding: '20px 0', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div className="skeleton-line" style={{ height: 13, width: '62%', borderRadius: 4 }} />
+            <div className="skeleton-line" style={{ height: 13, width: '88%', borderRadius: 4 }} />
+            <div className="skeleton-line" style={{ height: 13, width: '75%', borderRadius: 4 }} />
+            <div className="skeleton-line" style={{ height: 13, width: '50%', borderRadius: 4, marginBottom: 8 }} />
+            <div className="skeleton-line" style={{ height: 13, width: '82%', borderRadius: 4 }} />
+            <div className="skeleton-line" style={{ height: 13, width: '68%', borderRadius: 4 }} />
+            <div className="skeleton-line" style={{ height: 13, width: '90%', borderRadius: 4 }} />
+            <div className="skeleton-line" style={{ height: 13, width: '58%', borderRadius: 4 }} />
           </div>
         )}
 

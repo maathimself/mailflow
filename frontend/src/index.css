@@ -21,6 +21,10 @@
   --green: #4ade80;
   --red: #f87171;
   --amber: #fbbf24;
+  /* Elevation system */
+  --shadow-soft: 0 2px 8px rgba(0,0,0,0.28);
+  --shadow-popover: 0 4px 20px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.04);
+  --shadow-modal: 0 8px 48px rgba(0,0,0,0.65), 0 0 0 1px rgba(255,255,255,0.06);
 }
 
 * {
@@ -112,6 +116,24 @@ body, #root {
   from { opacity: 0; transform: translateY(4px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+/* Compose modal entrance */
+@keyframes compose-enter {
+  from { opacity: 0; transform: translateY(14px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Mobile toast (slides up, no sideways) */
+@keyframes toast-in-mobile {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes toast-out-mobile {
+  from { opacity: 1; transform: translateY(0); }
+  to   { opacity: 0; transform: translateY(12px); }
+}
+.toast-enter-mobile { animation: toast-in-mobile 0.2s ease forwards; }
+.toast-exit-mobile  { animation: toast-out-mobile 0.2s ease forwards; }
 
 /* Skeleton loader shimmer */
 @keyframes skeleton-shimmer {

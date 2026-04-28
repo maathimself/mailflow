@@ -17,6 +17,12 @@ function normalizeTo(arr) {
   }).filter(Boolean).join(', ');
 }
 
+// Parse a normalizeTo string (or raw value) into an array of chips
+function parseChips(val) {
+  const str = typeof val === 'string' ? val : normalizeTo(val);
+  return str ? str.split(',').map(s => s.trim()).filter(Boolean) : [];
+}
+
 export default function ComposeModal() {
   const { closeCompose, composeData, accounts, addNotification } = useStore();
   const isMobile = useMobile();
@@ -24,8 +30,10 @@ export default function ComposeModal() {
   const isReply = !!(composeData?.isReply || composeData?.isReplyAll);
   const isForward = !!composeData?.isForward;
 
-  const [to, setTo] = useState(() => normalizeTo(composeData?.to) || '');
-  const [cc, setCc] = useState(() => normalizeTo(composeData?.cc) || '');
+  const [toChips, setToChips] = useState(() => parseChips(composeData?.to));
+  const [toInput, setToInput] = useState('');
+  const [ccChips, setCcChips] = useState(() => parseChips(composeData?.cc));
+  const [ccInput, setCcInput] = useState('');
   const [subject, setSubject] = useState(() => composeData?.subject || '');
   const [body, setBody] = useState(() => composeData?.body || '');
   const [quotedBody, setQuotedBody] = useState(() => composeData?.quotedBody || '');
@@ -33,11 +41,8 @@ export default function ComposeModal() {
 
   // Re-apply on mount — guards against Zustand state not being ready during first render
   useEffect(() => {
-    if (composeData?.to?.length) {
-      const val = normalizeTo(composeData.to);
-      if (val) setTo(val);
-    }
-    if (composeData?.cc?.length) { setCc(normalizeTo(composeData.cc)); setShowCc(true); }
+    if (composeData?.to?.length) setToChips(parseChips(composeData.to));
+    if (composeData?.cc?.length) { setCcChips(parseChips(composeData.cc)); setShowCc(true); }
     if (composeData?.subject) setSubject(composeData.subject);
     if (composeData?.body !== undefined) setBody(composeData.body);
     if (composeData?.quotedBody !== undefined) setQuotedBody(composeData.quotedBody);
@@ -120,15 +125,16 @@ export default function ComposeModal() {
 
   const handleSend = async () => {
     const { accountId, aliasId } = resolveFrom(fromValue);
-    if (!to.trim() || !accountId) return;
+    const toFinal = [...toChips, ...(toInput.trim() ? [toInput.trim()] : [])];
+    if (!toFinal.length || !accountId) return;
     setSending(true);
     setError('');
     try {
       await api.post('/mail/send', {
         accountId,
         ...(aliasId ? { aliasId } : {}),
-        to: to.split(',').map(s => s.trim()).filter(Boolean),
-        cc: cc ? cc.split(',').map(s => s.trim()).filter(Boolean) : [],
+        to: toFinal,
+        cc: [...ccChips, ...(ccInput.trim() ? [ccInput.trim()] : [])],
         subject,
         body: body + (quotedBody || ''),
         inReplyTo: composeData?.inReplyTo,
@@ -163,15 +169,16 @@ export default function ComposeModal() {
   // ── Mobile full-screen compose ──────────────────────────────────────────────
   if (isMobile) {
     const switchToReply = () => {
-      setTo(normalizeTo(composeData?.originalFrom || composeData?.to) || '');
-      setCc(''); setShowCc(false);
+      setToChips(parseChips(composeData?.originalFrom || composeData?.to));
+      setToInput(''); setCcChips([]); setCcInput(''); setShowCc(false);
       setReplyAll(false);
       setShowReplyType(false);
     };
     const switchToReplyAll = () => {
-      setTo(normalizeTo(composeData?.originalFrom || composeData?.to) || '');
-      const allRecipients = normalizeTo(composeData?.allRecipients || []);
-      if (allRecipients) { setCc(allRecipients); setShowCc(true); }
+      setToChips(parseChips(composeData?.originalFrom || composeData?.to));
+      setToInput('');
+      const allRecipients = parseChips(composeData?.allRecipients || []);
+      if (allRecipients.length) { setCcChips(allRecipients); setCcInput(''); setShowCc(true); }
       setReplyAll(true);
       setShowReplyType(false);
     };
@@ -229,14 +236,14 @@ export default function ComposeModal() {
           </span>
           <button
             onClick={handleSend}
-            disabled={sending || !to.trim()}
+            disabled={sending || (toChips.length === 0 && !toInput.trim())}
             style={{
               display: 'flex', alignItems: 'center', gap: 6,
               minWidth: 60, justifyContent: 'flex-end',
               background: 'none', border: 'none',
-              color: sending || !to.trim() ? 'var(--text-tertiary)' : 'var(--accent)',
+              color: sending || (toChips.length === 0 && !toInput.trim()) ? 'var(--text-tertiary)' : 'var(--accent)',
               fontSize: 16, fontWeight: 600,
-              cursor: sending || !to.trim() ? 'default' : 'pointer',
+              cursor: sending || (toChips.length === 0 && !toInput.trim()) ? 'default' : 'pointer',
               padding: '4px 0',
               WebkitTapHighlightColor: 'transparent',
               transition: 'color 0.15s',
@@ -313,13 +320,14 @@ export default function ComposeModal() {
           </div>
 
           {/* To */}
-          <div style={fieldStyle}>
-            <span style={labelStyle}>To</span>
-            <input
-              type="text" value={to} onChange={e => setTo(e.target.value)}
+          <div style={{ ...fieldStyle, alignItems: 'flex-start', paddingTop: 4 }}>
+            <span style={{ ...labelStyle, paddingTop: 10 }}>To</span>
+            <ChipInput
+              chips={toChips} onChipsChange={setToChips}
+              value={toInput} onChange={setToInput}
               placeholder="recipient@example.com"
               autoFocus={!isReply && !isForward}
-              style={mobileInputStyle}
+              inputStyle={mobileInputStyle}
             />
             {!showCc && (
               <button
@@ -327,8 +335,9 @@ export default function ComposeModal() {
                 style={{
                   background: 'none', border: 'none',
                   color: 'var(--text-tertiary)', cursor: 'pointer',
-                  fontSize: 13, padding: '4px 0 4px 8px',
+                  fontSize: 13, padding: '10px 0 4px 8px',
                   WebkitTapHighlightColor: 'transparent',
+                  flexShrink: 0,
                 }}
               >
                 Cc
@@ -338,12 +347,13 @@ export default function ComposeModal() {
 
           {/* Cc */}
           {showCc && (
-            <div style={fieldStyle}>
-              <span style={labelStyle}>Cc</span>
-              <input
-                type="text" value={cc} onChange={e => setCc(e.target.value)}
+            <div style={{ ...fieldStyle, alignItems: 'flex-start', paddingTop: 4 }}>
+              <span style={{ ...labelStyle, paddingTop: 10 }}>Cc</span>
+              <ChipInput
+                chips={ccChips} onChipsChange={setCcChips}
+                value={ccInput} onChange={setCcInput}
                 placeholder="cc@example.com"
-                style={mobileInputStyle}
+                inputStyle={mobileInputStyle}
               />
             </div>
           )}
@@ -465,9 +475,10 @@ export default function ComposeModal() {
         width: 540, maxWidth: 'calc(100vw - 48px)',
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
         borderBottom: 'none', borderRadius: '10px 10px 0 0',
-        boxShadow: '0 -8px 40px rgba(0,0,0,0.5)',
+        boxShadow: 'var(--shadow-modal)',
         zIndex: 1000, display: 'flex', flexDirection: 'column',
         maxHeight: '75vh',
+        animation: 'compose-enter 0.18s ease',
       }}
     >
       {/* Title bar */}
@@ -517,8 +528,8 @@ export default function ComposeModal() {
                   label="Reply"
                   active={!replyAll}
                   onClick={() => {
-                    setTo(normalizeTo(composeData?.originalFrom || composeData?.to) || '');
-                    setCc(''); setShowCc(false);
+                    setToChips(parseChips(composeData?.originalFrom || composeData?.to));
+                    setToInput(''); setCcChips([]); setCcInput(''); setShowCc(false);
                     setReplyAll(false);
                     setShowReplyType(false);
                   }}
@@ -528,9 +539,10 @@ export default function ComposeModal() {
                   label="Reply All"
                   active={replyAll}
                   onClick={() => {
-                    setTo(normalizeTo(composeData?.originalFrom || composeData?.to) || '');
-                    const allRecipients = normalizeTo(composeData?.allRecipients || []);
-                    if (allRecipients) { setCc(allRecipients); setShowCc(true); }
+                    setToChips(parseChips(composeData?.originalFrom || composeData?.to));
+                    setToInput('');
+                    const allRecipients = parseChips(composeData?.allRecipients || []);
+                    if (allRecipients.length) { setCcChips(allRecipients); setCcInput(''); setShowCc(true); }
                     setReplyAll(true);
                     setShowReplyType(false);
                   }}
@@ -594,16 +606,17 @@ export default function ComposeModal() {
         </div>
 
         {/* To */}
-        <div style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--border-subtle)', padding: '0 12px' }}>
-          <span style={{ fontSize: 12, color: 'var(--text-tertiary)', width: 52, flexShrink: 0 }}>To</span>
-          <input
-            type="text" value={to} onChange={e => setTo(e.target.value)}
+        <div style={{ display: 'flex', alignItems: 'flex-start', borderBottom: '1px solid var(--border-subtle)', padding: '0 12px' }}>
+          <span style={{ fontSize: 12, color: 'var(--text-tertiary)', width: 52, flexShrink: 0, paddingTop: 9 }}>To</span>
+          <ChipInput
+            chips={toChips} onChipsChange={setToChips}
+            value={toInput} onChange={setToInput}
             placeholder="recipient@example.com"
-            style={{ flex: 1, ...inputStyle, borderBottom: 'none', padding: '8px 4px' }}
             autoFocus={!isReply && !isForward}
+            inputStyle={{ ...inputStyle, borderBottom: 'none', padding: '6px 4px' }}
           />
           {!showCc && (
-            <button onClick={() => setShowCc(true)} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 11, padding: '4px 6px' }}>
+            <button onClick={() => setShowCc(true)} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 11, padding: '9px 0 4px 6px', flexShrink: 0 }}>
               Cc
             </button>
           )}
@@ -611,12 +624,13 @@ export default function ComposeModal() {
 
         {/* Cc */}
         {showCc && (
-          <div style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--border-subtle)', padding: '0 12px' }}>
-            <span style={{ fontSize: 12, color: 'var(--text-tertiary)', width: 52, flexShrink: 0 }}>Cc</span>
-            <input
-              type="text" value={cc} onChange={e => setCc(e.target.value)}
+          <div style={{ display: 'flex', alignItems: 'flex-start', borderBottom: '1px solid var(--border-subtle)', padding: '0 12px' }}>
+            <span style={{ fontSize: 12, color: 'var(--text-tertiary)', width: 52, flexShrink: 0, paddingTop: 9 }}>Cc</span>
+            <ChipInput
+              chips={ccChips} onChipsChange={setCcChips}
+              value={ccInput} onChange={setCcInput}
               placeholder="cc@example.com"
-              style={{ flex: 1, ...inputStyle, borderBottom: 'none', padding: '8px 4px' }}
+              inputStyle={{ ...inputStyle, borderBottom: 'none', padding: '6px 4px' }}
             />
           </div>
         )}
@@ -687,14 +701,14 @@ export default function ComposeModal() {
       }}>
         <button
           onClick={handleSend}
-          disabled={sending || !to.trim()}
+          disabled={sending || (toChips.length === 0 && !toInput.trim())}
           title={sending ? undefined : 'Send (Ctrl+Enter)'}
           style={{
             padding: '8px 20px', background: 'var(--accent)',
             border: 'none', borderRadius: 7, color: 'white',
             fontSize: 13, fontWeight: 500,
-            cursor: sending || !to.trim() ? 'not-allowed' : 'pointer',
-            opacity: sending || !to.trim() ? 0.6 : 1,
+            cursor: sending || (toChips.length === 0 && !toInput.trim()) ? 'not-allowed' : 'pointer',
+            opacity: sending || (toChips.length === 0 && !toInput.trim()) ? 0.6 : 1,
             display: 'flex', alignItems: 'center', gap: 6,
             transition: 'opacity 0.15s',
           }}
@@ -756,3 +770,55 @@ function DropItem({ icon, label, active, onClick }) {
     </div>
   );
 }
+
+function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFocus, inputStyle }) {
+  const commitInput = () => {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    onChipsChange([...chips, trimmed]);
+    onChange('');
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === ',' || e.key === 'Enter' || e.key === 'Tab') {
+      if (value.trim()) { e.preventDefault(); commitInput(); }
+    } else if (e.key === 'Backspace' && !value && chips.length) {
+      onChipsChange(chips.slice(0, -1));
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, flex: 1, alignItems: 'center', padding: '5px 0', minWidth: 0 }}>
+      {chips.map((chip, i) => (
+        <span key={i} style={{
+          display: 'inline-flex', alignItems: 'center', gap: 3,
+          background: 'var(--accent-dim)', color: 'var(--accent)',
+          borderRadius: 6, padding: '2px 6px 2px 8px', fontSize: 12,
+          maxWidth: 220,
+        }}>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{chip}</span>
+          <button
+            type="button"
+            onClick={() => onChipsChange(chips.filter((_, j) => j !== i))}
+            style={{ background: 'none', border: 'none', padding: '0 0 0 2px', cursor: 'pointer', color: 'var(--accent)', display: 'flex', lineHeight: 1, flexShrink: 0 }}
+          >
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </span>
+      ))}
+      <input
+        type="text"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        onKeyDown={handleKeyDown}
+        onBlur={commitInput}
+        placeholder={chips.length ? '' : placeholder}
+        autoFocus={autoFocus}
+        style={{ ...inputStyle, flex: '1 1 80px', minWidth: 80 }}
+      />
+    </div>
+  );
+}
+

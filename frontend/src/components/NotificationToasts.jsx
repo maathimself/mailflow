@@ -1,23 +1,30 @@
 import { useEffect, useState } from 'react';
 import { useStore } from '../store/index.js';
+import { useMobile } from '../hooks/useMobile.js';
 
 export default function NotificationToasts() {
   const { notifications, removeNotification } = useStore();
+  const isMobile = useMobile();
 
   return (
     <div style={{
-      position: 'fixed', bottom: 24, right: 24,
+      position: 'fixed',
+      bottom: isMobile ? 'calc(var(--sab) + 80px)' : 24,
+      ...(isMobile
+        ? { left: 16, right: 16, alignItems: 'stretch' }
+        : { right: 24, alignItems: 'flex-end' }
+      ),
       display: 'flex', flexDirection: 'column-reverse', gap: 8,
       zIndex: 3000, pointerEvents: 'none',
     }}>
       {notifications.map(n => (
-        <Toast key={n.id} notification={n} onDismiss={() => removeNotification(n.id)} />
+        <Toast key={n.id} notification={n} onDismiss={() => removeNotification(n.id)} isMobile={isMobile} />
       ))}
     </div>
   );
 }
 
-function Toast({ notification, onDismiss }) {
+function Toast({ notification, onDismiss, isMobile }) {
   const [exiting, setExiting] = useState(false);
 
   const dismiss = () => {
@@ -30,14 +37,18 @@ function Toast({ notification, onDismiss }) {
     return () => clearTimeout(t);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const enterClass = isMobile ? 'toast-enter-mobile' : 'toast-enter';
+  const exitClass  = isMobile ? 'toast-exit-mobile'  : 'toast-exit';
+
   return (
     <div
-      className={exiting ? 'toast-exit' : 'toast-enter'}
+      className={exiting ? exitClass : enterClass}
       style={{
         background: 'var(--bg-elevated)', border: '1px solid var(--border)',
         borderRadius: 10, padding: '12px 14px',
         display: 'flex', alignItems: 'flex-start', gap: 10,
-        maxWidth: 320, boxShadow: '0 4px 24px rgba(0,0,0,0.4)',
+        maxWidth: isMobile ? '100%' : 320,
+        boxShadow: 'var(--shadow-popover)',
         pointerEvents: 'all',
       }}
     >

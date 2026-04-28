@@ -1104,18 +1104,16 @@ export default function MessageList() {
         )}
 
         {!loadingMessages && displayMessages.length === 0 && (
-          <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 14 }}>
-            {folderSyncing ? (
-              <>
-                <div style={{
-                  width: 20, height: 20, margin: '0 auto 10px',
-                  border: '2px solid var(--border)', borderTopColor: 'var(--accent)',
-                  borderRadius: '50%', animation: 'spin 0.8s linear infinite',
-                }} />
-                Syncing folder…
-              </>
-            ) : searchQuery ? 'No results found' : 'No messages'}
-          </div>
+          <EmptyState
+            folderSyncing={folderSyncing}
+            searchQuery={searchQuery}
+            unreadOnly={unreadOnly}
+            selectedFolder={selectedFolder}
+            accounts={accounts}
+            onClearSearch={() => { setSearchQuery(''); }}
+            onShowAll={() => setUnreadOnly(false)}
+            onCompose={() => openCompose({})}
+          />
         )}
 
         {/* ── Bulk-action toolbar ───────────────────────────── */}
@@ -1423,6 +1421,145 @@ export default function MessageList() {
           </button>
         )}
       </div>
+      {isMobile && (
+        <button
+          onClick={() => openCompose({})}
+          aria-label="Compose new message"
+          style={{
+            position: 'fixed',
+            bottom: 'calc(var(--sab) + 20px)',
+            right: 20,
+            width: 56, height: 56,
+            borderRadius: '50%',
+            background: 'var(--accent)',
+            border: 'none',
+            boxShadow: 'var(--shadow-popover)',
+            cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: 'white',
+            zIndex: 200,
+          }}
+        >
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+            <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+          </svg>
+        </button>
+      )}
+    </div>
+  );
+}
+
+function EmptyState({ folderSyncing, searchQuery, unreadOnly, selectedFolder, accounts, onClearSearch, onShowAll, onCompose }) {
+  if (folderSyncing) {
+    return (
+      <div style={{ padding: '60px 40px', textAlign: 'center', color: 'var(--text-tertiary)' }}>
+        <div style={{
+          width: 24, height: 24, margin: '0 auto 12px',
+          border: '2px solid var(--border)', borderTopColor: 'var(--accent)',
+          borderRadius: '50%', animation: 'spin 0.8s linear infinite',
+        }} />
+        <div style={{ fontSize: 14 }}>Syncing folder…</div>
+      </div>
+    );
+  }
+
+  if (searchQuery) {
+    return (
+      <div style={{ padding: '60px 24px', textAlign: 'center' }}>
+        <div style={{
+          width: 48, height: 48, borderRadius: 14, margin: '0 auto 16px',
+          background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: 'var(--text-tertiary)',
+        }}>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+        </div>
+        <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 6 }}>No results found</div>
+        <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 20 }}>
+          Nothing matched &ldquo;{searchQuery}&rdquo;
+        </div>
+        <button onClick={onClearSearch} style={{
+          padding: '7px 18px', borderRadius: 8, border: '1px solid var(--border)',
+          background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13,
+        }}>Clear search</button>
+      </div>
+    );
+  }
+
+  if (unreadOnly) {
+    return (
+      <div style={{ padding: '60px 24px', textAlign: 'center' }}>
+        <div style={{
+          width: 48, height: 48, borderRadius: 14, margin: '0 auto 16px',
+          background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: 'var(--accent)',
+        }}>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+        </div>
+        <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 6 }}>All caught up</div>
+        <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 20 }}>No unread messages here</div>
+        <button onClick={onShowAll} style={{
+          padding: '7px 18px', borderRadius: 8, border: '1px solid var(--border)',
+          background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13,
+        }}>Show all messages</button>
+      </div>
+    );
+  }
+
+  if (!accounts.length) {
+    return (
+      <div style={{ padding: '60px 24px', textAlign: 'center' }}>
+        <div style={{
+          width: 48, height: 48, borderRadius: 14, margin: '0 auto 16px',
+          background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: 'var(--text-tertiary)',
+        }}>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+            <polyline points="22,6 12,13 2,6"/>
+          </svg>
+        </div>
+        <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 6 }}>No accounts yet</div>
+        <div style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>Add an email account to get started</div>
+      </div>
+    );
+  }
+
+  const isInbox = !selectedFolder || selectedFolder === 'INBOX';
+  return (
+    <div style={{ padding: '60px 24px', textAlign: 'center' }}>
+      <div style={{
+        width: 48, height: 48, borderRadius: 14, margin: '0 auto 16px',
+        background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        color: 'var(--text-tertiary)',
+      }}>
+        {isInbox ? (
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/>
+            <path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/>
+          </svg>
+        ) : (
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+          </svg>
+        )}
+      </div>
+      <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 6 }}>
+        {isInbox ? 'Inbox is empty' : 'Nothing here'}
+      </div>
+      <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: isInbox ? 20 : 0 }}>
+        {isInbox ? "You're all caught up" : 'This folder has no messages'}
+      </div>
+      {isInbox && (
+        <button onClick={onCompose} style={{
+          padding: '7px 18px', borderRadius: 8, border: 'none',
+          background: 'var(--accent)', color: 'white', cursor: 'pointer', fontSize: 13, fontWeight: 500,
+        }}>Compose</button>
+      )}
     </div>
   );
 }
@@ -1583,6 +1720,14 @@ function MessageRow({ message, selected, isChecked, selectionMode, showAccount, 
           willChange: isMobile ? 'transform' : undefined,
         }}
       >
+      {/* Selected row left accent rail */}
+      {selected && !selectionMode && (
+        <div style={{
+          position: 'absolute', left: 0, top: 0, bottom: 0, width: 3,
+          background: message.account_color || 'var(--accent)',
+          borderRadius: '0 2px 2px 0',
+        }} />
+      )}
       {/* Left indicator: checkbox on hover/selection-mode, unread dot otherwise */}
       {showCheckbox ? (
         <div style={{

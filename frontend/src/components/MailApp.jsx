@@ -12,6 +12,7 @@ import MessagePane from './MessagePane.jsx';
 import ComposeModal from './ComposeModal.jsx';
 import AdminPanel from './AdminPanel.jsx';
 import NotificationToasts from './NotificationToasts.jsx';
+import CommandPalette from './CommandPalette.jsx';
 
 export default function MailApp() {
   const {
@@ -23,6 +24,7 @@ export default function MailApp() {
   } = useStore();
 
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const isMobile = useMobile();
 
   const currentLayout = LAYOUTS[layout] || LAYOUTS.classic;
@@ -186,6 +188,18 @@ export default function MailApp() {
     return () => document.removeEventListener('keydown', handler);
   }, [showShortcutHelp]);
 
+  // Cmd+K / Ctrl+K opens command palette
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setPaletteOpen(v => !v);
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, []);
+
   // Handle same-tab OAuth callback redirects (e.g. /?oauth_success=microsoft).
   // The popup case (window.opener present) is handled earlier in App.jsx before
   // auth is checked, so MailApp never mounts in that context.
@@ -226,10 +240,10 @@ export default function MailApp() {
           {/* Slide-in sidebar drawer */}
           <div style={{
             position: 'fixed', left: 0, top: 0, bottom: 0,
-            width: 260, zIndex: 901,
+            zIndex: 901, display: 'flex',
             transform: mobileSidebarOpen ? 'translateX(0)' : 'translateX(-100%)',
             transition: 'transform 0.25s cubic-bezier(0.25,0.46,0.45,0.94)',
-            boxShadow: mobileSidebarOpen ? '4px 0 32px rgba(0,0,0,0.45)' : 'none',
+            boxShadow: mobileSidebarOpen ? '0 0 16px rgba(0,0,0,0.6)' : 'none',
           }}>
             <Sidebar />
           </div>
@@ -255,6 +269,7 @@ export default function MailApp() {
       {composing && <ComposeModal />}
       {showAdmin && <AdminPanel />}
       <NotificationToasts />
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
 
       {/* Keyboard shortcut help overlay — toggled by the '?' key */}
       {showShortcutHelp && (
