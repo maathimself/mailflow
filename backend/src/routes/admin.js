@@ -12,9 +12,15 @@ router.use(requireAdmin);
 
 router.get('/users', async (req, res) => {
   const result = await query(
-    'SELECT id, username, is_admin, created_at FROM users ORDER BY created_at ASC'
+    'SELECT id, username, is_admin, totp_enabled, created_at FROM users ORDER BY created_at ASC'
   );
-  res.json({ users: result.rows.map(u => ({ ...u, isAdmin: u.is_admin })) });
+  res.json({ users: result.rows.map(u => ({ ...u, isAdmin: u.is_admin, totpEnabled: u.totp_enabled })) });
+});
+
+router.post('/users/:id/totp/disable', async (req, res) => {
+  const { id } = req.params;
+  await query('UPDATE users SET totp_secret = NULL, totp_enabled = false WHERE id = $1', [id]);
+  res.json({ ok: true });
 });
 
 router.patch('/users/:id', async (req, res) => {

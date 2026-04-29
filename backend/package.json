@@ -18,7 +18,6 @@
     "ws": "^8.17.1",
     "bcryptjs": "^2.4.3",
     "dotenv": "^16.4.1",
-    "node-html-parser": "^6.1.13",
     "sanitize-html": "^2.12.1",
     "jose": "^6.2.3",
     "otplib": "^12.0.1",

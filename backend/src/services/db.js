@@ -263,4 +263,22 @@ export async function encryptExistingCredentials() {
     }
   }
   if (count > 0) console.log(`Encrypted credentials for ${count} account(s)`);
+
+  // Also encrypt OIDC provider client secrets
+  const oidcResult = await pool.query(`
+    SELECT id, client_secret FROM oidc_providers
+    WHERE client_secret IS NOT NULL AND client_secret NOT LIKE 'enc:v1:%'
+  `);
+
+  let oidcCount = 0;
+  for (const row of oidcResult.rows) {
+    if (row.client_secret && !isEncrypted(row.client_secret)) {
+      await pool.query(
+        'UPDATE oidc_providers SET client_secret = $1 WHERE id = $2',
+        [encrypt(row.client_secret), row.id]
+      );
+      oidcCount++;
+    }
+  }
+  if (oidcCount > 0) console.log(`Encrypted client secrets for ${oidcCount} OIDC provider(s)`);
 }

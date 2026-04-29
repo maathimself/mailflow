@@ -49,6 +49,7 @@ export const api = {
     getUsers: () => request('GET', '/admin/users'),
     updateUser: (id, data) => request('PATCH', `/admin/users/${id}`, data),
     deleteUser: (id) => request('DELETE', `/admin/users/${id}`),
+    disableUserTotp: (id) => request('POST', `/admin/users/${id}/totp/disable`),
     getSettings: () => request('GET', '/admin/settings'),
     updateSettings: (data) => request('PATCH', '/admin/settings', data),
     getInvites: () => request('GET', '/admin/invites'),

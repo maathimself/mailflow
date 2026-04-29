@@ -1933,6 +1933,18 @@ function UsersTab() {
     });
   };
 
+  const handleDisableTotp = (u) => {
+    setConfirmDialog({
+      title: `Disable 2FA for "${u.username}"?`,
+      message: 'This will remove their authenticator app requirement. They can re-enable it themselves.',
+      confirmLabel: 'Disable 2FA',
+      onConfirm: async () => {
+        await api.admin.disableUserTotp(u.id);
+        setUsers(us => us.map(x => x.id === u.id ? { ...x, totpEnabled: false } : x));
+      },
+    });
+  };
+
   const handleToggleReg = async () => {
     const newVal = !regOpen;
     await api.admin.updateSettings({ registration_open: newVal });
@@ -2048,6 +2060,14 @@ function UsersTab() {
                 >
                   {u.isAdmin ? 'Remove admin' : 'Make admin'}
                 </button>
+                {u.totpEnabled && (
+                  <IconBtn onClick={() => handleDisableTotp(u)} title="Disable 2FA">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <rect x="5" y="11" width="14" height="11" rx="2" ry="2"/>
+                      <path d="M11 15v2M8 11V7a4 4 0 018 0v4"/>
+                    </svg>
+                  </IconBtn>
+                )}
                 <IconBtn onClick={() => handleDeleteUser(u)} title="Delete user" danger>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <polyline points="3 6 5 6 21 6"/>

@@ -11,14 +11,29 @@ const discoveryCache = new Map();
 const DISCOVERY_TTL_MS = 5 * 60 * 1000;
 
 async function getDiscovery(issuerUrl) {
+  const parsed = new URL(issuerUrl);
+  if (parsed.protocol !== 'https:') throw new Error('OIDC issuer URL must use HTTPS');
+
   const cached = discoveryCache.get(issuerUrl);
   if (cached && Date.now() - cached.cachedAt < DISCOVERY_TTL_MS) {
     return { doc: cached.doc, jwks: cached.jwks };
   }
   const wellKnown = issuerUrl.replace(/\/$/, '') + '/.well-known/openid-configuration';
-  const res = await fetch(wellKnown);
+  const res = await fetch(wellKnown, { signal: AbortSignal.timeout(10000) });
   if (!res.ok) throw new Error(`OIDC discovery failed for ${issuerUrl}: ${res.status}`);
   const doc = await res.json();
+  const normConfigured = issuerUrl.replace(/\/$/, '');
+  const normDiscovered = (doc.issuer || '').replace(/\/$/, '');
+  if (normDiscovered !== normConfigured) {
+    throw new Error(`OIDC issuer mismatch: configured "${normConfigured}", got "${normDiscovered}"`);
+  }
+  // Validate that all discovered endpoint URLs use HTTPS
+  for (const field of ['authorization_endpoint', 'token_endpoint', 'jwks_uri']) {
+    const url = doc[field];
+    if (!url || new URL(url).protocol !== 'https:') {
+      throw new Error(`OIDC discovery returned non-HTTPS ${field}: ${url}`);
+    }
+  }
   const jwks = createRemoteJWKSet(new URL(doc.jwks_uri));
   discoveryCache.set(issuerUrl, { doc, jwks, cachedAt: Date.now() });
   return { doc, jwks };
@@ -207,6 +222,7 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
       body: tokenParams.toString(),
+      signal: AbortSignal.timeout(10000),
     });
     if (!tokenRes.ok) {
       const body = await tokenRes.text();
@@ -237,15 +253,18 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
     const email = payload.email || null;
     const emailVerified = payload.email_verified === true;
 
-    // Require verified email for login flows
+    // Require verified email for all login flows
     if (!emailVerified && pending.action !== 'link') {
       return res.redirect(`/?oidc_error=${encodeURIComponent('Your email address must be verified with this SSO provider')}`);
     }
 
-    // Enforce allowed_domains if configured
-    if (provider.allowed_domains && email) {
+    // Enforce allowed_domains if configured — requires verified email for all flows including link
+    if (provider.allowed_domains) {
       const allowed = provider.allowed_domains.split(',').map(d => d.trim().toLowerCase()).filter(Boolean);
       if (allowed.length > 0) {
+        if (!email || !emailVerified) {
+          return res.redirect(`/?oidc_error=${encodeURIComponent('A verified email address is required for this SSO provider')}`);
+        }
         const domain = email.split('@')[1]?.toLowerCase();
         if (!allowed.includes(domain)) {
           return res.redirect(`/?oidc_error=${encodeURIComponent('Your email domain is not permitted for this SSO provider')}`);

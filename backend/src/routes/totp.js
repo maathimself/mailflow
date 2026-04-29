@@ -94,6 +94,9 @@ router.post('/disable', async (req, res) => {
   const user = result.rows[0];
   if (!user) return res.status(401).json({ error: 'User not found' });
 
+  if (!user.password_hash) {
+    return res.status(400).json({ error: 'Your account uses SSO login and has no password. Contact an administrator to disable 2FA.' });
+  }
   const valid = await bcrypt.compare(password, user.password_hash);
   if (!valid) return res.status(401).json({ error: 'Incorrect password' });
 
