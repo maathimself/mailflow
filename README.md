@@ -16,7 +16,7 @@ section before deploying.
 MailFlow is dual-licensed:
 
 - **[AGPL-3.0](LICENSE)** — free for personal use, self-hosting, and open-source projects. If you modify and distribute or host MailFlow, you must publish your changes under the same license.
-- **[Commercial License](LICENSE-COMMERCIAL)** — $500 per installation, one-time. For businesses or deployments where AGPL obligations cannot be met. [Purchase here](https://mailflow.sh/commercial).
+- **[Commercial License](LICENSE-COMMERCIAL)** — $500 per installation, one-time. For businesses or deployments where AGPL obligations cannot be met. [Purchase here](https://mailflow.sh/#pricing).
 
 **Personal self-hosting is free and always will be.** This licensing model exists to protect the project from commercial exploitation while keeping MailFlow freely available to individuals and families.
 
