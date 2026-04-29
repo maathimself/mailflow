@@ -248,13 +248,14 @@ function AccountForm({ initial, onSave, onCancel }) {
 
 // ─── Accounts Tab ─────────────────────────────────────────────────────────────
 function AccountsTab() {
-  const { accounts, setAccounts, updateAccount } = useStore();
+  const { accounts, setAccounts, updateAccount, addNotification } = useStore();
   const [subview, setSubview] = useState('list'); // 'list' | 'add' | 'edit' | 'folders' | 'aliases'
   const [editTarget, setEditTarget] = useState(null);
   const [folderMappings, setFolderMappings] = useState({});
   const [availableFolders, setAvailableFolders] = useState([]);
   const [foldersLoading, setFoldersLoading] = useState(false);
   const [foldersSaving, setFoldersSaving] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState(null);
 
   // Alias form state
   const [aliasFormMode, setAliasFormMode] = useState(null); // null | 'add' | 'edit'
@@ -279,10 +280,16 @@ function AccountsTab() {
     setEditTarget(null);
   };
 
-  const handleDelete = async (id) => {
-    if (!confirm('Remove this account? All synced messages will be deleted.')) return;
-    await api.deleteAccount(id);
-    setAccounts(accounts.filter(a => a.id !== id));
+  const handleDelete = (id) => {
+    setConfirmDialog({
+      title: 'Remove account?',
+      message: 'All synced messages for this account will be deleted. This cannot be undone.',
+      confirmLabel: 'Remove',
+      onConfirm: async () => {
+        await api.deleteAccount(id);
+        setAccounts(accounts.filter(a => a.id !== id));
+      },
+    });
   };
 
   const handleReconnect = async (id) => {
@@ -299,7 +306,7 @@ function AccountsTab() {
       const folders = await api.getFolders(account.id);
       setAvailableFolders(folders);
     } catch (err) {
-      console.error('Failed to load folders:', err);
+      addNotification({ type: 'error', title: 'Could not load folders', body: err.message });
     } finally {
       setFoldersLoading(false);
     }
@@ -317,7 +324,7 @@ function AccountsTab() {
       setSubview('list');
       setEditTarget(null);
     } catch (err) {
-      console.error('Failed to save folder mappings:', err);
+      addNotification({ type: 'error', title: 'Could not save folder mappings', body: err.message });
     } finally {
       setFoldersSaving(false);
     }
@@ -379,12 +386,18 @@ function AccountsTab() {
     setAliasFormMode('edit');
   };
 
-  const handleAliasDelete = async (aliasId) => {
-    if (!confirm('Delete this alias? This cannot be undone.')) return;
-    await api.deleteAlias(editTarget.id, aliasId);
-    const newAliases = (editTarget.aliases || []).filter(a => a.id !== aliasId);
-    updateAccount(editTarget.id, { aliases: newAliases });
-    setEditTarget(t => ({ ...t, aliases: newAliases }));
+  const handleAliasDelete = (aliasId) => {
+    setConfirmDialog({
+      title: 'Delete alias?',
+      message: 'This alias will be permanently removed. This cannot be undone.',
+      confirmLabel: 'Delete',
+      onConfirm: async () => {
+        await api.deleteAlias(editTarget.id, aliasId);
+        const newAliases = (editTarget.aliases || []).filter(a => a.id !== aliasId);
+        updateAccount(editTarget.id, { aliases: newAliases });
+        setEditTarget(t => ({ ...t, aliases: newAliases }));
+      },
+    });
   };
 
   if (subview === 'add') {
@@ -521,6 +534,7 @@ function AccountsTab() {
 
     const aliases = editTarget.aliases || [];
     return (
+      <>
       <div>
         {backBtn}
         <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
@@ -602,6 +616,8 @@ function AccountsTab() {
           ))
         )}
       </div>
+      <ConfirmOverlay dialog={confirmDialog} onClose={() => setConfirmDialog(null)} />
+      </>
     );
   }
 
@@ -687,6 +703,7 @@ function AccountsTab() {
   }
 
   return (
+    <>
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>
@@ -801,7 +818,9 @@ function AccountsTab() {
           </div>
         </div>
       ))}
+      <ConfirmOverlay dialog={confirmDialog} onClose={() => setConfirmDialog(null)} />
     </div>
+    </>
   );
 }
 
@@ -1588,6 +1607,7 @@ function UsersTab() {
   const [inviteMsg, setInviteMsg] = useState(null); // { type: 'ok'|'error', text, url? }
   const [loading, setLoading] = useState(true);
   const [copiedId, setCopiedId] = useState(null);
+  const [confirmDialog, setConfirmDialog] = useState(null);
 
   useEffect(() => {
     Promise.all([
@@ -1607,10 +1627,16 @@ function UsersTab() {
     setUsers(us => us.map(x => x.id === u.id ? { ...x, isAdmin: newVal } : x));
   };
 
-  const handleDeleteUser = async (u) => {
-    if (!confirm(`Delete user "${u.username}"? This cannot be undone.`)) return;
-    await api.admin.deleteUser(u.id);
-    setUsers(us => us.filter(x => x.id !== u.id));
+  const handleDeleteUser = (u) => {
+    setConfirmDialog({
+      title: `Delete "${u.username}"?`,
+      message: 'This user account will be permanently deleted. This cannot be undone.',
+      confirmLabel: 'Delete user',
+      onConfirm: async () => {
+        await api.admin.deleteUser(u.id);
+        setUsers(us => us.filter(x => x.id !== u.id));
+      },
+    });
   };
 
   const handleToggleReg = async () => {
@@ -1660,6 +1686,7 @@ function UsersTab() {
   const usedOrExpiredInvites = invites.filter(i => i.used_at || new Date(i.expires_at) <= new Date());
 
   return (
+    <>
     <div>
       {/* ── Users ── */}
       <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
@@ -1931,7 +1958,9 @@ function UsersTab() {
           </div>
         </>
       )}
+      <ConfirmOverlay dialog={confirmDialog} onClose={() => setConfirmDialog(null)} />
     </div>
+    </>
   );
 }
 
@@ -2116,22 +2145,78 @@ function NotificationsTab() {
   );
 }
 
+// ─── Shared confirm overlay (replaces window.confirm everywhere) ──────────────
+function ConfirmOverlay({ dialog, onClose }) {
+  if (!dialog) return null;
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 9100,
+      background: 'rgba(0,0,0,0.55)',
+      backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      padding: 24,
+    }} onClick={onClose}>
+      <div style={{
+        background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)',
+        borderRadius: 12, padding: '24px 24px 20px', maxWidth: 360, width: '100%',
+        boxShadow: 'var(--shadow-modal)',
+      }} onClick={e => e.stopPropagation()}>
+        <p style={{ margin: '0 0 8px', fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
+          {dialog.title || 'Are you sure?'}
+        </p>
+        <p style={{ margin: '0 0 20px', fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+          {dialog.message}
+        </p>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} className="btn-press" style={{
+            padding: '7px 16px', borderRadius: 7, border: '1px solid var(--border-subtle)',
+            background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13,
+          }}>Cancel</button>
+          <button onClick={() => { onClose(); dialog.onConfirm(); }} className="btn-press" style={{
+            padding: '7px 16px', borderRadius: 7, border: 'none',
+            background: '#dc2626', color: 'white', cursor: 'pointer', fontSize: 13, fontWeight: 500,
+          }}>{dialog.confirmLabel || 'Delete'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Merged Appearance Tab ────────────────────────────────────────────────────
+function AppearanceTab() {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 36 }}>
+      <ThemesTab />
+      <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 28 }}>
+        <FontsTab />
+      </div>
+      <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 28 }}>
+        <LayoutsTab />
+      </div>
+    </div>
+  );
+}
+
+// ─── Merged Security & Privacy Tab ────────────────────────────────────────────
+function SecurityPrivacyTab() {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 36 }}>
+      <SecurityTab />
+      <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 28 }}>
+        <PrivacyTab />
+      </div>
+    </div>
+  );
+}
+
 const TABS = [
   {
     id: 'accounts', label: 'Accounts',
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>,
   },
   {
-    id: 'themes', label: 'Appearance',
+    id: 'appearance', label: 'Appearance',
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>,
-  },
-  {
-    id: 'fonts', label: 'Typography',
-    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>,
-  },
-  {
-    id: 'layouts', label: 'Layout',
-    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="9" y1="12" x2="21" y2="12"/></svg>,
   },
   {
     id: 'integrations', label: 'Integrations',
@@ -2143,16 +2228,12 @@ const TABS = [
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>,
   },
   {
-    id: 'security', label: 'Security',
-    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>,
+    id: 'security', label: 'Security & Privacy',
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>,
   },
   {
     id: 'notifications', label: 'Notifications',
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 010 7.07"/><path d="M19.07 4.93a10 10 0 010 14.14"/></svg>,
-  },
-  {
-    id: 'privacy', label: 'Privacy',
-    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>,
   },
   {
     id: 'shortcuts', label: 'Shortcuts',
@@ -2923,16 +3004,19 @@ export default function AdminPanel() {
         </div>
 
         {/* Content — full width, scrollable */}
-        <div style={{ flex: 1, overflow: 'auto', padding: '20px 16px' }}>
+        <div
+          style={{ flex: 1, overflow: 'auto', padding: '20px 16px' }}
+          onScroll={e => {
+            const el = e.currentTarget;
+            el.style.boxShadow = el.scrollTop > 4 ? 'inset 0 8px 8px -8px rgba(0,0,0,0.2)' : 'none';
+          }}
+        >
           {adminTab === 'accounts' && <AccountsTab />}
-          {adminTab === 'themes' && <ThemesTab />}
-          {adminTab === 'fonts' && <FontsTab />}
-          {adminTab === 'layouts' && <LayoutsTab />}
+          {adminTab === 'appearance' && <AppearanceTab />}
           {adminTab === 'integrations' && <IntegrationsTab />}
           {adminTab === 'users' && <UsersTab />}
-          {adminTab === 'security' && <SecurityTab />}
+          {adminTab === 'security' && <SecurityPrivacyTab />}
           {adminTab === 'notifications' && <NotificationsTab />}
-          {adminTab === 'privacy' && <PrivacyTab />}
           {adminTab === 'shortcuts' && <ShortcutsTab />}
         </div>
       </div>
@@ -2943,7 +3027,8 @@ export default function AdminPanel() {
     <div
       onClick={e => e.target === e.currentTarget && setShowAdmin(false)}
       style={{
-        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
+        backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         zIndex: 2000, padding: 24,
       }}
@@ -2952,7 +3037,7 @@ export default function AdminPanel() {
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
         borderRadius: 16, width: '100%', maxWidth: 680,
         height: '82vh', maxHeight: 700, display: 'flex', overflow: 'hidden',
-        boxShadow: '0 24px 80px rgba(0,0,0,0.6)',
+        boxShadow: 'var(--shadow-modal)',
       }}>
         {/* Left sidebar */}
         <div style={{
@@ -3011,16 +3096,19 @@ export default function AdminPanel() {
         </div>
 
         {/* Content */}
-        <div style={{ flex: 1, overflow: 'auto', padding: '24px' }}>
+        <div
+          style={{ flex: 1, overflow: 'auto', padding: '24px' }}
+          onScroll={e => {
+            const el = e.currentTarget;
+            el.style.boxShadow = el.scrollTop > 4 ? 'inset 0 8px 8px -8px rgba(0,0,0,0.2)' : 'none';
+          }}
+        >
           {adminTab === 'accounts' && <AccountsTab />}
-          {adminTab === 'themes' && <ThemesTab />}
-          {adminTab === 'fonts' && <FontsTab />}
-          {adminTab === 'layouts' && <LayoutsTab />}
+          {adminTab === 'appearance' && <AppearanceTab />}
           {adminTab === 'integrations' && <IntegrationsTab />}
           {adminTab === 'users' && <UsersTab />}
-          {adminTab === 'security' && <SecurityTab />}
+          {adminTab === 'security' && <SecurityPrivacyTab />}
           {adminTab === 'notifications' && <NotificationsTab />}
-          {adminTab === 'privacy' && <PrivacyTab />}
           {adminTab === 'shortcuts' && <ShortcutsTab />}
         </div>
       </div>

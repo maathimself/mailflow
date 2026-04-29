@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { useStore } from '../store/index.js';
 
 const BTN = {
   background: 'none', border: 'none', borderRadius: 4,
@@ -31,6 +32,7 @@ function Sep() {
 }
 
 export default function SignatureEditor({ value, onChange }) {
+  const { addNotification } = useStore();
   const editorRef = useRef(null);
   const fileInputRef = useRef(null);
   const [showSource, setShowSource] = useState(false);
@@ -69,7 +71,7 @@ export default function SignatureEditor({ value, onChange }) {
     const file = e.target.files[0];
     if (!file) return;
     if (file.size > 300 * 1024) {
-      window.alert('Image must be under 300 KB. Use an external URL for larger images.');
+      addNotification({ type: 'error', title: 'Image too large', body: 'Must be under 300 KB. Use an external URL for larger images.' });
       e.target.value = '';
       return;
     }

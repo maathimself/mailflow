@@ -33,9 +33,15 @@ function Toast({ notification, onDismiss, isMobile }) {
   };
 
   useEffect(() => {
-    const t = setTimeout(dismiss, 5000);
+    const duration = notification.onUndo ? 6000 : 5000;
+    const t = setTimeout(dismiss, duration);
     return () => clearTimeout(t);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleUndo = () => {
+    notification.onUndo();
+    dismiss();
+  };
 
   const enterClass = isMobile ? 'toast-enter-mobile' : 'toast-enter';
   const exitClass  = isMobile ? 'toast-exit-mobile'  : 'toast-exit';
@@ -47,7 +53,7 @@ function Toast({ notification, onDismiss, isMobile }) {
         background: 'var(--bg-elevated)', border: '1px solid var(--border)',
         borderRadius: 10, padding: '12px 14px',
         display: 'flex', alignItems: 'flex-start', gap: 10,
-        maxWidth: isMobile ? '100%' : 320,
+        maxWidth: isMobile ? '100%' : 340,
         boxShadow: 'var(--shadow-popover)',
         pointerEvents: 'all',
       }}
@@ -81,6 +87,36 @@ function Toast({ notification, onDismiss, isMobile }) {
           {notification.body}
         </div>
       </div>
+      {notification.onAction && (
+        <button
+          onClick={() => { notification.onAction(); dismiss(); }}
+          style={{
+            background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+            borderRadius: 5, color: 'var(--text-secondary)', fontSize: 11, fontWeight: 600,
+            padding: '3px 10px', cursor: 'pointer', flexShrink: 0,
+            transition: 'background 0.12s',
+          }}
+          onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+          onMouseLeave={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+        >
+          {notification.actionLabel || 'View'}
+        </button>
+      )}
+      {notification.onUndo && (
+        <button
+          onClick={handleUndo}
+          style={{
+            background: 'var(--accent-dim)', border: '1px solid rgba(124,106,247,0.3)',
+            borderRadius: 5, color: 'var(--accent)', fontSize: 11, fontWeight: 600,
+            padding: '3px 10px', cursor: 'pointer', flexShrink: 0,
+            transition: 'background 0.12s',
+          }}
+          onMouseEnter={e => e.currentTarget.style.background = 'rgba(124,106,247,0.25)'}
+          onMouseLeave={e => e.currentTarget.style.background = 'var(--accent-dim)'}
+        >
+          Undo
+        </button>
+      )}
       <button
         onClick={dismiss}
         style={{

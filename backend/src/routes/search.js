@@ -164,4 +164,42 @@ router.get('/', searchLimiter, async (req, res) => {
   }
 });
 
+// Contact autocomplete — returns up to 10 unique senders matching the query.
+// Uses DISTINCT ON (from_email) with ORDER BY date DESC so the most-recently-seen
+// display name wins when the same address has appeared under multiple names.
+router.get('/contacts', searchLimiter, async (req, res) => {
+  const { q } = req.query;
+  const trimmed = (q || '').trim();
+  if (!trimmed || trimmed.length < 2) return res.json({ contacts: [] });
+  if (trimmed.length > 100) return res.status(400).json({ error: 'Query too long' });
+
+  const accountsResult = await query(
+    'SELECT id FROM email_accounts WHERE user_id = $1 AND enabled = true',
+    [req.session.userId]
+  );
+  const userAccountIds = accountsResult.rows.map(r => r.id);
+  if (!userAccountIds.length) return res.json({ contacts: [] });
+
+  const pattern = `%${trimmed}%`;
+
+  try {
+    const result = await query(`
+      SELECT DISTINCT ON (from_email) from_name AS name, from_email AS email
+      FROM messages
+      WHERE account_id = ANY($1)
+        AND is_deleted = false
+        AND from_email IS NOT NULL
+        AND from_email != ''
+        AND (from_email ILIKE $2 OR from_name ILIKE $2)
+      ORDER BY from_email, date DESC
+      LIMIT 10
+    `, [userAccountIds, pattern]);
+
+    res.json({ contacts: result.rows });
+  } catch (err) {
+    console.error('Contact suggest error:', err);
+    res.status(500).json({ error: 'Failed to fetch contacts' });
+  }
+});
+
 export default router;

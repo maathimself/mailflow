@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { useMobile } from '../hooks/useMobile.js';
@@ -24,7 +24,7 @@ function parseChips(val) {
 }
 
 export default function ComposeModal() {
-  const { closeCompose, composeData, accounts, addNotification } = useStore();
+  const { closeCompose, composeData, accounts, addNotification, setSelectedAccount } = useStore();
   const isMobile = useMobile();
 
   const isReply = !!(composeData?.isReply || composeData?.isReplyAll);
@@ -74,6 +74,13 @@ export default function ComposeModal() {
   const fromSignature = fromAlias
     ? (fromAlias.signature !== null && fromAlias.signature !== undefined ? fromAlias.signature : fromAccount?.signature || null)
     : (fromAccount?.signature || null);
+
+  const getSuggestions = useCallback(async (q) => {
+    try {
+      const data = await api.suggestContacts(q);
+      return data.contacts || [];
+    } catch (_) { return []; }
+  }, []);
 
   const [replyAll, setReplyAll] = useState(() => !!composeData?.isReplyAll);
   const [sending, setSending] = useState(false);
@@ -141,7 +148,13 @@ export default function ComposeModal() {
         references: composeData?.references || undefined,
       });
       closeCompose();
-      addNotification({ title: 'Message sent', body: subject || '(no subject)' });
+      const sentFolder = accounts.find(a => a.id === accountId)?.folder_mappings?.sent || 'Sent';
+      addNotification({
+        title: 'Message sent',
+        body: subject || '(no subject)',
+        onAction: () => setSelectedAccount(accountId, sentFolder),
+        actionLabel: 'View',
+      });
     } catch (err) {
       setError(err.message);
       setSending(false);
@@ -328,6 +341,7 @@ export default function ComposeModal() {
               placeholder="recipient@example.com"
               autoFocus={!isReply && !isForward}
               inputStyle={mobileInputStyle}
+              getSuggestions={getSuggestions}
             />
             {!showCc && (
               <button
@@ -354,6 +368,7 @@ export default function ComposeModal() {
                 value={ccInput} onChange={setCcInput}
                 placeholder="cc@example.com"
                 inputStyle={mobileInputStyle}
+                getSuggestions={getSuggestions}
               />
             </div>
           )}
@@ -455,7 +470,7 @@ export default function ComposeModal() {
           padding: '10px 16px', cursor: 'pointer',
           display: 'flex', alignItems: 'center', gap: 10,
           color: 'var(--text-primary)', fontSize: 13, fontWeight: 500,
-          boxShadow: '0 -4px 20px rgba(0,0,0,0.3)', zIndex: 1000,
+          boxShadow: 'var(--shadow-soft)', zIndex: 1000,
         }}
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2">
@@ -614,6 +629,7 @@ export default function ComposeModal() {
             placeholder="recipient@example.com"
             autoFocus={!isReply && !isForward}
             inputStyle={{ ...inputStyle, borderBottom: 'none', padding: '6px 4px' }}
+            getSuggestions={getSuggestions}
           />
           {!showCc && (
             <button onClick={() => setShowCc(true)} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 11, padding: '9px 0 4px 6px', flexShrink: 0 }}>
@@ -631,6 +647,7 @@ export default function ComposeModal() {
               value={ccInput} onChange={setCcInput}
               placeholder="cc@example.com"
               inputStyle={{ ...inputStyle, borderBottom: 'none', padding: '6px 4px' }}
+              getSuggestions={getSuggestions}
             />
           </div>
         )}
@@ -771,15 +788,57 @@ function DropItem({ icon, label, active, onClick }) {
   );
 }
 
-function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFocus, inputStyle }) {
+function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFocus, inputStyle, getSuggestions }) {
+  const [suggestions, setSuggestions] = useState([]);
+  const [suggIdx, setSuggIdx] = useState(-1);
+  const debounceRef = useRef(null);
+  const wrapperRef = useRef(null);
+  const [dropStyle, setDropStyle] = useState(null);
+
+  // Debounce contact suggestions — only when getSuggestions is wired up
+  useEffect(() => {
+    if (!getSuggestions) return;
+    clearTimeout(debounceRef.current);
+    const q = value.trim();
+    if (q.length < 2) { setSuggestions([]); setSuggIdx(-1); setDropStyle(null); return; }
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const results = await getSuggestions(q);
+        if (!results.length) { setSuggestions([]); setDropStyle(null); return; }
+        // Measure wrapper position for the fixed dropdown — escapes overflow:auto containers
+        if (wrapperRef.current) {
+          const rect = wrapperRef.current.getBoundingClientRect();
+          setDropStyle({ top: rect.bottom + 2, left: rect.left, width: Math.max(rect.width, 220) });
+        }
+        setSuggestions(results);
+        setSuggIdx(-1);
+      } catch (_) {}
+    }, 200);
+    return () => clearTimeout(debounceRef.current);
+  }, [value, getSuggestions]);
+
+  const clearSuggestions = () => { setSuggestions([]); setSuggIdx(-1); setDropStyle(null); };
+
   const commitInput = () => {
     const trimmed = value.trim();
-    if (!trimmed) return;
-    onChipsChange([...chips, trimmed]);
+    if (trimmed) { onChipsChange([...chips, trimmed]); onChange(''); }
+    clearSuggestions();
+  };
+
+  const commitSuggestion = (contact) => {
+    const formatted = contact.name ? `${contact.name} <${contact.email}>` : contact.email;
+    onChipsChange([...chips, formatted]);
     onChange('');
+    clearSuggestions();
   };
 
   const handleKeyDown = (e) => {
+    if (suggestions.length > 0) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); setSuggIdx(i => Math.min(i + 1, suggestions.length - 1)); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); setSuggIdx(i => Math.max(i - 1, -1)); return; }
+      if (e.key === 'Escape') { clearSuggestions(); return; }
+      if ((e.key === 'Enter' || e.key === 'Tab') && suggIdx >= 0) { e.preventDefault(); commitSuggestion(suggestions[suggIdx]); return; }
+    }
     if (e.key === ',' || e.key === 'Enter' || e.key === 'Tab') {
       if (value.trim()) { e.preventDefault(); commitInput(); }
     } else if (e.key === 'Backspace' && !value && chips.length) {
@@ -788,7 +847,7 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
   };
 
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, flex: 1, alignItems: 'center', padding: '5px 0', minWidth: 0 }}>
+    <div ref={wrapperRef} style={{ display: 'flex', flexWrap: 'wrap', gap: 4, flex: 1, alignItems: 'center', padding: '5px 0', minWidth: 0 }}>
       {chips.map((chip, i) => (
         <span key={i} style={{
           display: 'inline-flex', alignItems: 'center', gap: 3,
@@ -818,6 +877,39 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
         autoFocus={autoFocus}
         style={{ ...inputStyle, flex: '1 1 80px', minWidth: 80 }}
       />
+      {suggestions.length > 0 && dropStyle && (
+        <div style={{
+          position: 'fixed',
+          top: dropStyle.top, left: dropStyle.left, width: dropStyle.width,
+          zIndex: 9800,
+          background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+          borderRadius: 8, boxShadow: 'var(--shadow-popover)',
+          overflow: 'hidden',
+        }}>
+          {suggestions.map((contact, i) => (
+            <div
+              key={contact.email}
+              onMouseDown={e => { e.preventDefault(); commitSuggestion(contact); }}
+              onMouseEnter={() => setSuggIdx(i)}
+              style={{
+                padding: '8px 12px', cursor: 'pointer',
+                background: i === suggIdx ? 'var(--bg-hover)' : 'transparent',
+                borderBottom: i < suggestions.length - 1 ? '1px solid var(--border-subtle)' : 'none',
+                transition: 'background 0.08s',
+              }}
+            >
+              {contact.name && (
+                <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500, lineHeight: 1.3 }}>
+                  {contact.name}
+                </div>
+              )}
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', lineHeight: 1.3 }}>
+                {contact.email}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

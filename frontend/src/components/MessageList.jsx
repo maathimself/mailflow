@@ -52,12 +52,20 @@ export default function MessageList() {
   const [syncing, setSyncing] = useState(false);
   const [folderSyncing, setFolderSyncing] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
+  const [listScrolled, setListScrolled] = useState(false);
+  const [fabVisible, setFabVisible] = useState(true);
+  const lastScrollTopRef = useRef(0);
+  const [pullDistance, setPullDistance] = useState(0);
+  const pullStartYRef = useRef(null);
+  const pullDistRef = useRef(0);
+  const handleSyncRef = useRef(null);
   const [contextMenu, setContextMenu] = useState(null); // { x, y, message }
   const [searchFocused, setSearchFocused] = useState(false);
   const [searchHasMore, setSearchHasMore] = useState(false);
   const [searchLoadingMore, setSearchLoadingMore] = useState(false);
   const listRef = useRef(null);
   const searchInputRef = useRef(null); // for focusSearch shortcut
+  const pendingDeleteTimers = useRef(new Map()); // id -> { timer, message }
 
   // Bulk selection state
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -268,6 +276,11 @@ export default function MessageList() {
     if (!listRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = listRef.current;
     setShowScrollTop(scrollTop > 400);
+    setListScrolled(scrollTop > 2);
+    // FAB: hide when scrolling down, show when scrolling up or near top
+    const delta = scrollTop - lastScrollTopRef.current;
+    lastScrollTopRef.current = scrollTop;
+    if (Math.abs(delta) > 4) setFabVisible(delta < 0 || scrollTop < 60);
     if (scrollMode !== 'infinite' || loadingMessages || !hasMoreMessages) return;
     if (scrollTop + clientHeight >= scrollHeight - 300) {
       loadMore();
@@ -310,6 +323,54 @@ export default function MessageList() {
       setSyncing(false);
     }
   };
+  // Always keep ref current so touch handlers never go stale
+  handleSyncRef.current = handleSync;
+
+  // Pull-to-refresh touch listeners (mobile only)
+  useEffect(() => {
+    if (!isMobile) return;
+    const el = listRef.current;
+    if (!el) return;
+    const THRESHOLD = 64;
+    const MAX_PULL = 80;
+
+    const onTouchStart = (e) => {
+      if (el.scrollTop === 0) pullStartYRef.current = e.touches[0].clientY;
+    };
+
+    const onTouchMove = (e) => {
+      if (pullStartYRef.current === null) return;
+      const delta = e.touches[0].clientY - pullStartYRef.current;
+      if (delta > 0 && el.scrollTop === 0) {
+        e.preventDefault();
+        const d = Math.min(delta * 0.5, MAX_PULL);
+        pullDistRef.current = d;
+        setPullDistance(d);
+      } else if (el.scrollTop > 0) {
+        pullStartYRef.current = null;
+        pullDistRef.current = 0;
+        setPullDistance(0);
+      }
+    };
+
+    const onTouchEnd = () => {
+      if (pullStartYRef.current === null) return;
+      const dist = pullDistRef.current;
+      pullStartYRef.current = null;
+      pullDistRef.current = 0;
+      setPullDistance(0);
+      if (dist >= THRESHOLD) handleSyncRef.current?.();
+    };
+
+    el.addEventListener('touchstart', onTouchStart, { passive: true });
+    el.addEventListener('touchmove', onTouchMove, { passive: false });
+    el.addEventListener('touchend', onTouchEnd, { passive: true });
+    return () => {
+      el.removeEventListener('touchstart', onTouchStart);
+      el.removeEventListener('touchmove', onTouchMove);
+      el.removeEventListener('touchend', onTouchEnd);
+    };
+  }, [isMobile]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Animate the sync icon on WS sync_complete — the actual list refresh is handled
   // by the mailflow:refresh listener above (also fired on sync_complete), so this
@@ -347,27 +408,49 @@ export default function MessageList() {
     }
   };
 
-  const handleDelete = async (e, message) => {
+  // Undo-able delete: optimistically remove, delay the API call by 4.5s so user can undo
+  const scheduleDelete = useCallback((message) => {
+    const id = message.id;
+    removeMessage(id);
+    if (!message.is_read) decrementUnread(message.account_id);
+    const timer = setTimeout(async () => {
+      pendingDeleteTimers.current.delete(id);
+      try {
+        await api.deleteMessage(id);
+      } catch {
+        addNotification({ type: 'error', title: 'Delete failed', body: 'Could not delete message.' });
+      }
+    }, 4500);
+    pendingDeleteTimers.current.set(id, { timer, message });
+    addNotification({
+      title: 'Message deleted',
+      body: 'Moved to Trash.',
+      onUndo: () => {
+        const pending = pendingDeleteTimers.current.get(id);
+        if (!pending) return;
+        clearTimeout(pending.timer);
+        pendingDeleteTimers.current.delete(id);
+        const state = useStore.getState();
+        state.setMessages([...state.messages, message].sort((a, b) => new Date(b.date) - new Date(a.date)));
+        if (!message.is_read) incrementUnread(message.account_id);
+      },
+    });
+  }, [removeMessage, decrementUnread, incrementUnread, addNotification]);
+
+  // Cleanup any pending delete timers on unmount
+  useEffect(() => () => {
+    pendingDeleteTimers.current.forEach(({ timer }) => clearTimeout(timer));
+  }, []);
+
+  const handleDelete = (e, message) => {
     e.stopPropagation();
-    try {
-      await api.deleteMessage(message.id);
-      removeMessage(message.id);
-    } catch (err) {
-      console.error(err);
-    }
+    scheduleDelete(message);
   };
 
   // Mobile swipe action handlers (no event object needed)
-  const handleSwipeDelete = useCallback(async (message) => {
-    removeMessage(message.id);
-    if (!message.is_read) decrementUnread(message.account_id);
-    try {
-      await api.deleteMessage(message.id);
-    } catch (err) {
-      console.error('swipe delete failed:', err.message);
-      addNotification({ title: 'Delete failed', body: 'Could not delete message.' });
-    }
-  }, [removeMessage, decrementUnread, addNotification]);
+  const handleSwipeDelete = useCallback((message) => {
+    scheduleDelete(message);
+  }, [scheduleDelete]);
 
   const handleSwipeToggleRead = useCallback(async (message) => {
     const newRead = !message.is_read;
@@ -402,53 +485,98 @@ export default function MessageList() {
     setShowFolderPicker(false);
   }, []);
 
-  const handleBulkDelete = useCallback(async (ids, msgs) => {
-    // Optimistically remove from UI
+  const handleBulkDelete = useCallback((ids, msgs) => {
     ids.forEach(id => removeMessage(id));
     msgs.forEach(msg => { if (!msg.is_read) decrementUnread(msg.account_id); });
     setSelectedIds(new Set());
     setShowFolderPicker(false);
-    try {
-      await api.bulkDelete(ids);
-    } catch (err) {
-      console.error('Bulk delete failed:', err);
-      addNotification({ title: 'Delete failed', body: `Could not delete ${ids.length} message(s).` });
-    }
-  }, [removeMessage, decrementUnread, addNotification]);
+    let undone = false;
+    const timer = setTimeout(async () => {
+      if (undone) return;
+      try {
+        await api.bulkDelete(ids);
+      } catch (err) {
+        console.error('Bulk delete failed:', err);
+        addNotification({ title: 'Delete failed', body: `Could not delete ${ids.length} message(s).` });
+      }
+    }, 4500);
+    addNotification({
+      title: `${ids.length} message${ids.length === 1 ? '' : 's'} deleted`,
+      body: 'Moved to Trash.',
+      onUndo: () => {
+        undone = true;
+        clearTimeout(timer);
+        const state = useStore.getState();
+        state.setMessages([...state.messages, ...msgs].sort((a, b) => new Date(b.date) - new Date(a.date)));
+        msgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
+      },
+    });
+  }, [removeMessage, decrementUnread, incrementUnread, addNotification]);
 
-  const handleBulkMove = useCallback(async (ids, folder) => {
+  const handleBulkMove = useCallback((ids, msgs, folder) => {
     ids.forEach(id => removeMessage(id));
     setSelectedIds(new Set());
     setShowFolderPicker(false);
-    try {
-      await api.bulkMove(ids, folder);
-    } catch (err) {
-      console.error('Bulk move failed:', err);
-      addNotification({ title: 'Move failed', body: `Could not move ${ids.length} message(s).` });
-    }
+    let undone = false;
+    const timer = setTimeout(async () => {
+      if (undone) return;
+      try {
+        await api.bulkMove(ids, folder);
+      } catch (err) {
+        console.error('Bulk move failed:', err);
+        addNotification({ title: 'Move failed', body: `Could not move ${ids.length} message(s).` });
+      }
+    }, 4500);
+    addNotification({
+      title: `${ids.length} message${ids.length === 1 ? '' : 's'} moved`,
+      body: folder,
+      onUndo: () => {
+        undone = true;
+        clearTimeout(timer);
+        const state = useStore.getState();
+        state.setMessages([...state.messages, ...msgs].sort((a, b) => new Date(b.date) - new Date(a.date)));
+      },
+    });
   }, [removeMessage, addNotification]);
 
-  const handleBulkArchive = useCallback(async (ids, msgs) => {
+  const handleBulkArchive = useCallback((ids, msgs) => {
     ids.forEach(id => removeMessage(id));
     msgs.forEach(msg => { if (!msg.is_read) decrementUnread(msg.account_id); });
     setSelectedIds(new Set());
     setShowFolderPicker(false);
-    try {
-      const result = await api.bulkArchive(ids);
-      if (result.noArchiveFolder?.length) {
-        addNotification({ title: 'No archive folder', body: 'One or more accounts have no archive folder configured. Set one in Settings → Accounts → Folder Mappings.' });
+    let undone = false;
+    const timer = setTimeout(async () => {
+      if (undone) return;
+      try {
+        const result = await api.bulkArchive(ids);
+        if (result.noArchiveFolder?.length) {
+          addNotification({ title: 'No archive folder', body: 'One or more accounts have no archive folder configured. Set one in Settings → Accounts → Folder Mappings.' });
+        }
+      } catch (err) {
+        console.error('Bulk archive failed:', err);
+        addNotification({ title: 'Archive failed', body: `Could not archive ${ids.length} message(s).` });
       }
-    } catch (err) {
-      console.error('Bulk archive failed:', err);
-      addNotification({ title: 'Archive failed', body: `Could not archive ${ids.length} message(s).` });
-    }
-  }, [removeMessage, decrementUnread, addNotification]);
+    }, 4500);
+    addNotification({
+      title: `${ids.length} message${ids.length === 1 ? '' : 's'} archived`,
+      body: 'Moved to Archive.',
+      onUndo: () => {
+        undone = true;
+        clearTimeout(timer);
+        const state = useStore.getState();
+        state.setMessages([...state.messages, ...msgs].sort((a, b) => new Date(b.date) - new Date(a.date)));
+        msgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
+      },
+    });
+  }, [removeMessage, decrementUnread, incrementUnread, addNotification]);
 
   // Keep refs to bulk handlers so the shortcut effect (registered once) is never stale
-  const bulkDeleteRef  = useRef(handleBulkDelete);
-  const bulkArchiveRef = useRef(handleBulkArchive);
-  useEffect(() => { bulkDeleteRef.current  = handleBulkDelete;  }, [handleBulkDelete]);
-  useEffect(() => { bulkArchiveRef.current = handleBulkArchive; }, [handleBulkArchive]);
+  const bulkDeleteRef    = useRef(handleBulkDelete);
+  const bulkArchiveRef   = useRef(handleBulkArchive);
+  const scheduleDeleteRef = useRef(scheduleDelete);
+  useEffect(() => { bulkDeleteRef.current    = handleBulkDelete;  }, [handleBulkDelete]);
+  useEffect(() => { bulkArchiveRef.current   = handleBulkArchive; }, [handleBulkArchive]);
+  useEffect(() => { scheduleDeleteRef.current = scheduleDelete;   }, [scheduleDelete]);
 
   // Subscribe to keyboard shortcut actions that belong to the message list.
   // Registered once ([] deps); all live state is read through scRef/bulkDeleteRef/bulkArchiveRef.
@@ -516,10 +644,7 @@ export default function MessageList() {
       } else if (selectedMessageId) {
         const msg = messages.find(m => m.id === selectedMessageId);
         if (!msg) return;
-        const { removeMessage, decrementUnread } = getState();
-        removeMessage(selectedMessageId);
-        if (!msg.is_read) decrementUnread(msg.account_id);
-        api.deleteMessage(selectedMessageId).catch(console.error);
+        scheduleDeleteRef.current(msg);
       }
     };
 
@@ -662,39 +787,64 @@ export default function MessageList() {
         setSelectedIds(new Set([message.id]));
         break;
       case 'archive': {
-        removeMessage(message.id);
-        if (!message.is_read) decrementUnread(message.account_id);
-        try {
-          const result = await api.bulkArchive([message.id]);
-          if (result.noArchiveFolder?.length) {
-            addNotification({ title: 'No archive folder', body: 'No archive folder configured for this account. Set one in Settings → Accounts → Folder Mappings.' });
+        const archived = message;
+        removeMessage(archived.id);
+        if (!archived.is_read) decrementUnread(archived.account_id);
+        let archiveUndone = false;
+        const archiveTimer = setTimeout(async () => {
+          if (archiveUndone) return;
+          try {
+            const result = await api.bulkArchive([archived.id]);
+            if (result.noArchiveFolder?.length) {
+              addNotification({ title: 'No archive folder', body: 'No archive folder configured for this account. Set one in Settings → Accounts → Folder Mappings.' });
+            }
+          } catch (err) {
+            console.error('Archive failed:', err.message);
+            addNotification({ title: 'Archive failed', body: 'Could not archive message.' });
           }
-        } catch (err) {
-          console.error('Archive failed:', err.message);
-          addNotification({ title: 'Archive failed', body: 'Could not archive message. Please try again.' });
-        }
+        }, 4500);
+        addNotification({
+          title: 'Message archived',
+          body: archived.subject || '(no subject)',
+          onUndo: () => {
+            archiveUndone = true;
+            clearTimeout(archiveTimer);
+            const state = useStore.getState();
+            state.setMessages([...state.messages, archived].sort((a, b) => new Date(b.date) - new Date(a.date)));
+            if (!archived.is_read) incrementUnread(archived.account_id);
+          },
+        });
         break;
       }
       case 'moveTo': {
         const folder = data;
         if (!folder) break;
-        removeMessage(message.id);
-        try {
-          await api.bulkMove([message.id], folder);
-        } catch (err) {
-          console.error('Move failed:', err.message);
-          addNotification({ title: 'Move failed', body: 'Could not move message. Please try again.' });
-        }
+        const moved = message;
+        removeMessage(moved.id);
+        let moveUndone = false;
+        const moveTimer = setTimeout(async () => {
+          if (moveUndone) return;
+          try {
+            await api.bulkMove([moved.id], folder);
+          } catch (err) {
+            console.error('Move failed:', err.message);
+            addNotification({ title: 'Move failed', body: 'Could not move message.' });
+          }
+        }, 4500);
+        addNotification({
+          title: 'Message moved',
+          body: folder,
+          onUndo: () => {
+            moveUndone = true;
+            clearTimeout(moveTimer);
+            const state = useStore.getState();
+            state.setMessages([...state.messages, moved].sort((a, b) => new Date(b.date) - new Date(a.date)));
+          },
+        });
         break;
       }
       case 'delete':
-        try {
-          await api.deleteMessage(message.id);
-          removeMessage(message.id);
-        } catch (err) {
-          console.error('deleteMessage failed:', err.message);
-          addNotification({ title: 'Delete failed', body: 'Could not delete message. Please try again.' });
-        }
+        scheduleDelete(message);
         break;
       default:
         break;
@@ -751,6 +901,8 @@ export default function MessageList() {
           paddingTop: 'calc(var(--sat) + 10px)',
           paddingBottom: 10, paddingLeft: 12, paddingRight: 12,
           borderBottom: '1px solid var(--border-subtle)',
+          boxShadow: listScrolled ? '0 1px 10px rgba(0,0,0,0.2)' : 'none',
+          transition: 'box-shadow 0.2s ease',
           background: 'var(--bg-secondary)', flexShrink: 0,
         }}>
           {/* Hamburger */}
@@ -832,6 +984,8 @@ export default function MessageList() {
       {/* ── Desktop header ──────────────────────────────────────────────── */}
       {!isMobile && <div style={{
         padding: '14px 16px 10px', borderBottom: '1px solid var(--border-subtle)',
+        boxShadow: listScrolled ? '0 1px 10px rgba(0,0,0,0.2)' : 'none',
+        transition: 'box-shadow 0.2s ease',
       }}>
         {/* Title row: label + count + sync (always fits) */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isNarrow ? 6 : 10 }}>
@@ -1084,6 +1238,47 @@ export default function MessageList() {
           onScroll={handleScroll}
           style={{ height: '100%', overflow: 'auto' }}
         >
+          {/* Pull-to-refresh indicator */}
+          {isMobile && (
+            <div style={{
+              height: pullDistance,
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end',
+              paddingBottom: pullDistance > 8 ? 8 : 0,
+              overflow: 'hidden',
+              transition: pullDistance === 0 ? 'height 0.25s ease' : 'none',
+              pointerEvents: 'none',
+              gap: 4,
+            }}>
+              <div style={{
+                opacity: Math.min(pullDistance / 32, 1),
+                transform: syncing ? 'none' : `rotate(${pullDistance >= 64 ? 180 : 0}deg)`,
+                transition: 'transform 0.2s ease',
+                color: 'var(--accent)',
+                display: 'flex',
+              }}>
+                {syncing ? (
+                  <div style={{
+                    width: 20, height: 20, borderRadius: '50%',
+                    border: '2px solid var(--border)', borderTopColor: 'var(--accent)',
+                    animation: 'spin 0.8s linear infinite',
+                  }} />
+                ) : (
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <polyline points="6 9 12 15 18 9"/>
+                  </svg>
+                )}
+              </div>
+              {pullDistance > 20 && !syncing && (
+                <div style={{
+                  fontSize: 11, color: 'var(--accent)', fontWeight: 500,
+                  opacity: Math.min((pullDistance - 20) / 20, 1),
+                  transition: 'opacity 0.1s',
+                }}>
+                  {pullDistance >= 64 ? 'Release to sync' : 'Pull to sync'}
+                </div>
+              )}
+            </div>
+          )}
         {loadingMessages && displayMessages.length === 0 && (
           <div>
             {Array.from({ length: 7 }).map((_, i) => (
@@ -1178,13 +1373,13 @@ export default function MessageList() {
                 Move
               </BulkBtn>
 
-              {showFolderPicker && (
+              {showFolderPicker && !isMobile && (
                 <div style={{
                   position: 'absolute', top: 'calc(100% + 4px)', right: 0,
                   background: 'var(--bg-elevated)',
                   border: '1px solid var(--border)',
                   borderRadius: 8,
-                  boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
+                  boxShadow: 'var(--shadow-popover)',
                   minWidth: 200, maxWidth: 280,
                   maxHeight: 320, overflowY: 'auto',
                   zIndex: 100,
@@ -1207,7 +1402,7 @@ export default function MessageList() {
                         .map(f => (
                           <button
                             key={f.path}
-                            onClick={() => handleBulkMove([...selectedIds], f.path)}
+                            onClick={() => handleBulkMove([...selectedIds], selectedMsgs, f.path)}
                             style={{
                               display: 'flex', alignItems: 'center', gap: 8,
                               width: '100%', padding: '8px 12px',
@@ -1231,6 +1426,72 @@ export default function MessageList() {
                     </>
                   )}
                 </div>
+              )}
+              {/* Mobile folder picker — bottom sheet */}
+              {showFolderPicker && isMobile && (
+                <>
+                  <div
+                    onClick={() => setShowFolderPicker(false)}
+                    style={{
+                      position: 'fixed', inset: 0, zIndex: 3000,
+                      background: 'var(--overlay-scrim)',
+                      backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)',
+                    }}
+                  />
+                  <div style={{
+                    position: 'fixed', left: 0, right: 0, bottom: 0,
+                    zIndex: 3001,
+                    background: 'var(--bg-secondary)',
+                    borderRadius: '16px 16px 0 0',
+                    boxShadow: '0 -4px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.04)',
+                    paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 8px)',
+                    animation: 'sheet-enter 0.2s cubic-bezier(0.34,1.56,0.64,1)',
+                  }}>
+                    {/* Drag handle */}
+                    <div style={{ display: 'flex', justifyContent: 'center', padding: '12px 0 4px' }}>
+                      <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--border)' }} />
+                    </div>
+                    {/* Title */}
+                    <div style={{ padding: '4px 20px 12px', fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>
+                      Move to folder
+                    </div>
+                    <div style={{ borderTop: '1px solid var(--border-subtle)', overflowY: 'auto', maxHeight: '60vh' }}>
+                      {pickerLoading ? (
+                        <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
+                          Loading folders…
+                        </div>
+                      ) : pickerFolders.length === 0 ? (
+                        <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
+                          No folders found
+                        </div>
+                      ) : pickerFolders
+                        .filter(f => f.path !== selectedFolder)
+                        .map(f => (
+                          <button
+                            key={f.path}
+                            onClick={() => { handleBulkMove([...selectedIds], selectedMsgs, f.path); setShowFolderPicker(false); }}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: 14,
+                              width: '100%', minHeight: 48,
+                              padding: '0 20px',
+                              background: 'none', border: 'none',
+                              borderBottom: '1px solid var(--border-subtle)',
+                              color: 'var(--text-primary)', fontSize: 15,
+                              cursor: 'pointer', textAlign: 'left',
+                            }}
+                          >
+                            <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}>
+                              <FolderIcon specialUse={f.special_use} />
+                            </span>
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {f.name}
+                            </span>
+                          </button>
+                        ))
+                      }
+                    </div>
+                  </div>
+                </>
               )}
             </div>
 
@@ -1261,6 +1522,7 @@ export default function MessageList() {
             isChecked={selectedIds.has(message.id)}
             selectionMode={selectionMode}
             showAccount={isUnified}
+            isNarrow={isNarrow}
             onSelect={handleSelect}
             onToggleSelect={toggleSelect}
             onMarkRead={handleMarkRead}
@@ -1408,7 +1670,7 @@ export default function MessageList() {
               background: 'var(--bg-elevated)', border: '1px solid var(--border)',
               color: 'var(--text-secondary)', cursor: 'pointer',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              boxShadow: '0 2px 12px rgba(0,0,0,0.4)',
+              boxShadow: 'var(--shadow-soft)',
               transition: 'color 0.15s, border-color 0.15s',
               animation: 'fade-in 0.15s ease',
             }}
@@ -1438,7 +1700,14 @@ export default function MessageList() {
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             color: 'white',
             zIndex: 200,
+            opacity: fabVisible ? 1 : 0,
+            transform: fabVisible ? 'scale(1)' : 'scale(0.8)',
+            transition: 'opacity 0.2s ease, transform 0.2s ease',
+            pointerEvents: fabVisible ? 'auto' : 'none',
           }}
+          onMouseDown={e => { e.currentTarget.style.transform = 'scale(0.92)'; }}
+          onMouseUp={e => { e.currentTarget.style.transform = fabVisible ? 'scale(1)' : 'scale(0.8)'; }}
+          onMouseLeave={e => { e.currentTarget.style.transform = fabVisible ? 'scale(1)' : 'scale(0.8)'; }}
         >
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
@@ -1564,7 +1833,7 @@ function EmptyState({ folderSyncing, searchQuery, unreadOnly, selectedFolder, ac
   );
 }
 
-function MessageRow({ message, selected, isChecked, selectionMode, showAccount, onSelect, onToggleSelect, onMarkRead, onStar, onDelete, onContextMenu, isMobile, onSwipeLeft, onSwipeRight }) {
+function MessageRow({ message, selected, isChecked, selectionMode, showAccount, isNarrow, onSelect, onToggleSelect, onMarkRead, onStar, onDelete, onContextMenu, isMobile, onSwipeLeft, onSwipeRight }) {
   const [hovered, setHovered] = useState(false);
   const contentRef = useRef(null);
   const swipeBgLeftRef = useRef(null);
@@ -1578,9 +1847,10 @@ function MessageRow({ message, selected, isChecked, selectionMode, showAccount, 
     if (!el) return;
     el.style.transition = 'transform 0.25s cubic-bezier(0.25,0.46,0.45,0.94)';
     el.style.transform = 'translateX(0)';
+    el.style.boxShadow = '';
     setTimeout(() => {
-      if (swipeBgLeftRef.current)  swipeBgLeftRef.current.style.display  = 'none';
-      if (swipeBgRightRef.current) swipeBgRightRef.current.style.display = 'none';
+      if (swipeBgLeftRef.current)  { swipeBgLeftRef.current.style.display = 'none'; swipeBgLeftRef.current.style.opacity = '1'; }
+      if (swipeBgRightRef.current) { swipeBgRightRef.current.style.display = 'none'; swipeBgRightRef.current.style.opacity = '1'; }
     }, 260);
   }, []);
 
@@ -1590,8 +1860,8 @@ function MessageRow({ message, selected, isChecked, selectionMode, showAccount, 
     if (!el) return;
 
     const showBgs = () => {
-      if (swipeBgLeftRef.current)  swipeBgLeftRef.current.style.display  = 'flex';
-      if (swipeBgRightRef.current) swipeBgRightRef.current.style.display = 'flex';
+      if (swipeBgLeftRef.current)  { swipeBgLeftRef.current.style.display = 'flex'; swipeBgLeftRef.current.style.opacity = '0'; }
+      if (swipeBgRightRef.current) { swipeBgRightRef.current.style.display = 'flex'; swipeBgRightRef.current.style.opacity = '0'; }
     };
     const hideBgs = () => {
       if (swipeBgLeftRef.current)  swipeBgLeftRef.current.style.display  = 'none';
@@ -1619,6 +1889,20 @@ function MessageRow({ message, selected, isChecked, selectionMode, showAccount, 
       s.x = Math.max(-160, Math.min(160, dx));
       el.style.transition = 'none';
       el.style.transform = `translateX(${s.x}px)`;
+      // Progressive feedback: fade in action panel and scale icon as threshold approaches
+      const progress = Math.min(Math.abs(s.x) / SWIPE_THRESHOLD, 1);
+      const iconScale = 0.7 + 0.3 * progress;
+      if (s.x > 0 && swipeBgLeftRef.current) {
+        swipeBgLeftRef.current.style.opacity = String(0.3 + 0.7 * progress);
+        const icon = swipeBgLeftRef.current.querySelector('svg');
+        if (icon) icon.style.transform = `scale(${iconScale})`;
+      } else if (s.x < 0 && swipeBgRightRef.current) {
+        swipeBgRightRef.current.style.opacity = String(0.3 + 0.7 * progress);
+        const icon = swipeBgRightRef.current.querySelector('svg');
+        if (icon) icon.style.transform = `scale(${iconScale})`;
+      }
+      // Subtle lift shadow as row drags
+      el.style.boxShadow = progress > 0.1 ? `0 4px 20px rgba(0,0,0,${0.3 * progress})` : '';
     };
 
     const onEnd = () => {
@@ -1649,6 +1933,7 @@ function MessageRow({ message, selected, isChecked, selectionMode, showAccount, 
   // On mobile the row content must be opaque — swipe action panels sit behind it
   // and would show through a transparent background.
   const bgDefault = isMobile ? 'var(--bg-primary)' : 'transparent';
+  const selectedColor = message.account_color || 'var(--accent)';
   const bg = (selected && !selectionMode)
     ? 'var(--bg-elevated)'
     : (isChecked ? 'var(--accent-dim)' : (hovered ? 'var(--bg-tertiary)' : bgDefault));
@@ -1718,6 +2003,9 @@ function MessageRow({ message, selected, isChecked, selectionMode, showAccount, 
           cursor: 'pointer', background: bg, transition: 'background 0.1s',
           position: 'relative',
           willChange: isMobile ? 'transform' : undefined,
+          boxShadow: (selected && !selectionMode && !isMobile)
+            ? `inset 0 0 0 1px ${selectedColor}22`
+            : undefined,
         }}
       >
       {/* Selected row left accent rail */}
@@ -1752,15 +2040,27 @@ function MessageRow({ message, selected, isChecked, selectionMode, showAccount, 
         )
       )}
 
-      <div style={{ paddingLeft: showCheckbox ? 22 : (message.is_read ? 0 : 6) }}>
+      <div style={{ paddingLeft: showCheckbox ? 22 : (message.is_read ? 0 : 6), display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+        {/* Sender avatar — wide layouts only */}
+        {!isNarrow && !isMobile && (
+          <div style={{
+            width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
+            background: message.account_color || 'var(--accent)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 13, fontWeight: 600, color: 'white',
+            marginTop: 1,
+          }}>
+            {(message.from_name || message.from_email || '?')[0].toUpperCase()}
+          </div>
+        )}
+        <div style={{ flex: 1, minWidth: 0 }}>
         {/* Row 1: From + date */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: 1 }}>
             {showAccount && (
               <div style={{
-                width: 5, height: 5, borderRadius: '50%', flexShrink: 0,
+                width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
                 background: message.account_color || '#6366f1',
-                opacity: 0.55,
               }} />
             )}
             <span style={{
@@ -1803,6 +2103,7 @@ function MessageRow({ message, selected, isChecked, selectionMode, showAccount, 
           }}>
             {message.snippet || '\u00a0'}
           </span>
+        </div>
         </div>
       </div>
 

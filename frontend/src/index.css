@@ -23,8 +23,11 @@
   --amber: #fbbf24;
   /* Elevation system */
   --shadow-soft: 0 2px 8px rgba(0,0,0,0.28);
-  --shadow-popover: 0 4px 20px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.04);
-  --shadow-modal: 0 8px 48px rgba(0,0,0,0.65), 0 0 0 1px rgba(255,255,255,0.06);
+  --shadow-popover: 0 4px 20px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.04), inset 0 1px 0 rgba(255,255,255,0.05);
+  --shadow-modal: 0 8px 48px rgba(0,0,0,0.65), 0 0 0 1px rgba(255,255,255,0.06), inset 0 1px 0 rgba(255,255,255,0.07);
+  --shadow-drawer: 4px 0 32px rgba(0,0,0,0.6), 1px 0 0 rgba(255,255,255,0.04);
+  --highlight-top: inset 0 1px 0 rgba(255,255,255,0.06);
+  --overlay-scrim: rgba(0,0,0,0.5);
 }
 
 * {
@@ -123,6 +126,11 @@ body, #root {
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
+@keyframes sheet-enter {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
 /* Mobile toast (slides up, no sideways) */
 @keyframes toast-in-mobile {
   from { opacity: 0; transform: translateY(12px); }
@@ -156,6 +164,21 @@ body, #root {
 /* Prevent iOS Safari from zooming in when focusing inputs smaller than 16px */
 @supports (-webkit-touch-callout: none) {
   input, textarea, select { font-size: 16px !important; }
+}
+
+/* Button press physics — add class "btn-press" to interactive buttons */
+.btn-press {
+  transition: transform 0.08s ease, opacity 0.08s ease;
+}
+.btn-press:active {
+  transform: scale(0.95);
+  opacity: 0.85;
+}
+
+/* Unified popover entrance */
+@keyframes popover-in {
+  from { opacity: 0; transform: scale(0.96) translateY(-4px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
 }
 
 /* Respect reduced-motion preferences */

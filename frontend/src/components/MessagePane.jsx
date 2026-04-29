@@ -44,7 +44,7 @@ function fileIcon(type) {
 export default function MessagePane() {
   const {
     messages, searchResults, searchQuery, selectedMessageId, setSelectedMessage,
-    updateMessage, removeMessage, decrementUnread, openCompose, accounts, addNotification,
+    updateMessage, removeMessage, decrementUnread, incrementUnread, openCompose, accounts, addNotification,
     imageWhitelist, setImageWhitelist,
   } = useStore();
 
@@ -63,6 +63,8 @@ export default function MessagePane() {
   const [downloadingPart, setDownloadingPart] = useState(null);
   const [showReplyMenu, setShowReplyMenu] = useState(false);
   const [savingAllow, setSavingAllow] = useState(false);
+  const [paneScrolled, setPaneScrolled] = useState(false);
+  const scrollContainerRef = useRef(null);
   const iframeRef = useRef(null);
   const roRef = useRef(null);
   const bodyCache = useRef({}); // messageId -> body, so revisiting is instant (capped at 50)
@@ -487,17 +489,34 @@ export default function MessagePane() {
     } catch (err) { console.error(err); }
   };
 
-  const handleArchive = async () => {
-    removeMessage(message.id);
-    try {
-      const result = await api.bulkArchive([message.id]);
-      if (result.noArchiveFolder?.length) {
-        addNotification({ title: 'No archive folder', body: 'No archive folder configured for this account. Set one in Settings → Accounts → Folder Mappings.' });
+  const handleArchive = () => {
+    const archived = message;
+    removeMessage(archived.id);
+    if (!archived.is_read) decrementUnread(archived.account_id);
+    let undone = false;
+    const timer = setTimeout(async () => {
+      if (undone) return;
+      try {
+        const result = await api.bulkArchive([archived.id]);
+        if (result.noArchiveFolder?.length) {
+          addNotification({ title: 'No archive folder', body: 'No archive folder configured for this account. Set one in Settings → Accounts → Folder Mappings.' });
+        }
+      } catch (err) {
+        console.error('Archive failed:', err);
+        addNotification({ title: 'Archive failed', body: 'Could not archive message.' });
       }
-    } catch (err) {
-      console.error('Archive failed:', err);
-      addNotification({ title: 'Archive failed', body: 'Could not archive message.' });
-    }
+    }, 4500);
+    addNotification({
+      title: 'Message archived',
+      body: archived.subject || '(no subject)',
+      onUndo: () => {
+        undone = true;
+        clearTimeout(timer);
+        const state = useStore.getState();
+        state.setMessages([...state.messages, archived].sort((a, b) => new Date(b.date) - new Date(a.date)));
+        if (!archived.is_read) incrementUnread(archived.account_id);
+      },
+    });
   };
 
   const handleLoadImages = () => {
@@ -584,6 +603,8 @@ export default function MessagePane() {
           paddingBottom: 10, paddingLeft: 14, paddingRight: 14,
           borderBottom: '1px solid var(--border-subtle)',
           background: 'var(--bg-secondary)', flexShrink: 0,
+          boxShadow: paneScrolled ? '0 1px 10px rgba(0,0,0,0.2)' : 'none',
+          transition: 'box-shadow 0.2s ease',
         }}>
           <button
             onClick={() => history.back()}
@@ -612,10 +633,12 @@ export default function MessagePane() {
       <div style={{
         padding: '12px 20px', borderBottom: '1px solid var(--border-subtle)',
         display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
+        boxShadow: paneScrolled ? '0 1px 10px rgba(0,0,0,0.2)' : 'none',
+        transition: 'box-shadow 0.2s ease',
       }}>
         {/* Split Reply button */}
         <div style={{ position: 'relative', display: 'flex' }}>
-          <PaneBtn onClick={() => handleReply(false)} title="Reply">
+          <PaneBtn onClick={() => handleReply(false)} title="Reply (R)">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
               <polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 00-4-4H4"/>
             </svg>
@@ -669,14 +692,14 @@ export default function MessagePane() {
           )}
         </div>
 
-        <PaneBtn onClick={handleForward} title="Forward">
+        <PaneBtn onClick={handleForward} title="Forward (F)">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
             <polyline points="15 17 20 12 15 7"/><path d="M4 18v-2a4 4 0 014-4h12"/>
           </svg>
           Forward
         </PaneBtn>
 
-        <PaneBtn onClick={handleArchive} title="Archive">
+        <PaneBtn onClick={handleArchive} title="Archive (E)">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
             <rect x="2" y="3" width="20" height="5" rx="1"/>
             <path d="M4 8v11a1 1 0 001 1h14a1 1 0 001-1V8"/>
@@ -696,7 +719,7 @@ export default function MessagePane() {
           </svg>
         </PaneBtn>
 
-        <PaneBtn onClick={handleDelete} title="Delete" danger>
+        <PaneBtn onClick={handleDelete} title="Delete (#)" danger>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
             <polyline points="3 6 5 6 21 6"/>
             <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
@@ -705,7 +728,11 @@ export default function MessagePane() {
       </div>
 
       {/* Single scroll container — sender card + email body scroll together */}
-      <div style={{ flex: 1, overflow: 'auto', background: 'var(--bg-primary)' }}>
+      <div
+        ref={scrollContainerRef}
+        onScroll={e => setPaneScrolled(e.currentTarget.scrollTop > 4)}
+        style={{ flex: 1, overflow: 'auto', background: 'var(--bg-primary)' }}
+      >
       <div style={{ padding: isMobile ? '12px 0 0' : '24px 28px 0' }}>
 
         {/* Sender card — subject lives here as the card header */}
@@ -717,7 +744,9 @@ export default function MessagePane() {
           borderRadius: isMobile ? 0 : 10,
           border: isMobile ? 'none' : '1px solid var(--border-subtle)',
           borderBottom: '1px solid var(--border-subtle)',
+          borderLeft: message?.account_color ? `3px solid ${message.account_color}` : undefined,
           overflow: 'hidden',
+          boxShadow: isMobile ? 'none' : 'var(--shadow-soft), inset 0 1px 0 rgba(255,255,255,0.04)',
         }}>
           {/* Subject */}
           <div style={{
@@ -1007,6 +1036,7 @@ function PaneBtn({ children, onClick, title, danger }) {
     <button
       onClick={onClick}
       title={title}
+      className="btn-press"
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
       style={{

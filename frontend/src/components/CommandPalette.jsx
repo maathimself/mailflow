@@ -28,7 +28,7 @@ function buildActions({ openCompose, setSelectedAccount, setShowAdmin, setAdminT
       id: 'themes',
       label: 'Open Themes',
       icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 010 20"/><path d="M12 2v20"/></svg>,
-      run: () => { setShowAdmin(true); setAdminTab('themes'); },
+      run: () => { setShowAdmin(true); setAdminTab('appearance'); },
     },
   ];
 
@@ -61,6 +61,7 @@ export default function CommandPalette({ open, onClose }) {
   const { openCompose, setSelectedAccount, setShowAdmin, setAdminTab, theme, setTheme, accounts } = useStore();
   const [query, setQuery] = useState('');
   const [activeIdx, setActiveIdx] = useState(0);
+  const [listScrolled, setListScrolled] = useState(false);
   const inputRef = useRef(null);
   const listRef = useRef(null);
 
@@ -112,7 +113,9 @@ export default function CommandPalette({ open, onClose }) {
     <div
       style={{
         position: 'fixed', inset: 0, zIndex: 9500,
-        background: 'rgba(0,0,0,0.6)',
+        background: 'rgba(0,0,0,0.55)',
+        backdropFilter: 'blur(8px)',
+        WebkitBackdropFilter: 'blur(8px)',
         display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
         paddingTop: '15vh',
       }}
@@ -151,7 +154,15 @@ export default function CommandPalette({ open, onClose }) {
         </div>
 
         {/* Results */}
-        <div ref={listRef} style={{ maxHeight: 360, overflowY: 'auto', padding: '6px 0' }}>
+        <div
+          ref={listRef}
+          onScroll={e => setListScrolled(e.currentTarget.scrollTop > 4)}
+          style={{
+            maxHeight: 360, overflowY: 'auto', padding: '6px 0',
+            boxShadow: listScrolled ? 'inset 0 8px 8px -8px rgba(0,0,0,0.25)' : 'none',
+            transition: 'box-shadow 0.2s ease',
+          }}
+        >
           {filtered.length === 0 ? (
             <div style={{ padding: '20px 16px', color: 'var(--text-tertiary)', fontSize: 13, textAlign: 'center' }}>
               No actions found
@@ -161,11 +172,14 @@ export default function CommandPalette({ open, onClose }) {
               key={action.id}
               onClick={() => runAction(action)}
               onMouseEnter={() => setActiveIdx(i)}
+              onMouseDown={e => { e.currentTarget.style.transform = 'scale(0.98)'; }}
+              onMouseUp={e => { e.currentTarget.style.transform = ''; }}
+              onMouseLeave={e => { e.currentTarget.style.transform = ''; }}
               style={{
                 display: 'flex', alignItems: 'center', gap: 12,
                 padding: '9px 16px', cursor: 'pointer',
                 background: i === activeIdx ? 'var(--bg-hover)' : 'transparent',
-                transition: 'background 0.08s',
+                transition: 'background 0.08s, transform 0.08s',
               }}
             >
               <span style={{ color: action.active ? 'var(--accent)' : 'var(--text-tertiary)', display: 'flex', flexShrink: 0 }}>

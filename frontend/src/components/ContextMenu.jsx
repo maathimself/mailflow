@@ -48,7 +48,8 @@ function HeaderModal({ messageId, subject, onClose }) {
     <div
       onClick={e => e.target === e.currentTarget && onClose()}
       style={{
-        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)',
+        position: 'fixed', inset: 0, background: 'var(--overlay-scrim)',
+        backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         zIndex: 5000, padding: 24,
       }}
@@ -58,7 +59,7 @@ function HeaderModal({ messageId, subject, onClose }) {
         borderRadius: 14, width: '100%', maxWidth: 720,
         maxHeight: '85vh', display: 'flex', flexDirection: 'column',
         overflow: 'hidden',
-        boxShadow: '0 24px 80px rgba(0,0,0,0.6)',
+        boxShadow: 'var(--shadow-modal)',
       }}>
         {/* Header */}
         <div style={{
@@ -320,7 +321,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction }) {
           background: 'var(--bg-elevated)',
           border: '1px solid var(--border)',
           borderRadius: 10, zIndex: 4000,
-          boxShadow: '0 8px 40px rgba(0,0,0,0.5)',
+          boxShadow: 'var(--shadow-modal)',
           minWidth: 220, overflow: 'hidden',
           animation: 'contextMenuIn 0.12s ease',
         }}

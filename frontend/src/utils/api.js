@@ -108,4 +108,5 @@ export const api = {
     if (offset) params.set('offset', offset);
     return request('GET', `/search?${params}`);
   },
+  suggestContacts: (q) => request('GET', `/search/contacts?q=${encodeURIComponent(q)}`),
 };
