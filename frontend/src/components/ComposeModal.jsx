@@ -34,15 +34,19 @@ export default function ComposeModal() {
   const [toInput, setToInput] = useState('');
   const [ccChips, setCcChips] = useState(() => parseChips(composeData?.cc));
   const [ccInput, setCcInput] = useState('');
+  const [bccChips, setBccChips] = useState(() => parseChips(composeData?.bcc));
+  const [bccInput, setBccInput] = useState('');
   const [subject, setSubject] = useState(() => composeData?.subject || '');
   const [body, setBody] = useState(() => composeData?.body || '');
   const [quotedBody, setQuotedBody] = useState(() => composeData?.quotedBody || '');
   const [showCc, setShowCc] = useState(() => !!(composeData?.cc?.length));
+  const [showBcc, setShowBcc] = useState(() => !!(composeData?.bcc?.length));
 
   // Re-apply on mount — guards against Zustand state not being ready during first render
   useEffect(() => {
     if (composeData?.to?.length) setToChips(parseChips(composeData.to));
     if (composeData?.cc?.length) { setCcChips(parseChips(composeData.cc)); setShowCc(true); }
+    if (composeData?.bcc?.length) { setBccChips(parseChips(composeData.bcc)); setShowBcc(true); }
     if (composeData?.subject) setSubject(composeData.subject);
     if (composeData?.body !== undefined) setBody(composeData.body);
     if (composeData?.quotedBody !== undefined) setQuotedBody(composeData.quotedBody);
@@ -90,17 +94,46 @@ export default function ComposeModal() {
   const replyTypeRef = useRef(null);
   const textareaRef = useRef(null);
 
-  // Track visible viewport height so the compose panel shrinks with the keyboard
+  // Track visible viewport height so the compose panel shrinks with the keyboard.
+  // Also pin the panel's top edge to the visual viewport to prevent it shifting
+  // up when iOS scrolls the layout viewport after a keyboard appears.
   const [viewportHeight, setViewportHeight] = useState(
     () => window.visualViewport?.height ?? window.innerHeight
   );
+  const composePanelRef = useRef(null);
   useEffect(() => {
     if (!isMobile) return;
     const vv = window.visualViewport;
     if (!vv) return;
-    const onResize = () => setViewportHeight(vv.height);
-    vv.addEventListener('resize', onResize);
-    return () => vv.removeEventListener('resize', onResize);
+    const update = () => {
+      setViewportHeight(vv.height);
+      // Apply offsetTop directly to the DOM — avoids a re-render on every scroll
+      // tick, which would be janky. offsetTop is non-zero when iOS scrolls the
+      // layout viewport to reveal the focused input.
+      if (composePanelRef.current) {
+        composePanelRef.current.style.top = vv.offsetTop + 'px';
+      }
+    };
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+    return () => {
+      vv.removeEventListener('resize', update);
+      vv.removeEventListener('scroll', update);
+    };
+  }, [isMobile]);
+
+  // On mobile, prevent iOS from auto-zooming when inputs are focused.
+  // All inputs already use 16px font-size but iOS can still scale on focus
+  // inside position:fixed overlays. Restore the original content on unmount.
+  useEffect(() => {
+    if (!isMobile) return;
+    const meta = document.querySelector('meta[name="viewport"]');
+    if (!meta) return;
+    const original = meta.content;
+    if (!original.includes('maximum-scale')) {
+      meta.content = original + ', maximum-scale=1';
+    }
+    return () => { meta.content = original; };
   }, [isMobile]);
 
   // Position cursor at top for replies/forwards
@@ -142,6 +175,7 @@ export default function ComposeModal() {
         ...(aliasId ? { aliasId } : {}),
         to: toFinal,
         cc: [...ccChips, ...(ccInput.trim() ? [ccInput.trim()] : [])],
+        bcc: [...bccChips, ...(bccInput.trim() ? [bccInput.trim()] : [])],
         subject,
         body: body + (quotedBody || ''),
         inReplyTo: composeData?.inReplyTo,
@@ -184,6 +218,7 @@ export default function ComposeModal() {
     const switchToReply = () => {
       setToChips(parseChips(composeData?.originalFrom || composeData?.to));
       setToInput(''); setCcChips([]); setCcInput(''); setShowCc(false);
+      setBccChips([]); setBccInput(''); setShowBcc(false);
       setReplyAll(false);
       setShowReplyType(false);
     };
@@ -213,7 +248,16 @@ export default function ComposeModal() {
     };
 
     return (
+      <>
+      <div style={{
+        position: 'fixed', inset: 0, zIndex: 1999,
+        backdropFilter: 'blur(8px)',
+        WebkitBackdropFilter: 'blur(8px)',
+        background: 'rgba(0,0,0,0.25)',
+        animation: 'fade-in 0.22s ease',
+      }} />
       <div
+        ref={composePanelRef}
         onKeyDown={handleKeyDown}
         style={{
           position: 'fixed', top: 0, left: 0, right: 0,
@@ -222,6 +266,7 @@ export default function ComposeModal() {
           background: 'var(--bg-secondary)',
           zIndex: 2000,
           display: 'flex', flexDirection: 'column',
+          animation: 'sheet-enter 0.22s ease',
         }}
       >
         {/* Header */}
@@ -343,19 +388,35 @@ export default function ComposeModal() {
               inputStyle={mobileInputStyle}
               getSuggestions={getSuggestions}
             />
-            {!showCc && (
-              <button
-                onClick={() => setShowCc(true)}
-                style={{
-                  background: 'none', border: 'none',
-                  color: 'var(--text-tertiary)', cursor: 'pointer',
-                  fontSize: 13, padding: '10px 0 4px 8px',
-                  WebkitTapHighlightColor: 'transparent',
-                  flexShrink: 0,
-                }}
-              >
-                Cc
-              </button>
+            {(!showCc || !showBcc) && (
+              <div style={{ display: 'flex', flexShrink: 0 }}>
+                {!showCc && (
+                  <button
+                    onClick={() => setShowCc(true)}
+                    style={{
+                      background: 'none', border: 'none',
+                      color: 'var(--text-tertiary)', cursor: 'pointer',
+                      fontSize: 13, padding: '10px 0 4px 8px',
+                      WebkitTapHighlightColor: 'transparent',
+                    }}
+                  >
+                    Cc
+                  </button>
+                )}
+                {!showBcc && (
+                  <button
+                    onClick={() => setShowBcc(true)}
+                    style={{
+                      background: 'none', border: 'none',
+                      color: 'var(--text-tertiary)', cursor: 'pointer',
+                      fontSize: 13, padding: '10px 0 4px 8px',
+                      WebkitTapHighlightColor: 'transparent',
+                    }}
+                  >
+                    Bcc
+                  </button>
+                )}
+              </div>
             )}
           </div>
 
@@ -367,6 +428,20 @@ export default function ComposeModal() {
                 chips={ccChips} onChipsChange={setCcChips}
                 value={ccInput} onChange={setCcInput}
                 placeholder="cc@example.com"
+                inputStyle={mobileInputStyle}
+                getSuggestions={getSuggestions}
+              />
+            </div>
+          )}
+
+          {/* Bcc */}
+          {showBcc && (
+            <div style={{ ...fieldStyle, alignItems: 'flex-start', paddingTop: 4 }}>
+              <span style={{ ...labelStyle, paddingTop: 10 }}>Bcc</span>
+              <ChipInput
+                chips={bccChips} onChipsChange={setBccChips}
+                value={bccInput} onChange={setBccInput}
+                placeholder="bcc@example.com"
                 inputStyle={mobileInputStyle}
                 getSuggestions={getSuggestions}
               />
@@ -446,10 +521,11 @@ export default function ComposeModal() {
           <div style={{ height: 'var(--sab)', flexShrink: 0 }} />
         </div>
       </div>
+      </>
     );
   }
 
-  // ── Desktop compose (unchanged) ─────────────────────────────────────────────
+  // ── Desktop compose ─────────────────────────────────────────────────────────
 
   const inputStyle = {
     width: '100%', padding: '8px 12px',
@@ -545,6 +621,7 @@ export default function ComposeModal() {
                   onClick={() => {
                     setToChips(parseChips(composeData?.originalFrom || composeData?.to));
                     setToInput(''); setCcChips([]); setCcInput(''); setShowCc(false);
+                    setBccChips([]); setBccInput(''); setShowBcc(false);
                     setReplyAll(false);
                     setShowReplyType(false);
                   }}
@@ -631,10 +708,19 @@ export default function ComposeModal() {
             inputStyle={{ ...inputStyle, borderBottom: 'none', padding: '6px 4px' }}
             getSuggestions={getSuggestions}
           />
-          {!showCc && (
-            <button onClick={() => setShowCc(true)} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 11, padding: '9px 0 4px 6px', flexShrink: 0 }}>
-              Cc
-            </button>
+          {(!showCc || !showBcc) && (
+            <div style={{ display: 'flex', flexShrink: 0 }}>
+              {!showCc && (
+                <button onClick={() => setShowCc(true)} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 11, padding: '9px 0 4px 6px' }}>
+                  Cc
+                </button>
+              )}
+              {!showBcc && (
+                <button onClick={() => setShowBcc(true)} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 11, padding: '9px 0 4px 6px' }}>
+                  Bcc
+                </button>
+              )}
+            </div>
           )}
         </div>
 
@@ -646,6 +732,20 @@ export default function ComposeModal() {
               chips={ccChips} onChipsChange={setCcChips}
               value={ccInput} onChange={setCcInput}
               placeholder="cc@example.com"
+              inputStyle={{ ...inputStyle, borderBottom: 'none', padding: '6px 4px' }}
+              getSuggestions={getSuggestions}
+            />
+          </div>
+        )}
+
+        {/* Bcc */}
+        {showBcc && (
+          <div style={{ display: 'flex', alignItems: 'flex-start', borderBottom: '1px solid var(--border-subtle)', padding: '0 12px' }}>
+            <span style={{ fontSize: 12, color: 'var(--text-tertiary)', width: 52, flexShrink: 0, paddingTop: 9 }}>Bcc</span>
+            <ChipInput
+              chips={bccChips} onChipsChange={setBccChips}
+              value={bccInput} onChange={setBccInput}
+              placeholder="bcc@example.com"
               inputStyle={{ ...inputStyle, borderBottom: 'none', padding: '6px 4px' }}
               getSuggestions={getSuggestions}
             />

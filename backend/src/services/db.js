@@ -185,6 +185,37 @@ export async function initDb() {
       CREATE INDEX IF NOT EXISTS idx_messages_list_unread
         ON messages(account_id, folder, date DESC)
         WHERE is_deleted = false AND is_read = false;
+
+      -- OIDC: allow password-less accounts for SSO-only users
+      ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
+
+      CREATE TABLE IF NOT EXISTS oidc_providers (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name VARCHAR(255) NOT NULL,
+        slug VARCHAR(100) UNIQUE NOT NULL,
+        issuer_url VARCHAR(500) NOT NULL,
+        client_id VARCHAR(500) NOT NULL,
+        client_secret TEXT NOT NULL,
+        scopes VARCHAR(500) NOT NULL DEFAULT 'openid email profile',
+        provisioning_mode VARCHAR(50) NOT NULL DEFAULT 'login_existing_only',
+        allowed_domains TEXT,
+        enabled BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS user_identities (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        provider_id UUID NOT NULL REFERENCES oidc_providers(id) ON DELETE CASCADE,
+        issuer VARCHAR(500) NOT NULL,
+        subject VARCHAR(500) NOT NULL,
+        email VARCHAR(255),
+        email_verified BOOLEAN NOT NULL DEFAULT false,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        last_used_at TIMESTAMPTZ,
+        UNIQUE(issuer, subject)
+      );
     `);
   } finally {
     client.release();

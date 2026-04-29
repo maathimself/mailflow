@@ -16,6 +16,7 @@ import mailRoutes from './routes/mail.js';
 import searchRoutes from './routes/search.js';
 import adminRoutes from './routes/admin.js';
 import totpRoutes from './routes/totp.js';
+import oidcApiRouter, { oidcBrowserRouter } from './routes/oidc.js';
 import { initDb, encryptExistingCredentials, query } from './services/db.js';
 import { setupWebSocket } from './services/websocket.js';
 import { ImapManager } from './services/imapManager.js';
@@ -80,6 +81,8 @@ app.set('imapManager', imapManager);
 
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/auth/oidc', oidcApiRouter);
+app.use('/auth/oidc', oidcBrowserRouter);
 app.use('/oauth', oauthRoutes);
 app.use('/api/integrations', integrationsRoutes);
 app.use('/api/accounts', accountRoutes);

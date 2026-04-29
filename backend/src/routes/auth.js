@@ -141,6 +141,9 @@ router.post('/login', authLimiter, async (req, res) => {
     const user = result.rows[0];
     if (!user) return res.status(401).json({ error: 'Invalid credentials' });
 
+    if (!user.password_hash) {
+      return res.status(401).json({ error: 'This account uses single sign-on. Please sign in with your SSO provider.' });
+    }
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
 

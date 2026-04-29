@@ -15,6 +15,8 @@ export default function LoginPage() {
   const [inviteEmail, setInviteEmail] = useState(null);
   const [totpRequired, setTotpRequired] = useState(false);
   const [totpCode, setTotpCode] = useState('');
+  const [oidcProviders, setOidcProviders] = useState([]);
+  const [oidcError, setOidcError] = useState('');
 
   useEffect(() => {
     // Check for invite token in URL
@@ -37,6 +39,18 @@ export default function LoginPage() {
     api.getRegistrationStatus()
       .then(data => setRegistrationOpen(data.open))
       .catch(() => setRegistrationOpen(true)); // fail open if unreachable
+
+    // Load SSO providers
+    api.oidc.getProviders()
+      .then(data => setOidcProviders(data.providers || []))
+      .catch(() => {});
+
+    // Show any SSO error from a redirect callback
+    const oidcErrParam = new URLSearchParams(window.location.search).get('oidc_error');
+    if (oidcErrParam) {
+      setOidcError(oidcErrParam);
+      window.history.replaceState({}, '', '/');
+    }
   }, []);
 
   const submit = async (e) => {
@@ -211,6 +225,14 @@ export default function LoginPage() {
             <p style={{ margin: '0 0 20px' }} />
           )}
 
+          {oidcError && (
+            <div style={{
+              marginBottom: 16, padding: '10px 14px',
+              background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)',
+              borderRadius: 8, color: 'var(--red)', fontSize: 13,
+            }}>{oidcError}</div>
+          )}
+
           <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div>
               <label style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>
@@ -277,6 +299,41 @@ export default function LoginPage() {
               {loading ? 'Please wait…' : (mode === 'login' ? 'Sign in' : 'Create account')}
             </button>
           </form>
+
+          {mode === 'login' && oidcProviders.length > 0 && (
+            <>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 10, margin: '20px 0 16px',
+              }}>
+                <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+                <span style={{ fontSize: 12, color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>or continue with</span>
+                <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {oidcProviders.map(p => (
+                  <a
+                    key={p.id}
+                    href={`/auth/oidc/${p.slug}/start`}
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                      padding: '10px 16px',
+                      background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+                      borderRadius: 8, color: 'var(--text-primary)', fontSize: 14,
+                      fontWeight: 500, textDecoration: 'none',
+                      transition: 'background 0.15s, border-color 0.15s',
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg-tertiary)'; e.currentTarget.style.borderColor = 'var(--border)'; }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+                      <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
+                    </svg>
+                    Sign in with {p.name}
+                  </a>
+                ))}
+              </div>
+            </>
+          )}
           </>
           )}
         </div>

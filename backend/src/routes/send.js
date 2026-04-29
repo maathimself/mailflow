@@ -26,7 +26,7 @@ router.use(requireAuth);
 
 
 router.post('/send', async (req, res) => {
-  const { accountId, aliasId, to, cc = [], subject, body, inReplyTo, references } = req.body;
+  const { accountId, aliasId, to, cc = [], bcc = [], subject, body, inReplyTo, references } = req.body;
   if (!accountId || !to?.length) return res.status(400).json({ error: 'accountId and to required' });
 
   const result = await query(
@@ -90,6 +90,7 @@ router.post('/send', async (req, res) => {
       ...(fromReplyTo ? { replyTo: fromReplyTo } : {}),
       to: to.join(', '),
       cc: cc.join(', ') || undefined,
+      bcc: bcc.join(', ') || undefined,
       subject,
       text: fromSignature
         ? body + '\n\n-- \n' + sigToPlainText(fromSignature)

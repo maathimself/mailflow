@@ -5,7 +5,7 @@ import { useWebSocket } from '../hooks/useWebSocket.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { LAYOUTS } from '../layouts.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
-import { buildKeyMap, getEffectiveShortcuts, getGroupedActions } from '../utils/defaultShortcuts.js';
+import { buildKeyMap, getEffectiveShortcuts, getGroupedActions, SPECIAL_KEYS, SPECIAL_KEY_LABELS } from '../utils/defaultShortcuts.js';
 import Sidebar from './Sidebar.jsx';
 import MessageList from './MessageList.jsx';
 import MessagePane from './MessagePane.jsx';
@@ -20,7 +20,7 @@ export default function MailApp() {
     setShowAdmin, setAdminTab, composing, sidebarCollapsed, layout,
     unreadCounts, selectedAccountId, openCompose, setSelectedAccount,
     shortcuts, selectedMessageId, setSelectedMessage,
-    mobileSidebarOpen, setMobileSidebarOpen,
+    mobileSidebarOpen, setMobileSidebarOpen, addNotification,
   } = useStore();
 
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
@@ -100,9 +100,10 @@ export default function MailApp() {
 
   useEffect(() => {
     const keyMap = buildKeyMap(shortcuts);
-    // Keys that are prefixes of two-key sequences (e.g. 'g' for 'gi')
+    // Keys that are prefixes of two-key sequences (e.g. 'g' for 'gi').
+    // Special keys like 'Delete' have length > 1 but are single keypresses — exclude them.
     const prefixKeys = new Set(
-      Object.keys(keyMap).filter(k => k.length > 1).map(k => k[0])
+      Object.keys(keyMap).filter(k => k.length > 1 && !SPECIAL_KEYS.has(k)).map(k => k[0])
     );
 
     let pendingKey   = null;
@@ -123,15 +124,11 @@ export default function MailApp() {
 
       const key = e.key;
 
-      // Keys we never want to intercept
-      if (['Tab', 'CapsLock', 'Enter', 'Backspace', 'Delete',
-           'Control', 'Meta', 'Alt', 'Shift', 'ArrowUp', 'ArrowDown',
-           'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown',
-           'Insert', 'Escape', 'F1', 'F2', 'F3', 'F4', 'F5', 'F6',
-           'F7', 'F8', 'F9', 'F10', 'F11', 'F12'].includes(key)) {
-        if (key === 'Escape') clearPending();
-        return;
-      }
+      // Pure modifier keys — never intercept
+      if (['CapsLock', 'Control', 'Meta', 'Alt', 'Shift'].includes(key)) return;
+
+      // Escape cancels any pending prefix sequence
+      if (key === 'Escape') { clearPending(); return; }
 
       // Resolve two-key sequences
       let resolved = key;
@@ -140,10 +137,21 @@ export default function MailApp() {
         clearPending();
       }
 
+      // Check the keymap first — bound actions take priority, including special
+      // keys like Delete that would otherwise be skipped below.
       const action = keyMap[resolved];
       if (action) {
         e.preventDefault();
         shortcutBus.emit(action);
+        return;
+      }
+
+      // Skip non-character keys that aren't bound (arrow keys, F-keys, etc.)
+      if (['Tab', 'Enter', 'Backspace', 'Delete',
+           'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+           'Home', 'End', 'PageUp', 'PageDown', 'Insert',
+           'F1', 'F2', 'F3', 'F4', 'F5', 'F6',
+           'F7', 'F8', 'F9', 'F10', 'F11', 'F12'].includes(key)) {
         return;
       }
 
@@ -209,6 +217,8 @@ export default function MailApp() {
     const params = new URLSearchParams(window.location.search);
     const provider = params.get('oauth_success');
     const oauthError = params.get('oauth_error');
+    const oidcSuccess = params.get('oidc_success');
+    const oidcError = params.get('oidc_error');
 
     if (provider) {
       window.history.replaceState({}, '', '/');
@@ -219,6 +229,14 @@ export default function MailApp() {
       setShowAdmin(true);
     } else if (oauthError) {
       window.history.replaceState({}, '', '/');
+    } else if (oidcSuccess) {
+      window.history.replaceState({}, '', '/');
+      if (oidcSuccess === 'linked') {
+        addNotification({ type: 'info', title: 'SSO identity linked', body: 'Your account is now linked to the SSO provider.' });
+      }
+    } else if (oidcError) {
+      window.history.replaceState({}, '', '/');
+      addNotification({ type: 'error', title: 'SSO error', body: oidcError });
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -292,8 +310,12 @@ function ShortcutHelpOverlay({ shortcuts, onClose }) {
 
   const keyBadge = (key) => {
     if (!key) return <span style={{ color: 'var(--text-tertiary)', fontSize: 11 }}>—</span>;
+    // Special key names like 'Delete', 'ArrowUp' — single keypress, render as one badge
+    if (SPECIAL_KEY_LABELS[key]) {
+      return <kbd style={kbdStyle}>{SPECIAL_KEY_LABELS[key]}</kbd>;
+    }
     // For two-key sequences like 'gi', render each key separately
-    const parts = key.length > 1 && !['##'].includes(key)
+    const parts = key.length > 1
       ? [...key].map((c, i) => (
           <span key={i}>
             <kbd style={kbdStyle}>{c}</kbd>

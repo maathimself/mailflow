@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import { query } from '../services/db.js';
 import { requireAdmin } from '../middleware/auth.js';
-import { decrypt } from '../services/encryption.js';
+import { decrypt, encrypt } from '../services/encryption.js';
 
 const router = Router();
 router.use(requireAdmin);
@@ -174,6 +174,97 @@ router.post('/invites', async (req, res) => {
 
 router.delete('/invites/:id', async (req, res) => {
   await query('DELETE FROM invites WHERE id = $1', [req.params.id]);
+  res.json({ ok: true });
+});
+
+// ── OIDC providers ─────────────────────────────────────────────────────────────
+
+router.get('/oidc', async (req, res) => {
+  const result = await query(
+    `SELECT id, name, slug, issuer_url, client_id, scopes, provisioning_mode,
+            allowed_domains, enabled, created_at, updated_at
+     FROM oidc_providers ORDER BY name ASC`
+  );
+  res.json({ providers: result.rows });
+});
+
+router.post('/oidc', async (req, res) => {
+  const { name, slug, issuer_url, client_id, client_secret, scopes, provisioning_mode, allowed_domains, enabled } = req.body;
+  if (!name || !slug || !issuer_url || !client_id || !client_secret) {
+    return res.status(400).json({ error: 'name, slug, issuer_url, client_id and client_secret are required' });
+  }
+  if (!/^[a-z0-9-]+$/.test(slug)) {
+    return res.status(400).json({ error: 'Slug must contain only lowercase letters, numbers and hyphens' });
+  }
+  try {
+    const result = await query(
+      `INSERT INTO oidc_providers (name, slug, issuer_url, client_id, client_secret, scopes, provisioning_mode, allowed_domains, enabled)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING id, name, slug, issuer_url, client_id, scopes, provisioning_mode, allowed_domains, enabled`,
+      [
+        name.trim(), slug.trim(), issuer_url.trim(), client_id.trim(),
+        encrypt(client_secret),
+        (scopes || 'openid email profile').trim(),
+        provisioning_mode || 'login_existing_only',
+        allowed_domains?.trim() || null,
+        enabled !== false,
+      ]
+    );
+    res.json({ provider: result.rows[0] });
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'A provider with this slug already exists' });
+    throw err;
+  }
+});
+
+router.patch('/oidc/:id', async (req, res) => {
+  const { id } = req.params;
+  const { name, slug, issuer_url, client_id, client_secret, scopes, provisioning_mode, allowed_domains, enabled } = req.body;
+  if (slug && !/^[a-z0-9-]+$/.test(slug)) {
+    return res.status(400).json({ error: 'Slug must contain only lowercase letters, numbers and hyphens' });
+  }
+  // Only encrypt a new secret if one was provided (non-placeholder)
+  const secretUpdate = client_secret && client_secret !== '••••••••'
+    ? encrypt(client_secret)
+    : undefined;
+  try {
+    const result = await query(
+      `UPDATE oidc_providers SET
+        name = COALESCE($2, name),
+        slug = COALESCE($3, slug),
+        issuer_url = COALESCE($4, issuer_url),
+        client_id = COALESCE($5, client_id),
+        client_secret = COALESCE($6, client_secret),
+        scopes = COALESCE($7, scopes),
+        provisioning_mode = COALESCE($8, provisioning_mode),
+        allowed_domains = CASE WHEN $9::text IS DISTINCT FROM '__keep__' THEN $9::text ELSE allowed_domains END,
+        enabled = COALESCE($10, enabled),
+        updated_at = NOW()
+       WHERE id = $1
+       RETURNING id, name, slug, issuer_url, client_id, scopes, provisioning_mode, allowed_domains, enabled`,
+      [
+        id,
+        name?.trim() || null,
+        slug?.trim() || null,
+        issuer_url?.trim() || null,
+        client_id?.trim() || null,
+        secretUpdate || null,
+        scopes?.trim() || null,
+        provisioning_mode || null,
+        allowed_domains !== undefined ? (allowed_domains?.trim() || null) : '__keep__',
+        enabled !== undefined ? enabled : null,
+      ]
+    );
+    if (!result.rows.length) return res.status(404).json({ error: 'Provider not found' });
+    res.json({ provider: result.rows[0] });
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'A provider with this slug already exists' });
+    throw err;
+  }
+});
+
+router.delete('/oidc/:id', async (req, res) => {
+  await query('DELETE FROM oidc_providers WHERE id = $1', [req.params.id]);
   res.json({ ok: true });
 });
 

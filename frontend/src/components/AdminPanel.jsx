@@ -7,7 +7,7 @@ import { FONT_SETS, loadFontSet } from '../fonts.js';
 import { LAYOUTS, applyLayout } from '../layouts.js';
 import { NOTIFICATION_SOUNDS, playNotificationSound, playCustomSound, warmUpAudioContext } from '../utils/notificationSounds.js';
 import SignatureEditor from './SignatureEditor.jsx';
-import { getEffectiveShortcuts, getGroupedActions, ACTION_DEFS } from '../utils/defaultShortcuts.js';
+import { getEffectiveShortcuts, getGroupedActions, ACTION_DEFS, SPECIAL_KEY_LABELS } from '../utils/defaultShortcuts.js';
 
 // ─── Shared field component ───────────────────────────────────────────────────
 function Field({ label, required, children }) {
@@ -1597,6 +1597,300 @@ function IntegrationsTab() {
 }
 
 // ─── Users Tab ────────────────────────────────────────────────────────────────
+// ─── SSO / OIDC Tab ───────────────────────────────────────────────────────────
+const PROVISIONING_MODES = [
+  { value: 'disabled', label: 'Disabled — existing linked identities can still log in, but no new links' },
+  { value: 'login_existing_only', label: 'Match existing — link to a MailFlow account with a matching email' },
+  { value: 'open', label: 'Open — create a new account automatically on first SSO login' },
+];
+
+const emptyProvider = {
+  name: '', slug: '', issuer_url: '', client_id: '', client_secret: '',
+  scopes: 'openid email profile', provisioning_mode: 'login_existing_only',
+  allowed_domains: '', enabled: true,
+};
+
+function SSOTab() {
+  const [providers, setProviders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(null); // null | 'new' | provider object
+  const [form, setForm] = useState(emptyProvider);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [confirmDialog, setConfirmDialog] = useState(null);
+  const [copiedId, setCopiedId] = useState(null);
+
+  useEffect(() => {
+    api.admin.oidc.getProviders()
+      .then(d => setProviders(d.providers))
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, []);
+
+  const openNew = () => { setForm(emptyProvider); setEditing('new'); setError(''); };
+  const openEdit = (p) => {
+    setForm({ ...p, client_secret: '••••••••', allowed_domains: p.allowed_domains || '' });
+    setEditing(p);
+    setError('');
+  };
+  const closeForm = () => { setEditing(null); setError(''); };
+
+  const handleSave = async () => {
+    if (!form.name || !form.slug || !form.issuer_url || !form.client_id) {
+      return setError('Name, slug, issuer URL and client ID are required.');
+    }
+    if (editing === 'new' && !form.client_secret) {
+      return setError('Client secret is required.');
+    }
+    setSaving(true);
+    setError('');
+    try {
+      const payload = {
+        name: form.name.trim(),
+        slug: form.slug.trim(),
+        issuer_url: form.issuer_url.trim(),
+        client_id: form.client_id.trim(),
+        scopes: form.scopes.trim() || 'openid email profile',
+        provisioning_mode: form.provisioning_mode,
+        allowed_domains: form.allowed_domains.trim() || null,
+        enabled: form.enabled,
+        ...(form.client_secret && form.client_secret !== '••••••••' ? { client_secret: form.client_secret } : {}),
+      };
+      if (editing === 'new') {
+        if (!payload.client_secret) return setError('Client secret is required.');
+        const data = await api.admin.oidc.createProvider(payload);
+        setProviders(ps => [...ps, data.provider]);
+      } else {
+        const data = await api.admin.oidc.updateProvider(editing.id, payload);
+        setProviders(ps => ps.map(p => p.id === editing.id ? data.provider : p));
+      }
+      closeForm();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = (p) => {
+    setConfirmDialog({
+      title: `Delete "${p.name}"?`,
+      message: 'All linked user identities for this provider will also be removed. Users with no other login method will be locked out.',
+      confirmLabel: 'Delete provider',
+      onConfirm: async () => {
+        await api.admin.oidc.deleteProvider(p.id);
+        setProviders(ps => ps.filter(x => x.id !== p.id));
+      },
+    });
+  };
+
+  const copyRedirectUri = (slug, id) => {
+    const uri = `${window.location.origin}/auth/oidc/${slug}/callback`;
+    navigator.clipboard.writeText(uri).then(() => {
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
+    });
+  };
+
+  if (loading) return <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>Loading…</div>;
+
+  return (
+    <>
+      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>Single Sign-On</div>
+      <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 16 }}>
+        Configure external OIDC providers so users can sign in with their organization accounts.
+      </div>
+
+      {providers.length === 0 && !editing && (
+        <div style={{
+          padding: '24px', borderRadius: 8, border: '1px dashed var(--border)',
+          textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13, marginBottom: 16,
+        }}>
+          No SSO providers configured yet.
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+        {providers.map(p => (
+          <div key={p.id} style={{
+            padding: '12px 14px', borderRadius: 8,
+            background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                  <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{p.name}</span>
+                  <span style={{
+                    fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 4,
+                    background: p.enabled ? 'rgba(34,197,94,0.15)' : 'var(--bg-elevated)',
+                    color: p.enabled ? 'var(--green)' : 'var(--text-tertiary)',
+                    border: `1px solid ${p.enabled ? 'rgba(34,197,94,0.3)' : 'var(--border)'}`,
+                    textTransform: 'uppercase', letterSpacing: '0.04em',
+                  }}>{p.enabled ? 'Active' : 'Disabled'}</span>
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontFamily: 'monospace' }}>{p.issuer_url}</span>
+                </div>
+                <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>Redirect URI:</span>
+                  <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--text-secondary)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {`${window.location.origin}/auth/oidc/${p.slug}/callback`}
+                  </span>
+                  <button
+                    onClick={() => copyRedirectUri(p.slug, p.id)}
+                    style={{
+                      background: 'none', border: '1px solid var(--border)', borderRadius: 4,
+                      color: copiedId === p.id ? 'var(--green)' : 'var(--text-tertiary)',
+                      fontSize: 10, padding: '2px 7px', cursor: 'pointer', flexShrink: 0,
+                    }}
+                  >
+                    {copiedId === p.id ? 'Copied' : 'Copy'}
+                  </button>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                <button onClick={() => openEdit(p)} style={{
+                  background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                  borderRadius: 6, color: 'var(--text-secondary)', fontSize: 12,
+                  padding: '5px 10px', cursor: 'pointer',
+                }}>Edit</button>
+                <button onClick={() => handleDelete(p)} style={{
+                  background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)',
+                  borderRadius: 6, color: 'var(--red)', fontSize: 12,
+                  padding: '5px 10px', cursor: 'pointer',
+                }}>Delete</button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {!editing && (
+        <button
+          onClick={openNew}
+          style={{
+            padding: '9px 16px', background: 'var(--accent)', border: 'none',
+            borderRadius: 7, color: 'white', fontSize: 13, fontWeight: 500, cursor: 'pointer',
+          }}
+        >+ Add SSO Provider</button>
+      )}
+
+      {editing && (
+        <div style={{
+          marginTop: 16, padding: '20px', borderRadius: 10,
+          background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+        }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 16 }}>
+            {editing === 'new' ? 'New SSO Provider' : `Edit: ${editing.name}`}
+          </div>
+
+          <Field label="Provider name" required>
+            <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Acme Corp SSO" style={inputStyle} />
+          </Field>
+
+          <Field label="Slug (URL identifier)" required>
+            <input
+              value={form.slug}
+              onChange={e => setForm(f => ({ ...f, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') }))}
+              placeholder="e.g. acme"
+              style={inputStyle}
+            />
+            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4 }}>
+              Redirect URI: <code style={{ fontFamily: 'monospace' }}>{window.location.origin}/auth/oidc/{form.slug || '<slug>'}/callback</code>
+            </div>
+          </Field>
+
+          <Field label="Issuer URL" required>
+            <input value={form.issuer_url} onChange={e => setForm(f => ({ ...f, issuer_url: e.target.value }))} placeholder="https://accounts.google.com" style={inputStyle} />
+          </Field>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <Field label="Client ID" required>
+              <input value={form.client_id} onChange={e => setForm(f => ({ ...f, client_id: e.target.value }))} placeholder="Client ID" style={inputStyle} />
+            </Field>
+            <Field label={editing === 'new' ? 'Client Secret' : 'Client Secret (leave unchanged)'} required={editing === 'new'}>
+              <input
+                type="password"
+                value={form.client_secret}
+                onChange={e => setForm(f => ({ ...f, client_secret: e.target.value }))}
+                placeholder={editing === 'new' ? 'Client secret' : 'Leave blank to keep current'}
+                style={inputStyle}
+              />
+            </Field>
+          </div>
+
+          <Field label="Scopes">
+            <input value={form.scopes} onChange={e => setForm(f => ({ ...f, scopes: e.target.value }))} placeholder="openid email profile" style={inputStyle} />
+          </Field>
+
+          <Field label="Allowed email domains (comma-separated, leave blank for any)">
+            <input value={form.allowed_domains} onChange={e => setForm(f => ({ ...f, allowed_domains: e.target.value }))} placeholder="example.com, corp.example.com" style={inputStyle} />
+          </Field>
+
+          <Field label="Provisioning mode">
+            <select
+              value={form.provisioning_mode}
+              onChange={e => setForm(f => ({ ...f, provisioning_mode: e.target.value }))}
+              style={{ ...inputStyle, appearance: 'none' }}
+            >
+              {PROVISIONING_MODES.map(m => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
+          </Field>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+            <button
+              type="button"
+              onClick={() => setForm(f => ({ ...f, enabled: !f.enabled }))}
+              style={{
+                width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer', padding: 0,
+                background: form.enabled ? 'var(--accent)' : 'var(--bg-elevated)',
+                position: 'relative', transition: 'background 0.2s',
+              }}
+            >
+              <span style={{
+                position: 'absolute', top: 2, left: form.enabled ? 18 : 2, width: 16, height: 16,
+                borderRadius: '50%', background: 'white', transition: 'left 0.2s',
+              }} />
+            </button>
+            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Provider enabled</span>
+          </div>
+
+          {error && (
+            <div style={{
+              marginBottom: 14, padding: '9px 12px', borderRadius: 7,
+              background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)',
+              color: 'var(--red)', fontSize: 13,
+            }}>{error}</div>
+          )}
+
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              style={{
+                padding: '9px 18px', background: 'var(--accent)', border: 'none',
+                borderRadius: 7, color: 'white', fontSize: 13, fontWeight: 500,
+                cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.6 : 1,
+              }}
+            >{saving ? 'Saving…' : 'Save'}</button>
+            <button
+              onClick={closeForm}
+              style={{
+                padding: '9px 18px', background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                borderRadius: 7, color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer',
+              }}
+            >Cancel</button>
+          </div>
+        </div>
+      )}
+
+      <ConfirmOverlay dialog={confirmDialog} onClose={() => setConfirmDialog(null)} />
+    </>
+  );
+}
+
 function UsersTab() {
   const { user: currentUser } = useStore();
   const [users, setUsers] = useState([]);
@@ -2228,6 +2522,11 @@ const TABS = [
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>,
   },
   {
+    id: 'sso', label: 'SSO / OIDC',
+    adminOnly: true,
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>,
+  },
+  {
     id: 'security', label: 'Security & Privacy',
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>,
   },
@@ -2326,6 +2625,10 @@ function ShortcutsTab() {
     }
     if (!key) {
       return <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>—</span>;
+    }
+    // Special key names like 'Delete', 'ArrowUp' — single keypress, render as one badge
+    if (SPECIAL_KEY_LABELS[key]) {
+      return <kbd style={kbdStyle}>{SPECIAL_KEY_LABELS[key]}</kbd>;
     }
     // Multi-char keys like 'gi': render each character as separate kbd with "then"
     if (key.length > 1) {
@@ -3015,6 +3318,7 @@ export default function AdminPanel() {
           {adminTab === 'appearance' && <AppearanceTab />}
           {adminTab === 'integrations' && <IntegrationsTab />}
           {adminTab === 'users' && <UsersTab />}
+          {adminTab === 'sso' && <SSOTab />}
           {adminTab === 'security' && <SecurityPrivacyTab />}
           {adminTab === 'notifications' && <NotificationsTab />}
           {adminTab === 'shortcuts' && <ShortcutsTab />}
@@ -3107,6 +3411,7 @@ export default function AdminPanel() {
           {adminTab === 'appearance' && <AppearanceTab />}
           {adminTab === 'integrations' && <IntegrationsTab />}
           {adminTab === 'users' && <UsersTab />}
+          {adminTab === 'sso' && <SSOTab />}
           {adminTab === 'security' && <SecurityPrivacyTab />}
           {adminTab === 'notifications' && <NotificationsTab />}
           {adminTab === 'shortcuts' && <ShortcutsTab />}

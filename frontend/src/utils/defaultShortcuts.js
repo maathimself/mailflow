@@ -6,6 +6,17 @@
 // User overrides are stored as { actionName: key } in preferences and merged
 // over defaults at runtime — override keys win; unoverridden actions use defaults.
 
+// Keys whose e.key value is longer than one character but represent a single
+// keypress (not a two-key sequence). Used to distinguish "Delete" from "gi".
+export const SPECIAL_KEY_LABELS = {
+  Delete: 'Del', Backspace: '⌫', Enter: '↵', Tab: 'Tab',
+  ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→',
+  Home: 'Home', End: 'End', PageUp: 'PgUp', PageDown: 'PgDn', Insert: 'Ins',
+  F1: 'F1', F2: 'F2', F3: 'F3', F4: 'F4', F5: 'F5', F6: 'F6',
+  F7: 'F7', F8: 'F8', F9: 'F9', F10: 'F10', F11: 'F11', F12: 'F12',
+};
+export const SPECIAL_KEYS = new Set(Object.keys(SPECIAL_KEY_LABELS));
+
 export const ACTION_DEFS = {
   // ── Compose & search ───────────────────────────────────────────────────────
   compose:       { group: 'Compose & Search', label: 'Compose',            description: 'Open new compose window',               defaultKey: 'c'  },

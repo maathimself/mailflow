@@ -1,10 +1,19 @@
 import { query } from '../services/db.js';
 
-export function requireAuth(req, res, next) {
+export async function requireAuth(req, res, next) {
   if (!req.session?.userId) {
     return res.status(401).json({ error: 'Not authenticated' });
   }
-  next();
+  try {
+    const result = await query('SELECT id FROM users WHERE id = $1', [req.session.userId]);
+    if (!result.rows.length) {
+      req.session.destroy(() => {});
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    next();
+  } catch (err) {
+    next(err);
+  }
 }
 
 // Always verifies against the DB so a revoked admin can't keep using

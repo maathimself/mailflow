@@ -54,6 +54,19 @@ export const api = {
     getInvites: () => request('GET', '/admin/invites'),
     createInvite: (email) => request('POST', '/admin/invites', { email }),
     deleteInvite: (id) => request('DELETE', `/admin/invites/${id}`),
+    oidc: {
+      getProviders: () => request('GET', '/admin/oidc'),
+      createProvider: (data) => request('POST', '/admin/oidc', data),
+      updateProvider: (id, data) => request('PATCH', `/admin/oidc/${id}`, data),
+      deleteProvider: (id) => request('DELETE', `/admin/oidc/${id}`),
+    },
+  },
+
+  // OIDC
+  oidc: {
+    getProviders: () => request('GET', '/auth/oidc/providers'),
+    getIdentities: () => request('GET', '/auth/oidc/identities'),
+    unlinkIdentity: (id) => request('DELETE', `/auth/oidc/identities/${id}`),
   },
 
   // Accounts
