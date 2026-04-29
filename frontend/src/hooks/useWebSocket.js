@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { playNotificationSound } from '../utils/notificationSounds.js';
+import { pendingMarkReadMap } from '../utils/pendingReads.js';
 
 // Auth-related close codes that should not trigger reconnect
 const NO_RECONNECT_CODES = new Set([4001, 4003]);
@@ -128,9 +129,20 @@ export function useWebSocket() {
         window.dispatchEvent(new CustomEvent('mailflow:refresh'));
         window.dispatchEvent(new CustomEvent('mailflow:sync_done'));
         // Re-fetch unread counts so sidebar badges reflect messages marked read
-        // in external clients (the message list refresh alone doesn't update counts)
+        // in external clients (the message list refresh alone doesn't update counts).
+        // Adjust for any markRead calls that are still in-flight so that a sync
+        // arriving before the PATCH response doesn't undo optimistic decrements.
         api.getUnreadCounts().then(counts => {
-          useStore.setState({ unreadCounts: counts });
+          if (pendingMarkReadMap.size > 0) {
+            const byAccount = { ...counts.byAccount };
+            for (const accountId of pendingMarkReadMap.values()) {
+              if (byAccount[accountId] > 0) byAccount[accountId]--;
+            }
+            const total = Math.max(0, counts.total - pendingMarkReadMap.size);
+            useStore.setState({ unreadCounts: { total, byAccount } });
+          } else {
+            useStore.setState({ unreadCounts: counts });
+          }
         }).catch(() => {});
         break;
       }

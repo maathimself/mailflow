@@ -6,6 +6,7 @@ import { LAYOUTS } from '../layouts.js';
 import { useMobile } from '../hooks/useMobile.js';
 import ContextMenu from './ContextMenu.jsx';
 import { shortcutBus } from '../utils/shortcutBus.js';
+import { pendingMarkReadMap } from '../utils/pendingReads.js';
 
 // Folder icon for move picker
 function FolderIcon({ specialUse, size = 13 }) {
@@ -209,6 +210,14 @@ export default function MessageList() {
             if (unreadOnly && activeId && !msgs.some(m => m.id === activeId)) {
               const kept = useStore.getState().messages.find(m => m.id === activeId);
               if (kept) msgs = [kept, ...msgs];
+            }
+            // Guard against a sync refresh overwriting optimistic is_read:true for
+            // messages whose markRead API call is still in-flight. Without this, the
+            // unread dot reappears whenever sync_complete fires before the PATCH responds.
+            if (pendingMarkReadMap.size > 0) {
+              msgs = msgs.map(m =>
+                pendingMarkReadMap.has(m.id) && !m.is_read ? { ...m, is_read: true } : m
+              );
             }
             setMessages(msgs);
             if (sm === 'paginated') {
@@ -455,8 +464,8 @@ export default function MessageList() {
   const handleSwipeToggleRead = useCallback(async (message) => {
     const newRead = !message.is_read;
     updateMessage(message.id, { is_read: newRead });
-    if (newRead) decrementUnread(message.account_id);
-    else incrementUnread(message.account_id);
+    if (newRead) { decrementUnread(message.account_id); pendingMarkReadMap.set(message.id, message.account_id); }
+    else { incrementUnread(message.account_id); pendingMarkReadMap.delete(message.id); }
     try {
       await api.markRead(message.id, newRead);
     } catch (err) {
@@ -464,6 +473,8 @@ export default function MessageList() {
       updateMessage(message.id, { is_read: !newRead });
       if (newRead) incrementUnread(message.account_id);
       else decrementUnread(message.account_id);
+    } finally {
+      if (newRead) pendingMarkReadMap.delete(message.id);
     }
   }, [updateMessage, decrementUnread, incrementUnread]);
 
@@ -655,9 +666,17 @@ export default function MessageList() {
       if (!msg) return;
       const newRead = !msg.is_read;
       updateMessage(selectedMessageId, { is_read: newRead });
-      if (newRead) decrementUnread(msg.account_id);
-      else         incrementUnread(msg.account_id);
-      api.markRead(selectedMessageId, newRead).catch(console.error);
+      if (newRead) {
+        decrementUnread(msg.account_id);
+        pendingMarkReadMap.set(selectedMessageId, msg.account_id);
+        api.markRead(selectedMessageId, true)
+          .catch(console.error)
+          .finally(() => pendingMarkReadMap.delete(selectedMessageId));
+      } else {
+        incrementUnread(msg.account_id);
+        pendingMarkReadMap.delete(selectedMessageId); // cancel any read protection for this message
+        api.markRead(selectedMessageId, false).catch(console.error);
+      }
     };
 
     const onFocusSearch = () => {
@@ -712,12 +731,16 @@ export default function MessageList() {
         if (!message.is_read) {
           updateMessage(message.id, { is_read: true });
           decrementUnread(message.account_id);
-          api.markRead(message.id, true).catch(console.error);
+          pendingMarkReadMap.set(message.id, message.account_id);
+          api.markRead(message.id, true)
+            .catch(console.error)
+            .finally(() => pendingMarkReadMap.delete(message.id));
         }
         break;
       case 'markUnread':
         if (message.is_read) {
           updateMessage(message.id, { is_read: false });
+          pendingMarkReadMap.delete(message.id); // cancel any read protection for this message
           api.markRead(message.id, false).catch(console.error);
         }
         break;
@@ -853,16 +876,17 @@ export default function MessageList() {
 
   const handleSelect = async (message) => {
     setSelectedMessage(message.id);
-    // Always optimistically mark as read in UI immediately
     if (!message.is_read) {
       updateMessage(message.id, { is_read: true });
       decrementUnread(message.account_id);
-      // Then sync to server — log errors instead of silently swallowing
-      api.markRead(message.id, true).catch(err => {
-        console.error('markRead failed:', err.message);
-        updateMessage(message.id, { is_read: false });
-        incrementUnread(message.account_id);
-      });
+      pendingMarkReadMap.set(message.id, message.account_id);
+      api.markRead(message.id, true)
+        .catch(err => {
+          console.error('markRead failed:', err.message);
+          updateMessage(message.id, { is_read: false });
+          incrementUnread(message.account_id);
+        })
+        .finally(() => pendingMarkReadMap.delete(message.id));
     }
   };
 
