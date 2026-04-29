@@ -196,6 +196,13 @@ export const useStore = create((set, get) => ({
     return api.savePreferences({ shortcuts: overrides }).catch(() => {});
   },
 
+  // Hidden folders — { [accountId]: [path, ...] }
+  hiddenFolders: {},
+  setHiddenFolders: (hf) => {
+    set({ hiddenFolders: hf });
+    return api.savePreferences({ hiddenFolders: hf }).catch(() => {});
+  },
+
   // Fetch server preferences and apply them — call after any successful login.
   // Sets localStorage so subsequent page loads apply the right values instantly.
   loadPreferences: async () => {
@@ -239,6 +246,7 @@ export const useStore = create((set, get) => ({
       else if (prefs.blockRemoteImages === true) set({ blockRemoteImages: true });
       if (prefs.imageWhitelist) set({ imageWhitelist: prefs.imageWhitelist });
       if (prefs.shortcuts) set({ shortcuts: prefs.shortcuts });
+      if (prefs.hiddenFolders) set({ hiddenFolders: prefs.hiddenFolders });
     } catch (_) {}
   },
 }));

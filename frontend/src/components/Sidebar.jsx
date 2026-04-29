@@ -91,6 +91,25 @@ function isProtectedFolder(folder) {
   );
 }
 
+// Build a nested tree from a flat sorted folder list using the IMAP delimiter.
+// Folders whose parent path isn't in the list are attached to the root.
+function buildFolderTree(folders) {
+  const delimiter = folders.find(f => f.delimiter)?.delimiter || '/';
+  const map = {};
+  for (const f of folders) map[f.path] = { ...f, children: [] };
+  const roots = [];
+  for (const f of folders) {
+    const parts = f.path.split(delimiter);
+    const parentPath = parts.length > 1 ? parts.slice(0, -1).join(delimiter) : null;
+    if (parentPath && map[parentPath]) {
+      map[parentPath].children.push(map[f.path]);
+    } else {
+      roots.push(map[f.path]);
+    }
+  }
+  return roots;
+}
+
 // ─── Sidebar context menu (folders + accounts) ────────────────────────────────
 function SidebarCtxMenu({ x, y, items, title, subtitle, onClose }) {
   const menuRef = useRef(null);
@@ -107,24 +126,26 @@ function SidebarCtxMenu({ x, y, items, title, subtitle, onClose }) {
     });
   }, [x, y]);
 
+  // Keep a ref so the listener registered once on mount always calls the latest onClose
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
+
   useEffect(() => {
-    const handleClick = () => onClose();
-    const handleKey = e => { if (e.key === 'Escape') onClose(); };
-    const tid = setTimeout(() => {
-      document.addEventListener('click', handleClick);
-      document.addEventListener('keydown', handleKey);
-    }, 0);
+    const handleMouseDown = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) onCloseRef.current();
+    };
+    const handleKey = (e) => { if (e.key === 'Escape') onCloseRef.current(); };
+    document.addEventListener('mousedown', handleMouseDown);
+    document.addEventListener('keydown', handleKey);
     return () => {
-      clearTimeout(tid);
-      document.removeEventListener('click', handleClick);
+      document.removeEventListener('mousedown', handleMouseDown);
       document.removeEventListener('keydown', handleKey);
     };
-  }, [onClose]);
+  }, []);
 
   return (
     <div
       ref={menuRef}
-      onClick={e => e.stopPropagation()}
       style={{
         position: 'fixed', left: pos.x, top: pos.y,
         background: 'var(--bg-elevated)',
@@ -227,6 +248,7 @@ export default function Sidebar() {
     setSelectedAccount, setShowAdmin, setAdminTab, openCompose,
     folders, setFolders, user, setUser, sidebarCollapsed: sidebarCollapsedPref, toggleSidebar,
     blockRemoteImages, setBlockRemoteImages, setMobileSidebarOpen, addNotification,
+    hiddenFolders, setHiddenFolders,
   } = useStore();
 
   const isMobile = useMobile();
@@ -278,6 +300,41 @@ export default function Sidebar() {
   const [creatingFolder, setCreatingFolder] = useState(null); // {accountId}
   const [createName, setCreateName] = useState('');
   const createInputRef = useRef(null);
+
+  // Collapsed folder nodes — Set of "${accountId}:${path}" keys; starts empty (all expanded)
+  const [collapsedFolders, setCollapsedFolders] = useState(new Set());
+  const toggleFolderCollapsed = useCallback((accountId, path) => {
+    setCollapsedFolders(prev => {
+      const next = new Set(prev);
+      const key = `${accountId}:${path}`;
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }, []);
+
+  // Per-account toggle to reveal hidden folders
+  const [showHiddenFor, setShowHiddenFor] = useState(new Set()); // Set of accountIds
+  const toggleShowHidden = useCallback((accountId) => {
+    setShowHiddenFor(prev => {
+      const next = new Set(prev);
+      if (next.has(accountId)) next.delete(accountId); else next.add(accountId);
+      return next;
+    });
+  }, []);
+
+  const hideFolderFn = useCallback((accountId, path) => {
+    const current = hiddenFolders[accountId] || [];
+    if (current.includes(path)) return;
+    setHiddenFolders({ ...hiddenFolders, [accountId]: [...current, path] });
+  }, [hiddenFolders, setHiddenFolders]);
+
+  const unhideFolderFn = useCallback((accountId, path) => {
+    const current = hiddenFolders[accountId] || [];
+    const next = current.filter(p => p !== path);
+    const updated = { ...hiddenFolders };
+    if (next.length === 0) delete updated[accountId]; else updated[accountId] = next;
+    setHiddenFolders(updated);
+  }, [hiddenFolders, setHiddenFolders]);
 
   // Loading state for folder ops
   const [folderOpLoading, setFolderOpLoading] = useState(false);
@@ -430,6 +487,7 @@ export default function Sidebar() {
   // ── Folder context menu items ──────────────────────────────────────────────
   const buildFolderMenuItems = (accountId, folderObj) => {
     const isProtected = isProtectedFolder(folderObj);
+    const isHidden = (hiddenFolders[accountId] || []).includes(folderObj.path);
     return [
       {
         label: 'Mark all as read',
@@ -456,6 +514,14 @@ export default function Sidebar() {
           setCreateName('');
           if (!expandedAccounts[accountId]) setExpandedAccounts(prev => ({ ...prev, [accountId]: true }));
         },
+      },
+      { separator: true },
+      {
+        label: isHidden ? 'Unhide folder' : 'Hide folder',
+        icon: isHidden
+          ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>,
+        action: () => isHidden ? unhideFolderFn(accountId, folderObj.path) : hideFolderFn(accountId, folderObj.path),
       },
       { separator: true },
       {
@@ -711,40 +777,96 @@ export default function Sidebar() {
                 )}
               </div>
 
-              {/* Folder list */}
-              {expanded && !sidebarCollapsed && (
-                <div>
-                  {accountFolders.map(folder => {
-                    const isRenaming = renamingFolder?.accountId === account.id && renamingFolder?.path === folder.path;
-                    const isFolderSelected = selectedAccountId === account.id && selectedFolder === folder.path;
+              {/* Folder tree */}
+              {expanded && !sidebarCollapsed && (() => {
+                const BASE_INDENT = 26;
+                const DEPTH_INDENT = 14;
 
-                    return (
+                const createFolderInput = (indent) => (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    padding: `6px 10px 6px ${indent}px`, borderRadius: 7,
+                  }}>
+                    <span style={{ color: 'var(--text-tertiary)', flexShrink: 0, display: 'flex' }}>{ICONS.folder}</span>
+                    <input
+                      ref={createInputRef}
+                      value={createName}
+                      onChange={e => setCreateName(e.target.value)}
+                      placeholder={creatingFolder?.parentPath ? 'Subfolder name…' : 'Folder name…'}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') handleCreateFolderSubmit();
+                        if (e.key === 'Escape') { setCreatingFolder(null); setCreateName(''); }
+                        e.stopPropagation();
+                      }}
+                      style={{
+                        flex: 1, fontSize: 12, background: 'var(--bg-primary)',
+                        border: '1px solid var(--accent)', borderRadius: 4,
+                        color: 'var(--text-primary)', padding: '2px 6px', outline: 'none', minWidth: 0,
+                      }}
+                    />
+                    <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
+                      <button onClick={handleCreateFolderSubmit} style={{ background: 'var(--accent)', border: 'none', borderRadius: 4, color: 'white', padding: '2px 6px', cursor: 'pointer', fontSize: 11 }}>✓</button>
+                      <button onClick={() => { setCreatingFolder(null); setCreateName(''); }} style={{ background: 'var(--bg-tertiary)', border: 'none', borderRadius: 4, color: 'var(--text-secondary)', padding: '2px 6px', cursor: 'pointer', fontSize: 11 }}>✕</button>
+                    </div>
+                  </div>
+                );
+
+                const accountHiddenPaths = hiddenFolders[account.id] || [];
+                const showingHidden = showHiddenFor.has(account.id);
+
+                const renderNode = (node, depth) => {
+                  const { children, ...folder } = node;
+                  const isHidden = accountHiddenPaths.includes(folder.path);
+                  if (isHidden && !showingHidden) return null;
+
+                  const isRenaming = renamingFolder?.accountId === account.id && renamingFolder?.path === folder.path;
+                  const isFolderSelected = selectedAccountId === account.id && selectedFolder === folder.path;
+                  const visibleChildren = showingHidden ? children : children.filter(c => !accountHiddenPaths.includes(c.path));
+                  const hasChildren = visibleChildren.length > 0;
+                  const collapseKey = `${account.id}:${folder.path}`;
+                  const isExpanded = !collapsedFolders.has(collapseKey);
+                  const indent = BASE_INDENT + depth * DEPTH_INDENT;
+
+                  return (
+                    <div key={folder.path} style={isHidden ? { opacity: 0.45 } : undefined}>
                       <div
-                        key={folder.path}
                         style={{
-                          display: 'flex', alignItems: 'center', gap: 8,
-                          padding: '6px 10px 6px 26px', borderRadius: 7,
+                          display: 'flex', alignItems: 'center', gap: 6,
+                          padding: `6px 10px 6px ${indent}px`, borderRadius: 7,
                           cursor: isRenaming ? 'default' : 'pointer',
                           background: isFolderSelected ? 'var(--bg-hover)' : 'transparent',
                           transition: 'background 0.1s',
                         }}
-                        onMouseEnter={e => {
-                          if (!isFolderSelected && !isRenaming)
-                            e.currentTarget.style.background = 'var(--bg-tertiary)';
-                        }}
-                        onMouseLeave={e => {
-                          if (!isFolderSelected)
-                            e.currentTarget.style.background = isFolderSelected ? 'var(--bg-hover)' : 'transparent';
-                        }}
+                        onMouseEnter={e => { if (!isFolderSelected && !isRenaming) e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
+                        onMouseLeave={e => { if (!isFolderSelected) e.currentTarget.style.background = 'transparent'; }}
                         onClick={() => !isRenaming && setSelectedAccount(account.id, folder.path)}
                         onContextMenu={e => openFolderCtxMenu(e, account.id, folder)}
                       >
-                        <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}>
+                        {/* Chevron toggle for parent folders; invisible spacer for leaf folders to align icons */}
+                        {hasChildren ? (
+                          <button
+                            onClick={e => { e.stopPropagation(); toggleFolderCollapsed(account.id, folder.path); }}
+                            style={{
+                              background: 'none', border: 'none', padding: 2, margin: 0, flexShrink: 0,
+                              color: 'var(--text-tertiary)', cursor: 'pointer',
+                              display: 'flex', alignItems: 'center',
+                              transform: isExpanded ? 'rotate(90deg)' : 'none',
+                              transition: 'transform 0.15s',
+                            }}
+                          >
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                              <polyline points="9 18 15 12 9 6"/>
+                            </svg>
+                          </button>
+                        ) : (
+                          <span style={{ width: 14, flexShrink: 0 }} />
+                        )}
+
+                        <span style={{ color: 'var(--text-tertiary)', flexShrink: 0, display: 'flex' }}>
                           {folderIcon(folder.path, folder.special_use)}
                         </span>
 
                         {isRenaming ? (
-                          // Inline rename input
                           <input
                             ref={renameInputRef}
                             value={renamingFolder.value}
@@ -758,8 +880,7 @@ export default function Sidebar() {
                             style={{
                               flex: 1, fontSize: 12, background: 'var(--bg-primary)',
                               border: '1px solid var(--accent)', borderRadius: 4,
-                              color: 'var(--text-primary)', padding: '2px 6px', outline: 'none',
-                              minWidth: 0,
+                              color: 'var(--text-primary)', padding: '2px 6px', outline: 'none', minWidth: 0,
                             }}
                           />
                         ) : (
@@ -772,109 +893,86 @@ export default function Sidebar() {
                         )}
 
                         {isRenaming ? (
-                          // Confirm / cancel buttons
                           <div style={{ display: 'flex', gap: 2, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-                            <button
-                              onClick={handleRenameSubmit}
-                              disabled={folderOpLoading}
-                              style={{
-                                background: 'var(--accent)', border: 'none', borderRadius: 4,
-                                color: 'white', padding: '2px 6px', cursor: 'pointer', fontSize: 11,
-                              }}
-                            >
+                            <button onClick={handleRenameSubmit} disabled={folderOpLoading} style={{ background: 'var(--accent)', border: 'none', borderRadius: 4, color: 'white', padding: '2px 6px', cursor: 'pointer', fontSize: 11 }}>
                               {folderOpLoading ? '…' : '✓'}
                             </button>
-                            <button
-                              onClick={() => setRenamingFolder(null)}
-                              style={{
-                                background: 'var(--bg-tertiary)', border: 'none', borderRadius: 4,
-                                color: 'var(--text-secondary)', padding: '2px 6px', cursor: 'pointer', fontSize: 11,
-                              }}
-                            >
-                              ✕
-                            </button>
+                            <button onClick={() => setRenamingFolder(null)} style={{ background: 'var(--bg-tertiary)', border: 'none', borderRadius: 4, color: 'var(--text-secondary)', padding: '2px 6px', cursor: 'pointer', fontSize: 11 }}>✕</button>
                           </div>
                         ) : (
                           folder.unread_count > 0 && (
-                            <span style={{
-                              fontSize: 10, color: 'var(--text-tertiary)',
-                              background: 'var(--bg-elevated)', padding: '1px 5px', borderRadius: 8,
-                            }}>
+                            <span style={{ fontSize: 10, color: 'var(--text-tertiary)', background: 'var(--bg-elevated)', padding: '1px 5px', borderRadius: 8, flexShrink: 0 }}>
                               {folder.unread_count}
                             </span>
                           )
                         )}
                       </div>
-                    );
-                  })}
 
-                  {/* Inline create-folder row */}
-                  {creatingFolder?.accountId === account.id ? (
-                    <div style={{
-                      display: 'flex', alignItems: 'center', gap: 8,
-                      padding: '6px 10px 6px 26px', borderRadius: 7,
-                    }}>
-                      <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}>{ICONS.folder}</span>
-                      <input
-                        ref={createInputRef}
-                        value={createName}
-                        onChange={e => setCreateName(e.target.value)}
-                        placeholder={creatingFolder.parentPath ? 'Subfolder name…' : 'Folder name…'}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') handleCreateFolderSubmit();
-                          if (e.key === 'Escape') { setCreatingFolder(null); setCreateName(''); }
-                          e.stopPropagation();
-                        }}
-                        style={{
-                          flex: 1, fontSize: 12, background: 'var(--bg-primary)',
-                          border: '1px solid var(--accent)', borderRadius: 4,
-                          color: 'var(--text-primary)', padding: '2px 6px', outline: 'none',
-                          minWidth: 0,
-                        }}
-                      />
-                      <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
-                        <button
-                          onClick={handleCreateFolderSubmit}
-                          style={{
-                            background: 'var(--accent)', border: 'none', borderRadius: 4,
-                            color: 'white', padding: '2px 6px', cursor: 'pointer', fontSize: 11,
-                          }}
-                        >
-                          ✓
-                        </button>
-                        <button
-                          onClick={() => { setCreatingFolder(null); setCreateName(''); }}
-                          style={{
-                            background: 'var(--bg-tertiary)', border: 'none', borderRadius: 4,
-                            color: 'var(--text-secondary)', padding: '2px 6px', cursor: 'pointer', fontSize: 11,
-                          }}
-                        >
-                          ✕
-                        </button>
-                      </div>
+                      {/* Children — shown when expanded */}
+                      {hasChildren && isExpanded && (
+                        <>
+                          {visibleChildren.map(child => renderNode(child, depth + 1))}
+                          {creatingFolder?.accountId === account.id && creatingFolder?.parentPath === folder.path &&
+                            createFolderInput(BASE_INDENT + (depth + 1) * DEPTH_INDENT)}
+                        </>
+                      )}
                     </div>
-                  ) : (
-                    // "New folder" button at bottom of list
-                    <button
-                      onClick={() => handleStartCreateFolder(account.id)}
-                      style={{
-                        display: 'flex', alignItems: 'center', gap: 8,
-                        padding: '5px 10px 5px 26px', borderRadius: 7,
-                        background: 'none', border: 'none', cursor: 'pointer',
-                        color: 'var(--text-tertiary)', fontSize: 11, width: '100%',
-                        transition: 'color 0.1s',
-                      }}
-                      onMouseEnter={e => e.currentTarget.style.color = 'var(--text-secondary)'}
-                      onMouseLeave={e => e.currentTarget.style.color = 'var(--text-tertiary)'}
-                    >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-                      </svg>
-                      New folder
-                    </button>
-                  )}
-                </div>
-              )}
+                  );
+                };
+
+                const tree = buildFolderTree(accountFolders);
+                return (
+                  <div>
+                    {tree.map(node => renderNode(node, 0))}
+                    {/* Show/hide hidden folders toggle */}
+                    {accountHiddenPaths.length > 0 && (
+                      <button
+                        onClick={() => toggleShowHidden(account.id)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 6,
+                          padding: '4px 10px 4px 26px', borderRadius: 7,
+                          background: 'none', border: 'none', cursor: 'pointer',
+                          color: showingHidden ? 'var(--accent)' : 'var(--text-tertiary)',
+                          fontSize: 11, width: '100%', transition: 'color 0.1s',
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.color = showingHidden ? 'var(--accent)' : 'var(--text-secondary)'}
+                        onMouseLeave={e => e.currentTarget.style.color = showingHidden ? 'var(--accent)' : 'var(--text-tertiary)'}
+                      >
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          {showingHidden
+                            ? <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>
+                            : <><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></>
+                          }
+                        </svg>
+                        {showingHidden ? 'Hide hidden folders' : `${accountHiddenPaths.length} hidden folder${accountHiddenPaths.length !== 1 ? 's' : ''}`}
+                      </button>
+                    )}
+                    {/* Root-level create or "New folder" button */}
+                    {creatingFolder?.accountId === account.id && !creatingFolder?.parentPath
+                      ? createFolderInput(BASE_INDENT)
+                      : (
+                        <button
+                          onClick={() => handleStartCreateFolder(account.id)}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 8,
+                            padding: '5px 10px 5px 26px', borderRadius: 7,
+                            background: 'none', border: 'none', cursor: 'pointer',
+                            color: 'var(--text-tertiary)', fontSize: 11, width: '100%',
+                            transition: 'color 0.1s',
+                          }}
+                          onMouseEnter={e => e.currentTarget.style.color = 'var(--text-secondary)'}
+                          onMouseLeave={e => e.currentTarget.style.color = 'var(--text-tertiary)'}
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                          </svg>
+                          New folder
+                        </button>
+                      )
+                    }
+                  </div>
+                );
+              })()}
             </div>
           );
         })}
