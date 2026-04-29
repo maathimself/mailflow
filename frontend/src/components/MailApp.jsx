@@ -75,7 +75,9 @@ export default function MailApp() {
         .catch(console.error);
     };
     refreshCounts();
-    const interval = setInterval(refreshCounts, 60000);
+    // 5-minute fallback poll — WebSocket sync_complete events handle the common case;
+    // this covers stale counts when the WebSocket is temporarily disconnected.
+    const interval = setInterval(refreshCounts, 300000);
     return () => clearInterval(interval);
   }, []);
 
@@ -233,7 +235,9 @@ export default function MailApp() {
               onClick={() => setMobileSidebarOpen(false)}
               style={{
                 position: 'fixed', inset: 0, zIndex: 900,
-                background: 'rgba(0,0,0,0.45)',
+                background: 'var(--overlay-scrim)',
+                backdropFilter: 'blur(6px)',
+                WebkitBackdropFilter: 'blur(6px)',
               }}
             />
           )}
@@ -243,7 +247,7 @@ export default function MailApp() {
             zIndex: 901, display: 'flex',
             transform: mobileSidebarOpen ? 'translateX(0)' : 'translateX(-100%)',
             transition: 'transform 0.25s cubic-bezier(0.25,0.46,0.45,0.94)',
-            boxShadow: mobileSidebarOpen ? '0 0 16px rgba(0,0,0,0.6)' : 'none',
+            boxShadow: mobileSidebarOpen ? 'var(--shadow-drawer)' : 'none',
           }}>
             <Sidebar />
           </div>
@@ -305,7 +309,9 @@ function ShortcutHelpOverlay({ shortcuts, onClose }) {
       onClick={onClose}
       style={{
         position: 'fixed', inset: 0, zIndex: 6000,
-        background: 'rgba(0,0,0,0.65)',
+        background: 'rgba(0,0,0,0.6)',
+        backdropFilter: 'blur(8px)',
+        WebkitBackdropFilter: 'blur(8px)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         padding: 24,
       }}

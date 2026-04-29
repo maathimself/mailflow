@@ -142,7 +142,7 @@ export const useStore = create((set, get) => ({
 
   // Admin panel
   showAdmin: false,
-  adminTab: 'accounts', // 'accounts' | 'themes' | 'fonts' | 'layouts' | 'integrations' | 'users'
+  adminTab: 'accounts', // 'accounts' | 'appearance' | 'integrations' | 'users'
   setShowAdmin: (v) => set({ showAdmin: v }),
   setAdminTab: (t) => set({ adminTab: t }),
 

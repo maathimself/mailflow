@@ -5,6 +5,9 @@ import { playNotificationSound } from '../utils/notificationSounds.js';
 
 // Auth-related close codes that should not trigger reconnect
 const NO_RECONNECT_CODES = new Set([4001, 4003]);
+
+// Module-level timer for debouncing backfill_progress refreshes
+let backfillRefreshTimer = null;
 const BACKOFF_BASE = 1000;
 const BACKOFF_MAX = 30000;
 
@@ -108,15 +111,15 @@ export function useWebSocket() {
       case 'backfill_progress': {
         // Trigger a silent message list refresh so newly synced messages appear
         // Debounce to avoid hammering the API on every batch
-        clearTimeout(window._backfillRefreshTimer);
-        window._backfillRefreshTimer = setTimeout(() => {
+        clearTimeout(backfillRefreshTimer);
+        backfillRefreshTimer = setTimeout(() => {
           window.dispatchEvent(new CustomEvent('mailflow:refresh'));
         }, 2000);
         break;
       }
 
       case 'backfill_complete': {
-        clearTimeout(window._backfillRefreshTimer);
+        clearTimeout(backfillRefreshTimer);
         window.dispatchEvent(new CustomEvent('mailflow:refresh'));
         break;
       }

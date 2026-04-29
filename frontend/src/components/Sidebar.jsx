@@ -110,11 +110,12 @@ function SidebarCtxMenu({ x, y, items, title, subtitle, onClose }) {
   useEffect(() => {
     const handleClick = () => onClose();
     const handleKey = e => { if (e.key === 'Escape') onClose(); };
-    setTimeout(() => {
+    const tid = setTimeout(() => {
       document.addEventListener('click', handleClick);
       document.addEventListener('keydown', handleKey);
     }, 0);
     return () => {
+      clearTimeout(tid);
       document.removeEventListener('click', handleClick);
       document.removeEventListener('keydown', handleKey);
     };
@@ -129,7 +130,7 @@ function SidebarCtxMenu({ x, y, items, title, subtitle, onClose }) {
         background: 'var(--bg-elevated)',
         border: '1px solid var(--border)',
         borderRadius: 10, zIndex: 4000,
-        boxShadow: '0 8px 40px rgba(0,0,0,0.5)',
+        boxShadow: 'var(--shadow-modal)',
         minWidth: 210, overflow: 'hidden',
         animation: 'ctxIn 0.1s ease',
       }}
@@ -280,7 +281,6 @@ export default function Sidebar() {
 
   // Loading state for folder ops
   const [folderOpLoading, setFolderOpLoading] = useState(false);
-  const [folderOpError, setFolderOpError] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState(null); // { message, onConfirm }
 
   const toggleAccount = (id) => {
@@ -334,7 +334,7 @@ export default function Sidebar() {
   };
 
   const handleStartRename = (accountId, folderObj) => {
-    setRenamingFolder({ accountId, path: folderObj.path, value: folderObj.name });
+    setRenamingFolder({ accountId, path: folderObj.path, value: folderObj.name, originalName: folderObj.name });
   };
 
   const handleRenameSubmit = async () => {
@@ -342,12 +342,11 @@ export default function Sidebar() {
       setRenamingFolder(null);
       return;
     }
-    if (renamingFolder.value.trim() === renamingFolder.name) {
+    if (renamingFolder.value.trim() === renamingFolder.originalName) {
       setRenamingFolder(null);
       return;
     }
     setFolderOpLoading(true);
-    setFolderOpError(null);
     try {
       const { newPath } = await api.renameFolder(renamingFolder.accountId, renamingFolder.path, renamingFolder.value.trim());
       const updated = await api.getFolders(renamingFolder.accountId);
@@ -358,7 +357,7 @@ export default function Sidebar() {
       }
       setRenamingFolder(null);
     } catch (err) {
-      setFolderOpError(err.message);
+      addNotification({ title: 'Rename failed', body: err.message });
     } finally {
       setFolderOpLoading(false);
     }
@@ -424,7 +423,7 @@ export default function Sidebar() {
       setCreatingFolder(null);
       setCreateName('');
     } catch (err) {
-      alert('Failed to create folder: ' + err.message);
+      addNotification({ title: 'Create folder failed', body: err.message });
     }
   };
 
@@ -573,6 +572,7 @@ export default function Sidebar() {
       <div style={{ padding: '12px 10px' }}>
         <button
           onClick={() => openCompose()}
+          className="btn-press"
           style={{
             width: '100%', padding: sidebarCollapsed ? '10px' : '10px 14px',
             background: 'var(--accent)', border: 'none', borderRadius: 8,
@@ -1045,7 +1045,7 @@ export default function Sidebar() {
             border: '1px solid var(--border)',
             borderRadius: 10,
             zIndex: 4000,
-            boxShadow: '0 8px 40px rgba(0,0,0,0.45)',
+            boxShadow: 'var(--shadow-modal)',
             overflow: 'hidden',
           }}
         >
@@ -1129,18 +1129,19 @@ export default function Sidebar() {
           <div style={{
             background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)',
             borderRadius: 12, padding: '24px 24px 20px', maxWidth: 360, width: '100%',
+            boxShadow: 'var(--shadow-modal)',
           }} onClick={e => e.stopPropagation()}>
             <p style={{ margin: '0 0 20px', fontSize: 14, color: 'var(--text-primary)', lineHeight: 1.5 }}>
               {confirmDialog.message}
             </p>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button onClick={() => setConfirmDialog(null)} style={{
+              <button onClick={() => setConfirmDialog(null)} className="btn-press" style={{
                 padding: '7px 16px', borderRadius: 7, border: '1px solid var(--border-subtle)',
                 background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13,
               }}>Cancel</button>
-              <button onClick={() => { const fn = confirmDialog.onConfirm; setConfirmDialog(null); fn(); }} style={{
+              <button onClick={() => { const fn = confirmDialog.onConfirm; setConfirmDialog(null); fn(); }} className="btn-press" style={{
                 padding: '7px 16px', borderRadius: 7, border: 'none',
-                background: '#dc2626', color: 'white', cursor: 'pointer', fontSize: 13, fontWeight: 500,
+                background: 'var(--red)', color: 'white', cursor: 'pointer', fontSize: 13, fontWeight: 500,
               }}>Delete</button>
             </div>
           </div>

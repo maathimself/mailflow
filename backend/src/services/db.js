@@ -54,8 +54,6 @@ export async function initDb() {
         oauth_access_token TEXT,
         oauth_refresh_token TEXT,
         oauth_token_expiry TIMESTAMPTZ,
-        -- JMAP settings
-        jmap_session_url VARCHAR(255),
         -- State
         enabled BOOLEAN DEFAULT true,
         last_sync TIMESTAMPTZ,
@@ -70,7 +68,6 @@ export async function initDb() {
         uid BIGINT NOT NULL,
         folder VARCHAR(500) NOT NULL DEFAULT 'INBOX',
         message_id VARCHAR(500),
-        thread_id VARCHAR(500),
         subject TEXT,
         from_name VARCHAR(500),
         from_email VARCHAR(500),
@@ -206,9 +203,13 @@ export async function encryptExistingCredentials() {
     return;
   }
 
-  const result = await pool.query(
-    'SELECT id, auth_pass, oauth_access_token, oauth_refresh_token FROM email_accounts'
-  );
+  const result = await pool.query(`
+    SELECT id, auth_pass, oauth_access_token, oauth_refresh_token
+    FROM email_accounts
+    WHERE (auth_pass IS NOT NULL AND auth_pass NOT LIKE 'enc:v1:%')
+       OR (oauth_access_token IS NOT NULL AND oauth_access_token NOT LIKE 'enc:v1:%')
+       OR (oauth_refresh_token IS NOT NULL AND oauth_refresh_token NOT LIKE 'enc:v1:%')
+  `);
 
   let count = 0;
   for (const row of result.rows) {
