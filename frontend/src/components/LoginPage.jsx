@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import LogoMark from './LogoMark.jsx';
 
 export default function LoginPage() {
+  const { t } = useTranslation();
   const { setUser, loadPreferences } = useStore();
   const [mode, setMode] = useState('login');
   const [username, setUsername] = useState('');
@@ -31,7 +33,7 @@ export default function LoginPage() {
           window.history.replaceState({}, '', '/register?invite=' + token);
         })
         .catch(() => {
-          setError('This invite link is invalid or has expired.');
+          setError(t('login.inviteExpired'));
         });
     }
 
@@ -129,7 +131,7 @@ export default function LoginPage() {
               <span style={{ fontFamily: "'Syne', sans-serif", fontSize: 30, fontWeight: 600, color: 'var(--accent)', letterSpacing: '-0.03em' }}>Flow</span>
             </span>
           </div>
-          <p style={{ color: 'var(--text-tertiary)', fontSize: 14, margin: 0 }}>Your unified inbox</p>
+          <p style={{ color: 'var(--text-tertiary)', fontSize: 14, margin: 0 }}>{t('login.tagline')}</p>
         </div>
 
         {/* Card */}
@@ -151,11 +153,11 @@ export default function LoginPage() {
                   </svg>
                 </div>
                 <h2 style={{ margin: 0, fontSize: 18, fontWeight: 500, color: 'var(--text-primary)' }}>
-                  Two-factor auth
+                  {t('login.totp.title')}
                 </h2>
               </div>
               <p style={{ margin: '0 0 20px', fontSize: 13, color: 'var(--text-tertiary)' }}>
-                Enter the 6-digit code from your authenticator app.
+                {t('login.totp.instructions')}
               </p>
               <form onSubmit={submitTotp} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                 <input
@@ -166,7 +168,7 @@ export default function LoginPage() {
                   value={totpCode}
                   onChange={e => setTotpCode(e.target.value.replace(/\D/g, ''))}
                   autoFocus
-                  placeholder="000000"
+                  placeholder={t('login.totp.placeholder')}
                   style={{
                     width: '100%', padding: '12px 14px',
                     background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
@@ -194,7 +196,7 @@ export default function LoginPage() {
                     opacity: loading || totpCode.length !== 6 ? 0.6 : 1, marginTop: 4,
                   }}
                 >
-                  {loading ? 'Verifying…' : 'Verify'}
+                  {loading ? t('login.totp.verifying') : t('login.totp.verify')}
                 </button>
                 <button
                   type="button"
@@ -204,18 +206,18 @@ export default function LoginPage() {
                     fontSize: 13, cursor: 'pointer', padding: 0,
                   }}
                 >
-                  ← Back to login
+                  {t('login.totp.backToLogin')}
                 </button>
               </form>
             </>
           ) : (
           <>
           <h2 style={{ margin: '0 0 4px', fontSize: 18, fontWeight: 500, color: 'var(--text-primary)' }}>
-            {mode === 'login' ? 'Sign in' : 'Create account'}
+            {mode === 'login' ? t('login.signIn') : t('login.createAccount')}
           </h2>
           {mode === 'register' && inviteEmail && (
             <p style={{ margin: '0 0 20px', fontSize: 13, color: 'var(--text-tertiary)' }}>
-              Invited as <span style={{ color: 'var(--text-secondary)' }}>{inviteEmail}</span>
+              {t('login.inviteEmail')} <span style={{ color: 'var(--text-secondary)' }}>{inviteEmail}</span>
             </p>
           )}
           {mode === 'register' && !inviteEmail && (
@@ -236,7 +238,7 @@ export default function LoginPage() {
           <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div>
               <label style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                Username
+                {t('login.username')}
               </label>
               <input
                 type="text"
@@ -256,7 +258,7 @@ export default function LoginPage() {
 
             <div>
               <label style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                Password
+                {t('login.password')}
               </label>
               <input
                 type="password"
@@ -296,7 +298,7 @@ export default function LoginPage() {
               onMouseDown={e => e.target.style.transform = 'scale(0.98)'}
               onMouseUp={e => e.target.style.transform = 'scale(1)'}
             >
-              {loading ? 'Please wait…' : (mode === 'login' ? 'Sign in' : 'Create account')}
+              {loading ? t('login.pleaseWait') : (mode === 'login' ? t('login.signIn') : t('login.createAccount'))}
             </button>
           </form>
 
@@ -306,7 +308,7 @@ export default function LoginPage() {
                 display: 'flex', alignItems: 'center', gap: 10, margin: '20px 0 16px',
               }}>
                 <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
-                <span style={{ fontSize: 12, color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>or continue with</span>
+                <span style={{ fontSize: 12, color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>{t('login.orContinueWith')}</span>
                 <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -328,7 +330,7 @@ export default function LoginPage() {
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
                       <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
                     </svg>
-                    Sign in with {p.name}
+                    {t('login.signInWith', { name: p.name })}
                   </a>
                 ))}
               </div>
@@ -340,7 +342,7 @@ export default function LoginPage() {
 
         {!totpRequired && showToggle && (
           <p style={{ textAlign: 'center', marginTop: 20, fontSize: 13, color: 'var(--text-tertiary)' }}>
-            {mode === 'login' ? "Don't have an account? " : 'Already have an account? '}
+            {mode === 'login' ? t('login.dontHaveAccount') : t('login.alreadyHaveAccount')}
             <button
               onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(''); }}
               style={{
@@ -348,7 +350,7 @@ export default function LoginPage() {
                 cursor: 'pointer', fontSize: 13, padding: 0,
               }}
             >
-              {mode === 'login' ? 'Register' : 'Sign in'}
+              {mode === 'login' ? t('login.register') : t('login.signIn')}
             </button>
           </p>
         )}

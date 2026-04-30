@@ -1,46 +1,47 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { THEMES } from '../themes.js';
 
 const THEME_NAMES = Object.keys(THEMES);
 
-function buildActions({ openCompose, setSelectedAccount, setShowAdmin, setAdminTab, theme, setTheme, accounts }) {
+function buildActions({ t, openCompose, setSelectedAccount, setShowAdmin, setAdminTab, theme, setTheme, accounts }) {
   const actions = [
     {
       id: 'compose',
-      label: 'Compose new message',
+      label: t('commandPalette.actions.compose'),
       icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>,
       run: () => openCompose({}),
     },
     {
       id: 'inbox',
-      label: 'Go to Inbox',
+      label: t('commandPalette.actions.inbox'),
       icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/></svg>,
       run: () => setSelectedAccount(null, 'INBOX'),
     },
     {
       id: 'settings',
-      label: 'Open Settings',
+      label: t('commandPalette.actions.settings'),
       icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>,
       run: () => { setShowAdmin(true); setAdminTab('accounts'); },
     },
     {
       id: 'themes',
-      label: 'Open Themes',
+      label: t('commandPalette.actions.themes'),
       icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 010 20"/><path d="M12 2v20"/></svg>,
       run: () => { setShowAdmin(true); setAdminTab('appearance'); },
     },
   ];
 
   // Theme switch actions
-  for (const t of THEME_NAMES) {
-    const label = THEMES[t]?.label || t;
+  for (const themeKey of THEME_NAMES) {
+    const label = THEMES[themeKey]?.label || themeKey;
     actions.push({
-      id: `theme:${t}`,
-      label: `Switch to ${label} theme`,
+      id: `theme:${themeKey}`,
+      label: t('commandPalette.actions.switchTheme', { theme: label }),
       icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>,
-      active: theme === t,
-      run: () => setTheme(t),
+      active: theme === themeKey,
+      run: () => setTheme(themeKey),
     });
   }
 
@@ -48,7 +49,7 @@ function buildActions({ openCompose, setSelectedAccount, setShowAdmin, setAdminT
   for (const a of accounts) {
     actions.push({
       id: `account:${a.id}`,
-      label: `${a.name} — Inbox`,
+      label: t('commandPalette.actions.accountInbox', { name: a.name }),
       icon: <span style={{ width: 15, height: 15, borderRadius: '50%', background: a.color || '#6366f1', display: 'inline-block', flexShrink: 0 }} />,
       run: () => setSelectedAccount(a.id, 'INBOX'),
     });
@@ -58,6 +59,7 @@ function buildActions({ openCompose, setSelectedAccount, setShowAdmin, setAdminT
 }
 
 export default function CommandPalette({ open, onClose }) {
+  const { t } = useTranslation();
   const { openCompose, setSelectedAccount, setShowAdmin, setAdminTab, theme, setTheme, accounts } = useStore();
   const [query, setQuery] = useState('');
   const [activeIdx, setActiveIdx] = useState(0);
@@ -65,7 +67,7 @@ export default function CommandPalette({ open, onClose }) {
   const inputRef = useRef(null);
   const listRef = useRef(null);
 
-  const actions = buildActions({ openCompose, setSelectedAccount, setShowAdmin, setAdminTab, theme, setTheme, accounts });
+  const actions = buildActions({ t, openCompose, setSelectedAccount, setShowAdmin, setAdminTab, theme, setTheme, accounts });
 
   const filtered = query.trim()
     ? actions.filter(a => a.label.toLowerCase().includes(query.toLowerCase()))
@@ -141,7 +143,7 @@ export default function CommandPalette({ open, onClose }) {
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Search actions…"
+            placeholder={t('commandPalette.placeholder')}
             style={{
               flex: 1, background: 'none', border: 'none', outline: 'none',
               color: 'var(--text-primary)', fontSize: 15,
@@ -165,7 +167,7 @@ export default function CommandPalette({ open, onClose }) {
         >
           {filtered.length === 0 ? (
             <div style={{ padding: '20px 16px', color: 'var(--text-tertiary)', fontSize: 13, textAlign: 'center' }}>
-              No actions found
+              {t('commandPalette.noResults')}
             </div>
           ) : filtered.map((action, i) => (
             <div
@@ -198,9 +200,9 @@ export default function CommandPalette({ open, onClose }) {
         </div>
 
         <div style={{ padding: '8px 16px', borderTop: '1px solid var(--border-subtle)', display: 'flex', gap: 12, fontSize: 11, color: 'var(--text-tertiary)' }}>
-          <span><kbd style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 3, padding: '1px 5px' }}>↑↓</kbd> navigate</span>
-          <span><kbd style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 3, padding: '1px 5px' }}>↵</kbd> select</span>
-          <span><kbd style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 3, padding: '1px 5px' }}>Esc</kbd> close</span>
+          <span><kbd style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 3, padding: '1px 5px' }}>↑↓</kbd> {t('commandPalette.hint.navigate')}</span>
+          <span><kbd style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 3, padding: '1px 5px' }}>↵</kbd> {t('commandPalette.hint.select')}</span>
+          <span><kbd style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 3, padding: '1px 5px' }}>Esc</kbd> {t('commandPalette.hint.close')}</span>
         </div>
       </div>
     </div>

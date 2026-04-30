@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 
 const BTN = {
@@ -32,6 +33,7 @@ function Sep() {
 }
 
 export default function SignatureEditor({ value, onChange }) {
+  const { t } = useTranslation();
   const { addNotification } = useStore();
   const editorRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -57,13 +59,13 @@ export default function SignatureEditor({ value, onChange }) {
 
   const insertLink = () => {
     const saved = saveSelection();
-    const url = window.prompt('Link URL:');
+    const url = window.prompt(t('signatureEditor.linkPrompt'));
     restoreSelection(saved);
     if (url) exec('createLink', url.match(/^https?:\/\//) ? url : 'https://' + url);
   };
 
   const insertImageFromUrl = () => {
-    const url = window.prompt('Image URL:');
+    const url = window.prompt(t('signatureEditor.imageUrlPrompt'));
     if (url) exec('insertImage', url);
   };
 
@@ -71,7 +73,7 @@ export default function SignatureEditor({ value, onChange }) {
     const file = e.target.files[0];
     if (!file) return;
     if (file.size > 300 * 1024) {
-      addNotification({ type: 'error', title: 'Image too large', body: 'Must be under 300 KB. Use an external URL for larger images.' });
+      addNotification({ type: 'error', title: t('signatureEditor.imageTooLarge.title'), body: t('signatureEditor.imageTooLarge.body') });
       e.target.value = '';
       return;
     }
@@ -116,16 +118,16 @@ export default function SignatureEditor({ value, onChange }) {
         padding: '5px 8px', borderBottom: '1px solid var(--border-subtle)',
         flexWrap: 'wrap', gap: 2,
       }}>
-        <ToolBtn title="Bold (Ctrl+B)" onClick={() => exec('bold')}>
+        <ToolBtn title={t('signatureEditor.bold')} onClick={() => exec('bold')}>
           <strong style={{ fontSize: 13 }}>B</strong>
         </ToolBtn>
-        <ToolBtn title="Italic (Ctrl+I)" onClick={() => exec('italic')}>
+        <ToolBtn title={t('signatureEditor.italic')} onClick={() => exec('italic')}>
           <em style={{ fontSize: 13 }}>I</em>
         </ToolBtn>
-        <ToolBtn title="Underline (Ctrl+U)" onClick={() => exec('underline')}>
+        <ToolBtn title={t('signatureEditor.underline')} onClick={() => exec('underline')}>
           <span style={{ textDecoration: 'underline', fontSize: 13 }}>U</span>
         </ToolBtn>
-        <ToolBtn title="Strikethrough" onClick={() => exec('strikeThrough')}>
+        <ToolBtn title={t('signatureEditor.strikethrough')} onClick={() => exec('strikeThrough')}>
           <span style={{ textDecoration: 'line-through', fontSize: 13 }}>S</span>
         </ToolBtn>
 
@@ -133,7 +135,7 @@ export default function SignatureEditor({ value, onChange }) {
 
         {/* Text color */}
         <label
-          title="Text color"
+          title={t('signatureEditor.textColor')}
           onMouseDown={e => e.preventDefault()}
           style={{ ...BTN, cursor: 'pointer', position: 'relative', padding: '3px 7px' }}
         >
@@ -150,21 +152,21 @@ export default function SignatureEditor({ value, onChange }) {
 
         <Sep />
 
-        <ToolBtn title="Insert link" onClick={insertLink}>
+        <ToolBtn title={t('signatureEditor.link')} onClick={insertLink}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/>
             <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>
           </svg>
         </ToolBtn>
 
-        <ToolBtn title="Image from URL" onClick={insertImageFromUrl}>
+        <ToolBtn title={t('signatureEditor.imageUrl')} onClick={insertImageFromUrl}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/>
             <polyline points="21 15 16 10 5 21"/>
           </svg>
         </ToolBtn>
 
-        <ToolBtn title="Upload image (max 300 KB)" onClick={() => fileInputRef.current?.click()}>
+        <ToolBtn title={t('signatureEditor.imageUpload')} onClick={() => fileInputRef.current?.click()}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
             <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
@@ -175,7 +177,7 @@ export default function SignatureEditor({ value, onChange }) {
 
         <Sep />
 
-        <ToolBtn title={showSource ? 'Visual editor' : 'Edit HTML source'} active={showSource} onClick={toggleSource}>
+        <ToolBtn title={showSource ? t('signatureEditor.visualMode') : t('signatureEditor.sourceMode')} active={showSource} onClick={toggleSource}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>
           </svg>

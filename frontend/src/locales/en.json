@@ -1,0 +1,595 @@
+{
+  "common": {
+    "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete",
+    "edit": "Edit",
+    "close": "Close",
+    "add": "Add",
+    "remove": "Remove",
+    "copy": "Copy",
+    "copied": "Copied!",
+    "back": "Back",
+    "undo": "Undo",
+    "view": "View",
+    "retry": "Retry",
+    "loading": "Loading…",
+    "saving": "Saving…",
+    "never": "Never",
+    "noSubject": "(no subject)",
+    "error": "Error: {{message}}"
+  },
+
+  "login": {
+    "tagline": "Your unified inbox",
+    "signIn": "Sign in",
+    "createAccount": "Create account",
+    "username": "Username",
+    "password": "Password",
+    "pleaseWait": "Please wait…",
+    "dontHaveAccount": "Don't have an account? ",
+    "alreadyHaveAccount": "Already have an account? ",
+    "register": "Register",
+    "orContinueWith": "or continue with",
+    "signInWith": "Sign in with {{name}}",
+    "inviteEmail": "Invited as",
+    "inviteExpired": "This invite link is invalid or has expired.",
+    "totp": {
+      "title": "Two-factor auth",
+      "instructions": "Enter the 6-digit code from your authenticator app.",
+      "placeholder": "000000",
+      "verify": "Verify",
+      "verifying": "Verifying…",
+      "backToLogin": "← Back to login"
+    }
+  },
+
+  "compose": {
+    "newMessage": "New Message",
+    "reply": "Reply",
+    "replyAll": "Reply All",
+    "forward": "Forward",
+    "from": "From",
+    "to": "To",
+    "cc": "Cc",
+    "bcc": "Bcc",
+    "subject": "Subject",
+    "toPh": "recipient@example.com",
+    "ccPh": "cc@example.com",
+    "bccPh": "bcc@example.com",
+    "bodyPh": "Write your message…",
+    "send": "Send",
+    "sendTooltip": "Send (Ctrl+Enter)",
+    "sending": "Sending…",
+    "discard": "Discard",
+    "minimize": "Minimize",
+    "sent": {
+      "title": "Message sent",
+      "action": "View"
+    }
+  },
+
+  "message": {
+    "selectToRead": "Select a message to read",
+    "noSubject": "(no subject)",
+    "to": "To:",
+    "attachment_one": "{{count}} attachment",
+    "attachment_other": "{{count}} attachments",
+    "loadingError": "Unable to load message body",
+    "noContent": "No message content found.",
+    "remoteImagesBlocked": "Remote images were blocked.",
+    "loadImages": "Load images",
+    "allowSender": "Always allow from {{email}}",
+    "allowDomain": "Always allow from @{{domain}}",
+    "downloading": "Downloading…",
+    "reply": "Reply (R)",
+    "replyAll": "Reply All",
+    "replyOptions": "Reply options",
+    "forward": "Forward (F)",
+    "archive": "Archive (E)",
+    "star": "Star",
+    "delete": "Delete (#)",
+    "archived": {
+      "title": "Message archived",
+      "failTitle": "Archive failed",
+      "failBody": "Could not archive message.",
+      "noFolderTitle": "No archive folder",
+      "noFolderBody": "No archive folder configured for this account. Set one in Settings → Accounts → Folder Mappings."
+    },
+    "moved": {
+      "title": "Message moved",
+      "failTitle": "Move failed",
+      "failBody": "Could not move message."
+    },
+    "whitelistFail": {
+      "title": "Could not save preference",
+      "body": "Failed to update image whitelist."
+    }
+  },
+
+  "messageList": {
+    "search": "Search…",
+    "unread": "Unread",
+    "showAll": "Show all",
+    "unreadOnly": "Unread only",
+    "syncAccount": "Sync this account",
+    "syncAll": "Sync all accounts",
+    "sync": "Sync",
+    "compose": "Compose",
+    "messagesPerPage": "Messages per page",
+    "selectAll": "Select all",
+    "deselectAll": "Deselect all",
+    "archiveSelected": "Archive selected",
+    "deleteSelected": "Delete selected",
+    "moveToFolder": "Move to folder",
+    "moveToFolderDisabled": "Select messages from one account to move",
+    "clearSelection": "Clear selection",
+    "backToTop": "Back to top",
+    "prevPage": "Prev",
+    "nextPage": "Next",
+    "loadMore": "Load more",
+    "noMoreMessages": "No more messages",
+    "markAllRead": "Mark all as read",
+    "deleted": {
+      "title": "Message deleted",
+      "body": "Moved to Trash.",
+      "failTitle": "Delete failed",
+      "failBody": "Could not delete message."
+    },
+    "bulkDeleted": {
+      "title_one": "{{count}} message deleted",
+      "title_other": "{{count}} messages deleted",
+      "body": "Moved to Trash.",
+      "failTitle": "Delete failed",
+      "failBody_one": "Could not delete {{count}} message.",
+      "failBody_other": "Could not delete {{count}} messages."
+    },
+    "bulkMoved": {
+      "title_one": "{{count}} message moved",
+      "title_other": "{{count}} messages moved",
+      "failTitle": "Move failed",
+      "failBody_one": "Could not move {{count}} message.",
+      "failBody_other": "Could not move {{count}} messages."
+    },
+    "bulkArchived": {
+      "title_one": "{{count}} message archived",
+      "title_other": "{{count}} messages archived",
+      "body": "Moved to Archive.",
+      "failTitle": "Archive failed",
+      "failBody_one": "Could not archive {{count}} message.",
+      "failBody_other": "Could not archive {{count}} messages.",
+      "noFolderTitle": "No archive folder",
+      "noFolderBody": "One or more accounts have no archive folder configured. Set one in Settings → Accounts → Folder Mappings."
+    },
+    "noArchiveFolder": {
+      "title": "No archive folder",
+      "body": "No archive folder configured. Set one in Settings → Accounts → Folder Mappings."
+    }
+  },
+
+  "sidebar": {
+    "allInboxes": "All Inboxes",
+    "compose": "Compose",
+    "newFolder": "New folder",
+    "folderPh": "Folder name…",
+    "subfolderPh": "Subfolder name…",
+    "hiddenFolders_one": "{{count}} hidden folder",
+    "hiddenFolders_other": "{{count}} hidden folders",
+    "hideHidden": "Hide hidden folders",
+    "blockImages": "Block images",
+    "settings": "Settings",
+    "signOut": "Sign out",
+    "connectionError": "Connection error",
+    "folderMenu": {
+      "markAllRead": "Mark all as read",
+      "syncFolder": "Sync folder",
+      "rename": "Rename",
+      "createSubfolder": "Create subfolder",
+      "hide": "Hide folder",
+      "unhide": "Unhide folder",
+      "empty": "Empty folder",
+      "delete": "Delete folder"
+    },
+    "accountMenu": {
+      "newFolder": "New folder",
+      "markAllRead": "Mark all as read",
+      "syncNow": "Sync now",
+      "settings": "Account settings",
+      "reconnect": "Reconnect"
+    },
+    "confirmDelete": "Delete folder \"{{name}}\"? All messages in it will be permanently deleted.",
+    "confirmEmpty": "Empty \"{{name}}\"? All messages in this folder will be permanently deleted.",
+    "createFailed": "Create folder failed",
+    "renameFailed": "Rename failed",
+    "deleteFailed": "Delete failed",
+    "emptyFailed": "Empty failed",
+    "backToAccounts": "Back to accounts"
+  },
+
+  "contextMenu": {
+    "open": "Open",
+    "markRead": "Mark as read",
+    "markUnread": "Mark as unread",
+    "star": "Star message",
+    "unstar": "Remove star",
+    "select": "Select",
+    "reply": "Reply",
+    "replyAll": "Reply all",
+    "forward": "Forward",
+    "moveToFolder": "Move to folder",
+    "archive": "Archive",
+    "copySubject": "Copy subject",
+    "copySender": "Copy sender's address",
+    "viewHeaders": "View full headers",
+    "delete": "Delete",
+    "headers": {
+      "title": "Full Headers",
+      "copyRaw": "Copy raw",
+      "copied": "✓ Copied",
+      "loading": "Loading headers…",
+      "noHeaders": "No headers available"
+    },
+    "folders": {
+      "back": "Move to folder",
+      "loading": "Loading folders…",
+      "empty": "No folders found"
+    }
+  },
+
+  "commandPalette": {
+    "placeholder": "Search actions…",
+    "noResults": "No actions found",
+    "hint": {
+      "navigate": "navigate",
+      "select": "select",
+      "close": "close"
+    },
+    "actions": {
+      "compose": "Compose new message",
+      "inbox": "Go to Inbox",
+      "settings": "Open Settings",
+      "themes": "Open Themes",
+      "switchTheme": "Switch to {{theme}} theme",
+      "accountInbox": "{{name}} — Inbox"
+    }
+  },
+
+  "shortcuts": {
+    "title": "Keyboard Shortcuts",
+    "customizeHint": "Customise shortcuts in Settings → Shortcuts",
+    "closeHint": "Press ? or Esc to close",
+    "then": "then"
+  },
+
+  "notifications": {
+    "newMessage": "New message",
+    "undo": "Undo"
+  },
+
+  "signatureEditor": {
+    "bold": "Bold (Ctrl+B)",
+    "italic": "Italic (Ctrl+I)",
+    "underline": "Underline (Ctrl+U)",
+    "strikethrough": "Strikethrough",
+    "textColor": "Text color",
+    "link": "Insert link",
+    "imageUrl": "Image from URL",
+    "imageUpload": "Upload image (max 300 KB)",
+    "sourceMode": "Edit HTML source",
+    "visualMode": "Visual editor",
+    "linkPrompt": "Link URL:",
+    "imageUrlPrompt": "Image URL:",
+    "imageTooLarge": {
+      "title": "Image too large",
+      "body": "Must be under 300 KB. Use an external URL for larger images."
+    }
+  },
+
+  "admin": {
+    "title": "Settings",
+    "close": "Close",
+
+    "tabs": {
+      "accounts": "Accounts",
+      "appearance": "Appearance",
+      "notifications": "Notifications",
+      "security": "Security",
+      "privacy": "Privacy",
+      "shortcuts": "Shortcuts",
+      "users": "Users",
+      "sso": "SSO",
+      "integrations": "Integrations"
+    },
+
+    "accounts": {
+      "title": "Email accounts",
+      "addButton": "Add account",
+      "empty": "No accounts added yet",
+      "connected": "Connected",
+      "folderMappings": "Folder mappings",
+      "aliases": "Aliases",
+      "lastSync": "Last sync",
+      "editTitle": "Edit account",
+      "addTitle": "Add account",
+      "color": "Account color",
+      "displayName": "Display name",
+      "displayNamePh": "e.g. Work Gmail",
+      "email": "Email address",
+      "emailPh": "you@example.com",
+      "authUser": "Username (IMAP login)",
+      "authUserPh": "Usually your email address",
+      "password": "Password / App password",
+      "passwordPhEdit": "Leave blank to keep current",
+      "passwordPhNew": "App password",
+      "imapSection": "IMAP Settings",
+      "imapHost": "IMAP Host",
+      "imapHostPh": "imap.gmail.com",
+      "imapPort": "Port",
+      "smtpSection": "SMTP Settings",
+      "smtpHost": "SMTP Host",
+      "smtpHostPh": "smtp.gmail.com",
+      "smtpPort": "Port",
+      "signatureSection": "Signature",
+      "saveChanges": "Save changes",
+      "addAccount": "Add account",
+      "saving": "Saving…",
+      "presetGmail": "Gmail",
+      "presetIcloud": "iCloud",
+      "presetCustom": "Custom",
+      "errorRequired": "Email, username, and IMAP host are required",
+      "errorPasswordRequired": "Password is required for new accounts"
+    },
+
+    "folderMappings": {
+      "title": "Folder mappings",
+      "description": "Map each mail role to a specific folder. Select Auto-detect to let MailFlow use the folder your server has tagged for that role.",
+      "loading": "Loading folders…",
+      "autoDetect": "Auto-detect",
+      "autoDetectNone": "Auto-detect (none found)",
+      "save": "Save mappings",
+      "saving": "Saving…",
+      "sent": "Sent",
+      "drafts": "Drafts",
+      "trash": "Trash",
+      "spam": "Spam / Junk",
+      "archive": "Archive"
+    },
+
+    "aliases": {
+      "title": "Aliases",
+      "description": "Aliases let you send from a different name or address using this account's SMTP credentials. Select an alias in the From field when composing. MailFlow will automatically reply from an alias if a message was addressed to it.",
+      "addButton": "Add alias",
+      "empty": "No aliases yet",
+      "newTitle": "New alias",
+      "editTitle": "Edit alias",
+      "name": "Display name",
+      "namePh": "e.g. Support Team",
+      "email": "Email address",
+      "emailPh": "support@example.com",
+      "replyTo": "Reply-To (optional)",
+      "replyToPh": "Leave blank to use the alias address",
+      "replyToLabel": "Reply-To:",
+      "signatureSection": "Signature",
+      "signatureNote": "Optional — leave blank to inherit the account signature.",
+      "save": "Save alias",
+      "saving": "Saving…",
+      "errorRequired": "Name and email are required",
+      "deleteConfirmTitle": "Delete alias?",
+      "deleteConfirmBody": "This alias will be permanently removed. This cannot be undone.",
+      "deleteConfirmLabel": "Delete"
+    },
+
+    "appearance": {
+      "title": "Appearance",
+      "description": "Choose a color theme for the interface",
+      "typography": "Typography",
+      "typographyDescription": "Choose a font pairing for the interface",
+      "typographyLoading": "Loading fonts…",
+      "typographyDisplay": "Display",
+      "typographyBody": "Body",
+      "typographyMono": "Mono",
+      "layout": "Layout",
+      "layoutDescription": "Choose how the sidebar, message list, and reading pane are arranged"
+    },
+
+    "messageList": {
+      "title": "Message List",
+      "scrollingMode": "Scrolling mode",
+      "infiniteScroll": "Infinite scroll",
+      "infiniteScrollDesc": "Auto-loads as you scroll down",
+      "paginated": "Paginated",
+      "paginatedDesc": "Navigate with Prev / Next buttons",
+      "perPagePaginated": "Emails per page",
+      "perPageInfinite": "Emails loaded per batch",
+      "syncFrequency": "Sync Frequency",
+      "syncFrequencyDesc": "How often MailFlow checks for new emails"
+    },
+
+    "notifications": {
+      "title": "Notifications",
+      "description": "Choose a sound to play when new mail arrives. Click a card to select and preview.",
+      "none": "None",
+      "noneDesc": "No sound notification",
+      "custom": "Custom",
+      "customUpload": "Upload audio file",
+      "customChange": "Change file",
+      "customButton": "Upload",
+      "uploadError": "File must be under 2 MB."
+    },
+
+    "security": {
+      "title": "Security",
+      "description": "Manage two-factor authentication for your account.",
+      "totpTitle": "Authenticator app",
+      "totpNotConfigured": "Not configured",
+      "totpEnabled": "Enabled",
+      "totpSetup": "Set up",
+      "totpSetupLoading": "Loading…",
+      "totpDisable": "Disable",
+      "totpScanInstructions": "Scan this QR code with your authenticator app (e.g. Google Authenticator, Authy).",
+      "totpManualKey": "Can't scan? Enter this key manually:",
+      "totpNext": "Next: verify code →",
+      "totpVerifyInstructions": "Enter the 6-digit code from your authenticator app to confirm setup.",
+      "totpVerifyPh": "000000",
+      "totpVerifyButton": "Enable 2FA",
+      "totpVerifyLoading": "Verifying…",
+      "totpBack": "← Back",
+      "totpDisableInstructions": "Enter your password to disable two-factor authentication.",
+      "totpDisablePh": "Your password",
+      "totpDisableConfirm": "Disable 2FA",
+      "totpDisableLoading": "Disabling…",
+      "totpSuccess": "Two-factor authentication enabled.",
+      "totpDisabledSuccess": "Two-factor authentication disabled."
+    },
+
+    "privacy": {
+      "title": "Privacy",
+      "description": "Control whether remote images in emails are loaded automatically",
+      "blockImages": "Block remote images",
+      "blockImagesDesc": "Prevents tracking pixels and remote image loading by default",
+      "allowedSenders": "Allowed senders",
+      "allowedSendersDesc": "Images are always loaded from these sender addresses",
+      "sendersEmpty": "No addresses added yet",
+      "allowedDomains": "Allowed domains",
+      "allowedDomainsDesc": "Images are always loaded from senders whose email is at these domains",
+      "domainsEmpty": "No domains added yet",
+      "addSenderPh": "sender@example.com",
+      "addDomainPh": "example.com"
+    },
+
+    "shortcuts": {
+      "title": "Keyboard Shortcuts",
+      "description": "Click a key binding to reassign it. Press Esc to cancel recording.",
+      "resetAll": "Reset all to defaults",
+      "recording": "Press a key…",
+      "conflict": "Key {{key}} was already assigned to {{action}} — it has been reassigned.",
+      "resetDefault": "Reset to default",
+      "remove": "Remove shortcut",
+      "footer": "Press ? anywhere in the app to see the current shortcut reference."
+    },
+
+    "users": {
+      "title": "Users",
+      "description": "Manage user accounts and admin privileges",
+      "joined": "Joined {{date}}",
+      "you": "(you)",
+      "adminBadge": "Admin",
+      "makeAdmin": "Make admin",
+      "removeAdmin": "Remove admin",
+      "disable2fa": "Disable 2FA",
+      "deleteUser": "Delete user",
+      "registrationOpen": "Open registration",
+      "registrationOpenDesc": "When enabled, anyone can create an account without an invite link.",
+      "registrationIsOpen": "Registration is open",
+      "registrationIsClosed": "Registration is closed",
+      "registrationStatusOpen": "Anyone can sign up",
+      "registrationStatusClosed": "Only users with an invite link can register",
+      "inviteTitle": "Invite a user",
+      "inviteDescription": "Generate a single-use invite link valid for 7 days. An email will be sent if you have an SMTP account configured.",
+      "invitePh": "email@example.com",
+      "inviteSend": "Send invite",
+      "inviteSending": "Sending…",
+      "inviteSent": "Invite sent to {{email}}",
+      "inviteCreatedNoEmail": "Invite created (email not sent — no SMTP account configured).",
+      "pendingInvites": "Pending invites",
+      "inviteExpires": "Expires {{date}}",
+      "inviteCopy": "Copy link",
+      "inviteCopied": "Copied!",
+      "inviteRevoke": "Revoke",
+      "usedInvites": "Used / expired",
+      "inviteUsedBy": "Used by {{username}} on {{date}}",
+      "inviteExpired": "Expired {{date}}",
+      "inviteDelete": "Delete",
+      "deleteConfirmTitle": "Delete \"{{username}}\"?",
+      "deleteConfirmBody": "This user account will be permanently deleted. This cannot be undone.",
+      "deleteConfirmLabel": "Delete user",
+      "disable2faConfirmTitle": "Disable 2FA for \"{{username}}\"?",
+      "disable2faConfirmBody": "This will remove their authenticator app requirement. They can re-enable it themselves.",
+      "disable2faConfirmLabel": "Disable 2FA"
+    },
+
+    "sso": {
+      "title": "Single Sign-On",
+      "description": "Configure external OIDC providers so users can sign in with their organization accounts.",
+      "empty": "No SSO providers configured yet.",
+      "addProvider": "+ Add SSO Provider",
+      "newTitle": "New SSO Provider",
+      "editTitle": "Edit: {{name}}",
+      "name": "Provider name",
+      "namePh": "e.g. Acme Corp SSO",
+      "slug": "Slug (URL identifier)",
+      "slugPh": "e.g. acme",
+      "slugRedirectUri": "Redirect URI: {{uri}}",
+      "issuerUrl": "Issuer URL",
+      "issuerUrlPh": "https://accounts.google.com",
+      "clientId": "Client ID",
+      "clientIdPh": "Client ID",
+      "clientSecretNew": "Client Secret",
+      "clientSecretEdit": "Client Secret (leave unchanged)",
+      "clientSecretPhNew": "Client secret",
+      "clientSecretPhEdit": "Leave blank to keep current",
+      "scopes": "Scopes",
+      "scopesPh": "openid email profile",
+      "domains": "Allowed email domains (comma-separated, leave blank for any)",
+      "domainsPh": "example.com, corp.example.com",
+      "provisioning": "Provisioning mode",
+      "provisioningDisabled": "Disabled — existing linked identities can still log in, but no new links",
+      "provisioningExisting": "Match existing — link to a MailFlow account with a matching email",
+      "provisioningOpen": "Open — create a new account automatically on first SSO login",
+      "enabled": "Provider enabled",
+      "save": "Save",
+      "editButton": "Edit",
+      "deleteButton": "Delete",
+      "deleteConfirmTitle": "Delete \"{{name}}\"?",
+      "deleteConfirmBody": "All linked user identities for this provider will also be removed. Users with no other login method will be locked out.",
+      "deleteConfirmLabel": "Delete provider",
+      "copyUri": "Copy",
+      "copiedUri": "Copied",
+      "activeBadge": "Active",
+      "disabledBadge": "Disabled",
+      "errorRequired": "Name, slug, issuer URL and client ID are required.",
+      "errorSecretRequired": "Client secret is required."
+    },
+
+    "integrations": {
+      "title": "Integrations",
+      "description": "Connect OAuth providers for accounts that don't support app passwords",
+      "loading": "Loading…",
+      "microsoft": {
+        "title": "Microsoft 365 / Entra",
+        "description": "OAuth2 for work/school accounts that require modern authentication",
+        "configured": "Configured",
+        "notConfigured": "Not configured",
+        "redirecting": "Redirecting…",
+        "connect": "Connect Microsoft account",
+        "setupTitle": "Azure App Registration setup",
+        "step1": "Go to portal.azure.com → Microsoft Entra ID → App registrations → New registration",
+        "step2": "Set redirect URI type to Web and paste the URI shown below",
+        "step3": "API permissions → Add a permission → APIs my organization uses → Office 365 Exchange Online → Delegated → IMAP.AccessAsUser.All and SMTP.Send",
+        "step4": "API permissions → Add a permission → Microsoft Graph → Delegated → offline_access, openid, email, profile",
+        "step5": "Click Grant admin consent for your organization",
+        "step6": "Certificates & secrets → New client secret — copy the Value (not the ID)",
+        "clientId": "Application (Client) ID",
+        "clientIdPh": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+        "tenantId": "Directory (Tenant) ID",
+        "tenantIdPh": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+        "clientSecret": "Client Secret",
+        "clientSecretPh": "Client secret value from Azure",
+        "redirectUri": "Redirect URI",
+        "redirectUriNote": "This must exactly match the redirect URI registered in Azure. Suggested: {{uri}}",
+        "save": "Save configuration",
+        "savedNote": "Configuration saved. Click \"Connect account\" to authorize.",
+        "connectedNote": "Microsoft 365 account connected successfully! Check the Accounts tab.",
+        "remove": "Remove"
+      }
+    },
+
+    "ssoLinked": {
+      "title": "SSO identity linked",
+      "body": "Your account is now linked to the SSO provider."
+    },
+    "ssoError": {
+      "title": "SSO error"
+    }
+  }
+}

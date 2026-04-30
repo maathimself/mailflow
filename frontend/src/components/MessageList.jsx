@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { format, isToday, isYesterday, isThisYear } from 'date-fns';
@@ -28,6 +29,7 @@ function formatDate(dateStr) {
 }
 
 export default function MessageList() {
+  const { t } = useTranslation();
   const {
     selectedAccountId, selectedFolder, messages, setMessages,
     appendMessages, messagesTotal, setMessagesTotal, messagesOffset,
@@ -82,6 +84,8 @@ export default function MessageList() {
   // Updated synchronously on every render so handlers are never stale.
   const scRef = useRef({});
   scRef.current = { messages, selectedIds, setSelectedIds, updateMessage, decrementUnread, addNotification };
+  const tRef = useRef(t);
+  useEffect(() => { tRef.current = t; }, [t]);
 
   // Clear selection whenever the message list resets (nav, folder change, etc.)
   useEffect(() => {
@@ -433,13 +437,13 @@ export default function MessageList() {
       try {
         await api.deleteMessage(id);
       } catch {
-        addNotification({ type: 'error', title: 'Delete failed', body: 'Could not delete message.' });
+        addNotification({ type: 'error', title: t('messageList.deleted.failTitle'), body: t('messageList.deleted.failBody') });
       }
     }, 4500);
     pendingDeleteTimers.current.set(id, { timer, message });
     addNotification({
-      title: 'Message deleted',
-      body: 'Moved to Trash.',
+      title: t('messageList.deleted.title'),
+      body: t('messageList.deleted.body'),
       onUndo: () => {
         const pending = pendingDeleteTimers.current.get(id);
         if (!pending) return;
@@ -450,7 +454,7 @@ export default function MessageList() {
         if (!message.is_read) incrementUnread(message.account_id);
       },
     });
-  }, [removeMessage, decrementUnread, incrementUnread, addNotification]);
+  }, [removeMessage, decrementUnread, incrementUnread, addNotification, t]);
 
   // Cleanup any pending delete timers on unmount
   useEffect(() => () => {
@@ -526,12 +530,12 @@ export default function MessageList() {
         await api.bulkDelete(ids);
       } catch (err) {
         console.error('Bulk delete failed:', err);
-        addNotification({ title: 'Delete failed', body: `Could not delete ${ids.length} message(s).` });
+        addNotification({ title: t('messageList.bulkDeleted.failTitle'), body: t('messageList.bulkDeleted.failBody', { count: ids.length }) });
       }
     }, 4500);
     addNotification({
-      title: `${ids.length} message${ids.length === 1 ? '' : 's'} deleted`,
-      body: 'Moved to Trash.',
+      title: t('messageList.bulkDeleted.title', { count: ids.length }),
+      body: t('messageList.bulkDeleted.body'),
       onUndo: () => {
         undone = true;
         clearTimeout(timer);
@@ -540,7 +544,7 @@ export default function MessageList() {
         msgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
       },
     });
-  }, [removeMessage, decrementUnread, incrementUnread, addNotification]);
+  }, [removeMessage, decrementUnread, incrementUnread, addNotification, t]);
 
   const handleBulkMove = useCallback((ids, msgs, folder) => {
     ids.forEach(id => removeMessage(id));
@@ -553,11 +557,11 @@ export default function MessageList() {
         await api.bulkMove(ids, folder);
       } catch (err) {
         console.error('Bulk move failed:', err);
-        addNotification({ title: 'Move failed', body: `Could not move ${ids.length} message(s).` });
+        addNotification({ title: t('messageList.bulkMoved.failTitle'), body: t('messageList.bulkMoved.failBody', { count: ids.length }) });
       }
     }, 4500);
     addNotification({
-      title: `${ids.length} message${ids.length === 1 ? '' : 's'} moved`,
+      title: t('messageList.bulkMoved.title', { count: ids.length }),
       body: folder,
       onUndo: () => {
         undone = true;
@@ -566,7 +570,7 @@ export default function MessageList() {
         state.setMessages([...state.messages, ...msgs].sort((a, b) => new Date(b.date) - new Date(a.date)));
       },
     });
-  }, [removeMessage, addNotification]);
+  }, [removeMessage, addNotification, t]);
 
   const handleBulkArchive = useCallback((ids, msgs) => {
     ids.forEach(id => removeMessage(id));
@@ -579,16 +583,16 @@ export default function MessageList() {
       try {
         const result = await api.bulkArchive(ids);
         if (result.noArchiveFolder?.length) {
-          addNotification({ title: 'No archive folder', body: 'One or more accounts have no archive folder configured. Set one in Settings → Accounts → Folder Mappings.' });
+          addNotification({ title: t('messageList.bulkArchived.noFolderTitle'), body: t('messageList.bulkArchived.noFolderBody') });
         }
       } catch (err) {
         console.error('Bulk archive failed:', err);
-        addNotification({ title: 'Archive failed', body: `Could not archive ${ids.length} message(s).` });
+        addNotification({ title: t('messageList.bulkArchived.failTitle'), body: t('messageList.bulkArchived.failBody', { count: ids.length }) });
       }
     }, 4500);
     addNotification({
-      title: `${ids.length} message${ids.length === 1 ? '' : 's'} archived`,
-      body: 'Moved to Archive.',
+      title: t('messageList.bulkArchived.title', { count: ids.length }),
+      body: t('messageList.bulkArchived.body'),
       onUndo: () => {
         undone = true;
         clearTimeout(timer);
@@ -597,7 +601,7 @@ export default function MessageList() {
         msgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
       },
     });
-  }, [removeMessage, decrementUnread, incrementUnread, addNotification]);
+  }, [removeMessage, decrementUnread, incrementUnread, addNotification, t]);
 
   // Keep refs to bulk handlers so the shortcut effect (registered once) is never stale
   const bulkDeleteRef    = useRef(handleBulkDelete);
@@ -658,7 +662,7 @@ export default function MessageList() {
         if (!msg.is_read) decrementUnread(msg.account_id);
         api.bulkArchive([selectedMessageId]).then(result => {
           if (result.noArchiveFolder?.length) {
-            addNotification({ title: 'No archive folder', body: 'No archive folder configured. Set one in Settings → Accounts → Folder Mappings.' });
+            addNotification({ title: tRef.current('messageList.noArchiveFolder.title'), body: tRef.current('messageList.noArchiveFolder.body') });
           }
         }).catch(console.error);
       }
@@ -847,16 +851,16 @@ export default function MessageList() {
           try {
             const result = await api.bulkArchive([archived.id]);
             if (result.noArchiveFolder?.length) {
-              addNotification({ title: 'No archive folder', body: 'No archive folder configured for this account. Set one in Settings → Accounts → Folder Mappings.' });
+              addNotification({ title: t('message.archived.noFolderTitle'), body: t('message.archived.noFolderBody') });
             }
           } catch (err) {
             console.error('Archive failed:', err.message);
-            addNotification({ title: 'Archive failed', body: 'Could not archive message.' });
+            addNotification({ title: t('message.archived.failTitle'), body: t('message.archived.failBody') });
           }
         }, 4500);
         addNotification({
-          title: 'Message archived',
-          body: archived.subject || '(no subject)',
+          title: t('message.archived.title'),
+          body: archived.subject || t('common.noSubject'),
           onUndo: () => {
             archiveUndone = true;
             clearTimeout(archiveTimer);
@@ -879,11 +883,11 @@ export default function MessageList() {
             await api.bulkMove([moved.id], folder);
           } catch (err) {
             console.error('Move failed:', err.message);
-            addNotification({ title: 'Move failed', body: 'Could not move message.' });
+            addNotification({ title: t('message.moved.failTitle'), body: t('message.moved.failBody') });
           }
         }, 4500);
         addNotification({
-          title: 'Message moved',
+          title: t('message.moved.title'),
           body: folder,
           onUndo: () => {
             moveUndone = true;
@@ -928,7 +932,7 @@ export default function MessageList() {
 
   const label = searchQuery.trim()
     ? `Search: "${searchQuery}"`
-    : isUnified ? 'All Inboxes' : selectedFolder;
+    : isUnified ? t('sidebar.allInboxes') : selectedFolder;
 
   // Derived bulk-selection values (computed fresh each render, no stale closure risk)
   const selectionMode = selectedIds.size > 0;
@@ -988,7 +992,7 @@ export default function MessageList() {
           {/* Unread filter */}
           <button
             onClick={() => setUnreadOnly(!unreadOnly)}
-            title={unreadOnly ? 'Show all' : 'Unread only'}
+            title={unreadOnly ? t('messageList.showAll') : t('messageList.unreadOnly')}
             style={{
               background: unreadOnly ? 'var(--accent-dim)' : 'none',
               border: `1px solid ${unreadOnly ? 'var(--accent)' : 'transparent'}`,
@@ -997,14 +1001,14 @@ export default function MessageList() {
               cursor: 'pointer', fontSize: 11, fontWeight: 500,
             }}
           >
-            Unread
+            {t('messageList.unread')}
           </button>
 
           {/* Sync */}
           <button
             onClick={handleSync}
             disabled={syncing}
-            title="Sync"
+            title={t('messageList.sync')}
             style={{
               background: 'none', border: 'none',
               color: syncing ? 'var(--accent)' : 'var(--text-tertiary)',
@@ -1023,7 +1027,7 @@ export default function MessageList() {
           {/* Compose */}
           <button
             onClick={() => openCompose()}
-            title="Compose"
+            title={t('messageList.compose')}
             style={{
               background: 'var(--accent)', border: 'none',
               color: 'white', cursor: 'pointer',
@@ -1062,7 +1066,7 @@ export default function MessageList() {
             <button
               onClick={handleSync}
               disabled={syncing}
-              title={selectedAccountId ? 'Sync this account' : 'Sync all accounts'}
+              title={selectedAccountId ? t('messageList.syncAccount') : t('messageList.syncAll')}
               style={{
                 background: 'none', border: '1px solid transparent',
                 borderRadius: 6, padding: '4px 6px',
@@ -1090,7 +1094,7 @@ export default function MessageList() {
                 {/* Filter unread */}
                 <button
                   onClick={() => setUnreadOnly(!unreadOnly)}
-                  title={unreadOnly ? 'Show all' : 'Unread only'}
+                  title={unreadOnly ? t('messageList.showAll') : t('messageList.unreadOnly')}
                   style={{
                     background: unreadOnly ? 'var(--accent-dim)' : 'none',
                     border: `1px solid ${unreadOnly ? 'var(--accent)' : 'var(--border)'}`,
@@ -1099,13 +1103,13 @@ export default function MessageList() {
                     cursor: 'pointer', fontSize: 11, fontWeight: 500,
                   }}
                 >
-                  Unread
+                  {t('messageList.unread')}
                 </button>
                 {/* Page size */}
                 <select
                   value={pageSize}
                   onChange={e => setPageSize(parseInt(e.target.value))}
-                  title="Messages per page"
+                  title={t('messageList.messagesPerPage')}
                   style={{
                     background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
                     borderRadius: 6, padding: '4px 6px',
@@ -1172,7 +1176,7 @@ export default function MessageList() {
           <input
             ref={searchInputRef}
             type="text"
-            placeholder="Search…"
+            placeholder={t('messageList.search')}
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             style={{
@@ -1258,7 +1262,7 @@ export default function MessageList() {
             <input
               ref={searchInputRef}
               type="text"
-              placeholder="Search…"
+              placeholder={t('messageList.search')}
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               style={{
@@ -1383,7 +1387,7 @@ export default function MessageList() {
               type="checkbox"
               checked={allSelected}
               onChange={e => e.target.checked ? selectAll(displayMessages) : clearSelection()}
-              title={allSelected ? 'Deselect all' : 'Select all'}
+              title={allSelected ? t('messageList.deselectAll') : t('messageList.selectAll')}
               style={{ cursor: 'pointer', accentColor: 'var(--accent)', flexShrink: 0 }}
             />
             <span style={{ fontSize: 12, color: 'var(--text-secondary)', flex: 1, userSelect: 'none' }}>
@@ -1392,7 +1396,7 @@ export default function MessageList() {
 
             {/* Archive button */}
             <BulkBtn
-              title="Archive selected"
+              title={t('messageList.archiveSelected')}
               onClick={() => handleBulkArchive([...selectedIds], selectedMsgs)}
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -1401,12 +1405,12 @@ export default function MessageList() {
                 <polyline points="9 13 12 16 15 13"/>
                 <line x1="12" y1="11" x2="12" y2="16"/>
               </svg>
-              Archive
+              {t('messageList.archiveSelected')}
             </BulkBtn>
 
             {/* Delete button */}
             <BulkBtn
-              title="Delete selected"
+              title={t('messageList.deleteSelected')}
               onClick={() => handleBulkDelete([...selectedIds], selectedMsgs)}
               danger
             >
@@ -1414,20 +1418,20 @@ export default function MessageList() {
                 <polyline points="3 6 5 6 21 6"/>
                 <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
               </svg>
-              Delete
+              {t('messageList.deleteSelected')}
             </BulkBtn>
 
             {/* Move button + folder picker */}
             <div style={{ position: 'relative' }} ref={folderPickerRef}>
               <BulkBtn
-                title={canMove ? 'Move to folder' : 'Select messages from one account to move'}
+                title={canMove ? t('messageList.moveToFolder') : t('messageList.moveToFolderDisabled')}
                 onClick={() => handleOpenFolderPicker(selectedMsgs)}
                 disabled={!canMove}
               >
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
                 </svg>
-                Move
+                {t('messageList.moveToFolder')}
               </BulkBtn>
 
               {showFolderPicker && !isMobile && (
@@ -1443,7 +1447,7 @@ export default function MessageList() {
                 }}>
                   {pickerLoading ? (
                     <div style={{ padding: '20px 16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12 }}>
-                      Loading folders…
+                      {t('common.loading')}
                     </div>
                   ) : pickerFolders.length === 0 ? (
                     <div style={{ padding: '20px 16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12 }}>
@@ -1452,7 +1456,7 @@ export default function MessageList() {
                   ) : (
                     <>
                       <div style={{ padding: '8px 12px 4px', fontSize: 10, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                        Move to folder
+                        {t('messageList.moveToFolder')}
                       </div>
                       {pickerFolders
                         .filter(f => f.path !== selectedFolder)
@@ -1510,12 +1514,12 @@ export default function MessageList() {
                     </div>
                     {/* Title */}
                     <div style={{ padding: '4px 20px 12px', fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>
-                      Move to folder
+                      {t('messageList.moveToFolder')}
                     </div>
                     <div style={{ borderTop: '1px solid var(--border-subtle)', overflowY: 'auto', maxHeight: '60vh' }}>
                       {pickerLoading ? (
                         <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
-                          Loading folders…
+                          {t('common.loading')}
                         </div>
                       ) : pickerFolders.length === 0 ? (
                         <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
@@ -1555,7 +1559,7 @@ export default function MessageList() {
             {/* Clear selection */}
             <button
               onClick={clearSelection}
-              title="Clear selection"
+              title={t('messageList.clearSelection')}
               style={{
                 background: 'none', border: 'none', cursor: 'pointer',
                 color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center',
@@ -1616,7 +1620,7 @@ export default function MessageList() {
                   border: '2px solid var(--border)', borderTopColor: 'var(--accent)',
                   borderRadius: '50%', animation: 'spin 0.8s linear infinite', display: 'inline-block',
                 }} />
-                <div>Loading more…</div>
+                <div>{t('common.loading')}</div>
               </div>
             )}
             {!searchLoadingMore && searchHasMore && displayMessages.length > 0 && (
@@ -1632,13 +1636,13 @@ export default function MessageList() {
                   onMouseEnter={e => { e.target.style.borderColor = 'var(--accent)'; e.target.style.color = 'var(--accent)'; }}
                   onMouseLeave={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.color = 'var(--text-secondary)'; }}
                 >
-                  Load more results
+                  {t('messageList.loadMore')}
                 </button>
               </div>
             )}
             {!searchLoadingMore && !searchHasMore && displayMessages.length > 0 && (
               <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 11 }}>
-                {displayMessages.length} result{displayMessages.length !== 1 ? 's' : ''}
+                {t('messageList.noMoreMessages')}
               </div>
             )}
           </>) : (<>
@@ -1650,7 +1654,7 @@ export default function MessageList() {
                   border: '2px solid var(--border)', borderTopColor: 'var(--accent)',
                   borderRadius: '50%', animation: 'spin 0.8s linear infinite', display: 'inline-block',
                 }} />
-                <div>Loading more…</div>
+                <div>{t('common.loading')}</div>
               </div>
             )}
             {!loadingMessages && hasMoreMessages && displayMessages.length > 0 && (
@@ -1666,13 +1670,13 @@ export default function MessageList() {
                   onMouseEnter={e => { e.target.style.borderColor = 'var(--accent)'; e.target.style.color = 'var(--accent)'; }}
                   onMouseLeave={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.color = 'var(--text-secondary)'; }}
                 >
-                  Load more
+                  {t('messageList.loadMore')}
                 </button>
               </div>
             )}
             {!loadingMessages && !hasMoreMessages && displayMessages.length > 0 && (
               <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 11 }}>
-                All {messagesTotal} messages loaded
+                {t('messageList.noMoreMessages')}
               </div>
             )}
           </>)}
@@ -1700,7 +1704,7 @@ export default function MessageList() {
                 style={btnStyle(currentPage <= 1)}
                 onMouseEnter={e => { if (currentPage > 1) { e.target.style.borderColor = 'var(--accent)'; e.target.style.color = 'var(--accent)'; }}}
                 onMouseLeave={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.color = currentPage <= 1 ? 'var(--text-tertiary)' : 'var(--text-secondary)'; }}
-              >← Prev</button>
+              >← {t('messageList.prevPage')}</button>
               <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
                 Page {currentPage} of {totalPages}
               </span>
@@ -1710,7 +1714,7 @@ export default function MessageList() {
                 style={btnStyle(currentPage >= totalPages)}
                 onMouseEnter={e => { if (currentPage < totalPages) { e.target.style.borderColor = 'var(--accent)'; e.target.style.color = 'var(--accent)'; }}}
                 onMouseLeave={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.color = currentPage >= totalPages ? 'var(--text-tertiary)' : 'var(--text-secondary)'; }}
-              >Next →</button>
+              >{t('messageList.nextPage')} →</button>
             </div>
           );
         })()}
@@ -1720,7 +1724,7 @@ export default function MessageList() {
         {showScrollTop && (
           <button
             onClick={() => { if (listRef.current) listRef.current.scrollTo({ top: 0, behavior: 'smooth' }); }}
-            title="Back to top"
+            title={t('messageList.backToTop')}
             style={{
               position: 'absolute', bottom: 20, right: 16, zIndex: 20,
               width: 36, height: 36, borderRadius: '50%',
@@ -1777,6 +1781,8 @@ export default function MessageList() {
 }
 
 function EmptyState({ folderSyncing, searchQuery, unreadOnly, selectedFolder, accounts, onClearSearch, onShowAll, onCompose }) {
+  const { t } = useTranslation();
+
   if (folderSyncing) {
     return (
       <div style={{ padding: '60px 40px', textAlign: 'center', color: 'var(--text-tertiary)' }}>
@@ -1785,7 +1791,7 @@ function EmptyState({ folderSyncing, searchQuery, unreadOnly, selectedFolder, ac
           border: '2px solid var(--border)', borderTopColor: 'var(--accent)',
           borderRadius: '50%', animation: 'spin 0.8s linear infinite',
         }} />
-        <div style={{ fontSize: 14 }}>Syncing folder…</div>
+        <div style={{ fontSize: 14 }}>{t('common.loading')}</div>
       </div>
     );
   }
@@ -1831,7 +1837,7 @@ function EmptyState({ folderSyncing, searchQuery, unreadOnly, selectedFolder, ac
         <button onClick={onShowAll} style={{
           padding: '7px 18px', borderRadius: 8, border: '1px solid var(--border)',
           background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13,
-        }}>Show all messages</button>
+        }}>{t('messageList.showAll')}</button>
       </div>
     );
   }
@@ -1884,13 +1890,14 @@ function EmptyState({ folderSyncing, searchQuery, unreadOnly, selectedFolder, ac
         <button onClick={onCompose} style={{
           padding: '7px 18px', borderRadius: 8, border: 'none',
           background: 'var(--accent)', color: 'white', cursor: 'pointer', fontSize: 13, fontWeight: 500,
-        }}>Compose</button>
+        }}>{t('sidebar.compose')}</button>
       )}
     </div>
   );
 }
 
 function MessageRow({ message, selected, isChecked, selectionMode, showAccount, isNarrow, onSelect, onToggleSelect, onMarkRead, onStar, onDelete, onContextMenu, isMobile, onSwipeLeft, onSwipeRight }) {
+  const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const contentRef = useRef(null);
   const swipeBgLeftRef = useRef(null);
@@ -2042,7 +2049,7 @@ function MessageRow({ message, selected, isChecked, selectionMode, showAccount, 
           display: 'none', alignItems: 'center', justifyContent: 'flex-end',
           paddingRight: 20, gap: 6,
         }}>
-          <span style={{ color: 'white', fontSize: 12, fontWeight: 600 }}>Delete</span>
+          <span style={{ color: 'white', fontSize: 12, fontWeight: 600 }}>{t('common.delete')}</span>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
             <polyline points="3 6 5 6 21 6"/>
             <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
@@ -2148,7 +2155,7 @@ function MessageRow({ message, selected, isChecked, selectionMode, showAccount, 
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           marginBottom: 3,
         }}>
-          {message.subject || '(no subject)'}
+          {message.subject || t('message.noSubject')}
         </div>
 
         {/* Row 3: Snippet */}

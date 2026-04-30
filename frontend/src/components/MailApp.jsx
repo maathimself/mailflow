@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { useWebSocket } from '../hooks/useWebSocket.js';
@@ -15,6 +16,7 @@ import NotificationToasts from './NotificationToasts.jsx';
 import CommandPalette from './CommandPalette.jsx';
 
 export default function MailApp() {
+  const { t } = useTranslation();
   const {
     setAccounts, setUnreadCounts, showAdmin,
     setShowAdmin, setAdminTab, composing, sidebarCollapsed, layout,
@@ -232,11 +234,11 @@ export default function MailApp() {
     } else if (oidcSuccess) {
       window.history.replaceState({}, '', '/');
       if (oidcSuccess === 'linked') {
-        addNotification({ type: 'info', title: 'SSO identity linked', body: 'Your account is now linked to the SSO provider.' });
+        addNotification({ type: 'info', title: t('admin.ssoLinked.title'), body: t('admin.ssoLinked.body') });
       }
     } else if (oidcError) {
       window.history.replaceState({}, '', '/');
-      addNotification({ type: 'error', title: 'SSO error', body: oidcError });
+      addNotification({ type: 'error', title: t('admin.ssoError.title'), body: oidcError });
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -305,6 +307,7 @@ export default function MailApp() {
 }
 
 function ShortcutHelpOverlay({ shortcuts, onClose }) {
+  const { t } = useTranslation();
   const effective = getEffectiveShortcuts(shortcuts);
   const groups    = getGroupedActions();
 
@@ -319,7 +322,7 @@ function ShortcutHelpOverlay({ shortcuts, onClose }) {
       ? [...key].map((c, i) => (
           <span key={i}>
             <kbd style={kbdStyle}>{c}</kbd>
-            {i < key.length - 1 && <span style={{ color: 'var(--text-tertiary)', margin: '0 2px', fontSize: 10 }}>then</span>}
+            {i < key.length - 1 && <span style={{ color: 'var(--text-tertiary)', margin: '0 2px', fontSize: 10 }}>{t('shortcuts.then')}</span>}
           </span>
         ))
       : [<kbd key={0} style={kbdStyle}>{key}</kbd>];
@@ -351,7 +354,7 @@ function ShortcutHelpOverlay({ shortcuts, onClose }) {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>Keyboard Shortcuts</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>{t('shortcuts.title')}</div>
           <button
             onClick={onClose}
             style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 4, display: 'flex' }}
@@ -382,7 +385,7 @@ function ShortcutHelpOverlay({ shortcuts, onClose }) {
         </div>
 
         <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-tertiary)', textAlign: 'center' }}>
-          Customise shortcuts in Settings → Shortcuts &nbsp;·&nbsp; Press <kbd style={{ ...kbdStyle, fontSize: 10 }}>?</kbd> or <kbd style={{ ...kbdStyle, fontSize: 10 }}>Esc</kbd> to close
+          {t('shortcuts.customizeHint')} &nbsp;·&nbsp; {t('shortcuts.closeHint')}
         </div>
       </div>
     </div>

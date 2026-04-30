@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { useMobile } from '../hooks/useMobile.js';
@@ -243,6 +244,7 @@ function CtxMenuItem({ icon, label, onClick, danger, disabled }) {
 
 // ─── Main Sidebar ─────────────────────────────────────────────────────────────
 export default function Sidebar() {
+  const { t } = useTranslation();
   const {
     accounts, unreadCounts, selectedAccountId, selectedFolder,
     setSelectedAccount, setShowAdmin, setAdminTab, openCompose,
@@ -414,7 +416,7 @@ export default function Sidebar() {
       }
       setRenamingFolder(null);
     } catch (err) {
-      addNotification({ title: 'Rename failed', body: err.message });
+      addNotification({ title: t('sidebar.renameFailed'), body: err.message });
     } finally {
       setFolderOpLoading(false);
     }
@@ -423,7 +425,7 @@ export default function Sidebar() {
   const handleDeleteFolder = (accountId, folderPath) => {
     const name = folderPath.split('/').pop();
     setConfirmDialog({
-      message: `Delete folder "${name}"? All messages in it will be permanently deleted.`,
+      message: t('sidebar.confirmDelete', { name }),
       onConfirm: async () => {
         try {
           await api.deleteFolder(accountId, folderPath);
@@ -433,7 +435,7 @@ export default function Sidebar() {
             setSelectedAccount(accountId, 'INBOX');
           }
         } catch (err) {
-          addNotification({ title: 'Delete failed', body: err.message });
+          addNotification({ title: t('sidebar.deleteFailed'), body: err.message });
         }
       },
     });
@@ -442,7 +444,7 @@ export default function Sidebar() {
   const handleEmptyFolder = (accountId, folderPath) => {
     const name = folderPath.split('/').pop();
     setConfirmDialog({
-      message: `Empty "${name}"? All messages in this folder will be permanently deleted.`,
+      message: t('sidebar.confirmEmpty', { name }),
       onConfirm: async () => {
         try {
           await api.emptyFolder(accountId, folderPath);
@@ -450,7 +452,7 @@ export default function Sidebar() {
             window.dispatchEvent(new CustomEvent('mailflow:refresh'));
           }
         } catch (err) {
-          addNotification({ title: 'Empty failed', body: err.message });
+          addNotification({ title: t('sidebar.emptyFailed'), body: err.message });
         }
       },
     });
@@ -480,7 +482,7 @@ export default function Sidebar() {
       setCreatingFolder(null);
       setCreateName('');
     } catch (err) {
-      addNotification({ title: 'Create folder failed', body: err.message });
+      addNotification({ title: t('sidebar.createFailed'), body: err.message });
     }
   };
 
@@ -490,24 +492,24 @@ export default function Sidebar() {
     const isHidden = (hiddenFolders[accountId] || []).includes(folderObj.path);
     return [
       {
-        label: 'Mark all as read',
+        label: t('sidebar.folderMenu.markAllRead'),
         icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>,
         action: () => handleMarkAllRead(accountId, folderObj.path),
       },
       {
-        label: 'Sync folder',
+        label: t('sidebar.folderMenu.syncFolder'),
         icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>,
         action: () => handleSyncFolder(accountId, folderObj.path),
       },
       { separator: true },
       {
-        label: 'Rename',
+        label: t('sidebar.folderMenu.rename'),
         icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>,
         action: () => handleStartRename(accountId, folderObj),
         disabled: isProtected,
       },
       {
-        label: 'Create subfolder',
+        label: t('sidebar.folderMenu.createSubfolder'),
         icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>,
         action: () => {
           setCreatingFolder({ accountId, parentPath: folderObj.path });
@@ -517,7 +519,7 @@ export default function Sidebar() {
       },
       { separator: true },
       {
-        label: isHidden ? 'Unhide folder' : 'Hide folder',
+        label: isHidden ? t('sidebar.folderMenu.unhide') : t('sidebar.folderMenu.hide'),
         icon: isHidden
           ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
           : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>,
@@ -525,13 +527,13 @@ export default function Sidebar() {
       },
       { separator: true },
       {
-        label: 'Empty folder',
+        label: t('sidebar.folderMenu.empty'),
         icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>,
         action: () => handleEmptyFolder(accountId, folderObj.path),
         danger: true,
       },
       {
-        label: 'Delete folder',
+        label: t('sidebar.folderMenu.delete'),
         icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>,
         action: () => handleDeleteFolder(accountId, folderObj.path),
         danger: true,
@@ -543,28 +545,28 @@ export default function Sidebar() {
   // ── Account context menu items ─────────────────────────────────────────────
   const buildAccountMenuItems = (account) => [
     {
-      label: 'New folder',
+      label: t('sidebar.accountMenu.newFolder'),
       icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>,
       action: () => handleStartCreateFolder(account.id),
     },
     {
-      label: 'Mark all as read',
+      label: t('sidebar.accountMenu.markAllRead'),
       icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>,
       action: () => handleMarkAllRead(account.id, 'INBOX'),
     },
     {
-      label: 'Sync now',
+      label: t('sidebar.accountMenu.syncNow'),
       icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>,
       action: () => api.syncNow(account.id).catch(console.error),
     },
     { separator: true },
     {
-      label: 'Account settings',
+      label: t('sidebar.accountMenu.settings'),
       icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>,
       action: () => { setAdminTab('accounts'); setShowAdmin(true); },
     },
     {
-      label: 'Reconnect',
+      label: t('sidebar.accountMenu.reconnect'),
       icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>,
       action: () => api.reconnectAccount(account.id).catch(console.error),
     },
@@ -651,7 +653,7 @@ export default function Sidebar() {
           onMouseLeave={e => e.currentTarget.style.opacity = '1'}
         >
           {ICONS.compose}
-          {!sidebarCollapsed && 'Compose'}
+          {!sidebarCollapsed && t('sidebar.compose')}
         </button>
       </div>
 
@@ -660,7 +662,7 @@ export default function Sidebar() {
         {/* Unified Inbox */}
         <NavItem
           icon={ICONS.inbox}
-          label="All Inboxes"
+          label={t('sidebar.allInboxes')}
           active={isUnified}
           collapsed={sidebarCollapsed}
           badge={unreadCounts.total}
@@ -743,7 +745,7 @@ export default function Sidebar() {
                       )}
                       {account.sync_error && (
                         <div style={{ fontSize: 11, color: 'var(--red)' }}>
-                          Connection error
+                          {t('sidebar.connectionError')}
                         </div>
                       )}
                     </div>
@@ -792,7 +794,7 @@ export default function Sidebar() {
                       ref={createInputRef}
                       value={createName}
                       onChange={e => setCreateName(e.target.value)}
-                      placeholder={creatingFolder?.parentPath ? 'Subfolder name…' : 'Folder name…'}
+                      placeholder={creatingFolder?.parentPath ? t('sidebar.subfolderPh') : t('sidebar.folderPh')}
                       onKeyDown={e => {
                         if (e.key === 'Enter') handleCreateFolderSubmit();
                         if (e.key === 'Escape') { setCreatingFolder(null); setCreateName(''); }
@@ -944,7 +946,7 @@ export default function Sidebar() {
                             : <><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></>
                           }
                         </svg>
-                        {showingHidden ? 'Hide hidden folders' : `${accountHiddenPaths.length} hidden folder${accountHiddenPaths.length !== 1 ? 's' : ''}`}
+                        {showingHidden ? t('sidebar.hideHidden') : t('sidebar.hiddenFolders', { count: accountHiddenPaths.length })}
                       </button>
                     )}
                     {/* Root-level create or "New folder" button */}
@@ -966,7 +968,7 @@ export default function Sidebar() {
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
                           </svg>
-                          New folder
+                          {t('sidebar.newFolder')}
                         </button>
                       )
                     }
@@ -1022,7 +1024,7 @@ export default function Sidebar() {
                 <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
               </svg>
             </span>
-            <span style={{ flex: 1, fontSize: 13, color: 'var(--text-primary)' }}>Block images</span>
+            <span style={{ flex: 1, fontSize: 13, color: 'var(--text-primary)' }}>{t('sidebar.blockImages')}</span>
             <button
               onClick={() => setBlockRemoteImages(!blockRemoteImages)}
               style={{
@@ -1058,7 +1060,7 @@ export default function Sidebar() {
                 <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
               </svg>
             </span>
-            <span style={{ flex: 1, fontSize: 13, color: 'var(--text-primary)' }}>Settings</span>
+            <span style={{ flex: 1, fontSize: 13, color: 'var(--text-primary)' }}>{t('sidebar.settings')}</span>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="2" style={{ flexShrink: 0 }}>
               <polyline points="9 18 15 12 9 6"/>
             </svg>
@@ -1084,7 +1086,7 @@ export default function Sidebar() {
                 <line x1="21" y1="12" x2="9" y2="12"/>
               </svg>
             </span>
-            <span style={{ flex: 1, fontSize: 13, color: 'var(--red, #f87171)' }}>Sign out</span>
+            <span style={{ flex: 1, fontSize: 13, color: 'var(--red, #f87171)' }}>{t('sidebar.signOut')}</span>
           </div>
         </div>
       ) : (
@@ -1170,7 +1172,7 @@ export default function Sidebar() {
                   <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
                 </svg>
               </span>
-              <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>Block images</span>
+              <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>{t('sidebar.blockImages')}</span>
             </div>
             <button
               onClick={() => setBlockRemoteImages(!blockRemoteImages)}
@@ -1188,9 +1190,9 @@ export default function Sidebar() {
             </button>
           </div>
           <div style={{ height: 1, background: 'var(--border-subtle)', margin: '2px 0' }} />
-          <CtxMenuItem icon={ICONS.settings} label="Settings"
+          <CtxMenuItem icon={ICONS.settings} label={t('sidebar.settings')}
             onClick={() => { setAdminTab('accounts'); setShowAdmin(true); setUserMenuOpen(false); }} />
-          <CtxMenuItem icon={ICONS.logout} label="Sign out" danger
+          <CtxMenuItem icon={ICONS.logout} label={t('sidebar.signOut')} danger
             onClick={() => { setUserMenuOpen(false); handleLogout(); }} />
         </div>
       )}
@@ -1236,11 +1238,11 @@ export default function Sidebar() {
               <button onClick={() => setConfirmDialog(null)} className="btn-press" style={{
                 padding: '7px 16px', borderRadius: 7, border: '1px solid var(--border-subtle)',
                 background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13,
-              }}>Cancel</button>
+              }}>{t('common.cancel')}</button>
               <button onClick={() => { const fn = confirmDialog.onConfirm; setConfirmDialog(null); fn(); }} className="btn-press" style={{
                 padding: '7px 16px', borderRadius: 7, border: 'none',
                 background: 'var(--red)', color: 'white', cursor: 'pointer', fontSize: 13, fontWeight: 500,
-              }}>Delete</button>
+              }}>{t('common.delete')}</button>
             </div>
           </div>
         </div>

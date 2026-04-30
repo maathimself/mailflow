@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { format } from 'date-fns';
@@ -42,6 +43,7 @@ function fileIcon(type) {
 }
 
 export default function MessagePane() {
+  const { t } = useTranslation();
   const {
     messages, searchResults, searchQuery, selectedMessageId, setSelectedMessage,
     updateMessage, removeMessage, decrementUnread, incrementUnread, openCompose, accounts, addNotification,
@@ -456,7 +458,7 @@ export default function MessagePane() {
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                 <polyline points="15 18 9 12 15 6"/>
               </svg>
-              Back
+              {t('common.back')}
             </button>
           </div>
         )}
@@ -475,7 +477,7 @@ export default function MessagePane() {
             </svg>
           </div>
           <p style={{ color: 'var(--text-tertiary)', fontSize: 14, margin: 0 }}>
-            Select a message to read
+            {t('message.selectToRead')}
           </p>
         </div>
       </div>
@@ -499,16 +501,16 @@ export default function MessagePane() {
       try {
         const result = await api.bulkArchive([archived.id]);
         if (result.noArchiveFolder?.length) {
-          addNotification({ title: 'No archive folder', body: 'No archive folder configured for this account. Set one in Settings → Accounts → Folder Mappings.' });
+          addNotification({ title: t('message.archived.noFolderTitle'), body: t('message.archived.noFolderBody') });
         }
       } catch (err) {
         console.error('Archive failed:', err);
-        addNotification({ title: 'Archive failed', body: 'Could not archive message.' });
+        addNotification({ title: t('message.archived.failTitle'), body: t('message.archived.failBody') });
       }
     }, 4500);
     addNotification({
-      title: 'Message archived',
-      body: archived.subject || '(no subject)',
+      title: t('message.archived.title'),
+      body: archived.subject || t('common.noSubject'),
       onUndo: () => {
         undone = true;
         clearTimeout(timer);
@@ -543,7 +545,7 @@ export default function MessagePane() {
       bodyCacheOrder.current = bodyCacheOrder.current.filter(id => bodyCache.current[id]);
       setRetryKey(k => k + 1);
     } catch (_) {
-      addNotification({ title: 'Could not save preference', body: 'Failed to update image whitelist.' });
+      addNotification({ title: t('message.whitelistFail.title'), body: t('message.whitelistFail.body') });
     } finally {
       setSavingAllow(false);
     }
@@ -568,7 +570,7 @@ export default function MessagePane() {
       bodyCacheOrder.current = bodyCacheOrder.current.filter(id => bodyCache.current[id]);
       setRetryKey(k => k + 1);
     } catch (_) {
-      addNotification({ title: 'Could not save preference', body: 'Failed to update image whitelist.' });
+      addNotification({ title: t('message.whitelistFail.title'), body: t('message.whitelistFail.body') });
     } finally {
       setSavingAllow(false);
     }
@@ -617,7 +619,7 @@ export default function MessagePane() {
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <polyline points="15 18 9 12 15 6"/>
             </svg>
-            Back
+            {t('common.back')}
           </button>
           <div style={{
             flex: 1, minWidth: 0,
@@ -638,15 +640,15 @@ export default function MessagePane() {
       }}>
         {/* Split Reply button */}
         <div style={{ position: 'relative', display: 'flex' }}>
-          <PaneBtn onClick={() => handleReply(false)} title="Reply (R)">
+          <PaneBtn onClick={() => handleReply(false)} title={t('message.reply')}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
               <polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 00-4-4H4"/>
             </svg>
-            Reply
+            {t('message.reply')}
           </PaneBtn>
           <button
             onClick={() => setShowReplyMenu(v => !v)}
-            title="Reply options"
+            title={t('message.replyOptions')}
             style={{
               background: 'transparent', border: '1px solid transparent',
               borderLeft: '1px solid var(--border-subtle)',
@@ -672,8 +674,8 @@ export default function MessagePane() {
               onMouseLeave={() => setShowReplyMenu(false)}
             >
               {[
-                { label: 'Reply', replyAll: false },
-                { label: 'Reply All', replyAll: true },
+                { label: t('message.reply'), replyAll: false },
+                { label: t('message.replyAll'), replyAll: true },
               ].map(opt => (
                 <div
                   key={opt.label}
@@ -692,26 +694,26 @@ export default function MessagePane() {
           )}
         </div>
 
-        <PaneBtn onClick={handleForward} title="Forward (F)">
+        <PaneBtn onClick={handleForward} title={t('message.forward')}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
             <polyline points="15 17 20 12 15 7"/><path d="M4 18v-2a4 4 0 014-4h12"/>
           </svg>
-          Forward
+          {t('message.forward')}
         </PaneBtn>
 
-        <PaneBtn onClick={handleArchive} title="Archive (E)">
+        <PaneBtn onClick={handleArchive} title={t('message.archive')}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
             <rect x="2" y="3" width="20" height="5" rx="1"/>
             <path d="M4 8v11a1 1 0 001 1h14a1 1 0 001-1V8"/>
             <polyline points="9 13 12 16 15 13"/>
             <line x1="12" y1="11" x2="12" y2="16"/>
           </svg>
-          Archive
+          {t('message.archive')}
         </PaneBtn>
 
         <div style={{ flex: 1 }} />
 
-        <PaneBtn onClick={handleStarToggle} title="Star">
+        <PaneBtn onClick={handleStarToggle} title={t('message.star')}>
           <svg width="15" height="15" viewBox="0 0 24 24"
             fill={message.is_starred ? 'var(--amber)' : 'none'}
             stroke={message.is_starred ? 'var(--amber)' : 'currentColor'} strokeWidth="1.75">
@@ -719,7 +721,7 @@ export default function MessagePane() {
           </svg>
         </PaneBtn>
 
-        <PaneBtn onClick={handleDelete} title="Delete (#)" danger>
+        <PaneBtn onClick={handleDelete} title={t('message.delete')} danger>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
             <polyline points="3 6 5 6 21 6"/>
             <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
@@ -756,7 +758,7 @@ export default function MessagePane() {
             color: 'var(--text-primary)', lineHeight: 1.3,
             fontFamily: 'var(--font-display)',
           }}>
-            {message.subject || '(no subject)'}
+            {message.subject || t('message.noSubject')}
           </div>
 
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 16px' }}>
@@ -783,7 +785,7 @@ export default function MessagePane() {
                 )}
               </div>
               <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3 }}>
-                <span>To: </span>
+                <span>{t('message.to')} </span>
                 <span style={{ color: 'var(--text-secondary)' }}>
                   {toList.length > 0
                     ? toList.map((t, i) => (
@@ -822,7 +824,7 @@ export default function MessagePane() {
         {attachments.length > 0 && (
           <div style={{ marginBottom: 20 }}>
             <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 8, fontWeight: 500 }}>
-              {attachments.length} attachment{attachments.length !== 1 ? 's' : ''}
+              {t('message.attachment', { count: attachments.length })}
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               {attachments.map((att, i) => (
@@ -852,7 +854,7 @@ export default function MessagePane() {
                       {att.filename}
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
-                      {downloadingPart === att.part ? 'Downloading…' : formatBytes(att.size)}
+                      {downloadingPart === att.part ? t('message.downloading') : formatBytes(att.size)}
                     </div>
                   </div>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
@@ -892,7 +894,7 @@ export default function MessagePane() {
               borderRadius: 10, padding: '16px 20px', maxWidth: 480,
             }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>
-                Unable to load message body
+                {t('message.loadingError')}
               </div>
               <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
                 {bodyError}
@@ -908,7 +910,7 @@ export default function MessagePane() {
               onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-tertiary)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
               onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg-secondary)'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
             >
-              Retry
+              {t('common.retry')}
             </button>
           </div>
         )}
@@ -917,7 +919,7 @@ export default function MessagePane() {
         {!loadingBody && !bodyError && body && !body.html && !body.text && (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 12, padding: '20px 0' }}>
             <div style={{ fontSize: 14, color: 'var(--text-tertiary)' }}>
-              No message content found.
+              {t('message.noContent')}
             </div>
             <button
               onClick={() => { delete bodyCache.current[selectedMessageId]; setRetryKey(k => k + 1); }}
@@ -929,7 +931,7 @@ export default function MessagePane() {
               onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-tertiary)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
               onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg-secondary)'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
             >
-              Retry
+              {t('common.retry')}
             </button>
           </div>
         )}
@@ -952,16 +954,16 @@ export default function MessagePane() {
                 stroke="var(--accent)" strokeWidth="2" style={{ flexShrink: 0 }}>
                 <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
               </svg>
-              <span>Remote images were blocked.</span>
+              <span>{t('message.remoteImagesBlocked')}</span>
               <div style={{ display: 'flex', gap: 6, marginLeft: 'auto', flexWrap: 'wrap' }}>
                 {[
-                  { label: 'Load images', handler: handleLoadImages, disabled: false },
+                  { label: t('message.loadImages'), handler: handleLoadImages, disabled: false },
                   message.from_email && {
-                    label: `Always allow from ${message.from_email}`,
+                    label: t('message.allowSender', { email: message.from_email }),
                     handler: handleAllowSender, disabled: savingAllow,
                   },
                   (message.from_email?.includes('@')) && {
-                    label: `Always allow from @${message.from_email.split('@')[1]}`,
+                    label: t('message.allowDomain', { domain: message.from_email.split('@')[1] }),
                     handler: handleAllowDomain, disabled: savingAllow,
                   },
                 ].filter(Boolean).map(({ label, handler, disabled }) => (

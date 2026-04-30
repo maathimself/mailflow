@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { useMobile } from '../hooks/useMobile.js';
@@ -24,6 +25,7 @@ function parseChips(val) {
 }
 
 export default function ComposeModal() {
+  const { t } = useTranslation();
   const { closeCompose, composeData, accounts, addNotification, setSelectedAccount } = useStore();
   const isMobile = useMobile();
 
@@ -184,10 +186,10 @@ export default function ComposeModal() {
       closeCompose();
       const sentFolder = accounts.find(a => a.id === accountId)?.folder_mappings?.sent || 'Sent';
       addNotification({
-        title: 'Message sent',
-        body: subject || '(no subject)',
+        title: t('compose.sent.title'),
+        body: subject || t('common.noSubject'),
         onAction: () => setSelectedAccount(accountId, sentFolder),
-        actionLabel: 'View',
+        actionLabel: t('compose.sent.action'),
       });
     } catch (err) {
       setError(err.message);
@@ -196,8 +198,8 @@ export default function ComposeModal() {
   };
 
   const modeLabel = isReply
-    ? (replyAll ? 'Reply All' : 'Reply')
-    : isForward ? 'Forward' : 'New Message';
+    ? (replyAll ? t('compose.replyAll') : t('compose.reply'))
+    : isForward ? t('compose.forward') : t('compose.newMessage');
 
   const sendSpinner = (
     <div style={{
@@ -284,7 +286,7 @@ export default function ComposeModal() {
               WebkitTapHighlightColor: 'transparent',
             }}
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <span style={{
             flex: 1, textAlign: 'center',
@@ -307,7 +309,7 @@ export default function ComposeModal() {
               transition: 'color 0.15s',
             }}
           >
-            {sending ? sendSpinner : 'Send'}
+            {sending ? sendSpinner : t('compose.send')}
           </button>
         </div>
 
@@ -319,8 +321,8 @@ export default function ComposeModal() {
             flexShrink: 0,
           }}>
             {[
-              { label: 'Reply', active: !replyAll, onTap: switchToReply },
-              { label: 'Reply All', active: replyAll, onTap: switchToReplyAll },
+              { label: t('compose.reply'), active: !replyAll, onTap: switchToReply },
+              { label: t('compose.replyAll'), active: replyAll, onTap: switchToReplyAll },
             ].map(({ label, active, onTap }) => (
               <button
                 key={label}
@@ -346,7 +348,7 @@ export default function ComposeModal() {
         <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
           {/* From */}
           <div style={fieldStyle}>
-            <span style={labelStyle}>From</span>
+            <span style={labelStyle}>{t('compose.from')}</span>
             <select
               value={fromValue}
               onChange={e => setFromValue(e.target.value)}
@@ -379,11 +381,11 @@ export default function ComposeModal() {
 
           {/* To */}
           <div style={{ ...fieldStyle, alignItems: 'flex-start', paddingTop: 4 }}>
-            <span style={{ ...labelStyle, paddingTop: 10 }}>To</span>
+            <span style={{ ...labelStyle, paddingTop: 10 }}>{t('compose.to')}</span>
             <ChipInput
               chips={toChips} onChipsChange={setToChips}
               value={toInput} onChange={setToInput}
-              placeholder="recipient@example.com"
+              placeholder={t('compose.toPh')}
               autoFocus={!isReply && !isForward}
               inputStyle={mobileInputStyle}
               getSuggestions={getSuggestions}
@@ -400,7 +402,7 @@ export default function ComposeModal() {
                       WebkitTapHighlightColor: 'transparent',
                     }}
                   >
-                    Cc
+                    {t('compose.cc')}
                   </button>
                 )}
                 {!showBcc && (
@@ -413,7 +415,7 @@ export default function ComposeModal() {
                       WebkitTapHighlightColor: 'transparent',
                     }}
                   >
-                    Bcc
+                    {t('compose.bcc')}
                   </button>
                 )}
               </div>
@@ -423,11 +425,11 @@ export default function ComposeModal() {
           {/* Cc */}
           {showCc && (
             <div style={{ ...fieldStyle, alignItems: 'flex-start', paddingTop: 4 }}>
-              <span style={{ ...labelStyle, paddingTop: 10 }}>Cc</span>
+              <span style={{ ...labelStyle, paddingTop: 10 }}>{t('compose.cc')}</span>
               <ChipInput
                 chips={ccChips} onChipsChange={setCcChips}
                 value={ccInput} onChange={setCcInput}
-                placeholder="cc@example.com"
+                placeholder={t('compose.ccPh')}
                 inputStyle={mobileInputStyle}
                 getSuggestions={getSuggestions}
               />
@@ -437,11 +439,11 @@ export default function ComposeModal() {
           {/* Bcc */}
           {showBcc && (
             <div style={{ ...fieldStyle, alignItems: 'flex-start', paddingTop: 4 }}>
-              <span style={{ ...labelStyle, paddingTop: 10 }}>Bcc</span>
+              <span style={{ ...labelStyle, paddingTop: 10 }}>{t('compose.bcc')}</span>
               <ChipInput
                 chips={bccChips} onChipsChange={setBccChips}
                 value={bccInput} onChange={setBccInput}
-                placeholder="bcc@example.com"
+                placeholder={t('compose.bccPh')}
                 inputStyle={mobileInputStyle}
                 getSuggestions={getSuggestions}
               />
@@ -450,10 +452,10 @@ export default function ComposeModal() {
 
           {/* Subject */}
           <div style={fieldStyle}>
-            <span style={labelStyle}>Subject</span>
+            <span style={labelStyle}>{t('compose.subject')}</span>
             <input
               type="text" value={subject} onChange={e => setSubject(e.target.value)}
-              placeholder="Subject"
+              placeholder={t('compose.subject')}
               style={mobileInputStyle}
             />
           </div>
@@ -463,7 +465,7 @@ export default function ComposeModal() {
             ref={textareaRef}
             value={body}
             onChange={e => setBody(e.target.value)}
-            placeholder="Write your message…"
+            placeholder={t('compose.bodyPh')}
             autoFocus={isReply || isForward}
             style={{
               flex: 1, minHeight: 200,
@@ -601,7 +603,7 @@ export default function ComposeModal() {
                   <polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 00-4-4H4"/>
                 </svg>
               )}
-              {replyAll ? 'Reply All' : 'Reply'}
+              {replyAll ? t('compose.replyAll') : t('compose.reply')}
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <polyline points="6 9 12 15 18 9"/>
               </svg>
@@ -616,7 +618,7 @@ export default function ComposeModal() {
               }}>
                 <DropItem
                   icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 00-4-4H4"/></svg>}
-                  label="Reply"
+                  label={t('compose.reply')}
                   active={!replyAll}
                   onClick={() => {
                     setToChips(parseChips(composeData?.originalFrom || composeData?.to));
@@ -628,7 +630,7 @@ export default function ComposeModal() {
                 />
                 <DropItem
                   icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polyline points="7 17 2 12 7 7"/><polyline points="12 17 7 12 12 7"/><path d="M22 18v-2a4 4 0 00-4-4H7"/></svg>}
-                  label="Reply All"
+                  label={t('compose.replyAll')}
                   active={replyAll}
                   onClick={() => {
                     setToChips(parseChips(composeData?.originalFrom || composeData?.to));
@@ -666,7 +668,7 @@ export default function ComposeModal() {
       <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
         {/* From */}
         <div style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--border-subtle)', padding: '0 12px' }}>
-          <span style={{ fontSize: 12, color: 'var(--text-tertiary)', width: 52, flexShrink: 0 }}>From</span>
+          <span style={{ fontSize: 12, color: 'var(--text-tertiary)', width: 52, flexShrink: 0 }}>{t('compose.from')}</span>
           <select
             value={fromValue}
             onChange={e => setFromValue(e.target.value)}
@@ -699,11 +701,11 @@ export default function ComposeModal() {
 
         {/* To */}
         <div style={{ display: 'flex', alignItems: 'flex-start', borderBottom: '1px solid var(--border-subtle)', padding: '0 12px' }}>
-          <span style={{ fontSize: 12, color: 'var(--text-tertiary)', width: 52, flexShrink: 0, paddingTop: 9 }}>To</span>
+          <span style={{ fontSize: 12, color: 'var(--text-tertiary)', width: 52, flexShrink: 0, paddingTop: 9 }}>{t('compose.to')}</span>
           <ChipInput
             chips={toChips} onChipsChange={setToChips}
             value={toInput} onChange={setToInput}
-            placeholder="recipient@example.com"
+            placeholder={t('compose.toPh')}
             autoFocus={!isReply && !isForward}
             inputStyle={{ ...inputStyle, borderBottom: 'none', padding: '6px 4px' }}
             getSuggestions={getSuggestions}
@@ -712,12 +714,12 @@ export default function ComposeModal() {
             <div style={{ display: 'flex', flexShrink: 0 }}>
               {!showCc && (
                 <button onClick={() => setShowCc(true)} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 11, padding: '9px 0 4px 6px' }}>
-                  Cc
+                  {t('compose.cc')}
                 </button>
               )}
               {!showBcc && (
                 <button onClick={() => setShowBcc(true)} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 11, padding: '9px 0 4px 6px' }}>
-                  Bcc
+                  {t('compose.bcc')}
                 </button>
               )}
             </div>
@@ -727,11 +729,11 @@ export default function ComposeModal() {
         {/* Cc */}
         {showCc && (
           <div style={{ display: 'flex', alignItems: 'flex-start', borderBottom: '1px solid var(--border-subtle)', padding: '0 12px' }}>
-            <span style={{ fontSize: 12, color: 'var(--text-tertiary)', width: 52, flexShrink: 0, paddingTop: 9 }}>Cc</span>
+            <span style={{ fontSize: 12, color: 'var(--text-tertiary)', width: 52, flexShrink: 0, paddingTop: 9 }}>{t('compose.cc')}</span>
             <ChipInput
               chips={ccChips} onChipsChange={setCcChips}
               value={ccInput} onChange={setCcInput}
-              placeholder="cc@example.com"
+              placeholder={t('compose.ccPh')}
               inputStyle={{ ...inputStyle, borderBottom: 'none', padding: '6px 4px' }}
               getSuggestions={getSuggestions}
             />
@@ -741,11 +743,11 @@ export default function ComposeModal() {
         {/* Bcc */}
         {showBcc && (
           <div style={{ display: 'flex', alignItems: 'flex-start', borderBottom: '1px solid var(--border-subtle)', padding: '0 12px' }}>
-            <span style={{ fontSize: 12, color: 'var(--text-tertiary)', width: 52, flexShrink: 0, paddingTop: 9 }}>Bcc</span>
+            <span style={{ fontSize: 12, color: 'var(--text-tertiary)', width: 52, flexShrink: 0, paddingTop: 9 }}>{t('compose.bcc')}</span>
             <ChipInput
               chips={bccChips} onChipsChange={setBccChips}
               value={bccInput} onChange={setBccInput}
-              placeholder="bcc@example.com"
+              placeholder={t('compose.bccPh')}
               inputStyle={{ ...inputStyle, borderBottom: 'none', padding: '6px 4px' }}
               getSuggestions={getSuggestions}
             />
@@ -754,10 +756,10 @@ export default function ComposeModal() {
 
         {/* Subject */}
         <div style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--border-subtle)', padding: '0 12px' }}>
-          <span style={{ fontSize: 12, color: 'var(--text-tertiary)', width: 52, flexShrink: 0 }}>Subject</span>
+          <span style={{ fontSize: 12, color: 'var(--text-tertiary)', width: 52, flexShrink: 0 }}>{t('compose.subject')}</span>
           <input
             type="text" value={subject} onChange={e => setSubject(e.target.value)}
-            placeholder="Subject"
+            placeholder={t('compose.subject')}
             style={{ flex: 1, ...inputStyle, borderBottom: 'none', padding: '8px 4px' }}
           />
         </div>
@@ -767,7 +769,7 @@ export default function ComposeModal() {
           ref={textareaRef}
           value={body}
           onChange={e => setBody(e.target.value)}
-          placeholder="Write your message…"
+          placeholder={t('compose.bodyPh')}
           autoFocus={isReply || isForward}
           style={{
             width: '100%', minHeight: isReply || isForward ? 120 : 200,
@@ -819,7 +821,7 @@ export default function ComposeModal() {
         <button
           onClick={handleSend}
           disabled={sending || (toChips.length === 0 && !toInput.trim())}
-          title={sending ? undefined : 'Send (Ctrl+Enter)'}
+          title={sending ? undefined : t('compose.sendTooltip')}
           style={{
             padding: '8px 20px', background: 'var(--accent)',
             border: 'none', borderRadius: 7, color: 'white',
@@ -831,7 +833,7 @@ export default function ComposeModal() {
           }}
         >
           {sending ? sendSpinner : sendIcon}
-          {sending ? 'Sending…' : 'Send'}
+          {sending ? t('compose.sending') : t('compose.send')}
         </button>
 
         {error && <span style={{ fontSize: 12, color: 'var(--red)', flex: 1 }}>{error}</span>}
@@ -840,7 +842,7 @@ export default function ComposeModal() {
           marginLeft: 'auto', background: 'none', border: 'none',
           color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 12, padding: '4px 8px',
         }}>
-          Discard
+          {t('compose.discard')}
         </button>
       </div>
     </div>

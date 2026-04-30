@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { api } from '../utils/api.js';
@@ -45,6 +46,7 @@ const PRESETS = {
 
 // ─── Account Form (Add or Edit) ───────────────────────────────────────────────
 function AccountForm({ initial, onSave, onCancel }) {
+  const { t } = useTranslation();
   const isEdit = !!initial?.id;
   const [form, setForm] = useState(initial || {
     name: '', email_address: '', color: '#6366f1', protocol: 'imap',
@@ -67,11 +69,11 @@ function AccountForm({ initial, onSave, onCancel }) {
 
   const handleSubmit = async () => {
     if (!form.email_address || !form.auth_user || !form.imap_host) {
-      setError('Email, username, and IMAP host are required');
+      setError(t('admin.accounts.errorRequired'));
       return;
     }
     if (!isEdit && !form.auth_pass) {
-      setError('Password is required for new accounts');
+      setError(t('admin.accounts.errorPasswordRequired'));
       return;
     }
     setSaving(true);
@@ -91,6 +93,7 @@ function AccountForm({ initial, onSave, onCancel }) {
         <div style={{ display: 'flex', gap: 6, marginBottom: 18, flexWrap: 'wrap' }}>
           {Object.entries(PRESETS).map(([key, p]) => {
             const active = selectedPreset === key;
+            const presetLabel = key === 'gmail' ? t('admin.accounts.presetGmail') : key === 'icloud' ? t('admin.accounts.presetIcloud') : t('admin.accounts.presetCustom');
             return (
               <button key={key} onClick={() => handlePreset(key)} style={{
                 padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 500,
@@ -99,7 +102,7 @@ function AccountForm({ initial, onSave, onCancel }) {
                 color: active ? 'var(--accent)' : 'var(--text-secondary)',
                 cursor: 'pointer', transition: 'all 0.12s',
               }}>
-                {p.label}
+                {presetLabel}
               </button>
             );
           })}
@@ -107,7 +110,7 @@ function AccountForm({ initial, onSave, onCancel }) {
       )}
 
       {/* Color */}
-      <Field label="Account color">
+      <Field label={t('admin.accounts.color')}>
         <div style={{ display: 'flex', gap: 6 }}>
           {COLORS.map(c => (
             <button key={c} onClick={() => set('color', c)} style={{
@@ -120,34 +123,34 @@ function AccountForm({ initial, onSave, onCancel }) {
         </div>
       </Field>
 
-      <Field label="Display name" required>
+      <Field label={t('admin.accounts.displayName')} required>
         <input value={form.name || ''} onChange={e => set('name', e.target.value)}
-          placeholder="e.g. Work Gmail" style={inputStyle}
+          placeholder={t('admin.accounts.displayNamePh')} style={inputStyle}
           onFocus={e => e.target.style.borderColor = 'var(--accent)'}
           onBlur={e => e.target.style.borderColor = 'var(--border)'} />
       </Field>
 
       {!isEdit && (
-        <Field label="Email address" required>
+        <Field label={t('admin.accounts.email')} required>
           <input value={form.email_address || ''} onChange={e => set('email_address', e.target.value)}
-            placeholder="you@example.com" style={inputStyle}
+            placeholder={t('admin.accounts.emailPh')} style={inputStyle}
             onFocus={e => e.target.style.borderColor = 'var(--accent)'}
             onBlur={e => e.target.style.borderColor = 'var(--border)'} />
         </Field>
       )}
 
-      <Field label="Username (IMAP login)" required>
+      <Field label={t('admin.accounts.authUser')} required>
         <input value={form.auth_user || ''} onChange={e => set('auth_user', e.target.value)}
-          placeholder="Usually your email address" style={inputStyle}
+          placeholder={t('admin.accounts.authUserPh')} style={inputStyle}
           onFocus={e => e.target.style.borderColor = 'var(--accent)'}
           onBlur={e => e.target.style.borderColor = 'var(--border)'} />
       </Field>
 
-      <Field label={isEdit ? 'New password (leave blank to keep current)' : 'Password / App password'} required={!isEdit}>
+      <Field label={isEdit ? t('admin.accounts.password') + ' (' + t('admin.accounts.passwordPhEdit') + ')' : t('admin.accounts.password')} required={!isEdit}>
         <div style={{ position: 'relative' }}>
           <input type={showPass ? 'text' : 'password'}
             value={form.auth_pass || ''} onChange={e => set('auth_pass', e.target.value)}
-            placeholder={isEdit ? '••••••••' : 'App password'}
+            placeholder={isEdit ? '••••••••' : t('admin.accounts.passwordPhNew')}
             style={{ ...inputStyle, paddingRight: 36 }}
             onFocus={e => e.target.style.borderColor = 'var(--accent)'}
             onBlur={e => e.target.style.borderColor = 'var(--border)'} />
@@ -168,17 +171,17 @@ function AccountForm({ initial, onSave, onCancel }) {
 
       <div style={{ height: 1, background: 'var(--border-subtle)', margin: '16px 0' }} />
       <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 10, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-        IMAP Settings
+        {t('admin.accounts.imapSection')}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px', gap: 10 }}>
-        <Field label="IMAP Host" required>
+        <Field label={t('admin.accounts.imapHost')} required>
           <input value={form.imap_host || ''} onChange={e => set('imap_host', e.target.value)}
-            placeholder="imap.gmail.com" style={inputStyle}
+            placeholder={t('admin.accounts.imapHostPh')} style={inputStyle}
             onFocus={e => e.target.style.borderColor = 'var(--accent)'}
             onBlur={e => e.target.style.borderColor = 'var(--border)'} />
         </Field>
-        <Field label="Port">
+        <Field label={t('admin.accounts.imapPort')}>
           <input type="number" value={form.imap_port || 993} onChange={e => set('imap_port', parseInt(e.target.value))}
             style={inputStyle}
             onFocus={e => e.target.style.borderColor = 'var(--accent)'}
@@ -188,17 +191,17 @@ function AccountForm({ initial, onSave, onCancel }) {
 
       <div style={{ height: 1, background: 'var(--border-subtle)', margin: '4px 0 16px' }} />
       <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 10, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-        SMTP Settings
+        {t('admin.accounts.smtpSection')}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px', gap: 10 }}>
-        <Field label="SMTP Host">
+        <Field label={t('admin.accounts.smtpHost')}>
           <input value={form.smtp_host || ''} onChange={e => set('smtp_host', e.target.value)}
-            placeholder="smtp.gmail.com" style={inputStyle}
+            placeholder={t('admin.accounts.smtpHostPh')} style={inputStyle}
             onFocus={e => e.target.style.borderColor = 'var(--accent)'}
             onBlur={e => e.target.style.borderColor = 'var(--border)'} />
         </Field>
-        <Field label="Port">
+        <Field label={t('admin.accounts.smtpPort')}>
           <input type="number" value={form.smtp_port || 587} onChange={e => set('smtp_port', parseInt(e.target.value))}
             style={inputStyle}
             onFocus={e => e.target.style.borderColor = 'var(--accent)'}
@@ -208,7 +211,7 @@ function AccountForm({ initial, onSave, onCancel }) {
 
       <div style={{ height: 1, background: 'var(--border-subtle)', margin: '16px 0' }} />
       <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 10, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-        Signature
+        {t('admin.accounts.signatureSection')}
       </div>
       <SignatureEditor
         value={form.signature || ''}
@@ -232,14 +235,14 @@ function AccountForm({ initial, onSave, onCancel }) {
           fontSize: 13, fontWeight: 500, cursor: saving ? 'not-allowed' : 'pointer',
           opacity: saving ? 0.7 : 1,
         }}>
-          {saving ? 'Saving…' : (isEdit ? 'Save changes' : 'Add account')}
+          {saving ? t('admin.accounts.saving') : (isEdit ? t('admin.accounts.saveChanges') : t('admin.accounts.addAccount'))}
         </button>
         <button onClick={onCancel} style={{
           padding: '10px 16px', background: 'var(--bg-tertiary)',
           border: '1px solid var(--border)', borderRadius: 8,
           color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13,
         }}>
-          Cancel
+          {t('common.cancel')}
         </button>
       </div>
     </div>
@@ -248,6 +251,7 @@ function AccountForm({ initial, onSave, onCancel }) {
 
 // ─── Accounts Tab ─────────────────────────────────────────────────────────────
 function AccountsTab() {
+  const { t } = useTranslation();
   const { accounts, setAccounts, updateAccount, addNotification } = useStore();
   const [subview, setSubview] = useState('list'); // 'list' | 'add' | 'edit' | 'folders' | 'aliases'
   const [editTarget, setEditTarget] = useState(null);
@@ -340,7 +344,7 @@ function AccountsTab() {
 
   const handleAliasSave = async () => {
     if (!aliasFormData.name || !aliasFormData.email) {
-      setAliasFormError('Name and email are required');
+      setAliasFormError(t('admin.aliases.errorRequired'));
       return;
     }
     setAliasFormSaving(true);
@@ -357,12 +361,12 @@ function AccountsTab() {
         saved = await api.addAlias(editTarget.id, payload);
         const newAliases = [...(editTarget.aliases || []), saved];
         updateAccount(editTarget.id, { aliases: newAliases });
-        setEditTarget(t => ({ ...t, aliases: newAliases }));
+        setEditTarget(prev => ({ ...prev, aliases: newAliases }));
       } else {
         saved = await api.updateAlias(editTarget.id, aliasFormId, payload);
         const newAliases = (editTarget.aliases || []).map(a => a.id === aliasFormId ? saved : a);
         updateAccount(editTarget.id, { aliases: newAliases });
-        setEditTarget(t => ({ ...t, aliases: newAliases }));
+        setEditTarget(prev => ({ ...prev, aliases: newAliases }));
       }
       setAliasFormMode(null);
       setAliasFormData({ name: '', email: '', reply_to: '', signature: '' });
@@ -388,14 +392,14 @@ function AccountsTab() {
 
   const handleAliasDelete = (aliasId) => {
     setConfirmDialog({
-      title: 'Delete alias?',
-      message: 'This alias will be permanently removed. This cannot be undone.',
-      confirmLabel: 'Delete',
+      title: t('admin.aliases.deleteConfirmTitle'),
+      message: t('admin.aliases.deleteConfirmBody'),
+      confirmLabel: t('admin.aliases.deleteConfirmLabel'),
       onConfirm: async () => {
         await api.deleteAlias(editTarget.id, aliasId);
         const newAliases = (editTarget.aliases || []).filter(a => a.id !== aliasId);
         updateAccount(editTarget.id, { aliases: newAliases });
-        setEditTarget(t => ({ ...t, aliases: newAliases }));
+        setEditTarget(prev => ({ ...prev, aliases: newAliases }));
       },
     });
   };
@@ -411,10 +415,10 @@ function AccountsTab() {
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <polyline points="15 18 9 12 15 6"/>
           </svg>
-          Back to accounts
+          {t('sidebar.backToAccounts')}
         </button>
         <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 20 }}>
-          Add account
+          {t('admin.accounts.addTitle')}
         </div>
         <AccountForm onSave={handleAdd} onCancel={() => setSubview('list')} />
       </div>
@@ -432,10 +436,10 @@ function AccountsTab() {
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <polyline points="15 18 9 12 15 6"/>
           </svg>
-          Back to accounts
+          {t('sidebar.backToAccounts')}
         </button>
         <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-          Edit account
+          {t('admin.accounts.editTitle')}
         </div>
         <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 20 }}>
           {editTarget.email_address}
@@ -455,7 +459,7 @@ function AccountsTab() {
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <polyline points="15 18 9 12 15 6"/>
         </svg>
-        Back to accounts
+        {t('sidebar.backToAccounts')}
       </button>
     );
 
@@ -464,37 +468,37 @@ function AccountsTab() {
         <div>
           {backBtn}
           <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-            {aliasFormMode === 'add' ? 'New alias' : 'Edit alias'}
+            {aliasFormMode === 'add' ? t('admin.aliases.newTitle') : t('admin.aliases.editTitle')}
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 20 }}>
             {editTarget.email_address}
           </div>
 
-          <Field label="Display name" required>
+          <Field label={t('admin.aliases.name')} required>
             <input value={aliasFormData.name} onChange={e => setAliasFormData(f => ({ ...f, name: e.target.value }))}
-              placeholder="e.g. Support Team" style={inputStyle}
+              placeholder={t('admin.aliases.namePh')} style={inputStyle}
               onFocus={e => e.target.style.borderColor = 'var(--accent)'}
               onBlur={e => e.target.style.borderColor = 'var(--border)'} />
           </Field>
-          <Field label="Email address" required>
+          <Field label={t('admin.aliases.email')} required>
             <input value={aliasFormData.email} onChange={e => setAliasFormData(f => ({ ...f, email: e.target.value }))}
-              placeholder="support@example.com" style={inputStyle}
+              placeholder={t('admin.aliases.emailPh')} style={inputStyle}
               onFocus={e => e.target.style.borderColor = 'var(--accent)'}
               onBlur={e => e.target.style.borderColor = 'var(--border)'} />
           </Field>
-          <Field label="Reply-To (optional)">
+          <Field label={t('admin.aliases.replyTo')}>
             <input value={aliasFormData.reply_to} onChange={e => setAliasFormData(f => ({ ...f, reply_to: e.target.value }))}
-              placeholder="Leave blank to use the alias address" style={inputStyle}
+              placeholder={t('admin.aliases.replyToPh')} style={inputStyle}
               onFocus={e => e.target.style.borderColor = 'var(--accent)'}
               onBlur={e => e.target.style.borderColor = 'var(--border)'} />
           </Field>
 
           <div style={{ height: 1, background: 'var(--border-subtle)', margin: '16px 0' }} />
           <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-            Signature
+            {t('admin.aliases.signatureSection')}
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 10 }}>
-            Optional — leave blank to inherit the account signature.
+            {t('admin.aliases.signatureNote')}
           </div>
           <SignatureEditor
             value={aliasFormData.signature}
@@ -518,14 +522,14 @@ function AccountsTab() {
               fontSize: 13, fontWeight: 500, cursor: aliasFormSaving ? 'not-allowed' : 'pointer',
               opacity: aliasFormSaving ? 0.7 : 1,
             }}>
-              {aliasFormSaving ? 'Saving…' : 'Save alias'}
+              {aliasFormSaving ? t('admin.aliases.saving') : t('admin.aliases.save')}
             </button>
             <button onClick={() => { setAliasFormMode(null); setAliasFormError(''); }} style={{
               padding: '10px 16px', background: 'var(--bg-tertiary)',
               border: '1px solid var(--border)', borderRadius: 8,
               color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13,
             }}>
-              Cancel
+              {t('common.cancel')}
             </button>
           </div>
         </div>
@@ -538,13 +542,13 @@ function AccountsTab() {
       <div>
         {backBtn}
         <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-          Aliases
+          {t('admin.aliases.title')}
         </div>
         <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 16 }}>
           {editTarget.email_address}
         </div>
         <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 16, lineHeight: 1.6, padding: '10px 12px', background: 'var(--bg-tertiary)', borderRadius: 8, border: '1px solid var(--border-subtle)' }}>
-          Aliases let you send from a different name or address using this account's SMTP credentials. Select an alias in the <strong>From</strong> field when composing. MailFlow will automatically reply from an alias if a message was addressed to it.
+          {t('admin.aliases.description')}
         </div>
 
         <button
@@ -559,12 +563,12 @@ function AccountsTab() {
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
             <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
           </svg>
-          Add alias
+          {t('admin.aliases.addButton')}
         </button>
 
         {aliases.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-tertiary)', fontSize: 13 }}>
-            No aliases yet
+            {t('admin.aliases.empty')}
           </div>
         ) : (
           aliases.map(alias => (
@@ -594,18 +598,18 @@ function AccountsTab() {
                 </div>
                 {alias.reply_to && (
                   <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1 }}>
-                    Reply-To: {alias.reply_to}
+                    {t('admin.aliases.replyToLabel')} {alias.reply_to}
                   </div>
                 )}
               </div>
               <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                <IconBtn onClick={() => handleAliasEdit(alias)} title="Edit alias">
+                <IconBtn onClick={() => handleAliasEdit(alias)} title={t('common.edit')}>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
                     <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
                   </svg>
                 </IconBtn>
-                <IconBtn onClick={() => handleAliasDelete(alias.id)} title="Delete alias" danger>
+                <IconBtn onClick={() => handleAliasDelete(alias.id)} title={t('common.delete')} danger>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <polyline points="3 6 5 6 21 6"/>
                     <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
@@ -623,11 +627,11 @@ function AccountsTab() {
 
   if (subview === 'folders' && editTarget) {
     const FOLDER_ROLES = [
-      { key: 'sent',    label: 'Sent',        specialUse: '\\Sent' },
-      { key: 'drafts',  label: 'Drafts',      specialUse: '\\Drafts' },
-      { key: 'trash',   label: 'Trash',       specialUse: '\\Trash' },
-      { key: 'spam',    label: 'Spam / Junk', specialUse: '\\Junk' },
-      { key: 'archive', label: 'Archive',     specialUse: '\\Archive' },
+      { key: 'sent',    label: t('admin.folderMappings.sent'),    specialUse: '\\Sent' },
+      { key: 'drafts',  label: t('admin.folderMappings.drafts'),  specialUse: '\\Drafts' },
+      { key: 'trash',   label: t('admin.folderMappings.trash'),   specialUse: '\\Trash' },
+      { key: 'spam',    label: t('admin.folderMappings.spam'),    specialUse: '\\Junk' },
+      { key: 'archive', label: t('admin.folderMappings.archive'), specialUse: '\\Archive' },
     ];
     const selectStyle = {
       width: '100%', padding: '8px 10px',
@@ -645,20 +649,20 @@ function AccountsTab() {
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <polyline points="15 18 9 12 15 6"/>
           </svg>
-          Back to accounts
+          {t('sidebar.backToAccounts')}
         </button>
         <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-          Folder mappings
+          {t('admin.folderMappings.title')}
         </div>
         <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 20 }}>
           {editTarget.email_address}
         </div>
         <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 16, lineHeight: 1.6, padding: '10px 12px', background: 'var(--bg-tertiary)', borderRadius: 8, border: '1px solid var(--border-subtle)' }}>
-          Map each mail role to a specific folder. Select <strong>Auto-detect</strong> to let MailFlow use the folder your server has tagged for that role.
+          {t('admin.folderMappings.description')}
         </div>
         {foldersLoading ? (
           <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-tertiary)', fontSize: 13 }}>
-            Loading folders…
+            {t('admin.folderMappings.loading')}
           </div>
         ) : (
           FOLDER_ROLES.map(role => {
@@ -674,7 +678,7 @@ function AccountsTab() {
                   style={selectStyle}
                 >
                   <option value="" style={{ background: 'var(--bg-tertiary)' }}>
-                    {autoFolder ? `Auto-detect (${autoFolder.path})` : 'Auto-detect (none found)'}
+                    {autoFolder ? `${t('admin.folderMappings.autoDetect')} (${autoFolder.path})` : t('admin.folderMappings.autoDetectNone')}
                   </option>
                   {availableFolders.map(f => (
                     <option key={f.path} value={f.path} style={{ background: 'var(--bg-tertiary)' }}>
@@ -696,7 +700,7 @@ function AccountsTab() {
             opacity: (foldersSaving || foldersLoading) ? 0.7 : 1,
           }}
         >
-          {foldersSaving ? 'Saving…' : 'Save mappings'}
+          {foldersSaving ? t('admin.folderMappings.saving') : t('admin.folderMappings.save')}
         </button>
       </div>
     );
@@ -707,7 +711,7 @@ function AccountsTab() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>
-          Email accounts
+          {t('admin.accounts.title')}
         </div>
         <button onClick={() => setSubview('add')} style={{
           display: 'flex', alignItems: 'center', gap: 6,
@@ -718,13 +722,13 @@ function AccountsTab() {
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
             <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
           </svg>
-          Add account
+          {t('admin.accounts.addButton')}
         </button>
       </div>
 
       {accounts.length === 0 && (
         <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-tertiary)', fontSize: 14 }}>
-          No accounts added yet
+          {t('admin.accounts.empty')}
         </div>
       )}
 
@@ -756,7 +760,7 @@ function AccountsTab() {
                   }}>⚠ {account.sync_error}</span>
                 ) : (
                   <>
-                    <span style={{ color: 'var(--green)' }}>● Connected</span>
+                    <span style={{ color: 'var(--green)' }}>● {t('admin.accounts.connected')}</span>
                     <span style={{ color: 'var(--text-tertiary)' }}>
                       {account.imap_host}:{account.imap_port}
                     </span>
@@ -766,31 +770,31 @@ function AccountsTab() {
             </div>
             <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
               {account.sync_error && (
-                <IconBtn onClick={() => handleReconnect(account.id)} title="Reconnect">
+                <IconBtn onClick={() => handleReconnect(account.id)} title={t('sidebar.accountMenu.reconnect')}>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <polyline points="23 4 23 10 17 10"/>
                     <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/>
                   </svg>
                 </IconBtn>
               )}
-              <IconBtn onClick={() => { setEditTarget(account); setSubview('edit'); }} title="Edit">
+              <IconBtn onClick={() => { setEditTarget(account); setSubview('edit'); }} title={t('common.edit')}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
                   <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
                 </svg>
               </IconBtn>
-              <IconBtn onClick={() => handleFolderMappingOpen(account)} title="Folder mappings">
+              <IconBtn onClick={() => handleFolderMappingOpen(account)} title={t('admin.accounts.folderMappings')}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
                 </svg>
               </IconBtn>
-              <IconBtn onClick={() => handleAliasOpen(account)} title="Aliases">
+              <IconBtn onClick={() => handleAliasOpen(account)} title={t('admin.accounts.aliases')}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <circle cx="12" cy="8" r="4"/>
                   <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
                 </svg>
               </IconBtn>
-              <IconBtn onClick={() => handleDelete(account.id)} title="Remove" danger>
+              <IconBtn onClick={() => handleDelete(account.id)} title={t('common.remove')} danger>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <polyline points="3 6 5 6 21 6"/>
                   <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
@@ -808,7 +812,7 @@ function AccountsTab() {
             {[
               ['IMAP', `${account.imap_host}:${account.imap_port}`],
               ['SMTP', `${account.smtp_host}:${account.smtp_port}`],
-              ['Last sync', account.last_sync ? new Date(account.last_sync).toLocaleTimeString() : 'Never'],
+              [t('admin.accounts.lastSync'), account.last_sync ? new Date(account.last_sync).toLocaleTimeString() : t('common.never')],
             ].map(([label, val]) => (
               <div key={label} style={{ fontSize: 11 }}>
                 <span style={{ color: 'var(--text-tertiary)' }}>{label} </span>
@@ -826,6 +830,7 @@ function AccountsTab() {
 
 // ─── Themes Tab ───────────────────────────────────────────────────────────────
 function ThemesTab() {
+  const { t } = useTranslation();
   const { theme, setTheme } = useStore();
 
   const handleSelect = (key) => {
@@ -836,10 +841,10 @@ function ThemesTab() {
   return (
     <div>
       <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-        Appearance
+        {t('admin.appearance.title')}
       </div>
       <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 20 }}>
-        Choose a color theme for the interface
+        {t('admin.appearance.description')}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}>
@@ -916,6 +921,7 @@ function IconBtn({ children, onClick, title, danger }) {
 
 // ─── Fonts Tab ───────────────────────────────────────────────────────────────
 function FontsTab() {
+  const { t } = useTranslation();
   const { fontSet, setFontSet } = useStore();
   const [fontsReady, setFontsReady] = useState(false);
 
@@ -943,14 +949,14 @@ function FontsTab() {
     <div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 4 }}>
         <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>
-          Typography
+          {t('admin.appearance.typography')}
         </div>
         {!fontsReady && (
-          <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>Loading fonts…</div>
+          <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{t('admin.appearance.typographyLoading')}</div>
         )}
       </div>
       <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 20 }}>
-        Choose a font pairing for the interface
+        {t('admin.appearance.typographyDescription')}
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -991,7 +997,7 @@ function FontsTab() {
                 <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
                   <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
                     <span style={{ color: 'var(--text-tertiary)', marginRight: 4, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                      Display
+                      {t('admin.appearance.typographyDisplay')}
                     </span>
                     <span style={{
                       fontFamily: set.vars['--font-display'],
@@ -1003,7 +1009,7 @@ function FontsTab() {
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
                     <span style={{ color: 'var(--text-tertiary)', marginRight: 4, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                      Body
+                      {t('admin.appearance.typographyBody')}
                     </span>
                     <span style={{
                       fontFamily: set.vars['--font-sans'],
@@ -1015,7 +1021,7 @@ function FontsTab() {
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
                     <span style={{ color: 'var(--text-tertiary)', marginRight: 4, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                      Mono
+                      {t('admin.appearance.typographyMono')}
                     </span>
                     <span style={{
                       fontFamily: set.vars['--font-mono'],
@@ -1132,6 +1138,7 @@ function LayoutDiagram({ layoutKey, layoutConfig, active }) {
 
 // ─── Layouts Tab ──────────────────────────────────────────────────────────────
 function LayoutsTab() {
+  const { t } = useTranslation();
   const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, syncInterval, setSyncInterval } = useStore();
 
   const handleSelect = (key) => {
@@ -1142,10 +1149,10 @@ function LayoutsTab() {
   return (
     <div>
       <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-        Layout
+        {t('admin.appearance.layout')}
       </div>
       <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 20 }}>
-        Choose how the sidebar, message list, and reading pane are arranged
+        {t('admin.appearance.layoutDescription')}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10 }}>
@@ -1200,15 +1207,15 @@ function LayoutsTab() {
       {/* Message list behaviour */}
       <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 16 }}>
-          Message List
+          {t('admin.messageList.title')}
         </div>
 
         <div style={{ marginBottom: 18 }}>
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>Scrolling mode</div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>{t('admin.messageList.scrollingMode')}</div>
           <div style={{ display: 'flex', gap: 8 }}>
             {[
-              { id: 'infinite',   label: 'Infinite scroll', desc: 'Auto-loads as you scroll down' },
-              { id: 'paginated',  label: 'Paginated',       desc: 'Navigate with Prev / Next buttons' },
+              { id: 'infinite',   label: t('admin.messageList.infiniteScroll'), desc: t('admin.messageList.infiniteScrollDesc') },
+              { id: 'paginated',  label: t('admin.messageList.paginated'),       desc: t('admin.messageList.paginatedDesc') },
             ].map(({ id, label, desc }) => {
               const active = scrollMode === id;
               return (
@@ -1234,7 +1241,7 @@ function LayoutsTab() {
 
         <div>
           <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
-            {scrollMode === 'paginated' ? 'Emails per page' : 'Emails loaded per batch'}
+            {scrollMode === 'paginated' ? t('admin.messageList.perPagePaginated') : t('admin.messageList.perPageInfinite')}
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
             {[25, 50, 100, 200].map(n => {
@@ -1264,10 +1271,10 @@ function LayoutsTab() {
       {/* Sync interval */}
       <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-          Sync Frequency
+          {t('admin.messageList.syncFrequency')}
         </div>
         <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12 }}>
-          How often mailflow checks for new emails
+          {t('admin.messageList.syncFrequencyDesc')}
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           {[
@@ -1303,6 +1310,7 @@ function LayoutsTab() {
 
 // ─── Integrations Tab ────────────────────────────────────────────────────────
 function IntegrationsTab() {
+  const { t } = useTranslation();
   const { setAccounts } = useStore();
   const [configs, setConfigs] = useState({});
   const [loading, setLoading] = useState(true);
@@ -1335,7 +1343,7 @@ function IntegrationsTab() {
     const handleMessage = (e) => {
       if (e.origin !== window.location.origin) return;
       if (e.data?.type === 'oauth_success' && e.data?.provider === 'microsoft') {
-        setSaveMsg('Microsoft 365 account connected successfully! Check the Accounts tab.');
+        setSaveMsg(t('admin.integrations.microsoft.connectedNote'));
         setConnectingMs(false);
         // Reload both so the new account appears in the sidebar immediately
         api.getIntegrations().then(setConfigs).catch(console.error);
@@ -1364,7 +1372,7 @@ function IntegrationsTab() {
         ...prev,
         microsoft: { clientId: msForm.clientId, tenantId: msForm.tenantId, redirectUri: msForm.redirectUri },
       }));
-      setSaveMsg('Configuration saved. Click "Connect account" to authorize.');
+      setSaveMsg(t('admin.integrations.microsoft.savedNote'));
     } catch (err) {
       setSaveMsg('Error: ' + err.message);
     } finally {
@@ -1391,13 +1399,13 @@ function IntegrationsTab() {
   return (
     <div>
       <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-        Integrations
+        {t('admin.integrations.title')}
       </div>
       <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 24 }}>
-        Connect OAuth providers for accounts that don't support app passwords
+        {t('admin.integrations.description')}
       </div>
 
-      {loading && <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>Loading…</div>}
+      {loading && <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>{t('admin.integrations.loading')}</div>}
 
       {!loading && (
         <div>
@@ -1427,10 +1435,10 @@ function IntegrationsTab() {
 
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>
-                  Microsoft 365 / Entra
+                  {t('admin.integrations.microsoft.title')}
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1 }}>
-                  OAuth2 for work/school accounts that require modern authentication
+                  {t('admin.integrations.microsoft.description')}
                 </div>
               </div>
 
@@ -1441,7 +1449,7 @@ function IntegrationsTab() {
                     background: 'rgba(74,222,128,0.1)', color: 'var(--green)',
                     border: '1px solid rgba(74,222,128,0.2)', fontWeight: 500,
                   }}>
-                    Configured
+                    {t('admin.integrations.microsoft.configured')}
                   </span>
                 ) : (
                   <span style={{
@@ -1449,7 +1457,7 @@ function IntegrationsTab() {
                     background: 'var(--bg-elevated)', color: 'var(--text-tertiary)',
                     border: '1px solid var(--border)',
                   }}>
-                    Not configured
+                    {t('admin.integrations.microsoft.notConfigured')}
                   </span>
                 )}
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
@@ -1471,45 +1479,45 @@ function IntegrationsTab() {
                   fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7,
                 }}>
                   <div style={{ fontWeight: 600, color: 'var(--accent)', marginBottom: 6 }}>
-                    Azure App Registration setup
+                    {t('admin.integrations.microsoft.setupTitle')}
                   </div>
                   <ol style={{ margin: 0, paddingLeft: 18 }}>
-                    <li>Go to <strong>portal.azure.com</strong> → Microsoft Entra ID → App registrations → New registration</li>
-                    <li>Set redirect URI type to <strong>Web</strong> and paste the URI shown below</li>
-                    <li>API permissions → Add a permission → <strong>APIs my organization uses</strong> → <em>Office 365 Exchange Online</em> → Delegated → <code>IMAP.AccessAsUser.All</code> and <code>SMTP.Send</code></li>
-                    <li>API permissions → Add a permission → <strong>Microsoft Graph</strong> → Delegated → <code>offline_access</code>, <code>openid</code>, <code>email</code>, <code>profile</code></li>
-                    <li>Click <strong>Grant admin consent</strong> for your organization</li>
-                    <li>Certificates &amp; secrets → New client secret — copy the <em>Value</em> (not the ID)</li>
+                    <li>{t('admin.integrations.microsoft.step1')}</li>
+                    <li>{t('admin.integrations.microsoft.step2')}</li>
+                    <li>{t('admin.integrations.microsoft.step3')}</li>
+                    <li>{t('admin.integrations.microsoft.step4')}</li>
+                    <li>{t('admin.integrations.microsoft.step5')}</li>
+                    <li>{t('admin.integrations.microsoft.step6')}</li>
                   </ol>
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-                  <Field label="Application (Client) ID" required>
+                  <Field label={t('admin.integrations.microsoft.clientId')} required>
                     <input value={msForm.clientId} onChange={e => setMsForm(f => ({ ...f, clientId: e.target.value }))}
-                      placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                      placeholder={t('admin.integrations.microsoft.clientIdPh')}
                       style={{ ...inputStyle, fontFamily: 'JetBrains Mono, monospace', fontSize: 12 }}
                       onFocus={e => e.target.style.borderColor = 'var(--accent)'}
                       onBlur={e => e.target.style.borderColor = 'var(--border)'} />
                   </Field>
-                  <Field label="Directory (Tenant) ID" required>
+                  <Field label={t('admin.integrations.microsoft.tenantId')} required>
                     <input value={msForm.tenantId} onChange={e => setMsForm(f => ({ ...f, tenantId: e.target.value }))}
-                      placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                      placeholder={t('admin.integrations.microsoft.tenantIdPh')}
                       style={{ ...inputStyle, fontFamily: 'JetBrains Mono, monospace', fontSize: 12 }}
                       onFocus={e => e.target.style.borderColor = 'var(--accent)'}
                       onBlur={e => e.target.style.borderColor = 'var(--border)'} />
                   </Field>
                 </div>
 
-                <Field label="Client Secret" required>
+                <Field label={t('admin.integrations.microsoft.clientSecret')} required>
                   <input type="password" value={msForm.clientSecret}
                     onChange={e => setMsForm(f => ({ ...f, clientSecret: e.target.value }))}
-                    placeholder="Client secret value from Azure"
+                    placeholder={t('admin.integrations.microsoft.clientSecretPh')}
                     style={inputStyle}
                     onFocus={e => e.target.style.borderColor = 'var(--accent)'}
                     onBlur={e => e.target.style.borderColor = 'var(--border)'} />
                 </Field>
 
-                <Field label="Redirect URI" required>
+                <Field label={t('admin.integrations.microsoft.redirectUri')} required>
                   <input value={msForm.redirectUri}
                     onChange={e => setMsForm(f => ({ ...f, redirectUri: e.target.value }))}
                     placeholder={`http://${window.location.hostname}:8080/oauth/microsoft/callback`}
@@ -1517,10 +1525,7 @@ function IntegrationsTab() {
                     onFocus={e => e.target.style.borderColor = 'var(--accent)'}
                     onBlur={e => e.target.style.borderColor = 'var(--border)'} />
                   <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 5 }}>
-                    This must exactly match the redirect URI registered in Azure. Suggested:&nbsp;
-                    <code style={{ fontFamily: 'JetBrains Mono, monospace', color: 'var(--accent)' }}>
-                      {`${window.location.protocol}//${window.location.hostname}${window.location.port ? ':' + window.location.port : ''}/oauth/microsoft/callback`}
-                    </code>
+                    {t('admin.integrations.microsoft.redirectUriNote', { uri: `${window.location.protocol}//${window.location.hostname}${window.location.port ? ':' + window.location.port : ''}/oauth/microsoft/callback` })}
                   </div>
                 </Field>
 
@@ -1542,13 +1547,13 @@ function IntegrationsTab() {
                     color: 'var(--text-primary)', cursor: saving ? 'not-allowed' : 'pointer',
                     fontSize: 13, fontWeight: 500, opacity: saving ? 0.7 : 1,
                   }}>
-                    {saving ? 'Saving…' : 'Save configuration'}
+                    {saving ? t('common.saving') : t('admin.integrations.microsoft.save')}
                   </button>
 
                   <button
                     onClick={handleConnectMs}
                     disabled={!msConfigured || connectingMs}
-                    title={!msConfigured ? 'Save configuration first' : ''}
+                    title={!msConfigured ? t('admin.integrations.microsoft.save') : ''}
                     style={{
                       padding: '9px 16px', background: msConfigured ? 'var(--accent)' : 'var(--bg-elevated)',
                       border: `1px solid ${msConfigured ? 'var(--accent)' : 'var(--border)'}`,
@@ -1565,7 +1570,7 @@ function IntegrationsTab() {
                       <rect x="1" y="11" width="9" height="9" fill="currentColor" opacity="0.7"/>
                       <rect x="11" y="11" width="9" height="9" fill="currentColor" opacity="0.5"/>
                     </svg>
-                    {connectingMs ? 'Redirecting…' : 'Connect Microsoft account'}
+                    {connectingMs ? t('admin.integrations.microsoft.redirecting') : t('admin.integrations.microsoft.connect')}
                   </button>
 
                   {msConfigured && (
@@ -1583,7 +1588,7 @@ function IntegrationsTab() {
                     onMouseEnter={e => { e.currentTarget.style.color = 'var(--red)'; e.currentTarget.style.borderColor = 'rgba(248,113,113,0.3)'; }}
                     onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.borderColor = 'transparent'; }}
                     >
-                      Remove
+                      {t('admin.integrations.microsoft.remove')}
                     </button>
                   )}
                 </div>
@@ -1598,12 +1603,6 @@ function IntegrationsTab() {
 
 // ─── Users Tab ────────────────────────────────────────────────────────────────
 // ─── SSO / OIDC Tab ───────────────────────────────────────────────────────────
-const PROVISIONING_MODES = [
-  { value: 'disabled', label: 'Disabled — existing linked identities can still log in, but no new links' },
-  { value: 'login_existing_only', label: 'Match existing — link to a MailFlow account with a matching email' },
-  { value: 'open', label: 'Open — create a new account automatically on first SSO login' },
-];
-
 const emptyProvider = {
   name: '', slug: '', issuer_url: '', client_id: '', client_secret: '',
   scopes: 'openid email profile', provisioning_mode: 'login_existing_only',
@@ -1611,6 +1610,12 @@ const emptyProvider = {
 };
 
 function SSOTab() {
+  const { t } = useTranslation();
+  const PROVISIONING_MODES = [
+    { value: 'disabled', label: t('admin.sso.provisioningDisabled') },
+    { value: 'login_existing_only', label: t('admin.sso.provisioningExisting') },
+    { value: 'open', label: t('admin.sso.provisioningOpen') },
+  ];
   const [providers, setProviders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null); // null | 'new' | provider object
@@ -1637,10 +1642,10 @@ function SSOTab() {
 
   const handleSave = async () => {
     if (!form.name || !form.slug || !form.issuer_url || !form.client_id) {
-      return setError('Name, slug, issuer URL and client ID are required.');
+      return setError(t('admin.sso.errorRequired'));
     }
     if (editing === 'new' && !form.client_secret) {
-      return setError('Client secret is required.');
+      return setError(t('admin.sso.errorSecretRequired'));
     }
     setSaving(true);
     setError('');
@@ -1657,7 +1662,7 @@ function SSOTab() {
         ...(form.client_secret && form.client_secret !== '••••••••' ? { client_secret: form.client_secret } : {}),
       };
       if (editing === 'new') {
-        if (!payload.client_secret) return setError('Client secret is required.');
+        if (!payload.client_secret) return setError(t('admin.sso.errorSecretRequired'));
         const data = await api.admin.oidc.createProvider(payload);
         setProviders(ps => [...ps, data.provider]);
       } else {
@@ -1674,9 +1679,9 @@ function SSOTab() {
 
   const handleDelete = (p) => {
     setConfirmDialog({
-      title: `Delete "${p.name}"?`,
-      message: 'All linked user identities for this provider will also be removed. Users with no other login method will be locked out.',
-      confirmLabel: 'Delete provider',
+      title: t('admin.sso.deleteConfirmTitle', { name: p.name }),
+      message: t('admin.sso.deleteConfirmBody'),
+      confirmLabel: t('admin.sso.deleteConfirmLabel'),
       onConfirm: async () => {
         await api.admin.oidc.deleteProvider(p.id);
         setProviders(ps => ps.filter(x => x.id !== p.id));
@@ -1692,13 +1697,13 @@ function SSOTab() {
     });
   };
 
-  if (loading) return <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>Loading…</div>;
+  if (loading) return <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>{t('common.loading')}</div>;
 
   return (
     <>
-      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>Single Sign-On</div>
+      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>{t('admin.sso.title')}</div>
       <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 16 }}>
-        Configure external OIDC providers so users can sign in with their organization accounts.
+        {t('admin.sso.description')}
       </div>
 
       {providers.length === 0 && !editing && (
@@ -1706,7 +1711,7 @@ function SSOTab() {
           padding: '24px', borderRadius: 8, border: '1px dashed var(--border)',
           textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13, marginBottom: 16,
         }}>
-          No SSO providers configured yet.
+          {t('admin.sso.empty')}
         </div>
       )}
 
@@ -1726,13 +1731,13 @@ function SSOTab() {
                     color: p.enabled ? 'var(--green)' : 'var(--text-tertiary)',
                     border: `1px solid ${p.enabled ? 'rgba(34,197,94,0.3)' : 'var(--border)'}`,
                     textTransform: 'uppercase', letterSpacing: '0.04em',
-                  }}>{p.enabled ? 'Active' : 'Disabled'}</span>
+                  }}>{p.enabled ? t('admin.sso.activeBadge') : t('admin.sso.disabledBadge')}</span>
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span style={{ fontFamily: 'monospace' }}>{p.issuer_url}</span>
                 </div>
                 <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>Redirect URI:</span>
+                  <span style={{ fontSize: 11, color: 'var(--text-tertiary)', flexShrink: 0 }}>{t('admin.integrations.microsoft.redirectUri')}:</span>
                   <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--text-secondary)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {`${window.location.origin}/auth/oidc/${p.slug}/callback`}
                   </span>
@@ -1744,7 +1749,7 @@ function SSOTab() {
                       fontSize: 10, padding: '2px 7px', cursor: 'pointer', flexShrink: 0,
                     }}
                   >
-                    {copiedId === p.id ? 'Copied' : 'Copy'}
+                    {copiedId === p.id ? t('admin.sso.copiedUri') : t('admin.sso.copyUri')}
                   </button>
                 </div>
               </div>
@@ -1753,12 +1758,12 @@ function SSOTab() {
                   background: 'var(--bg-elevated)', border: '1px solid var(--border)',
                   borderRadius: 6, color: 'var(--text-secondary)', fontSize: 12,
                   padding: '5px 10px', cursor: 'pointer',
-                }}>Edit</button>
+                }}>{t('admin.sso.editButton')}</button>
                 <button onClick={() => handleDelete(p)} style={{
                   background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)',
                   borderRadius: 6, color: 'var(--red)', fontSize: 12,
                   padding: '5px 10px', cursor: 'pointer',
-                }}>Delete</button>
+                }}>{t('admin.sso.deleteButton')}</button>
               </div>
             </div>
           </div>
@@ -1772,7 +1777,7 @@ function SSOTab() {
             padding: '9px 16px', background: 'var(--accent)', border: 'none',
             borderRadius: 7, color: 'white', fontSize: 13, fontWeight: 500, cursor: 'pointer',
           }}
-        >+ Add SSO Provider</button>
+        >{t('admin.sso.addProvider')}</button>
       )}
 
       {editing && (
@@ -1781,53 +1786,53 @@ function SSOTab() {
           background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
         }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 16 }}>
-            {editing === 'new' ? 'New SSO Provider' : `Edit: ${editing.name}`}
+            {editing === 'new' ? t('admin.sso.newTitle') : t('admin.sso.editTitle', { name: editing.name })}
           </div>
 
-          <Field label="Provider name" required>
-            <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Acme Corp SSO" style={inputStyle} />
+          <Field label={t('admin.sso.name')} required>
+            <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder={t('admin.sso.namePh')} style={inputStyle} />
           </Field>
 
-          <Field label="Slug (URL identifier)" required>
+          <Field label={t('admin.sso.slug')} required>
             <input
               value={form.slug}
               onChange={e => setForm(f => ({ ...f, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') }))}
-              placeholder="e.g. acme"
+              placeholder={t('admin.sso.slugPh')}
               style={inputStyle}
             />
             <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4 }}>
-              Redirect URI: <code style={{ fontFamily: 'monospace' }}>{window.location.origin}/auth/oidc/{form.slug || '<slug>'}/callback</code>
+              {t('admin.sso.slugRedirectUri', { uri: `${window.location.origin}/auth/oidc/${form.slug || '<slug>'}/callback` })}
             </div>
           </Field>
 
-          <Field label="Issuer URL" required>
-            <input value={form.issuer_url} onChange={e => setForm(f => ({ ...f, issuer_url: e.target.value }))} placeholder="https://accounts.google.com" style={inputStyle} />
+          <Field label={t('admin.sso.issuerUrl')} required>
+            <input value={form.issuer_url} onChange={e => setForm(f => ({ ...f, issuer_url: e.target.value }))} placeholder={t('admin.sso.issuerUrlPh')} style={inputStyle} />
           </Field>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Field label="Client ID" required>
-              <input value={form.client_id} onChange={e => setForm(f => ({ ...f, client_id: e.target.value }))} placeholder="Client ID" style={inputStyle} />
+            <Field label={t('admin.sso.clientId')} required>
+              <input value={form.client_id} onChange={e => setForm(f => ({ ...f, client_id: e.target.value }))} placeholder={t('admin.sso.clientIdPh')} style={inputStyle} />
             </Field>
-            <Field label={editing === 'new' ? 'Client Secret' : 'Client Secret (leave unchanged)'} required={editing === 'new'}>
+            <Field label={editing === 'new' ? t('admin.sso.clientSecretNew') : t('admin.sso.clientSecretEdit')} required={editing === 'new'}>
               <input
                 type="password"
                 value={form.client_secret}
                 onChange={e => setForm(f => ({ ...f, client_secret: e.target.value }))}
-                placeholder={editing === 'new' ? 'Client secret' : 'Leave blank to keep current'}
+                placeholder={editing === 'new' ? t('admin.sso.clientSecretPhNew') : t('admin.sso.clientSecretPhEdit')}
                 style={inputStyle}
               />
             </Field>
           </div>
 
-          <Field label="Scopes">
-            <input value={form.scopes} onChange={e => setForm(f => ({ ...f, scopes: e.target.value }))} placeholder="openid email profile" style={inputStyle} />
+          <Field label={t('admin.sso.scopes')}>
+            <input value={form.scopes} onChange={e => setForm(f => ({ ...f, scopes: e.target.value }))} placeholder={t('admin.sso.scopesPh')} style={inputStyle} />
           </Field>
 
-          <Field label="Allowed email domains (comma-separated, leave blank for any)">
-            <input value={form.allowed_domains} onChange={e => setForm(f => ({ ...f, allowed_domains: e.target.value }))} placeholder="example.com, corp.example.com" style={inputStyle} />
+          <Field label={t('admin.sso.domains')}>
+            <input value={form.allowed_domains} onChange={e => setForm(f => ({ ...f, allowed_domains: e.target.value }))} placeholder={t('admin.sso.domainsPh')} style={inputStyle} />
           </Field>
 
-          <Field label="Provisioning mode">
+          <Field label={t('admin.sso.provisioning')}>
             <select
               value={form.provisioning_mode}
               onChange={e => setForm(f => ({ ...f, provisioning_mode: e.target.value }))}
@@ -1854,7 +1859,7 @@ function SSOTab() {
                 borderRadius: '50%', background: 'white', transition: 'left 0.2s',
               }} />
             </button>
-            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Provider enabled</span>
+            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{t('admin.sso.enabled')}</span>
           </div>
 
           {error && (
@@ -1874,14 +1879,14 @@ function SSOTab() {
                 borderRadius: 7, color: 'white', fontSize: 13, fontWeight: 500,
                 cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.6 : 1,
               }}
-            >{saving ? 'Saving…' : 'Save'}</button>
+            >{saving ? t('common.saving') : t('admin.sso.save')}</button>
             <button
               onClick={closeForm}
               style={{
                 padding: '9px 18px', background: 'var(--bg-elevated)', border: '1px solid var(--border)',
                 borderRadius: 7, color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer',
               }}
-            >Cancel</button>
+            >{t('common.cancel')}</button>
           </div>
         </div>
       )}
@@ -1892,6 +1897,7 @@ function SSOTab() {
 }
 
 function UsersTab() {
+  const { t } = useTranslation();
   const { user: currentUser } = useStore();
   const [users, setUsers] = useState([]);
   const [invites, setInvites] = useState([]);
@@ -1923,9 +1929,9 @@ function UsersTab() {
 
   const handleDeleteUser = (u) => {
     setConfirmDialog({
-      title: `Delete "${u.username}"?`,
-      message: 'This user account will be permanently deleted. This cannot be undone.',
-      confirmLabel: 'Delete user',
+      title: t('admin.users.deleteConfirmTitle', { username: u.username }),
+      message: t('admin.users.deleteConfirmBody'),
+      confirmLabel: t('admin.users.deleteConfirmLabel'),
       onConfirm: async () => {
         await api.admin.deleteUser(u.id);
         setUsers(us => us.filter(x => x.id !== u.id));
@@ -1935,9 +1941,9 @@ function UsersTab() {
 
   const handleDisableTotp = (u) => {
     setConfirmDialog({
-      title: `Disable 2FA for "${u.username}"?`,
-      message: 'This will remove their authenticator app requirement. They can re-enable it themselves.',
-      confirmLabel: 'Disable 2FA',
+      title: t('admin.users.disable2faConfirmTitle', { username: u.username }),
+      message: t('admin.users.disable2faConfirmBody'),
+      confirmLabel: t('admin.users.disable2faConfirmLabel'),
       onConfirm: async () => {
         await api.admin.disableUserTotp(u.id);
         setUsers(us => us.map(x => x.id === u.id ? { ...x, totpEnabled: false } : x));
@@ -1959,9 +1965,9 @@ function UsersTab() {
       const data = await api.admin.createInvite(inviteEmail);
       setInviteEmail('');
       if (data.emailSent) {
-        setInviteMsg({ type: 'ok', text: `Invite sent to ${inviteEmail}`, url: data.inviteUrl });
+        setInviteMsg({ type: 'ok', text: t('admin.users.inviteSent', { email: inviteEmail }), url: data.inviteUrl });
       } else {
-        setInviteMsg({ type: 'ok', text: 'Invite created (email not sent — no SMTP account configured).', url: data.inviteUrl });
+        setInviteMsg({ type: 'ok', text: t('admin.users.inviteCreatedNoEmail'), url: data.inviteUrl });
       }
       // Reload invites to get proper data from server
       api.admin.getInvites().then(d => setInvites(d.invites)).catch(() => {});
@@ -1985,7 +1991,7 @@ function UsersTab() {
   };
 
   if (loading) {
-    return <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>Loading…</div>;
+    return <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>{t('common.loading')}</div>;
   }
 
   const pendingInvites = invites.filter(i => !i.used_at && new Date(i.expires_at) > new Date());
@@ -1996,10 +2002,10 @@ function UsersTab() {
     <div>
       {/* ── Users ── */}
       <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-        Users
+        {t('admin.users.title')}
       </div>
       <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 16 }}>
-        Manage user accounts and admin privileges
+        {t('admin.users.description')}
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 28 }}>
@@ -2031,15 +2037,15 @@ function UsersTab() {
                     border: '1px solid rgba(124,106,247,0.25)', fontWeight: 600,
                     letterSpacing: '0.04em', textTransform: 'uppercase',
                   }}>
-                    Admin
+                    {t('admin.users.adminBadge')}
                   </span>
                 )}
                 {u.id === currentUser?.id && (
-                  <span style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>(you)</span>
+                  <span style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>{t('admin.users.you')}</span>
                 )}
               </div>
               <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1 }}>
-                Joined {new Date(u.created_at).toLocaleDateString()}
+                {t('admin.users.joined', { date: new Date(u.created_at).toLocaleDateString() })}
               </div>
             </div>
 
@@ -2047,7 +2053,7 @@ function UsersTab() {
               <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
                 <button
                   onClick={() => handleToggleAdmin(u)}
-                  title={u.isAdmin ? 'Remove admin' : 'Make admin'}
+                  title={u.isAdmin ? t('admin.users.removeAdmin') : t('admin.users.makeAdmin')}
                   style={{
                     padding: '5px 10px', borderRadius: 6, fontSize: 11, fontWeight: 500,
                     border: '1px solid var(--border)',
@@ -2058,17 +2064,17 @@ function UsersTab() {
                   onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent)'}
                   onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
                 >
-                  {u.isAdmin ? 'Remove admin' : 'Make admin'}
+                  {u.isAdmin ? t('admin.users.removeAdmin') : t('admin.users.makeAdmin')}
                 </button>
                 {u.totpEnabled && (
-                  <IconBtn onClick={() => handleDisableTotp(u)} title="Disable 2FA">
+                  <IconBtn onClick={() => handleDisableTotp(u)} title={t('admin.users.disable2fa')}>
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <rect x="5" y="11" width="14" height="11" rx="2" ry="2"/>
                       <path d="M11 15v2M8 11V7a4 4 0 018 0v4"/>
                     </svg>
                   </IconBtn>
                 )}
-                <IconBtn onClick={() => handleDeleteUser(u)} title="Delete user" danger>
+                <IconBtn onClick={() => handleDeleteUser(u)} title={t('admin.users.deleteUser')} danger>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <polyline points="3 6 5 6 21 6"/>
                     <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
@@ -2083,10 +2089,10 @@ function UsersTab() {
       {/* ── Registration ── */}
       <div style={{ height: 1, background: 'var(--border-subtle)', marginBottom: 20 }} />
       <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-        Open registration
+        {t('admin.users.registrationOpen')}
       </div>
       <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 12 }}>
-        When enabled, anyone can create an account without an invite link.
+        {t('admin.users.registrationOpenDesc')}
       </div>
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -2096,10 +2102,10 @@ function UsersTab() {
       }}>
         <div>
           <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
-            {regOpen ? 'Registration is open' : 'Registration is closed'}
+            {regOpen ? t('admin.users.registrationIsOpen') : t('admin.users.registrationIsClosed')}
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>
-            {regOpen ? 'Anyone can sign up' : 'Only users with an invite link can register'}
+            {regOpen ? t('admin.users.registrationStatusOpen') : t('admin.users.registrationStatusClosed')}
           </div>
         </div>
         <button
@@ -2124,10 +2130,10 @@ function UsersTab() {
       {/* ── Invite ── */}
       <div style={{ height: 1, background: 'var(--border-subtle)', marginBottom: 20 }} />
       <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-        Invite a user
+        {t('admin.users.inviteTitle')}
       </div>
       <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 12 }}>
-        Generate a single-use invite link valid for 7 days. An email will be sent if you have an SMTP account configured.
+        {t('admin.users.inviteDescription')}
       </div>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
@@ -2136,7 +2142,7 @@ function UsersTab() {
           value={inviteEmail}
           onChange={e => setInviteEmail(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && handleSendInvite()}
-          placeholder="email@example.com"
+          placeholder={t('admin.users.invitePh')}
           style={{ ...inputStyle, flex: 1 }}
           onFocus={e => e.target.style.borderColor = 'var(--accent)'}
           onBlur={e => e.target.style.borderColor = 'var(--border)'}
@@ -2152,7 +2158,7 @@ function UsersTab() {
             flexShrink: 0,
           }}
         >
-          {inviteLoading ? 'Sending…' : 'Send invite'}
+          {inviteLoading ? t('admin.users.inviteSending') : t('admin.users.inviteSend')}
         </button>
       </div>
 
@@ -2182,7 +2188,7 @@ function UsersTab() {
                   color: 'var(--text-secondary)', cursor: 'pointer', flexShrink: 0,
                 }}
               >
-                Copy
+                {t('common.copy')}
               </button>
             </div>
           )}
@@ -2193,7 +2199,7 @@ function UsersTab() {
       {pendingInvites.length > 0 && (
         <>
           <div style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 8, marginTop: 16 }}>
-            Pending invites
+            {t('admin.users.pendingInvites')}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
             {pendingInvites.map(inv => {
@@ -2209,12 +2215,12 @@ function UsersTab() {
                       {inv.email}
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1 }}>
-                      Expires {new Date(inv.expires_at).toLocaleDateString()}
+                      {t('admin.users.inviteExpires', { date: new Date(inv.expires_at).toLocaleDateString() })}
                     </div>
                   </div>
                   <button
                     onClick={() => copyInviteUrl(invUrl, inv.id)}
-                    title="Copy invite link"
+                    title={t('admin.users.inviteCopy')}
                     style={{
                       padding: '4px 10px', borderRadius: 6, fontSize: 11,
                       background: copiedId === inv.id ? 'rgba(74,222,128,0.1)' : 'var(--bg-elevated)',
@@ -2223,9 +2229,9 @@ function UsersTab() {
                       cursor: 'pointer', flexShrink: 0, transition: 'all 0.15s',
                     }}
                   >
-                    {copiedId === inv.id ? 'Copied!' : 'Copy link'}
+                    {copiedId === inv.id ? t('admin.users.inviteCopied') : t('admin.users.inviteCopy')}
                   </button>
-                  <IconBtn onClick={() => handleRevokeInvite(inv.id)} title="Revoke" danger>
+                  <IconBtn onClick={() => handleRevokeInvite(inv.id)} title={t('admin.users.inviteRevoke')} danger>
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
                     </svg>
@@ -2241,7 +2247,7 @@ function UsersTab() {
       {usedOrExpiredInvites.length > 0 && (
         <>
           <div style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 8, marginTop: 16 }}>
-            Used / expired
+            {t('admin.users.usedInvites')}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
             {usedOrExpiredInvites.map(inv => (
@@ -2257,11 +2263,11 @@ function UsersTab() {
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1 }}>
                     {inv.used_at
-                      ? `Used by ${inv.used_by_username || 'unknown'} on ${new Date(inv.used_at).toLocaleDateString()}`
-                      : `Expired ${new Date(inv.expires_at).toLocaleDateString()}`}
+                      ? t('admin.users.inviteUsedBy', { username: inv.used_by_username || 'unknown', date: new Date(inv.used_at).toLocaleDateString() })
+                      : t('admin.users.inviteExpired', { date: new Date(inv.expires_at).toLocaleDateString() })}
                   </div>
                 </div>
-                <IconBtn onClick={() => handleRevokeInvite(inv.id)} title="Delete" danger>
+                <IconBtn onClick={() => handleRevokeInvite(inv.id)} title={t('admin.users.inviteDelete')} danger>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <polyline points="3 6 5 6 21 6"/>
                     <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
@@ -2280,6 +2286,7 @@ function UsersTab() {
 
 // ─── Notifications Tab ────────────────────────────────────────────────────────
 function NotificationsTab() {
+  const { t } = useTranslation();
   const { notificationSound, setNotificationSound, customSoundDataUrl, setCustomSoundDataUrl } = useStore();
   const fileInputRef = useRef(null);
   const [customFileName, setCustomFileName] = useState(
@@ -2292,7 +2299,7 @@ function NotificationsTab() {
     if (!file) return;
     setUploadError('');
     if (file.size > 2 * 1024 * 1024) {
-      setUploadError('File must be under 2 MB.');
+      setUploadError(t('admin.notifications.uploadError'));
       e.target.value = '';
       return;
     }
@@ -2313,7 +2320,7 @@ function NotificationsTab() {
   };
 
   const items = [
-    { id: 'none', label: 'None', description: 'No sound notification' },
+    { id: 'none', label: t('admin.notifications.none'), description: t('admin.notifications.noneDesc') },
     ...Object.entries(NOTIFICATION_SOUNDS).map(([id, s]) => ({ id, ...s })),
   ];
 
@@ -2339,10 +2346,10 @@ function NotificationsTab() {
   return (
     <div>
       <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-        Notifications
+        {t('admin.notifications.title')}
       </div>
       <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 20 }}>
-        Choose a sound to play when new mail arrives. Click a card to select and preview.
+        {t('admin.notifications.description')}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(148px, 1fr))', gap: 10, alignItems: 'start' }}>
@@ -2415,13 +2422,13 @@ function NotificationsTab() {
 
               <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>Custom</div>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{t('admin.notifications.custom')}</div>
                   <div style={{
                     fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2,
                     whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                     maxWidth: 110,
                   }}>
-                    {customFileName || 'Upload audio file'}
+                    {customFileName || t('admin.notifications.customUpload')}
                   </div>
                 </div>
                 {selected && checkmark}
@@ -2445,7 +2452,7 @@ function NotificationsTab() {
                 onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
                 onMouseLeave={e => e.currentTarget.style.background = 'var(--bg-secondary)'}
               >
-                {customFileName ? 'Change file' : 'Upload'}
+                {customFileName ? t('admin.notifications.customChange') : t('admin.notifications.customButton')}
               </button>
 
               {uploadError && (
@@ -2461,6 +2468,7 @@ function NotificationsTab() {
 
 // ─── Shared confirm overlay (replaces window.confirm everywhere) ──────────────
 function ConfirmOverlay({ dialog, onClose }) {
+  const { t } = useTranslation();
   if (!dialog) return null;
   return (
     <div style={{
@@ -2476,7 +2484,7 @@ function ConfirmOverlay({ dialog, onClose }) {
         boxShadow: 'var(--shadow-modal)',
       }} onClick={e => e.stopPropagation()}>
         <p style={{ margin: '0 0 8px', fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
-          {dialog.title || 'Are you sure?'}
+          {dialog.title}
         </p>
         <p style={{ margin: '0 0 20px', fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
           {dialog.message}
@@ -2485,11 +2493,11 @@ function ConfirmOverlay({ dialog, onClose }) {
           <button onClick={onClose} className="btn-press" style={{
             padding: '7px 16px', borderRadius: 7, border: '1px solid var(--border-subtle)',
             background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13,
-          }}>Cancel</button>
+          }}>{t('common.cancel')}</button>
           <button onClick={() => { onClose(); dialog.onConfirm(); }} className="btn-press" style={{
             padding: '7px 16px', borderRadius: 7, border: 'none',
             background: '#dc2626', color: 'white', cursor: 'pointer', fontSize: 13, fontWeight: 500,
-          }}>{dialog.confirmLabel || 'Delete'}</button>
+          }}>{dialog.confirmLabel || t('common.delete')}</button>
         </div>
       </div>
     </div>
@@ -2525,43 +2533,44 @@ function SecurityPrivacyTab() {
 
 const TABS = [
   {
-    id: 'accounts', label: 'Accounts',
+    id: 'accounts', labelKey: 'admin.tabs.accounts',
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>,
   },
   {
-    id: 'appearance', label: 'Appearance',
+    id: 'appearance', labelKey: 'admin.tabs.appearance',
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>,
   },
   {
-    id: 'integrations', label: 'Integrations',
+    id: 'integrations', labelKey: 'admin.tabs.integrations',
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="12" cy="12" r="3"/><path d="M6.343 6.343a8 8 0 000 11.314M17.657 6.343a8 8 0 010 11.314M3 12h1m16 0h1M12 3v1m0 16v1"/></svg>,
   },
   {
-    id: 'users', label: 'Users',
+    id: 'users', labelKey: 'admin.tabs.users',
     adminOnly: true,
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>,
   },
   {
-    id: 'sso', label: 'SSO / OIDC',
+    id: 'sso', labelKey: 'admin.tabs.sso',
     adminOnly: true,
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>,
   },
   {
-    id: 'security', label: 'Security & Privacy',
+    id: 'security', labelKey: 'admin.tabs.security',
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>,
   },
   {
-    id: 'notifications', label: 'Notifications',
+    id: 'notifications', labelKey: 'admin.tabs.notifications',
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 010 7.07"/><path d="M19.07 4.93a10 10 0 010 14.14"/></svg>,
   },
   {
-    id: 'shortcuts', label: 'Shortcuts',
+    id: 'shortcuts', labelKey: 'admin.tabs.shortcuts',
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="2" y="7" width="6" height="4" rx="1"/><rect x="9" y="7" width="6" height="4" rx="1"/><rect x="16" y="7" width="6" height="4" rx="1"/><rect x="2" y="13" width="9" height="4" rx="1"/><rect x="13" y="13" width="9" height="4" rx="1"/></svg>,
   },
 ];
 
 // ─── Shortcuts Tab ───────────────────────────────────────────────────────────
 function ShortcutsTab() {
+  const { t } = useTranslation();
   const { shortcuts, setShortcuts } = useStore();
   const [recording, setRecording] = useState(null); // action name currently being recorded
   const [pendingConflict, setPendingConflict] = useState(null); // { action: conflictingAction, key }
@@ -2639,7 +2648,7 @@ function ShortcutsTab() {
           background: 'var(--accent-dim)', border: '1px solid var(--accent)',
           fontSize: 11, color: 'var(--accent)', fontStyle: 'italic',
         }}>
-          Press a key…
+          {t('admin.shortcuts.recording')}
         </span>
       );
     }
@@ -2657,7 +2666,7 @@ function ShortcutsTab() {
           {[...key].map((c, i) => (
             <span key={i} style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
               <kbd style={kbdStyle}>{c}</kbd>
-              {i < key.length - 1 && <span style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>then</span>}
+              {i < key.length - 1 && <span style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>{t('shortcuts.then')}</span>}
             </span>
           ))}
         </span>
@@ -2670,9 +2679,9 @@ function ShortcutsTab() {
     <div style={{ maxWidth: 640 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div>
-          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>Keyboard Shortcuts</div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>{t('admin.shortcuts.title')}</div>
           <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3 }}>
-            Click a key binding to reassign it. Press <kbd style={{ ...kbdStyle, fontSize: 10 }}>Esc</kbd> to cancel recording.
+            {t('admin.shortcuts.description')}
           </div>
         </div>
         <button
@@ -2685,7 +2694,7 @@ function ShortcutsTab() {
           onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.color = 'var(--accent)'; }}
           onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
         >
-          Reset all to defaults
+          {t('admin.shortcuts.resetAll')}
         </button>
       </div>
 
@@ -2695,9 +2704,7 @@ function ShortcutsTab() {
           background: 'rgba(234, 179, 8, 0.1)', border: '1px solid rgba(234, 179, 8, 0.4)',
           borderRadius: 7, fontSize: 12, color: 'var(--text-secondary)',
         }}>
-          Key <kbd style={{ ...kbdStyle, fontSize: 11 }}>{pendingConflict.key}</kbd> was already assigned to
-          <strong style={{ color: 'var(--text-primary)', marginLeft: 4 }}>{ACTION_DEFS[pendingConflict.action]?.label}</strong>
-          — it has been reassigned.
+          {t('admin.shortcuts.conflict', { key: pendingConflict.key, action: ACTION_DEFS[pendingConflict.action]?.label })}
         </div>
       )}
 
@@ -2731,7 +2738,7 @@ function ShortcutsTab() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
                     <button
                       onClick={() => setRecording(isRec ? null : action)}
-                      title={isRec ? 'Cancel recording' : 'Click to reassign shortcut'}
+                      title={isRec ? t('common.cancel') : t('admin.shortcuts.description')}
                       style={{
                         background: 'none', border: 'none', cursor: 'pointer',
                         padding: 0, display: 'flex', alignItems: 'center',
@@ -2742,7 +2749,7 @@ function ShortcutsTab() {
                     {!isDefault && (
                       <button
                         onClick={() => resetAction(action)}
-                        title="Reset to default"
+                        title={t('admin.shortcuts.resetDefault')}
                         style={{
                           background: 'none', border: 'none', cursor: 'pointer',
                           color: 'var(--text-tertiary)', padding: 2,
@@ -2759,7 +2766,7 @@ function ShortcutsTab() {
                     {key && !isRec && (
                       <button
                         onClick={() => clearShortcut(action)}
-                        title="Remove shortcut"
+                        title={t('admin.shortcuts.remove')}
                         style={{
                           background: 'none', border: 'none', cursor: 'pointer',
                           color: 'var(--text-tertiary)', padding: 2,
@@ -2782,7 +2789,7 @@ function ShortcutsTab() {
       ))}
 
       <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4 }}>
-        Press <kbd style={{ ...kbdStyle, fontSize: 10 }}>?</kbd> anywhere in the app to see the current shortcut reference.
+        {t('admin.shortcuts.footer')}
       </div>
     </div>
   );
@@ -2790,6 +2797,7 @@ function ShortcutsTab() {
 
 // ─── Privacy Tab ─────────────────────────────────────────────────────────────
 function PrivacyTab() {
+  const { t } = useTranslation();
   const { blockRemoteImages, setBlockRemoteImages, imageWhitelist, setImageWhitelist } = useStore();
   const [newAddress, setNewAddress] = useState('');
   const [newDomain,  setNewDomain]  = useState('');
@@ -2841,9 +2849,9 @@ function PrivacyTab() {
 
   return (
     <div>
-      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>Privacy</div>
+      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>{t('admin.privacy.title')}</div>
       <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 24 }}>
-        Control whether remote images in emails are loaded automatically
+        {t('admin.privacy.description')}
       </div>
 
       {/* Toggle */}
@@ -2853,9 +2861,9 @@ function PrivacyTab() {
         border: '1px solid var(--border)', borderRadius: 10, marginBottom: 24,
       }}>
         <div>
-          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>Block remote images</div>
+          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{t('admin.privacy.blockImages')}</div>
           <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3 }}>
-            Prevents tracking pixels and remote image loading by default
+            {t('admin.privacy.blockImagesDesc')}
           </div>
         </div>
         <button
@@ -2878,13 +2886,13 @@ function PrivacyTab() {
         <>
           {/* Allowed senders */}
           <div style={{ marginBottom: 24 }}>
-            <div style={sectionHead}>Allowed senders</div>
+            <div style={sectionHead}>{t('admin.privacy.allowedSenders')}</div>
             <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 10 }}>
-              Images are always loaded from these sender addresses
+              {t('admin.privacy.allowedSendersDesc')}
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {(imageWhitelist.addresses || []).length === 0 && (
-                <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>No addresses added yet</span>
+                <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{t('admin.privacy.sendersEmpty')}</span>
               )}
               {(imageWhitelist.addresses || []).map(addr => (
                 <span key={addr} style={pill}>
@@ -2906,25 +2914,25 @@ function PrivacyTab() {
                 value={newAddress}
                 onChange={e => setNewAddress(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && addAddress()}
-                placeholder="sender@example.com"
+                placeholder={t('admin.privacy.addSenderPh')}
                 style={{ ...inputStyle, flex: 1, maxWidth: 280 }}
               />
               <button onClick={addAddress} style={{
                 padding: '8px 14px', background: 'var(--accent)', border: 'none',
                 borderRadius: 7, color: 'white', fontSize: 13, fontWeight: 500, cursor: 'pointer',
-              }}>Add</button>
+              }}>{t('common.add')}</button>
             </div>
           </div>
 
           {/* Allowed domains */}
           <div>
-            <div style={sectionHead}>Allowed domains</div>
+            <div style={sectionHead}>{t('admin.privacy.allowedDomains')}</div>
             <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 10 }}>
-              Images are always loaded from senders whose email is at these domains
+              {t('admin.privacy.allowedDomainsDesc')}
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {(imageWhitelist.domains || []).length === 0 && (
-                <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>No domains added yet</span>
+                <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{t('admin.privacy.domainsEmpty')}</span>
               )}
               {(imageWhitelist.domains || []).map(domain => (
                 <span key={domain} style={pill}>
@@ -2946,13 +2954,13 @@ function PrivacyTab() {
                 value={newDomain}
                 onChange={e => setNewDomain(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && addDomain()}
-                placeholder="example.com"
+                placeholder={t('admin.privacy.addDomainPh')}
                 style={{ ...inputStyle, flex: 1, maxWidth: 280 }}
               />
               <button onClick={addDomain} style={{
                 padding: '8px 14px', background: 'var(--accent)', border: 'none',
                 borderRadius: 7, color: 'white', fontSize: 13, fontWeight: 500, cursor: 'pointer',
-              }}>Add</button>
+              }}>{t('common.add')}</button>
             </div>
           </div>
         </>
@@ -2963,6 +2971,7 @@ function PrivacyTab() {
 
 // ─── Security Tab (TOTP 2FA) ──────────────────────────────────────────────────
 function SecurityTab() {
+  const { t } = useTranslation();
   const { user, setUser } = useStore();
   const [step, setStep] = useState('idle'); // 'idle' | 'scan' | 'verify'
   const [setupData, setSetupData] = useState(null); // { qrCode, secret }
@@ -3000,7 +3009,7 @@ function SecurityTab() {
       setStep('idle');
       setSetupData(null);
       setVerifyCode('');
-      setSuccess('Two-factor authentication enabled.');
+      setSuccess(t('admin.security.totpSuccess'));
       setTimeout(() => setSuccess(''), 4000);
     } catch (err) {
       setError(err.message);
@@ -3020,7 +3029,7 @@ function SecurityTab() {
       setUser({ ...user, totpEnabled: false });
       setShowDisable(false);
       setDisablePassword('');
-      setSuccess('Two-factor authentication disabled.');
+      setSuccess(t('admin.security.totpDisabledSuccess'));
       setTimeout(() => setSuccess(''), 4000);
     } catch (err) {
       setError(err.message);
@@ -3039,9 +3048,9 @@ function SecurityTab() {
 
   return (
     <div style={{ maxWidth: 520 }}>
-      <h2 style={{ margin: '0 0 4px', fontSize: 17, fontWeight: 600, color: 'var(--text-primary)' }}>Security</h2>
+      <h2 style={{ margin: '0 0 4px', fontSize: 17, fontWeight: 600, color: 'var(--text-primary)' }}>{t('admin.security.title')}</h2>
       <p style={{ margin: '0 0 28px', fontSize: 13, color: 'var(--text-tertiary)' }}>
-        Manage two-factor authentication for your account.
+        {t('admin.security.description')}
       </p>
 
       {/* Status card */}
@@ -3065,10 +3074,10 @@ function SecurityTab() {
             </div>
             <div>
               <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>
-                Authenticator app
+                {t('admin.security.totpTitle')}
               </div>
               <div style={{ fontSize: 12, color: totpEnabled ? '#22c55e' : 'var(--text-tertiary)', marginTop: 2 }}>
-                {totpEnabled ? 'Enabled' : 'Not configured'}
+                {totpEnabled ? t('admin.security.totpEnabled') : t('admin.security.totpNotConfigured')}
               </div>
             </div>
           </div>
@@ -3083,7 +3092,7 @@ function SecurityTab() {
                 flexShrink: 0,
               }}
             >
-              {loading ? 'Loading…' : 'Set up'}
+              {loading ? t('admin.security.totpSetupLoading') : t('admin.security.totpSetup')}
             </button>
           )}
           {totpEnabled && !showDisable && (
@@ -3095,7 +3104,7 @@ function SecurityTab() {
                 cursor: 'pointer', flexShrink: 0,
               }}
             >
-              Disable
+              {t('admin.security.totpDisable')}
             </button>
           )}
         </div>
@@ -3104,7 +3113,7 @@ function SecurityTab() {
         {step === 'scan' && setupData && (
           <div style={{ marginTop: 24, borderTop: '1px solid var(--border)', paddingTop: 20 }}>
             <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--text-secondary)' }}>
-              Scan this QR code with your authenticator app (e.g. Google Authenticator, Authy).
+              {t('admin.security.totpScanInstructions')}
             </p>
             <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
               <img
@@ -3114,7 +3123,7 @@ function SecurityTab() {
               />
             </div>
             <p style={{ margin: '0 0 6px', fontSize: 12, color: 'var(--text-tertiary)', textAlign: 'center' }}>
-              Can't scan? Enter this key manually:
+              {t('admin.security.totpManualKey')}
             </p>
             <div style={{
               fontFamily: 'monospace', fontSize: 13, letterSpacing: '0.1em',
@@ -3131,7 +3140,7 @@ function SecurityTab() {
                 borderRadius: 7, color: 'white', fontSize: 13, fontWeight: 500, cursor: 'pointer',
               }}
             >
-              Next: verify code →
+              {t('admin.security.totpNext')}
             </button>
             <button
               onClick={cancelSetup}
@@ -3140,7 +3149,7 @@ function SecurityTab() {
                 color: 'var(--text-tertiary)', fontSize: 13, cursor: 'pointer', marginTop: 8,
               }}
             >
-              Cancel
+              {t('common.cancel')}
             </button>
           </div>
         )}
@@ -3149,7 +3158,7 @@ function SecurityTab() {
         {step === 'verify' && (
           <div style={{ marginTop: 24, borderTop: '1px solid var(--border)', paddingTop: 20 }}>
             <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--text-secondary)' }}>
-              Enter the 6-digit code from your authenticator app to confirm setup.
+              {t('admin.security.totpVerifyInstructions')}
             </p>
             <form onSubmit={verifyEnable} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <input
@@ -3160,7 +3169,7 @@ function SecurityTab() {
                 value={verifyCode}
                 onChange={e => setVerifyCode(e.target.value.replace(/\D/g, ''))}
                 autoFocus
-                placeholder="000000"
+                placeholder={t('admin.security.totpVerifyPh')}
                 style={{
                   width: '100%', padding: '12px 14px',
                   background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
@@ -3181,7 +3190,7 @@ function SecurityTab() {
                   opacity: loading || verifyCode.length !== 6 ? 0.6 : 1,
                 }}
               >
-                {loading ? 'Verifying…' : 'Enable 2FA'}
+                {loading ? t('admin.security.totpVerifyLoading') : t('admin.security.totpVerifyButton')}
               </button>
               <button
                 type="button"
@@ -3191,7 +3200,7 @@ function SecurityTab() {
                   fontSize: 13, cursor: 'pointer', padding: 0,
                 }}
               >
-                ← Back
+                {t('admin.security.totpBack')}
               </button>
             </form>
           </div>
@@ -3201,7 +3210,7 @@ function SecurityTab() {
         {showDisable && (
           <div style={{ marginTop: 24, borderTop: '1px solid var(--border)', paddingTop: 20 }}>
             <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--text-secondary)' }}>
-              Enter your password to disable two-factor authentication.
+              {t('admin.security.totpDisableInstructions')}
             </p>
             <form onSubmit={disableTotp} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <input
@@ -3209,7 +3218,7 @@ function SecurityTab() {
                 value={disablePassword}
                 onChange={e => setDisablePassword(e.target.value)}
                 autoFocus
-                placeholder="Your password"
+                placeholder={t('admin.security.totpDisablePh')}
                 style={{ ...inputStyle }}
                 onFocus={e => e.target.style.borderColor = 'var(--accent)'}
                 onBlur={e => e.target.style.borderColor = 'var(--border)'}
@@ -3225,7 +3234,7 @@ function SecurityTab() {
                     opacity: loading || !disablePassword ? 0.6 : 1,
                   }}
                 >
-                  {loading ? 'Disabling…' : 'Disable 2FA'}
+                  {loading ? t('admin.security.totpDisableLoading') : t('admin.security.totpDisableConfirm')}
                 </button>
                 <button
                   type="button"
@@ -3236,7 +3245,7 @@ function SecurityTab() {
                     color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer',
                   }}
                 >
-                  Cancel
+                  {t('common.cancel')}
                 </button>
               </div>
             </form>
@@ -3264,9 +3273,10 @@ function SecurityTab() {
 }
 
 export default function AdminPanel() {
+  const { t } = useTranslation();
   const { setShowAdmin, adminTab, setAdminTab, user } = useStore();
   const isMobile = useMobile();
-  const visibleTabs = TABS.filter(t => !t.adminOnly || user?.isAdmin);
+  const visibleTabs = TABS.filter(tab => !tab.adminOnly || user?.isAdmin);
 
   if (isMobile) {
     return (
@@ -3283,7 +3293,7 @@ export default function AdminPanel() {
           borderBottom: '1px solid var(--border-subtle)',
           flexShrink: 0,
         }}>
-          <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>Settings</span>
+          <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>{t('admin.title')}</span>
           <button
             onClick={() => setShowAdmin(false)}
             style={{
@@ -3321,7 +3331,7 @@ export default function AdminPanel() {
               }}
             >
               <span style={{ display: 'flex', opacity: adminTab === tab.id ? 1 : 0.7 }}>{tab.icon}</span>
-              {tab.label}
+              {t(tab.labelKey)}
             </button>
           ))}
         </div>
@@ -3374,7 +3384,7 @@ export default function AdminPanel() {
             letterSpacing: '0.07em', textTransform: 'uppercase',
             padding: '0 8px', marginBottom: 10,
           }}>
-            Settings
+            {t('admin.title')}
           </div>
 
           {visibleTabs.map(tab => (
@@ -3395,7 +3405,7 @@ export default function AdminPanel() {
               <span style={{ color: adminTab === tab.id ? 'var(--accent)' : 'var(--text-tertiary)' }}>
                 {tab.icon}
               </span>
-              {tab.label}
+              {t(tab.labelKey)}
             </button>
           ))}
 
@@ -3415,7 +3425,7 @@ export default function AdminPanel() {
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
               <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
             </svg>
-            Close
+            {t('admin.close')}
           </button>
         </div>
 

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { useMobile } from '../hooks/useMobile.js';
 
@@ -25,6 +26,7 @@ export default function NotificationToasts() {
 }
 
 function Toast({ notification, onDismiss, isMobile }) {
+  const { t } = useTranslation();
   const [exiting, setExiting] = useState(false);
 
   const dismiss = () => {
@@ -99,7 +101,7 @@ function Toast({ notification, onDismiss, isMobile }) {
           onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
           onMouseLeave={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
         >
-          {notification.actionLabel || 'View'}
+          {notification.actionLabel || t('common.view')}
         </button>
       )}
       {notification.onUndo && (
@@ -114,7 +116,7 @@ function Toast({ notification, onDismiss, isMobile }) {
           onMouseEnter={e => e.currentTarget.style.background = 'rgba(124,106,247,0.25)'}
           onMouseLeave={e => e.currentTarget.style.background = 'var(--accent-dim)'}
         >
-          Undo
+          {t('common.undo')}
         </button>
       )}
       <button

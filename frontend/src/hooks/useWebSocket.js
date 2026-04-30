@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { playNotificationSound } from '../utils/notificationSounds.js';
@@ -13,6 +14,7 @@ const BACKOFF_BASE = 1000;
 const BACKOFF_MAX = 30000;
 
 export function useWebSocket() {
+  const { t } = useTranslation();
   const wsRef = useRef(null);
   const reconnectTimer = useRef(null);
   const mountedRef = useRef(true);
@@ -67,8 +69,8 @@ export function useWebSocket() {
             addNotification({
               type: 'new_mail',
               accountId,
-              title: latest.fromName || latest.fromEmail || 'New message',
-              body: latest.subject || '(no subject)',
+              title: latest.fromName || latest.fromEmail || t('notifications.newMessage'),
+              body: latest.subject || t('common.noSubject'),
               count,
             });
             const { notificationSound, customSoundDataUrl } = useStore.getState();
@@ -147,7 +149,7 @@ export function useWebSocket() {
         break;
       }
     }
-  }, [addNotification, updateAccount]);
+  }, [addNotification, updateAccount, t]);
 
   useEffect(() => {
     mountedRef.current = true;
