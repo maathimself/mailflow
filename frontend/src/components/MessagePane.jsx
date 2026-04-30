@@ -640,11 +640,12 @@ export default function MessagePane() {
       }}>
         {/* Split Reply button */}
         <div style={{ position: 'relative', display: 'flex' }}>
-          <PaneBtn onClick={() => handleReply(false)} title={t('message.reply')}>
+          <PaneBtn onClick={() => handleReply(false)} title={isMobile ? t('message.reply') : `${t('message.reply')} (R)`}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
               <polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 00-4-4H4"/>
             </svg>
             {t('message.reply')}
+            {!isMobile && <kbd style={{ fontSize: 11, padding: '1px 5px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>R</kbd>}
           </PaneBtn>
           <button
             onClick={() => setShowReplyMenu(v => !v)}
@@ -694,14 +695,15 @@ export default function MessagePane() {
           )}
         </div>
 
-        <PaneBtn onClick={handleForward} title={t('message.forward')}>
+        <PaneBtn onClick={handleForward} title={isMobile ? t('message.forward') : `${t('message.forward')} (F)`}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
             <polyline points="15 17 20 12 15 7"/><path d="M4 18v-2a4 4 0 014-4h12"/>
           </svg>
           {t('message.forward')}
+          {!isMobile && <kbd style={{ fontSize: 11, padding: '1px 5px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>F</kbd>}
         </PaneBtn>
 
-        <PaneBtn onClick={handleArchive} title={t('message.archive')}>
+        <PaneBtn onClick={handleArchive} title={isMobile ? t('message.archive') : `${t('message.archive')} (E)`}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
             <rect x="2" y="3" width="20" height="5" rx="1"/>
             <path d="M4 8v11a1 1 0 001 1h14a1 1 0 001-1V8"/>
@@ -709,6 +711,7 @@ export default function MessagePane() {
             <line x1="12" y1="11" x2="12" y2="16"/>
           </svg>
           {t('message.archive')}
+          {!isMobile && <kbd style={{ fontSize: 11, padding: '1px 5px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>E</kbd>}
         </PaneBtn>
 
         <div style={{ flex: 1 }} />
@@ -774,36 +777,60 @@ export default function MessagePane() {
 
             {/* Sender info */}
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
-                  {message.from_name || message.from_email}
-                </span>
-                {message.from_name && (
-                  <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
-                    &lt;{message.from_email}&gt;
-                  </span>
-                )}
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3 }}>
-                <span>{t('message.to')} </span>
-                <span style={{ color: 'var(--text-secondary)' }}>
-                  {toList.length > 0
-                    ? toList.map((t, i) => (
-                        <span key={i}>
-                          {t.name ? `${t.name} <${t.email}>` : t.email}
-                          {i < toList.length - 1 ? ', ' : ''}
-                        </span>
-                      ))
-                    : (message.account_email || message.account_name || '')
-                  }
-                </span>
-              </div>
+              {isMobile ? (
+                <>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {message.from_name || message.from_email}
+                  </div>
+                  {message.from_name && (
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {message.from_email}
+                    </div>
+                  )}
+                  <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <span>{t('message.to')} </span>
+                    <span style={{ color: 'var(--text-secondary)' }}>
+                      {toList.length > 0
+                        ? toList.map((r, i) => (
+                            <span key={i}>{r.name || r.email}{i < toList.length - 1 ? ', ' : ''}</span>
+                          ))
+                        : (message.account_email || message.account_name || '')}
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
+                      {message.from_name || message.from_email}
+                    </span>
+                    {message.from_name && (
+                      <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
+                        &lt;{message.from_email}&gt;
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3 }}>
+                    <span>{t('message.to')} </span>
+                    <span style={{ color: 'var(--text-secondary)' }}>
+                      {toList.length > 0
+                        ? toList.map((r, i) => (
+                            <span key={i}>
+                              {r.name ? `${r.name} <${r.email}>` : r.email}
+                              {i < toList.length - 1 ? ', ' : ''}
+                            </span>
+                          ))
+                        : (message.account_email || message.account_name || '')}
+                    </span>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Date + account */}
-            <div style={{ flexShrink: 1, minWidth: 80, textAlign: 'right' }}>
-              <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
-                {message.date ? format(new Date(message.date), 'MMM d, yyyy h:mm a') : ''}
+            <div style={{ flexShrink: 0, textAlign: 'right' }}>
+              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>
+                {message.date ? format(new Date(message.date), isMobile ? 'MMM d, h:mm a' : 'MMM d, yyyy h:mm a') : ''}
               </div>
               <div style={{
                 fontSize: 11, marginTop: 4,

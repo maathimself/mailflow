@@ -118,41 +118,69 @@ router.post('/invites', async (req, res) => {
   }
   const inviteUrl = `${appUrl}/register?invite=${token}`;
 
-  // Try to send an invite email via the admin's first SMTP-enabled account
+  // Try to send an invite email — prefer system SMTP, fall back to admin's first SMTP account
   let emailSent = false;
   let emailError = null;
   try {
-    const accountResult = await query(
-      `SELECT * FROM email_accounts
-       WHERE user_id = $1 AND enabled = true AND smtp_host IS NOT NULL
-       ORDER BY created_at LIMIT 1`,
-      [req.session.userId]
+    let transport = null;
+    let fromHeader = null;
+
+    // 1. System SMTP (configured in Admin → Users → System Email)
+    const sysResult = await query(
+      "SELECT value FROM system_settings WHERE key = 'system_email_config'"
     );
+    if (sysResult.rows.length) {
+      try {
+        const cfg = JSON.parse(sysResult.rows[0].value);
+        const pass = cfg.pass ? decrypt(cfg.pass) : null;
+        if (cfg.host && cfg.user && pass) {
+          transport = nodemailer.createTransport({
+            host: cfg.host,
+            port: cfg.port || 587,
+            secure: (cfg.port || 587) === 465,
+            auth: { user: cfg.user, pass },
+            tls: { rejectUnauthorized: true },
+          });
+          fromHeader = `${cfg.fromName || 'MailFlow'} <${cfg.fromEmail || cfg.user}>`;
+        }
+      } catch {}
+    }
 
-    if (accountResult.rows.length) {
-      const account = accountResult.rows[0];
-      let smtpAuth;
-      if ((account.oauth_provider === 'microsoft' || account.oauth_provider === 'google')
-          && account.oauth_access_token) {
-        smtpAuth = {
-          type: 'OAuth2',
-          user: account.auth_user || account.email_address,
-          accessToken: decrypt(account.oauth_access_token),
-        };
-      } else {
-        smtpAuth = { user: account.auth_user, pass: decrypt(account.auth_pass) };
+    // 2. Fall back to admin's first SMTP-enabled personal account
+    if (!transport) {
+      const accountResult = await query(
+        `SELECT * FROM email_accounts
+         WHERE user_id = $1 AND enabled = true AND smtp_host IS NOT NULL
+         ORDER BY created_at LIMIT 1`,
+        [req.session.userId]
+      );
+      if (accountResult.rows.length) {
+        const account = accountResult.rows[0];
+        let smtpAuth;
+        if ((account.oauth_provider === 'microsoft' || account.oauth_provider === 'google')
+            && account.oauth_access_token) {
+          smtpAuth = {
+            type: 'OAuth2',
+            user: account.auth_user || account.email_address,
+            accessToken: decrypt(account.oauth_access_token),
+          };
+        } else {
+          smtpAuth = { user: account.auth_user, pass: decrypt(account.auth_pass) };
+        }
+        transport = nodemailer.createTransport({
+          host: account.smtp_host,
+          port: account.smtp_port,
+          secure: account.smtp_port === 465,
+          auth: smtpAuth,
+          tls: { rejectUnauthorized: !account.imap_skip_tls_verify },
+        });
+        fromHeader = `${account.name} <${account.email_address}>`;
       }
+    }
 
-      const transport = nodemailer.createTransport({
-        host: account.smtp_host,
-        port: account.smtp_port,
-        secure: account.smtp_port === 465,
-        auth: smtpAuth,
-        tls: { rejectUnauthorized: !account.imap_skip_tls_verify },
-      });
-
+    if (transport) {
       await transport.sendMail({
-        from: `${account.name} <${account.email_address}>`,
+        from: fromHeader,
         to: email,
         subject: 'You\'ve been invited to MailFlow',
         text: [
@@ -196,6 +224,94 @@ router.post('/invites', async (req, res) => {
 
 router.delete('/invites/:id', async (req, res) => {
   await query('DELETE FROM invites WHERE id = $1', [req.params.id]);
+  res.json({ ok: true });
+});
+
+// ── System email (SMTP for sending invites & system messages) ──────────────────
+
+router.get('/system-email', async (req, res) => {
+  const result = await query(
+    "SELECT value FROM system_settings WHERE key = 'system_email_config'"
+  );
+  if (!result.rows.length) return res.json({ config: null });
+  try {
+    const cfg = JSON.parse(result.rows[0].value);
+    // Never expose the raw password — return a sentinel so the UI can show a placeholder
+    res.json({ config: { ...cfg, pass: cfg.pass ? '••••••••' : '' } });
+  } catch {
+    res.json({ config: null });
+  }
+});
+
+router.post('/system-email', async (req, res) => {
+  const { host, port, tls, user, pass, fromName, fromEmail } = req.body;
+  if (!host || !user) {
+    return res.status(400).json({ error: 'SMTP host and username are required' });
+  }
+
+  // Load existing config so we can keep the encrypted password if the field wasn't changed
+  let existingPass = null;
+  const existing = await query(
+    "SELECT value FROM system_settings WHERE key = 'system_email_config'"
+  );
+  if (existing.rows.length) {
+    try { existingPass = JSON.parse(existing.rows[0].value).pass; } catch {}
+  }
+
+  const encryptedPass = pass && pass !== '••••••••'
+    ? encrypt(pass)
+    : (existingPass || null);
+
+  const cfg = {
+    host: host.trim(),
+    port: parseInt(port) || 587,
+    tls: tls || 'STARTTLS',
+    user: user.trim(),
+    pass: encryptedPass,
+    fromName: (fromName || '').trim() || 'MailFlow',
+    fromEmail: (fromEmail || '').trim() || user.trim(),
+  };
+
+  await query(
+    `INSERT INTO system_settings (key, value, updated_at) VALUES ('system_email_config', $1, NOW())
+     ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
+    [JSON.stringify(cfg)]
+  );
+  res.json({ ok: true });
+});
+
+router.post('/system-email/test', async (req, res) => {
+  const result = await query(
+    "SELECT value FROM system_settings WHERE key = 'system_email_config'"
+  );
+  if (!result.rows.length) {
+    return res.status(400).json({ error: 'No system email configured' });
+  }
+  let cfg;
+  try { cfg = JSON.parse(result.rows[0].value); } catch {
+    return res.status(500).json({ error: 'Corrupted system email config' });
+  }
+  const pass = cfg.pass ? decrypt(cfg.pass) : null;
+  if (!pass) {
+    return res.status(400).json({ error: 'No password stored — save the configuration first' });
+  }
+  try {
+    const transport = nodemailer.createTransport({
+      host: cfg.host,
+      port: cfg.port,
+      secure: cfg.port === 465,
+      auth: { user: cfg.user, pass },
+      tls: { rejectUnauthorized: true },
+    });
+    await transport.verify();
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.delete('/system-email', async (req, res) => {
+  await query("DELETE FROM system_settings WHERE key = 'system_email_config'");
   res.json({ ok: true });
 });
 

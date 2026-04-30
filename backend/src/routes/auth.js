@@ -244,11 +244,38 @@ router.post('/logout', (req, res) => {
 
 router.get('/me', async (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
-  const result = await query('SELECT id, username, is_admin, totp_enabled FROM users WHERE id = $1', [req.session.userId]);
+  const result = await query('SELECT id, username, display_name, avatar, is_admin, totp_enabled FROM users WHERE id = $1', [req.session.userId]);
   const user = result.rows[0];
   if (!user) return res.status(401).json({ error: 'Not authenticated' });
   req.session.isAdmin = user.is_admin;
-  res.json({ user: { id: user.id, username: user.username, isAdmin: user.is_admin, totpEnabled: user.totp_enabled } });
+  res.json({ user: { id: user.id, username: user.username, displayName: user.display_name, avatar: user.avatar, isAdmin: user.is_admin, totpEnabled: user.totp_enabled } });
+});
+
+router.patch('/profile', async (req, res) => {
+  if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
+  const { displayName } = req.body;
+  if (displayName === undefined) return res.status(400).json({ error: 'Nothing to update' });
+  const trimmed = String(displayName).trim().slice(0, 100);
+  await query('UPDATE users SET display_name = $1 WHERE id = $2', [trimmed || null, req.session.userId]);
+  res.json({ ok: true, displayName: trimmed || null });
+});
+
+router.post('/avatar', async (req, res) => {
+  if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
+  const { avatar } = req.body;
+  if (!avatar || typeof avatar !== 'string') return res.status(400).json({ error: 'Invalid avatar' });
+  if (!/^data:image\/(jpeg|png|gif|webp);base64,/.test(avatar)) {
+    return res.status(400).json({ error: 'Invalid image format' });
+  }
+  if (avatar.length > 512 * 1024) return res.status(400).json({ error: 'Image too large' });
+  await query('UPDATE users SET avatar = $1 WHERE id = $2', [avatar, req.session.userId]);
+  res.json({ ok: true });
+});
+
+router.delete('/avatar', async (req, res) => {
+  if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
+  await query('UPDATE users SET avatar = NULL WHERE id = $1', [req.session.userId]);
+  res.json({ ok: true });
 });
 
 // Public endpoint: check if registration is open (used by login page)

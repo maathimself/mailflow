@@ -79,13 +79,13 @@
     "allowSender": "Always allow from {{email}}",
     "allowDomain": "Always allow from @{{domain}}",
     "downloading": "Downloading…",
-    "reply": "Reply (R)",
+    "reply": "Reply",
     "replyAll": "Reply All",
     "replyOptions": "Reply options",
-    "forward": "Forward (F)",
-    "archive": "Archive (E)",
+    "forward": "Forward",
+    "archive": "Archive",
     "star": "Star",
-    "delete": "Delete (#)",
+    "delete": "Delete",
     "archived": {
       "title": "Message archived",
       "failTitle": "Archive failed",
@@ -273,6 +273,16 @@
       "title": "Image too large",
       "body": "Must be under 300 KB. Use an external URL for larger images."
     }
+  },
+  "profile": {
+    "title": "Edit Profile",
+    "editProfile": "Edit Profile",
+    "displayName": "Display name",
+    "displayNameHint": "Shown instead of your username. Leave blank to use username.",
+    "uploadPhoto": "Upload photo",
+    "removePhoto": "Remove photo",
+    "errorNotImage": "Please select an image file.",
+    "errorProcess": "Could not process image."
   },
   "admin": {
     "title": "Settings",
@@ -485,7 +495,7 @@
       "registrationStatusOpen": "Anyone can sign up",
       "registrationStatusClosed": "Only users with an invite link can register",
       "inviteTitle": "Invite a user",
-      "inviteDescription": "Generate a single-use invite link valid for 7 days. An email will be sent if you have an SMTP account configured.",
+      "inviteDescription": "Generate a single-use invite link valid for 7 days. An email will be sent using the system SMTP account (or your first personal SMTP account as a fallback).",
       "invitePh": "email@example.com",
       "inviteSend": "Send invite",
       "inviteSending": "Sending…",
@@ -506,6 +516,26 @@
       "disable2faConfirmTitle": "Disable 2FA for \"{{username}}\"?",
       "disable2faConfirmBody": "This will remove their authenticator app requirement. They can re-enable it themselves.",
       "disable2faConfirmLabel": "Disable 2FA"
+    },
+    "systemEmail": {
+      "tabUsers": "Users & Invites",
+      "tabEmail": "System Email",
+      "description": "Configure a dedicated SMTP account for sending invite emails and other system messages. If not set, the admin's first personal SMTP account is used as a fallback.",
+      "host": "SMTP Host",
+      "port": "Port",
+      "encryption": "Encryption",
+      "username": "Username",
+      "password": "Password",
+      "passPlaceholder": "Leave blank to keep current password",
+      "fromName": "From Name",
+      "fromEmail": "From Address",
+      "fromEmailPh": "Defaults to username",
+      "test": "Test connection",
+      "testing": "Testing…",
+      "testOk": "Connection successful",
+      "testFail": "Connection failed",
+      "saved": "System email settings saved",
+      "removed": "System email settings removed"
     },
     "sso": {
       "title": "Single Sign-On",

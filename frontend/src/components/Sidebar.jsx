@@ -4,6 +4,7 @@ import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { useMobile } from '../hooks/useMobile.js';
 import LogoMark from './LogoMark.jsx';
+import ProfileModal from './ProfileModal.jsx';
 
 const ICONS = {
   inbox: (
@@ -262,6 +263,7 @@ export default function Sidebar() {
     if (isMobile) setMobileSidebarOpen(false);
   }, [selectedAccountId, selectedFolder]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const [showProfile, setShowProfile] = useState(false);
   const [expandedAccounts, setExpandedAccounts] = useState({});
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [userMenuPos, setUserMenuPos] = useState({ bottom: 0, left: 0 });
@@ -994,20 +996,24 @@ export default function Sidebar() {
             display: 'flex', alignItems: 'center', gap: 10,
             padding: '12px 14px 10px',
           }}>
-            <div style={{
-              width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
-              background: 'var(--accent)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 14, fontWeight: 700, color: 'white',
-            }}>
-              {(user?.username || '?')[0].toUpperCase()}
-            </div>
+            {user?.avatar ? (
+              <img src={user.avatar} alt="" style={{ width: 34, height: 34, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+            ) : (
+              <div style={{
+                width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
+                background: 'var(--accent)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 14, fontWeight: 700, color: 'white',
+              }}>
+                {((user?.displayName || user?.username || '?')[0]).toUpperCase()}
+              </div>
+            )}
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{
                 fontSize: 14, fontWeight: 600, color: 'var(--text-primary)',
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
               }}>
-                {user?.username || 'Account'}
+                {user?.displayName || user?.username || 'Account'}
               </div>
               {user?.email && (
                 <div style={{
@@ -1046,6 +1052,26 @@ export default function Sidebar() {
                 left: blockRemoteImages ? 18 : 2,
               }} />
             </button>
+          </div>
+
+          {/* Edit Profile */}
+          <div
+            onClick={() => { setShowProfile(true); setMobileSidebarOpen(false); }}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              padding: '8px 14px', cursor: 'pointer',
+              WebkitTapHighlightColor: 'transparent',
+            }}
+            onTouchStart={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+            onTouchEnd={e => e.currentTarget.style.background = ''}
+            onTouchCancel={e => e.currentTarget.style.background = ''}
+          >
+            <span style={{ color: 'var(--text-tertiary)', display: 'flex', flexShrink: 0 }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+                <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/>
+              </svg>
+            </span>
+            <span style={{ flex: 1, fontSize: 13, color: 'var(--text-primary)' }}>{t('profile.editProfile')}</span>
           </div>
 
           {/* Settings */}
@@ -1111,14 +1137,18 @@ export default function Sidebar() {
             onMouseEnter={e => { if (!userMenuOpen) e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
             onMouseLeave={e => { if (!userMenuOpen) e.currentTarget.style.background = 'transparent'; }}
           >
-            <div style={{
-              width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
-              background: 'var(--accent)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 12, fontWeight: 700, color: 'white',
-            }}>
-              {(user?.username || '?')[0].toUpperCase()}
-            </div>
+            {user?.avatar ? (
+              <img src={user.avatar} alt="" style={{ width: 26, height: 26, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+            ) : (
+              <div style={{
+                width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
+                background: 'var(--accent)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 12, fontWeight: 700, color: 'white',
+              }}>
+                {((user?.displayName || user?.username || '?')[0]).toUpperCase()}
+              </div>
+            )}
             {!sidebarCollapsed && (
               <>
                 <span style={{
@@ -1126,7 +1156,7 @@ export default function Sidebar() {
                   color: 'var(--text-primary)',
                   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                 }}>
-                  {user?.username || 'Account'}
+                  {user?.displayName || user?.username || 'Account'}
                 </span>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
                   stroke="var(--text-tertiary)" strokeWidth="2" style={{ flexShrink: 0 }}>
@@ -1157,7 +1187,7 @@ export default function Sidebar() {
         >
           <div style={{ padding: '10px 13px 9px', borderBottom: '1px solid var(--border-subtle)' }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
-              {user?.username || 'Account'}
+              {user?.displayName || user?.username || 'Account'}
             </div>
             {user?.email && (
               <div style={{
@@ -1196,6 +1226,8 @@ export default function Sidebar() {
             </button>
           </div>
           <div style={{ height: 1, background: 'var(--border-subtle)', margin: '2px 0' }} />
+          <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>} label={t('profile.editProfile')}
+            onClick={() => { setUserMenuOpen(false); setShowProfile(true); }} />
           <CtxMenuItem icon={ICONS.settings} label={t('sidebar.settings')}
             onClick={() => { setAdminTab('accounts'); setShowAdmin(true); setUserMenuOpen(false); }} />
           <CtxMenuItem icon={ICONS.logout} label={t('sidebar.signOut')} danger
@@ -1225,6 +1257,8 @@ export default function Sidebar() {
           onClose={() => setAccountCtxMenu(null)}
         />
       )}
+      {showProfile && <ProfileModal onClose={() => setShowProfile(false)} />}
+
       {confirmDialog && (
         <div style={{
           position: 'fixed', inset: 0, zIndex: 9000,

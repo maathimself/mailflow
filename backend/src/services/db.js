@@ -265,6 +265,10 @@ export async function initDb() {
       -- Per-provider email_verified enforcement toggle
       ALTER TABLE oidc_providers ADD COLUMN IF NOT EXISTS require_email_verified BOOLEAN NOT NULL DEFAULT true;
 
+      -- User profile: display name and avatar
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name VARCHAR(100);
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT;
+
       -- Clear snippets that consist entirely of HTML character entities
       -- (e.g. &#8199; &#847; — "preheader killer" filler used by marketing emails).
       -- These were stored by an earlier code path that lacked full entity decoding.

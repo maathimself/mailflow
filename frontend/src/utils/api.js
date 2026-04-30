@@ -35,6 +35,9 @@ export const api = {
   me: () => request('GET', '/auth/me'),
   getPreferences: () => request('GET', '/auth/preferences'),
   savePreferences: (prefs) => request('PATCH', '/auth/preferences', prefs),
+  updateProfile: (data) => request('PATCH', '/auth/profile', data),
+  uploadAvatar: (avatar) => request('POST', '/auth/avatar', { avatar }),
+  deleteAvatar: () => request('DELETE', '/auth/avatar'),
   getRegistrationStatus: () => request('GET', '/auth/registration-status'),
   validateInvite: (token) => request('GET', `/auth/invite/${token}`),
 
@@ -58,6 +61,10 @@ export const api = {
     getInvites: () => request('GET', '/admin/invites'),
     createInvite: (email) => request('POST', '/admin/invites', { email }),
     deleteInvite: (id) => request('DELETE', `/admin/invites/${id}`),
+    getSystemEmail: () => request('GET', '/admin/system-email'),
+    saveSystemEmail: (data) => request('POST', '/admin/system-email', data),
+    testSystemEmail: () => request('POST', '/admin/system-email/test'),
+    deleteSystemEmail: () => request('DELETE', '/admin/system-email'),
     oidc: {
       getProviders: () => request('GET', '/admin/oidc'),
       createProvider: (data) => request('POST', '/admin/oidc', data),

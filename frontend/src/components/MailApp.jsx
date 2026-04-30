@@ -101,6 +101,7 @@ export default function MailApp() {
   useEffect(() => { showAdminRef.current  = showAdmin;  }, [showAdmin]);
 
   useEffect(() => {
+    if (isMobile) return;
     const keyMap = buildKeyMap(shortcuts);
     // Keys that are prefixes of two-key sequences (e.g. 'g' for 'gi').
     // Special keys like 'Delete' have length > 1 but are single keypresses — exclude them.
@@ -174,13 +175,13 @@ export default function MailApp() {
       document.removeEventListener('keydown', handler);
       clearPending();
     };
-  }, [shortcuts]); // Re-build key map only when user's shortcut overrides change
+  }, [shortcuts, isMobile]); // Re-build key map only when shortcuts or device type changes
 
   // Subscribe to global actions that MailApp owns
   useEffect(() => {
     const onCompose   = () => openCompose();
     const onGoInbox   = () => setSelectedAccount(null, 'INBOX');
-    const onShowHelp  = () => setShowShortcutHelp(v => !v);
+    const onShowHelp  = () => { if (!isMobile) setShowShortcutHelp(v => !v); };
 
     shortcutBus.on('compose',   onCompose);
     shortcutBus.on('goInbox',   onGoInbox);

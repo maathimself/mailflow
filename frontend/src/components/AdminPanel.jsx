@@ -2186,7 +2186,155 @@ function SSOTab() {
   );
 }
 
+// ─── System Email Section ─────────────────────────────────────────────────────
+function SystemEmailSection() {
+  const { t } = useTranslation();
+  const [config, setConfig] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [form, setForm] = useState({ host: '', port: '587', tls: 'STARTTLS', user: '', pass: '', fromName: 'MailFlow', fromEmail: '' });
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  useEffect(() => {
+    api.admin.getSystemEmail()
+      .then(({ config: cfg }) => {
+        if (cfg) {
+          setConfig(cfg);
+          setForm({ host: cfg.host || '', port: String(cfg.port || 587), tls: cfg.tls || 'STARTTLS', user: cfg.user || '', pass: cfg.pass || '', fromName: cfg.fromName || 'MailFlow', fromEmail: cfg.fromEmail || '' });
+        }
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    setSaving(true); setMsg(null);
+    try {
+      await api.admin.saveSystemEmail(form);
+      setConfig({ ...form });
+      setMsg({ type: 'ok', text: t('admin.systemEmail.saved') });
+    } catch (err) {
+      setMsg({ type: 'error', text: err.message });
+    } finally { setSaving(false); }
+  };
+
+  const handleTest = async () => {
+    setTesting(true); setMsg(null);
+    try {
+      await api.admin.testSystemEmail();
+      setMsg({ type: 'ok', text: t('admin.systemEmail.testOk') });
+    } catch (err) {
+      setMsg({ type: 'error', text: `${t('admin.systemEmail.testFail')}: ${err.message}` });
+    } finally { setTesting(false); }
+  };
+
+  const handleRemove = async () => {
+    await api.admin.deleteSystemEmail();
+    setConfig(null);
+    setForm({ host: '', port: '587', tls: 'STARTTLS', user: '', pass: '', fromName: 'MailFlow', fromEmail: '' });
+    setMsg({ type: 'ok', text: t('admin.systemEmail.removed') });
+  };
+
+  const field = (label, key, type = 'text', placeholder = '') => (
+    <div style={{ marginBottom: 14 }}>
+      <label style={{ display: 'block', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 5 }}>{label}</label>
+      <input
+        type={type}
+        value={form[key]}
+        onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
+        placeholder={placeholder}
+        autoComplete={type === 'password' ? 'new-password' : 'off'}
+        style={{ width: '100%', background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 6, padding: '7px 10px', color: 'var(--text-primary)', fontSize: 13 }}
+      />
+    </div>
+  );
+
+  if (loading) return <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>{t('common.loading')}</div>;
+
+  return (
+    <div>
+      <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 0, marginBottom: 20 }}>
+        {t('admin.systemEmail.description')}
+      </p>
+
+      {config && (
+        <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 14px', marginBottom: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{config.fromName} &lt;{config.fromEmail || config.user}&gt;</div>
+            <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>{config.host}:{config.port} · {config.tls}</div>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={handleTest} disabled={testing} style={{ fontSize: 12, padding: '5px 12px', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-secondary)', cursor: 'pointer' }}>
+              {testing ? t('admin.systemEmail.testing') : t('admin.systemEmail.test')}
+            </button>
+            <button onClick={handleRemove} style={{ fontSize: 12, padding: '5px 12px', background: 'none', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--red)', cursor: 'pointer' }}>
+              {t('common.remove')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <form onSubmit={handleSave}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px', gap: '0 12px' }}>
+          <div>
+            {field(t('admin.systemEmail.host'), 'host', 'text', 'smtp.example.com')}
+          </div>
+          <div>
+            {field(t('admin.systemEmail.port'), 'port', 'number', '587')}
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ display: 'block', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 5 }}>{t('admin.systemEmail.encryption')}</label>
+          <select value={form.tls} onChange={e => setForm(f => ({ ...f, tls: e.target.value }))}
+            style={{ width: '100%', background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 6, padding: '7px 10px', color: 'var(--text-primary)', fontSize: 13 }}>
+            <option value="STARTTLS">STARTTLS (port 587)</option>
+            <option value="SSL">SSL/TLS (port 465)</option>
+            <option value="none">None (port 25)</option>
+          </select>
+        </div>
+
+        {field(t('admin.systemEmail.username'), 'user', 'text', 'noreply@example.com')}
+        {field(t('admin.systemEmail.password'), 'pass', 'password', config ? t('admin.systemEmail.passPlaceholder') : '')}
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 12px' }}>
+          <div>{field(t('admin.systemEmail.fromName'), 'fromName', 'text', 'MailFlow')}</div>
+          <div>{field(t('admin.systemEmail.fromEmail'), 'fromEmail', 'text', t('admin.systemEmail.fromEmailPh'))}</div>
+        </div>
+
+        {msg && (
+          <div style={{ padding: '8px 12px', borderRadius: 6, marginBottom: 14, fontSize: 13,
+            background: msg.type === 'ok' ? 'rgba(74,222,128,0.1)' : 'rgba(248,113,113,0.1)',
+            color: msg.type === 'ok' ? 'var(--green)' : 'var(--red)',
+            border: `1px solid ${msg.type === 'ok' ? 'rgba(74,222,128,0.2)' : 'rgba(248,113,113,0.2)'}`,
+          }}>
+            {msg.text}
+          </div>
+        )}
+
+        <button type="submit" disabled={saving || !form.host || !form.user}
+          style={{ padding: '8px 18px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 7, fontSize: 13, fontWeight: 500, cursor: 'pointer', opacity: (saving || !form.host || !form.user) ? 0.5 : 1 }}>
+          {saving ? t('common.saving') : t('common.save')}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+// ─── Users Tab ────────────────────────────────────────────────────────────────
 function UsersTab() {
+  const { t } = useTranslation();
+  return (
+    <SubTabs tabs={[
+      { id: 'users', label: t('admin.systemEmail.tabUsers'), content: <UsersAndInvitesPanel /> },
+      { id: 'systememail', label: t('admin.systemEmail.tabEmail'), content: <SystemEmailSection /> },
+    ]} />
+  );
+}
+
+function UsersAndInvitesPanel() {
   const { t } = useTranslation();
   const { user: currentUser } = useStore();
   const [users, setUsers] = useState([]);
@@ -2952,6 +3100,7 @@ const TABS = [
   },
   {
     id: 'shortcuts', labelKey: 'admin.tabs.shortcuts',
+    mobileHidden: true,
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="2" y="7" width="6" height="4" rx="1"/><rect x="9" y="7" width="6" height="4" rx="1"/><rect x="16" y="7" width="6" height="4" rx="1"/><rect x="2" y="13" width="9" height="4" rx="1"/><rect x="13" y="13" width="9" height="4" rx="1"/></svg>,
   },
 ];
@@ -3781,7 +3930,7 @@ export default function AdminPanel() {
   const { t } = useTranslation();
   const { setShowAdmin, adminTab, setAdminTab, user } = useStore();
   const isMobile = useMobile();
-  const visibleTabs = TABS.filter(tab => !tab.adminOnly || user?.isAdmin);
+  const visibleTabs = TABS.filter(tab => (!tab.adminOnly || user?.isAdmin) && (!tab.mobileHidden || !isMobile));
 
   if (isMobile) {
     return (
@@ -3857,7 +4006,7 @@ export default function AdminPanel() {
           {adminTab === 'sso' && <SSOTab />}
           {adminTab === 'security' && <SecurityPrivacyTab />}
           {adminTab === 'notifications' && <NotificationsTab />}
-          {adminTab === 'shortcuts' && <ShortcutsTab />}
+          {adminTab === 'shortcuts' && !isMobile && <ShortcutsTab />}
         </div>
       </div>
     );
@@ -3952,7 +4101,7 @@ export default function AdminPanel() {
           {adminTab === 'sso' && <SSOTab />}
           {adminTab === 'security' && <SecurityPrivacyTab />}
           {adminTab === 'notifications' && <NotificationsTab />}
-          {adminTab === 'shortcuts' && <ShortcutsTab />}
+          {adminTab === 'shortcuts' && !isMobile && <ShortcutsTab />}
         </div>
       </div>
     </div>

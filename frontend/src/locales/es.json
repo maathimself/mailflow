@@ -79,13 +79,13 @@
     "allowSender": "Permitir siempre desde {{email}}",
     "allowDomain": "Permitir siempre desde @{{domain}}",
     "downloading": "Descargando…",
-    "reply": "Responder (R)",
+    "reply": "Responder",
     "replyAll": "Responder a todos",
     "replyOptions": "Opciones de respuesta",
-    "forward": "Reenviar (F)",
-    "archive": "Archivar (E)",
+    "forward": "Reenviar",
+    "archive": "Archivar",
     "star": "Destacar",
-    "delete": "Eliminar (#)",
+    "delete": "Eliminar",
     "archived": {
       "title": "Mensaje archivado",
       "failTitle": "Error al archivar",
@@ -273,6 +273,16 @@
       "title": "Imagen demasiado grande",
       "body": "Debe ser menor de 300 KB. Usa una URL externa para imágenes más grandes."
     }
+  },
+  "profile": {
+    "title": "Editar perfil",
+    "editProfile": "Editar perfil",
+    "displayName": "Nombre para mostrar",
+    "displayNameHint": "Se muestra en lugar de tu nombre de usuario. Déjalo en blanco para usar el nombre de usuario.",
+    "uploadPhoto": "Subir foto",
+    "removePhoto": "Eliminar foto",
+    "errorNotImage": "Por favor selecciona un archivo de imagen.",
+    "errorProcess": "No se pudo procesar la imagen."
   },
   "admin": {
     "title": "Ajustes",
@@ -506,6 +516,26 @@
       "disable2faConfirmTitle": "¿Desactivar 2FA para «{{username}}»?",
       "disable2faConfirmBody": "Esto eliminará el requisito de su aplicación de autenticación. Pueden volver a activarla ellos mismos.",
       "disable2faConfirmLabel": "Desactivar 2FA"
+    },
+    "systemEmail": {
+      "tabUsers": "Usuarios e invitaciones",
+      "tabEmail": "Correo del sistema",
+      "description": "Configure una cuenta SMTP dedicada para enviar invitaciones y otros mensajes del sistema. Si no se configura, se usa la primera cuenta SMTP personal del administrador.",
+      "host": "Servidor SMTP",
+      "port": "Puerto",
+      "encryption": "Cifrado",
+      "username": "Usuario",
+      "password": "Contraseña",
+      "passPlaceholder": "Dejar en blanco para mantener la contraseña actual",
+      "fromName": "Nombre del remitente",
+      "fromEmail": "Dirección del remitente",
+      "fromEmailPh": "Por defecto, el nombre de usuario",
+      "test": "Probar conexión",
+      "testing": "Probando…",
+      "testOk": "Conexión exitosa",
+      "testFail": "Conexión fallida",
+      "saved": "Configuración de correo del sistema guardada",
+      "removed": "Configuración de correo del sistema eliminada"
     },
     "sso": {
       "title": "Inicio de sesión único",

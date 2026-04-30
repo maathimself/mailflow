@@ -22,6 +22,7 @@ export const useStore = create((set, get) => ({
   // Auth
   user: null,
   setUser: (user) => set({ user }),
+  updateUser: (updates) => set(state => ({ user: state.user ? { ...state.user, ...updates } : state.user })),
 
   // Accounts
   accounts: [],

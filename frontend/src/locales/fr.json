@@ -79,13 +79,13 @@
     "allowSender": "Toujours autoriser depuis {{email}}",
     "allowDomain": "Toujours autoriser depuis @{{domain}}",
     "downloading": "Téléchargement…",
-    "reply": "Répondre (R)",
+    "reply": "Répondre",
     "replyAll": "Répondre à tous",
     "replyOptions": "Options de réponse",
-    "forward": "Transférer (F)",
-    "archive": "Archiver (E)",
+    "forward": "Transférer",
+    "archive": "Archiver",
     "star": "Étoile",
-    "delete": "Supprimer (#)",
+    "delete": "Supprimer",
     "archived": {
       "title": "Message archivé",
       "failTitle": "Échec de l'archivage",
@@ -273,6 +273,16 @@
       "title": "Image trop grande",
       "body": "Doit faire moins de 300 Ko. Utilisez une URL externe pour les images plus grandes."
     }
+  },
+  "profile": {
+    "title": "Modifier le profil",
+    "editProfile": "Modifier le profil",
+    "displayName": "Nom d'affichage",
+    "displayNameHint": "Affiché à la place de votre nom d'utilisateur. Laissez vide pour utiliser le nom d'utilisateur.",
+    "uploadPhoto": "Téléverser une photo",
+    "removePhoto": "Supprimer la photo",
+    "errorNotImage": "Veuillez sélectionner un fichier image.",
+    "errorProcess": "Impossible de traiter l'image."
   },
   "admin": {
     "title": "Paramètres",
@@ -506,6 +516,26 @@
       "disable2faConfirmTitle": "Désactiver la 2FA pour « {{username}} » ?",
       "disable2faConfirmBody": "Cela supprimera l'exigence de leur application d'authentification. Ils peuvent la réactiver eux-mêmes.",
       "disable2faConfirmLabel": "Désactiver la 2FA"
+    },
+    "systemEmail": {
+      "tabUsers": "Utilisateurs et invitations",
+      "tabEmail": "Courriel système",
+      "description": "Configurez un compte SMTP dédié pour l'envoi des invitations et autres messages système. Si non configuré, le premier compte SMTP personnel de l'administrateur est utilisé.",
+      "host": "Serveur SMTP",
+      "port": "Port",
+      "encryption": "Chiffrement",
+      "username": "Nom d'utilisateur",
+      "password": "Mot de passe",
+      "passPlaceholder": "Laisser vide pour conserver le mot de passe actuel",
+      "fromName": "Nom de l'expéditeur",
+      "fromEmail": "Adresse de l'expéditeur",
+      "fromEmailPh": "Par défaut, le nom d'utilisateur",
+      "test": "Tester la connexion",
+      "testing": "Test en cours…",
+      "testOk": "Connexion réussie",
+      "testFail": "Échec de la connexion",
+      "saved": "Paramètres de courriel système enregistrés",
+      "removed": "Paramètres de courriel système supprimés"
     },
     "sso": {
       "title": "Authentification unique",
