@@ -5,14 +5,20 @@ const IV_BYTES = 12;
 const TAG_BYTES = 16;
 const PREFIX = 'enc:v1:';
 
+// Cache the parsed key buffer so we don't re-allocate on every encrypt/decrypt call.
+// Only cached when valid — null is not cached so a late-set env var is still picked up.
+let _cachedKey = null;
+
 function getKey() {
+  if (_cachedKey) return _cachedKey;
   const hex = process.env.ENCRYPTION_KEY;
   if (!hex) return null;
   if (hex.length !== 64) {
     console.error('ENCRYPTION_KEY must be 64 hex characters (32 bytes). Credential encryption disabled.');
     return null;
   }
-  return Buffer.from(hex, 'hex');
+  _cachedKey = Buffer.from(hex, 'hex');
+  return _cachedKey;
 }
 
 // Returns a prefixed string: enc:v1:<iv_hex>:<tag_hex>:<ciphertext_hex>

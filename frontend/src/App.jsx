@@ -13,6 +13,12 @@ export default function App() {
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
+    const onExpired = () => setUser(null);
+    window.addEventListener('mailflow:session_expired', onExpired);
+    return () => window.removeEventListener('mailflow:session_expired', onExpired);
+  }, [setUser]);
+
+  useEffect(() => {
     // Apply localStorage immediately so there's no flash while we check auth
     applyTheme(localStorage.getItem('mailflow_theme') || 'dark');
     applyFontSet(localStorage.getItem('mailflow_font') || 'default');

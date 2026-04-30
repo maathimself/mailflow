@@ -12,14 +12,20 @@ router.use(requireAdmin);
 
 router.get('/users', async (req, res) => {
   const result = await query(
-    'SELECT id, username, is_admin, totp_enabled, created_at FROM users ORDER BY created_at ASC'
+    'SELECT id, username, is_admin, totp_enabled, created_at FROM users ORDER BY created_at ASC LIMIT 500'
   );
   res.json({ users: result.rows.map(u => ({ ...u, isAdmin: u.is_admin, totpEnabled: u.totp_enabled })) });
 });
 
 router.post('/users/:id/totp/disable', async (req, res) => {
   const { id } = req.params;
+  if (id === req.session.userId) {
+    return res.status(400).json({ error: 'Use your account settings to manage your own 2FA.' });
+  }
+  const target = await query('SELECT username FROM users WHERE id = $1', [id]);
+  if (!target.rows.length) return res.status(404).json({ error: 'User not found' });
   await query('UPDATE users SET totp_secret = NULL, totp_enabled = false WHERE id = $1', [id]);
+  console.log(`[admin] ${req.session.username} disabled 2FA for user ${target.rows[0].username} (${id})`);
   res.json({ ok: true });
 });
 
@@ -32,7 +38,11 @@ router.patch('/users/:id', async (req, res) => {
     return res.status(400).json({ error: 'Cannot remove your own admin status' });
   }
 
+  const target = await query('SELECT username FROM users WHERE id = $1', [id]);
+  if (!target.rows.length) return res.status(404).json({ error: 'User not found' });
+
   await query('UPDATE users SET is_admin = $1 WHERE id = $2', [isAdmin, id]);
+  console.log(`[admin] ${req.session.username} set is_admin=${isAdmin} for user ${target.rows[0].username} (${id})`);
 
   // If user is currently logged in, their session isAdmin will be refreshed on next /me call
   res.json({ ok: true });
@@ -43,7 +53,10 @@ router.delete('/users/:id', async (req, res) => {
   if (id === req.session.userId) {
     return res.status(400).json({ error: 'Cannot delete your own account' });
   }
+  const target = await query('SELECT username FROM users WHERE id = $1', [id]);
+  if (!target.rows.length) return res.status(404).json({ error: 'User not found' });
   await query('DELETE FROM users WHERE id = $1', [id]);
+  console.log(`[admin] ${req.session.username} deleted user ${target.rows[0].username} (${id})`);
   res.json({ ok: true });
 });
 
@@ -78,6 +91,7 @@ router.get('/invites', async (req, res) => {
     FROM invites i
     LEFT JOIN users u ON i.used_by = u.id
     ORDER BY i.created_at DESC
+    LIMIT 500
   `);
   res.json({ invites: result.rows });
 });
@@ -171,8 +185,10 @@ router.post('/invites', async (req, res) => {
       emailSent = true;
     }
   } catch (err) {
-    emailError = err.message;
     console.error('Invite email failed:', err.message);
+    emailError = /ECONNREFUSED|ENOTFOUND|ETIMEDOUT|authentication|535|reject/i.test(err.message)
+      ? 'Mail server error. Check your SMTP account settings.'
+      : 'Failed to send invite email.';
   }
 
   res.json({ ok: true, inviteUrl, emailSent, emailError });

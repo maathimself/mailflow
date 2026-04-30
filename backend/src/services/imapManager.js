@@ -237,10 +237,21 @@ function makeClientCfg(account) {
   return cfg;
 }
 
+function drainWaiters(pool) {
+  while (pool.waiters.length > 0) {
+    const free = pool.clients.find(c => !pool.inUse.has(c));
+    if (!free) break;
+    const entry = pool.waiters.shift();
+    clearTimeout(entry.timer);
+    pool.inUse.add(free);
+    entry.resolve(free);
+  }
+}
+
 async function acquirePooledClient(account) {
   const id = account.id;
   if (!connectionPools.has(id)) {
-    connectionPools.set(id, { clients: [], inUse: new Set() });
+    connectionPools.set(id, { clients: [], inUse: new Set(), waiters: [] });
   }
   const pool = connectionPools.get(id);
 
@@ -261,12 +272,14 @@ async function acquirePooledClient(account) {
         setTimeout(() => reject(new Error('IMAP connection timeout (30s)')), 30000)
       ),
     ]);
-    // Remove from pool immediately when the server closes the socket
+    // Remove from pool immediately when the server closes the socket, then
+    // wake any waiters so they can claim another idle connection if one exists.
     client.on('close', () => {
       const p = connectionPools.get(id);
       if (p) {
         p.clients = p.clients.filter(c => c !== client);
         p.inUse.delete(client);
+        drainWaiters(p);
       }
     });
     client.on('error', (err) => {
@@ -277,26 +290,30 @@ async function acquirePooledClient(account) {
     return client;
   }
 
-  // Pool full — wait for one to become free (poll every 100ms, max 10s)
-  for (let i = 0; i < 100; i++) {
-    await new Promise(r => setTimeout(r, 100));
-    const free = pool.clients.find(c => !pool.inUse.has(c));
-    if (free) { pool.inUse.add(free); return free; }
-  }
-
-  // Timeout — create a temporary client outside the pool
-  const freshAccount = await ensureFreshToken(account);
-  const tmp = new ImapFlow(makeClientCfg(freshAccount));
-  tmp.on('error', (err) => {
-    console.error(`IMAP temp client error for account ${account.id}:`, err.message);
+  // Pool full — queue a waiter; on 10s timeout fall back to a temporary client
+  return new Promise((resolve, reject) => {
+    const entry = { resolve, reject, timer: null };
+    entry.timer = setTimeout(async () => {
+      pool.waiters = pool.waiters.filter(w => w !== entry);
+      try {
+        const freshAccount = await ensureFreshToken(account);
+        const tmp = new ImapFlow(makeClientCfg(freshAccount));
+        tmp.on('error', (err) => {
+          console.error(`IMAP temp client error for account ${account.id}:`, err.message);
+        });
+        await Promise.race([
+          tmp.connect(),
+          new Promise((_, rej) =>
+            setTimeout(() => rej(new Error('IMAP connection timeout (30s)')), 30000)
+          ),
+        ]);
+        resolve(tmp);
+      } catch (err) {
+        reject(err);
+      }
+    }, 10000);
+    pool.waiters.push(entry);
   });
-  await Promise.race([
-    tmp.connect(),
-    new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('IMAP connection timeout (30s)')), 30000)
-    ),
-  ]);
-  return tmp; // caller must logout this one
 }
 
 function releasePooledClient(account, client) {
@@ -306,6 +323,8 @@ function releasePooledClient(account, client) {
   // If this client isn't in our pool (was a temp), log it out
   if (!pool.clients.includes(client)) {
     try { client.logout(); } catch (_) {}
+  } else {
+    drainWaiters(pool);
   }
 }
 
@@ -313,6 +332,8 @@ function evictPool(accountId) {
   const pool = connectionPools.get(accountId);
   if (!pool) return;
   for (const c of pool.clients) { try { c.logout(); } catch (_) {} }
+  const evictErr = new Error('IMAP pool evicted');
+  for (const entry of pool.waiters) { clearTimeout(entry.timer); entry.reject(evictErr); }
   connectionPools.delete(accountId);
 }
 
@@ -1640,8 +1661,6 @@ export class ImapManager {
       }
     }));
 
-    // Small delay to ensure DB writes are committed before frontend re-fetches
-    await new Promise(r => setTimeout(r, 500));
     this.broadcast({ type: 'sync_complete', accountId: accountId || null }, userId);
   }
 

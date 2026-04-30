@@ -12,6 +12,9 @@ async function request(method, path, body) {
   }
   const res = await fetch(BASE + path, opts);
   if (!res.ok) {
+    if (res.status === 401 && !path.startsWith('/auth/')) {
+      window.dispatchEvent(new CustomEvent('mailflow:session_expired'));
+    }
     const err = await res.json().catch(() => ({ error: 'Request failed' }));
     throw new Error(err.error || 'Request failed');
   }

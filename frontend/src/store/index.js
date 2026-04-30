@@ -4,6 +4,19 @@ import { applyTheme } from '../themes.js';
 import { applyFontSet } from '../fonts.js';
 import { applyLayout } from '../layouts.js';
 
+// Accumulate rapid preference changes and flush at most once per second.
+let _prefFlushTimer = null;
+let _pendingPrefs = {};
+function schedulePrefSave(prefs) {
+  Object.assign(_pendingPrefs, prefs);
+  clearTimeout(_prefFlushTimer);
+  _prefFlushTimer = setTimeout(() => {
+    const toSave = _pendingPrefs;
+    _pendingPrefs = {};
+    api.savePreferences(toSave).catch(() => {});
+  }, 1000);
+}
+
 export const useStore = create((set, get) => ({
   // Auth
   user: null,
@@ -87,25 +100,25 @@ export const useStore = create((set, get) => ({
   setPageSize: (size) => {
     localStorage.setItem('mailflow_page_size', String(size));
     set({ pageSize: size });
-    api.savePreferences({ pageSize: String(size) }).catch(() => {});
+    schedulePrefSave({ pageSize: String(size) });
   },
   scrollMode: localStorage.getItem('mailflow_scroll_mode') || 'infinite',
   setScrollMode: (mode) => {
     localStorage.setItem('mailflow_scroll_mode', mode);
     set({ scrollMode: mode });
-    api.savePreferences({ scrollMode: mode }).catch(() => {});
+    schedulePrefSave({ scrollMode: mode });
   },
   syncInterval: parseInt(localStorage.getItem('mailflow_sync_interval')) || 60,
   setSyncInterval: (seconds) => {
     localStorage.setItem('mailflow_sync_interval', String(seconds));
     set({ syncInterval: seconds });
-    api.savePreferences({ syncInterval: String(seconds) }).catch(() => {});
+    schedulePrefSave({ syncInterval: String(seconds) });
   },
   notificationSound: localStorage.getItem('mailflow_notification_sound') || 'tritone',
   setNotificationSound: (sound) => {
     localStorage.setItem('mailflow_notification_sound', sound);
     set({ notificationSound: sound });
-    api.savePreferences({ notificationSound: sound }).catch(() => {});
+    schedulePrefSave({ notificationSound: sound });
   },
   customSoundDataUrl: localStorage.getItem('mailflow_custom_sound') || null,
   setCustomSoundDataUrl: (dataUrl) => {
@@ -155,7 +168,7 @@ export const useStore = create((set, get) => ({
     localStorage.setItem('mailflow_theme', theme);
     set({ theme });
     applyTheme(theme); // keep CSS vars + favicon in sync
-    api.savePreferences({ theme }).catch(() => {}); // fire-and-forget
+    schedulePrefSave({ theme });
   },
 
   // Font
@@ -164,7 +177,7 @@ export const useStore = create((set, get) => ({
     localStorage.setItem('mailflow_font', fontSet);
     set({ fontSet });
     applyFontSet(fontSet);
-    api.savePreferences({ font: fontSet }).catch(() => {}); // fire-and-forget
+    schedulePrefSave({ font: fontSet });
   },
 
   // Layout
@@ -173,7 +186,7 @@ export const useStore = create((set, get) => ({
     localStorage.setItem('mailflow_layout', layout);
     set({ layout });
     applyLayout(layout);
-    api.savePreferences({ layout }).catch(() => {}); // fire-and-forget
+    schedulePrefSave({ layout });
   },
 
   // Image privacy

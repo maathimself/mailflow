@@ -108,17 +108,17 @@ export default function MessagePane() {
     let cancelled = false;
 
     // Auto-retry helper: retries on transient errors (not-found race, dead IMAP
-    // connection, etc.) with a short delay before surfacing a permanent error.
-    const fetchWithRetry = async (id, attemptsLeft = 3) => {
+    // connection, etc.) with exponential backoff before surfacing a permanent error.
+    const fetchWithRetry = async (id, attemptsLeft = 2, delay = 500) => {
       try {
         return await api.getMessageBody(id, imagesRequestedRef.current.has(id));
       } catch (err) {
         const isNotFound = /not found/i.test(err.message);
         const isTransient = /Command failed|Command canceled|timed out|ECONNRESET|socket hang up|EPIPE/i.test(err.message);
         if ((isNotFound || isTransient) && attemptsLeft > 0 && !cancelled) {
-          await new Promise(r => setTimeout(r, 1500));
+          await new Promise(r => setTimeout(r, delay));
           if (cancelled) throw err; // user navigated away during wait
-          return fetchWithRetry(id, attemptsLeft - 1);
+          return fetchWithRetry(id, attemptsLeft - 1, delay * 2);
         }
         throw err;
       }

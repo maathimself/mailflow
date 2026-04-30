@@ -10,10 +10,16 @@ const router = Router();
 // Simple in-memory rate limiter — no extra dependency required.
 // Buckets are keyed by IP; entries expire after the window elapses.
 const rateBuckets = new Map();
+// Separate per-user rate limit for the 2FA challenge step, keyed by pendingUserId.
+// Prevents TOTP brute-force from IPs that rotate to bypass the IP-based authLimiter.
+const totpChallengeBuckets = new Map();
 setInterval(() => {
   const now = Date.now();
   for (const [key, bucket] of rateBuckets) {
     if (now > bucket.resetAt) rateBuckets.delete(key);
+  }
+  for (const [key, bucket] of totpChallengeBuckets) {
+    if (now > bucket.resetAt) totpChallengeBuckets.delete(key);
   }
 }, 5 * 60 * 1000);
 
@@ -39,6 +45,13 @@ const authLimiter = rateLimit(10, 15 * 60 * 1000); // 10 attempts per 15 minutes
 router.post('/register', authLimiter, async (req, res) => {
   const { username, password, inviteToken } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+  const trimmedUsername = username.toLowerCase().trim();
+  if (trimmedUsername.length < 1 || trimmedUsername.length > 120) {
+    return res.status(400).json({ error: 'Username must be between 1 and 120 characters' });
+  }
+  if (/[\x00-\x1f\x7f]/.test(trimmedUsername)) {
+    return res.status(400).json({ error: 'Username contains invalid characters' });
+  }
 
   // Hash before opening the transaction — bcrypt is intentionally slow and we
   // don't want to hold a DB connection open while it runs.
@@ -178,10 +191,25 @@ router.post('/2fa/challenge', authLimiter, async (req, res) => {
   if (!req.session.pendingUserId) {
     return res.status(400).json({ error: 'No pending authentication' });
   }
-  if (Date.now() > (req.session.pendingTOTPExpiry || 0)) {
+  const now = Date.now();
+  if (now > (req.session.pendingTOTPExpiry || 0)) {
     delete req.session.pendingUserId;
     delete req.session.pendingTOTPExpiry;
     return res.status(400).json({ error: 'Authentication timed out. Please log in again.' });
+  }
+
+  // Per-user rate limit (5 attempts per 15 min) applied on top of the IP-based authLimiter.
+  // Prevents brute-force via IP rotation during the pending TOTP window.
+  const uid = req.session.pendingUserId;
+  const challBucket = totpChallengeBuckets.get(uid);
+  if (challBucket && now <= challBucket.resetAt) {
+    if (challBucket.count >= 5) {
+      res.setHeader('Retry-After', Math.ceil((challBucket.resetAt - now) / 1000));
+      return res.status(429).json({ error: 'Too many attempts. Please log in again.' });
+    }
+    challBucket.count++;
+  } else {
+    totpChallengeBuckets.set(uid, { count: 1, resetAt: now + 15 * 60 * 1000 });
   }
 
   const result = await query('SELECT * FROM users WHERE id = $1', [req.session.pendingUserId]);

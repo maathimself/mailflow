@@ -11,6 +11,27 @@ function escapeHtml(str) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// Map SMTP/connection errors to user-friendly messages that don't expose server internals.
+function sanitizeSmtpError(err) {
+  const msg = err.message || '';
+  if (/ECONNREFUSED|ENOTFOUND|ETIMEDOUT|ECONNRESET|EHOSTUNREACH/i.test(msg)) {
+    return 'Could not connect to the mail server. Check your SMTP settings.';
+  }
+  if (/535|534|530|invalid.?login|authentication.?fail|bad.*credentials|username.*password|password.*username/i.test(msg)) {
+    return 'Authentication failed. Check your email account credentials.';
+  }
+  if (/throttl|rate.?limit|too many|4\.2\.|4\.7\.94/i.test(msg)) {
+    return 'The mail server is rate limiting sends. Please try again shortly.';
+  }
+  if (/550|5\.[13]\.|reject|blacklist|spam|not.?accept/i.test(msg)) {
+    return 'Message was rejected by the mail server.';
+  }
+  if (/TLS|SSL|certificate|handshake/i.test(msg)) {
+    return 'Secure connection to the mail server failed. Check your TLS settings.';
+  }
+  return 'Failed to send message. Please try again.';
+}
+
 function textToHtml(text) {
   return '<div style="font-family:sans-serif;font-size:14px;line-height:1.6">' +
     text.split('\n').map(l => `<p style="margin:0">${escapeHtml(l) || '&nbsp;'}</p>`).join('') +
@@ -174,7 +195,7 @@ router.post('/send', async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     console.error('Send failed:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: sanitizeSmtpError(err) });
   }
 });
 

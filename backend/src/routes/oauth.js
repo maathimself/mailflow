@@ -191,6 +191,7 @@ export async function refreshMicrosoftToken(account) {
       grant_type: 'refresh_token',
       scope: 'https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send offline_access',
     }),
+    signal: AbortSignal.timeout(10000),
   });
 
   const tokens = await tokenRes.json();

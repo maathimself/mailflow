@@ -379,9 +379,12 @@ router.patch('/messages/:id/read', async (req, res) => {
   if (!result.rows.length) return res.status(404).json({ error: 'Message not found' });
   const message = result.rows[0];
 
-  await query('UPDATE messages SET is_read = $1 WHERE id = $2', [read, id]);
+  // Run DB update and account fetch concurrently — no dependency between them
+  const [, accountResult] = await Promise.all([
+    query('UPDATE messages SET is_read = $1 WHERE id = $2', [read, id]),
+    query('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]),
+  ]);
 
-  const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]);
   try {
     await imapManager.setFlag(accountResult.rows[0], message.uid, message.folder, '\\Seen', read);
   } catch (err) {
@@ -405,9 +408,12 @@ router.patch('/messages/:id/star', async (req, res) => {
   if (!result.rows.length) return res.status(404).json({ error: 'Message not found' });
   const message = result.rows[0];
 
-  await query('UPDATE messages SET is_starred = $1 WHERE id = $2', [starred, id]);
+  // Run DB update and account fetch concurrently — no dependency between them
+  const [, accountResult] = await Promise.all([
+    query('UPDATE messages SET is_starred = $1 WHERE id = $2', [starred, id]),
+    query('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]),
+  ]);
 
-  const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]);
   try {
     await imapManager.setFlag(accountResult.rows[0], message.uid, message.folder, '\\Flagged', starred);
   } catch (err) {
@@ -659,14 +665,16 @@ router.post('/messages/bulk-move', async (req, res) => {
     }
     const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
     const account = accountResult.rows[0];
-    for (const msg of msgs) {
-      try {
-        await imapManager.moveMessage(account, msg.uid, msg.folder, folder);
-        movedIds.push(msg.id);
-      } catch (err) {
-        console.error(`bulk-move IMAP ${msg.id}:`, err.message);
+    const results = await Promise.allSettled(
+      msgs.map(msg => imapManager.moveMessage(account, msg.uid, msg.folder, folder))
+    );
+    results.forEach((r, i) => {
+      if (r.status === 'fulfilled') {
+        movedIds.push(msgs[i].id);
+      } else {
+        console.error(`bulk-move IMAP ${msgs[i].id}:`, r.reason.message);
       }
-    }
+    });
   }
 
   if (movedIds.length > 0) {
@@ -757,14 +765,17 @@ router.delete('/messages/:id', async (req, res) => {
   if (!result.rows.length) return res.status(404).json({ error: 'Message not found' });
   const message = result.rows[0];
 
-  const trashFolder = await query(`
-    SELECT path FROM folders
-    WHERE account_id = $1 AND (special_use = '\\Trash' OR lower(name) LIKE '%trash%')
-    LIMIT 1
-  `, [message.account_id]);
+  // Fetch trash folder path and account concurrently — both depend only on account_id
+  const [trashFolder, accountResult] = await Promise.all([
+    query(`
+      SELECT path FROM folders
+      WHERE account_id = $1 AND (special_use = '\\Trash' OR lower(name) LIKE '%trash%')
+      LIMIT 1
+    `, [message.account_id]),
+    query('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]),
+  ]);
 
   if (trashFolder.rows.length) {
-    const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]);
     try {
       await imapManager.moveMessage(accountResult.rows[0], message.uid, message.folder, trashFolder.rows[0].path);
     } catch (err) {
