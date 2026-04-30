@@ -229,6 +229,11 @@ export async function initDb() {
         ON messages(message_id)
         WHERE message_id IS NOT NULL;
 
+      -- Timestamp updated when user explicitly changes read/unread state via the API.
+      -- The sync upsert checks this to avoid overwriting a recent user action with
+      -- stale IMAP flag data (race between setFlag and the next periodic sync).
+      ALTER TABLE messages ADD COLUMN IF NOT EXISTS read_changed_at TIMESTAMPTZ;
+
       -- Backfill pass 1: root messages (no in_reply_to) become thread roots
       UPDATE messages
         SET thread_id = message_id

@@ -80,10 +80,10 @@ export const useStore = create((set, get) => ({
     const total = Math.max(0, state.unreadCounts.total - count);
     return { unreadCounts: { total, byAccount } };
   }),
-  incrementUnread: (accountId) => set(state => {
+  incrementUnread: (accountId, count = 1) => set(state => {
     const byAccount = { ...state.unreadCounts.byAccount };
-    byAccount[accountId] = (byAccount[accountId] || 0) + 1;
-    return { unreadCounts: { total: state.unreadCounts.total + 1, byAccount } };
+    byAccount[accountId] = (byAccount[accountId] || 0) + count;
+    return { unreadCounts: { total: state.unreadCounts.total + count, byAccount } };
   }),
 
   // Folders

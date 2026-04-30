@@ -483,9 +483,11 @@ router.patch('/messages/:id/read', async (req, res) => {
   if (!result.rows.length) return res.status(404).json({ error: 'Message not found' });
   const message = result.rows[0];
 
-  // Run DB update and account fetch concurrently — no dependency between them
+  // Run DB update and account fetch concurrently — no dependency between them.
+  // read_changed_at tells the IMAP sync not to overwrite this change for 30 s,
+  // preventing a race where a concurrent sync fetch sees the old IMAP flag.
   const [, accountResult] = await Promise.all([
-    query('UPDATE messages SET is_read = $1 WHERE id = $2', [read, id]),
+    query('UPDATE messages SET is_read = $1, read_changed_at = NOW() WHERE id = $2', [read, id]),
     query('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]),
   ]);
 
@@ -569,7 +571,7 @@ router.post('/mark-all-read', async (req, res) => {
     [accountId, req.session.userId]
   );
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
-  await query('UPDATE messages SET is_read = true WHERE account_id = $1 AND folder = $2', [accountId, folder]);
+  await query('UPDATE messages SET is_read = true, read_changed_at = NOW() WHERE account_id = $1 AND folder = $2', [accountId, folder]);
   // Also update IMAP so the change survives the next sync (non-fatal if it fails)
   imapManager.markAllReadImap(check.rows[0], folder).catch(err =>
     console.warn('markAllReadImap failed:', err.message)

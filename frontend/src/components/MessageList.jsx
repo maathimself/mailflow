@@ -51,6 +51,21 @@ export default function MessageList() {
   const isColumn = currentLayout.direction === 'column';
   const isNarrow = !isColumn && currentLayout.listWidth <= 260;
 
+  // Apply optimistic read guard to a batch of messages from the server.
+  // Prevents a concurrent sync refresh from reverting a pending or recently-completed
+  // mark-read before the IMAP flag has propagated back to the DB.
+  const applyReadGuard = useCallback((msgs) => {
+    if (pendingMarkReadMap.size === 0 && completedMarkReadMap.size === 0) return msgs;
+    return msgs.map(m => {
+      const inFlight = pendingMarkReadMap.has(m.id);
+      const inGrace  = completedMarkReadMap.has(m.id);
+      if (!inFlight && !inGrace) return m;
+      if (!m.is_read) return { ...m, is_read: true };
+      if (inGrace) completedMarkReadMap.delete(m.id);
+      return m;
+    });
+  }, []);
+
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const currentPageRef = useRef(1);
@@ -185,7 +200,7 @@ export default function MessageList() {
       if (unreadOnly) params.unreadOnly = 'true';
       if (useStore.getState().threadedView) params.threaded = 'true';
       const data = await api.getMessages(params);
-      appendMessages(data.messages);
+      appendMessages(applyReadGuard(data.messages));
       setMessagesOffset(currentOffset + data.messages.length);
       setHasMoreMessages(currentOffset + data.messages.length < data.total);
     } catch (err) {
@@ -219,25 +234,11 @@ export default function MessageList() {
             setMessagesTotal(data.total);
             // If the unread filter is on and the currently open message was just marked
             // read, the server won't return it — preserve it so the user can keep reading.
-            let msgs = data.messages;
+            let msgs = applyReadGuard(data.messages);
             const activeId = useStore.getState().selectedMessageId;
             if (unreadOnly && activeId && !msgs.some(m => m.id === activeId)) {
               const kept = useStore.getState().messages.find(m => m.id === activeId);
               if (kept) msgs = [kept, ...msgs];
-            }
-            // Guard against a sync refresh overwriting optimistic is_read:true for
-            // messages whose markRead PATCH is still in-flight OR completed so recently
-            // that the getMessages SELECT may have run before the DB commit was visible.
-            if (pendingMarkReadMap.size > 0 || completedMarkReadMap.size > 0) {
-              msgs = msgs.map(m => {
-                const inFlight = pendingMarkReadMap.has(m.id);
-                const inGrace  = completedMarkReadMap.has(m.id);
-                if (!inFlight && !inGrace) return m;
-                if (!m.is_read) return { ...m, is_read: true }; // stale server data — keep optimistic
-                // Server confirmed read — safe to retire the grace-period entry
-                if (inGrace) completedMarkReadMap.delete(m.id);
-                return m;
-              });
             }
             setMessages(msgs);
             if (sm === 'paginated') {
@@ -291,7 +292,7 @@ export default function MessageList() {
       // Discard results if the query changed while we were fetching
       if (useStore.getState().searchQuery !== qSnapshot) return;
       const current = useStore.getState().searchResults;
-      useStore.setState({ searchResults: [...current, ...data.messages] });
+      useStore.setState({ searchResults: [...current, ...applyReadGuard(data.messages)] });
       setSearchHasMore(data.messages.length === SEARCH_PAGE);
     } catch (err) {
       console.error('Search load more failed:', err);
@@ -328,7 +329,7 @@ export default function MessageList() {
       if (threadedView) params.threaded = 'true';
       const data = await api.getMessages(params);
       setMessagesTotal(data.total);
-      setMessages(data.messages);
+      setMessages(applyReadGuard(data.messages));
       setMessagesOffset((pageNum - 1) * pageSize + data.messages.length);
       setHasMoreMessages(false);
       setExpandedThreadId(null);
@@ -416,16 +417,36 @@ export default function MessageList() {
     return () => window.removeEventListener('mailflow:sync_done', handler);
   }, []);
 
-  const handleMarkRead = async (e, message) => {
+  const handleMarkRead = (e, message) => {
     e.stopPropagation();
     const newRead = !message.is_read;
-    try {
-      await api.markRead(message.id, newRead);
-      updateMessage(message.id, { is_read: newRead });
-      if (newRead) decrementUnread(message.account_id);
-    } catch (err) {
-      console.error(err);
+    updateMessage(message.id, { is_read: newRead, unread_count: newRead ? 0 : 1 });
+    if (newRead) {
+      decrementUnread(message.account_id);
+      pendingMarkReadMap.set(message.id, message.account_id);
+    } else {
+      incrementUnread(message.account_id);
+      pendingMarkReadMap.delete(message.id);
+      completedMarkReadMap.delete(message.id);
     }
+    api.markRead(message.id, newRead)
+      .then(() => {
+        if (newRead) {
+          pendingMarkReadMap.delete(message.id);
+          completedMarkReadMap.set(message.id, message.account_id);
+          setTimeout(() => completedMarkReadMap.delete(message.id), 10000);
+        }
+      })
+      .catch(err => {
+        console.error('markRead failed:', err);
+        updateMessage(message.id, { is_read: !newRead, unread_count: newRead ? 1 : 0 });
+        if (newRead) {
+          incrementUnread(message.account_id);
+          pendingMarkReadMap.delete(message.id);
+        } else {
+          decrementUnread(message.account_id);
+        }
+      });
   };
 
   const handleStar = async (e, message) => {
@@ -501,7 +522,7 @@ export default function MessageList() {
         // before this commit may still arrive; keep the guard up for 3 more seconds.
         pendingMarkReadMap.delete(message.id);
         completedMarkReadMap.set(message.id, message.account_id);
-        setTimeout(() => completedMarkReadMap.delete(message.id), 3000);
+        setTimeout(() => completedMarkReadMap.delete(message.id), 10000);
       }
     } catch (err) {
       console.error('swipe toggle read failed:', err.message);
@@ -707,9 +728,12 @@ export default function MessageList() {
           .then(() => {
             pendingMarkReadMap.delete(selectedMessageId);
             completedMarkReadMap.set(selectedMessageId, msg.account_id);
-            setTimeout(() => completedMarkReadMap.delete(selectedMessageId), 3000);
+            setTimeout(() => completedMarkReadMap.delete(selectedMessageId), 10000);
           })
-          .catch(console.error);
+          .catch(err => {
+            console.error('markRead failed:', err);
+            pendingMarkReadMap.delete(selectedMessageId);
+          });
       } else {
         incrementUnread(msg.account_id);
         pendingMarkReadMap.delete(selectedMessageId);
@@ -777,9 +801,14 @@ export default function MessageList() {
             .then(() => {
               pendingMarkReadMap.delete(message.id);
               completedMarkReadMap.set(message.id, message.account_id);
-              setTimeout(() => completedMarkReadMap.delete(message.id), 3000);
+              setTimeout(() => completedMarkReadMap.delete(message.id), 10000);
             })
-            .catch(console.error);
+            .catch(err => {
+              console.error('markRead failed:', err);
+              pendingMarkReadMap.delete(message.id);
+              updateMessage(message.id, { is_read: false, ...(threadUnread ? { unread_count: uc } : {}) });
+              incrementUnread(message.account_id, threadUnread ? uc : 1);
+            });
         }
         break;
       }
@@ -790,7 +819,10 @@ export default function MessageList() {
           updateMessage(message.id, { is_read: false, unread_count: 1 });
           pendingMarkReadMap.delete(message.id);
           completedMarkReadMap.delete(message.id);
-          api.markRead(message.id, false).catch(console.error);
+          api.markRead(message.id, false).catch(err => {
+            console.error('markUnread failed:', err);
+            updateMessage(message.id, { is_read: true, unread_count: 0 });
+          });
         }
         break;
       }
@@ -934,7 +966,7 @@ export default function MessageList() {
         .then(() => {
           pendingMarkReadMap.delete(message.id);
           completedMarkReadMap.set(message.id, message.account_id);
-          setTimeout(() => completedMarkReadMap.delete(message.id), 3000);
+          setTimeout(() => completedMarkReadMap.delete(message.id), 10000);
         })
         .catch(e => {
           console.error('markRead failed:', e.message);

@@ -789,7 +789,13 @@ export class ImapManager {
                   in_reply_to = COALESCE(messages.in_reply_to, EXCLUDED.in_reply_to),
                   snippet = CASE WHEN EXCLUDED.snippet != '' THEN EXCLUDED.snippet
                                  ELSE messages.snippet END,
-                  is_read = $14, is_starred = $15, flags = $17,
+                  is_read = CASE
+                    WHEN messages.read_changed_at IS NOT NULL
+                         AND NOW() - messages.read_changed_at < interval '30 seconds'
+                    THEN messages.is_read
+                    ELSE EXCLUDED.is_read
+                  END,
+                  is_starred = $15, flags = $17,
                   body_html = COALESCE(messages.body_html, EXCLUDED.body_html),
                   body_text = COALESCE(messages.body_text, EXCLUDED.body_text),
                   attachments = COALESCE(messages.attachments::text, EXCLUDED.attachments::text)::jsonb,
