@@ -1,6 +1,6 @@
 import { ImapFlow } from 'imapflow';
 import { query } from './db.js';
-import { parseMessage } from './messageParser.js';
+import { parseMessage, buildSnippetFromHtml } from './messageParser.js';
 import { refreshMicrosoftToken } from '../routes/oauth.js';
 import { sanitizeEmail } from './emailSanitizer.js';
 import { decrypt } from './encryption.js';
@@ -193,6 +193,48 @@ const POOL_SIZE = 2;
 function sanitizeStr(str) {
   if (typeof str !== 'string') return str;
   return str.replace(/\0/g, '');
+}
+
+// Parse RFC 5322 References header into an ordered array of angle-bracketed Message-IDs.
+function parseReferences(refHeader) {
+  if (!refHeader) return [];
+  return refHeader.match(/<[^>]+>/g) || [];
+}
+
+// Compute the thread_id for an incoming message.
+// Uses the References chain (oldest→newest per RFC 5322) and In-Reply-To to find
+// an existing thread in the DB for this account.  Falls back to the message's own
+// message_id when no ancestor is found.
+async function computeThreadId(accountId, messageId, inReplyTo, references) {
+  if (!messageId) return null;
+
+  const refIds = parseReferences(references);
+  const candidates = [...refIds];
+  if (inReplyTo && !candidates.includes(inReplyTo)) candidates.push(inReplyTo);
+
+  if (candidates.length === 0) return messageId;
+
+  // The first element of References is the thread root per RFC 5322 — try it first.
+  const rootCandidate = candidates[0];
+  const rootCheck = await query(
+    'SELECT thread_id FROM messages WHERE account_id = $1 AND message_id = $2 AND thread_id IS NOT NULL LIMIT 1',
+    [accountId, rootCandidate]
+  );
+  if (rootCheck.rows.length > 0) return rootCheck.rows[0].thread_id;
+
+  // Walk candidates newest→oldest (most likely already in DB).
+  for (let i = candidates.length - 1; i >= 0; i--) {
+    const r = await query(
+      'SELECT thread_id FROM messages WHERE account_id = $1 AND message_id = $2 AND thread_id IS NOT NULL LIMIT 1',
+      [accountId, candidates[i]]
+    );
+    if (r.rows.length > 0) return r.rows[0].thread_id;
+  }
+
+  // No ancestor in DB yet — use the References root as the provisional thread_id.
+  // When the ancestor message arrives later its thread_id will equal its own
+  // message_id, which matches this value, so the thread converges automatically.
+  return candidates[0] || messageId;
 }
 
 // Ensure OAuth token is fresh before connecting
@@ -686,6 +728,7 @@ export class ImapManager {
           bodyStructure: true,
           size: true,
           internalDate: true,
+          headerLines: ['references'],
         };
         if (!isGmail && !noBodyParts) {
           fetchQuery.bodyParts = BODY_PREFETCH_PARTS;
@@ -714,14 +757,19 @@ export class ImapManager {
               text = body.text;
               atts = body.attachments;
             }
+            const msgId = sanitizeStr(parsed.messageId);
+            const inReplyTo = sanitizeStr(parsed.inReplyTo);
+            const refs = sanitizeStr(parsed.references);
+            const threadId = await computeThreadId(account.id, msgId, inReplyTo, refs);
             const result = await query(`
               INSERT INTO messages (
                 account_id, uid, folder, message_id, subject,
                 from_name, from_email, to_addresses, cc_addresses,
                 reply_to, in_reply_to,
                 date, snippet, is_read, is_starred, has_attachments, flags,
-                body_html, body_text, attachments
-              ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+                body_html, body_text, attachments,
+                thread_references, thread_id
+              ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
               ON CONFLICT (account_id, uid, folder) DO UPDATE
               SET from_name = $6, from_email = $7,
                   to_addresses = $8, cc_addresses = $9,
@@ -732,18 +780,21 @@ export class ImapManager {
                   is_read = $14, is_starred = $15, flags = $17,
                   body_html = COALESCE(messages.body_html, EXCLUDED.body_html),
                   body_text = COALESCE(messages.body_text, EXCLUDED.body_text),
-                  attachments = COALESCE(messages.attachments::text, EXCLUDED.attachments::text)::jsonb
+                  attachments = COALESCE(messages.attachments::text, EXCLUDED.attachments::text)::jsonb,
+                  thread_references = COALESCE(messages.thread_references, EXCLUDED.thread_references),
+                  thread_id = COALESCE(messages.thread_id, EXCLUDED.thread_id)
               RETURNING id, (xmax = 0) as is_new
             `, [
               account.id, parsed.uid, folder,
-              sanitizeStr(parsed.messageId), sanitizeStr(parsed.subject),
+              msgId, sanitizeStr(parsed.subject),
               sanitizeStr(parsed.fromName), sanitizeStr(parsed.fromEmail),
               JSON.stringify(parsed.to), JSON.stringify(parsed.cc),
-              JSON.stringify(parsed.replyTo || []), sanitizeStr(parsed.inReplyTo),
+              JSON.stringify(parsed.replyTo || []), inReplyTo,
               safeDate(parsed.date), sanitizeStr(parsed.snippet),
               parsed.isRead, parsed.isStarred,
               parsed.hasAttachments, JSON.stringify(parsed.flags),
-              sanitizeStr(safeHtml), sanitizeStr(text), JSON.stringify(atts || [])
+              sanitizeStr(safeHtml), sanitizeStr(text), JSON.stringify(atts || []),
+              refs, threadId,
             ]);
             if (result.rows[0]?.is_new && !parsed.isRead) {
               newMessages.push({ ...parsed, id: result.rows[0].id, accountId: account.id, folder });
@@ -977,6 +1028,7 @@ export class ImapManager {
               uid: true, flags: true, envelope: true,
               bodyStructure: true, size: true,
               internalDate: true,
+              headerLines: ['references'],
             };
             if (bodyParts.length > 0) bfQuery.bodyParts = bodyParts;
 
@@ -992,14 +1044,20 @@ export class ImapManager {
                   atts = body.attachments;
                 }
 
+                const bfMsgId    = sanitizeStr(parsed.messageId);
+                const bfReplyTo  = sanitizeStr(parsed.inReplyTo);
+                const bfRefs     = sanitizeStr(parsed.references);
+                const bfThreadId = await computeThreadId(account.id, bfMsgId, bfReplyTo, bfRefs);
+
                 await query(`
                   INSERT INTO messages (
                     account_id, uid, folder, message_id, subject,
                     from_name, from_email, to_addresses, cc_addresses,
                     reply_to, in_reply_to,
                     date, snippet, is_read, is_starred, has_attachments, flags,
-                    body_html, body_text, attachments
-                  ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+                    body_html, body_text, attachments,
+                    thread_references, thread_id
+                  ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
                   ON CONFLICT (account_id, uid, folder) DO UPDATE
                   SET from_name = $6, from_email = $7,
                       to_addresses = $8, cc_addresses = $9,
@@ -1009,17 +1067,20 @@ export class ImapManager {
                                      ELSE messages.snippet END,
                       body_html = COALESCE(messages.body_html, EXCLUDED.body_html),
                       body_text = COALESCE(messages.body_text, EXCLUDED.body_text),
-                      attachments = COALESCE(messages.attachments::text, EXCLUDED.attachments::text)::jsonb
+                      attachments = COALESCE(messages.attachments::text, EXCLUDED.attachments::text)::jsonb,
+                      thread_references = COALESCE(messages.thread_references, EXCLUDED.thread_references),
+                      thread_id = COALESCE(messages.thread_id, EXCLUDED.thread_id)
                 `, [
                   account.id, parsed.uid, folder,
-                  sanitizeStr(parsed.messageId), sanitizeStr(parsed.subject),
+                  bfMsgId, sanitizeStr(parsed.subject),
                   sanitizeStr(parsed.fromName), sanitizeStr(parsed.fromEmail),
                   JSON.stringify(parsed.to), JSON.stringify(parsed.cc),
-                  JSON.stringify(parsed.replyTo || []), sanitizeStr(parsed.inReplyTo),
+                  JSON.stringify(parsed.replyTo || []), bfReplyTo,
                   safeDate(parsed.date), sanitizeStr(parsed.snippet),
                   parsed.isRead, parsed.isStarred,
                   parsed.hasAttachments, JSON.stringify(parsed.flags),
                   sanitizeStr(safeHtml), sanitizeStr(bodyText), JSON.stringify(atts || []),
+                  bfRefs, bfThreadId,
                 ]);
               } catch (parseErr) {
                 console.error('Backfill parse error:', parseErr.message);
@@ -1299,17 +1360,12 @@ export class ImapManager {
         );
         const safeHtml = html ? sanitizeEmail(html) : null;
         if (safeHtml || text) {
-          // Build a snippet for the list preview; strip HTML tags when only html is available
+          // Build a snippet for the list preview.
           let snip = '';
           if (text) {
             snip = text.replace(/\s+/g, ' ').trim().substring(0, 200);
           } else if (html) {
-            snip = html
-              .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-              .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-              .replace(/<[^>]+>/g, ' ')
-              .replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&')
-              .replace(/\s+/g, ' ').trim().substring(0, 200);
+            snip = buildSnippetFromHtml(html);
           }
           await query(
             `UPDATE messages

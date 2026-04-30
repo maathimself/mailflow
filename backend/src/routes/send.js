@@ -47,14 +47,15 @@ router.use(requireAuth);
 
 
 router.post('/send', async (req, res) => {
-  const { accountId, aliasId, to, cc = [], bcc = [], subject, body, inReplyTo, references } = req.body;
+  const { accountId, aliasId, to, cc = [], bcc = [], subject, body, quotedBody, inReplyTo, references } = req.body;
   if (!accountId || !to?.length) return res.status(400).json({ error: 'accountId and to required' });
 
-  const result = await query(
-    'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2',
-    [accountId, req.session.userId]
-  );
+  const [result, prefResult] = await Promise.all([
+    query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]),
+    query('SELECT preferences FROM users WHERE id = $1', [req.session.userId]),
+  ]);
   if (!result.rows.length) return res.status(404).json({ error: 'Account not found' });
+  const plaintextEmail = prefResult.rows[0]?.preferences?.plaintextEmail === true;
   let account = result.rows[0];
 
   // Resolve the From identity — account by default, alias if requested
@@ -114,13 +115,15 @@ router.post('/send', async (req, res) => {
       bcc: bcc.join(', ') || undefined,
       subject,
       text: fromSignature
-        ? body + '\n\n-- \n' + sigToPlainText(fromSignature)
-        : body,
-      ...(fromSignature ? {
+        ? body + '\n\n-- \n' + sigToPlainText(fromSignature) + (quotedBody || '')
+        : body + (quotedBody || ''),
+      ...(plaintextEmail ? {} : {
         html: textToHtml(body) +
-          '<div style="margin-top:16px;padding-top:12px;border-top:1px solid #e0e0e0;color:#555;font-size:13px">' +
-          fromSignature + '</div>',
-      } : {}),
+          (fromSignature
+            ? '<div style="margin-top:16px;color:#555;font-size:13px">' + fromSignature + '</div>'
+            : '') +
+          (quotedBody ? textToHtml(quotedBody) : ''),
+      }),
     };
     if (inReplyTo) {
       mailOptions.inReplyTo = inReplyTo;

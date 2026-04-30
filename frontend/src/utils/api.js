@@ -92,6 +92,7 @@ export const api = {
   },
   getMessageBody: (id, remoteImages = false) =>
     request('GET', `/mail/messages/${id}/body${remoteImages ? '?remoteImages=1' : ''}`),
+  getThread: (threadId) => request('GET', `/mail/thread/${encodeURIComponent(threadId)}`),
   markRead: (id, read) => request('PATCH', `/mail/messages/${id}/read`, { read }),
   markStarred: (id, starred) => request('PATCH', `/mail/messages/${id}/star`, { starred }),
   markAllRead: (accountId, folder) => request('POST', '/mail/mark-all-read', { accountId, folder }),

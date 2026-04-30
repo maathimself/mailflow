@@ -848,7 +848,7 @@ function ThemesTab() {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}>
-        {Object.entries(THEMES).map(([key, t]) => (
+        {Object.entries(THEMES).map(([key, themeObj]) => (
           <button
             key={key}
             onClick={() => handleSelect(key)}
@@ -864,7 +864,7 @@ function ThemesTab() {
           >
             {/* Color swatches */}
             <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
-              {t.preview.map((c, i) => (
+              {themeObj.preview.map((c, i) => (
                 <div key={i} style={{
                   flex: i === 0 ? 2 : 1, height: 28, borderRadius: 5,
                   background: c,
@@ -876,10 +876,10 @@ function ThemesTab() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div>
                 <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
-                  {t.label}
+                  {themeObj.label}
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>
-                  {t.description}
+                  {themeObj.description}
                 </div>
               </div>
               {theme === key && (
@@ -1139,7 +1139,7 @@ function LayoutDiagram({ layoutKey, layoutConfig, active }) {
 // ─── Layouts Tab ──────────────────────────────────────────────────────────────
 function LayoutsTab() {
   const { t } = useTranslation();
-  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, syncInterval, setSyncInterval } = useStore();
+  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, syncInterval, setSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail } = useStore();
 
   const handleSelect = (key) => {
     setLayout(key);
@@ -1299,6 +1299,70 @@ function LayoutsTab() {
                 onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
               >
                 {label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Threading mode */}
+      <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+          {t('admin.messageList.threadingMode')}
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {[
+            { id: false, label: t('admin.messageList.threadingOff'), desc: t('admin.messageList.threadingOffDesc') },
+            { id: true,  label: t('admin.messageList.threadingOn'),  desc: t('admin.messageList.threadingOnDesc') },
+          ].map(({ id, label, desc }) => {
+            const active = threadedView === id;
+            return (
+              <button
+                key={String(id)}
+                onClick={() => setThreadedView(id)}
+                style={{
+                  flex: 1, padding: '10px 12px', textAlign: 'left',
+                  background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
+                  border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
+                  borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s', outline: 'none',
+                }}
+                onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; }}
+                onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
+              >
+                <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{label}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{desc}</div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Compose format */}
+      <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+          {t('admin.messageList.composeFormat')}
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {[
+            { id: false, label: t('admin.messageList.composeRichText'),  desc: t('admin.messageList.composeRichTextDesc') },
+            { id: true,  label: t('admin.messageList.composePlainText'), desc: t('admin.messageList.composePlainTextDesc') },
+          ].map(({ id, label, desc }) => {
+            const active = plaintextEmail === id;
+            return (
+              <button
+                key={String(id)}
+                onClick={() => setPlaintextEmail(id)}
+                style={{
+                  flex: 1, padding: '10px 12px', textAlign: 'left',
+                  background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
+                  border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
+                  borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s', outline: 'none',
+                }}
+                onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; }}
+                onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
+              >
+                <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{label}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{desc}</div>
               </button>
             );
           })}
@@ -2504,30 +2568,126 @@ function ConfirmOverlay({ dialog, onClose }) {
   );
 }
 
-// ─── Merged Appearance Tab ────────────────────────────────────────────────────
-function AppearanceTab() {
+// ─── Language Tab ─────────────────────────────────────────────────────────────
+const LANGUAGES = [
+  { code: 'en', nativeName: 'English' },
+  { code: 'fr', nativeName: 'Français' },
+  { code: 'es', nativeName: 'Español' },
+];
+
+function LanguageTab() {
+  const { t } = useTranslation();
+  const { language, setLanguage } = useStore();
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 36 }}>
-      <ThemesTab />
-      <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 28 }}>
-        <FontsTab />
+    <div>
+      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+        {t('admin.appearance.language')}
       </div>
-      <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 28 }}>
-        <LayoutsTab />
+      <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 20 }}>
+        {t('admin.appearance.languageDescription')}
+      </div>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        {LANGUAGES.map(({ code, nativeName }) => {
+          const isActive = language === code;
+          return (
+            <button
+              key={code}
+              onClick={() => setLanguage(code)}
+              style={{
+                background: isActive ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
+                border: `2px solid ${isActive ? 'var(--accent)' : 'var(--border-subtle)'}`,
+                borderRadius: 10, padding: '10px 18px', cursor: 'pointer',
+                transition: 'all 0.15s', outline: 'none',
+                display: 'flex', alignItems: 'center', gap: 10,
+              }}
+              onMouseEnter={e => { if (!isActive) e.currentTarget.style.borderColor = 'var(--border)'; }}
+              onMouseLeave={e => { if (!isActive) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
+            >
+              <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{nativeName}</span>
+              {isActive && (
+                <div style={{
+                  width: 16, height: 16, borderRadius: '50%', flexShrink: 0,
+                  background: 'var(--accent)', display: 'flex',
+                  alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3">
+                    <polyline points="20 6 9 17 4 12"/>
+                  </svg>
+                </div>
+              )}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
 }
 
+// ─── Sub-tab navigator (reusable within a top-level tab panel) ───────────────
+function SubTabs({ tabs }) {
+  const [active, setActive] = useState(tabs[0].id);
+  return (
+    <div>
+      <div style={{
+        display: 'flex', gap: 0,
+        borderBottom: '1px solid var(--border-subtle)',
+        marginBottom: 28,
+      }}>
+        {tabs.map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActive(tab.id)}
+            style={{
+              padding: '8px 16px',
+              background: 'none', border: 'none',
+              borderBottom: `2px solid ${active === tab.id ? 'var(--accent)' : 'transparent'}`,
+              marginBottom: -1,
+              color: active === tab.id ? 'var(--accent)' : 'var(--text-secondary)',
+              cursor: 'pointer', fontSize: 13,
+              fontWeight: active === tab.id ? 600 : 400,
+              transition: 'color 0.15s, border-color 0.15s',
+              whiteSpace: 'nowrap',
+            }}
+            onMouseEnter={e => { if (active !== tab.id) e.currentTarget.style.color = 'var(--text-primary)'; }}
+            onMouseLeave={e => { if (active !== tab.id) e.currentTarget.style.color = 'var(--text-secondary)'; }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+      {tabs.map(tab => active === tab.id && <div key={tab.id}>{tab.content}</div>)}
+    </div>
+  );
+}
+
+// ─── Merged Appearance Tab ────────────────────────────────────────────────────
+function AppearanceTab() {
+  const { t } = useTranslation();
+  return (
+    <SubTabs tabs={[
+      { id: 'theme',  label: t('admin.tabs.theme'),          content: <ThemesTab /> },
+      { id: 'layout', label: t('admin.appearance.layout'),   content: <LayoutsTab /> },
+      { id: 'fonts',  label: t('admin.tabs.fontsAndLanguage'), content: (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 36 }}>
+          <LanguageTab />
+          <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 28 }}>
+            <FontsTab />
+          </div>
+        </div>
+      )},
+    ]} />
+  );
+}
+
 // ─── Merged Security & Privacy Tab ────────────────────────────────────────────
 function SecurityPrivacyTab() {
+  const { t } = useTranslation();
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 36 }}>
-      <SecurityTab />
-      <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 28 }}>
-        <PrivacyTab />
-      </div>
-    </div>
+    <SubTabs tabs={[
+      { id: 'security', label: t('admin.tabs.security'), content: <SecurityTab /> },
+      { id: 'privacy',  label: t('admin.tabs.privacy'),  content: <PrivacyTab /> },
+    ]} />
   );
 }
 

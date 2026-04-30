@@ -104,7 +104,8 @@ export function sanitizeEmail(html) {
               // (LinkedIn, etc.) use srcset as the primary image source and
               // put a 1×1 tracking pixel in src as the fallback.  Without
               // srcset, only the tracker is visible.
-              'srcset', 'sizes'],
+              'srcset', 'sizes',
+              'loading', 'decoding'],
       'table': ['summary'],
       'td': ['abbr', 'axis', 'headers', 'scope'],
       'th': ['abbr', 'axis', 'headers', 'scope'],
@@ -131,6 +132,10 @@ export function sanitizeEmail(html) {
           .join(', ');
         if (out.background) out.background = upgradeUrl(out.background);
         if (out.style) out.style = upgradeStyleUrls(out.style);
+        // Defer loading of remote images; skip cid:/data: which are already local.
+        const isLocal = out.src && /^(cid:|data:)/i.test(out.src);
+        if (!isLocal) out.loading = 'lazy';
+        out.decoding = 'async';
         return { tagName, attribs: out };
       },
       // Wildcard: upgrade background attribute and inline style url() for all
@@ -146,7 +151,7 @@ export function sanitizeEmail(html) {
         return { tagName, attribs: out };
       },
     },
-    allowedSchemes: ['http', 'https', 'mailto', 'cid', 'data'],
+    allowedSchemes: ['http', 'https', 'mailto', 'cid'],
     allowedSchemesByTag: {
       img: ['http', 'https', 'cid', 'data'],
     },

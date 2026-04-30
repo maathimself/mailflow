@@ -216,6 +216,57 @@ export async function initDb() {
         last_used_at TIMESTAMPTZ,
         UNIQUE(issuer, subject)
       );
+
+      -- Threading support
+      ALTER TABLE messages ADD COLUMN IF NOT EXISTS thread_references TEXT;
+      ALTER TABLE messages ADD COLUMN IF NOT EXISTS thread_id TEXT;
+
+      CREATE INDEX IF NOT EXISTS idx_messages_thread_id
+        ON messages(account_id, thread_id)
+        WHERE is_deleted = false;
+
+      CREATE INDEX IF NOT EXISTS idx_messages_msg_id
+        ON messages(message_id)
+        WHERE message_id IS NOT NULL;
+
+      -- Backfill pass 1: root messages (no in_reply_to) become thread roots
+      UPDATE messages
+        SET thread_id = message_id
+        WHERE thread_id IS NULL AND in_reply_to IS NULL AND message_id IS NOT NULL;
+
+      -- Backfill passes 2-4: link replies to parent thread_id (handles chains up to depth 4)
+      UPDATE messages m SET thread_id = p.thread_id
+        FROM messages p
+        WHERE m.thread_id IS NULL AND m.in_reply_to IS NOT NULL
+          AND p.message_id = m.in_reply_to AND p.thread_id IS NOT NULL
+          AND m.account_id = p.account_id;
+
+      UPDATE messages m SET thread_id = p.thread_id
+        FROM messages p
+        WHERE m.thread_id IS NULL AND m.in_reply_to IS NOT NULL
+          AND p.message_id = m.in_reply_to AND p.thread_id IS NOT NULL
+          AND m.account_id = p.account_id;
+
+      UPDATE messages m SET thread_id = p.thread_id
+        FROM messages p
+        WHERE m.thread_id IS NULL AND m.in_reply_to IS NOT NULL
+          AND p.message_id = m.in_reply_to AND p.thread_id IS NOT NULL
+          AND m.account_id = p.account_id;
+
+      -- Any remaining messages with a message_id become their own thread root
+      UPDATE messages SET thread_id = message_id
+        WHERE thread_id IS NULL AND message_id IS NOT NULL;
+
+      -- Clear snippets that consist entirely of HTML character entities
+      -- (e.g. &#8199; &#847; — "preheader killer" filler used by marketing emails).
+      -- These were stored by an earlier code path that lacked full entity decoding.
+      -- Setting them to NULL lets the snippet indexer re-fetch and clean them properly.
+      -- The regex uses a character-allowlist approach because a 200-char truncation
+      -- can cut an entity mid-way, making end-anchor matching unreliable.
+      UPDATE messages SET snippet = NULL
+        WHERE snippet IS NOT NULL
+          AND snippet ~ E'^\\s*&#?'
+          AND snippet !~ E'[^&# ;0-9a-zA-Z\\s]';
     `);
   } finally {
     client.release();

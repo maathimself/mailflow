@@ -3,6 +3,7 @@ import { api } from '../utils/api.js';
 import { applyTheme } from '../themes.js';
 import { applyFontSet } from '../fonts.js';
 import { applyLayout } from '../layouts.js';
+import i18n from '../i18n.js';
 
 // Accumulate rapid preference changes and flush at most once per second.
 let _prefFlushTimer = null;
@@ -42,6 +43,8 @@ export const useStore = create((set, get) => ({
     messagesOffset: 0,
     hasMoreMessages: true,
     messagesRefreshToken: state.messagesRefreshToken + 1,
+    expandedThreadId: null,
+    threadMessages: {},
   })),
 
   // Messages
@@ -162,6 +165,42 @@ export const useStore = create((set, get) => ({
   // Mobile navigation
   mobileSidebarOpen: false,
   setMobileSidebarOpen: (v) => set({ mobileSidebarOpen: v }),
+
+  // Language
+  language: localStorage.getItem('mailflow_language') || 'en',
+  setLanguage: (lng) => {
+    localStorage.setItem('mailflow_language', lng);
+    set({ language: lng });
+    i18n.changeLanguage(lng);
+    schedulePrefSave({ language: lng });
+  },
+
+  // Threaded view
+  threadedView: localStorage.getItem('mailflow_threaded_view') === 'true',
+  setThreadedView: (val) => {
+    localStorage.setItem('mailflow_threaded_view', String(val));
+    set({ threadedView: val, expandedThreadId: null, threadMessages: {} });
+    schedulePrefSave({ threadedView: val });
+  },
+
+  // Compose format
+  plaintextEmail: localStorage.getItem('mailflow_plaintext_email') === 'true',
+  setPlaintextEmail: (val) => {
+    localStorage.setItem('mailflow_plaintext_email', String(val));
+    set({ plaintextEmail: val });
+    schedulePrefSave({ plaintextEmail: val });
+  },
+
+  // Thread expansion cache (not persisted — reset on navigation)
+  expandedThreadId: null,
+  setExpandedThreadId: (id) => set({ expandedThreadId: id }),
+  threadMessages: {},
+  setThreadMessages: (threadId, msgs) => set(state => ({
+    threadMessages: { ...state.threadMessages, [threadId]: msgs },
+  })),
+  loadingThread: null,
+  setLoadingThread: (id) => set({ loadingThread: id }),
+
   // Theme
   theme: localStorage.getItem('mailflow_theme') || 'dark',
   setTheme: (theme) => {
@@ -260,6 +299,19 @@ export const useStore = create((set, get) => ({
       if (prefs.imageWhitelist) set({ imageWhitelist: prefs.imageWhitelist });
       if (prefs.shortcuts) set({ shortcuts: prefs.shortcuts });
       if (prefs.hiddenFolders) set({ hiddenFolders: prefs.hiddenFolders });
+      if (prefs.language) {
+        localStorage.setItem('mailflow_language', prefs.language);
+        set({ language: prefs.language });
+        i18n.changeLanguage(prefs.language);
+      }
+      if (typeof prefs.threadedView === 'boolean') {
+        localStorage.setItem('mailflow_threaded_view', String(prefs.threadedView));
+        set({ threadedView: prefs.threadedView });
+      }
+      if (typeof prefs.plaintextEmail === 'boolean') {
+        localStorage.setItem('mailflow_plaintext_email', String(prefs.plaintextEmail));
+        set({ plaintextEmail: prefs.plaintextEmail });
+      }
     } catch (_) {}
   },
 }));

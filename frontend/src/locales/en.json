@@ -19,7 +19,6 @@
     "noSubject": "(no subject)",
     "error": "Error: {{message}}"
   },
-
   "login": {
     "tagline": "Your unified inbox",
     "signIn": "Sign in",
@@ -43,7 +42,6 @@
       "backToLogin": "← Back to login"
     }
   },
-
   "compose": {
     "newMessage": "New Message",
     "reply": "Reply",
@@ -68,7 +66,6 @@
       "action": "View"
     }
   },
-
   "message": {
     "selectToRead": "Select a message to read",
     "noSubject": "(no subject)",
@@ -106,7 +103,6 @@
       "body": "Failed to update image whitelist."
     }
   },
-
   "messageList": {
     "search": "Search…",
     "unread": "Unread",
@@ -166,7 +162,6 @@
       "body": "No archive folder configured. Set one in Settings → Accounts → Folder Mappings."
     }
   },
-
   "sidebar": {
     "allInboxes": "All Inboxes",
     "compose": "Compose",
@@ -205,7 +200,6 @@
     "emptyFailed": "Empty failed",
     "backToAccounts": "Back to accounts"
   },
-
   "contextMenu": {
     "open": "Open",
     "markRead": "Mark as read",
@@ -235,7 +229,6 @@
       "empty": "No folders found"
     }
   },
-
   "commandPalette": {
     "placeholder": "Search actions…",
     "noResults": "No actions found",
@@ -253,19 +246,16 @@
       "accountInbox": "{{name}} — Inbox"
     }
   },
-
   "shortcuts": {
     "title": "Keyboard Shortcuts",
     "customizeHint": "Customise shortcuts in Settings → Shortcuts",
     "closeHint": "Press ? or Esc to close",
     "then": "then"
   },
-
   "notifications": {
     "newMessage": "New message",
     "undo": "Undo"
   },
-
   "signatureEditor": {
     "bold": "Bold (Ctrl+B)",
     "italic": "Italic (Ctrl+I)",
@@ -284,11 +274,9 @@
       "body": "Must be under 300 KB. Use an external URL for larger images."
     }
   },
-
   "admin": {
     "title": "Settings",
     "close": "Close",
-
     "tabs": {
       "accounts": "Accounts",
       "appearance": "Appearance",
@@ -298,9 +286,10 @@
       "shortcuts": "Shortcuts",
       "users": "Users",
       "sso": "SSO",
-      "integrations": "Integrations"
+      "integrations": "Integrations",
+      "theme": "Theme",
+      "fontsAndLanguage": "Language & Font"
     },
-
     "accounts": {
       "title": "Email accounts",
       "addButton": "Add account",
@@ -339,7 +328,6 @@
       "errorRequired": "Email, username, and IMAP host are required",
       "errorPasswordRequired": "Password is required for new accounts"
     },
-
     "folderMappings": {
       "title": "Folder mappings",
       "description": "Map each mail role to a specific folder. Select Auto-detect to let MailFlow use the folder your server has tagged for that role.",
@@ -354,7 +342,6 @@
       "spam": "Spam / Junk",
       "archive": "Archive"
     },
-
     "aliases": {
       "title": "Aliases",
       "description": "Aliases let you send from a different name or address using this account's SMTP credentials. Select an alias in the From field when composing. MailFlow will automatically reply from an alias if a message was addressed to it.",
@@ -378,7 +365,6 @@
       "deleteConfirmBody": "This alias will be permanently removed. This cannot be undone.",
       "deleteConfirmLabel": "Delete"
     },
-
     "appearance": {
       "title": "Appearance",
       "description": "Choose a color theme for the interface",
@@ -389,9 +375,10 @@
       "typographyBody": "Body",
       "typographyMono": "Mono",
       "layout": "Layout",
-      "layoutDescription": "Choose how the sidebar, message list, and reading pane are arranged"
+      "layoutDescription": "Choose how the sidebar, message list, and reading pane are arranged",
+      "language": "Language",
+      "languageDescription": "Choose the display language for the interface"
     },
-
     "messageList": {
       "title": "Message List",
       "scrollingMode": "Scrolling mode",
@@ -402,9 +389,18 @@
       "perPagePaginated": "Emails per page",
       "perPageInfinite": "Emails loaded per batch",
       "syncFrequency": "Sync Frequency",
-      "syncFrequencyDesc": "How often MailFlow checks for new emails"
+      "syncFrequencyDesc": "How often MailFlow checks for new emails",
+      "threadingMode": "Conversation threading",
+      "threadingOff": "Off",
+      "threadingOffDesc": "Each message shown individually",
+      "threadingOn": "On",
+      "threadingOnDesc": "Replies grouped into conversations",
+      "composeFormat": "Compose format",
+      "composeRichText": "Rich text",
+      "composeRichTextDesc": "Sends HTML — supports formatting and styled signatures",
+      "composePlainText": "Plain text",
+      "composePlainTextDesc": "No HTML formatting — maximum compatibility"
     },
-
     "notifications": {
       "title": "Notifications",
       "description": "Choose a sound to play when new mail arrives. Click a card to select and preview.",
@@ -416,7 +412,6 @@
       "customButton": "Upload",
       "uploadError": "File must be under 2 MB."
     },
-
     "security": {
       "title": "Security",
       "description": "Manage two-factor authentication for your account.",
@@ -441,7 +436,6 @@
       "totpSuccess": "Two-factor authentication enabled.",
       "totpDisabledSuccess": "Two-factor authentication disabled."
     },
-
     "privacy": {
       "title": "Privacy",
       "description": "Control whether remote images in emails are loaded automatically",
@@ -456,7 +450,6 @@
       "addSenderPh": "sender@example.com",
       "addDomainPh": "example.com"
     },
-
     "shortcuts": {
       "title": "Keyboard Shortcuts",
       "description": "Click a key binding to reassign it. Press Esc to cancel recording.",
@@ -467,7 +460,6 @@
       "remove": "Remove shortcut",
       "footer": "Press ? anywhere in the app to see the current shortcut reference."
     },
-
     "users": {
       "title": "Users",
       "description": "Manage user accounts and admin privileges",
@@ -507,7 +499,6 @@
       "disable2faConfirmBody": "This will remove their authenticator app requirement. They can re-enable it themselves.",
       "disable2faConfirmLabel": "Disable 2FA"
     },
-
     "sso": {
       "title": "Single Sign-On",
       "description": "Configure external OIDC providers so users can sign in with their organization accounts.",
@@ -550,7 +541,6 @@
       "errorRequired": "Name, slug, issuer URL and client ID are required.",
       "errorSecretRequired": "Client secret is required."
     },
-
     "integrations": {
       "title": "Integrations",
       "description": "Connect OAuth providers for accounts that don't support app passwords",
@@ -583,7 +573,6 @@
         "remove": "Remove"
       }
     },
-
     "ssoLinked": {
       "title": "SSO identity linked",
       "body": "Your account is now linked to the SSO provider."
@@ -591,5 +580,10 @@
     "ssoError": {
       "title": "SSO error"
     }
+  },
+  "thread": {
+    "messages_one": "{{count}} message",
+    "messages_other": "{{count}} messages",
+    "collapse": "Collapse"
   }
 }

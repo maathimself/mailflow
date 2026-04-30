@@ -1,11 +1,35 @@
-// Regex matching zero-width and invisible Unicode chars that corrupt preview snippets:
-// U+00AD soft-hyphen, U+200B zero-width space, U+200C ZWNJ, U+200D ZWJ,
-// U+200E LTR mark, U+200F RTL mark, U+FEFF BOM / zero-width no-break space.
+// Regex matching invisible / zero-width / filler Unicode chars used by email marketers
+// as "preheader killers" to prevent snippet text from leaking into mail-client previews.
+// U+00AD soft-hyphen, U+034F combining grapheme joiner, U+200B zero-width space,
+// U+200C ZWNJ, U+200D ZWJ, U+200E LTR mark, U+200F RTL mark,
+// U+2007 figure space, U+2060 word joiner, U+2061-U+2064 invisible operators,
+// U+FEFF BOM / zero-width no-break space.
 const INVISIBLE_CHARS_RE = new RegExp(
-  [0x00AD, 0x200B, 0x200C, 0x200D, 0x200E, 0x200F, 0xFEFF]
+  [0x00AD, 0x034F, 0x200B, 0x200C, 0x200D, 0x200E, 0x200F, 0x2007, 0x2060, 0x2061, 0x2062, 0x2063, 0x2064, 0xFEFF]
     .map(n => String.fromCodePoint(n)).join('|'),
   'g'
 );
+
+// Strip HTML markup and decode all entities to produce a plain-text snippet.
+// Exported so imapManager can use the same logic when building snippets from
+// pre-fetched raw HTML bodies (avoiding duplicated, inconsistent entity handling).
+export function buildSnippetFromHtml(html) {
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;/gi, "'")
+    .replace(/&#x([0-9A-Fa-f]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#([0-9]+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
+    .replace(/&[a-z][a-z0-9]*;/gi, ' ')
+    .replace(INVISIBLE_CHARS_RE, '')
+    .replace(/\s+/g, ' ').trim().substring(0, 200);
+}
 
 // Walk bodyStructure to find the best text part for a snippet.
 // Prefers text/plain; falls back to text/html.
@@ -126,28 +150,18 @@ export async function parseMessage(msg) {
         let text = decodeBodyPart(rawBuf, encoding, charset);
 
         if (isHtml) {
+          text = buildSnippetFromHtml(text);
+        } else {
+          // Plain-text parts: some senders embed HTML entities (&zwnj;, &#847;, etc.)
+          // as preheader fillers; decode numeric entities then strip invisible chars.
           text = text
-            .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-            .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-            .replace(/<[^>]+>/g, ' ')
-            .replace(/&nbsp;/gi, ' ')
-            .replace(/&amp;/gi, '&')
-            .replace(/&lt;/gi, '<')
-            .replace(/&gt;/gi, '>')
-            .replace(/&quot;/gi, '"')
-            .replace(/&apos;/gi, "'")
             .replace(/&#x([0-9A-Fa-f]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
             .replace(/&#([0-9]+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
-            // Catch-all: any remaining named HTML entities (&zwnj; &shy; &hellip; etc.)
-            .replace(/&[a-z][a-z0-9]*;/gi, ' ');
+            .replace(/&[a-z][a-z0-9]*;/gi, ' ')
+            .replace(INVISIBLE_CHARS_RE, '');
         }
 
-        // Entity catch-all also covers plain-text parts whose senders embed HTML
-        // entities (e.g. &zwnj;) directly in a text/plain body.
-        snippet = text
-          .replace(/&[a-z][a-z0-9]*;/gi, ' ')
-          .replace(INVISIBLE_CHARS_RE, '')
-          .replace(/\s+/g, ' ').trim().substring(0, 200);
+        snippet = text.replace(/\s+/g, ' ').trim().substring(0, 200);
       } catch (_) {}
     }
   }
@@ -168,6 +182,7 @@ export async function parseMessage(msg) {
     cc: mapAddrs(envelope.cc),
     replyTo: mapAddrs(envelope.replyTo),
     inReplyTo: envelope.inReplyTo || null,
+    references: msg.headers?.get('references') || null,
     date: msg.internalDate || envelope.date || new Date(),
     snippet,
     isRead,

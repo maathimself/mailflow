@@ -41,6 +41,8 @@ export default function MessageList() {
     searchResults, setSearchResults, openCompose, accountsReady, accounts,
     messagesRefreshToken, layout, pageSize, setPageSize, scrollMode,
     setMobileSidebarOpen,
+    threadedView, expandedThreadId, setExpandedThreadId,
+    threadMessages, setThreadMessages, loadingThread, setLoadingThread,
   } = useStore();
 
   const isMobile = useMobile();
@@ -114,6 +116,11 @@ export default function MessageList() {
     };
   }, []);
 
+  // Collapse any open thread when the message list resets
+  useEffect(() => {
+    setExpandedThreadId(null);
+  }, [messagesRefreshToken]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Reset and load fresh when account/folder/filter changes
   useEffect(() => {
     let cancelled = false;
@@ -134,6 +141,7 @@ export default function MessageList() {
           params.folder = selectedFolder;
         }
         if (unreadOnly) params.unreadOnly = 'true';
+        if (threadedView) params.threaded = 'true';
         const data = await api.getMessages(params);
         if (cancelled) return;
         setMessagesTotal(data.total);
@@ -160,7 +168,7 @@ export default function MessageList() {
     };
     run();
     return () => { cancelled = true; };
-  }, [selectedAccountId, selectedFolder, unreadOnly, pageSize, scrollMode, accountsReady, accounts.length, messagesRefreshToken]);
+  }, [selectedAccountId, selectedFolder, unreadOnly, pageSize, scrollMode, accountsReady, accounts.length, messagesRefreshToken, threadedView]);
 
   // Load next page (called by scroll or button)
   const loadMore = useCallback(async () => {
@@ -175,6 +183,7 @@ export default function MessageList() {
         params.folder = selectedFolder;
       }
       if (unreadOnly) params.unreadOnly = 'true';
+      if (useStore.getState().threadedView) params.threaded = 'true';
       const data = await api.getMessages(params);
       appendMessages(data.messages);
       setMessagesOffset(currentOffset + data.messages.length);
@@ -205,6 +214,7 @@ export default function MessageList() {
             }
             if (selectedAccountId) { params.accountId = selectedAccountId; params.folder = selectedFolder; }
             if (unreadOnly) params.unreadOnly = 'true';
+            if (state.threadedView) params.threaded = 'true';
             const data = await api.getMessages(params);
             setMessagesTotal(data.total);
             // If the unread filter is on and the currently open message was just marked
@@ -315,11 +325,13 @@ export default function MessageList() {
       const params = { limit: pageSize, offset: (pageNum - 1) * pageSize };
       if (selectedAccountId) { params.accountId = selectedAccountId; params.folder = selectedFolder; }
       if (unreadOnly) params.unreadOnly = 'true';
+      if (threadedView) params.threaded = 'true';
       const data = await api.getMessages(params);
       setMessagesTotal(data.total);
       setMessages(data.messages);
       setMessagesOffset((pageNum - 1) * pageSize + data.messages.length);
       setHasMoreMessages(false);
+      setExpandedThreadId(null);
       if (listRef.current) listRef.current.scrollTop = 0;
     } catch (err) {
       console.error('Failed to load page:', err);
@@ -924,6 +936,30 @@ export default function MessageList() {
           incrementUnread(message.account_id);
           pendingMarkReadMap.delete(message.id);
         });
+    }
+  };
+
+  const handleThreadClick = async (message) => {
+    const tid = message.thread_id || message.id;
+    if (!message.thread_id || (message.message_count || 1) <= 1) {
+      handleSelect(message);
+      return;
+    }
+    if (expandedThreadId === tid) {
+      setExpandedThreadId(null);
+      return;
+    }
+    setExpandedThreadId(tid);
+    if (!threadMessages[tid]) {
+      setLoadingThread(tid);
+      try {
+        const data = await api.getThread(tid);
+        setThreadMessages(tid, data.messages || []);
+      } catch (err) {
+        console.error('Failed to load thread:', err);
+      } finally {
+        setLoadingThread(null);
+      }
     }
   };
 
@@ -1575,29 +1611,54 @@ export default function MessageList() {
           </div>
         )}
 
-        {displayMessages.map(message => (
-          <MessageRow
-            key={message.id}
-            message={message}
-            selected={selectedMessageId === message.id}
-            isChecked={selectedIds.has(message.id)}
-            selectionMode={selectionMode}
-            showAccount={isUnified}
-            isNarrow={isNarrow}
-            onSelect={handleSelect}
-            onToggleSelect={toggleSelect}
-            onMarkRead={handleMarkRead}
-            onStar={handleStar}
-            onDelete={handleDelete}
-            onContextMenu={(e, msg) => {
-              e.preventDefault();
-              setContextMenu({ x: e.clientX, y: e.clientY, message: msg });
-            }}
-            isMobile={isMobile}
-            onSwipeLeft={handleSwipeDelete}
-            onSwipeRight={handleSwipeToggleRead}
-          />
-        ))}
+        {threadedView && !searchQuery.trim() ? (
+          displayMessages.map(message => {
+            const tid = message.thread_id || message.id;
+            return (
+              <ThreadRow
+                key={tid}
+                message={message}
+                isExpanded={expandedThreadId === tid}
+                threadMsgs={threadMessages[tid] || null}
+                isLoadingThread={loadingThread === tid}
+                selectedMessageId={selectedMessageId}
+                showAccount={isUnified}
+                isNarrow={isNarrow}
+                onThreadClick={() => handleThreadClick(message)}
+                onSelect={handleSelect}
+                onContextMenu={(e, msg) => {
+                  e.preventDefault();
+                  setContextMenu({ x: e.clientX, y: e.clientY, message: msg });
+                }}
+                isMobile={isMobile}
+              />
+            );
+          })
+        ) : (
+          displayMessages.map(message => (
+            <MessageRow
+              key={message.id}
+              message={message}
+              selected={selectedMessageId === message.id}
+              isChecked={selectedIds.has(message.id)}
+              selectionMode={selectionMode}
+              showAccount={isUnified}
+              isNarrow={isNarrow}
+              onSelect={handleSelect}
+              onToggleSelect={toggleSelect}
+              onMarkRead={handleMarkRead}
+              onStar={handleStar}
+              onDelete={handleDelete}
+              onContextMenu={(e, msg) => {
+                e.preventDefault();
+                setContextMenu({ x: e.clientX, y: e.clientY, message: msg });
+              }}
+              isMobile={isMobile}
+              onSwipeLeft={handleSwipeDelete}
+              onSwipeRight={handleSwipeToggleRead}
+            />
+          ))
+        )}
 
         {contextMenu && (
           <ContextMenu
@@ -1891,6 +1952,170 @@ function EmptyState({ folderSyncing, searchQuery, unreadOnly, selectedFolder, ac
           padding: '7px 18px', borderRadius: 8, border: 'none',
           background: 'var(--accent)', color: 'white', cursor: 'pointer', fontSize: 13, fontWeight: 500,
         }}>{t('sidebar.compose')}</button>
+      )}
+    </div>
+  );
+}
+
+function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, showAccount, isNarrow, onThreadClick, onSelect, onContextMenu, isMobile }) {
+  const { t } = useTranslation();
+  const [hovered, setHovered] = useState(false);
+  const messageCount = message.message_count || 1;
+  const unreadCount  = parseInt(message.unread_count) || 0;
+  const tid = message.thread_id || message.id;
+
+  const rowBg = isExpanded
+    ? 'var(--bg-secondary)'
+    : (hovered ? 'var(--bg-tertiary)' : 'transparent');
+
+  return (
+    <div style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+      {/* Thread header row */}
+      <div
+        onMouseEnter={() => !isMobile && setHovered(true)}
+        onMouseLeave={() => !isMobile && setHovered(false)}
+        onClick={onThreadClick}
+        onContextMenu={!isMobile ? (e => onContextMenu(e, message)) : undefined}
+        style={{
+          display: 'flex', alignItems: 'flex-start', gap: 10,
+          padding: '11px 14px', cursor: 'pointer',
+          background: rowBg, transition: 'background 0.1s',
+          position: 'relative',
+        }}
+      >
+        {/* Unread dot */}
+        {unreadCount > 0 && (
+          <div style={{
+            position: 'absolute', left: 3, top: '50%', transform: 'translateY(-50%)',
+            width: 7, height: 7, borderRadius: '50%', background: 'var(--accent)',
+          }} />
+        )}
+
+        {/* Avatar */}
+        {!isNarrow && !isMobile && (
+          <div style={{
+            width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
+            background: message.account_color || 'var(--accent)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 13, fontWeight: 600, color: 'white', marginTop: 1,
+          }}>
+            {(message.from_name || message.from_email || '?')[0].toUpperCase()}
+          </div>
+        )}
+
+        <div style={{ flex: 1, minWidth: 0, paddingLeft: unreadCount > 0 ? 6 : 0 }}>
+          {/* Row 1: sender + badge + date */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
+              {showAccount && (
+                <div style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: message.account_color || '#6366f1' }} />
+              )}
+              <span style={{
+                fontSize: 13, fontWeight: unreadCount > 0 ? 600 : 400,
+                color: unreadCount > 0 ? 'var(--text-primary)' : 'var(--text-secondary)',
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
+              }}>
+                {message.from_name || message.from_email || t('common.unknown', 'Unknown')}
+              </span>
+              {messageCount > 1 && (
+                <span style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 3,
+                  fontSize: 10, fontWeight: 600, color: 'var(--text-tertiary)',
+                  background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)',
+                  borderRadius: 10, padding: '1px 6px', flexShrink: 0,
+                }}>
+                  <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    {isExpanded
+                      ? <polyline points="18 15 12 9 6 15" />
+                      : <polyline points="6 9 12 15 18 9" />}
+                  </svg>
+                  {messageCount}
+                </span>
+              )}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginLeft: 8 }}>
+              {message.has_attachments && (
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="2">
+                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
+                </svg>
+              )}
+              <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{formatDate(message.date)}</span>
+            </div>
+          </div>
+          {/* Row 2: subject */}
+          <div style={{
+            fontSize: 12, fontWeight: unreadCount > 0 ? 500 : 400,
+            color: unreadCount > 0 ? 'var(--text-primary)' : 'var(--text-secondary)',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 2,
+          }}>
+            {message.subject || t('common.noSubject')}
+          </div>
+          {/* Row 3: snippet */}
+          <div style={{
+            fontSize: 12, color: 'var(--text-tertiary)',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>
+            {message.snippet || ''}
+          </div>
+        </div>
+      </div>
+
+      {/* Expanded sub-rows */}
+      {isExpanded && (
+        <div style={{ background: 'var(--bg-secondary)', borderTop: '1px solid var(--border-subtle)' }}>
+          {isLoadingThread ? (
+            <div style={{ padding: '14px 16px', display: 'flex', justifyContent: 'center' }}>
+              <div style={{
+                width: 16, height: 16,
+                border: '2px solid var(--border)', borderTopColor: 'var(--accent)',
+                borderRadius: '50%', animation: 'spin 0.8s linear infinite',
+              }} />
+            </div>
+          ) : (threadMsgs || []).map((msg, idx) => (
+            <div
+              key={msg.id}
+              onClick={e => { e.stopPropagation(); onSelect(msg); }}
+              onContextMenu={!isMobile ? (e => { e.preventDefault(); onContextMenu(e, msg); }) : undefined}
+              style={{
+                display: 'flex', alignItems: 'flex-start', gap: 8,
+                padding: '9px 14px 9px 44px',
+                cursor: 'pointer', position: 'relative',
+                background: selectedMessageId === msg.id ? 'var(--bg-elevated)' : 'transparent',
+                borderTop: idx > 0 ? '1px solid var(--border-subtle)' : 'none',
+                transition: 'background 0.1s',
+              }}
+              onMouseEnter={e => { if (selectedMessageId !== msg.id) e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = selectedMessageId === msg.id ? 'var(--bg-elevated)' : 'transparent'; }}
+            >
+              {!msg.is_read && (
+                <div style={{
+                  position: 'absolute', left: 28, top: '50%', transform: 'translateY(-50%)',
+                  width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)',
+                }} />
+              )}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{
+                    fontSize: 12, fontWeight: msg.is_read ? 400 : 600,
+                    color: msg.is_read ? 'var(--text-secondary)' : 'var(--text-primary)',
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
+                  }}>
+                    {msg.from_name || msg.from_email || t('common.unknown', 'Unknown')}
+                  </span>
+                  <span style={{ fontSize: 11, color: 'var(--text-tertiary)', flexShrink: 0, marginLeft: 8 }}>
+                    {formatDate(msg.date)}
+                  </span>
+                </div>
+                <div style={{
+                  fontSize: 11, color: 'var(--text-tertiary)',
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1,
+                }}>
+                  {msg.snippet || ''}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );

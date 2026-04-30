@@ -70,7 +70,7 @@ function snippetFromBody(text, html) {
 
 // Get messages (unified or per-account/folder)
 router.get('/messages', async (req, res) => {
-  const { accountId, folder = 'INBOX', limit = 50, offset = 0, unreadOnly } = req.query;
+  const { accountId, folder = 'INBOX', limit = 50, offset = 0, unreadOnly, threaded } = req.query;
 
   const accountsResult = await query(
     'SELECT id FROM email_accounts WHERE user_id = $1 AND enabled = true',
@@ -127,8 +127,64 @@ router.get('/messages', async (req, res) => {
     total = 0;
   }
 
-  values.push(Math.min(Math.max(parseInt(limit) || 50, 1), 200));
-  values.push(Math.max(parseInt(offset) || 0, 0));
+  const safeLimit  = Math.min(Math.max(parseInt(limit)  || 50, 1), 200);
+  const safeOffset = Math.max(parseInt(offset) || 0, 0);
+
+  // ── Threaded mode ────────────────────────────────────────────────────────────
+  if (threaded === 'true') {
+    // One row per thread (latest message per thread_id), ordered by latest date.
+    // COALESCE(thread_id, id::text) treats null-thread_id messages as singletons.
+    const filterValues = [...values]; // values before limit/offset were pushed
+    const threadResult = await query(`
+      WITH ranked AS (
+        SELECT m.id, m.uid, m.folder, m.message_id,
+               COALESCE(m.thread_id, m.id::text) AS thread_id,
+               m.subject, m.from_name, m.from_email,
+               m.to_addresses, m.cc_addresses, m.reply_to, m.in_reply_to,
+               m.date, m.snippet, m.is_starred,
+               m.has_attachments, m.account_id,
+               a.name  AS account_name,
+               a.email_address AS account_email,
+               a.color AS account_color,
+               COUNT(*) OVER (PARTITION BY COALESCE(m.thread_id, m.id::text))::int AS message_count,
+               COUNT(*) FILTER (WHERE NOT m.is_read)
+                 OVER (PARTITION BY COALESCE(m.thread_id, m.id::text))::int AS unread_count,
+               ROW_NUMBER() OVER (
+                 PARTITION BY COALESCE(m.thread_id, m.id::text)
+                 ORDER BY m.date DESC
+               ) AS rn
+        FROM messages m
+        JOIN email_accounts a ON m.account_id = a.id
+        WHERE ${where}
+      )
+      SELECT id, uid, folder, message_id, thread_id, subject,
+             from_name, from_email, to_addresses, cc_addresses, reply_to, in_reply_to,
+             date, snippet, is_starred, has_attachments, account_id,
+             account_name, account_email, account_color,
+             message_count, unread_count
+      FROM ranked
+      WHERE rn = 1
+      ORDER BY date DESC
+      LIMIT $${p} OFFSET $${p + 1}
+    `, [...filterValues, safeLimit, safeOffset]);
+
+    // Thread-level total: distinct thread groups matching the filter.
+    const threadCountResult = await query(`
+      SELECT COUNT(DISTINCT COALESCE(m.thread_id, m.id::text))::int AS total
+      FROM messages m
+      WHERE ${where}
+    `, filterValues);
+
+    return res.json({
+      messages: threadResult.rows,
+      total: threadCountResult.rows[0]?.total ?? 0,
+      threaded: true,
+    });
+  }
+  // ── Non-threaded mode (unchanged) ───────────────────────────────────────────
+
+  values.push(safeLimit);
+  values.push(safeOffset);
 
   const result = await query(`
     SELECT m.id, m.uid, m.folder, m.message_id, m.subject, m.from_name, m.from_email,
@@ -160,6 +216,36 @@ function shouldBlockImages(prefs, message) {
   if (senderDomain && allowedDomains.includes(senderDomain)) return false;
   return true;
 }
+
+// Get all messages belonging to a thread (for threaded view expansion)
+router.get('/thread/:threadId', async (req, res) => {
+  const { threadId } = req.params;
+  if (!threadId) return res.status(400).json({ error: 'threadId required' });
+
+  const accountsResult = await query(
+    'SELECT id FROM email_accounts WHERE user_id = $1 AND enabled = true',
+    [req.session.userId]
+  );
+  const userAccountIds = accountsResult.rows.map(r => r.id);
+  if (!userAccountIds.length) return res.json({ messages: [] });
+
+  const result = await query(`
+    SELECT m.id, m.uid, m.folder, m.message_id, m.thread_id, m.subject,
+           m.from_name, m.from_email, m.to_addresses, m.cc_addresses,
+           m.reply_to, m.in_reply_to,
+           m.date, m.snippet, m.is_read, m.is_starred,
+           m.has_attachments, m.account_id,
+           a.name AS account_name, a.email_address AS account_email, a.color AS account_color
+    FROM messages m
+    JOIN email_accounts a ON m.account_id = a.id
+    WHERE m.is_deleted = false
+      AND m.account_id = ANY($1)
+      AND COALESCE(m.thread_id, m.id::text) = $2
+    ORDER BY m.date ASC
+  `, [userAccountIds, threadId]);
+
+  res.json({ messages: result.rows });
+});
 
 // Unread counts
 router.get('/unread-counts', async (req, res) => {

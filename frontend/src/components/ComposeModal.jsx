@@ -179,7 +179,8 @@ export default function ComposeModal() {
         cc: [...ccChips, ...(ccInput.trim() ? [ccInput.trim()] : [])],
         bcc: [...bccChips, ...(bccInput.trim() ? [bccInput.trim()] : [])],
         subject,
-        body: body + (quotedBody || ''),
+        body,
+        ...(quotedBody ? { quotedBody } : {}),
         inReplyTo: composeData?.inReplyTo,
         references: composeData?.references || undefined,
       });
@@ -480,7 +481,7 @@ export default function ComposeModal() {
 
           {/* Signature */}
           {fromSignature && (
-            <div style={{ padding: '0 16px 12px', borderTop: '1px solid var(--border-subtle)' }}>
+            <div style={{ padding: '0 16px 12px' }}>
               <div style={{ fontSize: 11, color: 'var(--text-tertiary)', margin: '8px 0 6px', userSelect: 'none' }}>
                 -- signature
               </div>
