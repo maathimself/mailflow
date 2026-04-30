@@ -20,6 +20,11 @@ function isValidFolderName(name) {
   return typeof name === 'string' && name.length > 0 && name.length <= 255 && !/[\x00-\x1f\x7f]/.test(name);
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function areValidUUIDs(ids) {
+  return ids.every(id => typeof id === 'string' && UUID_RE.test(id));
+}
+
 // Regex matching zero-width and invisible Unicode chars that corrupt preview snippets.
 // Built from code points to avoid embedding invisible characters in source.
 const INVISIBLE_CHARS_RE = new RegExp(
@@ -415,7 +420,12 @@ router.get('/messages/:id/headers', async (req, res) => {
 // Download attachment
 router.get('/messages/:id/attachments/:part', async (req, res) => {
   const { id, part } = req.params;
-  const partNum = decodeURIComponent(part);
+  let partNum;
+  try {
+    partNum = decodeURIComponent(part);
+  } catch (_) {
+    return res.status(400).json({ error: 'Invalid attachment part identifier' });
+  }
 
   const result = await query(`
     SELECT m.*, a.user_id FROM messages m
@@ -432,6 +442,14 @@ router.get('/messages/:id/attachments/:part', async (req, res) => {
     : (message.attachments || []);
   const att = attachments.find(a => a.part === partNum);
   if (!att) return res.status(404).json({ error: 'Attachment not found' });
+
+  // Reject oversized attachments before opening an IMAP connection.
+  // att.size comes from the IMAP BODYSTRUCTURE response and is generally accurate.
+  // A size of 0 means unknown — allow the fetch to proceed in that case.
+  const ATTACHMENT_SIZE_LIMIT = 50 * 1024 * 1024; // 50 MB
+  if (att.size > ATTACHMENT_SIZE_LIMIT) {
+    return res.status(413).json({ error: 'Attachment exceeds the 50 MB download limit.' });
+  }
 
   try {
     const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]);
@@ -662,6 +680,9 @@ router.post('/messages/bulk-delete', async (req, res) => {
   if (ids.length > 500) {
     return res.status(400).json({ error: 'Too many ids — maximum 500 per request' });
   }
+  if (!areValidUUIDs(ids)) {
+    return res.status(400).json({ error: 'Invalid message id format' });
+  }
 
   const result = await query(
     `SELECT m.*, a.user_id FROM messages m
@@ -721,6 +742,9 @@ router.post('/messages/bulk-move', async (req, res) => {
   }
   if (!isValidFolderName(folder)) {
     return res.status(400).json({ error: 'Invalid destination folder' });
+  }
+  if (!areValidUUIDs(ids)) {
+    return res.status(400).json({ error: 'Invalid message id format' });
   }
 
   const result = await query(

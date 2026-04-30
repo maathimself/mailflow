@@ -20,7 +20,12 @@ async function getDiscovery(issuerUrl) {
   }
   const wellKnown = issuerUrl.replace(/\/$/, '') + '/.well-known/openid-configuration';
   const res = await fetch(wellKnown, { signal: AbortSignal.timeout(10000) });
-  if (!res.ok) throw new Error(`OIDC discovery failed for ${issuerUrl}: ${res.status}`);
+  if (!res.ok) {
+    if (res.status === 401 || res.status === 403) {
+      throw new Error(`OIDC discovery blocked (${res.status}): the server cannot reach ${wellKnown} — ensure the well-known endpoint is publicly accessible from the MailFlow server`);
+    }
+    throw new Error(`OIDC discovery failed for ${issuerUrl}: ${res.status}`);
+  }
   const doc = await res.json();
   const normConfigured = issuerUrl.replace(/\/$/, '');
   const normDiscovered = (doc.issuer || '').replace(/\/$/, '');
@@ -115,13 +120,21 @@ export default oidcApiRouter;
 
 export const oidcBrowserRouter = Router();
 
+// Error redirect: login-flow errors go to /login?oidc_error= (shown on LoginPage);
+// link-flow errors go to /?oidc_error= (shown as a toast inside MailApp).
+function oidcError(res, action, message) {
+  const base = action === 'link' ? '/' : '/login';
+  return res.redirect(`${base}?oidc_error=${encodeURIComponent(message)}`);
+}
+
 // Step 1: redirect the browser to the OIDC provider's authorization endpoint
 oidcBrowserRouter.get('/:slug/start', async (req, res) => {
   const { slug } = req.params;
   const isLink = req.query.action === 'link';
+  const action = isLink ? 'link' : 'login';
 
   if (isLink && !req.session?.userId) {
-    return res.redirect(`/?oidc_error=${encodeURIComponent('Not authenticated')}`);
+    return oidcError(res, action, 'Not authenticated');
   }
 
   try {
@@ -130,7 +143,7 @@ oidcBrowserRouter.get('/:slug/start', async (req, res) => {
       [slug]
     );
     if (!provResult.rows.length) {
-      return res.redirect(`/?oidc_error=${encodeURIComponent('SSO provider not found')}`);
+      return oidcError(res, action, 'SSO provider not found');
     }
     const provider = provResult.rows[0];
     const { doc } = await getDiscovery(provider.issuer_url);
@@ -144,7 +157,7 @@ oidcBrowserRouter.get('/:slug/start', async (req, res) => {
       nonce,
       verifier,
       providerId: provider.id,
-      action: isLink ? 'link' : 'login',
+      action,
       linkUserId: isLink ? req.session.userId : undefined,
       expiresAt: Date.now() + 10 * 60 * 1000,
     };
@@ -163,7 +176,7 @@ oidcBrowserRouter.get('/:slug/start', async (req, res) => {
     res.redirect(`${doc.authorization_endpoint}?${params}`);
   } catch (err) {
     console.error('OIDC start error:', err.message);
-    res.redirect(`/?oidc_error=${encodeURIComponent('Failed to initiate SSO')}`);
+    return oidcError(res, action, 'Failed to initiate SSO');
   }
 });
 
@@ -171,23 +184,25 @@ oidcBrowserRouter.get('/:slug/start', async (req, res) => {
 oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
   const { code, state, error, error_description } = req.query;
 
+  const pending = req.session.oidcPending;
+  const pendingAction = pending?.action || 'login';
+
   if (error) {
     console.error('OIDC provider error:', error, error_description);
-    return res.redirect(`/?oidc_error=${encodeURIComponent(error_description || error)}`);
+    return oidcError(res, pendingAction, error_description || error);
   }
 
-  const pending = req.session.oidcPending;
   if (!pending || Date.now() > pending.expiresAt) {
     delete req.session.oidcPending;
-    return res.redirect(`/?oidc_error=${encodeURIComponent('SSO session expired — please try again')}`);
+    return oidcError(res, pendingAction, 'SSO session expired — please try again');
   }
   if (!state || state !== pending.state) {
     delete req.session.oidcPending;
-    return res.redirect(`/?oidc_error=${encodeURIComponent('Invalid SSO state — please try again')}`);
+    return oidcError(res, pendingAction, 'Invalid SSO state — please try again');
   }
   if (!code) {
     delete req.session.oidcPending;
-    return res.redirect(`/?oidc_error=${encodeURIComponent('No authorization code received')}`);
+    return oidcError(res, pendingAction, 'No authorization code received');
   }
 
   // Clear the pending state before any async work so it cannot be replayed
@@ -200,7 +215,7 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
       [pending.providerId]
     );
     if (!provResult.rows.length) {
-      return res.redirect(`/?oidc_error=${encodeURIComponent('SSO provider not found or disabled')}`);
+      return oidcError(res, pending.action, 'SSO provider not found or disabled');
     }
     const provider = provResult.rows[0];
     const { doc, jwks } = await getDiscovery(provider.issuer_url);
@@ -227,7 +242,7 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
     if (!tokenRes.ok) {
       const body = await tokenRes.text();
       console.error('OIDC token exchange failed:', tokenRes.status, body);
-      return res.redirect(`/?oidc_error=${encodeURIComponent('Token exchange failed')}`);
+      return oidcError(res, pending.action, 'Token exchange failed');
     }
     const tokenData = await tokenRes.json();
 
@@ -241,11 +256,11 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
       payload = p;
     } catch (err) {
       console.error('OIDC id_token verification failed:', err.message);
-      return res.redirect(`/?oidc_error=${encodeURIComponent('Token verification failed')}`);
+      return oidcError(res, pending.action, 'Token verification failed');
     }
 
     if (payload.nonce !== pending.nonce) {
-      return res.redirect(`/?oidc_error=${encodeURIComponent('Nonce mismatch — please try again')}`);
+      return oidcError(res, pending.action, 'Nonce mismatch — please try again');
     }
 
     const subject = payload.sub;
@@ -253,21 +268,21 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
     const email = payload.email || null;
     const emailVerified = payload.email_verified === true;
 
-    // Require verified email for all login flows
-    if (!emailVerified && pending.action !== 'link') {
-      return res.redirect(`/?oidc_error=${encodeURIComponent('Your email address must be verified with this SSO provider')}`);
+    // Require verified email for login flows (skip for link, and skip if provider opts out)
+    if (!emailVerified && pending.action !== 'link' && provider.require_email_verified !== false) {
+      return oidcError(res, pending.action, 'Your email address must be verified with this SSO provider');
     }
 
     // Enforce allowed_domains if configured — requires verified email for all flows including link
     if (provider.allowed_domains) {
       const allowed = provider.allowed_domains.split(',').map(d => d.trim().toLowerCase()).filter(Boolean);
       if (allowed.length > 0) {
-        if (!email || !emailVerified) {
-          return res.redirect(`/?oidc_error=${encodeURIComponent('A verified email address is required for this SSO provider')}`);
+        if (!email || (!emailVerified && provider.require_email_verified !== false)) {
+          return oidcError(res, pending.action, 'A verified email address is required for this SSO provider');
         }
         const domain = email.split('@')[1]?.toLowerCase();
         if (!allowed.includes(domain)) {
-          return res.redirect(`/?oidc_error=${encodeURIComponent('Your email domain is not permitted for this SSO provider')}`);
+          return oidcError(res, pending.action, 'Your email domain is not permitted for this SSO provider');
         }
       }
     }
@@ -275,7 +290,7 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
     // ── Link action: add this identity to an already-authenticated account ────
     if (pending.action === 'link') {
       if (!pending.linkUserId) {
-        return res.redirect(`/?oidc_error=${encodeURIComponent('Link session invalid')}`);
+        return oidcError(res, 'link', 'Link session invalid');
       }
       try {
         await client.query(
@@ -285,7 +300,7 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
         );
       } catch (err) {
         if (err.code === '23505') {
-          return res.redirect(`/?oidc_error=${encodeURIComponent('This identity is already linked to another account')}`);
+          return oidcError(res, 'link', 'This identity is already linked to another account');
         }
         throw err;
       }
@@ -306,7 +321,7 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
         [userId]
       );
       if (!userRow.rows.length) {
-        return res.redirect(`/?oidc_error=${encodeURIComponent('Account not found')}`);
+        return oidcError(res, 'login', 'Account not found');
       }
       const user = userRow.rows[0];
       await client.query(
@@ -317,6 +332,7 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
       req.session.userId = user.id;
       req.session.username = user.username;
       req.session.isAdmin = user.is_admin;
+      await new Promise((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
       imapManager.connectAllForUser(user.id);
       return res.redirect('/?oidc_success=login');
     }
@@ -325,20 +341,20 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
     const mode = provider.provisioning_mode;
 
     if (mode === 'disabled') {
-      return res.redirect(`/?oidc_error=${encodeURIComponent('SSO login is not enabled for new users on this server')}`);
+      return oidcError(res, 'login', 'SSO login is not enabled for new users on this server');
     }
 
     if (mode === 'login_existing_only') {
       // Match by email to an existing account and link automatically
-      if (!email || !emailVerified) {
-        return res.redirect(`/?oidc_error=${encodeURIComponent('No account found. Contact your administrator.')}`);
+      if (!email || (!emailVerified && provider.require_email_verified !== false)) {
+        return oidcError(res, 'login', 'No account found. Contact your administrator.');
       }
       const userByEmail = await client.query(
         'SELECT id, username, is_admin FROM users WHERE username = $1',
         [email.toLowerCase()]
       );
       if (!userByEmail.rows.length) {
-        return res.redirect(`/?oidc_error=${encodeURIComponent('No account found matching this email. Contact your administrator.')}`);
+        return oidcError(res, 'login', 'No account found matching this email. Contact your administrator.');
       }
       const user = userByEmail.rows[0];
       await client.query(
@@ -351,6 +367,7 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
       req.session.userId = user.id;
       req.session.username = user.username;
       req.session.isAdmin = user.is_admin;
+      await new Promise((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
       imapManager.connectAllForUser(user.id);
       return res.redirect('/?oidc_success=login');
     }
@@ -358,7 +375,7 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
     if (mode === 'open') {
       // Create a new MailFlow account from the SSO identity
       if (!email || !emailVerified) {
-        return res.redirect(`/?oidc_error=${encodeURIComponent('A verified email address is required to create an account via SSO')}`);
+        return oidcError(res, 'login', 'A verified email address is required to create an account via SSO');
       }
       await client.query('BEGIN');
       try {
@@ -397,6 +414,7 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
         req.session.userId = user.id;
         req.session.username = user.username;
         req.session.isAdmin = user.is_admin;
+        await new Promise((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
         imapManager.connectAllForUser(user.id);
         return res.redirect('/?oidc_success=login');
       } catch (err) {
@@ -405,10 +423,10 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
       }
     }
 
-    return res.redirect(`/?oidc_error=${encodeURIComponent('Unknown provisioning configuration')}`);
+    return oidcError(res, 'login', 'Unknown provisioning configuration');
   } catch (err) {
     console.error('OIDC callback error:', err.message);
-    return res.redirect(`/?oidc_error=${encodeURIComponent('Authentication failed. Please try again.')}`);
+    return oidcError(res, pending?.action || 'login', 'Authentication failed. Please try again.');
   } finally {
     client.release();
   }

@@ -97,7 +97,8 @@ router.get('/microsoft/callback', async (req, res) => {
     }
 
     const { access_token, refresh_token, expires_in, id_token } = tokens;
-    const expiry = new Date(Date.now() + expires_in * 1000);
+    const expiresInSecs = Number.isFinite(expires_in) && expires_in > 0 ? expires_in : 3600;
+    const expiry = new Date(Date.now() + expiresInSecs * 1000);
 
     // Validate the id_token via Microsoft's JWKS, then extract user info.
     // The access_token is scoped to outlook.office.com (IMAP/SMTP) and cannot be used
@@ -181,13 +182,16 @@ router.get('/microsoft/callback', async (req, res) => {
 export async function refreshMicrosoftToken(account) {
   const { clientId, clientSecret, tenantId } = getMsConfig();
 
+  const storedRefreshToken = decrypt(account.oauth_refresh_token);
+  if (!storedRefreshToken) throw new Error('OAuth refresh token is missing or corrupted — please reconnect your account');
+
   const tokenRes = await fetch(`${MICROSOFT_AUTH_URL}/${tenantId}/oauth2/v2.0/token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       client_id: clientId,
       client_secret: clientSecret,
-      refresh_token: decrypt(account.oauth_refresh_token),
+      refresh_token: storedRefreshToken,
       grant_type: 'refresh_token',
       scope: 'https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send offline_access',
     }),
@@ -198,7 +202,8 @@ export async function refreshMicrosoftToken(account) {
   if (!tokenRes.ok) throw new Error(tokens.error_description || 'Token refresh failed');
 
   const { access_token, refresh_token, expires_in } = tokens;
-  const expiry = new Date(Date.now() + expires_in * 1000);
+  const refreshExpiresInSecs = Number.isFinite(expires_in) && expires_in > 0 ? expires_in : 3600;
+  const expiry = new Date(Date.now() + refreshExpiresInSecs * 1000);
 
   await query(`
     UPDATE email_accounts SET

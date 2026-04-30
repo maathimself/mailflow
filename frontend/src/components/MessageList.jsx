@@ -766,10 +766,12 @@ export default function MessageList() {
       case 'open':
         handleSelect(message);
         break;
-      case 'markRead':
-        if (!message.is_read) {
-          updateMessage(message.id, { is_read: true });
-          decrementUnread(message.account_id);
+      case 'markRead': {
+        const uc = parseInt(message.unread_count);
+        const threadUnread = Number.isFinite(uc) && uc > 0;
+        if (!message.is_read || threadUnread) {
+          updateMessage(message.id, { is_read: true, unread_count: 0 });
+          decrementUnread(message.account_id, threadUnread ? uc : 1);
           pendingMarkReadMap.set(message.id, message.account_id);
           api.markRead(message.id, true)
             .then(() => {
@@ -780,14 +782,18 @@ export default function MessageList() {
             .catch(console.error);
         }
         break;
-      case 'markUnread':
-        if (message.is_read) {
-          updateMessage(message.id, { is_read: false });
+      }
+      case 'markUnread': {
+        const uc = parseInt(message.unread_count);
+        const needsMarkUnread = message.is_read || (Number.isFinite(uc) && uc === 0);
+        if (needsMarkUnread) {
+          updateMessage(message.id, { is_read: false, unread_count: 1 });
           pendingMarkReadMap.delete(message.id);
           completedMarkReadMap.delete(message.id);
           api.markRead(message.id, false).catch(console.error);
         }
         break;
+      }
       case 'toggleStar': {
         const newVal = !message.is_starred;
         updateMessage(message.id, { is_starred: newVal });

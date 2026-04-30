@@ -40,7 +40,7 @@ export default function LoginPage() {
     // Check if open registration is enabled
     api.getRegistrationStatus()
       .then(data => setRegistrationOpen(data.open))
-      .catch(() => setRegistrationOpen(true)); // fail open if unreachable
+      .catch(() => setRegistrationOpen(false)); // fail closed if unreachable
 
     // Load SSO providers
     api.oidc.getProviders()

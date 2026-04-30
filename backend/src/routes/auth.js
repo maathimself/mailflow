@@ -136,7 +136,7 @@ router.post('/register', authLimiter, async (req, res) => {
     imapManager.connectAllForUser(newUser.id);
     res.json({ user: { id: newUser.id, username: newUser.username, isAdmin: newUser.is_admin } });
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
+    await client.query('ROLLBACK').catch(rbErr => console.error('Registration ROLLBACK error:', rbErr.message));
     if (err.code === '23505') return res.status(409).json({ error: 'Username already taken' });
     console.error('Registration error:', err.message);
     res.status(500).json({ error: 'Registration failed' });
@@ -233,9 +233,13 @@ router.post('/2fa/challenge', authLimiter, async (req, res) => {
 });
 
 router.post('/logout', (req, res) => {
-  req.session.destroy(() => {});
-  res.clearCookie('connect.sid');
-  res.json({ ok: true });
+  const userId = req.session.userId;
+  req.session.destroy((err) => {
+    if (err) console.error('Session destroy error:', err.message);
+    res.clearCookie('connect.sid');
+    res.json({ ok: true });
+  });
+  if (userId) imapManager.disconnectUser(userId);
 });
 
 router.get('/me', async (req, res) => {

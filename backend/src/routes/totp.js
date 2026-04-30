@@ -86,7 +86,7 @@ router.post('/cancel', (req, res) => {
 });
 
 // POST /api/totp/disable — disable 2FA after confirming password
-router.post('/disable', async (req, res) => {
+router.post('/disable', totpLimiter, async (req, res) => {
   const { password } = req.body;
   if (!password) return res.status(400).json({ error: 'Password required' });
 

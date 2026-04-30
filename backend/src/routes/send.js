@@ -87,13 +87,21 @@ router.post('/send', async (req, res) => {
     let smtpAuth;
     if ((account.oauth_provider === 'microsoft' || account.oauth_provider === 'google')
         && account.oauth_access_token) {
+      const accessToken = decrypt(account.oauth_access_token);
+      if (!accessToken) {
+        return res.status(502).json({ error: 'OAuth access token is corrupted — please reconnect your account.' });
+      }
       smtpAuth = {
         type: 'OAuth2',
         user: account.auth_user || account.email_address,
-        accessToken: decrypt(account.oauth_access_token),
+        accessToken,
       };
     } else {
-      smtpAuth = { user: account.auth_user, pass: decrypt(account.auth_pass) };
+      const pass = decrypt(account.auth_pass);
+      if (!pass) {
+        return res.status(502).json({ error: 'SMTP password is corrupted or missing — please re-enter your account password in Settings.' });
+      }
+      smtpAuth = { user: account.auth_user, pass };
     }
 
     const transport = nodemailer.createTransport({

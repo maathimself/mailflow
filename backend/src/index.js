@@ -47,6 +47,13 @@ if (!process.env.ENCRYPTION_KEY || process.env.ENCRYPTION_KEY.length !== 64) {
   console.error('FATAL: ENCRYPTION_KEY must be set and exactly 64 hex characters (32 bytes). Generate one with: openssl rand -hex 32');
   process.exit(1);
 }
+// APP_URL is required in production: without it every browser WebSocket connection
+// is rejected (websocket.js closes connections that send an Origin header when
+// ALLOWED_ORIGIN is null), and OIDC redirect URIs become malformed.
+if (process.env.NODE_ENV === 'production' && !process.env.APP_URL) {
+  console.error('FATAL: APP_URL must be set in production (e.g. https://mail.example.com). WebSocket connections and OIDC depend on it.');
+  process.exit(1);
+}
 
 // Session
 const sessionMiddleware = session({
@@ -76,8 +83,9 @@ app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   next();
 });
-// Larger body limit for the send endpoint — attachments can be base64-encoded
-app.use('/api/mail/send', express.json({ limit: '50mb' }));
+// Raised limit for the send endpoint (signatures with embedded images can be large).
+// Increase once attachment support is implemented.
+app.use('/api/mail/send', express.json({ limit: '10mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use(sessionMiddleware);
 

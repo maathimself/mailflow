@@ -339,6 +339,7 @@ function ShortcutHelpOverlay({ shortcuts, onClose }) {
         WebkitBackdropFilter: 'blur(8px)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         padding: 24,
+        animation: 'backdrop-enter var(--motion-fast) var(--ease-standard) both',
       }}
     >
       <div
@@ -347,10 +348,11 @@ function ShortcutHelpOverlay({ shortcuts, onClose }) {
           background: 'var(--bg-secondary)',
           border: '1px solid var(--border)',
           borderRadius: 14,
-          boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+          boxShadow: 'var(--shadow-modal)',
           width: '100%', maxWidth: 680,
           maxHeight: '80vh', overflow: 'auto',
           padding: '24px 28px',
+          animation: 'modal-enter var(--motion-normal) var(--ease-emphasized) both',
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>

@@ -545,6 +545,18 @@ export class ImapManager {
     evictPool(accountId);
   }
 
+  async disconnectUser(userId) {
+    try {
+      const result = await query(
+        "SELECT id FROM email_accounts WHERE user_id = $1 AND protocol = 'imap'",
+        [userId]
+      );
+      await Promise.all(result.rows.map(a => this.disconnectAccount(a.id)));
+    } catch (err) {
+      console.error(`disconnectUser error for user ${userId}:`, err.message);
+    }
+  }
+
   // Extracted sync tick — runs on every interval tick for an account.
   async _syncTick(account) {
     const skips = this.syncThrottleSkips.get(account.id) || 0;

@@ -2,10 +2,12 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
+COPY --chown=node:node package.json package-lock.json ./
 RUN npm ci --omit=dev
 
-COPY src/ ./src/
+COPY --chown=node:node src/ ./src/
+
+USER node
 
 EXPOSE 3000
 

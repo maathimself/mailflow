@@ -8,7 +8,7 @@ import { encrypt } from '../services/encryption.js';
 import { sanitizeSignature } from '../services/emailSanitizer.js';
 
 const ALLOWED_IMAP_PORTS = new Set([143, 993]);
-const ALLOWED_SMTP_PORTS = new Set([25, 465, 587]);
+const ALLOWED_SMTP_PORTS = new Set([465, 587]);
 
 function ipv4ToLong(ip) {
   const parts = ip.split('.').map(Number);
@@ -38,7 +38,14 @@ function isPrivateIPv4(ip) {
 
 function isPrivateIPv6(ip) {
   const h = ip.toLowerCase();
-  return h === '::1' || h.startsWith('fc') || h.startsWith('fd') || h.startsWith('fe80');
+  if (h === '::1' || h.startsWith('fc') || h.startsWith('fd') || h.startsWith('fe80')) return true;
+  // IPv4-mapped IPv6 (::ffff:x.x.x.x) — check the embedded IPv4 address.
+  // Without this, ::ffff:127.0.0.1 bypasses the IPv4 private-range checks.
+  if (h.startsWith('::ffff:')) {
+    const embedded = h.slice(7);
+    if (isIPv4(embedded)) return isPrivateIPv4(embedded);
+  }
+  return false;
 }
 
 // Synchronous check: literal IPs and reserved hostnames.
@@ -210,7 +217,7 @@ router.put('/:id', async (req, res) => {
     if (err) return res.status(400).json({ error: `SMTP: ${err}` });
   }
 
-  const allowed = ['name', 'color', 'enabled', 'auth_pass', 'sort_order', 'smtp_host', 'smtp_port', 'folder_mappings', 'imap_skip_tls_verify', 'signature'];
+  const allowed = ['name', 'color', 'enabled', 'auth_user', 'auth_pass', 'sort_order', 'smtp_host', 'smtp_port', 'folder_mappings', 'imap_skip_tls_verify', 'signature'];
   const sets = [];
   const values = [];
   let i = 1;
@@ -237,6 +244,7 @@ router.put('/:id', async (req, res) => {
   const isDisabling = 'enabled' in updates && !updates.enabled;
   const needsReconnect = !isDisabling && (
     'enabled' in updates ||        // re-enabling
+    'auth_user' in updates ||      // login username changed
     'auth_pass' in updates ||      // password changed
     'imap_skip_tls_verify' in updates  // TLS setting changed
   );

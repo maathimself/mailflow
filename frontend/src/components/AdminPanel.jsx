@@ -1667,10 +1667,137 @@ function IntegrationsTab() {
 
 // ─── Users Tab ────────────────────────────────────────────────────────────────
 // ─── SSO / OIDC Tab ───────────────────────────────────────────────────────────
+
+// Provider templates — pre-fill the OIDC form with known-good defaults.
+// issuer_url values that contain placeholder text (your-domain, your-realm, etc.)
+// must be edited by the user before saving.
+const SSO_TEMPLATES = [
+  {
+    id: 'pocketid',
+    name: 'PocketID',
+    slug: 'pocketid',
+    color: '#6366f1',
+    description: 'Lightweight self-hosted OIDC',
+    issuer_url: 'https://your-pocketid-domain.com',
+    scopes: 'openid email profile',
+    note: 'Set the issuer URL to the root URL of your PocketID instance. The client ID and secret are created under Admin → Clients.',
+  },
+  {
+    id: 'authentik',
+    name: 'Authentik',
+    slug: 'authentik',
+    color: '#7c3aed',
+    description: 'Self-hosted identity provider',
+    issuer_url: 'https://auth.example.com/application/o/your-app-slug/',
+    scopes: 'openid email profile',
+    note: 'Replace "your-app-slug" with the slug of your Authentik OAuth2/OIDC Provider application. Include the trailing slash.',
+  },
+  {
+    id: 'authelia',
+    name: 'Authelia',
+    slug: 'authelia',
+    color: '#f59e0b',
+    description: 'Self-hosted authentication portal',
+    issuer_url: 'https://auth.example.com',
+    scopes: 'openid email profile groups',
+    note: 'Set the issuer URL to the root URL of your Authelia instance. Define the client in your Authelia identity_providers.oidc.clients config.',
+  },
+  {
+    id: 'keycloak',
+    name: 'Keycloak',
+    slug: 'keycloak',
+    color: '#ef4444',
+    description: 'Enterprise identity management',
+    issuer_url: 'https://keycloak.example.com/realms/your-realm',
+    scopes: 'openid email profile',
+    note: 'Replace "your-realm" with your Keycloak realm name. Create the client under Clients → Create client (type: OpenID Connect).',
+  },
+  {
+    id: 'zitadel',
+    name: 'ZITADEL',
+    slug: 'zitadel',
+    color: '#14b8a6',
+    description: 'Cloud-native identity platform',
+    issuer_url: 'https://your-instance.zitadel.cloud',
+    scopes: 'openid email profile',
+    note: 'Use your ZITADEL instance URL. Create a Web application under Projects and set the redirect URI. The issuer is shown on the instance overview page.',
+  },
+  {
+    id: 'kanidm',
+    name: 'Kanidm',
+    slug: 'kanidm',
+    color: '#8b5cf6',
+    description: 'Modern Rust-based identity manager',
+    issuer_url: 'https://idm.example.com/oauth2/openid/client-name',
+    scopes: 'openid email profile',
+    note: 'Replace "client-name" with your OAuth2 RS256 client name. Create the client with: kanidm system oauth2 create <name> <displayname> <origin>',
+  },
+  {
+    id: 'dex',
+    name: 'Dex',
+    slug: 'dex',
+    color: '#0ea5e9',
+    description: 'Federated OpenID Connect provider',
+    issuer_url: 'https://dex.example.com',
+    scopes: 'openid email profile offline_access',
+    note: 'Set the issuer URL to the root URL of your Dex instance (must match the issuer field in your Dex config.yaml).',
+  },
+  {
+    id: 'casdoor',
+    name: 'Casdoor',
+    slug: 'casdoor',
+    color: '#f97316',
+    description: 'Open-source IAM / SSO platform',
+    issuer_url: 'https://your-casdoor-domain.com',
+    scopes: 'openid email profile',
+    note: 'Set the issuer URL to your Casdoor instance root. Create an Application in Casdoor and copy the Client ID and Secret from it.',
+  },
+  {
+    id: 'google',
+    name: 'Google',
+    slug: 'google',
+    color: '#4285F4',
+    description: 'Google Workspace or personal accounts',
+    issuer_url: 'https://accounts.google.com',
+    scopes: 'openid email profile',
+    note: 'Create an OAuth 2.0 Client ID in Google Cloud Console under APIs & Services → Credentials. Set the authorized redirect URI to the callback URL shown below.',
+  },
+  {
+    id: 'entra',
+    name: 'Microsoft Entra',
+    slug: 'entra',
+    color: '#0078d4',
+    description: 'Azure AD / Microsoft 365',
+    issuer_url: 'https://login.microsoftonline.com/your-tenant-id/v2.0',
+    scopes: 'openid email profile',
+    note: 'Replace "your-tenant-id" with your Azure directory (tenant) ID. Register an app in Entra ID and add the callback URL as a Web redirect URI.',
+  },
+  {
+    id: 'gitlab',
+    name: 'GitLab',
+    slug: 'gitlab',
+    color: '#FC6D26',
+    description: 'GitLab.com or self-hosted GitLab',
+    issuer_url: 'https://gitlab.com',
+    scopes: 'openid email profile',
+    note: 'For self-hosted GitLab, replace the issuer URL with your instance URL. Create an application under Admin Area → Applications (or user/group settings).',
+  },
+  {
+    id: 'custom',
+    name: 'Custom',
+    slug: '',
+    color: '#6b7280',
+    description: 'Any OIDC-compatible provider',
+    issuer_url: '',
+    scopes: 'openid email profile',
+    note: '',
+  },
+];
+
 const emptyProvider = {
   name: '', slug: '', issuer_url: '', client_id: '', client_secret: '',
   scopes: 'openid email profile', provisioning_mode: 'login_existing_only',
-  allowed_domains: '', enabled: true,
+  allowed_domains: '', enabled: true, require_email_verified: true,
 };
 
 function SSOTab() {
@@ -1688,6 +1815,7 @@ function SSOTab() {
   const [error, setError] = useState('');
   const [confirmDialog, setConfirmDialog] = useState(null);
   const [copiedId, setCopiedId] = useState(null);
+  const [templateNote, setTemplateNote] = useState('');
 
   useEffect(() => {
     api.admin.oidc.getProviders()
@@ -1696,13 +1824,21 @@ function SSOTab() {
       .finally(() => setLoading(false));
   }, []);
 
-  const openNew = () => { setForm(emptyProvider); setEditing('new'); setError(''); };
+  const openNew = () => { setEditing('picking'); setError(''); };
+
+  const applyTemplate = (tmpl) => {
+    setForm({ ...emptyProvider, name: tmpl.id === 'custom' ? '' : tmpl.name, slug: tmpl.slug, issuer_url: tmpl.issuer_url, scopes: tmpl.scopes });
+    setTemplateNote(tmpl.note || '');
+    setEditing('new');
+    setError('');
+  };
   const openEdit = (p) => {
-    setForm({ ...p, client_secret: '••••••••', allowed_domains: p.allowed_domains || '' });
+    setForm({ ...p, client_secret: '••••••••', allowed_domains: p.allowed_domains || '', require_email_verified: p.require_email_verified !== false, });
+    setTemplateNote('');
     setEditing(p);
     setError('');
   };
-  const closeForm = () => { setEditing(null); setError(''); };
+  const closeForm = () => { setEditing(null); setTemplateNote(''); setError(''); };
 
   const handleSave = async () => {
     if (!form.name || !form.slug || !form.issuer_url || !form.client_id) {
@@ -1723,6 +1859,7 @@ function SSOTab() {
         provisioning_mode: form.provisioning_mode,
         allowed_domains: form.allowed_domains.trim() || null,
         enabled: form.enabled,
+        require_email_verified: !!form.require_email_verified,
         ...(form.client_secret && form.client_secret !== '••••••••' ? { client_secret: form.client_secret } : {}),
       };
       if (editing === 'new') {
@@ -1844,7 +1981,65 @@ function SSOTab() {
         >{t('admin.sso.addProvider')}</button>
       )}
 
-      {editing && (
+      {editing === 'picking' && (
+        <div style={{
+          marginTop: 16, padding: '20px', borderRadius: 10,
+          background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+        }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+            {t('admin.sso.templatePickerTitle')}
+          </div>
+          <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 16 }}>
+            {t('admin.sso.templatePickerDesc')}
+          </div>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
+            gap: 10,
+            marginBottom: 16,
+          }}>
+            {SSO_TEMPLATES.map(tmpl => (
+              <button
+                key={tmpl.id}
+                onClick={() => applyTemplate(tmpl)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '10px 12px', borderRadius: 8, cursor: 'pointer',
+                  background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                  textAlign: 'left', transition: 'border-color 0.15s',
+                }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = tmpl.color}
+                onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
+              >
+                <div style={{
+                  width: 32, height: 32, borderRadius: 8, flexShrink: 0,
+                  background: tmpl.color, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 13, fontWeight: 700, color: 'white',
+                }}>
+                  {tmpl.name.charAt(0)}
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {tmpl.name}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {tmpl.description}
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={closeForm}
+            style={{
+              padding: '9px 18px', background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+              borderRadius: 7, color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer',
+            }}
+          >{t('common.cancel')}</button>
+        </div>
+      )}
+
+      {editing && editing !== 'picking' && (
         <div style={{
           marginTop: 16, padding: '20px', borderRadius: 10,
           background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
@@ -1872,6 +2067,16 @@ function SSOTab() {
           <Field label={t('admin.sso.issuerUrl')} required>
             <input value={form.issuer_url} onChange={e => setForm(f => ({ ...f, issuer_url: e.target.value }))} placeholder={t('admin.sso.issuerUrlPh')} style={inputStyle} />
           </Field>
+
+          {templateNote && (
+            <div style={{
+              marginBottom: 14, padding: '10px 12px', borderRadius: 7,
+              background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.25)',
+              color: 'var(--text-secondary)', fontSize: 12, lineHeight: 1.5,
+            }}>
+              {templateNote}
+            </div>
+          )}
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <Field label={t('admin.sso.clientId')} required>
@@ -1908,7 +2113,7 @@ function SSOTab() {
             </select>
           </Field>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
             <button
               type="button"
               onClick={() => setForm(f => ({ ...f, enabled: !f.enabled }))}
@@ -1924,6 +2129,27 @@ function SSOTab() {
               }} />
             </button>
             <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{t('admin.sso.enabled')}</span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 16 }}>
+            <button
+              type="button"
+              onClick={() => setForm(f => ({ ...f, require_email_verified: !f.require_email_verified }))}
+              style={{
+                width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer', padding: 0,
+                background: form.require_email_verified ? 'var(--accent)' : 'var(--bg-elevated)',
+                position: 'relative', transition: 'background 0.2s', flexShrink: 0, marginTop: 1,
+              }}
+            >
+              <span style={{
+                position: 'absolute', top: 2, left: form.require_email_verified ? 18 : 2, width: 16, height: 16,
+                borderRadius: '50%', background: 'white', transition: 'left 0.2s',
+              }} />
+            </button>
+            <div>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{t('admin.sso.requireEmailVerified')}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>{t('admin.sso.requireEmailVerifiedDesc')}</div>
+            </div>
           </div>
 
           {error && (
@@ -2541,11 +2767,13 @@ function ConfirmOverlay({ dialog, onClose }) {
       backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       padding: 24,
+      animation: 'backdrop-enter var(--motion-fast) var(--ease-standard) both',
     }} onClick={onClose}>
       <div style={{
         background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)',
         borderRadius: 12, padding: '24px 24px 20px', maxWidth: 360, width: '100%',
         boxShadow: 'var(--shadow-modal)',
+        animation: 'modal-enter var(--motion-normal) var(--ease-emphasized) both',
       }} onClick={e => e.stopPropagation()}>
         <p style={{ margin: '0 0 8px', fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
           {dialog.title}
@@ -3428,7 +3656,124 @@ function SecurityTab() {
           }}>{success}</div>
         )}
       </div>
+
+      <LinkedIdentitiesSection />
     </div>
+  );
+}
+
+function LinkedIdentitiesSection() {
+  const { t } = useTranslation();
+  const [identities, setIdentities] = useState(null); // null = loading
+  const [providers, setProviders] = useState([]);
+  const [confirmDialog, setConfirmDialog] = useState(null);
+
+  useEffect(() => {
+    Promise.all([
+      api.oidc.getIdentities(),
+      api.oidc.getProviders(),
+    ]).then(([idData, provData]) => {
+      setIdentities(idData.identities);
+      setProviders(provData.providers || []);
+    }).catch(() => setIdentities([]));
+  }, []);
+
+  const handleUnlink = (identity) => {
+    setConfirmDialog({
+      title: t('admin.security.ssoUnlinkTitle', { provider: identity.provider_name }),
+      message: t('admin.security.ssoUnlinkBody'),
+      confirmLabel: t('admin.security.ssoUnlinkConfirm'),
+      onConfirm: async () => {
+        await api.oidc.unlinkIdentity(identity.id);
+        setIdentities(ids => ids.filter(i => i.id !== identity.id));
+      },
+    });
+  };
+
+  // Providers not yet linked
+  const linkedProviderIds = new Set((identities || []).map(i => i.provider_slug));
+  const unlinkableProviders = providers.filter(p => !linkedProviderIds.has(p.slug));
+
+  if (identities === null) return null;
+
+  return (
+    <>
+      <div style={{
+        background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+        borderRadius: 12, padding: '20px 24px', marginTop: 16,
+      }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+          {t('admin.security.ssoTitle')}
+        </div>
+        <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 16 }}>
+          {t('admin.security.ssoDescription')}
+        </div>
+
+        {/* Linked identities */}
+        {identities.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+            {identities.map(identity => (
+              <div key={identity.id} style={{
+                display: 'flex', alignItems: 'center', gap: 12,
+                padding: '10px 14px', borderRadius: 8,
+                background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)',
+              }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
+                    {identity.provider_name}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {identity.email || identity.issuer}
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleUnlink(identity)}
+                  style={{
+                    padding: '5px 10px', fontSize: 12, borderRadius: 6, cursor: 'pointer',
+                    background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)',
+                    color: 'var(--red)', flexShrink: 0,
+                  }}
+                >
+                  {t('admin.security.ssoUnlink')}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Link new provider */}
+        {unlinkableProviders.length > 0 && (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {unlinkableProviders.map(p => (
+              <a
+                key={p.id}
+                href={`/auth/oidc/${p.slug}/start?action=link`}
+                style={{
+                  padding: '7px 14px', borderRadius: 7, fontSize: 13, fontWeight: 500,
+                  background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+                  color: 'var(--text-secondary)', textDecoration: 'none', cursor: 'pointer',
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/>
+                  <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>
+                </svg>
+                {t('admin.security.ssoLink', { provider: p.name })}
+              </a>
+            ))}
+          </div>
+        )}
+
+        {identities.length === 0 && unlinkableProviders.length === 0 && (
+          <div style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>
+            {t('admin.security.ssoNoProviders')}
+          </div>
+        )}
+      </div>
+
+      <ConfirmOverlay dialog={confirmDialog} onClose={() => setConfirmDialog(null)} />
+    </>
   );
 }
 
@@ -3444,6 +3789,7 @@ export default function AdminPanel() {
         position: 'fixed', inset: 0, zIndex: 2000,
         background: 'var(--bg-secondary)',
         display: 'flex', flexDirection: 'column',
+        animation: 'sheet-enter var(--motion-normal) var(--ease-emphasized) both',
       }}>
         {/* Mobile header */}
         <div style={{
@@ -3525,6 +3871,7 @@ export default function AdminPanel() {
         backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         zIndex: 2000, padding: 24,
+        animation: 'backdrop-enter var(--motion-fast) var(--ease-standard) both',
       }}
     >
       <div style={{
@@ -3532,6 +3879,7 @@ export default function AdminPanel() {
         borderRadius: 16, width: '100%', maxWidth: 680,
         height: '82vh', maxHeight: 700, display: 'flex', overflow: 'hidden',
         boxShadow: 'var(--shadow-modal)',
+        animation: 'modal-enter var(--motion-normal) var(--ease-emphasized) both',
       }}>
         {/* Left sidebar */}
         <div style={{

@@ -1,0 +1,18 @@
+# Caddy / automatic-HTTPS overlay
+#
+# Use this file alongside docker-compose.yml when running the "https" profile
+# so that Caddy owns ports 80 and 443 on the host and the frontend container
+# is only reachable internally via the mailflow Docker network.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.https.yml --profile https up -d --build
+#
+# Requires Docker Compose 2.21+ (for the !reset tag).
+# DOMAIN and ACME_EMAIL must be set in .env.
+
+services:
+  frontend:
+    # Remove the host-port binding — Caddy proxies to frontend:443 internally.
+    # The certs volume is kept because nginx still serves HTTPS internally
+    # (Caddy connects with tls_insecure_skip_verify via the Docker network).
+    ports: !reset []

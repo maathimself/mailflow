@@ -5,6 +5,12 @@
 :root {
   --sat: env(safe-area-inset-top, 0px);
   --sab: env(safe-area-inset-bottom, 0px);
+  /* Motion system */
+  --motion-fast:   120ms;
+  --motion-normal: 180ms;
+  --motion-slow:   260ms;
+  --ease-standard:  cubic-bezier(0.2, 0, 0, 1);
+  --ease-emphasized: cubic-bezier(0.2, 0.8, 0.2, 1);
   --bg-primary: #0f0f11;
   --bg-secondary: #161619;
   --bg-tertiary: #1e1e23;
@@ -120,10 +126,22 @@ body, #root {
   to   { opacity: 1; transform: translateY(0); }
 }
 
-/* Compose modal entrance */
+/* Compose modal entrance (desktop bottom-right sheet) */
 @keyframes compose-enter {
-  from { opacity: 0; transform: translateY(14px) scale(0.98); }
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Unified centered modal panel entrance */
+@keyframes modal-enter {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Backdrop / scrim fade */
+@keyframes backdrop-enter {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 @keyframes sheet-enter {

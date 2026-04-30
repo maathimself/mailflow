@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import DOMPurify from 'dompurify';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { useMobile } from '../hooks/useMobile.js';
@@ -257,7 +258,7 @@ export default function ComposeModal() {
         backdropFilter: 'blur(8px)',
         WebkitBackdropFilter: 'blur(8px)',
         background: 'rgba(0,0,0,0.25)',
-        animation: 'fade-in 0.22s ease',
+        animation: 'backdrop-enter var(--motion-fast) var(--ease-standard) both',
       }} />
       <div
         ref={composePanelRef}
@@ -269,7 +270,7 @@ export default function ComposeModal() {
           background: 'var(--bg-secondary)',
           zIndex: 2000,
           display: 'flex', flexDirection: 'column',
-          animation: 'sheet-enter 0.22s ease',
+          animation: 'sheet-enter var(--motion-normal) var(--ease-emphasized) both',
         }}
       >
         {/* Header */}
@@ -487,7 +488,7 @@ export default function ComposeModal() {
               </div>
               <div
                 style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}
-                dangerouslySetInnerHTML={{ __html: fromSignature }}
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(fromSignature) }}
               />
             </div>
           )}
@@ -572,7 +573,7 @@ export default function ComposeModal() {
         boxShadow: 'var(--shadow-modal)',
         zIndex: 1000, display: 'flex', flexDirection: 'column',
         maxHeight: '75vh',
-        animation: 'compose-enter 0.18s ease',
+        animation: 'compose-enter var(--motion-normal) var(--ease-emphasized) both',
       }}
     >
       {/* Title bar */}
@@ -790,7 +791,7 @@ export default function ComposeModal() {
             </div>
             <div
               style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}
-              dangerouslySetInnerHTML={{ __html: fromSignature }}
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(fromSignature) }}
             />
           </div>
         ) : null}

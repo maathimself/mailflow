@@ -74,10 +74,10 @@ export const useStore = create((set, get) => ({
   // Unread counts
   unreadCounts: { total: 0, byAccount: {} },
   setUnreadCounts: (counts) => set({ unreadCounts: counts }),
-  decrementUnread: (accountId) => set(state => {
+  decrementUnread: (accountId, count = 1) => set(state => {
     const byAccount = { ...state.unreadCounts.byAccount };
-    if (byAccount[accountId] > 0) byAccount[accountId]--;
-    const total = Math.max(0, state.unreadCounts.total - 1);
+    byAccount[accountId] = Math.max(0, (byAccount[accountId] || 0) - count);
+    const total = Math.max(0, state.unreadCounts.total - count);
     return { unreadCounts: { total, byAccount } };
   }),
   incrementUnread: (accountId) => set(state => {
@@ -150,7 +150,7 @@ export const useStore = create((set, get) => ({
   // Notifications
   notifications: [],
   addNotification: (n) => set(state => ({
-    notifications: [{ ...n, id: Date.now() + Math.random() }, ...state.notifications].slice(0, 5)
+    notifications: [{ ...n, id: crypto.randomUUID() }, ...state.notifications].slice(0, 5)
   })),
   removeNotification: (id) => set(state => ({
     notifications: state.notifications.filter(n => n.id !== id)
@@ -280,7 +280,7 @@ export const useStore = create((set, get) => ({
         set({ notificationSound: prefs.notificationSound });
       }
       if (prefs.pageSize) {
-        const n = parseInt(prefs.pageSize);
+        const n = parseInt(prefs.pageSize) || 50;
         localStorage.setItem('mailflow_page_size', String(n));
         set({ pageSize: n });
       }
@@ -289,7 +289,7 @@ export const useStore = create((set, get) => ({
         set({ scrollMode: prefs.scrollMode });
       }
       if (prefs.syncInterval) {
-        const n = parseInt(prefs.syncInterval);
+        const n = parseInt(prefs.syncInterval) || 60;
         localStorage.setItem('mailflow_sync_interval', String(n));
         set({ syncInterval: n });
       }

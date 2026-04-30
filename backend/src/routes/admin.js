@@ -98,7 +98,7 @@ router.get('/invites', async (req, res) => {
 
 router.post('/invites', async (req, res) => {
   const { email } = req.body;
-  if (!email || !email.includes('@')) {
+  if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) {
     return res.status(400).json({ error: 'Valid email address required' });
   }
 
@@ -204,14 +204,14 @@ router.delete('/invites/:id', async (req, res) => {
 router.get('/oidc', async (req, res) => {
   const result = await query(
     `SELECT id, name, slug, issuer_url, client_id, scopes, provisioning_mode,
-            allowed_domains, enabled, created_at, updated_at
+            allowed_domains, enabled, require_email_verified, created_at, updated_at
      FROM oidc_providers ORDER BY name ASC`
   );
   res.json({ providers: result.rows });
 });
 
 router.post('/oidc', async (req, res) => {
-  const { name, slug, issuer_url, client_id, client_secret, scopes, provisioning_mode, allowed_domains, enabled } = req.body;
+  const { name, slug, issuer_url, client_id, client_secret, scopes, provisioning_mode, allowed_domains, enabled, require_email_verified } = req.body;
   if (!name || !slug || !issuer_url || !client_id || !client_secret) {
     return res.status(400).json({ error: 'name, slug, issuer_url, client_id and client_secret are required' });
   }
@@ -220,9 +220,9 @@ router.post('/oidc', async (req, res) => {
   }
   try {
     const result = await query(
-      `INSERT INTO oidc_providers (name, slug, issuer_url, client_id, client_secret, scopes, provisioning_mode, allowed_domains, enabled)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       RETURNING id, name, slug, issuer_url, client_id, scopes, provisioning_mode, allowed_domains, enabled`,
+      `INSERT INTO oidc_providers (name, slug, issuer_url, client_id, client_secret, scopes, provisioning_mode, allowed_domains, enabled, require_email_verified)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       RETURNING id, name, slug, issuer_url, client_id, scopes, provisioning_mode, allowed_domains, enabled, require_email_verified`,
       [
         name.trim(), slug.trim(), issuer_url.trim(), client_id.trim(),
         encrypt(client_secret),
@@ -230,6 +230,7 @@ router.post('/oidc', async (req, res) => {
         provisioning_mode || 'login_existing_only',
         allowed_domains?.trim() || null,
         enabled !== false,
+        require_email_verified !== false,
       ]
     );
     res.json({ provider: result.rows[0] });
@@ -241,7 +242,7 @@ router.post('/oidc', async (req, res) => {
 
 router.patch('/oidc/:id', async (req, res) => {
   const { id } = req.params;
-  const { name, slug, issuer_url, client_id, client_secret, scopes, provisioning_mode, allowed_domains, enabled } = req.body;
+  const { name, slug, issuer_url, client_id, client_secret, scopes, provisioning_mode, allowed_domains, enabled, require_email_verified } = req.body;
   if (slug && !/^[a-z0-9-]+$/.test(slug)) {
     return res.status(400).json({ error: 'Slug must contain only lowercase letters, numbers and hyphens' });
   }
@@ -261,9 +262,10 @@ router.patch('/oidc/:id', async (req, res) => {
         provisioning_mode = COALESCE($8, provisioning_mode),
         allowed_domains = CASE WHEN $9::text IS DISTINCT FROM '__keep__' THEN $9::text ELSE allowed_domains END,
         enabled = COALESCE($10, enabled),
+        require_email_verified = COALESCE($11, require_email_verified),
         updated_at = NOW()
        WHERE id = $1
-       RETURNING id, name, slug, issuer_url, client_id, scopes, provisioning_mode, allowed_domains, enabled`,
+       RETURNING id, name, slug, issuer_url, client_id, scopes, provisioning_mode, allowed_domains, enabled, require_email_verified`,
       [
         id,
         name?.trim() || null,
@@ -275,6 +277,7 @@ router.patch('/oidc/:id', async (req, res) => {
         provisioning_mode || null,
         allowed_domains !== undefined ? (allowed_domains?.trim() || null) : '__keep__',
         enabled !== undefined ? enabled : null,
+        require_email_verified !== undefined ? require_email_verified : null,
       ]
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Provider not found' });

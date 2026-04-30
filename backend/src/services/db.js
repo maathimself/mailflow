@@ -257,6 +257,9 @@ export async function initDb() {
       UPDATE messages SET thread_id = message_id
         WHERE thread_id IS NULL AND message_id IS NOT NULL;
 
+      -- Per-provider email_verified enforcement toggle
+      ALTER TABLE oidc_providers ADD COLUMN IF NOT EXISTS require_email_verified BOOLEAN NOT NULL DEFAULT true;
+
       -- Clear snippets that consist entirely of HTML character entities
       -- (e.g. &#8199; &#847; — "preheader killer" filler used by marketing emails).
       -- These were stored by an earlier code path that lacked full entity decoding.

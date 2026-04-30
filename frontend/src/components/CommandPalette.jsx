@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
+import { useMobile } from '../hooks/useMobile.js';
 import { THEMES } from '../themes.js';
 
 const THEME_NAMES = Object.keys(THEMES);
@@ -60,6 +61,7 @@ function buildActions({ t, openCompose, setSelectedAccount, setShowAdmin, setAdm
 
 export default function CommandPalette({ open, onClose }) {
   const { t } = useTranslation();
+  const isMobile = useMobile();
   const { openCompose, setSelectedAccount, setShowAdmin, setAdminTab, theme, setTheme, accounts } = useStore();
   const [query, setQuery] = useState('');
   const [activeIdx, setActiveIdx] = useState(0);
@@ -120,6 +122,7 @@ export default function CommandPalette({ open, onClose }) {
         WebkitBackdropFilter: 'blur(8px)',
         display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
         paddingTop: '15vh',
+        animation: 'backdrop-enter var(--motion-fast) var(--ease-standard) both',
       }}
       onClick={onClose}
     >
@@ -129,7 +132,7 @@ export default function CommandPalette({ open, onClose }) {
           borderRadius: 12, width: '100%', maxWidth: 520, margin: '0 16px',
           boxShadow: 'var(--shadow-modal)',
           overflow: 'hidden',
-          animation: 'compose-enter 0.15s ease',
+          animation: 'modal-enter var(--motion-fast) var(--ease-emphasized) both',
         }}
         onClick={e => e.stopPropagation()}
       >
@@ -149,10 +152,10 @@ export default function CommandPalette({ open, onClose }) {
               color: 'var(--text-primary)', fontSize: 15,
             }}
           />
-          <kbd style={{
+          {!isMobile && <kbd style={{
             fontSize: 11, color: 'var(--text-tertiary)', background: 'var(--bg-tertiary)',
             border: '1px solid var(--border)', borderRadius: 4, padding: '2px 6px',
-          }}>Esc</kbd>
+          }}>Esc</kbd>}
         </div>
 
         {/* Results */}
@@ -199,11 +202,13 @@ export default function CommandPalette({ open, onClose }) {
           ))}
         </div>
 
-        <div style={{ padding: '8px 16px', borderTop: '1px solid var(--border-subtle)', display: 'flex', gap: 12, fontSize: 11, color: 'var(--text-tertiary)' }}>
-          <span><kbd style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 3, padding: '1px 5px' }}>↑↓</kbd> {t('commandPalette.hint.navigate')}</span>
-          <span><kbd style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 3, padding: '1px 5px' }}>↵</kbd> {t('commandPalette.hint.select')}</span>
-          <span><kbd style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 3, padding: '1px 5px' }}>Esc</kbd> {t('commandPalette.hint.close')}</span>
-        </div>
+        {!isMobile && (
+          <div style={{ padding: '8px 16px', borderTop: '1px solid var(--border-subtle)', display: 'flex', gap: 12, fontSize: 11, color: 'var(--text-tertiary)' }}>
+            <span><kbd style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 3, padding: '1px 5px' }}>↑↓</kbd> {t('commandPalette.hint.navigate')}</span>
+            <span><kbd style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 3, padding: '1px 5px' }}>↵</kbd> {t('commandPalette.hint.select')}</span>
+            <span><kbd style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 3, padding: '1px 5px' }}>Esc</kbd> {t('commandPalette.hint.close')}</span>
+          </div>
+        )}
       </div>
     </div>
   );

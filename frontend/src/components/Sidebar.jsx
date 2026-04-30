@@ -102,7 +102,7 @@ function buildFolderTree(folders) {
   for (const f of folders) {
     const parts = f.path.split(delimiter);
     const parentPath = parts.length > 1 ? parts.slice(0, -1).join(delimiter) : null;
-    if (parentPath && map[parentPath]) {
+    if (parentPath && map[parentPath] && parentPath !== f.path) {
       map[parentPath].children.push(map[f.path]);
     } else {
       roots.push(map[f.path]);
@@ -351,6 +351,12 @@ export default function Sidebar() {
 
   const handleLogout = async () => {
     await api.logout();
+    [
+      'mailflow_theme', 'mailflow_font', 'mailflow_layout',
+      'mailflow_notification_sound', 'mailflow_custom_sound', 'mailflow_custom_sound_name',
+      'mailflow_page_size', 'mailflow_scroll_mode', 'mailflow_sync_interval',
+      'mailflow_threaded_view', 'mailflow_plaintext_email', 'mailflow_language',
+    ].forEach(k => localStorage.removeItem(k));
     setUser(null);
     window.location.href = '/login';
   };

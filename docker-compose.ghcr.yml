@@ -90,9 +90,9 @@ services:
       - mailflow
 
   # ── Caddy (automatic HTTPS via Let's Encrypt — optional) ────────────────────
-  # Only starts when you run: docker compose --profile https up -d
-  # Requires DOMAIN and ACME_EMAIL to be set in .env, and ports 80/443 open.
-  # When using this profile, remove the ports: block from the frontend service above.
+  # Use docker-compose.https.yml to avoid the port conflict with the frontend:
+  #   docker compose -f docker-compose.ghcr.yml -f docker-compose.https.yml --profile https up -d
+  # Requires DOMAIN, ACME_EMAIL, and APP_URL to be set in .env, and ports 80/443 open.
   caddy:
     profiles: ["https"]
     image: caddy:2-alpine

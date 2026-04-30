@@ -39,7 +39,7 @@ export function useWebSocket() {
       try {
         const data = JSON.parse(event.data);
         handleMessage(data);
-      } catch (_) {}
+      } catch (err) { console.error('WS message error:', err); }
     };
 
     ws.onclose = (event) => {
