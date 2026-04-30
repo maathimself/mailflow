@@ -6,7 +6,7 @@ import { LAYOUTS } from '../layouts.js';
 import { useMobile } from '../hooks/useMobile.js';
 import ContextMenu from './ContextMenu.jsx';
 import { shortcutBus } from '../utils/shortcutBus.js';
-import { pendingMarkReadMap } from '../utils/pendingReads.js';
+import { pendingMarkReadMap, completedMarkReadMap } from '../utils/pendingReads.js';
 
 // Folder icon for move picker
 function FolderIcon({ specialUse, size = 13 }) {
@@ -212,12 +212,18 @@ export default function MessageList() {
               if (kept) msgs = [kept, ...msgs];
             }
             // Guard against a sync refresh overwriting optimistic is_read:true for
-            // messages whose markRead API call is still in-flight. Without this, the
-            // unread dot reappears whenever sync_complete fires before the PATCH responds.
-            if (pendingMarkReadMap.size > 0) {
-              msgs = msgs.map(m =>
-                pendingMarkReadMap.has(m.id) && !m.is_read ? { ...m, is_read: true } : m
-              );
+            // messages whose markRead PATCH is still in-flight OR completed so recently
+            // that the getMessages SELECT may have run before the DB commit was visible.
+            if (pendingMarkReadMap.size > 0 || completedMarkReadMap.size > 0) {
+              msgs = msgs.map(m => {
+                const inFlight = pendingMarkReadMap.has(m.id);
+                const inGrace  = completedMarkReadMap.has(m.id);
+                if (!inFlight && !inGrace) return m;
+                if (!m.is_read) return { ...m, is_read: true }; // stale server data — keep optimistic
+                // Server confirmed read — safe to retire the grace-period entry
+                if (inGrace) completedMarkReadMap.delete(m.id);
+                return m;
+              });
             }
             setMessages(msgs);
             if (sm === 'paginated') {
@@ -464,17 +470,29 @@ export default function MessageList() {
   const handleSwipeToggleRead = useCallback(async (message) => {
     const newRead = !message.is_read;
     updateMessage(message.id, { is_read: newRead });
-    if (newRead) { decrementUnread(message.account_id); pendingMarkReadMap.set(message.id, message.account_id); }
-    else { incrementUnread(message.account_id); pendingMarkReadMap.delete(message.id); }
+    if (newRead) {
+      decrementUnread(message.account_id);
+      pendingMarkReadMap.set(message.id, message.account_id);
+    } else {
+      incrementUnread(message.account_id);
+      pendingMarkReadMap.delete(message.id);
+      completedMarkReadMap.delete(message.id);
+    }
     try {
       await api.markRead(message.id, newRead);
+      if (newRead) {
+        // Move from in-flight → grace period. A getMessages response that started
+        // before this commit may still arrive; keep the guard up for 3 more seconds.
+        pendingMarkReadMap.delete(message.id);
+        completedMarkReadMap.set(message.id, message.account_id);
+        setTimeout(() => completedMarkReadMap.delete(message.id), 3000);
+      }
     } catch (err) {
       console.error('swipe toggle read failed:', err.message);
       updateMessage(message.id, { is_read: !newRead });
       if (newRead) incrementUnread(message.account_id);
       else decrementUnread(message.account_id);
-    } finally {
-      if (newRead) pendingMarkReadMap.delete(message.id);
+      pendingMarkReadMap.delete(message.id);
     }
   }, [updateMessage, decrementUnread, incrementUnread]);
 
@@ -670,11 +688,16 @@ export default function MessageList() {
         decrementUnread(msg.account_id);
         pendingMarkReadMap.set(selectedMessageId, msg.account_id);
         api.markRead(selectedMessageId, true)
-          .catch(console.error)
-          .finally(() => pendingMarkReadMap.delete(selectedMessageId));
+          .then(() => {
+            pendingMarkReadMap.delete(selectedMessageId);
+            completedMarkReadMap.set(selectedMessageId, msg.account_id);
+            setTimeout(() => completedMarkReadMap.delete(selectedMessageId), 3000);
+          })
+          .catch(console.error);
       } else {
         incrementUnread(msg.account_id);
-        pendingMarkReadMap.delete(selectedMessageId); // cancel any read protection for this message
+        pendingMarkReadMap.delete(selectedMessageId);
+        completedMarkReadMap.delete(selectedMessageId);
         api.markRead(selectedMessageId, false).catch(console.error);
       }
     };
@@ -733,14 +756,19 @@ export default function MessageList() {
           decrementUnread(message.account_id);
           pendingMarkReadMap.set(message.id, message.account_id);
           api.markRead(message.id, true)
-            .catch(console.error)
-            .finally(() => pendingMarkReadMap.delete(message.id));
+            .then(() => {
+              pendingMarkReadMap.delete(message.id);
+              completedMarkReadMap.set(message.id, message.account_id);
+              setTimeout(() => completedMarkReadMap.delete(message.id), 3000);
+            })
+            .catch(console.error);
         }
         break;
       case 'markUnread':
         if (message.is_read) {
           updateMessage(message.id, { is_read: false });
-          pendingMarkReadMap.delete(message.id); // cancel any read protection for this message
+          pendingMarkReadMap.delete(message.id);
+          completedMarkReadMap.delete(message.id);
           api.markRead(message.id, false).catch(console.error);
         }
         break;
@@ -881,12 +909,17 @@ export default function MessageList() {
       decrementUnread(message.account_id);
       pendingMarkReadMap.set(message.id, message.account_id);
       api.markRead(message.id, true)
-        .catch(err => {
-          console.error('markRead failed:', err.message);
+        .then(() => {
+          pendingMarkReadMap.delete(message.id);
+          completedMarkReadMap.set(message.id, message.account_id);
+          setTimeout(() => completedMarkReadMap.delete(message.id), 3000);
+        })
+        .catch(e => {
+          console.error('markRead failed:', e.message);
           updateMessage(message.id, { is_read: false });
           incrementUnread(message.account_id);
-        })
-        .finally(() => pendingMarkReadMap.delete(message.id));
+          pendingMarkReadMap.delete(message.id);
+        });
     }
   };
 
