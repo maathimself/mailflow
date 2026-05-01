@@ -62,11 +62,11 @@ const sessionMiddleware = session({
   resave: false,
   saveUninitialized: false,
   cookie: {
-    // The app always runs behind nginx which terminates TLS — the backend only
-    // ever sees HTTP internally, but the browser connection is HTTPS.
-    // secure:true is required so Chrome/Safari don't silently drop the cookie
-    // on page refresh over HTTPS. trust proxy:1 above makes this work correctly.
-    secure: true,
+    // 'auto' sets Secure based on req.secure, which Express derives from the
+    // X-Forwarded-Proto header (trust proxy: 1 above). This makes cookies work
+    // correctly regardless of whether the client connects via HTTPS (port 443),
+    // HTTP behind a TLS-terminating reverse proxy, or plain HTTP on port 80.
+    secure: 'auto',
     httpOnly: true,
     sameSite: 'lax',
     maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days

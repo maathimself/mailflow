@@ -1,7 +1,8 @@
 services:
 
   # ── Frontend (nginx — serves React SPA + proxies API) ───────────────────────
-  # Default mode: exposes HTTPS directly on APP_PORT using certs in ./certs/
+  # Default mode: exposes HTTPS on APP_PORT and HTTP on APP_HTTP_PORT.
+  # HTTP is intended for use behind a reverse proxy that terminates TLS.
   # Production mode (--profile https): Caddy handles TLS instead (see below)
   frontend:
     build:
@@ -11,6 +12,7 @@ services:
     restart: unless-stopped
     ports:
       - "${APP_PORT:-443}:443"
+      - "${APP_HTTP_PORT:-80}:80"
     volumes:
       - ./certs:/etc/nginx/ssl
     depends_on:

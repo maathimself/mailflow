@@ -1,4 +1,4 @@
-﻿<p align="center">
+<p align="center">
   <img src="media/mailflow-logo.png" width="200" alt="MailFlow Logo">
 </p>
 
@@ -7,8 +7,8 @@
 A self-hosted, unified webmail client. Connect multiple IMAP/SMTP accounts (Gmail, iCloud,
 Outlook, custom) and read them all in one clean interface.
 
-This software is in beta — you may encounter issues. Please open an issue [here](https://github.com/maathimself/mailflow/issues)
-if you do. See the [Security Notes](https://github.com/maathimself/mailflow/tree/main?tab=readme-ov-file#security-notes)
+Please open an issue [here](https://github.com/maathimself/mailflow/issues) if you encounter
+a problem. See the [Security Notes](https://github.com/maathimself/mailflow/tree/main?tab=readme-ov-file#security-notes)
 section before deploying.
 
 ## Licensing
@@ -28,12 +28,14 @@ If you contribute code, please read the [Contributor License Agreement](CLA.md).
 - **Unified inbox** — all accounts merged in one view, sorted by date
 - **Multiple layouts** — classic, compact, wide reader, vertical split, and more
 - **Multiple themes** — dark, light, and several color schemes
+- **Multi-language UI** — English, French, Spanish, and Italian
 - **Full-text search** — across all connected accounts simultaneously
-- **Real-time notifications** — WebSocket-powered new-mail toasts
+- **Real-time notifications** — WebSocket-powered new-mail toasts and web push (PWA/browser)
 - **Reply / Forward / Compose** — correct per-account SMTP routing
 - **Folder navigation** — expand any account to browse folders
 - **Star, delete, mark read** — synced back to IMAP
 - **User management** — admin panel, invite-only registration, invite emails
+- **SSO / OIDC** — single sign-on via any OpenID Connect provider
 - **Microsoft 365 / OAuth2** — for work accounts that require modern auth
 
 ---
@@ -103,13 +105,24 @@ Edit `.env` — the required fields are:
 docker compose up -d
 ```
 
-MailFlow will be available on port 443 with a self-signed certificate.
+MailFlow will be available on port 443 (HTTPS, self-signed certificate) and port 80 (HTTP).
 
-**Optional — automatic HTTPS via Let's Encrypt:** set `DOMAIN` and `ACME_EMAIL` in `.env`, then start with the HTTPS overlay (it removes the frontend port binding automatically):
+**Ports are configurable in `.env`:**
+
+| Variable | Default | Description |
+|---|---|---|
+| `APP_PORT` | `443` | HTTPS port |
+| `APP_HTTP_PORT` | `80` | HTTP port |
+
+**Optional — automatic HTTPS via Let's Encrypt:** set `DOMAIN` and `ACME_EMAIL` in `.env`, then start with the HTTPS overlay:
 
 ```bash
 docker compose -f docker-compose.ghcr.yml -f docker-compose.https.yml --profile https up -d
 ```
+
+This adds a Caddy reverse proxy that handles certificate issuance and renewal automatically. Requires a public domain with DNS pointing at the server and ports 80/443 open.
+
+**Optional — behind your own reverse proxy:** point your proxy at port 80. Set `APP_HTTP_PORT` in `.env` if you need a different host port. Your proxy should forward `X-Forwarded-Proto: https` so that session cookies are marked Secure correctly.
 
 ### 4. Create your admin account
 
@@ -160,7 +173,6 @@ Edit `.env` — the required fields are:
 | `SESSION_SECRET` | `openssl rand -hex 32` |
 | `DB_PASSWORD` | `openssl rand -hex 16` |
 | `ENCRYPTION_KEY` | `openssl rand -hex 32` |
-| `ACME_EMAIL` | Email for Let's Encrypt notifications |
 
 ### 3. Build and start
 
@@ -168,8 +180,15 @@ Edit `.env` — the required fields are:
 docker compose up -d --build
 ```
 
-First build takes 2–3 minutes. Caddy will automatically obtain a TLS certificate
-from Let's Encrypt — this takes a few seconds on first start and renews automatically.
+First build takes 2–3 minutes. MailFlow will be available on port 443 (HTTPS, self-signed certificate) and port 80 (HTTP).
+
+**Optional — automatic HTTPS via Let's Encrypt:** set `DOMAIN` and `ACME_EMAIL` in `.env`, then start with the HTTPS overlay:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.https.yml --profile https up -d --build
+```
+
+**Optional — behind your own reverse proxy:** point your proxy at port 80. Your proxy should forward `X-Forwarded-Proto: https` so that session cookies are marked Secure correctly.
 
 ### 4. Create your admin account
 
@@ -269,14 +288,13 @@ cat mailflow-YYYYMMDD.sql | \
 
 ## Architecture
 
+### Default deployment (self-signed HTTPS)
+
 ```
-Browser (HTTPS)
+Browser (HTTPS / HTTP)
   │
   ▼
-Caddy  (ports 80/443 — TLS termination, auto Let's Encrypt)
-  │
-  ▼
-nginx  (frontend container — React SPA + API proxy)
+nginx  (frontend container — ports 443 + 80)
   │
   ├── /api/*  → Node.js backend (port 3000)
   ├── /oauth/ → Node.js backend (port 3000)
@@ -287,8 +305,35 @@ nginx  (frontend container — React SPA + API proxy)
                     └── IMAP        (outbound to mail servers)
 ```
 
-Only Caddy is exposed publicly (ports 80/443). All other containers communicate
-on an internal Docker network.
+nginx and the backend communicate on an internal Docker network. PostgreSQL and Redis are not exposed outside that network.
+
+### With your own reverse proxy
+
+```
+Browser (HTTPS)
+  │
+  ▼
+Your proxy  (Nginx / Traefik / Caddy / etc. — TLS termination)
+  │  X-Forwarded-Proto: https
+  ▼
+nginx  (frontend container — port 80)
+  │
+  └── backend, PostgreSQL, Redis (internal network, unchanged)
+```
+
+### With automatic HTTPS (--profile https)
+
+```
+Browser (HTTPS)
+  │
+  ▼
+Caddy  (ports 80/443 — TLS termination, auto Let's Encrypt)
+  │
+  ▼
+nginx  (frontend container — internal only)
+  │
+  └── backend, PostgreSQL, Redis (internal network, unchanged)
+```
 
 ## Security notes
 
@@ -296,7 +341,7 @@ on an internal Docker network.
 - Close open registration in Settings → Users once you've set up your accounts
 - Use the invite system to onboard additional users
 - Enable two-factor authentication (TOTP) in Settings → Security for extra account protection
-- Session cookies are `HttpOnly`, `Secure`, `SameSite=Lax` with a 7-day TTL
+- Session cookies are `HttpOnly`, `SameSite=Lax`, with a 7-day TTL. The `Secure` flag is set automatically when the connection is HTTPS (direct or via a proxy that forwards `X-Forwarded-Proto: https`)
 - Passwords are bcrypt-hashed (cost factor 12)
 - Login and registration endpoints are rate-limited (10 attempts per 15 minutes per IP)
 - Database and Redis are not exposed outside the Docker network

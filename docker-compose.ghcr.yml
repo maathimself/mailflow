@@ -12,12 +12,15 @@
 services:
 
   # ── Frontend (nginx — serves React SPA + proxies API) ───────────────────────
+  # Exposes HTTPS on APP_PORT and HTTP on APP_HTTP_PORT.
+  # HTTP is intended for use behind a reverse proxy that terminates TLS.
   frontend:
     image: ghcr.io/maathimself/mailflow-frontend:${MAILFLOW_VERSION:-latest}
     container_name: mailflow-frontend
     restart: unless-stopped
     ports:
       - "${APP_PORT:-443}:443"
+      - "${APP_HTTP_PORT:-80}:80"
     volumes:
       - ./certs:/etc/nginx/ssl
     depends_on:
