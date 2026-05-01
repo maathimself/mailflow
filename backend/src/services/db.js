@@ -234,6 +234,10 @@ export async function initDb() {
       -- stale IMAP flag data (race between setFlag and the next periodic sync).
       ALTER TABLE messages ADD COLUMN IF NOT EXISTS read_changed_at TIMESTAMPTZ;
 
+      -- Same guard for starred state — prevents sync from reverting a local star/unstar
+      -- before the IMAP setFlag round-trip has completed on the server.
+      ALTER TABLE messages ADD COLUMN IF NOT EXISTS star_changed_at TIMESTAMPTZ;
+
       -- Backfill pass 1: root messages (no in_reply_to) become thread roots
       UPDATE messages
         SET thread_id = message_id
@@ -268,6 +272,23 @@ export async function initDb() {
       -- User profile: display name and avatar
       ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name VARCHAR(100);
       ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT;
+
+      -- Web Push subscriptions — one row per browser/device per user.
+      -- endpoint is the push service URL unique to each browser subscription.
+      -- p256dh and auth are the encryption keys the browser generates.
+      -- ON DELETE CASCADE keeps the table clean when a user account is removed.
+      CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id SERIAL PRIMARY KEY,
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        endpoint TEXT NOT NULL,
+        p256dh TEXT NOT NULL,
+        auth TEXT NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(user_id, endpoint)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user_id
+        ON push_subscriptions(user_id);
 
       -- Clear snippets that consist entirely of HTML character entities
       -- (e.g. &#8199; &#847; — "preheader killer" filler used by marketing emails).

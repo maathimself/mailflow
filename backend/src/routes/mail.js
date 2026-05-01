@@ -25,6 +25,20 @@ function areValidUUIDs(ids) {
   return ids.every(id => typeof id === 'string' && UUID_RE.test(id));
 }
 
+// Adjust cached folder row counts after local message mutations so that pagination
+// totals stay accurate without waiting for the next IMAP sync. Fire-and-forget —
+// errors are logged but never block the caller; sync will correct any discrepancy.
+function adjustFolderCounts(accountId, path, totalDelta, unreadDelta) {
+  if (totalDelta === 0 && unreadDelta === 0) return;
+  query(
+    `UPDATE folders
+        SET total_count  = GREATEST(0, total_count  + $1),
+            unread_count = GREATEST(0, unread_count + $2)
+      WHERE account_id = $3 AND path = $4`,
+    [totalDelta, unreadDelta, accountId, path]
+  ).catch(err => console.error('Folder count adjust failed:', err.message));
+}
+
 // Regex matching zero-width and invisible Unicode chars that corrupt preview snippets.
 // Built from code points to avoid embedding invisible characters in source.
 const INVISIBLE_CHARS_RE = new RegExp(
@@ -280,6 +294,7 @@ router.get('/unread-counts', async (req, res) => {
 // Get full message body + attachments list
 router.get('/messages/:id/body', async (req, res) => {
   const { id } = req.params;
+  if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
 
   const result = await query(`
     SELECT m.*, a.user_id, u.preferences FROM messages m
@@ -395,6 +410,7 @@ router.get('/messages/:id/body', async (req, res) => {
 // Get full raw headers
 router.get('/messages/:id/headers', async (req, res) => {
   const { id } = req.params;
+  if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
 
   const result = await query(`
     SELECT m.*, a.user_id FROM messages m
@@ -420,6 +436,7 @@ router.get('/messages/:id/headers', async (req, res) => {
 // Download attachment
 router.get('/messages/:id/attachments/:part', async (req, res) => {
   const { id, part } = req.params;
+  if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
   let partNum;
   try {
     partNum = decodeURIComponent(part);
@@ -472,6 +489,7 @@ router.get('/messages/:id/attachments/:part', async (req, res) => {
 // Mark read/unread
 router.patch('/messages/:id/read', async (req, res) => {
   const { id } = req.params;
+  if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
   const { read } = req.body;
 
   const result = await query(`
@@ -491,6 +509,11 @@ router.patch('/messages/:id/read', async (req, res) => {
     query('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]),
   ]);
 
+  // Keep the cached folder unread_count in sync so pagination totals stay accurate.
+  if (!!message.is_read !== !!read) {
+    adjustFolderCounts(message.account_id, message.folder, 0, read ? -1 : 1);
+  }
+
   try {
     await imapManager.setFlag(accountResult.rows[0], message.uid, message.folder, '\\Seen', read);
   } catch (err) {
@@ -503,6 +526,7 @@ router.patch('/messages/:id/read', async (req, res) => {
 // Star/unstar
 router.patch('/messages/:id/star', async (req, res) => {
   const { id } = req.params;
+  if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
   const { starred } = req.body;
 
   const result = await query(`
@@ -514,9 +538,10 @@ router.patch('/messages/:id/star', async (req, res) => {
   if (!result.rows.length) return res.status(404).json({ error: 'Message not found' });
   const message = result.rows[0];
 
-  // Run DB update and account fetch concurrently — no dependency between them
+  // Run DB update and account fetch concurrently — no dependency between them.
+  // star_changed_at tells the IMAP sync not to overwrite this change for 30 s.
   const [, accountResult] = await Promise.all([
-    query('UPDATE messages SET is_starred = $1 WHERE id = $2', [starred, id]),
+    query('UPDATE messages SET is_starred = $1, star_changed_at = NOW() WHERE id = $2', [starred, id]),
     query('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]),
   ]);
 
@@ -533,6 +558,7 @@ router.patch('/messages/:id/star', async (req, res) => {
 router.post('/sync', async (req, res) => {
   const { accountId } = req.body; // optional — omit for all accounts
   if (accountId) {
+    if (!UUID_RE.test(accountId)) return res.status(400).json({ error: 'Invalid account id' });
     const check = await query(
       'SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2',
       [accountId, req.session.userId]
@@ -549,6 +575,7 @@ router.post('/sync', async (req, res) => {
 router.post('/sync-folder', async (req, res) => {
   const { accountId, folder } = req.body;
   if (!accountId || !folder) return res.status(400).json({ error: 'accountId and folder required' });
+  if (!UUID_RE.test(accountId)) return res.status(400).json({ error: 'Invalid account id' });
 
   const check = await query(
     'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2',
@@ -566,12 +593,15 @@ router.post('/sync-folder', async (req, res) => {
 // Mark all read (DB + IMAP)
 router.post('/mark-all-read', async (req, res) => {
   const { accountId, folder = 'INBOX' } = req.body;
+  if (!accountId || !UUID_RE.test(accountId)) return res.status(400).json({ error: 'Invalid account id' });
   const check = await query(
     'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2',
     [accountId, req.session.userId]
   );
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
   await query('UPDATE messages SET is_read = true, read_changed_at = NOW() WHERE account_id = $1 AND folder = $2', [accountId, folder]);
+  query('UPDATE folders SET unread_count = 0 WHERE account_id = $1 AND path = $2', [accountId, folder])
+    .catch(err => console.error('Folder count update failed:', err.message));
   // Also update IMAP so the change survives the next sync (non-fatal if it fails)
   imapManager.markAllReadImap(check.rows[0], folder).catch(err =>
     console.warn('markAllReadImap failed:', err.message)
@@ -729,6 +759,19 @@ router.post('/messages/bulk-delete', async (req, res) => {
 
   if (succeededIds.length) {
     await query('UPDATE messages SET is_deleted = true WHERE id = ANY($1::uuid[])', [succeededIds]);
+    // Adjust cached folder counts per source folder
+    const succeededSet = new Set(succeededIds);
+    const srcTotals = {};
+    for (const msg of owned) {
+      if (!succeededSet.has(msg.id)) continue;
+      const key = `${msg.account_id}:${msg.folder}`;
+      if (!srcTotals[key]) srcTotals[key] = { accountId: msg.account_id, path: msg.folder, total: 0, unread: 0 };
+      srcTotals[key].total++;
+      if (!msg.is_read) srcTotals[key].unread++;
+    }
+    for (const { accountId, path, total, unread } of Object.values(srcTotals)) {
+      adjustFolderCounts(accountId, path, -total, -unread);
+    }
   }
   res.json({ ok: true, deleted: succeededIds });
 });
@@ -791,6 +834,20 @@ router.post('/messages/bulk-move', async (req, res) => {
 
   if (movedIds.length > 0) {
     await query('UPDATE messages SET folder = $1 WHERE id = ANY($2::uuid[])', [folder, movedIds]);
+    // Adjust cached counts: decrement source folders, increment the destination.
+    const movedSet = new Set(movedIds);
+    const srcTotals = {};
+    for (const msg of owned) {
+      if (!movedSet.has(msg.id)) continue;
+      const key = `${msg.account_id}:${msg.folder}`;
+      if (!srcTotals[key]) srcTotals[key] = { accountId: msg.account_id, path: msg.folder, total: 0, unread: 0 };
+      srcTotals[key].total++;
+      if (!msg.is_read) srcTotals[key].unread++;
+    }
+    for (const { accountId, path, total, unread } of Object.values(srcTotals)) {
+      adjustFolderCounts(accountId, path, -total, -unread);
+      adjustFolderCounts(accountId, folder, total, unread);
+    }
   }
 
   res.json({ ok: true, moved: movedIds });
@@ -804,6 +861,9 @@ router.post('/messages/bulk-archive', async (req, res) => {
   }
   if (ids.length > 500) {
     return res.status(400).json({ error: 'Too many ids — maximum 500 per request' });
+  }
+  if (!areValidUUIDs(ids)) {
+    return res.status(400).json({ error: 'Invalid message IDs' });
   }
 
   const result = await query(
@@ -861,12 +921,35 @@ router.post('/messages/bulk-archive', async (req, res) => {
     await query('UPDATE messages SET folder = $1 WHERE id = ANY($2::uuid[])', [folder, folderIds]);
   }
 
+  // Adjust cached folder counts: use signed deltas so source and dest share one pass.
+  if (archivedIds.length > 0) {
+    const idToArchiveDest = new Map(archivedIds.map(({ id, folder: dest }) => [id, dest]));
+    const folderDeltas = {}; // key: `${accountId}:${path}` -> { accountId, path, totalDelta, unreadDelta }
+    for (const msg of owned) {
+      const dest = idToArchiveDest.get(msg.id);
+      if (!dest) continue;
+      const wasUnread = !msg.is_read ? 1 : 0;
+      const srcKey = `${msg.account_id}:${msg.folder}`;
+      if (!folderDeltas[srcKey]) folderDeltas[srcKey] = { accountId: msg.account_id, path: msg.folder, totalDelta: 0, unreadDelta: 0 };
+      folderDeltas[srcKey].totalDelta--;
+      folderDeltas[srcKey].unreadDelta -= wasUnread;
+      const dstKey = `${msg.account_id}:${dest}`;
+      if (!folderDeltas[dstKey]) folderDeltas[dstKey] = { accountId: msg.account_id, path: dest, totalDelta: 0, unreadDelta: 0 };
+      folderDeltas[dstKey].totalDelta++;
+      folderDeltas[dstKey].unreadDelta += wasUnread;
+    }
+    for (const { accountId, path, totalDelta, unreadDelta } of Object.values(folderDeltas)) {
+      adjustFolderCounts(accountId, path, totalDelta, unreadDelta);
+    }
+  }
+
   res.json({ ok: true, archived: archivedIds.map(a => a.id), noArchiveFolder });
 });
 
 // Delete (move to trash)
 router.delete('/messages/:id', async (req, res) => {
   const { id } = req.params;
+  if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
 
   const result = await query(`
     SELECT m.*, a.user_id FROM messages m
@@ -897,6 +980,12 @@ router.delete('/messages/:id', async (req, res) => {
   }
 
   await query('UPDATE messages SET is_deleted = true WHERE id = $1', [id]);
+  // Keep folder counts accurate until the next IMAP sync refreshes them.
+  const wasUnread = !message.is_read ? 1 : 0;
+  adjustFolderCounts(message.account_id, message.folder, -1, -wasUnread);
+  if (trashFolder.rows.length) {
+    adjustFolderCounts(message.account_id, trashFolder.rows[0].path, 1, wasUnread);
+  }
   res.json({ ok: true });
 });
 

@@ -4,6 +4,7 @@ import { parseMessage, buildSnippetFromHtml } from './messageParser.js';
 import { refreshMicrosoftToken } from '../routes/oauth.js';
 import { sanitizeEmail } from './emailSanitizer.js';
 import { decrypt } from './encryption.js';
+import { sendPushToUser } from './pushNotifications.js';
 
 
 // Body parts that cover ~99% of real-world email structures (used for full body caching)
@@ -214,26 +215,31 @@ async function computeThreadId(accountId, messageId, inReplyTo, references) {
 
   if (candidates.length === 0) return messageId;
 
-  // The first element of References is the thread root per RFC 5322 — try it first.
-  const rootCandidate = candidates[0];
-  const rootCheck = await query(
-    'SELECT thread_id FROM messages WHERE account_id = $1 AND message_id = $2 AND thread_id IS NOT NULL LIMIT 1',
-    [accountId, rootCandidate]
+  // Fetch all candidates in one query instead of N sequential lookups.
+  // Priority: RFC 5322 root (candidates[0]) > newest ancestor (candidates[last]).
+  const rows = await query(
+    `SELECT message_id, thread_id FROM messages
+     WHERE account_id = $1 AND message_id = ANY($2) AND thread_id IS NOT NULL`,
+    [accountId, candidates]
   );
-  if (rootCheck.rows.length > 0) return rootCheck.rows[0].thread_id;
 
-  // Walk candidates newest→oldest (most likely already in DB).
-  for (let i = candidates.length - 1; i >= 0; i--) {
-    const r = await query(
-      'SELECT thread_id FROM messages WHERE account_id = $1 AND message_id = $2 AND thread_id IS NOT NULL LIMIT 1',
-      [accountId, candidates[i]]
-    );
-    if (r.rows.length > 0) return r.rows[0].thread_id;
+  if (rows.rows.length === 0) {
+    // No ancestor in DB yet — use the References root as the provisional thread_id.
+    // When the ancestor arrives its thread_id will equal its own message_id, which
+    // matches this value, so the thread converges automatically.
+    return candidates[0] || messageId;
   }
 
-  // No ancestor in DB yet — use the References root as the provisional thread_id.
-  // When the ancestor message arrives later its thread_id will equal its own
-  // message_id, which matches this value, so the thread converges automatically.
+  const found = new Map(rows.rows.map(r => [r.message_id, r.thread_id]));
+
+  // Prefer the thread root (first Reference per RFC 5322).
+  if (found.has(candidates[0])) return found.get(candidates[0]);
+
+  // Otherwise use the most recent ancestor present in the DB (newest→oldest).
+  for (let i = candidates.length - 1; i >= 0; i--) {
+    if (found.has(candidates[i])) return found.get(candidates[i]);
+  }
+
   return candidates[0] || messageId;
 }
 
@@ -255,7 +261,7 @@ async function ensureFreshToken(account) {
   return account;
 }
 
-function makeClientCfg(account) {
+function makeClientCfg(account, { enableIdle = false } = {}) {
   const cfg = {
     host: account.imap_host,
     port: account.imap_port,
@@ -268,6 +274,11 @@ function makeClientCfg(account) {
     // indefinitely — the refresh button spins forever and auto-poll stops working.
     commandTimeout: 30000,
   };
+  // Auto-IDLE: ImapFlow re-enters IDLE automatically between commands so the
+  // server can push EXISTS notifications immediately when new mail arrives.
+  // Only enable on sync connections (not pool/backfill/snippet clients) to
+  // avoid interfering with body-fetch pipelines.
+  if (enableIdle) cfg.maxIdleTime = 25 * 60 * 1000;
   // OAuth2 XOAUTH2 for Gmail and Microsoft
   if ((account.oauth_provider === 'google' || account.oauth_provider === 'microsoft')
       && account.oauth_access_token) {
@@ -387,10 +398,13 @@ async function withFreshClient(account, fn) {
     // On error, evict this client from pool so next call gets a fresh one.
     // Do not logout here — releasePooledClient in finally detects the client is
     // no longer in pool.clients and calls logout exactly once.
+    // drainWaiters here so any queued caller gets an idle slot immediately rather
+    // than waiting the full 10-second overflow timeout.
     const pool = connectionPools.get(account.id);
     if (pool) {
       pool.inUse.delete(client);
       pool.clients = pool.clients.filter(c => c !== client);
+      drainWaiters(pool);
     }
     throw err;
   } finally {
@@ -412,12 +426,15 @@ export class ImapManager {
     this.userSyncIntervalMs = new Map(); // userId -> interval ms (user-configurable)
     this.snippetIndexerRunning = new Set(); // accountId — prevent duplicate snippet-index runs
     this.syncTickCount = new Map(); // accountId -> successful sync ticks (for reconcile scheduling)
+    this._flagDebounceTimers   = new Map(); // accountId -> debounce timer for flag-change syncs
+    this._expungeDebounceTimers = new Map(); // accountId -> debounce timer for expunge reconciles
+    this._pendingFlagSync = new Set(); // accountId — flag sync was skipped because a full sync was running; drain after sync
 
     // Health check: every 90 seconds, find any enabled IMAP accounts that have no
     // active connection and no in-progress connect attempt, and reconnect them.
     // This recovers accounts that fail the startup connection silently (e.g. a slow
     // IMAP server that times out on the first attempt) without waiting for a manual sync.
-    setInterval(async () => {
+    this._healthCheckTimer = setInterval(async () => {
       try {
         const result = await query(
           "SELECT * FROM email_accounts WHERE enabled = true AND protocol = 'imap'"
@@ -434,6 +451,49 @@ export class ImapManager {
         console.error('Health check error:', err.message);
       }
     }, 90000); // 90 seconds — fast enough to catch startup failures, slow enough not to spam
+  }
+
+  // Attach the three IDLE event listeners shared by both the initial connect path
+  // and the in-_syncTick reconnect path. Centralised here so a fix in one place
+  // automatically covers both code paths.
+  _attachIdleListeners(client, account) {
+    client.on('exists', ({ count, prevCount } = {}) => {
+      if ((count ?? 0) <= (prevCount ?? 0)) return;
+      if (this.syncingAccounts.has(account.id)) return;
+      console.log(`IMAP IDLE: new mail for ${account.email_address} (${prevCount} → ${count})`);
+      this._syncTick(account).catch(err =>
+        console.warn(`IDLE-triggered sync error for ${account.email_address}:`, err.message)
+      );
+    });
+    // Flag changes (e.g. read/unread from another client) arrive as unsolicited
+    // FETCH responses during IDLE. Debounce to coalesce rapid bulk changes
+    // (e.g. "mark all read") into a single lightweight flags-only fetch.
+    client.on('flags', () => {
+      const existing = this._flagDebounceTimers.get(account.id);
+      if (existing) clearTimeout(existing);
+      this._flagDebounceTimers.set(account.id, setTimeout(() => {
+        this._flagDebounceTimers.delete(account.id);
+        console.log(`IMAP IDLE: flag change for ${account.email_address}, syncing flags`);
+        this._syncFlagsForRange(account).catch(err =>
+          console.warn(`Flag-triggered sync error for ${account.email_address}:`, err.message)
+        );
+      }, 500));
+    });
+    // Expunge events fire when a message is permanently deleted or moved on
+    // another client. Debounce bulk operations (e.g. emptying trash sends many
+    // EXPUNGE responses in rapid succession) then reconcile to remove the
+    // deleted messages from the local DB.
+    client.on('expunge', () => {
+      const existing = this._expungeDebounceTimers.get(account.id);
+      if (existing) clearTimeout(existing);
+      this._expungeDebounceTimers.set(account.id, setTimeout(() => {
+        this._expungeDebounceTimers.delete(account.id);
+        console.log(`IMAP IDLE: expunge for ${account.email_address}, reconciling`);
+        this.reconcileDeletes(account).catch(err =>
+          console.warn(`Expunge-triggered reconcile error for ${account.email_address}:`, err.message)
+        );
+      }, 1500));
+    });
   }
 
   async connectAccount(account) {
@@ -455,7 +515,7 @@ export class ImapManager {
 
     // Refresh OAuth token if needed before connecting
     account = await ensureFreshToken(account);
-    const client = new ImapFlow(makeClientCfg(account));
+    const client = new ImapFlow(makeClientCfg(account, { enableIdle: true }));
     try {
       // Race the connect against a 30-second timeout.
       // client.connect() has no built-in connection timeout — on slow or unresponsive
@@ -483,7 +543,7 @@ export class ImapManager {
       client.on('error', (err) => {
         console.error(`IMAP error for ${account.email_address}:`, err.message);
       });
-
+      this._attachIdleListeners(client, account);
       this.connections.set(account.id, client);
       await query('UPDATE email_accounts SET sync_error = NULL WHERE id = $1', [account.id]);
 
@@ -494,7 +554,7 @@ export class ImapManager {
         await this.syncFolders(account, client);
         // noBodyParts=true: consistent with the periodic sync — envelope/flags/uid only.
         // Fetching body parts on initial connect stalls on slow servers (purelymail et al).
-        await this.syncMessages(account, client, 'INBOX', 50, false, true);
+        await this.syncMessages(account, client, 'INBOX', 20, false, true);
       } catch (syncErr) {
         console.warn(`Initial sync skipped for ${account.email_address}: ${extractImapError(syncErr)}`);
       }
@@ -542,6 +602,11 @@ export class ImapManager {
     }
     this.syncThrottleSkips.delete(accountId);
     this.syncTickCount.delete(accountId);
+    this._pendingFlagSync.delete(accountId);
+    const flagTimer = this._flagDebounceTimers.get(accountId);
+    if (flagTimer) { clearTimeout(flagTimer); this._flagDebounceTimers.delete(accountId); }
+    const expungeTimer = this._expungeDebounceTimers.get(accountId);
+    if (expungeTimer) { clearTimeout(expungeTimer); this._expungeDebounceTimers.delete(accountId); }
     evictPool(accountId);
   }
 
@@ -568,13 +633,18 @@ export class ImapManager {
     this.syncingAccounts.add(account.id);
     try {
       let activeClient = this.connections.get(account.id);
+      // syncAccount tracks the freshest account data available — updated to freshAccount
+      // on reconnect so that IDLE listeners, isGmail detection, and flag syncs all use
+      // current credentials and config rather than the stale closure-captured object.
+      let syncAccount = account;
       if (!activeClient) {
         console.log(`Reconnecting ${account.email_address}...`);
         try {
           const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [account.id]);
           if (!accountResult.rows.length) return;
           const freshAccount = await ensureFreshToken(accountResult.rows[0]);
-          activeClient = new ImapFlow(makeClientCfg(freshAccount));
+          syncAccount = freshAccount;
+          activeClient = new ImapFlow(makeClientCfg(freshAccount, { enableIdle: true }));
           await Promise.race([
             activeClient.connect(),
             new Promise((_, reject) =>
@@ -587,10 +657,11 @@ export class ImapManager {
             }
           });
           activeClient.on('error', (err) => {
-            console.error(`IMAP error for ${account.email_address}:`, err.message);
+            console.error(`IMAP error for ${syncAccount.email_address}:`, err.message);
           });
+          this._attachIdleListeners(activeClient, syncAccount);
           this.connections.set(account.id, activeClient);
-          console.log(`Reconnected ${account.email_address}`);
+          console.log(`Reconnected ${syncAccount.email_address}`);
         } catch (reconnErr) {
           console.error(`Reconnect failed for ${account.email_address}:`, reconnErr.message);
           return;
@@ -599,12 +670,28 @@ export class ImapManager {
       // noBodyParts=true: envelope/flags/uid only — avoids slow servers timing out on body fetches.
       // Wall-clock timeout guards against half-open TCP sockets that never trigger commandTimeout.
       await Promise.race([
-        this.syncMessages(account, activeClient, 'INBOX', 50, false, true),
+        this.syncMessages(syncAccount, activeClient, 'INBOX', 20, false, true),
         new Promise((_, reject) =>
           setTimeout(() => reject(new Error('Sync wall-clock timeout (55s)')), 55000)
         ),
       ]);
       this.broadcast({ type: 'sync_complete', accountId: account.id }, account.user_id);
+
+      // Gmail does not push flag changes via IDLE at all — poll on every tick.
+      // Other servers (Dovecot, iCloud, PurelyMail) push via the `flags` IDLE event,
+      // but if a flag event fired while this sync was running it was deferred into
+      // _pendingFlagSync rather than dropped — drain it now.
+      const isGmail = (syncAccount.imap_host || '').toLowerCase().includes('gmail') ||
+                      (syncAccount.imap_host || '').toLowerCase().includes('googlemail');
+      const hasPending = this._pendingFlagSync.has(account.id);
+      if (isGmail || hasPending) {
+        this._pendingFlagSync.delete(account.id);
+        setImmediate(() => {
+          this._syncFlagsForRange(syncAccount).catch(err =>
+            console.warn(`Post-sync flags error for ${syncAccount.email_address}:`, err.message)
+          );
+        });
+      }
 
       // Reconcile remote deletes every 10 successful ticks (~10 min at 60 s interval).
       // Uses a pooled connection so it never blocks the sync client.
@@ -612,8 +699,8 @@ export class ImapManager {
       this.syncTickCount.set(account.id, ticks);
       if (ticks % 10 === 0) {
         setImmediate(() => {
-          this.reconcileDeletes(account).catch(err =>
-            console.error(`Reconcile error for ${account.email_address}:`, err.message)
+          this.reconcileDeletes(syncAccount).catch(err =>
+            console.error(`Reconcile error for ${syncAccount.email_address}:`, err.message)
           );
         });
       }
@@ -630,6 +717,99 @@ export class ImapManager {
       }
     } finally {
       this.syncingAccounts.delete(account.id);
+    }
+  }
+
+  // Lightweight flag-only sync: fetch uid+flags for the last 200 messages in INBOX
+  // and bulk-update is_read / is_starred in the DB.
+  //
+  // Uses a POOL connection (not the sync connection) so it never contends with
+  // the persistent sync client or disrupts its IDLE cycle.
+  //
+  // Called in two paths:
+  //   1. IMAP IDLE `flags` event — debounced 500 ms (covers Dovecot, iCloud, PurelyMail)
+  //   2. After every _syncTick for Gmail — Gmail does not push flag changes via IDLE
+  async _syncFlagsForRange(account) {
+    // If a full sync is running, queue this for after the sync completes rather than
+    // dropping it. Phase 2 only covers the last 20 messages; IDLE flag events for
+    // messages 21-200 would be silently lost without this.
+    if (this.syncingAccounts.has(account.id)) {
+      this._pendingFlagSync.add(account.id);
+      return;
+    }
+
+    try {
+      await withFreshClient(account, async (client) => {
+        const lock = await client.getMailboxLock('INBOX');
+        try {
+          const mailbox = client.mailbox;
+          if (!mailbox || !mailbox.exists) return;
+
+          const seqCount = 200;
+          const fetchRange = mailbox.exists > seqCount
+            ? `${mailbox.exists - seqCount + 1}:${mailbox.exists}`
+            : '1:*';
+
+          const flagsToUpdate = [];
+          for await (const msg of client.fetch(fetchRange, { uid: true, flags: true })) {
+            flagsToUpdate.push({
+              uid: msg.uid,
+              isRead: msg.flags.has('\\Seen'),
+              isStarred: msg.flags.has('\\Flagged'),
+            });
+          }
+
+          if (flagsToUpdate.length === 0) return;
+
+          const uids    = flagsToUpdate.map(f => f.uid);
+          const reads   = flagsToUpdate.map(f => f.isRead);
+          const starred = flagsToUpdate.map(f => f.isStarred);
+
+          const result = await query(`
+            UPDATE messages SET
+              is_read = CASE
+                WHEN messages.read_changed_at IS NOT NULL
+                     AND NOW() - messages.read_changed_at < interval '30 seconds'
+                THEN messages.is_read
+                ELSE updates.is_read
+              END,
+              is_starred = CASE
+                WHEN messages.star_changed_at IS NOT NULL
+                     AND NOW() - messages.star_changed_at < interval '30 seconds'
+                THEN messages.is_starred
+                ELSE updates.is_starred
+              END
+            FROM (
+              SELECT unnest($1::bigint[])  AS uid,
+                     unnest($2::boolean[]) AS is_read,
+                     unnest($3::boolean[]) AS is_starred
+            ) AS updates
+            WHERE messages.account_id = $4
+              AND messages.folder = 'INBOX'
+              AND messages.uid = updates.uid
+              AND (
+                (
+                  messages.star_changed_at IS NULL
+                  OR NOW() - messages.star_changed_at >= interval '30 seconds'
+                ) AND messages.is_starred != updates.is_starred
+                OR (
+                  messages.read_changed_at IS NULL
+                  OR NOW() - messages.read_changed_at >= interval '30 seconds'
+                ) AND messages.is_read != updates.is_read
+              )`,
+            [uids, reads, starred, account.id]
+          );
+
+          if (result.rowCount > 0) {
+            console.log(`Flag sync: ${result.rowCount} flag change(s) for ${account.email_address}, broadcasting`);
+            this.broadcast({ type: 'flags_synced', accountId: account.id }, account.user_id);
+          }
+        } finally {
+          lock.release();
+        }
+      });
+    } catch (err) {
+      console.warn(`Flag range sync error for ${account.email_address}:`, err.message);
     }
   }
 
@@ -795,7 +975,13 @@ export class ImapManager {
                     THEN messages.is_read
                     ELSE EXCLUDED.is_read
                   END,
-                  is_starred = $15, flags = $17,
+                  is_starred = CASE
+                    WHEN messages.star_changed_at IS NOT NULL
+                         AND NOW() - messages.star_changed_at < interval '30 seconds'
+                    THEN messages.is_starred
+                    ELSE EXCLUDED.is_starred
+                  END,
+                  flags = $17,
                   body_html = COALESCE(messages.body_html, EXCLUDED.body_html),
                   body_text = COALESCE(messages.body_text, EXCLUDED.body_text),
                   attachments = COALESCE(messages.attachments::text, EXCLUDED.attachments::text)::jsonb,
@@ -846,6 +1032,20 @@ export class ImapManager {
             type: 'new_messages', accountId: account.id,
             folder, messages: newMessages.slice(-5), count: newMessages.length
           }, account.user_id);
+          // Web Push — INBOX only. Non-inbox folder syncs (Archive, Spam, on-demand)
+          // can surface messages that are old or intentionally filtered; sending
+          // push for them would be misleading. Fire-and-forget: push errors are non-fatal.
+          if (folder === 'INBOX') {
+            const latest = newMessages[newMessages.length - 1];
+            sendPushToUser(account.user_id, {
+              title: latest.fromName || latest.fromEmail || 'New mail',
+              body: newMessages.length === 1
+                ? (latest.subject || '(no subject)')
+                : `${newMessages.length} new messages`,
+              icon: '/icon-512.png',
+              url: '/',
+            }).catch(err => console.warn('Push notification error:', err.message));
+          }
           // Pre-warm the body cache for newly arrived messages so clicking one
           // immediately after receipt doesn't require a live IMAP fetch.
           // Only do this for small batches (periodic new mail, not initial bulk sync).
@@ -1083,6 +1283,19 @@ export class ImapManager {
                       in_reply_to = COALESCE(messages.in_reply_to, EXCLUDED.in_reply_to),
                       snippet = CASE WHEN EXCLUDED.snippet != '' THEN EXCLUDED.snippet
                                      ELSE messages.snippet END,
+                      is_read = CASE
+                        WHEN messages.read_changed_at IS NOT NULL
+                             AND NOW() - messages.read_changed_at < interval '30 seconds'
+                        THEN messages.is_read
+                        ELSE EXCLUDED.is_read
+                      END,
+                      is_starred = CASE
+                        WHEN messages.star_changed_at IS NOT NULL
+                             AND NOW() - messages.star_changed_at < interval '30 seconds'
+                        THEN messages.is_starred
+                        ELSE EXCLUDED.is_starred
+                      END,
+                      flags = EXCLUDED.flags,
                       body_html = COALESCE(messages.body_html, EXCLUDED.body_html),
                       body_text = COALESCE(messages.body_text, EXCLUDED.body_text),
                       attachments = COALESCE(messages.attachments::text, EXCLUDED.attachments::text)::jsonb,
@@ -1414,18 +1627,36 @@ export class ImapManager {
       // quota is hit.
       const uidStr = String(uid);
 
+      const isGmailAccount = (account.imap_host || '').toLowerCase().includes('gmail') ||
+                             (account.imap_host || '').toLowerCase().includes('googlemail');
+
       const lock = await client.getMailboxLock(folder);
       try {
-        // Step 1: fetch bodyStructure only to discover the actual part layout.
-        // Previously we speculatively pre-fetched common part numbers alongside the
-        // structure, but Gmail returns a hard "Some messages could not be FETCHed
-        // (Failure)" error if any requested part number doesn't exist in that specific
-        // message. Fetching structure first and then only the real parts avoids this.
         let structure = null;
         const prefetched = new Map(); // part number -> Buffer
 
-        for await (const msg of client.fetch(uidStr, { uid: true, bodyStructure: true }, { uid: true })) {
-          structure = msg.bodyStructure;
+        if (isGmailAccount) {
+          // Gmail errors on speculative part requests that don't exist in the message
+          // ("Some messages could not be FETCHed"). Fetch structure first, then parts.
+          for await (const msg of client.fetch(uidStr, { uid: true, bodyStructure: true }, { uid: true })) {
+            structure = msg.bodyStructure;
+          }
+        } else {
+          // Non-Gmail: speculatively fetch structure + common part numbers in one
+          // round-trip. Saves ~1-3s on slow providers (purelymail, etc.). Parts that
+          // don't exist in this message simply come back absent/empty — no error.
+          for await (const msg of client.fetch(
+            uidStr,
+            { uid: true, bodyStructure: true, bodyParts: BODY_PREFETCH_PARTS },
+            { uid: true }
+          )) {
+            structure = msg.bodyStructure;
+            if (msg.bodyParts) {
+              for (const [k, v] of msg.bodyParts) {
+                if (v != null && v.length > 0) prefetched.set(k, v);
+              }
+            }
+          }
         }
 
         if (!structure) {
@@ -1451,16 +1682,17 @@ export class ImapManager {
 
         attachments = results.attachments;
 
-        // Step 2: fetch text parts + any inline image parts in one round-trip
+        // Fetch any text/image parts not already obtained from the speculative fetch
         const inlineImages = results.inlineImages || [];
         const needed = [
           ...new Set([
             ...results.textParts.map(p => p.part),
             ...inlineImages.map(p => p.part),
           ])
-        ];
+        ].filter(p => !prefetched.has(p));
+
         if (needed.length > 0) {
-          // Initial batched fetch — one round-trip for all needed parts.
+          // Batched fetch for parts not already available.
           for await (const msg of client.fetch(uidStr, { uid: true, bodyParts: needed }, { uid: true })) {
             if (msg.bodyParts) {
               for (const [k, v] of msg.bodyParts) {
@@ -1725,7 +1957,7 @@ export class ImapManager {
       try {
         // noBodyParts=true: metadata-only, same as the periodic interval sync.
         // Bodies are cached on first open; fetching them here would slow manual refresh.
-        await this.syncMessages(account, client, 'INBOX', 50, false, true);
+        await this.syncMessages(account, client, 'INBOX', 20, false, true);
         console.log(`syncNow complete: ${account.email_address}`);
       } catch (err) {
         console.error(`syncNow error for ${account.email_address}:`, err.message);
@@ -1745,44 +1977,75 @@ export class ImapManager {
     });
   }
 
-  // Compare the server's INBOX UID set against our DB and hard-delete any rows
-  // whose UIDs no longer exist on the server (deleted by another IMAP client).
-  // Uses a pooled connection so it never contends with the persistent sync client.
+  // Compare the server's UID set against our DB for every folder that has local messages,
+  // and hard-delete any rows whose UIDs no longer exist on the server (deleted by another
+  // IMAP client). Uses a single pooled connection cycling through each folder so it never
+  // contends with the persistent sync client.
+  // Compare the server's UID set for every folder that has local messages against our DB
+  // and hard-delete rows whose UIDs no longer exist on the server (deleted by another client).
+  // Phase 1: collect all server UID sets via one pool connection (IMAP-only, no DB writes).
+  // Phase 2: diff and delete outside the IMAP connection so a DB error never evicts a
+  // healthy pool client.
   async reconcileDeletes(account) {
-    const folder = 'INBOX';
-    let serverUids;
+    const folderResult = await query(
+      'SELECT DISTINCT folder FROM messages WHERE account_id = $1',
+      [account.id]
+    );
+    if (!folderResult.rows.length) return;
+
+    const folders = folderResult.rows.map(r => r.folder);
+
+    // Phase 1 — fetch server UID sets for each folder (IMAP only, inside withFreshClient).
+    const serverUidsByFolder = new Map(); // folder -> Set<number>
     try {
       await withFreshClient(account, async (client) => {
-        const lock = await client.getMailboxLock(folder);
-        try {
-          serverUids = await client.search({ all: true }, { uid: true });
-        } finally {
-          lock.release();
+        for (const folder of folders) {
+          let serverUids;
+          try {
+            const lock = await client.getMailboxLock(folder);
+            try {
+              serverUids = await client.search({ all: true }, { uid: true });
+            } finally {
+              lock.release();
+            }
+          } catch (err) {
+            // Folder may no longer exist on server or be temporarily inaccessible — skip it.
+            console.warn(`Reconcile: could not open ${account.email_address}/${folder}: ${extractImapError(err)}`);
+            continue;
+          }
+          serverUidsByFolder.set(folder, new Set(serverUids));
         }
       });
     } catch (err) {
-      // Connection failure — skip this reconcile cycle silently
-      console.warn(`Reconcile: could not fetch server UIDs for ${account.email_address}: ${extractImapError(err)}`);
+      console.warn(`Reconcile connection error for ${account.email_address}: ${extractImapError(err)}`);
       return;
     }
 
-    const serverUidSet = new Set(serverUids);
-    const dbResult = await query(
-      'SELECT uid FROM messages WHERE account_id = $1 AND folder = $2',
-      [account.id, folder]
-    );
-    const orphanUids = dbResult.rows
-      .map(r => Number(r.uid))
-      .filter(uid => !serverUidSet.has(uid));
+    // Phase 2 — diff each folder's server UIDs against the DB and delete orphans.
+    // Runs outside withFreshClient so DB errors never cause unnecessary pool eviction.
+    let hadChanges = false;
+    for (const [folder, serverUidSet] of serverUidsByFolder) {
+      const dbResult = await query(
+        'SELECT uid FROM messages WHERE account_id = $1 AND folder = $2',
+        [account.id, folder]
+      );
+      const orphanUids = dbResult.rows
+        .map(r => Number(r.uid))
+        .filter(uid => !serverUidSet.has(uid));
 
-    if (orphanUids.length === 0) return;
+      if (orphanUids.length === 0) continue;
 
-    console.log(`Reconcile: removing ${orphanUids.length} server-deleted message(s) from ${account.email_address}/${folder}`);
-    await query(
-      'DELETE FROM messages WHERE account_id = $1 AND folder = $2 AND uid = ANY($3::bigint[])',
-      [account.id, folder, orphanUids]
-    );
-    this.broadcast({ type: 'sync_complete', accountId: account.id }, account.user_id);
+      console.log(`Reconcile: removing ${orphanUids.length} server-deleted message(s) from ${account.email_address}/${folder}`);
+      await query(
+        'DELETE FROM messages WHERE account_id = $1 AND folder = $2 AND uid = ANY($3::bigint[])',
+        [account.id, folder, orphanUids]
+      );
+      hadChanges = true;
+    }
+
+    if (hadChanges) {
+      this.broadcast({ type: 'sync_complete', accountId: account.id }, account.user_id);
+    }
   }
 
   async connectAllForUser(userId) {

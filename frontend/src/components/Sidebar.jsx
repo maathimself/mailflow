@@ -393,6 +393,9 @@ export default function Sidebar() {
     try {
       await api.markAllRead(accountId, folder);
       window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+      api.getUnreadCounts().then(counts => {
+        useStore.setState({ unreadCounts: counts });
+      }).catch(() => {});
     } catch (err) { console.error('markAllRead failed:', err.message); }
   };
 

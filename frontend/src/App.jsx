@@ -12,6 +12,16 @@ export default function App() {
   const { user, setUser, loadPreferences } = useStore();
   const [checking, setChecking] = useState(true);
 
+  // Register service worker on first mount — independent of auth state.
+  // The SW itself does nothing until the user explicitly grants push permission.
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch((err) =>
+        console.warn('Service worker registration failed:', err)
+      );
+    }
+  }, []);
+
   useEffect(() => {
     const onExpired = () => setUser(null);
     window.addEventListener('mailflow:session_expired', onExpired);

@@ -422,6 +422,20 @@
       "customButton": "Upload",
       "uploadError": "File must be under 2 MB."
     },
+    "push": {
+      "title": "Push Notifications",
+      "description": "Receive native notifications for new mail even when MailFlow isn't open.",
+      "enable": "Enable",
+      "disable": "Disable",
+      "statusOn": "Push notifications enabled",
+      "statusOff": "Push notifications disabled",
+      "statusDenied": "Permission denied",
+      "permissionDenied": "Notification permission was denied. Please enable it in your browser or system settings.",
+      "notSupported": "Push notifications are not supported in this browser.",
+      "iosHint": "To receive push notifications on iOS, add MailFlow to your Home Screen first: tap the Share button, then \"Add to Home Screen\".",
+      "notConfigured": "Push notifications are not configured on this server. Add VAPID keys to the .env file to enable them.",
+      "loading": "Working…"
+    },
     "security": {
       "title": "Security",
       "description": "Manage two-factor authentication for your account.",

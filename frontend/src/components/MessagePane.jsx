@@ -1022,14 +1022,18 @@ export default function MessagePane() {
                 <style>
                   /* Prevent percentage-height elements from filling the iframe,
                      which would cause a ResizeObserver growth feedback loop. */
-                  html, body { height: auto !important; min-height: 0 !important; }
+                  html, body { height: auto !important; min-height: 0 !important; overflow-x: hidden; }
                   body { margin: 16px; font-family: -apple-system, Arial, sans-serif;
                          font-size: 14px; line-height: 1.6; color: #1a1a1a; word-wrap: break-word; }
-                  img { max-width: 100%; height: auto; }
+                  /* !important overrides inline width styles and HTML width attributes common
+                     in marketing email templates (e.g. <table width="600">) that would otherwise
+                     overflow the iframe viewport on narrow mobile screens. */
+                  img { max-width: 100% !important; height: auto !important; }
+                  table { max-width: 100% !important; }
+                  td, th { word-break: break-word; }
                   a { color: #6366f1; }
                   pre, code { overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
                   blockquote { border-left: 3px solid #ddd; margin: 0; padding-left: 12px; color: #555; }
-                  table { max-width: 100%; }
                 </style>
               </head><body>${
                 body.html.replace(/<a(\s)/gi, '<a rel="noopener noreferrer"$1')

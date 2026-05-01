@@ -134,4 +134,9 @@ export const api = {
     return request('GET', `/search?${params}`);
   },
   suggestContacts: (q) => request('GET', `/search/contacts?q=${encodeURIComponent(q)}`),
+
+  // Web Push
+  getPushVapidKey:  ()           => request('GET',    '/auth/push/vapid-key'),
+  pushSubscribe:    (subscription) => request('POST',   '/auth/push/subscribe',    subscription),
+  pushUnsubscribe:  (body)       => request('DELETE',  '/auth/push/unsubscribe',   body),
 };

@@ -422,6 +422,20 @@
       "customButton": "Télécharger",
       "uploadError": "Le fichier doit faire moins de 2 Mo."
     },
+    "push": {
+      "title": "Notifications push",
+      "description": "Recevez des notifications natives pour les nouveaux courriers même lorsque MailFlow n'est pas ouvert.",
+      "enable": "Activer",
+      "disable": "Désactiver",
+      "statusOn": "Notifications push activées",
+      "statusOff": "Notifications push désactivées",
+      "statusDenied": "Permission refusée",
+      "permissionDenied": "La permission de notification a été refusée. Veuillez l'activer dans les paramètres du navigateur ou du système.",
+      "notSupported": "Les notifications push ne sont pas prises en charge par ce navigateur.",
+      "iosHint": "Pour recevoir des notifications push sur iOS, ajoutez d'abord MailFlow à votre écran d'accueil : appuyez sur le bouton Partager, puis sur « Ajouter à l'écran d'accueil ».",
+      "notConfigured": "Les notifications push ne sont pas configurées sur ce serveur. Ajoutez des clés VAPID au fichier .env pour les activer.",
+      "loading": "En cours…"
+    },
     "security": {
       "title": "Sécurité",
       "description": "Gérez la double authentification pour votre compte.",

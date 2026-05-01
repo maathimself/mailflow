@@ -4,6 +4,7 @@ import { authenticator } from 'otplib';
 import { query, pool } from '../services/db.js';
 import { imapManager } from '../index.js';
 import { decrypt } from '../services/encryption.js';
+import { pushConfigured } from '../services/pushNotifications.js';
 
 const router = Router();
 
@@ -342,6 +343,62 @@ router.patch('/preferences', async (req, res) => {
   }
 
   res.json({ ok: true });
+});
+
+// ── Web Push ──────────────────────────────────────────────────────────────────
+
+// Returns the VAPID public key so the frontend can subscribe via PushManager.
+router.get('/push/vapid-key', (req, res) => {
+  if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
+  if (!pushConfigured) {
+    return res.status(503).json({ error: 'Push notifications are not configured on this server.' });
+  }
+  res.json({ publicKey: process.env.VAPID_PUBLIC_KEY });
+});
+
+// Store a push subscription for the current user/device.
+// The browser generates a unique endpoint + encryption keys on subscribe().
+// We upsert so that re-subscribing (e.g. after clearing browser data) just
+// refreshes the keys rather than creating a duplicate row.
+router.post('/push/subscribe', async (req, res) => {
+  if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
+  const { endpoint, keys } = req.body || {};
+  if (!endpoint || typeof endpoint !== 'string' ||
+      !keys?.p256dh || typeof keys.p256dh !== 'string' ||
+      !keys?.auth   || typeof keys.auth   !== 'string') {
+    return res.status(400).json({ error: 'Invalid push subscription object.' });
+  }
+  try {
+    await query(
+      `INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (user_id, endpoint) DO UPDATE SET p256dh = $3, auth = $4`,
+      [req.session.userId, endpoint, keys.p256dh, keys.auth]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('push/subscribe error:', err.message);
+    res.status(500).json({ error: 'Failed to save push subscription.' });
+  }
+});
+
+// Remove a push subscription when the user disables notifications.
+router.delete('/push/unsubscribe', async (req, res) => {
+  if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
+  const { endpoint } = req.body || {};
+  if (!endpoint || typeof endpoint !== 'string') {
+    return res.status(400).json({ error: 'endpoint required.' });
+  }
+  try {
+    await query(
+      'DELETE FROM push_subscriptions WHERE user_id = $1 AND endpoint = $2',
+      [req.session.userId, endpoint]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('push/unsubscribe error:', err.message);
+    res.status(500).json({ error: 'Failed to remove push subscription.' });
+  }
 });
 
 export default router;

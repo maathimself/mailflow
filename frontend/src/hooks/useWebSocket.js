@@ -27,12 +27,20 @@ export function useWebSocket() {
 
     ws.onopen = () => {
       console.log('WebSocket connected');
+      const wasReconnect = reconnectAttempt.current > 0;
       reconnectAttempt.current = 0;
       // Ping every 30s to keep alive
       const pingInterval = setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping' }));
       }, 30000);
       ws._pingInterval = pingInterval;
+      // On reconnect, catch up on any messages that arrived during the outage
+      if (wasReconnect) {
+        window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+        api.getUnreadCounts().then(counts => {
+          useStore.setState({ unreadCounts: counts });
+        }).catch(() => {});
+      }
     };
 
     ws.onmessage = (event) => {
@@ -59,12 +67,13 @@ export function useWebSocket() {
   const handleMessage = useCallback((data) => {
     switch (data.type) {
       case 'new_messages': {
-        const { messages, count, accountId } = data;
+        const { messages, count, accountId, folder } = data;
+        const isInbox = !folder || folder === 'INBOX';
+
         if (messages && messages.length > 0) {
-          // Only notify on the tab the user is actively looking at.
-          // When MailFlow is open on multiple devices (or tabs), this prevents
-          // duplicate notification sounds — only the visible/focused instance reacts.
-          if (document.visibilityState === 'visible') {
+          // In-app notifications and sounds are inbox-only — non-inbox folder syncs
+          // (Archive, Spam, on-demand syncs) should not trigger alerts for old mail.
+          if (isInbox && document.visibilityState === 'visible') {
             const latest = messages[0];
             addNotification({
               type: 'new_mail',
@@ -77,27 +86,31 @@ export function useWebSocket() {
             playNotificationSound(notificationSound, customSoundDataUrl);
           }
 
-          // Always refresh the message list on all tabs so new mail appears
+          // Refresh the message list when the affected folder is visible
           const store = useStore.getState();
           const isRelevant =
             store.selectedAccountId === null ||
             store.selectedAccountId === accountId;
+          const folderVisible = store.selectedFolder === (folder || 'INBOX');
 
-          if (isRelevant && store.selectedFolder === 'INBOX') {
+          if (isRelevant && folderVisible) {
             window.dispatchEvent(new CustomEvent('mailflow:refresh'));
           }
         }
 
-        // Update unread counts
-        const countsStore = useStore.getState();
-        const byAccount = { ...countsStore.unreadCounts.byAccount };
-        byAccount[data.accountId] = (byAccount[data.accountId] || 0) + data.count;
-        useStore.setState({
-          unreadCounts: {
-            total: countsStore.unreadCounts.total + data.count,
-            byAccount,
-          }
-        });
+        // Unread badge counts are keyed to INBOX only — the canonical unread endpoint
+        // only counts INBOX messages. Non-inbox new_messages events must not inflate it.
+        if (isInbox) {
+          const countsStore = useStore.getState();
+          const byAccount = { ...countsStore.unreadCounts.byAccount };
+          byAccount[data.accountId] = (byAccount[data.accountId] || 0) + data.count;
+          useStore.setState({
+            unreadCounts: {
+              total: countsStore.unreadCounts.total + data.count,
+              byAccount,
+            }
+          });
+        }
         break;
       }
 
@@ -134,6 +147,25 @@ export function useWebSocket() {
         // in external clients (the message list refresh alone doesn't update counts).
         // Adjust for any markRead calls that are still in-flight so that a sync
         // arriving before the PATCH response doesn't undo optimistic decrements.
+        api.getUnreadCounts().then(counts => {
+          if (pendingMarkReadMap.size > 0) {
+            const byAccount = { ...counts.byAccount };
+            for (const accountId of pendingMarkReadMap.values()) {
+              if (byAccount[accountId] > 0) byAccount[accountId]--;
+            }
+            const total = Math.max(0, counts.total - pendingMarkReadMap.size);
+            useStore.setState({ unreadCounts: { total, byAccount } });
+          } else {
+            useStore.setState({ unreadCounts: counts });
+          }
+        }).catch(() => {});
+        break;
+      }
+
+      case 'flags_synced': {
+        // Lightweight flag update (read/starred changed on another client).
+        // Refresh the message list and unread counts without the full sync_done event.
+        window.dispatchEvent(new CustomEvent('mailflow:refresh'));
         api.getUnreadCounts().then(counts => {
           if (pendingMarkReadMap.size > 0) {
             const byAccount = { ...counts.byAccount };

@@ -225,7 +225,8 @@ export default function MessageList() {
               params = { limit: ps, offset: (pg - 1) * ps };
             } else {
               const currentOffset = state.messagesOffset;
-              params = { limit: currentOffset || ps, offset: 0 };
+              // Backend caps limit at 200 — don't request more or the list silently shrinks
+              params = { limit: Math.min(currentOffset || ps, 200), offset: 0 };
             }
             if (selectedAccountId) { params.accountId = selectedAccountId; params.folder = selectedFolder; }
             if (unreadOnly) params.unreadOnly = 'true';

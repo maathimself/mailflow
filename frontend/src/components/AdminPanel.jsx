@@ -7,6 +7,7 @@ import { THEMES, applyTheme } from '../themes.js';
 import { FONT_SETS, loadFontSet } from '../fonts.js';
 import { LAYOUTS, applyLayout } from '../layouts.js';
 import { NOTIFICATION_SOUNDS, playNotificationSound, playCustomSound, warmUpAudioContext } from '../utils/notificationSounds.js';
+import { usePushNotifications } from '../hooks/usePushNotifications.js';
 import SignatureEditor from './SignatureEditor.jsx';
 import { getEffectiveShortcuts, getGroupedActions, ACTION_DEFS, SPECIAL_KEY_LABELS } from '../utils/defaultShortcuts.js';
 
@@ -2722,6 +2723,134 @@ function UsersAndInvitesPanel() {
   );
 }
 
+// ─── Push Notifications Section (inside NotificationsTab) ─────────────────────
+function PushNotificationsSection() {
+  const { t } = useTranslation();
+  const {
+    supported, permission, subscribed, serverConfigured, loading,
+    subscribe, unsubscribe,
+  } = usePushNotifications();
+
+  // Detect iOS devices that need to be installed as a PWA before push works.
+  const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isStandalone = window.navigator.standalone === true ||
+    window.matchMedia('(display-mode: standalone)').matches;
+  const showIOSHint = isIOS && !isStandalone;
+
+  const handleToggle = async () => {
+    if (subscribed) {
+      await unsubscribe();
+    } else {
+      await subscribe();
+    }
+  };
+
+  // Status badge colour and label
+  let statusColor = 'var(--text-tertiary)';
+  let statusLabel = t('admin.push.statusOff');
+  if (subscribed) {
+    statusColor = 'var(--green, #22c55e)';
+    statusLabel = t('admin.push.statusOn');
+  } else if (permission === 'denied') {
+    statusColor = 'var(--red)';
+    statusLabel = t('admin.push.statusDenied');
+  }
+
+  return (
+    <div style={{ marginTop: 32 }}>
+      {/* Divider */}
+      <div style={{ height: 1, background: 'var(--border-subtle)', marginBottom: 24 }} />
+
+      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+        {t('admin.push.title')}
+      </div>
+      <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 20 }}>
+        {t('admin.push.description')}
+      </div>
+
+      {/* Server not configured */}
+      {serverConfigured === false && (
+        <div style={{
+          padding: '12px 16px', borderRadius: 8,
+          background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+          fontSize: 13, color: 'var(--text-secondary)',
+        }}>
+          {t('admin.push.notConfigured')}
+        </div>
+      )}
+
+      {/* Browser not supported */}
+      {serverConfigured !== false && !supported && (
+        <div style={{
+          padding: '12px 16px', borderRadius: 8,
+          background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+          fontSize: 13, color: 'var(--text-secondary)',
+        }}>
+          {t('admin.push.notSupported')}
+        </div>
+      )}
+
+      {/* iOS not-installed hint */}
+      {serverConfigured !== false && supported && showIOSHint && !subscribed && (
+        <div style={{
+          padding: '12px 16px', borderRadius: 8,
+          background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+          borderLeft: '3px solid var(--accent)',
+          fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16,
+        }}>
+          {t('admin.push.iosHint')}
+        </div>
+      )}
+
+      {/* Main toggle row */}
+      {serverConfigured !== false && supported && !showIOSHint && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '14px 16px', borderRadius: 10,
+          background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)',
+        }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+              <div style={{ width: 7, height: 7, borderRadius: '50%', background: statusColor, flexShrink: 0 }} />
+              <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
+                {statusLabel}
+              </span>
+            </div>
+            {permission === 'denied' && (
+              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', maxWidth: 340 }}>
+                {t('admin.push.permissionDenied')}
+              </div>
+            )}
+          </div>
+
+          {permission !== 'denied' && (
+            <button
+              onClick={handleToggle}
+              disabled={loading}
+              style={{
+                padding: '7px 16px', borderRadius: 7, fontSize: 13, fontWeight: 500,
+                cursor: loading ? 'wait' : 'pointer',
+                background: subscribed ? 'transparent' : 'var(--accent)',
+                color: subscribed ? 'var(--text-secondary)' : 'white',
+                border: subscribed ? '1px solid var(--border)' : '1px solid transparent',
+                opacity: loading ? 0.6 : 1,
+                transition: 'all 0.15s',
+              }}
+            >
+              {loading
+                ? t('admin.push.loading')
+                : subscribed
+                  ? t('admin.push.disable')
+                  : t('admin.push.enable')}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Notifications Tab ────────────────────────────────────────────────────────
 function NotificationsTab() {
   const { t } = useTranslation();
@@ -2900,6 +3029,9 @@ function NotificationsTab() {
           );
         })()}
       </div>
+
+      {/* Push Notifications */}
+      <PushNotificationsSection />
     </div>
   );
 }
