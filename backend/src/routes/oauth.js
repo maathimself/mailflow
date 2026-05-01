@@ -30,7 +30,7 @@ function getMsConfig() {
 }
 
 // Step 1: redirect user to Microsoft login
-router.get('/microsoft', (req, res) => {
+router.get('/microsoft', async (req, res) => {
   if (!req.session?.userId) return res.status(401).json({ error: 'Not authenticated' });
 
   const { clientId, tenantId, redirectUri } = getMsConfig();
@@ -54,6 +54,9 @@ router.get('/microsoft', (req, res) => {
     prompt: 'select_account',
   });
 
+  // Save session before redirecting so the nonce is committed to the store
+  // before the external provider redirects back with the authorization code.
+  await new Promise((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
   res.redirect(`${MICROSOFT_AUTH_URL}/${tenantId}/oauth2/v2.0/authorize?${params}`);
 });
 
@@ -89,6 +92,7 @@ router.get('/microsoft/callback', async (req, res) => {
         redirect_uri: redirectUri,
         grant_type: 'authorization_code',
       }),
+      signal: AbortSignal.timeout(10000),
     });
 
     const tokens = await tokenRes.json();

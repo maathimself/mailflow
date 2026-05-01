@@ -19,10 +19,38 @@ function normalizeTo(arr) {
   }).filter(Boolean).join(', ');
 }
 
-// Parse a normalizeTo string (or raw value) into an array of chips
+// Parse a normalizeTo string (or raw value) into an array of chips.
+// Splits on commas that are not inside quoted strings ("...") or angle brackets (<...>),
+// so display names like "Smith, John <j@example.com>" are kept intact.
 function parseChips(val) {
   const str = typeof val === 'string' ? val : normalizeTo(val);
-  return str ? str.split(',').map(s => s.trim()).filter(Boolean) : [];
+  if (!str) return [];
+  const parts = [];
+  let current = '';
+  let inQuote = false;
+  let inAngle = false;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i];
+    if (ch === '"' && !inAngle) {
+      inQuote = !inQuote;
+      current += ch;
+    } else if (ch === '<' && !inQuote) {
+      inAngle = true;
+      current += ch;
+    } else if (ch === '>' && !inQuote) {
+      inAngle = false;
+      current += ch;
+    } else if (ch === ',' && !inQuote && !inAngle) {
+      const trimmed = current.trim();
+      if (trimmed) parts.push(trimmed);
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  const trimmed = current.trim();
+  if (trimmed) parts.push(trimmed);
+  return parts;
 }
 
 export default function ComposeModal() {

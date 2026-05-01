@@ -173,6 +173,9 @@ oidcBrowserRouter.get('/:slug/start', async (req, res) => {
       code_challenge_method: 'S256',
     });
 
+    // Save session before redirecting so the PKCE verifier and state nonce are
+    // committed to the store before the provider redirects back with the code.
+    await new Promise((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
     res.redirect(`${doc.authorization_endpoint}?${params}`);
   } catch (err) {
     console.error('OIDC start error:', err.message);

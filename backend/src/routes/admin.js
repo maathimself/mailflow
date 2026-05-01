@@ -4,6 +4,7 @@ import nodemailer from 'nodemailer';
 import { query } from '../services/db.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { decrypt, encrypt } from '../services/encryption.js';
+import { validateHost } from '../services/hostValidation.js';
 
 const router = Router();
 router.use(requireAdmin);
@@ -248,6 +249,9 @@ router.post('/system-email', async (req, res) => {
   if (!host || !user) {
     return res.status(400).json({ error: 'SMTP host and username are required' });
   }
+
+  const hostErr = await validateHost(host);
+  if (hostErr) return res.status(400).json({ error: hostErr });
 
   // Load existing config so we can keep the encrypted password if the field wasn't changed
   let existingPass = null;

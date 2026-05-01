@@ -69,7 +69,7 @@ router.get('/', searchLimiter, async (req, res) => {
   const targetIds = accountId && userAccountIds.includes(accountId)
     ? [accountId] : userAccountIds;
 
-  const cap = Math.min(parseInt(limit) || 50, 200);
+  const cap = Math.max(1, Math.min(parseInt(limit) || 50, 200));
   const { ops, terms } = parseSearchQuery(trimmed);
 
   const conditions = [];

@@ -105,11 +105,10 @@ docker compose up -d
 
 MailFlow will be available on port 443 with a self-signed certificate.
 
-**Optional — automatic HTTPS via Let's Encrypt:** set `DOMAIN` and `ACME_EMAIL` in `.env`,
-remove the `ports:` block from the `frontend` service, then start with:
+**Optional — automatic HTTPS via Let's Encrypt:** set `DOMAIN` and `ACME_EMAIL` in `.env`, then start with the HTTPS overlay (it removes the frontend port binding automatically):
 
 ```bash
-docker compose --profile https up -d
+docker compose -f docker-compose.ghcr.yml -f docker-compose.https.yml --profile https up -d
 ```
 
 ### 4. Create your admin account
@@ -130,7 +129,7 @@ docker compose pull
 docker compose up -d
 ```
 
-To pin to a specific version instead of `latest`, add `MAILFLOW_VERSION=0.7.0` to your `.env`.
+To pin to a specific version instead of `latest`, add `MAILFLOW_VERSION=1.0.0` to your `.env`.
 
 ---
 

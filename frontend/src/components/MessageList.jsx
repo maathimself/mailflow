@@ -7,7 +7,7 @@ import { LAYOUTS } from '../layouts.js';
 import { useMobile } from '../hooks/useMobile.js';
 import ContextMenu from './ContextMenu.jsx';
 import { shortcutBus } from '../utils/shortcutBus.js';
-import { pendingMarkReadMap, completedMarkReadMap } from '../utils/pendingReads.js';
+import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
 
 // Folder icon for move picker
 function FolderIcon({ specialUse, size = 13 }) {
@@ -225,8 +225,8 @@ export default function MessageList() {
               params = { limit: ps, offset: (pg - 1) * ps };
             } else {
               const currentOffset = state.messagesOffset;
-              // Backend caps limit at 200 — don't request more or the list silently shrinks
-              params = { limit: Math.min(currentOffset || ps, 200), offset: 0 };
+              // Backend caps limit at 500 — don't request more or the list silently shrinks
+              params = { limit: Math.min(currentOffset || ps, 500), offset: 0 };
             }
             if (selectedAccountId) { params.accountId = selectedAccountId; params.folder = selectedFolder; }
             if (unreadOnly) params.unreadOnly = 'true';
@@ -424,7 +424,7 @@ export default function MessageList() {
     updateMessage(message.id, { is_read: newRead, unread_count: newRead ? 0 : 1 });
     if (newRead) {
       decrementUnread(message.account_id);
-      pendingMarkReadMap.set(message.id, message.account_id);
+      setPending(message.id, message.account_id);
     } else {
       incrementUnread(message.account_id);
       pendingMarkReadMap.delete(message.id);
@@ -510,7 +510,7 @@ export default function MessageList() {
     updateMessage(message.id, { is_read: newRead });
     if (newRead) {
       decrementUnread(message.account_id);
-      pendingMarkReadMap.set(message.id, message.account_id);
+      setPending(message.id, message.account_id);
     } else {
       incrementUnread(message.account_id);
       pendingMarkReadMap.delete(message.id);
@@ -724,7 +724,7 @@ export default function MessageList() {
       updateMessage(selectedMessageId, { is_read: newRead });
       if (newRead) {
         decrementUnread(msg.account_id);
-        pendingMarkReadMap.set(selectedMessageId, msg.account_id);
+        setPending(selectedMessageId, msg.account_id);
         api.markRead(selectedMessageId, true)
           .then(() => {
             pendingMarkReadMap.delete(selectedMessageId);
@@ -797,7 +797,7 @@ export default function MessageList() {
         if (!message.is_read || threadUnread) {
           updateMessage(message.id, { is_read: true, unread_count: 0 });
           decrementUnread(message.account_id, threadUnread ? uc : 1);
-          pendingMarkReadMap.set(message.id, message.account_id);
+          setPending(message.id, message.account_id);
           api.markRead(message.id, true)
             .then(() => {
               pendingMarkReadMap.delete(message.id);
@@ -962,7 +962,7 @@ export default function MessageList() {
     if (!message.is_read) {
       updateMessage(message.id, { is_read: true });
       decrementUnread(message.account_id);
-      pendingMarkReadMap.set(message.id, message.account_id);
+      setPending(message.id, message.account_id);
       api.markRead(message.id, true)
         .then(() => {
           pendingMarkReadMap.delete(message.id);

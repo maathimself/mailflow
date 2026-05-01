@@ -7,7 +7,7 @@
 #   docker compose up -d
 #
 # To pin a specific version instead of latest, set MAILFLOW_VERSION in your .env:
-#   MAILFLOW_VERSION=0.7.0
+#   MAILFLOW_VERSION=1.0.0
 
 services:
 
@@ -44,6 +44,9 @@ services:
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
     depends_on:
       postgres:
         condition: service_healthy

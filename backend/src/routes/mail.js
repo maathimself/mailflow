@@ -146,7 +146,7 @@ router.get('/messages', async (req, res) => {
     total = 0;
   }
 
-  const safeLimit  = Math.min(Math.max(parseInt(limit)  || 50, 1), 200);
+  const safeLimit  = Math.min(Math.max(parseInt(limit)  || 50, 1), 500);
   const safeOffset = Math.max(parseInt(offset) || 0, 0);
 
   // ── Threaded mode ────────────────────────────────────────────────────────────
@@ -576,6 +576,7 @@ router.post('/sync-folder', async (req, res) => {
   const { accountId, folder } = req.body;
   if (!accountId || !folder) return res.status(400).json({ error: 'accountId and folder required' });
   if (!UUID_RE.test(accountId)) return res.status(400).json({ error: 'Invalid account id' });
+  if (!isValidFolderName(folder)) return res.status(400).json({ error: 'Invalid folder name' });
 
   const check = await query(
     'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2',
@@ -594,6 +595,7 @@ router.post('/sync-folder', async (req, res) => {
 router.post('/mark-all-read', async (req, res) => {
   const { accountId, folder = 'INBOX' } = req.body;
   if (!accountId || !UUID_RE.test(accountId)) return res.status(400).json({ error: 'Invalid account id' });
+  if (!isValidFolderName(folder)) return res.status(400).json({ error: 'Invalid folder name' });
   const check = await query(
     'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2',
     [accountId, req.session.userId]
@@ -733,6 +735,7 @@ router.post('/messages/bulk-delete', async (req, res) => {
   }
 
   const succeededIds = [];
+  const trashPathByAccount = {};
   for (const [accountId, msgs] of Object.entries(byAccount)) {
     const trash = await query(
       `SELECT path FROM folders WHERE account_id = $1 AND (special_use = '\\Trash' OR lower(name) LIKE '%trash%') LIMIT 1`,
@@ -743,6 +746,7 @@ router.post('/messages/bulk-delete', async (req, res) => {
       succeededIds.push(...msgs.map(m => m.id));
       continue;
     }
+    trashPathByAccount[accountId] = trash.rows[0].path;
     const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
     const account = accountResult.rows[0];
     const results = await Promise.allSettled(
@@ -759,18 +763,30 @@ router.post('/messages/bulk-delete', async (req, res) => {
 
   if (succeededIds.length) {
     await query('UPDATE messages SET is_deleted = true WHERE id = ANY($1::uuid[])', [succeededIds]);
-    // Adjust cached folder counts per source folder
+    // Adjust cached folder counts: decrement source folders, increment Trash
     const succeededSet = new Set(succeededIds);
     const srcTotals = {};
+    const trashTotals = {};
     for (const msg of owned) {
       if (!succeededSet.has(msg.id)) continue;
+      // Source folder decrement
       const key = `${msg.account_id}:${msg.folder}`;
       if (!srcTotals[key]) srcTotals[key] = { accountId: msg.account_id, path: msg.folder, total: 0, unread: 0 };
       srcTotals[key].total++;
       if (!msg.is_read) srcTotals[key].unread++;
+      // Trash increment — only when a trash folder exists and source isn't already Trash
+      const trashPath = trashPathByAccount[msg.account_id];
+      if (trashPath && trashPath !== msg.folder) {
+        if (!trashTotals[msg.account_id]) trashTotals[msg.account_id] = { path: trashPath, total: 0, unread: 0 };
+        trashTotals[msg.account_id].total++;
+        if (!msg.is_read) trashTotals[msg.account_id].unread++;
+      }
     }
     for (const { accountId, path, total, unread } of Object.values(srcTotals)) {
       adjustFolderCounts(accountId, path, -total, -unread);
+    }
+    for (const [accountId, { path, total, unread }] of Object.entries(trashTotals)) {
+      adjustFolderCounts(accountId, path, total, unread);
     }
   }
   res.json({ ok: true, deleted: succeededIds });
