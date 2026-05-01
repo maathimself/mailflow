@@ -1023,13 +1023,30 @@ export default function MessagePane() {
                   /* Prevent percentage-height elements from filling the iframe,
                      which would cause a ResizeObserver growth feedback loop. */
                   html, body { height: auto !important; min-height: 0 !important; overflow-x: hidden; }
-                  body { margin: 16px; font-family: -apple-system, Arial, sans-serif;
+                  /* margin:0 lets the email use the full iframe width. Marketing emails
+                     define their own internal spacing; adding body margin here shrinks the
+                     effective content area and causes layout tables to be squeezed. */
+                  body { margin: 0 !important; padding: 0 !important;
+                         font-family: -apple-system, Arial, sans-serif;
                          font-size: 14px; line-height: 1.6; color: #1a1a1a; word-wrap: break-word; }
-                  /* !important overrides inline width styles and HTML width attributes common
-                     in marketing email templates (e.g. <table width="600">) that would otherwise
-                     overflow the iframe viewport on narrow mobile screens. */
+                  /* max-width prevents images overflowing on narrow screens.
+                     height:auto keeps proportional scaling when width is constrained. */
                   img { max-width: 100% !important; height: auto !important; }
-                  table { max-width: 100% !important; }
+                  /* table-layout:auto forces column widths to reflow when the table is
+                     narrower than its declared width. Without this, fixed-layout tables
+                     (common in marketing emails) keep their declared column widths even
+                     when max-width constrains the table, causing columns to overflow and
+                     be clipped by overflow-x:hidden on the body. */
+                  table { max-width: 100% !important; table-layout: auto !important; }
+                  /* Force the outermost email wrapper table to fill the available viewport.
+                     max-width alone prevents overflow but doesn't make the table fill the
+                     container — the table still tries to render at its declared pixel width
+                     (e.g. width="600") before being clamped. width:100% makes it size from
+                     the container outward so table-layout:auto can properly reflow columns. */
+                  body > table, body > center > table,
+                  body > div > table, body > center > div > table {
+                    width: 100% !important;
+                  }
                   td, th { word-break: break-word; }
                   a { color: #6366f1; }
                   pre, code { overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
