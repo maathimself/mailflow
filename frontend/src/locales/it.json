@@ -98,6 +98,11 @@
       "failTitle": "Spostamento fallito",
       "failBody": "Impossibile spostare il messaggio."
     },
+    "snoozed": {
+      "title": "Messaggio posticipato",
+      "failTitle": "Posticipa fallito",
+      "failBody": "Impossibile posticipare questo messaggio."
+    },
     "whitelistFail": {
       "title": "Impossibile salvare la preferenza",
       "body": "Aggiornamento della whitelist delle immagini fallito."
@@ -212,6 +217,12 @@
     "forward": "Inoltra",
     "moveToFolder": "Sposta nella cartella",
     "archive": "Archivia",
+    "snooze": {
+      "label": "Posticipa",
+      "threeHours": "Tra 3 ore",
+      "tomorrowMorning": "Domani mattina",
+      "nextWeek": "La settimana prossima"
+    },
     "copySubject": "Copia oggetto",
     "copySender": "Copia indirizzo mittente",
     "viewHeaders": "Visualizza intestazioni complete",

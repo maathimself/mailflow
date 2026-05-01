@@ -98,6 +98,11 @@
       "failTitle": "Error al mover",
       "failBody": "No se pudo mover el mensaje."
     },
+    "snoozed": {
+      "title": "Mensaje pospuesto",
+      "failTitle": "Error al posponer",
+      "failBody": "No se pudo posponer este mensaje."
+    },
     "whitelistFail": {
       "title": "No se pudo guardar la preferencia",
       "body": "Error al actualizar la lista blanca de imágenes."
@@ -212,6 +217,12 @@
     "forward": "Reenviar",
     "moveToFolder": "Mover a carpeta",
     "archive": "Archivar",
+    "snooze": {
+      "label": "Posponer",
+      "threeHours": "En 3 horas",
+      "tomorrowMorning": "Mañana por la mañana",
+      "nextWeek": "La próxima semana"
+    },
     "copySubject": "Copiar asunto",
     "copySender": "Copiar dirección del remitente",
     "viewHeaders": "Ver encabezados completos",

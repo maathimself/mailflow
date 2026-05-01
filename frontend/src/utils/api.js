@@ -110,6 +110,7 @@ export const api = {
   getUnreadCounts: () => request('GET', '/mail/unread-counts'),
 
   getMessageHeaders: (id) => request('GET', `/mail/messages/${id}/headers`),
+  snoozeMessage: (id, until) => request('POST', `/mail/messages/${id}/snooze`, { until }),
 
   // Integrations
   getIntegrations: () => request('GET', '/integrations'),

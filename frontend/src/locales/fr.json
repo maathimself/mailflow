@@ -98,6 +98,11 @@
       "failTitle": "Échec du déplacement",
       "failBody": "Impossible de déplacer le message."
     },
+    "snoozed": {
+      "title": "Message mis en attente",
+      "failTitle": "Échec de la mise en attente",
+      "failBody": "Impossible de mettre ce message en attente."
+    },
     "whitelistFail": {
       "title": "Impossible d'enregistrer la préférence",
       "body": "Échec de la mise à jour de la liste blanche des images."
@@ -212,6 +217,12 @@
     "forward": "Transférer",
     "moveToFolder": "Déplacer vers un dossier",
     "archive": "Archiver",
+    "snooze": {
+      "label": "Rappel",
+      "threeHours": "Dans 3 heures",
+      "tomorrowMorning": "Demain matin",
+      "nextWeek": "La semaine prochaine"
+    },
     "copySubject": "Copier l'objet",
     "copySender": "Copier l'adresse de l'expéditeur",
     "viewHeaders": "Voir les en-têtes complets",

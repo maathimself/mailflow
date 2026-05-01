@@ -949,6 +949,22 @@ export default function MessageList() {
         });
         break;
       }
+      case 'snooze': {
+        const snoozedMsg = message;
+        const untilIso = data;
+        if (!untilIso) break;
+        removeMessage(snoozedMsg.id);
+        if (!snoozedMsg.is_read) decrementUnread(snoozedMsg.account_id);
+        addNotification({ title: t('message.snoozed.title'), body: snoozedMsg.subject || t('common.noSubject') });
+        api.snoozeMessage(snoozedMsg.id, untilIso).catch(err => {
+          console.error('Snooze failed:', err.message);
+          const state = useStore.getState();
+          state.setMessages([...state.messages, snoozedMsg].sort((a, b) => new Date(b.date) - new Date(a.date)));
+          if (!snoozedMsg.is_read) incrementUnread(snoozedMsg.account_id);
+          addNotification({ title: t('message.snoozed.failTitle'), body: t('message.snoozed.failBody') });
+        });
+        break;
+      }
       case 'delete':
         scheduleDelete(message);
         break;

@@ -962,6 +962,74 @@ router.post('/messages/bulk-archive', async (req, res) => {
   res.json({ ok: true, archived: archivedIds.map(a => a.id), noArchiveFolder });
 });
 
+// Snooze a message: move it to a Snoozed IMAP folder and record when to restore it
+router.post('/messages/:id/snooze', async (req, res) => {
+  const { id } = req.params;
+  if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
+
+  const { until } = req.body;
+  if (!until) return res.status(400).json({ error: 'until is required' });
+
+  const untilDate = new Date(until);
+  if (isNaN(untilDate.getTime())) return res.status(400).json({ error: 'until must be a valid ISO date' });
+  if (untilDate <= new Date()) return res.status(400).json({ error: 'until must be in the future' });
+  const maxDate = new Date();
+  maxDate.setDate(maxDate.getDate() + 30);
+  if (untilDate > maxDate) return res.status(400).json({ error: 'until must be within 30 days' });
+
+  // Ownership check
+  const msgResult = await query(
+    `SELECT m.*, a.user_id FROM messages m
+     JOIN email_accounts a ON a.id = m.account_id
+     WHERE m.id = $1 AND a.user_id = $2`,
+    [id, req.session.userId]
+  );
+  if (!msgResult.rows.length) return res.status(404).json({ error: 'Message not found' });
+  const msg = msgResult.rows[0];
+
+  if (!msg.message_id) return res.status(400).json({ error: 'Message has no Message-ID header — cannot snooze' });
+
+  const snoozedFolder = 'Snoozed';
+
+  if (msg.folder === snoozedFolder) {
+    return res.status(400).json({ error: 'Message is already in Snoozed folder' });
+  }
+
+  // Check if already snoozed
+  const existing = await query(
+    'SELECT id FROM snoozed_messages WHERE account_id = $1 AND message_id_header = $2',
+    [msg.account_id, msg.message_id]
+  );
+  if (existing.rows.length) return res.status(400).json({ error: 'Message is already snoozed' });
+
+  const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [msg.account_id]);
+  const account = accountResult.rows[0];
+
+  try {
+    await imapManager.ensureFolder(account, snoozedFolder);
+    await imapManager.moveMessage(account, msg.uid, msg.folder, snoozedFolder);
+  } catch (err) {
+    console.error(`Snooze IMAP move failed for message ${id}:`, err.message);
+    return res.status(500).json({ error: 'Failed to move message to Snoozed folder' });
+  }
+
+  await query(
+    'UPDATE messages SET folder = $1 WHERE id = $2',
+    [snoozedFolder, id]
+  );
+
+  await query(
+    `INSERT INTO snoozed_messages (user_id, account_id, message_id_header, original_folder, snooze_until, snoozed_folder)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [req.session.userId, msg.account_id, msg.message_id, msg.folder, untilDate.toISOString(), snoozedFolder]
+  );
+
+  adjustFolderCounts(msg.account_id, msg.folder, -1, msg.is_read ? 0 : -1);
+  adjustFolderCounts(msg.account_id, snoozedFolder, 1, msg.is_read ? 0 : 1);
+
+  res.json({ ok: true });
+});
+
 // Delete (move to trash)
 router.delete('/messages/:id', async (req, res) => {
   const { id } = req.params;

@@ -121,6 +121,9 @@ await encryptExistingCredentials();
 // Load OAuth integration configs from DB into process.env
 await loadIntegrationConfigs();
 
+// Start background snooze watcher — polls every 60 seconds to restore snoozed messages
+imapManager.startSnoozeWatcher();
+
 // Re-connect all enabled IMAP accounts on startup so mail syncs immediately
 // even before any WebSocket client connects (covers cold-start and container restarts)
 try {

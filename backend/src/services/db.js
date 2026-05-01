@@ -300,6 +300,24 @@ export async function initDb() {
         WHERE snippet IS NOT NULL
           AND snippet ~ E'^\\s*&#?'
           AND snippet !~ E'[^&# ;0-9a-zA-Z\\s]';
+
+      -- Snooze: tracks messages that have been moved to a Snoozed IMAP folder
+      -- temporarily. message_id_header is the stable RFC 2822 Message-ID, used to
+      -- re-locate the message after it has been moved (IMAP UIDs change on move).
+      CREATE TABLE IF NOT EXISTS snoozed_messages (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        account_id UUID NOT NULL REFERENCES email_accounts(id) ON DELETE CASCADE,
+        message_id_header TEXT NOT NULL,
+        original_folder VARCHAR(500) NOT NULL,
+        snooze_until TIMESTAMPTZ NOT NULL,
+        snoozed_folder VARCHAR(500) NOT NULL DEFAULT 'Snoozed',
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_snoozed_messages_until
+        ON snoozed_messages(snooze_until);
+      CREATE INDEX IF NOT EXISTS idx_snoozed_messages_account
+        ON snoozed_messages(account_id);
     `);
   } finally {
     client.release();

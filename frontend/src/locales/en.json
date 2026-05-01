@@ -98,6 +98,11 @@
       "failTitle": "Move failed",
       "failBody": "Could not move message."
     },
+    "snoozed": {
+      "title": "Message snoozed",
+      "failTitle": "Snooze failed",
+      "failBody": "Could not snooze this message."
+    },
     "whitelistFail": {
       "title": "Could not save preference",
       "body": "Failed to update image whitelist."
@@ -212,6 +217,12 @@
     "forward": "Forward",
     "moveToFolder": "Move to folder",
     "archive": "Archive",
+    "snooze": {
+      "label": "Snooze",
+      "threeHours": "In 3 hours",
+      "tomorrowMorning": "Tomorrow morning",
+      "nextWeek": "Next week"
+    },
     "copySubject": "Copy subject",
     "copySender": "Copy sender's address",
     "viewHeaders": "View full headers",

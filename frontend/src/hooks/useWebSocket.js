@@ -162,6 +162,14 @@ export function useWebSocket() {
         break;
       }
 
+      case 'snooze_wakeup': {
+        window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+        api.getUnreadCounts().then(counts => {
+          useStore.setState({ unreadCounts: counts });
+        }).catch(() => {});
+        break;
+      }
+
       case 'flags_synced': {
         // Lightweight flag update (read/starred changed on another client).
         // Refresh the message list and unread counts without the full sync_done event.

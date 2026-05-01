@@ -169,6 +169,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction }) {
   const [moveView, setMoveView] = useState(false);
   const [moveFolders, setMoveFolders] = useState(null);
   const [moveFoldersLoading, setMoveFoldersLoading] = useState(false);
+  const [snoozeView, setSnoozeView] = useState(false);
 
   // Adjust position to stay within viewport
   const [pos, setPos] = useState({ x, y });
@@ -273,6 +274,13 @@ export default function ContextMenu({ x, y, message, onClose, onAction }) {
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a1 1 0 001 1h14a1 1 0 001-1V8"/><polyline points="9 13 12 16 15 13"/><line x1="12" y1="11" x2="12" y2="16"/></svg>,
           action: () => onAction('archive'),
         },
+        ...(message.folder !== 'Snoozed' ? [{
+          label: t('contextMenu.snooze.label'),
+          icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
+          action: () => setSnoozeView(true),
+          keepOpen: true,
+          hasSubmenu: true,
+        }] : []),
       ]
     },
     {
@@ -357,7 +365,52 @@ export default function ContextMenu({ x, y, message, onClose, onAction }) {
           </div>
         </div>
 
-        {moveView ? (
+        {snoozeView ? (
+          /* Snooze picker view */
+          <>
+            <div
+              onClick={() => setSnoozeView(false)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '8px 14px', cursor: 'pointer',
+                borderBottom: '1px solid var(--border-subtle)',
+                color: 'var(--text-secondary)', fontSize: 12,
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <polyline points="15 18 9 12 15 6"/>
+              </svg>
+              {t('contextMenu.snooze.label')}
+            </div>
+            {[
+              {
+                label: t('contextMenu.snooze.threeHours'),
+                getDate: () => { const d = new Date(); d.setHours(d.getHours() + 3); return d; },
+              },
+              {
+                label: t('contextMenu.snooze.tomorrowMorning'),
+                getDate: () => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); return d; },
+              },
+              {
+                label: t('contextMenu.snooze.nextWeek'),
+                getDate: () => { const d = new Date(); d.setDate(d.getDate() + 7); d.setHours(9, 0, 0, 0); return d; },
+              },
+            ].map(({ label, getDate }) => (
+              <div
+                key={label}
+                onClick={() => { onAction('snooze', getDate().toISOString()); onClose(); }}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)' }}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                {label}
+              </div>
+            ))}
+          </>
+        ) : moveView ? (
           /* Folder picker view */
           <>
             <div

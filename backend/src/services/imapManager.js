@@ -1867,6 +1867,40 @@ export class ImapManager {
     });
   }
 
+  async ensureFolder(account, path) {
+    return withFreshClient(account, async (client) => {
+      try {
+        await client.mailboxCreate(path);
+      } catch (err) {
+        const msg = (err.message || '').toLowerCase();
+        if (!msg.includes('alreadyexists') && !msg.includes('already exists') && !msg.includes('exist')) {
+          throw err;
+        }
+      }
+    });
+  }
+
+  async moveMessageGetNewUid(account, uid, fromFolder, toFolder) {
+    let newUid = null;
+    try {
+      await withFreshClient(account, async (client) => {
+        const lock = await client.getMailboxLock(fromFolder);
+        try {
+          const result = await client.messageMove(String(uid), toFolder, { uid: true });
+          if (result?.uidMap) {
+            newUid = result.uidMap.get(uid) ?? null;
+          }
+        } finally {
+          lock.release();
+        }
+      });
+    } catch (err) {
+      console.error(`moveMessageGetNewUid failed: uid=${uid}:`, err.message);
+      throw err;
+    }
+    return newUid;
+  }
+
   async deleteFolder(account, path) {
     return withFreshClient(account, async (client) => {
       // If the pool connection has this folder selected, switch to INBOX first
@@ -1968,6 +2002,80 @@ export class ImapManager {
     }));
 
     this.broadcast({ type: 'sync_complete', accountId: accountId || null }, userId);
+  }
+
+  startSnoozeWatcher() {
+    this._snoozeWakeupRunning = false;
+    setInterval(() => {
+      if (this._snoozeWakeupRunning) return;
+      this._snoozeWakeupRunning = true;
+      this._runSnoozeWakeup()
+        .catch(err => console.error('Snooze wakeup error:', err.message))
+        .finally(() => { this._snoozeWakeupRunning = false; });
+    }, 60_000);
+  }
+
+  async _runSnoozeWakeup() {
+    // Find snoozed messages whose snooze_until has passed and which are still in
+    // the snoozed folder (joined via stable Message-ID header).
+    const due = await query(`
+      SELECT sm.id AS snooze_id, sm.user_id, sm.account_id,
+             sm.message_id_header, sm.original_folder, sm.snoozed_folder, m.uid
+      FROM snoozed_messages sm
+      JOIN messages m ON m.account_id = sm.account_id
+                     AND m.message_id = sm.message_id_header
+                     AND m.folder = sm.snoozed_folder
+                     AND m.is_deleted = false
+      WHERE sm.snooze_until <= NOW()
+    `);
+
+    for (const row of due.rows) {
+      try {
+        const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [row.account_id]);
+        if (!accountResult.rows.length) continue;
+        const account = accountResult.rows[0];
+
+        // Move back to original folder
+        const newUid = await this.moveMessageGetNewUid(
+          account, row.uid, row.snoozed_folder, row.original_folder
+        );
+
+        // Mark as unread so the user notices it
+        if (newUid) {
+          await this.setFlag(account, newUid, row.original_folder, '\\Seen', false);
+        }
+
+        // Update DB: change folder and mark unread
+        await query(
+          'UPDATE messages SET folder = $1, is_read = false WHERE account_id = $2 AND message_id = $3',
+          [row.original_folder, row.account_id, row.message_id_header]
+        );
+
+        // Remove snooze record
+        await query('DELETE FROM snoozed_messages WHERE id = $1', [row.snooze_id]);
+
+        // Notify the user's open clients so the message reappears
+        this.broadcast({ type: 'snooze_wakeup', accountId: row.account_id }, row.user_id);
+
+        console.log(`Snooze wakeup: message ${row.message_id_header} restored to ${row.original_folder}`);
+      } catch (err) {
+        console.error(`Snooze wakeup failed for snooze_id ${row.snooze_id}:`, err.message);
+      }
+    }
+
+    // Clean up orphaned snooze records whose message has left the snoozed folder
+    // (e.g. user manually moved it out) and are at least 5 minutes past due.
+    await query(`
+      DELETE FROM snoozed_messages sm
+      WHERE sm.snooze_until <= NOW() - INTERVAL '5 minutes'
+        AND NOT EXISTS (
+          SELECT 1 FROM messages m
+          WHERE m.account_id = sm.account_id
+            AND m.message_id = sm.message_id_header
+            AND m.folder = sm.snoozed_folder
+            AND m.is_deleted = false
+        )
+    `);
   }
 
   broadcast(data, userId = null) {
