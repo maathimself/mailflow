@@ -221,7 +221,8 @@
       "label": "Posticipa",
       "threeHours": "Tra 3 ore",
       "tomorrowMorning": "Domani mattina",
-      "nextWeek": "La settimana prossima"
+      "nextWeek": "La settimana prossima",
+      "custom": "Personalizzato..."
     },
     "copySubject": "Copia oggetto",
     "copySender": "Copia indirizzo mittente",

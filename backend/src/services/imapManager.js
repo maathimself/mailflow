@@ -1203,7 +1203,7 @@ export class ImapManager {
       // UID is correct because IMAP UIDs are monotonically increasing — if our max
       // matches the server's max, there is nothing new to fetch.
       const dbSummaryResult = await query(
-        'SELECT COUNT(*) as count, COALESCE(MAX(uid), 0) as max_uid FROM messages WHERE account_id = $1 AND folder = $2',
+        'SELECT COUNT(*) as count, COALESCE(MAX(uid), 0) as max_uid FROM messages WHERE account_id = $1 AND folder = $2 AND is_deleted = false',
         [account.id, folder]
       );
       const dbCount = parseInt(dbSummaryResult.rows[0].count);
@@ -2089,11 +2089,18 @@ export class ImapManager {
           await this.setFlag(account, newUid, row.original_folder, '\\Seen', false);
         }
 
-        // Update DB: change folder and mark unread
-        await query(
-          'UPDATE messages SET folder = $1, is_read = false WHERE account_id = $2 AND message_id = $3',
-          [row.original_folder, row.account_id, row.message_id_header]
-        );
+        // Update DB: change folder, mark unread, and update UID if the move returned one.
+        if (newUid != null) {
+          await query(
+            'UPDATE messages SET folder = $1, is_read = false, uid = $4 WHERE account_id = $2 AND message_id = $3',
+            [row.original_folder, row.account_id, row.message_id_header, newUid]
+          );
+        } else {
+          await query(
+            'UPDATE messages SET folder = $1, is_read = false WHERE account_id = $2 AND message_id = $3',
+            [row.original_folder, row.account_id, row.message_id_header]
+          );
+        }
 
         // Remove snooze record
         await query('DELETE FROM snoozed_messages WHERE id = $1', [row.snooze_id]);
@@ -2191,6 +2198,16 @@ export class ImapManager {
       await query(
         'DELETE FROM messages WHERE account_id = $1 AND folder = $2 AND uid = ANY($3::bigint[])',
         [account.id, folder, orphanUids]
+      );
+      // Resync cached folder counts from actual row data — reconcile deletes rows
+      // without going through adjustFolderCounts, so counts would otherwise drift.
+      await query(
+        `UPDATE folders f
+         SET total_count  = (SELECT COUNT(*)              FROM messages m WHERE m.account_id = $1 AND m.folder = $2),
+             unread_count = (SELECT COUNT(*) FILTER (WHERE m.is_read = false)
+                                             FROM messages m WHERE m.account_id = $1 AND m.folder = $2)
+         WHERE f.account_id = $1 AND f.path = $2`,
+        [account.id, folder]
       );
       hadChanges = true;
     }

@@ -96,6 +96,7 @@ export default function MessageList() {
 
   useEffect(() => { currentPageRef.current = currentPage; }, [currentPage]);
   const searchTimer = useRef(null);
+  const searchSeq = useRef(0);
 
   // Ref that always holds the latest values needed by shortcut handlers.
   // Updated synchronously on every render so handlers are never stale.
@@ -269,15 +270,17 @@ export default function MessageList() {
     }
     setIsSearching(true);
     setSearchHasMore(false);
+    const seq = ++searchSeq.current;
     searchTimer.current = setTimeout(async () => {
       try {
         const data = await api.search(searchQuery, selectedAccountId || undefined, { offset: 0 });
+        if (searchSeq.current !== seq) return;
         setSearchResults(data.messages);
         setSearchHasMore(data.messages.length === SEARCH_PAGE);
       } catch (err) {
-        console.error('Search failed:', err);
+        if (searchSeq.current === seq) console.error('Search failed:', err);
       } finally {
-        setIsSearching(false);
+        if (searchSeq.current === seq) setIsSearching(false);
       }
     }, 300);
     return () => clearTimeout(searchTimer.current);
@@ -490,9 +493,14 @@ export default function MessageList() {
     });
   }, [removeMessage, decrementUnread, incrementUnread, addNotification, t]);
 
-  // Cleanup any pending delete timers on unmount
+  // On unmount, immediately fire any pending deletes rather than cancelling them.
+  // Navigating away during the 4.5s undo window should still delete the message —
+  // cancelling the timer would silently leave it on the server.
   useEffect(() => () => {
-    pendingDeleteTimers.current.forEach(({ timer }) => clearTimeout(timer));
+    pendingDeleteTimers.current.forEach(({ timer, message }) => {
+      clearTimeout(timer);
+      api.deleteMessage(message.id).catch(() => {});
+    });
   }, []);
 
   const handleDelete = (e, message) => {

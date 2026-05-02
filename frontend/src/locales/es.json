@@ -221,7 +221,8 @@
       "label": "Posponer",
       "threeHours": "En 3 horas",
       "tomorrowMorning": "Mañana por la mañana",
-      "nextWeek": "La próxima semana"
+      "nextWeek": "La próxima semana",
+      "custom": "Personalizado..."
     },
     "copySubject": "Copiar asunto",
     "copySender": "Copiar dirección del remitente",

@@ -221,7 +221,8 @@
       "label": "Snooze",
       "threeHours": "In 3 hours",
       "tomorrowMorning": "Tomorrow morning",
-      "nextWeek": "Next week"
+      "nextWeek": "Next week",
+      "custom": "Custom..."
     },
     "copySubject": "Copy subject",
     "copySender": "Copy sender's address",

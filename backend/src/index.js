@@ -108,6 +108,16 @@ app.use('/api/totp', totpRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
+// Catch unhandled errors thrown (or rejected) inside async route handlers.
+// Express 4 does not automatically forward async rejections to error middleware,
+// so without this, a thrown DB error leaves the request hanging indefinitely.
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, _next) => {
+  console.error('Unhandled route error:', err);
+  if (res.headersSent) return;
+  res.status(500).json({ error: 'Internal server error' });
+});
+
 // WebSocket
 setupWebSocket(wss, sessionMiddleware, imapManager);
 

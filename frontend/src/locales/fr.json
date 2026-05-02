@@ -221,7 +221,8 @@
       "label": "Rappel",
       "threeHours": "Dans 3 heures",
       "tomorrowMorning": "Demain matin",
-      "nextWeek": "La semaine prochaine"
+      "nextWeek": "La semaine prochaine",
+      "custom": "Personnalisé..."
     },
     "copySubject": "Copier l'objet",
     "copySender": "Copier l'adresse de l'expéditeur",

@@ -170,6 +170,9 @@ export default function ContextMenu({ x, y, message, onClose, onAction }) {
   const [moveFolders, setMoveFolders] = useState(null);
   const [moveFoldersLoading, setMoveFoldersLoading] = useState(false);
   const [snoozeView, setSnoozeView] = useState(false);
+  const [customSnoozeView, setCustomSnoozeView] = useState(false);
+  const [customDate, setCustomDate] = useState('');
+  const [customTime, setCustomTime] = useState('09:00');
 
   // Adjust position to stay within viewport
   const [pos, setPos] = useState({ x, y });
@@ -333,7 +336,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction }) {
           border: '1px solid var(--border)',
           borderRadius: 10, zIndex: 4000,
           boxShadow: 'var(--shadow-modal)',
-          minWidth: 220, overflow: 'hidden',
+          width: 260, overflow: 'hidden',
           animation: 'contextMenuIn 0.12s ease',
         }}
       >
@@ -366,50 +369,129 @@ export default function ContextMenu({ x, y, message, onClose, onAction }) {
         </div>
 
         {snoozeView ? (
-          /* Snooze picker view */
-          <>
-            <div
-              onClick={() => setSnoozeView(false)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 8,
-                padding: '8px 14px', cursor: 'pointer',
-                borderBottom: '1px solid var(--border-subtle)',
-                color: 'var(--text-secondary)', fontSize: 12,
-              }}
-              onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <polyline points="15 18 9 12 15 6"/>
-              </svg>
-              {t('contextMenu.snooze.label')}
-            </div>
-            {[
-              {
-                label: t('contextMenu.snooze.threeHours'),
-                getDate: () => { const d = new Date(); d.setHours(d.getHours() + 3); return d; },
-              },
-              {
-                label: t('contextMenu.snooze.tomorrowMorning'),
-                getDate: () => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); return d; },
-              },
-              {
-                label: t('contextMenu.snooze.nextWeek'),
-                getDate: () => { const d = new Date(); d.setDate(d.getDate() + 7); d.setHours(9, 0, 0, 0); return d; },
-              },
-            ].map(({ label, getDate }) => (
+          customSnoozeView ? (
+            /* Custom date/time picker */
+            <>
               <div
-                key={label}
-                onClick={() => { onAction('snooze', getDate().toISOString()); onClose(); }}
+                onClick={() => setCustomSnoozeView(false)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '8px 14px', cursor: 'pointer',
+                  borderBottom: '1px solid var(--border-subtle)',
+                  color: 'var(--text-secondary)', fontSize: 12,
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <polyline points="15 18 9 12 15 6"/>
+                </svg>
+                {t('contextMenu.snooze.label')}
+              </div>
+              <div style={{ padding: '10px 14px 12px' }}>
+                <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                  <input
+                    type="date"
+                    value={customDate}
+                    min={new Date().toISOString().slice(0, 10)}
+                    onChange={e => setCustomDate(e.target.value)}
+                    style={{
+                      flex: 1, background: 'var(--bg-hover)', border: '1px solid var(--border)',
+                      borderRadius: 6, color: 'var(--text-primary)', fontSize: 12,
+                      padding: '5px 6px', outline: 'none', colorScheme: 'dark light',
+                    }}
+                  />
+                  <input
+                    type="time"
+                    value={customTime}
+                    onChange={e => setCustomTime(e.target.value)}
+                    style={{
+                      width: 80, background: 'var(--bg-hover)', border: '1px solid var(--border)',
+                      borderRadius: 6, color: 'var(--text-primary)', fontSize: 12,
+                      padding: '5px 6px', outline: 'none', colorScheme: 'dark light',
+                    }}
+                  />
+                </div>
+                <button
+                  disabled={!customDate || !customTime}
+                  onClick={() => {
+                    const d = new Date(`${customDate}T${customTime}`);
+                    if (isNaN(d.getTime())) return;
+                    onAction('snooze', d.toISOString());
+                    onClose();
+                  }}
+                  style={{
+                    width: '100%', background: 'var(--accent)', color: '#fff',
+                    border: 'none', borderRadius: 6, padding: '7px 0',
+                    fontSize: 13, fontWeight: 500, cursor: 'pointer',
+                    opacity: (!customDate || !customTime) ? 0.5 : 1,
+                  }}
+                >
+                  {t('contextMenu.snooze.label')}
+                </button>
+              </div>
+            </>
+          ) : (
+            /* Snooze preset picker */
+            <>
+              <div
+                onClick={() => setSnoozeView(false)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '8px 14px', cursor: 'pointer',
+                  borderBottom: '1px solid var(--border-subtle)',
+                  color: 'var(--text-secondary)', fontSize: 12,
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <polyline points="15 18 9 12 15 6"/>
+                </svg>
+                {t('contextMenu.snooze.label')}
+              </div>
+              {[
+                {
+                  label: t('contextMenu.snooze.threeHours'),
+                  getDate: () => { const d = new Date(); d.setHours(d.getHours() + 3); return d; },
+                },
+                {
+                  label: t('contextMenu.snooze.tomorrowMorning'),
+                  getDate: () => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); return d; },
+                },
+                {
+                  label: t('contextMenu.snooze.nextWeek'),
+                  getDate: () => { const d = new Date(); d.setDate(d.getDate() + 7); d.setHours(9, 0, 0, 0); return d; },
+                },
+              ].map(({ label, getDate }) => (
+                <div
+                  key={label}
+                  onClick={() => { onAction('snooze', getDate().toISOString()); onClose(); }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)' }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                  {label}
+                </div>
+              ))}
+              <div
+                onClick={() => {
+                  const d = new Date();
+                  d.setDate(d.getDate() + 1);
+                  setCustomDate(d.toISOString().slice(0, 10));
+                  setCustomTime('09:00');
+                  setCustomSnoozeView(true);
+                }}
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)' }}
                 onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                {label}
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                {t('contextMenu.snooze.custom')}
               </div>
-            ))}
-          </>
+            </>
+          )
         ) : moveView ? (
           /* Folder picker view */
           <>
