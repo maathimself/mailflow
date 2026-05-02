@@ -8,10 +8,16 @@ import sanitizeHtml from 'sanitize-html';
 // "Document" or "Buffalo Tech Systems" from a <title> tag renders visibly at the
 // top of the email.  Stripping <head> entirely (while rescuing <style> blocks, which
 // contain layout CSS) prevents this and has no effect on the visible email content.
+//
+// MSO conditional comments (<!--[if gte mso 9]>...<![endif]-->) are stripped before
+// extracting <style> blocks so that Outlook-only CSS rules (e.g. mso-* properties,
+// table layout overrides) are not applied in browser rendering, where they can break
+// font sizes, spacing, and colors that the email author tuned for non-Outlook clients.
 export function stripEmailHead(html) {
   if (!html) return html;
   return html.replace(/<head\b[^>]*>([\s\S]*?)<\/head>/gi, (_, headContent) => {
-    const styles = headContent.match(/<style\b[^>]*>[\s\S]*?<\/style>/gi) || [];
+    const noMso = headContent.replace(/<!--\[if[^\]]*\]>[\s\S]*?<!\[endif\]-->/gi, '');
+    const styles = noMso.match(/<style\b[^>]*>[\s\S]*?<\/style>/gi) || [];
     return styles.join('');
   });
 }

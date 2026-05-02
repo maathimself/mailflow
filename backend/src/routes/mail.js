@@ -178,7 +178,7 @@ router.get('/messages', async (req, res) => {
       )
       SELECT id, uid, folder, message_id, thread_id, subject,
              from_name, from_email, to_addresses, cc_addresses, reply_to, in_reply_to,
-             date, snippet, is_starred, has_attachments, account_id,
+             date, snippet, is_starred, is_read, has_attachments, account_id,
              account_name, account_email, account_color,
              message_count, unread_count
       FROM ranked
@@ -824,6 +824,7 @@ router.post('/messages/bulk-move', async (req, res) => {
   }
 
   const movedIds = [];
+  const uidUpdates = [];
   for (const [accountId, msgs] of Object.entries(byAccount)) {
     // Verify the destination folder exists for this account
     const folderCheck = await query(
@@ -842,6 +843,7 @@ router.post('/messages/bulk-move', async (req, res) => {
     results.forEach((r, i) => {
       if (r.status === 'fulfilled') {
         movedIds.push(msgs[i].id);
+        if (r.value != null) uidUpdates.push({ id: msgs[i].id, newUid: r.value });
       } else {
         console.error(`bulk-move IMAP ${msgs[i].id}:`, r.reason.message);
       }
@@ -850,6 +852,14 @@ router.post('/messages/bulk-move', async (req, res) => {
 
   if (movedIds.length > 0) {
     await query('UPDATE messages SET folder = $1 WHERE id = ANY($2::uuid[])', [folder, movedIds]);
+    if (uidUpdates.length > 0) {
+      await query(
+        `UPDATE messages SET uid = v.new_uid
+         FROM unnest($1::uuid[], $2::bigint[]) AS v(id, new_uid)
+         WHERE messages.id = v.id`,
+        [uidUpdates.map(u => u.id), uidUpdates.map(u => u.newUid)]
+      );
+    }
     // Adjust cached counts: decrement source folders, increment the destination.
     const movedSet = new Set(movedIds);
     const srcTotals = {};
@@ -920,8 +930,8 @@ router.post('/messages/bulk-archive', async (req, res) => {
     const account = accountResult.rows[0];
     for (const msg of msgs) {
       try {
-        await imapManager.moveMessage(account, msg.uid, msg.folder, archiveFolder);
-        archivedIds.push({ id: msg.id, folder: archiveFolder });
+        const newUid = await imapManager.moveMessage(account, msg.uid, msg.folder, archiveFolder);
+        archivedIds.push({ id: msg.id, folder: archiveFolder, newUid: newUid ?? null });
       } catch (err) {
         console.error(`bulk-archive IMAP ${msg.id}:`, err.message);
       }
@@ -930,11 +940,22 @@ router.post('/messages/bulk-archive', async (req, res) => {
 
   // Update DB folder for successfully archived messages, grouped by destination
   const byFolder = {};
-  for (const { id, folder } of archivedIds) {
-    (byFolder[folder] = byFolder[folder] || []).push(id);
+  for (const { id, folder, newUid } of archivedIds) {
+    if (!byFolder[folder]) byFolder[folder] = [];
+    byFolder[folder].push({ id, newUid });
   }
-  for (const [folder, folderIds] of Object.entries(byFolder)) {
+  for (const [folder, entries] of Object.entries(byFolder)) {
+    const folderIds = entries.map(e => e.id);
     await query('UPDATE messages SET folder = $1 WHERE id = ANY($2::uuid[])', [folder, folderIds]);
+    const withNewUid = entries.filter(e => e.newUid != null);
+    if (withNewUid.length > 0) {
+      await query(
+        `UPDATE messages SET uid = v.new_uid
+         FROM unnest($1::uuid[], $2::bigint[]) AS v(id, new_uid)
+         WHERE messages.id = v.id`,
+        [withNewUid.map(e => e.id), withNewUid.map(e => e.newUid)]
+      );
+    }
   }
 
   // Adjust cached folder counts: use signed deltas so source and dest share one pass.
@@ -1005,18 +1026,20 @@ router.post('/messages/:id/snooze', async (req, res) => {
   const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [msg.account_id]);
   const account = accountResult.rows[0];
 
+  let snoozedUid = null;
   try {
     await imapManager.ensureFolder(account, snoozedFolder);
-    await imapManager.moveMessage(account, msg.uid, msg.folder, snoozedFolder);
+    snoozedUid = await imapManager.moveMessage(account, msg.uid, msg.folder, snoozedFolder);
   } catch (err) {
     console.error(`Snooze IMAP move failed for message ${id}:`, err.message);
     return res.status(500).json({ error: 'Failed to move message to Snoozed folder' });
   }
 
-  await query(
-    'UPDATE messages SET folder = $1 WHERE id = $2',
-    [snoozedFolder, id]
-  );
+  if (snoozedUid != null) {
+    await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3', [snoozedFolder, snoozedUid, id]);
+  } else {
+    await query('UPDATE messages SET folder = $1 WHERE id = $2', [snoozedFolder, id]);
+  }
 
   await query(
     `INSERT INTO snoozed_messages (user_id, account_id, message_id_header, original_folder, snooze_until, snoozed_folder)

@@ -502,10 +502,23 @@ function darken(hex, t) {
     .join('');
 }
 
-function buildFaviconSvg(accent) {
+function buildFaviconSvg(accent, count = 0) {
   const light = lighten(accent, 0.25);
   const dark  = darken(accent, 0.30);
   const [dr, dg, db] = hexToRgb(dark);
+
+  let badge = '';
+  if (count > 0) {
+    const label = count > 99 ? '99+' : String(count);
+    const r  = label.length > 2 ? 10 : 11;
+    const cx = 32 - r;
+    const cy = r;
+    const fs = label.length > 2 ? 8 : label.length > 1 ? 12 : 14;
+    badge = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#ef4444" stroke="white" stroke-width="1.5"/>` +
+            `<text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central" ` +
+            `fill="white" font-family="system-ui,sans-serif" font-weight="800" font-size="${fs}">${label}</text>`;
+  }
+
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
@@ -528,6 +541,7 @@ function buildFaviconSvg(accent) {
   <path d="M5,10.5 L16,20.5 L27,10.5" fill="none" stroke="rgba(${dr},${dg},${db},0.38)" stroke-width="1.4" stroke-linejoin="round" clip-path="url(#ec)"/>
   <line x1="5" y1="25.5" x2="13" y2="20" stroke="rgba(${dr},${dg},${db},0.16)" stroke-width="1.1"/>
   <line x1="27" y1="25.5" x2="19" y2="20" stroke="rgba(${dr},${dg},${db},0.16)" stroke-width="1.1"/>
+  ${badge}
 </svg>`;
 }
 
@@ -546,17 +560,32 @@ export function applyTheme(themeName) {
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', accent);
   }
 
-  // Update browser tab favicon to match the active accent colour.
-  // Remove and re-add the element — browsers (especially Chrome) ignore href
-  // changes on an existing <link rel="icon"> due to aggressive favicon caching.
+  // Update browser tab favicon to match the active accent colour, preserving
+  // any unread badge that was previously set.
   if (accent && accent.startsWith('#')) {
-    const svgStr = buildFaviconSvg(accent);
-    const dataUri = 'data:image/svg+xml,' + encodeURIComponent(svgStr);
-    document.querySelectorAll("link[rel~='icon']").forEach(l => l.remove());
-    const link = document.createElement('link');
-    link.rel = 'icon';
-    link.type = 'image/svg+xml';
-    link.href = dataUri;
-    document.head.appendChild(link);
+    _applyFavicon(accent);
   }
+}
+
+// ── Favicon badge ─────────────────────────────────────────────────────────────
+
+let _badgeCount = 0;
+
+function _applyFavicon(accent) {
+  // Remove and re-add — browsers (especially Chrome) ignore href changes on an
+  // existing <link rel="icon"> due to aggressive favicon caching.
+  const svgStr  = buildFaviconSvg(accent, _badgeCount);
+  const dataUri = 'data:image/svg+xml,' + encodeURIComponent(svgStr);
+  document.querySelectorAll("link[rel~='icon']").forEach(l => l.remove());
+  const link = document.createElement('link');
+  link.rel  = 'icon';
+  link.type = 'image/svg+xml';
+  link.href = dataUri;
+  document.head.appendChild(link);
+}
+
+export function updateFaviconBadge(count) {
+  _badgeCount = count;
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+  if (accent && accent.startsWith('#')) _applyFavicon(accent);
 }

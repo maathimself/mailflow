@@ -86,6 +86,34 @@ function decodeBody(buf, encoding, charset) {
   }
 }
 
+function decodeAttachmentBuffer(buf, encoding) {
+  const enc = (encoding || '').toLowerCase();
+  if (enc === 'base64') {
+    return Buffer.from(buf.toString('utf8').replace(/\s/g, ''), 'base64');
+  }
+  if (enc === 'quoted-printable') {
+    const qpStr = buf.toString('ascii');
+    const cleaned = qpStr.replace(/=\r\n/g, '').replace(/=\n/g, '');
+    const bytes = [];
+    let i = 0;
+    while (i < cleaned.length) {
+      if (cleaned[i] === '=' && i + 2 < cleaned.length) {
+        const hex = cleaned.slice(i + 1, i + 3);
+        if (/^[0-9A-Fa-f]{2}$/.test(hex)) {
+          bytes.push(parseInt(hex, 16));
+          i += 3;
+          continue;
+        }
+      }
+      bytes.push(cleaned.charCodeAt(i) & 0xFF);
+      i++;
+    }
+    return Buffer.from(bytes);
+  }
+  // 7bit / 8bit / binary — raw bytes, no decoding needed
+  return Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
+}
+
 function walkStructure(node, results) {
   if (!node) return;
   const type = (node.type || '').toLowerCase();
@@ -1037,14 +1065,29 @@ export class ImapManager {
           // push for them would be misleading. Fire-and-forget: push errors are non-fatal.
           if (folder === 'INBOX') {
             const latest = newMessages[newMessages.length - 1];
-            sendPushToUser(account.user_id, {
+            const basePayload = {
               title: latest.fromName || latest.fromEmail || 'New mail',
               body: newMessages.length === 1
                 ? (latest.subject || '(no subject)')
                 : `${newMessages.length} new messages`,
               icon: '/icon-512.png',
               url: '/',
-            }).catch(err => console.warn('Push notification error:', err.message));
+            };
+            // Try to include the total unread count for the home screen badge.
+            // If the query fails for any reason, send the push without it so
+            // notifications are never silently dropped.
+            query(
+              `SELECT COUNT(*)::int AS total FROM messages m
+               JOIN email_accounts a ON a.id = m.account_id
+               WHERE a.user_id = $1 AND a.enabled = true AND m.folder = 'INBOX' AND m.is_read = false AND m.is_deleted = false`,
+              [account.user_id]
+            ).then(r => {
+              sendPushToUser(account.user_id, { ...basePayload, unreadCount: r.rows[0]?.total ?? 0 })
+                .catch(err => console.warn('Push notification error:', err.message));
+            }).catch(() => {
+              sendPushToUser(account.user_id, basePayload)
+                .catch(err => console.warn('Push notification error:', err.message));
+            });
           }
           // Pre-warm the body cache for newly arrived messages so clicking one
           // immediately after receipt doesn't require a live IMAP fetch.
@@ -1827,9 +1870,7 @@ export class ImapManager {
           }
           const buf = msg.bodyParts?.get(partNum);
           if (buf) {
-            buffer = encoding.toLowerCase() === 'base64'
-              ? Buffer.from(buf.toString('utf8').replace(/\s/g, ''), 'base64')
-              : buf;
+            buffer = decodeAttachmentBuffer(buf, encoding);
           }
         }
         return buffer;
@@ -1888,7 +1929,7 @@ export class ImapManager {
         try {
           const result = await client.messageMove(String(uid), toFolder, { uid: true });
           if (result?.uidMap) {
-            newUid = result.uidMap.get(uid) ?? null;
+            newUid = result.uidMap.get(Number(uid)) ?? null;
           }
         } finally {
           lock.release();
@@ -1951,11 +1992,13 @@ export class ImapManager {
   }
 
   async moveMessage(account, uid, fromFolder, toFolder) {
+    let newUid = null;
     try {
       await withFreshClient(account, async (client) => {
         const lock = await client.getMailboxLock(fromFolder);
         try {
-          await client.messageMove(String(uid), toFolder, { uid: true });
+          const result = await client.messageMove(String(uid), toFolder, { uid: true });
+          if (result?.uidMap) newUid = result.uidMap.get(Number(uid)) ?? null;
         } finally {
           lock.release();
         }
@@ -1964,6 +2007,7 @@ export class ImapManager {
       console.error(`moveMessage failed: uid=${uid}:`, err.message);
       throw err;
     }
+    return newUid;
   }
 
   async syncNow(userId, accountId = null) {

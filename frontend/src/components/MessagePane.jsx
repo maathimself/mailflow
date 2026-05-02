@@ -1027,6 +1027,7 @@ export default function MessagePane() {
                      define their own internal spacing; adding body margin here shrinks the
                      effective content area and causes layout tables to be squeezed. */
                   body { margin: 0 !important; padding: 0 !important;
+                         background-color: #ffffff !important; color-scheme: light;
                          font-family: -apple-system, Arial, sans-serif;
                          font-size: 14px; line-height: 1.6; color: #1a1a1a; word-wrap: break-word; }
                   /* max-width prevents images overflowing on narrow screens.

@@ -5,6 +5,7 @@ import { api } from '../utils/api.js';
 import { useWebSocket } from '../hooks/useWebSocket.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { LAYOUTS } from '../layouts.js';
+import { updateFaviconBadge } from '../themes.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { buildKeyMap, getEffectiveShortcuts, getGroupedActions, SPECIAL_KEYS, SPECIAL_KEY_LABELS } from '../utils/defaultShortcuts.js';
 import Sidebar from './Sidebar.jsx';
@@ -83,12 +84,20 @@ export default function MailApp() {
     return () => clearInterval(interval);
   }, []);
 
-  // Update browser tab title with unread count for the selected account (or total)
+  // Update browser tab title, favicon badge, and PWA home screen badge with unread count
   useEffect(() => {
-    const count = selectedAccountId
+    const total = unreadCounts.total;
+    const tabCount = selectedAccountId
       ? (unreadCounts.byAccount[selectedAccountId] ?? 0)
-      : unreadCounts.total;
-    document.title = count > 0 ? `(${count}) MailFlow` : 'MailFlow';
+      : total;
+    document.title = 'MailFlow';
+    updateFaviconBadge(tabCount);
+    // App-icon badge always reflects total unread across all accounts so that
+    // selecting a zero-unread account never clears the home screen badge.
+    if ('setAppBadge' in navigator) {
+      if (total > 0) navigator.setAppBadge(total).catch(() => {});
+      else navigator.clearAppBadge().catch(() => {});
+    }
   }, [unreadCounts, selectedAccountId]);
 
   // ── Global keyboard shortcut listener ──────────────────────────────────────
