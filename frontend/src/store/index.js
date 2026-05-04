@@ -234,7 +234,7 @@ export const useStore = create((set, get) => ({
   imageWhitelist: { addresses: [], domains: [] },
   setBlockRemoteImages: (val) => {
     set({ blockRemoteImages: val });
-    return api.savePreferences({ blockRemoteImages: val }).catch(() => {});
+    return api.savePreferences({ blockRemoteImages: val });
   },
   setImageWhitelist: (whitelist) => {
     set({ imageWhitelist: whitelist });

@@ -87,12 +87,13 @@ export default function MessagePane() {
   // Track previous blocking policy so we can detect tightening vs loosening.
   const prevBlockingPolicyRef = useRef(null);
 
-  // Flush body cache entries that were served with remote images unblocked whenever
-  // the image-blocking policy becomes more restrictive (blocking turned on, or a
-  // whitelist entry removed). Without this, cached unblocked HTML persists after
-  // the user changes their privacy settings.
-  // We check whether the change is a tightening (not a loosening) to avoid
-  // unnecessary re-fetches when the user merely adds a whitelist entry.
+  // Flush body cache when the image-blocking policy changes:
+  // - Tightening (blocking ON, or whitelist entry removed): evict unblocked entries so they
+  //   re-fetch with blocking applied. Also clear imagesRequestedRef for evicted IDs so a
+  //   prior "load images once" click doesn't silently bypass the re-tightened policy.
+  // - Loosening globally (blocking turned OFF): evict blocked entries so the current email
+  //   immediately shows images without requiring navigation. Whitelist additions are handled
+  //   directly in handleAllowSender/Domain to avoid triggering a double-eviction here.
   useEffect(() => {
     const prev = prevBlockingPolicyRef.current;
     const curr = {
@@ -107,13 +108,26 @@ export default function MessagePane() {
       (!prev.blockRemoteImages && curr.blockRemoteImages) ||
       prev.addrCount > curr.addrCount ||
       prev.domainCount > curr.domainCount;
-    if (!tightened) return;
+    // Only handle global-off loosening here; whitelist additions are handled in
+    // handleAllowSender/Domain to avoid double-eviction and a superfluous re-fetch.
+    const loosenedGlobally = prev.blockRemoteImages && !curr.blockRemoteImages;
 
     let evicted = false;
-    for (const id of Object.keys(bodyCache.current)) {
-      if (!bodyCache.current[id]?.hasBlockedRemoteImages) {
-        delete bodyCache.current[id];
-        evicted = true;
+    if (tightened) {
+      for (const id of Object.keys(bodyCache.current)) {
+        if (!bodyCache.current[id]?.hasBlockedRemoteImages) {
+          delete bodyCache.current[id];
+          imagesRequestedRef.current.delete(id); // clear "load once" so policy is respected
+          evicted = true;
+        }
+      }
+    }
+    if (loosenedGlobally) {
+      for (const id of Object.keys(bodyCache.current)) {
+        if (bodyCache.current[id]?.hasBlockedRemoteImages) {
+          delete bodyCache.current[id];
+          evicted = true;
+        }
       }
     }
     if (evicted) {

@@ -3468,13 +3468,15 @@ function ShortcutsTab() {
 // ─── Privacy Tab ─────────────────────────────────────────────────────────────
 function PrivacyTab() {
   const { t } = useTranslation();
-  const { blockRemoteImages, setBlockRemoteImages, imageWhitelist, setImageWhitelist } = useStore();
+  const { blockRemoteImages, setBlockRemoteImages, imageWhitelist, setImageWhitelist, addNotification } = useStore();
   const [newAddress, setNewAddress] = useState('');
   const [newDomain,  setNewDomain]  = useState('');
 
   const addAddress = () => {
     const val = newAddress.trim().toLowerCase();
-    if (!val || !val.includes('@')) return;
+    // Require at least one character before and after a single @
+    const atIdx = val.indexOf('@');
+    if (!val || atIdx < 1 || atIdx === val.length - 1) return;
     const updated = {
       ...imageWhitelist,
       addresses: [...new Set([...(imageWhitelist.addresses || []), val])],
@@ -3537,7 +3539,10 @@ function PrivacyTab() {
           </div>
         </div>
         <button
-          onClick={() => setBlockRemoteImages(!blockRemoteImages)}
+          onClick={async () => {
+            try { await setBlockRemoteImages(!blockRemoteImages); }
+            catch (_) { addNotification({ title: t('message.whitelistFail.title') }); }
+          }}
           style={{
             width: 42, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer',
             background: blockRemoteImages ? 'var(--accent)' : 'var(--bg-tertiary)',

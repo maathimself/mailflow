@@ -1041,7 +1041,10 @@ export default function Sidebar() {
             </span>
             <span style={{ flex: 1, fontSize: 13, color: 'var(--text-primary)' }}>{t('sidebar.blockImages')}</span>
             <button
-              onClick={() => setBlockRemoteImages(!blockRemoteImages)}
+              onClick={async () => {
+                try { await setBlockRemoteImages(!blockRemoteImages); }
+                catch (_) { addNotification({ title: t('message.whitelistFail.title') }); }
+              }}
               style={{
                 width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer',
                 background: blockRemoteImages ? 'var(--accent)' : 'var(--bg-tertiary)',
@@ -1214,7 +1217,10 @@ export default function Sidebar() {
               <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>{t('sidebar.blockImages')}</span>
             </div>
             <button
-              onClick={() => setBlockRemoteImages(!blockRemoteImages)}
+              onClick={async () => {
+                try { await setBlockRemoteImages(!blockRemoteImages); }
+                catch (_) { addNotification({ title: t('message.whitelistFail.title') }); }
+              }}
               style={{
                 width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer',
                 background: blockRemoteImages ? 'var(--accent)' : 'var(--bg-tertiary)',
