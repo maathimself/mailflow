@@ -3,6 +3,7 @@ import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { imapManager } from '../index.js';
 import { sanitizeEmail, stripEmailHead, hasRemoteImages, blockRemoteImages, rewriteEbayImageserUrls } from '../services/emailSanitizer.js';
+import { buildSnippetFromHtml, decodeNamedEntity } from '../services/messageParser.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -11,7 +12,14 @@ router.use(requireAuth);
 // Strips path separators and control characters; falls back to 'attachment'.
 function safeFilename(name) {
   if (!name) return 'attachment';
-  const cleaned = String(name).replace(/[/\\]/g, '_').replace(/[\x00-\x1f\x7f]/g, '').trim();
+  // Strip path separators, control chars, and Unicode bidi override chars that could
+  // spoof displayed file extensions (e.g. U+202E reverses the filename visually).
+  const cleaned = String(name)
+    .replace(/[/\\]/g, '_')
+    .replace(/[\x00-\x1f\x7f]/g, '')
+    .replace(/[‪-‮⁦-⁩‏؜]/g, '')
+    .trim()
+    .substring(0, 255);
   return cleaned || 'attachment';
 }
 
@@ -51,49 +59,40 @@ function adjustFolderCounts(accountId, path, totalDelta, unreadDelta) {
   ).catch(err => console.error('Folder count adjust failed:', err.message));
 }
 
-// Regex matching zero-width and invisible Unicode chars that corrupt preview snippets.
-// Built from code points to avoid embedding invisible characters in source.
+// Regex matching invisible / zero-width / filler Unicode chars — kept in sync with
+// the same constant in messageParser.js (must match the full set used there).
 const INVISIBLE_CHARS_RE = new RegExp(
-  [0x00AD, 0x200B, 0x200C, 0x200D, 0x200E, 0x200F, 0xFEFF]
+  [0x00AD, 0x034F, 0x200B, 0x200C, 0x200D, 0x200E, 0x200F,
+   0x2007, 0x2060, 0x2061, 0x2062, 0x2063, 0x2064, 0xFEFF]
     .map(n => String.fromCodePoint(n)).join('|'),
   'g'
 );
 
-// Returns true if a snippet contains undecoded HTML entities (&zwnj; &shy; etc.)
-// that indicate it was generated before the entity-stripping fix and needs refresh.
+// Returns true if a snippet contains content that should never appear in plain-text
+// preview, indicating it was generated from unclean HTML and needs regeneration:
+//   - &entity; — undecoded HTML entities from before the entity-stripping fix
+//   - ##marker## — unexpanded template placeholders (UPS, Epsilon marketing mail)
+//   - --> — dangling HTML comment end leaked by comment-stripping gap
 function snippetIsGarbled(s) {
-  return s && /&[a-z][a-z0-9]*;/i.test(s);
+  return s && (/&[a-z][a-z0-9]*;/i.test(s) || /##[^#]*##/.test(s) || /-->/.test(s));
 }
 
 // Extract a plain-text snippet from a message body for list previews.
-// Prefers plain text; strips HTML tags from html-only bodies.
+// Delegates to the shared buildSnippetFromHtml for HTML bodies so both the
+// sync path (messageParser) and the backfill/repair path (here) produce
+// identical quality snippets.
 function snippetFromBody(text, html) {
   if (text) {
-    // Apply entity stripping to the plain-text path too — some senders
-    // (marketing tools, broken generators) embed HTML entities in text/plain parts.
+    // Some senders embed HTML entities in text/plain parts as preheader fillers.
     return text
-      .replace(/&[a-z][a-z0-9]*;/gi, ' ')
+      .replace(/&#x([0-9A-Fa-f]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+      .replace(/&#([0-9]+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
+      .replace(/&([a-z][a-z0-9]*);/gi, decodeNamedEntity)
       .replace(INVISIBLE_CHARS_RE, '')
       .replace(/\s+/g, ' ').trim().substring(0, 200);
   }
   if (html) {
-    return html
-      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/&nbsp;/gi, ' ')
-      .replace(/&amp;/gi, '&')
-      .replace(/&lt;/gi, '<')
-      .replace(/&gt;/gi, '>')
-      .replace(/&quot;/gi, '"')
-      .replace(/&#x([0-9A-Fa-f]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
-      .replace(/&#([0-9]+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
-      // Catch-all: any remaining named HTML entities (&zwnj; &shy; &hellip; etc.)
-      .replace(/&[a-z][a-z0-9]*;/gi, ' ')
-      .replace(INVISIBLE_CHARS_RE, '')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .substring(0, 200);
+    return buildSnippetFromHtml(html);
   }
   return '';
 }
@@ -388,7 +387,7 @@ router.get('/messages/:id/body', async (req, res) => {
       await query(
         `UPDATE messages
          SET body_html = $1, body_text = $2, attachments = $3,
-             snippet = CASE WHEN snippet IS NULL OR snippet = '' THEN $5 ELSE snippet END
+             snippet = CASE WHEN $5 != '' THEN $5 ELSE snippet END
          WHERE id = $4`,
         [safeHtml, text, JSON.stringify(attachments || []), id, snip]
       );

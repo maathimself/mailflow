@@ -6,6 +6,14 @@ import { format } from 'date-fns';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { useMobile } from '../hooks/useMobile.js';
 
+function linkifyText(text) {
+  const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return escaped.replace(
+    /https?:\/\/[^\s<>"']+/g,
+    url => `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:inherit">${url}</a>`
+  );
+}
+
 function formatBytes(bytes) {
   if (!bytes) return '';
   if (bytes < 1024) return `${bytes} B`;
@@ -287,8 +295,9 @@ export default function MessagePane() {
   const handleReply = (replyAll = false) => {
     if (!message) return;
     const date = message.date ? new Date(message.date).toLocaleString() : '';
-    const fromStr = message.from_name
-      ? `${message.from_name} <${message.from_email}>`
+    const safeName = (message.from_name || '').replace(/[\r\n]+/g, ' ');
+    const fromStr = safeName
+      ? `${safeName} <${message.from_email}>`
       : message.from_email || '';
     const quotedText = body?.text
       ? `\n\n---\nOn ${date}, ${fromStr} wrote:\n${body.text.split('\n').map(l => '> ' + l).join('\n')}`
@@ -363,10 +372,12 @@ export default function MessagePane() {
   const handleForward = () => {
     if (!message) return;
     const date = message.date ? new Date(message.date).toLocaleString() : '';
-    const fromStr = message.from_name
-      ? `${message.from_name} <${message.from_email}>`
+    const safeName = (message.from_name || '').replace(/[\r\n]+/g, ' ');
+    const fromStr = safeName
+      ? `${safeName} <${message.from_email}>`
       : message.from_email || '';
-    const fwdText = `\n\n---------- Forwarded message ----------\nFrom: ${fromStr}\nDate: ${date}\nSubject: ${message.subject || ''}\n\n${body?.text || ''}`;
+    const safeSubject = (message.subject || '').replace(/[\r\n]+/g, ' ');
+    const fwdText = `\n\n---------- Forwarded message ----------\nFrom: ${fromStr}\nDate: ${date}\nSubject: ${safeSubject}\n\n${body?.text || ''}`;
     openCompose({
       subject: message.subject?.startsWith('Fwd:') ? message.subject : `Fwd: ${message.subject}`,
       body: '',
@@ -1018,6 +1029,7 @@ export default function MessagePane() {
               ref={iframeRef}
               srcDoc={`<!DOCTYPE html><html><head><meta charset="utf-8">
                 <meta name="viewport" content="width=device-width,initial-scale=1">
+                <meta http-equiv="Content-Security-Policy" content="script-src 'none'; object-src 'none'; frame-src 'none'; form-action 'none';">
                 <base target="_blank">
                 <style>
                   /* Prevent percentage-height elements from filling the iframe,
@@ -1072,9 +1084,9 @@ export default function MessagePane() {
           whiteSpace: 'pre-wrap', wordBreak: 'break-word',
           fontSize: 14, color: 'var(--text-primary)', lineHeight: 1.7,
           fontFamily: 'DM Sans, sans-serif',
-        }}>
-          {body.text}
-        </pre>
+        }}
+          dangerouslySetInnerHTML={{ __html: linkifyText(body.text) }}
+        />
       )}
       </div>{/* end single scroll container */}
     </div>

@@ -10,6 +10,39 @@ const INVISIBLE_CHARS_RE = new RegExp(
   'g'
 );
 
+// Named HTML entities commonly found in marketing/transactional email bodies.
+// Decoded to their Unicode equivalents so snippets preserve meaning (e.g.
+// "Great offer&hellip;" → "Great offer…" instead of "Great offer ").
+// Numeric entities (&#8230; &#x2014;) are handled by the regex below; this
+// map covers only named references that those regexes do not catch.
+const NAMED_ENTITY_MAP = {
+  // Punctuation & typography
+  hellip: '…', mldr: '…',
+  mdash: '—', ndash: '–', minus: '−',
+  lsquo: '‘', rsquo: '’', sbquo: '‚',
+  ldquo: '“', rdquo: '”', bdquo: '„',
+  bull: '•', middot: '·',
+  laquo: '«', raquo: '»', lsaquo: '‹', rsaquo: '›',
+  // Currency & symbols
+  trade: '™', reg: '®', copy: '©', deg: '°', micro: 'µ',
+  euro: '€', pound: '£', yen: '¥', cent: '¢',
+  times: '×', divide: '÷', plusmn: '±',
+  frac12: '½', frac14: '¼', frac34: '¾',
+  // Arrows (shipping/tracking emails)
+  rarr: '→', larr: '←', uarr: '↑', darr: '↓', harr: '↔',
+  // Whitespace variants → single space
+  thinsp: ' ', ensp: ' ', emsp: ' ', hairsp: ' ', nnbsp: ' ',
+  // Invisible chars → empty (also caught by INVISIBLE_CHARS_RE, belt-and-suspenders)
+  shy: '', zwnj: '', zwj: '', lrm: '', rlm: '',
+};
+
+// Decode a named HTML entity reference; fall back to a single space for
+// unknown entities so they don't litter snippet text with literal &foo;
+export function decodeNamedEntity(_, name) {
+  const v = NAMED_ENTITY_MAP[name.toLowerCase()];
+  return v !== undefined ? v : ' ';
+}
+
 // Strip HTML markup and decode all entities to produce a plain-text snippet.
 // Exported so imapManager can use the same logic when building snippets from
 // pre-fetched raw HTML bodies (avoiding duplicated, inconsistent entity handling).
@@ -17,6 +50,14 @@ export function buildSnippetFromHtml(html) {
   return html
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    // Strip HTML comments (including MSO conditional comments) before tag
+    // stripping — otherwise dangling --> fragments and comment content leak
+    // into the snippet text (e.g. UPS ##varLangText1## template markers sit
+    // inside comments and survive tag-only regex stripping).
+    .replace(/<!--[\s\S]*?-->/g, '')
+    // Strip ##marker## template placeholders emitted by some marketing tools
+    // (UPS, Epsilon) that don't fully render before sending.
+    .replace(/##[^#]*##/g, '')
     .replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/gi, '&')
@@ -26,7 +67,7 @@ export function buildSnippetFromHtml(html) {
     .replace(/&apos;/gi, "'")
     .replace(/&#x([0-9A-Fa-f]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
     .replace(/&#([0-9]+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
-    .replace(/&[a-z][a-z0-9]*;/gi, ' ')
+    .replace(/&([a-z][a-z0-9]*);/gi, decodeNamedEntity)
     .replace(INVISIBLE_CHARS_RE, '')
     .replace(/\s+/g, ' ').trim().substring(0, 200);
 }
@@ -157,7 +198,7 @@ export async function parseMessage(msg) {
           text = text
             .replace(/&#x([0-9A-Fa-f]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
             .replace(/&#([0-9]+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
-            .replace(/&[a-z][a-z0-9]*;/gi, ' ')
+            .replace(/&([a-z][a-z0-9]*);/gi, decodeNamedEntity)
             .replace(INVISIBLE_CHARS_RE, '');
         }
 

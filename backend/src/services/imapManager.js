@@ -10,6 +10,20 @@ import { sendPushToUser } from './pushNotifications.js';
 // Body parts that cover ~99% of real-world email structures (used for full body caching)
 const BODY_PREFETCH_PARTS = ['1', '1.1', '1.2', '2', '2.1', '2.2', '1.1.1', '1.2.1'];
 
+// Unicode bidi override/embedding characters that can visually reverse a filename,
+// making "malware.exe" display as "malware.pdf" to the user.
+// U+202A-U+202E: LRE, RLE, PDF, LRO, RLO
+// U+2066-U+2069: LRI, RLI, FSI, PDI
+// U+200F: RTL mark  U+061C: Arabic letter mark
+const BIDI_OVERRIDE_RE = new RegExp(
+  [...Array.from({ length: 5 }, (_, i) => String.fromCodePoint(0x202A + i)),
+   ...Array.from({ length: 4 }, (_, i) => String.fromCodePoint(0x2066 + i)),
+   String.fromCodePoint(0x200F),
+   String.fromCodePoint(0x061C),
+  ].join(''),
+  'g'
+);
+
 // Extract html/text/attachments from an already-fetched msg (no extra IMAP round-trip)
 function extractBodyFromMsg(msg) {
   if (!msg.bodyStructure) return { html: null, text: null, attachments: [] };
@@ -122,7 +136,8 @@ function walkStructure(node, results) {
     return;
   }
   const disposition = (node.disposition || '').toLowerCase();
-  const filename = node.dispositionParameters?.filename || node.parameters?.name || null;
+  const rawFilename = node.dispositionParameters?.filename || node.parameters?.name || null;
+  const filename = rawFilename ? rawFilename.replace(BIDI_OVERRIDE_RE, '').trim() || 'attachment' : null;
   if (type === 'text/html') {
     results.textParts.push({
       part: node.part || '1', type,
@@ -1638,13 +1653,15 @@ export class ImapManager {
           let snip = '';
           if (text) {
             snip = text.replace(/\s+/g, ' ').trim().substring(0, 200);
-          } else if (html) {
-            snip = buildSnippetFromHtml(html);
+          } else if (safeHtml || html) {
+            // Prefer sanitized HTML — it has comments and template markers already
+            // removed by sanitizeEmail(), so the snippet is cleaner.
+            snip = buildSnippetFromHtml(safeHtml || html);
           }
           await query(
             `UPDATE messages
              SET body_html = $1, body_text = $2, attachments = $3,
-                 snippet = CASE WHEN snippet IS NULL OR snippet = '' THEN $5 ELSE snippet END
+                 snippet = CASE WHEN $5 != '' THEN $5 ELSE snippet END
              WHERE id = $4`,
             [safeHtml, text, JSON.stringify(attachments || []), msg.id, snip]
           );
