@@ -1,0 +1,35 @@
+# MailFlow — systemd service for native installs
+#
+# Setup:
+#   1. Copy to /etc/systemd/system/mailflow.service
+#   2. Edit WorkingDirectory and EnvironmentFile to match your install path
+#   3. Edit User to match the user who owns the files
+#   4. sudo systemctl daemon-reload
+#      sudo systemctl enable --now mailflow
+
+[Unit]
+Description=MailFlow backend
+Documentation=https://github.com/maathimself/mailflow
+After=network.target postgresql.service redis.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/mailflow/backend
+EnvironmentFile=/opt/mailflow/.env
+ExecStart=/usr/bin/node src/index.js
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mailflow
+
+# Harden the service
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/mailflow
+
+[Install]
+WantedBy=multi-user.target

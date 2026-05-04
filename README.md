@@ -69,7 +69,7 @@ If you contribute code, please read the [Contributor License Agreement](CLA.md).
 
 ## Installation
 
-There are two ways to run MailFlow. The pre-built image method is recommended for most users.
+There are three ways to run MailFlow. The pre-built image method is recommended for most users.
 
 ---
 
@@ -203,6 +203,163 @@ Select a preset (Gmail, iCloud) or Custom for any IMAP server.
 
 ---
 
+## Option C — Native install (no Docker)
+
+Run MailFlow directly on any Linux, macOS, or BSD machine using Node.js, PostgreSQL, and Redis.
+No container runtime required. The steps below use Ubuntu/Debian; adapt package manager commands for other platforms.
+
+### Prerequisites
+
+- **Node.js 20+** — [nodejs.org](https://nodejs.org) or via your package manager
+- **PostgreSQL 16+**
+- **Redis 7+**
+- **nginx** — serves the built frontend and proxies API/WebSocket requests to the backend
+
+### 1. Install system dependencies
+
+**Ubuntu / Debian:**
+```bash
+# Node.js 20 via NodeSource
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs postgresql redis-server nginx
+```
+
+**macOS (Homebrew):**
+```bash
+brew install node@20 postgresql@16 redis nginx
+brew services start postgresql@16
+brew services start redis
+```
+
+### 2. Create the database
+
+```bash
+sudo -u postgres psql <<'SQL'
+CREATE USER mailflow WITH PASSWORD 'replace-with-a-strong-password';
+CREATE DATABASE mailflow OWNER mailflow;
+SQL
+```
+
+### 3. Get the code
+
+```bash
+git clone https://github.com/maathimself/mailflow.git /opt/mailflow
+cd /opt/mailflow
+```
+
+### 4. Configure environment
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env`. In addition to the required secrets, set these for a native install:
+
+| Variable | Value |
+|---|---|
+| `APP_URL` | Full URL, e.g. `https://mail.example.com` |
+| `SESSION_SECRET` | `openssl rand -hex 32` |
+| `DB_HOST` | `localhost` |
+| `DB_NAME` | `mailflow` |
+| `DB_USER` | `mailflow` |
+| `DB_PASSWORD` | password you set in step 2 |
+| `REDIS_URL` | `redis://localhost:6379` |
+| `ENCRYPTION_KEY` | `openssl rand -hex 32` |
+
+### 5. Build the frontend
+
+```bash
+cd /opt/mailflow/frontend
+npm ci
+npm run build
+# Built files are written to /opt/mailflow/frontend/dist
+```
+
+### 6. Install backend dependencies
+
+```bash
+cd /opt/mailflow/backend
+npm ci --omit=dev
+```
+
+### 7. Configure nginx
+
+A ready-to-use nginx config is provided in `contrib/nginx.conf`. Copy it, update the `root` path, then enable it:
+
+```bash
+sudo mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
+sudo cp /opt/mailflow/contrib/nginx.conf /etc/nginx/sites-available/mailflow
+```
+
+Open `/etc/nginx/sites-available/mailflow` and replace `/path/to/mailflow/frontend/dist` with `/opt/mailflow/frontend/dist`.
+
+The provided config listens on port 80 for use behind a TLS-terminating reverse proxy (Nginx/Caddy/Traefik). If you want nginx to terminate TLS directly, uncomment the HTTPS server block in the file and set your certificate paths. A quick self-signed cert:
+
+```bash
+sudo mkdir -p /etc/ssl/mailflow
+sudo openssl req -x509 -nodes -newkey rsa:4096 -days 3650 \
+  -keyout /etc/ssl/mailflow/key.pem \
+  -out    /etc/ssl/mailflow/cert.pem \
+  -subj "/CN=mailflow"
+```
+
+Enable the site and reload nginx:
+
+```bash
+sudo ln -sf /etc/nginx/sites-available/mailflow /etc/nginx/sites-enabled/mailflow
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+### 8. Run the backend
+
+**Option A — systemd (recommended for production):**
+
+```bash
+sudo cp /opt/mailflow/contrib/mailflow.service /etc/systemd/system/mailflow.service
+# Edit the service file if your install path or user differs from the defaults
+sudo systemctl daemon-reload
+sudo systemctl enable --now mailflow
+sudo systemctl status mailflow
+```
+
+**Option B — PM2:**
+
+```bash
+sudo npm install -g pm2
+cd /opt/mailflow/backend
+pm2 start src/index.js --name mailflow
+pm2 save
+pm2 startup   # follow the printed command to register auto-start on boot
+```
+
+**Option C — foreground (testing only):**
+
+```bash
+cd /opt/mailflow/backend
+node src/index.js
+```
+
+### 9. Create your admin account
+
+Open the app in a browser. The **first account registered becomes the admin**. After registering, close open registration from Settings → Users.
+
+### 10. Add your email accounts
+
+In the settings panel → Accounts → Add Account.
+
+### Updating
+
+```bash
+cd /opt/mailflow
+git pull
+cd frontend && npm ci && npm run build && cd ..
+cd backend && npm ci --omit=dev && cd ..
+sudo systemctl restart mailflow   # or: pm2 restart mailflow
+```
+
+---
+
 ## Email Provider Setup
 
 ### Gmail
@@ -268,8 +425,14 @@ docker compose down -v
 # Update to latest images (pre-built install)
 docker compose pull && docker compose up -d
 
-# Rebuild after a code change (build-from-source install)
+# Rebuild after a code change (Docker build-from-source install)
 docker compose up -d --build
+
+# Update a native install
+git pull && \
+  cd frontend && npm ci && npm run build && cd .. && \
+  cd backend && npm ci --omit=dev && cd .. && \
+  sudo systemctl restart mailflow   # or: pm2 restart mailflow
 ```
 
 ## Backup and Restore
