@@ -55,7 +55,7 @@ export default function MessagePane() {
   const {
     messages, searchResults, searchQuery, selectedMessageId, setSelectedMessage,
     updateMessage, removeMessage, decrementUnread, incrementUnread, openCompose, accounts, addNotification,
-    imageWhitelist, setImageWhitelist,
+    imageWhitelist, setImageWhitelist, blockRemoteImages,
   } = useStore();
 
   const isMobile = useMobile();
@@ -83,6 +83,44 @@ export default function MessagePane() {
   const imagesRequestedRef = useRef(new Set());
   // Ref holding the latest pane action handlers so shortcut subscriptions ([] deps) never go stale
   const paneActionsRef = useRef({});
+
+  // Track previous blocking policy so we can detect tightening vs loosening.
+  const prevBlockingPolicyRef = useRef(null);
+
+  // Flush body cache entries that were served with remote images unblocked whenever
+  // the image-blocking policy becomes more restrictive (blocking turned on, or a
+  // whitelist entry removed). Without this, cached unblocked HTML persists after
+  // the user changes their privacy settings.
+  // We check whether the change is a tightening (not a loosening) to avoid
+  // unnecessary re-fetches when the user merely adds a whitelist entry.
+  useEffect(() => {
+    const prev = prevBlockingPolicyRef.current;
+    const curr = {
+      blockRemoteImages,
+      addrCount: (imageWhitelist?.addresses || []).length,
+      domainCount: (imageWhitelist?.domains || []).length,
+    };
+    prevBlockingPolicyRef.current = curr;
+    if (!prev) return; // skip initial mount
+
+    const tightened =
+      (!prev.blockRemoteImages && curr.blockRemoteImages) ||
+      prev.addrCount > curr.addrCount ||
+      prev.domainCount > curr.domainCount;
+    if (!tightened) return;
+
+    let evicted = false;
+    for (const id of Object.keys(bodyCache.current)) {
+      if (!bodyCache.current[id]?.hasBlockedRemoteImages) {
+        delete bodyCache.current[id];
+        evicted = true;
+      }
+    }
+    if (evicted) {
+      bodyCacheOrder.current = bodyCacheOrder.current.filter(id => bodyCache.current[id]);
+      setRetryKey(k => k + 1);
+    }
+  }, [blockRemoteImages, imageWhitelist]);
 
   useEffect(() => {
     if (!selectedMessageId) {
@@ -547,8 +585,7 @@ export default function MessagePane() {
     };
     setSavingAllow(true);
     try {
-      await api.savePreferences({ imageWhitelist: newList });
-      setImageWhitelist(newList);
+      await setImageWhitelist(newList);
       // Evict all blocked cache entries so they re-fetch with images unblocked
       for (const id of Object.keys(bodyCache.current)) {
         if (bodyCache.current[id]?.hasBlockedRemoteImages) delete bodyCache.current[id];
@@ -572,8 +609,7 @@ export default function MessagePane() {
     };
     setSavingAllow(true);
     try {
-      await api.savePreferences({ imageWhitelist: newList });
-      setImageWhitelist(newList);
+      await setImageWhitelist(newList);
       // Evict all blocked cache entries so they re-fetch with images unblocked
       for (const id of Object.keys(bodyCache.current)) {
         if (bodyCache.current[id]?.hasBlockedRemoteImages) delete bodyCache.current[id];
@@ -1029,7 +1065,7 @@ export default function MessagePane() {
               ref={iframeRef}
               srcDoc={`<!DOCTYPE html><html><head><meta charset="utf-8">
                 <meta name="viewport" content="width=device-width,initial-scale=1">
-                <meta http-equiv="Content-Security-Policy" content="script-src 'none'; object-src 'none'; frame-src 'none'; form-action 'none';">
+                <meta http-equiv="Content-Security-Policy" content="script-src 'none'; object-src 'none'; frame-src 'none'; form-action 'none'; style-src 'unsafe-inline';">
                 <base target="_blank">
                 <style>
                   /* Prevent percentage-height elements from filling the iframe,

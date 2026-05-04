@@ -238,7 +238,7 @@ export const useStore = create((set, get) => ({
   },
   setImageWhitelist: (whitelist) => {
     set({ imageWhitelist: whitelist });
-    return api.savePreferences({ imageWhitelist: whitelist }).catch(() => {});
+    return api.savePreferences({ imageWhitelist: whitelist });
   },
 
   // Keyboard shortcuts — stores only user overrides (action → key).

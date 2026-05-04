@@ -240,8 +240,8 @@ function shouldBlockImages(prefs, message) {
   const atIdx = senderEmail.indexOf('@');
   const senderDomain = atIdx >= 0 ? senderEmail.slice(atIdx + 1) : '';
   const whitelist = prefs?.imageWhitelist || {};
-  const allowedAddresses = (whitelist.addresses || []).map(a => a.toLowerCase());
-  const allowedDomains   = (whitelist.domains   || []).map(d => d.toLowerCase());
+  const allowedAddresses = Array.isArray(whitelist.addresses) ? whitelist.addresses.map(a => a.toLowerCase()) : [];
+  const allowedDomains   = Array.isArray(whitelist.domains)   ? whitelist.domains.map(d => d.toLowerCase())   : [];
   if (senderEmail && allowedAddresses.includes(senderEmail)) return false;
   if (senderDomain && allowedDomains.includes(senderDomain)) return false;
   return true;

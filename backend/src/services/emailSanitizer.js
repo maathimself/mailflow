@@ -129,13 +129,9 @@ export function sanitizeEmail(html) {
       'img': (tagName, attribs) => {
         const out = { ...attribs };
         if (out.src)    out.src    = unwrapEbayImgUrl(upgradeUrl(out.src));
-        if (out.srcset) out.srcset = out.srcset
-          .split(',')
-          .map(part => {
-            const [url, ...rest] = part.trim().split(/\s+/);
-            return [upgradeUrl(url), ...rest].join(' ');
-          })
-          .join(', ');
+        // Simple regex replacement avoids split(',') corrupting data: URIs that
+        // contain commas (e.g. data:image/png;base64,abc 2x).
+        if (out.srcset) out.srcset = out.srcset.replace(/\bhttp:\/\//g, 'https://');
         if (out.background) out.background = upgradeUrl(out.background);
         if (out.style) out.style = upgradeStyleUrls(out.style);
         // Defer loading of remote images; skip cid:/data: which are already local.
@@ -203,67 +199,74 @@ export function sanitizeSignature(html) {
   });
 }
 
-// Returns true if the sanitized HTML contains any remote http/https image references.
+// Returns true if the sanitized HTML contains any remote http/https image references,
+// including CSS @import with a bare quoted URL (not wrapped in url()) which bypasses
+// the url() pattern check but still causes an outbound stylesheet request.
 export function hasRemoteImages(html) {
   if (!html) return false;
   return (
     /<img\b[^>]*\ssrc=["']https?:\/\//i.test(html) ||
     /<img\b[^>]*\ssrcset=["'][^"']*https?:\/\//i.test(html) ||
     /\sbackground=["']https?:\/\//i.test(html) ||
-    /url\(\s*['"]?https?:\/\//i.test(html)
+    /url\(\s*['"]?https?:\/\//i.test(html) ||
+    /@import\s+["']https?:\/\//i.test(html)
   );
 }
 
 // Rewrite remote http/https image references so the browser makes no network requests.
-// Stores the original URL in data-mailflow-src (img), data-mailflow-srcset (srcset),
-// or data-mailflow-bg (background attribute) so the UI can restore them when the user
-// chooses to load images.  data: and cid: sources are always left intact.
+// data: and cid: sources are always left intact.
 // Never call this on HTML that will be written back to the database — apply only at
 // response time so the canonical cached body remains unmodified.
 export function blockRemoteImages(html) {
   if (!html) return html;
 
-  // Block <img src="https://..."> — zero out src, preserve URL in data attribute
+  // Block <img src="https://..."> — replace with data:, so no network request fires
+  // and no same-origin request is triggered by an empty src="".
   let out = html.replace(
     /(<img\b[^>]*?)\ssrc=(["'])(https?:\/\/[^\s"']*)\2/gi,
-    '$1 src=$2$2 data-mailflow-src=$2$3$2'
+    '$1 src="data:,"'
   );
 
-  // Block img srcset when it contains any remote URLs
+  // Remove img srcset entirely when it contains any remote URLs.
   out = out.replace(
     /(<img\b[^>]*?)\ssrcset=(["'])([^"']*)\2/gi,
     (_, pre, q, val) =>
       /https?:\/\//i.test(val)
-        ? `${pre} data-mailflow-srcset=${q}${val}${q}`
+        ? pre
         : `${pre} srcset=${q}${val}${q}`
   );
 
-  // Block background="https://..." attribute (table-based marketing email layouts)
+  // Blank background="https://..." attribute (table-based marketing email layouts).
   out = out.replace(
     /(\s)background=(["'])(https?:\/\/[^\s"']*)\2/gi,
-    '$1data-mailflow-bg=$2$3$2 background=$2$2'
+    '$1background=$2$2'
   );
 
-  // Block CSS url(https://...) in inline style= attributes (double-quoted by sanitize-html)
+  // Block CSS url(https://...) in inline style= attributes.
   out = out.replace(
     /\sstyle="([^"]*)"/gi,
     (_, styleVal) => {
       const blocked = styleVal.replace(
         /url\(\s*(['"]?)https?:\/\/[^'")]+\1\s*\)/gi,
-        'url("")'
+        'url("data:,")'
       );
       return ` style="${blocked}"`;
     }
   );
 
-  // Block CSS url(https://...) in <style> blocks
+  // Block remote CSS loads inside <style> blocks:
+  // 1. Strip @import "https://..." (bare quoted form — not caught by url() pattern).
+  // 2. Strip @import url(https://...) (url() form).
+  // 3. Replace remaining url(https://...) CSS property values with data:,.
   out = out.replace(
     /(<style\b[^>]*>)([\s\S]*?)(<\/style>)/gi,
-    (_, open, content, close) =>
-      open + content.replace(
-        /url\(\s*(['"]?)https?:\/\/[^'")]+\1\s*\)/gi,
-        'url("")'
-      ) + close
+    (_, open, content, close) => {
+      const blocked = content
+        .replace(/@import\s+["']https?:\/\/[^"']*["']\s*;?/gi, '')
+        .replace(/@import\s+url\(\s*["']?https?:\/\/[^"')]*["']?\s*\)\s*;?/gi, '')
+        .replace(/url\(\s*(['"]?)https?:\/\/[^'")]+\1\s*\)/gi, 'url("data:,")');
+      return open + blocked + close;
+    }
   );
 
   return out;

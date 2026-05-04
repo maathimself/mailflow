@@ -3479,7 +3479,7 @@ function PrivacyTab() {
       ...imageWhitelist,
       addresses: [...new Set([...(imageWhitelist.addresses || []), val])],
     };
-    setImageWhitelist(updated);
+    setImageWhitelist(updated).catch(() => {});
     setNewAddress('');
   };
 
@@ -3487,7 +3487,7 @@ function PrivacyTab() {
     setImageWhitelist({
       ...imageWhitelist,
       addresses: (imageWhitelist.addresses || []).filter(a => a !== addr),
-    });
+    }).catch(() => {});
   };
 
   const addDomain = () => {
@@ -3497,7 +3497,7 @@ function PrivacyTab() {
       ...imageWhitelist,
       domains: [...new Set([...(imageWhitelist.domains || []), val])],
     };
-    setImageWhitelist(updated);
+    setImageWhitelist(updated).catch(() => {});
     setNewDomain('');
   };
 
@@ -3505,7 +3505,7 @@ function PrivacyTab() {
     setImageWhitelist({
       ...imageWhitelist,
       domains: (imageWhitelist.domains || []).filter(d => d !== domain),
-    });
+    }).catch(() => {});
   };
 
   const sectionHead = { fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 };
