@@ -1998,8 +1998,7 @@ export class ImapManager {
       const lock = await client.getMailboxLock(folder);
       try {
         if (!client.mailbox || client.mailbox.exists === 0) return;
-        await client.messageFlagsAdd('1:*', ['\\Deleted'], { uid: false });
-        await client.messageExpunge('1:*', { uid: false });
+        await client.messageDelete('1:*', { uid: false });
       } catch (err) {
         const msg = (err.message || '').toLowerCase();
         // Non-fatal if folder is already empty or server reports no messages
