@@ -369,14 +369,27 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
       if (!email || (!emailVerified && provider.require_email_verified !== false)) {
         return oidcError(res, 'login', 'No account found. Contact your administrator.');
       }
-      const userByEmail = await client.query(
+      // Try matching by username first (accounts created with email as username),
+      // then fall back to matching via an owned email account — covers manually-created
+      // accounts whose username is not their email address.
+      let { rows: [user] } = await client.query(
         'SELECT id, username, is_admin FROM users WHERE username = $1',
         [email.toLowerCase()]
       );
-      if (!userByEmail.rows.length) {
+      if (!user) {
+        const fallback = await client.query(
+          `SELECT u.id, u.username, u.is_admin
+           FROM users u
+           JOIN email_accounts ea ON ea.user_id = u.id
+           WHERE LOWER(ea.email_address) = $1
+           LIMIT 1`,
+          [email.toLowerCase()]
+        );
+        user = fallback.rows[0] || null;
+      }
+      if (!user) {
         return oidcError(res, 'login', 'No account found matching this email. Contact your administrator.');
       }
-      const user = userByEmail.rows[0];
       await client.query(
         `INSERT INTO user_identities (user_id, provider_id, issuer, subject, email, email_verified, last_used_at)
          VALUES ($1, $2, $3, $4, $5, $6, NOW())
