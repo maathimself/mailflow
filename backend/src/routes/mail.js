@@ -723,6 +723,7 @@ router.post('/folders/empty', async (req, res) => {
     [accountId, path]
   );
   res.json({ ok: true });
+  imapManager.broadcast({ type: 'sync_complete', accountId }, check.rows[0].user_id);
 });
 
 // Bulk delete (move to trash)

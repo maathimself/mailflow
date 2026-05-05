@@ -459,9 +459,8 @@ export default function Sidebar() {
       onConfirm: async () => {
         try {
           await api.emptyFolder(accountId, folderPath);
-          if (selectedAccountId === accountId && selectedFolder === folderPath) {
-            window.dispatchEvent(new CustomEvent('mailflow:refresh'));
-          }
+          window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+          api.getFolders(accountId).then(f => setFolders(accountId, f)).catch(() => {});
         } catch (err) {
           addNotification({ title: t('sidebar.emptyFailed'), body: err.message });
         }

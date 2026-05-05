@@ -19,7 +19,7 @@ export function useWebSocket() {
   const reconnectTimer = useRef(null);
   const mountedRef = useRef(true);
   const reconnectAttempt = useRef(0);
-  const { addNotification, updateAccount } = useStore();
+  const { addNotification, updateAccount, setFolders } = useStore();
 
   const connect = useCallback(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -159,6 +159,12 @@ export function useWebSocket() {
             useStore.setState({ unreadCounts: counts });
           }
         }).catch(() => {});
+        // Re-fetch per-folder counts for the affected account so sidebar folder
+        // badges stay in sync (unread_count, total_count). Only refresh accounts
+        // whose folders are already loaded to avoid unnecessary requests.
+        if (data.accountId && useStore.getState().folders[data.accountId]) {
+          api.getFolders(data.accountId).then(f => setFolders(data.accountId, f)).catch(() => {});
+        }
         break;
       }
 
@@ -189,7 +195,7 @@ export function useWebSocket() {
         break;
       }
     }
-  }, [addNotification, updateAccount, t]);
+  }, [addNotification, updateAccount, setFolders, t]);
 
   useEffect(() => {
     mountedRef.current = true;
