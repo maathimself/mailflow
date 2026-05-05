@@ -481,6 +481,7 @@ router.get('/messages/:id/attachments/:part', async (req, res) => {
 
   try {
     const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]);
+    if (!accountResult.rows.length) return res.status(404).json({ error: 'Account not found' });
     const buffer = await imapManager.fetchAttachment(accountResult.rows[0], message.uid, message.folder, partNum);
 
     if (!buffer) return res.status(404).json({ error: 'Could not fetch attachment' });
