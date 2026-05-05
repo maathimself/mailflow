@@ -28,6 +28,10 @@ jobs:
         working-directory: backend
         run: node --check src/index.js
 
+      - name: Test
+        working-directory: backend
+        run: npm test
+
       - name: Audit
         working-directory: backend
         run: npm audit --audit-level=high
