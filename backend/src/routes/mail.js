@@ -614,13 +614,14 @@ router.post('/mark-all-read', async (req, res) => {
   );
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
   await query('UPDATE messages SET is_read = true, read_changed_at = NOW() WHERE account_id = $1 AND folder = $2', [accountId, folder]);
-  query('UPDATE folders SET unread_count = 0 WHERE account_id = $1 AND path = $2', [accountId, folder])
+  await query('UPDATE folders SET unread_count = 0 WHERE account_id = $1 AND path = $2', [accountId, folder])
     .catch(err => console.error('Folder count update failed:', err.message));
   // Also update IMAP so the change survives the next sync (non-fatal if it fails)
   imapManager.markAllReadImap(check.rows[0], folder).catch(err =>
     console.warn('markAllReadImap failed:', err.message)
   );
   res.json({ ok: true });
+  imapManager.broadcast({ type: 'sync_complete', accountId }, check.rows[0].user_id);
 });
 
 // Create folder

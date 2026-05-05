@@ -1205,6 +1205,10 @@ export class ImapManager {
           const totalExists = bfClient.mailbox?.exists || 0;
           if (totalExists === 0) {
             console.log(`Backfill ${logAccount(account)}: mailbox empty`);
+            await query(
+              'UPDATE folders SET total_count = 0, unread_count = 0 WHERE account_id = $1 AND path = $2',
+              [account.id, folder]
+            ).catch(() => {});
             return;
           }
           serverUids = await bfClient.search({ all: true }, { uid: true });
@@ -1279,6 +1283,14 @@ export class ImapManager {
 
       if (missingUids.length === 0) {
         console.log(`Backfill ${logAccount(account)}: no missing UIDs (${dbCount} in DB vs ${serverTotal} on server — within tolerance)`);
+        // Still reconcile folder counts — they may be stale if a previous backfill was interrupted.
+        await query(
+          `UPDATE folders
+           SET total_count  = (SELECT COUNT(*)                                FROM messages m WHERE m.account_id = $1 AND m.folder = $2),
+               unread_count = (SELECT COUNT(*) FILTER (WHERE is_read = false)  FROM messages m WHERE m.account_id = $1 AND m.folder = $2)
+           WHERE account_id = $1 AND path = $2`,
+          [account.id, folder]
+        ).catch(() => {});
         return;
       }
 
@@ -1637,7 +1649,8 @@ export class ImapManager {
   // Uses a pooled connection — does NOT touch the main sync connection.
   async appendToSent(account, folder, rawMessage) {
     await withFreshClient(account, async (client) => {
-      await client.append(folder, rawMessage, ['\\Seen']);
+      const result = await client.append(folder, rawMessage, ['\\Seen']);
+      if (result === false) throw new Error('IMAP append returned false — server did not confirm message was stored');
     });
     console.log(`Appended sent message to IMAP ${logAccount(account)}/${folder}`);
   }
@@ -1937,12 +1950,17 @@ export class ImapManager {
       await withFreshClient(account, async (client) => {
         const lock = await client.getMailboxLock(folder);
         try {
+          let flagResult;
           if (value) {
-            await client.messageFlagsAdd(String(uid), [flag], { uid: true });
+            flagResult = await client.messageFlagsAdd(String(uid), [flag], { uid: true });
           } else {
-            await client.messageFlagsRemove(String(uid), [flag], { uid: true });
+            flagResult = await client.messageFlagsRemove(String(uid), [flag], { uid: true });
           }
-          console.log(`setFlag success: uid=${uid} ${flag}=${value}`);
+          if (flagResult === false) {
+            console.warn(`setFlag: ImapFlow returned false for uid=${uid} ${flag}=${value} — server may not have applied the flag`);
+          } else {
+            console.log(`setFlag success: uid=${uid} ${flag}=${value}`);
+          }
         } finally {
           lock.release();
         }
@@ -1979,6 +1997,7 @@ export class ImapManager {
         const lock = await client.getMailboxLock(fromFolder);
         try {
           const result = await client.messageMove(String(uid), toFolder, { uid: true });
+          if (result === false) throw new Error('messageMove returned false — server did not confirm move');
           if (result?.uidMap) {
             newUid = result.uidMap.get(Number(uid)) ?? null;
           }
@@ -2015,7 +2034,8 @@ export class ImapManager {
       const lock = await client.getMailboxLock(folder);
       try {
         if (!client.mailbox || client.mailbox.exists === 0) return;
-        await client.messageDelete('1:*', { uid: false });
+        const deleted = await client.messageDelete('1:*', { uid: false });
+        if (deleted === false) throw new Error('messageDelete returned false — server did not confirm deletion');
       } catch (err) {
         const msg = (err.message || '').toLowerCase();
         // Non-fatal if folder is already empty or server reports no messages
@@ -2031,7 +2051,8 @@ export class ImapManager {
       const lock = await client.getMailboxLock(folder);
       try {
         if (!client.mailbox || client.mailbox.exists === 0) return;
-        await client.messageFlagsAdd('1:*', ['\\Seen'], { uid: false });
+        const result = await client.messageFlagsAdd('1:*', ['\\Seen'], { uid: false });
+        if (result === false) console.warn(`markAllReadImap: messageFlagsAdd returned false for ${folder} — server may not have applied flags`);
       } catch (err) {
         console.warn(`markAllRead IMAP warning for ${folder}:`, err.message);
         // Non-fatal — DB is already updated
@@ -2048,6 +2069,7 @@ export class ImapManager {
         const lock = await client.getMailboxLock(fromFolder);
         try {
           const result = await client.messageMove(String(uid), toFolder, { uid: true });
+          if (result === false) throw new Error('messageMove returned false — server did not confirm move');
           if (result?.uidMap) newUid = result.uidMap.get(Number(uid)) ?? null;
         } finally {
           lock.release();
@@ -2114,7 +2136,7 @@ export class ImapManager {
     // the snoozed folder (joined via stable Message-ID header).
     const due = await query(`
       SELECT sm.id AS snooze_id, sm.user_id, sm.account_id,
-             sm.message_id_header, sm.original_folder, sm.snoozed_folder, m.uid
+             sm.message_id_header, sm.original_folder, sm.snoozed_folder, m.uid, m.is_read
       FROM snoozed_messages sm
       JOIN messages m ON m.account_id = sm.account_id
                      AND m.message_id = sm.message_id_header
@@ -2137,6 +2159,27 @@ export class ImapManager {
         // Mark as unread so the user notices it
         if (newUid) {
           await this.setFlag(account, newUid, row.original_folder, '\\Seen', false);
+        } else if (row.message_id_header) {
+          // No UIDPLUS — server moved the message but returned no UID map.
+          // Search the destination folder by Message-ID to locate and unflag \Seen.
+          try {
+            await withFreshClient(account, async (client) => {
+              const lock = await client.getMailboxLock(row.original_folder);
+              try {
+                const uids = await client.search({ header: ['Message-ID', row.message_id_header] }, { uid: true });
+                if (uids.length > 0) {
+                  const r = await client.messageFlagsRemove(String(uids[0]), ['\\Seen'], { uid: true });
+                  if (r === false) console.warn(`Snooze wakeup: messageFlagsRemove returned false for ${row.original_folder}`);
+                } else {
+                  console.warn(`Snooze wakeup: could not find message in ${row.original_folder} to mark unread (Message-ID: ${row.message_id_header})`);
+                }
+              } finally {
+                lock.release();
+              }
+            });
+          } catch (err) {
+            console.warn(`Snooze wakeup: could not mark message unread on server (no UIDPLUS): ${err.message}`);
+          }
         }
 
         // Update DB: change folder, mark unread, and update UID if the move returned one.
@@ -2154,6 +2197,11 @@ export class ImapManager {
 
         // Remove snooze record
         await query('DELETE FROM snoozed_messages WHERE id = $1', [row.snooze_id]);
+
+        // Update folder counts: message leaves Snoozed and re-enters original_folder as unread.
+        // row.is_read reflects the read state in the Snoozed folder before the move.
+        adjustFolderCounts(row.account_id, row.snoozed_folder, -1, row.is_read ? 0 : -1);
+        adjustFolderCounts(row.account_id, row.original_folder, 1, 1); // always +1 unread on wakeup
 
         // Notify the user's open clients so the message reappears
         this.broadcast({ type: 'snooze_wakeup', accountId: row.account_id }, row.user_id);

@@ -396,6 +396,7 @@ export default function Sidebar() {
       api.getUnreadCounts().then(counts => {
         useStore.setState({ unreadCounts: counts });
       }).catch(() => {});
+      api.getFolders(accountId).then(f => setFolders(accountId, f)).catch(() => {});
     } catch (err) { console.error('markAllRead failed:', err.message); }
   };
 
