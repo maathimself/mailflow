@@ -960,12 +960,20 @@ export class ImapManager {
           }
         }
 
+        // mailbox.unseen from IMAP SELECT is the sequence number of the first unseen
+        // message, NOT the count of unread messages.  Compute the real count from the
+        // messages table instead — accurate post-backfill and never inflated.
+        const { rows: [ucRow] } = await query(
+          `SELECT COUNT(*) FILTER (WHERE is_read = false) AS n FROM messages WHERE account_id = $1 AND folder = $2`,
+          [account.id, folder]
+        );
+        const dbUnreadCount = parseInt(ucRow.n || 0);
         await query(`
           INSERT INTO folders (account_id, path, name, total_count, unread_count, uid_validity)
           VALUES ($1, $2, $2, $3, $4, $5)
           ON CONFLICT (account_id, path) DO UPDATE
           SET total_count = $3, unread_count = $4, uid_validity = COALESCE($5, folders.uid_validity), updated_at = NOW()
-        `, [account.id, folder, mailbox.exists, mailbox.unseen || 0, currentValidity]);
+        `, [account.id, folder, mailbox.exists, dbUnreadCount, currentValidity]);
 
         const fetchRange = mailbox.exists > limit
           ? `${mailbox.exists - limit + 1}:${mailbox.exists}` : '1:*';
@@ -1435,6 +1443,15 @@ export class ImapManager {
       }
 
       console.log(`Backfill complete for ${logAccount(account)}/${folder}`);
+      // Backfill inserts rows directly without going through adjustFolderCounts,
+      // so folder counters would stay at 0 without this reconciliation step.
+      await query(
+        `UPDATE folders
+         SET total_count  = (SELECT COUNT(*)                                FROM messages m WHERE m.account_id = $1 AND m.folder = $2),
+             unread_count = (SELECT COUNT(*) FILTER (WHERE is_read = false)  FROM messages m WHERE m.account_id = $1 AND m.folder = $2)
+         WHERE account_id = $1 AND path = $2`,
+        [account.id, folder]
+      ).catch(err => console.error(`Folder count update after backfill failed for ${logAccount(account)}/${folder}:`, err.message));
       this.broadcast({ type: 'backfill_complete', accountId: account.id }, account.user_id);
     } catch (err) {
       console.error(`Backfill failed for ${logAccount(account)}/${folder}:`, err.message);
