@@ -177,8 +177,8 @@ router.get('/microsoft/callback', async (req, res) => {
     // Redirect back to app with success
     res.redirect('/?oauth_success=microsoft');
   } catch (err) {
-    console.error('Microsoft OAuth callback error:', err.message);
-    res.redirect(`/?oauth_error=${encodeURIComponent(err.message)}`);
+    console.error('Microsoft OAuth callback error:', err);
+    res.redirect('/?oauth_error=Authentication+failed');
   }
 });
 

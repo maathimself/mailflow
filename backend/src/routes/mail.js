@@ -439,8 +439,8 @@ router.get('/messages/:id/headers', async (req, res) => {
     const headers = await imapManager.fetchHeaders(account, message.uid, message.folder);
     res.json({ headers });
   } catch (err) {
-    console.error('Headers fetch error:', err.message);
-    res.status(500).json({ error: err.message });
+    console.error('Headers fetch error:', err);
+    res.status(500).json({ error: 'Failed to fetch message headers' });
   }
 });
 
@@ -492,8 +492,8 @@ router.get('/messages/:id/attachments/:part', async (req, res) => {
     res.setHeader('Content-Length', buffer.length);
     res.send(buffer);
   } catch (err) {
-    console.error('Attachment fetch error:', err.message);
-    res.status(500).json({ error: err.message });
+    console.error('Attachment fetch error:', err);
+    res.status(500).json({ error: 'Failed to fetch attachment' });
   }
 });
 
@@ -648,7 +648,8 @@ router.post('/folders', async (req, res) => {
     );
     res.json({ ok: true, path });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Create folder error:', err);
+    res.status(500).json({ error: 'Failed to create folder' });
   }
 });
 
@@ -695,7 +696,8 @@ router.post('/folders/rename', async (req, res) => {
     await query('UPDATE messages SET folder = $1 WHERE account_id = $2 AND folder = $3', [newPath, accountId, oldPath]);
     res.json({ ok: true, newPath });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Rename folder error:', err);
+    res.status(500).json({ error: 'Failed to rename folder' });
   }
 });
 

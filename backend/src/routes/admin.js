@@ -339,6 +339,16 @@ router.post('/oidc', async (req, res) => {
     return res.status(400).json({ error: 'Slug must contain only lowercase letters, numbers and hyphens' });
   }
   try {
+    const parsed = new URL(issuer_url.trim());
+    if (parsed.protocol !== 'https:') {
+      return res.status(400).json({ error: 'Issuer URL must use HTTPS' });
+    }
+    const hostErr = await validateHost(parsed.hostname);
+    if (hostErr) return res.status(400).json({ error: `Issuer URL: ${hostErr}` });
+  } catch {
+    return res.status(400).json({ error: 'Issuer URL is not a valid URL' });
+  }
+  try {
     const result = await query(
       `INSERT INTO oidc_providers (name, slug, issuer_url, client_id, client_secret, scopes, provisioning_mode, allowed_domains, enabled, require_email_verified)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -365,6 +375,18 @@ router.patch('/oidc/:id', async (req, res) => {
   const { name, slug, issuer_url, client_id, client_secret, scopes, provisioning_mode, allowed_domains, enabled, require_email_verified } = req.body;
   if (slug && !/^[a-z0-9-]+$/.test(slug)) {
     return res.status(400).json({ error: 'Slug must contain only lowercase letters, numbers and hyphens' });
+  }
+  if (issuer_url) {
+    try {
+      const parsed = new URL(issuer_url.trim());
+      if (parsed.protocol !== 'https:') {
+        return res.status(400).json({ error: 'Issuer URL must use HTTPS' });
+      }
+      const hostErr = await validateHost(parsed.hostname);
+      if (hostErr) return res.status(400).json({ error: `Issuer URL: ${hostErr}` });
+    } catch {
+      return res.status(400).json({ error: 'Issuer URL is not a valid URL' });
+    }
   }
   // Only encrypt a new secret if one was provided (non-placeholder)
   const secretUpdate = client_secret && client_secret !== '••••••••'
