@@ -24,7 +24,14 @@ services:
     volumes:
       - ./certs:/etc/nginx/ssl
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO/dev/null http://localhost:80/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     networks:
       - mailflow
 
@@ -33,6 +40,12 @@ services:
     image: ghcr.io/maathimself/mailflow-backend:${MAILFLOW_VERSION:-latest}
     container_name: mailflow-backend
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     environment:
       NODE_ENV: production
       PORT: 3000

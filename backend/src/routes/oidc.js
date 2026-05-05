@@ -5,6 +5,7 @@ import { query, pool } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { decrypt, isEncrypted } from '../services/encryption.js';
 import { imapManager } from '../index.js';
+import { validateHostLiteral } from '../services/hostValidation.js';
 
 // In-memory OIDC discovery cache keyed by issuerUrl
 const discoveryCache = new Map();
@@ -32,12 +33,21 @@ async function getDiscovery(issuerUrl) {
   if (normDiscovered !== normConfigured) {
     throw new Error(`OIDC issuer mismatch: configured "${normConfigured}", got "${normDiscovered}"`);
   }
-  // Validate that all discovered endpoint URLs use HTTPS
+  // Validate that all discovered endpoint URLs use HTTPS and don't point at
+  // internal/private hosts — a compromised discovery doc could otherwise
+  // redirect token or JWKS fetches to internal HTTPS services.
   for (const field of ['authorization_endpoint', 'token_endpoint', 'jwks_uri']) {
     const url = doc[field];
-    if (!url || new URL(url).protocol !== 'https:') {
+    if (!url) throw new Error(`OIDC discovery missing required field: ${field}`);
+    let parsed;
+    try { parsed = new URL(url); } catch {
+      throw new Error(`OIDC discovery returned invalid URL for ${field}: ${url}`);
+    }
+    if (parsed.protocol !== 'https:') {
       throw new Error(`OIDC discovery returned non-HTTPS ${field}: ${url}`);
     }
+    const hostErr = validateHostLiteral(parsed.hostname);
+    if (hostErr) throw new Error(`OIDC discovery ${field} points to a disallowed host: ${hostErr}`);
   }
   const jwks = createRemoteJWKSet(new URL(doc.jwks_uri));
   discoveryCache.set(issuerUrl, { doc, jwks, cachedAt: Date.now() });

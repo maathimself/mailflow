@@ -4,7 +4,7 @@ import nodemailer from 'nodemailer';
 import { query } from '../services/db.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { decrypt, encrypt } from '../services/encryption.js';
-import { validateHost } from '../services/hostValidation.js';
+import { validateHost, resolveForConnection } from '../services/hostValidation.js';
 
 const router = Router();
 router.use(requireAdmin);
@@ -135,12 +135,15 @@ router.post('/invites', async (req, res) => {
         const cfg = JSON.parse(sysResult.rows[0].value);
         const pass = cfg.pass ? decrypt(cfg.pass) : null;
         if (cfg.host && cfg.user && pass) {
+          const sysResolved = await resolveForConnection(cfg.host);
+          const sysTls = { rejectUnauthorized: true };
+          if (sysResolved.servername) sysTls.servername = sysResolved.servername;
           transport = nodemailer.createTransport({
-            host: cfg.host,
+            host: sysResolved.host,
             port: cfg.port || 587,
             secure: (cfg.port || 587) === 465,
             auth: { user: cfg.user, pass },
-            tls: { rejectUnauthorized: true },
+            tls: sysTls,
           });
           fromHeader = `${cfg.fromName || 'MailFlow'} <${cfg.fromEmail || cfg.user}>`;
         }
@@ -168,12 +171,15 @@ router.post('/invites', async (req, res) => {
         } else {
           smtpAuth = { user: account.auth_user, pass: decrypt(account.auth_pass) };
         }
+        const acctResolved = await resolveForConnection(account.smtp_host);
+        const acctTls = { rejectUnauthorized: !account.imap_skip_tls_verify };
+        if (acctResolved.servername) acctTls.servername = acctResolved.servername;
         transport = nodemailer.createTransport({
-          host: account.smtp_host,
+          host: acctResolved.host,
           port: account.smtp_port,
           secure: account.smtp_port === 465,
           auth: smtpAuth,
-          tls: { rejectUnauthorized: !account.imap_skip_tls_verify },
+          tls: acctTls,
         });
         fromHeader = `${account.name} <${account.email_address}>`;
       }
@@ -300,12 +306,15 @@ router.post('/system-email/test', async (req, res) => {
     return res.status(400).json({ error: 'No password stored — save the configuration first' });
   }
   try {
+    const testResolved = await resolveForConnection(cfg.host);
+    const testTls = { rejectUnauthorized: true };
+    if (testResolved.servername) testTls.servername = testResolved.servername;
     const transport = nodemailer.createTransport({
-      host: cfg.host,
+      host: testResolved.host,
       port: cfg.port,
       secure: cfg.port === 465,
       auth: { user: cfg.user, pass },
-      tls: { rejectUnauthorized: true },
+      tls: testTls,
     });
     await transport.verify();
     res.json({ ok: true });
