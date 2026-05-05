@@ -7,6 +7,7 @@ import { refreshMicrosoftToken } from './oauth.js';
 import { decrypt } from '../services/encryption.js';
 import sanitizeHtml from 'sanitize-html';
 import { redactEmail } from '../utils/redact.js';
+import { resolveForConnection } from '../services/hostValidation.js';
 
 function escapeHtml(str) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -141,12 +142,15 @@ router.post('/send', async (req, res) => {
       smtpAuth = { user: account.auth_user, pass };
     }
 
+    const smtpResolved = await resolveForConnection(account.smtp_host);
+    const smtpTls = { rejectUnauthorized: !account.imap_skip_tls_verify };
+    if (smtpResolved.servername) smtpTls.servername = smtpResolved.servername;
     const transport = nodemailer.createTransport({
-      host: account.smtp_host,
+      host: smtpResolved.host,
       port: account.smtp_port,
       secure: account.smtp_port === 465,
       auth: smtpAuth,
-      tls: { rejectUnauthorized: !account.imap_skip_tls_verify },
+      tls: smtpTls,
     });
 
     // Use a stable Message-ID so the SMTP copy and any IMAP APPEND reference the same message.

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { validateHostLiteral, validateHost } from './hostValidation.js';
+import { validateHostLiteral, validateHost, resolveForConnection } from './hostValidation.js';
 
 // Mock the dns module so tests never make real network calls.
 vi.mock('dns', () => ({
@@ -134,5 +134,63 @@ describe('validateHost', () => {
   it('short-circuits on reserved hostname before DNS', async () => {
     expect(await validateHost('localhost')).not.toBeNull();
     expect(dns.resolve4).not.toHaveBeenCalled();
+  });
+});
+
+// ── resolveForConnection ───────────────────────────────────────────────────
+
+describe('resolveForConnection', () => {
+  it('returns the literal IP with no servername for a public IPv4', async () => {
+    const result = await resolveForConnection('8.8.8.8');
+    expect(result.host).toBe('8.8.8.8');
+    expect(result.servername).toBeNull();
+    expect(dns.resolve4).not.toHaveBeenCalled();
+  });
+
+  it('returns the literal IP with no servername for a public IPv6', async () => {
+    const result = await resolveForConnection('2001:db8::1');
+    expect(result.host).toBe('2001:db8::1');
+    expect(result.servername).toBeNull();
+  });
+
+  it('pins the resolved IP and sets servername for a public hostname', async () => {
+    dns.resolve4.mockResolvedValue(['142.250.80.46']);
+    const result = await resolveForConnection('imap.gmail.com');
+    expect(result.host).toBe('142.250.80.46');
+    expect(result.servername).toBe('imap.gmail.com');
+  });
+
+  it('throws for a hostname that resolves to a private IP', async () => {
+    dns.resolve4.mockResolvedValue(['192.168.1.100']);
+    await expect(resolveForConnection('evil.attacker.com')).rejects.toThrow(/private|reserved/i);
+  });
+
+  it('throws for a hostname that resolves to a private IPv6', async () => {
+    dns.resolve6.mockResolvedValue(['fd00::1']);
+    await expect(resolveForConnection('evil.attacker.com')).rejects.toThrow(/private|reserved/i);
+  });
+
+  it('throws for a literal private IP', async () => {
+    await expect(resolveForConnection('10.0.0.1')).rejects.toThrow(/private|reserved/i);
+    expect(dns.resolve4).not.toHaveBeenCalled();
+  });
+
+  it('throws for a reserved hostname', async () => {
+    await expect(resolveForConnection('localhost')).rejects.toThrow();
+    expect(dns.resolve4).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the original hostname when DNS fails (NXDOMAIN)', async () => {
+    dns.resolve4.mockRejectedValue(new Error('NXDOMAIN'));
+    dns.resolve6.mockRejectedValue(new Error('NXDOMAIN'));
+    const result = await resolveForConnection('nonexistent.invalid');
+    expect(result.host).toBe('nonexistent.invalid');
+    expect(result.servername).toBeNull();
+  });
+
+  it('trims whitespace from the hostname', async () => {
+    dns.resolve4.mockResolvedValue(['142.250.80.46']);
+    const result = await resolveForConnection('  imap.gmail.com  ');
+    expect(result.servername).toBe('imap.gmail.com');
   });
 });
