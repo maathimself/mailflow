@@ -5,7 +5,11 @@ import { refreshMicrosoftToken } from '../routes/oauth.js';
 import { sanitizeEmail } from './emailSanitizer.js';
 import { decrypt } from './encryption.js';
 import { sendPushToUser } from './pushNotifications.js';
+import { redactEmail } from '../utils/redact.js';
 
+
+// Shorthand for log lines — keeps domain visible while masking the local part.
+const logAccount = (account) => redactEmail(account?.email_address || '');
 
 // Body parts that cover ~99% of real-world email structures (used for full body caching)
 const BODY_PREFETCH_PARTS = ['1', '1.1', '1.2', '2', '2.1', '2.2', '1.1.1', '1.2.1'];
@@ -294,11 +298,11 @@ async function ensureFreshToken(account) {
   const now = new Date();
   // Refresh if token expires within 5 minutes
   if (expiry - now < 5 * 60 * 1000) {
-    console.log(`Refreshing Microsoft token for ${account.email_address}`);
+    console.log(`Refreshing Microsoft token for ${logAccount(account)}`);
     try {
       account = await refreshMicrosoftToken(account);
     } catch (err) {
-      console.error(`Token refresh failed for ${account.email_address}:`, err.message);
+      console.error(`Token refresh failed for ${logAccount(account)}:`, err.message);
     }
   }
   return account;
@@ -484,9 +488,9 @@ export class ImapManager {
         );
         for (const account of result.rows) {
           if (!this.connections.has(account.id) && !this.connectingAccounts.has(account.id)) {
-            console.log(`Health check: reconnecting ${account.email_address} (not connected)`);
+            console.log(`Health check: reconnecting ${logAccount(account)} (not connected)`);
             this.connectAccount(account).catch(err =>
-              console.error(`Health check reconnect failed for ${account.email_address}:`, err.message)
+              console.error(`Health check reconnect failed for ${logAccount(account)}:`, err.message)
             );
           }
         }
@@ -503,9 +507,9 @@ export class ImapManager {
     client.on('exists', ({ count, prevCount } = {}) => {
       if ((count ?? 0) <= (prevCount ?? 0)) return;
       if (this.syncingAccounts.has(account.id)) return;
-      console.log(`IMAP IDLE: new mail for ${account.email_address} (${prevCount} → ${count})`);
+      console.log(`IMAP IDLE: new mail for ${logAccount(account)} (${prevCount} → ${count})`);
       this._syncTick(account).catch(err =>
-        console.warn(`IDLE-triggered sync error for ${account.email_address}:`, err.message)
+        console.warn(`IDLE-triggered sync error for ${logAccount(account)}:`, err.message)
       );
     });
     // Flag changes (e.g. read/unread from another client) arrive as unsolicited
@@ -516,9 +520,9 @@ export class ImapManager {
       if (existing) clearTimeout(existing);
       this._flagDebounceTimers.set(account.id, setTimeout(() => {
         this._flagDebounceTimers.delete(account.id);
-        console.log(`IMAP IDLE: flag change for ${account.email_address}, syncing flags`);
+        console.log(`IMAP IDLE: flag change for ${logAccount(account)}, syncing flags`);
         this._syncFlagsForRange(account).catch(err =>
-          console.warn(`Flag-triggered sync error for ${account.email_address}:`, err.message)
+          console.warn(`Flag-triggered sync error for ${logAccount(account)}:`, err.message)
         );
       }, 500));
     });
@@ -531,9 +535,9 @@ export class ImapManager {
       if (existing) clearTimeout(existing);
       this._expungeDebounceTimers.set(account.id, setTimeout(() => {
         this._expungeDebounceTimers.delete(account.id);
-        console.log(`IMAP IDLE: expunge for ${account.email_address}, reconciling`);
+        console.log(`IMAP IDLE: expunge for ${logAccount(account)}, reconciling`);
         this.reconcileDeletes(account).catch(err =>
-          console.warn(`Expunge-triggered reconcile error for ${account.email_address}:`, err.message)
+          console.warn(`Expunge-triggered reconcile error for ${logAccount(account)}:`, err.message)
         );
       }, 1500));
     });
@@ -545,11 +549,11 @@ export class ImapManager {
     // before the first connectAccount completes — without this, both would connect the
     // same account in parallel, leaving one interval/client permanently orphaned.
     if (this.connectingAccounts.has(account.id)) {
-      console.log(`Already connecting ${account.email_address}, skipping duplicate`);
+      console.log(`Already connecting ${logAccount(account)}, skipping duplicate`);
       return false;
     }
     this.connectingAccounts.add(account.id);
-    console.log(`Connecting ${account.email_address} (${account.imap_host}:${account.imap_port})…`);
+    console.log(`Connecting ${logAccount(account)} (${account.imap_host}:${account.imap_port})…`);
 
     // Always clean up any existing connection and interval first.
     // Previously this only ran when a connection existed, which left orphaned
@@ -577,14 +581,14 @@ export class ImapManager {
       client.on('close', () => {
         if (this.connections.get(account.id) === client) {
           this.connections.delete(account.id);
-          console.log(`IMAP connection closed for ${account.email_address}`);
+          console.log(`IMAP connection closed for ${logAccount(account)}`);
         }
       });
       // Prevent unhandled 'error' events from crashing the Node.js process.
       // ImapFlow emits 'error' on socket timeouts and other transport-level failures;
       // without this listener Node throws on unhandled EventEmitter errors.
       client.on('error', (err) => {
-        console.error(`IMAP error for ${account.email_address}:`, err.message);
+        console.error(`IMAP error for ${logAccount(account)}:`, err.message);
       });
       this._attachIdleListeners(client, account);
       this.connections.set(account.id, client);
@@ -599,7 +603,7 @@ export class ImapManager {
         // Fetching body parts on initial connect stalls on slow servers (purelymail et al).
         await this.syncMessages(account, client, 'INBOX', 20, false, true);
       } catch (syncErr) {
-        console.warn(`Initial sync skipped for ${account.email_address}: ${extractImapError(syncErr)}`);
+        console.warn(`Initial sync skipped for ${logAccount(account)}: ${extractImapError(syncErr)}`);
       }
 
       // Pre-warm one pool connection immediately so the first email click doesn't
@@ -607,24 +611,24 @@ export class ImapManager {
       setImmediate(() => {
         acquirePooledClient(account)
           .then(c => releasePooledClient(account, c))
-          .catch(err => console.warn(`Pool pre-warm failed for ${account.email_address}:`, err.message));
+          .catch(err => console.warn(`Pool pre-warm failed for ${logAccount(account)}:`, err.message));
       });
 
       // Backfill uses its OWN connection so it doesn't block the sync connection.
       // backfillAllFolders runs INBOX first, then all other known folders sequentially.
       this.backfillAllFolders(account).catch(err =>
-        console.error(`Backfill error for ${account.email_address}:`, err.message)
+        console.error(`Backfill error for ${logAccount(account)}:`, err.message)
       );
 
       const intervalMs = this.userSyncIntervalMs.get(account.user_id) || 60000;
       this._startSyncInterval(account, intervalMs);
 
-      console.log(`Connected account: ${account.email_address}`);
+      console.log(`Connected account: ${logAccount(account)}`);
       this.broadcast({ type: 'account_connected', accountId: account.id }, account.user_id);
       return true;
     } catch (err) {
       const detail = extractImapError(err);
-      console.error(`Failed to connect ${account.email_address}:`, detail);
+      console.error(`Failed to connect ${logAccount(account)}:`, detail);
       await query('UPDATE email_accounts SET sync_error = $1 WHERE id = $2', [detail, account.id]);
       this.broadcast({ type: 'account_error', accountId: account.id, error: detail }, account.user_id);
       return false;
@@ -681,7 +685,7 @@ export class ImapManager {
       // current credentials and config rather than the stale closure-captured object.
       let syncAccount = account;
       if (!activeClient) {
-        console.log(`Reconnecting ${account.email_address}...`);
+        console.log(`Reconnecting ${logAccount(account)}...`);
         try {
           const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [account.id]);
           if (!accountResult.rows.length) return;
@@ -700,13 +704,13 @@ export class ImapManager {
             }
           });
           activeClient.on('error', (err) => {
-            console.error(`IMAP error for ${syncAccount.email_address}:`, err.message);
+            console.error(`IMAP error for ${logAccount(syncAccount)}:`, err.message);
           });
           this._attachIdleListeners(activeClient, syncAccount);
           this.connections.set(account.id, activeClient);
-          console.log(`Reconnected ${syncAccount.email_address}`);
+          console.log(`Reconnected ${logAccount(syncAccount)}`);
         } catch (reconnErr) {
-          console.error(`Reconnect failed for ${account.email_address}:`, reconnErr.message);
+          console.error(`Reconnect failed for ${logAccount(account)}:`, reconnErr.message);
           return;
         }
       }
@@ -731,7 +735,7 @@ export class ImapManager {
         this._pendingFlagSync.delete(account.id);
         setImmediate(() => {
           this._syncFlagsForRange(syncAccount).catch(err =>
-            console.warn(`Post-sync flags error for ${syncAccount.email_address}:`, err.message)
+            console.warn(`Post-sync flags error for ${logAccount(syncAccount)}:`, err.message)
           );
         });
       }
@@ -743,13 +747,13 @@ export class ImapManager {
       if (ticks % 10 === 0) {
         setImmediate(() => {
           this.reconcileDeletes(syncAccount).catch(err =>
-            console.error(`Reconcile error for ${syncAccount.email_address}:`, err.message)
+            console.error(`Reconcile error for ${logAccount(syncAccount)}:`, err.message)
           );
         });
       }
     } catch (err) {
       const detail = extractImapError(err);
-      console.error(`Sync error for ${account.email_address}:`, detail);
+      console.error(`Sync error for ${logAccount(account)}:`, detail);
       if (detail.includes('THROTTLED') || detail.includes('throttl')) {
         this.syncThrottleSkips.set(account.id, 4);
       }
@@ -844,7 +848,7 @@ export class ImapManager {
           );
 
           if (result.rowCount > 0) {
-            console.log(`Flag sync: ${result.rowCount} flag change(s) for ${account.email_address}, broadcasting`);
+            console.log(`Flag sync: ${result.rowCount} flag change(s) for ${logAccount(account)}, broadcasting`);
             this.broadcast({ type: 'flags_synced', accountId: account.id }, account.user_id);
           }
         } finally {
@@ -852,7 +856,7 @@ export class ImapManager {
         }
       });
     } catch (err) {
-      console.warn(`Flag range sync error for ${account.email_address}:`, err.message);
+      console.warn(`Flag range sync error for ${logAccount(account)}:`, err.message);
     }
   }
 
@@ -899,7 +903,7 @@ export class ImapManager {
         `, [account.id, mb.path, mb.name, mb.delimiter, mb.specialUse || null]);
       }
     } catch (err) {
-      console.error(`Folder sync error for ${account.email_address}:`, err.message);
+      console.error(`Folder sync error for ${logAccount(account)}:`, err.message);
     }
   }
 
@@ -935,11 +939,11 @@ export class ImapManager {
           );
           const storedValidity = foldRow.rows[0]?.uid_validity ? Number(foldRow.rows[0].uid_validity) : null;
           if (storedValidity !== null && storedValidity !== currentValidity) {
-            console.warn(`UIDVALIDITY changed for ${account.email_address}/${folder}: ${storedValidity} → ${currentValidity}. Purging stale messages and re-backfilling.`);
+            console.warn(`UIDVALIDITY changed for ${logAccount(account)}/${folder}: ${storedValidity} → ${currentValidity}. Purging stale messages and re-backfilling.`);
             await query('DELETE FROM messages WHERE account_id = $1 AND folder = $2', [account.id, folder]);
             setImmediate(() => {
               this.backfillMessages(account, folder).catch(err =>
-                console.error(`Post-UIDVALIDITY backfill error for ${account.email_address}/${folder}:`, err.message)
+                console.error(`Post-UIDVALIDITY backfill error for ${logAccount(account)}/${folder}:`, err.message)
               );
             });
           }
@@ -1111,7 +1115,7 @@ export class ImapManager {
             const msgsToCache = newMessages.slice();
             setImmediate(() => {
               this.prefetchNewMessageBodies(account, msgsToCache)
-                .catch(err => console.warn(`Body prefetch error for ${account.email_address}:`, err.message));
+                .catch(err => console.warn(`Body prefetch error for ${logAccount(account)}:`, err.message));
             });
           }
         }
@@ -1120,7 +1124,7 @@ export class ImapManager {
         lock.release();
       }
     } catch (err) {
-      console.error(`Message sync error for ${account.email_address}/${folder}:`, extractImapError(err));
+      console.error(`Message sync error for ${logAccount(account)}/${folder}:`, extractImapError(err));
       throw err;
     }
   }
@@ -1141,7 +1145,7 @@ export class ImapManager {
     this.backfillRunning.add(backfillKey);
 
     const cfg = backfillConfig(account);
-    console.log(`Starting backfill for ${account.email_address} (batch=${cfg.batchSize}, delay=${cfg.batchDelay}ms, fetchBody=${cfg.fetchBody})`);
+    console.log(`Starting backfill for ${logAccount(account)} (batch=${cfg.batchSize}, delay=${cfg.batchDelay}ms, fetchBody=${cfg.fetchBody})`);
 
     // Dedicated connection managed here — completely independent of the shared pool
     // so backfilling never blocks the user from opening emails.
@@ -1156,7 +1160,7 @@ export class ImapManager {
       const fresh = await ensureFreshToken(row);
       const newClient = new ImapFlow(makeClientCfg(fresh));
       newClient.on('error', (err) => {
-        console.error(`Backfill IMAP error for ${account.email_address}:`, err.message);
+        console.error(`Backfill IMAP error for ${logAccount(account)}:`, err.message);
       });
       await Promise.race([
         newClient.connect(),
@@ -1180,7 +1184,7 @@ export class ImapManager {
         try {
           const totalExists = bfClient.mailbox?.exists || 0;
           if (totalExists === 0) {
-            console.log(`Backfill ${account.email_address}: mailbox empty`);
+            console.log(`Backfill ${logAccount(account)}: mailbox empty`);
             return;
           }
           serverUids = await bfClient.search({ all: true }, { uid: true });
@@ -1195,7 +1199,7 @@ export class ImapManager {
             );
             const storedValidity = foldRow.rows[0]?.uid_validity ? Number(foldRow.rows[0].uid_validity) : null;
             if (storedValidity !== null && storedValidity !== currentValidity) {
-              console.warn(`Backfill: UIDVALIDITY changed for ${account.email_address}/${folder}: ${storedValidity} → ${currentValidity}. Purging stale messages.`);
+              console.warn(`Backfill: UIDVALIDITY changed for ${logAccount(account)}/${folder}: ${storedValidity} → ${currentValidity}. Purging stale messages.`);
               await query('DELETE FROM messages WHERE account_id = $1 AND folder = $2', [account.id, folder]);
             }
             // Always keep stored validity current
@@ -1231,7 +1235,7 @@ export class ImapManager {
       // insufficient — syncMessages always fetches the most-recent N messages, so
       // maxDbUid == maxServerUid even when thousands of older messages are missing.
       if (maxServerUid > 0 && maxDbUid >= maxServerUid && dbCount >= serverTotal) {
-        console.log(`Backfill already complete for ${account.email_address}: maxDbUid=${maxDbUid}, maxServerUid=${maxServerUid}, dbCount=${dbCount}`);
+        console.log(`Backfill already complete for ${logAccount(account)}: maxDbUid=${maxDbUid}, maxServerUid=${maxServerUid}, dbCount=${dbCount}`);
         return;
       }
 
@@ -1254,11 +1258,11 @@ export class ImapManager {
         .sort((a, b) => b - a);
 
       if (missingUids.length === 0) {
-        console.log(`Backfill ${account.email_address}: no missing UIDs (${dbCount} in DB vs ${serverTotal} on server — within tolerance)`);
+        console.log(`Backfill ${logAccount(account)}: no missing UIDs (${dbCount} in DB vs ${serverTotal} on server — within tolerance)`);
         return;
       }
 
-      console.log(`Backfill ${account.email_address}: ${missingUids.length} missing of ${serverTotal} (${dbCount} already in DB)`);
+      console.log(`Backfill ${logAccount(account)}: ${missingUids.length} missing of ${serverTotal} (${dbCount} already in DB)`);
       this.broadcast({
         type: 'backfill_progress', accountId: account.id,
         synced: dbCount, total: serverTotal,
@@ -1277,7 +1281,7 @@ export class ImapManager {
         // Stop immediately if the account was deleted while backfilling
         const accountCheck = await query('SELECT id FROM email_accounts WHERE id = $1', [account.id]);
         if (!accountCheck.rows.length) {
-          console.log(`Backfill stopping — account ${account.email_address} was deleted`);
+          console.log(`Backfill stopping — account ${logAccount(account)} was deleted`);
           return;
         }
 
@@ -1285,7 +1289,7 @@ export class ImapManager {
         if (batchesOnConn >= cfg.batchesPerConn) {
           try { await openBfClient(); }
           catch (reconnErr) {
-            console.error(`Backfill reconnect failed for ${account.email_address}:`, reconnErr.message);
+            console.error(`Backfill reconnect failed for ${logAccount(account)}:`, reconnErr.message);
             await new Promise(r => setTimeout(r, cfg.errorDelay));
             continue; // retry same batch after delay
           }
@@ -1385,7 +1389,7 @@ export class ImapManager {
 
           // Log progress every 10 batches to avoid log spam
           if (batchesOnConn % 10 === 1 || i >= missingUids.length) {
-            console.log(`Backfill ${account.email_address}: ${i}/${missingUids.length} missing fetched`);
+            console.log(`Backfill ${logAccount(account)}: ${i}/${missingUids.length} missing fetched`);
             this.broadcast({
               type: 'backfill_progress', accountId: account.id,
               synced: dbCount + i, total: serverTotal,
@@ -1406,22 +1410,22 @@ export class ImapManager {
             // rather than skipping messages entirely (which would leave permanent gaps).
             const oldSize = cfg.batchSize;
             cfg.batchSize = Math.max(10, Math.floor(cfg.batchSize / 2));
-            console.warn(`Backfill reducing batch size for ${account.email_address}: ${oldSize} → ${cfg.batchSize} after 3 failures (${detail})`);
+            console.warn(`Backfill reducing batch size for ${logAccount(account)}: ${oldSize} → ${cfg.batchSize} after 3 failures (${detail})`);
             consecutiveErrors = 0;
             await new Promise(r => setTimeout(r, cfg.batchDelay));
           } else {
             const wait = cfg.errorDelay * Math.min(consecutiveErrors, 6);
-            console.error(`Backfill batch error for ${account.email_address}: ${detail} — retry ${consecutiveErrors}/3 after ${wait}ms`);
+            console.error(`Backfill batch error for ${logAccount(account)}: ${detail} — retry ${consecutiveErrors}/3 after ${wait}ms`);
             await new Promise(r => setTimeout(r, wait));
             // Do NOT advance i — retry the same batch
           }
         }
       }
 
-      console.log(`Backfill complete for ${account.email_address}/${folder}`);
+      console.log(`Backfill complete for ${logAccount(account)}/${folder}`);
       this.broadcast({ type: 'backfill_complete', accountId: account.id }, account.user_id);
     } catch (err) {
-      console.error(`Backfill failed for ${account.email_address}/${folder}:`, err.message);
+      console.error(`Backfill failed for ${logAccount(account)}/${folder}:`, err.message);
     } finally {
       if (bfClient) { try { await bfClient.logout(); } catch (_) {} }
       this.backfillRunning.delete(backfillKey);
@@ -1456,13 +1460,13 @@ export class ImapManager {
           }
         }
         await this.backfillMessages(account, path).catch(err =>
-          console.warn(`Backfill skipped ${account.email_address}/${path}: ${err.message}`)
+          console.warn(`Backfill skipped ${logAccount(account)}/${path}: ${err.message}`)
         );
       }
     } finally {
       this.backfillAllRunning.delete(account.id);
       this.startSnippetIndexer(account).catch(err =>
-        console.error(`Snippet indexer failed for ${account.email_address}:`, err.message)
+        console.error(`Snippet indexer failed for ${logAccount(account)}:`, err.message)
       );
     }
   }
@@ -1498,7 +1502,7 @@ export class ImapManager {
       const totalMissing = parseInt(countResult.rows[0].count);
       if (totalMissing === 0) return;
 
-      console.log(`Snippet indexer: ${account.email_address} has ${totalMissing} messages without snippets`);
+      console.log(`Snippet indexer: ${logAccount(account)} has ${totalMissing} messages without snippets`);
 
       const openClient = async () => {
         if (siClient) { try { await siClient.logout(); } catch (_) {} siClient = null; }
@@ -1506,7 +1510,7 @@ export class ImapManager {
         if (!row) throw new Error('Account deleted');
         const fresh = await ensureFreshToken(row);
         const c = new ImapFlow(makeClientCfg(fresh));
-        c.on('error', err => console.error(`Snippet indexer IMAP error ${account.email_address}:`, err.message));
+        c.on('error', err => console.error(`Snippet indexer IMAP error ${logAccount(account)}:`, err.message));
         await Promise.race([
           c.connect(),
           new Promise((_, rej) => setTimeout(() => rej(new Error('Connection timeout')), 30000)),
@@ -1544,7 +1548,7 @@ export class ImapManager {
               "SELECT count(*) FROM messages WHERE account_id = $1 AND (snippet IS NULL OR snippet = '')",
               [account.id]
             );
-            console.log(`Snippet indexer paused for ${account.email_address} after ${batchCount} batches — ${remaining.rows[0].count} remaining, will resume on next startup`);
+            console.log(`Snippet indexer paused for ${logAccount(account)} after ${batchCount} batches — ${remaining.rows[0].count} remaining, will resume on next startup`);
             return;
           }
 
@@ -1581,7 +1585,7 @@ export class ImapManager {
             }
             batchCount++;
           } catch (err) {
-            console.error(`Snippet indexer batch error ${account.email_address}/${folder}:`, err.message);
+            console.error(`Snippet indexer batch error ${logAccount(account)}/${folder}:`, err.message);
             await new Promise(r => setTimeout(r, cfg.errorDelay));
           }
 
@@ -1589,9 +1593,9 @@ export class ImapManager {
         }
       }
 
-      console.log(`Snippet indexer complete for ${account.email_address} (${batchCount} batches)`);
+      console.log(`Snippet indexer complete for ${logAccount(account)} (${batchCount} batches)`);
     } catch (err) {
-      console.error(`Snippet indexer error ${account.email_address}:`, err.message);
+      console.error(`Snippet indexer error ${logAccount(account)}:`, err.message);
     } finally {
       if (siClient) { try { await siClient.logout(); } catch (_) {} }
       this.snippetIndexerRunning.delete(account.id);
@@ -1605,26 +1609,26 @@ export class ImapManager {
     await withFreshClient(account, async (client) => {
       await client.append(folder, rawMessage, ['\\Seen']);
     });
-    console.log(`Appended sent message to IMAP ${account.email_address}/${folder}`);
+    console.log(`Appended sent message to IMAP ${logAccount(account)}/${folder}`);
   }
 
   async syncFolderOnDemand(account, folder) {
     const key = `${account.id}:${folder}`;
     if (this.onDemandSyncing.has(key)) {
-      console.log(`syncFolderOnDemand skipped (already running): ${account.email_address}/${folder}`);
+      console.log(`syncFolderOnDemand skipped (already running): ${logAccount(account)}/${folder}`);
       return;
     }
     this.onDemandSyncing.add(key);
-    console.log(`syncFolderOnDemand start: ${account.email_address}/${folder}`);
+    console.log(`syncFolderOnDemand start: ${logAccount(account)}/${folder}`);
     try {
       await withFreshClient(account, async (client) => {
         await this.syncMessages(account, client, folder, 100, false, true);
       });
-      console.log(`syncFolderOnDemand done: ${account.email_address}/${folder}`);
+      console.log(`syncFolderOnDemand done: ${logAccount(account)}/${folder}`);
       // sync_complete fires mailflow:refresh in the frontend, reloading the message list
       this.broadcast({ type: 'sync_complete', accountId: account.id }, account.user_id);
     } catch (err) {
-      console.error(`On-demand sync error ${account.email_address}/${folder}:`, err.message);
+      console.error(`On-demand sync error ${logAccount(account)}/${folder}:`, err.message);
     } finally {
       this.onDemandSyncing.delete(key);
     }
@@ -1839,7 +1843,7 @@ export class ImapManager {
           // times — the message may not exist on the server (deleted, UID mismatch).
           // Return null gracefully rather than surfacing a confusing error to the UI.
           if (retryDetail === 'Command failed') {
-            console.warn(`fetchMessageBody: uid=${uid} folder=${folder} account=${account.email_address} — no body after retry; message may be missing on server`);
+            console.warn(`fetchMessageBody: uid=${uid} folder=${folder} account=${logAccount(account)} — no body after retry; message may be missing on server`);
             return { html: null, text: null, attachments: [] };
           }
           const wrapped = new Error(retryDetail);
@@ -2039,12 +2043,12 @@ export class ImapManager {
     await Promise.all(accounts.map(async (account) => {
       // Guard against overlapping syncs — interval sync may already be running
       if (this.syncingAccounts.has(account.id)) {
-        console.log(`syncNow: ${account.email_address} already syncing, skipping`);
+        console.log(`syncNow: ${logAccount(account)} already syncing, skipping`);
         return;
       }
       const client = this.connections.get(account.id);
       if (!client) {
-        console.log(`syncNow: ${account.email_address} not connected, reconnecting`);
+        console.log(`syncNow: ${logAccount(account)} not connected, reconnecting`);
         await this.connectAccount(account);
         return;
       }
@@ -2053,9 +2057,9 @@ export class ImapManager {
         // noBodyParts=true: metadata-only, same as the periodic interval sync.
         // Bodies are cached on first open; fetching them here would slow manual refresh.
         await this.syncMessages(account, client, 'INBOX', 20, false, true);
-        console.log(`syncNow complete: ${account.email_address}`);
+        console.log(`syncNow complete: ${logAccount(account)}`);
       } catch (err) {
-        console.error(`syncNow error for ${account.email_address}:`, err.message);
+        console.error(`syncNow error for ${logAccount(account)}:`, err.message);
         this.connections.delete(account.id);
       } finally {
         this.syncingAccounts.delete(account.id);
@@ -2186,14 +2190,14 @@ export class ImapManager {
             }
           } catch (err) {
             // Folder may no longer exist on server or be temporarily inaccessible — skip it.
-            console.warn(`Reconcile: could not open ${account.email_address}/${folder}: ${extractImapError(err)}`);
+            console.warn(`Reconcile: could not open ${logAccount(account)}/${folder}: ${extractImapError(err)}`);
             continue;
           }
           serverUidsByFolder.set(folder, new Set(serverUids));
         }
       });
     } catch (err) {
-      console.warn(`Reconcile connection error for ${account.email_address}: ${extractImapError(err)}`);
+      console.warn(`Reconcile connection error for ${logAccount(account)}: ${extractImapError(err)}`);
       return;
     }
 
@@ -2211,7 +2215,7 @@ export class ImapManager {
 
       if (orphanUids.length === 0) continue;
 
-      console.log(`Reconcile: removing ${orphanUids.length} server-deleted message(s) from ${account.email_address}/${folder}`);
+      console.log(`Reconcile: removing ${orphanUids.length} server-deleted message(s) from ${logAccount(account)}/${folder}`);
       await query(
         'DELETE FROM messages WHERE account_id = $1 AND folder = $2 AND uid = ANY($3::bigint[])',
         [account.id, folder, orphanUids]
@@ -2257,7 +2261,7 @@ export class ImapManager {
       // Skip if already connected OR already in the process of connecting (e.g. health check)
       if (this.connections.has(account.id) || this.connectingAccounts.has(account.id)) continue;
       this.connectAccount(account).catch(err =>
-        console.error(`Auto-connect failed for ${account.email_address}:`, err.message)
+        console.error(`Auto-connect failed for ${logAccount(account)}:`, err.message)
       );
     }
   }

@@ -4,6 +4,7 @@ import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { query } from '../services/db.js';
 import { imapManager } from '../index.js';
 import { encrypt, decrypt } from '../services/encryption.js';
+import { redactEmail } from '../utils/redact.js';
 
 // Cache JWKS fetchers per tenant — createRemoteJWKSet handles caching internally.
 const jwksCache = new Map();
@@ -171,7 +172,7 @@ router.get('/microsoft/callback', async (req, res) => {
     const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
     const account = accountResult.rows[0];
     imapManager.connectAccount(account).catch(err =>
-      console.error(`OAuth connect failed for ${email}:`, err.message)
+      console.error(`OAuth connect failed for ${redactEmail(email)}:`, err.message)
     );
 
     // Redirect back to app with success

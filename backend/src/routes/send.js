@@ -6,6 +6,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { refreshMicrosoftToken } from './oauth.js';
 import { decrypt } from '../services/encryption.js';
 import sanitizeHtml from 'sanitize-html';
+import { redactEmail } from '../utils/redact.js';
 
 function escapeHtml(str) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -207,7 +208,7 @@ router.post('/send', async (req, res) => {
         );
         sentFolder = folderResult.rows[0]?.path || null;
       }
-      console.log(`Post-send: ${account.email_address} sentFolder=${sentFolder} autoSaves=${serverAutoSaves}`);
+      console.log(`Post-send: ${redactEmail(account.email_address)} sentFolder=${sentFolder} autoSaves=${serverAutoSaves}`);
 
       if (sentFolder) {
         if (rawMessage) {
@@ -216,12 +217,12 @@ router.post('/send', async (req, res) => {
             .then(() => {
               setTimeout(() => {
                 imapManager.syncFolderOnDemand(account, sentFolder)
-                  .then(() => console.log(`Post-append sync done: ${account.email_address}/${sentFolder}`))
+                  .then(() => console.log(`Post-append sync done: ${redactEmail(account.email_address)}/${sentFolder}`))
                   .catch(e => console.error(`Post-append sync failed: ${e.message}`));
               }, 1000);
             })
             .catch(err => {
-              console.error(`IMAP append failed for ${account.email_address}/${sentFolder}: ${err.message}`);
+              console.error(`IMAP append failed for ${redactEmail(account.email_address)}/${sentFolder}: ${err.message}`);
               // Fall back to delayed sync
               setTimeout(() => {
                 imapManager.syncFolderOnDemand(account, sentFolder)
@@ -231,7 +232,7 @@ router.post('/send', async (req, res) => {
         } else {
           // Server auto-saves via SMTP; just sync after a delay
           const syncAttempt = (label) => imapManager.syncFolderOnDemand(account, sentFolder)
-            .then(() => console.log(`Post-send ${label} sync done: ${account.email_address}/${sentFolder}`))
+            .then(() => console.log(`Post-send ${label} sync done: ${redactEmail(account.email_address)}/${sentFolder}`))
             .catch(e => console.error(`Post-send ${label} sync failed: ${e.message}`));
           setTimeout(() => syncAttempt('3s'), 3000);
           setTimeout(() => syncAttempt('15s'), 15000);
