@@ -17,7 +17,8 @@ import searchRoutes from './routes/search.js';
 import adminRoutes from './routes/admin.js';
 import totpRoutes from './routes/totp.js';
 import oidcApiRouter, { oidcBrowserRouter } from './routes/oidc.js';
-import { initDb, encryptExistingCredentials, query } from './services/db.js';
+import { encryptExistingCredentials, query } from './services/db.js';
+import { runMigrations } from './services/migrations.js';
 import { setupWebSocket } from './services/websocket.js';
 import { ImapManager } from './services/imapManager.js';
 
@@ -121,9 +122,8 @@ app.use((err, req, res, _next) => {
 // WebSocket
 setupWebSocket(wss, sessionMiddleware, imapManager);
 
-// Init DB then start
-await initDb();
-console.log('Database initialized');
+// Run pending schema migrations then start
+await runMigrations();
 
 // Encrypt any plaintext credentials left in the DB from before this feature was added
 await encryptExistingCredentials();
