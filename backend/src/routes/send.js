@@ -32,6 +32,32 @@ function sanitizeSmtpError(err) {
   return 'Failed to send message. Please try again.';
 }
 
+// Reject any recipient address that contains newlines, null bytes, or looks
+// malformed — these are the classic email header-injection vectors.
+function normalizeRecipients(list, fieldName) {
+  if (!Array.isArray(list)) throw Object.assign(new Error(`${fieldName} must be an array`), { status: 400 });
+  return list.map((addr, i) => {
+    if (typeof addr !== 'string' || !addr.trim()) {
+      throw Object.assign(new Error(`${fieldName}[${i}] is empty or not a string`), { status: 400 });
+    }
+    const trimmed = addr.trim();
+    if (/[\r\n\0]/.test(trimmed)) {
+      throw Object.assign(new Error(`${fieldName}[${i}] contains invalid characters`), { status: 400 });
+    }
+    const at = trimmed.lastIndexOf('@');
+    if (at < 1 || at === trimmed.length - 1) {
+      throw Object.assign(new Error(`${fieldName}[${i}] is not a valid email address`), { status: 400 });
+    }
+    return trimmed;
+  });
+}
+
+// Strip header-injection characters from single-line header values.
+function sanitizeHeaderValue(value) {
+  if (typeof value !== 'string') return '';
+  return value.replace(/[\r\n\0]/g, '').trim();
+}
+
 function textToHtml(text) {
   return '<div style="font-family:sans-serif;font-size:14px;line-height:1.6">' +
     text.split('\n').map(l => `<p style="margin:0">${escapeHtml(l) || '&nbsp;'}</p>`).join('') +
@@ -49,6 +75,16 @@ router.use(requireAuth);
 router.post('/send', async (req, res) => {
   const { accountId, aliasId, to, cc = [], bcc = [], subject, body, quotedBody, inReplyTo, references } = req.body;
   if (!accountId || !to?.length) return res.status(400).json({ error: 'accountId and to required' });
+
+  let normalizedTo, normalizedCc, normalizedBcc;
+  try {
+    normalizedTo  = normalizeRecipients(to,  'to');
+    normalizedCc  = normalizeRecipients(cc,  'cc');
+    normalizedBcc = normalizeRecipients(bcc, 'bcc');
+  } catch (err) {
+    return res.status(err.status || 400).json({ error: err.message });
+  }
+  const normalizedSubject = sanitizeHeaderValue(subject || '');
 
   const [result, prefResult] = await Promise.all([
     query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]),
@@ -118,10 +154,10 @@ router.post('/send', async (req, res) => {
       messageId: `<${randomBytes(16).toString('hex')}@${domain}>`,
       from: `${fromName} <${fromEmail}>`,
       ...(fromReplyTo ? { replyTo: fromReplyTo } : {}),
-      to: to.join(', '),
-      cc: cc.join(', ') || undefined,
-      bcc: bcc.join(', ') || undefined,
-      subject,
+      to: normalizedTo.join(', '),
+      cc: normalizedCc.join(', ') || undefined,
+      bcc: normalizedBcc.join(', ') || undefined,
+      subject: normalizedSubject,
       text: fromSignature
         ? body + '\n\n-- \n' + sigToPlainText(fromSignature) + (quotedBody || '')
         : body + (quotedBody || ''),
