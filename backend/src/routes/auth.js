@@ -5,6 +5,7 @@ import { query, pool } from '../services/db.js';
 import { imapManager } from '../index.js';
 import { decrypt } from '../services/encryption.js';
 import { pushConfigured } from '../services/pushNotifications.js';
+import { validateHost } from '../services/hostValidation.js';
 
 const router = Router();
 
@@ -368,6 +369,17 @@ router.post('/push/subscribe', async (req, res) => {
       !keys?.auth   || typeof keys.auth   !== 'string') {
     return res.status(400).json({ error: 'Invalid push subscription object.' });
   }
+  // Validate the push endpoint — a logged-in user could otherwise register an
+  // internal URL and use new-mail events to make the server POST to it (SSRF).
+  let endpointUrl;
+  try { endpointUrl = new URL(endpoint); } catch {
+    return res.status(400).json({ error: 'Push endpoint is not a valid URL.' });
+  }
+  if (endpointUrl.protocol !== 'https:') {
+    return res.status(400).json({ error: 'Push endpoint must use HTTPS.' });
+  }
+  const hostErr = await validateHost(endpointUrl.hostname);
+  if (hostErr) return res.status(400).json({ error: 'Push endpoint host is not allowed.' });
   try {
     await query(
       `INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth)

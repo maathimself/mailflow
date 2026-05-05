@@ -17,6 +17,11 @@ function validatePort(port, allowed) {
   return null;
 }
 
+// Reject strings that contain characters that could inject extra email headers.
+function hasHeaderInjectionChars(str) {
+  return typeof str === 'string' && /[\r\n\0]/.test(str);
+}
+
 const router = Router();
 router.use(requireAuth);
 
@@ -80,6 +85,9 @@ router.post('/', async (req, res) => {
   } = req.body;
 
   if (!name || !email_address) return res.status(400).json({ error: 'Name and email required' });
+  if (hasHeaderInjectionChars(name) || hasHeaderInjectionChars(email_address)) {
+    return res.status(400).json({ error: 'Name and email address cannot contain control characters' });
+  }
 
   if (imap_host) {
     const err = (await validateHost(imap_host)) || validatePort(imap_port, ALLOWED_IMAP_PORTS);
@@ -231,6 +239,9 @@ router.post('/:id/aliases', async (req, res) => {
   const { id } = req.params;
   const { name, email, reply_to, signature } = req.body;
   if (!name || !email) return res.status(400).json({ error: 'Name and email required' });
+  if (hasHeaderInjectionChars(name) || hasHeaderInjectionChars(email) || hasHeaderInjectionChars(reply_to)) {
+    return res.status(400).json({ error: 'Fields cannot contain control characters' });
+  }
 
   const check = await query('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
@@ -246,6 +257,9 @@ router.put('/:id/aliases/:aliasId', async (req, res) => {
   const { id, aliasId } = req.params;
   const { name, email, reply_to, signature } = req.body;
   if (!name || !email) return res.status(400).json({ error: 'Name and email required' });
+  if (hasHeaderInjectionChars(name) || hasHeaderInjectionChars(email) || hasHeaderInjectionChars(reply_to)) {
+    return res.status(400).json({ error: 'Fields cannot contain control characters' });
+  }
 
   const check = await query(
     `SELECT a.id FROM account_aliases a

@@ -175,9 +175,9 @@ router.post('/send', async (req, res) => {
       }),
     };
     if (inReplyTo) {
-      mailOptions.inReplyTo = inReplyTo;
+      mailOptions.inReplyTo = sanitizeHeaderValue(inReplyTo);
       // Use the full prior references chain if available; fall back to just inReplyTo.
-      mailOptions.references = references || inReplyTo;
+      mailOptions.references = sanitizeHeaderValue(references || inReplyTo);
     }
 
     // OAuth providers (Gmail, Microsoft) save sent mail to IMAP automatically via their

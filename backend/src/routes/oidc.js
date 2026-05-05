@@ -5,7 +5,7 @@ import { query, pool } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { decrypt, isEncrypted } from '../services/encryption.js';
 import { imapManager } from '../index.js';
-import { validateHostLiteral } from '../services/hostValidation.js';
+import { validateHostLiteral, validateHost } from '../services/hostValidation.js';
 
 // In-memory OIDC discovery cache keyed by issuerUrl
 const discoveryCache = new Map();
@@ -14,6 +14,11 @@ const DISCOVERY_TTL_MS = 5 * 60 * 1000;
 async function getDiscovery(issuerUrl) {
   const parsed = new URL(issuerUrl);
   if (parsed.protocol !== 'https:') throw new Error('OIDC issuer URL must use HTTPS');
+
+  // Re-validate at runtime: the saved issuer may predate host validation,
+  // or DNS may have changed since the record was saved.
+  const issuerHostErr = await validateHost(parsed.hostname);
+  if (issuerHostErr) throw new Error(`OIDC issuer host rejected: ${issuerHostErr}`);
 
   const cached = discoveryCache.get(issuerUrl);
   if (cached && Date.now() - cached.cachedAt < DISCOVERY_TTL_MS) {
@@ -36,17 +41,19 @@ async function getDiscovery(issuerUrl) {
   // Validate that all discovered endpoint URLs use HTTPS and don't point at
   // internal/private hosts — a compromised discovery doc could otherwise
   // redirect token or JWKS fetches to internal HTTPS services.
+  // Use async validateHost (not just validateHostLiteral) so DNS names that
+  // resolve to private IPs are also caught.
   for (const field of ['authorization_endpoint', 'token_endpoint', 'jwks_uri']) {
     const url = doc[field];
     if (!url) throw new Error(`OIDC discovery missing required field: ${field}`);
-    let parsed;
-    try { parsed = new URL(url); } catch {
+    let endpointParsed;
+    try { endpointParsed = new URL(url); } catch {
       throw new Error(`OIDC discovery returned invalid URL for ${field}: ${url}`);
     }
-    if (parsed.protocol !== 'https:') {
+    if (endpointParsed.protocol !== 'https:') {
       throw new Error(`OIDC discovery returned non-HTTPS ${field}: ${url}`);
     }
-    const hostErr = validateHostLiteral(parsed.hostname);
+    const hostErr = await validateHost(endpointParsed.hostname);
     if (hostErr) throw new Error(`OIDC discovery ${field} points to a disallowed host: ${hostErr}`);
   }
   const jwks = createRemoteJWKSet(new URL(doc.jwks_uri));
