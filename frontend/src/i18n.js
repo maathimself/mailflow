@@ -4,6 +4,7 @@ import en from './locales/en.json';
 import fr from './locales/fr.json';
 import es from './locales/es.json';
 import it from './locales/it.json';
+import ru from './locales/ru.json';
 
 const savedLng = localStorage.getItem('mailflow_language') || 'en';
 
@@ -15,6 +16,7 @@ i18n
       fr: { translation: fr },
       es: { translation: es },
       it: { translation: it },
+      ru: { translation: ru },
     },
     lng: savedLng,
     fallbackLng: 'en',
