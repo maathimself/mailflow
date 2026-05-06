@@ -3082,6 +3082,7 @@ const LANGUAGES = [
   { code: 'fr', nativeName: 'Français' },
   { code: 'es', nativeName: 'Español' },
   { code: 'it', nativeName: 'Italiano' },
+  { code: 'ru', nativeName: 'Русский' },
 ];
 
 function LanguageTab() {
