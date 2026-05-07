@@ -171,7 +171,7 @@ router.get('/messages', async (req, res) => {
                COALESCE(m.thread_id, m.id::text) AS thread_id,
                m.subject, m.from_name, m.from_email,
                m.to_addresses, m.cc_addresses, m.reply_to, m.in_reply_to,
-               m.date, m.snippet, m.is_starred,
+               m.date, m.snippet, m.is_starred, m.is_read,
                m.has_attachments, m.account_id,
                a.name  AS account_name,
                a.email_address AS account_email,
