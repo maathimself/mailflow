@@ -169,8 +169,12 @@ router.get('/messages', async (req, res) => {
     // thread_totals counts messages in the same folder scope as the list view so the
     // badge matches what the expansion will show. Unified inbox always scopes to INBOX;
     // per-account views use the requested folder (reuses $2 from filterValues).
+    // Only scope thread_totals to a specific folder for INBOX views, where the badge
+    // must match the expansion (which also filters to INBOX). For any other folder
+    // (All Mail, Sent, etc.) count across all folders so the badge reflects the true
+    // thread size rather than how many copies happen to be synced to that folder.
     const threadFolderFilter = (accountId && userAccountIds.includes(accountId))
-        ? `AND folder = $2`
+        ? (folder === 'INBOX' ? `AND folder = $2` : '')
         : `AND folder = 'INBOX'`;
     const threadResult = await query(`
       WITH deduped AS (
@@ -207,13 +211,16 @@ router.get('/messages', async (req, res) => {
         SELECT d.*,
                COALESCE(tt.message_count, 1) AS message_count,
                COUNT(*) FILTER (WHERE NOT d.is_read) OVER (PARTITION BY d.thread_id)::int AS unread_count,
-               FIRST_VALUE(d.subject) OVER (PARTITION BY d.thread_id ORDER BY d.date ASC) AS thread_subject,
+               FIRST_VALUE(d.subject)    OVER (PARTITION BY d.thread_id ORDER BY d.date ASC) AS thread_subject,
+               FIRST_VALUE(d.from_name)  OVER (PARTITION BY d.thread_id ORDER BY d.date ASC) AS thread_from_name,
+               FIRST_VALUE(d.from_email) OVER (PARTITION BY d.thread_id ORDER BY d.date ASC) AS thread_from_email,
                ROW_NUMBER() OVER (PARTITION BY d.thread_id ORDER BY d.date DESC) AS rn
         FROM deduped d
         LEFT JOIN thread_totals tt ON tt.thread_id = d.thread_id
       )
       SELECT id, uid, folder, message_id, thread_id, thread_subject AS subject,
-             from_name, from_email, to_addresses, cc_addresses, reply_to, in_reply_to,
+             thread_from_name AS from_name, thread_from_email AS from_email,
+             to_addresses, cc_addresses, reply_to, in_reply_to,
              date, snippet, is_starred, is_read, has_attachments, account_id,
              account_name, account_email, account_color,
              message_count, unread_count
@@ -286,13 +293,12 @@ router.get('/thread/:threadId', async (req, res) => {
   const userAccountIds = accountsResult.rows.map(r => r.id);
   if (!userAccountIds.length) return res.json({ messages: [] });
 
-  // Deduplicate by message_id: the same email can be stored under multiple IMAP folders
-  // (e.g. Gmail stores every message in both its label-folder and [Gmail]/All Mail).
-  // Prefer the INBOX copy when one exists.
-  // When a specific folder is requested (e.g. INBOX), restrict results to that folder so
-  // the expansion is consistent with what the list view shows.
-  const folderFilter = folder ? `AND m.folder = $3` : '';
-  const params = folder ? [userAccountIds, threadId, folder] : [userAccountIds, threadId];
+  // Only restrict expansion to INBOX when viewing the INBOX — ensures the expansion
+  // matches what the list shows. For All Mail and any other folder show all messages
+  // regardless of which folder they were synced under (All Mail backfill is skipped so
+  // not every message has a [Gmail]/All Mail row in the DB).
+  const folderFilter = (folder === 'INBOX') ? `AND m.folder = $3` : '';
+  const params = (folder === 'INBOX') ? [userAccountIds, threadId, folder] : [userAccountIds, threadId];
 
   const result = await query(`
     WITH deduped AS (
