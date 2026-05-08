@@ -165,10 +165,10 @@ router.get('/messages', async (req, res) => {
     // One row per thread (latest message per thread_id), ordered by latest date.
     // COALESCE(thread_id, id::text) treats null-thread_id messages as singletons.
     const filterValues = [...values]; // values before limit/offset were pushed
-    // Deduplicate by message_id first (same email can appear in multiple folders),
-    // then compute counts and pick the latest message per thread.
-    // COUNT(DISTINCT ...) is not supported in PostgreSQL window functions, so
-    // deduplication must happen in a CTE before the window aggregates run.
+    // thread_totals counts all messages per thread across ALL folders (not just the
+    // inbox-filtered view), so the badge matches the thread expansion which also
+    // shows messages from Sent, All Mail, etc.
+    const threadAccountParam = accountId ? [accountId] : userAccountIds;
     const threadResult = await query(`
       WITH deduped AS (
         SELECT DISTINCT ON (m.account_id, COALESCE(m.thread_id, m.id::text), m.message_id)
@@ -190,12 +190,22 @@ router.get('/messages', async (req, res) => {
                  CASE WHEN m.folder = 'INBOX' THEN 0 ELSE 1 END,
                  m.date ASC
       ),
+      thread_totals AS (
+        SELECT COALESCE(thread_id, id::text) AS thread_id,
+               COUNT(DISTINCT message_id)::int AS message_count
+        FROM messages
+        WHERE account_id = ANY($${p})
+          AND is_deleted = false
+          AND message_id IS NOT NULL
+        GROUP BY COALESCE(thread_id, id::text)
+      ),
       ranked AS (
-        SELECT *,
-               COUNT(*) OVER (PARTITION BY thread_id)::int AS message_count,
-               COUNT(*) FILTER (WHERE NOT is_read) OVER (PARTITION BY thread_id)::int AS unread_count,
-               ROW_NUMBER() OVER (PARTITION BY thread_id ORDER BY date DESC) AS rn
-        FROM deduped
+        SELECT d.*,
+               COALESCE(tt.message_count, 1) AS message_count,
+               COUNT(*) FILTER (WHERE NOT d.is_read) OVER (PARTITION BY d.thread_id)::int AS unread_count,
+               ROW_NUMBER() OVER (PARTITION BY d.thread_id ORDER BY d.date DESC) AS rn
+        FROM deduped d
+        LEFT JOIN thread_totals tt ON tt.thread_id = d.thread_id
       )
       SELECT id, uid, folder, message_id, thread_id, subject,
              from_name, from_email, to_addresses, cc_addresses, reply_to, in_reply_to,
@@ -205,8 +215,8 @@ router.get('/messages', async (req, res) => {
       FROM ranked
       WHERE rn = 1
       ORDER BY date DESC
-      LIMIT $${p} OFFSET $${p + 1}
-    `, [...filterValues, safeLimit, safeOffset]);
+      LIMIT $${p + 1} OFFSET $${p + 2}
+    `, [...filterValues, threadAccountParam, safeLimit, safeOffset]);
 
     // Thread-level total: distinct thread groups matching the filter.
     const threadCountResult = await query(`

@@ -55,7 +55,7 @@ export default function MessagePane() {
   const {
     messages, searchResults, searchQuery, selectedMessageId, setSelectedMessage,
     updateMessage, removeMessage, decrementUnread, incrementUnread, openCompose, accounts, addNotification,
-    imageWhitelist, setImageWhitelist, blockRemoteImages,
+    imageWhitelist, setImageWhitelist, blockRemoteImages, threadMessages,
   } = useStore();
 
   const isMobile = useMobile();
@@ -64,7 +64,8 @@ export default function MessagePane() {
   useEffect(() => () => { mountedRef.current = false; }, []);
 
   const allMessages = searchQuery.trim() ? searchResults : messages;
-  const message = allMessages.find(m => m.id === selectedMessageId);
+  const message = allMessages.find(m => m.id === selectedMessageId)
+    ?? Object.values(threadMessages).flat().find(m => m.id === selectedMessageId);
 
   const [body, setBody] = useState(null);
   const [bodyError, setBodyError] = useState(null);
