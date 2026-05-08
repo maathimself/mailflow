@@ -281,10 +281,16 @@ export default function MailApp() {
           }}>
             <Sidebar />
           </div>
-          {/* Single active pane */}
-          <div style={{ flex: 1, display: 'flex', overflow: 'hidden', height: '100%' }}>
-            {selectedMessageId ? <MessagePane /> : <MessageList />}
+          {/* Keep both mounted so scroll position and expansion state survive
+              navigating into a message and pressing back. */}
+          <div style={{ flex: 1, display: selectedMessageId ? 'none' : 'flex', overflow: 'hidden', height: '100%' }}>
+            <MessageList />
           </div>
+          {selectedMessageId && (
+            <div style={{ flex: 1, display: 'flex', overflow: 'hidden', height: '100%' }}>
+              <MessagePane />
+            </div>
+          )}
         </>
       ) : (
         <>
