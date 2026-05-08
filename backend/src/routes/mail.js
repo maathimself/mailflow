@@ -165,9 +165,18 @@ router.get('/messages', async (req, res) => {
     // One row per thread (latest message per thread_id), ordered by latest date.
     // COALESCE(thread_id, id::text) treats null-thread_id messages as singletons.
     const filterValues = [...values]; // values before limit/offset were pushed
+    const threadAccountParam = accountId ? [accountId] : userAccountIds;
+    // Only scope thread_totals to a specific folder for INBOX views, where the badge
+    // must match the expansion (which also filters to INBOX). For any other folder
+    // (All Mail, Sent, etc.) count across all folders so the badge reflects the true
+    // thread size rather than how many copies happen to be synced to that folder.
+    const threadFolderFilter = (accountId && userAccountIds.includes(accountId))
+        ? (folder === 'INBOX' ? `AND folder = $2` : '')
+        : `AND folder = 'INBOX'`;
     const threadResult = await query(`
-      WITH ranked AS (
-        SELECT m.id, m.uid, m.folder, m.message_id,
+      WITH deduped AS (
+        SELECT DISTINCT ON (m.account_id, COALESCE(m.thread_id, m.id::text), m.message_id)
+               m.id, m.uid, m.folder, m.message_id,
                COALESCE(m.thread_id, m.id::text) AS thread_id,
                m.subject, m.from_name, m.from_email,
                m.to_addresses, m.cc_addresses, m.reply_to, m.in_reply_to,
@@ -175,28 +184,48 @@ router.get('/messages', async (req, res) => {
                m.has_attachments, m.account_id,
                a.name  AS account_name,
                a.email_address AS account_email,
-               a.color AS account_color,
-               COUNT(*) OVER (PARTITION BY COALESCE(m.thread_id, m.id::text))::int AS message_count,
-               COUNT(*) FILTER (WHERE NOT m.is_read)
-                 OVER (PARTITION BY COALESCE(m.thread_id, m.id::text))::int AS unread_count,
-               ROW_NUMBER() OVER (
-                 PARTITION BY COALESCE(m.thread_id, m.id::text)
-                 ORDER BY m.date DESC
-               ) AS rn
+               a.color AS account_color
         FROM messages m
         JOIN email_accounts a ON m.account_id = a.id
         WHERE ${where}
+        ORDER BY m.account_id,
+                 COALESCE(m.thread_id, m.id::text),
+                 m.message_id,
+                 CASE WHEN m.folder = 'INBOX' THEN 0 ELSE 1 END,
+                 m.date ASC
+      ),
+      thread_totals AS (
+        SELECT COALESCE(thread_id, id::text) AS thread_id,
+               COUNT(DISTINCT message_id)::int AS message_count
+        FROM messages
+        WHERE account_id = ANY($${p})
+          AND is_deleted = false
+          AND message_id IS NOT NULL
+          ${threadFolderFilter}
+        GROUP BY COALESCE(thread_id, id::text)
+      ),
+      ranked AS (
+        SELECT d.*,
+               COALESCE(tt.message_count, 1) AS message_count,
+               COUNT(*) FILTER (WHERE NOT d.is_read) OVER (PARTITION BY d.thread_id)::int AS unread_count,
+               FIRST_VALUE(d.subject)    OVER (PARTITION BY d.thread_id ORDER BY d.date ASC) AS thread_subject,
+               FIRST_VALUE(d.from_name)  OVER (PARTITION BY d.thread_id ORDER BY d.date ASC) AS thread_from_name,
+               FIRST_VALUE(d.from_email) OVER (PARTITION BY d.thread_id ORDER BY d.date ASC) AS thread_from_email,
+               ROW_NUMBER() OVER (PARTITION BY d.thread_id ORDER BY d.date DESC) AS rn
+        FROM deduped d
+        LEFT JOIN thread_totals tt ON tt.thread_id = d.thread_id
       )
-      SELECT id, uid, folder, message_id, thread_id, subject,
-             from_name, from_email, to_addresses, cc_addresses, reply_to, in_reply_to,
+      SELECT id, uid, folder, message_id, thread_id, thread_subject AS subject,
+             thread_from_name AS from_name, thread_from_email AS from_email,
+             to_addresses, cc_addresses, reply_to, in_reply_to,
              date, snippet, is_starred, is_read, has_attachments, account_id,
              account_name, account_email, account_color,
              message_count, unread_count
       FROM ranked
       WHERE rn = 1
       ORDER BY date DESC
-      LIMIT $${p} OFFSET $${p + 1}
-    `, [...filterValues, safeLimit, safeOffset]);
+      LIMIT $${p + 1} OFFSET $${p + 2}
+    `, [...filterValues, threadAccountParam, safeLimit, safeOffset]);
 
     // Thread-level total: distinct thread groups matching the filter.
     const threadCountResult = await query(`
@@ -211,7 +240,7 @@ router.get('/messages', async (req, res) => {
       threaded: true,
     });
   }
-  // ── Non-threaded mode (unchanged) ───────────────────────────────────────────
+  // ── Non-threaded mode ────────────────────────────────────────────────────────
 
   values.push(safeLimit);
   values.push(safeOffset);
@@ -261,13 +290,12 @@ router.get('/thread/:threadId', async (req, res) => {
   const userAccountIds = accountsResult.rows.map(r => r.id);
   if (!userAccountIds.length) return res.json({ messages: [] });
 
-  // Deduplicate by message_id: the same email can be stored under multiple IMAP folders
-  // (e.g. Gmail stores every message in both its label-folder and [Gmail]/All Mail).
-  // Prefer the INBOX copy when one exists.
-  // When a specific folder is requested (e.g. INBOX), restrict results to that folder so
-  // the expansion is consistent with what the list view shows.
-  const folderFilter = folder ? `AND m.folder = $3` : '';
-  const params = folder ? [userAccountIds, threadId, folder] : [userAccountIds, threadId];
+  // Only restrict expansion to INBOX when viewing the INBOX — ensures the expansion
+  // matches what the list shows. For All Mail and any other folder show all messages
+  // regardless of which folder they were synced under (All Mail backfill is skipped so
+  // not every message has a [Gmail]/All Mail row in the DB).
+  const folderFilter = (folder === 'INBOX') ? `AND m.folder = $3` : '';
+  const params = (folder === 'INBOX') ? [userAccountIds, threadId, folder] : [userAccountIds, threadId];
 
   const result = await query(`
     WITH deduped AS (

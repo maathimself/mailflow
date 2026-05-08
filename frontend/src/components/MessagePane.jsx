@@ -55,7 +55,7 @@ export default function MessagePane() {
   const {
     messages, searchResults, searchQuery, selectedMessageId, setSelectedMessage,
     updateMessage, removeMessage, decrementUnread, incrementUnread, openCompose, accounts, addNotification,
-    imageWhitelist, setImageWhitelist, blockRemoteImages,
+    imageWhitelist, setImageWhitelist, blockRemoteImages, threadMessages,
   } = useStore();
 
   const isMobile = useMobile();
@@ -64,7 +64,8 @@ export default function MessagePane() {
   useEffect(() => () => { mountedRef.current = false; }, []);
 
   const allMessages = searchQuery.trim() ? searchResults : messages;
-  const message = allMessages.find(m => m.id === selectedMessageId);
+  const message = allMessages.find(m => m.id === selectedMessageId)
+    ?? Object.values(threadMessages).flat().find(m => m.id === selectedMessageId);
 
   const [body, setBody] = useState(null);
   const [bodyError, setBodyError] = useState(null);
@@ -677,6 +678,14 @@ export default function MessagePane() {
     } catch (_) { return []; }
   })();
 
+  const ccList = (() => {
+    try {
+      return Array.isArray(message.cc_addresses)
+        ? message.cc_addresses
+        : JSON.parse(message.cc_addresses || '[]');
+    } catch (_) { return []; }
+  })();
+
   const attachments = body?.attachments || [];
 
   return (
@@ -890,6 +899,16 @@ export default function MessagePane() {
                         : (message.account_email || message.account_name || '')}
                     </span>
                   </div>
+                  {ccList.length > 0 && (
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <span>Cc </span>
+                      <span style={{ color: 'var(--text-secondary)' }}>
+                        {ccList.map((r, i) => (
+                          <span key={i}>{r.name || r.email}{i < ccList.length - 1 ? ', ' : ''}</span>
+                        ))}
+                      </span>
+                    </div>
+                  )}
                 </>
               ) : (
                 <>
@@ -916,6 +935,19 @@ export default function MessagePane() {
                         : (message.account_email || message.account_name || '')}
                     </span>
                   </div>
+                  {ccList.length > 0 && (
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>
+                      <span>Cc </span>
+                      <span style={{ color: 'var(--text-secondary)' }}>
+                        {ccList.map((r, i) => (
+                          <span key={i}>
+                            {r.name ? `${r.name} <${r.email}>` : r.email}
+                            {i < ccList.length - 1 ? ', ' : ''}
+                          </span>
+                        ))}
+                      </span>
+                    </div>
+                  )}
                 </>
               )}
             </div>
