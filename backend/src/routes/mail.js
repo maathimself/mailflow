@@ -176,8 +176,8 @@ router.get('/messages', async (req, res) => {
                a.name  AS account_name,
                a.email_address AS account_email,
                a.color AS account_color,
-               COUNT(*) OVER (PARTITION BY COALESCE(m.thread_id, m.id::text))::int AS message_count,
-               COUNT(*) FILTER (WHERE NOT m.is_read)
+               COUNT(DISTINCT m.message_id) OVER (PARTITION BY COALESCE(m.thread_id, m.id::text))::int AS message_count,
+               COUNT(DISTINCT CASE WHEN NOT m.is_read THEN m.message_id END)
                  OVER (PARTITION BY COALESCE(m.thread_id, m.id::text))::int AS unread_count,
                ROW_NUMBER() OVER (
                  PARTITION BY COALESCE(m.thread_id, m.id::text)
@@ -268,7 +268,6 @@ router.get('/thread/:threadId', async (req, res) => {
   // the expansion is consistent with what the list view shows.
   const folderFilter = folder ? `AND m.folder = $3` : '';
   const params = folder ? [userAccountIds, threadId, folder] : [userAccountIds, threadId];
-
   const result = await query(`
     WITH deduped AS (
       SELECT DISTINCT ON (m.message_id)
