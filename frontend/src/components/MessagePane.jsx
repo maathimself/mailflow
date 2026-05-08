@@ -646,6 +646,14 @@ export default function MessagePane() {
     } catch (_) { return []; }
   })();
 
+  const ccList = (() => {
+    try {
+      return Array.isArray(message.cc_addresses)
+        ? message.cc_addresses
+        : JSON.parse(message.cc_addresses || '[]');
+    } catch (_) { return []; }
+  })();
+
   const attachments = body?.attachments || [];
 
   return (
@@ -885,6 +893,19 @@ export default function MessagePane() {
                         : (message.account_email || message.account_name || '')}
                     </span>
                   </div>
+                  {ccList.length > 0 && (
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>
+                      <span>Cc </span>
+                      <span style={{ color: 'var(--text-secondary)' }}>
+                        {ccList.map((r, i) => (
+                          <span key={i}>
+                            {r.name ? `${r.name} <${r.email}>` : r.email}
+                            {i < ccList.length - 1 ? ', ' : ''}
+                          </span>
+                        ))}
+                      </span>
+                    </div>
+                  )}
                 </>
               )}
             </div>
