@@ -867,6 +867,16 @@ export default function MessagePane() {
                         : (message.account_email || message.account_name || '')}
                     </span>
                   </div>
+                  {ccList.length > 0 && (
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <span>Cc </span>
+                      <span style={{ color: 'var(--text-secondary)' }}>
+                        {ccList.map((r, i) => (
+                          <span key={i}>{r.name || r.email}{i < ccList.length - 1 ? ', ' : ''}</span>
+                        ))}
+                      </span>
+                    </div>
+                  )}
                 </>
               ) : (
                 <>
