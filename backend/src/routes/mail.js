@@ -165,10 +165,13 @@ router.get('/messages', async (req, res) => {
     // One row per thread (latest message per thread_id), ordered by latest date.
     // COALESCE(thread_id, id::text) treats null-thread_id messages as singletons.
     const filterValues = [...values]; // values before limit/offset were pushed
-    // thread_totals counts all messages per thread across ALL folders (not just the
-    // inbox-filtered view), so the badge matches the thread expansion which also
-    // shows messages from Sent, All Mail, etc.
     const threadAccountParam = accountId ? [accountId] : userAccountIds;
+    // thread_totals counts messages in the same folder scope as the list view so the
+    // badge matches what the expansion will show. Unified inbox always scopes to INBOX;
+    // per-account views use the requested folder (reuses $2 from filterValues).
+    const threadFolderFilter = (accountId && userAccountIds.includes(accountId))
+        ? `AND folder = $2`
+        : `AND folder = 'INBOX'`;
     const threadResult = await query(`
       WITH deduped AS (
         SELECT DISTINCT ON (m.account_id, COALESCE(m.thread_id, m.id::text), m.message_id)
@@ -197,6 +200,7 @@ router.get('/messages', async (req, res) => {
         WHERE account_id = ANY($${p})
           AND is_deleted = false
           AND message_id IS NOT NULL
+          ${threadFolderFilter}
         GROUP BY COALESCE(thread_id, id::text)
       ),
       ranked AS (
@@ -231,7 +235,7 @@ router.get('/messages', async (req, res) => {
       threaded: true,
     });
   }
-  // ── Non-threaded mode (unchanged) ───────────────────────────────────────────
+  // ── Non-threaded mode ────────────────────────────────────────────────────────
 
   values.push(safeLimit);
   values.push(safeOffset);
@@ -288,6 +292,7 @@ router.get('/thread/:threadId', async (req, res) => {
   // the expansion is consistent with what the list view shows.
   const folderFilter = folder ? `AND m.folder = $3` : '';
   const params = folder ? [userAccountIds, threadId, folder] : [userAccountIds, threadId];
+
   const result = await query(`
     WITH deduped AS (
       SELECT DISTINCT ON (m.message_id)
