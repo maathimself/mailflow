@@ -165,9 +165,14 @@ router.get('/messages', async (req, res) => {
     // One row per thread (latest message per thread_id), ordered by latest date.
     // COALESCE(thread_id, id::text) treats null-thread_id messages as singletons.
     const filterValues = [...values]; // values before limit/offset were pushed
+    // Deduplicate by message_id first (same email can appear in multiple folders),
+    // then compute counts and pick the latest message per thread.
+    // COUNT(DISTINCT ...) is not supported in PostgreSQL window functions, so
+    // deduplication must happen in a CTE before the window aggregates run.
     const threadResult = await query(`
-      WITH ranked AS (
-        SELECT m.id, m.uid, m.folder, m.message_id,
+      WITH deduped AS (
+        SELECT DISTINCT ON (m.account_id, COALESCE(m.thread_id, m.id::text), m.message_id)
+               m.id, m.uid, m.folder, m.message_id,
                COALESCE(m.thread_id, m.id::text) AS thread_id,
                m.subject, m.from_name, m.from_email,
                m.to_addresses, m.cc_addresses, m.reply_to, m.in_reply_to,
@@ -175,17 +180,22 @@ router.get('/messages', async (req, res) => {
                m.has_attachments, m.account_id,
                a.name  AS account_name,
                a.email_address AS account_email,
-               a.color AS account_color,
-               COUNT(DISTINCT m.message_id) OVER (PARTITION BY COALESCE(m.thread_id, m.id::text))::int AS message_count,
-               COUNT(DISTINCT CASE WHEN NOT m.is_read THEN m.message_id END)
-                 OVER (PARTITION BY COALESCE(m.thread_id, m.id::text))::int AS unread_count,
-               ROW_NUMBER() OVER (
-                 PARTITION BY COALESCE(m.thread_id, m.id::text)
-                 ORDER BY m.date DESC
-               ) AS rn
+               a.color AS account_color
         FROM messages m
         JOIN email_accounts a ON m.account_id = a.id
         WHERE ${where}
+        ORDER BY m.account_id,
+                 COALESCE(m.thread_id, m.id::text),
+                 m.message_id,
+                 CASE WHEN m.folder = 'INBOX' THEN 0 ELSE 1 END,
+                 m.date ASC
+      ),
+      ranked AS (
+        SELECT *,
+               COUNT(*) OVER (PARTITION BY thread_id)::int AS message_count,
+               COUNT(*) FILTER (WHERE NOT is_read) OVER (PARTITION BY thread_id)::int AS unread_count,
+               ROW_NUMBER() OVER (PARTITION BY thread_id ORDER BY date DESC) AS rn
+        FROM deduped
       )
       SELECT id, uid, folder, message_id, thread_id, subject,
              from_name, from_email, to_addresses, cc_addresses, reply_to, in_reply_to,
