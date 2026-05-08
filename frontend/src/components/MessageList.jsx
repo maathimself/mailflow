@@ -1018,12 +1018,17 @@ export default function MessageList() {
       try {
         const effectiveFolder = selectedAccountId ? selectedFolder : 'INBOX';
         const data = await api.getThread(tid, effectiveFolder);
-        setThreadMessages(tid, data.messages || []);
+        const msgs = data.messages || [];
+        setThreadMessages(tid, msgs);
+        if (msgs.length > 0) handleSelect(msgs[msgs.length - 1]);
       } catch (err) {
         console.error('Failed to load thread:', err);
       } finally {
         setLoadingThread(null);
       }
+    } else {
+      const msgs = threadMessages[tid];
+      if (msgs.length > 0) handleSelect(msgs[msgs.length - 1]);
     }
   };
 

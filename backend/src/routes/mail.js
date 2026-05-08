@@ -207,11 +207,12 @@ router.get('/messages', async (req, res) => {
         SELECT d.*,
                COALESCE(tt.message_count, 1) AS message_count,
                COUNT(*) FILTER (WHERE NOT d.is_read) OVER (PARTITION BY d.thread_id)::int AS unread_count,
+               FIRST_VALUE(d.subject) OVER (PARTITION BY d.thread_id ORDER BY d.date ASC) AS thread_subject,
                ROW_NUMBER() OVER (PARTITION BY d.thread_id ORDER BY d.date DESC) AS rn
         FROM deduped d
         LEFT JOIN thread_totals tt ON tt.thread_id = d.thread_id
       )
-      SELECT id, uid, folder, message_id, thread_id, subject,
+      SELECT id, uid, folder, message_id, thread_id, thread_subject AS subject,
              from_name, from_email, to_addresses, cc_addresses, reply_to, in_reply_to,
              date, snippet, is_starred, is_read, has_attachments, account_id,
              account_name, account_email, account_color,
