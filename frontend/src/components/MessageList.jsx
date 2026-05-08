@@ -1016,7 +1016,8 @@ export default function MessageList() {
     if (!threadMessages[tid]) {
       setLoadingThread(tid);
       try {
-        const data = await api.getThread(tid);
+        const effectiveFolder = selectedAccountId ? selectedFolder : 'INBOX';
+        const data = await api.getThread(tid, effectiveFolder);
         setThreadMessages(tid, data.messages || []);
       } catch (err) {
         console.error('Failed to load thread:', err);

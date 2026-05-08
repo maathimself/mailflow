@@ -252,6 +252,8 @@ router.get('/thread/:threadId', async (req, res) => {
   const { threadId } = req.params;
   if (!threadId) return res.status(400).json({ error: 'threadId required' });
 
+  const { folder } = req.query;
+
   const accountsResult = await query(
     'SELECT id FROM email_accounts WHERE user_id = $1 AND enabled = true',
     [req.session.userId]
@@ -259,20 +261,35 @@ router.get('/thread/:threadId', async (req, res) => {
   const userAccountIds = accountsResult.rows.map(r => r.id);
   if (!userAccountIds.length) return res.json({ messages: [] });
 
+  // Deduplicate by message_id: the same email can be stored under multiple IMAP folders
+  // (e.g. Gmail stores every message in both its label-folder and [Gmail]/All Mail).
+  // Prefer the INBOX copy when one exists.
+  // When a specific folder is requested (e.g. INBOX), restrict results to that folder so
+  // the expansion is consistent with what the list view shows.
+  const folderFilter = folder ? `AND m.folder = $3` : '';
+  const params = folder ? [userAccountIds, threadId, folder] : [userAccountIds, threadId];
+
   const result = await query(`
-    SELECT m.id, m.uid, m.folder, m.message_id, m.thread_id, m.subject,
-           m.from_name, m.from_email, m.to_addresses, m.cc_addresses,
-           m.reply_to, m.in_reply_to,
-           m.date, m.snippet, m.is_read, m.is_starred,
-           m.has_attachments, m.account_id,
-           a.name AS account_name, a.email_address AS account_email, a.color AS account_color
-    FROM messages m
-    JOIN email_accounts a ON m.account_id = a.id
-    WHERE m.is_deleted = false
-      AND m.account_id = ANY($1)
-      AND COALESCE(m.thread_id, m.id::text) = $2
-    ORDER BY m.date ASC
-  `, [userAccountIds, threadId]);
+    WITH deduped AS (
+      SELECT DISTINCT ON (m.message_id)
+             m.id, m.uid, m.folder, m.message_id, m.thread_id, m.subject,
+             m.from_name, m.from_email, m.to_addresses, m.cc_addresses,
+             m.reply_to, m.in_reply_to,
+             m.date, m.snippet, m.is_read, m.is_starred,
+             m.has_attachments, m.account_id,
+             a.name AS account_name, a.email_address AS account_email, a.color AS account_color
+      FROM messages m
+      JOIN email_accounts a ON m.account_id = a.id
+      WHERE m.is_deleted = false
+        AND m.account_id = ANY($1)
+        AND COALESCE(m.thread_id, m.id::text) = $2
+        ${folderFilter}
+      ORDER BY m.message_id,
+               CASE WHEN m.folder = 'INBOX' THEN 0 ELSE 1 END,
+               m.date ASC
+    )
+    SELECT * FROM deduped ORDER BY date ASC
+  `, params);
 
   res.json({ messages: result.rows });
 });
