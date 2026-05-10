@@ -84,10 +84,16 @@ app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   next();
 });
-// Raised limit for the send endpoint (signatures with embedded images can be large).
-// Increase once attachment support is implemented.
-app.use('/api/mail/send', express.json({ limit: '10mb' }));
+// 25 MB attachment limit → ~34 MB base64 on the wire; add headroom for the rest of the payload.
+app.use('/api/mail/send', express.json({ limit: '35mb' }));
 app.use(express.json({ limit: '1mb' }));
+// Return a clean JSON error when the body parser rejects an oversized payload.
+app.use((err, req, res, next) => {
+  if (err.type === 'entity.too.large') {
+    return res.status(413).json({ error: 'Request too large. Total attachment size must not exceed 25 MB.' });
+  }
+  next(err);
+});
 app.use(sessionMiddleware);
 
 // Make imap manager available globally
