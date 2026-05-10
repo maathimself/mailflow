@@ -3090,6 +3090,7 @@ const LANGUAGES = [
   { code: 'es', nativeName: 'Español' },
   { code: 'it', nativeName: 'Italiano' },
   { code: 'ru', nativeName: 'Русский' },
+  { code: 'zhCN', nativeName: '简体中文'},
 ];
 
 function LanguageTab() {
