@@ -168,11 +168,13 @@ export default function ComposeModal() {
     if (!vv) return;
     const update = () => {
       setViewportHeight(vv.height);
-      // Apply offsetTop directly to the DOM — avoids a re-render on every scroll
-      // tick, which would be janky. offsetTop is non-zero when iOS scrolls the
-      // layout viewport to reveal the focused input.
+      // Apply top and height directly to the DOM — avoids a re-render on every
+      // scroll/resize tick. Updating height here (not just top) ensures the panel
+      // shrinks immediately when the keyboard opens rather than waiting a frame,
+      // which would leave it extending behind the keyboard.
       if (composePanelRef.current) {
         composePanelRef.current.style.top = vv.offsetTop + 'px';
+        composePanelRef.current.style.height = vv.height + 'px';
       }
     };
     vv.addEventListener('resize', update);

@@ -133,7 +133,7 @@ body, #root {
 /* Compose modal entrance (desktop bottom-right sheet) */
 @keyframes compose-enter {
   from { opacity: 0; transform: translateY(10px) scale(0.98); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
+  to   { opacity: 1; transform: none; }
 }
 
 /* Unified centered modal panel entrance */
