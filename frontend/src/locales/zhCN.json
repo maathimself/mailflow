@@ -325,6 +325,8 @@
       "color": "账户颜色",
       "displayName": "显示名称",
       "displayNamePh": "例如：工作 Gmail",
+      "senderName": "发件人姓名",
+      "senderNamePh": "留空则使用显示名称",
       "email": "邮箱地址",
       "emailPh": "you@example.com",
       "authUser": "用户名（IMAP 登录）",
