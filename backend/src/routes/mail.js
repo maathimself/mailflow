@@ -33,6 +33,13 @@ function areValidUUIDs(ids) {
   return ids.every(id => typeof id === 'string' && UUID_RE.test(id));
 }
 
+// Strip NUL bytes from strings before DB writes. PostgreSQL UTF-8 text columns
+// reject 0x00, and malformed MIME bodies can contain embedded NUL characters.
+function sanitizeDbText(value) {
+  if (typeof value !== 'string') return value;
+  return value.replace(/\0/g, '');
+}
+
 // Process IMAP operations in bounded batches so a 500-message bulk action
 // does not spawn hundreds of parallel temporary IMAP connections.
 async function runInBatches(items, concurrency, fn) {
@@ -383,7 +390,7 @@ router.get('/messages/:id/body', async (req, res) => {
     let html = message.body_html ? stripEmailHead(message.body_html) : null;
     if (html !== message.body_html) {
       // Update cache so subsequent views don't need to re-strip
-      query('UPDATE messages SET body_html = $1 WHERE id = $2', [html, id]).catch(() => {});
+      query('UPDATE messages SET body_html = $1 WHERE id = $2', [sanitizeDbText(html), id]).catch(() => {});
     }
     // Rewrite eBay imageser URLs to direct image URLs for emails cached before this fix.
     // imageser requires eBay session cookies (never sent cross-site) and returns 1 byte
@@ -392,7 +399,7 @@ router.get('/messages/:id/body', async (req, res) => {
       const rewritten = rewriteEbayImageserUrls(html);
       if (rewritten !== html) {
         html = rewritten;
-        query('UPDATE messages SET body_html = $1 WHERE id = $2', [html, id]).catch(() => {});
+        query('UPDATE messages SET body_html = $1 WHERE id = $2', [sanitizeDbText(html), id]).catch(() => {});
       }
     }
     // Backfill snippet when absent, or regenerate if garbled (undecoded HTML entities
@@ -400,7 +407,7 @@ router.get('/messages/:id/body', async (req, res) => {
     if (!message.snippet || snippetIsGarbled(message.snippet)) {
       const snip = snippetFromBody(message.body_text, html);
       if (snip) {
-        query('UPDATE messages SET snippet = $1 WHERE id = $2', [snip, id]).catch(() => {});
+        query('UPDATE messages SET snippet = $1 WHERE id = $2', [sanitizeDbText(snip), id]).catch(() => {});
       }
     }
 
@@ -423,8 +430,9 @@ router.get('/messages/:id/body', async (req, res) => {
 
     const { html, text, attachments } = await imapManager.fetchMessageBody(account, message.uid, message.folder);
 
-    const safeHtml = html ? sanitizeEmail(html) : null;
-    const snip = snippetFromBody(text, safeHtml || html);
+    const safeHtml = html ? sanitizeDbText(sanitizeEmail(html)) : null;
+    const safeText = sanitizeDbText(text);
+    const snip = sanitizeDbText(snippetFromBody(safeText, safeHtml || html));
 
     // Only cache when we actually got body content — don't overwrite a prior
     // successful cache with null if a transient IMAP fetch returns nothing.
@@ -434,7 +442,7 @@ router.get('/messages/:id/body', async (req, res) => {
          SET body_html = $1, body_text = $2, attachments = $3,
              snippet = CASE WHEN $5 != '' THEN $5 ELSE snippet END
          WHERE id = $4`,
-        [safeHtml, text, JSON.stringify(attachments || []), id, snip]
+        [safeHtml, safeText, JSON.stringify(attachments || []), id, snip]
       );
     }
 
@@ -447,7 +455,7 @@ router.get('/messages/:id/body', async (req, res) => {
       responseHtml = blockRemoteImages(safeHtml);
       hasBlockedRemoteImages = true;
     }
-    res.json({ html: responseHtml, text, attachments: attachments || [], hasBlockedRemoteImages });
+    res.json({ html: responseHtml, text: safeText, attachments: attachments || [], hasBlockedRemoteImages });
   } catch (err) {
     const msg = err.message || 'Unknown error';
     console.error('Body fetch error:', msg);

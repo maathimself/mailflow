@@ -1757,7 +1757,7 @@ export class ImapManager {
              SET body_html = $1, body_text = $2, attachments = $3,
                  snippet = CASE WHEN $5 != '' THEN $5 ELSE snippet END
              WHERE id = $4`,
-            [safeHtml, text, JSON.stringify(attachments || []), msg.id, snip]
+            [sanitizeStr(safeHtml), sanitizeStr(text), JSON.stringify(attachments || []), msg.id, sanitizeStr(snip)]
           );
         }
       } catch (err) {
@@ -1903,7 +1903,9 @@ export class ImapManager {
         lock.release();
       }
 
-      return { html, text, attachments };
+      // Some malformed emails include NUL bytes that PostgreSQL rejects in text
+      // columns. Strip them once here so all callers are safe.
+      return { html: sanitizeStr(html), text: sanitizeStr(text), attachments };
     });
 
     try {
