@@ -345,6 +345,7 @@
       "addAccount": "Добавить аккаунт",
       "saving": "Сохранение…",
       "presetGmail": "Gmail",
+      "presetYahoo": "Yahoo Mail",
       "presetIcloud": "iCloud",
       "presetCustom": "Другое",
       "errorRequired": "Требуются адрес электронной почты, имя пользователя и IMAP-сервер",

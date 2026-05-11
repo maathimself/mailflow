@@ -345,6 +345,7 @@
       "addAccount": "Aggiungi account",
       "saving": "Salvataggio…",
       "presetGmail": "Gmail",
+      "presetYahoo": "Yahoo Mail",
       "presetIcloud": "iCloud",
       "presetCustom": "Personalizzato",
       "errorRequired": "Email, nome utente e host IMAP sono obbligatori",

@@ -206,32 +206,68 @@ function safeDate(d) {
   return new Date();
 }
 
-// Per-provider backfill rate-limit config.
-// batchSize:      messages fetched per IMAP FETCH command
-// batchDelay:     ms to wait between batches (on success)
-// errorDelay:     base ms to wait after a failed batch (multiplied by error count)
-// batchesPerConn: reconnect after this many successful batches (keeps connections fresh)
-// fetchBody:      if true, store body_html/body_text during backfill so opening
-//                 old emails is instant (no live IMAP fetch needed).
-//                 Disabled for Gmail — too throttled to sustain body fetches at scale.
-function backfillConfig(account) {
-  const host = (account.imap_host || '').toLowerCase();
-  if (host.includes('gmail') || host.includes('google')) {
-    // Metadata-only (no body parts) — Gmail only throttles BODY[] content fetches,
-    // not envelope/flags/uid/bodyStructure.  Large batches + short delay lets us
-    // backfill 30 000+ messages in ~2 minutes instead of 12+ hours.
-    return { batchSize: 500, batchDelay: 2000, errorDelay: 30000, batchesPerConn: 10, fetchBody: false };
-  }
-  if (host.includes('icloud') || host.includes('apple') || host.includes('me.com')) {
+// Per-provider capability flags and rate-limit tuning.
+//
+// fetchBody:           store body_html/body_text during backfill/sync.
+//                      Disabled for providers that throttle BODY[] fetches at scale.
+// pushesFlags:         server pushes flag changes via IDLE; false = poll every sync tick.
+// snippetIndex:        run the background snippet indexer after backfill.
+//                      Disabled for providers that throttle body fetches too aggressively.
+// skipFolderPatterns:  folder path substrings to skip during backfill (label-view dedup).
+// batchSize/Delay/errorDelay/batchesPerConn: backfill rate-limit tuning.
+const PROVIDERS = {
+  google: {
+    // Large batches, short delay: Gmail only throttles BODY[] not envelope/flags/uid.
+    // Backfills 30k+ messages in ~2 min instead of 12+ hours.
+    batchSize: 500, batchDelay: 2000, errorDelay: 30000, batchesPerConn: 10,
+    fetchBody: false,
+    pushesFlags: false,
+    snippetIndex: false,
+    speculativeFetch: false,
+    skipFolderPatterns: ['all mail', '[gmail]/starred', '[gmail]/important'],
+  },
+  yahoo: {
+    batchSize: 100, batchDelay: 2000, errorDelay: 30000, batchesPerConn: 10,
+    fetchBody: false,
+    pushesFlags: true,
+    snippetIndex: true,
+    speculativeFetch: false,
+    skipFolderPatterns: [],
+  },
+  apple: {
     // iCloud is permissive — large batches, short delay.
-    // Metadata-only: bodies load on-demand and are cached permanently in the DB,
-    // so the first open is the only slow one.  Getting all messages visible quickly
-    // is more valuable than pre-caching bodies for 27 000+ messages.
-    return { batchSize: 200, batchDelay: 1000, errorDelay: 10000, batchesPerConn: 20, fetchBody: false };
-  }
-  // Generic/unknown providers (e.g. Purelymail) — metadata-only so backfill is fast.
-  // Bodies load on-demand via fetchMessageBody() and are cached in DB after first open.
-  return { batchSize: 100, batchDelay: 1500, errorDelay: 15000, batchesPerConn: 15, fetchBody: false };
+    batchSize: 200, batchDelay: 1000, errorDelay: 10000, batchesPerConn: 20,
+    fetchBody: false,
+    pushesFlags: true,
+    snippetIndex: true,
+    speculativeFetch: true,
+    skipFolderPatterns: [],
+  },
+  microsoft: {
+    batchSize: 100, batchDelay: 1500, errorDelay: 15000, batchesPerConn: 15,
+    fetchBody: false,
+    pushesFlags: true,
+    snippetIndex: true,
+    speculativeFetch: true,
+    skipFolderPatterns: [],
+  },
+  generic: {
+    batchSize: 100, batchDelay: 1500, errorDelay: 15000, batchesPerConn: 15,
+    fetchBody: false,
+    pushesFlags: true,
+    snippetIndex: true,
+    speculativeFetch: true,
+    skipFolderPatterns: [],
+  },
+};
+
+export function providerProfile(account) {
+  const host = (account.imap_host || '').toLowerCase();
+  if (host.includes('.gmail.com') || host.includes('.googlemail.com')) return PROVIDERS.google;
+  if (host.includes('.yahoo.com') || host.includes('.ymail.com')) return PROVIDERS.yahoo;
+  if (host.includes('.icloud.com') || host.includes('.apple.com') || host.includes('.me.com')) return PROVIDERS.apple;
+  if (host.includes('.outlook.com') || host.includes('.hotmail.com') || host.includes('.live.com') || (account.oauth_provider === 'microsoft')) return PROVIDERS.microsoft;
+  return PROVIDERS.generic;
 }
 
 // Per-account connection pool for body fetches — avoids TLS handshake on every click
@@ -722,7 +758,7 @@ export class ImapManager {
     try {
       let activeClient = this.connections.get(account.id);
       // syncAccount tracks the freshest account data available — updated to freshAccount
-      // on reconnect so that IDLE listeners, isGmail detection, and flag syncs all use
+      // on reconnect so that IDLE listeners, provider detection, and flag syncs all use
       // current credentials and config rather than the stale closure-captured object.
       let syncAccount = account;
       if (!activeClient) {
@@ -766,14 +802,12 @@ export class ImapManager {
       ]);
       this.broadcast({ type: 'sync_complete', accountId: account.id }, account.user_id);
 
-      // Gmail does not push flag changes via IDLE at all — poll on every tick.
-      // Other servers (Dovecot, iCloud, PurelyMail) push via the `flags` IDLE event,
+      // Some providers (e.g. Google) don't push flag changes via IDLE — poll every tick.
+      // Others (Dovecot, iCloud, PurelyMail) push via the `flags` IDLE event,
       // but if a flag event fired while this sync was running it was deferred into
       // _pendingFlagSync rather than dropped — drain it now.
-      const isGmail = (syncAccount.imap_host || '').toLowerCase().includes('gmail') ||
-                      (syncAccount.imap_host || '').toLowerCase().includes('googlemail');
       const hasPending = this._pendingFlagSync.has(account.id);
-      if (isGmail || hasPending) {
+      if (!providerProfile(syncAccount).pushesFlags || hasPending) {
         this._pendingFlagSync.delete(account.id);
         setImmediate(() => {
           this._syncFlagsForRange(syncAccount).catch(err =>
@@ -961,8 +995,7 @@ export class ImapManager {
   // Used for the periodic sync interval so slow servers like purelymail.com don't time out
   // fetching 3+ body parts × 50 messages.  Snippets come from backfill or on-demand fetches.
   async syncMessages(account, client, folder = 'INBOX', limit = 50, prefetchBody = true, noBodyParts = false) {
-    const isGmail = (account.imap_host || '').toLowerCase().includes('imap.gmail.com') ||
-                    (account.imap_host || '').toLowerCase().includes('imap.googlemail.com');
+    const provider = providerProfile(account);
 
     try {
       const lock = await client.getMailboxLock(folder);
@@ -1009,9 +1042,8 @@ export class ImapManager {
         const fetchRange = mailbox.exists > limit
           ? `${mailbox.exists - limit + 1}:${mailbox.exists}` : '1:*';
 
-        // For Gmail: omit body parts entirely to avoid triggering IMAP throttling.
-        // We still get uid/flags/envelope (subject, from, date) and bodyStructure
-        // (needed for hasAttachments).  Snippets/bodies come from backfill.
+        // Omit body parts for providers that throttle BODY[] fetches, and when
+        // noBodyParts is set. Envelope/flags/uid/bodyStructure always fetched.
         const fetchQuery = {
           uid: true, flags: true, envelope: true,
           bodyStructure: true,
@@ -1019,7 +1051,7 @@ export class ImapManager {
           internalDate: true,
           headerLines: ['references'],
         };
-        if (!isGmail && !noBodyParts) {
+        if (provider.fetchBody && !noBodyParts) {
           fetchQuery.bodyParts = BODY_PREFETCH_PARTS;
         }
 
@@ -1040,7 +1072,7 @@ export class ImapManager {
           try {
             const parsed = await parseMessage(msg);
             let safeHtml = null, text = null, atts = [];
-            if (prefetchBody && !isGmail) {
+            if (prefetchBody && provider.fetchBody) {
               const body = extractBodyFromMsg(msg);
               safeHtml = body.html ? sanitizeEmail(body.html) : null;
               text = body.text;
@@ -1203,7 +1235,7 @@ export class ImapManager {
     if (this.backfillRunning.has(backfillKey)) return;
     this.backfillRunning.add(backfillKey);
 
-    const cfg = backfillConfig(account);
+    const cfg = providerProfile(account);
     console.log(`Starting backfill for ${logAccount(account)} (batch=${cfg.batchSize}, delay=${cfg.batchDelay}ms, fetchBody=${cfg.fetchBody})`);
 
     // Dedicated connection managed here — completely independent of the shared pool
@@ -1521,14 +1553,13 @@ export class ImapManager {
   }
 
   // Runs backfillMessages for every folder: INBOX first, then all others sequentially.
-  // Skips Gmail's duplicate-view folders (All Mail, Starred, Important) to avoid
-  // storing tens of thousands of duplicate message rows.
+  // Skips provider-specific duplicate-view folders (e.g. Gmail's All Mail, Starred, Important)
+  // to avoid storing tens of thousands of duplicate message rows.
   async backfillAllFolders(account) {
     if (this.backfillAllRunning.has(account.id)) return;
     this.backfillAllRunning.add(account.id);
     try {
-      const isGmail = (account.imap_host || '').toLowerCase().includes('imap.gmail.com') ||
-                      (account.imap_host || '').toLowerCase().includes('imap.googlemail.com');
+      const { skipFolderPatterns } = providerProfile(account);
 
       // INBOX first — highest priority, existing behaviour
       await this.backfillMessages(account, 'INBOX');
@@ -1540,13 +1571,7 @@ export class ImapManager {
       );
 
       for (const { path } of folderResult.rows) {
-        // Gmail: skip folders that are just label-views of messages already in other folders
-        if (isGmail) {
-          const p = path.toLowerCase();
-          if (p.includes('all mail') || p.includes('[gmail]/starred') || p.includes('[gmail]/important')) {
-            continue;
-          }
-        }
+        if (skipFolderPatterns.some(pat => path.toLowerCase().includes(pat))) continue;
         await this.backfillMessages(account, path).catch(err =>
           console.warn(`Backfill skipped ${logAccount(account)}/${path}: ${err.message}`)
         );
@@ -1562,12 +1587,11 @@ export class ImapManager {
   // Background job that fetches text snippets for messages that were backfilled without
   // body parts (the common case — backfill runs metadata-only for speed). Runs per-account
   // after backfill completes, and also at connect time for existing accounts.
-  // Non-Gmail only: Gmail throttles BODY content fetches too aggressively to do this at scale.
+  // Skipped for providers that throttle body fetches too aggressively to run at scale.
   // Processes most-recent messages first so the most useful results are indexed quickly.
   async startSnippetIndexer(account) {
-    const isGmail = (account.imap_host || '').toLowerCase().includes('gmail') ||
-                    (account.imap_host || '').toLowerCase().includes('google');
-    if (isGmail) return; // Skip — Gmail throttles body fetches heavily
+    const cfg = providerProfile(account);
+    if (!cfg.snippetIndex) return;
 
     if (this.snippetIndexerRunning.has(account.id)) return;
     this.snippetIndexerRunning.add(account.id);
@@ -1575,7 +1599,6 @@ export class ImapManager {
     // Rate limit: conservative batches so this doesn't affect normal usage.
     // Cap per run so a large account doesn't occupy an IMAP connection indefinitely;
     // the indexer resumes from where it left off on the next server startup.
-    const cfg = backfillConfig(account);
     const batchSize = 50;
     const batchDelay = Math.max(cfg.batchDelay, 2000); // at least 2s between batches
     const MAX_BATCHES_PER_RUN = 200; // 10,000 messages max per session
@@ -1781,34 +1804,39 @@ export class ImapManager {
       // quota is hit.
       const uidStr = String(uid);
 
-      const isGmailAccount = (account.imap_host || '').toLowerCase().includes('gmail') ||
-                             (account.imap_host || '').toLowerCase().includes('googlemail');
-
       const lock = await client.getMailboxLock(folder);
       try {
         let structure = null;
         const prefetched = new Map(); // part number -> Buffer
 
-        if (isGmailAccount) {
-          // Gmail errors on speculative part requests that don't exist in the message
-          // ("Some messages could not be FETCHed"). Fetch structure first, then parts.
+        if (!providerProfile(account).speculativeFetch) {
+          // Known to reject speculative part requests (e.g. Gmail, Yahoo) —
+          // go straight to two-step to avoid a guaranteed server error.
           for await (const msg of client.fetch(uidStr, { uid: true, bodyStructure: true }, { uid: true })) {
             structure = msg.bodyStructure;
           }
         } else {
-          // Non-Gmail: speculatively fetch structure + common part numbers in one
-          // round-trip. Saves ~1-3s on slow providers (purelymail, etc.). Parts that
-          // don't exist in this message simply come back absent/empty — no error.
-          for await (const msg of client.fetch(
-            uidStr,
-            { uid: true, bodyStructure: true, bodyParts: BODY_PREFETCH_PARTS },
-            { uid: true }
-          )) {
-            structure = msg.bodyStructure;
-            if (msg.bodyParts) {
-              for (const [k, v] of msg.bodyParts) {
-                if (v != null && v.length > 0) prefetched.set(k, v);
+          // Try one round-trip: structure + common part numbers together.
+          // Most servers silently return absent parts as empty, but fall back to
+          // two-step for any unknown provider that rejects speculative requests.
+          try {
+            for await (const msg of client.fetch(
+              uidStr,
+              { uid: true, bodyStructure: true, bodyParts: BODY_PREFETCH_PARTS },
+              { uid: true }
+            )) {
+              structure = msg.bodyStructure;
+              if (msg.bodyParts) {
+                for (const [k, v] of msg.bodyParts) {
+                  if (v != null && v.length > 0) prefetched.set(k, v);
+                }
               }
+            }
+          } catch (_) {
+            structure = null;
+            prefetched.clear();
+            for await (const msg of client.fetch(uidStr, { uid: true, bodyStructure: true }, { uid: true })) {
+              structure = msg.bodyStructure;
             }
           }
         }
