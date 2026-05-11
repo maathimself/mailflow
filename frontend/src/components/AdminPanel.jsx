@@ -3223,12 +3223,22 @@ function AboutTab() {
   }, []);
 
   const feSha = import.meta.env.VITE_BUILD_SHA || 'dev';
-  const rows = [
-    [t('admin.about.version'),      info ? info.version : '…'],
-    [t('admin.about.backendBuild'), info ? info.sha     : '…'],
+  const infoRows = [
+    [t('admin.about.version'),       info ? info.version : '…'],
+    [t('admin.about.backendBuild'),  info ? info.sha     : '…'],
     [t('admin.about.frontendBuild'), feSha],
-    [t('admin.about.license'),      'AGPL-3.0'],
+    [t('admin.about.license'),       'AGPL-3.0'],
   ];
+  const linkRows = [
+    [t('admin.about.website'),    'https://mailflow.sh'],
+    [t('admin.about.sourceCode'), 'https://github.com/maathimself/mailflow'],
+  ];
+
+  const rowStyle = (last) => ({
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+    padding: '11px 14px', background: 'var(--bg-secondary)',
+    borderBottom: last ? 'none' : '1px solid var(--border-subtle)',
+  });
 
   return (
     <div style={{ maxWidth: 420 }}>
@@ -3238,16 +3248,21 @@ function AboutTab() {
       <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 24 }}>
         {t('admin.about.subtitle')}
       </div>
-      <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border-subtle)' }}>
-        {rows.map(([label, value], i) => (
-          <div key={label} style={{
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            padding: '11px 14px',
-            background: 'var(--bg-secondary)',
-            borderBottom: i < rows.length - 1 ? '1px solid var(--border-subtle)' : 'none',
-          }}>
+      <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border-subtle)', marginBottom: 12 }}>
+        {infoRows.map(([label, value], i) => (
+          <div key={label} style={rowStyle(i === infoRows.length - 1)}>
             <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{label}</span>
             <span style={{ fontSize: 12, color: 'var(--text-primary)', fontFamily: 'monospace', letterSpacing: '0.02em' }}>{value}</span>
+          </div>
+        ))}
+      </div>
+      <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border-subtle)' }}>
+        {linkRows.map(([label, href], i) => (
+          <div key={label} style={rowStyle(i === linkRows.length - 1)}>
+            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{label}</span>
+            <a href={href} target="_blank" rel="noopener noreferrer"
+              style={{ fontSize: 13, color: 'var(--accent)', textDecoration: 'none' }}
+            >{href.replace('https://', '')}</a>
           </div>
         ))}
       </div>

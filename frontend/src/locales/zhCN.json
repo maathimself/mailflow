@@ -658,7 +658,9 @@
       "version": "版本",
       "backendBuild": "后端构建",
       "frontendBuild": "前端构建",
-      "license": "许可证"
+      "license": "许可证",
+      "website": "官方网站",
+      "sourceCode": "源代码"
     }
   },
   "thread": {

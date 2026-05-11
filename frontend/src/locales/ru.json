@@ -656,7 +656,9 @@
       "version": "Версия",
       "backendBuild": "Сборка бэкенда",
       "frontendBuild": "Сборка фронтенда",
-      "license": "Лицензия"
+      "license": "Лицензия",
+      "website": "Веб-сайт",
+      "sourceCode": "Исходный код"
     }
   },
   "thread": {

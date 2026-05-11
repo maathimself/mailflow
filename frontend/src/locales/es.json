@@ -656,7 +656,9 @@
       "version": "Versión",
       "backendBuild": "Build del backend",
       "frontendBuild": "Build del frontend",
-      "license": "Licencia"
+      "license": "Licencia",
+      "website": "Sitio web",
+      "sourceCode": "Código fuente"
     }
   },
   "thread": {

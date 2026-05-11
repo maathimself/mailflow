@@ -658,7 +658,9 @@
       "version": "Version",
       "backendBuild": "Backend build",
       "frontendBuild": "Frontend build",
-      "license": "License"
+      "license": "License",
+      "website": "Website",
+      "sourceCode": "Source code"
     }
   },
   "thread": {
