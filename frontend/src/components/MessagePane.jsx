@@ -1182,8 +1182,10 @@ export default function MessagePane() {
                   #mf-scale-wrapper > div > table, #mf-scale-wrapper > center > div > table {
                     width: 100% !important;
                   }
-                  /* Reset min-width so it can't override max-width on table elements. */
-                  table, td, th { min-width: 0 !important; }
+                  /* Reset min-width on cells only — not on table elements, because fluid
+                     grid systems (e.g. Oracle Eloqua "tolkien") set min-width on inline-table
+                     column elements as a layout fallback when their calc() width resolves to 0. */
+                  td, th { min-width: 0 !important; }
                   td, th { word-break: break-word; }
                   a { color: #6366f1; }
                   pre, code { overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
