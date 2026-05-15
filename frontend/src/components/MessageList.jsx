@@ -559,10 +559,16 @@ export default function MessageList() {
   }, [scheduleDelete]);
 
   const handleSwipeToggleRead = useCallback(async (message) => {
-    const newRead = !message.is_read;
-    updateMessage(message.id, { is_read: newRead });
+    const unreadCount = Number.parseInt(message.unread_count, 10);
+    const hasThreadUnreadCount = Number.isFinite(unreadCount);
+    const isUnread = hasThreadUnreadCount ? unreadCount > 0 : !message.is_read;
+    const newRead = isUnread;
+    const unreadDelta = hasThreadUnreadCount ? Math.max(unreadCount, 1) : 1;
+    const optimisticUpdate = hasThreadUnreadCount ? { is_read: newRead, unread_count: newRead ? 0 : 1 } : { is_read: newRead };
+
+    updateMessage(message.id, optimisticUpdate);
     if (newRead) {
-      decrementUnread(message.account_id);
+      decrementUnread(message.account_id, unreadDelta);
       setPending(message.id, message.account_id);
     } else {
       incrementUnread(message.account_id);
@@ -580,8 +586,8 @@ export default function MessageList() {
       }
     } catch (err) {
       console.error('swipe toggle read failed:', err.message);
-      updateMessage(message.id, { is_read: !newRead });
-      if (newRead) incrementUnread(message.account_id);
+      updateMessage(message.id, hasThreadUnreadCount ? { is_read: !newRead, unread_count: newRead ? unreadCount : 0 } : { is_read: !newRead });
+      if (newRead) incrementUnread(message.account_id, unreadDelta);
       else decrementUnread(message.account_id);
       pendingMarkReadMap.delete(message.id);
     }
