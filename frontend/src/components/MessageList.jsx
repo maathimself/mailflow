@@ -31,7 +31,7 @@ function formatDate(dateStr) {
 const SWIPE_ACTIONS = {
   archive: { color: 'var(--amber, #d97706)' },
   delete: { color: 'var(--red, #ef4444)' },
-  flag: { color: 'var(--amber, #d97706)' },
+  star: { color: 'var(--amber, #d97706)' },
   markRead: { color: 'var(--accent)' },
   disabled: { color: 'transparent' },
 };
@@ -40,14 +40,14 @@ function getSwipeActionView(action, message, t, unreadCount = null) {
   const unread = unreadCount != null ? unreadCount > 0 : !message.is_read;
   if (action === 'archive') return { label: t('message.archive'), color: SWIPE_ACTIONS.archive.color, icon: 'archive' };
   if (action === 'delete') return { label: t('contextMenu.delete'), color: SWIPE_ACTIONS.delete.color, icon: 'delete' };
-  if (action === 'flag') return { label: message.is_starred ? t('messageList.swipeUnflag') : t('messageList.swipeFlag'), color: SWIPE_ACTIONS.flag.color, icon: 'flag' };
+  if (action === 'star') return { label: message.is_starred ? t('messageList.swipeUnstar') : t('messageList.swipeStar'), color: SWIPE_ACTIONS.star.color, icon: 'star' };
   if (action === 'markRead') return { label: unread ? t('contextMenu.markRead') : t('contextMenu.markUnread'), color: SWIPE_ACTIONS.markRead.color, icon: 'markRead', fill: unread ? 'white' : 'none' };
   return null;
 }
 
 function SwipeActionSvg({ icon, fill = 'none' }) {
   if (icon === 'delete') return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>;
-  if (icon === 'flag') return <svg width="18" height="18" viewBox="0 0 24 24" fill={fill} stroke="white" strokeWidth="2"><path d="M4 15s1.5-1 4-1 4 1 6.5 1 4.5-1 5.5-2V4c-1 1-3 2-5.5 2S10.5 5 8 5 4 6 4 6v15"/></svg>;
+  if (icon === 'star') return <svg width="18" height="18" viewBox="0 0 24 24" fill={fill} stroke="white" strokeWidth="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>;
   if (icon === 'markRead') return <svg width="18" height="18" viewBox="0 0 24 24" fill={fill} stroke="white" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>;
   return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a1 1 0 001 1h14a1 1 0 001-1V8"/><polyline points="9 13 12 16 15 13"/><line x1="12" y1="11" x2="12" y2="16"/></svg>;
 }
@@ -95,7 +95,7 @@ export default function MessageList() {
 
   // Apply optimistic read guard to a batch of messages from the server.
   // Prevents a concurrent sync refresh from reverting a pending or recently-completed
-  // mark-read before the IMAP flag has propagated back to the DB.
+  // mark-read before the IMAP star has propagated back to the DB.
   const applyReadGuard = useCallback((msgs) => {
     if (pendingMarkReadMap.size === 0 && completedMarkReadMap.size === 0) return msgs;
     return msgs.map(m => {
@@ -612,11 +612,11 @@ export default function MessageList() {
     });
   }, [removeMessage, decrementUnread, incrementUnread, addNotification, t]);
 
-  const handleSwipeFlag = useCallback((message) => {
+  const handleSwipeStar = useCallback((message) => {
     const newVal = !message.is_starred;
     updateMessage(message.id, { is_starred: newVal });
     api.markStarred(message.id, newVal).catch(err => {
-      console.error('swipe flag failed:', err.message);
+      console.error('swipe star failed:', err.message);
       updateMessage(message.id, { is_starred: !newVal });
     });
   }, [updateMessage]);
@@ -629,8 +629,8 @@ export default function MessageList() {
       case 'delete':
         handleSwipeDelete(message);
         break;
-      case 'flag':
-        handleSwipeFlag(message);
+      case 'star':
+        handleSwipeStar(message);
         break;
       case 'markRead':
         handleSwipeToggleRead(message);
@@ -638,7 +638,7 @@ export default function MessageList() {
       default:
         break;
     }
-  }, [handleSwipeArchive, handleSwipeDelete, handleSwipeFlag, handleSwipeToggleRead]);
+  }, [handleSwipeArchive, handleSwipeDelete, handleSwipeStar, handleSwipeToggleRead]);
 
   // ── Bulk selection helpers ───────────────────────────────────
   const toggleSelect = useCallback((id) => {

@@ -1148,7 +1148,7 @@ function LayoutDiagram({ layoutKey, layoutConfig, active }) {
 // ─── Layouts Tab ──────────────────────────────────────────────────────────────
 function SwipeActionIcon({ action, size = 17 }) {
   const common = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round' };
-  if (action === 'flag') return <svg {...common}><path d="M4 15s1.5-1 4-1 4 1 6.5 1 4.5-1 5.5-2V4c-1 1-3 2-5.5 2S10.5 5 8 5 4 6 4 6v15" /></svg>;
+  if (action === 'star') return <svg {...common}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>;
   if (action === 'delete') return <svg {...common}><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/><path d="M8 6V4a1 1 0 011-1h6a1 1 0 011 1v2"/></svg>;
   if (action === 'markRead') return <svg {...common}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>;
   if (action === 'disabled') return <svg {...common}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>;
@@ -1166,7 +1166,7 @@ function LayoutsTab() {
   };
 
   const swipeOptions = [
-    { id: 'flag', label: t('admin.messageList.swipeFlag'), desc: t('admin.messageList.swipeFlagDesc') },
+    { id: 'star', label: t('admin.messageList.swipeStar'), desc: t('admin.messageList.swipeStarDesc') },
     { id: 'archive', label: t('admin.messageList.swipeArchive'), desc: t('admin.messageList.swipeArchiveDesc') },
     { id: 'delete', label: t('admin.messageList.swipeDelete'), desc: t('admin.messageList.swipeDeleteDesc') },
     { id: 'markRead', label: t('admin.messageList.swipeMarkRead'), desc: t('admin.messageList.swipeMarkReadDesc') },
