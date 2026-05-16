@@ -2195,7 +2195,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
       {/* Swipe background: left side — mark read/unread (revealed by right swipe) */}
       {isMobile && (
         <div ref={swipeBgLeftRef} style={{
-            position: 'absolute', left: 0, top: 0, bottom: 0, width: '50%',
+          position: 'absolute', left: 0, top: 0, bottom: 0, width: '50%',
           background: 'var(--accent)',
           display: 'none', alignItems: 'center', justifyContent: 'flex-start',
           paddingLeft: 20, gap: 6,
