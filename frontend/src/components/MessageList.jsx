@@ -2196,19 +2196,15 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
       {isMobile && (
         <div ref={swipeBgLeftRef} style={{
             position: 'absolute', left: 0, top: 0, bottom: 0, width: '50%',
-            background: 'var(--accent)',
-            display: 'none', alignItems: 'center', justifyContent: 'flex-start',
-            paddingLeft: 20, gap: 6,
-          }}>
-          {unreadCount > 0 ? (
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-              <path style={{strokeLinecap: 'round'}} d="M22,9v9c0,1.1-.9,2-2,2H4c-1.1,0-2-.9-2-2v-9"/><polyline points="22 9 12 16 2 9"/><polyline points="2 9 12 2 22 9"/>
-            </svg>
-          ) : (
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-              <path style={{strokeLinecap: 'round'}} d="M22,10.91v7.09c0,1.1-.9,2-2,2H4c-1.1,0-2-.9-2-2V6c0-1.1.9-2,2-2h11"/><polyline style={{strokeLinecap: 'round'}} points="16.36 9.95 12 13 2 6"/><circle style={{strokeMiterlimit: 10, fill: 'white'}} cx="19.96" cy="6" r="3"/>
-            </svg>
-          )}
+          background: 'var(--accent)',
+          display: 'none', alignItems: 'center', justifyContent: 'flex-start',
+          paddingLeft: 20, gap: 6,
+        }}>
+          <svg width="18" height="18" viewBox="0 0 24 24"
+            fill={unreadCount > 0 ? 'none' : 'white'} stroke="white" strokeWidth="2">
+            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
           <span style={{ color: 'white', fontSize: 12, fontWeight: 600 }}>
             {unreadCount > 0 ? 'Read' : 'Unread'}
           </span>
@@ -2544,13 +2540,17 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
           display: 'none', alignItems: 'center', justifyContent: 'flex-start',
           paddingLeft: 20, gap: 6,
         }}>
-          <svg width="18" height="18" viewBox="0 0 24 24"
-            fill={message.is_read ? 'none' : 'white'} stroke="white" strokeWidth="2">
-            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-            <circle cx="12" cy="12" r="3"/>
-          </svg>
+          {message.is_read ? (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+              <path style={{strokeLinecap: 'round'}} d="M22,9v9c0,1.1-.9,2-2,2H4c-1.1,0-2-.9-2-2v-9"/><polyline points="22 9 12 16 2 9"/><polyline points="2 9 12 2 22 9"/>
+            </svg>
+          ) : (
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+              <path style={{strokeLinecap: 'round'}} d="M22,10.91v7.09c0,1.1-.9,2-2,2H4c-1.1,0-2-.9-2-2V6c0-1.1.9-2,2-2h11"/><polyline style={{strokeLinecap: 'round'}} points="16.36 9.95 12 13 2 6"/><circle style={{strokeMiterlimit: 10, fill: 'white'}} cx="19.96" cy="6" r="3"/>
+            </svg>
+          )}
           <span style={{ color: 'white', fontSize: 12, fontWeight: 600 }}>
-            {message.is_read ? 'Unread' : 'Read'}
+            {message.is_read ? 'Read' : 'Unread'}
           </span>
         </div>
       )}
