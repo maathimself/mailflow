@@ -33,6 +33,8 @@ const SWIPE_ACTIONS = {
   delete: { color: 'var(--red, #ef4444)' },
   star: { color: 'var(--amber, #d97706)' },
   markRead: { color: 'var(--accent)' },
+  reply: { color: 'var(--green, #22c55e)' },
+  replyAll: { color: 'var(--blue, #3b82f6)' },
   disabled: { color: 'transparent' },
 };
 
@@ -42,6 +44,8 @@ function getSwipeActionView(action, message, t, unreadCount = null) {
   if (action === 'delete') return { label: t('contextMenu.delete'), color: SWIPE_ACTIONS.delete.color, icon: 'delete' };
   if (action === 'star') return { label: message.is_starred ? t('messageList.swipeUnstar') : t('messageList.swipeStar'), color: SWIPE_ACTIONS.star.color, icon: 'star' };
   if (action === 'markRead') return { label: unread ? t('contextMenu.markRead') : t('contextMenu.markUnread'), color: SWIPE_ACTIONS.markRead.color, icon: 'markRead', fill: unread ? 'white' : 'none' };
+  if (action === 'reply') return { label: t('message.reply'), color: SWIPE_ACTIONS.reply.color, icon: 'reply' };
+  if (action === 'replyAll') return { label: t('message.replyAll'), color: SWIPE_ACTIONS.replyAll.color, icon: 'replyAll' };
   return null;
 }
 
@@ -49,6 +53,8 @@ function SwipeActionSvg({ icon, fill = 'none' }) {
   if (icon === 'delete') return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>;
   if (icon === 'star') return <svg width="18" height="18" viewBox="0 0 24 24" fill={fill} stroke="white" strokeWidth="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>;
   if (icon === 'markRead') return <svg width="18" height="18" viewBox="0 0 24 24" fill={fill} stroke="white" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>;
+  if (icon === 'reply') return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 00-4-4H4"/></svg>;
+  if (icon === 'replyAll') return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><polyline points="7 17 2 12 7 7"/><polyline points="12 17 7 12 12 7"/><path d="M22 18v-2a4 4 0 00-4-4H7"/></svg>;
   return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a1 1 0 001 1h14a1 1 0 001-1V8"/><polyline points="9 13 12 16 15 13"/><line x1="12" y1="11" x2="12" y2="16"/></svg>;
 }
 
@@ -627,6 +633,73 @@ export default function MessageList() {
     });
   }, [updateMessage]);
 
+  const handleSwipeReply = useCallback((message, replyAll = false) => {
+    const replyToArr = Array.isArray(message.reply_to)
+      ? message.reply_to
+      : (() => { try { return JSON.parse(message.reply_to || '[]'); } catch (_) { return []; } })();
+    const replyTarget = (replyToArr.length && replyToArr[0].email)
+      ? replyToArr[0]
+      : { name: message.from_name || '', email: message.from_email || '' };
+    const sender = replyTarget.email ? [replyTarget] : [];
+
+    const myAccount = accounts.find(a => a.id === message.account_id);
+    const myEmail = myAccount?.email_address || '';
+    const myAddresses = new Set([
+      myEmail.toLowerCase(),
+      ...(myAccount?.aliases || []).map(al => al.email.toLowerCase()),
+    ]);
+
+    const replyAliasId = (() => {
+      const aliases = myAccount?.aliases || [];
+      if (!aliases.length) return null;
+      try {
+        const toArr = Array.isArray(message.to_addresses)
+          ? message.to_addresses
+          : JSON.parse(message.to_addresses || '[]');
+        const ccArr = Array.isArray(message.cc_addresses)
+          ? message.cc_addresses
+          : JSON.parse(message.cc_addresses || '[]');
+        const allEmails = [...toArr, ...ccArr].map(t => t.email?.toLowerCase()).filter(Boolean);
+        const match = aliases.find(al => allEmails.includes(al.email.toLowerCase()));
+        return match ? match.id : null;
+      } catch (_) { return null; }
+    })();
+
+    const allRecipients = (() => {
+      try {
+        const toArr = Array.isArray(message.to_addresses)
+          ? message.to_addresses
+          : JSON.parse(message.to_addresses || '[]');
+        const ccArr = Array.isArray(message.cc_addresses)
+          ? message.cc_addresses
+          : JSON.parse(message.cc_addresses || '[]');
+        return [...toArr, ...ccArr].filter(
+          t => t.email && !myAddresses.has(t.email.toLowerCase()) && t.email !== replyTarget.email
+        );
+      } catch (_) { return []; }
+    })();
+
+    const referencesChain = [message.in_reply_to, message.message_id]
+      .filter(Boolean).join(' ').trim() || null;
+    const rawSubject = (message.subject || '').trim();
+
+    openCompose({
+      to: sender,
+      cc: replyAll ? allRecipients : [],
+      subject: rawSubject.startsWith('Re:') ? rawSubject : rawSubject ? `Re: ${rawSubject}` : 'Re:',
+      body: '',
+      quotedBody: '',
+      inReplyTo: message.message_id,
+      references: referencesChain,
+      accountId: message.account_id,
+      aliasId: replyAliasId,
+      isReply: true,
+      isReplyAll: replyAll,
+      originalFrom: sender,
+      allRecipients,
+    });
+  }, [accounts, openCompose]);
+
   const runSwipeAction = useCallback((action, message) => {
     switch (action) {
       case 'archive':
@@ -641,10 +714,16 @@ export default function MessageList() {
       case 'markRead':
         handleSwipeToggleRead(message);
         break;
+      case 'reply':
+        handleSwipeReply(message, false);
+        break;
+      case 'replyAll':
+        handleSwipeReply(message, true);
+        break;
       default:
         break;
     }
-  }, [handleSwipeArchive, handleSwipeDelete, handleSwipeStar, handleSwipeToggleRead]);
+  }, [handleSwipeArchive, handleSwipeDelete, handleSwipeReply, handleSwipeStar, handleSwipeToggleRead]);
 
   // ── Bulk selection helpers ───────────────────────────────────
   const toggleSelect = useCallback((id) => {
