@@ -24,7 +24,14 @@ import { reloadAuthSettings } from './services/authLimiter.js';
 import { setupWebSocket } from './services/websocket.js';
 import { ImapManager } from './services/imapManager.js';
 
-const { version: APP_VERSION } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
+const packageMeta = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
+let buildMeta = {};
+try {
+  buildMeta = JSON.parse(readFileSync(new URL('../build-meta.json', import.meta.url), 'utf-8'));
+} catch {
+  // Local dev runs may not have build metadata yet.
+}
+const APP_VERSION = (process.env.APP_VERSION || buildMeta.version || packageMeta.version).replace(/^v[.]?/, '');
 
 const app = express();
 // Trust the nginx reverse proxy so req.secure reflects HTTPS correctly.

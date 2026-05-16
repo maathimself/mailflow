@@ -6,8 +6,8 @@ services:
   # Production mode (--profile https): Caddy handles TLS instead (see below)
   frontend:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: frontend/Dockerfile
       args:
         VITE_BUILD_SHA: ${GIT_SHA:-dev}
     container_name: mailflow-frontend
@@ -32,8 +32,8 @@ services:
   # ── Backend API ──────────────────────────────────────────────────────────────
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
       args:
         BUILD_SHA: ${GIT_SHA:-dev}
     container_name: mailflow-backend

@@ -45,13 +45,15 @@ jobs:
       - name: Build and push backend
         uses: docker/build-push-action@v6
         with:
-          context: ./backend
+          context: .
+          file: ./backend/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta-backend.outputs.tags }}
           labels: ${{ steps.meta-backend.outputs.labels }}
           build-args: |
             BUILD_SHA=${{ github.sha }}
+            APP_VERSION=${{ github.ref_name }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -70,7 +72,8 @@ jobs:
       - name: Build and push frontend
         uses: docker/build-push-action@v6
         with:
-          context: ./frontend
+          context: .
+          file: ./frontend/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta-frontend.outputs.tags }}
