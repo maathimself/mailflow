@@ -2343,7 +2343,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
             padding: '1px 2px',
           }}>
             <ActionBtn
-              title={unreadCount > 0 ? 'Mark read' : 'Mark unread'}
+              title={unreadCount > 0 ? t('contextMenu.markRead') : t('contextMenu.markUnread')}
               onClick={e => onMarkRead(e, message)}
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill={unreadCount > 0 ? 'none' : 'currentColor'} stroke="currentColor" strokeWidth="2">
@@ -2352,7 +2352,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
               </svg>
             </ActionBtn>
 
-            <ActionBtn title={message.is_starred ? 'Unstar' : 'Star'} onClick={e => onStar(e, message)}>
+            <ActionBtn title={message.is_starred ? t('contextMenu.unstar') : t('contextMenu.star')} onClick={e => onStar(e, message)}>
               <svg width="13" height="13" viewBox="0 0 24 24"
                 fill={message.is_starred ? 'var(--amber)' : 'none'}
                 stroke={message.is_starred ? 'var(--amber)' : 'currentColor'} strokeWidth="2">
@@ -2760,7 +2760,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
               <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
             </svg>
           </ActionBtn>
-          
+
           {/* Delete */}
           <ActionBtn title="Delete" onClick={e => onDelete(e, message)}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -2768,7 +2768,6 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
               <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
             </svg>
           </ActionBtn>
-
         </div>
       )}
       </div>

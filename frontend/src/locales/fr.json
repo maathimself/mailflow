@@ -425,11 +425,11 @@
       "composeRichTextDesc": "Envoie du HTML — prend en charge la mise en forme et les signatures stylisées",
       "composePlainText": "Texte brut",
       "composePlainTextDesc": "Aucun formatage HTML — compatibilité maximale",
-      "hoverQuickActionsMode": "Actions rapides au survol",
-      "hoverQuickActionsOff": "Désactivé",
-      "hoverQuickActionsOffDesc": "Masquez les actions rapides jusqu'à ce que vous utilisiez le menu contextuel ou les raccourcis",
-      "hoverQuickActionsOn": "Sur",
-      "hoverQuickActionsOnDesc": "Afficher les icônes d'action rapide dans les lignes de message lorsque le pointeur les survole"
+      "hoverQuickActionsMode": "[NEEDS TRANSLATION] Quick actions on hover",
+      "hoverQuickActionsOff": "[NEEDS TRANSLATION] Off",
+      "hoverQuickActionsOffDesc": "[NEEDS TRANSLATION] Keep Quick Actions hidden until you use the context menu or shortcuts.",
+      "hoverQuickActionsOn": "[NEEDS TRANSLATION] On",
+      "hoverQuickActionsOnDesc": "[NEEDS TRANSLATION] Show Quick Action icons in message rows when the pointer is over them."
     },
     "notifications": {
       "title": "Notifications",

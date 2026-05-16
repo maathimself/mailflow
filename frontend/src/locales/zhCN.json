@@ -427,11 +427,11 @@
       "composeRichTextDesc": "以 HTML 形式发送 — 支持格式化与带样式的签名",
       "composePlainText": "纯文本",
       "composePlainTextDesc": "无 HTML 格式 — 兼容性最佳",
-      "hoverQuickActionsMode": "鼠标悬停时的快速操作",
-      "hoverQuickActionsOff": "离开",
-      "hoverQuickActionsOffDesc": "在使用上下文菜单或快捷键之前，请保持快速操作隐藏",
-      "hoverQuickActionsOn": "在",
-      "hoverQuickActionsOnDesc": "当指针悬停在消息行上时，显示快速操作图标"
+      "hoverQuickActionsMode": "[NEEDS TRANSLATION] Quick actions on hover",
+      "hoverQuickActionsOff": "[NEEDS TRANSLATION] Off",
+      "hoverQuickActionsOffDesc": "[NEEDS TRANSLATION] Keep Quick Actions hidden until you use the context menu or shortcuts.",
+      "hoverQuickActionsOn": "[NEEDS TRANSLATION] On",
+      "hoverQuickActionsOnDesc": "[NEEDS TRANSLATION] Show Quick Action icons in message rows when the pointer is over them."
     },
     "notifications": {
       "title": "通知",
