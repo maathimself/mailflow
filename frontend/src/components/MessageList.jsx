@@ -95,7 +95,7 @@ export default function MessageList() {
 
   // Apply optimistic read guard to a batch of messages from the server.
   // Prevents a concurrent sync refresh from reverting a pending or recently-completed
-  // mark-read before the IMAP star has propagated back to the DB.
+  // mark-read before the IMAP flag has propagated back to the DB.
   const applyReadGuard = useCallback((msgs) => {
     if (pendingMarkReadMap.size === 0 && completedMarkReadMap.size === 0) return msgs;
     return msgs.map(m => {
