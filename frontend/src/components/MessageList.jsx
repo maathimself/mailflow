@@ -28,6 +28,47 @@ function formatDate(dateStr) {
   return format(d, 'MMM d, yyyy');
 }
 
+const SWIPE_ACTIONS = {
+  archive: { color: 'var(--amber, #d97706)' },
+  delete: { color: 'var(--red, #ef4444)' },
+  star: { color: 'var(--amber, #d97706)' },
+  markRead: { color: 'var(--accent)' },
+  disabled: { color: 'transparent' },
+};
+
+function getSwipeActionView(action, message, t, unreadCount = null) {
+  const unread = unreadCount != null ? unreadCount > 0 : !message.is_read;
+  if (action === 'archive') return { label: t('message.archive'), color: SWIPE_ACTIONS.archive.color, icon: 'archive' };
+  if (action === 'delete') return { label: t('contextMenu.delete'), color: SWIPE_ACTIONS.delete.color, icon: 'delete' };
+  if (action === 'star') return { label: message.is_starred ? t('messageList.swipeUnstar') : t('messageList.swipeStar'), color: SWIPE_ACTIONS.star.color, icon: 'star' };
+  if (action === 'markRead') return { label: unread ? t('contextMenu.markRead') : t('contextMenu.markUnread'), color: SWIPE_ACTIONS.markRead.color, icon: 'markRead', fill: unread ? 'white' : 'none' };
+  return null;
+}
+
+function SwipeActionSvg({ icon, fill = 'none' }) {
+  if (icon === 'delete') return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>;
+  if (icon === 'star') return <svg width="18" height="18" viewBox="0 0 24 24" fill={fill} stroke="white" strokeWidth="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>;
+  if (icon === 'markRead') return <svg width="18" height="18" viewBox="0 0 24 24" fill={fill} stroke="white" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>;
+  return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a1 1 0 001 1h14a1 1 0 001-1V8"/><polyline points="9 13 12 16 15 13"/><line x1="12" y1="11" x2="12" y2="16"/></svg>;
+}
+
+function SwipeBackground({ side, actionView, innerRef }) {
+  if (!actionView) return null;
+  const isLeft = side === 'left';
+  return (
+    <div ref={innerRef} style={{
+      position: 'absolute', [isLeft ? 'left' : 'right']: 0, top: 0, bottom: 0, width: '50%',
+      background: actionView.color,
+      display: 'none', alignItems: 'center', justifyContent: isLeft ? 'flex-start' : 'flex-end',
+      paddingLeft: isLeft ? 20 : undefined, paddingRight: isLeft ? undefined : 20, gap: 6,
+    }}>
+      {isLeft && <SwipeActionSvg icon={actionView.icon} fill={actionView.fill} />}
+      <span style={{ color: 'white', fontSize: 12, fontWeight: 600 }}>{actionView.label}</span>
+      {!isLeft && <SwipeActionSvg icon={actionView.icon} fill={actionView.fill} />}
+    </div>
+  );
+}
+
 export default function MessageList() {
   const { t } = useTranslation();
   const {
@@ -43,6 +84,8 @@ export default function MessageList() {
     setMobileSidebarOpen,
     threadedView, expandedThreadId, setExpandedThreadId,
     threadMessages, setThreadMessages, loadingThread, setLoadingThread,
+    hoverQuickActions,
+    swipeActions,
   } = useStore();
 
   const isMobile = useMobile();
@@ -517,10 +560,16 @@ export default function MessageList() {
   }, [scheduleDelete]);
 
   const handleSwipeToggleRead = useCallback(async (message) => {
-    const newRead = !message.is_read;
-    updateMessage(message.id, { is_read: newRead });
+    const unreadCount = Number.parseInt(message.unread_count, 10);
+    const hasThreadUnreadCount = Number.isFinite(unreadCount);
+    const isUnread = hasThreadUnreadCount ? unreadCount > 0 : !message.is_read;
+    const newRead = isUnread;
+    const unreadDelta = hasThreadUnreadCount ? Math.max(unreadCount, 1) : 1;
+    const optimisticUpdate = hasThreadUnreadCount ? { is_read: newRead, unread_count: newRead ? 0 : 1 } : { is_read: newRead };
+
+    updateMessage(message.id, optimisticUpdate);
     if (newRead) {
-      decrementUnread(message.account_id);
+      decrementUnread(message.account_id, unreadDelta);
       setPending(message.id, message.account_id);
     } else {
       incrementUnread(message.account_id);
@@ -538,8 +587,8 @@ export default function MessageList() {
       }
     } catch (err) {
       console.error('swipe toggle read failed:', err.message);
-      updateMessage(message.id, { is_read: !newRead });
-      if (newRead) incrementUnread(message.account_id);
+      updateMessage(message.id, hasThreadUnreadCount ? { is_read: !newRead, unread_count: newRead ? unreadCount : 0 } : { is_read: !newRead });
+      if (newRead) incrementUnread(message.account_id, unreadDelta);
       else decrementUnread(message.account_id);
       pendingMarkReadMap.delete(message.id);
     }
@@ -569,6 +618,34 @@ export default function MessageList() {
       },
     });
   }, [removeMessage, decrementUnread, incrementUnread, addNotification, t]);
+
+  const handleSwipeStar = useCallback((message) => {
+    const newVal = !message.is_starred;
+    updateMessage(message.id, { is_starred: newVal });
+    api.markStarred(message.id, newVal).catch(err => {
+      console.error('swipe star failed:', err.message);
+      updateMessage(message.id, { is_starred: !newVal });
+    });
+  }, [updateMessage]);
+
+  const runSwipeAction = useCallback((action, message) => {
+    switch (action) {
+      case 'archive':
+        handleSwipeArchive(message);
+        break;
+      case 'delete':
+        handleSwipeDelete(message);
+        break;
+      case 'star':
+        handleSwipeStar(message);
+        break;
+      case 'markRead':
+        handleSwipeToggleRead(message);
+        break;
+      default:
+        break;
+    }
+  }, [handleSwipeArchive, handleSwipeDelete, handleSwipeStar, handleSwipeToggleRead]);
 
   // ── Bulk selection helpers ───────────────────────────────────
   const toggleSelect = useCallback((id) => {
@@ -1008,6 +1085,13 @@ export default function MessageList() {
       default:
         break;
     }
+  };
+
+  const handleThreadMarkRead = (e, message) => {
+    e.stopPropagation();
+    const uc = parseInt(message.unread_count);
+    const hasUnreadInThread = Number.isFinite(uc) && uc > 0;
+    handleContextAction(hasUnreadInThread ? 'markRead' : 'markUnread', message);
   };
 
   const handleSelect = async (message) => {
@@ -1734,6 +1818,8 @@ export default function MessageList() {
         {threadedView && !searchQuery.trim() ? (
           displayMessages.map(message => {
             const tid = message.thread_id || message.id;
+            const swipeLeftAction = swipeActions?.left || 'archive';
+            const swipeRightAction = swipeActions?.right || 'markRead';
             return (
               <ThreadRow
                 key={tid}
@@ -1747,42 +1833,55 @@ export default function MessageList() {
                 isNarrow={isNarrow}
                 onThreadClick={() => handleThreadClick(message)}
                 onSelect={handleSelect}
+                onMarkRead={handleThreadMarkRead}
+                onStar={handleStar}
+                onDelete={handleDelete}
+                hoverQuickActions={hoverQuickActions}
                 onContextMenu={(e, msg) => {
                   e.preventDefault();
                   setContextMenu({ x: e.clientX, y: e.clientY, message: msg });
                 }}
                 isMobile={isMobile}
-                onSwipeLeft={handleSwipeArchive}
-                onSwipeRight={handleSwipeToggleRead}
+                swipeLeftAction={swipeLeftAction}
+                swipeRightAction={swipeRightAction}
+                onSwipeLeft={swipeLeftAction === 'disabled' ? undefined : (msg) => runSwipeAction(swipeLeftAction, msg)}
+                onSwipeRight={swipeRightAction === 'disabled' ? undefined : (msg) => runSwipeAction(swipeRightAction, msg)}
               />
             );
           })
         ) : (
-          displayMessages.map(message => (
-            <MessageRow
-              key={message.id}
-              message={message}
-              selected={selectedMessageId === message.id}
-              lastViewed={lastViewedMessageId === message.id && selectedMessageId !== message.id}
-              isChecked={selectedIds.has(message.id)}
-              selectionMode={selectionMode}
-              showAccount={isUnified}
-              isNarrow={isNarrow}
-              onSelect={handleSelect}
-              onToggleSelect={toggleSelect}
-              onMarkRead={handleMarkRead}
-              onStar={handleStar}
-              onDelete={handleDelete}
-              onContextMenu={(e, msg) => {
-                e.preventDefault();
-                setContextMenu({ x: e.clientX, y: e.clientY, message: msg });
-              }}
-              isMobile={isMobile}
-              onSwipeLeft={handleSwipeArchive}
-              onSwipeRight={handleSwipeToggleRead}
-              onLongPress={isMobile ? (id) => { setSelectionModeActive(true); toggleSelect(id); } : undefined}
-            />
-          ))
+          displayMessages.map(message => {
+            const swipeLeftAction = swipeActions?.left || 'archive';
+            const swipeRightAction = swipeActions?.right || 'markRead';
+            return (
+              <MessageRow
+                key={message.id}
+                message={message}
+                selected={selectedMessageId === message.id}
+                lastViewed={lastViewedMessageId === message.id && selectedMessageId !== message.id}
+                isChecked={selectedIds.has(message.id)}
+                selectionMode={selectionMode}
+                showAccount={isUnified}
+                isNarrow={isNarrow}
+                onSelect={handleSelect}
+                onToggleSelect={toggleSelect}
+                onMarkRead={handleMarkRead}
+                onStar={handleStar}
+                onDelete={handleDelete}
+                hoverQuickActions={hoverQuickActions}
+                onContextMenu={(e, msg) => {
+                  e.preventDefault();
+                  setContextMenu({ x: e.clientX, y: e.clientY, message: msg });
+                }}
+                isMobile={isMobile}
+                swipeLeftAction={swipeLeftAction}
+                swipeRightAction={swipeRightAction}
+                onSwipeLeft={swipeLeftAction === 'disabled' ? undefined : (msg) => runSwipeAction(swipeLeftAction, msg)}
+                onSwipeRight={swipeRightAction === 'disabled' ? undefined : (msg) => runSwipeAction(swipeRightAction, msg)}
+                onLongPress={isMobile ? (id) => { setSelectionModeActive(true); toggleSelect(id); } : undefined}
+              />
+            );
+          })
         )}
 
         {contextMenu && (
@@ -2082,7 +2181,7 @@ function EmptyState({ folderSyncing, searchQuery, unreadOnly, selectedFolder, ac
   );
 }
 
-function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, lastViewedMessageId, showAccount, isNarrow, onThreadClick, onSelect, onContextMenu, isMobile, onSwipeLeft, onSwipeRight }) {
+function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, lastViewedMessageId, showAccount, isNarrow, onThreadClick, onSelect, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const messageCount = message.message_count || 1;
@@ -2137,6 +2236,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
         s.dir = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
       }
       if (s.dir === 'v') return;
+      if ((dx < 0 && !onSwipeLeft) || (dx > 0 && !onSwipeRight)) return;
       e.preventDefault();
       s.active = true;
       s.x = Math.max(-160, Math.min(160, dx));
@@ -2186,48 +2286,16 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
   const rowBg = isMobile
     ? (isLastViewed ? 'var(--accent-glow)' : 'var(--bg-primary)')
     : (isExpanded ? 'var(--bg-secondary)' : (hovered ? 'var(--bg-tertiary)' : (isLastViewed ? 'var(--accent-glow)' : 'transparent')));
+  const leftActionView = getSwipeActionView(swipeRightAction, message, t, unreadCount);
+  const rightActionView = getSwipeActionView(swipeLeftAction, message, t, unreadCount);
 
   return (
     <div style={{ borderBottom: '1px solid var(--border-subtle)' }}>
       {/* Swipe container wraps only the header row */}
       <div style={{ position: 'relative', overflow: 'hidden' }}>
 
-      {/* Swipe background: left side — mark read/unread (revealed by right swipe) */}
-      {isMobile && (
-        <div ref={swipeBgLeftRef} style={{
-          position: 'absolute', left: 0, top: 0, bottom: 0, width: '50%',
-          background: 'var(--accent)',
-          display: 'none', alignItems: 'center', justifyContent: 'flex-start',
-          paddingLeft: 20, gap: 6,
-        }}>
-          <svg width="18" height="18" viewBox="0 0 24 24"
-            fill={unreadCount > 0 ? 'none' : 'white'} stroke="white" strokeWidth="2">
-            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-            <circle cx="12" cy="12" r="3"/>
-          </svg>
-          <span style={{ color: 'white', fontSize: 12, fontWeight: 600 }}>
-            {unreadCount > 0 ? 'Read' : 'Unread'}
-          </span>
-        </div>
-      )}
-
-      {/* Swipe background: right side — archive (revealed by left swipe) */}
-      {isMobile && (
-        <div ref={swipeBgRightRef} style={{
-          position: 'absolute', right: 0, top: 0, bottom: 0, width: '50%',
-          background: 'var(--amber, #d97706)',
-          display: 'none', alignItems: 'center', justifyContent: 'flex-end',
-          paddingRight: 20, gap: 6,
-        }}>
-          <span style={{ color: 'white', fontSize: 12, fontWeight: 600 }}>Archive</span>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-            <rect x="2" y="3" width="20" height="5" rx="1"/>
-            <path d="M4 8v11a1 1 0 001 1h14a1 1 0 001-1V8"/>
-            <polyline points="9 13 12 16 15 13"/>
-            <line x1="12" y1="11" x2="12" y2="16"/>
-          </svg>
-        </div>
-      )}
+      {isMobile && <SwipeBackground side="left" actionView={leftActionView} innerRef={swipeBgLeftRef} />}
+      {isMobile && <SwipeBackground side="right" actionView={rightActionView} innerRef={swipeBgRightRef} />}
 
       {/* Thread header row */}
       <div
@@ -2294,7 +2362,9 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                 </span>
               )}
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginLeft: 8 }}>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginLeft: 8,
+            }}>
               {message.has_attachments && (
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="2">
                   <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
@@ -2319,6 +2389,40 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
             {message.snippet || ''}
           </div>
         </div>
+        {hovered && hoverQuickActions && (
+          <div style={{
+            position: 'absolute', bottom: 6, right: 8,
+            display: 'flex', alignItems: 'center', gap: 2,
+            background: rowBg,
+            borderRadius: 5,
+            padding: '1px 2px',
+          }}>
+            <ActionBtn
+              title={unreadCount > 0 ? t('contextMenu.markRead') : t('contextMenu.markUnread')}
+              onClick={e => onMarkRead(e, message)}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill={unreadCount > 0 ? 'none' : 'currentColor'} stroke="currentColor" strokeWidth="2">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
+            </ActionBtn>
+
+            <ActionBtn title={message.is_starred ? t('contextMenu.unstar') : t('contextMenu.star')} onClick={e => onStar(e, message)}>
+              <svg width="13" height="13" viewBox="0 0 24 24"
+                fill={message.is_starred ? 'var(--amber)' : 'none'}
+                stroke={message.is_starred ? 'var(--amber)' : 'currentColor'} strokeWidth="2">
+                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+              </svg>
+            </ActionBtn>
+
+            <ActionBtn title={t('message.delete')} onClick={e => onDelete(e, message)}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
+              </svg>
+            </ActionBtn>
+          </div>
+        )}
       </div>
       </div>{/* end swipe container */}
 
@@ -2383,7 +2487,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
   );
 }
 
-function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, showAccount, isNarrow, onSelect, onToggleSelect, onMarkRead, onStar, onDelete, onContextMenu, isMobile, onSwipeLeft, onSwipeRight, onLongPress }) {
+function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, showAccount, isNarrow, onSelect, onToggleSelect, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, onLongPress }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const contentRef = useRef(null);
@@ -2451,6 +2555,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
         s.dir = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
       }
       if (s.dir === 'v') return;
+      if ((dx < 0 && !onSwipeLeft) || (dx > 0 && !onSwipeRight)) return;
       e.preventDefault();
       s.active = true;
       s.x = Math.max(-160, Math.min(160, dx));
@@ -2513,6 +2618,8 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
     : (isChecked ? 'var(--accent-dim)' : (hovered ? 'var(--bg-tertiary)' : (lastViewed ? 'var(--accent-glow)' : bgDefault)));
 
   const showCheckbox = selectionMode;
+  const leftActionView = getSwipeActionView(swipeRightAction, message, t);
+  const rightActionView = getSwipeActionView(swipeLeftAction, message, t);
 
   const handleClick = () => {
     if (selectionMode) {
@@ -2532,46 +2639,8 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
         borderBottom: '1px solid var(--border-subtle)',
       }}
     >
-      {/* Swipe background: left side — mark read/unread (revealed by right swipe) */}
-      {isMobile && (
-        <div ref={swipeBgLeftRef} style={{
-          position: 'absolute', left: 0, top: 0, bottom: 0, width: '50%',
-          background: 'var(--accent)',
-          display: 'none', alignItems: 'center', justifyContent: 'flex-start',
-          paddingLeft: 20, gap: 6,
-        }}>
-          {message.is_read ? (
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-              <path style={{strokeLinecap: 'round'}} d="M22,9v9c0,1.1-.9,2-2,2H4c-1.1,0-2-.9-2-2v-9"/><polyline points="22 9 12 16 2 9"/><polyline points="2 9 12 2 22 9"/>
-            </svg>
-          ) : (
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-              <path style={{strokeLinecap: 'round'}} d="M22,10.91v7.09c0,1.1-.9,2-2,2H4c-1.1,0-2-.9-2-2V6c0-1.1.9-2,2-2h11"/><polyline style={{strokeLinecap: 'round'}} points="16.36 9.95 12 13 2 6"/><circle style={{strokeMiterlimit: 10, fill: 'white'}} cx="19.96" cy="6" r="3"/>
-            </svg>
-          )}
-          <span style={{ color: 'white', fontSize: 12, fontWeight: 600 }}>
-            {message.is_read ? 'Read' : 'Unread'}
-          </span>
-        </div>
-      )}
-
-      {/* Swipe background: right side — archive (revealed by left swipe) */}
-      {isMobile && (
-        <div ref={swipeBgRightRef} style={{
-          position: 'absolute', right: 0, top: 0, bottom: 0, width: '50%',
-          background: 'var(--amber, #d97706)',
-          display: 'none', alignItems: 'center', justifyContent: 'flex-end',
-          paddingRight: 20, gap: 6,
-        }}>
-          <span style={{ color: 'white', fontSize: 12, fontWeight: 600 }}>Archive</span>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-            <rect x="2" y="3" width="20" height="5" rx="1"/>
-            <path d="M4 8v11a1 1 0 001 1h14a1 1 0 001-1V8"/>
-            <polyline points="9 13 12 16 15 13"/>
-            <line x1="12" y1="11" x2="12" y2="16"/>
-          </svg>
-        </div>
-      )}
+      {isMobile && <SwipeBackground side="left" actionView={leftActionView} innerRef={swipeBgLeftRef} />}
+      {isMobile && <SwipeBackground side="right" actionView={rightActionView} innerRef={swipeBgRightRef} />}
 
       {/* Foreground row content */}
       <div
@@ -2688,7 +2757,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
       </div>
 
       {/* Hover actions — absolutely positioned so they never affect row height */}
-      {hovered && (
+      {hovered && hoverQuickActions && (
         <div style={{
           position: 'absolute', bottom: 6, right: 8,
           display: 'flex', alignItems: 'center', gap: 2,
@@ -2697,16 +2766,14 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
           padding: '1px 2px',
         }}>
           {/* Mark read/unread */}
-          <ActionBtn title={message.is_read ? 'Mark unread' : 'Mark read'} onClick={e => onMarkRead(e, message)}>
-            {message.is_read ? (
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path style={{strokeLinecap: 'round'}} d="M22,9v9c0,1.1-.9,2-2,2H4c-1.1,0-2-.9-2-2v-9"/><polyline points="22 9 12 16 2 9"/><polyline points="2 9 12 2 22 9"/>
-              </svg>
-            ) : (
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path style={{strokeLinecap: 'round'}} d="M22,10.91v7.09c0,1.1-.9,2-2,2H4c-1.1,0-2-.9-2-2V6c0-1.1.9-2,2-2h11"/><polyline style={{strokeLinecap: 'round'}} points="16.36 9.95 12 13 2 6"/><circle style={{strokeMiterlimit: 10, fill: 'currentColor'}} cx="19.96" cy="6" r="3"/>
-              </svg>
-            )}
+          <ActionBtn
+            title={message.is_read ? 'Mark unread' : 'Mark read'}
+            onClick={e => onMarkRead(e, message)}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill={message.is_read ? 'none' : 'currentColor'} stroke="currentColor" strokeWidth="2">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
           </ActionBtn>
 
           {/* Star */}
@@ -2743,7 +2810,8 @@ function ActionBtn({ children, onClick, title }) {
       style={{
         background: hov ? 'var(--bg-hover)' : 'none',
         border: 'none', padding: '3px', borderRadius: 4,
-        color: 'var(--text-tertiary)', cursor: 'pointer',
+        color: hov ? 'var(--text-secondary)' : 'var(--text-tertiary)',
+        cursor: 'pointer',
         display: 'flex', alignItems: 'center',
         transition: 'background 0.1s, color 0.1s',
       }}

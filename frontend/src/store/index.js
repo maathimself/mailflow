@@ -113,6 +113,19 @@ export const useStore = create((set, get) => ({
     set({ scrollMode: mode });
     schedulePrefSave({ scrollMode: mode });
   },
+  swipeActions: (() => {
+    try {
+      return JSON.parse(localStorage.getItem('mailflow_swipe_actions') || 'null') || { left: 'archive', right: 'markRead' };
+    } catch (_) {
+      return { left: 'archive', right: 'markRead' };
+    }
+  })(),
+  setSwipeAction: (direction, action) => set(state => {
+    const next = { ...state.swipeActions, [direction]: action };
+    localStorage.setItem('mailflow_swipe_actions', JSON.stringify(next));
+    schedulePrefSave({ swipeActions: next });
+    return { swipeActions: next };
+  }),
   syncInterval: parseInt(localStorage.getItem('mailflow_sync_interval')) || 60,
   setSyncInterval: (seconds) => {
     localStorage.setItem('mailflow_sync_interval', String(seconds));
@@ -191,6 +204,14 @@ export const useStore = create((set, get) => ({
     localStorage.setItem('mailflow_plaintext_email', String(val));
     set({ plaintextEmail: val });
     schedulePrefSave({ plaintextEmail: val });
+  },
+
+  // Message list quick actions
+  hoverQuickActions: localStorage.getItem('mailflow_hover_quick_actions') !== 'false',
+  setHoverQuickActions: (val) => {
+    localStorage.setItem('mailflow_hover_quick_actions', String(val));
+    set({ hoverQuickActions: val });
+    schedulePrefSave({ hoverQuickActions: val });
   },
 
   // Thread expansion cache (not persisted — reset on navigation)
@@ -294,6 +315,14 @@ export const useStore = create((set, get) => ({
         localStorage.setItem('mailflow_scroll_mode', prefs.scrollMode);
         set({ scrollMode: prefs.scrollMode });
       }
+      if (prefs.swipeActions) {
+        const swipeActions = {
+          left: prefs.swipeActions.left || 'archive',
+          right: prefs.swipeActions.right || 'markRead',
+        };
+        localStorage.setItem('mailflow_swipe_actions', JSON.stringify(swipeActions));
+        set({ swipeActions });
+      }
       if (prefs.syncInterval) {
         const n = parseInt(prefs.syncInterval) || 60;
         localStorage.setItem('mailflow_sync_interval', String(n));
@@ -317,6 +346,10 @@ export const useStore = create((set, get) => ({
       if (typeof prefs.plaintextEmail === 'boolean') {
         localStorage.setItem('mailflow_plaintext_email', String(prefs.plaintextEmail));
         set({ plaintextEmail: prefs.plaintextEmail });
+      }
+      if (typeof prefs.hoverQuickActions === 'boolean') {
+        localStorage.setItem('mailflow_hover_quick_actions', String(prefs.hoverQuickActions));
+        set({ hoverQuickActions: prefs.hoverQuickActions });
       }
     } catch (_) {}
   },

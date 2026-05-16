@@ -1146,14 +1146,69 @@ function LayoutDiagram({ layoutKey, layoutConfig, active }) {
 }
 
 // ─── Layouts Tab ──────────────────────────────────────────────────────────────
+function SwipeActionIcon({ action, size = 17 }) {
+  const common = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round' };
+  if (action === 'star') return <svg {...common}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>;
+  if (action === 'delete') return <svg {...common}><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/><path d="M8 6V4a1 1 0 011-1h6a1 1 0 011 1v2"/></svg>;
+  if (action === 'markRead') return <svg {...common}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>;
+  if (action === 'disabled') return <svg {...common}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>;
+  return <svg {...common}><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a1 1 0 001 1h14a1 1 0 001-1V8"/><polyline points="9 13 12 16 15 13"/><line x1="12" y1="11" x2="12" y2="16"/></svg>;
+}
+
 function LayoutsTab() {
   const { t } = useTranslation();
-  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, syncInterval, setSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail } = useStore();
+  const isMobile = useMobile();
+  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions } = useStore();
 
   const handleSelect = (key) => {
     setLayout(key);
     applyLayout(key);
   };
+
+  const swipeOptions = [
+    { id: 'star', label: t('admin.messageList.swipeStar'), desc: t('admin.messageList.swipeStarDesc') },
+    { id: 'archive', label: t('admin.messageList.swipeArchive'), desc: t('admin.messageList.swipeArchiveDesc') },
+    { id: 'delete', label: t('admin.messageList.swipeDelete'), desc: t('admin.messageList.swipeDeleteDesc') },
+    { id: 'markRead', label: t('admin.messageList.swipeMarkRead'), desc: t('admin.messageList.swipeMarkReadDesc') },
+    { id: 'disabled', label: t('admin.messageList.swipeDisabled'), desc: t('admin.messageList.swipeDisabledDesc') },
+  ];
+
+  const renderSwipePicker = (direction, title) => (
+    <div>
+      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>{title}</div>
+      <div style={{ border: '1px solid var(--border-subtle)', borderRadius: 8, overflow: 'hidden' }}>
+        {swipeOptions.map((option, i) => {
+          const active = (swipeActions?.[direction] || (direction === 'left' ? 'archive' : 'markRead')) === option.id;
+          return (
+            <button
+              key={option.id}
+              onClick={() => setSwipeAction(direction, option.id)}
+              style={{
+                width: '100%', display: 'flex', alignItems: 'center', gap: 12,
+                padding: '11px 12px', border: 'none',
+                borderBottom: i < swipeOptions.length - 1 ? '1px solid var(--border-subtle)' : 'none',
+                background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
+                color: 'var(--text-primary)', cursor: 'pointer', textAlign: 'left',
+              }}
+            >
+              <span style={{ color: active ? 'var(--accent)' : 'var(--text-tertiary)', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+                <SwipeActionIcon action={option.id} />
+              </span>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: 'block', fontSize: 12, fontWeight: 500 }}>{option.label}</span>
+                <span style={{ display: 'block', fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>{option.desc}</span>
+              </span>
+              {active && (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.5">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 
   return (
     <div>
@@ -1248,7 +1303,7 @@ function LayoutsTab() {
           </div>
         </div>
 
-        <div>
+        <div style={{ marginBottom: 18 }}>
           <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
             {scrollMode === 'paginated' ? t('admin.messageList.perPagePaginated') : t('admin.messageList.perPageInfinite')}
           </div>
@@ -1275,6 +1330,50 @@ function LayoutsTab() {
             })}
           </div>
         </div>
+
+        {/* Hover quick actions */}
+        <div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
+            {t('admin.messageList.hoverQuickActionsMode')}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {[
+              { id: false, label: t('admin.messageList.hoverQuickActionsOff'), desc: t('admin.messageList.hoverQuickActionsOffDesc') },
+              { id: true, label: t('admin.messageList.hoverQuickActionsOn'), desc: t('admin.messageList.hoverQuickActionsOnDesc') },
+            ].map(({ id, label, desc }) => {
+              const active = hoverQuickActions === id;
+              return (
+                <button
+                  key={String(id)}
+                  onClick={() => setHoverQuickActions(id)}
+                  style={{
+                    flex: 1, padding: '10px 12px', textAlign: 'left',
+                    background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
+                    border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
+                    borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s', outline: 'none',
+                  }}
+                  onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; }}
+                  onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
+                >
+                  <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{label}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{desc}</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {isMobile && (
+          <div style={{ marginTop: 22, paddingTop: 18, borderTop: '1px solid var(--border-subtle)' }}>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
+              {t('admin.messageList.swipeActions')}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 14 }}>
+              {renderSwipePicker('left', t('admin.messageList.swipeLeft'))}
+              {renderSwipePicker('right', t('admin.messageList.swipeRight'))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Sync interval */}
