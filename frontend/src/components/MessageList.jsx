@@ -2201,11 +2201,11 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
             paddingLeft: 20, gap: 6,
           }}>
           {unreadCount > 0 ? (
-            <svg width="18" height="18" viewBox="0 0 24 24" stroke="white" strokeWidth="2">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
               <path style={{strokeLinecap: 'round'}} d="M22,9v9c0,1.1-.9,2-2,2H4c-1.1,0-2-.9-2-2v-9"/><polyline points="22 9 12 16 2 9"/><polyline points="2 9 12 2 22 9"/>
             </svg>
           ) : (
-            <svg width="13" height="13" viewBox="0 0 24 24" stroke="white" strokeWidth="2">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
               <path style={{strokeLinecap: 'round'}} d="M22,10.91v7.09c0,1.1-.9,2-2,2H4c-1.1,0-2-.9-2-2V6c0-1.1.9-2,2-2h11"/><polyline style={{strokeLinecap: 'round'}} points="16.36 9.95 12 13 2 6"/><circle style={{strokeMiterlimit: 10, fill: 'white'}} cx="19.96" cy="6" r="3"/>
             </svg>
           )}
