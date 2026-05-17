@@ -467,17 +467,6 @@ export default function MessageList() {
     return () => window.removeEventListener('mailflow:sync_done', handler);
   }, []);
 
-  const handleStar = async (e, message) => {
-    e.stopPropagation();
-    try {
-      const newVal = !message.is_starred;
-      await api.markStarred(message.id, newVal);
-      updateMessage(message.id, { is_starred: newVal });
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
   const isThreadListRow = useCallback((message) => {
     const messageCount = Number.parseInt(message.message_count, 10);
     return threadedView && !searchQuery.trim() && message.thread_id && messageCount > 1;
@@ -498,6 +487,13 @@ export default function MessageList() {
     const tid = message.thread_id || message.id;
     if (threadMessages[tid]) {
       setThreadMessages(tid, threadMessages[tid].map(msg => ({ ...msg, is_read: read })));
+    }
+  }, [threadMessages, setThreadMessages]);
+
+  const setCachedThreadStarred = useCallback((message, starred) => {
+    const tid = message.thread_id || message.id;
+    if (threadMessages[tid]) {
+      setThreadMessages(tid, threadMessages[tid].map(msg => ({ ...msg, is_starred: starred })));
     }
   }, [threadMessages, setThreadMessages]);
 
@@ -566,6 +562,33 @@ export default function MessageList() {
   const handleMarkRead = (e, message) => {
     e.stopPropagation();
     setMessagesReadState(message, !message.is_read);
+  };
+
+  const setMessagesStarredState = useCallback(async (message, starred) => {
+    let actionMessages = [message];
+    try {
+      actionMessages = await resolveMessagesForThreadAction(message);
+    } catch (err) {
+      console.error('Failed to load thread for star state change:', err.message);
+      return;
+    }
+
+    const isThreadRow = isThreadListRow(message);
+    updateMessage(message.id, { is_starred: starred });
+    if (isThreadRow) setCachedThreadStarred(message, starred);
+
+    try {
+      await Promise.all(actionMessages.map(msg => api.markStarred(msg.id, starred)));
+    } catch (err) {
+      console.error('markStarred failed:', err.message);
+      updateMessage(message.id, { is_starred: !starred });
+      if (isThreadRow) setCachedThreadStarred(message, !starred);
+    }
+  }, [resolveMessagesForThreadAction, isThreadListRow, updateMessage, setCachedThreadStarred]);
+
+  const handleStar = (e, message) => {
+    e.stopPropagation();
+    setMessagesStarredState(message, !message.is_starred);
   };
 
   // Undo-able delete: optimistically remove, delay the API call by 4.5s so user can undo
@@ -685,13 +708,8 @@ export default function MessageList() {
   }, [removeMessage, decrementUnread, incrementUnread, addNotification, t]);
 
   const handleSwipeStar = useCallback((message) => {
-    const newVal = !message.is_starred;
-    updateMessage(message.id, { is_starred: newVal });
-    api.markStarred(message.id, newVal).catch(err => {
-      console.error('swipe star failed:', err.message);
-      updateMessage(message.id, { is_starred: !newVal });
-    });
-  }, [updateMessage]);
+    setMessagesStarredState(message, !message.is_starred);
+  }, [setMessagesStarredState]);
 
   const runSwipeAction = useCallback((action, message) => {
     switch (action) {
@@ -988,8 +1006,7 @@ export default function MessageList() {
       }
       case 'toggleStar': {
         const newVal = !message.is_starred;
-        updateMessage(message.id, { is_starred: newVal });
-        api.markStarred(message.id, newVal).catch(console.error);
+        await setMessagesStarredState(message, newVal);
         break;
       }
       case 'reply':
@@ -1085,12 +1102,21 @@ export default function MessageList() {
         const folder = data;
         if (!folder) break;
         const moved = message;
+        let moveMessages = [message];
+        try {
+          moveMessages = await resolveMessagesForThreadAction(message);
+        } catch (err) {
+          console.error('Failed to load thread for move:', err.message);
+          addNotification({ title: t('message.moved.failTitle'), body: t('message.moved.failBody') });
+          break;
+        }
+        const moveIds = [...new Set(moveMessages.map(msg => msg.id).filter(Boolean))];
         removeMessage(moved.id);
         let moveUndone = false;
         const moveTimer = setTimeout(async () => {
           if (moveUndone) return;
           try {
-            await api.bulkMove([moved.id], folder);
+            await api.bulkMove(moveIds, folder);
           } catch (err) {
             console.error('Move failed:', err.message);
             addNotification({ title: t('message.moved.failTitle'), body: t('message.moved.failBody') });
