@@ -128,7 +128,7 @@ export default function MessageList() {
   const [searchLoadingMore, setSearchLoadingMore] = useState(false);
   const listRef = useRef(null);
   const searchInputRef = useRef(null); // for focusSearch shortcut
-  const pendingDeleteTimers = useRef(new Map()); // id -> { timer, message }
+  const pendingDeleteTimers = useRef(new Map()); // id/thread key -> pending delete metadata
 
   // Bulk selection state
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -467,38 +467,6 @@ export default function MessageList() {
     return () => window.removeEventListener('mailflow:sync_done', handler);
   }, []);
 
-  const handleMarkRead = (e, message) => {
-    e.stopPropagation();
-    const newRead = !message.is_read;
-    updateMessage(message.id, { is_read: newRead, unread_count: newRead ? 0 : 1 });
-    if (newRead) {
-      decrementUnread(message.account_id);
-      setPending(message.id, message.account_id);
-    } else {
-      incrementUnread(message.account_id);
-      pendingMarkReadMap.delete(message.id);
-      completedMarkReadMap.delete(message.id);
-    }
-    api.markRead(message.id, newRead)
-      .then(() => {
-        if (newRead) {
-          pendingMarkReadMap.delete(message.id);
-          completedMarkReadMap.set(message.id, message.account_id);
-          setTimeout(() => completedMarkReadMap.delete(message.id), 10000);
-        }
-      })
-      .catch(err => {
-        console.error('markRead failed:', err);
-        updateMessage(message.id, { is_read: !newRead, unread_count: newRead ? 1 : 0 });
-        if (newRead) {
-          incrementUnread(message.account_id);
-          pendingMarkReadMap.delete(message.id);
-        } else {
-          decrementUnread(message.account_id);
-        }
-      });
-  };
-
   const handleStar = async (e, message) => {
     e.stopPropagation();
     try {
@@ -510,42 +478,167 @@ export default function MessageList() {
     }
   };
 
+  const isThreadListRow = useCallback((message) => {
+    const messageCount = Number.parseInt(message.message_count, 10);
+    return threadedView && !searchQuery.trim() && message.thread_id && messageCount > 1;
+  }, [threadedView, searchQuery]);
+
+  const resolveMessagesForThreadAction = useCallback(async (message) => {
+    const tid = message.thread_id || message.id;
+    if (!isThreadListRow(message)) return [message];
+    if (Array.isArray(threadMessages[tid]) && threadMessages[tid].length > 0) {
+      return threadMessages[tid];
+    }
+    const effectiveFolder = selectedAccountId ? selectedFolder : 'INBOX';
+    const data = await api.getThread(tid, effectiveFolder);
+    return data.messages?.length ? data.messages : [message];
+  }, [isThreadListRow, threadMessages, selectedAccountId, selectedFolder]);
+
+  const setCachedThreadRead = useCallback((message, read) => {
+    const tid = message.thread_id || message.id;
+    if (threadMessages[tid]) {
+      setThreadMessages(tid, threadMessages[tid].map(msg => ({ ...msg, is_read: read })));
+    }
+  }, [threadMessages, setThreadMessages]);
+
+  const setMessagesReadState = useCallback(async (message, read) => {
+    let actionMessages = [message];
+    try {
+      actionMessages = await resolveMessagesForThreadAction(message);
+    } catch (err) {
+      console.error('Failed to load thread for read state change:', err.message);
+      return;
+    }
+
+    const isThreadRow = isThreadListRow(message);
+    const unreadCount = Number.parseInt(message.unread_count, 10);
+    const unreadDelta = read
+      ? (isThreadRow && Number.isFinite(unreadCount) ? unreadCount : actionMessages.filter(msg => !msg.is_read).length)
+      : actionMessages.filter(msg => msg.is_read).length;
+
+    if (isThreadRow) {
+      updateMessage(message.id, { is_read: read, unread_count: read ? 0 : actionMessages.length });
+      setCachedThreadRead(message, read);
+    } else {
+      updateMessage(message.id, { is_read: read, unread_count: read ? 0 : 1 });
+    }
+
+    if (read) {
+      if (unreadDelta > 0) decrementUnread(message.account_id, unreadDelta);
+      actionMessages.forEach(msg => setPending(msg.id, msg.account_id));
+    } else {
+      if (unreadDelta > 0) incrementUnread(message.account_id, unreadDelta);
+      actionMessages.forEach(msg => {
+        pendingMarkReadMap.delete(msg.id);
+        completedMarkReadMap.delete(msg.id);
+      });
+    }
+
+    try {
+      await Promise.all(actionMessages.map(msg => api.markRead(msg.id, read)));
+      if (read) {
+        actionMessages.forEach(msg => {
+          pendingMarkReadMap.delete(msg.id);
+          completedMarkReadMap.set(msg.id, msg.account_id);
+          setTimeout(() => completedMarkReadMap.delete(msg.id), 10000);
+        });
+      }
+    } catch (err) {
+      console.error('markRead failed:', err);
+      if (isThreadRow) {
+        updateMessage(message.id, { is_read: !read, unread_count: read ? unreadDelta : 0 });
+        setCachedThreadRead(message, !read);
+      } else {
+        updateMessage(message.id, { is_read: !read, unread_count: read ? 1 : 0 });
+      }
+      if (read) {
+        if (unreadDelta > 0) incrementUnread(message.account_id, unreadDelta);
+        actionMessages.forEach(msg => pendingMarkReadMap.delete(msg.id));
+      } else if (unreadDelta > 0) {
+        decrementUnread(message.account_id, unreadDelta);
+      }
+    }
+  }, [
+    resolveMessagesForThreadAction, isThreadListRow, updateMessage, setCachedThreadRead,
+    decrementUnread, incrementUnread,
+  ]);
+
+  const handleMarkRead = (e, message) => {
+    e.stopPropagation();
+    setMessagesReadState(message, !message.is_read);
+  };
+
   // Undo-able delete: optimistically remove, delay the API call by 4.5s so user can undo
-  const scheduleDelete = useCallback((message) => {
-    const id = message.id;
-    removeMessage(id);
-    if (!message.is_read) decrementUnread(message.account_id);
+  const scheduleDelete = useCallback(async (message) => {
+    const tid = message.thread_id || message.id;
+    const isThreadRow = isThreadListRow(message);
+    const key = isThreadRow ? `thread:${tid}` : message.id;
+    if (pendingDeleteTimers.current.has(key)) return;
+
+    let deleteMessages = [message];
+    try {
+      deleteMessages = await resolveMessagesForThreadAction(message);
+    } catch (err) {
+      console.error('Failed to load thread for delete:', err.message);
+      addNotification({ type: 'error', title: t('messageList.deleted.failTitle'), body: t('messageList.deleted.failBody') });
+      return;
+    }
+
+    const ids = [...new Set(deleteMessages.map(msg => msg.id).filter(Boolean))];
+    const visibleMessage = message;
+    removeMessage(visibleMessage.id);
+    if (expandedThreadId === tid) setExpandedThreadId(null);
+
+    const unreadCount = Number.parseInt(message.unread_count, 10);
+    const unreadDelta = Number.isFinite(unreadCount)
+      ? unreadCount
+      : deleteMessages.filter(msg => !msg.is_read).length;
+    if (unreadDelta > 0) decrementUnread(message.account_id, unreadDelta);
+
     const timer = setTimeout(async () => {
-      pendingDeleteTimers.current.delete(id);
+      pendingDeleteTimers.current.delete(key);
       try {
-        await api.deleteMessage(id);
+        if (ids.length > 1) {
+          await api.bulkDelete(ids);
+        } else {
+          await api.deleteMessage(ids[0] || visibleMessage.id);
+        }
       } catch {
-        addNotification({ type: 'error', title: t('messageList.deleted.failTitle'), body: t('messageList.deleted.failBody') });
+        addNotification({
+          type: 'error',
+          title: ids.length > 1 ? t('messageList.bulkDeleted.failTitle') : t('messageList.deleted.failTitle'),
+          body: ids.length > 1 ? t('messageList.bulkDeleted.failBody', { count: ids.length }) : t('messageList.deleted.failBody'),
+        });
       }
     }, 4500);
-    pendingDeleteTimers.current.set(id, { timer, message });
+    pendingDeleteTimers.current.set(key, { timer, message: visibleMessage, ids });
     addNotification({
-      title: t('messageList.deleted.title'),
-      body: t('messageList.deleted.body'),
+      title: ids.length > 1 ? t('messageList.bulkDeleted.title', { count: ids.length }) : t('messageList.deleted.title'),
+      body: ids.length > 1 ? t('messageList.bulkDeleted.body') : t('messageList.deleted.body'),
       onUndo: () => {
-        const pending = pendingDeleteTimers.current.get(id);
+        const pending = pendingDeleteTimers.current.get(key);
         if (!pending) return;
         clearTimeout(pending.timer);
-        pendingDeleteTimers.current.delete(id);
+        pendingDeleteTimers.current.delete(key);
         const state = useStore.getState();
-        state.setMessages([...state.messages, message].sort((a, b) => new Date(b.date) - new Date(a.date)));
-        if (!message.is_read) incrementUnread(message.account_id);
+        state.setMessages([...state.messages, visibleMessage].sort((a, b) => new Date(b.date) - new Date(a.date)));
+        if (unreadDelta > 0) incrementUnread(message.account_id, unreadDelta);
       },
     });
-  }, [removeMessage, decrementUnread, incrementUnread, addNotification, t]);
+  }, [
+    isThreadListRow, expandedThreadId, resolveMessagesForThreadAction,
+    removeMessage, setExpandedThreadId, decrementUnread, incrementUnread,
+    addNotification, t,
+  ]);
 
   // On unmount, immediately fire any pending deletes rather than cancelling them.
   // Navigating away during the 4.5s undo window should still delete the message —
   // cancelling the timer would silently leave it on the server.
   useEffect(() => () => {
-    pendingDeleteTimers.current.forEach(({ timer, message }) => {
+    pendingDeleteTimers.current.forEach(({ timer, message, ids }) => {
       clearTimeout(timer);
-      api.deleteMessage(message.id).catch(() => {});
+      if (ids?.length > 1) api.bulkDelete(ids).catch(() => {});
+      else api.deleteMessage(ids?.[0] || message.id).catch(() => {});
     });
   }, []);
 
@@ -563,36 +656,8 @@ export default function MessageList() {
     const unreadCount = Number.parseInt(message.unread_count, 10);
     const hasThreadUnreadCount = Number.isFinite(unreadCount);
     const isUnread = hasThreadUnreadCount ? unreadCount > 0 : !message.is_read;
-    const newRead = isUnread;
-    const unreadDelta = hasThreadUnreadCount ? Math.max(unreadCount, 1) : 1;
-    const optimisticUpdate = hasThreadUnreadCount ? { is_read: newRead, unread_count: newRead ? 0 : 1 } : { is_read: newRead };
-
-    updateMessage(message.id, optimisticUpdate);
-    if (newRead) {
-      decrementUnread(message.account_id, unreadDelta);
-      setPending(message.id, message.account_id);
-    } else {
-      incrementUnread(message.account_id);
-      pendingMarkReadMap.delete(message.id);
-      completedMarkReadMap.delete(message.id);
-    }
-    try {
-      await api.markRead(message.id, newRead);
-      if (newRead) {
-        // Move from in-flight → grace period. A getMessages response that started
-        // before this commit may still arrive; keep the guard up for 3 more seconds.
-        pendingMarkReadMap.delete(message.id);
-        completedMarkReadMap.set(message.id, message.account_id);
-        setTimeout(() => completedMarkReadMap.delete(message.id), 10000);
-      }
-    } catch (err) {
-      console.error('swipe toggle read failed:', err.message);
-      updateMessage(message.id, hasThreadUnreadCount ? { is_read: !newRead, unread_count: newRead ? unreadCount : 0 } : { is_read: !newRead });
-      if (newRead) incrementUnread(message.account_id, unreadDelta);
-      else decrementUnread(message.account_id);
-      pendingMarkReadMap.delete(message.id);
-    }
-  }, [updateMessage, decrementUnread, incrementUnread]);
+    await setMessagesReadState(message, isUnread);
+  }, [setMessagesReadState]);
 
   const handleSwipeArchive = useCallback(async (message) => {
     removeMessage(message.id);
@@ -909,21 +974,7 @@ export default function MessageList() {
         const uc = parseInt(message.unread_count);
         const threadUnread = Number.isFinite(uc) && uc > 0;
         if (!message.is_read || threadUnread) {
-          updateMessage(message.id, { is_read: true, unread_count: 0 });
-          decrementUnread(message.account_id, threadUnread ? uc : 1);
-          setPending(message.id, message.account_id);
-          api.markRead(message.id, true)
-            .then(() => {
-              pendingMarkReadMap.delete(message.id);
-              completedMarkReadMap.set(message.id, message.account_id);
-              setTimeout(() => completedMarkReadMap.delete(message.id), 10000);
-            })
-            .catch(err => {
-              console.error('markRead failed:', err);
-              pendingMarkReadMap.delete(message.id);
-              updateMessage(message.id, { is_read: false, ...(threadUnread ? { unread_count: uc } : {}) });
-              incrementUnread(message.account_id, threadUnread ? uc : 1);
-            });
+          await setMessagesReadState(message, true);
         }
         break;
       }
@@ -931,13 +982,7 @@ export default function MessageList() {
         const uc = parseInt(message.unread_count);
         const needsMarkUnread = message.is_read || (Number.isFinite(uc) && uc === 0);
         if (needsMarkUnread) {
-          updateMessage(message.id, { is_read: false, unread_count: 1 });
-          pendingMarkReadMap.delete(message.id);
-          completedMarkReadMap.delete(message.id);
-          api.markRead(message.id, false).catch(err => {
-            console.error('markUnread failed:', err);
-            updateMessage(message.id, { is_read: true, unread_count: 0 });
-          });
+          await setMessagesReadState(message, false);
         }
         break;
       }

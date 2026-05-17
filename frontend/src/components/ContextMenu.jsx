@@ -173,6 +173,8 @@ export default function ContextMenu({ x, y, message, onClose, onAction }) {
   const [customSnoozeView, setCustomSnoozeView] = useState(false);
   const [customDate, setCustomDate] = useState('');
   const [customTime, setCustomTime] = useState('09:00');
+  const unreadCount = Number.parseInt(message.unread_count, 10);
+  const hasUnread = Number.isFinite(unreadCount) ? unreadCount > 0 : !message.is_read;
 
   // Adjust position to stay within viewport
   const [pos, setPos] = useState({ x, y });
@@ -225,11 +227,11 @@ export default function ContextMenu({ x, y, message, onClose, onAction }) {
           action: () => onAction('open'),
         },
         {
-          label: message.is_read ? t('contextMenu.markUnread') : t('contextMenu.markRead'),
-          icon: message.is_read
-            ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-            : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
-          action: () => onAction(message.is_read ? 'markUnread' : 'markRead'),
+          label: hasUnread ? t('contextMenu.markRead') : t('contextMenu.markUnread'),
+          icon: hasUnread
+            ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>,
+          action: () => onAction(hasUnread ? 'markRead' : 'markUnread'),
         },
         {
           label: message.is_starred ? t('contextMenu.unstar') : t('contextMenu.star'),
