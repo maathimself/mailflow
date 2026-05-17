@@ -5,6 +5,7 @@ import { api } from '../utils/api.js';
 import { format } from 'date-fns';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { useMobile } from '../hooks/useMobile.js';
+import { clearDeleteGuard, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.js';
 
 function parseAddressField(raw) {
   try {
@@ -614,10 +615,15 @@ export default function MessagePane() {
   }
 
   const handleDelete = async () => {
+    setPendingDelete(message.id);
     try {
       await api.deleteMessage(message.id);
+      setCompletedDelete(message.id);
       removeMessage(message.id);
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      clearDeleteGuard(message.id);
+      console.error(err);
+    }
   };
 
   const handleArchive = () => {
