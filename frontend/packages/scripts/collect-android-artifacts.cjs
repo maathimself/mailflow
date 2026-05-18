@@ -3,19 +3,24 @@ const path = require('path');
 
 const root = path.join(__dirname, '..', '..');
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
-const apkDir = path.join(root, 'packages', 'android', 'app', 'build', 'outputs', 'apk', 'release');
+const outputsDir = path.join(root, 'packages', 'android', 'app', 'build', 'outputs');
 const releaseDir = path.join(root, 'packages', 'release');
 
-if (!fs.existsSync(apkDir)) {
-  throw new Error(`Android APK output directory not found: ${apkDir}`);
+if (!fs.existsSync(outputsDir)) {
+  throw new Error(`Android output directory not found: ${outputsDir}`);
 }
 
-const apks = fs.readdirSync(apkDir)
-  .filter((entry) => entry.endsWith('.apk'))
-  .map((entry) => path.join(apkDir, entry));
+const outputFiles = listFiles(outputsDir);
+const apks = outputFiles.filter((file) => {
+  const normalized = file.replace(/\\/g, '/').toLowerCase();
+  return normalized.endsWith('.apk') && normalized.includes('/release/');
+});
 
 if (apks.length === 0) {
-  throw new Error(`No Android APK files found in ${apkDir}`);
+  const found = outputFiles
+    .map((file) => path.relative(root, file))
+    .join('\n  ');
+  throw new Error(`No Android release APK files found under ${outputsDir}.${found ? ` Found:\n  ${found}` : ''}`);
 }
 
 fs.mkdirSync(releaseDir, { recursive: true });
@@ -25,4 +30,19 @@ for (const apk of apks) {
   const target = path.join(releaseDir, `MailFlow-${packageJson.version}${suffix}.apk`);
   fs.copyFileSync(apk, target);
   console.log(`Copied ${path.relative(root, apk)} -> ${path.relative(root, target)}`);
+}
+
+function listFiles(dir) {
+  const files = [];
+
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...listFiles(fullPath));
+    } else if (entry.isFile()) {
+      files.push(fullPath);
+    }
+  }
+
+  return files;
 }
