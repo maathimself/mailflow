@@ -40,10 +40,23 @@ jobs:
         run: npm run app:version -- "${{ github.ref_name }}" "${{ github.run_number }}"
 
       - name: Build Electron package
+        if: matrix.os != 'ubuntu-latest'
         working-directory: frontend
         run: npm run electron:dist
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: Build Electron package
+        if: matrix.os == 'ubuntu-latest'
+        working-directory: frontend
+        run: npm run electron:dist -- --linux --x64 --arm64
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: Rename Linux artifacts
+        if: matrix.os == 'ubuntu-latest'
+        working-directory: frontend
+        run: node packages/scripts/rename-linux-artifacts.cjs
 
       - name: Upload Electron artifacts
         uses: actions/upload-artifact@v4
@@ -54,7 +67,8 @@ jobs:
             frontend/packages/release/*.deb
             frontend/packages/release/*.dmg
             frontend/packages/release/*.exe
-            frontend/packages/release/*.zip
+            frontend/packages/release/*.rpm
+            frontend/packages/release/*.snap
 
   android:
     name: Android
