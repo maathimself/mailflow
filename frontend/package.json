@@ -32,11 +32,15 @@
       "package.json"
     ],
     "win": {
+      "artifactName": "${productName} Setup ${version}.${ext}",
       "signAndEditExecutable": false,
       "target": [
         "nsis",
         "portable"
       ]
+    },
+    "portable": {
+      "artifactName": "${productName} Portable ${version}.${ext}"
     },
     "mac": {
       "target": [
