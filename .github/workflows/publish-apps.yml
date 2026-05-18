@@ -44,7 +44,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y rpm
-          sudo snap install snapcraft --classic
+          sudo snap install snapcraft --classic --channel=7.x/stable
           echo "/snap/bin" >> "$GITHUB_PATH"
 
       - name: Build Electron package
@@ -60,6 +60,7 @@ jobs:
         run: npm run electron:dist -- --linux AppImage deb rpm snap --x64
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          SNAPCRAFT_BUILD_ENVIRONMENT: host
 
       - name: Build Linux arm64 Electron packages
         if: matrix.os == 'ubuntu-latest'
@@ -108,7 +109,7 @@ jobs:
 
       - name: Install snapcraft
         run: |
-          sudo snap install snapcraft --classic
+          sudo snap install snapcraft --classic --channel=7.x/stable
           echo "/snap/bin" >> "$GITHUB_PATH"
 
       - name: Build Linux arm64 snap
@@ -116,6 +117,7 @@ jobs:
         run: npm run electron:dist -- --linux snap --arm64
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          SNAPCRAFT_BUILD_ENVIRONMENT: host
 
       - name: Rename Linux artifacts
         working-directory: frontend
