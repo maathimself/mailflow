@@ -1232,7 +1232,7 @@ export default function MessagePane() {
       {/* Plain-text email — no internal scroll, outer container handles it */}
       {!loadingBody && !bodyError && body?.text && !body?.html && (
         <div style={{
-          padding: isMobile ? '0 12px 16px' : '0 28px 24px',
+          padding: isMobile ? '0 0px 16px' : '0 28px 24px',
         }}>
           <div style={{
             margin: 0, padding: '14px 16px 12px',
