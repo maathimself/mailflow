@@ -1,7 +1,10 @@
 {
   "appId": "com.mailflow.app",
   "appName": "MailFlow",
-  "webDir": "dist",
+  "webDir": "../dist",
+  "android": {
+    "path": "android"
+  },
   "server": {
     "allowNavigation": [
       "*"

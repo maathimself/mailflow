@@ -2,26 +2,26 @@
   "name": "mailflow-frontend",
   "version": "1.4.0",
   "type": "module",
-  "main": "electron/main.cjs",
+  "main": "packages/electron/main.cjs",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
     "electron:dev": "electron .",
     "electron:dist": "electron-builder --publish never",
-    "native:prepare": "npm run build && node scripts/prepare-native-shell.cjs",
-    "android:sync": "npm run native:prepare && cap sync android",
-    "android:dist": "npm run android:sync && node scripts/build-android.cjs"
+    "native:prepare": "npm run build && node packages/scripts/prepare-native-shell.cjs",
+    "android:sync": "npm run native:prepare && node packages/scripts/sync-android.cjs",
+    "android:dist": "npm run android:sync && node packages/scripts/build-android.cjs"
   },
   "build": {
     "appId": "com.mailflow.app",
     "productName": "MailFlow",
     "directories": {
-      "output": "release"
+      "output": "packages/release"
     },
     "files": [
-      "electron/**/*",
-      "native-shell/**/*",
+      "packages/electron/**/*",
+      "packages/native-shell/**/*",
       "package.json"
     ],
     "win": {

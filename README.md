@@ -80,6 +80,7 @@ MailFlow remains a self-hosted web app, but release builds can also publish nati
 - Windows, macOS, and Linux use Electron packages.
 - Android uses a Capacitor WebView package, because Electron does not support Android.
 - On first launch, the wrapper asks for the MailFlow host, such as `https://mail.your-domain.com`, stores it locally, and opens that server.
+- Native package sources live under `frontend/packages`.
 
 To build locally:
 

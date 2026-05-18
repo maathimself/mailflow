@@ -46,11 +46,11 @@ jobs:
         with:
           name: mailflow-electron-${{ matrix.os }}
           path: |
-            frontend/release/*.AppImage
-            frontend/release/*.deb
-            frontend/release/*.dmg
-            frontend/release/*.exe
-            frontend/release/*.zip
+            frontend/packages/release/*.AppImage
+            frontend/packages/release/*.deb
+            frontend/packages/release/*.dmg
+            frontend/packages/release/*.exe
+            frontend/packages/release/*.zip
 
   android:
     name: Android
@@ -84,7 +84,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mailflow-android
-          path: frontend/android/app/build/outputs/apk/release/*.apk
+          path: frontend/packages/android/app/build/outputs/apk/release/*.apk
 
   release:
     name: Attach to GitHub Release

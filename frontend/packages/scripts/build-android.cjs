@@ -1,8 +1,8 @@
 const { spawnSync } = require('child_process');
 const path = require('path');
 
-const root = path.join(__dirname, '..');
-const androidDir = path.join(root, 'android');
+const root = path.join(__dirname, '..', '..');
+const androidDir = path.join(root, 'packages', 'android');
 const gradle = process.platform === 'win32' ? 'gradlew.bat' : './gradlew';
 
 const result = spawnSync(gradle, ['assembleRelease'], {
