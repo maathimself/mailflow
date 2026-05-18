@@ -149,6 +149,8 @@ function Toast({ notification, onDismiss, isMobile }) {
   };
 
   useEffect(() => {
+    if (notification.persistent) return undefined;
+
     const duration = notification.onUndo ? 6000 : 5000;
     const timer = setTimeout(dismiss, duration);
     return () => clearTimeout(timer);
@@ -169,7 +171,8 @@ function Toast({ notification, onDismiss, isMobile }) {
         background: 'var(--bg-elevated)', border: '1px solid var(--border)',
         borderRadius: 10, padding: '12px 14px',
         display: 'flex', alignItems: 'flex-start', gap: 10,
-        maxWidth: isMobile ? '100%' : 340,
+        width: notification.allowWrap && !isMobile ? 380 : undefined,
+        maxWidth: notification.allowWrap && !isMobile ? 'calc(100vw - 48px)' : isMobile ? '100%' : 340,
         boxShadow: 'var(--shadow-popover)',
         pointerEvents: 'all',
       }}
@@ -198,7 +201,11 @@ function Toast({ notification, onDismiss, isMobile }) {
         </div>
         <div style={{
           fontSize: 12, color: 'var(--text-tertiary)',
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          overflow: notification.allowWrap ? 'visible' : 'hidden',
+          textOverflow: notification.allowWrap ? 'clip' : 'ellipsis',
+          whiteSpace: notification.allowWrap ? 'normal' : 'nowrap',
+          lineHeight: notification.allowWrap ? 1.35 : undefined,
+          overflowWrap: notification.allowWrap ? 'anywhere' : undefined,
         }}>
           {notification.body}
         </div>

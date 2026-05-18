@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
+import { installCapacitorNativeBridge } from '../utils/capacitorNativeBridge.js';
 import { playNotificationSound } from '../utils/notificationSounds.js';
 import { pendingMarkReadMap } from '../utils/pendingReads.js';
 import { gtdActiveForContext } from '../utils/gtd.js';
@@ -45,6 +46,19 @@ function _applyServerCounts(counts) {
   } else {
     useStore.setState({ unreadCounts: counts });
   }
+}
+
+function _forwardNativeNewMailNotification(notification) {
+  installCapacitorNativeBridge();
+  window.mailflowNative?.notifications?.showNewMail?.({
+    title: notification.title,
+    body: notification.body,
+    count: notification.count,
+    accountId: notification.accountId,
+    folder: notification.folder,
+    messageId: notification.messageId,
+    message: notification.message,
+  }).catch(() => {});
 }
 
 // Auth-related close codes that should not trigger reconnect
@@ -148,17 +162,26 @@ export function useWebSocket() {
           // In-app notifications and sounds are inbox-only — non-inbox folder syncs
           // (Archive, Spam, on-demand syncs) should not trigger alerts for old mail.
           // Also skipped when all messages were silenced by a mark_read rule (alertCount === 0).
-          if (isInbox && alertCount > 0 && document.visibilityState === 'visible') {
+          if (isInbox && alertCount > 0) {
             const latest = alertMessages[0];
-            addNotification({
+            const notification = {
               type: 'new_mail',
               accountId,
+              folder: folder || 'INBOX',
+              messageId: latest.id,
+              message: latest,
               title: latest.fromName || latest.fromEmail || t('notifications.newMessage'),
               body: latest.subject || t('common.noSubject'),
               count: alertCount,
-            });
-            const { notificationSound, customSoundDataUrl } = useStore.getState();
-            playNotificationSound(notificationSound, customSoundDataUrl);
+            };
+
+            if (document.visibilityState === 'visible') {
+              addNotification(notification);
+              const { notificationSound, customSoundDataUrl } = useStore.getState();
+              playNotificationSound(notificationSound, customSoundDataUrl);
+            }
+
+            _forwardNativeNewMailNotification(notification);
           }
 
           // Refresh the message list when the affected folder is visible

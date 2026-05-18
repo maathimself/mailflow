@@ -2,3 +2,6 @@ node_modules
 dist
 .git
 *.local
+packages/android
+packages/release
+packages/electron
