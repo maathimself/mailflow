@@ -73,13 +73,6 @@
           ]
         },
         {
-          "target": "snap",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        },
-        {
           "target": "rpm",
           "arch": [
             "x64",
@@ -91,12 +84,6 @@
     },
     "deb": {
       "artifactName": "${productName}-${version}-${arch}.${ext}"
-    },
-    "snap": {
-      "artifactName": "${productName}-${version}-${arch}.${ext}",
-      "environment": {
-        "LD_LIBRARY_PATH": "$SNAP/lib:$SNAP/usr/lib:$SNAP/lib/x86_64-linux-gnu:$SNAP/usr/lib/x86_64-linux-gnu:$SNAP/lib/aarch64-linux-gnu:$SNAP/usr/lib/aarch64-linux-gnu"
-      }
     },
     "rpm": {
       "artifactName": "${productName}-${version}-${arch}.${ext}"

@@ -44,8 +44,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y rpm
-          sudo snap install snapcraft --classic --channel=7.x/stable
-          echo "/snap/bin" >> "$GITHUB_PATH"
 
       - name: Build Electron package
         if: matrix.os != 'ubuntu-latest'
@@ -57,10 +55,9 @@ jobs:
       - name: Build Linux x64 Electron packages
         if: matrix.os == 'ubuntu-latest'
         working-directory: frontend
-        run: npm run electron:dist -- --linux AppImage deb rpm snap --x64
+        run: npm run electron:dist -- --linux AppImage deb rpm --x64
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-          SNAPCRAFT_BUILD_ENVIRONMENT: host
 
       - name: Build Linux arm64 Electron packages
         if: matrix.os == 'ubuntu-latest'
@@ -84,54 +81,6 @@ jobs:
             frontend/packages/release/*.dmg
             frontend/packages/release/*.exe
             frontend/packages/release/*.rpm
-            frontend/packages/release/*.snap
-
-  linux-snap-arm64:
-    name: Electron (ubuntu-arm64)
-    runs-on: ubuntu-24.04-arm
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: "22"
-          cache: "npm"
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install dependencies
-        working-directory: frontend
-        run: npm ci
-
-      - name: Set app version
-        working-directory: frontend
-        run: npm run app:version -- "${{ github.ref_name }}" "${{ github.run_number }}"
-
-      - name: Install snapcraft
-        run: |
-          sudo apt-get update
-          sudo snap install snapcraft --classic --channel=7.x/stable
-          echo "/snap/bin" >> "$GITHUB_PATH"
-
-      - name: Refresh package indexes
-        run: sudo apt-get update
-
-      - name: Build Linux arm64 snap
-        working-directory: frontend
-        run: npm run electron:dist -- --linux snap --arm64
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"
-          SNAPCRAFT_BUILD_ENVIRONMENT: host
-
-      - name: Rename Linux artifacts
-        working-directory: frontend
-        run: node packages/scripts/rename-linux-artifacts.cjs
-
-      - name: Upload Electron artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: mailflow-electron-linux-snap-arm64
-          path: frontend/packages/release/*.snap
 
   android:
     name: Android
@@ -175,7 +124,6 @@ jobs:
     name: Attach to GitHub Release
     needs:
       - desktop
-      - linux-snap-arm64
       - android
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest

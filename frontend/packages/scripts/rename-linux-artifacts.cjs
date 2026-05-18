@@ -12,8 +12,6 @@ const replacements = [
   [/^(.+)-x64\.AppImage$/, '$1.AppImage'],
   [/^(.+)-x64\.deb$/, '$1-amd64.deb'],
   [/^(.+)-arm64\.deb$/, '$1-arm64.deb'],
-  [/^(.+)-x64\.snap$/, '$1-amd64.snap'],
-  [/^(.+)-arm64\.snap$/, '$1-arm64.snap'],
   [/^(.+)-x64\.rpm$/, '$1-x86_64.rpm'],
   [/^(.+)-arm64\.rpm$/, '$1-aarch64.rpm'],
 ];
