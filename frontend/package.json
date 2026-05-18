@@ -1,6 +1,8 @@
 {
   "name": "mailflow-frontend",
   "version": "1.4.0",
+  "description": "A self-hosted, unified webmail client.",
+  "homepage": "https://mailflow.sh",
   "author": {
     "name": "maathimself",
     "email": "matthias@mailflow.sh"
