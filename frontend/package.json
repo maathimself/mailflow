@@ -19,7 +19,7 @@
     "app:version": "node packages/scripts/set-app-version.cjs",
     "native:prepare": "npm run build && node packages/scripts/prepare-native-shell.cjs",
     "android:sync": "npm run native:prepare && node packages/scripts/sync-android.cjs",
-    "android:dist": "npm run android:sync && node packages/scripts/build-android.cjs"
+    "android:dist": "npm run android:sync && node packages/scripts/build-android.cjs && node packages/scripts/collect-android-artifacts.cjs"
   },
   "build": {
     "appId": "sh.mailflow.app",
@@ -36,7 +36,7 @@
     ],
     "win": {
       "artifactName": "${productName}-${version}-Setup.${ext}",
-      "signAndEditExecutable": false,
+      "icon": "icon.ico",
       "target": [
         "nsis",
         "portable"

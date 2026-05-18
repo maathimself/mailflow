@@ -167,7 +167,8 @@
           const host = normalizeHost(input.value);
 
           if (window.mailflowNative) {
-            await window.mailflowNative.saveHost(host);
+            const savedHost = await window.mailflowNative.saveHost(host);
+            loadHost(savedHost || host);
           } else {
             localStorage.setItem(STORAGE_KEY, host);
             loadHost(host);

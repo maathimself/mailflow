@@ -75,6 +75,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mailflow-electron-${{ matrix.os }}
+          if-no-files-found: error
           path: |
             frontend/packages/release/*.AppImage
             frontend/packages/release/*.deb
@@ -118,7 +119,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mailflow-android
-          path: frontend/packages/android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          path: frontend/packages/release/*.apk
 
   release:
     name: Attach to GitHub Release
@@ -137,4 +139,10 @@ jobs:
       - name: Publish release files
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/**/*
+          files: |
+            artifacts/**/*.AppImage
+            artifacts/**/*.apk
+            artifacts/**/*.deb
+            artifacts/**/*.dmg
+            artifacts/**/*.exe
+            artifacts/**/*.rpm

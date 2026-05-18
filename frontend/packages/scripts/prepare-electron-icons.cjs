@@ -18,6 +18,9 @@ if (!pngBySize.has(512)) {
 fs.mkdirSync(iconDir, { recursive: true });
 
 fs.copyFileSync(pngBySize.get(512), path.join(iconDir, 'icon.png'));
+for (const [size, file] of pngBySize) {
+  fs.copyFileSync(file, path.join(iconDir, `${size}x${size}.png`));
+}
 
 writeIco(path.join(iconDir, 'icon.ico'), [512, 128]);
 writeIcns(path.join(iconDir, 'icon.icns'), [
