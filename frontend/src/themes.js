@@ -545,6 +545,69 @@ function buildFaviconSvg(accent, count = 0) {
 </svg>`;
 }
 
+// ── Sender avatar color ───────────────────────────────────────────────────────
+
+const SENDER_PALETTE = [
+  '#dc2626', // red
+  '#ea580c', // orange
+  '#d97706', // amber
+  '#65a30d', // lime
+  '#16a34a', // green
+  '#059669', // emerald
+  '#0d9488', // teal
+  '#0891b2', // cyan
+  '#0284c7', // sky
+  '#2563eb', // blue
+  '#4f46e5', // indigo
+  '#7c3aed', // violet
+  '#9333ea', // purple
+  '#c026d3', // fuchsia
+  '#db2777', // pink
+  '#e11d48', // rose
+];
+
+const SENDER_COLOR_STORE = 'mf_sender_colors';
+
+function hashIndex(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
+  return h % SENDER_PALETTE.length;
+}
+
+export function senderColor(email) {
+  const key = (email || '').toLowerCase().trim();
+  if (!key) return SENDER_PALETTE[0];
+
+  let map;
+  try { map = JSON.parse(localStorage.getItem(SENDER_COLOR_STORE) || '{}'); }
+  catch { map = {}; }
+
+  if (map[key]) return map[key];
+
+  const usedColors = new Set(Object.values(map));
+  const unused = SENDER_PALETTE.filter(c => !usedColors.has(c));
+
+  let color;
+  if (unused.length > 0) {
+    const preferred = SENDER_PALETTE[hashIndex(key)];
+    color = unused.includes(preferred) ? preferred : unused[0];
+  } else {
+    // Palette exhausted — pick least-used slot
+    const usage = Object.fromEntries(SENDER_PALETTE.map(c => [c, 0]));
+    for (const c of Object.values(map)) if (c in usage) usage[c]++;
+    const min = Math.min(...Object.values(usage));
+    const candidates = SENDER_PALETTE.filter(c => usage[c] === min);
+    const preferred = SENDER_PALETTE[hashIndex(key)];
+    color = candidates.includes(preferred) ? preferred : candidates[0];
+  }
+
+  map[key] = color;
+  try { localStorage.setItem(SENDER_COLOR_STORE, JSON.stringify(map)); }
+  catch {}
+
+  return color;
+}
+
 // ── Theme application ─────────────────────────────────────────────────────────
 
 export function applyTheme(themeName) {

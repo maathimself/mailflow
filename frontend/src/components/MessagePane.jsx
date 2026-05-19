@@ -6,6 +6,7 @@ import { format } from 'date-fns';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { clearDeleteGuard, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.js';
+import { senderColor } from '../themes.js';
 
 function parseAddressField(raw) {
   try {
@@ -909,7 +910,7 @@ export default function MessagePane() {
             {/* Avatar */}
             <div style={{
               width: 40, height: 40, borderRadius: '50%', flexShrink: 0,
-              background: message.account_color || 'var(--accent)',
+              background: senderColor(message.from_email || message.from_name),
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               fontSize: 16, fontWeight: 700, color: 'white',
             }}>

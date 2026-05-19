@@ -4,6 +4,7 @@ import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { format, isToday, isYesterday, isThisYear } from 'date-fns';
 import { LAYOUTS } from '../layouts.js';
+import { senderColor } from '../themes.js';
 import { useMobile } from '../hooks/useMobile.js';
 import ContextMenu from './ContextMenu.jsx';
 import { shortcutBus } from '../utils/shortcutBus.js';
@@ -2493,7 +2494,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
         {!isNarrow && !isMobile && (
           <div style={{
             width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
-            background: message.account_color || 'var(--accent)',
+            background: senderColor(message.from_email || message.from_name),
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 13, fontWeight: 600, color: 'white', marginTop: 1,
           }}>
@@ -2869,7 +2870,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
         {!isNarrow && !isMobile && (
           <div style={{
             width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
-            background: message.account_color || 'var(--accent)',
+            background: senderColor(message.from_email || message.from_name),
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 13, fontWeight: 600, color: 'white',
             marginTop: 1,
