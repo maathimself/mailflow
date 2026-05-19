@@ -3,6 +3,7 @@ import { query } from './db.js';
 import { parseMessage, buildSnippetFromHtml } from './messageParser.js';
 import { refreshMicrosoftToken } from '../routes/oauth.js';
 import { sanitizeEmail } from './emailSanitizer.js';
+import { logger } from './logger.js';
 import { decrypt } from './encryption.js';
 import { sendPushToUser } from './pushNotifications.js';
 import { redactEmail } from '../utils/redact.js';
@@ -1276,7 +1277,7 @@ export class ImapManager {
         try {
           const totalExists = bfClient.mailbox?.exists || 0;
           if (totalExists === 0) {
-            console.log(`Backfill ${logAccount(account)}: mailbox empty`);
+            logger.debug(`Backfill ${logAccount(account)}: mailbox empty`);
             await query(
               'UPDATE folders SET total_count = 0, unread_count = 0 WHERE account_id = $1 AND path = $2',
               [account.id, folder]
@@ -1613,7 +1614,7 @@ export class ImapManager {
       const totalMissing = parseInt(countResult.rows[0].count);
       if (totalMissing === 0) return;
 
-      console.log(`Snippet indexer: ${logAccount(account)} has ${totalMissing} messages without snippets`);
+      logger.debug(`Snippet indexer: ${logAccount(account)} has ${totalMissing} messages without snippets`);
 
       const openClient = async () => {
         if (siClient) { try { await siClient.logout(); } catch (_) {} siClient = null; }
@@ -2036,7 +2037,7 @@ export class ImapManager {
           if (flagResult === false) {
             console.warn(`setFlag: ImapFlow returned false for uid=${uid} ${flag}=${value} — server may not have applied the flag`);
           } else {
-            console.log(`setFlag success: uid=${uid} ${flag}=${value}`);
+            logger.debug(`setFlag success: uid=${uid} ${flag}=${value}`);
           }
         } finally {
           lock.release();
