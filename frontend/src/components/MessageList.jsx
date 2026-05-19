@@ -86,7 +86,7 @@ export default function MessageList() {
     setMessagesOffset, hasMoreMessages, setHasMoreMessages,
     loadingMessages, setLoadingMessages, selectedMessageId, lastViewedMessageId,
     setSelectedMessage, updateMessage, removeMessage,
-    decrementUnread, incrementUnread, addNotification,
+    decrementUnread, incrementUnread, addNotification, notifications, removeNotification,
     searchQuery, setSearchQuery, isSearching, setIsSearching,
     searchResults, setSearchResults, openCompose, accountsReady, accounts,
     messagesRefreshToken, layout, pageSize, setPageSize, scrollMode,
@@ -98,6 +98,7 @@ export default function MessageList() {
   } = useStore();
 
   const isMobile = useMobile();
+  const undoableNotifications = notifications.filter(n => n.onUndo);
 
   const currentLayout = LAYOUTS[layout] || LAYOUTS.classic;
   const isColumn = currentLayout.direction === 'column';
@@ -2198,6 +2199,17 @@ export default function MessageList() {
           </button>
         )}
       </div>
+
+      {/* Undo bar — anchored to the bottom of the list panel on desktop */}
+      {!isMobile && undoableNotifications.map((n, i) => (
+        <UndoBar
+          key={n.id}
+          notification={n}
+          onDismiss={() => removeNotification(n.id)}
+          showTopBorder={i === 0}
+        />
+      ))}
+
       {isMobile && (
         <button
           onClick={() => openCompose({})}
@@ -2230,6 +2242,82 @@ export default function MessageList() {
           </svg>
         </button>
       )}
+    </div>
+  );
+}
+
+function UndoBar({ notification, onDismiss, showTopBorder }) {
+  const { t } = useTranslation();
+  const [exiting, setExiting] = useState(false);
+
+  const dismiss = () => {
+    setExiting(true);
+    setTimeout(onDismiss, 190);
+  };
+
+  const handleUndo = () => {
+    notification.onUndo();
+    dismiss();
+  };
+
+  useEffect(() => {
+    const timer = setTimeout(dismiss, 6000);
+    return () => clearTimeout(timer);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div
+      className={exiting ? 'action-bar-exit' : 'action-bar-enter'}
+      style={{
+        flexShrink: 0,
+        position: 'relative',
+        overflow: 'hidden',
+        borderTop: showTopBorder ? '1px solid var(--border-subtle)' : 'none',
+        padding: '9px 16px',
+        display: 'flex', alignItems: 'center', gap: 10,
+        background: 'var(--bg-primary)',
+      }}
+    >
+      <div style={{
+        position: 'absolute', bottom: 0, left: 0,
+        height: 2, background: 'var(--accent)',
+        animation: 'action-bar-progress 4.5s linear forwards',
+      }} />
+      <span style={{
+        flex: 1, minWidth: 0,
+        fontSize: 13, color: 'var(--text-secondary)',
+        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+      }}>
+        {notification.title}
+      </span>
+      <button
+        onClick={handleUndo}
+        style={{
+          background: 'none', border: 'none',
+          color: 'var(--accent)', fontSize: 13, fontWeight: 600,
+          cursor: 'pointer', padding: '2px 4px', flexShrink: 0,
+        }}
+        onMouseEnter={e => { e.currentTarget.style.opacity = '0.75'; }}
+        onMouseLeave={e => { e.currentTarget.style.opacity = '1'; }}
+      >
+        {t('common.undo')}
+      </button>
+      <button
+        onClick={dismiss}
+        aria-label="Dismiss"
+        style={{
+          background: 'none', border: 'none',
+          color: 'var(--text-tertiary)', cursor: 'pointer',
+          padding: 2, display: 'flex', flexShrink: 0,
+          transition: 'color 0.15s',
+        }}
+        onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-primary)'; }}
+        onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-tertiary)'; }}
+      >
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
     </div>
   );
 }
