@@ -3617,13 +3617,13 @@ function McpTab() {
       </div>
 
       <div style={{ marginTop: 24, padding: '12px 14px', borderRadius: 10, border: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)' }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>Claude Desktop config example</div>
+        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>AI agent config</div>
         <pre style={{ margin: 0, fontSize: 11, color: 'var(--text-primary)', fontFamily: 'monospace', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{`{
   "mcpServers": {
     "mailflow": {
       "url": "${mcpUrl}",
       "headers": {
-        "Authorization": "Bearer YOUR_API_KEY"
+        "Authorization": "Bearer ${newKey || 'YOUR_API_KEY'}"
       }
     }
   }
