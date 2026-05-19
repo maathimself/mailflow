@@ -854,13 +854,20 @@ export default function MessageList() {
     let undone = false;
     const timer = setTimeout(async () => {
       if (undone) return;
-      try {
-        await api.bulkDelete(ids);
-        ids.forEach(id => setCompletedDelete(id));
-      } catch (err) {
-        console.error('Bulk delete failed:', err);
-        ids.forEach(id => clearDeleteGuard(id));
-        addNotification({ title: t('messageList.bulkDeleted.failTitle'), body: t('messageList.bulkDeleted.failBody', { count: ids.length }) });
+      const chunks = [];
+      for (let i = 0; i < ids.length; i += 500) chunks.push(ids.slice(i, i + 500));
+      const results = await Promise.allSettled(chunks.map(chunk => api.bulkDelete(chunk)));
+      results
+        .filter(r => r.status === 'rejected')
+        .forEach(r => console.error('Bulk delete failed:', r.reason?.message));
+      const deleted = results
+        .filter(r => r.status === 'fulfilled')
+        .flatMap(r => r.value.deleted ?? []);
+      const deletedSet = new Set(deleted);
+      ids.forEach(id => (deletedSet.has(id) ? setCompletedDelete(id) : clearDeleteGuard(id)));
+      const failCount = ids.filter(id => !deletedSet.has(id)).length;
+      if (failCount > 0) {
+        addNotification({ type: 'error', title: t('messageList.bulkDeleted.failTitle'), body: t('messageList.bulkDeleted.failBody', { count: failCount }) });
       }
     }, 4500);
     addNotification({
