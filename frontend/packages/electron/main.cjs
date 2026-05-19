@@ -131,6 +131,7 @@ function setupMenu() {
 }
 
 function setupTray() {
+  if (process.platform !== 'win32') return;
   if (tray) return;
 
   tray = new Tray(getIconPath());
@@ -224,6 +225,7 @@ function createWindow() {
   });
 
   mainWindow.on('close', (event) => {
+    if (process.platform !== 'win32') return;
     if (isQuitting) return;
 
     event.preventDefault();
@@ -269,7 +271,7 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  if (isQuitting) app.quit();
+  if (process.platform !== 'darwin' || isQuitting) app.quit();
 });
 
 app.on('before-quit', () => {
