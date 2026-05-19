@@ -574,17 +574,23 @@ function hashIndex(str) {
   return h % SENDER_PALETTE.length;
 }
 
+let _senderCache = null;
+
+function _loadCache() {
+  if (_senderCache) return _senderCache;
+  try { _senderCache = new Map(Object.entries(JSON.parse(localStorage.getItem(SENDER_COLOR_STORE) || '{}'))); }
+  catch { _senderCache = new Map(); }
+  return _senderCache;
+}
+
 export function senderColor(email) {
   const key = (email || '').toLowerCase().trim();
   if (!key) return SENDER_PALETTE[0];
 
-  let map;
-  try { map = JSON.parse(localStorage.getItem(SENDER_COLOR_STORE) || '{}'); }
-  catch { map = {}; }
+  const cache = _loadCache();
+  if (cache.has(key)) return cache.get(key);
 
-  if (map[key]) return map[key];
-
-  const usedColors = new Set(Object.values(map));
+  const usedColors = new Set(cache.values());
   const unused = SENDER_PALETTE.filter(c => !usedColors.has(c));
 
   let color;
@@ -594,15 +600,15 @@ export function senderColor(email) {
   } else {
     // Palette exhausted — pick least-used slot
     const usage = Object.fromEntries(SENDER_PALETTE.map(c => [c, 0]));
-    for (const c of Object.values(map)) if (c in usage) usage[c]++;
+    for (const c of cache.values()) if (c in usage) usage[c]++;
     const min = Math.min(...Object.values(usage));
     const candidates = SENDER_PALETTE.filter(c => usage[c] === min);
     const preferred = SENDER_PALETTE[hashIndex(key)];
     color = candidates.includes(preferred) ? preferred : candidates[0];
   }
 
-  map[key] = color;
-  try { localStorage.setItem(SENDER_COLOR_STORE, JSON.stringify(map)); }
+  cache.set(key, color);
+  try { localStorage.setItem(SENDER_COLOR_STORE, JSON.stringify(Object.fromEntries(cache))); }
   catch {}
 
   return color;
