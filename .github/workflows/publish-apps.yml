@@ -39,12 +39,6 @@ jobs:
         working-directory: frontend
         run: npm run app:version -- "${{ github.ref_name }}" "${{ github.run_number }}"
 
-      - name: Install Linux packaging tools
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y rpm
-
       - name: Build Electron package
         if: matrix.os != 'ubuntu-latest'
         working-directory: frontend

@@ -111,18 +111,15 @@ export function useWebSocket() {
         const isInbox = !folder || folder === 'INBOX';
 
         if (messages && messages.length > 0) {
-          const latest = messages[0];
-          const title = latest.fromName || latest.fromEmail || t('notifications.newMessage');
-          const body = latest.subject || t('common.noSubject');
-
           // In-app notifications and sounds are inbox-only — non-inbox folder syncs
           // (Archive, Spam, on-demand syncs) should not trigger alerts for old mail.
-          if (isInbox) {
+         if (isInbox && document.visibilityState === 'visible') {
+            const latest = messages[0];
             addNotification({
               type: 'new_mail',
               accountId,
-              title,
-              body,
+              title: latest.fromName || latest.fromEmail || t('notifications.newMessage'),
+              body: latest.subject || t('common.noSubject'),
               count,
             });
             const { notificationSound, customSoundDataUrl } = useStore.getState();

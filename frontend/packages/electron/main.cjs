@@ -1,12 +1,10 @@
-const { app, BrowserWindow, Menu, Notification, ipcMain, nativeImage, session, shell } = require('electron');
+const { app, BrowserWindow, Menu, Notification, ipcMain, session, shell } = require('electron');
 const fs = require('fs');
 const path = require('path');
 
 const CONFIG_FILE = 'mailflow-host.json';
 
 let mainWindow;
-let isQuitting = false;
-let unreadCount = 0;
 
 app.setName('MailFlow');
 if (process.platform === 'win32') {
@@ -56,23 +54,6 @@ function clearHost() {
   } catch {}
 }
 
-function showMainWindow() {
-  if (!mainWindow) {
-    createWindow();
-    return;
-  }
-
-  if (mainWindow.isMinimized()) mainWindow.restore();
-  mainWindow.show();
-  applyUnreadOverlay();
-  mainWindow.focus();
-}
-
-function quitApp() {
-  isQuitting = true;
-  app.quit();
-}
-
 function normalizeHost(value) {
   const input = String(value || '').trim();
   const url = new URL(input);
@@ -100,7 +81,6 @@ function setupMenu() {
           label: 'Change MailFlow Host',
           click: () => {
             clearHost();
-            showMainWindow();
             loadSetup();
           },
         },
@@ -108,7 +88,7 @@ function setupMenu() {
         { role: 'reload' },
         { role: 'toggleDevTools' },
         { type: 'separator' },
-        { label: 'Quit MailFlow', click: quitApp },
+        { role: 'quit' },
       ],
     },
     {
@@ -142,69 +122,6 @@ function isConfiguredHostUrl(url) {
   }
 }
 
-function setupPermissions() {
-  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details = {}) => {
-    if (permission === 'notifications' && isConfiguredHostUrl(details.requestingUrl || webContents.getURL())) {
-      callback(true);
-      return;
-    }
-
-    callback(false);
-  });
-
-  session.defaultSession.setPermissionCheckHandler((webContents, permission, requestingOrigin) => {
-    return permission === 'notifications' && isConfiguredHostUrl(requestingOrigin || webContents.getURL());
-  });
-}
-
-function showNativeNotification(payload = {}) {
-  if (!Notification.isSupported()) return false;
-
-  const title = String(payload.title || 'MailFlow').slice(0, 120);
-  const body = String(payload.body || 'New message').slice(0, 500);
-  const notification = new Notification({
-    title,
-    body,
-    icon: getIconPath(),
-    silent: false,
-  });
-
-  notification.on('click', () => {
-    if (!mainWindow) return;
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.show();
-    mainWindow.focus();
-  });
-
-  notification.show();
-  return true;
-}
-
-function createUnreadOverlay(count) {
-  const label = count > 99 ? '99+' : String(count);
-  const fontSize = label.length > 2 ? 14 : label.length > 1 ? 17 : 21;
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><circle cx="16" cy="16" r="15" fill="#ef4444"/><text x="16" y="23" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="${fontSize}" font-weight="700" fill="#fff">${label}</text></svg>`;
-  return nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`);
-}
-
-function applyUnreadOverlay() {
-  if (process.platform !== 'win32') return;
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-
-  if (unreadCount > 0) {
-    mainWindow.setOverlayIcon(createUnreadOverlay(unreadCount), `${unreadCount} unread message${unreadCount === 1 ? '' : 's'}`);
-  } else {
-    mainWindow.setOverlayIcon(null, '');
-  }
-}
-
-function setUnreadCount(count) {
-  const parsed = Number(count);
-  unreadCount = Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : 0;
-  applyUnreadOverlay();
-  return unreadCount;
-}
-
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -225,8 +142,6 @@ function createWindow() {
     shell.openExternal(url);
     return { action: 'deny' };
   });
-
-  mainWindow.on('show', applyUnreadOverlay);
 
   const host = readHost();
   if (host) {
@@ -253,24 +168,15 @@ ipcMain.handle('mailflow:resetHost', () => {
   loadSetup();
 });
 
-ipcMain.handle('mailflow:notify', (_event, payload) => showNativeNotification(payload));
-
-ipcMain.handle('mailflow:setUnreadCount', (_event, count) => setUnreadCount(count));
-
 app.whenReady().then(() => {
-  setupPermissions();
   setupMenu();
   createWindow();
 
   app.on('activate', () => {
-    showMainWindow();
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin' || isQuitting) app.quit();
-});
-
-app.on('before-quit', () => {
-  isQuitting = true;
+  if (process.platform !== 'darwin') app.quit();
 });

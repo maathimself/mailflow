@@ -18,15 +18,6 @@ function schedulePrefSave(prefs) {
   }, 1000);
 }
 
-function forwardNativeNotification(notification) {
-  if (!window.mailflowNative?.notify) return;
-
-  const title = String(notification.title || 'MailFlow').slice(0, 120);
-  const body = notification.body == null ? '' : String(notification.body).slice(0, 500);
-
-  window.mailflowNative.notify({ title, body }).catch(() => {});
-}
-
 export const useStore = create((set, get) => ({
   // Auth
   user: null,
@@ -199,12 +190,9 @@ export const useStore = create((set, get) => ({
 
   // Notifications
   notifications: [],
-  addNotification: (n) => {
-    forwardNativeNotification(n);
-    set(state => ({
-      notifications: [{ ...n, id: crypto.randomUUID() }, ...state.notifications].slice(0, 5)
-    }));
-  },
+  addNotification: (n) => set(state => ({
+    notifications: [{ ...n, id: crypto.randomUUID() }, ...state.notifications].slice(0, 5)
+  })),
   removeNotification: (id) => set(state => ({
     notifications: state.notifications.filter(n => n.id !== id)
   })),
