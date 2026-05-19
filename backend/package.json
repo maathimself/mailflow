@@ -9,6 +9,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "bcryptjs": "^2.4.3",
     "connect-redis": "^7.1.0",
     "cors": "^2.8.5",
