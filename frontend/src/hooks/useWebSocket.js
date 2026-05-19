@@ -117,7 +117,7 @@ export function useWebSocket() {
 
           // In-app notifications and sounds are inbox-only — non-inbox folder syncs
           // (Archive, Spam, on-demand syncs) should not trigger alerts for old mail.
-          if (isInbox && document.visibilityState === 'visible') {
+          if (isInbox) {
             addNotification({
               type: 'new_mail',
               accountId,
@@ -125,12 +125,6 @@ export function useWebSocket() {
               body,
               count,
             });
-            const { notificationSound, customSoundDataUrl } = useStore.getState();
-            playNotificationSound(notificationSound, customSoundDataUrl);
-          }
-
-          if (isInbox && document.visibilityState !== 'visible' && window.mailflowNative?.notify) {
-            window.mailflowNative.notify({ title, body }).catch(() => {});
             const { notificationSound, customSoundDataUrl } = useStore.getState();
             playNotificationSound(notificationSound, customSoundDataUrl);
           }
