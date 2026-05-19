@@ -849,6 +849,7 @@ export default function MessageList() {
     ids.forEach(id => removeMessage(id));
     msgs.forEach(msg => { if (!msg.is_read) decrementUnread(msg.account_id); });
     setSelectedIds(new Set());
+    setSelectionModeActive(false);
     setShowFolderPicker(false);
     let undone = false;
     const timer = setTimeout(async () => {
@@ -879,6 +880,7 @@ export default function MessageList() {
   const handleBulkMove = useCallback((ids, msgs, folder) => {
     ids.forEach(id => removeMessage(id));
     setSelectedIds(new Set());
+    setSelectionModeActive(false);
     setShowFolderPicker(false);
     let undone = false;
     const timer = setTimeout(async () => {
@@ -906,6 +908,7 @@ export default function MessageList() {
     ids.forEach(id => removeMessage(id));
     msgs.forEach(msg => { if (!msg.is_read) decrementUnread(msg.account_id); });
     setSelectedIds(new Set());
+    setSelectionModeActive(false);
     setShowFolderPicker(false);
     let undone = false;
     const timer = setTimeout(async () => {
