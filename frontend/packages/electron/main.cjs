@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Notification, Tray, ipcMain, session, shell } = require('electron');
+const { app, BrowserWindow, Menu, Notification, Tray, ipcMain, nativeImage, session, shell } = require('electron');
 const fs = require('fs');
 const path = require('path');
 
@@ -7,6 +7,7 @@ const CONFIG_FILE = 'mailflow-host.json';
 let mainWindow;
 let tray;
 let isQuitting = false;
+let unreadCount = 0;
 
 app.setName('MailFlow');
 if (process.platform === 'win32') {
@@ -64,6 +65,7 @@ function showMainWindow() {
 
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
+  applyUnreadOverlay();
   mainWindow.focus();
 }
 
@@ -203,6 +205,31 @@ function showNativeNotification(payload = {}) {
   return true;
 }
 
+function createUnreadOverlay(count) {
+  const label = count > 99 ? '99+' : String(count);
+  const fontSize = label.length > 2 ? 14 : label.length > 1 ? 17 : 21;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><circle cx="16" cy="16" r="15" fill="#ef4444"/><text x="16" y="23" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="${fontSize}" font-weight="700" fill="#fff">${label}</text></svg>`;
+  return nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`);
+}
+
+function applyUnreadOverlay() {
+  if (process.platform !== 'win32') return;
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+
+  if (unreadCount > 0) {
+    mainWindow.setOverlayIcon(createUnreadOverlay(unreadCount), `${unreadCount} unread message${unreadCount === 1 ? '' : 's'}`);
+  } else {
+    mainWindow.setOverlayIcon(null, '');
+  }
+}
+
+function setUnreadCount(count) {
+  const parsed = Number(count);
+  unreadCount = Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : 0;
+  applyUnreadOverlay();
+  return unreadCount;
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -232,6 +259,8 @@ function createWindow() {
     mainWindow.hide();
   });
 
+  mainWindow.on('show', applyUnreadOverlay);
+
   const host = readHost();
   if (host) {
     mainWindow.loadURL(host);
@@ -258,6 +287,8 @@ ipcMain.handle('mailflow:resetHost', () => {
 });
 
 ipcMain.handle('mailflow:notify', (_event, payload) => showNativeNotification(payload));
+
+ipcMain.handle('mailflow:setUnreadCount', (_event, count) => setUnreadCount(count));
 
 app.whenReady().then(() => {
   setupPermissions();

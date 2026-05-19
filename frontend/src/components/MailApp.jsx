@@ -142,7 +142,7 @@ export default function MailApp() {
     return () => clearInterval(interval);
   }, []);
 
-  // Update browser tab title, favicon badge, and PWA home screen badge with unread count
+  // Update browser tab title, favicon badge, PWA home screen badge, and native app badge with unread count
   useEffect(() => {
     const total = unreadCounts.total;
     const tabCount = selectedAccountId
@@ -156,6 +156,7 @@ export default function MailApp() {
       if (showAppBadge && total > 0) navigator.setAppBadge(total).catch(() => {});
       else navigator.clearAppBadge().catch(() => {});
     }
+    window.mailflowNative?.setUnreadCount?.(total).catch(() => {});
   }, [unreadCounts, selectedAccountId, showAppBadge, showFaviconBadge]);
 
   // ── Global keyboard shortcut listener ──────────────────────────────────────

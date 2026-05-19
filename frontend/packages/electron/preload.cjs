@@ -5,4 +5,5 @@ contextBridge.exposeInMainWorld('mailflowNative', {
   saveHost: (host) => ipcRenderer.invoke('mailflow:saveHost', host),
   resetHost: () => ipcRenderer.invoke('mailflow:resetHost'),
   notify: (payload) => ipcRenderer.invoke('mailflow:notify', payload),
+  setUnreadCount: (count) => ipcRenderer.invoke('mailflow:setUnreadCount', count),
 });
