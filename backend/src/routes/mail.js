@@ -4,6 +4,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { imapManager } from '../index.js';
 import { sanitizeEmail, stripEmailHead, hasRemoteImages, blockRemoteImages, rewriteEbayImageserUrls } from '../services/emailSanitizer.js';
 import { buildSnippetFromHtml, decodeNamedEntity } from '../services/messageParser.js';
+import { deleteSingleMessage, setMessageRead, setMessageStarred } from '../services/mailActions.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -566,68 +567,22 @@ router.get('/messages/:id/attachments/:part', async (req, res) => {
 router.patch('/messages/:id/read', async (req, res) => {
   const { id } = req.params;
   if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
-  const { read } = req.body;
-
-  const result = await query(`
-    SELECT m.*, a.user_id FROM messages m
-    JOIN email_accounts a ON m.account_id = a.id
-    WHERE m.id = $1 AND a.user_id = $2
-  `, [id, req.session.userId]);
-
-  if (!result.rows.length) return res.status(404).json({ error: 'Message not found' });
-  const message = result.rows[0];
-
-  // Run DB update and account fetch concurrently — no dependency between them.
-  // read_changed_at tells the IMAP sync not to overwrite this change for 30 s,
-  // preventing a race where a concurrent sync fetch sees the old IMAP flag.
-  const [, accountResult] = await Promise.all([
-    query('UPDATE messages SET is_read = $1, read_changed_at = NOW() WHERE id = $2', [read, id]),
-    query('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]),
-  ]);
-
-  // Keep the cached folder unread_count in sync so pagination totals stay accurate.
-  if (!!message.is_read !== !!read) {
-    adjustFolderCounts(message.account_id, message.folder, 0, read ? -1 : 1);
-  }
-
   try {
-    await imapManager.setFlag(accountResult.rows[0], message.uid, message.folder, '\\Seen', read);
+    res.json(await setMessageRead(id, req.session.userId, req.body.read, imapManager));
   } catch (err) {
-    console.error('IMAP flag update failed:', err.message);
+    res.status(err.status || 500).json({ error: err.message });
   }
-
-  res.json({ ok: true, is_read: read });
 });
 
 // Star/unstar
 router.patch('/messages/:id/star', async (req, res) => {
   const { id } = req.params;
   if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
-  const { starred } = req.body;
-
-  const result = await query(`
-    SELECT m.*, a.user_id FROM messages m
-    JOIN email_accounts a ON m.account_id = a.id
-    WHERE m.id = $1 AND a.user_id = $2
-  `, [id, req.session.userId]);
-
-  if (!result.rows.length) return res.status(404).json({ error: 'Message not found' });
-  const message = result.rows[0];
-
-  // Run DB update and account fetch concurrently — no dependency between them.
-  // star_changed_at tells the IMAP sync not to overwrite this change for 30 s.
-  const [, accountResult] = await Promise.all([
-    query('UPDATE messages SET is_starred = $1, star_changed_at = NOW() WHERE id = $2', [starred, id]),
-    query('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]),
-  ]);
-
   try {
-    await imapManager.setFlag(accountResult.rows[0], message.uid, message.folder, '\\Flagged', starred);
+    res.json(await setMessageStarred(id, req.session.userId, req.body.starred, imapManager));
   } catch (err) {
-    console.error('IMAP star update failed:', err.message);
+    res.status(err.status || 500).json({ error: err.message });
   }
-
-  res.json({ ok: true, is_starred: starred });
 });
 
 // Manual sync (INBOX)
@@ -1173,49 +1128,12 @@ router.post('/messages/:id/snooze', async (req, res) => {
 router.delete('/messages/:id', async (req, res) => {
   const { id } = req.params;
   if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
-
-  const result = await query(`
-    SELECT m.*, a.user_id FROM messages m
-    JOIN email_accounts a ON m.account_id = a.id
-    WHERE m.id = $1 AND a.user_id = $2
-  `, [id, req.session.userId]);
-
-  if (!result.rows.length) return res.status(404).json({ error: 'Message not found' });
-  const message = result.rows[0];
-
-  // Fetch trash folder path and account concurrently — both depend only on account_id
-  const [trashFolder, accountResult] = await Promise.all([
-    query(`
-      SELECT path FROM folders
-      WHERE account_id = $1 AND (special_use = '\\Trash' OR lower(name) LIKE '%trash%')
-      LIMIT 1
-    `, [message.account_id]),
-    query('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]),
-  ]);
-
-  const wasUnread = !message.is_read ? 1 : 0;
-  if (trashFolder.rows.length) {
-    const trashPath = trashFolder.rows[0].path;
-    let newUid = null;
-    try {
-      newUid = await imapManager.moveMessage(accountResult.rows[0], message.uid, message.folder, trashPath);
-    } catch (err) {
-      console.error('IMAP move to trash failed:', err.message);
-      return res.status(500).json({ error: 'Failed to delete message' });
-    }
-    // Update folder and uid so the message is immediately visible in Trash.
-    if (newUid != null) {
-      await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3', [trashPath, newUid, id]);
-    } else {
-      await query('UPDATE messages SET folder = $1 WHERE id = $2', [trashPath, id]);
-    }
-    adjustFolderCounts(message.account_id, message.folder, -1, -wasUnread);
-    adjustFolderCounts(message.account_id, trashPath, 1, wasUnread);
-  } else {
-    await query('UPDATE messages SET is_deleted = true WHERE id = $1', [id]);
-    adjustFolderCounts(message.account_id, message.folder, -1, -wasUnread);
+  try {
+    await deleteSingleMessage(id, req.session.userId, imapManager);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
   }
-  res.json({ ok: true });
 });
 
 export default router;

@@ -3526,6 +3526,113 @@ function AboutTab() {
   );
 }
 
+function McpTab() {
+  const { t } = useTranslation();
+  const [hasKey, setHasKey] = useState(null);
+  const [newKey, setNewKey] = useState(null);
+  const [copied, setCopied] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/mcp/key', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(d => setHasKey(d.hasKey))
+      .catch(() => setHasKey(false));
+  }, []);
+
+  const generate = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/mcp/key/generate', { method: 'POST', credentials: 'include' });
+      const d = await res.json();
+      setNewKey(d.key);
+      setHasKey(true);
+    } finally { setLoading(false); }
+  };
+
+  const revoke = async () => {
+    setLoading(true);
+    try {
+      await fetch('/api/mcp/key', { method: 'DELETE', credentials: 'include' });
+      setHasKey(false);
+      setNewKey(null);
+    } finally { setLoading(false); }
+  };
+
+  const copy = (val) => {
+    navigator.clipboard.writeText(val);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const mcpUrl = `${window.location.origin}/api/mcp/stream`;
+
+  const rowStyle = { padding: '11px 14px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-subtle)' };
+  const labelStyle = { fontSize: 13, color: 'var(--text-secondary)', marginBottom: 4 };
+  const monoStyle = { fontSize: 12, color: 'var(--text-primary)', fontFamily: 'monospace', wordBreak: 'break-all' };
+
+  return (
+    <div style={{ maxWidth: 480 }}>
+      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>MCP Server</div>
+      <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 20, lineHeight: 1.5 }}>
+        Connect any MCP-compatible AI assistant to your mailflow inbox. Generate an API key and paste the endpoint URL into your client configuration.
+      </div>
+
+      <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border-subtle)', marginBottom: 16 }}>
+        <div style={{ ...rowStyle, borderBottom: '1px solid var(--border-subtle)' }}>
+          <div style={labelStyle}>Endpoint URL</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={monoStyle}>{mcpUrl}</span>
+            <button onClick={() => copy(mcpUrl)} style={{ flexShrink: 0, padding: '3px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', fontSize: 11, cursor: 'pointer' }}>
+              {copied ? 'Copied' : 'Copy'}
+            </button>
+          </div>
+        </div>
+        <div style={{ ...rowStyle, borderBottom: 'none' }}>
+          <div style={labelStyle}>API Key</div>
+          {newKey ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={monoStyle}>{newKey}</span>
+              <button onClick={() => copy(newKey)} style={{ flexShrink: 0, padding: '3px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', fontSize: 11, cursor: 'pointer' }}>
+                {copied ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+          ) : (
+            <span style={{ fontSize: 13, color: hasKey ? 'var(--green)' : 'var(--text-tertiary)' }}>
+              {hasKey === null ? '…' : hasKey ? 'Key set — regenerate to reveal' : 'No key generated'}
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button onClick={generate} disabled={loading} style={{ padding: '7px 14px', borderRadius: 8, border: 'none', background: 'var(--accent)', color: 'white', fontSize: 13, fontWeight: 500, cursor: 'pointer', opacity: loading ? 0.6 : 1 }}>
+          {hasKey ? 'Regenerate key' : 'Generate key'}
+        </button>
+        {hasKey && (
+          <button onClick={revoke} disabled={loading} style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--red)', fontSize: 13, cursor: 'pointer', opacity: loading ? 0.6 : 1 }}>
+            Revoke
+          </button>
+        )}
+      </div>
+
+      <div style={{ marginTop: 24, padding: '12px 14px', borderRadius: 10, border: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)' }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>Claude Desktop config example</div>
+        <pre style={{ margin: 0, fontSize: 11, color: 'var(--text-primary)', fontFamily: 'monospace', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{`{
+  "mcpServers": {
+    "mailflow": {
+      "url": "${mcpUrl}",
+      "headers": {
+        "Authorization": "Bearer YOUR_API_KEY"
+      }
+    }
+  }
+}`}</pre>
+      </div>
+    </div>
+  );
+}
+
 const TABS = [
   {
     id: 'accounts', labelKey: 'admin.tabs.accounts',
@@ -3561,6 +3668,10 @@ const TABS = [
     id: 'shortcuts', labelKey: 'admin.tabs.shortcuts',
     mobileHidden: true,
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="2" y="7" width="6" height="4" rx="1"/><rect x="9" y="7" width="6" height="4" rx="1"/><rect x="16" y="7" width="6" height="4" rx="1"/><rect x="2" y="13" width="9" height="4" rx="1"/><rect x="13" y="13" width="9" height="4" rx="1"/></svg>,
+  },
+  {
+    id: 'mcp', labelKey: 'admin.tabs.mcp',
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="3" y="7" width="18" height="13" rx="2"/><circle cx="9" cy="13" r="1.5"/><circle cx="15" cy="13" r="1.5"/><path d="M9 17h6"/><line x1="12" y1="7" x2="12" y2="4"/><circle cx="12" cy="3" r="1.25"/><line x1="3" y1="13" x2="1" y2="13"/><line x1="21" y1="13" x2="23" y2="13"/></svg>,
   },
   {
     id: 'about', labelKey: 'admin.tabs.about',
@@ -4705,6 +4816,7 @@ export default function AdminPanel() {
           {adminTab === 'security' && <SecurityPrivacyTab />}
           {adminTab === 'notifications' && <NotificationsTab />}
           {adminTab === 'shortcuts' && !isMobile && <ShortcutsTab />}
+          {adminTab === 'mcp' && <McpTab />}
           {adminTab === 'about' && <AboutTab />}
         </div>
       </div>
@@ -4801,6 +4913,7 @@ export default function AdminPanel() {
           {adminTab === 'security' && <SecurityPrivacyTab />}
           {adminTab === 'notifications' && <NotificationsTab />}
           {adminTab === 'shortcuts' && !isMobile && <ShortcutsTab />}
+          {adminTab === 'mcp' && <McpTab />}
           {adminTab === 'about' && <AboutTab />}
         </div>
       </div>
