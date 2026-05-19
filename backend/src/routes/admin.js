@@ -13,10 +13,19 @@ router.use(requireAdmin);
 // ── Users ──────────────────────────────────────────────────────────────────────
 
 router.get('/users', async (req, res) => {
-  const result = await query(
-    'SELECT id, username, is_admin, totp_enabled, created_at FROM users ORDER BY created_at ASC LIMIT 500'
-  );
-  res.json({ users: result.rows.map(u => ({ ...u, isAdmin: u.is_admin, totpEnabled: u.totp_enabled })) });
+  const limit  = Math.min(parseInt(req.query.limit)  || 100, 200);
+  const offset = Math.max(parseInt(req.query.offset) || 0,   0);
+  const [result, countResult] = await Promise.all([
+    query(
+      'SELECT id, username, is_admin, totp_enabled, created_at FROM users ORDER BY created_at ASC LIMIT $1 OFFSET $2',
+      [limit, offset],
+    ),
+    query('SELECT COUNT(*) AS total FROM users'),
+  ]);
+  res.json({
+    users: result.rows.map(u => ({ ...u, isAdmin: u.is_admin, totpEnabled: u.totp_enabled })),
+    total: parseInt(countResult.rows[0].total),
+  });
 });
 
 router.post('/users/:id/totp/disable', async (req, res) => {
@@ -156,15 +165,21 @@ router.patch('/settings', async (req, res) => {
 // ── Invites ────────────────────────────────────────────────────────────────────
 
 router.get('/invites', async (req, res) => {
-  const result = await query(`
-    SELECT i.id, i.email, i.token, i.created_at, i.expires_at, i.used_at,
-           u.username as used_by_username
-    FROM invites i
-    LEFT JOIN users u ON i.used_by = u.id
-    ORDER BY i.created_at DESC
-    LIMIT 500
-  `);
-  res.json({ invites: result.rows });
+  const limit  = Math.min(parseInt(req.query.limit)  || 100, 200);
+  const offset = Math.max(parseInt(req.query.offset) || 0,   0);
+  const [result, countResult] = await Promise.all([
+    query(
+      `SELECT i.id, i.email, i.token, i.created_at, i.expires_at, i.used_at,
+              u.username as used_by_username
+       FROM invites i
+       LEFT JOIN users u ON i.used_by = u.id
+       ORDER BY i.created_at DESC
+       LIMIT $1 OFFSET $2`,
+      [limit, offset],
+    ),
+    query('SELECT COUNT(*) AS total FROM invites'),
+  ]);
+  res.json({ invites: result.rows, total: parseInt(countResult.rows[0].total) });
 });
 
 router.post('/invites', async (req, res) => {

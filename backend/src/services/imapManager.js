@@ -2411,12 +2411,17 @@ export class ImapManager {
       'SELECT * FROM email_accounts WHERE user_id = $1 AND enabled = true AND protocol = $2',
       [userId, 'imap']
     );
+    let delay = 0;
     for (const account of result.rows) {
       // Skip if already connected OR already in the process of connecting (e.g. health check)
       if (this.connections.has(account.id) || this.connectingAccounts.has(account.id)) continue;
-      this.connectAccount(account).catch(err =>
-        console.error(`Auto-connect failed for ${logAccount(account)}:`, err.message)
+      setTimeout(
+        () => this.connectAccount(account).catch(err =>
+          console.error(`Auto-connect failed for ${logAccount(account)}:`, err.message)
+        ),
+        delay,
       );
+      delay += 200;
     }
   }
 }

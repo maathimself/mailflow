@@ -121,7 +121,7 @@ curl -o docker-compose.https.yml https://raw.githubusercontent.com/maathimself/m
 docker compose -f docker-compose.yml -f docker-compose.https.yml --profile https up -d
 ```
 
-This adds a Caddy reverse proxy that handles certificate issuance and renewal automatically. Requires a public domain with DNS pointing at the server and ports 80/443 open.
+This adds a Caddy reverse proxy that handles certificate issuance and renewal automatically. Requires Docker Compose 2.21+, a public domain with DNS pointing at the server, and ports 80/443 open.
 
 **Optional — behind your own reverse proxy:** point your proxy at port 80. Set `APP_HTTP_PORT` in `.env` if you need a different host port. Your proxy should forward `X-Forwarded-Proto: https` so that session cookies are marked Secure correctly.
 
@@ -183,7 +183,7 @@ docker compose up -d --build
 
 First build takes 2–3 minutes. MailFlow will be available on port 443 (HTTPS, self-signed certificate) and port 80 (HTTP).
 
-**Optional — automatic HTTPS via Let's Encrypt:** set `DOMAIN` and `ACME_EMAIL` in `.env`, then start with the HTTPS overlay:
+**Optional — automatic HTTPS via Let's Encrypt:** set `DOMAIN` and `ACME_EMAIL` in `.env`, then start with the HTTPS overlay (requires Docker Compose 2.21+):
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.https.yml --profile https up -d --build
@@ -498,6 +498,12 @@ nginx  (frontend container — internal only)
   │
   └── backend, PostgreSQL, Redis (internal network, unchanged)
 ```
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=maathimself/mailflow&type=Date)](https://star-history.com/#maathimself/mailflow&Date)
+
+---
 
 ## Security notes
 

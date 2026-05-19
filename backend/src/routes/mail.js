@@ -181,7 +181,18 @@ router.get('/messages', async (req, res) => {
         ? (folder === 'INBOX' ? `AND folder = $2` : '')
         : `AND folder = 'INBOX'`;
     const threadResult = await query(`
-      WITH deduped AS (
+      WITH paged_threads AS (
+        -- Identify the thread_ids for this page before any expensive dedup work.
+        -- Full-scan is lightweight here (index-only on account+folder+thread_id+date);
+        -- deduped below then touches only the ~safeLimit threads on this page.
+        SELECT COALESCE(m.thread_id, m.id::text) AS thread_id
+        FROM messages m
+        WHERE ${where}
+        GROUP BY COALESCE(m.thread_id, m.id::text)
+        ORDER BY MAX(m.date) DESC
+        LIMIT $${p + 1} OFFSET $${p + 2}
+      ),
+      deduped AS MATERIALIZED (
         SELECT DISTINCT ON (m.account_id, COALESCE(m.thread_id, m.id::text), m.message_id)
                m.id, m.uid, m.folder, m.message_id,
                COALESCE(m.thread_id, m.id::text) AS thread_id,
@@ -195,6 +206,7 @@ router.get('/messages', async (req, res) => {
         FROM messages m
         JOIN email_accounts a ON m.account_id = a.id
         WHERE ${where}
+          AND COALESCE(m.thread_id, m.id::text) IN (SELECT thread_id FROM paged_threads)
         ORDER BY m.account_id,
                  COALESCE(m.thread_id, m.id::text),
                  m.message_id,
@@ -202,14 +214,15 @@ router.get('/messages', async (req, res) => {
                  m.date ASC
       ),
       thread_totals AS (
-        SELECT COALESCE(thread_id, id::text) AS thread_id,
-               COUNT(DISTINCT message_id)::int AS message_count
-        FROM messages
-        WHERE account_id = ANY($${p})
-          AND is_deleted = false
-          AND message_id IS NOT NULL
+        SELECT COALESCE(m.thread_id, m.id::text) AS thread_id,
+               COUNT(DISTINCT m.message_id)::int AS message_count
+        FROM messages m
+        WHERE m.account_id = ANY($${p})
+          AND m.is_deleted = false
+          AND m.message_id IS NOT NULL
           ${threadFolderFilter}
-        GROUP BY COALESCE(thread_id, id::text)
+          AND COALESCE(m.thread_id, m.id::text) IN (SELECT thread_id FROM paged_threads)
+        GROUP BY COALESCE(m.thread_id, m.id::text)
       ),
       ranked AS (
         SELECT d.*,
@@ -231,7 +244,6 @@ router.get('/messages', async (req, res) => {
       FROM ranked
       WHERE rn = 1
       ORDER BY date DESC
-      LIMIT $${p + 1} OFFSET $${p + 2}
     `, [...filterValues, threadAccountParam, safeLimit, safeOffset]);
 
     // Thread-level total: distinct thread groups matching the filter.
@@ -279,7 +291,7 @@ function shouldBlockImages(prefs, message) {
   const allowedAddresses = Array.isArray(whitelist.addresses) ? whitelist.addresses.filter(a => typeof a === 'string').map(a => a.toLowerCase()) : [];
   const allowedDomains   = Array.isArray(whitelist.domains)   ? whitelist.domains.filter(d => typeof d === 'string').map(d => d.toLowerCase())   : [];
   if (senderEmail && allowedAddresses.includes(senderEmail)) return false;
-  if (senderDomain && allowedDomains.includes(senderDomain)) return false;
+  if (senderDomain && allowedDomains.some(d => senderDomain === d || senderDomain.endsWith('.' + d))) return false;
   return true;
 }
 

@@ -101,7 +101,9 @@ export function usePushNotifications() {
         // Remove from backend first; if that fails the browser sub stays intact
         // so the user can retry. Ignore backend errors so the browser unsubscribe
         // always runs (avoids phantom subscriptions on a re-subscribe attempt).
-        await api.pushUnsubscribe({ endpoint: sub.endpoint }).catch(() => {});
+        await api.pushUnsubscribe({ endpoint: sub.endpoint }).catch(err => {
+          console.error('Push unsubscribe (server) failed:', err.message);
+        });
         await sub.unsubscribe();
       }
       setSubscribed(false);

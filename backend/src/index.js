@@ -155,17 +155,20 @@ await loadIntegrationConfigs();
 // Start background snooze watcher — polls every 60 seconds to restore snoozed messages
 imapManager.startSnoozeWatcher();
 
-// Re-connect all enabled IMAP accounts on startup so mail syncs immediately
-// even before any WebSocket client connects (covers cold-start and container restarts)
+// Re-connect all enabled IMAP accounts on startup, staggered 500 ms apart so a
+// large user base doesn't hammer IMAP servers and the DB connection pool at once.
 try {
   const startupResult = await query(
     "SELECT DISTINCT user_id FROM email_accounts WHERE enabled = true AND protocol = 'imap'"
   );
-  for (const row of startupResult.rows) {
-    imapManager.connectAllForUser(row.user_id).catch(err =>
-      console.error(`Startup connect failed for user ${row.user_id}:`, err.message)
+  startupResult.rows.forEach(({ user_id }, i) => {
+    setTimeout(
+      () => imapManager.connectAllForUser(user_id).catch(err =>
+        console.error(`Startup connect failed for user ${user_id}:`, err.message)
+      ),
+      i * 500,
     );
-  }
+  });
   if (startupResult.rows.length) {
     console.log(`Reconnecting accounts for ${startupResult.rows.length} user(s) on startup`);
   }

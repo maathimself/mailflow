@@ -35,6 +35,7 @@ function rateLimit(config) {
     const bucket = rateBuckets.get(key);
     if (!bucket || now > bucket.resetAt) {
       rateBuckets.set(key, { count: 1, resetAt: now + windowMs });
+      res.locals.resetRateLimit = () => rateBuckets.delete(key);
       return next();
     }
     if (bucket.count >= maxRequests) {
@@ -42,6 +43,7 @@ function rateLimit(config) {
       return res.status(429).json({ error: 'Too many attempts. Please try again later.' });
     }
     bucket.count++;
+    res.locals.resetRateLimit = () => rateBuckets.delete(key);
     next();
   };
 }
@@ -205,6 +207,7 @@ router.post('/login', authLimiter, async (req, res) => {
     imapManager.connectAllForUser(user.id);
 
     logAuthEvent('login_success', { username: user.username, userId: user.id, ip: req.ip, success: true });
+    res.locals.resetRateLimit?.();
     res.json({ user: { id: user.id, username: user.username, displayName: user.display_name, avatar: user.avatar, isAdmin: user.is_admin, totpEnabled: user.totp_enabled } });
   } catch (err) {
     res.status(500).json({ error: 'Login failed' });
@@ -260,6 +263,8 @@ router.post('/2fa/challenge', authLimiter, async (req, res) => {
 
   imapManager.connectAllForUser(user.id);
   logAuthEvent('totp_success', { username: user.username, userId: user.id, ip: req.ip, success: true });
+  res.locals.resetRateLimit?.();
+  totpChallengeBuckets.delete(uid);
   res.json({ user: { id: user.id, username: user.username, displayName: user.display_name, avatar: user.avatar, isAdmin: user.is_admin, totpEnabled: user.totp_enabled } });
 });
 
@@ -384,6 +389,43 @@ router.patch('/preferences', async (req, res) => {
   res.json({ ok: true });
 });
 
+// Atomically appends a single address or domain to the image whitelist.
+// Using a single UPDATE with a subquery avoids the read-modify-write race
+// that affects concurrent saves via PATCH /preferences.
+router.post('/preferences/whitelist-add', async (req, res) => {
+  if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
+  const { type, value } = req.body;
+  if ((type !== 'address' && type !== 'domain') || typeof value !== 'string' || !value.trim()) {
+    return res.status(400).json({ error: 'type must be "address" or "domain" and value must be a non-empty string' });
+  }
+  const normalized = value.trim().toLowerCase();
+  const key = type === 'address' ? 'addresses' : 'domains';
+  await query(`
+    UPDATE users
+    SET preferences = jsonb_set(
+      -- Inner jsonb_set guarantees the imageWhitelist key exists before the outer
+      -- one tries to write a child key. jsonb_set silently returns the target
+      -- unchanged when an intermediate path element is missing, so without this
+      -- the add would be a no-op for users whose preferences predate the feature.
+      jsonb_set(
+        COALESCE(preferences, '{}'::jsonb),
+        '{imageWhitelist}',
+        COALESCE(preferences->'imageWhitelist', '{}'::jsonb)
+      ),
+      ARRAY['imageWhitelist', $2::text],
+      (
+        SELECT COALESCE(jsonb_agg(DISTINCT val), '[]'::jsonb)
+        FROM jsonb_array_elements_text(
+          COALESCE(preferences->'imageWhitelist'->$2::text, '[]'::jsonb)
+          || jsonb_build_array($3::text)
+        ) AS val
+      )
+    )
+    WHERE id = $1
+  `, [req.session.userId, key, normalized]);
+  res.json({ ok: true });
+});
+
 // ── Web Push ──────────────────────────────────────────────────────────────────
 
 // Returns the VAPID public key so the frontend can subscribe via PushManager.
@@ -433,7 +475,7 @@ router.post('/push/subscribe', async (req, res) => {
 });
 
 // Remove a push subscription when the user disables notifications.
-router.delete('/push/unsubscribe', async (req, res) => {
+router.post('/push/unsubscribe', async (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
   const { endpoint } = req.body || {};
   if (!endpoint || typeof endpoint !== 'string') {

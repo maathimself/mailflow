@@ -266,6 +266,21 @@ export const useStore = create((set, get) => ({
       throw err;
     });
   },
+  addToImageWhitelist: ({ type, value }) => {
+    const prev = get().imageWhitelist;
+    const key = type === 'address' ? 'addresses' : 'domains';
+    const normalized = value.toLowerCase();
+    set({
+      imageWhitelist: {
+        ...prev,
+        [key]: [...new Set([...(prev[key] || []), normalized])],
+      },
+    });
+    return api.addToImageWhitelist({ type, value: normalized }).catch(err => {
+      set({ imageWhitelist: prev });
+      throw err;
+    });
+  },
 
   // Keyboard shortcuts — stores only user overrides (action → key).
   // Merged with defaults at use-time via getEffectiveShortcuts().

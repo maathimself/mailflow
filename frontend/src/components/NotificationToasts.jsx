@@ -7,20 +7,134 @@ export default function NotificationToasts() {
   const { notifications, removeNotification } = useStore();
   const isMobile = useMobile();
 
+  const undoable = notifications.filter(n => n.onUndo);
+  const regular  = notifications.filter(n => !n.onUndo);
+
+  if (isMobile) {
+    return (
+      <div style={{
+        position: 'fixed',
+        bottom: 'calc(var(--sab) + 20px)',
+        left: 16,
+        right: 92,
+        display: 'flex', flexDirection: 'column-reverse', gap: 8,
+        zIndex: 3000, pointerEvents: 'none',
+      }}>
+        {/* Action bars render first → appear at bottom (thumb-reachable) */}
+        {undoable.map(n => (
+          <ActionBar key={n.id} notification={n} onDismiss={() => removeNotification(n.id)} isMobile />
+        ))}
+        {regular.map(n => (
+          <Toast key={n.id} notification={n} onDismiss={() => removeNotification(n.id)} isMobile />
+        ))}
+      </div>
+    );
+  }
+
   return (
     <div style={{
       position: 'fixed',
-      bottom: isMobile ? 'calc(var(--sab) + 80px)' : 24,
-      ...(isMobile
-        ? { left: 16, right: 16, alignItems: 'stretch' }
-        : { right: 24, alignItems: 'flex-end' }
-      ),
+      bottom: 24, right: 24,
       display: 'flex', flexDirection: 'column-reverse', gap: 8,
       zIndex: 3000, pointerEvents: 'none',
+      alignItems: 'flex-end',
     }}>
-      {notifications.map(n => (
-        <Toast key={n.id} notification={n} onDismiss={() => removeNotification(n.id)} isMobile={isMobile} />
+      {regular.map(n => (
+        <Toast key={n.id} notification={n} onDismiss={() => removeNotification(n.id)} isMobile={false} />
       ))}
+    </div>
+  );
+}
+
+function ActionBar({ notification, onDismiss, isMobile }) {
+  const { t } = useTranslation();
+  const [exiting, setExiting] = useState(false);
+
+  const dismiss = () => {
+    setExiting(true);
+    setTimeout(onDismiss, 190);
+  };
+
+  const handleUndo = () => {
+    notification.onUndo();
+    dismiss();
+  };
+
+  useEffect(() => {
+    const timer = setTimeout(dismiss, 6000);
+    return () => clearTimeout(timer);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div
+      className={exiting ? 'action-bar-exit' : 'action-bar-enter'}
+      style={{
+        position: 'relative',
+        background: 'var(--bg-elevated)',
+        border: '1px solid var(--border)',
+        borderRadius: 10,
+        padding: '10px 8px 10px 16px',
+        display: 'flex', alignItems: 'center', gap: 10,
+        width: isMobile ? '100%' : undefined,
+        maxWidth: isMobile ? undefined : 360,
+        boxShadow: 'var(--shadow-soft)',
+        pointerEvents: 'all',
+        overflow: 'hidden',
+      }}
+    >
+      {/* Progress bar — empties over 4.5s (the undo window) */}
+      <div style={{
+        position: 'absolute',
+        bottom: 0, left: 0,
+        height: 2,
+        background: 'var(--accent)',
+        animation: 'action-bar-progress 4.5s linear forwards',
+      }} />
+
+      <span style={{
+        flex: 1, minWidth: 0,
+        fontSize: 13, fontWeight: 500,
+        color: 'var(--text-primary)',
+        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+      }}>
+        {notification.title}
+      </span>
+
+      <button
+        onClick={handleUndo}
+        style={{
+          background: 'var(--accent-dim)',
+          border: '1px solid rgba(124,106,247,0.3)',
+          borderRadius: 6,
+          color: 'var(--accent)',
+          fontSize: 12, fontWeight: 600,
+          padding: '4px 12px',
+          cursor: 'pointer', flexShrink: 0,
+          transition: 'background 0.12s',
+        }}
+        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(124,106,247,0.25)'; }}
+        onMouseLeave={e => { e.currentTarget.style.background = 'var(--accent-dim)'; }}
+      >
+        {t('common.undo')}
+      </button>
+
+      <button
+        onClick={dismiss}
+        aria-label="Dismiss"
+        style={{
+          background: 'none', border: 'none',
+          color: 'var(--text-tertiary)',
+          cursor: 'pointer', padding: '4px 6px',
+          display: 'flex', flexShrink: 0,
+          transition: 'color 0.15s',
+        }}
+        onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-primary)'; }}
+        onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-tertiary)'; }}
+      >
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
     </div>
   );
 }
@@ -36,8 +150,8 @@ function Toast({ notification, onDismiss, isMobile }) {
 
   useEffect(() => {
     const duration = notification.onUndo ? 6000 : 5000;
-    const t = setTimeout(dismiss, duration);
-    return () => clearTimeout(t);
+    const timer = setTimeout(dismiss, duration);
+    return () => clearTimeout(timer);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleUndo = () => {
@@ -98,8 +212,8 @@ function Toast({ notification, onDismiss, isMobile }) {
             padding: '3px 10px', cursor: 'pointer', flexShrink: 0,
             transition: 'background 0.12s',
           }}
-          onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-          onMouseLeave={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+          onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
         >
           {notification.actionLabel || t('common.view')}
         </button>
@@ -113,21 +227,22 @@ function Toast({ notification, onDismiss, isMobile }) {
             padding: '3px 10px', cursor: 'pointer', flexShrink: 0,
             transition: 'background 0.12s',
           }}
-          onMouseEnter={e => e.currentTarget.style.background = 'rgba(124,106,247,0.25)'}
-          onMouseLeave={e => e.currentTarget.style.background = 'var(--accent-dim)'}
+          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(124,106,247,0.25)'; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'var(--accent-dim)'; }}
         >
           {t('common.undo')}
         </button>
       )}
       <button
         onClick={dismiss}
+        aria-label="Dismiss"
         style={{
           background: 'none', border: 'none', color: 'var(--text-tertiary)',
           cursor: 'pointer', padding: 2, display: 'flex', flexShrink: 0,
           transition: 'color 0.15s',
         }}
-        onMouseEnter={e => e.currentTarget.style.color = 'var(--text-primary)'}
-        onMouseLeave={e => e.currentTarget.style.color = 'var(--text-tertiary)'}
+        onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-primary)'; }}
+        onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-tertiary)'; }}
       >
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
           <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
