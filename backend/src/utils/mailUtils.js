@@ -15,6 +15,18 @@ export async function resolveTrashFolder(accountId, folderMappings) {
   return result.rows[0]?.path || null;
 }
 
+export async function resolveArchiveFolder(accountId, folderMappings) {
+  if (folderMappings?.archive) return folderMappings.archive;
+  const result = await query(
+    `SELECT path FROM folders WHERE account_id = $1
+     AND (special_use = '\\Archive' OR lower(name) LIKE '%archive%')
+     ORDER BY (CASE WHEN special_use = '\\Archive' THEN 0 ELSE 1 END)
+     LIMIT 1`,
+    [accountId]
+  );
+  return result.rows[0]?.path || null;
+}
+
 // Determine what action to take when deleting a message.
 // Returns { action: 'move', destination } | { action: 'expunge' } | { action: 'no_trash' }.
 // 'no_trash' must be treated as a safe failure — never permanently delete when

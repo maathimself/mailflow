@@ -4,7 +4,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { imapManager } from '../index.js';
 import { sanitizeEmail, stripEmailHead, hasRemoteImages, blockRemoteImages, rewriteEbayImageserUrls } from '../services/emailSanitizer.js';
 import { buildSnippetFromHtml, decodeNamedEntity } from '../services/messageParser.js';
-import { resolveTrashFolder, getDeleteStrategy } from '../utils/mailUtils.js';
+import { resolveTrashFolder, resolveArchiveFolder, getDeleteStrategy } from '../utils/mailUtils.js';
 import { listMessages } from '../services/messageService.js';
 
 const router = Router();
@@ -948,16 +948,7 @@ router.post('/messages/bulk-archive', async (req, res) => {
     const noArchiveFolder = [];
 
     for (const [accountId, msgs] of Object.entries(byAccount)) {
-      // Resolve archive folder: explicit mapping > special_use > name heuristic
-      let archiveFolder = msgs[0].folder_mappings?.archive || null;
-      if (!archiveFolder) {
-        const folderResult = await query(
-          `SELECT path FROM folders WHERE account_id = $1
-           AND (special_use = '\\Archive' OR lower(name) LIKE '%archive%') LIMIT 1`,
-          [accountId]
-        );
-        archiveFolder = folderResult.rows[0]?.path || null;
-      }
+      const archiveFolder = await resolveArchiveFolder(accountId, msgs[0].folder_mappings);
       if (!archiveFolder) {
         noArchiveFolder.push(accountId);
         continue;
@@ -965,14 +956,17 @@ router.post('/messages/bulk-archive', async (req, res) => {
 
       const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
       const account = accountResult.rows[0];
-      for (const msg of msgs) {
-        try {
-          const newUid = await imapManager.moveMessage(account, msg.uid, msg.folder, archiveFolder);
-          archivedIds.push({ id: msg.id, folder: archiveFolder, newUid: newUid || null });
-        } catch (err) {
-          console.error(`bulk-archive IMAP ${msg.id}:`, err.message);
+      const results = await runInBatches(
+        msgs, 3,
+        msg => imapManager.moveMessage(account, msg.uid, msg.folder, archiveFolder)
+      );
+      results.forEach((r, i) => {
+        if (r.status === 'fulfilled') {
+          archivedIds.push({ id: msgs[i].id, folder: archiveFolder, newUid: r.value || null });
+        } else {
+          console.error(`bulk-archive IMAP ${msgs[i].id}:`, r.reason.message);
         }
-      }
+      });
     }
 
     // Update DB folder for successfully archived messages, grouped by destination

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { resolveTrashFolder, getDeleteStrategy } from './mailUtils.js';
+import { resolveTrashFolder, resolveArchiveFolder, getDeleteStrategy } from './mailUtils.js';
 
 vi.mock('../services/db.js', () => ({
   query: vi.fn(),
@@ -35,6 +35,40 @@ describe('resolveTrashFolder', () => {
     query.mockResolvedValue({ rows: [] });
     const result = await resolveTrashFolder(3, undefined);
     expect(result).toBeNull();
+  });
+});
+
+describe('resolveArchiveFolder', () => {
+  it('returns folder_mappings.archive immediately without querying the DB', async () => {
+    const result = await resolveArchiveFolder(1, { archive: 'INBOX.Archive' });
+    expect(result).toBe('INBOX.Archive');
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('falls back to special_use=\\Archive folder when no mapping is set', async () => {
+    query.mockResolvedValue({ rows: [{ path: 'Archive' }] });
+    const result = await resolveArchiveFolder(1, null);
+    expect(result).toBe('Archive');
+    expect(query).toHaveBeenCalledOnce();
+  });
+
+  it('falls back to name heuristic when no special_use match exists', async () => {
+    query.mockResolvedValue({ rows: [{ path: 'INBOX.archive-2024' }] });
+    const result = await resolveArchiveFolder(2, {});
+    expect(result).toBe('INBOX.archive-2024');
+  });
+
+  it('returns null when no archive folder is found', async () => {
+    query.mockResolvedValue({ rows: [] });
+    const result = await resolveArchiveFolder(3, undefined);
+    expect(result).toBeNull();
+  });
+
+  it('uses ORDER BY to prefer special_use match over name heuristic', async () => {
+    query.mockResolvedValue({ rows: [] });
+    await resolveArchiveFolder(1, null);
+    const sql = query.mock.calls[0][0];
+    expect(sql).toContain("CASE WHEN special_use = '\\Archive' THEN 0 ELSE 1 END");
   });
 });
 
