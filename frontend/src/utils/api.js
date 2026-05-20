@@ -104,7 +104,7 @@ export const api = {
     const qs = folder ? `?folder=${encodeURIComponent(folder)}` : '';
     return request('GET', `/mail/thread/${encodeURIComponent(threadId)}${qs}`);
   },
-  markRead: (id, read) => request('PATCH', `/mail/messages/${id}/read`, { read }),
+  bulkRead: (ids, read) => request('POST', '/mail/messages/bulk-read', { ids, read }),
   markStarred: (id, starred) => request('PATCH', `/mail/messages/${id}/star`, { starred }),
   markAllRead: (accountId, folder) => request('POST', '/mail/mark-all-read', { accountId, folder }),
   deleteMessage: (id) => request('DELETE', `/mail/messages/${id}`),

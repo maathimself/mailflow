@@ -641,6 +641,79 @@ router.post('/folders/empty', async (req, res) => {
   imapManager.broadcast({ type: 'sync_complete', accountId }, check.rows[0].user_id);
 });
 
+// Bulk mark read/unread
+router.post('/messages/bulk-read', async (req, res) => {
+  const { ids, read } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: 'ids array required' });
+  }
+  if (ids.length > 500) {
+    return res.status(400).json({ error: 'Too many ids — maximum 500 per request' });
+  }
+  if (!areValidUUIDs(ids)) {
+    return res.status(400).json({ error: 'Invalid message IDs' });
+  }
+  if (typeof read !== 'boolean') {
+    return res.status(400).json({ error: 'read must be a boolean' });
+  }
+
+  try {
+    const result = await query(
+      `SELECT m.id, m.uid, m.folder, m.is_read, m.account_id FROM messages m
+       JOIN email_accounts a ON m.account_id = a.id
+       WHERE m.id = ANY($2::uuid[]) AND a.user_id = $1`,
+      [req.session.userId, ids]
+    );
+
+    const owned = result.rows;
+    if (!owned.length) return res.json({ ok: true, updated: [] });
+
+    // Skip messages whose state already matches — avoid spurious DB writes and IMAP round-trips.
+    const toUpdate = owned.filter(m => !!m.is_read !== !!read);
+    if (!toUpdate.length) return res.json({ ok: true, updated: [] });
+
+    await query(
+      'UPDATE messages SET is_read = $1, read_changed_at = NOW() WHERE id = ANY($2::uuid[])',
+      [read, toUpdate.map(m => m.id)]
+    );
+
+    // Adjust cached unread counts per account+folder.
+    const folderDeltas = {};
+    for (const msg of toUpdate) {
+      const key = `${msg.account_id}:${msg.folder}`;
+      if (!folderDeltas[key]) folderDeltas[key] = { accountId: msg.account_id, folder: msg.folder, delta: 0 };
+      folderDeltas[key].delta += read ? -1 : 1;
+    }
+    for (const { accountId, folder, delta } of Object.values(folderDeltas)) {
+      adjustFolderCounts(accountId, folder, 0, delta);
+    }
+
+    // IMAP flag updates — group by account to fetch each account row once.
+    const byAccount = {};
+    for (const msg of toUpdate) {
+      (byAccount[msg.account_id] = byAccount[msg.account_id] || []).push(msg);
+    }
+    for (const [accountId, msgs] of Object.entries(byAccount)) {
+      const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
+      const account = accountResult.rows[0];
+      const results = await runInBatches(
+        msgs, 3,
+        msg => imapManager.setFlag(account, msg.uid, msg.folder, '\\Seen', read)
+      );
+      results.forEach((r, i) => {
+        if (r.status === 'rejected') {
+          console.error(`bulk-read IMAP ${msgs[i].id}:`, r.reason.message);
+        }
+      });
+    }
+
+    res.json({ ok: true, updated: toUpdate.map(m => m.id) });
+  } catch (err) {
+    console.error('bulk-read error:', err);
+    res.status(500).json({ error: 'Failed to update messages' });
+  }
+});
+
 // Bulk delete (move to trash)
 router.post('/messages/bulk-delete', async (req, res) => {
   const { ids } = req.body;
