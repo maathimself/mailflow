@@ -68,27 +68,29 @@ const ICONS = {
   ),
 };
 
-function folderIcon(path, specialUse) {
+function folderIcon(path, specialUse, folderMappings) {
   const p = (path || '').toLowerCase();
   const s = (specialUse || '').toLowerCase();
-  if (s.includes('sent') || p.includes('sent')) return ICONS.sent;
-  if (s.includes('drafts') || p.includes('draft')) return ICONS.drafts;
-  if (s.includes('trash') || p.includes('trash')) return ICONS.trash;
-  if (s.includes('junk') || s.includes('spam') || p.includes('spam') || p.includes('junk')) return ICONS.spam;
+  if (s.includes('sent') || p.includes('sent') || folderMappings?.sent === path) return ICONS.sent;
+  if (s.includes('drafts') || p.includes('draft') || folderMappings?.drafts === path) return ICONS.drafts;
+  if (s.includes('trash') || p.includes('trash') || p.includes('deleted') || folderMappings?.trash === path) return ICONS.trash;
+  if (s.includes('junk') || s.includes('spam') || p.includes('spam') || p.includes('junk') || folderMappings?.spam === path) return ICONS.spam;
   if (s.includes('flagged') || p.includes('starred')) return ICONS.star;
   if (p === 'inbox') return ICONS.inbox;
   return ICONS.folder;
 }
 
 // Folders that should not be renamed or deleted
-function isProtectedFolder(folder) {
+function isProtectedFolder(folder, folderMappings) {
   const p = (folder.path || '').toLowerCase();
   const s = (folder.special_use || '').toLowerCase();
+  if (folderMappings && Object.values(folderMappings).includes(folder.path)) return true;
   return (
     p === 'inbox' ||
     s.includes('sent') || s.includes('draft') || s.includes('trash') ||
     s.includes('junk') || s.includes('spam') || s.includes('archive') ||
     s.includes('flagged') || s.includes('all') ||
+    p.includes('trash') || p.includes('deleted') ||
     p.startsWith('[gmail]/')
   );
 }
@@ -436,9 +438,14 @@ export default function Sidebar() {
   };
 
   const handleDeleteFolder = (accountId, folderPath) => {
-    const name = folderPath.split('/').pop();
+    const account = accounts.find(a => a.id === accountId);
+    const accountFolders = folders[accountId] || [];
+    const delimiter = accountFolders.find(f => f.delimiter)?.delimiter || '/';
+    const name = folderPath.split(delimiter).pop();
+    const accountLabel = account?.name || account?.email_address || '';
     setConfirmDialog({
       message: t('sidebar.confirmDelete', { name }),
+      account: accountLabel,
       onConfirm: async () => {
         try {
           await api.deleteFolder(accountId, folderPath);
@@ -455,9 +462,14 @@ export default function Sidebar() {
   };
 
   const handleEmptyFolder = (accountId, folderPath) => {
-    const name = folderPath.split('/').pop();
+    const account = accounts.find(a => a.id === accountId);
+    const accountFolders = folders[accountId] || [];
+    const delimiter = accountFolders.find(f => f.delimiter)?.delimiter || '/';
+    const name = folderPath.split(delimiter).pop();
+    const accountLabel = account?.name || account?.email_address || '';
     setConfirmDialog({
       message: t('sidebar.confirmEmpty', { name }),
+      account: accountLabel,
       onConfirm: async () => {
         try {
           await api.emptyFolder(accountId, folderPath);
@@ -521,7 +533,8 @@ export default function Sidebar() {
 
   // ── Folder context menu items ──────────────────────────────────────────────
   const buildFolderMenuItems = (accountId, folderObj) => {
-    const isProtected = isProtectedFolder(folderObj);
+    const accountForFolder = accounts.find(a => a.id === accountId);
+    const isProtected = isProtectedFolder(folderObj, accountForFolder?.folder_mappings);
     const isHidden = (hiddenFolders[accountId] || []).includes(folderObj.path);
     return [
       {
@@ -923,7 +936,7 @@ export default function Sidebar() {
                         )}
 
                         <span style={{ color: 'var(--text-tertiary)', flexShrink: 0, display: 'flex' }}>
-                          {folderIcon(folder.path, folder.special_use)}
+                          {folderIcon(folder.path, folder.special_use, account.folder_mappings)}
                         </span>
 
                         {isRenaming ? (
@@ -1327,6 +1340,11 @@ export default function Sidebar() {
             borderRadius: 12, padding: '24px 24px 20px', maxWidth: 360, width: '100%',
             boxShadow: 'var(--shadow-modal)',
           }} onClick={e => e.stopPropagation()}>
+            {confirmDialog.account && (
+              <p style={{ margin: '0 0 6px', fontSize: 12, color: 'var(--text-secondary)' }}>
+                {confirmDialog.account}
+              </p>
+            )}
             <p style={{ margin: '0 0 20px', fontSize: 14, color: 'var(--text-primary)', lineHeight: 1.5 }}>
               {confirmDialog.message}
             </p>

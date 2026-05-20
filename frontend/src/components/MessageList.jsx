@@ -636,14 +636,31 @@ export default function MessageList() {
       pendingDeleteTimers.current.delete(key);
       try {
         if (ids.length > 1) {
-          await api.bulkDelete(ids);
-          ids.forEach((id) => setCompletedDelete(id));
+          const result = await api.bulkDelete(ids);
+          const deletedSet = new Set(result.deleted ?? []);
+          ids.forEach(id => (deletedSet.has(id) ? setCompletedDelete(id) : clearDeleteGuard(id)));
+          const failedIds = ids.filter(id => !deletedSet.has(id));
+          if (failedIds.length > 0) {
+            const idToMsg = new Map(deleteMessages.map(m => [m.id, m]));
+            const failedUnreadDelta = failedIds.filter(id => idToMsg.has(id) && !idToMsg.get(id).is_read).length;
+            const state = useStore.getState();
+            state.setMessages([...state.messages, visibleMessage].sort((a, b) => new Date(b.date) - new Date(a.date)));
+            if (failedUnreadDelta > 0) incrementUnread(message.account_id, failedUnreadDelta);
+            addNotification({
+              type: 'error',
+              title: t('messageList.bulkDeleted.failTitle'),
+              body: t('messageList.bulkDeleted.failBody', { count: failedIds.length }),
+            });
+          }
         } else {
           await api.deleteMessage(ids[0] || visibleMessage.id);
           ids.forEach((id) => setCompletedDelete(id));
         }
       } catch {
         ids.forEach((id) => clearDeleteGuard(id));
+        const state = useStore.getState();
+        state.setMessages([...state.messages, visibleMessage].sort((a, b) => new Date(b.date) - new Date(a.date)));
+        if (unreadDelta > 0) incrementUnread(message.account_id, unreadDelta);
         addNotification({
           type: 'error',
           title: ids.length > 1 ? t('messageList.bulkDeleted.failTitle') : t('messageList.deleted.failTitle'),
@@ -684,7 +701,10 @@ export default function MessageList() {
           ? api.bulkDelete(deleteIds)
           : api.deleteMessage(deleteIds[0]);
       deletePromise
-        .then(() => { deleteIds.forEach((id) => setCompletedDelete(id)); })
+        .then(result => {
+          const actuallyDeleted = new Set(result?.deleted ?? deleteIds);
+          deleteIds.forEach(id => (actuallyDeleted.has(id) ? setCompletedDelete(id) : clearDeleteGuard(id)));
+        })
         .catch(() => { deleteIds.forEach((id) => clearDeleteGuard(id)); });
     });
   }, []);
@@ -867,9 +887,14 @@ export default function MessageList() {
         .flatMap(r => r.value.deleted ?? []);
       const deletedSet = new Set(deleted);
       ids.forEach(id => (deletedSet.has(id) ? setCompletedDelete(id) : clearDeleteGuard(id)));
-      const failCount = ids.filter(id => !deletedSet.has(id)).length;
-      if (failCount > 0) {
-        addNotification({ type: 'error', title: t('messageList.bulkDeleted.failTitle'), body: t('messageList.bulkDeleted.failBody', { count: failCount }) });
+      const failedIds = ids.filter(id => !deletedSet.has(id));
+      if (failedIds.length > 0) {
+        const failedSet = new Set(failedIds);
+        const failedMsgs = msgs.filter(msg => failedSet.has(msg.id));
+        const state = useStore.getState();
+        state.setMessages([...state.messages, ...failedMsgs].sort((a, b) => new Date(b.date) - new Date(a.date)));
+        failedMsgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
+        addNotification({ type: 'error', title: t('messageList.bulkDeleted.failTitle'), body: t('messageList.bulkDeleted.failBody', { count: failedIds.length }) });
       }
     }, 4500);
     addNotification({
@@ -895,9 +920,18 @@ export default function MessageList() {
     const timer = setTimeout(async () => {
       if (undone) return;
       try {
-        await api.bulkMove(ids, folder);
+        const result = await api.bulkMove(ids, folder);
+        const movedSet = new Set(result.moved ?? []);
+        const failedMsgs = msgs.filter(msg => !movedSet.has(msg.id));
+        if (failedMsgs.length > 0) {
+          const state = useStore.getState();
+          state.setMessages([...state.messages, ...failedMsgs].sort((a, b) => new Date(b.date) - new Date(a.date)));
+          addNotification({ title: t('messageList.bulkMoved.failTitle'), body: t('messageList.bulkMoved.failBody', { count: failedMsgs.length }) });
+        }
       } catch (err) {
         console.error('Bulk move failed:', err);
+        const state = useStore.getState();
+        state.setMessages([...state.messages, ...msgs].sort((a, b) => new Date(b.date) - new Date(a.date)));
         addNotification({ title: t('messageList.bulkMoved.failTitle'), body: t('messageList.bulkMoved.failBody', { count: ids.length }) });
       }
     }, 4500);
@@ -924,11 +958,23 @@ export default function MessageList() {
       if (undone) return;
       try {
         const result = await api.bulkArchive(ids);
-        if (result.noArchiveFolder?.length) {
-          addNotification({ title: t('messageList.bulkArchived.noFolderTitle'), body: t('messageList.bulkArchived.noFolderBody') });
+        const archivedSet = new Set(result.archived ?? []);
+        const failedMsgs = msgs.filter(msg => !archivedSet.has(msg.id));
+        if (failedMsgs.length > 0) {
+          const state = useStore.getState();
+          state.setMessages([...state.messages, ...failedMsgs].sort((a, b) => new Date(b.date) - new Date(a.date)));
+          failedMsgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
+          if (result.noArchiveFolder?.length) {
+            addNotification({ title: t('messageList.bulkArchived.noFolderTitle'), body: t('messageList.bulkArchived.noFolderBody') });
+          } else {
+            addNotification({ title: t('messageList.bulkArchived.failTitle'), body: t('messageList.bulkArchived.failBody', { count: failedMsgs.length }) });
+          }
         }
       } catch (err) {
         console.error('Bulk archive failed:', err);
+        const state = useStore.getState();
+        state.setMessages([...state.messages, ...msgs].sort((a, b) => new Date(b.date) - new Date(a.date)));
+        msgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
         addNotification({ title: t('messageList.bulkArchived.failTitle'), body: t('messageList.bulkArchived.failBody', { count: ids.length }) });
       }
     }, 4500);

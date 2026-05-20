@@ -4,6 +4,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { imapManager } from '../index.js';
 import { sanitizeEmail, stripEmailHead, hasRemoteImages, blockRemoteImages, rewriteEbayImageserUrls } from '../services/emailSanitizer.js';
 import { buildSnippetFromHtml, decodeNamedEntity } from '../services/messageParser.js';
+import { resolveTrashFolder, getDeleteStrategy } from '../utils/mailUtils.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -806,7 +807,7 @@ router.post('/messages/bulk-delete', async (req, res) => {
 
   try {
     const result = await query(
-      `SELECT m.*, a.user_id FROM messages m
+      `SELECT m.*, a.user_id, a.folder_mappings FROM messages m
        JOIN email_accounts a ON m.account_id = a.id
        WHERE m.id = ANY($2::uuid[]) AND a.user_id = $1`,
       [req.session.userId, ids]
@@ -815,96 +816,123 @@ router.post('/messages/bulk-delete', async (req, res) => {
     const owned = result.rows;
     if (!owned.length) return res.json({ ok: true, deleted: [] });
 
-    // Group by account, attempt IMAP moves concurrently, then only update DB for successes.
     const byAccount = {};
     for (const msg of owned) {
       (byAccount[msg.account_id] = byAccount[msg.account_id] || []).push(msg);
     }
 
-    // Messages moved to a Trash folder: update folder + uid so they appear in Trash immediately.
-    // Messages on accounts with no Trash folder: mark is_deleted so they are hidden (no dest to show).
-    const succeededNoTrash = [];
-    const trashUpdates = []; // { id, accountId, trashPath, newUid }
-    const trashPathByAccount = {};
+    // expungeSucceeded: permanently deleted (already in Trash, or no Trash folder on account).
+    // trashMoveSucceeded: moved from a non-Trash folder into Trash.
+    const expungeSucceeded = [];
+    const trashMoveSucceeded = []; // { msg, trashPath, newUid }
+
     for (const [accountId, msgs] of Object.entries(byAccount)) {
-      const trash = await query(
-        `SELECT path FROM folders WHERE account_id = $1 AND (special_use = '\\Trash' OR lower(name) LIKE '%trash%') LIMIT 1`,
-        [accountId]
-      );
-      if (!trash.rows.length) {
-        succeededNoTrash.push(...msgs.map(m => m.id));
-        continue;
-      }
-      const trashPath = trash.rows[0].path;
-      trashPathByAccount[accountId] = trashPath;
       const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
       const account = accountResult.rows[0];
-      const results = await runInBatches(
-        msgs, 3,
-        msg => imapManager.moveMessage(account, msg.uid, msg.folder, trashPath)
-      );
-      results.forEach((r, i) => {
-        if (r.status === 'fulfilled') {
-          trashUpdates.push({ id: msgs[i].id, accountId, trashPath, newUid: r.value || null });
-        } else {
-          console.error(`bulk-delete IMAP move ${msgs[i].id}:`, r.reason.message);
-        }
-      });
+      const trashPath = await resolveTrashFolder(accountId, msgs[0].folder_mappings);
+
+      if (!trashPath) {
+        console.error(`bulk-delete: no Trash folder found for account ${accountId} — skipping ${msgs.length} messages`);
+        continue;
+      }
+
+      const toExpunge = msgs.filter(m => m.folder === trashPath);
+      const toMove    = msgs.filter(m => m.folder !== trashPath);
+
+      // Permanently delete messages that are already in Trash.
+      if (toExpunge.length) {
+        const results = await runInBatches(
+          toExpunge, 3,
+          msg => imapManager.permanentDeleteMessage(account, msg.uid, msg.folder)
+        );
+        results.forEach((r, i) => {
+          if (r.status === 'fulfilled') {
+            expungeSucceeded.push(toExpunge[i]);
+          } else {
+            console.error(`bulk-delete IMAP expunge ${toExpunge[i].id}:`, r.reason.message);
+          }
+        });
+      }
+
+      // Move messages from non-Trash folders into Trash.
+      if (toMove.length) {
+        const results = await runInBatches(
+          toMove, 3,
+          msg => imapManager.moveMessage(account, msg.uid, msg.folder, trashPath)
+        );
+        results.forEach((r, i) => {
+          if (r.status === 'fulfilled') {
+            trashMoveSucceeded.push({ msg: toMove[i], trashPath, newUid: r.value || null });
+          } else {
+            console.error(`bulk-delete IMAP move ${toMove[i].id}:`, r.reason.message);
+          }
+        });
+      }
     }
 
-    // Persist no-trash deletions
-    if (succeededNoTrash.length) {
-      await query('UPDATE messages SET is_deleted = true WHERE id = ANY($1::uuid[])', [succeededNoTrash]);
+    // Permanently deleted: remove DB rows immediately.
+    if (expungeSucceeded.length) {
+      await query('DELETE FROM messages WHERE id = ANY($1::uuid[])', [expungeSucceeded.map(m => m.id)]);
     }
 
-    // Persist trash moves: update folder per destination path, then update UIDs
-    if (trashUpdates.length) {
+    // Trash moves: update folder, then UIDs where the server returned them.
+    if (trashMoveSucceeded.length) {
       const byTrashPath = {};
-      for (const u of trashUpdates) {
+      for (const u of trashMoveSucceeded) {
         (byTrashPath[u.trashPath] = byTrashPath[u.trashPath] || []).push(u);
       }
       for (const [trashPath, entries] of Object.entries(byTrashPath)) {
         await query(
           'UPDATE messages SET folder = $1 WHERE id = ANY($2::uuid[])',
-          [trashPath, entries.map(e => e.id)]
+          [trashPath, entries.map(e => e.msg.id)]
         );
       }
-      const withNewUid = trashUpdates.filter(u => u.newUid != null);
+      const withNewUid = trashMoveSucceeded.filter(u => u.newUid);
       if (withNewUid.length) {
         await query(
           `UPDATE messages SET uid = v.new_uid
            FROM unnest($1::uuid[], $2::bigint[]) AS v(id, new_uid)
            WHERE messages.id = v.id`,
-          [withNewUid.map(u => u.id), withNewUid.map(u => u.newUid)]
+          [withNewUid.map(u => u.msg.id), withNewUid.map(u => u.newUid)]
         );
       }
     }
 
-    const allSucceeded = [...succeededNoTrash, ...trashUpdates.map(u => u.id)];
+    // Adjust cached folder counts.
+    // Source folders always lose the message; Trash gains only for non-Trash moves.
+    const allSucceeded = [
+      ...expungeSucceeded.map(m => m.id),
+      ...trashMoveSucceeded.map(u => u.msg.id),
+    ];
     if (allSucceeded.length) {
-      const succeededSet = new Set(allSucceeded);
-      const srcTotals = {};
-      const trashTotals = {};
-      for (const msg of owned) {
-        if (!succeededSet.has(msg.id)) continue;
+      const srcDeltas = {};
+      for (const msg of expungeSucceeded) {
         const key = `${msg.account_id}:${msg.folder}`;
-        if (!srcTotals[key]) srcTotals[key] = { accountId: msg.account_id, path: msg.folder, total: 0, unread: 0 };
-        srcTotals[key].total++;
-        if (!msg.is_read) srcTotals[key].unread++;
-        const trashPath = trashPathByAccount[msg.account_id];
-        if (trashPath && trashPath !== msg.folder) {
-          if (!trashTotals[msg.account_id]) trashTotals[msg.account_id] = { path: trashPath, total: 0, unread: 0 };
-          trashTotals[msg.account_id].total++;
-          if (!msg.is_read) trashTotals[msg.account_id].unread++;
-        }
+        if (!srcDeltas[key]) srcDeltas[key] = { accountId: msg.account_id, path: msg.folder, total: 0, unread: 0 };
+        srcDeltas[key].total++;
+        if (!msg.is_read) srcDeltas[key].unread++;
       }
-      for (const { accountId, path, total, unread } of Object.values(srcTotals)) {
+      for (const { msg } of trashMoveSucceeded) {
+        const key = `${msg.account_id}:${msg.folder}`;
+        if (!srcDeltas[key]) srcDeltas[key] = { accountId: msg.account_id, path: msg.folder, total: 0, unread: 0 };
+        srcDeltas[key].total++;
+        if (!msg.is_read) srcDeltas[key].unread++;
+      }
+      for (const { accountId, path, total, unread } of Object.values(srcDeltas)) {
         adjustFolderCounts(accountId, path, -total, -unread);
       }
-      for (const [accountId, { path, total, unread }] of Object.entries(trashTotals)) {
+      const dstDeltas = {};
+      for (const { msg, trashPath } of trashMoveSucceeded) {
+        const key = `${msg.account_id}:${trashPath}`;
+        if (!dstDeltas[key]) dstDeltas[key] = { accountId: msg.account_id, path: trashPath, total: 0, unread: 0 };
+        dstDeltas[key].total++;
+        if (!msg.is_read) dstDeltas[key].unread++;
+      }
+      for (const { accountId, path, total, unread } of Object.values(dstDeltas)) {
         adjustFolderCounts(accountId, path, total, unread);
       }
     }
+
     res.json({ ok: true, deleted: allSucceeded });
   } catch (err) {
     console.error('bulk-delete error:', err);
@@ -1198,27 +1226,25 @@ router.delete('/messages/:id', async (req, res) => {
   if (!result.rows.length) return res.status(404).json({ error: 'Message not found' });
   const message = result.rows[0];
 
-  // Fetch trash folder path and account concurrently — both depend only on account_id
-  const [trashFolder, accountResult] = await Promise.all([
-    query(`
-      SELECT path FROM folders
-      WHERE account_id = $1 AND (special_use = '\\Trash' OR lower(name) LIKE '%trash%')
-      LIMIT 1
-    `, [message.account_id]),
-    query('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]),
-  ]);
-
+  const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]);
+  const account = accountResult.rows[0];
+  const trashPath = await resolveTrashFolder(message.account_id, account.folder_mappings);
+  const strategy = getDeleteStrategy(message.folder, trashPath);
   const wasUnread = !message.is_read ? 1 : 0;
-  if (trashFolder.rows.length) {
-    const trashPath = trashFolder.rows[0].path;
+
+  if (strategy.action === 'no_trash') {
+    return res.status(422).json({ error: 'No Trash folder configured for this account' });
+  }
+
+  if (strategy.action === 'move') {
+    // Move to Trash.
     let newUid = null;
     try {
-      newUid = await imapManager.moveMessage(accountResult.rows[0], message.uid, message.folder, trashPath);
+      newUid = await imapManager.moveMessage(account, message.uid, message.folder, trashPath);
     } catch (err) {
       console.error('IMAP move to trash failed:', err.message);
       return res.status(500).json({ error: 'Failed to delete message' });
     }
-    // Update folder and uid so the message is immediately visible in Trash.
     if (newUid != null) {
       await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3', [trashPath, newUid, id]);
     } else {
@@ -1227,7 +1253,14 @@ router.delete('/messages/:id', async (req, res) => {
     adjustFolderCounts(message.account_id, message.folder, -1, -wasUnread);
     adjustFolderCounts(message.account_id, trashPath, 1, wasUnread);
   } else {
-    await query('UPDATE messages SET is_deleted = true WHERE id = $1', [id]);
+    // strategy.action === 'expunge': message is already in Trash — permanently delete.
+    try {
+      await imapManager.permanentDeleteMessage(account, message.uid, message.folder);
+    } catch (err) {
+      console.error('IMAP permanent delete failed:', err.message);
+      return res.status(500).json({ error: 'Failed to delete message' });
+    }
+    await query('DELETE FROM messages WHERE id = $1', [id]);
     adjustFolderCounts(message.account_id, message.folder, -1, -wasUnread);
   }
   res.json({ ok: true });

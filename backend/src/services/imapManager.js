@@ -2160,6 +2160,18 @@ export class ImapManager {
     return newUid;
   }
 
+  async permanentDeleteMessage(account, uid, folder) {
+    await withFreshClient(account, async (client) => {
+      const lock = await client.getMailboxLock(folder);
+      try {
+        const result = await client.messageDelete(String(uid), { uid: true });
+        if (result === false) throw new Error('messageDelete returned false — server did not confirm deletion');
+      } finally {
+        lock.release();
+      }
+    });
+  }
+
   async syncNow(userId, accountId = null) {
     const result = await query(
       'SELECT * FROM email_accounts WHERE user_id = $1 AND enabled = true AND protocol = $2',

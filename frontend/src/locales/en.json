@@ -139,14 +139,14 @@
     "markAllRead": "Mark all as read",
     "deleted": {
       "title": "Message deleted",
-      "body": "Moved to Trash.",
+      "body": "Removed.",
       "failTitle": "Delete failed",
       "failBody": "Could not delete message."
     },
     "bulkDeleted": {
       "title_one": "{{count}} message deleted",
       "title_other": "{{count}} messages deleted",
-      "body": "Moved to Trash.",
+      "body": "Removed.",
       "failTitle": "Delete failed",
       "failBody_one": "Could not delete {{count}} message.",
       "failBody_other": "Could not delete {{count}} messages."
