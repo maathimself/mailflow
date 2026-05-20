@@ -297,6 +297,26 @@ export const useStore = create((set, get) => ({
     return api.savePreferences({ hiddenFolders: hf }).catch(() => {});
   },
 
+  // Favorite folders — [{ accountId, path }, ...] ordered by insertion
+  favoriteFolders: (() => {
+    try { return JSON.parse(localStorage.getItem('mailflow_favorite_folders') || '[]'); }
+    catch (_) { return []; }
+  })(),
+  addFavoriteFolder: ({ accountId, path }) => {
+    const prev = get().favoriteFolders;
+    if (prev.some(f => f.accountId === accountId && f.path === path)) return;
+    const next = [...prev, { accountId, path }];
+    localStorage.setItem('mailflow_favorite_folders', JSON.stringify(next));
+    set({ favoriteFolders: next });
+    schedulePrefSave({ favoriteFolders: next });
+  },
+  removeFavoriteFolder: ({ accountId, path }) => {
+    const next = get().favoriteFolders.filter(f => !(f.accountId === accountId && f.path === path));
+    localStorage.setItem('mailflow_favorite_folders', JSON.stringify(next));
+    set({ favoriteFolders: next });
+    schedulePrefSave({ favoriteFolders: next });
+  },
+
   // Fetch server preferences and apply them — call after any successful login.
   // Sets localStorage so subsequent page loads apply the right values instantly.
   loadPreferences: async () => {
@@ -349,6 +369,10 @@ export const useStore = create((set, get) => ({
       if (prefs.imageWhitelist) set({ imageWhitelist: prefs.imageWhitelist });
       if (prefs.shortcuts) set({ shortcuts: prefs.shortcuts });
       if (prefs.hiddenFolders) set({ hiddenFolders: prefs.hiddenFolders });
+      if (Array.isArray(prefs.favoriteFolders)) {
+        localStorage.setItem('mailflow_favorite_folders', JSON.stringify(prefs.favoriteFolders));
+        set({ favoriteFolders: prefs.favoriteFolders });
+      }
       if (prefs.language) {
         localStorage.setItem('mailflow_language', prefs.language);
         set({ language: prefs.language });

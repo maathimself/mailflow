@@ -91,7 +91,7 @@ export default function MessageList() {
     decrementUnread, incrementUnread, addNotification, notifications, removeNotification,
     searchQuery, setSearchQuery, isSearching, setIsSearching,
     searchResults, setSearchResults, openCompose, accountsReady, accounts,
-    messagesRefreshToken, layout, pageSize, setPageSize, scrollMode,
+    messagesRefreshToken, layout, setLayout, pageSize, setPageSize, scrollMode,
     setMobileSidebarOpen,
     threadedView, expandedThreadId, setExpandedThreadId,
     threadMessages, setThreadMessages, loadingThread, setLoadingThread,
@@ -150,6 +150,13 @@ export default function MessageList() {
   const [pickerFolders, setPickerFolders] = useState([]);
   const [pickerLoading, setPickerLoading] = useState(false);
   const folderPickerRef = useRef(null);
+  // Tracks the index of the last toggled row for shift-click range selection
+  const lastSelectIdxRef = useRef(-1);
+
+  // Layout picker
+  const [showLayoutPicker, setShowLayoutPicker] = useState(false);
+  const [layoutPickerPos, setLayoutPickerPos] = useState(null);
+  const layoutPickerRef = useRef(null);
 
   useEffect(() => { currentPageRef.current = currentPage; }, [currentPage]);
   const searchTimer = useRef(null);
@@ -167,6 +174,7 @@ export default function MessageList() {
     setSelectedIds(new Set());
     setSelectionModeActive(false);
     setShowFolderPicker(false);
+    lastSelectIdxRef.current = -1;
   }, [messagesRefreshToken]);
 
   // Escape clears selection; click-outside closes folder picker
@@ -174,6 +182,7 @@ export default function MessageList() {
     const onKey = (e) => {
       if (e.key === 'Escape') {
         setShowFolderPicker(false);
+        setShowLayoutPicker(false);
         setSelectedIds(new Set());
         setSelectionModeActive(false);
       }
@@ -181,6 +190,9 @@ export default function MessageList() {
     const onPointer = (e) => {
       if (folderPickerRef.current && !folderPickerRef.current.contains(e.target)) {
         setShowFolderPicker(false);
+      }
+      if (layoutPickerRef.current && !layoutPickerRef.current.contains(e.target)) {
+        setShowLayoutPicker(false);
       }
     };
     document.addEventListener('keydown', onKey);
@@ -864,7 +876,50 @@ export default function MessageList() {
     setSelectedIds(new Set());
     setSelectionModeActive(false);
     setShowFolderPicker(false);
+    lastSelectIdxRef.current = -1;
   }, []);
+
+  // Derived from store — must be declared before callbacks that use it in dependency arrays
+  const displayMessages = searchQuery.trim() ? searchResults : messages;
+
+  // Called when the avatar is clicked: enters selection mode and selects that message
+  const handleAvatarClick = useCallback((id) => {
+    const idx = displayMessages.findIndex(m => m.id === id);
+    lastSelectIdxRef.current = idx;
+    setSelectionModeActive(true);
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }, [displayMessages]);
+
+  // Called for normal (non-shift) row checkbox toggles — tracks anchor for range select
+  const handleRowToggleSelect = useCallback((id) => {
+    const idx = displayMessages.findIndex(m => m.id === id);
+    lastSelectIdxRef.current = idx;
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }, [displayMessages]);
+
+  // Called on shift-click: selects all rows between anchor and current index
+  const handleRangeSelect = useCallback((id) => {
+    const msgs = displayMessages;
+    const clickedIdx = msgs.findIndex(m => m.id === id);
+    if (clickedIdx === -1) return;
+    const anchor = lastSelectIdxRef.current >= 0 ? lastSelectIdxRef.current : clickedIdx;
+    const lo = Math.min(anchor, clickedIdx);
+    const hi = Math.max(anchor, clickedIdx);
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      for (let i = lo; i <= hi; i++) next.add(msgs[i].id);
+      return next;
+    });
+    lastSelectIdxRef.current = clickedIdx;
+  }, [displayMessages]);
 
   const handleBulkDelete = useCallback((ids, msgs) => {
     ids.forEach(id => setPendingDelete(id));
@@ -1373,7 +1428,6 @@ export default function MessageList() {
     }
   };
 
-  const displayMessages = searchQuery.trim() ? searchResults : messages;
   const isUnified = selectedAccountId === null;
 
   const label = searchQuery.trim()
@@ -1556,6 +1610,82 @@ export default function MessageList() {
                 <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
               </svg>
             </button>
+
+            {/* Layout picker — wide layouts only; narrow layouts render it in the controls row below */}
+            {!isNarrow && (
+              <div style={{ position: 'relative' }} ref={layoutPickerRef}>
+                <button
+                  onClick={() => {
+                    if (!showLayoutPicker) {
+                      const rect = layoutPickerRef.current.getBoundingClientRect();
+                      setLayoutPickerPos({ top: rect.bottom + 6, right: window.innerWidth - rect.right });
+                    }
+                    setShowLayoutPicker(v => !v);
+                  }}
+                  title={t('messageList.changeLayout', 'Change layout')}
+                  style={{
+                    background: showLayoutPicker ? 'var(--accent-dim)' : 'none',
+                    border: `1px solid ${showLayoutPicker ? 'var(--accent)' : 'transparent'}`,
+                    borderRadius: 6, padding: '4px 6px',
+                    color: showLayoutPicker ? 'var(--accent)' : 'var(--text-tertiary)',
+                    cursor: 'pointer', display: 'flex', alignItems: 'center',
+                    transition: 'color 0.15s, border-color 0.15s, background 0.15s',
+                  }}
+                  onMouseEnter={e => { if (!showLayoutPicker) { e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.borderColor = 'var(--border)'; }}}
+                  onMouseLeave={e => { if (!showLayoutPicker) { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.borderColor = 'transparent'; }}}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="3" y="3" width="18" height="5" rx="1"/>
+                    <rect x="3" y="11" width="8" height="10" rx="1"/>
+                    <rect x="13" y="11" width="8" height="10" rx="1"/>
+                  </svg>
+                </button>
+
+                {showLayoutPicker && layoutPickerPos && (
+                  <div style={{
+                    position: 'fixed', top: layoutPickerPos.top, right: layoutPickerPos.right,
+                    background: 'var(--bg-elevated)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 10,
+                    boxShadow: 'var(--shadow-popover)',
+                    minWidth: 200,
+                    zIndex: 1000,
+                    padding: '6px 0',
+                  }}>
+                    <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-tertiary)', padding: '4px 12px 6px' }}>
+                      {t('messageList.layout', 'Layout')}
+                    </div>
+                    {Object.entries(LAYOUTS).map(([key, def]) => {
+                      const isActive = layout === key;
+                      return (
+                        <div
+                          key={key}
+                          onClick={() => { setLayout(key); setShowLayoutPicker(false); }}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 10,
+                            padding: '7px 12px', cursor: 'pointer',
+                            background: isActive ? 'var(--accent-dim)' : 'transparent',
+                            transition: 'background 0.08s',
+                          }}
+                          onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'var(--bg-hover)'; }}
+                          onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
+                        >
+                          <span style={{ fontSize: 13, color: isActive ? 'var(--accent)' : 'var(--text-primary)', fontWeight: isActive ? 500 : 400, flex: 1 }}>
+                            {def.label}
+                          </span>
+                          {isActive && (
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.5">
+                              <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* In wide layouts, keep filter + page size inline */}
             {!isNarrow && (
               <>
@@ -1595,7 +1725,7 @@ export default function MessageList() {
           </div>
         </div>
 
-        {/* Narrow layouts: filter + page size on their own row */}
+        {/* Narrow layouts: filter + page size + layout picker on their own row */}
         {isNarrow && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
             <button
@@ -1627,6 +1757,76 @@ export default function MessageList() {
               <option value={100}>100</option>
               <option value={200}>200</option>
             </select>
+            <div style={{ position: 'relative', marginLeft: 'auto' }} ref={layoutPickerRef}>
+              <button
+                onClick={() => {
+                  if (!showLayoutPicker) {
+                    const rect = layoutPickerRef.current.getBoundingClientRect();
+                    setLayoutPickerPos({ top: rect.bottom + 6, right: window.innerWidth - rect.right });
+                  }
+                  setShowLayoutPicker(v => !v);
+                }}
+                title={t('messageList.changeLayout', 'Change layout')}
+                style={{
+                  background: showLayoutPicker ? 'var(--accent-dim)' : 'none',
+                  border: `1px solid ${showLayoutPicker ? 'var(--accent)' : 'transparent'}`,
+                  borderRadius: 6, padding: '4px 6px',
+                  color: showLayoutPicker ? 'var(--accent)' : 'var(--text-tertiary)',
+                  cursor: 'pointer', display: 'flex', alignItems: 'center',
+                  transition: 'color 0.15s, border-color 0.15s, background 0.15s',
+                }}
+                onMouseEnter={e => { if (!showLayoutPicker) { e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.borderColor = 'var(--border)'; }}}
+                onMouseLeave={e => { if (!showLayoutPicker) { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.borderColor = 'transparent'; }}}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="3" y="3" width="18" height="5" rx="1"/>
+                  <rect x="3" y="11" width="8" height="10" rx="1"/>
+                  <rect x="13" y="11" width="8" height="10" rx="1"/>
+                </svg>
+              </button>
+              {showLayoutPicker && layoutPickerPos && (
+                <div style={{
+                  position: 'fixed', top: layoutPickerPos.top, right: layoutPickerPos.right,
+                  background: 'var(--bg-elevated)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 10,
+                  boxShadow: 'var(--shadow-popover)',
+                  minWidth: 200,
+                  zIndex: 1000,
+                  padding: '6px 0',
+                }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-tertiary)', padding: '4px 12px 6px' }}>
+                    {t('messageList.layout', 'Layout')}
+                  </div>
+                  {Object.entries(LAYOUTS).map(([key, def]) => {
+                    const isActive = layout === key;
+                    return (
+                      <div
+                        key={key}
+                        onClick={() => { setLayout(key); setShowLayoutPicker(false); }}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 10,
+                          padding: '7px 12px', cursor: 'pointer',
+                          background: isActive ? 'var(--accent-dim)' : 'transparent',
+                          transition: 'background 0.08s',
+                        }}
+                        onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'var(--bg-hover)'; }}
+                        onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
+                      >
+                        <span style={{ fontSize: 13, color: isActive ? 'var(--accent)' : 'var(--text-primary)', fontWeight: isActive ? 500 : 400, flex: 1 }}>
+                          {def.label}
+                        </span>
+                        {isActive && (
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.5">
+                            <polyline points="20 6 9 17 4 12"/>
+                          </svg>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -2089,7 +2289,9 @@ export default function MessageList() {
                 showAccount={isUnified}
                 isNarrow={isNarrow}
                 onSelect={handleSelect}
-                onToggleSelect={toggleSelect}
+                onToggleSelect={handleRowToggleSelect}
+                onRangeSelect={handleRangeSelect}
+                onAvatarClick={!isMobile ? handleAvatarClick : undefined}
                 onMarkRead={handleMarkRead}
                 onStar={handleStar}
                 onDelete={handleDelete}
@@ -2726,9 +2928,10 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
   );
 }
 
-function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, showAccount, isNarrow, onSelect, onToggleSelect, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, onLongPress }) {
+function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, showAccount, isNarrow, onSelect, onToggleSelect, onRangeSelect, onAvatarClick, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, onLongPress }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
+  const [avatarHovered, setAvatarHovered] = useState(false);
   const { contentRef, swipeBgLeftRef, swipeBgRightRef } = useSwipeRow({
     isMobile, message, onSwipeLeft, onSwipeRight, onLongPress,
   });
@@ -2741,15 +2944,36 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
     ? 'var(--accent-glow)'
     : (isChecked ? 'var(--accent-dim)' : (hovered ? 'var(--bg-tertiary)' : (lastViewed && !isMobile ? 'var(--accent-glow)' : bgDefault)));
 
-  const showCheckbox = selectionMode;
+  // Avatar is interactive (wide layouts, desktop only) — it handles selection entry
+  const hasInteractiveAvatar = !isNarrow && !isMobile && !!onAvatarClick;
+  // Show avatar as checkbox when: in selection mode, or hovering over the avatar
+  const avatarAsCheckbox = hasInteractiveAvatar && (selectionMode || avatarHovered);
+
   const leftActionView = getSwipeActionView(swipeRightAction, message, t);
   const rightActionView = getSwipeActionView(swipeLeftAction, message, t);
 
-  const handleClick = () => {
+  const handleClick = (e) => {
     if (selectionMode) {
-      onToggleSelect(message.id);
+      if (e.shiftKey && onRangeSelect) {
+        onRangeSelect(message.id);
+      } else {
+        onToggleSelect(message.id);
+      }
     } else {
       onSelect(message);
+    }
+  };
+
+  const handleAvatarAreaClick = (e) => {
+    e.stopPropagation();
+    if (selectionMode) {
+      if (e.shiftKey && onRangeSelect) {
+        onRangeSelect(message.id);
+      } else {
+        onToggleSelect(message.id);
+      }
+    } else if (onAvatarClick) {
+      onAvatarClick(message.id);
     }
   };
 
@@ -2789,41 +3013,76 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
           borderRadius: '0 2px 2px 0',
         }} />
       )}
-      {/* Left indicator: checkbox on hover/selection-mode, unread dot otherwise */}
-      {showCheckbox ? (
-        <div style={{
-          position: 'absolute', left: 4, top: '50%', transform: 'translateY(-50%)',
-          display: 'flex', alignItems: 'center',
-        }}>
-          <input
-            type="checkbox"
-            checked={isChecked}
-            onChange={() => {}}
-            onClick={e => { e.stopPropagation(); onToggleSelect(message.id); }}
-            style={{ cursor: 'pointer', width: 14, height: 14, accentColor: 'var(--accent)' }}
-          />
-        </div>
-      ) : (
-        !message.is_read && (
+      {/* Left indicator: for narrow/mobile layouts show checkbox or unread dot.
+          Wide layouts use the avatar area instead (see below). */}
+      {(!hasInteractiveAvatar) && (
+        selectionMode ? (
           <div style={{
-            position: 'absolute', left: 3, top: '50%', transform: 'translateY(-50%)',
-            width: 7, height: 7, borderRadius: '50%',
-            background: 'var(--accent)',
-          }} />
+            position: 'absolute', left: 4, top: '50%', transform: 'translateY(-50%)',
+            display: 'flex', alignItems: 'center',
+          }}>
+            <input
+              type="checkbox"
+              checked={isChecked}
+              onChange={() => {}}
+              onClick={e => { e.stopPropagation(); onToggleSelect(message.id); }}
+              style={{ cursor: 'pointer', width: 14, height: 14, accentColor: 'var(--accent)' }}
+            />
+          </div>
+        ) : (
+          !message.is_read && (
+            <div style={{
+              position: 'absolute', left: 3, top: '50%', transform: 'translateY(-50%)',
+              width: 7, height: 7, borderRadius: '50%',
+              background: 'var(--accent)',
+            }} />
+          )
         )
       )}
+      {/* Unread dot for wide layouts — always shown (avatar is separate, doesn't conflict) */}
+      {hasInteractiveAvatar && !selectionMode && !message.is_read && (
+        <div style={{
+          position: 'absolute', left: 3, top: '50%', transform: 'translateY(-50%)',
+          width: 7, height: 7, borderRadius: '50%',
+          background: 'var(--accent)',
+        }} />
+      )}
 
-      <div style={{ paddingLeft: showCheckbox ? 22 : (message.is_read ? 0 : 6), display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-        {/* Sender avatar — wide layouts only */}
+      <div style={{ paddingLeft: (!hasInteractiveAvatar && selectionMode) ? 22 : (message.is_read ? 0 : 6), display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+        {/* Sender avatar — wide layouts only. Morphs into a checkbox on hover or in selection mode. */}
         {!isNarrow && !isMobile && (
-          <div style={{
-            width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
-            background: senderColor(message.from_email || message.from_name),
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 13, fontWeight: 600, color: 'white',
-            marginTop: 1,
-          }}>
-            {(message.from_name || message.from_email || '?')[0].toUpperCase()}
+          <div
+            onClick={handleAvatarAreaClick}
+            onMouseEnter={() => setAvatarHovered(true)}
+            onMouseLeave={() => setAvatarHovered(false)}
+            style={{
+              width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
+              background: avatarAsCheckbox
+                ? (isChecked ? 'var(--accent)' : 'var(--bg-tertiary)')
+                : senderColor(message.from_email || message.from_name),
+              border: avatarAsCheckbox && !isChecked ? '2px solid var(--border)' : 'none',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 13, fontWeight: 600, color: avatarAsCheckbox ? (isChecked ? 'white' : 'var(--text-tertiary)') : 'white',
+              marginTop: 1,
+              cursor: 'pointer',
+              transition: 'background 0.12s, border 0.12s',
+              userSelect: 'none',
+              boxSizing: 'border-box',
+            }}
+          >
+            {avatarAsCheckbox ? (
+              isChecked ? (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="2.5">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+              )
+            ) : (
+              (message.from_name || message.from_email || '?')[0].toUpperCase()
+            )}
           </div>
         )}
         <div style={{ flex: 1, minWidth: 0 }}>

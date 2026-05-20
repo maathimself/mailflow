@@ -254,6 +254,7 @@ export default function Sidebar() {
     folders, setFolders, setAccounts, user, setUser, sidebarCollapsed: sidebarCollapsedPref, toggleSidebar,
     blockRemoteImages, setBlockRemoteImages, setMobileSidebarOpen, addNotification,
     hiddenFolders, setHiddenFolders,
+    favoriteFolders, addFavoriteFolder, removeFavoriteFolder,
   } = useStore();
 
   const isMobile = useMobile();
@@ -536,6 +537,7 @@ export default function Sidebar() {
     const accountForFolder = accounts.find(a => a.id === accountId);
     const isProtected = isProtectedFolder(folderObj, accountForFolder?.folder_mappings);
     const isHidden = (hiddenFolders[accountId] || []).includes(folderObj.path);
+    const isFavorite = favoriteFolders.some(f => f.accountId === accountId && f.path === folderObj.path);
     return [
       {
         label: t('sidebar.folderMenu.markAllRead'),
@@ -546,6 +548,14 @@ export default function Sidebar() {
         label: t('sidebar.folderMenu.syncFolder'),
         icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>,
         action: () => handleSyncFolder(accountId, folderObj.path),
+      },
+      { separator: true },
+      {
+        label: isFavorite ? t('sidebar.folderMenu.unfavorite', 'Remove from Favorites') : t('sidebar.folderMenu.favorite', 'Add to Favorites'),
+        icon: <svg width="14" height="14" viewBox="0 0 24 24" fill={isFavorite ? 'var(--amber)' : 'none'} stroke={isFavorite ? 'var(--amber)' : 'currentColor'} strokeWidth="1.75"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>,
+        action: () => isFavorite
+          ? removeFavoriteFolder({ accountId, path: folderObj.path })
+          : addFavoriteFolder({ accountId, path: folderObj.path }),
       },
       { separator: true },
       {
@@ -739,6 +749,66 @@ export default function Sidebar() {
           badge={unreadCounts.total}
           onClick={() => setSelectedAccount(null, 'INBOX')}
         />
+
+        {/* Favorites section */}
+        {!sidebarCollapsed && favoriteFolders.length > 0 && (() => {
+          const visibleFaves = favoriteFolders.filter(({ accountId }) => accounts.some(a => a.id === accountId));
+          if (!visibleFaves.length) return null;
+          return (
+            <>
+              <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--text-tertiary)', padding: '8px 10px 3px' }}>
+                {t('sidebar.favorites', 'Favorites')}
+              </div>
+              {visibleFaves.map(({ accountId, path }) => {
+                const account = accounts.find(a => a.id === accountId);
+                if (!account) return null;
+                const accountFolders = folders[accountId] || [];
+                const folderObj = accountFolders.find(f => f.path === path);
+                const isActive = selectedAccountId === accountId && selectedFolder === path;
+                const unreadCount = folderObj?.unread_count || 0;
+                return (
+                  <div
+                    key={`${accountId}:${path}`}
+                    onClick={() => setSelectedAccount(accountId, path)}
+                    onContextMenu={e => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (folderObj) {
+                        setFolderCtxMenu({ x: e.clientX, y: e.clientY, accountId, folderObj });
+                      }
+                    }}
+                    style={{
+                      display: 'flex', alignItems: 'center',
+                      gap: 8, padding: '7px 10px',
+                      borderRadius: 7, cursor: 'pointer',
+                      background: isActive ? 'var(--bg-hover)' : 'transparent',
+                      color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
+                      transition: 'background 0.1s, color 0.1s',
+                    }}
+                    onMouseEnter={e => { if (!isActive) { e.currentTarget.style.background = 'var(--bg-tertiary)'; e.currentTarget.style.color = 'var(--text-primary)'; } }}
+                    onMouseLeave={e => { if (!isActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; } }}
+                  >
+                    <span style={{ color: 'var(--text-tertiary)', flexShrink: 0, display: 'flex' }}>
+                      {folderIcon(path, folderObj?.special_use, account.folder_mappings)}
+                    </span>
+                    <span style={{ fontSize: 13, fontWeight: isActive ? 500 : 400, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {folderObj?.name || path.split('/').pop() || path}
+                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+                      {unreadCount > 0 && (
+                        <span style={{ fontSize: 10, color: 'var(--text-tertiary)', background: 'var(--bg-elevated)', padding: '1px 5px', borderRadius: 8 }}>
+                          {unreadCount}
+                        </span>
+                      )}
+                      <div style={{ width: 6, height: 6, borderRadius: '50%', background: account.color, flexShrink: 0 }} />
+                    </div>
+                  </div>
+                );
+              })}
+              <div style={{ height: 1, background: 'var(--border-subtle)', margin: '4px 4px 4px' }} />
+            </>
+          );
+        })()}
 
         {/* Divider */}
         <div style={{ height: 1, background: 'var(--border-subtle)', margin: '8px 4px' }} />

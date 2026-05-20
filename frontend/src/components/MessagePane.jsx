@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useLayoutEffect, useState, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
@@ -71,6 +71,14 @@ export default function MessagePane() {
   const paneRef = useRef(null);
   const mountedRef = useRef(true);
   useEffect(() => () => { mountedRef.current = false; }, []);
+
+  // Reset scroll position and iframe height synchronously before the browser
+  // paints the new message, so the user never sees stale blank space from the
+  // previous (possibly taller) email.
+  useLayoutEffect(() => {
+    if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
+    if (iframeRef.current) iframeRef.current.style.height = '300px';
+  }, [selectedMessageId]);
 
   const allMessages = searchQuery.trim() ? searchResults : messages;
   const message = allMessages.find(m => m.id === selectedMessageId)

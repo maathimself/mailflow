@@ -97,19 +97,37 @@ export function useWebSocket() {
           }
         }
 
-        // Unread badge counts are keyed to INBOX only — the canonical unread endpoint
-        // only counts INBOX messages. Non-inbox new_messages events must not inflate it.
+        // Refresh unread counts from the server. Messages are fully inserted in the
+        // DB by the time new_messages fires, so this returns the authoritative count
+        // and corrects any optimistic delta that exists_hint applied earlier.
+        // Also handles periodic syncs that have no preceding exists_hint.
         if (isInbox) {
-          const countsStore = useStore.getState();
-          const byAccount = { ...countsStore.unreadCounts.byAccount };
-          byAccount[data.accountId] = (byAccount[data.accountId] || 0) + data.count;
-          useStore.setState({
-            unreadCounts: {
-              total: countsStore.unreadCounts.total + data.count,
-              byAccount,
+          api.getUnreadCounts().then(counts => {
+            if (pendingMarkReadMap.size > 0) {
+              const byAccount = { ...counts.byAccount };
+              for (const aid of pendingMarkReadMap.values()) {
+                if (byAccount[aid] > 0) byAccount[aid]--;
+              }
+              const total = Math.max(0, counts.total - pendingMarkReadMap.size);
+              useStore.setState({ unreadCounts: { total, byAccount } });
+            } else {
+              useStore.setState({ unreadCounts: counts });
             }
-          });
+          }).catch(() => {});
         }
+        break;
+      }
+
+      case 'exists_hint': {
+        // Optimistic unread increment: fired immediately when the IMAP server
+        // signals new mail, before the full fetch+insert cycle completes.
+        // The subsequent new_messages event will correct the count to the
+        // authoritative server value.
+        const { accountId, delta } = data;
+        const counts = useStore.getState().unreadCounts;
+        const byAccount = { ...counts.byAccount };
+        byAccount[accountId] = (byAccount[accountId] || 0) + delta;
+        useStore.setState({ unreadCounts: { total: counts.total + delta, byAccount } });
         break;
       }
 

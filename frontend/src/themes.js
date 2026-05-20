@@ -519,7 +519,7 @@ function buildFaviconSvg(accent, count = 0) {
             `fill="white" font-family="system-ui,sans-serif" font-weight="800" font-size="${fs}">${label}</text>`;
   }
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="${light}"/>
@@ -601,19 +601,44 @@ export function applyTheme(themeName) {
 
 // ── Favicon badge ─────────────────────────────────────────────────────────────
 
-let _badgeCount = 0;
+const FAVICON_PX = 32;
+let _badgeCount  = 0;
+let _renderSeq   = 0; // incremented on every render call
+let _appliedSeq  = 0; // sequence number of the last render that was applied to the DOM
 
 function _applyFavicon(accent) {
-  // Remove and re-add — browsers (especially Chrome) ignore href changes on an
-  // existing <link rel="icon"> due to aggressive favicon caching.
-  const svgStr  = buildFaviconSvg(accent, _badgeCount);
-  const dataUri = 'data:image/svg+xml,' + encodeURIComponent(svgStr);
-  document.querySelectorAll("link[rel~='icon']").forEach(l => l.remove());
-  const link = document.createElement('link');
-  link.rel  = 'icon';
-  link.type = 'image/svg+xml';
-  link.href = dataUri;
-  document.head.appendChild(link);
+  // Rasterise the SVG to a canvas and export as PNG. PNG data URIs go through
+  // the browser's image pipeline rather than the document pipeline, which avoids
+  // the Chromium quirk where SVG favicons are silently reverted to the cached
+  // on-disk file after tab focus changes.
+  const svgStr = buildFaviconSvg(accent, _badgeCount);
+  const blob   = new Blob([svgStr], { type: 'image/svg+xml' });
+  const url    = URL.createObjectURL(blob);
+  const seq    = ++_renderSeq;
+
+  const img    = new Image(FAVICON_PX, FAVICON_PX);
+  img.onload = () => {
+    URL.revokeObjectURL(url);
+    // Only skip this render if a *later* render already applied its result.
+    // This allows the fast exists_hint render to land immediately rather than
+    // being cancelled simply because a newer async render was started.
+    if (seq < _appliedSeq) return;
+    _appliedSeq = seq;
+
+    const canvas  = document.createElement('canvas');
+    canvas.width  = FAVICON_PX;
+    canvas.height = FAVICON_PX;
+    canvas.getContext('2d').drawImage(img, 0, 0, FAVICON_PX, FAVICON_PX);
+
+    document.querySelectorAll("link[rel~='icon']").forEach(l => l.remove());
+    const link = document.createElement('link');
+    link.rel   = 'icon';
+    link.type  = 'image/png';
+    link.href  = canvas.toDataURL('image/png');
+    document.head.appendChild(link);
+  };
+  img.onerror = () => URL.revokeObjectURL(url);
+  img.src = url;
 }
 
 export function updateFaviconBadge(count) {

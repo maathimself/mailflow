@@ -597,6 +597,16 @@ export class ImapManager {
   _attachIdleListeners(client, account) {
     client.on('exists', ({ count, prevCount } = {}) => {
       if ((count ?? 0) <= (prevCount ?? 0)) return;
+      // Push an optimistic delta to the frontend immediately so the unread badge
+      // updates without waiting for the full IMAP fetch + DB insert cycle.
+      // Guard on typeof prevCount: during initial mailbox select ImapFlow may
+      // emit exists with prevCount=undefined, which would produce a wrong delta.
+      if (typeof count === 'number' && typeof prevCount === 'number') {
+        this.broadcast(
+          { type: 'exists_hint', accountId: account.id, delta: count - prevCount },
+          account.user_id
+        );
+      }
       if (this.syncingAccounts.has(account.id)) return;
       console.log(`IMAP IDLE: new mail for ${logAccount(account)} (${prevCount} → ${count})`);
       this._syncTick(account).catch(err =>
