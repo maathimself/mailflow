@@ -92,3 +92,61 @@ describe('listMessages — total count selection', () => {
     expect(result.total).toBe(100);
   });
 });
+
+// Threaded mode: 4 query calls — accounts, folder cache, thread CTE, thread count
+describe('listMessages — threaded mode', () => {
+  it('returns thread count as total, ignoring the cached folder count', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })                       // accounts
+      .mockResolvedValueOnce({ rows: [{ total_count: 99, unread_count: 2 }] })  // folder cache (not used)
+      .mockResolvedValueOnce({ rows: [{ id: 'msg-1' }] })                       // thread CTE
+      .mockResolvedValueOnce({ rows: [{ total: 5 }] });                          // thread count
+
+    const result = await listMessages({ userId: 'user-1', accountId: 'acc-1', threaded: 'true' });
+
+    expect(result.total).toBe(5);
+    expect(result.threaded).toBe(true);
+    expect(result.messages).toHaveLength(1);
+  });
+
+  it('scopes thread_totals to INBOX when viewing a specific account INBOX', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
+      .mockResolvedValueOnce({ rows: [{ total_count: 10, unread_count: 0 }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ total: 0 }] });
+
+    await listMessages({ userId: 'user-1', accountId: 'acc-1', folder: 'INBOX', threaded: 'true' });
+
+    const cteSql = query.mock.calls[2][0];
+    expect(cteSql).toContain('AND folder = $2');
+  });
+
+  it('counts thread messages across all folders when viewing a non-INBOX folder', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
+      .mockResolvedValueOnce({ rows: [{ total_count: 10, unread_count: 0 }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ total: 0 }] });
+
+    await listMessages({ userId: 'user-1', accountId: 'acc-1', folder: 'Sent', threaded: 'true' });
+
+    // thread_totals must not be scoped to a specific folder so the badge reflects true thread size
+    const cteSql = query.mock.calls[2][0];
+    expect(cteSql).not.toContain('AND folder = $2');
+    expect(cteSql).not.toContain("AND folder = 'INBOX'");
+  });
+
+  it('scopes thread_totals to INBOX for unified inbox threaded view', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }, { id: 'acc-2' }] })
+      .mockResolvedValueOnce({ rows: [{ n: 20 }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ total: 0 }] });
+
+    await listMessages({ userId: 'user-1', threaded: 'true' });
+
+    const cteSql = query.mock.calls[2][0];
+    expect(cteSql).toContain("AND folder = 'INBOX'");
+  });
+});
