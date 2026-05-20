@@ -5,6 +5,7 @@ import { imapManager } from '../index.js';
 import { sanitizeEmail, stripEmailHead, hasRemoteImages, blockRemoteImages, rewriteEbayImageserUrls } from '../services/emailSanitizer.js';
 import { buildSnippetFromHtml, decodeNamedEntity } from '../services/messageParser.js';
 import { resolveTrashFolder, getDeleteStrategy } from '../utils/mailUtils.js';
+import { listMessages } from '../services/messageService.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -110,183 +111,22 @@ function snippetFromBody(text, html) {
 router.get('/messages', async (req, res) => {
   const { accountId, folder = 'INBOX', limit = 50, offset = 0, unreadOnly, threaded } = req.query;
 
-  const accountsResult = await query(
-    'SELECT id FROM email_accounts WHERE user_id = $1 AND enabled = true',
-    [req.session.userId]
-  );
-  const userAccountIds = accountsResult.rows.map(r => r.id);
-  if (!userAccountIds.length) return res.json({ messages: [], total: 0 });
+  const { messages, total, threaded: isThreaded, resolvedAccountId } = await listMessages({
+    userId: req.session.userId,
+    accountId,
+    folder,
+    limit,
+    offset,
+    unreadOnly,
+    threaded,
+  });
 
-  let whereConditions = ['m.is_deleted = false'];
-  const values = [];
-  let p = 1;
-
-  if (accountId && userAccountIds.includes(accountId)) {
-    whereConditions.push(`m.account_id = $${p++}`);
-    values.push(accountId);
-    whereConditions.push(`m.folder = $${p++}`);
-    values.push(folder);
-  } else {
-    whereConditions.push(`m.account_id = ANY($${p++})`);
-    values.push(userAccountIds);
-    whereConditions.push(`m.folder = 'INBOX'`);
-  }
-
-  if (unreadOnly === 'true') whereConditions.push('m.is_read = false');
-
-  const where = whereConditions.join(' AND ');
-
-  // Use cached counts from the folders table instead of an expensive COUNT(*).
-  // These are kept current by the sync process and are accurate within one sync cycle.
-  let total = 0;
-  try {
-    if (accountId && userAccountIds.includes(accountId)) {
-      const r = await query(
-        'SELECT total_count, unread_count FROM folders WHERE account_id = $1 AND path = $2',
-        [accountId, folder]
-      );
-      if (r.rows.length) {
-        total = unreadOnly === 'true' ? (r.rows[0].unread_count ?? 0) : (r.rows[0].total_count ?? 0);
-      }
-    } else {
-      // Unified inbox: sum INBOX counts across all enabled accounts
-      const r = unreadOnly === 'true'
-        ? await query(
-            "SELECT COALESCE(SUM(unread_count), 0)::int AS n FROM folders WHERE account_id = ANY($1) AND path = 'INBOX'",
-            [userAccountIds]
-          )
-        : await query(
-            "SELECT COALESCE(SUM(total_count), 0)::int AS n FROM folders WHERE account_id = ANY($1) AND path = 'INBOX'",
-            [userAccountIds]
-          );
-      total = r.rows[0]?.n ?? 0;
-    }
-  } catch (_) {
-    total = 0;
-  }
-
-  const safeLimit  = Math.min(Math.max(parseInt(limit)  || 50, 1), 500);
-  const safeOffset = Math.max(parseInt(offset) || 0, 0);
-
-  // ── Threaded mode ────────────────────────────────────────────────────────────
-  if (threaded === 'true') {
-    // One row per thread (latest message per thread_id), ordered by latest date.
-    // thread_key is a stored generated column: COALESCE(thread_id, id::text), treating null-thread_id messages as singletons.
-    const filterValues = [...values]; // values before limit/offset were pushed
-    const threadAccountParam = accountId ? [accountId] : userAccountIds;
-    // Only scope thread_totals to a specific folder for INBOX views, where the badge
-    // must match the expansion (which also filters to INBOX). For any other folder
-    // (All Mail, Sent, etc.) count across all folders so the badge reflects the true
-    // thread size rather than how many copies happen to be synced to that folder.
-    const threadFolderFilter = (accountId && userAccountIds.includes(accountId))
-        ? (folder === 'INBOX' ? `AND folder = $2` : '')
-        : `AND folder = 'INBOX'`;
-    const threadResult = await query(`
-      WITH paged_threads AS (
-        -- Identify the thread_ids for this page before any expensive dedup work.
-        -- Full-scan is lightweight here (index-only on account+folder+thread_key+date);
-        -- deduped below then touches only the ~safeLimit threads on this page.
-        SELECT m.thread_key AS thread_id
-        FROM messages m
-        WHERE ${where}
-        GROUP BY m.thread_key
-        ORDER BY MAX(m.date) DESC
-        LIMIT $${p + 1} OFFSET $${p + 2}
-      ),
-      deduped AS MATERIALIZED (
-        SELECT DISTINCT ON (m.account_id, m.thread_key, m.message_id)
-               m.id, m.uid, m.folder, m.message_id,
-               m.thread_key AS thread_id,
-               m.subject, m.from_name, m.from_email,
-               m.to_addresses, m.cc_addresses, m.reply_to, m.in_reply_to,
-               m.date, m.snippet, m.is_read, m.is_starred,
-               m.has_attachments, m.account_id,
-               a.name  AS account_name,
-               a.email_address AS account_email,
-               a.color AS account_color
-        FROM messages m
-        JOIN email_accounts a ON m.account_id = a.id
-        WHERE ${where}
-          AND m.thread_key IN (SELECT thread_id FROM paged_threads)
-        ORDER BY m.account_id,
-                 m.thread_key,
-                 m.message_id,
-                 CASE WHEN m.folder = 'INBOX' THEN 0 ELSE 1 END,
-                 m.date ASC
-      ),
-      thread_totals AS (
-        SELECT m.thread_key AS thread_id,
-               COUNT(DISTINCT m.message_id)::int AS message_count
-        FROM messages m
-        WHERE m.account_id = ANY($${p})
-          AND m.is_deleted = false
-          AND m.message_id IS NOT NULL
-          ${threadFolderFilter}
-          AND m.thread_key IN (SELECT thread_id FROM paged_threads)
-        GROUP BY m.thread_key
-      ),
-      ranked AS (
-        SELECT d.*,
-               COALESCE(tt.message_count, 1) AS message_count,
-               COUNT(*) FILTER (WHERE NOT d.is_read) OVER (PARTITION BY d.thread_id)::int AS unread_count,
-               FIRST_VALUE(d.subject)    OVER (PARTITION BY d.thread_id ORDER BY d.date ASC) AS thread_subject,
-               FIRST_VALUE(d.from_name)  OVER (PARTITION BY d.thread_id ORDER BY d.date ASC) AS thread_from_name,
-               FIRST_VALUE(d.from_email) OVER (PARTITION BY d.thread_id ORDER BY d.date ASC) AS thread_from_email,
-               ROW_NUMBER() OVER (PARTITION BY d.thread_id ORDER BY d.date DESC) AS rn
-        FROM deduped d
-        LEFT JOIN thread_totals tt ON tt.thread_id = d.thread_id
-      )
-      SELECT id, uid, folder, message_id, thread_id, thread_subject AS subject,
-             thread_from_name AS from_name, thread_from_email AS from_email,
-             to_addresses, cc_addresses, reply_to, in_reply_to,
-             date, snippet, is_starred, is_read, has_attachments, account_id,
-             account_name, account_email, account_color,
-             message_count, unread_count
-      FROM ranked
-      WHERE rn = 1
-      ORDER BY date DESC
-    `, [...filterValues, threadAccountParam, safeLimit, safeOffset]);
-
-    // Thread-level total: distinct thread groups matching the filter.
-    const threadCountResult = await query(`
-      SELECT COUNT(DISTINCT m.thread_key)::int AS total
-      FROM messages m
-      WHERE ${where}
-    `, filterValues);
-
-    if (accountId && userAccountIds.includes(accountId) && threadResult.rows.length) {
-      imapManager.prefetchFolderBodies(accountId, threadResult.rows.map(r => r.id))
-        .catch(err => console.warn('Folder body prefetch error:', err.message));
-    }
-    return res.json({
-      messages: threadResult.rows,
-      total: threadCountResult.rows[0]?.total ?? 0,
-      threaded: true,
-    });
-  }
-  // ── Non-threaded mode ────────────────────────────────────────────────────────
-
-  values.push(safeLimit);
-  values.push(safeOffset);
-
-  const result = await query(`
-    SELECT m.id, m.uid, m.folder, m.message_id, m.subject, m.from_name, m.from_email,
-           m.to_addresses, m.cc_addresses, m.reply_to, m.in_reply_to,
-           m.date, m.snippet, m.is_read, m.is_starred,
-           m.has_attachments, m.account_id,
-           a.name as account_name, a.email_address as account_email, a.color as account_color
-    FROM messages m
-    JOIN email_accounts a ON m.account_id = a.id
-    WHERE ${where}
-    ORDER BY m.date DESC
-    LIMIT $${p++} OFFSET $${p++}
-  `, values);
-
-  if (accountId && userAccountIds.includes(accountId) && result.rows.length) {
-    imapManager.prefetchFolderBodies(accountId, result.rows.map(r => r.id))
+  if (resolvedAccountId && messages.length) {
+    imapManager.prefetchFolderBodies(resolvedAccountId, messages.map(r => r.id))
       .catch(err => console.warn('Folder body prefetch error:', err.message));
   }
-  res.json({ messages: result.rows, total });
+
+  res.json({ messages, total, ...(isThreaded ? { threaded: true } : {}) });
 });
 
 // Returns true if remote images should be blocked for this message given the user's preferences.
