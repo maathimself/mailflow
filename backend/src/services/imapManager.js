@@ -1654,6 +1654,7 @@ export class ImapManager {
       );
 
       let batchCount = 0;
+      let consecutiveErrors = 0;
       for (const { folder } of foldersResult.rows) {
         let done = false;
         while (!done) {
@@ -1709,9 +1710,16 @@ export class ImapManager {
               lock.release();
             }
             batchCount++;
+            consecutiveErrors = 0;
           } catch (err) {
+            consecutiveErrors++;
             console.error(`Snippet indexer batch error ${logAccount(account)}/${folder}:`, err.message);
             await new Promise(r => setTimeout(r, cfg.errorDelay));
+            if (consecutiveErrors >= 3) {
+              console.log(`Snippet indexer aborting for ${logAccount(account)} after ${consecutiveErrors} consecutive errors — will resume on next startup`);
+              return;
+            }
+            await openClient();
           }
 
           // Pause longer when the user is actively opening messages so background
