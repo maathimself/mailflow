@@ -1434,6 +1434,13 @@ export default function MessageList() {
         });
         break;
       }
+      case 'createRuleFromMessage': {
+        const store = useStore.getState();
+        store.setRulesPreFill({ fromEmail: message.from_email, fromName: message.from_name });
+        store.setAdminTab('rules');
+        store.setShowAdmin(true);
+        break;
+      }
       case 'delete':
         scheduleDelete(message);
         break;

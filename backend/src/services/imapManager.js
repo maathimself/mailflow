@@ -8,6 +8,7 @@ import { decrypt } from './encryption.js';
 import { sendPushToUser } from './pushNotifications.js';
 import { redactEmail } from '../utils/redact.js';
 import { resolveForConnection } from './hostValidation.js';
+import { applyInboxRules } from './inboxRules.js';
 
 
 // Shorthand for log lines — keeps domain visible while masking the local part.
@@ -1191,14 +1192,21 @@ export class ImapManager {
         }
 
         if (newMessages.length > 0) {
-          this.broadcast({
+          if (folder === 'INBOX') {
+            try {
+              newMessages = await applyInboxRules(newMessages, account, this);
+            } catch (err) {
+              console.error('inboxRules error:', err.message);
+            }
+          }
+          if (newMessages.length > 0) this.broadcast({
             type: 'new_messages', accountId: account.id,
             folder, messages: newMessages.slice(-5), count: newMessages.length
           }, account.user_id);
           // Web Push — INBOX only. Non-inbox folder syncs (Archive, Spam, on-demand)
           // can surface messages that are old or intentionally filtered; sending
           // push for them would be misleading. Fire-and-forget: push errors are non-fatal.
-          if (folder === 'INBOX') {
+          if (folder === 'INBOX' && newMessages.length > 0) {
             const latest = newMessages[newMessages.length - 1];
             const basePayload = {
               title: latest.fromName || latest.fromEmail || 'New mail',
