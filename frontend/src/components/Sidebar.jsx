@@ -740,15 +740,17 @@ export default function Sidebar() {
 
       {/* Nav */}
       <nav style={{ flex: 1, overflow: 'hidden auto', padding: '4px 8px' }}>
-        {/* Unified Inbox */}
-        <NavItem
-          icon={ICONS.inbox}
-          label={t('sidebar.allInboxes')}
-          active={isUnified}
-          collapsed={sidebarCollapsed}
-          badge={unreadCounts.total}
-          onClick={() => setSelectedAccount(null, 'INBOX')}
-        />
+        {/* Unified Inbox — only shown with 2+ accounts */}
+        {accounts.length >= 2 && (
+          <NavItem
+            icon={ICONS.inbox}
+            label={t('sidebar.allInboxes')}
+            active={isUnified}
+            collapsed={sidebarCollapsed}
+            badge={unreadCounts.total}
+            onClick={() => setSelectedAccount(null, 'INBOX')}
+          />
+        )}
 
         {/* Favorites section */}
         {!sidebarCollapsed && favoriteFolders.length > 0 && (() => {
