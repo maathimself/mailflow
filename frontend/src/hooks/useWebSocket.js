@@ -14,6 +14,38 @@ function _faviconCount(counts) {
   return selectedAccountId ? (counts.byAccount[selectedAccountId] ?? 0) : counts.total;
 }
 
+// Apply a fresh server count, guarding against double-adjustment of in-flight
+// mark-read operations.
+//
+// Since /unread-counts now queries messages directly, the DB reflects a
+// mark-read as soon as the PATCH's UPDATE commits — which happens well before
+// IMAP flag work finishes and before the HTTP response returns. This means
+// pendingMarkReadMap can lag the DB by hundreds of milliseconds, and naively
+// subtracting it from the server count would undercount by one per in-flight read.
+//
+// Guard: only subtract pending reads when the server count is still at least
+// (current optimistic + pending size). If the server count is already lower,
+// the DB has applied those reads and subtracting again would double-count.
+function _applyServerCounts(counts) {
+  if (pendingMarkReadMap.size > 0) {
+    const current = useStore.getState().unreadCounts;
+    if (counts.total >= current.total + pendingMarkReadMap.size) {
+      // Server hasn't incorporated in-flight reads yet — subtract them.
+      const byAccount = { ...counts.byAccount };
+      for (const accountId of pendingMarkReadMap.values()) {
+        if (byAccount[accountId] > 0) byAccount[accountId]--;
+      }
+      const total = Math.max(0, counts.total - pendingMarkReadMap.size);
+      useStore.setState({ unreadCounts: { total, byAccount } });
+    } else {
+      // DB already applied the reads — use the authoritative count directly.
+      useStore.setState({ unreadCounts: counts });
+    }
+  } else {
+    useStore.setState({ unreadCounts: counts });
+  }
+}
+
 // Auth-related close codes that should not trigger reconnect
 const NO_RECONNECT_CODES = new Set([4001, 4003]);
 
@@ -111,18 +143,7 @@ export function useWebSocket() {
         // and corrects any optimistic delta that exists_hint applied earlier.
         // Also handles periodic syncs that have no preceding exists_hint.
         if (isInbox) {
-          api.getUnreadCounts().then(counts => {
-            if (pendingMarkReadMap.size > 0) {
-              const byAccount = { ...counts.byAccount };
-              for (const aid of pendingMarkReadMap.values()) {
-                if (byAccount[aid] > 0) byAccount[aid]--;
-              }
-              const total = Math.max(0, counts.total - pendingMarkReadMap.size);
-              useStore.setState({ unreadCounts: { total, byAccount } });
-            } else {
-              useStore.setState({ unreadCounts: counts });
-            }
-          }).catch(() => {});
+          api.getUnreadCounts().then(_applyServerCounts).catch(() => {});
         }
         break;
       }
@@ -175,20 +196,7 @@ export function useWebSocket() {
         window.dispatchEvent(new CustomEvent('mailflow:sync_done'));
         // Re-fetch unread counts so sidebar badges reflect messages marked read
         // in external clients (the message list refresh alone doesn't update counts).
-        // Adjust for any markRead calls that are still in-flight so that a sync
-        // arriving before the PATCH response doesn't undo optimistic decrements.
-        api.getUnreadCounts().then(counts => {
-          if (pendingMarkReadMap.size > 0) {
-            const byAccount = { ...counts.byAccount };
-            for (const accountId of pendingMarkReadMap.values()) {
-              if (byAccount[accountId] > 0) byAccount[accountId]--;
-            }
-            const total = Math.max(0, counts.total - pendingMarkReadMap.size);
-            useStore.setState({ unreadCounts: { total, byAccount } });
-          } else {
-            useStore.setState({ unreadCounts: counts });
-          }
-        }).catch(() => {});
+        api.getUnreadCounts().then(_applyServerCounts).catch(() => {});
         // Re-fetch per-folder counts for the affected account so sidebar folder
         // badges stay in sync (unread_count, total_count). Only refresh accounts
         // whose folders are already loaded to avoid unnecessary requests.
@@ -210,18 +218,7 @@ export function useWebSocket() {
         // Lightweight flag update (read/starred changed on another client).
         // Refresh the message list and unread counts without the full sync_done event.
         window.dispatchEvent(new CustomEvent('mailflow:refresh'));
-        api.getUnreadCounts().then(counts => {
-          if (pendingMarkReadMap.size > 0) {
-            const byAccount = { ...counts.byAccount };
-            for (const accountId of pendingMarkReadMap.values()) {
-              if (byAccount[accountId] > 0) byAccount[accountId]--;
-            }
-            const total = Math.max(0, counts.total - pendingMarkReadMap.size);
-            useStore.setState({ unreadCounts: { total, byAccount } });
-          } else {
-            useStore.setState({ unreadCounts: counts });
-          }
-        }).catch(() => {});
+        api.getUnreadCounts().then(_applyServerCounts).catch(() => {});
         break;
       }
     }
