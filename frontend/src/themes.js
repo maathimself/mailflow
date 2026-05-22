@@ -377,6 +377,7 @@ export const THEMES = {
       '--accent': '#8b4513',
       '--accent-dim': '#f0e8d8',
       '--accent-glow': 'rgba(139,69,19,0.12)',
+      '--selection-bg': 'rgba(139,69,19,0.25)',
       '--green': '#3a7a3a',
       '--red': '#9a2020',
       '--amber': '#b87820',

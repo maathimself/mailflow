@@ -5,6 +5,7 @@ import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { useEditor, EditorContent, useEditorState } from '@tiptap/react';
+import { Extension } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import { TextStyle, Color as TiptapColor, FontFamily } from '@tiptap/extension-text-style';
@@ -192,6 +193,7 @@ export default function ComposeModal() {
       TextStyle,
       TiptapColor,
       FontFamily,
+      FontSize,
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
       Image.configure({ inline: true, allowBase64: true }),
       Table.configure({ resizable: false }),
@@ -222,6 +224,14 @@ export default function ComposeModal() {
       },
     },
   });
+
+  useEffect(() => {
+    if (!editor || isReply || isForward) return;
+    const size = localStorage.getItem('mailflow_compose_font_size') || DEFAULT_FONT_SIZE;
+    const family = localStorage.getItem('mailflow_compose_font_family');
+    editor.commands.setFontSize(size);
+    if (family) editor.commands.setFontFamily(family);
+  }, [editor, isReply, isForward]);
 
   const insertImageIntoEditor = useCallback(async (file) => {
     if (!file || !file.type.startsWith('image/')) return;
@@ -1299,6 +1309,45 @@ export default function ComposeModal() {
 }
 
 const COLORS = ['#000000','#444444','#888888','#ffffff','#e03131','#f76707','#f59f00','#2f9e44','#1971c2','#7048e8','#c2255c'];
+const FontSize = Extension.create({
+  name: 'fontSize',
+  addOptions() { return { types: ['textStyle'] }; },
+  addGlobalAttributes() {
+    return [{
+      types: this.options.types,
+      attributes: {
+        fontSize: {
+          default: null,
+          parseHTML: el => el.style.fontSize || null,
+          renderHTML: attrs => attrs.fontSize ? { style: `font-size: ${attrs.fontSize}` } : {},
+        },
+      },
+    }];
+  },
+  addCommands() {
+    return {
+      setFontSize: size => ({ chain }) => chain().setMark('textStyle', { fontSize: size }).run(),
+      unsetFontSize: () => ({ chain }) => chain().setMark('textStyle', { fontSize: null }).removeEmptyTextStyle().run(),
+    };
+  },
+});
+
+const DEFAULT_FONT_SIZE = '14px';
+
+const FONT_SIZES = [
+  { label: '10', value: '10px' },
+  { label: '11', value: '11px' },
+  { label: '12', value: '12px' },
+  { label: '13', value: '13px' },
+  { label: '14', value: '14px' },
+  { label: '16', value: '16px' },
+  { label: '18', value: '18px' },
+  { label: '20', value: '20px' },
+  { label: '24', value: '24px' },
+  { label: '28', value: '28px' },
+  { label: '36', value: '36px' },
+];
+
 const FONTS = [
   { label: 'Default', value: '' },
   { label: 'Arial', value: 'Arial, Helvetica, sans-serif' },
@@ -1334,6 +1383,7 @@ function Sep() {
 }
 
 function RichToolbar({ editor, onAttach, onInsertImage, onInsertTable, htmlMode, onToggleHtml }) {
+  const savedSelectionRef = useRef(null);
   const [colorPos, setColorPos] = useState(null);
   const [emojiPos, setEmojiPos] = useState(null);
   const emojiPickerRef = useRef(null);
@@ -1380,6 +1430,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, onInsertTable, htmlMode,
       alignRight: ed.isActive({ textAlign: 'right' }),
       color: ed.getAttributes('textStyle').color,
       fontFamily: ed.getAttributes('textStyle').fontFamily,
+      fontSize: ed.getAttributes('textStyle').fontSize,
     } : {},
   });
 
@@ -1459,10 +1510,16 @@ function RichToolbar({ editor, onAttach, onInsertImage, onInsertTable, htmlMode,
       <div style={{ borderBottom: '1px solid var(--border-subtle)', display: 'flex', gap: 2, padding: '4px 10px', flexWrap: 'wrap', alignItems: 'center' }}>
         {/* Font picker */}
         <select
-          value={es.fontFamily || ''}
+          value={es.fontFamily || localStorage.getItem('mailflow_compose_font_family') || ''}
+          onMouseDown={() => {
+            const { from, to } = editor.state.selection;
+            savedSelectionRef.current = { from, to };
+          }}
           onChange={e => {
-            if (e.target.value) editor.chain().focus().setFontFamily(e.target.value).run();
-            else editor.chain().focus().unsetFontFamily().run();
+            const family = e.target.value;
+            const sel = savedSelectionRef.current;
+            if (family) { editor.chain().focus().setTextSelection(sel ?? editor.state.selection).setFontFamily(family).run(); localStorage.setItem('mailflow_compose_font_family', family); }
+            else { editor.chain().focus().setTextSelection(sel ?? editor.state.selection).unsetFontFamily().run(); localStorage.removeItem('mailflow_compose_font_family'); }
           }}
           style={{
             background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
@@ -1471,6 +1528,28 @@ function RichToolbar({ editor, onAttach, onInsertImage, onInsertTable, htmlMode,
           }}
         >
           {FONTS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+        </select>
+
+        {/* Font size picker */}
+        <select
+          value={es.fontSize || localStorage.getItem('mailflow_compose_font_size') || DEFAULT_FONT_SIZE}
+          onMouseDown={() => {
+            const { from, to } = editor.state.selection;
+            savedSelectionRef.current = { from, to };
+          }}
+          onChange={e => {
+            const size = e.target.value;
+            const sel = savedSelectionRef.current;
+            editor.chain().focus().setTextSelection(sel ?? editor.state.selection).setFontSize(size).run();
+            localStorage.setItem('mailflow_compose_font_size', size);
+          }}
+          style={{
+            background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+            borderRadius: 4, color: 'var(--text-secondary)', fontSize: 11,
+            padding: '2px 4px', cursor: 'pointer', outline: 'none', width: 50,
+          }}
+        >
+          {FONT_SIZES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
         </select>
 
         {onAttach && (

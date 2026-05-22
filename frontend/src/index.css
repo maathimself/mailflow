@@ -88,7 +88,7 @@ body, #root {
 }
 
 /* Selection */
-::selection { background: var(--accent-dim); color: var(--text-primary); }
+::selection { background: var(--selection-bg, var(--accent-dim)); color: var(--text-primary); }
 
 /* Sync icon rotation */
 @keyframes spin {
