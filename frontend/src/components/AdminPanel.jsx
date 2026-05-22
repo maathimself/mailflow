@@ -261,7 +261,7 @@ function AccountForm({ initial, onSave, onCancel }) {
 // ─── Accounts Tab ─────────────────────────────────────────────────────────────
 function AccountsTab() {
   const { t } = useTranslation();
-  const { accounts, setAccounts, updateAccount, addNotification } = useStore();
+  const { accounts, setAccounts, updateAccount, addNotification, backfillProgress } = useStore();
   const [subview, setSubview] = useState('list'); // 'list' | 'add' | 'edit' | 'folders' | 'aliases'
   const [editTarget, setEditTarget] = useState(null);
   const [folderMappings, setFolderMappings] = useState({});
@@ -308,6 +308,14 @@ function AccountsTab() {
   const handleReconnect = async (id) => {
     await api.reconnectAccount(id);
     updateAccount(id, { sync_error: null });
+  };
+
+  const handleReindex = async (id) => {
+    try {
+      await api.reindexAccount(id);
+    } catch (err) {
+      addNotification({ type: 'error', title: t('admin.accounts.reindexError'), body: err.message });
+    }
   };
 
   const handleFolderMappingOpen = async (account) => {
@@ -803,6 +811,11 @@ function AccountsTab() {
                   <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
                 </svg>
               </IconBtn>
+              <IconBtn onClick={() => handleReindex(account.id)} title={t('admin.accounts.reindex')} disabled={!!backfillProgress[account.id]}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+              </IconBtn>
               <IconBtn onClick={() => handleDelete(account.id)} title={t('common.remove')} danger>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <polyline points="3 6 5 6 21 6"/>
@@ -828,6 +841,28 @@ function AccountsTab() {
                 <span style={{ color: 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace' }}>{val}</span>
               </div>
             ))}
+            {backfillProgress[account.id] && (
+              <div style={{ width: '100%', marginTop: 4 }}>
+                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>
+                  {backfillProgress[account.id].total
+                    ? t('admin.accounts.reindexProgress', {
+                        synced: backfillProgress[account.id].synced,
+                        total: backfillProgress[account.id].total,
+                      })
+                    : t('admin.accounts.reindexing')}
+                </div>
+                {backfillProgress[account.id].total && (
+                  <div style={{ height: 3, borderRadius: 2, background: 'var(--border-subtle)', overflow: 'hidden' }}>
+                    <div style={{
+                      height: '100%', borderRadius: 2,
+                      background: 'var(--accent)',
+                      width: `${Math.min(100, Math.round((backfillProgress[account.id].synced / backfillProgress[account.id].total) * 100))}%`,
+                      transition: 'width 0.3s ease',
+                    }} />
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       ))}
@@ -911,16 +946,17 @@ function ThemesTab() {
 }
 
 // ─── Admin Panel Shell ────────────────────────────────────────────────────────
-function IconBtn({ children, onClick, title, danger }) {
+function IconBtn({ children, onClick, title, danger, disabled }) {
   const [hov, setHov] = useState(false);
   return (
-    <button onClick={onClick} title={title}
+    <button onClick={disabled ? undefined : onClick} title={title} disabled={disabled}
       onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
       style={{
-        background: hov ? (danger ? 'rgba(248,113,113,0.1)' : 'var(--bg-hover)') : 'transparent',
-        border: `1px solid ${hov ? (danger ? 'rgba(248,113,113,0.3)' : 'var(--border)') : 'transparent'}`,
-        borderRadius: 6, padding: '5px', color: danger && hov ? 'var(--red)' : 'var(--text-tertiary)',
-        cursor: 'pointer', display: 'flex', alignItems: 'center', transition: 'all 0.1s',
+        background: hov && !disabled ? (danger ? 'rgba(248,113,113,0.1)' : 'var(--bg-hover)') : 'transparent',
+        border: `1px solid ${hov && !disabled ? (danger ? 'rgba(248,113,113,0.3)' : 'var(--border)') : 'transparent'}`,
+        borderRadius: 6, padding: '5px', color: danger && hov && !disabled ? 'var(--red)' : 'var(--text-tertiary)',
+        cursor: disabled ? 'default' : 'pointer', display: 'flex', alignItems: 'center', transition: 'all 0.1s',
+        opacity: disabled ? 0.4 : 1,
       }}
     >
       {children}
@@ -3526,10 +3562,436 @@ function AboutTab() {
   );
 }
 
+// ─── Rules Tab ────────────────────────────────────────────────────────────────
+function RulesTab() {
+  const { t } = useTranslation();
+  const { accounts, rulesPreFill, setRulesPreFill } = useStore();
+  const [rules, setRules] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [formMode, setFormMode] = useState(null); // null | 'add' | 'edit'
+  const [formId, setFormId] = useState(null);
+  const [formData, setFormData] = useState(null);
+  const [formError, setFormError] = useState('');
+  const [formSaving, setFormSaving] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+
+  useEffect(() => {
+    api.getRules()
+      .then(data => { setRules(data); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (rulesPreFill) {
+      openAdd(rulesPreFill);
+      setRulesPreFill(null);
+    }
+  }, [rulesPreFill, setRulesPreFill]);
+
+  function blankForm(prefill = {}) {
+    return {
+      name: prefill.name || '',
+      accountId: '',
+      conditionLogic: 'AND',
+      conditions: [{
+        field: 'from',
+        operator: 'contains',
+        value: prefill.fromEmail || prefill.fromName || '',
+      }],
+      actions: [],
+      enabled: true,
+      stopProcessing: false,
+    };
+  }
+
+  function openAdd(prefill) {
+    setFormData(blankForm(prefill));
+    setFormId(null);
+    setFormMode('add');
+    setFormError('');
+  }
+
+  function openEdit(rule) {
+    setFormData({
+      name: rule.name,
+      accountId: rule.account_id || '',
+      conditionLogic: rule.condition_logic || 'AND',
+      conditions: Array.isArray(rule.conditions) ? rule.conditions : [],
+      actions: Array.isArray(rule.actions) ? rule.actions : [],
+      enabled: rule.enabled,
+      stopProcessing: rule.stop_processing,
+    });
+    setFormId(rule.id);
+    setFormMode('edit');
+    setFormError('');
+  }
+
+  function closeForm() {
+    setFormMode(null);
+    setFormId(null);
+    setFormData(null);
+    setFormError('');
+  }
+
+  async function handleToggle(rule) {
+    const updated = { ...rule, enabled: !rule.enabled };
+    try {
+      const saved = await api.updateRule(rule.id, {
+        name: rule.name,
+        accountId: rule.account_id || null,
+        conditionLogic: rule.condition_logic,
+        conditions: rule.conditions,
+        actions: rule.actions,
+        enabled: updated.enabled,
+        stopProcessing: rule.stop_processing,
+      });
+      setRules(prev => prev.map(r => r.id === rule.id ? saved : r));
+    } catch (_) {}
+  }
+
+  async function handleDelete(id) {
+    try {
+      await api.deleteRule(id);
+      setRules(prev => prev.filter(r => r.id !== id));
+    } catch (_) {}
+    setConfirmDelete(null);
+  }
+
+  async function handleSave() {
+    const { name, conditionLogic, conditions, actions, accountId, enabled, stopProcessing } = formData;
+    if (!name.trim() || conditions.length === 0 || actions.length === 0) {
+      setFormError(t('admin.rules.errorRequired'));
+      return;
+    }
+    const moveAction = actions.find(a => a.type === 'move');
+    if (moveAction && !moveAction.value?.trim()) {
+      setFormError(t('admin.rules.errorMoveFolder'));
+      return;
+    }
+    setFormSaving(true);
+    setFormError('');
+    try {
+      const payload = {
+        name: name.trim(),
+        accountId: accountId || null,
+        conditionLogic,
+        conditions,
+        actions,
+        enabled,
+        stopProcessing,
+      };
+      if (formMode === 'add') {
+        const created = await api.createRule(payload);
+        setRules(prev => [...prev, created]);
+      } else {
+        const updated = await api.updateRule(formId, payload);
+        setRules(prev => prev.map(r => r.id === formId ? updated : r));
+      }
+      closeForm();
+    } catch (_) {
+      setFormError(t('admin.rules.errorSave'));
+    } finally {
+      setFormSaving(false);
+    }
+  }
+
+  function setCondition(idx, key, val) {
+    setFormData(prev => {
+      const conditions = prev.conditions.map((c, i) => i === idx ? { ...c, [key]: val } : c);
+      return { ...prev, conditions };
+    });
+  }
+
+  function addCondition() {
+    setFormData(prev => ({
+      ...prev,
+      conditions: [...prev.conditions, { field: 'from', operator: 'contains', value: '' }],
+    }));
+  }
+
+  function removeCondition(idx) {
+    setFormData(prev => ({ ...prev, conditions: prev.conditions.filter((_, i) => i !== idx) }));
+  }
+
+  function toggleAction(type) {
+    setFormData(prev => {
+      const has = prev.actions.some(a => a.type === type);
+      const actions = has
+        ? prev.actions.filter(a => a.type !== type)
+        : [...prev.actions, { type, value: '' }];
+      return { ...prev, actions };
+    });
+  }
+
+  function setActionValue(type, value) {
+    setFormData(prev => ({
+      ...prev,
+      actions: prev.actions.map(a => a.type === type ? { ...a, value } : a),
+    }));
+  }
+
+  function conditionSummary(rule) {
+    const conds = Array.isArray(rule.conditions) ? rule.conditions : [];
+    if (!conds.length) return '—';
+    return conds.slice(0, 2).map(c => {
+      if (c.field === 'has_attachment') return t('admin.rules.fieldHasAttachment');
+      return `${c.field} ${c.operator} "${c.value}"`;
+    }).join(` ${rule.condition_logic} `) + (conds.length > 2 ? ` +${conds.length - 2}` : '');
+  }
+
+  function actionSummary(rule) {
+    const acts = Array.isArray(rule.actions) ? rule.actions : [];
+    if (!acts.length) return '—';
+    const labels = { mark_read: t('admin.rules.actionMarkRead'), star: t('admin.rules.actionStar'), archive: t('admin.rules.actionArchive'), delete: t('admin.rules.actionDelete'), move: t('admin.rules.actionMove') };
+    return acts.map(a => labels[a.type] || a.type).join(', ');
+  }
+
+  const FIELDS = [
+    { value: 'from', label: t('admin.rules.fieldFrom') },
+    { value: 'to', label: t('admin.rules.fieldTo') },
+    { value: 'subject', label: t('admin.rules.fieldSubject') },
+    { value: 'has_attachment', label: t('admin.rules.fieldHasAttachment') },
+  ];
+  const OPERATORS = [
+    { value: 'contains',     label: t('admin.rules.opContains') },
+    { value: 'not_contains', label: t('admin.rules.opNotContains') },
+    { value: 'equals',       label: t('admin.rules.opEquals') },
+    { value: 'starts_with',  label: t('admin.rules.opStartsWith') },
+    { value: 'ends_with',    label: t('admin.rules.opEndsWith') },
+  ];
+  const ACTION_TYPES = [
+    { type: 'mark_read', label: t('admin.rules.actionMarkRead') },
+    { type: 'star',      label: t('admin.rules.actionStar') },
+    { type: 'archive',   label: t('admin.rules.actionArchive') },
+    { type: 'delete',    label: t('admin.rules.actionDelete') },
+    { type: 'move',      label: t('admin.rules.actionMove') },
+  ];
+
+  if (formMode) {
+    const fd = formData;
+    return (
+      <div style={{ maxWidth: 560 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+          <button onClick={closeForm} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: '2px 6px', fontSize: 18, lineHeight: 1 }}>
+            ←
+          </button>
+          <span style={{ fontWeight: 600, fontSize: 15 }}>
+            {formMode === 'add' ? t('admin.rules.formTitleAdd') : t('admin.rules.formTitleEdit')}
+          </span>
+        </div>
+
+        <Field label={t('admin.rules.nameLabel')} required>
+          <input
+            style={inputStyle}
+            value={fd.name}
+            onChange={e => setFormData(p => ({ ...p, name: e.target.value }))}
+            placeholder={t('admin.rules.namePlaceholder')}
+          />
+        </Field>
+
+        <Field label={t('admin.rules.accountLabel')}>
+          <select
+            style={inputStyle}
+            value={fd.accountId}
+            onChange={e => setFormData(p => ({ ...p, accountId: e.target.value }))}
+          >
+            <option value="">{t('admin.rules.accountAll')}</option>
+            {accounts.map(a => (
+              <option key={a.id} value={a.id}>{a.name || a.email_address}</option>
+            ))}
+          </select>
+        </Field>
+
+        <Field label={t('admin.rules.conditionLogicLabel')}>
+          <div style={{ display: 'flex', gap: 16 }}>
+            {['AND', 'OR'].map(val => (
+              <label key={val} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>
+                <input
+                  type="radio"
+                  checked={fd.conditionLogic === val}
+                  onChange={() => setFormData(p => ({ ...p, conditionLogic: val }))}
+                />
+                {val === 'AND' ? t('admin.rules.conditionLogicAnd') : t('admin.rules.conditionLogicOr')}
+              </label>
+            ))}
+          </div>
+        </Field>
+
+        <Field label={t('admin.rules.conditionsLabel')} required>
+          {fd.conditions.map((cond, idx) => (
+            <div key={idx} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' }}>
+              <select
+                style={{ ...inputStyle, width: 'auto', flex: '0 0 auto' }}
+                value={cond.field}
+                onChange={e => setCondition(idx, 'field', e.target.value)}
+              >
+                {FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+              </select>
+              {cond.field !== 'has_attachment' && (
+                <>
+                  <select
+                    style={{ ...inputStyle, width: 'auto', flex: '0 0 auto' }}
+                    value={cond.operator}
+                    onChange={e => setCondition(idx, 'operator', e.target.value)}
+                  >
+                    {OPERATORS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                  <input
+                    style={{ ...inputStyle, flex: 1 }}
+                    value={cond.value}
+                    onChange={e => setCondition(idx, 'value', e.target.value)}
+                    placeholder="value"
+                  />
+                </>
+              )}
+              <button
+                onClick={() => removeCondition(idx)}
+                style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 16, padding: '0 4px', flexShrink: 0 }}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+          <button
+            onClick={addCondition}
+            style={{ marginTop: 4, fontSize: 12, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+          >
+            + {t('admin.rules.addCondition')}
+          </button>
+        </Field>
+
+        <Field label={t('admin.rules.actionsLabel')} required>
+          {ACTION_TYPES.map(({ type, label }) => {
+            const checked = fd.actions.some(a => a.type === type);
+            const moveVal = fd.actions.find(a => a.type === 'move')?.value || '';
+            return (
+              <div key={type} style={{ marginBottom: 8 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13 }}>
+                  <input type="checkbox" checked={checked} onChange={() => toggleAction(type)} />
+                  {label}
+                </label>
+                {type === 'move' && checked && (
+                  <input
+                    style={{ ...inputStyle, marginTop: 6, marginLeft: 22 }}
+                    value={moveVal}
+                    onChange={e => setActionValue('move', e.target.value)}
+                    placeholder={t('admin.rules.actionMovePlaceholder')}
+                  />
+                )}
+              </div>
+            );
+          })}
+        </Field>
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', marginBottom: 20 }}>
+          <input
+            type="checkbox"
+            checked={fd.stopProcessing}
+            onChange={e => setFormData(p => ({ ...p, stopProcessing: e.target.checked }))}
+          />
+          {t('admin.rules.stopProcessing')}
+        </label>
+
+        {formError && (
+          <div style={{ color: 'var(--red)', fontSize: 12, marginBottom: 12 }}>{formError}</div>
+        )}
+
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button
+            onClick={handleSave}
+            disabled={formSaving}
+            style={{ flex: 1, padding: '9px 0', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 7, fontWeight: 600, fontSize: 13, cursor: formSaving ? 'not-allowed' : 'pointer', opacity: formSaving ? 0.7 : 1 }}
+          >
+            {formSaving ? t('admin.rules.saving') : t('admin.rules.saveButton')}
+          </button>
+          <button
+            onClick={closeForm}
+            style={{ padding: '9px 18px', background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 7, color: 'var(--text-primary)', fontSize: 13, cursor: 'pointer' }}
+          >
+            {t('common.cancel')}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+        <span style={{ fontWeight: 600, fontSize: 15 }}>{t('admin.rules.title')}</span>
+        <button
+          onClick={() => openAdd({})}
+          style={{ padding: '7px 14px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 7, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
+        >
+          + {t('admin.rules.newButton')}
+        </button>
+      </div>
+
+      {loading && <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>Loading…</div>}
+
+      {!loading && rules.length === 0 && (
+        <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{t('admin.rules.empty')}</div>
+      )}
+
+      {rules.map(rule => (
+        <div key={rule.id} style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 8, padding: '12px 14px', marginBottom: 8 }}>
+          {confirmDelete === rule.id ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 13, color: 'var(--text-primary)', flex: 1 }}>{t('admin.rules.deleteConfirm')}</span>
+              <button
+                onClick={() => handleDelete(rule.id)}
+                style={{ padding: '5px 12px', background: 'var(--red)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}
+              >
+                {t('admin.rules.deleteButton')}
+              </button>
+              <button
+                onClick={() => setConfirmDelete(null)}
+                style={{ padding: '5px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 6, fontSize: 12, cursor: 'pointer', color: 'var(--text-primary)' }}
+              >
+                {t('common.cancel')}
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 0, cursor: 'pointer', marginTop: 2, flexShrink: 0 }}>
+                <input type="checkbox" checked={rule.enabled} onChange={() => handleToggle(rule)} />
+              </label>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 2 }}>{rule.name || '(unnamed)'}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {conditionSummary(rule)} → {actionSummary(rule)}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                <button
+                  onClick={() => openEdit(rule)}
+                  style={{ padding: '4px 10px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 6, fontSize: 12, cursor: 'pointer', color: 'var(--text-primary)' }}
+                >
+                  {t('admin.rules.editButton')}
+                </button>
+                <button
+                  onClick={() => setConfirmDelete(rule.id)}
+                  style={{ padding: '4px 10px', background: 'none', border: '1px solid var(--red)', borderRadius: 6, fontSize: 12, cursor: 'pointer', color: 'var(--red)' }}
+                >
+                  {t('admin.rules.deleteButton')}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 const TABS = [
   {
     id: 'accounts', labelKey: 'admin.tabs.accounts',
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>,
+  },
+  {
+    id: 'rules', labelKey: 'admin.tabs.rules',
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>,
   },
   {
     id: 'appearance', labelKey: 'admin.tabs.appearance',
@@ -4698,6 +5160,7 @@ export default function AdminPanel() {
           }}
         >
           {adminTab === 'accounts' && <AccountsTab />}
+          {adminTab === 'rules' && <RulesTab />}
           {adminTab === 'appearance' && <AppearanceTab />}
           {adminTab === 'integrations' && <IntegrationsTab />}
           {adminTab === 'users' && <UsersTab />}
@@ -4794,6 +5257,7 @@ export default function AdminPanel() {
           }}
         >
           {adminTab === 'accounts' && <AccountsTab />}
+          {adminTab === 'rules' && <RulesTab />}
           {adminTab === 'appearance' && <AppearanceTab />}
           {adminTab === 'integrations' && <IntegrationsTab />}
           {adminTab === 'users' && <UsersTab />}

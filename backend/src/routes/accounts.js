@@ -312,4 +312,26 @@ router.get('/:id/folders', async (req, res) => {
   res.json(result.rows);
 });
 
+router.post('/:id/reindex', async (req, res) => {
+  try {
+    const result = await query(
+      "SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND enabled = true AND protocol = 'imap'",
+      [req.params.id, req.session.userId]
+    );
+    if (!result.rows.length) return res.status(404).json({ error: 'Account not found' });
+
+    const account = result.rows[0];
+    const alreadyRunning = imapManager.backfillAllRunning.has(account.id);
+    if (!alreadyRunning) {
+      imapManager.backfillAllFolders(account).catch(err =>
+        console.error(`Manual reindex error for ${account.email_address}:`, err.message)
+      );
+    }
+    res.json({ ok: true, alreadyRunning });
+  } catch (err) {
+    console.error('POST /accounts/:id/reindex error:', err.message);
+    res.status(500).json({ error: 'Failed to start reindex' });
+  }
+});
+
 export default router;

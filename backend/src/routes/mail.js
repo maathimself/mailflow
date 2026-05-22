@@ -1,10 +1,13 @@
 import { Router } from 'express';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const archiver = require('archiver');
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { imapManager } from '../index.js';
 import { sanitizeEmail, stripEmailHead, hasRemoteImages, blockRemoteImages, rewriteEbayImageserUrls } from '../services/emailSanitizer.js';
 import { buildSnippetFromHtml, decodeNamedEntity } from '../services/messageParser.js';
-import { resolveTrashFolder, resolveArchiveFolder, getDeleteStrategy } from '../utils/mailUtils.js';
+import { resolveTrashFolder, resolveAllTrashPaths, resolveArchiveFolder, getDeleteStrategy } from '../utils/mailUtils.js';
 import { listMessages } from '../services/messageService.js';
 
 const router = Router();
@@ -357,6 +360,89 @@ router.get('/messages/:id/headers', async (req, res) => {
   } catch (err) {
     console.error('Headers fetch error:', err);
     res.status(500).json({ error: 'Failed to fetch message headers' });
+  }
+});
+
+const ZIP_MAX_FILES = 100;
+const ZIP_MAX_TOTAL_BYTES = 150 * 1024 * 1024; // 150 MB
+const ZIP_MAX_FILE_BYTES  =  50 * 1024 * 1024; //  50 MB per file
+
+// Download all attachments as a ZIP archive
+router.get('/messages/:id/attachments.zip', async (req, res) => {
+  const { id } = req.params;
+  if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
+
+  const result = await query(`
+    SELECT m.*, a.user_id FROM messages m
+    JOIN email_accounts a ON m.account_id = a.id
+    WHERE m.id = $1 AND a.user_id = $2
+  `, [id, req.session.userId]);
+
+  if (!result.rows.length) return res.status(404).json({ error: 'Message not found' });
+  const message = result.rows[0];
+
+  const attachments = typeof message.attachments === 'string'
+    ? JSON.parse(message.attachments || '[]')
+    : (message.attachments || []);
+
+  if (attachments.length === 0) return res.status(404).json({ error: 'No attachments' });
+  if (attachments.length > ZIP_MAX_FILES) return res.status(400).json({ error: `Too many attachments (max ${ZIP_MAX_FILES})` });
+
+  const knownTotal = attachments.reduce((sum, a) => sum + (a.size || 0), 0);
+  if (knownTotal > ZIP_MAX_TOTAL_BYTES) {
+    return res.status(413).json({ error: 'Total attachment size exceeds the 150 MB ZIP limit.' });
+  }
+
+  // Exclude per-file oversize items; unknown-size (0) are allowed through.
+  const eligible = attachments.filter(a => !a.size || a.size <= ZIP_MAX_FILE_BYTES);
+  if (eligible.length === 0) return res.status(413).json({ error: 'All attachments exceed the 50 MB per-file limit.' });
+
+  try {
+    const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]);
+    if (!accountResult.rows.length) return res.status(404).json({ error: 'Account not found' });
+    const account = accountResult.rows[0];
+
+    const bufferMap = await imapManager.fetchMultipleAttachments(account, message.uid, message.folder, eligible);
+    if (bufferMap.size === 0) return res.status(404).json({ error: 'Could not fetch attachments' });
+
+    // Deduplicate filenames: invoice.pdf → invoice (2).pdf
+    const usedNames = new Map();
+    const entries = [];
+    for (const att of eligible) {
+      const buf = bufferMap.get(att.part);
+      if (!buf) continue;
+      let name = safeFilename(att.filename);
+      if (usedNames.has(name)) {
+        const n = usedNames.get(name) + 1;
+        usedNames.set(name, n);
+        const dot = name.lastIndexOf('.');
+        name = dot > 0 ? `${name.slice(0, dot)} (${n})${name.slice(dot)}` : `${name} (${n})`;
+      } else {
+        usedNames.set(name, 1);
+      }
+      entries.push({ name, buf });
+    }
+
+    if (entries.length === 0) return res.status(404).json({ error: 'Could not fetch attachments' });
+
+    const zipName = safeFilename((message.subject || 'attachments').substring(0, 100)) + '-attachments.zip';
+    const encoded = encodeURIComponent(zipName);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${zipName}"; filename*=UTF-8''${encoded}`);
+
+    const archive = archiver('zip', { zlib: { level: 6 } });
+    archive.on('error', err => {
+      console.error('ZIP archive error:', err.message);
+      if (!res.headersSent) res.status(500).json({ error: 'Failed to create ZIP' });
+    });
+    archive.pipe(res);
+    for (const { name, buf } of entries) {
+      archive.append(buf, { name });
+    }
+    archive.finalize();
+  } catch (err) {
+    console.error('ZIP fetch error:', err);
+    if (!res.headersSent) res.status(500).json({ error: 'Failed to create ZIP' });
   }
 });
 
@@ -754,21 +840,29 @@ router.post('/messages/bulk-delete', async (req, res) => {
       const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
       const account = accountResult.rows[0];
       const trashPath = await resolveTrashFolder(accountId, msgs[0].folder_mappings);
+      const allTrashPaths = await resolveAllTrashPaths(accountId, msgs[0].folder_mappings);
 
       if (!trashPath) {
         console.error(`bulk-delete: no Trash folder found for account ${accountId} — skipping ${msgs.length} messages`);
         continue;
       }
 
-      const toExpunge = msgs.filter(m => m.folder === trashPath);
-      const toMove    = msgs.filter(m => m.folder !== trashPath);
+      // Messages in ANY trash-like folder are permanently deleted; others move to canonical trash.
+      const toExpunge = msgs.filter(m => allTrashPaths.has(m.folder));
+      const toMove    = msgs.filter(m => !allTrashPaths.has(m.folder));
 
-      // Permanently delete messages that are already in Trash.
+      // Permanently delete messages already in a trash-like folder (grouped by actual folder).
       if (toExpunge.length) {
-        const { succeeded, failed } = await imapManager.bulkPermanentDelete(account, toExpunge.map(m => m.uid), trashPath);
-        const uidToMsg = new Map(toExpunge.map(m => [String(m.uid), m]));
-        for (const uid of succeeded) expungeSucceeded.push(uidToMsg.get(String(uid)));
-        for (const uid of failed) console.error(`bulk-delete IMAP expunge uid ${uid}: IMAP delete failed`);
+        const byExpungeFolder = {};
+        for (const msg of toExpunge) {
+          (byExpungeFolder[msg.folder] = byExpungeFolder[msg.folder] || []).push(msg);
+        }
+        for (const [expungeFolder, folderMsgs] of Object.entries(byExpungeFolder)) {
+          const uidToMsg = new Map(folderMsgs.map(m => [String(m.uid), m]));
+          const { succeeded, failed } = await imapManager.bulkPermanentDelete(account, folderMsgs.map(m => m.uid), expungeFolder);
+          for (const uid of succeeded) expungeSucceeded.push(uidToMsg.get(String(uid)));
+          for (const uid of failed) console.error(`bulk-delete IMAP expunge uid ${uid} from ${expungeFolder}: IMAP delete failed`);
+        }
       }
 
       // Move messages from non-Trash folders into Trash.
@@ -793,44 +887,41 @@ router.post('/messages/bulk-delete', async (req, res) => {
       await query('DELETE FROM messages WHERE id = ANY($1::uuid[])', [expungeSucceeded.map(m => m.id)]);
     }
 
-    // Trash moves: update folder, then UIDs where the server returned them.
+    // Trash moves: same CTE approach as bulk-move — DELETE source rows and
+    // immediately re-INSERT at the destination when new UIDs are known.
+    // Group by trashPath since different accounts may have different Trash folders.
     if (trashMoveSucceeded.length) {
       const byTrashPath = {};
       for (const u of trashMoveSucceeded) {
         (byTrashPath[u.trashPath] = byTrashPath[u.trashPath] || []).push(u);
       }
       for (const [trashPath, entries] of Object.entries(byTrashPath)) {
-        await query(
-          'UPDATE messages SET folder = $1 WHERE id = ANY($2::uuid[])',
-          [trashPath, entries.map(e => e.msg.id)]
-        );
-      }
-      const withNewUid = trashMoveSucceeded.filter(u => u.newUid);
-      if (withNewUid.length) {
-        // Remove any stale DB rows already sitting at (account_id, trashPath, newUid).
-        // Moved messages still carry their source UID at this point, so they cannot
-        // match the destination-folder/new-UID condition; the id exclusion is a
-        // belt-and-suspenders guard for the degenerate uid==new_uid case.
-        await query(
-          `DELETE FROM messages
-           WHERE (account_id, folder, uid) IN (
-             SELECT v.acct, v.dest, v.uid
-             FROM unnest($1::uuid[], $2::text[], $3::bigint[]) AS v(acct, dest, uid)
-           )
-           AND id != ANY($4::uuid[])`,
-          [
-            withNewUid.map(u => u.msg.account_id),
-            withNewUid.map(u => u.trashPath),
-            withNewUid.map(u => u.newUid),
-            withNewUid.map(u => u.msg.id),
-          ]
-        );
-        await query(
-          `UPDATE messages SET uid = v.new_uid
-           FROM unnest($1::uuid[], $2::bigint[]) AS v(id, new_uid)
-           WHERE messages.id = v.id`,
-          [withNewUid.map(u => u.msg.id), withNewUid.map(u => u.newUid)]
-        );
+        const allIds    = entries.map(u => u.msg.id);
+        const withUid   = entries.filter(u => u.newUid);
+        await query(`
+          WITH deleted AS (
+            DELETE FROM messages WHERE id = ANY($1::uuid[]) RETURNING *
+          ),
+          uid_map(src_id, new_uid) AS (
+            SELECT * FROM unnest($2::uuid[], $3::bigint[])
+          )
+          INSERT INTO messages (
+            account_id, uid, folder, message_id, subject,
+            from_name, from_email, to_addresses, cc_addresses,
+            reply_to, in_reply_to, date, snippet, is_read, is_starred,
+            has_attachments, flags, body_html, body_text, attachments,
+            thread_references, thread_id
+          )
+          SELECT
+            d.account_id, u.new_uid, $4, d.message_id, d.subject,
+            d.from_name, d.from_email, d.to_addresses, d.cc_addresses,
+            d.reply_to, d.in_reply_to, d.date, d.snippet, d.is_read, d.is_starred,
+            d.has_attachments, d.flags, d.body_html, d.body_text, d.attachments,
+            d.thread_references, d.thread_id
+          FROM deleted d
+          JOIN uid_map u ON d.id = u.src_id
+          ON CONFLICT (account_id, uid, folder) DO NOTHING
+        `, [allIds, withUid.map(u => u.msg.id), withUid.map(u => u.newUid), trashPath]);
       }
     }
 
@@ -866,6 +957,10 @@ router.post('/messages/bulk-delete', async (req, res) => {
       }
       for (const { accountId, path, total, unread } of Object.values(dstDeltas)) {
         adjustFolderCounts(accountId, path, total, unread);
+      }
+      // Notify clients viewing each Trash folder to refresh silently.
+      for (const { accountId, path } of Object.values(dstDeltas)) {
+        imapManager.broadcast({ type: 'folder_updated', folder: path, accountId }, req.session.userId);
       }
     }
 
@@ -940,30 +1035,39 @@ router.post('/messages/bulk-move', async (req, res) => {
     }
 
     if (movedIds.length > 0) {
-      await query('UPDATE messages SET folder = $1 WHERE id = ANY($2::uuid[])', [folder, movedIds]);
-      if (uidUpdates.length > 0) {
-        const idToAccount = new Map(owned.map(m => [m.id, m.account_id]));
-        await query(
-          `DELETE FROM messages
-           WHERE (account_id, folder, uid) IN (
-             SELECT v.acct, v.dest, v.uid
-             FROM unnest($1::uuid[], $2::text[], $3::bigint[]) AS v(acct, dest, uid)
-           )
-           AND id != ANY($4::uuid[])`,
-          [
-            uidUpdates.map(u => idToAccount.get(u.id)),
-            uidUpdates.map(() => folder),
-            uidUpdates.map(u => u.newUid),
-            uidUpdates.map(u => u.id),
-          ]
-        );
-        await query(
-          `UPDATE messages SET uid = v.new_uid
-           FROM unnest($1::uuid[], $2::bigint[]) AS v(id, new_uid)
-           WHERE messages.id = v.id`,
-          [uidUpdates.map(u => u.id), uidUpdates.map(u => u.newUid)]
-        );
-      }
+      // DELETE source rows and, when we have UIDPLUS-provided new UIDs, immediately
+      // re-INSERT at the destination in one atomic CTE statement. This avoids any
+      // transient folder/uid state that could collide with existing rows (UIDs are
+      // per-folder, so the same UID number is valid in two different folders).
+      // If IMAP IDLE already inserted the destination row, ON CONFLICT DO NOTHING
+      // keeps it intact. For messages without new UIDs the DELETE-only path relies
+      // on IMAP IDLE + the message_id pre-check in processMsg to re-insert them.
+      const uidUpdateMap = new Map(uidUpdates.map(u => [u.id, u.newUid]));
+      const withNewUid   = movedIds.filter(id =>  uidUpdateMap.has(id));
+      await query(`
+        WITH deleted AS (
+          DELETE FROM messages WHERE id = ANY($1::uuid[]) RETURNING *
+        ),
+        uid_map(src_id, new_uid) AS (
+          SELECT * FROM unnest($2::uuid[], $3::bigint[])
+        )
+        INSERT INTO messages (
+          account_id, uid, folder, message_id, subject,
+          from_name, from_email, to_addresses, cc_addresses,
+          reply_to, in_reply_to, date, snippet, is_read, is_starred,
+          has_attachments, flags, body_html, body_text, attachments,
+          thread_references, thread_id
+        )
+        SELECT
+          d.account_id, u.new_uid, $4, d.message_id, d.subject,
+          d.from_name, d.from_email, d.to_addresses, d.cc_addresses,
+          d.reply_to, d.in_reply_to, d.date, d.snippet, d.is_read, d.is_starred,
+          d.has_attachments, d.flags, d.body_html, d.body_text, d.attachments,
+          d.thread_references, d.thread_id
+        FROM deleted d
+        JOIN uid_map u ON d.id = u.src_id
+        ON CONFLICT (account_id, uid, folder) DO NOTHING
+      `, [movedIds, withNewUid, withNewUid.map(id => uidUpdateMap.get(id)), folder]);
       // Adjust cached counts: decrement source folders, increment the destination.
       const movedSet = new Set(movedIds);
       const srcTotals = {};
@@ -977,6 +1081,12 @@ router.post('/messages/bulk-move', async (req, res) => {
       for (const { accountId, path, total, unread } of Object.values(srcTotals)) {
         adjustFolderCounts(accountId, path, -total, -unread);
         adjustFolderCounts(accountId, folder, total, unread);
+      }
+
+      // Notify clients that the destination folder has new content so they
+      // refresh without sounds or alerts (unlike new_messages).
+      for (const accountId of Object.keys(srcTotals).map(k => k.split(':')[0])) {
+        imapManager.broadcast({ type: 'folder_updated', folder, accountId }, req.session.userId);
       }
     }
 
@@ -1043,39 +1153,38 @@ router.post('/messages/bulk-archive', async (req, res) => {
       }
     }
 
-    // Update DB folder for successfully archived messages, grouped by destination
+    // Update DB: same CTE DELETE+INSERT pattern as bulk-move.
     const byFolder = {};
     for (const { id, folder, newUid } of archivedIds) {
-      if (!byFolder[folder]) byFolder[folder] = [];
-      byFolder[folder].push({ id, newUid });
+      (byFolder[folder] = byFolder[folder] || []).push({ id, newUid });
     }
-    const idToAccount = new Map(owned.map(m => [m.id, m.account_id]));
-    for (const [folder, entries] of Object.entries(byFolder)) {
-      const folderIds = entries.map(e => e.id);
-      await query('UPDATE messages SET folder = $1 WHERE id = ANY($2::uuid[])', [folder, folderIds]);
-      const withNewUid = entries.filter(e => e.newUid != null);
-      if (withNewUid.length > 0) {
-        await query(
-          `DELETE FROM messages
-           WHERE (account_id, folder, uid) IN (
-             SELECT v.acct, v.dest, v.uid
-             FROM unnest($1::uuid[], $2::text[], $3::bigint[]) AS v(acct, dest, uid)
-           )
-           AND id != ANY($4::uuid[])`,
-          [
-            withNewUid.map(e => idToAccount.get(e.id)),
-            withNewUid.map(() => folder),
-            withNewUid.map(e => e.newUid),
-            withNewUid.map(e => e.id),
-          ]
-        );
-        await query(
-          `UPDATE messages SET uid = v.new_uid
-           FROM unnest($1::uuid[], $2::bigint[]) AS v(id, new_uid)
-           WHERE messages.id = v.id`,
-          [withNewUid.map(e => e.id), withNewUid.map(e => e.newUid)]
-        );
-      }
+    for (const [archiveFolder, entries] of Object.entries(byFolder)) {
+      const allIds  = entries.map(e => e.id);
+      const withUid = entries.filter(e => e.newUid != null);
+      await query(`
+        WITH deleted AS (
+          DELETE FROM messages WHERE id = ANY($1::uuid[]) RETURNING *
+        ),
+        uid_map(src_id, new_uid) AS (
+          SELECT * FROM unnest($2::uuid[], $3::bigint[])
+        )
+        INSERT INTO messages (
+          account_id, uid, folder, message_id, subject,
+          from_name, from_email, to_addresses, cc_addresses,
+          reply_to, in_reply_to, date, snippet, is_read, is_starred,
+          has_attachments, flags, body_html, body_text, attachments,
+          thread_references, thread_id
+        )
+        SELECT
+          d.account_id, u.new_uid, $4, d.message_id, d.subject,
+          d.from_name, d.from_email, d.to_addresses, d.cc_addresses,
+          d.reply_to, d.in_reply_to, d.date, d.snippet, d.is_read, d.is_starred,
+          d.has_attachments, d.flags, d.body_html, d.body_text, d.attachments,
+          d.thread_references, d.thread_id
+        FROM deleted d
+        JOIN uid_map u ON d.id = u.src_id
+        ON CONFLICT (account_id, uid, folder) DO NOTHING
+      `, [allIds, withUid.map(e => e.id), withUid.map(e => e.newUid), archiveFolder]);
     }
 
     // Adjust cached folder counts: use signed deltas so source and dest share one pass.
@@ -1097,6 +1206,17 @@ router.post('/messages/bulk-archive', async (req, res) => {
       }
       for (const { accountId, path, totalDelta, unreadDelta } of Object.values(folderDeltas)) {
         adjustFolderCounts(accountId, path, totalDelta, unreadDelta);
+      }
+      // Notify clients viewing each destination folder to refresh silently.
+      const destFolders = [...new Set(archivedIds.map(a => a.folder))];
+      for (const dest of destFolders) {
+        const accountIds = [...new Set(archivedIds.filter(a => a.folder === dest).map(a => {
+          const msg = owned.find(m => m.id === a.id);
+          return msg?.account_id;
+        }).filter(Boolean))];
+        for (const accountId of accountIds) {
+          imapManager.broadcast({ type: 'folder_updated', folder: dest, accountId }, req.session.userId);
+        }
       }
     }
 
@@ -1194,7 +1314,8 @@ router.delete('/messages/:id', async (req, res) => {
   const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]);
   const account = accountResult.rows[0];
   const trashPath = await resolveTrashFolder(message.account_id, account.folder_mappings);
-  const strategy = getDeleteStrategy(message.folder, trashPath);
+  const allTrashPaths = await resolveAllTrashPaths(message.account_id, account.folder_mappings);
+  const strategy = getDeleteStrategy(message.folder, trashPath, allTrashPaths);
   const wasUnread = !message.is_read ? 1 : 0;
 
   if (strategy.action === 'no_trash') {

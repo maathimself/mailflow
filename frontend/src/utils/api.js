@@ -87,6 +87,7 @@ export const api = {
   updateAccount: (id, data) => request('PUT', `/accounts/${id}`, data),
   deleteAccount: (id) => request('DELETE', `/accounts/${id}`),
   reconnectAccount: (id) => request('POST', `/accounts/${id}/reconnect`),
+  reindexAccount: (id) => request('POST', `/accounts/${id}/reindex`),
   getFolders: (accountId) => request('GET', `/accounts/${accountId}/folders`),
   getAliases: (accountId) => request('GET', `/accounts/${accountId}/aliases`),
   addAlias: (accountId, data) => request('POST', `/accounts/${accountId}/aliases`, data),
@@ -147,4 +148,11 @@ export const api = {
   getPushVapidKey:  ()           => request('GET',    '/auth/push/vapid-key'),
   pushSubscribe:    (subscription) => request('POST',   '/auth/push/subscribe',    subscription),
   pushUnsubscribe:  (body)       => request('POST',    '/auth/push/unsubscribe',   body),
+
+  // Inbox Rules
+  getRules:    ()         => request('GET',    '/rules'),
+  createRule:  (data)     => request('POST',   '/rules', data),
+  updateRule:  (id, data) => request('PUT',    `/rules/${id}`, data),
+  deleteRule:  (id)       => request('DELETE', `/rules/${id}`),
+  reorderRules:(ids)      => request('PATCH',  '/rules/reorder', { ids }),
 };

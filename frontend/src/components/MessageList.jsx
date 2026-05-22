@@ -99,7 +99,7 @@ export default function MessageList() {
     searchQuery, setSearchQuery, isSearching, setIsSearching,
     searchResults, setSearchResults, openCompose, accountsReady, accounts,
     messagesRefreshToken, layout, setLayout, pageSize, setPageSize, scrollMode,
-    setMobileSidebarOpen,
+    setMobileSidebarOpen, unreadCounts,
     threadedView, expandedThreadId, setExpandedThreadId,
     threadMessages, setThreadMessages, loadingThread, setLoadingThread,
     hoverQuickActions,
@@ -662,8 +662,7 @@ export default function MessageList() {
           if (failedIds.length > 0) {
             const idToMsg = new Map(deleteMessages.map(m => [m.id, m]));
             const failedUnreadDelta = failedIds.filter(id => idToMsg.has(id) && !idToMsg.get(id).is_read).length;
-            const state = useStore.getState();
-            state.setMessages([...state.messages, visibleMessage].sort((a, b) => new Date(b.date) - new Date(a.date)));
+            useStore.getState().restoreMessages([visibleMessage]);
             if (failedUnreadDelta > 0) incrementUnread(message.account_id, failedUnreadDelta);
             addNotification({
               type: 'error',
@@ -677,8 +676,7 @@ export default function MessageList() {
         }
       } catch {
         ids.forEach((id) => clearDeleteGuard(id));
-        const state = useStore.getState();
-        state.setMessages([...state.messages, visibleMessage].sort((a, b) => new Date(b.date) - new Date(a.date)));
+        useStore.getState().restoreMessages([visibleMessage]);
         if (unreadDelta > 0) incrementUnread(message.account_id, unreadDelta);
         addNotification({
           type: 'error',
@@ -697,8 +695,7 @@ export default function MessageList() {
         clearTimeout(pending.timer);
         pendingDeleteTimers.current.delete(key);
         ids.forEach((id) => clearPendingDelete(id));
-        const state = useStore.getState();
-        state.setMessages([...state.messages, visibleMessage].sort((a, b) => new Date(b.date) - new Date(a.date)));
+        useStore.getState().restoreMessages([visibleMessage]);
         if (unreadDelta > 0) incrementUnread(message.account_id, unreadDelta);
       },
     });
@@ -708,9 +705,42 @@ export default function MessageList() {
     addNotification, t,
   ]);
 
-  // On unmount, immediately fire any pending deletes rather than cancelling them.
+  // On page unload (refresh/close), fire pending deletes with keepalive:true so the
+  // browser completes the request even after the page tears down. Clears the map so
+  // the unmount cleanup below does not double-fire on normal navigation.
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      pendingDeleteTimers.current.forEach(({ timer, message, ids }) => {
+        clearTimeout(timer);
+        const deleteIds = ids?.length ? ids : [message.id];
+        try {
+          if (deleteIds.length > 1) {
+            fetch('/api/mail/messages/bulk-delete', {
+              method: 'POST',
+              credentials: 'include',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ids: deleteIds }),
+              keepalive: true,
+            });
+          } else {
+            fetch(`/api/mail/messages/${deleteIds[0]}`, {
+              method: 'DELETE',
+              credentials: 'include',
+              keepalive: true,
+            });
+          }
+        } catch { /* keepalive not supported — best effort */ }
+      });
+      pendingDeleteTimers.current.clear();
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
+
+  // On normal unmount (navigating away), immediately fire any pending deletes.
   // Navigating away during the 4.5s undo window should still delete the message —
   // cancelling the timer would silently leave it on the server.
+  // (Page refresh is handled by the beforeunload listener above which clears the map first.)
   useEffect(() => () => {
     pendingDeleteTimers.current.forEach(({ timer, message, ids }) => {
       clearTimeout(timer);
@@ -763,8 +793,7 @@ export default function MessageList() {
       onUndo: () => {
         undone = true;
         clearTimeout(timer);
-        const state = useStore.getState();
-        state.setMessages([...state.messages, message].sort((a, b) => new Date(b.date) - new Date(a.date)));
+        useStore.getState().restoreMessages([message]);
         if (!message.is_read) incrementUnread(message.account_id);
       },
     });
@@ -929,6 +958,7 @@ export default function MessageList() {
   }, [displayMessages]);
 
   const handleBulkDelete = useCallback((ids, msgs) => {
+    const key = `bulk:${ids[0]}`;
     ids.forEach(id => setPendingDelete(id));
     ids.forEach(id => removeMessage(id));
     msgs.forEach(msg => { if (!msg.is_read) decrementUnread(msg.account_id); });
@@ -937,6 +967,7 @@ export default function MessageList() {
     setShowFolderPicker(false);
     let undone = false;
     const timer = setTimeout(async () => {
+      pendingDeleteTimers.current.delete(key);
       if (undone) return;
       const chunks = [];
       for (let i = 0; i < ids.length; i += 500) chunks.push(ids.slice(i, i + 500));
@@ -953,21 +984,21 @@ export default function MessageList() {
       if (failedIds.length > 0) {
         const failedSet = new Set(failedIds);
         const failedMsgs = msgs.filter(msg => failedSet.has(msg.id));
-        const state = useStore.getState();
-        state.setMessages([...state.messages, ...failedMsgs].sort((a, b) => new Date(b.date) - new Date(a.date)));
+        useStore.getState().restoreMessages(failedMsgs);
         failedMsgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
         addNotification({ type: 'error', title: t('messageList.bulkDeleted.failTitle'), body: t('messageList.bulkDeleted.failBody', { count: failedIds.length }) });
       }
     }, 4500);
+    pendingDeleteTimers.current.set(key, { timer, message: msgs[0], ids });
     addNotification({
       title: t('messageList.bulkDeleted.title', { count: ids.length }),
       body: t('messageList.bulkDeleted.body'),
       onUndo: () => {
         undone = true;
         clearTimeout(timer);
+        pendingDeleteTimers.current.delete(key);
         ids.forEach(id => clearPendingDelete(id));
-        const state = useStore.getState();
-        state.setMessages([...state.messages, ...msgs].sort((a, b) => new Date(b.date) - new Date(a.date)));
+        useStore.getState().restoreMessages(msgs);
         msgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
       },
     });
@@ -987,14 +1018,12 @@ export default function MessageList() {
         const movedSet = new Set(result.moved ?? []);
         const failedMsgs = msgs.filter(msg => !movedSet.has(msg.id));
         if (failedMsgs.length > 0) {
-          const state = useStore.getState();
-          state.setMessages([...state.messages, ...failedMsgs].sort((a, b) => new Date(b.date) - new Date(a.date)));
+          useStore.getState().restoreMessages(failedMsgs);
           addNotification({ title: t('messageList.bulkMoved.failTitle'), body: t('messageList.bulkMoved.failBody', { count: failedMsgs.length }) });
         }
       } catch (err) {
         console.error('Bulk move failed:', err);
-        const state = useStore.getState();
-        state.setMessages([...state.messages, ...msgs].sort((a, b) => new Date(b.date) - new Date(a.date)));
+        useStore.getState().restoreMessages(msgs);
         addNotification({ title: t('messageList.bulkMoved.failTitle'), body: t('messageList.bulkMoved.failBody', { count: ids.length }) });
       }
     }, 4500);
@@ -1004,8 +1033,7 @@ export default function MessageList() {
       onUndo: () => {
         undone = true;
         clearTimeout(timer);
-        const state = useStore.getState();
-        state.setMessages([...state.messages, ...msgs].sort((a, b) => new Date(b.date) - new Date(a.date)));
+        useStore.getState().restoreMessages(msgs);
         msgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
       },
     });
@@ -1025,8 +1053,7 @@ export default function MessageList() {
         const archivedSet = new Set(result.archived ?? []);
         const failedMsgs = msgs.filter(msg => !archivedSet.has(msg.id));
         if (failedMsgs.length > 0) {
-          const state = useStore.getState();
-          state.setMessages([...state.messages, ...failedMsgs].sort((a, b) => new Date(b.date) - new Date(a.date)));
+          useStore.getState().restoreMessages(failedMsgs);
           failedMsgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
           if (result.noArchiveFolder?.length) {
             addNotification({ title: t('messageList.bulkArchived.noFolderTitle'), body: t('messageList.bulkArchived.noFolderBody') });
@@ -1036,8 +1063,7 @@ export default function MessageList() {
         }
       } catch (err) {
         console.error('Bulk archive failed:', err);
-        const state = useStore.getState();
-        state.setMessages([...state.messages, ...msgs].sort((a, b) => new Date(b.date) - new Date(a.date)));
+        useStore.getState().restoreMessages(msgs);
         msgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
         addNotification({ title: t('messageList.bulkArchived.failTitle'), body: t('messageList.bulkArchived.failBody', { count: ids.length }) });
       }
@@ -1048,8 +1074,7 @@ export default function MessageList() {
       onUndo: () => {
         undone = true;
         clearTimeout(timer);
-        const state = useStore.getState();
-        state.setMessages([...state.messages, ...msgs].sort((a, b) => new Date(b.date) - new Date(a.date)));
+        useStore.getState().restoreMessages(msgs);
         msgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
       },
     });
@@ -1102,13 +1127,14 @@ export default function MessageList() {
     };
 
     const onArchive = () => {
-      const { messages, selectedMessageId, removeMessage, decrementUnread, addNotification } = getState();
+      const { messages, searchResults, searchQuery, selectedMessageId, removeMessage, decrementUnread, addNotification } = getState();
+      const pool = searchQuery.trim() ? searchResults : messages;
       const ids = [...scRef.current.selectedIds];
       if (ids.length > 0) {
-        const msgs = messages.filter(m => ids.includes(m.id));
+        const msgs = pool.filter(m => ids.includes(m.id));
         bulkArchiveRef.current(ids, msgs);
       } else if (selectedMessageId) {
-        const msg = messages.find(m => m.id === selectedMessageId);
+        const msg = pool.find(m => m.id === selectedMessageId);
         if (!msg) return;
         removeMessage(selectedMessageId);
         if (!msg.is_read) decrementUnread(msg.account_id);
@@ -1121,13 +1147,14 @@ export default function MessageList() {
     };
 
     const onDelete = () => {
-      const { messages, selectedMessageId } = getState();
+      const { messages, searchResults, searchQuery, selectedMessageId } = getState();
+      const pool = searchQuery.trim() ? searchResults : messages;
       const ids = [...scRef.current.selectedIds];
       if (ids.length > 0) {
-        const msgs = messages.filter(m => ids.includes(m.id));
+        const msgs = pool.filter(m => ids.includes(m.id));
         bulkDeleteRef.current(ids, msgs);
       } else if (selectedMessageId) {
-        const msg = messages.find(m => m.id === selectedMessageId);
+        const msg = pool.find(m => m.id === selectedMessageId);
         if (!msg) return;
         scheduleDeleteRef.current(msg);
       }
@@ -1373,8 +1400,7 @@ export default function MessageList() {
           onUndo: () => {
             archiveUndone = true;
             clearTimeout(archiveTimer);
-            const state = useStore.getState();
-            state.setMessages([...state.messages, archived].sort((a, b) => new Date(b.date) - new Date(a.date)));
+            useStore.getState().restoreMessages([archived]);
             if (!archived.is_read) incrementUnread(archived.account_id);
           },
         });
@@ -1383,6 +1409,13 @@ export default function MessageList() {
       case 'moveTo': {
         const folder = data;
         if (!folder) break;
+        // If multiple messages are checked and the right-clicked message is among them,
+        // delegate to handleBulkMove so all selected messages are moved together.
+        if (selectedIds.size > 1 && selectedIds.has(message.id)) {
+          const bulkMsgs = displayMessages.filter(m => selectedIds.has(m.id));
+          handleBulkMove([...selectedIds], bulkMsgs, folder);
+          break;
+        }
         const moved = message;
         let moveMessages = [message];
         try {
@@ -1411,8 +1444,7 @@ export default function MessageList() {
           onUndo: () => {
             moveUndone = true;
             clearTimeout(moveTimer);
-            const state = useStore.getState();
-            state.setMessages([...state.messages, moved].sort((a, b) => new Date(b.date) - new Date(a.date)));
+            useStore.getState().restoreMessages([moved]);
             if (!moved.is_read) incrementUnread(moved.account_id);
           },
         });
@@ -1427,15 +1459,26 @@ export default function MessageList() {
         addNotification({ title: t('message.snoozed.title'), body: snoozedMsg.subject || t('common.noSubject') });
         api.snoozeMessage(snoozedMsg.id, untilIso).catch(err => {
           console.error('Snooze failed:', err.message);
-          const state = useStore.getState();
-          state.setMessages([...state.messages, snoozedMsg].sort((a, b) => new Date(b.date) - new Date(a.date)));
+          useStore.getState().restoreMessages([snoozedMsg]);
           if (!snoozedMsg.is_read) incrementUnread(snoozedMsg.account_id);
           addNotification({ title: t('message.snoozed.failTitle'), body: t('message.snoozed.failBody') });
         });
         break;
       }
+      case 'createRuleFromMessage': {
+        const store = useStore.getState();
+        store.setRulesPreFill({ fromEmail: message.from_email, fromName: message.from_name });
+        store.setAdminTab('rules');
+        store.setShowAdmin(true);
+        break;
+      }
       case 'delete':
-        scheduleDelete(message);
+        if (selectedIds.size > 1 && selectedIds.has(message.id)) {
+          const bulkMsgs = displayMessages.filter(m => selectedIds.has(m.id));
+          handleBulkDelete([...selectedIds], bulkMsgs);
+        } else {
+          scheduleDelete(message);
+        }
         break;
       default:
         break;
@@ -1501,10 +1544,18 @@ export default function MessageList() {
   };
 
   const isUnified = selectedAccountId === null;
+  const selectedAccount = accounts.find(a => a.id === selectedAccountId);
+  const accountColor = selectedAccount?.color || 'currentColor';
+  const showInboxIcon = !isUnified && selectedFolder === 'INBOX' && !searchQuery.trim();
 
   const label = searchQuery.trim()
     ? `Search: "${searchQuery}"`
     : isUnified ? t('sidebar.allInboxes') : selectedFolder;
+
+  // Non-INBOX folders omitted: byAccount is account-total, not folder-specific, so it would mislead.
+  const headerUnread = isUnified
+    ? unreadCounts.total
+    : (selectedFolder === 'INBOX' ? (unreadCounts.byAccount[selectedAccountId] ?? 0) : 0);
 
   // Derived bulk-selection values (computed fresh each render, no stale closure risk)
   const selectionMode = selectedIds.size > 0 || selectionModeActive;
@@ -1554,14 +1605,37 @@ export default function MessageList() {
             </svg>
           </button>
 
-          {/* Folder / account title */}
-          <h2 style={{
-            flex: 1, margin: 0, fontSize: 16, fontWeight: 600,
-            color: 'var(--text-primary)', overflow: 'hidden',
-            textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          }}>
-            {label}
-          </h2>
+          {/* Folder / account title + unread count */}
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
+            <h2 style={{
+              margin: 0, fontSize: 16, fontWeight: 600,
+              color: 'var(--text-primary)', overflow: 'hidden',
+              textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              minWidth: 0, display: 'flex', alignItems: 'center',
+            }}>
+              {isUnified && !searchQuery.trim() ? (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/>
+                  <path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/>
+                </svg>
+              ) : showInboxIcon ? (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={accountColor} strokeWidth="2">
+                  <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/>
+                  <path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/>
+                </svg>
+              ) : label}
+            </h2>
+            {headerUnread > 0 && !searchQuery.trim() && (
+              <span style={{
+                flexShrink: 0,
+                fontSize: 11, fontWeight: 600, color: 'white',
+                background: 'var(--accent)', padding: '1px 7px',
+                borderRadius: 10, minWidth: 20, textAlign: 'center',
+              }}>
+                {headerUnread > 999 ? '999+' : headerUnread}
+              </span>
+            )}
+          </div>
 
           {/* Unread filter */}
           <button
@@ -1643,12 +1717,25 @@ export default function MessageList() {
         transition: 'box-shadow 0.2s ease',
       }}>
         {/* Title row: label + count + sync (always fits) */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isNarrow ? 6 : 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: isNarrow ? 6 : 10 }}>
           <h2 style={{
             margin: 0, fontSize: 15, fontWeight: 600,
             color: 'var(--text-primary)',
+            flex: 1, minWidth: 0,
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            display: 'flex', alignItems: 'center',
           }}>
-            {label}
+            {isUnified && !searchQuery ? (
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/>
+                <path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/>
+              </svg>
+            ) : showInboxIcon ? (
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={accountColor} strokeWidth="2">
+                <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/>
+                <path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/>
+              </svg>
+            ) : label}
           </h2>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginLeft: 6 }}>
             {messagesTotal > 0 && !searchQuery && (
@@ -2829,7 +2916,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
           </div>
         )}
 
-        <div style={{ flex: 1, minWidth: 0, paddingLeft: unreadCount > 0 ? 6 : 0 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
           {/* Row 1: sender + badge + date */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
@@ -3120,7 +3207,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
         }} />
       )}
 
-      <div style={{ paddingLeft: (!hasInteractiveAvatar && selectionMode) ? 22 : (message.is_read ? 0 : 6), display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+      <div style={{ paddingLeft: (!hasInteractiveAvatar && selectionMode) ? 22 : 0, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
         {/* Sender avatar — wide layouts only. Morphs into a checkbox on hover or in selection mode. */}
         {!isNarrow && !isMobile && (
           <div

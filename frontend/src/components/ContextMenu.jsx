@@ -286,6 +286,11 @@ export default function ContextMenu({ x, y, message, onClose, onAction }) {
           keepOpen: true,
           hasSubmenu: true,
         }] : []),
+        {
+          label: t('contextMenu.createRule'),
+          icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>,
+          action: () => onAction('createRuleFromMessage'),
+        },
       ]
     },
     {

@@ -1015,8 +1015,27 @@ export default function MessagePane() {
         {/* Attachments */}
         {attachments.length > 0 && (
           <div style={{ marginBottom: 20 }}>
-            <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 8, fontWeight: 500 }}>
-              {t('message.attachment', { count: attachments.length })}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 500 }}>
+                {t('message.attachment', { count: attachments.length })}
+              </div>
+              {attachments.length > 1 && (
+                <a
+                  href={`/api/mail/messages/${message.id}/attachments.zip`}
+                  download
+                  style={{
+                    fontSize: 12, color: 'var(--accent)', textDecoration: 'none',
+                    display: 'flex', alignItems: 'center', gap: 4,
+                  }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                  </svg>
+                  {t('message.downloadAll')}
+                </a>
+              )}
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               {attachments.map((att, i) => (
