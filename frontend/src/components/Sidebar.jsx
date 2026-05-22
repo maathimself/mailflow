@@ -255,6 +255,9 @@ export default function Sidebar() {
     blockRemoteImages, setBlockRemoteImages, setMobileSidebarOpen, addNotification,
     hiddenFolders, setHiddenFolders,
     favoriteFolders, addFavoriteFolder, removeFavoriteFolder,
+    expandedAccounts, setExpandedAccounts,
+    collapsedFolders, toggleCollapsedFolder,
+    accountsReady,
   } = useStore();
 
   const isMobile = useMobile();
@@ -267,7 +270,6 @@ export default function Sidebar() {
   }, [selectedAccountId, selectedFolder]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [showProfile, setShowProfile] = useState(false);
-  const [expandedAccounts, setExpandedAccounts] = useState({});
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [userMenuPos, setUserMenuPos] = useState({ bottom: 0, left: 0 });
   const userMenuBtnRef = useRef(null);
@@ -308,17 +310,6 @@ export default function Sidebar() {
   const [createName, setCreateName] = useState('');
   const createInputRef = useRef(null);
 
-  // Collapsed folder nodes — Set of "${accountId}:${path}" keys; starts empty (all expanded)
-  const [collapsedFolders, setCollapsedFolders] = useState(new Set());
-  const toggleFolderCollapsed = useCallback((accountId, path) => {
-    setCollapsedFolders(prev => {
-      const next = new Set(prev);
-      const key = `${accountId}:${path}`;
-      if (next.has(key)) next.delete(key); else next.add(key);
-      return next;
-    });
-  }, []);
-
   // Per-account toggle to reveal hidden folders
   const [showHiddenFor, setShowHiddenFor] = useState(new Set()); // Set of accountIds
   const toggleShowHidden = useCallback((accountId) => {
@@ -354,6 +345,17 @@ export default function Sidebar() {
     }
   };
 
+  // When accounts finish loading, fetch folders for any account that was
+  // persisted as expanded — they won't have folders loaded yet this session.
+  useEffect(() => {
+    if (!accountsReady) return;
+    accounts.forEach(account => {
+      if (expandedAccounts[account.id] && !folders[account.id]) {
+        api.getFolders(account.id).then(f => setFolders(account.id, f)).catch(console.error);
+      }
+    });
+  }, [accountsReady]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleLogout = async () => {
     await api.logout();
     [
@@ -362,6 +364,7 @@ export default function Sidebar() {
       'mailflow_page_size', 'mailflow_scroll_mode', 'mailflow_sync_interval',
       'mailflow_threaded_view', 'mailflow_plaintext_email', 'mailflow_language',
       'mailflow_hover_quick_actions', 'mailflow_swipe_actions',
+      'mailflow_expanded_accounts', 'mailflow_collapsed_folders',
     ].forEach(k => localStorage.removeItem(k));
     setUser(null);
     window.location.href = '/login';
@@ -740,15 +743,17 @@ export default function Sidebar() {
 
       {/* Nav */}
       <nav style={{ flex: 1, overflow: 'hidden auto', padding: '4px 8px' }}>
-        {/* Unified Inbox */}
-        <NavItem
-          icon={ICONS.inbox}
-          label={t('sidebar.allInboxes')}
-          active={isUnified}
-          collapsed={sidebarCollapsed}
-          badge={unreadCounts.total}
-          onClick={() => setSelectedAccount(null, 'INBOX')}
-        />
+        {/* Unified Inbox — only shown with 2+ enabled accounts */}
+        {accounts.filter(a => a.enabled).length >= 2 && (
+          <NavItem
+            icon={ICONS.inbox}
+            label={t('sidebar.allInboxes')}
+            active={isUnified}
+            collapsed={sidebarCollapsed}
+            badge={unreadCounts.total}
+            onClick={() => setSelectedAccount(null, 'INBOX')}
+          />
+        )}
 
         {/* Favorites section */}
         {!sidebarCollapsed && favoriteFolders.length > 0 && (() => {
@@ -897,7 +902,7 @@ export default function Sidebar() {
                           background: account.color, padding: '1px 6px',
                           borderRadius: 10, minWidth: 20, textAlign: 'center',
                         }}>
-                          {unread > 99 ? '99+' : unread}
+                          {unread > 999 ? '999+' : unread}
                         </span>
                       )}
                       {/* Expand toggle */}
@@ -967,7 +972,7 @@ export default function Sidebar() {
                   const visibleChildren = showingHidden ? children : children.filter(c => !accountHiddenPaths.includes(c.path));
                   const hasChildren = visibleChildren.length > 0;
                   const collapseKey = `${account.id}:${folder.path}`;
-                  const isExpanded = !collapsedFolders.has(collapseKey);
+                  const isExpanded = !collapsedFolders.includes(collapseKey);
                   const indent = BASE_INDENT + depth * DEPTH_INDENT;
 
                   return (
@@ -988,7 +993,7 @@ export default function Sidebar() {
                         {/* Chevron toggle for parent folders; invisible spacer for leaf folders to align icons */}
                         {hasChildren ? (
                           <button
-                            onClick={e => { e.stopPropagation(); toggleFolderCollapsed(account.id, folder.path); }}
+                            onClick={e => { e.stopPropagation(); toggleCollapsedFolder(account.id, folder.path); }}
                             style={{
                               background: 'none', border: 'none', padding: 2, margin: 0, flexShrink: 0,
                               color: 'var(--text-tertiary)', cursor: 'pointer',
@@ -1466,7 +1471,7 @@ function NavItem({ icon, label, active, collapsed, badge, onClick }) {
               background: 'var(--accent)', padding: '1px 7px',
               borderRadius: 10, minWidth: 20, textAlign: 'center',
             }}>
-              {badge > 99 ? '99+' : badge}
+              {badge > 999 ? '999+' : badge}
             </span>
           )}
         </>

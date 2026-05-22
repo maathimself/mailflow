@@ -82,6 +82,7 @@
     "allowSender": "Immer erlauben von {{email}}",
     "allowDomain": "Immer erlauben von @{{domain}}",
     "downloading": "Wird heruntergeladen…",
+    "downloadAll": "Alle herunterladen",
     "reply": "Antworten",
     "replyAll": "Allen antworten",
     "replyOptions": "Antwortoptionen",
@@ -380,7 +381,11 @@
       "presetIcloud": "iCloud",
       "presetCustom": "Benutzerdefiniert",
       "errorRequired": "E-Mail, Benutzername und IMAP-Host sind erforderlich",
-      "errorPasswordRequired": "Für neue Konten ist ein Passwort erforderlich"
+      "errorPasswordRequired": "Für neue Konten ist ein Passwort erforderlich",
+      "reindex": "Für die Suche neu indizieren",
+      "reindexing": "Nachrichten werden indiziert...",
+      "reindexProgress": "{{synced}} / {{total}} Nachrichten indiziert",
+      "reindexError": "Neuindizierung konnte nicht gestartet werden"
     },
     "folderMappings": {
       "title": "Ordnerzuordnungen",
