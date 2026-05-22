@@ -16,8 +16,9 @@ const DISCOVERY_TTL_MS = 5 * 60 * 1000;
 
 // Fetch that skips TLS certificate verification — only used when allow_insecure is set.
 function makeInsecureFetch(signal) {
-  return function insecureFetch(url, { method = 'GET', headers = {}, body } = {}) {
+  return function insecureFetch(url, { method = 'GET', headers = {}, body, signal: optsSignal } = {}) {
     return new Promise((resolve, reject) => {
+      const effectiveSignal = optsSignal ?? signal;
       const parsed = new URL(url);
       const isHttps = parsed.protocol === 'https:';
       const port = parsed.port ? parseInt(parsed.port) : (isHttps ? 443 : 80);
@@ -35,7 +36,7 @@ function makeInsecureFetch(signal) {
         }
       );
       req.on('error', reject);
-      if (signal) signal.addEventListener('abort', () => req.destroy(), { once: true });
+      if (effectiveSignal) effectiveSignal.addEventListener('abort', () => req.destroy(), { once: true });
       if (body) req.write(body);
       req.end();
     });
@@ -53,7 +54,8 @@ async function getDiscovery(issuerUrl, allowInsecure = false) {
     if (issuerHostErr) throw new Error(`OIDC issuer host rejected: ${issuerHostErr}`);
   }
 
-  const cached = discoveryCache.get(issuerUrl);
+  const cacheKey = `${issuerUrl}:${allowInsecure}`;
+  const cached = discoveryCache.get(cacheKey);
   if (cached && Date.now() - cached.cachedAt < DISCOVERY_TTL_MS) {
     return { doc: cached.doc, jwks: cached.jwks };
   }
@@ -91,7 +93,7 @@ async function getDiscovery(issuerUrl, allowInsecure = false) {
   }
   const jwksOptions = allowInsecure ? { [customFetch]: makeInsecureFetch() } : {};
   const jwks = createRemoteJWKSet(new URL(doc.jwks_uri), jwksOptions);
-  discoveryCache.set(issuerUrl, { doc, jwks, cachedAt: Date.now() });
+  discoveryCache.set(cacheKey, { doc, jwks, cachedAt: Date.now() });
   return { doc, jwks };
 }
 
@@ -292,7 +294,7 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
       body: tokenParams.toString(),
-      signal: provider.allow_insecure ? undefined : AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(10000),
     });
     if (!tokenRes.ok) {
       const body = await tokenRes.text();

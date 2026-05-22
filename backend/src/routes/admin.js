@@ -470,16 +470,22 @@ router.post('/oidc', async (req, res) => {
 router.patch('/oidc/:id', async (req, res) => {
   const { id } = req.params;
   const { name, slug, issuer_url, client_id, client_secret, scopes, provisioning_mode, allowed_domains, enabled, require_email_verified, allow_insecure } = req.body;
+
+  const existingResult = await query('SELECT allow_insecure FROM oidc_providers WHERE id = $1', [id]);
+  if (!existingResult.rows.length) return res.status(404).json({ error: 'Provider not found' });
+  const existing = existingResult.rows[0];
+
   if (slug && !/^[a-z0-9-]+$/.test(slug)) {
     return res.status(400).json({ error: 'Slug must contain only lowercase letters, numbers and hyphens' });
   }
   if (issuer_url) {
     try {
       const parsed = new URL(issuer_url.trim());
-      if (!allow_insecure && parsed.protocol !== 'https:') {
+      const effectiveAllowInsecure = allow_insecure !== undefined ? allow_insecure : existing.allow_insecure;
+      if (!effectiveAllowInsecure && parsed.protocol !== 'https:') {
         return res.status(400).json({ error: 'Issuer URL must use HTTPS' });
       }
-      if (!allow_insecure) {
+      if (!effectiveAllowInsecure) {
         const hostErr = await validateHost(parsed.hostname);
         if (hostErr) return res.status(400).json({ error: `Issuer URL: ${hostErr}` });
       }
