@@ -62,6 +62,16 @@ export const useStore = create((set, get) => ({
     searchResults: state.searchResults.filter(m => m.id !== id),
     selectedMessageId: state.selectedMessageId === id ? null : state.selectedMessageId,
   })),
+  restoreMessages: (msgs) => set(state => {
+    const list = Array.isArray(msgs) ? msgs : [msgs];
+    const sort = arr => [...arr].sort((a, b) => new Date(b.date) - new Date(a.date));
+    return {
+      messages: sort([...state.messages, ...list]),
+      searchResults: state.searchQuery.trim()
+        ? sort([...state.searchResults, ...list])
+        : state.searchResults,
+    };
+  }),
   messagesOffset: 0,
   setMessagesOffset: (offset) => set({ messagesOffset: offset }),
   messagesTotal: 0,

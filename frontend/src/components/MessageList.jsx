@@ -662,8 +662,7 @@ export default function MessageList() {
           if (failedIds.length > 0) {
             const idToMsg = new Map(deleteMessages.map(m => [m.id, m]));
             const failedUnreadDelta = failedIds.filter(id => idToMsg.has(id) && !idToMsg.get(id).is_read).length;
-            const state = useStore.getState();
-            state.setMessages([...state.messages, visibleMessage].sort((a, b) => new Date(b.date) - new Date(a.date)));
+            useStore.getState().restoreMessages([visibleMessage]);
             if (failedUnreadDelta > 0) incrementUnread(message.account_id, failedUnreadDelta);
             addNotification({
               type: 'error',
@@ -677,8 +676,7 @@ export default function MessageList() {
         }
       } catch {
         ids.forEach((id) => clearDeleteGuard(id));
-        const state = useStore.getState();
-        state.setMessages([...state.messages, visibleMessage].sort((a, b) => new Date(b.date) - new Date(a.date)));
+        useStore.getState().restoreMessages([visibleMessage]);
         if (unreadDelta > 0) incrementUnread(message.account_id, unreadDelta);
         addNotification({
           type: 'error',
@@ -697,8 +695,7 @@ export default function MessageList() {
         clearTimeout(pending.timer);
         pendingDeleteTimers.current.delete(key);
         ids.forEach((id) => clearPendingDelete(id));
-        const state = useStore.getState();
-        state.setMessages([...state.messages, visibleMessage].sort((a, b) => new Date(b.date) - new Date(a.date)));
+        useStore.getState().restoreMessages([visibleMessage]);
         if (unreadDelta > 0) incrementUnread(message.account_id, unreadDelta);
       },
     });
@@ -763,8 +760,7 @@ export default function MessageList() {
       onUndo: () => {
         undone = true;
         clearTimeout(timer);
-        const state = useStore.getState();
-        state.setMessages([...state.messages, message].sort((a, b) => new Date(b.date) - new Date(a.date)));
+        useStore.getState().restoreMessages([message]);
         if (!message.is_read) incrementUnread(message.account_id);
       },
     });
@@ -953,8 +949,7 @@ export default function MessageList() {
       if (failedIds.length > 0) {
         const failedSet = new Set(failedIds);
         const failedMsgs = msgs.filter(msg => failedSet.has(msg.id));
-        const state = useStore.getState();
-        state.setMessages([...state.messages, ...failedMsgs].sort((a, b) => new Date(b.date) - new Date(a.date)));
+        useStore.getState().restoreMessages(failedMsgs);
         failedMsgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
         addNotification({ type: 'error', title: t('messageList.bulkDeleted.failTitle'), body: t('messageList.bulkDeleted.failBody', { count: failedIds.length }) });
       }
@@ -966,8 +961,7 @@ export default function MessageList() {
         undone = true;
         clearTimeout(timer);
         ids.forEach(id => clearPendingDelete(id));
-        const state = useStore.getState();
-        state.setMessages([...state.messages, ...msgs].sort((a, b) => new Date(b.date) - new Date(a.date)));
+        useStore.getState().restoreMessages(msgs);
         msgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
       },
     });
@@ -987,14 +981,12 @@ export default function MessageList() {
         const movedSet = new Set(result.moved ?? []);
         const failedMsgs = msgs.filter(msg => !movedSet.has(msg.id));
         if (failedMsgs.length > 0) {
-          const state = useStore.getState();
-          state.setMessages([...state.messages, ...failedMsgs].sort((a, b) => new Date(b.date) - new Date(a.date)));
+          useStore.getState().restoreMessages(failedMsgs);
           addNotification({ title: t('messageList.bulkMoved.failTitle'), body: t('messageList.bulkMoved.failBody', { count: failedMsgs.length }) });
         }
       } catch (err) {
         console.error('Bulk move failed:', err);
-        const state = useStore.getState();
-        state.setMessages([...state.messages, ...msgs].sort((a, b) => new Date(b.date) - new Date(a.date)));
+        useStore.getState().restoreMessages(msgs);
         addNotification({ title: t('messageList.bulkMoved.failTitle'), body: t('messageList.bulkMoved.failBody', { count: ids.length }) });
       }
     }, 4500);
@@ -1004,8 +996,7 @@ export default function MessageList() {
       onUndo: () => {
         undone = true;
         clearTimeout(timer);
-        const state = useStore.getState();
-        state.setMessages([...state.messages, ...msgs].sort((a, b) => new Date(b.date) - new Date(a.date)));
+        useStore.getState().restoreMessages(msgs);
         msgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
       },
     });
@@ -1025,8 +1016,7 @@ export default function MessageList() {
         const archivedSet = new Set(result.archived ?? []);
         const failedMsgs = msgs.filter(msg => !archivedSet.has(msg.id));
         if (failedMsgs.length > 0) {
-          const state = useStore.getState();
-          state.setMessages([...state.messages, ...failedMsgs].sort((a, b) => new Date(b.date) - new Date(a.date)));
+          useStore.getState().restoreMessages(failedMsgs);
           failedMsgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
           if (result.noArchiveFolder?.length) {
             addNotification({ title: t('messageList.bulkArchived.noFolderTitle'), body: t('messageList.bulkArchived.noFolderBody') });
@@ -1036,8 +1026,7 @@ export default function MessageList() {
         }
       } catch (err) {
         console.error('Bulk archive failed:', err);
-        const state = useStore.getState();
-        state.setMessages([...state.messages, ...msgs].sort((a, b) => new Date(b.date) - new Date(a.date)));
+        useStore.getState().restoreMessages(msgs);
         msgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
         addNotification({ title: t('messageList.bulkArchived.failTitle'), body: t('messageList.bulkArchived.failBody', { count: ids.length }) });
       }
@@ -1048,8 +1037,7 @@ export default function MessageList() {
       onUndo: () => {
         undone = true;
         clearTimeout(timer);
-        const state = useStore.getState();
-        state.setMessages([...state.messages, ...msgs].sort((a, b) => new Date(b.date) - new Date(a.date)));
+        useStore.getState().restoreMessages(msgs);
         msgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
       },
     });
@@ -1375,8 +1363,7 @@ export default function MessageList() {
           onUndo: () => {
             archiveUndone = true;
             clearTimeout(archiveTimer);
-            const state = useStore.getState();
-            state.setMessages([...state.messages, archived].sort((a, b) => new Date(b.date) - new Date(a.date)));
+            useStore.getState().restoreMessages([archived]);
             if (!archived.is_read) incrementUnread(archived.account_id);
           },
         });
@@ -1413,8 +1400,7 @@ export default function MessageList() {
           onUndo: () => {
             moveUndone = true;
             clearTimeout(moveTimer);
-            const state = useStore.getState();
-            state.setMessages([...state.messages, moved].sort((a, b) => new Date(b.date) - new Date(a.date)));
+            useStore.getState().restoreMessages([moved]);
             if (!moved.is_read) incrementUnread(moved.account_id);
           },
         });
@@ -1429,8 +1415,7 @@ export default function MessageList() {
         addNotification({ title: t('message.snoozed.title'), body: snoozedMsg.subject || t('common.noSubject') });
         api.snoozeMessage(snoozedMsg.id, untilIso).catch(err => {
           console.error('Snooze failed:', err.message);
-          const state = useStore.getState();
-          state.setMessages([...state.messages, snoozedMsg].sort((a, b) => new Date(b.date) - new Date(a.date)));
+          useStore.getState().restoreMessages([snoozedMsg]);
           if (!snoozedMsg.is_read) incrementUnread(snoozedMsg.account_id);
           addNotification({ title: t('message.snoozed.failTitle'), body: t('message.snoozed.failBody') });
         });
