@@ -33,10 +33,13 @@ export const useStore = create((set, get) => ({
   })),
 
   // Navigation
-  selectedAccountId: null, // null = unified inbox
-  selectedFolder: 'INBOX',
+  selectedAccountId: localStorage.getItem('mailflow_selected_account') || null, // '' stored as null
+  selectedFolder: localStorage.getItem('mailflow_selected_folder') || 'INBOX',
   messagesRefreshToken: 0, // incremented on every nav click so the effect always re-fires
-  setSelectedAccount: (accountId, folder = 'INBOX') => set(state => ({
+  setSelectedAccount: (accountId, folder = 'INBOX') => {
+    localStorage.setItem('mailflow_selected_account', accountId ?? '');
+    localStorage.setItem('mailflow_selected_folder', folder);
+    return set(state => ({
     selectedAccountId: accountId,
     selectedFolder: folder,
     selectedMessageId: null,
@@ -46,7 +49,8 @@ export const useStore = create((set, get) => ({
     messagesRefreshToken: state.messagesRefreshToken + 1,
     expandedThreadId: null,
     threadMessages: {},
-  })),
+  }));
+  },
 
   // Messages
   messages: [],
@@ -59,8 +63,19 @@ export const useStore = create((set, get) => ({
   })),
   removeMessage: (id) => set(state => ({
     messages: state.messages.filter(m => m.id !== id),
+    searchResults: state.searchResults.filter(m => m.id !== id),
     selectedMessageId: state.selectedMessageId === id ? null : state.selectedMessageId,
   })),
+  restoreMessages: (msgs) => set(state => {
+    const list = Array.isArray(msgs) ? msgs : [msgs];
+    const sort = arr => [...arr].sort((a, b) => new Date(b.date) - new Date(a.date));
+    return {
+      messages: sort([...state.messages, ...list]),
+      searchResults: state.searchQuery.trim()
+        ? sort([...state.searchResults, ...list])
+        : state.searchResults,
+    };
+  }),
   messagesOffset: 0,
   setMessagesOffset: (offset) => set({ messagesOffset: offset }),
   messagesTotal: 0,
@@ -176,6 +191,13 @@ export const useStore = create((set, get) => ({
   adminTab: 'accounts', // 'accounts' | 'appearance' | 'integrations' | 'users'
   setShowAdmin: (v) => set({ showAdmin: v }),
   setAdminTab: (t) => set({ adminTab: t }),
+  rulesPreFill: null, // { fromEmail, fromName, subject } — transient, set by context menu
+  setRulesPreFill: (v) => set({ rulesPreFill: v }),
+
+  backfillProgress: {}, // { [accountId]: { synced: N, total: N } | null } — transient
+  setBackfillProgress: (accountId, progress) => set(state => ({
+    backfillProgress: { ...state.backfillProgress, [accountId]: progress },
+  })),
 
   // Mobile navigation
   mobileSidebarOpen: false,
@@ -297,6 +319,32 @@ export const useStore = create((set, get) => ({
     return api.savePreferences({ hiddenFolders: hf }).catch(() => {});
   },
 
+  // Sidebar tree state — persisted so the tree looks the same after reload/re-login
+  expandedAccounts: (() => {
+    try { return JSON.parse(localStorage.getItem('mailflow_expanded_accounts') || '{}'); }
+    catch (_) { return {}; }
+  })(),
+  setExpandedAccounts: (updater) => {
+    const next = typeof updater === 'function' ? updater(get().expandedAccounts) : updater;
+    localStorage.setItem('mailflow_expanded_accounts', JSON.stringify(next));
+    set({ expandedAccounts: next });
+    schedulePrefSave({ expandedAccounts: next });
+  },
+
+  // collapsedFolders stored as array of "accountId:path" keys (Set can't be JSON-serialised)
+  collapsedFolders: (() => {
+    try { return JSON.parse(localStorage.getItem('mailflow_collapsed_folders') || '[]'); }
+    catch (_) { return []; }
+  })(),
+  toggleCollapsedFolder: (accountId, path) => {
+    const key = `${accountId}:${path}`;
+    const prev = get().collapsedFolders;
+    const next = prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key];
+    localStorage.setItem('mailflow_collapsed_folders', JSON.stringify(next));
+    set({ collapsedFolders: next });
+    schedulePrefSave({ collapsedFolders: next });
+  },
+
   // Favorite folders — [{ accountId, path }, ...] ordered by insertion
   favoriteFolders: (() => {
     try { return JSON.parse(localStorage.getItem('mailflow_favorite_folders') || '[]'); }
@@ -369,6 +417,14 @@ export const useStore = create((set, get) => ({
       if (prefs.imageWhitelist) set({ imageWhitelist: prefs.imageWhitelist });
       if (prefs.shortcuts) set({ shortcuts: prefs.shortcuts });
       if (prefs.hiddenFolders) set({ hiddenFolders: prefs.hiddenFolders });
+      if (prefs.expandedAccounts && typeof prefs.expandedAccounts === 'object' && !Array.isArray(prefs.expandedAccounts)) {
+        localStorage.setItem('mailflow_expanded_accounts', JSON.stringify(prefs.expandedAccounts));
+        set({ expandedAccounts: prefs.expandedAccounts });
+      }
+      if (Array.isArray(prefs.collapsedFolders)) {
+        localStorage.setItem('mailflow_collapsed_folders', JSON.stringify(prefs.collapsedFolders));
+        set({ collapsedFolders: prefs.collapsedFolders });
+      }
       if (Array.isArray(prefs.favoriteFolders)) {
         localStorage.setItem('mailflow_favorite_folders', JSON.stringify(prefs.favoriteFolders));
         set({ favoriteFolders: prefs.favoriteFolders });

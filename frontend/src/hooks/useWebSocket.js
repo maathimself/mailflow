@@ -60,7 +60,7 @@ export function useWebSocket() {
   const reconnectTimer = useRef(null);
   const mountedRef = useRef(true);
   const reconnectAttempt = useRef(0);
-  const { addNotification, updateAccount, setFolders } = useStore();
+  const { addNotification, updateAccount, setFolders, setBackfillProgress } = useStore();
 
   const connect = useCallback(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -175,7 +175,14 @@ export function useWebSocket() {
         break;
       }
 
+      case 'backfill_all_start': {
+        setBackfillProgress(data.accountId, { synced: 0, total: null });
+        break;
+      }
+
       case 'backfill_progress': {
+        // Update progress state for the settings UI
+        setBackfillProgress(data.accountId, { synced: data.synced, total: data.total });
         // Trigger a silent message list refresh so newly synced messages appear
         // Debounce to avoid hammering the API on every batch
         clearTimeout(backfillRefreshTimer);
@@ -188,6 +195,27 @@ export function useWebSocket() {
       case 'backfill_complete': {
         clearTimeout(backfillRefreshTimer);
         window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+        break;
+      }
+
+      case 'backfill_all_complete': {
+        clearTimeout(backfillRefreshTimer);
+        window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+        setBackfillProgress(data.accountId, null);
+        break;
+      }
+
+      case 'folder_updated': {
+        // Emitted by move/archive routes after messages land in a destination folder.
+        // Triggers a silent refresh so the destination folder shows the moved messages
+        // without playing sounds or popping notifications.
+        const { accountId: fuAccountId, folder: fuFolder } = data;
+        const fuStore = useStore.getState();
+        const fuRelevant = fuStore.selectedAccountId === null || fuStore.selectedAccountId === fuAccountId;
+        const fuVisible  = fuStore.selectedFolder === (fuFolder || 'INBOX');
+        if (fuRelevant && fuVisible) {
+          window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+        }
         break;
       }
 

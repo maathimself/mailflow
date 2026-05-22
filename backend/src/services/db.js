@@ -24,6 +24,24 @@ export async function query(text, params) {
   return pool.query(text, params);
 }
 
+// Run fn(client) inside a serializable transaction. Commits on success, rolls
+// back on throw. The client exposes a .query(text, params) method identical to
+// the top-level query() helper.
+export async function withTransaction(fn) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await fn(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 // One-time startup migration: encrypt any plaintext credentials still in the DB.
 // Safe to run on every startup — already-encrypted values are skipped by isEncrypted().
 export async function encryptExistingCredentials() {
