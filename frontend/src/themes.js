@@ -380,6 +380,7 @@ export const THEMES = {
       '--green': '#3a7a3a',
       '--red': '#9a2020',
       '--amber': '#b87820',
+      '--selection-bg': 'rgba(139,69,19,0.25)',
     }
   },
 
@@ -585,6 +586,18 @@ export function applyTheme(themeName) {
   for (const [key, value] of Object.entries(theme.vars)) {
     root.style.setProperty(key, value);
   }
+  root.setAttribute('data-theme', themeName);
+
+  let selectionStyle = document.getElementById('theme-selection-style');
+  if (!selectionStyle) {
+    selectionStyle = document.createElement('style');
+    selectionStyle.id = 'theme-selection-style';
+    document.head.appendChild(selectionStyle);
+  }
+  const selectionBg = theme.vars['--selection-bg'];
+  selectionStyle.textContent = selectionBg
+    ? `::selection { background-color: ${selectionBg} !important; }`
+    : '';
 
   // Sync PWA/browser chrome colour with the active accent.
   const accent = theme.vars['--accent'];
