@@ -227,11 +227,11 @@ export default function ComposeModal() {
 
   useEffect(() => {
     if (!editor || isReply || isForward) return;
-    const size = localStorage.getItem('compose-font-size') || DEFAULT_FONT_SIZE;
-    const family = localStorage.getItem('compose-font-family');
+    const size = localStorage.getItem('mailflow_compose_font_size') || DEFAULT_FONT_SIZE;
+    const family = localStorage.getItem('mailflow_compose_font_family');
     editor.commands.setFontSize(size);
     if (family) editor.commands.setFontFamily(family);
-  }, [editor]);
+  }, [editor, isReply, isForward]);
 
   const insertImageIntoEditor = useCallback(async (file) => {
     if (!file || !file.type.startsWith('image/')) return;
@@ -1349,7 +1349,7 @@ const FONT_SIZES = [
 ];
 
 const FONTS = [
-  { label: 'Sans Serif', value: '' },
+  { label: 'Default', value: '' },
   { label: 'Arial', value: 'Arial, Helvetica, sans-serif' },
   { label: 'Georgia', value: 'Georgia, serif' },
   { label: 'Times New Roman', value: '"Times New Roman", Times, serif' },
@@ -1383,8 +1383,7 @@ function Sep() {
 }
 
 function RichToolbar({ editor, onAttach, onInsertImage, onInsertTable, htmlMode, onToggleHtml }) {
-  const [savedFontSize] = useState(() => localStorage.getItem('compose-font-size') || DEFAULT_FONT_SIZE);
-  const [savedFontFamily] = useState(() => localStorage.getItem('compose-font-family') || '');
+  const savedSelectionRef = useRef(null);
   const [colorPos, setColorPos] = useState(null);
   const [emojiPos, setEmojiPos] = useState(null);
   const emojiPickerRef = useRef(null);
@@ -1511,11 +1510,11 @@ function RichToolbar({ editor, onAttach, onInsertImage, onInsertTable, htmlMode,
       <div style={{ borderBottom: '1px solid var(--border-subtle)', display: 'flex', gap: 2, padding: '4px 10px', flexWrap: 'wrap', alignItems: 'center' }}>
         {/* Font picker */}
         <select
-          value={es.fontFamily || savedFontFamily}
+          value={es.fontFamily || localStorage.getItem('mailflow_compose_font_family') || ''}
           onChange={e => {
             const family = e.target.value;
-            if (family) { editor.chain().focus().setFontFamily(family).run(); localStorage.setItem('compose-font-family', family); }
-            else { editor.chain().focus().unsetFontFamily().run(); localStorage.removeItem('compose-font-family'); }
+            if (family) { editor.chain().focus().setFontFamily(family).run(); localStorage.setItem('mailflow_compose_font_family', family); }
+            else { editor.chain().focus().unsetFontFamily().run(); localStorage.removeItem('mailflow_compose_font_family'); }
           }}
           style={{
             background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
@@ -1528,11 +1527,16 @@ function RichToolbar({ editor, onAttach, onInsertImage, onInsertTable, htmlMode,
 
         {/* Font size picker */}
         <select
-          value={es.fontSize || savedFontSize}
+          value={es.fontSize || localStorage.getItem('mailflow_compose_font_size') || DEFAULT_FONT_SIZE}
+          onMouseDown={() => {
+            const { from, to } = editor.state.selection;
+            savedSelectionRef.current = { from, to };
+          }}
           onChange={e => {
             const size = e.target.value;
-            editor.chain().focus().setFontSize(size).run();
-            localStorage.setItem('compose-font-size', size);
+            const sel = savedSelectionRef.current;
+            editor.chain().focus().setTextSelection(sel ?? editor.state.selection).setFontSize(size).run();
+            localStorage.setItem('mailflow_compose_font_size', size);
           }}
           style={{
             background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
