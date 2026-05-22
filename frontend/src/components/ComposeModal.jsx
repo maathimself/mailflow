@@ -1511,10 +1511,15 @@ function RichToolbar({ editor, onAttach, onInsertImage, onInsertTable, htmlMode,
         {/* Font picker */}
         <select
           value={es.fontFamily || localStorage.getItem('mailflow_compose_font_family') || ''}
+          onMouseDown={() => {
+            const { from, to } = editor.state.selection;
+            savedSelectionRef.current = { from, to };
+          }}
           onChange={e => {
             const family = e.target.value;
-            if (family) { editor.chain().focus().setFontFamily(family).run(); localStorage.setItem('mailflow_compose_font_family', family); }
-            else { editor.chain().focus().unsetFontFamily().run(); localStorage.removeItem('mailflow_compose_font_family'); }
+            const sel = savedSelectionRef.current;
+            if (family) { editor.chain().focus().setTextSelection(sel ?? editor.state.selection).setFontFamily(family).run(); localStorage.setItem('mailflow_compose_font_family', family); }
+            else { editor.chain().focus().setTextSelection(sel ?? editor.state.selection).unsetFontFamily().run(); localStorage.removeItem('mailflow_compose_font_family'); }
           }}
           style={{
             background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
