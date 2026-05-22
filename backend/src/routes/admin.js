@@ -418,14 +418,14 @@ router.delete('/system-email', async (req, res) => {
 router.get('/oidc', async (req, res) => {
   const result = await query(
     `SELECT id, name, slug, issuer_url, client_id, scopes, provisioning_mode,
-            allowed_domains, enabled, require_email_verified, created_at, updated_at
+            allowed_domains, enabled, require_email_verified, allow_insecure, created_at, updated_at
      FROM oidc_providers ORDER BY name ASC`
   );
   res.json({ providers: result.rows });
 });
 
 router.post('/oidc', async (req, res) => {
-  const { name, slug, issuer_url, client_id, client_secret, scopes, provisioning_mode, allowed_domains, enabled, require_email_verified } = req.body;
+  const { name, slug, issuer_url, client_id, client_secret, scopes, provisioning_mode, allowed_domains, enabled, require_email_verified, allow_insecure } = req.body;
   if (!name || !slug || !issuer_url || !client_id || !client_secret) {
     return res.status(400).json({ error: 'name, slug, issuer_url, client_id and client_secret are required' });
   }
@@ -434,19 +434,21 @@ router.post('/oidc', async (req, res) => {
   }
   try {
     const parsed = new URL(issuer_url.trim());
-    if (parsed.protocol !== 'https:') {
+    if (!allow_insecure && parsed.protocol !== 'https:') {
       return res.status(400).json({ error: 'Issuer URL must use HTTPS' });
     }
-    const hostErr = await validateHost(parsed.hostname);
-    if (hostErr) return res.status(400).json({ error: `Issuer URL: ${hostErr}` });
+    if (!allow_insecure) {
+      const hostErr = await validateHost(parsed.hostname);
+      if (hostErr) return res.status(400).json({ error: `Issuer URL: ${hostErr}` });
+    }
   } catch {
     return res.status(400).json({ error: 'Issuer URL is not a valid URL' });
   }
   try {
     const result = await query(
-      `INSERT INTO oidc_providers (name, slug, issuer_url, client_id, client_secret, scopes, provisioning_mode, allowed_domains, enabled, require_email_verified)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-       RETURNING id, name, slug, issuer_url, client_id, scopes, provisioning_mode, allowed_domains, enabled, require_email_verified`,
+      `INSERT INTO oidc_providers (name, slug, issuer_url, client_id, client_secret, scopes, provisioning_mode, allowed_domains, enabled, require_email_verified, allow_insecure)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       RETURNING id, name, slug, issuer_url, client_id, scopes, provisioning_mode, allowed_domains, enabled, require_email_verified, allow_insecure`,
       [
         name.trim(), slug.trim(), issuer_url.trim(), client_id.trim(),
         encrypt(client_secret),
@@ -455,6 +457,7 @@ router.post('/oidc', async (req, res) => {
         allowed_domains?.trim() || null,
         enabled !== false,
         require_email_verified !== false,
+        allow_insecure === true,
       ]
     );
     res.json({ provider: result.rows[0] });
@@ -466,18 +469,20 @@ router.post('/oidc', async (req, res) => {
 
 router.patch('/oidc/:id', async (req, res) => {
   const { id } = req.params;
-  const { name, slug, issuer_url, client_id, client_secret, scopes, provisioning_mode, allowed_domains, enabled, require_email_verified } = req.body;
+  const { name, slug, issuer_url, client_id, client_secret, scopes, provisioning_mode, allowed_domains, enabled, require_email_verified, allow_insecure } = req.body;
   if (slug && !/^[a-z0-9-]+$/.test(slug)) {
     return res.status(400).json({ error: 'Slug must contain only lowercase letters, numbers and hyphens' });
   }
   if (issuer_url) {
     try {
       const parsed = new URL(issuer_url.trim());
-      if (parsed.protocol !== 'https:') {
+      if (!allow_insecure && parsed.protocol !== 'https:') {
         return res.status(400).json({ error: 'Issuer URL must use HTTPS' });
       }
-      const hostErr = await validateHost(parsed.hostname);
-      if (hostErr) return res.status(400).json({ error: `Issuer URL: ${hostErr}` });
+      if (!allow_insecure) {
+        const hostErr = await validateHost(parsed.hostname);
+        if (hostErr) return res.status(400).json({ error: `Issuer URL: ${hostErr}` });
+      }
     } catch {
       return res.status(400).json({ error: 'Issuer URL is not a valid URL' });
     }
@@ -499,9 +504,10 @@ router.patch('/oidc/:id', async (req, res) => {
         allowed_domains = CASE WHEN $9::text IS DISTINCT FROM '__keep__' THEN $9::text ELSE allowed_domains END,
         enabled = COALESCE($10, enabled),
         require_email_verified = COALESCE($11, require_email_verified),
+        allow_insecure = COALESCE($12, allow_insecure),
         updated_at = NOW()
        WHERE id = $1
-       RETURNING id, name, slug, issuer_url, client_id, scopes, provisioning_mode, allowed_domains, enabled, require_email_verified`,
+       RETURNING id, name, slug, issuer_url, client_id, scopes, provisioning_mode, allowed_domains, enabled, require_email_verified, allow_insecure`,
       [
         id,
         name?.trim() || null,
@@ -514,6 +520,7 @@ router.patch('/oidc/:id', async (req, res) => {
         allowed_domains !== undefined ? (allowed_domains?.trim() || null) : '__keep__',
         enabled !== undefined ? enabled : null,
         require_email_verified !== undefined ? require_email_verified : null,
+        allow_insecure !== undefined ? allow_insecure : null,
       ]
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Provider not found' });

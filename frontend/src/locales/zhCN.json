@@ -659,7 +659,9 @@
       "activeBadge": "已启用",
       "disabledBadge": "已停用",
       "errorRequired": "名称、标识符、颁发者 URL 和客户端 ID 为必填项。",
-      "errorSecretRequired": "客户端密钥为必填项。"
+      "errorSecretRequired": "客户端密钥为必填项。",
+      "allowInsecure": "Allow local / self-signed connections",
+      "allowInsecureDesc": "Bypasses host validation and TLS certificate checks. Use only for LAN-only providers (e.g. pocketid.internal). Not recommended for internet-facing deployments."
     },
     "integrations": {
       "title": "集成",

@@ -657,7 +657,9 @@
       "activeBadge": "Активен",
       "disabledBadge": "Отключён",
       "errorRequired": "Требуются название, slug, URL издателя и Client ID.",
-      "errorSecretRequired": "Требуется Client secret."
+      "errorSecretRequired": "Требуется Client secret.",
+      "allowInsecure": "Allow local / self-signed connections",
+      "allowInsecureDesc": "Bypasses host validation and TLS certificate checks. Use only for LAN-only providers (e.g. pocketid.internal). Not recommended for internet-facing deployments."
     },
     "integrations": {
       "title": "Интеграции",

@@ -1909,7 +1909,7 @@ const SSO_TEMPLATES = [
 const emptyProvider = {
   name: '', slug: '', issuer_url: '', client_id: '', client_secret: '',
   scopes: 'openid email profile', provisioning_mode: 'login_existing_only',
-  allowed_domains: '', enabled: true, require_email_verified: true,
+  allowed_domains: '', enabled: true, require_email_verified: true, allow_insecure: false,
 };
 
 function SSOTab() {
@@ -1979,7 +1979,7 @@ function SSOTab() {
     setError('');
   };
   const openEdit = (p) => {
-    setForm({ ...p, client_secret: '••••••••', allowed_domains: p.allowed_domains || '', require_email_verified: p.require_email_verified !== false, });
+    setForm({ ...p, client_secret: '••••••••', allowed_domains: p.allowed_domains || '', require_email_verified: p.require_email_verified !== false, allow_insecure: p.allow_insecure === true });
     setTemplateNote('');
     setEditing(p);
     setError('');
@@ -2006,6 +2006,7 @@ function SSOTab() {
         allowed_domains: form.allowed_domains.trim() || null,
         enabled: form.enabled,
         require_email_verified: !!form.require_email_verified,
+        allow_insecure: !!form.allow_insecure,
         ...(form.client_secret && form.client_secret !== '••••••••' ? { client_secret: form.client_secret } : {}),
       };
       if (editing === 'new') {
@@ -2347,6 +2348,27 @@ function SSOTab() {
             <div>
               <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{t('admin.sso.requireEmailVerified')}</div>
               <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>{t('admin.sso.requireEmailVerifiedDesc')}</div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 16 }}>
+            <button
+              type="button"
+              onClick={() => setForm(f => ({ ...f, allow_insecure: !f.allow_insecure }))}
+              style={{
+                width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer', padding: 0,
+                background: form.allow_insecure ? 'var(--amber)' : 'var(--bg-elevated)',
+                position: 'relative', transition: 'background 0.2s', flexShrink: 0, marginTop: 1,
+              }}
+            >
+              <span style={{
+                position: 'absolute', top: 2, left: form.allow_insecure ? 18 : 2, width: 16, height: 16,
+                borderRadius: '50%', background: 'white', transition: 'left 0.2s',
+              }} />
+            </button>
+            <div>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{t('admin.sso.allowInsecure')}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>{t('admin.sso.allowInsecureDesc')}</div>
             </div>
           </div>
 

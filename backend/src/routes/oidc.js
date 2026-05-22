@@ -1,6 +1,8 @@
 import { randomBytes, createHash } from 'crypto';
+import { request as httpsRequest } from 'https';
+import { request as httpRequest } from 'http';
 import { Router } from 'express';
-import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { createRemoteJWKSet, jwtVerify, customFetch } from 'jose';
 import { query, pool } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { decrypt, isEncrypted } from '../services/encryption.js';
@@ -12,21 +14,54 @@ import { logAuthEvent } from '../services/authEvents.js';
 const discoveryCache = new Map();
 const DISCOVERY_TTL_MS = 5 * 60 * 1000;
 
-async function getDiscovery(issuerUrl) {
+// Fetch that skips TLS certificate verification — only used when allow_insecure is set.
+function makeInsecureFetch(signal) {
+  return function insecureFetch(url, { method = 'GET', headers = {}, body } = {}) {
+    return new Promise((resolve, reject) => {
+      const parsed = new URL(url);
+      const isHttps = parsed.protocol === 'https:';
+      const port = parsed.port ? parseInt(parsed.port) : (isHttps ? 443 : 80);
+      const reqFn = isHttps ? httpsRequest : httpRequest;
+      const chunks = [];
+      const req = reqFn(
+        { hostname: parsed.hostname, port, path: parsed.pathname + parsed.search, method, headers, rejectUnauthorized: false },
+        res => {
+          res.on('data', c => chunks.push(c));
+          res.on('end', () => {
+            const text = Buffer.concat(chunks).toString('utf8');
+            resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, json: async () => JSON.parse(text), text: async () => text });
+          });
+          res.on('error', reject);
+        }
+      );
+      req.on('error', reject);
+      if (signal) signal.addEventListener('abort', () => req.destroy(), { once: true });
+      if (body) req.write(body);
+      req.end();
+    });
+  };
+}
+
+async function getDiscovery(issuerUrl, allowInsecure = false) {
   const parsed = new URL(issuerUrl);
-  if (parsed.protocol !== 'https:') throw new Error('OIDC issuer URL must use HTTPS');
+  if (!allowInsecure && parsed.protocol !== 'https:') throw new Error('OIDC issuer URL must use HTTPS');
 
   // Re-validate at runtime: the saved issuer may predate host validation,
   // or DNS may have changed since the record was saved.
-  const issuerHostErr = await validateHost(parsed.hostname);
-  if (issuerHostErr) throw new Error(`OIDC issuer host rejected: ${issuerHostErr}`);
+  if (!allowInsecure) {
+    const issuerHostErr = await validateHost(parsed.hostname);
+    if (issuerHostErr) throw new Error(`OIDC issuer host rejected: ${issuerHostErr}`);
+  }
 
   const cached = discoveryCache.get(issuerUrl);
   if (cached && Date.now() - cached.cachedAt < DISCOVERY_TTL_MS) {
     return { doc: cached.doc, jwks: cached.jwks };
   }
   const wellKnown = issuerUrl.replace(/\/$/, '') + '/.well-known/openid-configuration';
-  const res = await fetch(wellKnown, { signal: AbortSignal.timeout(10000) });
+  const signal = AbortSignal.timeout(10000);
+  const fetchFn = allowInsecure ? makeInsecureFetch(signal) : fetch;
+  const fetchOpts = allowInsecure ? {} : { signal };
+  const res = await fetchFn(wellKnown, fetchOpts);
   if (!res.ok) {
     if (res.status === 401 || res.status === 403) {
       throw new Error(`OIDC discovery blocked (${res.status}): the server cannot reach ${wellKnown} — ensure the well-known endpoint is publicly accessible from the MailFlow server`);
@@ -39,11 +74,6 @@ async function getDiscovery(issuerUrl) {
   if (normDiscovered !== normConfigured) {
     throw new Error(`OIDC issuer mismatch: configured "${normConfigured}", got "${normDiscovered}"`);
   }
-  // Validate that all discovered endpoint URLs use HTTPS and don't point at
-  // internal/private hosts — a compromised discovery doc could otherwise
-  // redirect token or JWKS fetches to internal HTTPS services.
-  // Use async validateHost (not just validateHostLiteral) so DNS names that
-  // resolve to private IPs are also caught.
   for (const field of ['authorization_endpoint', 'token_endpoint', 'jwks_uri']) {
     const url = doc[field];
     if (!url) throw new Error(`OIDC discovery missing required field: ${field}`);
@@ -51,13 +81,16 @@ async function getDiscovery(issuerUrl) {
     try { endpointParsed = new URL(url); } catch {
       throw new Error(`OIDC discovery returned invalid URL for ${field}: ${url}`);
     }
-    if (endpointParsed.protocol !== 'https:') {
-      throw new Error(`OIDC discovery returned non-HTTPS ${field}: ${url}`);
+    if (!allowInsecure) {
+      if (endpointParsed.protocol !== 'https:') {
+        throw new Error(`OIDC discovery returned non-HTTPS ${field}: ${url}`);
+      }
+      const hostErr = await validateHost(endpointParsed.hostname);
+      if (hostErr) throw new Error(`OIDC discovery ${field} points to a disallowed host: ${hostErr}`);
     }
-    const hostErr = await validateHost(endpointParsed.hostname);
-    if (hostErr) throw new Error(`OIDC discovery ${field} points to a disallowed host: ${hostErr}`);
   }
-  const jwks = createRemoteJWKSet(new URL(doc.jwks_uri));
+  const jwksOptions = allowInsecure ? { [customFetch]: makeInsecureFetch() } : {};
+  const jwks = createRemoteJWKSet(new URL(doc.jwks_uri), jwksOptions);
   discoveryCache.set(issuerUrl, { doc, jwks, cachedAt: Date.now() });
   return { doc, jwks };
 }
@@ -164,7 +197,7 @@ oidcBrowserRouter.get('/:slug/start', async (req, res) => {
       return oidcError(res, action, 'SSO provider not found');
     }
     const provider = provResult.rows[0];
-    const { doc } = await getDiscovery(provider.issuer_url);
+    const { doc } = await getDiscovery(provider.issuer_url, provider.allow_insecure);
 
     const state = randomBytes(16).toString('hex');
     const nonce = randomBytes(16).toString('hex');
@@ -239,7 +272,7 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
       return oidcError(res, pending.action, 'SSO provider not found or disabled');
     }
     const provider = provResult.rows[0];
-    const { doc, jwks } = await getDiscovery(provider.issuer_url);
+    const { doc, jwks } = await getDiscovery(provider.issuer_url, provider.allow_insecure);
     const redirectUri = getRedirectUri(provider);
     const clientSecret = isEncrypted(provider.client_secret)
       ? decrypt(provider.client_secret)
@@ -254,11 +287,12 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
       client_secret: clientSecret,
       code_verifier: pending.verifier,
     });
-    const tokenRes = await fetch(doc.token_endpoint, {
+    const tokenFetch = provider.allow_insecure ? makeInsecureFetch() : fetch;
+    const tokenRes = await tokenFetch(doc.token_endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
       body: tokenParams.toString(),
-      signal: AbortSignal.timeout(10000),
+      signal: provider.allow_insecure ? undefined : AbortSignal.timeout(10000),
     });
     if (!tokenRes.ok) {
       const body = await tokenRes.text();

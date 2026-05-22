@@ -1,0 +1,1 @@
+ALTER TABLE oidc_providers ADD COLUMN IF NOT EXISTS allow_insecure BOOLEAN NOT NULL DEFAULT false;

@@ -683,6 +683,8 @@
       "enabled": "Provider enabled",
       "requireEmailVerified": "Require verified email",
       "requireEmailVerifiedDesc": "Disable for self-hosted providers (PocketID, Kanidm, etc.) that do not issue email_verified: true in their tokens.",
+      "allowInsecure": "Allow local / self-signed connections",
+      "allowInsecureDesc": "Bypasses host validation and TLS certificate checks. Use only for LAN-only providers (e.g. pocketid.internal). Not recommended for internet-facing deployments.",
       "save": "Save",
       "editButton": "Edit",
       "deleteButton": "Delete",

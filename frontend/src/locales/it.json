@@ -657,7 +657,9 @@
       "activeBadge": "Attivo",
       "disabledBadge": "Disabilitato",
       "errorRequired": "Nome, slug, URL emittente e ID client sono obbligatori.",
-      "errorSecretRequired": "Il segreto client è obbligatorio."
+      "errorSecretRequired": "Il segreto client è obbligatorio.",
+      "allowInsecure": "Allow local / self-signed connections",
+      "allowInsecureDesc": "Bypasses host validation and TLS certificate checks. Use only for LAN-only providers (e.g. pocketid.internal). Not recommended for internet-facing deployments."
     },
     "integrations": {
       "title": "Integrazioni",
