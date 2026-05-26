@@ -798,8 +798,6 @@ export default function Sidebar() {
                 return (
                   <div
                     key={`${accountId}:${path}`}
-                    draggable={canDrag}
-                    onDragStart={canDrag ? () => { setFavDragIdx(idx); setFavDropIdx(null); } : undefined}
                     onDragOver={canDrag ? e => { e.preventDefault(); setFavDropIdx(idx); } : undefined}
                     onDrop={canDrag ? e => {
                       e.preventDefault();
@@ -830,7 +828,7 @@ export default function Sidebar() {
                     style={{
                       display: 'flex', alignItems: 'center',
                       gap: 8, padding: '7px 10px',
-                      borderRadius: 7, cursor: canDrag ? 'grab' : 'pointer',
+                      borderRadius: 7, cursor: 'pointer',
                       background: isActive ? 'var(--bg-hover)' : 'transparent',
                       color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
                       transition: 'background 0.1s, color 0.1s',
@@ -841,7 +839,11 @@ export default function Sidebar() {
                     onMouseLeave={e => { if (!isActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; } }}
                   >
                     {canDrag && (
-                      <span style={{ color: 'var(--text-tertiary)', flexShrink: 0, display: 'flex', opacity: 0.4, cursor: 'grab' }}>
+                      <span
+                        draggable
+                        onDragStart={() => { setFavDragIdx(idx); setFavDropIdx(null); }}
+                        style={{ color: 'var(--text-tertiary)', flexShrink: 0, display: 'flex', opacity: 0.4, cursor: 'grab' }}
+                      >
                         <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor">
                           <circle cx="2" cy="2" r="1.5"/><circle cx="8" cy="2" r="1.5"/>
                           <circle cx="2" cy="7" r="1.5"/><circle cx="8" cy="7" r="1.5"/>
