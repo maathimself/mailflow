@@ -1577,7 +1577,7 @@ export default function MessageList() {
       borderRight: (isMobile || isColumn) ? 'none' : '1px solid var(--border-subtle)',
       borderBottom: (!isMobile && isColumn) ? '1px solid var(--border-subtle)' : 'none',
       display: 'flex', flexDirection: 'column',
-      height: (isMobile || isColumn) ? undefined : '100vh',
+      height: (isMobile || isColumn) ? undefined : '100%',
       background: 'var(--bg-primary)',
     }}>
 

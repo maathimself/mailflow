@@ -679,7 +679,7 @@ export default function Sidebar() {
     <div style={{
       width: sidebarCollapsed ? 60 : 240,
       minWidth: sidebarCollapsed ? 60 : 240,
-      height: isMobile ? '100%' : '100vh',
+      height: isMobile ? '100%' : '100%',
       background: 'var(--bg-secondary)',
       borderRight: '1px solid var(--border-subtle)',
       display: 'flex',
