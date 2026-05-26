@@ -642,6 +642,16 @@ export default function MessageList() {
     const ids = [...new Set(deleteMessages.map(msg => msg.id).filter(Boolean))];
     const visibleMessage = message;
     ids.forEach((id) => setPendingDelete(id));
+
+    // Advance selection to the next visible message before removing this one
+    const { selectedMessageId, setSelectedMessage } = useStore.getState();
+    if (selectedMessageId === visibleMessage.id) {
+      const displayMsgs = scRef.current.displayMessages || [];
+      const idx = displayMsgs.findIndex(m => m.id === visibleMessage.id);
+      const next = displayMsgs[idx + 1] || displayMsgs[idx - 1] || null;
+      setSelectedMessage(next?.id ?? null);
+    }
+
     removeMessage(visibleMessage.id);
     if (expandedThreadId === tid) setExpandedThreadId(null);
 
@@ -917,6 +927,8 @@ export default function MessageList() {
 
   // Derived from store — must be declared before callbacks that use it in dependency arrays
   const displayMessages = searchQuery.trim() ? searchResults : messages;
+  // Keep scRef in sync so scheduleDelete can read displayMessages without a stale closure
+  scRef.current.displayMessages = displayMessages;
 
   // Called when the avatar is clicked: enters selection mode and selects that message
   const handleAvatarClick = useCallback((id) => {
