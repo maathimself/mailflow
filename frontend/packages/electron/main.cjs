@@ -1,4 +1,5 @@
 const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, shell, dialog } = require('electron');
+const { spawn } = require('child_process');
 const fs = require('fs');
 const https = require('https');
 const path = require('path');
@@ -177,10 +178,10 @@ function sendUpdateStatus(payload) {
   mainWindow.webContents.send(UPDATE_STATUS_CHANNEL, payload);
 }
 
-function showInAppNotification({ title = '', message = '', type = 'info' }) {
+function showInAppNotification({ title = '', message = '', type = 'info', actionLabel = '', action = '' }) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
 
-  const payload = JSON.stringify({ title, message, type });
+  const payload = JSON.stringify({ title, message, type, actionLabel, action });
   mainWindow.webContents.executeJavaScript(`
     (() => {
       const notification = ${payload};
@@ -249,9 +250,10 @@ function showInAppNotification({ title = '', message = '', type = 'info' }) {
       body.textContent = notification.message;
       body.style.fontSize = '12px';
       body.style.color = '#9898a8';
-      body.style.whiteSpace = 'nowrap';
-      body.style.overflow = 'hidden';
-      body.style.textOverflow = 'ellipsis';
+      body.style.whiteSpace = 'normal';
+      body.style.overflow = 'visible';
+      body.style.textOverflow = 'clip';
+      body.style.lineHeight = '1.35';
 
       const close = document.createElement('button');
       close.type = 'button';
@@ -264,6 +266,27 @@ function showInAppNotification({ title = '', message = '', type = 'info' }) {
       close.style.font = '20px/1 Inter, ui-sans-serif, system-ui';
       close.style.padding = '0';
 
+      let action = null;
+      if (notification.actionLabel && notification.action) {
+        action = document.createElement('button');
+        action.type = 'button';
+        action.textContent = notification.actionLabel;
+        action.style.border = '1px solid rgba(255,255,255,0.12)';
+        action.style.borderRadius = '6px';
+        action.style.background = 'rgba(255,255,255,0.08)';
+        action.style.color = '#e8e8ed';
+        action.style.cursor = 'pointer';
+        action.style.font = '600 12px Inter, ui-sans-serif, system-ui';
+        action.style.padding = '5px 10px';
+        action.style.flex = '0 0 auto';
+        action.addEventListener('click', () => {
+          if (notification.action === 'install-update') {
+            window.mailflowNative?.updates?.installDownloaded?.();
+          }
+          dismiss();
+        });
+      }
+
       const dismiss = () => {
         toast.style.opacity = '0';
         toast.style.transform = 'translateX(100%)';
@@ -272,7 +295,9 @@ function showInAppNotification({ title = '', message = '', type = 'info' }) {
 
       close.addEventListener('click', dismiss);
       copy.append(heading, body);
-      toast.append(icon, copy, close);
+      toast.append(icon, copy);
+      if (action) toast.appendChild(action);
+      toast.appendChild(close);
       root.appendChild(toast);
 
       window.requestAnimationFrame(() => {
@@ -338,6 +363,27 @@ function notifyUpdateAvailable() {
   });
 }
 
+function notifyUpdateDownloaded() {
+  sendUpdateStatus({
+    type: 'downloaded',
+    data: {
+      releaseNotes: updateInfo && updateInfo.releaseNotes,
+      releaseName: updateInfo && updateInfo.releaseName,
+      releaseDate: updateInfo && updateInfo.releaseDate,
+      updateUrl: updateInfo && updateInfo.updateUrl,
+      filePath: downloadedUpdate,
+      manual: true,
+    },
+  });
+  showInAppNotification({
+    title: 'Update Ready',
+    message: 'MailFlow downloaded the update.',
+    type: 'positive',
+    actionLabel: 'Install',
+    action: 'install-update',
+  });
+}
+
 function filePostfix() {
   const date = new Date();
   return `${date.getMonth() + 1}.${date.getDate()}-${date.getHours()}.${date.getMinutes()}.${date.getSeconds()}`;
@@ -374,17 +420,7 @@ function initializeUpdateDownloads(window) {
 
       if (state === 'completed') {
         downloadedUpdate = item.getSavePath();
-        sendUpdateStatus({
-          type: 'downloaded',
-          data: {
-            releaseNotes: updateInfo && updateInfo.releaseNotes,
-            releaseName: updateInfo && updateInfo.releaseName,
-            releaseDate: updateInfo && updateInfo.releaseDate,
-            updateUrl: updateInfo && updateInfo.updateUrl,
-            filePath: downloadedUpdate,
-            manual: true,
-          },
-        });
+        notifyUpdateDownloaded();
       }
     });
   });
@@ -430,17 +466,48 @@ async function checkForUpdates(verbose = false) {
   }
 }
 
+function launchDownloadedUpdate(updatePath) {
+  if (process.platform === 'win32' && /\.exe$/i.test(updatePath)) {
+    const child = spawn(updatePath, [], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: false,
+    });
+
+    child.unref();
+    return Promise.resolve();
+  }
+
+  return shell.openPath(updatePath).then((error) => {
+    if (error) throw new Error(error);
+  });
+}
+
 function installDownloadedUpdate() {
-  if (!downloadedUpdate) return;
+  if (!downloadedUpdate) {
+    return Promise.resolve({ installed: false, reason: 'missing-download' });
+  }
 
-  fs.access(downloadedUpdate, fs.constants.F_OK, (error) => {
-    if (error) {
-      shell.showItemInFolder(downloadedUpdate);
-      return;
-    }
+  return new Promise((resolve) => {
+    fs.access(downloadedUpdate, fs.constants.F_OK, async (error) => {
+      if (error) {
+        shell.showItemInFolder(downloadedUpdate);
+        resolve({ installed: false, reason: 'missing-file' });
+        return;
+      }
 
-    shell.openPath(downloadedUpdate);
-    app.quit();
+      try {
+        await launchDownloadedUpdate(downloadedUpdate);
+        isQuitting = true;
+        setTimeout(() => app.quit(), 500);
+        resolve({ installed: true });
+      } catch (launchError) {
+        console.error('Could not launch downloaded update:', launchError);
+        shell.showItemInFolder(downloadedUpdate);
+        notifyUpdateError('The update was downloaded, but MailFlow could not start the installer.');
+        resolve({ installed: false, reason: 'launch-failed', error: launchError.message });
+      }
+    });
   });
 }
 
@@ -898,11 +965,11 @@ ipcMain.handle('mailflow:updates:check', async (_event, { verbose } = {}) => {
 });
 
 ipcMain.handle('mailflow:updates:install-downloaded', () => {
-  installDownloadedUpdate();
+  return installDownloadedUpdate();
 });
 
 ipcMain.handle('mailflow:updates:install-auto', () => {
-  installDownloadedUpdate();
+  return installDownloadedUpdate();
 });
 
 ipcMain.handle('mailflow:updates:open-download', () => {

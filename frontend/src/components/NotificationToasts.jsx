@@ -198,7 +198,10 @@ function Toast({ notification, onDismiss, isMobile }) {
         </div>
         <div style={{
           fontSize: 12, color: 'var(--text-tertiary)',
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          overflow: notification.allowWrap ? 'visible' : 'hidden',
+          textOverflow: notification.allowWrap ? 'clip' : 'ellipsis',
+          whiteSpace: notification.allowWrap ? 'normal' : 'nowrap',
+          lineHeight: notification.allowWrap ? 1.35 : undefined,
         }}>
           {notification.body}
         </div>
