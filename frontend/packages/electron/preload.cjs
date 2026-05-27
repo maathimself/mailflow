@@ -17,4 +17,7 @@ contextBridge.exposeInMainWorld('mailflowNative', {
     openDownload: () => ipcRenderer.invoke('mailflow:updates:open-download'),
     onStatus: (callback) => subscribe('mailflow:updates:status', callback),
   },
+  notifications: {
+    onPush: (callback) => subscribe('mailflow:notifications:push', callback),
+  },
 });

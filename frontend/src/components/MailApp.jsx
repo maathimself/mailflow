@@ -12,6 +12,7 @@ import Sidebar from './Sidebar.jsx';
 import MessageList from './MessageList.jsx';
 import MessagePane from './MessagePane.jsx';
 import NotificationToasts from './NotificationToasts.jsx';
+import ElectronNotificationBridge from './ElectronNotificationBridge.jsx';
 import CommandPalette from './CommandPalette.jsx';
 
 const ComposeModal = lazy(() => import('./ComposeModal.jsx'));
@@ -403,6 +404,7 @@ export default function MailApp() {
 
       <Suspense fallback={lazyFallback}>{composing && <ComposeModal />}</Suspense>
       <Suspense fallback={lazyFallback}>{showAdmin && <AdminPanel />}</Suspense>
+      <ElectronNotificationBridge />
       <NotificationToasts />
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
 
