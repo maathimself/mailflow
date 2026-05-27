@@ -192,13 +192,16 @@ function getInstalledLinuxPackageType() {
     if (['deb', 'rpm', 'appimage'].includes(packageType)) return packageType;
   } catch {}
 
+  if (getLinuxPackageManagerVersion('rpm')) return 'rpm';
+  if (getLinuxPackageManagerVersion('deb')) return 'deb';
+
   return null;
 }
 
 function getLinuxPackageManagerVersion(packageType) {
   if (process.platform !== 'linux' || !['deb', 'rpm'].includes(packageType)) return null;
 
-  const packageNames = ['MailFlow', 'mailflow', 'mailflow-frontend'];
+  const packageNames = ['mailflow', 'MailFlow', 'mailflow-frontend'];
   for (const packageName of packageNames) {
     try {
       const args = packageType === 'rpm'
@@ -226,9 +229,9 @@ function getLinuxPackagePatternGroups() {
   const rpm = [new RegExp(`${arch}\\.rpm$`, 'i'), /\.rpm$/i];
 
   const installedPackageType = getInstalledLinuxPackageType();
-  if (installedPackageType === 'appimage') return [appImage, deb, rpm];
-  if (installedPackageType === 'deb') return [deb, appImage, rpm];
-  if (installedPackageType === 'rpm') return [rpm, appImage, deb];
+  if (installedPackageType === 'appimage') return [appImage];
+  if (installedPackageType === 'deb') return [deb];
+  if (installedPackageType === 'rpm') return [rpm];
 
   const distroIds = getLinuxDistributionIds();
   if (distroIds.some((id) => ['debian', 'ubuntu', 'linuxmint', 'pop'].includes(id))) {

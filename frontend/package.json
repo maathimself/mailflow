@@ -102,19 +102,24 @@
       }
     },
     "deb": {
+      "packageName": "mailflow",
       "artifactName": "${productName}-${version}-${arch}.${ext}",
       "maintainer": "maathimself <matthias@mailflow.sh>",
       "vendor": "maathimself",
       "packageCategory": "net",
       "synopsis": "A self-hosted, unified webmail client.",
       "fpm": [
+        "--replaces=mailflow-frontend",
+        "--conflicts=mailflow-frontend",
         "packages/electron/package-type/deb=/opt/MailFlow/resources/package-type",
         "packages/electron/metainfo/sh.mailflow.app.metainfo.xml=/usr/share/metainfo/sh.mailflow.app.metainfo.xml"
       ]
     },
     "rpm": {
+      "packageName": "mailflow",
       "artifactName": "${productName}-${version}-${arch}.${ext}",
       "fpm": [
+        "--replaces=mailflow-frontend",
         "packages/electron/package-type/rpm=/opt/MailFlow/resources/package-type"
       ]
     }
