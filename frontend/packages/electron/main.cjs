@@ -1014,6 +1014,12 @@ ipcMain.handle('mailflow:resetHost', () => {
   loadSetup();
 });
 
+ipcMain.handle('mailflow:badge:set-unread-count', (_event, count) => {
+  const unreadCount = Math.max(0, Number.parseInt(count, 10) || 0);
+  if (typeof app.setBadgeCount !== 'function') return false;
+  return app.setBadgeCount(unreadCount);
+});
+
 ipcMain.handle('mailflow:updates:check', async (_event, { verbose } = {}) => {
   return checkForUpdates(verbose);
 });

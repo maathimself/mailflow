@@ -5,6 +5,7 @@ import { api } from '../utils/api.js';
 export default function ElectronNotificationBridge() {
   const addNotification = useStore(state => state.addNotification);
   const openCompose = useStore(state => state.openCompose);
+  const totalUnread = useStore(state => state.unreadCounts.total);
   const lastActionRef = useRef({ action: null, time: 0 });
   const processedActionIdsRef = useRef(new Set());
 
@@ -15,6 +16,10 @@ export default function ElectronNotificationBridge() {
       window.__mailflowNativeBridgeReady = false;
     };
   }, []);
+
+  useEffect(() => {
+    window.mailflowNative?.badges?.setUnreadCount?.(totalUnread || 0);
+  }, [totalUnread]);
 
   useEffect(() => {
     const unsubscribe = window.mailflowNative?.notifications?.onPush?.((notification) => {
