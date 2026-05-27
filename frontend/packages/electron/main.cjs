@@ -186,6 +186,8 @@ function showInAppNotification({ title = '', message = '', type = 'info', action
   const payload = JSON.stringify({ title, message, type, actionLabel, action });
   mainWindow.webContents.executeJavaScript(`
     (() => {
+      if (window.__mailflowNativeBridgeReady) return;
+
       const notification = ${payload};
       const id = 'mailflow-electron-toasts';
       let root = document.getElementById(id);

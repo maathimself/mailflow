@@ -9,6 +9,14 @@ export default function ElectronNotificationBridge() {
   const processedActionIdsRef = useRef(new Set());
 
   useEffect(() => {
+    window.__mailflowNativeBridgeReady = true;
+
+    return () => {
+      window.__mailflowNativeBridgeReady = false;
+    };
+  }, []);
+
+  useEffect(() => {
     const unsubscribe = window.mailflowNative?.notifications?.onPush?.((notification) => {
       addNotification({
         type: notification.type === 'negative' ? 'error' : notification.type,
