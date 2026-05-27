@@ -405,6 +405,15 @@ function getUniqueFilename(filename) {
   return `${file} (${filePostfix()})${extension}`;
 }
 
+function setDownloadProgress(window, value) {
+  try {
+    if (!window || window.isDestroyed()) return;
+    window.setProgressBar(value);
+  } catch {
+    // Download events can outlive the BrowserWindow they started from.
+  }
+}
+
 function initializeUpdateDownloads(window) {
   if (updateDownloadsInitialized) return;
   updateDownloadsInitialized = true;
@@ -417,12 +426,12 @@ function initializeUpdateDownloads(window) {
 
     item.on('updated', () => {
       if (totalBytes > 0) {
-        window.setProgressBar(item.getReceivedBytes() / totalBytes);
+        setDownloadProgress(window, item.getReceivedBytes() / totalBytes);
       }
     });
 
     item.on('done', (_event, state) => {
-      if (!window.isDestroyed()) window.setProgressBar(-1);
+      setDownloadProgress(window, -1);
 
       if (state === 'interrupted') {
         dialog.showErrorBox('Download error', `The download of ${item.getFilename()} was interrupted.`);
