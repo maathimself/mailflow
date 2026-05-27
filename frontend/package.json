@@ -95,8 +95,10 @@
       ],
       "category": "Network",
       "desktop": {
-        "Name": "MailFlow",
-        "StartupWMClass": "MailFlow"
+        "entry": {
+          "Name": "MailFlow",
+          "StartupWMClass": "MailFlow"
+        }
       }
     },
     "deb": {
