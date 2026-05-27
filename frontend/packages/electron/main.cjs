@@ -352,7 +352,7 @@ function notifyUpToDate(verbose) {
   });
 }
 
-function notifyUpdateAvailable() {
+function notifyUpdateAvailable(verbose = true) {
   sendUpdateStatus({
     type: 'available',
     data: {
@@ -363,6 +363,9 @@ function notifyUpdateAvailable() {
       manual: true,
     },
   });
+
+  if (!verbose) return;
+
   notifyUpdateStatus({
     title: 'Update Available',
     message: 'MailFlow is downloading the newest version for you.',
@@ -463,7 +466,7 @@ async function checkForUpdates(verbose = false) {
       updateUrl: asset.browser_download_url,
     };
 
-    notifyUpdateAvailable();
+    notifyUpdateAvailable(verbose);
     downloadUpdate(asset.browser_download_url);
     return { updateAvailable: true, downloadAvailable: true };
   } catch (error) {
@@ -971,6 +974,25 @@ function loadSetup() {
   mainWindow.loadFile(path.join(__dirname, '..', 'native-shell', 'index.html'));
 }
 
+function scheduleStartupUpdateCheck() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (!readHost()) return;
+
+  const check = () => {
+    setTimeout(() => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      checkForUpdates(false);
+    }, 5000);
+  };
+
+  if (mainWindow.webContents.isLoading()) {
+    mainWindow.webContents.once('did-finish-load', check);
+    return;
+  }
+
+  check();
+}
+
 ipcMain.handle('mailflow:getHost', () => readHost());
 
 ipcMain.handle('mailflow:saveHost', async (_event, host) => {
@@ -1018,6 +1040,7 @@ if (!gotSingleInstanceLock) {
     setupTaskbarTasks();
     createTray();
     createWindow();
+    scheduleStartupUpdateCheck();
     sendNativeAction(parseNativeActionArg(process.argv));
 
     app.on('activate', () => {
