@@ -224,24 +224,23 @@ function getLinuxPackagePatternGroups() {
   const arch = process.arch === 'arm64'
     ? '(?:arm64|aarch64)'
     : '(?:amd64|x64|x86_64)';
-  const appImage = [/\.appimage$/i];
   const deb = [new RegExp(`${arch}\\.deb$`, 'i'), /\.deb$/i];
   const rpm = [new RegExp(`${arch}\\.rpm$`, 'i'), /\.rpm$/i];
 
   const installedPackageType = getInstalledLinuxPackageType();
-  if (installedPackageType === 'appimage') return [appImage];
+  if (installedPackageType === 'appimage') return [];
   if (installedPackageType === 'deb') return [deb];
   if (installedPackageType === 'rpm') return [rpm];
 
   const distroIds = getLinuxDistributionIds();
   if (distroIds.some((id) => ['debian', 'ubuntu', 'linuxmint', 'pop'].includes(id))) {
-    return [deb, appImage, rpm];
+    return [deb];
   }
   if (distroIds.some((id) => ['fedora', 'rhel', 'centos', 'rocky', 'almalinux', 'suse', 'opensuse'].includes(id))) {
-    return [rpm, appImage, deb];
+    return [rpm];
   }
 
-  return [appImage, deb, rpm];
+  return [deb, rpm];
 }
 
 function getUpdateAsset(release) {

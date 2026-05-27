@@ -73,12 +73,6 @@
       "artifactName": "${productName}-${version}.${ext}",
       "target": [
         {
-          "target": "AppImage",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
           "target": "deb",
           "arch": [
             "x64",
