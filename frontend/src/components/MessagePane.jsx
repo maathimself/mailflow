@@ -65,9 +65,11 @@ export default function MessagePane() {
     messages, searchResults, searchQuery, selectedMessageId, setSelectedMessage,
     updateMessage, removeMessage, decrementUnread, incrementUnread, openCompose, accounts, addNotification,
     imageWhitelist, setImageWhitelist, addToImageWhitelist, blockRemoteImages, threadMessages,
+    replyDefault,
   } = useStore();
 
   const isMobile = useMobile();
+  const defaultReplyAll = replyDefault === 'replyAll';
   const paneRef = useRef(null);
   const mountedRef = useRef(true);
   useEffect(() => () => { mountedRef.current = false; }, []);
@@ -524,7 +526,7 @@ export default function MessagePane() {
 
   // Keep pane action refs current every render
   paneActionsRef.current = {
-    reply:      () => handleReply(false),
+    reply:      () => handleReply(defaultReplyAll),
     replyAll:   () => handleReply(true),
     forward:    handleForward,
     toggleStar: handleStarToggle,
@@ -782,11 +784,17 @@ export default function MessagePane() {
       }}>
         {/* Split Reply button */}
         <div style={{ position: 'relative', display: 'flex' }}>
-          <PaneBtn onClick={() => handleReply(false)} title={isMobile ? t('message.reply') : `${t('message.reply')} (R)`}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-              <polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 00-4-4H4"/>
-            </svg>
-            {!isMobile && t('message.reply')}
+          <PaneBtn onClick={() => handleReply(defaultReplyAll)} title={isMobile ? (defaultReplyAll ? t('message.replyAll') : t('message.reply')) : `${defaultReplyAll ? t('message.replyAll') : t('message.reply')} (R)`}>
+            {defaultReplyAll ? (
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+                <polyline points="7 17 2 12 7 7"/><polyline points="13 17 8 12 13 7"/><path d="M20 18v-2a4 4 0 00-4-4H2"/>
+              </svg>
+            ) : (
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+                <polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 00-4-4H4"/>
+              </svg>
+            )}
+            {!isMobile && (defaultReplyAll ? t('message.replyAll') : t('message.reply'))}
             {!isMobile && <kbd style={{ fontSize: 11, padding: '1px 5px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>R</kbd>}
           </PaneBtn>
           <button
@@ -817,8 +825,9 @@ export default function MessagePane() {
               onMouseLeave={() => setShowReplyMenu(false)}
             >
               {[
-                { label: t('message.reply'), replyAll: false },
-                { label: t('message.replyAll'), replyAll: true },
+                defaultReplyAll
+                  ? { label: t('message.reply'), replyAll: false }
+                  : { label: t('message.replyAll'), replyAll: true },
               ].map(opt => (
                 <div
                   key={opt.label}

@@ -1257,7 +1257,7 @@ function SwipeActionIcon({ action, size = 17 }) {
 function LayoutsTab() {
   const { t } = useTranslation();
   const isMobile = useMobile();
-  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions } = useStore();
+  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, replyDefault, setReplyDefault } = useStore();
 
   const handleSelect = (key) => {
     setLayout(key);
@@ -1561,6 +1561,38 @@ function LayoutsTab() {
               <button
                 key={String(id)}
                 onClick={() => setPlaintextEmail(id)}
+                style={{
+                  flex: 1, padding: '10px 12px', textAlign: 'left',
+                  background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
+                  border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
+                  borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s', outline: 'none',
+                }}
+                onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; }}
+                onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
+              >
+                <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{label}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{desc}</div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Default reply action */}
+      <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+          {t('admin.messageList.defaultReplyAction')}
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {[
+            { id: 'reply',    label: t('admin.messageList.defaultReply'),    desc: t('admin.messageList.defaultReplyDesc') },
+            { id: 'replyAll', label: t('admin.messageList.defaultReplyAll'), desc: t('admin.messageList.defaultReplyAllDesc') },
+          ].map(({ id, label, desc }) => {
+            const active = replyDefault === id;
+            return (
+              <button
+                key={id}
+                onClick={() => setReplyDefault(id)}
                 style={{
                   flex: 1, padding: '10px 12px', textAlign: 'left',
                   background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',

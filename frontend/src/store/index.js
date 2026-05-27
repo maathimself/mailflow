@@ -236,6 +236,13 @@ export const useStore = create((set, get) => ({
     schedulePrefSave({ hoverQuickActions: val });
   },
 
+  replyDefault: localStorage.getItem('mailflow_reply_default') || 'reply',
+  setReplyDefault: (val) => {
+    localStorage.setItem('mailflow_reply_default', val);
+    set({ replyDefault: val });
+    schedulePrefSave({ replyDefault: val });
+  },
+
   // Thread expansion cache (not persisted — reset on navigation)
   expandedThreadId: null,
   setExpandedThreadId: (id) => set({ expandedThreadId: id }),
@@ -506,6 +513,10 @@ export const useStore = create((set, get) => ({
       if (typeof prefs.hoverQuickActions === 'boolean') {
         localStorage.setItem('mailflow_hover_quick_actions', String(prefs.hoverQuickActions));
         set({ hoverQuickActions: prefs.hoverQuickActions });
+      }
+      if (prefs.replyDefault === 'reply' || prefs.replyDefault === 'replyAll') {
+        localStorage.setItem('mailflow_reply_default', prefs.replyDefault);
+        set({ replyDefault: prefs.replyDefault });
       }
       if (typeof prefs.showAppBadge === 'boolean') {
         localStorage.setItem('mailflow_app_badge', String(prefs.showAppBadge));
