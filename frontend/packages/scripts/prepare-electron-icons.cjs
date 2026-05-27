@@ -6,7 +6,7 @@ const publicDir = path.join(rootDir, 'public');
 const iconDir = path.join(rootDir, 'packages', 'electron', 'icons');
 
 const pngBySize = new Map(
-  [72, 96, 128, 144, 152, 192, 384, 512]
+  [32, 72, 96, 128, 144, 152, 192, 384, 512]
     .map((size) => [size, path.join(publicDir, `icon-${size}.png`)])
     .filter(([, file]) => fs.existsSync(file))
 );

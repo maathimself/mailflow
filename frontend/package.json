@@ -1,5 +1,6 @@
 {
   "name": "mailflow-frontend",
+  "productName": "MailFlow",
   "version": "1.4.0",
   "description": "A self-hosted, unified webmail client.",
   "homepage": "https://mailflow.sh",
@@ -9,6 +10,21 @@
   },
   "type": "module",
   "main": "packages/electron/main.cjs",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/maathimself/mailflow.git"
+  },
+  "keywords": [
+    "Email",
+    "Webmail",
+    "Email Client",
+    "Unified Inbox",
+    "GUI"
+  ],
+  "license": "GPL-3.0",
+  "bugs": {
+    "url": "https://github.com/maathimself/mailflow/issues"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
