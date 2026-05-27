@@ -786,7 +786,7 @@ export default function MessagePane() {
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
               <polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 00-4-4H4"/>
             </svg>
-            {t('message.reply')}
+            {!isMobile && t('message.reply')}
             {!isMobile && <kbd style={{ fontSize: 11, padding: '1px 5px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>R</kbd>}
           </PaneBtn>
           <button
@@ -841,7 +841,7 @@ export default function MessagePane() {
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
             <polyline points="15 17 20 12 15 7"/><path d="M4 18v-2a4 4 0 014-4h12"/>
           </svg>
-          {t('message.forward')}
+          {!isMobile && t('message.forward')}
           {!isMobile && <kbd style={{ fontSize: 11, padding: '1px 5px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>F</kbd>}
         </PaneBtn>
 
@@ -852,7 +852,7 @@ export default function MessagePane() {
             <polyline points="9 13 12 16 15 13"/>
             <line x1="12" y1="11" x2="12" y2="16"/>
           </svg>
-          {t('message.archive')}
+          {!isMobile && t('message.archive')}
           {!isMobile && <kbd style={{ fontSize: 11, padding: '1px 5px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>E</kbd>}
         </PaneBtn>
 
