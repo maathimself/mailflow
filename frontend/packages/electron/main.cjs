@@ -10,6 +10,12 @@ const UPDATE_RELEASE_URL = 'https://api.github.com/repos/dcoffin88/mailflow/rele
 const UPDATE_ERROR_MESSAGE = 'Could not check for MailFlow updates. Please visit the website instead.';
 const NATIVE_ACTION_CHANNEL = 'mailflow:native-action';
 const NATIVE_ACTION_ARG = '--mailflow-action=';
+const LINUX_BADGE_DESKTOP_IDS = [
+  'MailFlow.desktop',
+  'mailflow.desktop',
+  'sh.mailflow.app.desktop',
+  'mailflow-frontend.desktop',
+];
 
 let mainWindow;
 let tray = null;
@@ -218,6 +224,59 @@ function getLinuxPackageManagerVersion(packageType) {
 
 function getInstalledAppVersion(packageType = getInstalledLinuxPackageType()) {
   return getLinuxPackageManagerVersion(packageType) || app.getVersion();
+}
+
+function getAvailableCommand(commands = []) {
+  for (const command of commands) {
+    try {
+      const output = execFileSync('which', [command], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+      if (output) return command;
+    } catch {}
+  }
+
+  return null;
+}
+
+function emitUnityLauncherBadgeCount(count) {
+  if (process.platform !== 'linux') return false;
+
+  const gdbus = getAvailableCommand(['gdbus']);
+  if (!gdbus) return false;
+
+  const visible = count > 0;
+  const properties = visible
+    ? `{'count':<${count}>,'count-visible':<true>}`
+    : `{'count-visible':<false>}`;
+
+  for (const desktopId of LINUX_BADGE_DESKTOP_IDS) {
+    const child = spawn(gdbus, [
+      'emit',
+      '--session',
+      '--object-path',
+      '/',
+      '--signal',
+      'com.canonical.Unity.LauncherEntry.Update',
+      `application://${desktopId}`,
+      properties,
+    ], {
+      detached: true,
+      stdio: 'ignore',
+    });
+
+    child.unref();
+  }
+
+  return true;
+}
+
+function setUnreadBadgeCount(count) {
+  let badgeSet = false;
+
+  if (typeof app.setBadgeCount === 'function') {
+    badgeSet = app.setBadgeCount(count);
+  }
+
+  return emitUnityLauncherBadgeCount(count) || badgeSet;
 }
 
 function getLinuxPackagePatternGroups() {
@@ -584,6 +643,41 @@ function launchDownloadedUpdate(updatePath) {
 
     child.unref();
     return Promise.resolve();
+  }
+
+  if (process.platform === 'linux' && /\.deb$/i.test(updatePath)) {
+    const terminal = getAvailableCommand(['x-terminal-emulator', 'gnome-terminal', 'konsole', 'xfce4-terminal', 'mate-terminal', 'xterm']);
+    if (terminal) {
+      const terminalArgs = terminal === 'gnome-terminal'
+        ? ['--', 'sudo', 'dpkg', '--install', updatePath]
+        : ['-e', 'sudo', 'dpkg', '--install', updatePath];
+
+      const child = spawn(terminal, terminalArgs, {
+        detached: true,
+        stdio: 'ignore',
+      });
+
+      child.unref();
+      return Promise.resolve();
+    }
+  }
+
+  if (process.platform === 'linux' && /\.rpm$/i.test(updatePath)) {
+    const terminal = getAvailableCommand(['x-terminal-emulator', 'gnome-terminal', 'konsole', 'xfce4-terminal', 'mate-terminal', 'xterm']);
+    const packageInstaller = getAvailableCommand(['dnf', 'dnf5', 'yum']);
+    if (terminal && packageInstaller) {
+      const terminalArgs = terminal === 'gnome-terminal'
+        ? ['--', 'sudo', packageInstaller, 'install', updatePath]
+        : ['-e', 'sudo', packageInstaller, 'install', updatePath];
+
+      const child = spawn(terminal, terminalArgs, {
+        detached: true,
+        stdio: 'ignore',
+      });
+
+      child.unref();
+      return Promise.resolve();
+    }
   }
 
   return shell.openPath(updatePath).then((error) => {
@@ -1105,8 +1199,7 @@ ipcMain.handle('mailflow:resetHost', () => {
 
 ipcMain.handle('mailflow:badge:set-unread-count', (_event, count) => {
   const unreadCount = Math.max(0, Number.parseInt(count, 10) || 0);
-  if (typeof app.setBadgeCount !== 'function') return false;
-  return app.setBadgeCount(unreadCount);
+  return setUnreadBadgeCount(unreadCount);
 });
 
 ipcMain.handle('mailflow:updates:check', async (_event, { verbose } = {}) => {
