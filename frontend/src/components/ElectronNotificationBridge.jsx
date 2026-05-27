@@ -1,10 +1,11 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 
 export default function ElectronNotificationBridge() {
   const addNotification = useStore(state => state.addNotification);
   const openCompose = useStore(state => state.openCompose);
+  const lastActionRef = useRef({ action: null, time: 0 });
 
   useEffect(() => {
     const unsubscribe = window.mailflowNative?.notifications?.onPush?.((notification) => {
@@ -21,8 +22,12 @@ export default function ElectronNotificationBridge() {
   }, [addNotification]);
 
   useEffect(() => {
-    const handleNativeAction = async (event) => {
-      const action = event.detail?.action;
+    const runNativeAction = async (action) => {
+      const now = Date.now();
+      const last = lastActionRef.current;
+
+      if (last.action === action && now - last.time < 500) return;
+      lastActionRef.current = { action, time: now };
 
       if (action === 'new-mail') {
         openCompose({});
@@ -47,8 +52,19 @@ export default function ElectronNotificationBridge() {
       }
     };
 
+    const handleNativeAction = (event) => {
+      runNativeAction(event.detail?.action);
+    };
+
+    const unsubscribe = window.mailflowNative?.actions?.onAction?.((payload) => {
+      runNativeAction(payload?.action);
+    });
+
     window.addEventListener('mailflow:native-action', handleNativeAction);
-    return () => window.removeEventListener('mailflow:native-action', handleNativeAction);
+    return () => {
+      window.removeEventListener('mailflow:native-action', handleNativeAction);
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
   }, [addNotification, openCompose]);
 
   return null;

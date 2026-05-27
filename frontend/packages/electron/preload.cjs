@@ -1,9 +1,30 @@
 const { contextBridge, ipcRenderer } = require('electron');
+const pendingNativeActions = [];
+const nativeActionSubscribers = new Set();
 
 function subscribe(channel, callback) {
   const listener = (_event, payload) => callback(payload);
   ipcRenderer.on(channel, listener);
   return () => ipcRenderer.removeListener(channel, listener);
+}
+
+ipcRenderer.on('mailflow:native-action', (_event, payload) => {
+  if (nativeActionSubscribers.size === 0) {
+    pendingNativeActions.push(payload);
+    return;
+  }
+
+  nativeActionSubscribers.forEach((callback) => callback(payload));
+});
+
+function subscribeNativeAction(callback) {
+  nativeActionSubscribers.add(callback);
+
+  while (pendingNativeActions.length > 0) {
+    callback(pendingNativeActions.shift());
+  }
+
+  return () => nativeActionSubscribers.delete(callback);
 }
 
 contextBridge.exposeInMainWorld('mailflowNative', {
@@ -21,6 +42,6 @@ contextBridge.exposeInMainWorld('mailflowNative', {
     onPush: (callback) => subscribe('mailflow:notifications:push', callback),
   },
   actions: {
-    onAction: (callback) => subscribe('mailflow:native-action', callback),
+    onAction: subscribeNativeAction,
   },
 });
