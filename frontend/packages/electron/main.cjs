@@ -409,7 +409,7 @@ async function checkForUpdates(verbose = false) {
     }
 
     if (!asset) {
-      notifyUpdateError('A MailFlow update is available, but no installer was found for this platform.');
+      notifyUpdateError('Update is available, no installer was found.');
       return { updateAvailable: true, downloadAvailable: false };
     }
 
@@ -547,6 +547,7 @@ function viewMenuItems() {
         if (!focusedWindow) return;
         focusedWindow.setFullScreen(!focusedWindow.isFullScreen());
       },
+    },
     {
       label: 'Toggle Developer Tools',
       accelerator: process.platform === 'darwin' ? 'Alt+Command+I' : 'Ctrl+Shift+I',
