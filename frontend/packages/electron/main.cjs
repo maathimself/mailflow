@@ -386,13 +386,6 @@ function viewMenuItems() {
         focusedWindow.setFullScreen(!focusedWindow.isFullScreen());
       },
     },
-    {
-      label: 'Toggle Developer Tools',
-      accelerator: process.platform === 'darwin' ? 'Alt+Command+I' : 'Ctrl+Shift+I',
-      click(_item, focusedWindow) {
-        if (focusedWindow) focusedWindow.webContents.toggleDevTools();
-      },
-    },
   ];
 }
 
@@ -419,6 +412,16 @@ function helpMenuItems() {
       label: 'Learn More',
       click: () => shell.openExternal('https://mailflow.sh'),
     },
+    { type: 'separator' },
+    {
+      label: 'Help',
+      click: () => shell.openExternal('https://mailflow.sh/docs'),
+    },
+    {
+      label: 'Report Issue',
+      click: () => shell.openExternal('https://github.com/maathimself/mailflow/issues'),
+    },
+    { type: 'separator' },
     {
       label: 'Check For Updates',
       click: () => checkForUpdates(true),
@@ -545,15 +548,21 @@ function saveWindowBounds() {
   });
 }
 
-function showMainWindow() {
+function showMainWindow({ reload = false } = {}) {
   if (!mainWindow || mainWindow.isDestroyed()) {
     createWindow();
     return;
   }
 
+  const wasHidden = !mainWindow.isVisible();
+
   if (mainWindow.isMinimized()) mainWindow.restore();
   if (!mainWindow.isVisible()) mainWindow.show();
   mainWindow.focus();
+
+  if (reload && wasHidden) {
+    mainWindow.webContents.reload();
+  }
 }
 
 function getTrayIcon() {
@@ -578,7 +587,7 @@ function refreshTrayMenu() {
           saveWindowBounds();
           mainWindow.hide();
         } else {
-          showMainWindow();
+          showMainWindow({ reload: true });
         }
       },
     },
@@ -609,7 +618,7 @@ function createTray() {
   tray.setToolTip('MailFlow');
   tray.on('click', () => {
     refreshTrayMenu();
-    showMainWindow();
+    showMainWindow({ reload: true });
   });
   refreshTrayMenu();
 }
