@@ -7,6 +7,8 @@ const CONFIG_FILE = 'mailflow-host.json';
 const UPDATE_STATUS_CHANNEL = 'mailflow:updates:status';
 const UPDATE_RELEASE_URL = 'https://api.github.com/repos/dcoffin88/mailflow/releases/latest';
 const UPDATE_ERROR_MESSAGE = 'Could not check for MailFlow updates. Please visit the website instead.';
+const NATIVE_ACTION_CHANNEL = 'mailflow:native-action';
+const NATIVE_ACTION_ARG = '--mailflow-action=';
 
 let mainWindow;
 let tray = null;
@@ -447,6 +449,57 @@ function openDownloadedUpdatePath() {
   shell.showItemInFolder(downloadedUpdate);
 }
 
+function parseNativeActionArg(args = []) {
+  const actionArg = args.find((arg) => String(arg).startsWith(NATIVE_ACTION_ARG));
+  if (!actionArg) return null;
+
+  const action = actionArg.slice(NATIVE_ACTION_ARG.length);
+  if (['new-mail', 'sync'].includes(action)) return action;
+  return null;
+}
+
+function sendNativeAction(action) {
+  if (!action) return;
+
+  showMainWindow();
+
+  const dispatchScript = `
+    window.dispatchEvent(new CustomEvent('mailflow:native-action', {
+      detail: ${JSON.stringify({ action })}
+    }));
+  `;
+
+  const send = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.webContents.send(NATIVE_ACTION_CHANNEL, { action });
+    mainWindow.webContents.executeJavaScript(dispatchScript).catch(() => {});
+  };
+
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+
+  if (mainWindow.webContents.isLoading()) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      setTimeout(send, 100);
+    });
+    return;
+  }
+
+  setTimeout(send, 100);
+}
+
+function nativeActionMenuItems() {
+  return [
+    {
+      label: 'New Mail',
+      click: () => sendNativeAction('new-mail'),
+    },
+    {
+      label: 'Sync',
+      click: () => sendNativeAction('sync'),
+    },
+  ];
+}
+
 function changeMailFlowHost() {
   clearHost();
   showMainWindow();
@@ -689,6 +742,8 @@ function refreshTrayMenu() {
 
   const isWindowVisible = !!mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible();
   tray.setContextMenu(Menu.buildFromTemplate([
+    ...nativeActionMenuItems(),
+    { type: 'separator' },
     {
       label: isWindowVisible ? 'Hide MailFlow' : 'Show MailFlow',
       click: () => {
@@ -730,6 +785,34 @@ function createTray() {
     showMainWindow({ reload: true });
   });
   refreshTrayMenu();
+}
+
+function setupDockMenu() {
+  if (process.platform !== 'darwin' || !app.dock) return;
+  app.dock.setMenu(Menu.buildFromTemplate(nativeActionMenuItems()));
+}
+
+function setupTaskbarTasks() {
+  if (process.platform !== 'win32') return;
+
+  app.setUserTasks([
+    {
+      program: process.execPath,
+      arguments: `${NATIVE_ACTION_ARG}new-mail`,
+      iconPath: getWindowIconPath(),
+      iconIndex: 0,
+      title: 'New Mail',
+      description: 'Compose a new MailFlow message',
+    },
+    {
+      program: process.execPath,
+      arguments: `${NATIVE_ACTION_ARG}sync`,
+      iconPath: getWindowIconPath(),
+      iconIndex: 0,
+      title: 'Sync',
+      description: 'Sync MailFlow mail',
+    },
+  ]);
 }
 
 function createWindow() {
@@ -826,16 +909,20 @@ if (!gotSingleInstanceLock) {
 } else {
   app.whenReady().then(() => {
     setupMenu();
+    setupDockMenu();
+    setupTaskbarTasks();
     createTray();
     createWindow();
+    sendNativeAction(parseNativeActionArg(process.argv));
 
     app.on('activate', () => {
       showMainWindow();
     });
   });
 
-  app.on('second-instance', () => {
+  app.on('second-instance', (_event, args) => {
     showMainWindow();
+    sendNativeAction(parseNativeActionArg(args));
   });
 }
 

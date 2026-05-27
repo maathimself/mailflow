@@ -20,4 +20,7 @@ contextBridge.exposeInMainWorld('mailflowNative', {
   notifications: {
     onPush: (callback) => subscribe('mailflow:notifications:push', callback),
   },
+  actions: {
+    onAction: (callback) => subscribe('mailflow:native-action', callback),
+  },
 });
