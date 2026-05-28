@@ -7,7 +7,8 @@
         android:shortcutShortLabel="@string/shortcut_compose_short_label"
         android:shortcutLongLabel="@string/shortcut_compose_long_label">
         <intent
-            android:action="sh.mailflow.app.COMPOSE"
+            android:action="android.intent.action.VIEW"
+            android:data="mailflow://compose"
             android:targetPackage="sh.mailflow.app"
             android:targetClass="sh.mailflow.app.MainActivity" />
     </shortcut>
@@ -19,7 +20,8 @@
         android:shortcutShortLabel="@string/shortcut_sync_short_label"
         android:shortcutLongLabel="@string/shortcut_sync_long_label">
         <intent
-            android:action="sh.mailflow.app.SYNC"
+            android:action="android.intent.action.VIEW"
+            android:data="mailflow://sync"
             android:targetPackage="sh.mailflow.app"
             android:targetClass="sh.mailflow.app.MainActivity" />
     </shortcut>

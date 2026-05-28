@@ -202,6 +202,8 @@ public class MailFlowNativePlugin extends Plugin {
     static void injectPendingActions(WebView webView, Context context) {
         if (webView == null || context == null || !isConfiguredHost(context, webView.getUrl())) return;
 
+        injectCapacitorCompat(webView);
+
         List<JSObject> actions;
         synchronized (pendingActions) {
             if (pendingActions.isEmpty()) return;
@@ -230,6 +232,26 @@ public class MailFlowNativePlugin extends Plugin {
             + "var timer=window.setInterval(function(){attempts+=1;if(deliver(false)||attempts>=100){if(!delivered)deliver(true);window.clearInterval(timer);}},100);"
             + "}"
             + "})( " + actionJson + " );";
+
+        webView.post(() -> webView.evaluateJavascript(script, null));
+    }
+
+    static void injectCapacitorCompat(WebView webView) {
+        if (webView == null) return;
+
+        String script = "(function(){try{"
+            + "window.Capacitor=window.Capacitor||{};"
+            + "if(typeof window.Capacitor.triggerEvent!=='function'){"
+            + "window.Capacitor.triggerEvent=function(eventName,target,eventData){"
+            + "var receiver=target==='document'?document:window;"
+            + "var event;"
+            + "try{event=new CustomEvent(eventName,{detail:eventData});}"
+            + "catch(e){event=document.createEvent('CustomEvent');event.initCustomEvent(eventName,false,false,eventData);}"
+            + "receiver.dispatchEvent(event);"
+            + "return true;"
+            + "};"
+            + "}"
+            + "}catch(e){}})();";
 
         webView.post(() -> webView.evaluateJavascript(script, null));
     }
@@ -279,7 +301,6 @@ public class MailFlowNativePlugin extends Plugin {
         }
 
         if (instance != null) {
-            instance.notifyListeners("nativeAction", action, true);
             instance.injectPendingActionsToWebView();
         }
     }

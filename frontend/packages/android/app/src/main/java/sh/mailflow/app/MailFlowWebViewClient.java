@@ -47,6 +47,7 @@ public class MailFlowWebViewClient extends BridgeWebViewClient {
 
         if (!isConfiguredHost(url)) return;
 
+        MailFlowNativePlugin.injectCapacitorCompat(view);
         MailFlowNativePlugin.injectPendingActions(view, context);
 
         view.evaluateJavascript("(document.body ? document.body.innerText : '')", (text) -> {

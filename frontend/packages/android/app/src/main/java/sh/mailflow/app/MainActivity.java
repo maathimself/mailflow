@@ -5,6 +5,8 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.webkit.CookieManager;
+import android.webkit.WebView;
+import androidx.activity.OnBackPressedCallback;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
@@ -14,6 +16,12 @@ public class MainActivity extends BridgeActivity {
     protected void onCreate(Bundle savedInstanceState) {
         registerPlugin(MailFlowNativePlugin.class);
         super.onCreate(savedInstanceState);
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                handleAndroidBack();
+            }
+        });
 
         if (bridge != null) {
             configureCookies();
@@ -52,6 +60,27 @@ public class MainActivity extends BridgeActivity {
         handleNativeIntent(intent);
     }
 
+    private void handleAndroidBack() {
+        if (bridge == null || bridge.getWebView() == null) {
+            moveTaskToBack(true);
+            return;
+        }
+
+        WebView webView = bridge.getWebView();
+        webView.evaluateJavascript(
+            "(function(){try{"
+                + "if(typeof window.__mailflowHandleAndroidBack==='function'){return !!window.__mailflowHandleAndroidBack();}"
+                + "}catch(e){}"
+                + "return false;"
+                + "})()",
+            (handled) -> {
+                if ("true".equals(handled)) return;
+
+                runOnUiThread(() -> moveTaskToBack(true));
+            }
+        );
+    }
+
     private void handleNativeIntent(Intent intent) {
         if (intent == null) return;
         if (!markIntentHandled(intent)) return;
@@ -72,6 +101,23 @@ public class MainActivity extends BridgeActivity {
         if (MailFlowNativePlugin.ACTION_SYNC.equals(action)) {
             MailFlowNativePlugin.sendSyncAction();
             return;
+        }
+
+        if (Intent.ACTION_VIEW.equals(action) && data != null && "mailflow".equalsIgnoreCase(data.getScheme())) {
+            String route = data.getHost();
+            if (route == null || route.isEmpty()) {
+                route = data.getPath() == null ? "" : data.getPath().replaceFirst("^/", "");
+            }
+
+            if ("compose".equalsIgnoreCase(route)) {
+                MailFlowNativePlugin.sendComposeAction();
+                return;
+            }
+
+            if ("sync".equalsIgnoreCase(route)) {
+                MailFlowNativePlugin.sendSyncAction();
+                return;
+            }
         }
 
         if ((Intent.ACTION_SENDTO.equals(action) || Intent.ACTION_VIEW.equals(action)) && data != null && "mailto".equalsIgnoreCase(data.getScheme())) {

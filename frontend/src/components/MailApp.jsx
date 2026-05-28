@@ -169,6 +169,53 @@ export default function MailApp() {
   useEffect(() => { composingRef.current  = composing;  }, [composing]);
   useEffect(() => { showAdminRef.current  = showAdmin;  }, [showAdmin]);
 
+  const mobileSidebarOpenRef = useRef(mobileSidebarOpen);
+  const showShortcutHelpRef = useRef(showShortcutHelp);
+  const paletteOpenRef = useRef(paletteOpen);
+  useEffect(() => { mobileSidebarOpenRef.current = mobileSidebarOpen; }, [mobileSidebarOpen]);
+  useEffect(() => { showShortcutHelpRef.current = showShortcutHelp; }, [showShortcutHelp]);
+  useEffect(() => { paletteOpenRef.current = paletteOpen; }, [paletteOpen]);
+
+  useEffect(() => {
+    window.__mailflowHandleAndroidBack = () => {
+      if (composingRef.current) {
+        useStore.getState().closeCompose();
+        return true;
+      }
+
+      if (showAdminRef.current) {
+        setShowAdmin(false);
+        return true;
+      }
+
+      if (paletteOpenRef.current) {
+        setPaletteOpen(false);
+        return true;
+      }
+
+      if (showShortcutHelpRef.current) {
+        setShowShortcutHelp(false);
+        return true;
+      }
+
+      if (mobileSidebarOpenRef.current) {
+        setMobileSidebarOpen(false);
+        return true;
+      }
+
+      if (selectedMessageIdRef.current) {
+        setSelectedMessage(null);
+        return true;
+      }
+
+      return false;
+    };
+
+    return () => {
+      if (window.__mailflowHandleAndroidBack) delete window.__mailflowHandleAndroidBack;
+    };
+  }, [setMobileSidebarOpen, setSelectedMessage, setShowAdmin]);
+
   useEffect(() => {
     if (isMobile) return;
     const keyMap = buildKeyMap(shortcuts);
