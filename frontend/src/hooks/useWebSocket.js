@@ -120,10 +120,13 @@ export function useWebSocket() {
           // New-mail alerts are inbox-only — non-inbox folder syncs (Archive,
           // Spam, on-demand syncs) should not trigger alerts for old mail.
           if (isInbox) {
-            const latest = messages[0];
+            const latest = messages[messages.length - 1];
             const notification = {
               type: 'new_mail',
               accountId,
+              folder: folder || 'INBOX',
+              messageId: latest.id,
+              message: latest,
               title: latest.fromName || latest.fromEmail || t('notifications.newMessage'),
               body: latest.subject || t('common.noSubject'),
               count,

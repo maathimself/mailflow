@@ -493,7 +493,7 @@ function cleanNotificationText(value, fallback = '') {
   return `${text.slice(0, NEW_MAIL_NOTIFICATION_MAX_LENGTH - 1)}…`;
 }
 
-function showNewMailNotification({ title, body, count } = {}) {
+function showNewMailNotification({ title, body, count, messageId, accountId, folder, message } = {}) {
   if (!Notification.isSupported()) {
     return { shown: false, reason: 'unsupported' };
   }
@@ -508,7 +508,17 @@ function showNewMailNotification({ title, body, count } = {}) {
   });
 
   notification.on('click', () => {
-    showMainWindow({ reload: true });
+    if (messageId) {
+      sendNativeAction('open-message', {
+        messageId,
+        accountId,
+        folder,
+        message,
+      });
+      return;
+    }
+
+    showMainWindow();
   });
   notification.show();
 
@@ -785,8 +795,9 @@ function parseNativeActionArg(args = []) {
   return null;
 }
 
-function createNativeActionPayload(action) {
+function createNativeActionPayload(action, data = {}) {
   const payload = {
+    ...data,
     id: nextNativeActionId,
     action,
     createdAt: Date.now(),
@@ -796,10 +807,10 @@ function createNativeActionPayload(action) {
   return payload;
 }
 
-function sendNativeAction(action) {
+function sendNativeAction(action, data = {}) {
   if (!action) return;
 
-  const payload = createNativeActionPayload(action);
+  const payload = createNativeActionPayload(action, data);
   showMainWindow();
 
   const dispatchScript = `

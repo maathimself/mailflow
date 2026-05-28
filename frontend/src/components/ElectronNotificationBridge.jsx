@@ -5,6 +5,9 @@ import { api } from '../utils/api.js';
 export default function ElectronNotificationBridge() {
   const addNotification = useStore(state => state.addNotification);
   const openCompose = useStore(state => state.openCompose);
+  const setSelectedAccount = useStore(state => state.setSelectedAccount);
+  const setSelectedMessage = useStore(state => state.setSelectedMessage);
+  const setSearchQuery = useStore(state => state.setSearchQuery);
   const totalUnread = useStore(state => state.unreadCounts.total);
   const lastActionRef = useRef({ action: null, time: 0 });
   const processedActionIdsRef = useRef(new Set());
@@ -32,6 +35,9 @@ export default function ElectronNotificationBridge() {
         body: notification.body,
         count: notification.count,
         accountId: notification.accountId,
+        folder: notification.folder,
+        messageId: notification.messageId,
+        message: notification.message,
       }).catch(() => {});
     };
 
@@ -124,6 +130,30 @@ export default function ElectronNotificationBridge() {
           return;
         }
 
+        if (action === 'open-message') {
+          const messageId = payload?.messageId;
+          if (!messageId) return;
+
+          const folder = payload.folder || 'INBOX';
+          const message = payload.message;
+          const state = useStore.getState();
+
+          setSearchQuery('');
+          if (payload.accountId) {
+            setSelectedAccount(payload.accountId, folder);
+          }
+
+          if (message && !state.messages.some((item) => item.id === message.id)) {
+            useStore.setState((current) => ({
+              messages: [{ ...message, account_id: message.account_id || payload.accountId }, ...current.messages],
+            }));
+          }
+
+          window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+          window.setTimeout(() => setSelectedMessage(messageId), 0);
+          return;
+        }
+
         if (action === 'sync') {
           try {
             addNotification({
@@ -174,7 +204,7 @@ export default function ElectronNotificationBridge() {
       window.removeEventListener('message', handleNativeMessage);
       if (typeof unsubscribe === 'function') unsubscribe();
     };
-  }, [addNotification, openCompose]);
+  }, [addNotification, openCompose, setSearchQuery, setSelectedAccount, setSelectedMessage]);
 
   return null;
 }
