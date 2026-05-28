@@ -112,6 +112,10 @@
     "rpm": {
       "packageName": "mailflow",
       "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "depends": [
+        "default",
+        "libunity"
+      ],
       "fpm": [
         "--replaces=mailflow-frontend",
         "packages/electron/package-type/rpm=/opt/MailFlow/resources/package-type"
