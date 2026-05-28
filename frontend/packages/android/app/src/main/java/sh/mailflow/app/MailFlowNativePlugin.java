@@ -78,6 +78,7 @@ public class MailFlowNativePlugin extends Plugin {
         }
 
         getPrefs(getContext()).edit().putString(PREF_HOST, normalizedHost).apply();
+        MailFlowBackgroundSync.schedule(getContext());
 
         JSObject result = new JSObject();
         result.put("host", normalizedHost);
@@ -93,6 +94,11 @@ public class MailFlowNativePlugin extends Plugin {
 
     @PluginMethod
     public void setUnreadCount(PluginCall call) {
+        Integer count = call.getInt("count");
+        if (count != null) {
+            MailFlowBackgroundWorker.updateUnreadBaseline(getContext(), count);
+            MailFlowBackgroundSync.schedule(getContext());
+        }
         call.resolve();
     }
 

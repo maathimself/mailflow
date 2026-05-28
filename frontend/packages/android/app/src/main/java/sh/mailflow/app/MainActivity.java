@@ -29,6 +29,7 @@ public class MainActivity extends BridgeActivity {
             bridge.setWebViewClient(new MailFlowWebViewClient(bridge, this));
             String savedHost = MailFlowNativePlugin.getSavedHost(this);
             if (savedHost != null) {
+                MailFlowBackgroundSync.schedule(this);
                 bridge.getWebView().post(() -> bridge.getWebView().loadUrl(savedHost));
             }
         }
@@ -45,6 +46,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onStop() {
         flushCookies();
+        MailFlowBackgroundSync.schedule(this);
         super.onStop();
     }
 
