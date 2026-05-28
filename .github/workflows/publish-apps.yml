@@ -126,9 +126,24 @@ jobs:
         working-directory: frontend
         run: npm run app:version -- "${{ steps.app-version.outputs.version }}" "${{ github.run_number }}"
 
+      - name: Prepare Android release signing
+        shell: bash
+        env:
+          MAILFLOW_ANDROID_KEYSTORE_BASE64: ${{ secrets.MAILFLOW_ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$MAILFLOW_ANDROID_KEYSTORE_BASE64" ]; then
+            mkdir -p "$RUNNER_TEMP/mailflow-signing"
+            echo "$MAILFLOW_ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/mailflow-signing/release.keystore"
+            echo "MAILFLOW_ANDROID_STORE_FILE=$RUNNER_TEMP/mailflow-signing/release.keystore" >> "$GITHUB_ENV"
+          fi
+
       - name: Build Android package
         working-directory: frontend
         run: npm run android:dist
+        env:
+          MAILFLOW_ANDROID_STORE_PASSWORD: ${{ secrets.MAILFLOW_ANDROID_STORE_PASSWORD }}
+          MAILFLOW_ANDROID_KEY_ALIAS: ${{ secrets.MAILFLOW_ANDROID_KEY_ALIAS }}
+          MAILFLOW_ANDROID_KEY_PASSWORD: ${{ secrets.MAILFLOW_ANDROID_KEY_PASSWORD }}
 
       - name: List Android release artifacts
         if: always()

@@ -13,14 +13,21 @@ if (!fs.existsSync(outputsDir)) {
 const outputFiles = listFiles(outputsDir);
 const apks = outputFiles.filter((file) => {
   const normalized = file.replace(/\\/g, '/').toLowerCase();
-  return normalized.endsWith('.apk') && normalized.includes('/release/');
+  return normalized.endsWith('.apk') && normalized.includes('/release/') && !normalized.endsWith('-unsigned.apk');
 });
 
 if (apks.length === 0) {
+  const unsignedApks = outputFiles.filter((file) => {
+    const normalized = file.replace(/\\/g, '/').toLowerCase();
+    return normalized.endsWith('-unsigned.apk') && normalized.includes('/release/');
+  });
   const found = outputFiles
     .map((file) => path.relative(root, file))
     .join('\n  ');
-  throw new Error(`No Android release APK files found under ${outputsDir}.${found ? ` Found:\n  ${found}` : ''}`);
+  const unsignedHint = unsignedApks.length > 0
+    ? '\nUnsigned release APKs were found, but Android cannot install them. Configure release signing or rebuild with the updated Gradle fallback.'
+    : '';
+  throw new Error(`No signed Android release APK files found under ${outputsDir}.${unsignedHint}${found ? ` Found:\n  ${found}` : ''}`);
 }
 
 fs.mkdirSync(releaseDir, { recursive: true });

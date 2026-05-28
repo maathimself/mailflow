@@ -3,6 +3,13 @@ apply plugin: 'com.android.application'
 android {
     namespace = "sh.mailflow.app"
     compileSdk = rootProject.ext.compileSdkVersion
+
+    def releaseStoreFile = System.getenv("MAILFLOW_ANDROID_STORE_FILE")
+    def releaseStorePassword = System.getenv("MAILFLOW_ANDROID_STORE_PASSWORD")
+    def releaseKeyAlias = System.getenv("MAILFLOW_ANDROID_KEY_ALIAS")
+    def releaseKeyPassword = System.getenv("MAILFLOW_ANDROID_KEY_PASSWORD")
+    def hasReleaseSigning = releaseStoreFile && releaseStorePassword && releaseKeyAlias && releaseKeyPassword
+
     defaultConfig {
         applicationId "sh.mailflow.app"
         minSdkVersion rootProject.ext.minSdkVersion
@@ -16,8 +23,19 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        if (hasReleaseSigning) {
+            release {
+                storeFile file(releaseStoreFile)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
+    }
     buildTypes {
         release {
+            signingConfig hasReleaseSigning ? signingConfigs.release : signingConfigs.debug
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
