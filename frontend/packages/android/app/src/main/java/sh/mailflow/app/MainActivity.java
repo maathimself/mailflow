@@ -43,6 +43,16 @@ public class MainActivity extends BridgeActivity {
             return;
         }
 
+        if (MailFlowNativePlugin.ACTION_COMPOSE.equals(action)) {
+            MailFlowNativePlugin.sendComposeAction();
+            return;
+        }
+
+        if (MailFlowNativePlugin.ACTION_SYNC.equals(action)) {
+            MailFlowNativePlugin.sendSyncAction();
+            return;
+        }
+
         if ((Intent.ACTION_SENDTO.equals(action) || Intent.ACTION_VIEW.equals(action)) && data != null && "mailto".equalsIgnoreCase(data.getScheme())) {
             MailFlowNativePlugin.sendMailtoAction(data);
         }

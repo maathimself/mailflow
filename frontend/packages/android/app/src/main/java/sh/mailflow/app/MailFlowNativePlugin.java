@@ -4,13 +4,14 @@ import android.Manifest;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
-import androidx.core.app.ActivityCompat;
+import android.provider.Settings;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
@@ -40,6 +41,8 @@ import org.json.JSONException;
 )
 public class MailFlowNativePlugin extends Plugin {
     static final String ACTION_OPEN_MESSAGE = "sh.mailflow.app.OPEN_MESSAGE";
+    static final String ACTION_COMPOSE = "sh.mailflow.app.COMPOSE";
+    static final String ACTION_SYNC = "sh.mailflow.app.SYNC";
     private static final String CHANNEL_NEW_MAIL = "mailflow_new_mail";
     private static final String PREFS_NAME = "mailflow-native";
     private static final String PREF_HOST = "host";
@@ -92,8 +95,13 @@ public class MailFlowNativePlugin extends Plugin {
 
     @PluginMethod
     public void requestNotificationPermission(PluginCall call) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || hasNotificationPermission()) {
+        if (hasNotificationPermission()) {
             call.resolve(notificationPermissionResult("granted"));
+            return;
+        }
+
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            call.resolve(notificationPermissionResult("denied"));
             return;
         }
 
@@ -106,13 +114,26 @@ public class MailFlowNativePlugin extends Plugin {
     }
 
     @PluginMethod
-    public void showNewMail(PluginCall call) {
-        requestNotificationPermissionIfNeeded();
+    public void openNotificationSettings(PluginCall call) {
+        Intent intent = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+            .putExtra(Settings.EXTRA_APP_PACKAGE, getContext().getPackageName());
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && ContextCompat.checkSelfPermission(
-                getContext(),
-                Manifest.permission.POST_NOTIFICATIONS
-            ) != PackageManager.PERMISSION_GRANTED) {
+        try {
+            getContext().startActivity(intent);
+        } catch (ActivityNotFoundException err) {
+            Intent fallbackIntent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                .setData(Uri.parse("package:" + getContext().getPackageName()));
+            fallbackIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(fallbackIntent);
+        }
+
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void showNewMail(PluginCall call) {
+        if (!hasNotificationPermission()) {
             call.resolve();
             return;
         }
@@ -200,6 +221,19 @@ public class MailFlowNativePlugin extends Plugin {
         JSObject action = newAction("new-mail");
         action.put("composeData", composeData);
         action.put("source", "mailto");
+        dispatchAction(action);
+    }
+
+    static void sendComposeAction() {
+        JSObject action = newAction("new-mail");
+        action.put("composeData", new JSObject());
+        action.put("source", "shortcut");
+        dispatchAction(action);
+    }
+
+    static void sendSyncAction() {
+        JSObject action = newAction("sync");
+        action.put("source", "shortcut");
         dispatchAction(action);
     }
 
@@ -327,28 +361,28 @@ public class MailFlowNativePlugin extends Plugin {
         if (manager != null) manager.createNotificationChannel(channel);
     }
 
-    private void requestNotificationPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !hasNotificationPermission()) {
-            ActivityCompat.requestPermissions(getActivity(), new String[] { Manifest.permission.POST_NOTIFICATIONS }, 4901);
-        }
-    }
-
     @PermissionCallback
     private void notificationPermissionCallback(PluginCall call) {
         call.resolve(notificationPermissionResult(getNotificationPermissionState()));
     }
 
     private boolean hasNotificationPermission() {
-        return ContextCompat.checkSelfPermission(
+        if (!NotificationManagerCompat.from(getContext()).areNotificationsEnabled()) {
+            return false;
+        }
+
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || ContextCompat.checkSelfPermission(
             getContext(),
             Manifest.permission.POST_NOTIFICATIONS
         ) == PackageManager.PERMISSION_GRANTED;
     }
 
     private String getNotificationPermissionState() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || hasNotificationPermission()) {
+        if (hasNotificationPermission()) {
             return "granted";
         }
+
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return "denied";
 
         PermissionState state = getPermissionState("notifications");
         if (state == PermissionState.DENIED) return "denied";

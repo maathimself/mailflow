@@ -144,6 +144,14 @@
             const result = await plugin.saveHost({ host });
             return result?.host || host;
           },
+          checkNotificationPermission: async () => {
+            const result = await plugin.checkNotificationPermission();
+            return result?.permission || 'default';
+          },
+          requestNotificationPermission: async () => {
+            const result = await plugin.requestNotificationPermission();
+            return result?.permission || 'default';
+          },
           resetHost: async () => plugin.resetHost(),
         };
       }
@@ -172,10 +180,20 @@
         document.body.classList.remove('setup-pending');
       }
 
+      async function requestInitialNotificationPermission() {
+        if (!window.mailflowNative) return;
+
+        const permission = await window.mailflowNative.checkNotificationPermission();
+        if (permission === 'default') {
+          await window.mailflowNative.requestNotificationPermission();
+        }
+      }
+
       async function restoreHost() {
         installCapacitorNativeBridge();
 
         if (window.mailflowNative) {
+          requestInitialNotificationPermission().catch(() => {});
           const host = await window.mailflowNative.getHost();
           if (host) loadHost(host);
           else showSetup();

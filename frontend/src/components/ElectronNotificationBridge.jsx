@@ -29,10 +29,6 @@ export default function ElectronNotificationBridge() {
   }, [totalUnread]);
 
   useEffect(() => {
-    window.mailflowNative?.notifications?.requestPermission?.().catch(() => {});
-  }, []);
-
-  useEffect(() => {
     const showNewMail = window.mailflowNative?.notifications?.showNewMail;
     if (typeof showNewMail !== 'function') return undefined;
 

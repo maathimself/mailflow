@@ -36,6 +36,7 @@ export function installCapacitorNativeBridge() {
         const result = await MailFlowNative.requestNotificationPermission();
         return result?.permission || 'default';
       },
+      openSettings: async () => MailFlowNative.openNotificationSettings(),
       showNewMail: async (notification) => MailFlowNative.showNewMail(notification || {}),
     },
     actions: {

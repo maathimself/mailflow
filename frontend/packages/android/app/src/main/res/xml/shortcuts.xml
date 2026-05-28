@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="compose"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_compose_short_label"
+        android:shortcutLongLabel="@string/shortcut_compose_long_label">
+        <intent
+            android:action="sh.mailflow.app.COMPOSE"
+            android:targetPackage="sh.mailflow.app"
+            android:targetClass="sh.mailflow.app.MainActivity" />
+    </shortcut>
+
+    <shortcut
+        android:shortcutId="sync"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_sync_short_label"
+        android:shortcutLongLabel="@string/shortcut_sync_long_label">
+        <intent
+            android:action="sh.mailflow.app.SYNC"
+            android:targetPackage="sh.mailflow.app"
+            android:targetClass="sh.mailflow.app.MainActivity" />
+    </shortcut>
+</shortcuts>
