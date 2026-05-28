@@ -5,7 +5,7 @@
     <string name="package_name">sh.mailflow.app</string>
     <string name="custom_url_scheme">sh.mailflow.app</string>
     <string name="shortcut_compose_short_label">New email</string>
-    <string name="shortcut_compose_long_label">Compose new email</string>
+    <string name="shortcut_compose_long_label">Compose</string>
     <string name="shortcut_sync_short_label">Sync</string>
-    <string name="shortcut_sync_long_label">Sync mail</string>
+    <string name="shortcut_sync_long_label">Sync</string>
 </resources>
