@@ -189,6 +189,14 @@ function getLinuxDistributionIds() {
   }
 }
 
+function isDebLikeLinuxDistribution(distroIds = getLinuxDistributionIds()) {
+  return distroIds.some((id) => ['debian', 'ubuntu', 'linuxmint', 'pop'].some((match) => id === match || id.includes(match)));
+}
+
+function isRpmLikeLinuxDistribution(distroIds = getLinuxDistributionIds()) {
+  return distroIds.some((id) => ['fedora', 'rhel', 'centos', 'rocky', 'almalinux', 'suse', 'opensuse'].some((match) => id === match || id.includes(match)));
+}
+
 function getInstalledLinuxPackageType() {
   if (process.platform !== 'linux') return null;
   if (process.env.APPIMAGE) return 'appimage';
@@ -200,6 +208,10 @@ function getInstalledLinuxPackageType() {
 
   if (getLinuxPackageManagerVersion('rpm')) return 'rpm';
   if (getLinuxPackageManagerVersion('deb')) return 'deb';
+
+  const distroIds = getLinuxDistributionIds();
+  if (isRpmLikeLinuxDistribution(distroIds) || getAvailableCommand(['rpm', 'dnf', 'dnf5', 'yum'])) return 'rpm';
+  if (isDebLikeLinuxDistribution(distroIds) || getAvailableCommand(['dpkg', 'apt', 'apt-get'])) return 'deb';
 
   return null;
 }
@@ -245,8 +257,8 @@ function emitUnityLauncherBadgeCount(count) {
 
   const visible = count > 0;
   const properties = visible
-    ? `{'count':<${count}>,'count-visible':<true>}`
-    : `{'count-visible':<false>}`;
+    ? `{'count': <int64 ${count}>, 'count-visible': <true>}`
+    : `{'count': <int64 0>, 'count-visible': <false>}`;
 
   for (const desktopId of LINUX_BADGE_DESKTOP_IDS) {
     const child = spawn(gdbus, [
@@ -292,14 +304,17 @@ function getLinuxPackagePatternGroups() {
   if (installedPackageType === 'rpm') return [rpm];
 
   const distroIds = getLinuxDistributionIds();
-  if (distroIds.some((id) => ['debian', 'ubuntu', 'linuxmint', 'pop'].includes(id))) {
+  if (isDebLikeLinuxDistribution(distroIds)) {
     return [deb];
   }
-  if (distroIds.some((id) => ['fedora', 'rhel', 'centos', 'rocky', 'almalinux', 'suse', 'opensuse'].includes(id))) {
+  if (isRpmLikeLinuxDistribution(distroIds)) {
     return [rpm];
   }
 
-  return [deb, rpm];
+  if (getAvailableCommand(['rpm', 'dnf', 'dnf5', 'yum'])) return [rpm];
+  if (getAvailableCommand(['dpkg', 'apt', 'apt-get'])) return [deb];
+
+  return [];
 }
 
 function getUpdateAsset(release) {
