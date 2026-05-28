@@ -25,6 +25,7 @@ public class MainActivity extends BridgeActivity {
 
         if (bridge != null) {
             configureCookies();
+            bridge.getWebView().addJavascriptInterface(new MailFlowNativePlugin.NotificationBridge(this), "MailFlowAndroid");
             bridge.setWebViewClient(new MailFlowWebViewClient(bridge, this));
             String savedHost = MailFlowNativePlugin.getSavedHost(this);
             if (savedHost != null) {

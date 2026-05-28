@@ -62,9 +62,8 @@ export function installCapacitorNativeBridge() {
         if (pluginUnavailable) return () => {};
         const MailFlowNative = getPlugin();
         const handlePromise = MailFlowNative.addListener('nativeAction', callback).catch((error) => {
-          if (String(error?.message || error).includes('not implemented')) {
-            pluginUnavailable = true;
-          }
+          // Listener support can be unavailable on hosted/older native shells while
+          // direct plugin methods such as showNewMail still work.
           return null;
         });
         return () => {

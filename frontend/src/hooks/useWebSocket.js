@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
+import { installCapacitorNativeBridge } from '../utils/capacitorNativeBridge.js';
 import { playNotificationSound } from '../utils/notificationSounds.js';
 import { pendingMarkReadMap } from '../utils/pendingReads.js';
 import { updateFaviconBadge } from '../themes.js';
@@ -46,10 +47,17 @@ function _applyServerCounts(counts) {
   }
 }
 
-function _emitNativeNewMailNotification(notification) {
-  window.dispatchEvent(new CustomEvent('mailflow:new-mail-notification', {
-    detail: notification,
-  }));
+function _forwardNativeNewMailNotification(notification) {
+  installCapacitorNativeBridge();
+  window.mailflowNative?.notifications?.showNewMail?.({
+    title: notification.title,
+    body: notification.body,
+    count: notification.count,
+    accountId: notification.accountId,
+    folder: notification.folder,
+    messageId: notification.messageId,
+    message: notification.message,
+  }).catch(() => {});
 }
 
 // Auth-related close codes that should not trigger reconnect
@@ -136,9 +144,9 @@ export function useWebSocket() {
               addNotification(notification);
               const { notificationSound, customSoundDataUrl } = useStore.getState();
               playNotificationSound(notificationSound, customSoundDataUrl);
-            } else {
-              _emitNativeNewMailNotification(notification);
             }
+
+            _forwardNativeNewMailNotification(notification);
           }
 
           // Refresh the message list when the affected folder is visible

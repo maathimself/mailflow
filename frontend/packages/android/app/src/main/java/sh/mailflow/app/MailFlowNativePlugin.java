@@ -12,6 +12,7 @@ import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.Settings;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
@@ -33,6 +34,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import org.json.JSONException;
+import org.json.JSONObject;
 
 @CapacitorPlugin(
     name = "MailFlowNative",
@@ -134,11 +136,6 @@ public class MailFlowNativePlugin extends Plugin {
 
     @PluginMethod
     public void showNewMail(PluginCall call) {
-        if (!hasNotificationPermission()) {
-            call.resolve();
-            return;
-        }
-
         String title = call.getString("title", "New mail");
         String body = call.getString("body", "You have new mail.");
         String messageId = call.getString("messageId", null);
@@ -146,7 +143,14 @@ public class MailFlowNativePlugin extends Plugin {
         String folder = call.getString("folder", "INBOX");
         JSObject message = call.getObject("message");
 
-        Intent intent = new Intent(getContext(), MainActivity.class);
+        postNewMailNotification(getContext(), title, body, messageId, accountId, folder, message);
+        call.resolve();
+    }
+
+    static void postNewMailNotification(Context context, String title, String body, String messageId, String accountId, String folder, JSObject message) {
+        if (!hasNotificationPermission(context)) return;
+
+        Intent intent = new Intent(context, MainActivity.class);
         intent.setAction(ACTION_OPEN_MESSAGE);
         intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         putExtra(intent, "messageId", messageId);
@@ -156,13 +160,13 @@ public class MailFlowNativePlugin extends Plugin {
 
         int notificationId = Math.abs(UUID.randomUUID().hashCode());
         PendingIntent pendingIntent = PendingIntent.getActivity(
-            getContext(),
+            context,
             notificationId,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
 
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(getContext(), CHANNEL_NEW_MAIL)
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(context, CHANNEL_NEW_MAIL)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(title)
             .setContentText(body)
@@ -171,8 +175,7 @@ public class MailFlowNativePlugin extends Plugin {
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT);
 
-        NotificationManagerCompat.from(getContext()).notify(notificationId, builder.build());
-        call.resolve();
+        NotificationManagerCompat.from(context).notify(notificationId, builder.build());
     }
 
     @PluginMethod
@@ -251,6 +254,15 @@ public class MailFlowNativePlugin extends Plugin {
             + "return true;"
             + "};"
             + "}"
+            + "var androidNotifications=window.MailFlowAndroid;"
+            + "var plugin=function(){return window.Capacitor&&window.Capacitor.Plugins&&window.Capacitor.Plugins.MailFlowNative;};"
+            + "var call=function(method,args,fallback){var p=plugin();if(!p||typeof p[method]!=='function')return Promise.resolve(fallback||null);return p[method](args||{}).catch(function(){return fallback||null;});};"
+            + "window.mailflowNative=window.mailflowNative||{};"
+            + "window.mailflowNative.notifications=window.mailflowNative.notifications||{};"
+            + "window.mailflowNative.notifications.showNewMail=function(notification){if(androidNotifications&&typeof androidNotifications.showNewMail==='function'){androidNotifications.showNewMail(JSON.stringify(notification||{}));return Promise.resolve(null);}return call('showNewMail',notification||{});};"
+            + "window.mailflowNative.notifications.checkPermission=function(){return call('checkNotificationPermission',{},{}).then(function(result){return result&&result.permission||'default';});};"
+            + "window.mailflowNative.notifications.requestPermission=function(){return call('requestNotificationPermission',{},{}).then(function(result){return result&&result.permission||'default';});};"
+            + "window.mailflowNative.notifications.openSettings=function(){return call('openNotificationSettings',{});};"
             + "}catch(e){}})();";
 
         webView.post(() -> webView.evaluateJavascript(script, null));
@@ -435,12 +447,16 @@ public class MailFlowNativePlugin extends Plugin {
     }
 
     private boolean hasNotificationPermission() {
-        if (!NotificationManagerCompat.from(getContext()).areNotificationsEnabled()) {
+        return hasNotificationPermission(getContext());
+    }
+
+    private static boolean hasNotificationPermission(Context context) {
+        if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) {
             return false;
         }
 
         return Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || ContextCompat.checkSelfPermission(
-            getContext(),
+            context,
             Manifest.permission.POST_NOTIFICATIONS
         ) == PackageManager.PERMISSION_GRANTED;
     }
@@ -461,6 +477,34 @@ public class MailFlowNativePlugin extends Plugin {
         JSObject result = new JSObject();
         result.put("permission", permission);
         return result;
+    }
+
+    public static class NotificationBridge {
+        private final Context context;
+
+        NotificationBridge(Context context) {
+            this.context = context.getApplicationContext();
+            createNotificationChannel(this.context);
+        }
+
+        @JavascriptInterface
+        public void showNewMail(String notificationJson) {
+            try {
+                JSONObject notification = new JSONObject(notificationJson == null ? "{}" : notificationJson);
+                JSONObject messageObject = notification.optJSONObject("message");
+                JSObject message = messageObject == null ? null : JSObject.fromJSONObject(messageObject);
+
+                postNewMailNotification(
+                    context,
+                    notification.optString("title", "New mail"),
+                    notification.optString("body", "You have new mail."),
+                    notification.optString("messageId", null),
+                    notification.optString("accountId", null),
+                    notification.optString("folder", "INBOX"),
+                    message
+                );
+            } catch (JSONException ignored) {}
+        }
     }
 
     private static void putExtra(Intent intent, String key, String value) {
