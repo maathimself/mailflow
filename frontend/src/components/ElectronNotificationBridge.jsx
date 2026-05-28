@@ -126,7 +126,7 @@ export default function ElectronNotificationBridge() {
 
       try {
         if (action === 'new-mail') {
-          openCompose({});
+          openCompose(payload?.composeData || {});
           return;
         }
 

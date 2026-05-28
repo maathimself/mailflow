@@ -46,6 +46,14 @@
       "buildResources": "packages/electron/icons"
     },
     "icon": "icon",
+    "protocols": [
+      {
+        "name": "MailFlow email link",
+        "schemes": [
+          "mailto"
+        ]
+      }
+    ],
     "files": [
       "packages/electron/**/*",
       "packages/native-shell/**/*",

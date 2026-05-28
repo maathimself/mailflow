@@ -11,6 +11,7 @@ const UPDATE_ERROR_MESSAGE = 'Could not check for MailFlow updates. Please visit
 const NATIVE_ACTION_CHANNEL = 'mailflow:native-action';
 const NATIVE_ACTION_ARG = '--mailflow-action=';
 const NEW_MAIL_NOTIFICATION_MAX_LENGTH = 240;
+const MAILTO_PROTOCOL = 'mailto';
 const LINUX_BADGE_DESKTOP_IDS = [
   'MailFlow.desktop',
   'mailflow.desktop',
@@ -26,6 +27,7 @@ let downloadedUpdate = null;
 let updateDownloadsInitialized = false;
 let nextNativeActionId = 1;
 const pendingNativeActions = new Map();
+const pendingProtocolUrls = [];
 
 app.setName('MailFlow');
 if (process.platform === 'win32') {
@@ -37,6 +39,19 @@ if (process.platform === 'linux' && typeof app.setDesktopName === 'function') {
 
 if (process.platform === 'linux' && process.env.APPIMAGE) {
   app.commandLine.appendSwitch('no-sandbox');
+}
+
+function registerMailtoProtocol() {
+  try {
+    if (process.defaultApp && process.argv.length >= 2) {
+      return app.setAsDefaultProtocolClient(MAILTO_PROTOCOL, process.execPath, [path.resolve(process.argv[1])]);
+    }
+
+    return app.setAsDefaultProtocolClient(MAILTO_PROTOCOL);
+  } catch (error) {
+    console.error('Could not register mailto protocol handler:', error);
+    return false;
+  }
 }
 
 function getIconPath() {
@@ -786,6 +801,76 @@ function openDownloadedUpdatePath() {
   shell.showItemInFolder(downloadedUpdate);
 }
 
+function isMailtoUrl(value) {
+  return /^mailto:/i.test(String(value || '').trim());
+}
+
+function parseProtocolUrlArg(args = []) {
+  return args.find(isMailtoUrl) || null;
+}
+
+function splitMailtoAddresses(value) {
+  return String(value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function appendMailtoAddresses(target, value) {
+  target.push(...splitMailtoAddresses(value));
+}
+
+function parseMailtoUrl(url) {
+  const input = String(url || '').trim();
+  if (!isMailtoUrl(input)) return null;
+
+  try {
+    const parsed = new URL(input);
+    const composeData = {
+      to: [],
+      cc: [],
+      bcc: [],
+      subject: '',
+      body: '',
+    };
+
+    appendMailtoAddresses(composeData.to, decodeURIComponent(parsed.pathname || ''));
+
+    for (const [key, value] of parsed.searchParams.entries()) {
+      const normalizedKey = key.toLowerCase();
+
+      if (normalizedKey === 'to') appendMailtoAddresses(composeData.to, value);
+      else if (normalizedKey === 'cc') appendMailtoAddresses(composeData.cc, value);
+      else if (normalizedKey === 'bcc') appendMailtoAddresses(composeData.bcc, value);
+      else if (normalizedKey === 'subject') composeData.subject = value;
+      else if (normalizedKey === 'body') composeData.body = value;
+    }
+
+    composeData.to = [...new Set(composeData.to)];
+    composeData.cc = [...new Set(composeData.cc)];
+    composeData.bcc = [...new Set(composeData.bcc)];
+
+    return composeData;
+  } catch (error) {
+    console.error('Could not parse mailto URL:', error);
+    return null;
+  }
+}
+
+function sendMailtoAction(url) {
+  const composeData = parseMailtoUrl(url);
+  if (!composeData) return false;
+
+  sendNativeAction('new-mail', { composeData, source: 'mailto' });
+  return true;
+}
+
+function flushPendingProtocolUrls() {
+  while (pendingProtocolUrls.length > 0) {
+    sendMailtoAction(pendingProtocolUrls.shift());
+  }
+}
+
 function parseNativeActionArg(args = []) {
   const actionArg = args.find((arg) => String(arg).startsWith(NATIVE_ACTION_ARG));
   if (!actionArg) return null;
@@ -1306,6 +1391,7 @@ if (!gotSingleInstanceLock) {
   app.quit();
 } else {
   app.whenReady().then(() => {
+    registerMailtoProtocol();
     setupMenu();
     setupDockMenu();
     setupTaskbarTasks();
@@ -1313,6 +1399,8 @@ if (!gotSingleInstanceLock) {
     createWindow();
     scheduleStartupUpdateCheck();
     sendNativeAction(parseNativeActionArg(process.argv));
+    sendMailtoAction(parseProtocolUrlArg(process.argv));
+    flushPendingProtocolUrls();
 
     app.on('activate', () => {
       showMainWindow();
@@ -1320,6 +1408,12 @@ if (!gotSingleInstanceLock) {
   });
 
   app.on('second-instance', (_event, args) => {
+    const mailtoUrl = parseProtocolUrlArg(args);
+    if (mailtoUrl) {
+      sendMailtoAction(mailtoUrl);
+      return;
+    }
+
     showMainWindow();
     sendNativeAction(parseNativeActionArg(args));
   });
@@ -1327,6 +1421,17 @@ if (!gotSingleInstanceLock) {
 
 app.on('before-quit', () => {
   isQuitting = true;
+});
+
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+
+  if (mainWindow) {
+    sendMailtoAction(url);
+    return;
+  }
+
+  pendingProtocolUrls.push(url);
 });
 
 app.on('window-all-closed', () => {
