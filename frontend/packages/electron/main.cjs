@@ -44,12 +44,47 @@ if (process.platform === 'linux' && process.env.APPIMAGE) {
 function registerMailtoProtocol() {
   try {
     if (process.defaultApp && process.argv.length >= 2) {
-      return app.setAsDefaultProtocolClient(MAILTO_PROTOCOL, process.execPath, [path.resolve(process.argv[1])]);
+      const registered = app.setAsDefaultProtocolClient(MAILTO_PROTOCOL, process.execPath, [path.resolve(process.argv[1])]);
+      registerWindowsMailtoCapabilities();
+      return registered;
     }
 
-    return app.setAsDefaultProtocolClient(MAILTO_PROTOCOL);
+    const registered = app.setAsDefaultProtocolClient(MAILTO_PROTOCOL);
+    registerWindowsMailtoCapabilities();
+    return registered;
   } catch (error) {
     console.error('Could not register mailto protocol handler:', error);
+    return false;
+  }
+}
+
+function writeCurrentUserRegValue(key, name, value) {
+  const args = ['add', key, name ? '/v' : '/ve'];
+  if (name) args.push(name);
+  args.push('/t', 'REG_SZ', '/d', value, '/f');
+  execFileSync('reg', args, { stdio: 'ignore', windowsHide: true });
+}
+
+function registerWindowsMailtoCapabilities() {
+  if (process.platform !== 'win32') return false;
+
+  try {
+    const exePath = process.execPath;
+    const command = `"${exePath}" "%1"`;
+
+    writeCurrentUserRegValue('HKCU\\Software\\RegisteredApplications', 'MailFlow', 'Software\\Clients\\Mail\\MailFlow\\Capabilities');
+    writeCurrentUserRegValue('HKCU\\Software\\Clients\\Mail\\MailFlow', '', 'MailFlow');
+    writeCurrentUserRegValue('HKCU\\Software\\Clients\\Mail\\MailFlow\\Capabilities', 'ApplicationName', 'MailFlow');
+    writeCurrentUserRegValue('HKCU\\Software\\Clients\\Mail\\MailFlow\\Capabilities', 'ApplicationDescription', 'A self-hosted, unified webmail client.');
+    writeCurrentUserRegValue('HKCU\\Software\\Clients\\Mail\\MailFlow\\Capabilities\\URLAssociations', 'mailto', 'MailFlow.mailto');
+    writeCurrentUserRegValue('HKCU\\Software\\Classes\\MailFlow.mailto', '', 'URL:MailFlow MailTo Protocol');
+    writeCurrentUserRegValue('HKCU\\Software\\Classes\\MailFlow.mailto', 'URL Protocol', '');
+    writeCurrentUserRegValue('HKCU\\Software\\Classes\\MailFlow.mailto\\DefaultIcon', '', `${exePath},0`);
+    writeCurrentUserRegValue('HKCU\\Software\\Classes\\MailFlow.mailto\\shell\\open\\command', '', command);
+
+    return true;
+  } catch (error) {
+    console.error('Could not register Windows mailto capabilities:', error);
     return false;
   }
 }

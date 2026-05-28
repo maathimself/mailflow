@@ -66,6 +66,9 @@
         "nsis"
       ]
     },
+    "nsis": {
+      "include": "packages/electron/installer.nsh"
+    },
     "mac": {
       "artifactName": "${productName}-${version}-Universal.${ext}",
       "target": [
