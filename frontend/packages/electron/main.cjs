@@ -6,7 +6,7 @@ const path = require('path');
 
 const CONFIG_FILE = 'mailflow-host.json';
 const UPDATE_STATUS_CHANNEL = 'mailflow:updates:status';
-const UPDATE_RELEASE_URL = 'https://api.github.com/repos/dcoffin88/mailflow/releases/latest';
+const UPDATE_RELEASE_URL = 'https://api.github.com/repos/maathimself/mailflow/releases/latest';
 const UPDATE_ERROR_MESSAGE = 'Could not check for MailFlow updates. Please visit the website instead.';
 const NATIVE_ACTION_CHANNEL = 'mailflow:native-action';
 const NATIVE_ACTION_ARG = '--mailflow-action=';
@@ -1025,13 +1025,6 @@ function viewMenuItems() {
       click(_item, focusedWindow) {
         if (!focusedWindow) return;
         focusedWindow.setFullScreen(!focusedWindow.isFullScreen());
-      },
-    },
-    {
-      label: 'Toggle Developer Tools',
-      accelerator: process.platform === 'darwin' ? 'Alt+Command+I' : 'Ctrl+Shift+I',
-      click(_item, focusedWindow) {
-        if (focusedWindow) focusedWindow.webContents.toggleDevTools();
       },
     },
   ];
