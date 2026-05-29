@@ -23,6 +23,6 @@
             android:action="android.intent.action.VIEW"
             android:data="mailflow://sync"
             android:targetPackage="sh.mailflow.app"
-            android:targetClass="sh.mailflow.app.MainActivity" />
+            android:targetClass="sh.mailflow.app.SyncShortcutActivity" />
     </shortcut>
 </shortcuts>

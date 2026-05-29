@@ -7,6 +7,7 @@ import androidx.annotation.NonNull;
 import androidx.work.Worker;
 import androidx.work.WorkerParameters;
 import java.io.BufferedReader;
+import java.io.OutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
@@ -42,6 +43,10 @@ public class MailFlowBackgroundWorker extends Worker {
         if (cookie == null || cookie.trim().isEmpty()) return Result.success();
 
         try {
+            if (getInputData().getBoolean(MailFlowBackgroundSync.INPUT_SYNC_NOW, false)) {
+                postJson(host + "/api/mail/sync", cookie, "{}");
+            }
+
             JSONObject counts = getJson(host + "/api/mail/unread-counts", cookie);
             int unreadTotal = counts.optInt("total", 0);
 
@@ -102,6 +107,34 @@ public class MailFlowBackgroundWorker extends Worker {
         }
 
         return new JSONObject(body);
+    }
+
+    private static JSONObject postJson(String url, String cookie, String body) throws Exception {
+        HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
+        connection.setRequestMethod("POST");
+        connection.setConnectTimeout(15000);
+        connection.setReadTimeout(15000);
+        connection.setDoOutput(true);
+        connection.setRequestProperty("Accept", "application/json");
+        connection.setRequestProperty("Content-Type", "application/json");
+        connection.setRequestProperty("Cookie", cookie);
+
+        try (OutputStream output = connection.getOutputStream()) {
+            output.write((body == null ? "{}" : body).getBytes("UTF-8"));
+        }
+
+        int status = connection.getResponseCode();
+        InputStream stream = status >= 200 && status < 300
+            ? connection.getInputStream()
+            : connection.getErrorStream();
+        String responseBody = readAll(stream);
+        connection.disconnect();
+
+        if (status < 200 || status >= 300) {
+            throw new IllegalStateException("MailFlow background sync failed: HTTP " + status);
+        }
+
+        return new JSONObject(responseBody);
     }
 
     private static String readAll(InputStream stream) throws Exception {
