@@ -19,8 +19,4 @@
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
         <item name="android:background">@drawable/splash</item>
     </style>
-
-    <style name="AppTheme.NoDisplay" parent="android:style/Theme.NoDisplay">
-        <item name="android:windowDisablePreview">true</item>
-    </style>
 </resources>
