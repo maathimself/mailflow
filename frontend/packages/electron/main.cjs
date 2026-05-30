@@ -1,6 +1,7 @@
-const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, shell, dialog, Notification } = require('electron');
+const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, shell, dialog, Notification, session } = require('electron');
 const { execFileSync, spawn } = require('child_process');
 const fs = require('fs');
+const http = require('http');
 const https = require('https');
 const path = require('path');
 
@@ -548,6 +549,56 @@ function cleanNotificationText(value, fallback = '') {
   return `${text.slice(0, NEW_MAIL_NOTIFICATION_MAX_LENGTH - 1)}…`;
 }
 
+function requestMailFlowApi(url, { method, body } = {}) {
+  return session.defaultSession.cookies.get({ url: readHost() })
+    .then((cookies) => new Promise((resolve, reject) => {
+      const parsedUrl = new URL(url);
+      const request = (parsedUrl.protocol === 'http:' ? http : https).request(parsedUrl, {
+        method,
+        headers: {
+          Accept: 'application/json',
+          Cookie: cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join('; '),
+          ...(body ? { 'Content-Type': 'application/json' } : {}),
+        },
+      }, (response) => {
+        response.resume();
+        response.on('end', () => {
+          if (response.statusCode >= 200 && response.statusCode < 300) {
+            resolve();
+            return;
+          }
+
+          reject(new Error(`Mail action failed with status ${response.statusCode}`));
+        });
+      });
+
+      request.on('error', reject);
+      if (body) request.write(JSON.stringify(body));
+      request.end();
+    }));
+}
+
+function runBackgroundMailAction(action, messageId) {
+  const host = readHost();
+  if (!host || !messageId) return Promise.resolve();
+
+  const encodedMessageId = encodeURIComponent(messageId);
+  if (action === 'delete-message') {
+    return requestMailFlowApi(`${host}/api/mail/messages/${encodedMessageId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  if (action === 'star-message') {
+    return requestMailFlowApi(`${host}/api/mail/messages/${encodedMessageId}/star`, {
+      method: 'PATCH',
+      body: { starred: true },
+    });
+  }
+
+  return Promise.resolve();
+}
+
 function showNewMailNotification({ title, body, count, messageId, accountId, folder, message } = {}) {
   if (!Notification.isSupported()) {
     return { shown: false, reason: 'unsupported' };
@@ -560,6 +611,13 @@ function showNewMailNotification({ title, body, count, messageId, accountId, fol
     body: count > 1 ? `${normalizedBody}\n${count} new messages` : normalizedBody,
     icon: getIconPath(),
     silent: true,
+    ...(process.platform !== 'linux' ? {
+      actions: [
+        { type: 'button', text: 'Reply' },
+        { type: 'button', text: 'Delete' },
+        { type: 'button', text: 'Star' },
+      ],
+    } : {}),
   });
 
   notification.on('click', () => {
@@ -574,6 +632,27 @@ function showNewMailNotification({ title, body, count, messageId, accountId, fol
     }
 
     showMainWindow();
+  });
+  notification.on('action', (event, index) => {
+    const actionIndex = Number.isInteger(index) ? index : event.actionIndex;
+    if (!messageId) return;
+
+    if (actionIndex === 0) {
+      sendNativeAction('reply-message', {
+        messageId,
+        accountId,
+        folder,
+        message,
+      });
+      return;
+    }
+
+    const action = actionIndex === 1 ? 'delete-message' : actionIndex === 2 ? 'star-message' : null;
+    if (!action) return;
+
+    notification.close();
+    runBackgroundMailAction(action, messageId)
+      .catch((error) => console.error(`Could not ${action} from desktop notification:`, error));
   });
   notification.show();
 
