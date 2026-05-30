@@ -64,6 +64,9 @@ public class MailFlowNativePlugin extends Plugin {
     private static final String CHANNEL_UPDATES = "mailflow_updates";
     private static final String PREFS_NAME = "mailflow-native";
     private static final String PREF_HOST = "host";
+    private static final String PREF_UPDATE_APK_PATH = "update_apk_path";
+    private static final String PREF_UPDATE_VERSION = "update_version";
+    private static final String PREF_UPDATE_RELEASE_NAME = "update_release_name";
     private static final String SETUP_URL = "file:///android_asset/public/index.html";
     private static final String UPDATE_RELEASE_URL = "https://api.github.com/repos/dcoffin88/mailflow/releases/latest";
     private static final String UPDATE_ERROR_MESSAGE = "Could not check for MailFlow updates. Please visit the website instead.";
@@ -80,6 +83,7 @@ public class MailFlowNativePlugin extends Plugin {
     public void load() {
         instance = this;
         createNotificationChannel(getContext());
+        restoreDownloadedUpdateState();
         checkForUpdatesInBackground(false, null);
     }
 
@@ -152,6 +156,7 @@ public class MailFlowNativePlugin extends Plugin {
                 ReleaseInfo release = fetchLatestRelease();
                 Log.i(TAG, "Latest release " + release.version + ", installed " + getInstalledVersion() + ", APK " + release.downloadUrl);
                 if (!isNewerVersion(release.version, getInstalledVersion())) {
+                    clearDownloadedUpdateState();
                     if (verbose) {
                         sendUpdateStatus(updateStatus("up-to-date"));
                     }
@@ -655,6 +660,7 @@ public class MailFlowNativePlugin extends Plugin {
                 }
 
                 downloadedUpdate = output;
+                persistDownloadedUpdateState(release, output);
                 Log.i(TAG, "Downloaded update APK to " + output.getAbsolutePath());
                 sendUpdateStatus(updateStatus("downloaded", release.toStatusData(output.getAbsolutePath())));
                 postUpdateReadyNotification(release);
@@ -687,6 +693,7 @@ public class MailFlowNativePlugin extends Plugin {
 
     private JSObject installDownloadedUpdate() {
         JSObject result = new JSObject();
+        restoreDownloadedUpdateState();
 
         if (downloadedUpdate == null || !downloadedUpdate.exists()) {
             Log.w(TAG, "Install requested with no downloaded APK");
@@ -738,6 +745,8 @@ public class MailFlowNativePlugin extends Plugin {
     }
 
     private void showUpdateReadyDialog() {
+        restoreDownloadedUpdateState();
+
         if (downloadedUpdate == null || !downloadedUpdate.exists()) {
             installDownloadedUpdate();
             return;
@@ -762,6 +771,51 @@ public class MailFlowNativePlugin extends Plugin {
                 .setNegativeButton("Later", null)
                 .show();
         });
+    }
+
+    private void persistDownloadedUpdateState(ReleaseInfo release, File file) {
+        if (release == null || file == null) return;
+
+        getPrefs(getContext())
+            .edit()
+            .putString(PREF_UPDATE_APK_PATH, file.getAbsolutePath())
+            .putString(PREF_UPDATE_VERSION, release.version == null ? "" : release.version)
+            .putString(PREF_UPDATE_RELEASE_NAME, release.releaseName == null ? "" : release.releaseName)
+            .apply();
+    }
+
+    private void restoreDownloadedUpdateState() {
+        if (downloadedUpdate != null && downloadedUpdate.exists()) return;
+
+        SharedPreferences prefs = getPrefs(getContext());
+        String path = prefs.getString(PREF_UPDATE_APK_PATH, null);
+        if (path == null || path.isEmpty()) return;
+
+        File file = new File(path);
+        if (!file.exists()) {
+            clearDownloadedUpdateState();
+            return;
+        }
+
+        downloadedUpdate = file;
+        if (updateInfo == null) {
+            ReleaseInfo restored = new ReleaseInfo();
+            restored.version = prefs.getString(PREF_UPDATE_VERSION, "");
+            restored.releaseName = prefs.getString(PREF_UPDATE_RELEASE_NAME, restored.version);
+            restored.assetName = file.getName();
+            updateInfo = restored;
+        }
+    }
+
+    private void clearDownloadedUpdateState() {
+        downloadedUpdate = null;
+        installPendingPermission = false;
+        getPrefs(getContext())
+            .edit()
+            .remove(PREF_UPDATE_APK_PATH)
+            .remove(PREF_UPDATE_VERSION)
+            .remove(PREF_UPDATE_RELEASE_NAME)
+            .apply();
     }
 
     private void openInstallPermissionSettings() {
