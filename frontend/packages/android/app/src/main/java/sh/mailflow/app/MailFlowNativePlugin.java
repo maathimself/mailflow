@@ -333,9 +333,15 @@ public class MailFlowNativePlugin extends Plugin {
     }
 
     private static PendingIntent messageActionPendingIntent(Context context, int notificationId, String action, String messageId, String accountId, String folder, JSObject message) {
-        Intent intent = new Intent(context, MainActivity.class);
+        boolean backgroundAction = ACTION_DELETE_MESSAGE.equals(action) || ACTION_STAR_MESSAGE.equals(action);
+        Intent intent = new Intent(
+            context,
+            backgroundAction ? MailFlowNotificationActionReceiver.class : MainActivity.class
+        );
         intent.setAction(action);
-        intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        if (!backgroundAction) {
+            intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        }
         intent.putExtra("notificationId", notificationId);
         putExtra(intent, "messageId", messageId);
         putExtra(intent, "accountId", accountId);
@@ -343,12 +349,10 @@ public class MailFlowNativePlugin extends Plugin {
         if (message != null) putExtra(intent, "message", message.toString());
 
         int requestCode = Math.abs((action + ":" + notificationId).hashCode());
-        return PendingIntent.getActivity(
-            context,
-            requestCode,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
-        );
+        int flags = PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE;
+        return backgroundAction
+            ? PendingIntent.getBroadcast(context, requestCode, intent, flags)
+            : PendingIntent.getActivity(context, requestCode, intent, flags);
     }
 
     @PluginMethod

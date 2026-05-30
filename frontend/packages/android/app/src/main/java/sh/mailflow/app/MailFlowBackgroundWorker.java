@@ -64,7 +64,7 @@ public class MailFlowBackgroundWorker extends Worker {
                     messageId,
                     accountId,
                     folder,
-                    null
+                    com.getcapacitor.JSObject.fromJSONObject(latest)
                 );
             }
 

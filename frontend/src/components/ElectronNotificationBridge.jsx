@@ -116,7 +116,7 @@ export default function ElectronNotificationBridge() {
     };
 
     const openReplyFromPayload = (payload) => {
-      const message = openMessageFromPayload(payload);
+      const message = getPayloadMessage(payload);
       if (!message) return;
 
       const replyTo = normalizeAddressList(message.reply_to);
