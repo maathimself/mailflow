@@ -119,22 +119,27 @@ export default function ElectronNotificationBridge() {
       const message = getPayloadMessage(payload);
       if (!message) return;
 
-      const replyTo = normalizeAddressList(message.reply_to);
+      const replyTo = normalizeAddressList(message.reply_to ?? message.replyTo);
       const replyTarget = replyTo[0]?.email
         ? replyTo[0]
-        : { name: message.from_name || '', email: message.from_email || '' };
+        : {
+            name: message.from_name || message.fromName || '',
+            email: message.from_email || message.fromEmail || '',
+          };
       const sender = replyTarget.email ? [replyTarget] : [];
       const rawSubject = (message.subject || '').trim();
       const subject = rawSubject.startsWith('Re:') ? rawSubject : rawSubject ? `Re: ${rawSubject}` : 'Re:';
+      const originalMessageId = message.message_id || message.messageId;
+      const priorInReplyTo = message.in_reply_to || message.inReplyTo;
 
       openCompose({
         to: sender,
         cc: [],
         subject,
         body: '',
-        inReplyTo: message.message_id,
-        references: [message.in_reply_to, message.message_id].filter(Boolean).join(' ').trim() || null,
-        accountId: message.account_id || payload.accountId,
+        inReplyTo: originalMessageId,
+        references: [priorInReplyTo, originalMessageId].filter(Boolean).join(' ').trim() || null,
+        accountId: message.account_id || message.accountId || payload.accountId,
         isReply: true,
         originalFrom: sender,
         allRecipients: [],
