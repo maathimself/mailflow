@@ -207,19 +207,14 @@ public class MailFlowNativePlugin extends Plugin {
 
     @PluginMethod
     public void installDownloadedUpdate(PluginCall call) {
-        JSObject result = installDownloadedUpdate();
+        JSObject result = showUpdateReadyDialog();
         call.resolve(result);
     }
 
     @PluginMethod
     public void openDownloadedUpdate(PluginCall call) {
-        if (downloadedUpdate == null || !downloadedUpdate.exists()) {
-            call.resolve();
-            return;
-        }
-
-        installDownloadedUpdate();
-        call.resolve();
+        JSObject result = showUpdateReadyDialog();
+        call.resolve(result);
     }
 
     @PluginMethod
@@ -691,7 +686,7 @@ public class MailFlowNativePlugin extends Plugin {
         }
     }
 
-    private JSObject installDownloadedUpdate() {
+    private JSObject startDownloadedUpdateInstall() {
         JSObject result = new JSObject();
         restoreDownloadedUpdateState();
 
@@ -741,20 +736,22 @@ public class MailFlowNativePlugin extends Plugin {
     private void continuePendingUpdateInstall() {
         if (!installPendingPermission || downloadedUpdate == null || !downloadedUpdate.exists()) return;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !getContext().getPackageManager().canRequestPackageInstalls()) return;
-        installDownloadedUpdate();
+        startDownloadedUpdateInstall();
     }
 
-    private void showUpdateReadyDialog() {
+    private JSObject showUpdateReadyDialog() {
+        JSObject result = new JSObject();
         restoreDownloadedUpdateState();
 
         if (downloadedUpdate == null || !downloadedUpdate.exists()) {
-            installDownloadedUpdate();
-            return;
+            Log.w(TAG, "Install dialog requested with no downloaded APK");
+            result.put("installed", false);
+            result.put("reason", "missing-download");
+            return result;
         }
 
         if (getActivity() == null || getActivity().isFinishing()) {
-            installDownloadedUpdate();
-            return;
+            return startDownloadedUpdateInstall();
         }
 
         String version = updateInfo == null || updateInfo.version == null || updateInfo.version.isEmpty()
@@ -762,15 +759,22 @@ public class MailFlowNativePlugin extends Plugin {
             : updateInfo.version;
 
         getActivity().runOnUiThread(() -> {
-            if (getActivity() == null || getActivity().isFinishing()) return;
+            if (getActivity() == null || getActivity().isFinishing()) {
+                startDownloadedUpdateInstall();
+                return;
+            }
 
             new AlertDialog.Builder(getActivity())
                 .setTitle("Update ready")
                 .setMessage("MailFlow " + version + " has been downloaded and is ready to install.")
-                .setPositiveButton("Install", (dialog, which) -> installDownloadedUpdate())
+                .setPositiveButton("Install", (dialog, which) -> startDownloadedUpdateInstall())
                 .setNegativeButton("Later", null)
                 .show();
         });
+
+        result.put("installed", true);
+        result.put("dialog", true);
+        return result;
     }
 
     private void persistDownloadedUpdateState(ReleaseInfo release, File file) {
