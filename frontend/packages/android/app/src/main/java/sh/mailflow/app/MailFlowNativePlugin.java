@@ -4,6 +4,7 @@ import android.Manifest;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
@@ -13,6 +14,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
 import android.provider.Settings;
+import android.util.Log;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 import androidx.core.app.NotificationCompat;
@@ -56,7 +58,10 @@ public class MailFlowNativePlugin extends Plugin {
     static final String ACTION_OPEN_MESSAGE = "sh.mailflow.app.OPEN_MESSAGE";
     static final String ACTION_COMPOSE = "sh.mailflow.app.COMPOSE";
     static final String ACTION_SYNC = "sh.mailflow.app.SYNC";
+    static final String ACTION_INSTALL_UPDATE = "sh.mailflow.app.INSTALL_UPDATE";
+    private static final String TAG = "MailFlowUpdater";
     private static final String CHANNEL_NEW_MAIL = "mailflow_new_mail";
+    private static final String CHANNEL_UPDATES = "mailflow_updates";
     private static final String PREFS_NAME = "mailflow-native";
     private static final String PREF_HOST = "host";
     private static final String SETUP_URL = "file:///android_asset/public/index.html";
@@ -68,11 +73,14 @@ public class MailFlowNativePlugin extends Plugin {
     private static MailFlowNativePlugin instance;
     private ReleaseInfo updateInfo = null;
     private File downloadedUpdate = null;
+    private boolean updateCheckStarted = false;
+    private boolean installPendingPermission = false;
 
     @Override
     public void load() {
         instance = this;
         createNotificationChannel(getContext());
+        checkForUpdatesInBackground(false, null);
     }
 
     @PluginMethod
@@ -119,31 +127,51 @@ public class MailFlowNativePlugin extends Plugin {
 
     @PluginMethod
     public void checkForUpdates(PluginCall call) {
-        boolean verbose = Boolean.TRUE.equals(call.getBoolean("verbose"));
+        checkForUpdatesInBackground(Boolean.TRUE.equals(call.getBoolean("verbose")), call);
+    }
+
+    private void checkForUpdatesInBackground(boolean verbose, PluginCall call) {
+        if (!verbose && updateCheckStarted) {
+            if (call != null) {
+                JSObject result = new JSObject();
+                result.put("updateAvailable", false);
+                result.put("skipped", true);
+                call.resolve(result);
+            }
+            return;
+        }
+
+        updateCheckStarted = true;
         if (verbose) {
             sendUpdateStatus(updateStatus("checking"));
         }
 
         new Thread(() -> {
             try {
+                Log.i(TAG, "Checking for updates from " + UPDATE_RELEASE_URL);
                 ReleaseInfo release = fetchLatestRelease();
+                Log.i(TAG, "Latest release " + release.version + ", installed " + getInstalledVersion() + ", APK " + release.downloadUrl);
                 if (!isNewerVersion(release.version, getInstalledVersion())) {
                     if (verbose) {
                         sendUpdateStatus(updateStatus("up-to-date"));
                     }
 
-                    JSObject result = new JSObject();
-                    result.put("updateAvailable", false);
-                    call.resolve(result);
+                    if (call != null) {
+                        JSObject result = new JSObject();
+                        result.put("updateAvailable", false);
+                        call.resolve(result);
+                    }
                     return;
                 }
 
                 if (release.downloadUrl == null) {
                     sendUpdateError("A MailFlow update is available, but no Android APK was found.");
-                    JSObject result = new JSObject();
-                    result.put("updateAvailable", true);
-                    result.put("downloadAvailable", false);
-                    call.resolve(result);
+                    if (call != null) {
+                        JSObject result = new JSObject();
+                        result.put("updateAvailable", true);
+                        result.put("downloadAvailable", false);
+                        call.resolve(result);
+                    }
                     return;
                 }
 
@@ -151,18 +179,23 @@ public class MailFlowNativePlugin extends Plugin {
                 downloadedUpdate = null;
                 sendUpdateStatus(updateStatus("available", release.toStatusData()));
 
-                JSObject result = new JSObject();
-                result.put("updateAvailable", true);
-                result.put("downloadAvailable", true);
-                call.resolve(result);
+                if (call != null) {
+                    JSObject result = new JSObject();
+                    result.put("updateAvailable", true);
+                    result.put("downloadAvailable", true);
+                    call.resolve(result);
+                }
 
                 downloadUpdate(release);
             } catch (Exception error) {
+                Log.e(TAG, "Update check failed", error);
                 sendUpdateError(UPDATE_ERROR_MESSAGE);
-                JSObject result = new JSObject();
-                result.put("updateAvailable", false);
-                result.put("error", error.getMessage());
-                call.resolve(result);
+                if (call != null) {
+                    JSObject result = new JSObject();
+                    result.put("updateAvailable", false);
+                    result.put("error", error.getMessage());
+                    call.resolve(result);
+                }
             }
         }).start();
     }
@@ -402,6 +435,18 @@ public class MailFlowNativePlugin extends Plugin {
         dispatchAction(action);
     }
 
+    static void installDownloadedUpdateFromIntent() {
+        if (instance != null) {
+            instance.installDownloadedUpdate();
+        }
+    }
+
+    static void resumePendingUpdateInstall() {
+        if (instance != null) {
+            instance.continuePendingUpdateInstall();
+        }
+    }
+
     private static void dispatchAction(JSObject action) {
         synchronized (pendingActions) {
             pendingActions.add(action);
@@ -577,6 +622,7 @@ public class MailFlowNativePlugin extends Plugin {
 
         new Thread(() -> {
             try {
+                Log.i(TAG, "Downloading update APK from " + release.downloadUrl);
                 File directory = getContext().getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
                 if (directory == null) directory = getContext().getCacheDir();
                 if (!directory.exists()) directory.mkdirs();
@@ -609,8 +655,11 @@ public class MailFlowNativePlugin extends Plugin {
                 }
 
                 downloadedUpdate = output;
+                Log.i(TAG, "Downloaded update APK to " + output.getAbsolutePath());
                 sendUpdateStatus(updateStatus("downloaded", release.toStatusData(output.getAbsolutePath())));
+                showUpdateReadyPrompt(release);
             } catch (Exception error) {
+                Log.e(TAG, "Update download failed", error);
                 sendUpdateError("The MailFlow update could not be downloaded.");
             }
         }).start();
@@ -640,12 +689,15 @@ public class MailFlowNativePlugin extends Plugin {
         JSObject result = new JSObject();
 
         if (downloadedUpdate == null || !downloadedUpdate.exists()) {
+            Log.w(TAG, "Install requested with no downloaded APK");
             result.put("installed", false);
             result.put("reason", "missing-download");
             return result;
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !getContext().getPackageManager().canRequestPackageInstalls()) {
+            Log.i(TAG, "Install requires unknown-apps permission");
+            installPendingPermission = true;
             openInstallPermissionSettings();
             result.put("installed", false);
             result.put("reason", "permission-required");
@@ -653,6 +705,7 @@ public class MailFlowNativePlugin extends Plugin {
         }
 
         try {
+            installPendingPermission = false;
             Uri uri = FileProvider.getUriForFile(
                 getContext(),
                 getContext().getPackageName() + ".fileprovider",
@@ -665,15 +718,23 @@ public class MailFlowNativePlugin extends Plugin {
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
 
             getActivity().startActivity(intent);
+            Log.i(TAG, "Started Android package installer for " + downloadedUpdate.getAbsolutePath());
             result.put("installed", true);
             return result;
         } catch (Exception error) {
+            Log.e(TAG, "Could not start package installer", error);
             sendUpdateError("The update was downloaded, but MailFlow could not start the installer.");
             result.put("installed", false);
             result.put("reason", "launch-failed");
             result.put("error", error.getMessage());
             return result;
         }
+    }
+
+    private void continuePendingUpdateInstall() {
+        if (!installPendingPermission || downloadedUpdate == null || !downloadedUpdate.exists()) return;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !getContext().getPackageManager().canRequestPackageInstalls()) return;
+        installDownloadedUpdate();
     }
 
     private void openInstallPermissionSettings() {
@@ -687,6 +748,49 @@ public class MailFlowNativePlugin extends Plugin {
         JSObject status = updateStatus("error");
         status.put("message", message);
         sendUpdateStatus(status);
+    }
+
+    private void showUpdateReadyPrompt(ReleaseInfo release) {
+        postUpdateReadyNotification(release);
+
+        if (getActivity() == null || getActivity().isFinishing()) return;
+        getActivity().runOnUiThread(() -> {
+            if (getActivity() == null || getActivity().isFinishing()) return;
+
+            new AlertDialog.Builder(getActivity())
+                .setTitle("Update ready")
+                .setMessage("MailFlow " + release.version + " has been downloaded and is ready to install.")
+                .setPositiveButton("Install", (dialog, which) -> installDownloadedUpdate())
+                .setNegativeButton("Later", null)
+                .show();
+        });
+    }
+
+    private void postUpdateReadyNotification(ReleaseInfo release) {
+        Intent intent = new Intent(getContext(), MainActivity.class);
+        intent.setAction(ACTION_INSTALL_UPDATE);
+        intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+
+        PendingIntent pendingIntent = PendingIntent.getActivity(
+            getContext(),
+            1002,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(getContext(), CHANNEL_UPDATES)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle("MailFlow update ready")
+            .setContentText("MailFlow " + release.version + " has been downloaded.")
+            .setStyle(new NotificationCompat.BigTextStyle().bigText("MailFlow " + release.version + " has been downloaded and is ready to install."))
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(false)
+            .setOngoing(false)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT);
+
+        if (hasNotificationPermission(getContext())) {
+            NotificationManagerCompat.from(getContext()).notify(1002, builder.build());
+        }
     }
 
     private void sendUpdateStatus(JSObject status) {
@@ -808,7 +912,17 @@ public class MailFlowNativePlugin extends Plugin {
         );
         channel.setDescription("New mail notifications from MailFlow.");
         NotificationManager manager = context.getSystemService(NotificationManager.class);
-        if (manager != null) manager.createNotificationChannel(channel);
+        if (manager != null) {
+            manager.createNotificationChannel(channel);
+
+            NotificationChannel updatesChannel = new NotificationChannel(
+                CHANNEL_UPDATES,
+                "Updates",
+                NotificationManager.IMPORTANCE_DEFAULT
+            );
+            updatesChannel.setDescription("MailFlow app update notifications.");
+            manager.createNotificationChannel(updatesChannel);
+        }
     }
 
     @PermissionCallback

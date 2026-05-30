@@ -44,6 +44,12 @@ public class MainActivity extends BridgeActivity {
     }
 
     @Override
+    public void onResume() {
+        super.onResume();
+        MailFlowNativePlugin.resumePendingUpdateInstall();
+    }
+
+    @Override
     public void onStop() {
         flushCookies();
         MailFlowBackgroundSync.schedule(this);
@@ -103,6 +109,11 @@ public class MainActivity extends BridgeActivity {
 
         if (MailFlowNativePlugin.ACTION_SYNC.equals(action)) {
             MailFlowNativePlugin.sendSyncAction();
+            return;
+        }
+
+        if (MailFlowNativePlugin.ACTION_INSTALL_UPDATE.equals(action)) {
+            MailFlowNativePlugin.installDownloadedUpdateFromIntent();
             return;
         }
 
