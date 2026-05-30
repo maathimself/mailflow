@@ -1,10 +1,10 @@
 package sh.mailflow.app;
 
 import android.Manifest;
+import android.app.AlertDialog;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
-import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
@@ -437,7 +437,7 @@ public class MailFlowNativePlugin extends Plugin {
 
     static void installDownloadedUpdateFromIntent() {
         if (instance != null) {
-            instance.installDownloadedUpdate();
+            instance.showUpdateReadyDialog();
         }
     }
 
@@ -657,7 +657,7 @@ public class MailFlowNativePlugin extends Plugin {
                 downloadedUpdate = output;
                 Log.i(TAG, "Downloaded update APK to " + output.getAbsolutePath());
                 sendUpdateStatus(updateStatus("downloaded", release.toStatusData(output.getAbsolutePath())));
-                showUpdateReadyPrompt(release);
+                postUpdateReadyNotification(release);
             } catch (Exception error) {
                 Log.e(TAG, "Update download failed", error);
                 sendUpdateError("The MailFlow update could not be downloaded.");
@@ -737,6 +737,33 @@ public class MailFlowNativePlugin extends Plugin {
         installDownloadedUpdate();
     }
 
+    private void showUpdateReadyDialog() {
+        if (downloadedUpdate == null || !downloadedUpdate.exists()) {
+            installDownloadedUpdate();
+            return;
+        }
+
+        if (getActivity() == null || getActivity().isFinishing()) {
+            installDownloadedUpdate();
+            return;
+        }
+
+        String version = updateInfo == null || updateInfo.version == null || updateInfo.version.isEmpty()
+            ? "update"
+            : updateInfo.version;
+
+        getActivity().runOnUiThread(() -> {
+            if (getActivity() == null || getActivity().isFinishing()) return;
+
+            new AlertDialog.Builder(getActivity())
+                .setTitle("Update ready")
+                .setMessage("MailFlow " + version + " has been downloaded and is ready to install.")
+                .setPositiveButton("Install", (dialog, which) -> installDownloadedUpdate())
+                .setNegativeButton("Later", null)
+                .show();
+        });
+    }
+
     private void openInstallPermissionSettings() {
         Intent intent = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)
             .setData(Uri.parse("package:" + getContext().getPackageName()));
@@ -750,31 +777,25 @@ public class MailFlowNativePlugin extends Plugin {
         sendUpdateStatus(status);
     }
 
-    private void showUpdateReadyPrompt(ReleaseInfo release) {
-        postUpdateReadyNotification(release);
-
-        if (getActivity() == null || getActivity().isFinishing()) return;
-        getActivity().runOnUiThread(() -> {
-            if (getActivity() == null || getActivity().isFinishing()) return;
-
-            new AlertDialog.Builder(getActivity())
-                .setTitle("Update ready")
-                .setMessage("MailFlow " + release.version + " has been downloaded and is ready to install.")
-                .setPositiveButton("Install", (dialog, which) -> installDownloadedUpdate())
-                .setNegativeButton("Later", null)
-                .show();
-        });
-    }
-
     private void postUpdateReadyNotification(ReleaseInfo release) {
-        Intent intent = new Intent(getContext(), MainActivity.class);
-        intent.setAction(ACTION_INSTALL_UPDATE);
-        intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        Intent openIntent = new Intent(getContext(), MainActivity.class);
+        openIntent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
 
-        PendingIntent pendingIntent = PendingIntent.getActivity(
+        PendingIntent openPendingIntent = PendingIntent.getActivity(
             getContext(),
             1002,
-            intent,
+            openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+
+        Intent installIntent = new Intent(getContext(), MainActivity.class);
+        installIntent.setAction(ACTION_INSTALL_UPDATE);
+        installIntent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+
+        PendingIntent installPendingIntent = PendingIntent.getActivity(
+            getContext(),
+            1003,
+            installIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
 
@@ -783,7 +804,8 @@ public class MailFlowNativePlugin extends Plugin {
             .setContentTitle("MailFlow update ready")
             .setContentText("MailFlow " + release.version + " has been downloaded.")
             .setStyle(new NotificationCompat.BigTextStyle().bigText("MailFlow " + release.version + " has been downloaded and is ready to install."))
-            .setContentIntent(pendingIntent)
+            .setContentIntent(openPendingIntent)
+            .addAction(R.mipmap.ic_launcher, "Install", installPendingIntent)
             .setAutoCancel(false)
             .setOngoing(false)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT);
