@@ -7,7 +7,7 @@ import { useMobile } from '../hooks/useMobile.js';
 import { LAYOUTS } from '../layouts.js';
 import { updateFaviconBadge } from '../themes.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
-import { buildKeyMap, buildModKeyMap, getEffectiveShortcuts, getGroupedActions, parseModKey, SPECIAL_KEYS, SPECIAL_KEY_LABELS } from '../utils/defaultShortcuts.js';
+import { buildKeyMap, buildModKeyMap, getEffectiveShortcuts, getGroupedActions, parseModKey, modLabel, SPECIAL_KEYS, SPECIAL_KEY_LABELS } from '../utils/defaultShortcuts.js';
 import Sidebar from './Sidebar.jsx';
 import MessageList from './MessageList.jsx';
 import MessagePane from './MessagePane.jsx';
@@ -435,7 +435,7 @@ function ShortcutHelpOverlay({ shortcuts, onClose }) {
     if (mod) {
       return (
         <span style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <kbd style={kbdStyle}>{mod.mod === 'ctrl' ? 'Ctrl' : mod.mod}</kbd>
+          <kbd style={kbdStyle}>{modLabel(mod.mod)}</kbd>
           <span style={{ color: 'var(--text-tertiary)', margin: '0 2px', fontSize: 10 }}>+</span>
           <kbd style={kbdStyle}>{mod.bare.toUpperCase()}</kbd>
         </span>

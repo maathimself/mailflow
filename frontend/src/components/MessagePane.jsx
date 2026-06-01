@@ -4,7 +4,7 @@ import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { format } from 'date-fns';
 import { shortcutBus } from '../utils/shortcutBus.js';
-import { getEffectiveShortcuts, parseModKey } from '../utils/defaultShortcuts.js';
+import { getEffectiveShortcuts, parseModKey, modCompactLabel } from '../utils/defaultShortcuts.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { clearDeleteGuard, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.js';
 import { senderColor } from '../themes.js';
@@ -77,7 +77,7 @@ export default function MessagePane() {
     const k = effectiveShortcuts[action];
     if (!k) return null;
     const mod = parseModKey(k);
-    return mod ? `^${mod.bare.toUpperCase()}` : k.toUpperCase();
+    return mod ? `${modCompactLabel(mod.mod)}${mod.bare.toUpperCase()}` : k.toUpperCase();
   };
   const paneRef = useRef(null);
   const mountedRef = useRef(true);

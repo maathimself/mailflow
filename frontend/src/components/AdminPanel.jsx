@@ -9,7 +9,7 @@ import { LAYOUTS, applyLayout } from '../layouts.js';
 import { NOTIFICATION_SOUNDS, playNotificationSound, playCustomSound, warmUpAudioContext } from '../utils/notificationSounds.js';
 import { usePushNotifications } from '../hooks/usePushNotifications.js';
 import SignatureEditor from './SignatureEditor.jsx';
-import { getEffectiveShortcuts, getGroupedActions, ACTION_DEFS, SPECIAL_KEY_LABELS, parseModKey } from '../utils/defaultShortcuts.js';
+import { getEffectiveShortcuts, getGroupedActions, ACTION_DEFS, SPECIAL_KEY_LABELS, parseModKey, modLabel } from '../utils/defaultShortcuts.js';
 
 // ─── Shared field component ───────────────────────────────────────────────────
 function Field({ label, required, children }) {
@@ -4414,7 +4414,7 @@ function ShortcutsTab() {
     if (mod) {
       return (
         <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-          <kbd style={kbdStyle}>{mod.mod === 'ctrl' ? 'Ctrl' : mod.mod}</kbd>
+          <kbd style={kbdStyle}>{modLabel(mod.mod)}</kbd>
           <span style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>+</span>
           <kbd style={kbdStyle}>{mod.bare.toUpperCase()}</kbd>
         </span>

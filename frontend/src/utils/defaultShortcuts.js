@@ -50,6 +50,20 @@ export function getEffectiveShortcuts(userOverrides = {}) {
   return out;
 }
 
+const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+
+// Full modifier label for help overlay / settings (e.g. '⌘' or 'Ctrl')
+export function modLabel(mod) {
+  if (mod === 'ctrl') return isMac ? '⌘' : 'Ctrl';
+  return mod;
+}
+
+// Compact modifier label for toolbar badges (e.g. '⌘' or '^')
+export function modCompactLabel(mod) {
+  if (mod === 'ctrl') return isMac ? '⌘' : '^';
+  return mod;
+}
+
 // Parses a modifier+key string. Returns { mod, bare } or null for plain keys.
 // e.g. parseModKey('ctrl+p') → { mod: 'ctrl', bare: 'p' }
 export function parseModKey(key) {
