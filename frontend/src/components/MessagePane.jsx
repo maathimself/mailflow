@@ -526,25 +526,28 @@ export default function MessagePane() {
 
   const handlePrint = () => {
     if (!message) return;
+    const esc = (s) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const date = message.date ? new Date(message.date).toLocaleString() : '';
     const fromStr = message.from_name
-      ? `${message.from_name} &lt;${message.from_email}&gt;`
-      : (message.from_email || '');
+      ? `${esc(message.from_name)} &lt;${esc(message.from_email)}&gt;`
+      : esc(message.from_email);
 
     const parseList = (raw) => {
       try { return Array.isArray(raw) ? raw : JSON.parse(raw || '[]'); } catch (_) { return []; }
     };
-    const toStr = parseList(message.to_addresses).map(r => r.name ? `${r.name} &lt;${r.email}&gt;` : r.email).join(', ');
-    const ccStr = parseList(message.cc_addresses).map(r => r.name ? `${r.name} &lt;${r.email}&gt;` : r.email).join(', ');
+    const fmtAddr = (r) => r.name ? `${esc(r.name)} &lt;${esc(r.email)}&gt;` : esc(r.email);
+    const toStr = parseList(message.to_addresses).map(fmtAddr).join(', ');
+    const ccStr = parseList(message.cc_addresses).map(fmtAddr).join(', ');
 
     const bodyContent = body?.html
       ? body.html
       : body?.text
-        ? `<pre style="white-space:pre-wrap;font-family:sans-serif;font-size:14px">${body.text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>`
+        ? `<pre style="white-space:pre-wrap;font-family:sans-serif;font-size:14px">${esc(body.text)}</pre>`
         : '';
 
     const win = window.open('', '_blank');
-    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${(message.subject || '').replace(/</g,'&lt;')}</title>
+    if (!win) return;
+    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(message.subject)}</title>
 <style>
   body { font-family: Arial, sans-serif; font-size: 14px; color: #111; margin: 32px; }
   .header { border-bottom: 1px solid #ccc; padding-bottom: 16px; margin-bottom: 24px; }
@@ -554,7 +557,7 @@ export default function MessagePane() {
   @media print { body { margin: 16px; } }
 </style></head><body>
 <div class="header">
-  <h1>${(message.subject || '(no subject)').replace(/</g,'&lt;')}</h1>
+  <h1>${esc(message.subject) || '(no subject)'}</h1>
   <div class="meta">
     <div><span>From:</span> ${fromStr}</div>
     <div><span>To:</span> ${toStr}</div>
@@ -929,6 +932,8 @@ ${bodyContent}
             <path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/>
             <rect x="6" y="14" width="12" height="8"/>
           </svg>
+          {!isMobile && t('message.print')}
+          {!isMobile && <kbd style={{ fontSize: 11, padding: '1px 5px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>^P</kbd>}
         </PaneBtn>
 
         <PaneBtn onClick={handleStarToggle} title={t('message.star')}>
