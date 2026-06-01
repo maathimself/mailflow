@@ -37,7 +37,8 @@ export const ACTION_DEFS = {
   delete:        { group: 'Message Actions',  label: 'Delete',             description: 'Delete message / selection',             defaultKey: '#'  },
   toggleStar:    { group: 'Message Actions',  label: 'Star',               description: 'Toggle star on the current message',     defaultKey: 's'  },
   toggleRead:    { group: 'Message Actions',  label: 'Toggle read',        description: 'Mark current message read or unread',    defaultKey: 'm'  },
-  selectMessage: { group: 'Message Actions',  label: 'Select message',     description: 'Check or uncheck the current message',   defaultKey: 'x'  },
+  selectMessage: { group: 'Message Actions',  label: 'Select message',     description: 'Check or uncheck the current message',   defaultKey: 'x'      },
+  printMessage:  { group: 'Message Actions',  label: 'Print',              description: 'Print the current message',               defaultKey: 'ctrl+p' },
 };
 
 // Returns the effective shortcut map: action → key, with user overrides applied.
@@ -49,12 +50,33 @@ export function getEffectiveShortcuts(userOverrides = {}) {
   return out;
 }
 
-// Returns the reverse lookup map: key → action, for fast dispatch.
+// Parses a modifier+key string. Returns { mod, bare } or null for plain keys.
+// e.g. parseModKey('ctrl+p') → { mod: 'ctrl', bare: 'p' }
+export function parseModKey(key) {
+  if (!key) return null;
+  const plus = key.indexOf('+');
+  if (plus < 0) return null;
+  return { mod: key.slice(0, plus), bare: key.slice(plus + 1) };
+}
+
+// Returns the reverse lookup map: key → action, for fast dispatch (plain keys only).
 export function buildKeyMap(userOverrides = {}) {
   const effective = getEffectiveShortcuts(userOverrides);
   const map = {};
   for (const [action, key] of Object.entries(effective)) {
-    if (key) map[key] = action;
+    if (key && !parseModKey(key)) map[key] = action;
+  }
+  return map;
+}
+
+// Returns a reverse lookup for modifier+key shortcuts: bare key → action.
+// e.g. { p: 'printMessage' } when printMessage is bound to 'ctrl+p'.
+export function buildModKeyMap(userOverrides = {}) {
+  const effective = getEffectiveShortcuts(userOverrides);
+  const map = {};
+  for (const [action, key] of Object.entries(effective)) {
+    const parsed = parseModKey(key);
+    if (parsed) map[parsed.bare] = action;
   }
   return map;
 }

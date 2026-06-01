@@ -7,7 +7,7 @@ import { useMobile } from '../hooks/useMobile.js';
 import { LAYOUTS } from '../layouts.js';
 import { updateFaviconBadge } from '../themes.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
-import { buildKeyMap, getEffectiveShortcuts, getGroupedActions, SPECIAL_KEYS, SPECIAL_KEY_LABELS } from '../utils/defaultShortcuts.js';
+import { buildKeyMap, buildModKeyMap, getEffectiveShortcuts, getGroupedActions, parseModKey, SPECIAL_KEYS, SPECIAL_KEY_LABELS } from '../utils/defaultShortcuts.js';
 import Sidebar from './Sidebar.jsx';
 import MessageList from './MessageList.jsx';
 import MessagePane from './MessagePane.jsx';
@@ -169,7 +169,8 @@ export default function MailApp() {
 
   useEffect(() => {
     if (isMobile) return;
-    const keyMap = buildKeyMap(shortcuts);
+    const keyMap    = buildKeyMap(shortcuts);
+    const modKeyMap = buildModKeyMap(shortcuts);
     // Keys that are prefixes of two-key sequences (e.g. 'g' for 'gi').
     // Special keys like 'Delete' have length > 1 but are single keypresses — exclude them.
     const prefixKeys = new Set(
@@ -189,8 +190,13 @@ export default function MailApp() {
       if (composingRef.current || showAdminRef.current) return;
       const tag = e.target.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
-      // Leave browser shortcuts (Ctrl/Cmd/Alt combos) alone
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      // Modifier combos: emit registered actions, pass everything else through
+      if (e.ctrlKey || e.metaKey) {
+        const action = modKeyMap[e.key.toLowerCase()];
+        if (action) { e.preventDefault(); shortcutBus.emit(action); }
+        return;
+      }
+      if (e.altKey) return;
 
       const key = e.key;
 
@@ -424,6 +430,17 @@ function ShortcutHelpOverlay({ shortcuts, onClose }) {
 
   const keyBadge = (key) => {
     if (!key) return <span style={{ color: 'var(--text-tertiary)', fontSize: 11 }}>—</span>;
+    // Modifier combos like 'ctrl+p'
+    const mod = parseModKey(key);
+    if (mod) {
+      return (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <kbd style={kbdStyle}>{mod.mod === 'ctrl' ? 'Ctrl' : mod.mod}</kbd>
+          <span style={{ color: 'var(--text-tertiary)', margin: '0 2px', fontSize: 10 }}>+</span>
+          <kbd style={kbdStyle}>{mod.bare.toUpperCase()}</kbd>
+        </span>
+      );
+    }
     // Special key names like 'Delete', 'ArrowUp' — single keypress, render as one badge
     if (SPECIAL_KEY_LABELS[key]) {
       return <kbd style={kbdStyle}>{SPECIAL_KEY_LABELS[key]}</kbd>;

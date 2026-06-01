@@ -9,7 +9,7 @@ import { LAYOUTS, applyLayout } from '../layouts.js';
 import { NOTIFICATION_SOUNDS, playNotificationSound, playCustomSound, warmUpAudioContext } from '../utils/notificationSounds.js';
 import { usePushNotifications } from '../hooks/usePushNotifications.js';
 import SignatureEditor from './SignatureEditor.jsx';
-import { getEffectiveShortcuts, getGroupedActions, ACTION_DEFS, SPECIAL_KEY_LABELS } from '../utils/defaultShortcuts.js';
+import { getEffectiveShortcuts, getGroupedActions, ACTION_DEFS, SPECIAL_KEY_LABELS, parseModKey } from '../utils/defaultShortcuts.js';
 
 // ─── Shared field component ───────────────────────────────────────────────────
 function Field({ label, required, children }) {
@@ -4346,7 +4346,7 @@ function ShortcutsTab() {
         return;
       }
 
-      const key = e.key;
+      const key = (e.ctrlKey || e.metaKey) ? `ctrl+${e.key.toLowerCase()}` : e.key;
 
       // Detect conflicts with other actions (excluding the one being edited)
       const conflictEntry = Object.entries(effective).find(([a, k]) => k === key && a !== recording);
@@ -4408,6 +4408,17 @@ function ShortcutsTab() {
     }
     if (!key) {
       return <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>—</span>;
+    }
+    // Modifier combos like 'ctrl+p'
+    const mod = parseModKey(key);
+    if (mod) {
+      return (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+          <kbd style={kbdStyle}>{mod.mod === 'ctrl' ? 'Ctrl' : mod.mod}</kbd>
+          <span style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>+</span>
+          <kbd style={kbdStyle}>{mod.bare.toUpperCase()}</kbd>
+        </span>
+      );
     }
     // Special key names like 'Delete', 'ArrowUp' — single keypress, render as one badge
     if (SPECIAL_KEY_LABELS[key]) {
