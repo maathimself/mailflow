@@ -88,6 +88,7 @@
     "archive": "归档",
     "star": "加星标",
     "delete": "删除",
+    "print": "打印",
     "archived": {
       "title": "邮件已归档",
       "failTitle": "归档失败",

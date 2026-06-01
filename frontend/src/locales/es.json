@@ -88,6 +88,7 @@
     "archive": "Archivar",
     "star": "Destacar",
     "delete": "Eliminar",
+    "print": "Imprimir",
     "archived": {
       "title": "Mensaje archivado",
       "failTitle": "Error al archivar",
