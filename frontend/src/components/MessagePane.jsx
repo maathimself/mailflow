@@ -845,7 +845,7 @@ ${bodyContent}
       }}>
         {/* Split Reply button */}
         <div style={{ position: 'relative', display: 'flex' }}>
-          <PaneBtn onClick={() => handleReply(defaultReplyAll)} title={isMobile ? (defaultReplyAll ? t('message.replyAll') : t('message.reply')) : `${defaultReplyAll ? t('message.replyAll') : t('message.reply')}${shortcutLabel('reply') ? ` (${shortcutLabel('reply')})` : ''}`}>
+          <PaneBtn onClick={() => handleReply(defaultReplyAll)} title={isMobile ? (defaultReplyAll ? t('message.replyAll') : t('message.reply')) : `${defaultReplyAll ? t('message.replyAll') : t('message.reply')}${shortcutLabel(defaultReplyAll ? 'replyAll' : 'reply') ? ` (${shortcutLabel(defaultReplyAll ? 'replyAll' : 'reply')})` : ''}`}>
             {defaultReplyAll ? (
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
                 <polyline points="7 17 2 12 7 7"/><polyline points="13 17 8 12 13 7"/><path d="M20 18v-2a4 4 0 00-4-4H2"/>
@@ -856,7 +856,7 @@ ${bodyContent}
               </svg>
             )}
             {!isMobile && (defaultReplyAll ? t('message.replyAll') : t('message.reply'))}
-            {!isMobile && shortcutLabel('reply') && <kbd style={{ fontSize: 11, padding: '1px 5px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>{shortcutLabel('reply')}</kbd>}
+            {!isMobile && shortcutLabel(defaultReplyAll ? 'replyAll' : 'reply') && <kbd style={{ fontSize: 11, padding: '1px 5px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>{shortcutLabel(defaultReplyAll ? 'replyAll' : 'reply')}</kbd>}
           </PaneBtn>
           <button
             onClick={() => setShowReplyMenu(v => !v)}
