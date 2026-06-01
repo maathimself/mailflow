@@ -845,7 +845,7 @@ ${bodyContent}
       }}>
         {/* Split Reply button */}
         <div style={{ position: 'relative', display: 'flex' }}>
-          <PaneBtn onClick={() => handleReply(defaultReplyAll)} title={isMobile ? (defaultReplyAll ? t('message.replyAll') : t('message.reply')) : [defaultReplyAll ? t('message.replyAll') : t('message.reply'), shortcutLabel('reply')].filter(Boolean).join(' ')}>
+          <PaneBtn onClick={() => handleReply(defaultReplyAll)} title={isMobile ? (defaultReplyAll ? t('message.replyAll') : t('message.reply')) : [defaultReplyAll ? t('message.replyAll') : t('message.reply'), shortcutLabel('reply') && `(${shortcutLabel('reply')})`].filter(Boolean).join(' ')}>
             {defaultReplyAll ? (
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
                 <polyline points="7 17 2 12 7 7"/><polyline points="13 17 8 12 13 7"/><path d="M20 18v-2a4 4 0 00-4-4H2"/>
@@ -856,7 +856,7 @@ ${bodyContent}
               </svg>
             )}
             {!isMobile && (defaultReplyAll ? t('message.replyAll') : t('message.reply'))}
-            {!isMobile && shortcutLabel('reply') && <kbd style={{ fontSize: 11, padding: '1px 5px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>{shortcutLabel('reply')}</kbd>}
+            {!isMobile && (() => { const l = shortcutLabel('reply'); return l && <kbd style={{ fontSize: 11, padding: '1px 5px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>{l}</kbd>; })()}
           </PaneBtn>
           <button
             onClick={() => setShowReplyMenu(v => !v)}
@@ -907,15 +907,15 @@ ${bodyContent}
           )}
         </div>
 
-        <PaneBtn onClick={handleForward} title={isMobile ? t('message.forward') : [t('message.forward'), shortcutLabel('forward')].filter(Boolean).join(' ')}>
+        <PaneBtn onClick={handleForward} title={isMobile ? t('message.forward') : [t('message.forward'), shortcutLabel('forward') && `(${shortcutLabel('forward')})`].filter(Boolean).join(' ')}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
             <polyline points="15 17 20 12 15 7"/><path d="M4 18v-2a4 4 0 014-4h12"/>
           </svg>
           {!isMobile && t('message.forward')}
-          {!isMobile && shortcutLabel('forward') && <kbd style={{ fontSize: 11, padding: '1px 5px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>{shortcutLabel('forward')}</kbd>}
+          {!isMobile && (() => { const l = shortcutLabel('forward'); return l && <kbd style={{ fontSize: 11, padding: '1px 5px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>{l}</kbd>; })()}
         </PaneBtn>
 
-        <PaneBtn onClick={handleArchive} title={isMobile ? t('message.archive') : [t('message.archive'), shortcutLabel('archive')].filter(Boolean).join(' ')}>
+        <PaneBtn onClick={handleArchive} title={isMobile ? t('message.archive') : [t('message.archive'), shortcutLabel('archive') && `(${shortcutLabel('archive')})`].filter(Boolean).join(' ')}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
             <rect x="2" y="3" width="20" height="5" rx="1"/>
             <path d="M4 8v11a1 1 0 001 1h14a1 1 0 001-1V8"/>
@@ -923,19 +923,19 @@ ${bodyContent}
             <line x1="12" y1="11" x2="12" y2="16"/>
           </svg>
           {!isMobile && t('message.archive')}
-          {!isMobile && shortcutLabel('archive') && <kbd style={{ fontSize: 11, padding: '1px 5px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>{shortcutLabel('archive')}</kbd>}
+          {!isMobile && (() => { const l = shortcutLabel('archive'); return l && <kbd style={{ fontSize: 11, padding: '1px 5px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>{l}</kbd>; })()}
         </PaneBtn>
 
         <div style={{ flex: 1 }} />
 
-        <PaneBtn onClick={handlePrint} title={isMobile ? t('message.print') : [t('message.print'), shortcutLabel('printMessage')].filter(Boolean).join(' ')}>
+        <PaneBtn onClick={handlePrint} title={isMobile ? t('message.print') : [t('message.print'), shortcutLabel('printMessage') && `(${shortcutLabel('printMessage')})`].filter(Boolean).join(' ')}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
             <polyline points="6 9 6 2 18 2 18 9"/>
             <path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/>
             <rect x="6" y="14" width="12" height="8"/>
           </svg>
           {!isMobile && t('message.print')}
-          {!isMobile && shortcutLabel('printMessage') && <kbd style={{ fontSize: 11, padding: '1px 5px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>{shortcutLabel('printMessage')}</kbd>}
+          {!isMobile && (() => { const l = shortcutLabel('printMessage'); return l && <kbd style={{ fontSize: 11, padding: '1px 5px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>{l}</kbd>; })()}
         </PaneBtn>
 
         <PaneBtn onClick={handleStarToggle} title={t('message.star')}>
