@@ -335,7 +335,9 @@ export default function ComposeModal() {
   // Initialise quoted HTML contentEditable once on mount (ref-based to avoid React cursor conflicts)
   useEffect(() => {
     if (quotedHtmlRef.current && quotedBodyHtml) {
-      quotedHtmlRef.current.innerHTML = DOMPurify.sanitize(quotedBodyHtml);
+      // FORBID_TAGS: strip <style> blocks — marketing emails use global rules like
+      // "div { margin: 0 !important }" that leak out of contentEditable into the app UI.
+      quotedHtmlRef.current.innerHTML = DOMPurify.sanitize(quotedBodyHtml, { FORBID_TAGS: ['style'] });
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
