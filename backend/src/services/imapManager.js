@@ -1228,6 +1228,45 @@ export class ImapManager {
           // push for them would be misleading. Fire-and-forget: push errors are non-fatal.
           if (folder === 'INBOX' && newMessages.length > 0) {
             const latest = newMessages[newMessages.length - 1];
+
+            // For providers that skip body parts during sync (Gmail, Yahoo, iCloud),
+            // the snippet is empty at this point. Fetch the body now so the webhook
+            // payload includes the actual email content instead of an empty snippet.
+            // Race against a 5s timeout so a slow IMAP server doesn't block the
+            // sync lock for too long — the snippet indexer will backfill later.
+            let snippet = latest.snippet;
+            let bodyText = null;
+            if (!snippet && newMessages.length === 1) {
+              try {
+                await Promise.race([
+                  this.prefetchNewMessageBodies(account, [latest]),
+                  new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+                ]);
+                const updated = await query(
+                  'SELECT snippet, body_text FROM messages WHERE id = $1', [latest.id]
+                );
+                if (updated.rows[0]?.snippet) snippet = updated.rows[0].snippet;
+                if (updated.rows[0]?.body_text) bodyText = updated.rows[0].body_text;
+              } catch (err) {
+                console.warn('Snippet fetch for notification failed:', err.message);
+              }
+            }
+
+            // Format recipients for notification footer (email only, keep brief)
+            const toRecipients = latest.to?.length
+              ? (latest.to[0]?.email || '(未知)') + (latest.to.length > 1 ? ` 等${latest.to.length}人` : '')
+              : '';
+
+            const notifyPayload = {
+              title: latest.fromName || latest.fromEmail || 'New mail',
+              body: snippet || latest.subject || '(no subject)',
+              bodyText,
+              fromName: latest.fromName || '', fromEmail: latest.fromEmail || '',
+              subject: latest.subject, snippet,
+              count: newMessages.length,
+              date: latest.date, toRecipients,
+            };
+
             const basePayload = {
               title: latest.fromName || latest.fromEmail || 'New mail',
               body: newMessages.length === 1
@@ -1247,12 +1286,12 @@ export class ImapManager {
             ).then(r => {
               sendPushToUser(account.user_id, { ...basePayload, unreadCount: r.rows[0]?.total ?? 0 })
                 .catch(err => console.warn('Push notification error:', err.message));
-              sendNotificationsToUser(account.user_id, { ...basePayload, fromName: latest.fromName, fromEmail: latest.fromEmail, subject: latest.subject, snippet: latest.snippet, count: newMessages.length, unreadCount: r.rows[0]?.total ?? 0 })
+              sendNotificationsToUser(account.user_id, { ...notifyPayload, unreadCount: r.rows[0]?.total ?? 0 })
                 .catch(err => console.warn('Webhook notification error:', err.message));
             }).catch(() => {
               sendPushToUser(account.user_id, basePayload)
                 .catch(err => console.warn('Push notification error:', err.message));
-              sendNotificationsToUser(account.user_id, { ...basePayload, fromName: latest.fromName, fromEmail: latest.fromEmail, subject: latest.subject, snippet: latest.snippet, count: newMessages.length })
+              sendNotificationsToUser(account.user_id, notifyPayload)
                 .catch(err => console.warn('Webhook notification error:', err.message));
             });
           }
