@@ -90,6 +90,7 @@
     "archive": "Archivieren",
     "star": "Markieren",
     "delete": "Löschen",
+    "print": "Drucken",
     "archived": {
       "title": "Nachricht archiviert",
       "failTitle": "Archivierung fehlgeschlagen",

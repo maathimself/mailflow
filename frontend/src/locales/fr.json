@@ -88,6 +88,7 @@
     "archive": "Archiver",
     "star": "Étoile",
     "delete": "Supprimer",
+    "print": "Imprimer",
     "archived": {
       "title": "Message archivé",
       "failTitle": "Échec de l'archivage",
