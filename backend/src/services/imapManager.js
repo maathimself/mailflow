@@ -9,11 +9,20 @@ import { sendPushToUser } from './pushNotifications.js';
 import { redactEmail } from '../utils/redact.js';
 import { adjustFolderCounts } from '../utils/mailUtils.js';
 import { resolveForConnection } from './hostValidation.js';
+import { getConnectionPolicy } from './connectionPolicy.js';
 import { applyInboxRules, applyBlockList } from './inboxRules.js';
 
 
 // Shorthand for log lines — keeps domain visible while masking the local part.
 const logAccount = (account) => redactEmail(account?.email_address || '');
+
+// Resolves the IMAP host for an account, applying server-level connection policy.
+// Returns { resolved, policy } so callers can pass policy to makeClientCfg.
+const resolveAccountHost = async (account) => {
+  const policy = await getConnectionPolicy();
+  const resolved = await resolveForConnection(account.imap_host, { allowPrivate: policy.allowPrivateHosts });
+  return { resolved, policy };
+};
 
 // Body parts that cover ~99% of real-world email structures (used for full body caching)
 const BODY_PREFETCH_PARTS = ['1', '1.1', '1.2', '2', '2.1', '2.2', '1.1.1', '1.2.1'];
@@ -394,8 +403,10 @@ async function ensureFreshToken(account) {
 
 // resolved: { host, servername } from resolveForConnection() — pins the IP so the
 // actual TCP connection uses the address we validated, not a later DNS lookup.
-function makeClientCfg(account, resolved, { enableIdle = false } = {}) {
-  const tlsOpts = { rejectUnauthorized: !account.imap_skip_tls_verify };
+// policy: result of getConnectionPolicy() — gates TLS verification override.
+function makeClientCfg(account, resolved, { enableIdle = false, policy = {} } = {}) {
+  const skipTls = policy.allowInsecureTls && !!account.imap_skip_tls_verify;
+  const tlsOpts = { rejectUnauthorized: !skipTls };
   // Set servername so TLS SNI and cert verification use the original hostname even
   // though the socket connects directly to the pinned IP address.
   if (resolved.servername) tlsOpts.servername = resolved.servername;
@@ -455,8 +466,8 @@ async function acquirePooledClient(account) {
   // Grow pool if under limit — refresh token before creating a new connection
   if (pool.clients.length < POOL_SIZE) {
     const freshAccount = await ensureFreshToken(account);
-    const resolved = await resolveForConnection(freshAccount.imap_host);
-    const client = new ImapFlow(makeClientCfg(freshAccount, resolved));
+    const { resolved, policy } = await resolveAccountHost(freshAccount);
+    const client = new ImapFlow(makeClientCfg(freshAccount, resolved, { policy }));
     await Promise.race([
       client.connect(),
       new Promise((_, reject) =>
@@ -488,8 +499,8 @@ async function acquirePooledClient(account) {
       pool.waiters = pool.waiters.filter(w => w !== entry);
       try {
         const freshAccount = await ensureFreshToken(account);
-        const resolved = await resolveForConnection(freshAccount.imap_host);
-        const tmp = new ImapFlow(makeClientCfg(freshAccount, resolved));
+        const { resolved, policy } = await resolveAccountHost(freshAccount);
+        const tmp = new ImapFlow(makeClientCfg(freshAccount, resolved, { policy }));
         tmp.on('error', (err) => {
           console.error(`IMAP temp client error for account ${account.id}:`, err.message);
         });
@@ -675,8 +686,8 @@ export class ImapManager {
 
     // Refresh OAuth token if needed before connecting
     account = await ensureFreshToken(account);
-    const resolved = await resolveForConnection(account.imap_host);
-    const client = new ImapFlow(makeClientCfg(account, resolved, { enableIdle: true }));
+    const { resolved, policy } = await resolveAccountHost(account);
+    const client = new ImapFlow(makeClientCfg(account, resolved, { enableIdle: true, policy }));
     try {
       // Race the connect against a 30-second timeout.
       // client.connect() has no built-in connection timeout — on slow or unresponsive
@@ -805,8 +816,8 @@ export class ImapManager {
           if (!accountResult.rows.length) return;
           const freshAccount = await ensureFreshToken(accountResult.rows[0]);
           syncAccount = freshAccount;
-          const resolved = await resolveForConnection(freshAccount.imap_host);
-          activeClient = new ImapFlow(makeClientCfg(freshAccount, resolved, { enableIdle: true }));
+          const { resolved, policy } = await resolveAccountHost(freshAccount);
+          activeClient = new ImapFlow(makeClientCfg(freshAccount, resolved, { enableIdle: true, policy }));
           await Promise.race([
             activeClient.connect(),
             new Promise((_, reject) =>
@@ -1326,8 +1337,8 @@ export class ImapManager {
       const row = (await query('SELECT * FROM email_accounts WHERE id = $1', [account.id])).rows[0];
       if (!row) throw new Error('Account deleted');
       const fresh = await ensureFreshToken(row);
-      const resolved = await resolveForConnection(fresh.imap_host);
-      const newClient = new ImapFlow(makeClientCfg(fresh, resolved));
+      const { resolved, policy } = await resolveAccountHost(fresh);
+      const newClient = new ImapFlow(makeClientCfg(fresh, resolved, { policy }));
       newClient.on('error', (err) => {
         console.error(`Backfill IMAP error for ${logAccount(account)}:`, err.message);
       });
@@ -1743,8 +1754,8 @@ export class ImapManager {
         const row = (await query('SELECT * FROM email_accounts WHERE id = $1', [account.id])).rows[0];
         if (!row) throw new Error('Account deleted');
         const fresh = await ensureFreshToken(row);
-        const resolved = await resolveForConnection(fresh.imap_host);
-        const c = new ImapFlow(makeClientCfg(fresh, resolved));
+        const { resolved, policy } = await resolveAccountHost(fresh);
+        const c = new ImapFlow(makeClientCfg(fresh, resolved, { policy }));
         c.on('error', err => console.error(`Snippet indexer IMAP error ${logAccount(account)}:`, err.message));
         await Promise.race([
           c.connect(),

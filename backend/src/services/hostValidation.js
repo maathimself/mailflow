@@ -40,9 +40,9 @@ function isPrivateIPv6(ip) {
 }
 
 // Synchronous check: literal IPs and reserved hostnames.
-export function validateHostLiteral(host) {
-  if (process.env.ALLOW_PRIVATE_IMAP_HOSTS === 'true') return null;
+export function validateHostLiteral(host, { allowPrivate = false } = {}) {
   if (!host || typeof host !== 'string') return null;
+  if (allowPrivate) return null;
   const h = host.trim().toLowerCase();
   if (h === 'localhost' || h.endsWith('.local') || h.endsWith('.localhost') || h.endsWith('.internal')) {
     return 'Host cannot be a local address';
@@ -55,8 +55,8 @@ export function validateHostLiteral(host) {
 
 // Async check: resolve A/AAAA records and reject any that are private/reserved.
 // Prevents SSRF via controlled hostnames that resolve to internal addresses.
-export async function validateHost(host) {
-  const literalErr = validateHostLiteral(host);
+export async function validateHost(host, { allowPrivate = false } = {}) {
+  const literalErr = validateHostLiteral(host, { allowPrivate });
   if (literalErr) return literalErr;
 
   const h = host.trim().toLowerCase();
@@ -73,9 +73,11 @@ export async function validateHost(host) {
     dnsPromises.resolve6(bare).catch(() => []),
   ]);
 
-  for (const addr of [...v4, ...v6]) {
-    if (isIPv4(addr) && isPrivateIPv4(addr)) return 'Host resolves to a private or reserved IP address';
-    if (isIPv6(addr) && isPrivateIPv6(addr)) return 'Host resolves to a private or reserved IP address';
+  if (!allowPrivate) {
+    for (const addr of [...v4, ...v6]) {
+      if (isIPv4(addr) && isPrivateIPv4(addr)) return 'Host resolves to a private or reserved IP address';
+      if (isIPv6(addr) && isPrivateIPv6(addr)) return 'Host resolves to a private or reserved IP address';
+    }
   }
 
   return null;
@@ -90,8 +92,9 @@ export async function validateHost(host) {
 //                already a literal IP, since SNI override is not needed in that case)
 //
 // Throws if the host is a reserved/private literal or if DNS resolves to a private range.
-export async function resolveForConnection(hostname) {
-  const literalErr = validateHostLiteral(hostname);
+// Pass { allowPrivate: true } to skip all private/local checks (for self-hosted servers).
+export async function resolveForConnection(hostname, { allowPrivate = false } = {}) {
+  const literalErr = validateHostLiteral(hostname, { allowPrivate });
   if (literalErr) throw new Error(literalErr);
 
   const h = hostname.trim();
@@ -105,16 +108,18 @@ export async function resolveForConnection(hostname) {
     dnsPromises.resolve6(bare).catch(() => []),
   ]);
 
-  for (const addr of [...v4, ...v6]) {
-    if (isIPv4(addr) && isPrivateIPv4(addr)) throw new Error('Host resolves to a private or reserved IP address');
-    if (isIPv6(addr) && isPrivateIPv6(addr)) throw new Error('Host resolves to a private or reserved IP address');
+  if (!allowPrivate) {
+    for (const addr of [...v4, ...v6]) {
+      if (isIPv4(addr) && isPrivateIPv4(addr)) throw new Error('Host resolves to a private or reserved IP address');
+      if (isIPv6(addr) && isPrivateIPv6(addr)) throw new Error('Host resolves to a private or reserved IP address');
+    }
   }
 
   const all = [...v4, ...v6];
   // DNS failed — let the connection attempt fail naturally (NXDOMAIN etc.).
   if (!all.length) return { host: h, servername: null };
 
-  // Pin to first validated public IP. Pass servername so TLS SNI and cert verification
+  // Pin to first validated IP. Pass servername so TLS SNI and cert verification
   // still use the hostname even though the socket connects directly to the IP.
   return { host: all[0], servername: h };
 }

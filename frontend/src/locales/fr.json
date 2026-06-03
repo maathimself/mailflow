@@ -463,6 +463,8 @@
       "imapHost": "Serveur IMAP",
       "imapHostPh": "imap.gmail.com",
       "imapPort": "Port",
+      "skipTlsVerify": "Ignorer la vérification du certificat TLS",
+      "skipTlsVerifyDesc": "Accepter les certificats auto-signés. À utiliser uniquement pour les serveurs sur votre réseau local.",
       "smtpSection": "Paramètres SMTP",
       "smtpHost": "Serveur SMTP",
       "smtpHostPh": "smtp.gmail.com",

@@ -465,6 +465,8 @@
       "imapHost": "IMAP 服务器",
       "imapHostPh": "imap.gmail.com",
       "imapPort": "端口",
+      "skipTlsVerify": "跳过 TLS 证书验证",
+      "skipTlsVerifyDesc": "接受自签名证书。仅在本地网络服务器上使用。",
       "smtpSection": "SMTP 设置",
       "smtpHost": "SMTP 服务器",
       "smtpHostPh": "smtp.gmail.com",
