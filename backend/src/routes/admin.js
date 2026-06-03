@@ -95,7 +95,8 @@ router.get('/auth-events', async (req, res) => {
 });
 
 router.patch('/settings', async (req, res) => {
-  const { registration_open, internal_auth_disabled, auth_max_attempts, auth_window_minutes } = req.body;
+  const { registration_open, internal_auth_disabled, auth_max_attempts, auth_window_minutes,
+    allow_private_hosts, allow_insecure_tls, allow_nonstandard_ports } = req.body;
   if (typeof registration_open === 'boolean') {
     await query(
       `INSERT INTO system_settings (key, value, updated_at)
@@ -158,6 +159,20 @@ router.patch('/settings', async (req, res) => {
   }
   if (auth_max_attempts != null || auth_window_minutes != null) {
     await reloadAuthSettings();
+  }
+  for (const [key, val] of [
+    ['allow_private_hosts', allow_private_hosts],
+    ['allow_insecure_tls', allow_insecure_tls],
+    ['allow_nonstandard_ports', allow_nonstandard_ports],
+  ]) {
+    if (typeof val === 'boolean') {
+      await query(
+        `INSERT INTO system_settings (key, value, updated_at) VALUES ($1, $2, NOW())
+         ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()`,
+        [key, val ? 'true' : 'false']
+      );
+      console.log(`[admin] ${req.session.username} set ${key}=${val}`);
+    }
   }
   res.json({ ok: true });
 });
@@ -256,7 +271,7 @@ router.post('/invites', async (req, res) => {
         } else {
           smtpAuth = { user: account.auth_user, pass: decrypt(account.auth_pass) };
         }
-        const acctResolved = await resolveForConnection(account.smtp_host);
+        const acctResolved = await resolveForConnection(account.smtp_host, { allowPrivate: !!account.allow_private_host });
         const acctTls = { rejectUnauthorized: !account.imap_skip_tls_verify };
         if (acctResolved.servername) acctTls.servername = acctResolved.servername;
         transport = nodemailer.createTransport({

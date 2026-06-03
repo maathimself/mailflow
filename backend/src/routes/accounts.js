@@ -5,6 +5,7 @@ import { imapManager } from '../index.js';
 import { encrypt } from '../services/encryption.js';
 import { sanitizeSignature } from '../services/emailSanitizer.js';
 import { validateHost } from '../services/hostValidation.js';
+import { getConnectionPolicy } from '../services/connectionPolicy.js';
 
 const ALLOWED_IMAP_PORTS = new Set([143, 993]);
 const ALLOWED_SMTP_PORTS = new Set([465, 587]);
@@ -92,12 +93,16 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ error: 'Sender name cannot contain control characters' });
   }
 
+  const policy = await getConnectionPolicy();
+
   if (imap_host) {
-    const err = (await validateHost(imap_host)) || validatePort(imap_port, ALLOWED_IMAP_PORTS);
+    const err = (await validateHost(imap_host, { allowPrivate: policy.allowPrivateHosts }))
+      || (!policy.allowNonstandardPorts && validatePort(imap_port, ALLOWED_IMAP_PORTS));
     if (err) return res.status(400).json({ error: `IMAP: ${err}` });
   }
   if (smtp_host) {
-    const err = (await validateHost(smtp_host)) || validatePort(smtp_port, ALLOWED_SMTP_PORTS);
+    const err = (await validateHost(smtp_host, { allowPrivate: policy.allowPrivateHosts }))
+      || (!policy.allowNonstandardPorts && validatePort(smtp_port, ALLOWED_SMTP_PORTS));
     if (err) return res.status(400).json({ error: `SMTP: ${err}` });
   }
 
@@ -145,13 +150,17 @@ router.put('/:id', async (req, res) => {
   if ('sender_name' in updates && updates.sender_name && hasHeaderInjectionChars(updates.sender_name)) {
     return res.status(400).json({ error: 'Sender name cannot contain control characters' });
   }
+  const policy = await getConnectionPolicy();
+
   if ('smtp_host' in updates && updates.smtp_host) {
-    const err = await validateHost(updates.smtp_host);
+    const err = await validateHost(updates.smtp_host, { allowPrivate: policy.allowPrivateHosts });
     if (err) return res.status(400).json({ error: `SMTP: ${err}` });
   }
   if ('smtp_port' in updates && updates.smtp_port !== undefined && updates.smtp_port !== null) {
-    const err = validatePort(updates.smtp_port, ALLOWED_SMTP_PORTS);
-    if (err) return res.status(400).json({ error: `SMTP: ${err}` });
+    if (!policy.allowNonstandardPorts) {
+      const err = validatePort(updates.smtp_port, ALLOWED_SMTP_PORTS);
+      if (err) return res.status(400).json({ error: `SMTP: ${err}` });
+    }
   }
 
   const allowed = ['name', 'sender_name', 'color', 'enabled', 'auth_user', 'auth_pass', 'sort_order', 'smtp_host', 'smtp_port', 'folder_mappings', 'imap_skip_tls_verify', 'signature'];

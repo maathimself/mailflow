@@ -373,6 +373,8 @@
       "imapHost": "IMAP-Host",
       "imapHostPh": "imap.gmail.com",
       "imapPort": "Port",
+      "skipTlsVerify": "TLS-Zertifikatsprüfung überspringen",
+      "skipTlsVerifyDesc": "Selbstsignierte Zertifikate akzeptieren. Nur für Server im lokalen Netzwerk verwenden.",
       "smtpSection": "SMTP-Einstellungen",
       "smtpHost": "SMTP-Host",
       "smtpHostPh": "smtp.gmail.com",
@@ -580,7 +582,15 @@
       "eventLoginFail": "Fehlgeschlagene Anmeldung",
       "eventTotpSuccess": "2FA bestätigt",
       "eventTotpFail": "Fehlgeschlagene 2FA",
-      "eventSsoLogin": "SSO-Anmeldung"
+      "eventSsoLogin": "SSO-Anmeldung",
+      "mailPolicyTitle": "Verbindungsrichtlinie für Mailserver",
+      "mailPolicyDesc": "Legt fest, welche Verbindungstypen Benutzer konfigurieren dürfen. Für öffentlich zugängliche Instanzen deaktivieren.",
+      "allowPrivateHosts": "Private / lokale Hosts erlauben",
+      "allowPrivateHostsDesc": "Ermöglicht Verbindungen zu IMAP- und SMTP-Servern unter privaten oder lokalen Adressen (z.B. 127.0.0.1, 192.168.x.x). Erforderlich für protonmail-bridge und ähnliche lokale Mail-Bridges.",
+      "allowInsecureTls": "Unsicheres TLS erlauben",
+      "allowInsecureTlsDesc": "Erlaubt Benutzern, die TLS-Zertifikatsprüfung pro Konto zu deaktivieren. Erforderlich für Server mit selbstsignierten Zertifikaten.",
+      "allowNonstandardPorts": "Nicht-standardmäßige Ports erlauben",
+      "allowNonstandardPortsDesc": "Erlaubt beliebige IMAP- oder SMTP-Ports, nicht nur 143/993 (IMAP) und 465/587 (SMTP). Erforderlich für Server wie protonmail-bridge, die andere Ports verwenden."
     },
     "privacy": {
       "title": "Datenschutz",

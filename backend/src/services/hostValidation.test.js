@@ -194,3 +194,48 @@ describe('resolveForConnection', () => {
     expect(result.servername).toBe('imap.gmail.com');
   });
 });
+
+// ── allowPrivate option ────────────────────────────────────────────────────
+
+describe('allowPrivate option', () => {
+  it('validateHostLiteral passes private IPv4 when allowPrivate is true', () => {
+    expect(validateHostLiteral('127.0.0.1', { allowPrivate: true })).toBeNull();
+    expect(validateHostLiteral('192.168.1.1', { allowPrivate: true })).toBeNull();
+    expect(validateHostLiteral('10.0.0.1', { allowPrivate: true })).toBeNull();
+  });
+
+  it('validateHostLiteral passes localhost when allowPrivate is true', () => {
+    expect(validateHostLiteral('localhost', { allowPrivate: true })).toBeNull();
+    expect(validateHostLiteral('mail.local', { allowPrivate: true })).toBeNull();
+  });
+
+  it('validateHostLiteral still blocks private hosts when allowPrivate is false (default)', () => {
+    expect(validateHostLiteral('127.0.0.1')).not.toBeNull();
+    expect(validateHostLiteral('localhost')).not.toBeNull();
+  });
+
+  it('validateHost passes private IPv4 when allowPrivate is true', async () => {
+    expect(await validateHost('192.168.1.1', { allowPrivate: true })).toBeNull();
+  });
+
+  it('validateHost passes a hostname resolving to a private IP when allowPrivate is true', async () => {
+    dns.resolve4.mockResolvedValue(['192.168.1.100']);
+    expect(await validateHost('protonmail.local', { allowPrivate: true })).toBeNull();
+  });
+
+  it('resolveForConnection does not throw for localhost when allowPrivate is true', async () => {
+    await expect(resolveForConnection('localhost', { allowPrivate: true })).resolves.toBeDefined();
+  });
+
+  it('resolveForConnection does not throw for a private IPv4 when allowPrivate is true', async () => {
+    const result = await resolveForConnection('127.0.0.1', { allowPrivate: true });
+    expect(result.host).toBe('127.0.0.1');
+    expect(result.servername).toBeNull();
+  });
+
+  it('resolveForConnection does not throw for a hostname resolving to private IP when allowPrivate is true', async () => {
+    dns.resolve4.mockResolvedValue(['192.168.1.100']);
+    const result = await resolveForConnection('bridge.local', { allowPrivate: true });
+    expect(result.host).toBe('192.168.1.100');
+  });
+});

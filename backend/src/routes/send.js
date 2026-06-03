@@ -8,6 +8,7 @@ import { decrypt } from '../services/encryption.js';
 import sanitizeHtml from 'sanitize-html';
 import { redactEmail } from '../utils/redact.js';
 import { resolveForConnection } from '../services/hostValidation.js';
+import { getConnectionPolicy } from '../services/connectionPolicy.js';
 import { imapManager } from '../index.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -226,8 +227,13 @@ router.post('/send', async (req, res) => {
       smtpAuth = { user: account.auth_user, pass };
     }
 
-    const smtpResolved = await resolveForConnection(account.smtp_host);
-    const smtpTls = { rejectUnauthorized: !account.imap_skip_tls_verify };
+    const policy = await getConnectionPolicy();
+    const smtpResolved = await resolveForConnection(account.smtp_host, { allowPrivate: policy.allowPrivateHosts });
+    const smtpPlain = account.smtp_tls !== 'STARTTLS' && account.smtp_tls !== 'SSL';
+    if (!policy.allowInsecureTls && smtpPlain) {
+      return res.status(403).json({ error: 'Plain-text SMTP is not allowed: admin must enable "Allow insecure TLS"' });
+    }
+    const smtpTls = { rejectUnauthorized: !(policy.allowInsecureTls && account.imap_skip_tls_verify) };
     if (smtpResolved.servername) smtpTls.servername = smtpResolved.servername;
     const transport = nodemailer.createTransport({
       host: smtpResolved.host,

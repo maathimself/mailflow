@@ -413,6 +413,8 @@
       "imapHost": "IMAP-сервер",
       "imapHostPh": "imap.gmail.com",
       "imapPort": "Порт",
+      "skipTlsVerify": "Пропустить проверку TLS-сертификата",
+      "skipTlsVerifyDesc": "Принимать самоподписанные сертификаты. Использовать только для серверов в локальной сети.",
       "smtpSection": "Настройки SMTP",
       "smtpHost": "SMTP-сервер",
       "smtpHostPh": "smtp.gmail.com",

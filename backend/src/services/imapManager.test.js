@@ -10,9 +10,12 @@ vi.mock('./pushNotifications.js', () => ({ sendPushToUser: vi.fn() }));
 vi.mock('../utils/redact.js', () => ({ redactEmail: vi.fn() }));
 vi.mock('./hostValidation.js', () => ({ resolveForConnection: vi.fn() }));
 
-import { providerProfile } from './imapManager.js';
+import { providerProfile, makeClientCfg } from './imapManager.js';
 
 const account = (imap_host, oauth_provider = null) => ({ imap_host, oauth_provider });
+
+const resolved = { host: '127.0.0.1', servername: null };
+const baseAccount = { imap_host: '127.0.0.1', imap_port: 1143, imap_tls: true, imap_skip_tls_verify: false, auth_user: 'user', auth_pass: 'enc' };
 
 // ── providerProfile — host detection ─────────────────────────────────────────
 
@@ -120,5 +123,82 @@ describe('providerProfile — robustness', () => {
 
   it('is case-insensitive for host matching', () => {
     expect(providerProfile(account('IMAP.GMAIL.COM')).pushesFlags).toBe(false);
+  });
+});
+
+// ── makeClientCfg — TLS enforcement ──────────────────────────────────────────
+
+describe('makeClientCfg — TLS enforcement', () => {
+  it('throws for plain-text IMAP when allowInsecureTls is false', () => {
+    expect(() =>
+      makeClientCfg({ ...baseAccount, imap_tls: false }, resolved, { policy: { allowInsecureTls: false } })
+    ).toThrow(/plain-text IMAP/i);
+  });
+
+  it('throws for plain-text IMAP when policy is empty (default)', () => {
+    expect(() =>
+      makeClientCfg({ ...baseAccount, imap_tls: false }, resolved)
+    ).toThrow(/plain-text IMAP/i);
+  });
+
+  it('does not throw for plain-text IMAP when allowInsecureTls is true', () => {
+    expect(() =>
+      makeClientCfg({ ...baseAccount, imap_tls: false }, resolved, { policy: { allowInsecureTls: true } })
+    ).not.toThrow();
+  });
+
+  it('does not throw for TLS IMAP regardless of allowInsecureTls', () => {
+    expect(() =>
+      makeClientCfg({ ...baseAccount, imap_tls: true }, resolved, { policy: { allowInsecureTls: false } })
+    ).not.toThrow();
+    expect(() =>
+      makeClientCfg({ ...baseAccount, imap_tls: true }, resolved, { policy: { allowInsecureTls: true } })
+    ).not.toThrow();
+  });
+});
+
+// ── makeClientCfg — rejectUnauthorized ───────────────────────────────────────
+
+describe('makeClientCfg — rejectUnauthorized', () => {
+  it('sets rejectUnauthorized true by default (no policy)', () => {
+    const cfg = makeClientCfg(baseAccount, resolved);
+    expect(cfg.tls.rejectUnauthorized).toBe(true);
+  });
+
+  it('sets rejectUnauthorized true when allowInsecureTls is false even if skip_tls_verify is set', () => {
+    const cfg = makeClientCfg(
+      { ...baseAccount, imap_skip_tls_verify: true },
+      resolved,
+      { policy: { allowInsecureTls: false } }
+    );
+    expect(cfg.tls.rejectUnauthorized).toBe(true);
+  });
+
+  it('sets rejectUnauthorized false when allowInsecureTls is true and imap_skip_tls_verify is true', () => {
+    const cfg = makeClientCfg(
+      { ...baseAccount, imap_skip_tls_verify: true },
+      resolved,
+      { policy: { allowInsecureTls: true } }
+    );
+    expect(cfg.tls.rejectUnauthorized).toBe(false);
+  });
+
+  it('sets rejectUnauthorized true when allowInsecureTls is true but imap_skip_tls_verify is false', () => {
+    const cfg = makeClientCfg(
+      { ...baseAccount, imap_skip_tls_verify: false },
+      resolved,
+      { policy: { allowInsecureTls: true } }
+    );
+    expect(cfg.tls.rejectUnauthorized).toBe(true);
+  });
+
+  it('sets servername from resolved when present', () => {
+    const cfg = makeClientCfg(baseAccount, { host: '142.250.80.46', servername: 'imap.gmail.com' });
+    expect(cfg.tls.servername).toBe('imap.gmail.com');
+  });
+
+  it('does not set servername when resolved.servername is null', () => {
+    const cfg = makeClientCfg(baseAccount, resolved);
+    expect(cfg.tls.servername).toBeUndefined();
   });
 });
