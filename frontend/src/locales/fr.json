@@ -41,7 +41,9 @@
       "verify": "Vérifier",
       "verifying": "Vérification…",
       "backToLogin": "← Retour à la connexion"
-    }
+    },
+    "ssoOnly": "Se connecter avec SSO",
+    "ssoOnlyDesc": "La connexion par mot de passe est désactivée sur ce serveur."
   },
   "compose": {
     "newMessage": "Nouveau message",
@@ -210,7 +212,7 @@
     "folderMenu": {
       "markAllRead": "Tout marquer comme lu",
       "syncFolder": "Synchroniser le dossier",
-      "renameFavorite": "Rename favorite",
+      "renameFavorite": "Renommer le favori",
       "rename": "Renommer",
       "createSubfolder": "Créer un sous-dossier",
       "hide": "Masquer le dossier",
@@ -435,7 +437,9 @@
       "reindex": "Réindexer pour la recherche",
       "reindexing": "Indexation des messages...",
       "reindexProgress": "{{synced}} / {{total}} messages indexés",
-      "reindexError": "Échec du démarrage de la réindexation"
+      "reindexError": "Échec du démarrage de la réindexation",
+      "senderName": "Nom de l'expéditeur",
+      "senderNamePh": "ex. Alice Smith"
     },
     "folderMappings": {
       "title": "Mappage des dossiers",
@@ -533,7 +537,12 @@
       "hoverQuickActionsOff": "Désactivé",
       "hoverQuickActionsOffDesc": "Garder les actions rapides masquées jusqu'à l'utilisation du menu contextuel ou des raccourcis.",
       "hoverQuickActionsOn": "Activé",
-      "hoverQuickActionsOnDesc": "Afficher les icônes d'action rapide dans les lignes de messages lorsque le pointeur les survole."
+      "hoverQuickActionsOnDesc": "Afficher les icônes d'action rapide dans les lignes de messages lorsque le pointeur les survole.",
+      "defaultReply": "Répondre",
+      "defaultReplyAction": "Action de réponse par défaut",
+      "defaultReplyAll": "Répondre à tous",
+      "defaultReplyAllDesc": "Le bouton Répondre envoie à tous les destinataires",
+      "defaultReplyDesc": "Le bouton Répondre envoie uniquement à l'expéditeur"
     },
     "notifications": {
       "title": "Notifications",
@@ -598,7 +607,39 @@
       "ssoUnlinkTitle": "Délier {{provider}} ?",
       "ssoUnlinkBody": "Vous ne pourrez plus vous connecter avec ce fournisseur. Assurez-vous d'avoir une autre méthode de connexion.",
       "ssoUnlinkConfirm": "Délier",
-      "ssoNoProviders": "Aucun fournisseur SSO n'est configuré sur ce serveur."
+      "ssoNoProviders": "Aucun fournisseur SSO n'est configuré sur ce serveur.",
+      "activityAllowed": "Autorisé",
+      "activityBlocked": "Bloqué",
+      "activityColEvent": "Événement",
+      "activityColIP": "Adresse IP",
+      "activityColStatus": "Statut",
+      "activityColTime": "Heure",
+      "activityColUser": "Utilisateur",
+      "activityDesc": "Événements d'authentification récents pour tous les utilisateurs.",
+      "activityEmpty": "Aucune activité enregistrée pour l'instant.",
+      "activityLoading": "Chargement…",
+      "activityRefresh": "Actualiser",
+      "activityTitle": "Activité de connexion",
+      "allowInsecureTls": "Autoriser le TLS non sécurisé",
+      "allowInsecureTlsDesc": "Permet aux utilisateurs de désactiver la vérification du certificat TLS par compte. Requis pour les serveurs avec des certificats auto-signés.",
+      "allowNonstandardPorts": "Autoriser les ports non standard",
+      "allowNonstandardPortsDesc": "Permet tout port IMAP ou SMTP, pas uniquement 143/993 (IMAP) et 465/587 (SMTP). Requis pour les serveurs comme protonmail-bridge qui utilisent des ports non standard.",
+      "allowPrivateHosts": "Autoriser les hôtes privés / locaux",
+      "allowPrivateHostsDesc": "Permet de se connecter aux serveurs IMAP et SMTP sur des adresses privées ou locales (p. ex. 127.0.0.1, 192.168.x.x). Requis pour protonmail-bridge et les ponts de messagerie locaux similaires.",
+      "eventLoginFail": "Échec de connexion",
+      "eventLoginSuccess": "Connexion",
+      "eventSsoLogin": "Connexion SSO",
+      "eventTotpFail": "Échec 2FA",
+      "eventTotpSuccess": "2FA vérifié",
+      "loginProtectionDesc": "Tentatives de connexion échouées autorisées depuis une seule adresse IP avant d'être temporairement bloquée.",
+      "loginProtectionTitle": "Protection de connexion",
+      "mailPolicyDesc": "Contrôle les types de connexion que les utilisateurs sont autorisés à configurer. Désactivez ces options pour les déploiements accessibles depuis Internet.",
+      "mailPolicyTitle": "Politique de connexion au serveur de messagerie",
+      "maxAttempts": "Tentatives max.",
+      "protectionSaved": "Enregistré",
+      "saveProtection": "Enregistrer",
+      "savingProtection": "Enregistrement…",
+      "windowMinutes": "Fenêtre de blocage (minutes)"
     },
     "privacy": {
       "title": "Confidentialité",
@@ -728,8 +769,17 @@
       "disabledBadge": "Désactivé",
       "errorRequired": "Le nom, l'identifiant, l'URL de l'émetteur et l'ID client sont requis.",
       "errorSecretRequired": "Le secret client est requis.",
-      "allowInsecure": "Allow local / self-signed connections",
-      "allowInsecureDesc": "Bypasses host validation and TLS certificate checks. Use only for LAN-only providers (e.g. pocketid.internal). Not recommended for internet-facing deployments."
+      "allowInsecure": "Autoriser les connexions locales / auto-signées",
+      "allowInsecureDesc": "Contourne la validation de l'hôte et les vérifications du certificat TLS. À utiliser uniquement pour les fournisseurs en réseau local (ex. pocketid.internal). Déconseillé pour les déploiements accessibles depuis Internet.",
+      "passwordLoginDesc": "Lorsque désactivé, les utilisateurs peuvent uniquement se connecter via SSO. Nécessite au moins un fournisseur SSO activé et que votre compte administrateur soit lié à une identité SSO.",
+      "passwordLoginDisableConfirm": "Désactiver la connexion par mot de passe",
+      "passwordLoginDisableMsg": "Les utilisateurs ne pourront se connecter que via SSO. Si votre fournisseur SSO devient indisponible, un accès direct à la base de données sera nécessaire pour réactiver la connexion par mot de passe.",
+      "passwordLoginDisableTitle": "Désactiver la connexion par mot de passe ?",
+      "passwordLoginDisabled": "La connexion par mot de passe est désactivée",
+      "passwordLoginDisabledDesc": "Les utilisateurs doivent se connecter via SSO",
+      "passwordLoginEnabled": "La connexion par mot de passe est activée",
+      "passwordLoginEnabledDesc": "Les utilisateurs peuvent se connecter avec un nom d'utilisateur et un mot de passe",
+      "passwordLoginTitle": "Connexion par mot de passe"
     },
     "integrations": {
       "title": "Intégrations",

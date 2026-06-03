@@ -41,7 +41,9 @@
       "verify": "Verifica",
       "verifying": "Verifica in corso…",
       "backToLogin": "← Torna all'accesso"
-    }
+    },
+    "ssoOnly": "Accedi con SSO",
+    "ssoOnlyDesc": "L'accesso con password è disabilitato su questo server."
   },
   "compose": {
     "newMessage": "Nuovo messaggio",
@@ -210,7 +212,7 @@
     "folderMenu": {
       "markAllRead": "Segna tutto come letto",
       "syncFolder": "Sincronizza cartella",
-      "renameFavorite": "Rename favorite",
+      "renameFavorite": "Rinomina preferito",
       "rename": "Rinomina",
       "createSubfolder": "Crea sottocartella",
       "hide": "Nascondi cartella",
@@ -435,7 +437,9 @@
       "reindex": "Reindicizza per la ricerca",
       "reindexing": "Indicizzazione messaggi...",
       "reindexProgress": "{{synced}} / {{total}} messaggi indicizzati",
-      "reindexError": "Impossibile avviare la reindicizzazione"
+      "reindexError": "Impossibile avviare la reindicizzazione",
+      "senderName": "Nome del mittente",
+      "senderNamePh": "es. Alice Smith"
     },
     "folderMappings": {
       "title": "Mappatura cartelle",
@@ -533,7 +537,12 @@
       "hoverQuickActionsOff": "Disattivato",
       "hoverQuickActionsOffDesc": "Mantieni le azioni rapide nascoste fino all'uso del menu contestuale o delle scorciatoie.",
       "hoverQuickActionsOn": "Attivato",
-      "hoverQuickActionsOnDesc": "Mostra le icone delle azioni rapide nelle righe dei messaggi quando il puntatore è sopra di esse."
+      "hoverQuickActionsOnDesc": "Mostra le icone delle azioni rapide nelle righe dei messaggi quando il puntatore è sopra di esse.",
+      "defaultReply": "Rispondi",
+      "defaultReplyAction": "Azione di risposta predefinita",
+      "defaultReplyAll": "Rispondi a tutti",
+      "defaultReplyAllDesc": "Il pulsante Rispondi invia a tutti i destinatari",
+      "defaultReplyDesc": "Il pulsante Rispondi invia solo al mittente"
     },
     "notifications": {
       "title": "Notifiche",
@@ -598,7 +607,39 @@
       "ssoUnlinkTitle": "Scollegare {{provider}}?",
       "ssoUnlinkBody": "Non potrai più accedere con questo provider. Assicurati di avere un altro metodo di accesso.",
       "ssoUnlinkConfirm": "Scollega",
-      "ssoNoProviders": "Nessun provider SSO è configurato su questo server."
+      "ssoNoProviders": "Nessun provider SSO è configurato su questo server.",
+      "activityAllowed": "Consentito",
+      "activityBlocked": "Bloccato",
+      "activityColEvent": "Evento",
+      "activityColIP": "Indirizzo IP",
+      "activityColStatus": "Stato",
+      "activityColTime": "Ora",
+      "activityColUser": "Utente",
+      "activityDesc": "Eventi di autenticazione recenti per tutti gli utenti.",
+      "activityEmpty": "Nessuna attività registrata.",
+      "activityLoading": "Caricamento…",
+      "activityRefresh": "Aggiorna",
+      "activityTitle": "Attività di accesso",
+      "allowInsecureTls": "Consenti TLS non sicuro",
+      "allowInsecureTlsDesc": "Consente agli utenti di disabilitare la verifica del certificato TLS per account. Necessario per server con certificati autofirmati.",
+      "allowNonstandardPorts": "Consenti porte non standard",
+      "allowNonstandardPortsDesc": "Consente qualsiasi porta IMAP o SMTP, non solo 143/993 (IMAP) e 465/587 (SMTP). Necessario per server come protonmail-bridge che usano porte non standard.",
+      "allowPrivateHosts": "Consenti host privati / locali",
+      "allowPrivateHostsDesc": "Consente di connettersi a server IMAP e SMTP su indirizzi privati o locali (es. 127.0.0.1, 192.168.x.x). Necessario per protonmail-bridge e bridge di posta locali simili.",
+      "eventLoginFail": "Accesso fallito",
+      "eventLoginSuccess": "Accesso",
+      "eventSsoLogin": "Accesso SSO",
+      "eventTotpFail": "2FA fallito",
+      "eventTotpSuccess": "2FA verificato",
+      "loginProtectionDesc": "Tentativi di accesso falliti consentiti da un singolo indirizzo IP prima di essere temporaneamente bloccato.",
+      "loginProtectionTitle": "Protezione accesso",
+      "mailPolicyDesc": "Controlla i tipi di connessione che gli utenti possono configurare. Disabilita per distribuzioni esposte a Internet.",
+      "mailPolicyTitle": "Policy di connessione al server di posta",
+      "maxAttempts": "Tentativi massimi",
+      "protectionSaved": "Salvato",
+      "saveProtection": "Salva",
+      "savingProtection": "Salvataggio…",
+      "windowMinutes": "Finestra di blocco (minuti)"
     },
     "privacy": {
       "title": "Privacy",
@@ -728,8 +769,17 @@
       "disabledBadge": "Disabilitato",
       "errorRequired": "Nome, slug, URL emittente e ID client sono obbligatori.",
       "errorSecretRequired": "Il segreto client è obbligatorio.",
-      "allowInsecure": "Allow local / self-signed connections",
-      "allowInsecureDesc": "Bypasses host validation and TLS certificate checks. Use only for LAN-only providers (e.g. pocketid.internal). Not recommended for internet-facing deployments."
+      "allowInsecure": "Consenti connessioni locali / autofirmate",
+      "allowInsecureDesc": "Aggira la validazione dell'host e i controlli del certificato TLS. Da usare solo per provider LAN-only (es. pocketid.internal). Non consigliato per distribuzioni esposte a Internet.",
+      "passwordLoginDesc": "Quando disabilitato, gli utenti possono accedere solo tramite SSO. Richiede almeno un provider SSO abilitato e che il tuo account amministratore sia collegato a un'identità SSO.",
+      "passwordLoginDisableConfirm": "Disabilita accesso con password",
+      "passwordLoginDisableMsg": "Gli utenti potranno accedere solo tramite SSO. Se il provider SSO non è disponibile, sarà necessario l'accesso diretto al database per riabilitare l'accesso con password.",
+      "passwordLoginDisableTitle": "Disabilitare l'accesso con password?",
+      "passwordLoginDisabled": "L'accesso con password è disabilitato",
+      "passwordLoginDisabledDesc": "Gli utenti devono accedere tramite SSO",
+      "passwordLoginEnabled": "L'accesso con password è abilitato",
+      "passwordLoginEnabledDesc": "Gli utenti possono accedere con nome utente e password",
+      "passwordLoginTitle": "Accesso con password"
     },
     "integrations": {
       "title": "Integrazioni",

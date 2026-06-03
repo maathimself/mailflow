@@ -212,7 +212,7 @@
     "folderMenu": {
       "markAllRead": "Alle als gelesen markieren",
       "syncFolder": "Ordner synchronisieren",
-      "renameFavorite": "Rename favorite",
+      "renameFavorite": "Favorit umbenennen",
       "rename": "Umbenennen",
       "createSubfolder": "Unterordner erstellen",
       "hide": "Ordner ausblenden",
@@ -273,7 +273,8 @@
       "loading": "Ordner werden geladen…",
       "empty": "Keine Ordner gefunden",
       "recent": "Zuletzt verwendet"
-    }
+    },
+    "createRule": "Regel aus Nachricht erstellen"
   },
   "commandPalette": {
     "placeholder": "Aktionen suchen…",
@@ -345,7 +346,8 @@
       "integrations": "Integrationen",
       "theme": "Design",
       "fontsAndLanguage": "Sprache & Schrift",
-      "about": "Über"
+      "about": "Über",
+      "rules": "Regeln"
     },
     "accounts": {
       "title": "E-Mail-Konten",
@@ -493,7 +495,12 @@
       "hoverQuickActionsOff": "Aus",
       "hoverQuickActionsOffDesc": "Schnellaktionen ausblenden, bis das Kontextmenü oder Tastenkürzel verwendet werden.",
       "hoverQuickActionsOn": "Ein",
-      "hoverQuickActionsOnDesc": "Schnellaktion-Symbole in Nachrichtenzeilen anzeigen, wenn der Mauszeiger darüber ist."
+      "hoverQuickActionsOnDesc": "Schnellaktion-Symbole in Nachrichtenzeilen anzeigen, wenn der Mauszeiger darüber ist.",
+      "defaultReply": "Antworten",
+      "defaultReplyAction": "Standard-Antwortoption",
+      "defaultReplyAll": "Allen antworten",
+      "defaultReplyAllDesc": "Die Schaltfläche Antworten sendet an alle Empfänger",
+      "defaultReplyDesc": "Die Schaltfläche Antworten sendet nur an den Absender"
     },
     "notifications": {
       "title": "Benachrichtigungen",
@@ -729,8 +736,8 @@
       "disabledBadge": "Deaktiviert",
       "errorRequired": "Name, Slug, Aussteller-URL und Client-ID sind erforderlich.",
       "errorSecretRequired": "Client-Secret ist erforderlich.",
-      "allowInsecure": "Allow local / self-signed connections",
-      "allowInsecureDesc": "Bypasses host validation and TLS certificate checks. Use only for LAN-only providers (e.g. pocketid.internal). Not recommended for internet-facing deployments."
+      "allowInsecure": "Lokale / selbstsignierte Verbindungen erlauben",
+      "allowInsecureDesc": "Umgeht die Host-Validierung und TLS-Zertifikatsprüfungen. Nur für LAN-seitige Anbieter (z. B. pocketid.internal) verwenden. Nicht empfohlen für internetfähige Deployments."
     },
     "integrations": {
       "title": "Integrationen",
@@ -793,6 +800,48 @@
       "website": "Website",
       "sourceCode": "Quellcode",
       "sponsor": "Entwicklung unterstützen"
+    },
+    "rules": {
+      "accountAll": "Alle Konten",
+      "accountLabel": "Anwenden auf",
+      "actionArchive": "Archivieren",
+      "actionDelete": "In den Papierkorb verschieben",
+      "actionMarkRead": "Als gelesen markieren",
+      "actionMove": "In Ordner verschieben",
+      "actionMovePlaceholder": "Ordnername",
+      "actionStar": "Markieren",
+      "actionsLabel": "Aktionen",
+      "addCondition": "Bedingung hinzufügen",
+      "conditionLogicAnd": "alle Bedingungen (UND)",
+      "conditionLogicLabel": "Übereinstimmen",
+      "conditionLogicOr": "eine Bedingung (ODER)",
+      "conditionsLabel": "Bedingungen",
+      "deleteButton": "Löschen",
+      "deleteConfirm": "Diese Regel löschen?",
+      "editButton": "Bearbeiten",
+      "empty": "Noch keine Regeln. Regeln filtern eingehende E-Mails automatisch.",
+      "enabledToggle": "Aktiviert",
+      "errorMoveFolder": "Bitte einen Zielordner für die Verschieben-Aktion angeben.",
+      "errorRequired": "Regelname und mindestens eine Bedingung und Aktion sind erforderlich.",
+      "errorSave": "Regel konnte nicht gespeichert werden.",
+      "fieldFrom": "Von",
+      "fieldHasAttachment": "Hat Anhang",
+      "fieldSubject": "Betreff",
+      "fieldTo": "An",
+      "formTitleAdd": "Neue Regel",
+      "formTitleEdit": "Regel bearbeiten",
+      "nameLabel": "Regelname",
+      "namePlaceholder": "z. B. Newsletter verschieben",
+      "newButton": "Neue Regel",
+      "opContains": "enthält",
+      "opEndsWith": "endet mit",
+      "opEquals": "ist genau",
+      "opNotContains": "enthält nicht",
+      "opStartsWith": "beginnt mit",
+      "saveButton": "Regel speichern",
+      "saving": "Speichern…",
+      "stopProcessing": "Keine weiteren Regeln verarbeiten, wenn diese Regel zutrifft",
+      "title": "Posteingangsregeln"
     }
   },
   "thread": {

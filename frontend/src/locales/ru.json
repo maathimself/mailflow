@@ -41,7 +41,9 @@
       "verify": "Проверить",
       "verifying": "Проверка…",
       "backToLogin": "← Назад ко входу"
-    }
+    },
+    "ssoOnly": "Войти через SSO",
+    "ssoOnlyDesc": "Вход с паролем отключён на этом сервере."
   },
   "compose": {
     "newMessage": "Новое сообщение",
@@ -210,7 +212,7 @@
     "folderMenu": {
       "markAllRead": "Отметить все как прочитанные",
       "syncFolder": "Синхронизировать папку",
-      "renameFavorite": "Rename favorite",
+      "renameFavorite": "Переименовать избранное",
       "rename": "Переименовать",
       "createSubfolder": "Создать подпапку",
       "hide": "Скрыть папку",
@@ -435,7 +437,9 @@
       "reindex": "Переиндексировать для поиска",
       "reindexing": "Индексирование сообщений...",
       "reindexProgress": "Проиндексировано {{synced}} / {{total}} сообщений",
-      "reindexError": "Не удалось запустить переиндексацию"
+      "reindexError": "Не удалось запустить переиндексацию",
+      "senderName": "Имя отправителя",
+      "senderNamePh": "напр. Алиса Смит"
     },
     "folderMappings": {
       "title": "Сопоставление папок",
@@ -533,7 +537,12 @@
       "hoverQuickActionsOff": "Выкл",
       "hoverQuickActionsOffDesc": "Скрывать быстрые действия до использования контекстного меню или горячих клавиш.",
       "hoverQuickActionsOn": "Вкл",
-      "hoverQuickActionsOnDesc": "Показывать значки быстрых действий в строках сообщений при наведении указателя."
+      "hoverQuickActionsOnDesc": "Показывать значки быстрых действий в строках сообщений при наведении указателя.",
+      "defaultReply": "Ответить",
+      "defaultReplyAction": "Действие ответа по умолчанию",
+      "defaultReplyAll": "Ответить всем",
+      "defaultReplyAllDesc": "Кнопка «Ответить» отправляет всем получателям",
+      "defaultReplyDesc": "Кнопка «Ответить» отправляет только отправителю"
     },
     "notifications": {
       "title": "Уведомления",
@@ -598,7 +607,39 @@
       "ssoUnlinkTitle": "Отвязать {{provider}}?",
       "ssoUnlinkBody": "Вы больше не сможете входить через этого провайдера. Убедитесь, что у вас есть другой способ входа.",
       "ssoUnlinkConfirm": "Отвязать",
-      "ssoNoProviders": "На этом сервере не настроены SSO-провайдеры."
+      "ssoNoProviders": "На этом сервере не настроены SSO-провайдеры.",
+      "activityAllowed": "Разрешено",
+      "activityBlocked": "Заблокировано",
+      "activityColEvent": "Событие",
+      "activityColIP": "IP-адрес",
+      "activityColStatus": "Статус",
+      "activityColTime": "Время",
+      "activityColUser": "Пользователь",
+      "activityDesc": "Последние события аутентификации по всем пользователям.",
+      "activityEmpty": "Активность ещё не зарегистрирована.",
+      "activityLoading": "Загрузка…",
+      "activityRefresh": "Обновить",
+      "activityTitle": "Активность входа",
+      "allowInsecureTls": "Разрешить небезопасный TLS",
+      "allowInsecureTlsDesc": "Позволяет пользователям отключать проверку TLS-сертификата для каждой учётной записи. Необходимо для серверов с самоподписанными сертификатами.",
+      "allowNonstandardPorts": "Разрешить нестандартные порты",
+      "allowNonstandardPortsDesc": "Разрешает любой порт IMAP или SMTP, а не только 143/993 (IMAP) и 465/587 (SMTP). Необходимо для серверов, таких как protonmail-bridge, использующих нестандартные порты.",
+      "allowPrivateHosts": "Разрешить частные / локальные хосты",
+      "allowPrivateHostsDesc": "Позволяет подключаться к серверам IMAP и SMTP на частных или локальных адресах (напр. 127.0.0.1, 192.168.x.x). Необходимо для protonmail-bridge и аналогичных локальных почтовых мостов.",
+      "eventLoginFail": "Неудачный вход",
+      "eventLoginSuccess": "Вход",
+      "eventSsoLogin": "Вход через SSO",
+      "eventTotpFail": "Ошибка 2FA",
+      "eventTotpSuccess": "2FA подтверждено",
+      "loginProtectionDesc": "Количество неудачных попыток входа с одного IP-адреса перед временной блокировкой.",
+      "loginProtectionTitle": "Защита входа",
+      "mailPolicyDesc": "Управляет типами соединений, которые пользователи могут настраивать. Отключите для развёртываний с доступом из интернета.",
+      "mailPolicyTitle": "Политика подключения к почтовому серверу",
+      "maxAttempts": "Макс. попыток",
+      "protectionSaved": "Сохранено",
+      "saveProtection": "Сохранить",
+      "savingProtection": "Сохранение…",
+      "windowMinutes": "Окно блокировки (минут)"
     },
     "privacy": {
       "title": "Конфиденциальность",
@@ -728,8 +769,17 @@
       "disabledBadge": "Отключён",
       "errorRequired": "Требуются название, slug, URL издателя и Client ID.",
       "errorSecretRequired": "Требуется Client secret.",
-      "allowInsecure": "Allow local / self-signed connections",
-      "allowInsecureDesc": "Bypasses host validation and TLS certificate checks. Use only for LAN-only providers (e.g. pocketid.internal). Not recommended for internet-facing deployments."
+      "allowInsecure": "Разрешить локальные / самоподписанные соединения",
+      "allowInsecureDesc": "Обходит проверку хоста и TLS-сертификата. Используйте только для LAN-провайдеров (например, pocketid.internal). Не рекомендуется для интернет-развёртываний.",
+      "passwordLoginDesc": "При отключении пользователи могут входить только через SSO. Требуется хотя бы один включённый провайдер SSO и привязка учётной записи администратора к удостоверению SSO.",
+      "passwordLoginDisableConfirm": "Отключить вход с паролем",
+      "passwordLoginDisableMsg": "Пользователи смогут входить только через SSO. Если провайдер SSO станет недоступен, потребуется прямой доступ к базе данных для повторного включения входа с паролем.",
+      "passwordLoginDisableTitle": "Отключить вход с паролем?",
+      "passwordLoginDisabled": "Вход с паролем отключён",
+      "passwordLoginDisabledDesc": "Пользователи должны входить через SSO",
+      "passwordLoginEnabled": "Вход с паролем включён",
+      "passwordLoginEnabledDesc": "Пользователи могут входить с именем пользователя и паролем",
+      "passwordLoginTitle": "Вход с паролем"
     },
     "integrations": {
       "title": "Интеграции",

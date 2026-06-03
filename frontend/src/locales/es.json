@@ -41,7 +41,9 @@
       "verify": "Verificar",
       "verifying": "Verificando…",
       "backToLogin": "← Volver al inicio de sesión"
-    }
+    },
+    "ssoOnly": "Iniciar sesión con SSO",
+    "ssoOnlyDesc": "El inicio de sesión con contraseña está desactivado en este servidor."
   },
   "compose": {
     "newMessage": "Nuevo mensaje",
@@ -210,7 +212,7 @@
     "folderMenu": {
       "markAllRead": "Marcar todo como leído",
       "syncFolder": "Sincronizar carpeta",
-      "renameFavorite": "Rename favorite",
+      "renameFavorite": "Renombrar favorito",
       "rename": "Renombrar",
       "createSubfolder": "Crear subcarpeta",
       "hide": "Ocultar carpeta",
@@ -435,7 +437,9 @@
       "reindex": "Re-indexar para búsqueda",
       "reindexing": "Indexando mensajes...",
       "reindexProgress": "{{synced}} / {{total}} mensajes indexados",
-      "reindexError": "Error al iniciar la re-indexación"
+      "reindexError": "Error al iniciar la re-indexación",
+      "senderName": "Nombre del remitente",
+      "senderNamePh": "p. ej. Alice Smith"
     },
     "folderMappings": {
       "title": "Asignación de carpetas",
@@ -533,7 +537,12 @@
       "hoverQuickActionsOff": "Desactivado",
       "hoverQuickActionsOffDesc": "Mantener las acciones rápidas ocultas hasta usar el menú contextual o atajos.",
       "hoverQuickActionsOn": "Activado",
-      "hoverQuickActionsOnDesc": "Mostrar iconos de acción rápida en las filas de mensajes cuando el cursor esté sobre ellas."
+      "hoverQuickActionsOnDesc": "Mostrar iconos de acción rápida en las filas de mensajes cuando el cursor esté sobre ellas.",
+      "defaultReply": "Responder",
+      "defaultReplyAction": "Acción de respuesta predeterminada",
+      "defaultReplyAll": "Responder a todos",
+      "defaultReplyAllDesc": "El botón Responder envía a todos los destinatarios",
+      "defaultReplyDesc": "El botón Responder envía solo al remitente"
     },
     "notifications": {
       "title": "Notificaciones",
@@ -598,7 +607,39 @@
       "ssoUnlinkTitle": "¿Desvincular {{provider}}?",
       "ssoUnlinkBody": "Ya no podrás iniciar sesión con este proveedor. Asegúrate de tener otra forma de iniciar sesión.",
       "ssoUnlinkConfirm": "Desvincular",
-      "ssoNoProviders": "No hay proveedores SSO configurados en este servidor."
+      "ssoNoProviders": "No hay proveedores SSO configurados en este servidor.",
+      "activityAllowed": "Permitido",
+      "activityBlocked": "Bloqueado",
+      "activityColEvent": "Evento",
+      "activityColIP": "Dirección IP",
+      "activityColStatus": "Estado",
+      "activityColTime": "Hora",
+      "activityColUser": "Usuario",
+      "activityDesc": "Eventos de autenticación recientes de todos los usuarios.",
+      "activityEmpty": "Aún no hay actividad registrada.",
+      "activityLoading": "Cargando…",
+      "activityRefresh": "Actualizar",
+      "activityTitle": "Actividad de inicio de sesión",
+      "allowInsecureTls": "Permitir TLS inseguro",
+      "allowInsecureTlsDesc": "Permite a los usuarios deshabilitar la verificación de certificados TLS por cuenta. Necesario para servidores con certificados autofirmados.",
+      "allowNonstandardPorts": "Permitir puertos no estándar",
+      "allowNonstandardPortsDesc": "Permite cualquier puerto IMAP o SMTP, no solo 143/993 (IMAP) y 465/587 (SMTP). Necesario para servidores como protonmail-bridge que usan puertos no estándar.",
+      "allowPrivateHosts": "Permitir hosts privados / locales",
+      "allowPrivateHostsDesc": "Permite conectarse a servidores IMAP y SMTP en direcciones privadas o locales (p. ej. 127.0.0.1, 192.168.x.x). Necesario para protonmail-bridge y puentes de correo locales similares.",
+      "eventLoginFail": "Inicio de sesión fallido",
+      "eventLoginSuccess": "Inicio de sesión",
+      "eventSsoLogin": "Inicio de sesión SSO",
+      "eventTotpFail": "2FA fallido",
+      "eventTotpSuccess": "2FA verificado",
+      "loginProtectionDesc": "Intentos de inicio de sesión fallidos permitidos desde una única dirección IP antes de ser bloqueada temporalmente.",
+      "loginProtectionTitle": "Protección de inicio de sesión",
+      "mailPolicyDesc": "Controla los tipos de conexión que los usuarios pueden configurar. Desactiva estas opciones para implementaciones expuestas a internet.",
+      "mailPolicyTitle": "Política de conexión al servidor de correo",
+      "maxAttempts": "Máximo de intentos",
+      "protectionSaved": "Guardado",
+      "saveProtection": "Guardar",
+      "savingProtection": "Guardando…",
+      "windowMinutes": "Ventana de bloqueo (minutos)"
     },
     "privacy": {
       "title": "Privacidad",
@@ -728,8 +769,17 @@
       "disabledBadge": "Desactivado",
       "errorRequired": "El nombre, el identificador, la URL del emisor y el ID de cliente son obligatorios.",
       "errorSecretRequired": "El secreto de cliente es obligatorio.",
-      "allowInsecure": "Allow local / self-signed connections",
-      "allowInsecureDesc": "Bypasses host validation and TLS certificate checks. Use only for LAN-only providers (e.g. pocketid.internal). Not recommended for internet-facing deployments."
+      "allowInsecure": "Permitir conexiones locales / autofirmadas",
+      "allowInsecureDesc": "Omite la validación del host y las verificaciones de certificados TLS. Usar solo para proveedores de solo LAN (p. ej., pocketid.internal). No recomendado para despliegues expuestos a internet.",
+      "passwordLoginDesc": "Cuando está desactivado, los usuarios solo pueden iniciar sesión mediante SSO. Requiere al menos un proveedor SSO habilitado y que tu cuenta de administrador esté vinculada a una identidad SSO.",
+      "passwordLoginDisableConfirm": "Desactivar inicio de sesión con contraseña",
+      "passwordLoginDisableMsg": "Los usuarios solo podrán iniciar sesión mediante SSO. Si tu proveedor SSO deja de estar disponible, se necesitará acceso directo a la base de datos para volver a habilitar el inicio de sesión con contraseña.",
+      "passwordLoginDisableTitle": "¿Desactivar inicio de sesión con contraseña?",
+      "passwordLoginDisabled": "El inicio de sesión con contraseña está desactivado",
+      "passwordLoginDisabledDesc": "Los usuarios deben iniciar sesión mediante SSO",
+      "passwordLoginEnabled": "El inicio de sesión con contraseña está habilitado",
+      "passwordLoginEnabledDesc": "Los usuarios pueden iniciar sesión con nombre de usuario y contraseña",
+      "passwordLoginTitle": "Inicio de sesión con contraseña"
     },
     "integrations": {
       "title": "Integraciones",

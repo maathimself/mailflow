@@ -41,7 +41,9 @@
       "verify": "验证",
       "verifying": "验证中…",
       "backToLogin": "← 返回登录"
-    }
+    },
+    "ssoOnly": "通过 SSO 登录",
+    "ssoOnlyDesc": "此服务器已禁用密码登录。"
   },
   "compose": {
     "newMessage": "新邮件",
@@ -210,7 +212,7 @@
     "folderMenu": {
       "markAllRead": "全部标为已读",
       "syncFolder": "同步此文件夹",
-      "renameFavorite": "Rename favorite",
+      "renameFavorite": "重命名收藏夹",
       "rename": "重命名",
       "createSubfolder": "新建子文件夹",
       "hide": "隐藏文件夹",
@@ -535,7 +537,12 @@
       "hoverQuickActionsOff": "关闭",
       "hoverQuickActionsOffDesc": "隐藏快速操作，直到使用右键菜单或快捷键。",
       "hoverQuickActionsOn": "开启",
-      "hoverQuickActionsOnDesc": "当指针悬停在消息行上时，显示快速操作图标。"
+      "hoverQuickActionsOnDesc": "当指针悬停在消息行上时，显示快速操作图标。",
+      "defaultReply": "回复",
+      "defaultReplyAction": "默认回复方式",
+      "defaultReplyAll": "回复全部",
+      "defaultReplyAllDesc": "回复按钮将发送给所有收件人",
+      "defaultReplyDesc": "回复按钮仅发送给发件人"
     },
     "notifications": {
       "title": "通知",
@@ -600,7 +607,39 @@
       "ssoUnlinkTitle": "解除绑定 {{provider}}？",
       "ssoUnlinkBody": "解除后您将无法再通过此服务商登录。请确保您还有其他登录方式。",
       "ssoUnlinkConfirm": "解除绑定",
-      "ssoNoProviders": "此服务器尚未配置任何 SSO 服务商。"
+      "ssoNoProviders": "此服务器尚未配置任何 SSO 服务商。",
+      "activityAllowed": "允许",
+      "activityBlocked": "已拦截",
+      "activityColEvent": "事件",
+      "activityColIP": "IP 地址",
+      "activityColStatus": "状态",
+      "activityColTime": "时间",
+      "activityColUser": "用户",
+      "activityDesc": "所有用户的最近认证事件。",
+      "activityEmpty": "暂无记录。",
+      "activityLoading": "加载中…",
+      "activityRefresh": "刷新",
+      "activityTitle": "登录活动",
+      "allowInsecureTls": "允许不安全的 TLS",
+      "allowInsecureTlsDesc": "允许用户按账户禁用 TLS 证书验证。对于使用自签名证书的服务器是必需的。",
+      "allowNonstandardPorts": "允许非标准端口",
+      "allowNonstandardPortsDesc": "允许任意 IMAP 或 SMTP 端口，而不仅限于 143/993（IMAP）和 465/587（SMTP）。对于使用非标准端口的服务器（如 protonmail-bridge）是必需的。",
+      "allowPrivateHosts": "允许私有/本地主机",
+      "allowPrivateHostsDesc": "允许连接到私有或本地地址上的 IMAP 和 SMTP 服务器（例如 127.0.0.1、192.168.x.x）。对于 protonmail-bridge 和类似的本地邮件桥接工具是必需的。",
+      "eventLoginFail": "登录失败",
+      "eventLoginSuccess": "登录",
+      "eventSsoLogin": "SSO 登录",
+      "eventTotpFail": "双重认证失败",
+      "eventTotpSuccess": "双重认证成功",
+      "loginProtectionDesc": "单个 IP 地址在被临时封锁前允许的登录失败次数。",
+      "loginProtectionTitle": "登录保护",
+      "mailPolicyDesc": "控制用户可以配置的连接类型。对于面向互联网的部署请禁用这些选项。",
+      "mailPolicyTitle": "邮件服务器连接策略",
+      "maxAttempts": "最大尝试次数",
+      "protectionSaved": "已保存",
+      "saveProtection": "保存",
+      "savingProtection": "保存中…",
+      "windowMinutes": "封锁时间窗口（分钟）"
     },
     "privacy": {
       "title": "隐私",
@@ -730,8 +769,17 @@
       "disabledBadge": "已停用",
       "errorRequired": "名称、标识符、颁发者 URL 和客户端 ID 为必填项。",
       "errorSecretRequired": "客户端密钥为必填项。",
-      "allowInsecure": "Allow local / self-signed connections",
-      "allowInsecureDesc": "Bypasses host validation and TLS certificate checks. Use only for LAN-only providers (e.g. pocketid.internal). Not recommended for internet-facing deployments."
+      "allowInsecure": "允许本地/自签名连接",
+      "allowInsecureDesc": "绕过主机验证和 TLS 证书检查。仅用于局域网专用提供商（例如 pocketid.internal）。不建议用于面向互联网的部署。",
+      "passwordLoginDesc": "禁用后，用户只能通过 SSO 登录。至少需要一个已启用的 SSO 提供商，且管理员账户必须关联到 SSO 身份。",
+      "passwordLoginDisableConfirm": "禁用密码登录",
+      "passwordLoginDisableMsg": "用户将只能通过 SSO 登录。如果 SSO 提供商不可用，则需要直接访问数据库才能重新启用密码登录。",
+      "passwordLoginDisableTitle": "是否禁用密码登录？",
+      "passwordLoginDisabled": "密码登录已禁用",
+      "passwordLoginDisabledDesc": "用户必须通过 SSO 登录",
+      "passwordLoginEnabled": "密码登录已启用",
+      "passwordLoginEnabledDesc": "用户可以使用用户名和密码登录",
+      "passwordLoginTitle": "密码登录"
     },
     "integrations": {
       "title": "集成",
