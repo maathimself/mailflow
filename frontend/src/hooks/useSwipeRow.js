@@ -8,14 +8,19 @@ export function useSwipeRow({ isMobile, message, onSwipeLeft, onSwipeRight, onLo
   const swipeBgRightRef = useRef(null);
   const swipeRef = useRef({ active: false, startX: 0, startY: 0, dir: null, x: 0 });
   const longPressTimerRef = useRef(null);
+  const springBackTimerRef = useRef(null);
+  const latestRef = useRef({});
+  latestRef.current = { message, onSwipeLeft, onSwipeRight, onLongPress };
 
   const springBack = useCallback(() => {
     const el = contentRef.current;
     if (!el) return;
+    if (springBackTimerRef.current) clearTimeout(springBackTimerRef.current);
     el.style.transition = 'transform 0.25s cubic-bezier(0.25,0.46,0.45,0.94)';
     el.style.transform = 'translateX(0)';
     el.style.boxShadow = '';
-    setTimeout(() => {
+    springBackTimerRef.current = setTimeout(() => {
+      springBackTimerRef.current = null;
       if (swipeBgLeftRef.current)  { swipeBgLeftRef.current.style.display = 'none'; swipeBgLeftRef.current.style.opacity = '1'; }
       if (swipeBgRightRef.current) { swipeBgRightRef.current.style.display = 'none'; swipeBgRightRef.current.style.opacity = '1'; }
     }, 260);
@@ -43,13 +48,17 @@ export function useSwipeRow({ isMobile, message, onSwipeLeft, onSwipeRight, onLo
 
     const onStart = (e) => {
       const t = e.touches[0];
+      if (springBackTimerRef.current) {
+        clearTimeout(springBackTimerRef.current);
+        springBackTimerRef.current = null;
+      }
       swipeRef.current = { active: false, startX: t.clientX, startY: t.clientY, dir: null, x: 0 };
       showBgs();
-      if (onLongPress) {
+      if (latestRef.current.onLongPress) {
         longPressTimerRef.current = setTimeout(() => {
           longPressTimerRef.current = null;
           springBack();
-          onLongPress(message.id);
+          latestRef.current.onLongPress?.(latestRef.current.message.id);
         }, 500);
       }
     };
@@ -65,7 +74,7 @@ export function useSwipeRow({ isMobile, message, onSwipeLeft, onSwipeRight, onLo
         s.dir = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
       }
       if (s.dir === 'v') return;
-      if ((dx < 0 && !onSwipeLeft) || (dx > 0 && !onSwipeRight)) return;
+      if ((dx < 0 && !latestRef.current.onSwipeLeft) || (dx > 0 && !latestRef.current.onSwipeRight)) return;
       e.preventDefault();
       s.active = true;
       s.x = Math.max(-160, Math.min(160, dx));
@@ -93,9 +102,9 @@ export function useSwipeRow({ isMobile, message, onSwipeLeft, onSwipeRight, onLo
       s.active = false; s.dir = null; s.x = 0;
       springBack();
       if (x < -SWIPE_THRESHOLD) {
-        onSwipeLeft && onSwipeLeft(message);
+        latestRef.current.onSwipeLeft?.(latestRef.current.message);
       } else if (x > SWIPE_THRESHOLD) {
-        onSwipeRight && onSwipeRight(message);
+        latestRef.current.onSwipeRight?.(latestRef.current.message);
       }
     };
 
@@ -111,6 +120,10 @@ export function useSwipeRow({ isMobile, message, onSwipeLeft, onSwipeRight, onLo
     el.addEventListener('touchcancel', onCancel, { passive: true });
     return () => {
       cancelLongPress();
+      if (springBackTimerRef.current) {
+        clearTimeout(springBackTimerRef.current);
+        springBackTimerRef.current = null;
+      }
       el.removeEventListener('touchstart', onStart);
       el.removeEventListener('touchmove', onMove);
       el.removeEventListener('touchend', onEnd);
@@ -122,7 +135,7 @@ export function useSwipeRow({ isMobile, message, onSwipeLeft, onSwipeRight, onLo
       if (swipeBgLeftRef.current)  swipeBgLeftRef.current.style.display = 'none';
       if (swipeBgRightRef.current) swipeBgRightRef.current.style.display = 'none';
     };
-  }, [isMobile, message, onSwipeLeft, onSwipeRight, onLongPress, springBack]);
+  }, [isMobile, springBack]);
 
   return { contentRef, swipeBgLeftRef, swipeBgRightRef, springBack };
 }
