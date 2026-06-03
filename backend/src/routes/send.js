@@ -229,6 +229,10 @@ router.post('/send', async (req, res) => {
 
     const policy = await getConnectionPolicy();
     const smtpResolved = await resolveForConnection(account.smtp_host, { allowPrivate: policy.allowPrivateHosts });
+    const smtpPlain = account.smtp_tls !== 'STARTTLS' && account.smtp_tls !== 'SSL';
+    if (!policy.allowInsecureTls && smtpPlain) {
+      return res.status(403).json({ error: 'Plain-text SMTP is not allowed: admin must enable "Allow insecure TLS"' });
+    }
     const smtpTls = { rejectUnauthorized: !(policy.allowInsecureTls && account.imap_skip_tls_verify) };
     if (smtpResolved.servername) smtpTls.servername = smtpResolved.servername;
     // For 'SSL': force direct TLS. For 'none': plain with no upgrade.

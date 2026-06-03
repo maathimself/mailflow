@@ -5017,8 +5017,6 @@ function SecurityTab() {
   const [allowPrivateHosts, setAllowPrivateHosts] = useState(false);
   const [allowInsecureTls, setAllowInsecureTls] = useState(false);
   const [allowNonstandardPorts, setAllowNonstandardPorts] = useState(false);
-  const [mailPolicySaving, setMailPolicySaving] = useState(false);
-  const [mailPolicySaved, setMailPolicySaved] = useState(false);
 
   // Admin-only: auth activity log
   const [authEvents, setAuthEvents] = useState([]);
@@ -5070,21 +5068,8 @@ function SecurityTab() {
     }
   };
 
-  const saveMailPolicy = async () => {
-    setMailPolicySaving(true);
-    try {
-      await api.admin.updateSettings({
-        allow_private_hosts: allowPrivateHosts,
-        allow_insecure_tls: allowInsecureTls,
-        allow_nonstandard_ports: allowNonstandardPorts,
-      });
-      setMailPolicySaved(true);
-      setTimeout(() => setMailPolicySaved(false), 3000);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setMailPolicySaving(false);
-    }
+  const toggleMailPolicy = async (key, newVal) => {
+    await api.admin.updateSettings({ [key]: newVal }).catch(console.error);
   };
 
   const eventLabel = (type) => {
@@ -5241,14 +5226,14 @@ function SecurityTab() {
             {t('admin.security.mailPolicyDesc')}
           </div>
           {[
-            { key: 'allowPrivateHosts',     val: allowPrivateHosts,     set: setAllowPrivateHosts,     label: t('admin.security.allowPrivateHosts'),     desc: t('admin.security.allowPrivateHostsDesc') },
-            { key: 'allowInsecureTls',      val: allowInsecureTls,      set: setAllowInsecureTls,      label: t('admin.security.allowInsecureTls'),      desc: t('admin.security.allowInsecureTlsDesc') },
-            { key: 'allowNonstandardPorts', val: allowNonstandardPorts, set: setAllowNonstandardPorts, label: t('admin.security.allowNonstandardPorts'), desc: t('admin.security.allowNonstandardPortsDesc') },
+            { key: 'allow_private_hosts',     val: allowPrivateHosts,     set: setAllowPrivateHosts,     label: t('admin.security.allowPrivateHosts'),     desc: t('admin.security.allowPrivateHostsDesc') },
+            { key: 'allow_insecure_tls',      val: allowInsecureTls,      set: setAllowInsecureTls,      label: t('admin.security.allowInsecureTls'),      desc: t('admin.security.allowInsecureTlsDesc') },
+            { key: 'allow_nonstandard_ports', val: allowNonstandardPorts, set: setAllowNonstandardPorts, label: t('admin.security.allowNonstandardPorts'), desc: t('admin.security.allowNonstandardPortsDesc') },
           ].map(({ key, val, set, label, desc }) => (
             <div key={key} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 14 }}>
               <button
                 type="button"
-                onClick={() => set(v => !v)}
+                onClick={() => { const newVal = !val; set(newVal); toggleMailPolicy(key, newVal); }}
                 style={{
                   width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer', padding: 0,
                   background: val ? 'var(--amber)' : 'var(--bg-elevated)',
@@ -5266,20 +5251,6 @@ function SecurityTab() {
               </div>
             </div>
           ))}
-          <button
-            onClick={saveMailPolicy}
-            disabled={mailPolicySaving}
-            style={{
-              marginTop: 4, padding: '8px 18px',
-              background: mailPolicySaved ? 'rgba(34,197,94,0.15)' : 'var(--accent)',
-              border: mailPolicySaved ? '1px solid rgba(34,197,94,0.4)' : 'none',
-              borderRadius: 7, color: mailPolicySaved ? '#22c55e' : 'white',
-              fontSize: 13, fontWeight: 600, cursor: mailPolicySaving ? 'not-allowed' : 'pointer',
-              opacity: mailPolicySaving ? 0.6 : 1,
-            }}
-          >
-            {mailPolicySaving ? t('common.saving') : mailPolicySaved ? t('admin.security.protectionSaved') : t('common.save')}
-          </button>
         </div>
       )}
 

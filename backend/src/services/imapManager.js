@@ -404,7 +404,10 @@ async function ensureFreshToken(account) {
 // resolved: { host, servername } from resolveForConnection() — pins the IP so the
 // actual TCP connection uses the address we validated, not a later DNS lookup.
 // policy: result of getConnectionPolicy() — gates TLS verification override.
-function makeClientCfg(account, resolved, { enableIdle = false, policy = {} } = {}) {
+export function makeClientCfg(account, resolved, { enableIdle = false, policy = {} } = {}) {
+  if (!policy.allowInsecureTls && !account.imap_tls) {
+    throw new Error('Plain-text IMAP is not allowed: admin must enable "Allow insecure TLS"');
+  }
   const skipTls = policy.allowInsecureTls && !!account.imap_skip_tls_verify;
   const tlsOpts = { rejectUnauthorized: !skipTls };
   // Set servername so TLS SNI and cert verification use the original hostname even
@@ -687,8 +690,9 @@ export class ImapManager {
     // Refresh OAuth token if needed before connecting
     account = await ensureFreshToken(account);
     const { resolved, policy } = await resolveAccountHost(account);
-    const client = new ImapFlow(makeClientCfg(account, resolved, { enableIdle: true, policy }));
+    let client;
     try {
+      client = new ImapFlow(makeClientCfg(account, resolved, { enableIdle: true, policy }));
       // Race the connect against a 30-second timeout.
       // client.connect() has no built-in connection timeout — on slow or unresponsive
       // IMAP servers (e.g. purelymail.com during cold starts) it can hang indefinitely,
