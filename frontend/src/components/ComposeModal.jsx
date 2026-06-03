@@ -1035,7 +1035,7 @@ export default function ComposeModal() {
         )}
 
         <div style={{ display: 'flex', gap: 4 }}>
-          <TitleBtn onClick={() => setMinimized(true)} title="Minimize">
+          <TitleBtn onClick={() => setMinimized(true)} title={t('compose.toolbar.minimize')}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <line x1="5" y1="12" x2="19" y2="12"/>
             </svg>
@@ -1053,7 +1053,7 @@ export default function ComposeModal() {
               </svg>
             )}
           </TitleBtn>
-          <TitleBtn onClick={closeCompose} danger title="Close">
+          <TitleBtn onClick={closeCompose} danger title={t('compose.toolbar.close')}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
             </svg>
@@ -1289,7 +1289,7 @@ export default function ComposeModal() {
         {plaintextEmail && (
           <button
             type="button"
-            title="Attach file"
+            title={t('compose.toolbar.attachFile')}
             onClick={() => fileInputRef.current?.click()}
             style={{
               background: 'none', border: 'none', borderRadius: 5, padding: '4px 8px',
@@ -1561,7 +1561,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, onInsertTable, htmlMode,
         </select>
 
         {onAttach && (
-          <button title="Attach file" onMouseDown={e => { e.preventDefault(); onAttach(); }}
+          <button title={t('compose.toolbar.attachFile')} onMouseDown={e => { e.preventDefault(); onAttach(); }}
             style={{ background: 'none', border: 'none', borderRadius: 4, padding: '3px 6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', color: 'var(--text-secondary)' }}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
@@ -1578,7 +1578,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, onInsertTable, htmlMode,
 
         <Sep />
 
-        <button ref={colorBtnRef} title="Text color" onMouseDown={openColor}
+        <button ref={colorBtnRef} title={t('compose.toolbar.textColor')} onMouseDown={openColor}
           style={{ background: 'none', border: 'none', borderRadius: 4, padding: '3px 6px', cursor: 'pointer', display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', lineHeight: 1 }}>A</span>
           <span style={{ width: 12, height: 3, borderRadius: 1, background: es.color || 'var(--text-primary)' }} />
@@ -1602,7 +1602,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, onInsertTable, htmlMode,
 
         <Sep />
 
-        <TBtn ref={linkBtnRef} active={es.link} title="Insert link" onMouseDown={openLink}>
+        <TBtn ref={linkBtnRef} active={es.link} title={t('compose.toolbar.insertLink')} onMouseDown={openLink}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
         </TBtn>
         <button ref={emojiBtnRef} title="Emoji" onMouseDown={openEmoji}
@@ -1613,7 +1613,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, onInsertTable, htmlMode,
         <Sep />
 
         {onInsertImage && (
-          <button title="Insert image" onMouseDown={e => { e.preventDefault(); onInsertImage(); }}
+          <button title={t('compose.toolbar.insertImage')} onMouseDown={e => { e.preventDefault(); onInsertImage(); }}
             style={{ background: 'none', border: 'none', borderRadius: 4, padding: '3px 6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', color: 'var(--text-secondary)' }}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
@@ -1621,7 +1621,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, onInsertTable, htmlMode,
           </button>
         )}
 
-        <button ref={tableBtnRef} title="Insert table" onMouseDown={openTable}
+        <button ref={tableBtnRef} title={t('compose.toolbar.insertTable')} onMouseDown={openTable}
           style={{ background: tablePos ? 'var(--bg-hover)' : 'none', border: 'none', borderRadius: 4, padding: '3px 6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', color: 'var(--text-secondary)' }}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <rect x="3" y="3" width="18" height="18" rx="1"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/>
@@ -1659,7 +1659,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, onInsertTable, htmlMode,
                 outline: editor.isActive('textStyle', { color: c }) ? '2px solid var(--accent)' : 'none', outlineOffset: 1 }} />
           ))}
           <button onMouseDown={e => { e.preventDefault(); editor.chain().focus().unsetColor().run(); setColorPos(null); }}
-            title="Remove color"
+            title={t('compose.toolbar.removeColor')}
             style={{ width: 18, height: 18, borderRadius: 4, border: '1px solid var(--border)', cursor: 'pointer', padding: 0, fontSize: 9, color: 'var(--text-tertiary)', background: 'none' }}>✕</button>
         </div>
       )}
@@ -1671,14 +1671,14 @@ function RichToolbar({ editor, onAttach, onInsertImage, onInsertTable, htmlMode,
           borderRadius: 8, padding: '10px 12px', boxShadow: 'var(--shadow-popover)',
           display: 'flex', flexDirection: 'column', gap: 8, width: 280,
         }}>
-          <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 500 }}>Insert link</span>
+          <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 500 }}>{t('compose.toolbar.insertLink')}</span>
           <div style={{ display: 'flex', gap: 6 }}>
             <input autoFocus value={linkUrl} onChange={e => setLinkUrl(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submitLink(); } if (e.key === 'Escape') setLinkPos(null); }}
               placeholder="https://..."
               style={{ flex: 1, background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 5, padding: '6px 8px', color: 'var(--text-primary)', fontSize: 12, outline: 'none' }} />
             <button onMouseDown={e => { e.preventDefault(); submitLink(); }}
-              style={{ background: 'var(--accent)', border: 'none', borderRadius: 5, color: 'white', fontSize: 12, padding: '6px 12px', cursor: 'pointer', flexShrink: 0 }}>Apply</button>
+              style={{ background: 'var(--accent)', border: 'none', borderRadius: 5, color: 'white', fontSize: 12, padding: '6px 12px', cursor: 'pointer', flexShrink: 0 }}>{t('compose.toolbar.apply')}</button>
           </div>
           {es.link && (
             <button onMouseDown={e => { e.preventDefault(); editor.chain().focus().unsetLink().run(); setLinkPos(null); }}
@@ -1704,7 +1704,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, onInsertTable, htmlMode,
           borderRadius: 8, padding: '10px 12px', boxShadow: 'var(--shadow-popover)',
           display: 'flex', flexDirection: 'column', gap: 8,
         }}>
-          <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 500 }}>Insert table</span>
+          <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 500 }}>{t('compose.toolbar.insertTable')}</span>
           <div style={{ display: 'flex', gap: 6 }}>
             {[
               { label: '3×3', rows: 3, cols: 3 },
@@ -1730,7 +1730,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, onInsertTable, htmlMode,
             background: 'none', border: 'none', color: 'var(--red)',
             fontSize: 11, cursor: 'pointer', padding: 0, textAlign: 'left',
             display: editor.isActive('table') ? 'block' : 'none',
-          }}>Remove table</button>
+          }}>{t('compose.toolbar.removeTable')}</button>
         </div>
       )}
     </>

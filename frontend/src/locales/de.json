@@ -16,7 +16,8 @@
     "never": "Nie",
     "noSubject": "(kein Betreff)",
     "unknown": "Unbekannt",
-    "error": "Fehler: {{message}}"
+    "error": "Fehler: {{message}}",
+    "dismiss": "Ausblenden"
   },
   "login": {
     "tagline": "Dein einheitlicher Posteingang",
@@ -64,6 +65,18 @@
     "sent": {
       "title": "Nachricht gesendet",
       "action": "Anzeigen"
+    },
+    "toolbar": {
+      "minimize": "Minimieren",
+      "close": "Schließen",
+      "attachFile": "Datei anhängen",
+      "textColor": "Textfarbe",
+      "insertLink": "Link einfügen",
+      "insertImage": "Bild einfügen",
+      "insertTable": "Tabelle einfügen",
+      "removeColor": "Farbe entfernen",
+      "apply": "Anwenden",
+      "removeTable": "Tabelle entfernen"
     }
   },
   "message": {
@@ -108,7 +121,8 @@
     "whitelistFail": {
       "title": "Einstellung konnte nicht gespeichert werden",
       "body": "Bild-Whitelist konnte nicht aktualisiert werden."
-    }
+    },
+    "emailFrameTitle": "E-Mail-Inhalt"
   },
   "messageList": {
     "search": "Suchen…",
@@ -190,7 +204,12 @@
       "after": "Nach Datum",
       "before": "Vor Datum",
       "tip": "Operatoren mit Stichwörtern kombinieren · z.B."
-    }
+    },
+    "emptyInbox": "Alles gelesen",
+    "emptyInboxDesc": "Keine ungelesenen Nachrichten",
+    "noAccounts": "Noch keine Konten",
+    "noAccountsDesc": "E-Mail-Konto hinzufügen, um loszulegen",
+    "composeAriaLabel": "Neue Nachricht verfassen"
   },
   "sidebar": {
     "allInboxes": "Alle Posteingänge",
@@ -591,7 +610,8 @@
       "allowInsecureTls": "Unsicheres TLS erlauben",
       "allowInsecureTlsDesc": "Erlaubt Benutzern, die TLS-Zertifikatsprüfung pro Konto zu deaktivieren. Erforderlich für Server mit selbstsignierten Zertifikaten.",
       "allowNonstandardPorts": "Nicht-standardmäßige Ports erlauben",
-      "allowNonstandardPortsDesc": "Erlaubt beliebige IMAP- oder SMTP-Ports, nicht nur 143/993 (IMAP) und 465/587 (SMTP). Erforderlich für Server wie protonmail-bridge, die andere Ports verwenden."
+      "allowNonstandardPortsDesc": "Erlaubt beliebige IMAP- oder SMTP-Ports, nicht nur 143/993 (IMAP) und 465/587 (SMTP). Erforderlich für Server wie protonmail-bridge, die andere Ports verwenden.",
+      "qrCodeAlt": "QR-Code"
     },
     "privacy": {
       "title": "Datenschutz",

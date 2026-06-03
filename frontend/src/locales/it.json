@@ -16,7 +16,8 @@
     "never": "Mai",
     "noSubject": "(nessun oggetto)",
     "unknown": "Sconosciuto",
-    "error": "Errore: {{message}}"
+    "error": "Errore: {{message}}",
+    "dismiss": "Ignora"
   },
   "login": {
     "tagline": "La tua casella di posta unificata",
@@ -64,6 +65,18 @@
     "sent": {
       "title": "Messaggio inviato",
       "action": "Visualizza"
+    },
+    "toolbar": {
+      "minimize": "Riduci",
+      "close": "Chiudi",
+      "attachFile": "Allega file",
+      "textColor": "Colore testo",
+      "insertLink": "Inserisci link",
+      "insertImage": "Inserisci immagine",
+      "insertTable": "Inserisci tabella",
+      "removeColor": "Rimuovi colore",
+      "apply": "Applica",
+      "removeTable": "Rimuovi tabella"
     }
   },
   "message": {
@@ -108,7 +121,8 @@
     "whitelistFail": {
       "title": "Impossibile salvare la preferenza",
       "body": "Aggiornamento della whitelist delle immagini fallito."
-    }
+    },
+    "emailFrameTitle": "Contenuto email"
   },
   "messageList": {
     "search": "Cerca…",
@@ -190,7 +204,12 @@
       "after": "Dopo il",
       "before": "Prima del",
       "tip": "Combina operatori con parole chiave · es."
-    }
+    },
+    "emptyInbox": "Sei in pari",
+    "emptyInboxDesc": "Nessun messaggio da leggere",
+    "noAccounts": "Nessun account ancora",
+    "noAccountsDesc": "Aggiungi un account email per iniziare",
+    "composeAriaLabel": "Scrivi nuovo messaggio"
   },
   "sidebar": {
     "allInboxes": "Tutte le caselle",
@@ -632,7 +651,8 @@
       "protectionSaved": "Salvato",
       "saveProtection": "Salva",
       "savingProtection": "Salvataggio…",
-      "windowMinutes": "Finestra di blocco (minuti)"
+      "windowMinutes": "Finestra di blocco (minuti)",
+      "qrCodeAlt": "QR code"
     },
     "privacy": {
       "title": "Privacy",

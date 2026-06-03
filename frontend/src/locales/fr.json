@@ -16,7 +16,8 @@
     "never": "Jamais",
     "noSubject": "(sans objet)",
     "unknown": "Inconnu",
-    "error": "Erreur : {{message}}"
+    "error": "Erreur : {{message}}",
+    "dismiss": "Ignorer"
   },
   "login": {
     "tagline": "Votre boîte de réception unifiée",
@@ -64,6 +65,18 @@
     "sent": {
       "title": "Message envoyé",
       "action": "Voir"
+    },
+    "toolbar": {
+      "minimize": "Réduire",
+      "close": "Fermer",
+      "attachFile": "Joindre un fichier",
+      "textColor": "Couleur du texte",
+      "insertLink": "Insérer un lien",
+      "insertImage": "Insérer une image",
+      "insertTable": "Insérer un tableau",
+      "removeColor": "Supprimer la couleur",
+      "apply": "Appliquer",
+      "removeTable": "Supprimer le tableau"
     }
   },
   "message": {
@@ -108,7 +121,8 @@
     "whitelistFail": {
       "title": "Impossible d'enregistrer la préférence",
       "body": "Échec de la mise à jour de la liste blanche des images."
-    }
+    },
+    "emailFrameTitle": "Contenu de l'e-mail"
   },
   "messageList": {
     "search": "Rechercher…",
@@ -190,7 +204,12 @@
       "after": "Après le",
       "before": "Avant le",
       "tip": "Combinez opérateurs et mots-clés · ex."
-    }
+    },
+    "emptyInbox": "Tout est lu",
+    "emptyInboxDesc": "Aucun message non lu ici",
+    "noAccounts": "Aucun compte pour l'instant",
+    "noAccountsDesc": "Ajoutez un compte e-mail pour commencer",
+    "composeAriaLabel": "Rédiger un nouveau message"
   },
   "sidebar": {
     "allInboxes": "Toutes les boîtes",
@@ -632,7 +651,8 @@
       "protectionSaved": "Enregistré",
       "saveProtection": "Enregistrer",
       "savingProtection": "Enregistrement…",
-      "windowMinutes": "Fenêtre de blocage (minutes)"
+      "windowMinutes": "Fenêtre de blocage (minutes)",
+      "qrCodeAlt": "QR code"
     },
     "privacy": {
       "title": "Confidentialité",

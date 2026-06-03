@@ -2692,7 +2692,7 @@ export default function MessageList() {
       {isMobile && (
         <button
           onClick={() => openCompose({ accountId: selectedAccountId || undefined })}
-          aria-label="Compose new message"
+          aria-label={t('messageList.composeAriaLabel')}
           style={{
             position: 'fixed',
             bottom: 'calc(var(--sab) + 20px)',
@@ -2783,7 +2783,7 @@ function UndoBar({ notification, onDismiss, showTopBorder }) {
       </button>
       <button
         onClick={dismiss}
-        aria-label="Dismiss"
+        aria-label={t('common.dismiss')}
         style={{
           background: 'none', border: 'none',
           color: 'var(--text-tertiary)', cursor: 'pointer',
@@ -2853,8 +2853,8 @@ function EmptyState({ folderSyncing, searchQuery, unreadOnly, selectedFolder, ac
             <polyline points="20 6 9 17 4 12"/>
           </svg>
         </div>
-        <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 6 }}>All caught up</div>
-        <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 20 }}>No unread messages here</div>
+        <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 6 }}>{t('messageList.emptyInbox')}</div>
+        <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 20 }}>{t('messageList.emptyInboxDesc')}</div>
         <button onClick={onShowAll} style={{
           padding: '7px 18px', borderRadius: 8, border: '1px solid var(--border)',
           background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13,
@@ -2876,8 +2876,8 @@ function EmptyState({ folderSyncing, searchQuery, unreadOnly, selectedFolder, ac
             <polyline points="22,6 12,13 2,6"/>
           </svg>
         </div>
-        <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 6 }}>No accounts yet</div>
-        <div style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>Add an email account to get started</div>
+        <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 6 }}>{t('messageList.noAccounts')}</div>
+        <div style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>{t('messageList.noAccountsDesc')}</div>
       </div>
     );
   }
@@ -3403,7 +3403,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
           </ActionBtn>
 
           {/* Delete */}
-          <ActionBtn title="Delete" onClick={e => onDelete(e, message)}>
+          <ActionBtn title={t('common.delete')} onClick={e => onDelete(e, message)}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <polyline points="3 6 5 6 21 6"/>
               <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/>

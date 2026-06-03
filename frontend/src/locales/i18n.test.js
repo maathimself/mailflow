@@ -56,6 +56,29 @@
  *   excluding the locale files themselves. A key counts as referenced if it
  *   appears literally in the source — even in a comment or property assignment.
  *
+ * SUITE 4 — hardcoded user-facing strings
+ *   JSX source must not contain user-visible string literals outside of t().
+ *   Two patterns are flagged:
+ *     A) Attribute values — title="…", placeholder="…", aria-label="…", alt="…"
+ *        with a plain string instead of {t('…')}
+ *     B) Text nodes — natural-language text between JSX tags not in { }
+ *
+ *   Failure example:
+ *     ✖ no hardcoded user-facing strings
+ *       Hardcoded strings found (wrap in t() and add a locale key):
+ *         ComposeModal.jsx:1038  title="Minimize"
+ *
+ *   Fix:
+ *     1. Replace the hardcoded value with a t() call:
+ *          Before: title="Minimize"
+ *          After:  title={t('compose.toolbar.minimize')}
+ *     2. Add the key to en.json with the English string.
+ *     3. Run the locale tests — Suite 1 will list the other locales that
+ *        now need the key. Translate it in each.
+ *
+ *   If a string is intentionally hardcoded (technical term, placeholder, brand
+ *   name) add it to HARDCODED_OK with a short comment explaining why.
+ *
  * WHEN TO TRANSLATE vs WHITELIST
  *   Translate when the value is a regular word or sentence with a natural
  *   equivalent in the target language.
@@ -156,6 +179,9 @@ const SAME_VALUE_ALLOWED = {
   // "Spam / Junk" — "Spam" is a universal loanword, same in de and en
   'admin.folderMappings.spam': [['de', 'en']],
 
+  // "QR code" — universal technical abbreviation, same in all locales
+  'admin.security.qrCodeAlt': 'any',
+
   // Microsoft Azure portal navigation — kept in English intentionally (en and ru)
   'admin.integrations.microsoft.clientId':     [['en', 'ru']],
   'admin.integrations.microsoft.clientSecret': [['en', 'ru']],
@@ -241,6 +267,90 @@ const DYNAMIC_KEYS = new Set([
   'admin.tabs.shortcuts',
   'admin.tabs.about',
 ]);
+
+// JSX attribute names whose values must never be plain strings — always t().
+const I18N_ATTRS = ['title', 'placeholder', 'aria-label', 'alt'];
+
+// Plain strings that are intentionally NOT translated (technical terms,
+// brand names, format placeholders). Add with a comment explaining why.
+const HARDCODED_OK = new Set([
+  // CSS/DOM placeholder for a variable-name input field — not a sentence
+  'value',
+  // Tooltip label for a rich-text editor colour input — purely visual affordance,
+  // identical concept in all languages
+  'Emoji',
+  // "MailFlow" brand name split into two spans for typography styling
+  'Mail', 'Flow',
+  // Email header labels inside the handlePrint() HTML template literal —
+  // translating them requires passing t() results into the template string
+  'From:', 'Date:',
+  // Standard email forwarding header used internationally (RFC convention)
+  '---------- Forwarded message ----------',
+  // Search-syntax example shown inside a <code> tag — demonstrating format, not UI text
+  'from:amazon invoice',
+]);
+
+// Matches: someAttr="string value" (not someAttr={...})
+const attrStringRe = new RegExp(
+  String.raw`\b(${I18N_ATTRS.join('|')})="([^"]+)"`, 'g'
+);
+
+// Matches text directly between a closing > and an opening </ on the same line,
+// (i.e. a JSX text node immediately before a closing tag). Using </ rather than <
+// avoids false positives from JS arrow functions (=>) and comparison operators (<=).
+const textNodeRe = />([^<>{}]+)<\//g;
+
+function looksLikeUserText(str) {
+  const s = str.trim();
+  if (s.length < 4) return false;
+  if (!/[a-zA-Z]/.test(s)) return false;
+  if (/^https?:\/\//.test(s)) return false;         // URL
+  if (/^[a-z][a-z0-9_-]*$/.test(s)) return false;  // all-lowercase identifier
+  if (/^\d/.test(s)) return false;                   // starts with digit
+  if (/[()]/.test(s)) return false;                  // parenthesised (SMTP options, JS calls)
+  if (/\|\||&&/.test(s)) return false;               // JS logical operators
+  // flag if multiword OR starts with uppercase (sentence / proper label)
+  return s.includes(' ') || /^[A-Z]/.test(s);
+}
+
+function scanHardcodedStrings() {
+  const srcRoot = resolve(dir, '../..');
+  const violations = [];
+
+  function walk(d) {
+    for (const entry of readdirSync(d, { withFileTypes: true })) {
+      const full = join(d, entry.name);
+      if (entry.isDirectory()) {
+        if (full === dir) continue; // skip locales/
+        walk(full);
+      } else if (entry.name.endsWith('.jsx')) {
+        const lines = readFileSync(full, 'utf8').split('\n');
+        const rel = full.replace(srcRoot + '/', '');
+        lines.forEach((line, i) => {
+          const stripped = line.replace(/^\s*\/\/.*$/, ''); // skip full-line comments
+
+          // A) JSX attribute values
+          for (const m of stripped.matchAll(attrStringRe)) {
+            const val = m[2];
+            if (looksLikeUserText(val) && !HARDCODED_OK.has(val)) {
+              violations.push(`  ${rel}:${i + 1}  ${m[1]}="${val}"`);
+            }
+          }
+
+          // B) JSX text nodes
+          for (const m of stripped.matchAll(textNodeRe)) {
+            const val = m[1].trim();
+            if (looksLikeUserText(val) && !HARDCODED_OK.has(val)) {
+              violations.push(`  ${rel}:${i + 1}  text: "${val}"`);
+            }
+          }
+        });
+      }
+    }
+  }
+  walk(srcRoot);
+  return violations;
+}
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -360,6 +470,14 @@ describe('i18n locale files', () => {
           `Unexpected duplicate values (add to SAME_VALUE_ALLOWED if intentional):\n${violations.join('\n')}`);
       });
     }
+  });
+
+  describe('hardcoded strings — user-visible text must go through t()', () => {
+    it('no hardcoded user-facing strings', () => {
+      const violations = scanHardcodedStrings();
+      assert.equal(violations.length, 0,
+        `Hardcoded strings found (wrap in t() and add a locale key, or add to HARDCODED_OK if intentional):\n${violations.join('\n')}`);
+    });
   });
 
 });

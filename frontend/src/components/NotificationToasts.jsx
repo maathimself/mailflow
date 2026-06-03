@@ -120,7 +120,7 @@ function ActionBar({ notification, onDismiss, isMobile }) {
 
       <button
         onClick={dismiss}
-        aria-label="Dismiss"
+        aria-label={t('common.dismiss')}
         style={{
           background: 'none', border: 'none',
           color: 'var(--text-tertiary)',
@@ -235,7 +235,7 @@ function Toast({ notification, onDismiss, isMobile }) {
       )}
       <button
         onClick={dismiss}
-        aria-label="Dismiss"
+        aria-label={t('common.dismiss')}
         style={{
           background: 'none', border: 'none', color: 'var(--text-tertiary)',
           cursor: 'pointer', padding: 2, display: 'flex', flexShrink: 0,

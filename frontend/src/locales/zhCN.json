@@ -16,7 +16,8 @@
     "never": "从不",
     "noSubject": "（无主题）",
     "unknown": "未知",
-    "error": "错误：{{message}}"
+    "error": "错误：{{message}}",
+    "dismiss": "忽略"
   },
   "login": {
     "tagline": "您的统一收件箱",
@@ -64,6 +65,18 @@
     "sent": {
       "title": "邮件已发送",
       "action": "查看"
+    },
+    "toolbar": {
+      "minimize": "最小化",
+      "close": "关闭",
+      "attachFile": "附加文件",
+      "textColor": "文字颜色",
+      "insertLink": "插入链接",
+      "insertImage": "插入图片",
+      "insertTable": "插入表格",
+      "removeColor": "移除颜色",
+      "apply": "应用",
+      "removeTable": "删除表格"
     }
   },
   "message": {
@@ -108,7 +121,8 @@
     "whitelistFail": {
       "title": "无法保存偏好设置",
       "body": "更新图片白名单失败。"
-    }
+    },
+    "emailFrameTitle": "邮件内容"
   },
   "messageList": {
     "search": "搜索…",
@@ -190,7 +204,12 @@
       "after": "在此日期之后",
       "before": "在此日期之前",
       "tip": "将操作符与关键词组合使用 · 例如"
-    }
+    },
+    "emptyInbox": "全部已读",
+    "emptyInboxDesc": "这里没有未读邮件",
+    "noAccounts": "暂无账户",
+    "noAccountsDesc": "添加邮件账户以开始使用",
+    "composeAriaLabel": "撰写新邮件"
   },
   "sidebar": {
     "allInboxes": "所有收件箱",
@@ -632,7 +651,8 @@
       "protectionSaved": "已保存",
       "saveProtection": "保存",
       "savingProtection": "保存中…",
-      "windowMinutes": "封锁时间窗口（分钟）"
+      "windowMinutes": "封锁时间窗口（分钟）",
+      "qrCodeAlt": "QR码"
     },
     "privacy": {
       "title": "隐私",

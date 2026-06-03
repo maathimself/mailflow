@@ -16,7 +16,8 @@
     "never": "Never",
     "noSubject": "(no subject)",
     "unknown": "Unknown",
-    "error": "Error: {{message}}"
+    "error": "Error: {{message}}",
+    "dismiss": "Dismiss"
   },
   "login": {
     "tagline": "Your unified inbox",
@@ -64,6 +65,18 @@
     "sent": {
       "title": "Message sent",
       "action": "View"
+    },
+    "toolbar": {
+      "minimize": "Minimize",
+      "close": "Close",
+      "attachFile": "Attach file",
+      "textColor": "Text color",
+      "insertLink": "Insert link",
+      "insertImage": "Insert image",
+      "insertTable": "Insert table",
+      "removeColor": "Remove color",
+      "apply": "Apply",
+      "removeTable": "Remove table"
     }
   },
   "message": {
@@ -108,7 +121,8 @@
     "whitelistFail": {
       "title": "Could not save preference",
       "body": "Failed to update image whitelist."
-    }
+    },
+    "emailFrameTitle": "Email content"
   },
   "messageList": {
     "search": "Search…",
@@ -190,7 +204,12 @@
       "after": "After date",
       "before": "Before date",
       "tip": "Combine operators with keywords · e.g."
-    }
+    },
+    "emptyInbox": "All caught up",
+    "emptyInboxDesc": "No unread messages here",
+    "noAccounts": "No accounts yet",
+    "noAccountsDesc": "Add an email account to get started",
+    "composeAriaLabel": "Compose new message"
   },
   "sidebar": {
     "allInboxes": "All Inboxes",
@@ -632,7 +651,8 @@
       "allowInsecureTls": "Allow insecure TLS",
       "allowInsecureTlsDesc": "Allows users to disable TLS certificate verification per account. Required for servers with self-signed certificates.",
       "allowNonstandardPorts": "Allow non-standard ports",
-      "allowNonstandardPortsDesc": "Allows any IMAP or SMTP port, not just 143/993 (IMAP) and 465/587 (SMTP). Required for servers like protonmail-bridge that use non-standard ports."
+      "allowNonstandardPortsDesc": "Allows any IMAP or SMTP port, not just 143/993 (IMAP) and 465/587 (SMTP). Required for servers like protonmail-bridge that use non-standard ports.",
+      "qrCodeAlt": "QR code"
     },
     "privacy": {
       "title": "Privacy",

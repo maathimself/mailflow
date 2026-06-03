@@ -16,7 +16,8 @@
     "never": "Nunca",
     "noSubject": "(sin asunto)",
     "unknown": "Desconocido",
-    "error": "Error: {{message}}"
+    "error": "Error: {{message}}",
+    "dismiss": "Descartar"
   },
   "login": {
     "tagline": "Tu bandeja de entrada unificada",
@@ -64,6 +65,18 @@
     "sent": {
       "title": "Mensaje enviado",
       "action": "Ver"
+    },
+    "toolbar": {
+      "minimize": "Minimizar",
+      "close": "Cerrar",
+      "attachFile": "Adjuntar archivo",
+      "textColor": "Color del texto",
+      "insertLink": "Insertar enlace",
+      "insertImage": "Insertar imagen",
+      "insertTable": "Insertar tabla",
+      "removeColor": "Quitar color",
+      "apply": "Aplicar",
+      "removeTable": "Eliminar tabla"
     }
   },
   "message": {
@@ -108,7 +121,8 @@
     "whitelistFail": {
       "title": "No se pudo guardar la preferencia",
       "body": "Error al actualizar la lista blanca de imágenes."
-    }
+    },
+    "emailFrameTitle": "Contenido del correo"
   },
   "messageList": {
     "search": "Buscar…",
@@ -190,7 +204,12 @@
       "after": "Después de",
       "before": "Antes de",
       "tip": "Combine operadores con palabras clave · ej."
-    }
+    },
+    "emptyInbox": "Todo al día",
+    "emptyInboxDesc": "No hay mensajes sin leer",
+    "noAccounts": "Aún sin cuentas",
+    "noAccountsDesc": "Agrega una cuenta de correo para comenzar",
+    "composeAriaLabel": "Redactar nuevo mensaje"
   },
   "sidebar": {
     "allInboxes": "Todas las bandejas",
@@ -632,7 +651,8 @@
       "protectionSaved": "Guardado",
       "saveProtection": "Guardar",
       "savingProtection": "Guardando…",
-      "windowMinutes": "Ventana de bloqueo (minutos)"
+      "windowMinutes": "Ventana de bloqueo (minutos)",
+      "qrCodeAlt": "QR code"
     },
     "privacy": {
       "title": "Privacidad",

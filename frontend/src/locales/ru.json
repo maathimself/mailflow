@@ -16,7 +16,8 @@
     "never": "Никогда",
     "noSubject": "(без темы)",
     "unknown": "Неизвестно",
-    "error": "Ошибка: {{message}}"
+    "error": "Ошибка: {{message}}",
+    "dismiss": "Скрыть"
   },
   "login": {
     "tagline": "Ваш единый почтовый ящик",
@@ -64,6 +65,18 @@
     "sent": {
       "title": "Сообщение отправлено",
       "action": "Просмотреть"
+    },
+    "toolbar": {
+      "minimize": "Свернуть",
+      "close": "Закрыть",
+      "attachFile": "Прикрепить файл",
+      "textColor": "Цвет текста",
+      "insertLink": "Вставить ссылку",
+      "insertImage": "Вставить изображение",
+      "insertTable": "Вставить таблицу",
+      "removeColor": "Убрать цвет",
+      "apply": "Применить",
+      "removeTable": "Удалить таблицу"
     }
   },
   "message": {
@@ -108,7 +121,8 @@
     "whitelistFail": {
       "title": "Не удалось сохранить настройку",
       "body": "Не удалось обновить белый список изображений."
-    }
+    },
+    "emailFrameTitle": "Содержимое письма"
   },
   "messageList": {
     "search": "Поиск…",
@@ -190,7 +204,12 @@
       "after": "После даты",
       "before": "До даты",
       "tip": "Комбинируйте операторы с ключевыми словами · например"
-    }
+    },
+    "emptyInbox": "Всё прочитано",
+    "emptyInboxDesc": "Нет непрочитанных сообщений",
+    "noAccounts": "Аккаунты не добавлены",
+    "noAccountsDesc": "Добавьте почтовый аккаунт, чтобы начать",
+    "composeAriaLabel": "Написать новое письмо"
   },
   "sidebar": {
     "allInboxes": "Все входящие",
@@ -632,7 +651,8 @@
       "protectionSaved": "Сохранено",
       "saveProtection": "Сохранить",
       "savingProtection": "Сохранение…",
-      "windowMinutes": "Окно блокировки (минут)"
+      "windowMinutes": "Окно блокировки (минут)",
+      "qrCodeAlt": "QR-код"
     },
     "privacy": {
       "title": "Конфиденциальность",

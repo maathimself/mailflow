@@ -4259,7 +4259,7 @@ function RulesTab() {
         </button>
       </div>
 
-      {loading && <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>Loading…</div>}
+      {loading && <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{t('common.loading')}</div>}
 
       {!loading && rules.length === 0 && (
         <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{t('admin.rules.empty')}</div>
@@ -5130,7 +5130,7 @@ function SecurityTab() {
             <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
               <img
                 src={setupData.qrCode}
-                alt="QR code"
+                alt={t('admin.security.qrCodeAlt')}
                 style={{ width: 180, height: 180, borderRadius: 8, background: 'white', padding: 8 }}
               />
             </div>
