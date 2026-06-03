@@ -1,7 +1,14 @@
 /**
  * i18n locale test — run with: node --test src/locales/i18n.test.js
  *
- * SUITE 1 — key coverage
+ * SUITE 1 — source coverage
+ *   Every key in the locale files must be referenced at least once in the
+ *   frontend source. Keys with no reference are dead and should be removed.
+ *   Fix dead keys before fixing coverage (Suite 2) — otherwise you'll add
+ *   translations for keys that should be deleted.
+ *   See SUITE 3 below for full details.
+ *
+ * SUITE 2 — key coverage
  *   Every key present in any locale file must exist in all locale files.
  *
  *   Failure example:
@@ -14,7 +21,7 @@
  *   The dotted path admin.rules.title maps to { "admin": { "rules": { "title": "…" } } }.
  *   Create parent sections if they don't exist yet.
  *
- * SUITE 2 — value uniqueness
+ * SUITE 3 — value uniqueness
  *   For each key, every locale must have a distinct translated value.
  *   Two locales sharing the same string usually means one was never translated.
  *
@@ -34,7 +41,7 @@
  *     'some.key': [['en','fr'],      // two independent groups; cross-group
  *                  ['es','it']]      // duplicates would still fail
  *
- * SUITE 3 — source coverage
+ * SUITE 3 — source coverage (detail)
  *   Every key must be referenced at least once in the frontend source.
  *   Keys with no reference are dead and should be removed from all locale files.
  *
@@ -421,6 +428,15 @@ const allKeys = [...new Set(langs.flatMap(l => Object.keys(locales[l])))].sort()
 
 describe('i18n locale files', () => {
 
+  describe('source coverage — every key must be referenced in the source', () => {
+    it('no unused keys', () => {
+      const source = loadSourceText();
+      const unused = allKeys.filter(k => !DYNAMIC_KEYS.has(k) && !source.includes(baseKey(k)));
+      assert.equal(unused.length, 0,
+        `Unused keys (remove from all locale files or add to DYNAMIC_KEYS if referenced dynamically):\n${unused.map(k => `  - ${k}`).join('\n')}`);
+    });
+  });
+
   describe('key coverage — every key must appear in every locale', () => {
     for (const lang of langs) {
       it(`${lang} has no missing keys`, () => {
@@ -430,15 +446,6 @@ describe('i18n locale files', () => {
           `Missing keys:\n${missing.map(k => `  - ${k}`).join('\n')}`);
       });
     }
-  });
-
-  describe('source coverage — every key must be referenced in the source', () => {
-    it('no unused keys', () => {
-      const source = loadSourceText();
-      const unused = allKeys.filter(k => !DYNAMIC_KEYS.has(k) && !source.includes(baseKey(k)));
-      assert.equal(unused.length, 0,
-        `Unused keys (remove from all locale files or add to DYNAMIC_KEYS if referenced dynamically):\n${unused.map(k => `  - ${k}`).join('\n')}`);
-    });
   });
 
   describe('value uniqueness — no unlisted locale pair should share a value for the same key', () => {
