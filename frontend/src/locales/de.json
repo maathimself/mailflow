@@ -4,11 +4,9 @@
     "save": "Speichern",
     "delete": "Löschen",
     "edit": "Bearbeiten",
-    "close": "Schließen",
     "add": "Hinzufügen",
     "remove": "Entfernen",
     "copy": "Kopieren",
-    "copied": "Kopiert!",
     "back": "Zurück",
     "undo": "Rückgängig",
     "view": "Ansehen",
@@ -63,7 +61,6 @@
     "sendTooltip": "Senden (Ctrl+Eingabe)",
     "sending": "Wird gesendet…",
     "discard": "Verwerfen",
-    "minimize": "Minimieren",
     "sent": {
       "title": "Nachricht gesendet",
       "action": "Anzeigen"
@@ -140,7 +137,6 @@
     "pageOf": "Seite {{current}} von {{total}}",
     "loadMore": "Mehr laden",
     "noMoreMessages": "Keine weiteren Nachrichten",
-    "markAllRead": "Alle als gelesen markieren",
     "deleted": {
       "title": "Nachricht gelöscht",
       "body": "In den Papierkorb verschoben.",
@@ -300,8 +296,7 @@
     "then": "dann"
   },
   "notifications": {
-    "newMessage": "Neue Nachricht",
-    "undo": "Rückgängig"
+    "newMessage": "Neue Nachricht"
   },
   "signatureEditor": {
     "bold": "Fett (Ctrl+B)",
@@ -388,7 +383,6 @@
       "presetGmail": "Gmail",
       "presetYahoo": "Yahoo Mail",
       "presetIcloud": "iCloud",
-      "presetMicrosoft": "Outlook",
       "presetCustom": "Benutzerdefiniert",
       "errorRequired": "E-Mail, Benutzername und IMAP-Host sind erforderlich",
       "errorPasswordRequired": "Für neue Konten ist ein Passwort erforderlich",
@@ -791,7 +785,6 @@
       "title": "SSO-Fehler"
     },
     "about": {
-      "title": "Über MailFlow",
       "subtitle": "Quelloffener, selbst gehosteter E-Mail-Client",
       "version": "Version",
       "backendBuild": "Backend-Build",
@@ -820,7 +813,6 @@
       "deleteConfirm": "Diese Regel löschen?",
       "editButton": "Bearbeiten",
       "empty": "Noch keine Regeln. Regeln filtern eingehende E-Mails automatisch.",
-      "enabledToggle": "Aktiviert",
       "errorMoveFolder": "Bitte einen Zielordner für die Verschieben-Aktion angeben.",
       "errorRequired": "Regelname und mindestens eine Bedingung und Aktion sind erforderlich.",
       "errorSave": "Regel konnte nicht gespeichert werden.",
@@ -844,9 +836,5 @@
       "title": "Posteingangsregeln"
     }
   },
-  "thread": {
-    "messages_one": "{{count}} Nachricht",
-    "messages_other": "{{count}} Nachrichten",
-    "collapse": "Einklappen"
-  }
+  "thread": {}
 }

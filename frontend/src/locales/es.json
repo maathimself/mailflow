@@ -4,11 +4,9 @@
     "save": "Guardar",
     "delete": "Eliminar",
     "edit": "Editar",
-    "close": "Cerrar",
     "add": "Añadir",
     "remove": "Quitar",
     "copy": "Copiar",
-    "copied": "¡Copiado!",
     "back": "Volver",
     "undo": "Deshacer",
     "view": "Ver",
@@ -63,7 +61,6 @@
     "sendTooltip": "Enviar (Ctrl+Intro)",
     "sending": "Enviando…",
     "discard": "Descartar",
-    "minimize": "Minimizar",
     "sent": {
       "title": "Mensaje enviado",
       "action": "Ver"
@@ -140,7 +137,6 @@
     "pageOf": "Página {{current}} de {{total}}",
     "loadMore": "Cargar más",
     "noMoreMessages": "No hay más mensajes",
-    "markAllRead": "Marcar todo como leído",
     "deleted": {
       "title": "Mensaje eliminado",
       "body": "Movido a la papelera.",
@@ -300,8 +296,7 @@
     "then": "luego"
   },
   "notifications": {
-    "newMessage": "Nuevo mensaje",
-    "undo": "Deshacer"
+    "newMessage": "Nuevo mensaje"
   },
   "signatureEditor": {
     "bold": "Negrita (Ctrl+B)",
@@ -353,7 +348,6 @@
       "title": "Reglas de bandeja de entrada",
       "newButton": "Nueva regla",
       "empty": "No hay reglas aún. Las reglas filtran automáticamente el correo entrante.",
-      "enabledToggle": "Activada",
       "editButton": "Editar",
       "deleteButton": "Eliminar",
       "deleteConfirm": "¿Eliminar esta regla?",
@@ -428,7 +422,6 @@
       "presetGmail": "Gmail",
       "presetYahoo": "Yahoo Mail",
       "presetIcloud": "iCloud",
-      "presetMicrosoft": "Outlook",
       "presetCustom": "Personalizado",
       "errorRequired": "El correo, el usuario y el servidor IMAP son obligatorios",
       "errorPasswordRequired": "La contraseña es obligatoria para cuentas nuevas",
@@ -833,7 +826,6 @@
       "title": "Error de SSO"
     },
     "about": {
-      "title": "Acerca de MailFlow",
       "subtitle": "Cliente de correo de código abierto y autoalojado",
       "version": "Versión",
       "backendBuild": "Build del backend",
@@ -844,9 +836,5 @@
       "sponsor": "Apoyar el desarrollo"
     }
   },
-  "thread": {
-    "messages_one": "{{count}} mensaje",
-    "messages_other": "{{count}} mensajes",
-    "collapse": "Contraer"
-  }
+  "thread": {}
 }

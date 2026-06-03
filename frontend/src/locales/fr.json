@@ -4,11 +4,9 @@
     "save": "Enregistrer",
     "delete": "Supprimer",
     "edit": "Modifier",
-    "close": "Fermer",
     "add": "Ajouter",
     "remove": "Retirer",
     "copy": "Copier",
-    "copied": "Copié !",
     "back": "Retour",
     "undo": "Annuler",
     "view": "Voir",
@@ -63,7 +61,6 @@
     "sendTooltip": "Envoyer (Ctrl+Entrée)",
     "sending": "Envoi…",
     "discard": "Supprimer",
-    "minimize": "Réduire",
     "sent": {
       "title": "Message envoyé",
       "action": "Voir"
@@ -140,7 +137,6 @@
     "pageOf": "Page {{current}} sur {{total}}",
     "loadMore": "Charger plus",
     "noMoreMessages": "Aucun message supplémentaire",
-    "markAllRead": "Tout marquer comme lu",
     "deleted": {
       "title": "Message supprimé",
       "body": "Déplacé vers la corbeille.",
@@ -300,8 +296,7 @@
     "then": "puis"
   },
   "notifications": {
-    "newMessage": "Nouveau message",
-    "undo": "Annuler"
+    "newMessage": "Nouveau message"
   },
   "signatureEditor": {
     "bold": "Gras (Ctrl+B)",
@@ -353,7 +348,6 @@
       "title": "Règles de boîte de réception",
       "newButton": "Nouvelle règle",
       "empty": "Aucune règle pour l'instant. Les règles filtrent automatiquement le courrier entrant.",
-      "enabledToggle": "Activée",
       "editButton": "Modifier",
       "deleteButton": "Supprimer",
       "deleteConfirm": "Supprimer cette règle ?",
@@ -428,7 +422,6 @@
       "presetGmail": "Gmail",
       "presetYahoo": "Yahoo Mail",
       "presetIcloud": "iCloud",
-      "presetMicrosoft": "Outlook",
       "presetCustom": "Personnalisé",
       "errorRequired": "L'e-mail, le nom d'utilisateur et le serveur IMAP sont requis",
       "errorPasswordRequired": "Le mot de passe est requis pour les nouveaux comptes",
@@ -833,7 +826,6 @@
       "title": "Erreur SSO"
     },
     "about": {
-      "title": "À propos de MailFlow",
       "subtitle": "Client e-mail open source auto-hébergé",
       "version": "Version",
       "backendBuild": "Build backend",
@@ -844,9 +836,5 @@
       "sponsor": "Soutenir le développement"
     }
   },
-  "thread": {
-    "messages_one": "{{count}} message",
-    "messages_other": "{{count}} messages",
-    "collapse": "Réduire"
-  }
+  "thread": {}
 }

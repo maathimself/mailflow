@@ -4,11 +4,9 @@
     "save": "保存",
     "delete": "删除",
     "edit": "编辑",
-    "close": "关闭",
     "add": "添加",
     "remove": "移除",
     "copy": "复制",
-    "copied": "已复制！",
     "back": "返回",
     "undo": "撤销",
     "view": "查看",
@@ -63,7 +61,6 @@
     "sendTooltip": "发送（Ctrl+Enter）",
     "sending": "发送中…",
     "discard": "丢弃",
-    "minimize": "最小化",
     "sent": {
       "title": "邮件已发送",
       "action": "查看"
@@ -140,7 +137,6 @@
     "pageOf": "第 {{current}} 页，共 {{total}} 页",
     "loadMore": "加载更多",
     "noMoreMessages": "没有更多邮件了",
-    "markAllRead": "全部标为已读",
     "deleted": {
       "title": "邮件已删除",
       "body": "已移至废件箱。",
@@ -300,8 +296,7 @@
     "then": "然后"
   },
   "notifications": {
-    "newMessage": "新邮件",
-    "undo": "撤销"
+    "newMessage": "新邮件"
   },
   "signatureEditor": {
     "bold": "加粗（Ctrl+B）",
@@ -353,7 +348,6 @@
       "title": "收件箱规则",
       "newButton": "新建规则",
       "empty": "暂无规则。规则可自动过滤收件箱中的邮件。",
-      "enabledToggle": "启用",
       "editButton": "编辑",
       "deleteButton": "删除",
       "deleteConfirm": "删除此规则？",
@@ -430,7 +424,6 @@
       "presetGmail": "Gmail",
       "presetYahoo": "Yahoo Mail",
       "presetIcloud": "iCloud",
-      "presetMicrosoft": "Outlook",
       "presetCustom": "自定义",
       "errorRequired": "邮箱地址、用户名和 IMAP 服务器为必填项",
       "errorPasswordRequired": "添加新账户时必须填写密码",
@@ -833,7 +826,6 @@
       "title": "SSO 错误"
     },
     "about": {
-      "title": "关于 MailFlow",
       "subtitle": "开源自托管邮件客户端",
       "version": "版本",
       "backendBuild": "后端构建",
@@ -844,9 +836,5 @@
       "sponsor": "支持开发"
     }
   },
-  "thread": {
-    "messages_one": "{{count}} 封邮件",
-    "messages_other": "{{count}} 封邮件",
-    "collapse": "折叠"
-  }
+  "thread": {}
 }

@@ -4,11 +4,9 @@
     "save": "Save",
     "delete": "Delete",
     "edit": "Edit",
-    "close": "Close",
     "add": "Add",
     "remove": "Remove",
     "copy": "Copy",
-    "copied": "Copied!",
     "back": "Back",
     "undo": "Undo",
     "view": "View",
@@ -63,7 +61,6 @@
     "sendTooltip": "Send (Ctrl+Enter)",
     "sending": "Sending…",
     "discard": "Discard",
-    "minimize": "Minimize",
     "sent": {
       "title": "Message sent",
       "action": "View"
@@ -140,7 +137,6 @@
     "pageOf": "Page {{current}} of {{total}}",
     "loadMore": "Load more",
     "noMoreMessages": "No more messages",
-    "markAllRead": "Mark all as read",
     "deleted": {
       "title": "Message deleted",
       "body": "Removed.",
@@ -300,8 +296,7 @@
     "then": "then"
   },
   "notifications": {
-    "newMessage": "New message",
-    "undo": "Undo"
+    "newMessage": "New message"
   },
   "signatureEditor": {
     "bold": "Bold (Ctrl+B)",
@@ -353,7 +348,6 @@
       "title": "Inbox rules",
       "newButton": "New rule",
       "empty": "No rules yet. Rules automatically filter incoming mail.",
-      "enabledToggle": "Enabled",
       "editButton": "Edit",
       "deleteButton": "Delete",
       "deleteConfirm": "Delete this rule?",
@@ -430,7 +424,6 @@
       "presetGmail": "Gmail",
       "presetYahoo": "Yahoo Mail",
       "presetIcloud": "iCloud",
-      "presetMicrosoft": "Outlook",
       "presetCustom": "Custom",
       "errorRequired": "Email, username, and IMAP host are required",
       "errorPasswordRequired": "Password is required for new accounts",
@@ -833,7 +826,6 @@
       "title": "SSO error"
     },
     "about": {
-      "title": "About MailFlow",
       "subtitle": "Open-source, self-hosted email client",
       "version": "Version",
       "backendBuild": "Backend build",
@@ -844,9 +836,5 @@
       "sponsor": "Support development"
     }
   },
-  "thread": {
-    "messages_one": "{{count}} message",
-    "messages_other": "{{count}} messages",
-    "collapse": "Collapse"
-  }
+  "thread": {}
 }

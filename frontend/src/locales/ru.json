@@ -4,11 +4,9 @@
     "save": "Сохранить",
     "delete": "Удалить",
     "edit": "Редактировать",
-    "close": "Закрыть",
     "add": "Добавить",
     "remove": "Удалить",
     "copy": "Копировать",
-    "copied": "Скопировано!",
     "back": "Назад",
     "undo": "Отменить",
     "view": "Просмотр",
@@ -63,7 +61,6 @@
     "sendTooltip": "Отправить (Ctrl+Enter)",
     "sending": "Отправка…",
     "discard": "Удалить черновик",
-    "minimize": "Свернуть",
     "sent": {
       "title": "Сообщение отправлено",
       "action": "Просмотреть"
@@ -140,7 +137,6 @@
     "pageOf": "Страница {{current}} из {{total}}",
     "loadMore": "Загрузить ещё",
     "noMoreMessages": "Больше сообщений нет",
-    "markAllRead": "Отметить все как прочитанные",
     "deleted": {
       "title": "Сообщение удалено",
       "body": "Перемещено в корзину.",
@@ -300,8 +296,7 @@
     "then": "затем"
   },
   "notifications": {
-    "newMessage": "Новое сообщение",
-    "undo": "Отменить"
+    "newMessage": "Новое сообщение"
   },
   "signatureEditor": {
     "bold": "Жирный (Ctrl+B)",
@@ -353,7 +348,6 @@
       "title": "Правила входящих",
       "newButton": "Новое правило",
       "empty": "Правил пока нет. Правила автоматически фильтруют входящую почту.",
-      "enabledToggle": "Включено",
       "editButton": "Изменить",
       "deleteButton": "Удалить",
       "deleteConfirm": "Удалить это правило?",
@@ -428,7 +422,6 @@
       "presetGmail": "Gmail",
       "presetYahoo": "Yahoo Mail",
       "presetIcloud": "iCloud",
-      "presetMicrosoft": "Outlook",
       "presetCustom": "Другое",
       "errorRequired": "Требуются адрес электронной почты, имя пользователя и IMAP-сервер",
       "errorPasswordRequired": "Для новых аккаунтов требуется пароль",
@@ -833,7 +826,6 @@
       "title": "Ошибка SSO"
     },
     "about": {
-      "title": "О приложении MailFlow",
       "subtitle": "Почтовый клиент с открытым исходным кодом для самостоятельного хостинга",
       "version": "Версия",
       "backendBuild": "Сборка бэкенда",
@@ -844,9 +836,5 @@
       "sponsor": "Поддержать разработку"
     }
   },
-  "thread": {
-    "messages_one": "{{count}} сообщение",
-    "messages_other": "{{count}} сообщений",
-    "collapse": "Свернуть"
-  }
+  "thread": {}
 }

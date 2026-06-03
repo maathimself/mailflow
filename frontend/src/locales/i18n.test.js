@@ -34,6 +34,28 @@
  *     'some.key': [['en','fr'],      // two independent groups; cross-group
  *                  ['es','it']]      // duplicates would still fail
  *
+ * SUITE 3 — source coverage
+ *   Every key must be referenced at least once in the frontend source.
+ *   Keys with no reference are dead and should be removed from all locale files.
+ *
+ *   Failure example:
+ *     ✖ no unused keys
+ *       Unused keys (remove from all locale files or add a source reference):
+ *         - admin.rules.legacyTitle
+ *
+ *   Fix A — remove: delete the key from every locale file if it is genuinely dead.
+ *
+ *   Fix B — keep: if the key is referenced dynamically (e.g. via a variable passed
+ *   to t()), add it to DYNAMIC_KEYS so the test does not flag it:
+ *
+ *     const DYNAMIC_KEYS = new Set([
+ *       'admin.tabs.accounts',   // t(tab.labelKey) where labelKey is set at runtime
+ *     ]);
+ *
+ *   The test scans for the key string anywhere in *.js / *.jsx files under src/,
+ *   excluding the locale files themselves. A key counts as referenced if it
+ *   appears literally in the source — even in a comment or property assignment.
+ *
  * WHEN TO TRANSLATE vs WHITELIST
  *   Translate when the value is a regular word or sentence with a natural
  *   equivalent in the target language.
@@ -54,7 +76,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const dir = dirname(fileURLToPath(import.meta.url));
@@ -203,6 +225,23 @@ const SAME_VALUE_ALLOWED = {
   'thread.messages_other': [['en', 'fr']],
 };
 
+// Keys referenced dynamically (via a variable passed to t()) that cannot be
+// found by a plain text search of the source. Add here to suppress false
+// "unused key" failures.
+const DYNAMIC_KEYS = new Set([
+  // t(tab.labelKey) — labelKey is a string property set in the TABS array
+  'admin.tabs.accounts',
+  'admin.tabs.rules',
+  'admin.tabs.appearance',
+  'admin.tabs.integrations',
+  'admin.tabs.users',
+  'admin.tabs.sso',
+  'admin.tabs.security',
+  'admin.tabs.notifications',
+  'admin.tabs.shortcuts',
+  'admin.tabs.about',
+]);
+
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 function flatten(obj, prefix = '') {
@@ -226,6 +265,35 @@ function loadLocales() {
     locales[lang] = flatten(JSON.parse(readFileSync(join(dir, file), 'utf8')));
   }
   return locales;
+}
+
+// i18next resolves t('base', { count }) to base_one / base_other at runtime.
+// Strip known plural suffixes before searching — if the base key is in the
+// source the plural form is considered referenced.
+const PLURAL_SUFFIXES = ['_zero', '_one', '_two', '_few', '_many', '_other'];
+function baseKey(key) {
+  for (const s of PLURAL_SUFFIXES) {
+    if (key.endsWith(s)) return key.slice(0, -s.length);
+  }
+  return key;
+}
+
+function loadSourceText() {
+  const srcRoot = resolve(dir, '../..');
+  const out = [];
+  function walk(d) {
+    for (const entry of readdirSync(d, { withFileTypes: true })) {
+      const full = join(d, entry.name);
+      if (entry.isDirectory()) {
+        if (full === dir) continue; // skip locales/
+        walk(full);
+      } else if (entry.name.endsWith('.js') || entry.name.endsWith('.jsx')) {
+        out.push(readFileSync(full, 'utf8'));
+      }
+    }
+  }
+  walk(srcRoot);
+  return out.join('\n');
 }
 
 function isAllowedPair(key, lang1, lang2) {
@@ -252,6 +320,15 @@ describe('i18n locale files', () => {
           `Missing keys:\n${missing.map(k => `  - ${k}`).join('\n')}`);
       });
     }
+  });
+
+  describe('source coverage — every key must be referenced in the source', () => {
+    it('no unused keys', () => {
+      const source = loadSourceText();
+      const unused = allKeys.filter(k => !DYNAMIC_KEYS.has(k) && !source.includes(baseKey(k)));
+      assert.equal(unused.length, 0,
+        `Unused keys (remove from all locale files or add to DYNAMIC_KEYS if referenced dynamically):\n${unused.map(k => `  - ${k}`).join('\n')}`);
+    });
   });
 
   describe('value uniqueness — no unlisted locale pair should share a value for the same key', () => {
