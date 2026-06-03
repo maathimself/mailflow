@@ -583,7 +583,7 @@ ${bodyContent}
 
   // Keep pane action refs current every render
   paneActionsRef.current = {
-    reply:      () => handleReply(false),
+    reply:      () => handleReply(defaultReplyAll),
     replyAll:   () => handleReply(true),
     forward:    handleForward,
     toggleStar: handleStarToggle,
