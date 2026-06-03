@@ -1,3 +1,56 @@
+/**
+ * i18n locale test — run with: node --test src/locales/i18n.test.js
+ *
+ * SUITE 1 — key coverage
+ *   Every key present in any locale file must exist in all locale files.
+ *
+ *   Failure example:
+ *     ✖ de has no missing keys
+ *       Missing keys:
+ *         - admin.rules.title
+ *
+ *   Fix: open de.json, navigate to admin → rules and add the missing key
+ *   with a proper translation. Do NOT copy the English value — translate it.
+ *   The dotted path admin.rules.title maps to { "admin": { "rules": { "title": "…" } } }.
+ *   Create parent sections if they don't exist yet.
+ *
+ * SUITE 2 — value uniqueness
+ *   For each key, every locale must have a distinct translated value.
+ *   Two locales sharing the same string usually means one was never translated.
+ *
+ *   Failure example:
+ *     ✖ admin.sso.allowInsecure
+ *       Unexpected duplicate values:
+ *         de = en: "Allow local / self-signed connections"
+ *
+ *   Fix A — translate: open de.json and replace the English string with
+ *   the German translation.
+ *
+ *   Fix B — whitelist: if the strings are legitimately identical (see below),
+ *   add an entry to SAME_VALUE_ALLOWED:
+ *
+ *     'some.key': 'any'              // brand name / placeholder, same everywhere
+ *     'some.key': [['de', 'en']]     // only this pair may share a value
+ *     'some.key': [['en','fr'],      // two independent groups; cross-group
+ *                  ['es','it']]      // duplicates would still fail
+ *
+ * WHEN TO TRANSLATE vs WHITELIST
+ *   Translate when the value is a regular word or sentence with a natural
+ *   equivalent in the target language.
+ *
+ *   Whitelist when:
+ *   - Brand names / proper nouns (Gmail, iCloud, Outlook)
+ *   - Hostnames, URLs, UUID-format placeholders (imap.gmail.com, xxxxxxxx-…)
+ *   - Technical abbreviations used internationally (SSO, Cc, Bcc, Port)
+ *   - A word spelled identically in both languages: "Spam" (de/en),
+ *     "Version" (de/en/fr), "Alias" (es/fr/it), "Archive" (en/fr)
+ *   - Two Romance languages sharing the same translation: es+it say "contiene",
+ *     es+fr say "De" for "From"
+ *
+ *   When in doubt, translate. Whitelist only when a translation would produce
+ *   the identical string anyway.
+ */
+
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
