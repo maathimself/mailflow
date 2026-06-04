@@ -100,6 +100,7 @@
     "archive": "Archive",
     "star": "Star",
     "delete": "Delete",
+    "print": "Print",
     "archived": {
       "title": "Message archived",
       "failTitle": "Archive failed",

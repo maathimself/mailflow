@@ -4,6 +4,7 @@ import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { format } from 'date-fns';
 import { shortcutBus } from '../utils/shortcutBus.js';
+import { getEffectiveShortcuts, parseModKey, modCompactLabel } from '../utils/defaultShortcuts.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { clearDeleteGuard, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.js';
 import { senderColor } from '../themes.js';
@@ -65,11 +66,19 @@ export default function MessagePane() {
     messages, searchResults, searchQuery, selectedMessageId, setSelectedMessage,
     updateMessage, removeMessage, decrementUnread, incrementUnread, openCompose, accounts, addNotification,
     imageWhitelist, setImageWhitelist, addToImageWhitelist, blockRemoteImages, threadMessages,
-    replyDefault,
+    replyDefault, shortcuts,
   } = useStore();
 
   const isMobile = useMobile();
   const defaultReplyAll = replyDefault === 'replyAll';
+
+  const effectiveShortcuts = getEffectiveShortcuts(shortcuts);
+  const shortcutLabel = (action) => {
+    const k = effectiveShortcuts[action];
+    if (!k) return null;
+    const mod = parseModKey(k);
+    return mod ? `${modCompactLabel(mod.mod)}${mod.bare.toUpperCase()}` : k.toUpperCase();
+  };
   const paneRef = useRef(null);
   const mountedRef = useRef(true);
   useEffect(() => () => { mountedRef.current = false; }, []);
@@ -524,32 +533,84 @@ export default function MessagePane() {
     updateMessage(message.id, { is_starred: newVal });
   };
 
+  const handlePrint = () => {
+    if (!message) return;
+    const esc = (s) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const date = message.date ? new Date(message.date).toLocaleString() : '';
+    const fromStr = message.from_name
+      ? `${esc(message.from_name)} &lt;${esc(message.from_email)}&gt;`
+      : esc(message.from_email);
+
+    const parseList = (raw) => {
+      try { return Array.isArray(raw) ? raw : JSON.parse(raw || '[]'); } catch (_) { return []; }
+    };
+    const fmtAddr = (r) => r.name ? `${esc(r.name)} &lt;${esc(r.email)}&gt;` : esc(r.email);
+    const toStr = parseList(message.to_addresses).map(fmtAddr).join(', ');
+    const ccStr = parseList(message.cc_addresses).map(fmtAddr).join(', ');
+
+    const bodyContent = body?.html
+      ? body.html
+      : body?.text
+        ? `<pre style="white-space:pre-wrap;font-family:sans-serif;font-size:14px">${esc(body.text)}</pre>`
+        : '';
+
+    const win = window.open('', '_blank');
+    if (!win) return;
+    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(message.subject)}</title>
+<style>
+  body { font-family: Arial, sans-serif; font-size: 14px; color: #111; margin: 32px; }
+  .header { border-bottom: 1px solid #ccc; padding-bottom: 16px; margin-bottom: 24px; }
+  .header h1 { font-size: 18px; margin: 0 0 12px; }
+  .meta { font-size: 13px; color: #444; line-height: 1.8; }
+  .meta span { font-weight: 600; color: #111; }
+  @media print { body { margin: 16px; } }
+</style></head><body>
+<div class="header">
+  <h1>${esc(message.subject) || '(no subject)'}</h1>
+  <div class="meta">
+    <div><span>From:</span> ${fromStr}</div>
+    <div><span>To:</span> ${toStr}</div>
+    ${ccStr ? `<div><span>Cc:</span> ${ccStr}</div>` : ''}
+    <div><span>Date:</span> ${date}</div>
+  </div>
+</div>
+${bodyContent}
+</body></html>`);
+    win.document.close();
+    win.focus();
+    win.print();
+  };
+
   // Keep pane action refs current every render
   paneActionsRef.current = {
     reply:      () => handleReply(defaultReplyAll),
     replyAll:   () => handleReply(true),
     forward:    handleForward,
     toggleStar: handleStarToggle,
+    print:      handlePrint,
   };
 
   // Subscribe to keyboard shortcut actions that belong to the message pane.
   // Registered once ([] deps); live state is accessed through paneActionsRef.
   useEffect(() => {
-    const onReply      = () => paneActionsRef.current.reply();
-    const onReplyAll   = () => paneActionsRef.current.replyAll();
-    const onForward    = () => paneActionsRef.current.forward();
-    const onToggleStar = () => paneActionsRef.current.toggleStar();
+    const onReply        = () => paneActionsRef.current.reply();
+    const onReplyAll     = () => paneActionsRef.current.replyAll();
+    const onForward      = () => paneActionsRef.current.forward();
+    const onToggleStar   = () => paneActionsRef.current.toggleStar();
+    const onPrintMessage = () => paneActionsRef.current.print?.();
 
-    shortcutBus.on('reply',      onReply);
-    shortcutBus.on('replyAll',   onReplyAll);
-    shortcutBus.on('forward',    onForward);
-    shortcutBus.on('toggleStar', onToggleStar);
+    shortcutBus.on('reply',         onReply);
+    shortcutBus.on('replyAll',      onReplyAll);
+    shortcutBus.on('forward',       onForward);
+    shortcutBus.on('toggleStar',    onToggleStar);
+    shortcutBus.on('printMessage',  onPrintMessage);
 
     return () => {
-      shortcutBus.off('reply',      onReply);
-      shortcutBus.off('replyAll',   onReplyAll);
-      shortcutBus.off('forward',    onForward);
-      shortcutBus.off('toggleStar', onToggleStar);
+      shortcutBus.off('reply',         onReply);
+      shortcutBus.off('replyAll',      onReplyAll);
+      shortcutBus.off('forward',       onForward);
+      shortcutBus.off('toggleStar',    onToggleStar);
+      shortcutBus.off('printMessage',  onPrintMessage);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -784,7 +845,7 @@ export default function MessagePane() {
       }}>
         {/* Split Reply button */}
         <div style={{ position: 'relative', display: 'flex' }}>
-          <PaneBtn onClick={() => handleReply(defaultReplyAll)} title={isMobile ? (defaultReplyAll ? t('message.replyAll') : t('message.reply')) : `${defaultReplyAll ? t('message.replyAll') : t('message.reply')} (R)`}>
+          <PaneBtn onClick={() => handleReply(defaultReplyAll)} title={isMobile ? (defaultReplyAll ? t('message.replyAll') : t('message.reply')) : `${defaultReplyAll ? t('message.replyAll') : t('message.reply')}${shortcutLabel(defaultReplyAll ? 'replyAll' : 'reply') ? ` (${shortcutLabel(defaultReplyAll ? 'replyAll' : 'reply')})` : ''}`}>
             {defaultReplyAll ? (
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
                 <polyline points="7 17 2 12 7 7"/><polyline points="13 17 8 12 13 7"/><path d="M20 18v-2a4 4 0 00-4-4H2"/>
@@ -795,7 +856,7 @@ export default function MessagePane() {
               </svg>
             )}
             {!isMobile && (defaultReplyAll ? t('message.replyAll') : t('message.reply'))}
-            {!isMobile && <kbd style={{ fontSize: 11, padding: '1px 5px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>R</kbd>}
+            {!isMobile && shortcutLabel(defaultReplyAll ? 'replyAll' : 'reply') && <kbd style={{ fontSize: 11, padding: '1px 5px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>{shortcutLabel(defaultReplyAll ? 'replyAll' : 'reply')}</kbd>}
           </PaneBtn>
           <button
             onClick={() => setShowReplyMenu(v => !v)}
@@ -846,15 +907,15 @@ export default function MessagePane() {
           )}
         </div>
 
-        <PaneBtn onClick={handleForward} title={isMobile ? t('message.forward') : `${t('message.forward')} (F)`}>
+        <PaneBtn onClick={handleForward} title={isMobile ? t('message.forward') : `${t('message.forward')}${shortcutLabel('forward') ? ` (${shortcutLabel('forward')})` : ''}`}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
             <polyline points="15 17 20 12 15 7"/><path d="M4 18v-2a4 4 0 014-4h12"/>
           </svg>
           {!isMobile && t('message.forward')}
-          {!isMobile && <kbd style={{ fontSize: 11, padding: '1px 5px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>F</kbd>}
+          {!isMobile && shortcutLabel('forward') && <kbd style={{ fontSize: 11, padding: '1px 5px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>{shortcutLabel('forward')}</kbd>}
         </PaneBtn>
 
-        <PaneBtn onClick={handleArchive} title={isMobile ? t('message.archive') : `${t('message.archive')} (E)`}>
+        <PaneBtn onClick={handleArchive} title={isMobile ? t('message.archive') : `${t('message.archive')}${shortcutLabel('archive') ? ` (${shortcutLabel('archive')})` : ''}`}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
             <rect x="2" y="3" width="20" height="5" rx="1"/>
             <path d="M4 8v11a1 1 0 001 1h14a1 1 0 001-1V8"/>
@@ -862,10 +923,20 @@ export default function MessagePane() {
             <line x1="12" y1="11" x2="12" y2="16"/>
           </svg>
           {!isMobile && t('message.archive')}
-          {!isMobile && <kbd style={{ fontSize: 11, padding: '1px 5px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>E</kbd>}
+          {!isMobile && shortcutLabel('archive') && <kbd style={{ fontSize: 11, padding: '1px 5px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>{shortcutLabel('archive')}</kbd>}
         </PaneBtn>
 
         <div style={{ flex: 1 }} />
+
+        <PaneBtn onClick={handlePrint} title={isMobile ? t('message.print') : `${t('message.print')}${shortcutLabel('printMessage') ? ` (${shortcutLabel('printMessage')})` : ''}`}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+            <polyline points="6 9 6 2 18 2 18 9"/>
+            <path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/>
+            <rect x="6" y="14" width="12" height="8"/>
+          </svg>
+          {!isMobile && t('message.print')}
+          {!isMobile && shortcutLabel('printMessage') && <kbd style={{ fontSize: 11, padding: '1px 5px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>{shortcutLabel('printMessage')}</kbd>}
+        </PaneBtn>
 
         <PaneBtn onClick={handleStarToggle} title={t('message.star')}>
           <svg width="15" height="15" viewBox="0 0 24 24"

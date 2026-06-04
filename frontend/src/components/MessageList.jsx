@@ -139,7 +139,9 @@ export default function MessageList() {
   const [fabVisible, setFabVisible] = useState(true);
   const lastScrollTopRef = useRef(0);
   const [pullDistance, setPullDistance] = useState(0);
+  const pullStartXRef = useRef(null);
   const pullStartYRef = useRef(null);
+  const pullDirectionRef = useRef(null);
   const pullDistRef = useRef(0);
   const handleSyncRef = useRef(null);
   const [contextMenu, setContextMenu] = useState(null); // { x, y, message }
@@ -449,12 +451,21 @@ export default function MessageList() {
     const MAX_PULL = 80;
 
     const onTouchStart = (e) => {
-      if (el.scrollTop === 0) pullStartYRef.current = e.touches[0].clientY;
+      if (el.scrollTop !== 0) return;
+      pullStartXRef.current = e.touches[0].clientX;
+      pullStartYRef.current = e.touches[0].clientY;
+      pullDirectionRef.current = null;
     };
 
     const onTouchMove = (e) => {
       if (pullStartYRef.current === null) return;
+      const dx = e.touches[0].clientX - pullStartXRef.current;
       const delta = e.touches[0].clientY - pullStartYRef.current;
+      if (!pullDirectionRef.current) {
+        if (Math.abs(dx) < 6 && Math.abs(delta) < 6) return;
+        pullDirectionRef.current = Math.abs(dx) > Math.abs(delta) ? 'h' : 'v';
+      }
+      if (pullDirectionRef.current === 'h') return;
       if (delta > 0 && el.scrollTop === 0) {
         e.preventDefault();
         const d = Math.min(delta * 0.5, MAX_PULL);
@@ -467,22 +478,30 @@ export default function MessageList() {
       }
     };
 
+    const resetPull = () => {
+      pullStartXRef.current = null;
+      pullStartYRef.current = null;
+      pullDirectionRef.current = null;
+      pullDistRef.current = 0;
+      setPullDistance(0);
+    };
+
     const onTouchEnd = () => {
       if (pullStartYRef.current === null) return;
       const dist = pullDistRef.current;
-      pullStartYRef.current = null;
-      pullDistRef.current = 0;
-      setPullDistance(0);
+      resetPull();
       if (dist >= THRESHOLD) handleSyncRef.current?.();
     };
 
     el.addEventListener('touchstart', onTouchStart, { passive: true });
     el.addEventListener('touchmove', onTouchMove, { passive: false });
     el.addEventListener('touchend', onTouchEnd, { passive: true });
+    el.addEventListener('touchcancel', resetPull, { passive: true });
     return () => {
       el.removeEventListener('touchstart', onTouchStart);
       el.removeEventListener('touchmove', onTouchMove);
       el.removeEventListener('touchend', onTouchEnd);
+      el.removeEventListener('touchcancel', resetPull);
     };
   }, [isMobile]); // eslint-disable-line react-hooks/exhaustive-deps
 
