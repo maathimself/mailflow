@@ -838,8 +838,8 @@
     "about": {
       "subtitle": "Client e-mail open source auto-hébergé",
       "version": "Version",
-      "backendBuild": "Build backend",
-      "frontendBuild": "Build frontend",
+      "backendBuild": "Version du backend",
+      "frontendBuild": "Version du frontend",
       "license": "Licence",
       "website": "Site web",
       "sourceCode": "Code source",

@@ -129,10 +129,6 @@ const SAME_VALUE_ALLOWED = {
   'login.totp.placeholder':                 'any', // 000000
 
   // ── Specific language groups ───────────────────────────────────────────────
-  // "Build backend/frontend" — English tech term adopted in fr and it
-  'admin.about.backendBuild':  [['fr', 'it']],
-  'admin.about.frontendBuild': [['fr', 'it']],
-
   // "Version" — same spelling in de, en, fr
   'admin.about.version': [['de', 'en', 'fr']],
 
@@ -163,8 +159,6 @@ const SAME_VALUE_ALLOWED = {
   'admin.accounts.signatureSection': [['en', 'fr'], ['es', 'it']],
   'admin.aliases.signatureSection':  [['en', 'fr'], ['es', 'it']],
 
-  // "Reply-To:" — standardised email header, same in en and ru
-  'admin.aliases.replyToLabel': [['en', 'ru']],
 
   // "Layout" — international term, same in de, en, it
   'admin.appearance.layout': [['de', 'en', 'it']],
@@ -183,12 +177,6 @@ const SAME_VALUE_ALLOWED = {
 
   // "QR code" — universal technical abbreviation, same in all locales
   'admin.security.qrCodeAlt': 'any',
-
-  // Microsoft Azure portal navigation — kept in English intentionally (en and ru)
-  'admin.integrations.microsoft.clientId':     [['en', 'ru']],
-  'admin.integrations.microsoft.clientSecret': [['en', 'ru']],
-  'admin.integrations.microsoft.step4':        [['en', 'ru']],
-  'admin.integrations.microsoft.tenantId':     [['en', 'ru']],
 
   // "Visita:" — "Visit:" translates identically in es and it (Romance languages)
   'admin.integrations.microsoft.deviceCodeVisit': [['es', 'it']],
@@ -216,11 +204,9 @@ const SAME_VALUE_ALLOWED = {
   // "Status" — same spelling in de and en
   'admin.security.activityColStatus': [['de', 'en']],
 
-  // OAuth terms — en/ru keep English; fr/it share "ID client"
-  'admin.sso.clientId':         [['en', 'ru'], ['fr', 'it']],
-  'admin.sso.clientIdPh':       [['en', 'ru'], ['fr', 'it']],
-  'admin.sso.clientSecretNew':  [['en', 'ru']],
-  'admin.sso.clientSecretPhNew':[['en', 'ru']],
+  // "ID client" — fr and it share the same OAuth term
+  'admin.sso.clientId':   [['fr', 'it']],
+  'admin.sso.clientIdPh': [['fr', 'it']],
 
   // "Scopes" — OAuth technical term, same in de and en
   'admin.sso.scopes': [['de', 'en']],
