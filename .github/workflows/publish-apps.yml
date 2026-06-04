@@ -1,0 +1,194 @@
+name: Publish Apps
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  desktop:
+    name: Electron (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - macos-latest
+          - ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Resolve app version
+        id: app-version
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          DISPATCH_VERSION: ${{ github.event.inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          VERSION="${RELEASE_TAG:-${DISPATCH_VERSION:-$REF_NAME}}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Set app version
+        working-directory: frontend
+        run: npm run app:version -- "${{ steps.app-version.outputs.version }}" "${{ github.run_number }}"
+
+      - name: Build Electron package
+        if: matrix.os != 'ubuntu-latest'
+        working-directory: frontend
+        run: npm run electron:dist
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: Build Linux x64 Electron packages
+        if: matrix.os == 'ubuntu-latest'
+        working-directory: frontend
+        run: npm run electron:dist -- --linux deb rpm --x64
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: Build Linux arm64 Electron packages
+        if: matrix.os == 'ubuntu-latest'
+        working-directory: frontend
+        run: npm run electron:dist -- --linux deb rpm --arm64
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: Rename Linux artifacts
+        if: matrix.os == 'ubuntu-latest'
+        working-directory: frontend
+        run: node packages/scripts/rename-linux-artifacts.cjs
+
+      - name: Upload Electron artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mailflow-electron-${{ matrix.os }}
+          if-no-files-found: error
+          path: |
+            frontend/packages/release/*.deb
+            frontend/packages/release/*.dmg
+            frontend/packages/release/*.exe
+            frontend/packages/release/*.rpm
+
+  android:
+    name: Android
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Resolve app version
+        id: app-version
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          DISPATCH_VERSION: ${{ github.event.inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          VERSION="${RELEASE_TAG:-${DISPATCH_VERSION:-$REF_NAME}}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Set app version
+        working-directory: frontend
+        run: npm run app:version -- "${{ steps.app-version.outputs.version }}" "${{ github.run_number }}"
+
+      - name: Prepare Android release signing
+        shell: bash
+        env:
+          MAILFLOW_ANDROID_KEYSTORE_BASE64: ${{ secrets.MAILFLOW_ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$MAILFLOW_ANDROID_KEYSTORE_BASE64" ]; then
+            mkdir -p "$RUNNER_TEMP/mailflow-signing"
+            echo "$MAILFLOW_ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/mailflow-signing/release.keystore"
+            echo "MAILFLOW_ANDROID_STORE_FILE=$RUNNER_TEMP/mailflow-signing/release.keystore" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build Android package
+        working-directory: frontend
+        run: npm run android:dist
+        env:
+          MAILFLOW_ANDROID_STORE_PASSWORD: ${{ secrets.MAILFLOW_ANDROID_STORE_PASSWORD }}
+          MAILFLOW_ANDROID_KEY_ALIAS: ${{ secrets.MAILFLOW_ANDROID_KEY_ALIAS }}
+          MAILFLOW_ANDROID_KEY_PASSWORD: ${{ secrets.MAILFLOW_ANDROID_KEY_PASSWORD }}
+
+      - name: List Android release artifacts
+        if: always()
+        working-directory: frontend
+        run: find packages/android/app/build -maxdepth 6 -type f | sort || true
+
+      - name: Upload Android artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mailflow-android
+          if-no-files-found: error
+          path: frontend/packages/release/*.apk
+
+  release:
+    name: Attach to GitHub Release
+    needs:
+      - desktop
+      - android
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Resolve app version
+        id: app-version
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          DISPATCH_VERSION: ${{ github.event.inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          VERSION="${RELEASE_TAG:-${DISPATCH_VERSION:-$REF_NAME}}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Publish release files
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.app-version.outputs.version }}
+          files: |
+            artifacts/**/*.apk
+            artifacts/**/*.deb
+            artifacts/**/*.dmg
+            artifacts/**/*.exe
+            artifacts/**/*.rpm

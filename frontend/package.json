@@ -1,13 +1,140 @@
 {
   "name": "mailflow-frontend",
+  "productName": "MailFlow",
   "version": "1.4.0",
+  "description": "A self-hosted, unified webmail client.",
+  "homepage": "https://mailflow.sh",
+  "author": {
+    "name": "maathimself",
+    "email": "matthias@mailflow.sh"
+  },
   "type": "module",
+  "main": "packages/electron/main.cjs",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/maathimself/mailflow.git"
+  },
+  "keywords": [
+    "Email",
+    "Webmail",
+    "Email Client",
+    "Unified Inbox",
+    "GUI"
+  ],
+  "license": "GPL-3.0",
+  "bugs": {
+    "url": "https://github.com/maathimself/mailflow/issues"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "electron:dev": "electron .",
+    "preelectron:dist": "node packages/scripts/prepare-electron-icons.cjs && node packages/scripts/prepare-linux-metainfo.cjs",
+    "electron:dist": "electron-builder --publish never",
+    "app:version": "node packages/scripts/set-app-version.cjs",
+    "native:prepare": "npm run build && node packages/scripts/prepare-native-shell.cjs",
+    "android:sync": "npm run native:prepare && node packages/scripts/sync-android.cjs",
+    "android:dist": "npm run android:sync && node packages/scripts/build-android.cjs && node packages/scripts/collect-android-artifacts.cjs"
+  },
+  "build": {
+    "appId": "sh.mailflow.app",
+    "productName": "MailFlow",
+    "executableName": "MailFlow",
+    "directories": {
+      "output": "packages/release",
+      "buildResources": "packages/electron/icons"
+    },
+    "icon": "icon",
+    "protocols": [
+      {
+        "name": "MailFlow email link",
+        "schemes": [
+          "mailto"
+        ]
+      }
+    ],
+    "files": [
+      "packages/electron/**/*",
+      "packages/native-shell/**/*",
+      "package.json"
+    ],
+    "win": {
+      "artifactName": "${productName}-${version}-Setup.${ext}",
+      "icon": "icon.ico",
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "include": "packages/electron/installer.nsh"
+    },
+    "mac": {
+      "artifactName": "${productName}-${version}-Universal.${ext}",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        }
+      ]
+    },
+    "linux": {
+      "artifactName": "${productName}-${version}.${ext}",
+      "target": [
+        {
+          "target": "deb",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "rpm",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "category": "Network",
+      "desktop": {
+        "entry": {
+          "Name": "MailFlow",
+          "StartupWMClass": "MailFlow"
+        }
+      }
+    },
+    "deb": {
+      "packageName": "mailflow",
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "maintainer": "maathimself <matthias@mailflow.sh>",
+      "vendor": "maathimself",
+      "packageCategory": "net",
+      "synopsis": "A self-hosted, unified webmail client.",
+      "fpm": [
+        "--replaces=mailflow-frontend",
+        "--conflicts=mailflow-frontend",
+        "packages/electron/package-type/deb=/opt/MailFlow/resources/package-type",
+        "packages/electron/metainfo/sh.mailflow.app.metainfo.xml=/usr/share/metainfo/sh.mailflow.app.metainfo.xml"
+      ]
+    },
+    "rpm": {
+      "packageName": "mailflow",
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "depends": [
+        "libunity"
+      ],
+      "fpm": [
+        "--replaces=mailflow-frontend",
+        "packages/electron/package-type/rpm=/opt/MailFlow/resources/package-type"
+      ]
+    }
   },
   "dependencies": {
+    "@capacitor/android": "^8.3.4",
+    "@capacitor/core": "^8.3.4",
     "@emoji-mart/data": "^1.2.1",
     "@emoji-mart/react": "^1.1.1",
     "@tiptap/extension-image": "^3.23.1",
@@ -30,8 +157,11 @@
     "zustand": "^4.5.0"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.3.4",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.18",
+    "electron": "^42.1.0",
+    "electron-builder": "^26.8.1",
     "postcss": "^8.4.35",
     "tailwindcss": "^3.4.1",
     "vite": "^5.1.4"

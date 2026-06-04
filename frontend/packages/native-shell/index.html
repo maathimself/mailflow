@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MailFlow Setup</title>
+    <style>
+      :root {
+        color-scheme: dark light;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+        background: #101113;
+        color: #f4f5f7;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background:
+          radial-gradient(circle at top left, rgba(124, 106, 247, 0.28), transparent 36rem),
+          #101113;
+      }
+
+      main {
+        width: min(100%, 440px);
+      }
+
+      body.setup-pending main {
+        visibility: hidden;
+      }
+
+      h1 {
+        margin: 0 0 10px;
+        font-size: 28px;
+        font-weight: 750;
+        letter-spacing: 0;
+      }
+
+      p {
+        margin: 0 0 24px;
+        color: #b7bdc8;
+        line-height: 1.5;
+      }
+
+      form {
+        display: grid;
+        gap: 14px;
+      }
+
+      label {
+        display: grid;
+        gap: 8px;
+        color: #d9dce3;
+        font-size: 14px;
+        font-weight: 650;
+      }
+
+      input {
+        width: 100%;
+        min-height: 48px;
+        border: 1px solid #3a3f4a;
+        border-radius: 8px;
+        padding: 0 14px;
+        background: #17191d;
+        color: #f4f5f7;
+        font: inherit;
+      }
+
+      input:focus {
+        border-color: #8f82ff;
+        outline: 3px solid rgba(143, 130, 255, 0.24);
+      }
+
+      button {
+        min-height: 48px;
+        border: 0;
+        border-radius: 8px;
+        background: #7c6af7;
+        color: white;
+        font: inherit;
+        font-weight: 750;
+        cursor: pointer;
+      }
+
+      button:disabled {
+        cursor: wait;
+        opacity: 0.7;
+      }
+
+      .error {
+        min-height: 20px;
+        color: #ff9b9b;
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body class="setup-pending">
+    <main>
+      <h1>Connect MailFlow</h1>
+      <p>Enter the host for your MailFlow server.</p>
+
+      <form id="setup-form">
+        <label>
+          MailFlow host
+          <input
+            id="host-input"
+            name="host"
+            inputmode="url"
+            autocomplete="url"
+            placeholder="https://mail.your-domain.com"
+            required
+          />
+        </label>
+        <button id="submit-button" type="submit">Continue</button>
+        <div id="error" class="error" role="alert"></div>
+      </form>
+    </main>
+
+    <script>
+      const STORAGE_KEY = 'mailflow.host';
+      const form = document.querySelector('#setup-form');
+      const input = document.querySelector('#host-input');
+      const button = document.querySelector('#submit-button');
+      const error = document.querySelector('#error');
+
+      function installCapacitorNativeBridge() {
+        const plugin = window.Capacitor?.Plugins?.MailFlowNative;
+        if (!plugin || window.mailflowNative) return;
+
+        window.mailflowNative = {
+          getHost: async () => {
+            const result = await plugin.getHost();
+            return result?.host || null;
+          },
+          saveHost: async (host) => {
+            const result = await plugin.saveHost({ host });
+            return result?.host || host;
+          },
+          checkNotificationPermission: async () => {
+            const result = await plugin.checkNotificationPermission();
+            return result?.permission || 'default';
+          },
+          requestNotificationPermission: async () => {
+            const result = await plugin.requestNotificationPermission();
+            return result?.permission || 'default';
+          },
+          resetHost: async () => plugin.resetHost(),
+        };
+      }
+
+      function normalizeHost(value) {
+        const url = new URL(String(value || '').trim());
+
+        if (!['https:', 'http:'].includes(url.protocol)) {
+          throw new Error('Host must start with https:// or http://');
+        }
+
+        url.username = '';
+        url.password = '';
+        url.hash = '';
+        url.search = '';
+        url.pathname = '/';
+
+        return url.toString().replace(/\/$/, '');
+      }
+
+      function loadHost(host) {
+        window.location.replace(host);
+      }
+
+      function showSetup() {
+        document.body.classList.remove('setup-pending');
+      }
+
+      async function requestInitialNotificationPermission() {
+        if (!window.mailflowNative) return;
+
+        const permission = await window.mailflowNative.checkNotificationPermission();
+        if (permission === 'default') {
+          await window.mailflowNative.requestNotificationPermission();
+        }
+      }
+
+      async function restoreHost() {
+        installCapacitorNativeBridge();
+
+        if (window.mailflowNative) {
+          requestInitialNotificationPermission().catch(() => {});
+          const host = await window.mailflowNative.getHost();
+          if (host) loadHost(host);
+          else showSetup();
+          return;
+        }
+
+        const host = localStorage.getItem(STORAGE_KEY);
+        if (host) loadHost(host);
+        else showSetup();
+      }
+
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        error.textContent = '';
+        button.disabled = true;
+
+        try {
+          const host = normalizeHost(input.value);
+
+          if (window.mailflowNative) {
+            const savedHost = await window.mailflowNative.saveHost(host);
+            loadHost(savedHost || host);
+          } else {
+            localStorage.setItem(STORAGE_KEY, host);
+            loadHost(host);
+          }
+        } catch (err) {
+          error.textContent = err.message || 'Enter a valid MailFlow host.';
+          button.disabled = false;
+        }
+      });
+
+      restoreHost().catch(() => showSetup());
+    </script>
+  </body>
+</html>

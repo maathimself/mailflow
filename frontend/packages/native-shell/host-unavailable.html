@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MailFlow Host Unavailable</title>
+    <style>
+      :root {
+        color-scheme: dark light;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+        background: #101113;
+        color: #f4f5f7;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background:
+          radial-gradient(circle at top left, rgba(124, 106, 247, 0.28), transparent 36rem),
+          #101113;
+      }
+
+      main {
+        width: min(100%, 440px);
+        text-align: center;
+      }
+
+      img {
+        width: 96px;
+        height: 96px;
+        margin-bottom: 22px;
+      }
+
+      h1 {
+        margin: 0 0 10px;
+        font-size: 28px;
+        font-weight: 750;
+        letter-spacing: 0;
+      }
+
+      p {
+        margin: 0 0 24px;
+        color: #b7bdc8;
+        line-height: 1.5;
+      }
+
+      button {
+        min-width: 180px;
+        min-height: 48px;
+        border: 0;
+        border-radius: 8px;
+        background: #7c6af7;
+        color: white;
+        font: inherit;
+        font-weight: 750;
+        cursor: pointer;
+      }
+
+      button:disabled {
+        cursor: wait;
+        opacity: 0.7;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img src="../electron/icons/512x512.png" alt="MailFlow" />
+      <h1>Host is not available</h1>
+      <p>MailFlow could not reach the configured server. Check the host address or choose a different MailFlow server.</p>
+      <button id="change-host-button" type="button">Change host</button>
+    </main>
+
+    <script>
+      const button = document.querySelector('#change-host-button');
+
+      function installCapacitorNativeBridge() {
+        const plugin = window.Capacitor?.Plugins?.MailFlowNative;
+        if (!plugin || window.mailflowNative) return;
+
+        window.mailflowNative = {
+          resetHost: async () => plugin.resetHost(),
+        };
+      }
+
+      button.addEventListener('click', async () => {
+        button.disabled = true;
+
+        try {
+          installCapacitorNativeBridge();
+          await window.mailflowNative?.resetHost?.();
+        } catch {
+          button.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>

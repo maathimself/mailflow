@@ -499,6 +499,67 @@ nginx  (frontend container — internal only)
   └── backend, PostgreSQL, Redis (internal network, unchanged)
 ```
 
+## Desktop and Android apps
+
+MailFlow remains a self-hosted web app, but release builds also publish native wrappers for users who prefer an installed desktop or mobile application.
+
+- Windows, macOS, and Linux use Electron-based packages.
+- Android uses a Capacitor WebView wrapper.
+- On first launch, the native wrapper prompts for the MailFlow server URL, such as `https://mail.your-domain.com`, stores it locally, and connects to that server.
+- Native package sources live under `frontend/packages`.
+
+Install release builds from the latest MailFlow release:
+
+- **Windows**: 
+  - Download the latest `.exe` installer and run it.
+- **macOS**: 
+  - Download the latest `Universal.dmg` release and install the app.
+    - On first launch, macOS may display:
+      - `"MailFlow" can't be opened because Apple cannot check it for malicious software`.
+    - Click OK, then open:
+      - Settings -> Privacy & Security.
+    - Click Open Anyway beside:
+      - `"MailFlow" was blocked from use because it is not from an identified developer`.
+    - Click Open on the second confirmation dialog.
+    - MailFlow will run normally afterward, including future updates.
+- **Ubuntu / Debian**
+  - Download the latest `.deb` release and install it:
+
+    ```bash
+    sudo dpkg -i MailFlow-<version>-amd64.deb
+    ```
+    or
+    ```bash
+    sudo dpkg -i MailFlow-<version>-arm64.deb
+    ```
+  - If dependencies are missing:
+      ```bash
+      sudo apt-get install -f
+      ```
+- **Fedora / Red Hat**
+  - Download the latest `.rpm` release and install it:
+
+    ```bash
+    sudo dnf install MailFlow-<version>-x86_64.rpm
+    ```
+    or
+    ```bash
+    sudo dnf install MailFlow-<version>-aarch64.rpm
+    ```
+
+- **Android**
+  - Download the latest Android `.apk` release and install it manually.
+
+Local Development Builds:
+
+```bash
+cd frontend
+npm ci
+npm run electron:dist
+npm run android:dist
+```
+---
+
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=maathimself/mailflow&type=Date)](https://star-history.com/#maathimself/mailflow&Date)
