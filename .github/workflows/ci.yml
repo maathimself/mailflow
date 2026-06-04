@@ -24,6 +24,10 @@ jobs:
         working-directory: backend
         run: npm ci
 
+      - name: Lint
+        working-directory: backend
+        run: npm run lint
+
       - name: Syntax check
         working-directory: backend
         run: node --check src/index.js
@@ -52,6 +56,10 @@ jobs:
       - name: Install dependencies
         working-directory: frontend
         run: npm ci
+
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
 
       - name: Build
         working-directory: frontend
