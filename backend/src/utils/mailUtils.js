@@ -41,6 +41,20 @@ export async function resolveArchiveFolder(accountId, folderMappings) {
   return result.rows[0]?.path || null;
 }
 
+// Adjust cached folder row counts after local message mutations so that pagination
+// totals stay accurate without waiting for the next IMAP sync. Fire-and-forget —
+// errors are logged but never block the caller; sync will correct any discrepancy.
+export function adjustFolderCounts(accountId, path, totalDelta, unreadDelta) {
+  if (totalDelta === 0 && unreadDelta === 0) return;
+  query(
+    `UPDATE folders
+        SET total_count  = GREATEST(0, total_count  + $1),
+            unread_count = GREATEST(0, unread_count + $2)
+      WHERE account_id = $3 AND path = $4`,
+    [totalDelta, unreadDelta, accountId, path]
+  ).catch(err => console.error('Folder count adjust failed:', err.message));
+}
+
 // Determine what action to take when deleting a message.
 // Returns { action: 'move', destination } | { action: 'expunge' } | { action: 'no_trash' }.
 // 'no_trash' must be treated as a safe failure — never permanently delete when

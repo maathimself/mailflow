@@ -6,7 +6,8 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "lint": "eslint src"
   },
   "dependencies": {
     "archiver": "^7.0.1",
@@ -28,6 +29,9 @@
     "ws": "^8.20.1"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.4.1",
+    "globals": "^17.6.0",
     "vitest": "^4.1.5"
   }
 }

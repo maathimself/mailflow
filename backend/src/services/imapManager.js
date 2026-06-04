@@ -7,6 +7,7 @@ import { logger } from './logger.js';
 import { decrypt } from './encryption.js';
 import { sendPushToUser } from './pushNotifications.js';
 import { redactEmail } from '../utils/redact.js';
+import { adjustFolderCounts } from '../utils/mailUtils.js';
 import { resolveForConnection } from './hostValidation.js';
 import { applyInboxRules } from './inboxRules.js';
 

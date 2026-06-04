@@ -7,7 +7,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { imapManager } from '../index.js';
 import { sanitizeEmail, stripEmailHead, hasRemoteImages, blockRemoteImages, rewriteEbayImageserUrls } from '../services/emailSanitizer.js';
 import { buildSnippetFromHtml, decodeNamedEntity } from '../services/messageParser.js';
-import { resolveTrashFolder, resolveAllTrashPaths, resolveArchiveFolder, getDeleteStrategy } from '../utils/mailUtils.js';
+import { resolveTrashFolder, resolveAllTrashPaths, resolveArchiveFolder, getDeleteStrategy, adjustFolderCounts } from '../utils/mailUtils.js';
 import { listMessages } from '../services/messageService.js';
 
 const router = Router();
@@ -57,19 +57,6 @@ async function runInBatches(items, concurrency, fn) {
   return results;
 }
 
-// Adjust cached folder row counts after local message mutations so that pagination
-// totals stay accurate without waiting for the next IMAP sync. Fire-and-forget —
-// errors are logged but never block the caller; sync will correct any discrepancy.
-function adjustFolderCounts(accountId, path, totalDelta, unreadDelta) {
-  if (totalDelta === 0 && unreadDelta === 0) return;
-  query(
-    `UPDATE folders
-        SET total_count  = GREATEST(0, total_count  + $1),
-            unread_count = GREATEST(0, unread_count + $2)
-      WHERE account_id = $3 AND path = $4`,
-    [totalDelta, unreadDelta, accountId, path]
-  ).catch(err => console.error('Folder count adjust failed:', err.message));
-}
 
 // Regex matching invisible / zero-width / filler Unicode chars — kept in sync with
 // the same constant in messageParser.js (must match the full set used there).
