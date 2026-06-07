@@ -13,6 +13,7 @@ export default [
       'no-empty': 'warn',
       'no-useless-assignment': 'warn',
       'no-control-regex': 'warn',
+      'preserve-caught-error': 'warn',
     },
     languageOptions: {
       ecmaVersion: 2022,
