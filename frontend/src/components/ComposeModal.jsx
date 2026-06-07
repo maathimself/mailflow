@@ -1407,6 +1407,16 @@ function RichToolbar({ editor, onAttach, onInsertImage, onInsertTable, htmlMode,
   const colorPopRef = useRef(null);
   const emojiPopRef = useRef(null);
   const linkPopRef = useRef(null);
+  const linkInputRef = useRef(null);
+
+  // Focus the link URL input without triggering a browser scroll — autoFocus
+  // causes Chromium/Linux to scroll the viewport when the input is near the
+  // right edge, making the compose window appear to shift left.
+  useEffect(() => {
+    if (linkPos && linkInputRef.current) {
+      linkInputRef.current.focus({ preventScroll: true });
+    }
+  }, [linkPos]);
 
   useEffect(() => {
     if (!colorPos && !emojiPos && !linkPos && !tablePos) return;
@@ -1449,7 +1459,8 @@ function RichToolbar({ editor, onAttach, onInsertImage, onInsertTable, htmlMode,
     e.preventDefault();
     if (colorPos) { setColorPos(null); return; }
     const r = colorBtnRef.current.getBoundingClientRect();
-    setColorPos({ top: r.bottom + 4, left: r.left });
+    const left = Math.max(4, Math.min(r.left, window.innerWidth - 140));
+    setColorPos({ top: r.bottom + 4, left });
     setEmojiPos(null); setLinkPos(null);
   };
   const openEmoji = async (e) => {
@@ -1674,7 +1685,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, onInsertTable, htmlMode,
         }}>
           <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 500 }}>{t('compose.toolbar.insertLink')}</span>
           <div style={{ display: 'flex', gap: 6 }}>
-            <input autoFocus value={linkUrl} onChange={e => setLinkUrl(e.target.value)}
+            <input ref={linkInputRef} value={linkUrl} onChange={e => setLinkUrl(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submitLink(); } if (e.key === 'Escape') setLinkPos(null); }}
               placeholder="https://..."
               style={{ flex: 1, background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 5, padding: '6px 8px', color: 'var(--text-primary)', fontSize: 12, outline: 'none' }} />
