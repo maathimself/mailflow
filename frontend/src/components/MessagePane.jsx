@@ -8,6 +8,8 @@ import { getEffectiveShortcuts, parseModKey, modCompactLabel } from '../utils/de
 import { useMobile } from '../hooks/useMobile.js';
 import { clearDeleteGuard, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.js';
 import { senderColor } from '../themes.js';
+import MessageHeaderModal from './MessageHeaderModal.jsx';
+import FolderIcon from './FolderIcon.jsx';
 
 function parseAddressField(raw) {
   try {
@@ -103,6 +105,11 @@ export default function MessagePane() {
   const [showReplyMenu, setShowReplyMenu] = useState(false);
   const [savingAllow, setSavingAllow] = useState(false);
   const [paneScrolled, setPaneScrolled] = useState(false);
+  const [showHeaderModal, setShowHeaderModal] = useState(false);
+  const [showMovePicker, setShowMovePicker] = useState(false);
+  const [movePickerFolders, setMovePickerFolders] = useState([]);
+  const [movePickerLoading, setMovePickerLoading] = useState(false);
+  const moveBtnRef = useRef(null);
   const scrollContainerRef = useRef(null);
   const iframeRef = useRef(null);
   const roRef = useRef(null);
@@ -773,6 +780,68 @@ ${bodyContent}
     }
   };
 
+  const handleOpenMovePicker = useCallback(async () => {
+    if (showMovePicker) { setShowMovePicker(false); return; }
+    setShowMovePicker(true);
+    setMovePickerLoading(true);
+    try {
+      const data = await api.getFolders(message.account_id);
+      setMovePickerFolders(Array.isArray(data) ? data : (data.folders || []));
+    } catch (err) {
+      console.error('Failed to load folders:', err);
+      setMovePickerFolders([]);
+    } finally {
+      setMovePickerLoading(false);
+    }
+  }, [showMovePicker, message?.account_id]);
+
+  const handleMoveToFolder = useCallback((folder) => {
+    setShowMovePicker(false);
+    const moved = message;
+    removeMessage(moved.id);
+    if (!moved.is_read) decrementUnread(moved.account_id);
+    let undone = false;
+    const timer = setTimeout(async () => {
+      if (undone) return;
+      try {
+        await api.bulkMove([moved.id], folder);
+        useStore.getState().recordRecentFolder({ accountId: moved.account_id, path: folder });
+      } catch (err) {
+        console.error('Move failed:', err);
+        useStore.getState().restoreMessages([moved]);
+        if (!moved.is_read) incrementUnread(moved.account_id);
+        addNotification({ title: t('message.moved.failTitle'), body: t('message.moved.failBody') });
+      }
+    }, 4500);
+    addNotification({
+      title: t('message.moved.title'),
+      body: folder,
+      onUndo: () => {
+        undone = true;
+        clearTimeout(timer);
+        useStore.getState().restoreMessages([moved]);
+        if (!moved.is_read) incrementUnread(moved.account_id);
+      },
+    });
+  }, [message, removeMessage, decrementUnread, incrementUnread, addNotification, t]);
+
+  // Close move picker when the selected message changes and handle click-outside
+  useEffect(() => {
+    setShowMovePicker(false);
+    setShowHeaderModal(false);
+  }, [selectedMessageId]);
+
+  useEffect(() => {
+    if (!showMovePicker) return;
+    const onPointer = (e) => {
+      if (moveBtnRef.current && !moveBtnRef.current.contains(e.target)) {
+        setShowMovePicker(false);
+      }
+    };
+    document.addEventListener('pointerdown', onPointer);
+    return () => document.removeEventListener('pointerdown', onPointer);
+  }, [showMovePicker]);
+
   const toList = (() => {
     try {
       return Array.isArray(message.to_addresses)
@@ -926,7 +995,75 @@ ${bodyContent}
           {!isMobile && shortcutLabel('archive') && <kbd style={{ fontSize: 11, padding: '1px 5px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>{shortcutLabel('archive')}</kbd>}
         </PaneBtn>
 
+        {/* Move to folder */}
+        <div style={{ position: 'relative' }} ref={moveBtnRef}>
+          <PaneBtn onClick={handleOpenMovePicker} title={t('contextMenu.moveToFolder')}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+              <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+            </svg>
+            {!isMobile && t('contextMenu.moveToFolder')}
+          </PaneBtn>
+          {/* Desktop dropdown */}
+          {showMovePicker && !isMobile && (
+            <div style={{
+              position: 'absolute', top: 'calc(100% + 4px)', left: 0,
+              background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+              borderRadius: 8, boxShadow: 'var(--shadow-popover)',
+              minWidth: 200, maxWidth: 280, maxHeight: 320, overflowY: 'auto',
+              zIndex: 200,
+            }}>
+              {movePickerLoading ? (
+                <div style={{ padding: '20px 16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12 }}>
+                  {t('contextMenu.folders.loading')}
+                </div>
+              ) : movePickerFolders.length === 0 ? (
+                <div style={{ padding: '20px 16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12 }}>
+                  {t('contextMenu.folders.empty')}
+                </div>
+              ) : (
+                <>
+                  <div style={{ padding: '8px 12px 4px', fontSize: 10, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                    {t('contextMenu.moveToFolder')}
+                  </div>
+                  {movePickerFolders
+                    .filter(f => f.path !== message.folder)
+                    .map(f => (
+                      <button
+                        key={f.path}
+                        onClick={() => handleMoveToFolder(f.path)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 8,
+                          width: '100%', padding: '8px 12px',
+                          background: 'none', border: 'none',
+                          color: 'var(--text-primary)', fontSize: 13,
+                          cursor: 'pointer', textAlign: 'left', transition: 'background 0.1s',
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'none'}
+                      >
+                        <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}>
+                          <FolderIcon specialUse={f.special_use} />
+                        </span>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {f.name}
+                        </span>
+                      </button>
+                    ))
+                  }
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
         <div style={{ flex: 1 }} />
+
+        <PaneBtn onClick={() => setShowHeaderModal(true)} title={t('contextMenu.viewHeaders')}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+            <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
+            <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+          </svg>
+        </PaneBtn>
 
         <PaneBtn onClick={handlePrint} title={isMobile ? t('message.print') : `${t('message.print')}${shortcutLabel('printMessage') ? ` (${shortcutLabel('printMessage')})` : ''}`}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
@@ -1345,6 +1482,78 @@ ${bodyContent}
         </div>
       )}
       </div>{/* end single scroll container */}
+
+      {/* Mobile move-to-folder bottom sheet */}
+      {showMovePicker && isMobile && (
+        <>
+          <div
+            onClick={() => setShowMovePicker(false)}
+            style={{
+              position: 'fixed', inset: 0, zIndex: 3000,
+              background: 'var(--overlay-scrim)',
+              backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)',
+            }}
+          />
+          <div style={{
+            position: 'fixed', left: 0, right: 0, bottom: 0,
+            zIndex: 3001,
+            background: 'var(--bg-secondary)',
+            borderRadius: '16px 16px 0 0',
+            boxShadow: '0 -4px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.04)',
+            paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 8px)',
+            animation: 'sheet-enter 0.2s cubic-bezier(0.34,1.56,0.64,1)',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '12px 0 4px' }}>
+              <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--border)' }} />
+            </div>
+            <div style={{ padding: '4px 20px 12px', fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>
+              {t('contextMenu.moveToFolder')}
+            </div>
+            <div style={{ borderTop: '1px solid var(--border-subtle)', overflowY: 'auto', maxHeight: '60vh' }}>
+              {movePickerLoading ? (
+                <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
+                  {t('contextMenu.folders.loading')}
+                </div>
+              ) : movePickerFolders.length === 0 ? (
+                <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
+                  {t('contextMenu.folders.empty')}
+                </div>
+              ) : movePickerFolders
+                .filter(f => f.path !== message.folder)
+                .map(f => (
+                  <button
+                    key={f.path}
+                    onClick={() => handleMoveToFolder(f.path)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 14,
+                      width: '100%', minHeight: 48, padding: '0 20px',
+                      background: 'none', border: 'none',
+                      borderBottom: '1px solid var(--border-subtle)',
+                      color: 'var(--text-primary)', fontSize: 15,
+                      cursor: 'pointer', textAlign: 'left',
+                    }}
+                  >
+                    <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}>
+                      <FolderIcon specialUse={f.special_use} size={18} />
+                    </span>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {f.name}
+                    </span>
+                  </button>
+                ))
+              }
+            </div>
+          </div>
+        </>
+      )}
+
+      {showHeaderModal && (
+        <MessageHeaderModal
+          messageId={message.id}
+          subject={message.subject}
+          onClose={() => setShowHeaderModal(false)}
+        />
+      )}
     </div>
   );
 }

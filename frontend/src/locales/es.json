@@ -288,7 +288,8 @@
       "back": "Mover a carpeta",
       "loading": "Cargando carpetas…",
       "empty": "No se encontraron carpetas",
-      "recent": "Recientes"
+      "recent": "Recientes",
+      "favorites": "Favoritos"
     }
   },
   "commandPalette": {

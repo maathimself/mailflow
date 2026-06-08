@@ -287,7 +287,8 @@
       "back": "In Ordner verschieben",
       "loading": "Ordner werden geladen…",
       "empty": "Keine Ordner gefunden",
-      "recent": "Zuletzt verwendet"
+      "recent": "Zuletzt verwendet",
+      "favorites": "Favoriten"
     },
     "createRule": "Regel aus Nachricht erstellen"
   },

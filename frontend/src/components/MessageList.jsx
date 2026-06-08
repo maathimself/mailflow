@@ -144,7 +144,7 @@ export default function MessageList() {
   const pullDirectionRef = useRef(null);
   const pullDistRef = useRef(0);
   const handleSyncRef = useRef(null);
-  const [contextMenu, setContextMenu] = useState(null); // { x, y, message }
+  const [contextMenu, setContextMenu] = useState(null); // { x, y, message, defaultMoveView? }
   const [searchFocused, setSearchFocused] = useState(false);
   const [searchHasMore, setSearchHasMore] = useState(false);
   const [searchLoadingMore, setSearchLoadingMore] = useState(false);
@@ -1071,6 +1071,12 @@ export default function MessageList() {
       },
     });
   }, [removeMessage, decrementUnread, incrementUnread, addNotification, t]);
+
+  const handleRowMove = useCallback((e, msg) => {
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    setContextMenu({ x: rect.left, y: rect.bottom + 4, message: msg, defaultMoveView: true });
+  }, []);
 
   const handleBulkArchive = useCallback((ids, msgs) => {
     ids.forEach(id => removeMessage(id));
@@ -2507,6 +2513,7 @@ export default function MessageList() {
                   e.preventDefault();
                   setContextMenu({ x: e.clientX, y: e.clientY, message: msg });
                 }}
+                onMove={handleRowMove}
                 isMobile={isMobile}
                 swipeLeftAction={swipeLeftAction}
                 swipeRightAction={swipeRightAction}
@@ -2541,6 +2548,7 @@ export default function MessageList() {
                   e.preventDefault();
                   setContextMenu({ x: e.clientX, y: e.clientY, message: msg });
                 }}
+                onMove={handleRowMove}
                 isMobile={isMobile}
                 swipeLeftAction={swipeLeftAction}
                 swipeRightAction={swipeRightAction}
@@ -2557,6 +2565,7 @@ export default function MessageList() {
             x={contextMenu.x}
             y={contextMenu.y}
             message={contextMenu.message}
+            defaultMoveView={contextMenu.defaultMoveView}
             onClose={() => setContextMenu(null)}
             onAction={(action, data) => handleContextAction(action, contextMenu.message, data)}
           />
@@ -2936,7 +2945,7 @@ function EmptyState({ folderSyncing, searchQuery, unreadOnly, selectedFolder, ac
   );
 }
 
-function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, lastViewedMessageId, showAccount, isNarrow, onThreadClick, onSelect, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight }) {
+function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, lastViewedMessageId, showAccount, isNarrow, onThreadClick, onSelect, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const messageCount = message.message_count || 1;
@@ -3103,6 +3112,14 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                 <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
               </svg>
             </ActionBtn>
+
+            {onMove && (
+              <ActionBtn title={t('contextMenu.moveToFolder')} onClick={e => onMove(e, message)}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+                </svg>
+              </ActionBtn>
+            )}
           </div>
         )}
       </div>
@@ -3169,7 +3186,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
   );
 }
 
-function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, showAccount, isNarrow, onSelect, onToggleSelect, onRangeSelect, onAvatarClick, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, onLongPress }) {
+function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, showAccount, isNarrow, onSelect, onToggleSelect, onRangeSelect, onAvatarClick, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, onLongPress }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const [avatarHovered, setAvatarHovered] = useState(false);
@@ -3428,6 +3445,15 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
               <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
             </svg>
           </ActionBtn>
+
+          {/* Move to folder */}
+          {onMove && (
+            <ActionBtn title={t('contextMenu.moveToFolder')} onClick={e => onMove(e, message)}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+              </svg>
+            </ActionBtn>
+          )}
         </div>
       )}
       </div>

@@ -288,7 +288,8 @@
       "back": "Move to folder",
       "loading": "Loading folders…",
       "empty": "No folders found",
-      "recent": "Recent"
+      "recent": "Recent",
+      "favorites": "Favorites"
     }
   },
   "commandPalette": {

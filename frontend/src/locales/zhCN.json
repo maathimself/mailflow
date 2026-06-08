@@ -288,7 +288,8 @@
       "back": "移动到文件夹",
       "loading": "加载文件夹中…",
       "empty": "未找到任何文件夹",
-      "recent": "最近"
+      "recent": "最近",
+      "favorites": "收藏夹"
     }
   },
   "commandPalette": {

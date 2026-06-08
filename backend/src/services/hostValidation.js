@@ -41,6 +41,7 @@ function isPrivateIPv6(ip) {
 
 // Synchronous check: literal IPs and reserved hostnames.
 export function validateHostLiteral(host) {
+  if (process.env.ALLOW_PRIVATE_IMAP_HOSTS === 'true') return null;
   if (!host || typeof host !== 'string') return null;
   const h = host.trim().toLowerCase();
   if (h === 'localhost' || h.endsWith('.local') || h.endsWith('.localhost') || h.endsWith('.internal')) {

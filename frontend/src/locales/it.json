@@ -288,7 +288,8 @@
       "back": "Sposta nella cartella",
       "loading": "Caricamento cartelle…",
       "empty": "Nessuna cartella trovata",
-      "recent": "Recenti"
+      "recent": "Recenti",
+      "favorites": "Preferiti"
     }
   },
   "commandPalette": {
