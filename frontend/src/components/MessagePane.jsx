@@ -97,6 +97,10 @@ export default function MessagePane() {
   const message = allMessages.find(m => m.id === selectedMessageId)
     ?? Object.values(threadMessages).flat().find(m => m.id === selectedMessageId);
 
+  const currentIdx = allMessages.findIndex(m => m.id === selectedMessageId);
+  const hasPrev = currentIdx > 0;
+  const hasNext = currentIdx >= 0 && currentIdx < allMessages.length - 1;
+
   const [body, setBody] = useState(null);
   const [bodyError, setBodyError] = useState(null);
   const [retryKey, setRetryKey] = useState(0);
@@ -368,12 +372,12 @@ export default function MessagePane() {
     const el = paneRef.current;
     if (!el) return;
 
-    let startX = 0, startY = 0, dir = null, active = false;
+    let startX = 0, startY = 0, dir = null, active = false, fromEdge = false;
 
     const onStart = (e) => {
       const t = e.touches[0];
-      if (t.clientX > 32) return; // only activate from the left edge
       startX = t.clientX; startY = t.clientY;
+      fromEdge = t.clientX <= 32;
       dir = null; active = false;
     };
 
@@ -385,24 +389,42 @@ export default function MessagePane() {
         if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
         dir = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
       }
-      if (dir === 'v' || dx < 0) return;
-      e.preventDefault();
-      active = true;
-      el.style.transition = 'none';
-      el.style.transform = `translateX(${dx}px)`;
+      if (dir === 'v') return;
+      if (fromEdge) {
+        if (dx < 0) return;
+        e.preventDefault();
+        active = true;
+        el.style.transition = 'none';
+        el.style.transform = `translateX(${dx}px)`;
+      } else {
+        if (Math.abs(dx) < 5) return;
+        e.preventDefault();
+        active = true;
+      }
     };
 
     const onEnd = (e) => {
       if (!active) return;
       active = false;
       const dx = e.changedTouches[0].clientX - startX;
-      if (dx > 80) {
-        el.style.transition = 'transform 0.22s ease';
-        el.style.transform = `translateX(${window.innerWidth}px)`;
-        setTimeout(() => { if (mountedRef.current) history.back(); }, 220);
+      if (fromEdge) {
+        if (dx > 80) {
+          el.style.transition = 'transform 0.22s ease';
+          el.style.transform = `translateX(${window.innerWidth}px)`;
+          setTimeout(() => { if (mountedRef.current) history.back(); }, 220);
+        } else {
+          el.style.transition = 'transform 0.25s ease';
+          el.style.transform = 'translateX(0)';
+        }
       } else {
-        el.style.transition = 'transform 0.25s ease';
-        el.style.transform = 'translateX(0)';
+        const { messages: msgs, searchResults: sr, searchQuery: sq, selectedMessageId: selId, setSelectedMessage: setSel } = useStore.getState();
+        const list = sq.trim() ? sr : msgs;
+        const idx = list.findIndex(m => m.id === selId);
+        if (dx < -60 && idx >= 0 && idx < list.length - 1) {
+          setSel(list[idx + 1].id);
+        } else if (dx > 60 && idx > 0) {
+          setSel(list[idx - 1].id);
+        }
       }
     };
 
@@ -906,6 +928,36 @@ ${bodyContent}
           }}>
             {message?.subject || ''}
           </div>
+          <button
+            disabled={!hasPrev}
+            onClick={() => setSelectedMessage(allMessages[currentIdx - 1].id)}
+            title={t('message.previousMessage')}
+            style={{
+              background: 'none', border: 'none', flexShrink: 0,
+              color: 'var(--text-secondary)', cursor: hasPrev ? 'pointer' : 'default',
+              display: 'flex', alignItems: 'center', padding: '4px 6px',
+              opacity: hasPrev ? 1 : 0.3,
+            }}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <polyline points="18 15 12 9 6 15"/>
+            </svg>
+          </button>
+          <button
+            disabled={!hasNext}
+            onClick={() => setSelectedMessage(allMessages[currentIdx + 1].id)}
+            title={t('message.nextMessage')}
+            style={{
+              background: 'none', border: 'none', flexShrink: 0,
+              color: 'var(--text-secondary)', cursor: hasNext ? 'pointer' : 'default',
+              display: 'flex', alignItems: 'center', padding: '4px 6px',
+              opacity: hasNext ? 1 : 0.3,
+            }}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+          </button>
         </div>
       )}
 

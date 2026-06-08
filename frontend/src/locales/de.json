@@ -101,6 +101,8 @@
     "star": "Markieren",
     "delete": "Löschen",
     "print": "Drucken",
+    "previousMessage": "Vorherige Nachricht",
+    "nextMessage": "Nächste Nachricht",
     "archived": {
       "title": "Nachricht archiviert",
       "failTitle": "Archivierung fehlgeschlagen",

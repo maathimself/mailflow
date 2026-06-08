@@ -101,6 +101,8 @@
     "star": "Segna con stella",
     "delete": "Elimina",
     "print": "Stampa",
+    "previousMessage": "Messaggio precedente",
+    "nextMessage": "Messaggio successivo",
     "archived": {
       "title": "Messaggio archiviato",
       "failTitle": "Archiviazione fallita",

@@ -101,6 +101,8 @@
     "star": "Étoile",
     "delete": "Supprimer",
     "print": "Imprimer",
+    "previousMessage": "Message précédent",
+    "nextMessage": "Message suivant",
     "archived": {
       "title": "Message archivé",
       "failTitle": "Échec de l'archivage",

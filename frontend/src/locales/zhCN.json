@@ -101,6 +101,8 @@
     "star": "加星标",
     "delete": "删除",
     "print": "打印",
+    "previousMessage": "上一封邮件",
+    "nextMessage": "下一封邮件",
     "archived": {
       "title": "邮件已归档",
       "failTitle": "归档失败",

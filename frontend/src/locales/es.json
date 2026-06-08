@@ -101,6 +101,8 @@
     "star": "Destacar",
     "delete": "Eliminar",
     "print": "Imprimir",
+    "previousMessage": "Mensaje anterior",
+    "nextMessage": "Mensaje siguiente",
     "archived": {
       "title": "Mensaje archivado",
       "failTitle": "Error al archivar",
