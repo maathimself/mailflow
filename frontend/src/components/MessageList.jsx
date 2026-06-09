@@ -3358,6 +3358,11 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
       {/* Foreground row content */}
       <div
         ref={isMobile ? contentRef : undefined}
+        draggable={!isMobile}
+        onDragStart={!isMobile ? (e) => {
+          e.dataTransfer.setData('application/x-mailflow-message', JSON.stringify({ messageId: message.id, accountId: message.account_id }));
+          e.dataTransfer.effectAllowed = 'move';
+        } : undefined}
         onClick={handleClick}
         onContextMenu={!isMobile ? (e => onContextMenu(e, message)) : undefined}
         style={{

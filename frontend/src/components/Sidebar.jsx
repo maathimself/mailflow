@@ -271,6 +271,62 @@ export default function Sidebar() {
     if (isMobile) setMobileSidebarOpen(false);
   }, [selectedAccountId, selectedFolder]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const [msgDragTarget, setMsgDragTarget] = useState(null);
+
+  // Clear any stale msgDragTarget when a drag operation ends anywhere on the page
+  useEffect(() => {
+    const clear = () => setMsgDragTarget(null);
+    document.addEventListener('dragend', clear);
+    return () => document.removeEventListener('dragend', clear);
+  }, []);
+
+  const handleMsgDrop = useCallback((e, targetFolder) => {
+    e.preventDefault();
+    setMsgDragTarget(null);
+    const raw = e.dataTransfer.getData('application/x-mailflow-message');
+    if (!raw) return;
+    let payload;
+    try { payload = JSON.parse(raw); } catch { return; }
+    const { messageId } = payload;
+    const state = useStore.getState();
+    const msg = state.messages.find(m => m.id === messageId) || state.searchResults.find(m => m.id === messageId);
+    if (!msg || msg.folder === targetFolder) return;
+    state.removeMessage(messageId);
+    if (!msg.is_read) state.decrementUnread(msg.account_id);
+    let undone = false;
+    const timer = setTimeout(async () => {
+      if (undone) return;
+      try {
+        const result = await api.bulkMove([messageId], targetFolder);
+        const movedSet = new Set(result.moved ?? []);
+        const s = useStore.getState();
+        if (!movedSet.has(messageId)) {
+          s.restoreMessages([msg]);
+          if (!msg.is_read) s.incrementUnread(msg.account_id);
+          s.addNotification({ title: t('messageList.bulkMoved.failTitle'), body: t('messageList.bulkMoved.failBody', { count: 1 }) });
+        } else {
+          s.recordRecentFolder({ accountId: msg.account_id, path: targetFolder });
+        }
+      } catch {
+        const s = useStore.getState();
+        s.restoreMessages([msg]);
+        if (!msg.is_read) s.incrementUnread(msg.account_id);
+        s.addNotification({ title: t('messageList.bulkMoved.failTitle'), body: t('messageList.bulkMoved.failBody', { count: 1 }) });
+      }
+    }, 4500);
+    state.addNotification({
+      title: t('messageList.bulkMoved.title', { count: 1 }),
+      body: targetFolder,
+      onUndo: () => {
+        undone = true;
+        clearTimeout(timer);
+        const s = useStore.getState();
+        s.restoreMessages([msg]);
+        if (!msg.is_read) s.incrementUnread(msg.account_id);
+      },
+    });
+  }, [t]);
+
   const [showProfile, setShowProfile] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [userMenuPos, setUserMenuPos] = useState({ bottom: 0, left: 0 });
@@ -807,10 +863,25 @@ export default function Sidebar() {
                   <div
                     key={`${accountId}:${path}`}
                     className="no-callout"
-                    onDragOver={canDrag ? e => { e.preventDefault(); setFavDropIdx(idx); } : undefined}
-                    onDrop={canDrag ? e => {
+                    onDragOver={e => {
                       e.preventDefault();
-                      if (favDragIdx !== null && favDragIdx !== idx) {
+                      if (e.dataTransfer.types.includes('application/x-mailflow-message')) {
+                        e.dataTransfer.dropEffect = 'move';
+                        setMsgDragTarget(`${accountId}:${path}`);
+                      } else if (canDrag) {
+                        setFavDropIdx(idx);
+                      }
+                    }}
+                    onDragLeave={e => {
+                      if (!e.currentTarget.contains(e.relatedTarget)) setMsgDragTarget(null);
+                    }}
+                    onDrop={e => {
+                      if (e.dataTransfer.types.includes('application/x-mailflow-message')) {
+                        handleMsgDrop(e, path);
+                        return;
+                      }
+                      e.preventDefault();
+                      if (canDrag && favDragIdx !== null && favDragIdx !== idx) {
                         const fullArr = [...favoriteFolders];
                         const fromItem = visibleFaves[favDragIdx];
                         const toItem = visibleFaves[idx];
@@ -824,7 +895,7 @@ export default function Sidebar() {
                       }
                       setFavDragIdx(null);
                       setFavDropIdx(null);
-                    } : undefined}
+                    }}
                     onDragEnd={canDrag ? () => { setFavDragIdx(null); setFavDropIdx(null); } : undefined}
                     onClick={() => { if (!isRenamingThis) setSelectedAccount(accountId, path); }}
                     onTouchStart={e => {
@@ -887,7 +958,7 @@ export default function Sidebar() {
                       gap: 8, padding: '7px 10px',
                       borderRadius: 7, cursor: 'pointer',
                       touchAction: 'pan-y',
-                      background: isActive ? 'var(--bg-hover)' : 'transparent',
+                      background: (msgDragTarget === `${accountId}:${path}`) ? 'var(--accent-dim)' : isActive ? 'var(--bg-hover)' : 'transparent',
                       color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
                       transition: 'background 0.1s, color 0.1s',
                       opacity: isDragging ? 0.4 : 1,
@@ -1142,13 +1213,16 @@ export default function Sidebar() {
                           display: 'flex', alignItems: 'center', gap: 6,
                           padding: `6px 10px 6px ${indent}px`, borderRadius: 7,
                           cursor: isRenaming ? 'default' : 'pointer',
-                          background: isFolderSelected ? 'var(--bg-hover)' : 'transparent',
+                          background: (msgDragTarget === `${account.id}:${folder.path}`) ? 'var(--accent-dim)' : isFolderSelected ? 'var(--bg-hover)' : 'transparent',
                           transition: 'background 0.1s',
                         }}
                         onMouseEnter={e => { if (!isFolderSelected && !isRenaming) e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
                         onMouseLeave={e => { if (!isFolderSelected) e.currentTarget.style.background = 'transparent'; }}
                         onClick={() => !isRenaming && setSelectedAccount(account.id, folder.path)}
                         onContextMenu={e => openFolderCtxMenu(e, account.id, folder)}
+                        onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setMsgDragTarget(`${account.id}:${folder.path}`); }}
+                        onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) setMsgDragTarget(null); }}
+                        onDrop={e => handleMsgDrop(e, folder.path)}
                       >
                         {/* Chevron toggle for parent folders; invisible spacer for leaf folders to align icons */}
                         {hasChildren ? (
