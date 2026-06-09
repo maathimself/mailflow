@@ -173,6 +173,8 @@ export default function ComposeModal() {
   const [error, setError] = useState('');
   const [minimized, setMinimized] = useState(false);
   const [maximized, setMaximized] = useState(false);
+  const [pos, setPos] = useState(null);
+  const [customSize, setCustomSize] = useState(null);
   const [showReplyType, setShowReplyType] = useState(false);
   const [htmlMode, setHtmlMode] = useState(false);
   const [htmlSource, setHtmlSource] = useState('');
@@ -182,6 +184,11 @@ export default function ComposeModal() {
   const imageInputRef = useRef(null);
   const signatureRef = useRef(null);
   const quotedHtmlRef = useRef(null);
+  const composeWindowRef = useRef(null);
+  const posRef = useRef(null);
+  const customSizeRef = useRef(null);
+  posRef.current = pos;
+  customSizeRef.current = customSize;
 
   const [plainSig, setPlainSig] = useState(() => fromSignature ? stripHtml(fromSignature) : '');
   // Tracks the user's current (possibly edited) rich-text signature; kept current by onInput.
@@ -276,6 +283,19 @@ export default function ComposeModal() {
     };
   }, [isMobile]);
 
+  useEffect(() => {
+    const clamp = () => {
+      if (!posRef.current) return;
+      const w = customSizeRef.current?.width || 540;
+      setPos(prev => prev ? {
+        x: Math.max(0, Math.min(window.innerWidth - w, prev.x)),
+        y: Math.max(0, Math.min(window.innerHeight - 40, prev.y)),
+      } : prev);
+    };
+    window.addEventListener('resize', clamp);
+    return () => window.removeEventListener('resize', clamp);
+  }, []);
+
   // On mobile, prevent iOS from auto-zooming when inputs are focused.
   // All inputs already use 16px font-size but iOS can still scale on focus
   // inside position:fixed overlays. Restore the original content on unmount.
@@ -309,6 +329,65 @@ export default function ComposeModal() {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [showReplyType]);
+
+  const handleTitleDragStart = useCallback((e) => {
+    if (e.button !== 0) return;
+    if (e.target.closest('button, select, a')) return;
+    if (maximized) return;
+    e.preventDefault();
+    const rect = composeWindowRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const startMouseX = e.clientX;
+    const startMouseY = e.clientY;
+    const startX = rect.left;
+    const startY = rect.top;
+    const w = rect.width;
+    setPos({ x: startX, y: startY });
+    document.body.style.cursor = 'grabbing';
+    document.body.style.userSelect = 'none';
+    const onMove = (ev) => {
+      const newX = Math.max(0, Math.min(window.innerWidth - w, startX + ev.clientX - startMouseX));
+      const newY = Math.max(0, Math.min(window.innerHeight - 40, startY + ev.clientY - startMouseY));
+      setPos({ x: newX, y: newY });
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [maximized]);
+
+  const handleResizeDragStart = useCallback((e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = composeWindowRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const startMouseX = e.clientX;
+    const startMouseY = e.clientY;
+    const startWidth = rect.width;
+    const startHeight = rect.height;
+    setPos(prev => prev || { x: rect.left, y: rect.top });
+    document.body.style.cursor = 'nwse-resize';
+    document.body.style.userSelect = 'none';
+    const onMove = (ev) => {
+      setCustomSize({
+        width: Math.min(window.innerWidth - 16, Math.max(360, startWidth + ev.clientX - startMouseX)),
+        height: Math.min(window.innerHeight - 40, Math.max(200, startHeight + ev.clientY - startMouseY)),
+      });
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, []);
 
   // Initialise/reset the signature when the From identity changes, or when the
   // signature first becomes available (accounts loaded after component mount).
@@ -939,11 +1018,20 @@ export default function ComposeModal() {
         />
       )}
     <div
+      ref={composeWindowRef}
       onKeyDown={handleKeyDown}
       style={maximized ? {
         position: 'fixed', top: 28, left: 28, right: 28, bottom: 28,
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
         borderRadius: 12, boxShadow: 'var(--shadow-modal)',
+        zIndex: 1000, display: 'flex', flexDirection: 'column',
+      } : pos ? {
+        position: 'fixed', top: pos.y, left: pos.x,
+        width: customSize?.width || 540,
+        ...(customSize?.height ? { height: customSize.height } : { maxHeight: '75vh' }),
+        maxWidth: 'calc(100vw - 16px)',
+        background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+        borderRadius: 10, boxShadow: 'var(--shadow-modal)',
         zIndex: 1000, display: 'flex', flexDirection: 'column',
       } : {
         position: 'fixed', bottom: 0, right: 24,
@@ -959,11 +1047,14 @@ export default function ComposeModal() {
       <input ref={fileInputRef} type="file" multiple onChange={handleFileSelect} style={{ display: 'none' }} />
       <input ref={imageInputRef} type="file" accept="image/*" onChange={e => { const f = e.target.files?.[0]; if (f) insertImageIntoEditor(f); e.target.value = ''; }} style={{ display: 'none' }} />
       {/* Title bar */}
-      <div style={{
-        padding: '10px 14px', display: 'flex', alignItems: 'center',
-        justifyContent: 'space-between', borderBottom: '1px solid var(--border-subtle)',
-        flexShrink: 0,
-      }}>
+      <div
+        onMouseDown={handleTitleDragStart}
+        style={{
+          padding: '10px 14px', display: 'flex', alignItems: 'center',
+          justifyContent: 'space-between', borderBottom: '1px solid var(--border-subtle)',
+          flexShrink: 0, cursor: maximized ? 'default' : 'grab',
+        }}
+      >
         {isReply ? (
           <div ref={replyTypeRef} style={{ position: 'relative' }}>
             <button
@@ -1311,6 +1402,21 @@ export default function ComposeModal() {
           {t('compose.discard')}
         </button>
       </div>
+
+      {!maximized && (
+        <div
+          onMouseDown={handleResizeDragStart}
+          style={{ position: 'absolute', bottom: 0, right: 0, width: 18, height: 18, cursor: 'nwse-resize' }}
+        >
+          <svg
+            width="8" height="8" viewBox="0 0 8 8" fill="none"
+            stroke="var(--text-tertiary)" strokeWidth="1.5" strokeLinecap="round"
+            style={{ position: 'absolute', bottom: 3, right: 3, display: 'block', opacity: 0.5 }}
+          >
+            <path d="M7 2L2 7M7 5L5 7"/>
+          </svg>
+        </div>
+      )}
     </div>
     </>
   );
