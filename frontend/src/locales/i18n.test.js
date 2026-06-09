@@ -189,6 +189,9 @@ const SAME_VALUE_ALLOWED = {
   'admin.privacy.title': [['en', 'it']],
   'admin.tabs.privacy':  [['en', 'it']],
 
+  // "Header" — technical email term used as-is in de and en
+  'admin.rules.fieldHeader': [['de', 'en']],
+
   // "Actions" / "Conditions" — French loanwords, same in en and fr
   'admin.rules.actionsLabel':    [['en', 'fr']],
   'admin.rules.conditionsLabel': [['en', 'fr']],
