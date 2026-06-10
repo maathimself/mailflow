@@ -8,17 +8,19 @@ router.use(requireAuth);
 const DESTINATION_ACTIONS = new Set(['move', 'archive', 'delete']);
 
 // Strip duplicate destination actions (keeping the first) and trim move values.
+// Silently drops malformed entries (null, non-object, missing/non-string type).
 export function normalizeActions(actions) {
   let destSeen = false;
   return actions
     .filter(a => {
+      if (!a || typeof a.type !== 'string') return false;
       if (DESTINATION_ACTIONS.has(a.type)) {
         if (destSeen) return false;
         destSeen = true;
       }
       return true;
     })
-    .map(a => (a.type === 'move' && a.value ? { ...a, value: a.value.trim() } : a));
+    .map(a => (a.type === 'move' && typeof a.value === 'string' ? { ...a, value: a.value.trim() } : a));
 }
 
 router.get('/', async (req, res) => {

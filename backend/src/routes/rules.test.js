@@ -62,4 +62,19 @@ describe('normalizeActions', () => {
     const actions = [{ type: 'mark_read', value: '  ' }, { type: 'star', value: '' }];
     expect(normalizeActions(actions)).toEqual(actions);
   });
+
+  it('drops null entries without throwing', () => {
+    const actions = [null, { type: 'move', value: 'INBOX/Work' }];
+    expect(normalizeActions(actions)).toEqual([{ type: 'move', value: 'INBOX/Work' }]);
+  });
+
+  it('drops entries with a non-string type without throwing', () => {
+    const actions = [{ type: 42 }, { type: 'move', value: 'INBOX/Work' }];
+    expect(normalizeActions(actions)).toEqual([{ type: 'move', value: 'INBOX/Work' }]);
+  });
+
+  it('handles a non-string move value without throwing', () => {
+    const actions = [{ type: 'move', value: 123 }];
+    expect(normalizeActions(actions)).toEqual([{ type: 'move', value: 123 }]);
+  });
 });
