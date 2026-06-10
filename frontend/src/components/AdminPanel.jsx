@@ -3922,7 +3922,7 @@ function RulesTab() {
         destSeen = true;
       }
       return true;
-    });
+    }).filter(a => !(a.type === 'move' && !rule.account_id));
     setFormData({
       name: rule.name,
       accountId: rule.account_id || '',
@@ -4117,11 +4117,16 @@ function RulesTab() {
           <select
             style={inputStyle}
             value={fd.accountId}
-            onChange={e => setFormData(p => ({
-              ...p,
-              accountId: e.target.value,
-              actions: p.actions.map(a => a.type === 'move' ? { ...a, value: '' } : a),
-            }))}
+            onChange={e => setFormData(p => {
+              const newAccountId = e.target.value;
+              return {
+                ...p,
+                accountId: newAccountId,
+                actions: newAccountId
+                  ? p.actions.map(a => a.type === 'move' ? { ...a, value: '' } : a)
+                  : p.actions.filter(a => a.type !== 'move'),
+              };
+            })}
           >
             <option value="">{t('admin.rules.accountAll')}</option>
             {accounts.map(a => (
@@ -4217,12 +4222,18 @@ function RulesTab() {
           {ACTION_TYPES.map(({ type, label }) => {
             const checked = fd.actions.some(a => a.type === type);
             const moveVal = fd.actions.find(a => a.type === 'move')?.value || '';
+            const moveDisabled = type === 'move' && !fd.accountId;
             return (
               <div key={type} style={{ marginBottom: 8 }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13 }}>
-                  <input type="checkbox" checked={checked} onChange={() => toggleAction(type)} />
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: moveDisabled ? 'default' : 'pointer', fontSize: 13, opacity: moveDisabled ? 0.45 : 1 }}>
+                  <input type="checkbox" checked={checked} disabled={moveDisabled} onChange={() => toggleAction(type)} />
                   {label}
                 </label>
+                {moveDisabled && (
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginLeft: 22, marginTop: 2 }}>
+                    {t('admin.rules.actionMoveRequiresAccount')}
+                  </div>
+                )}
                 {type === 'move' && checked && (() => {
                   const allFolders = fd.accountId ? (storeFolders[fd.accountId] || []) : [];
                   const movableFolders = allFolders.filter(f => f.path && f.path !== 'INBOX');

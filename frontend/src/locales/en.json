@@ -419,6 +419,7 @@
       "actionMove": "Move to folder",
       "actionMovePlaceholder": "Exact IMAP folder path (e.g. Work or INBOX/Work)",
       "actionMoveSelectFolder": "Select a folder…",
+      "actionMoveRequiresAccount": "Requires a specific account",
       "stopProcessing": "Stop processing further rules if this rule matches",
       "stopProcessingHint": "If this rule matches, later rules won't run for the same message.",
       "saveButton": "Save rule",

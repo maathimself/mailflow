@@ -425,7 +425,8 @@
       "headerNamePlaceholder": "Имя заголовка (напр. X-Spam-Status)",
       "subTabRules": "Правила",
       "subTabBlockList": "Чёрный список",
-      "actionMoveSelectFolder": "Выберите папку…"
+      "actionMoveSelectFolder": "Выберите папку…",
+      "actionMoveRequiresAccount": "Требуется конкретный аккаунт"
     },
     "blockList": {
       "description": "Письма от заблокированных отправителей автоматически перемещаются в корзину.",

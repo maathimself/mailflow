@@ -866,7 +866,8 @@
       "headerNamePlaceholder": "Header-Name (z. B. X-Spam-Status)",
       "subTabRules": "Regeln",
       "subTabBlockList": "Blockliste",
-      "actionMoveSelectFolder": "Ordner auswählen…"
+      "actionMoveSelectFolder": "Ordner auswählen…",
+      "actionMoveRequiresAccount": "Erfordert ein bestimmtes Konto"
     },
     "blockList": {
       "description": "E-Mails von blockierten Absendern werden automatisch in den Papierkorb verschoben.",

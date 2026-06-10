@@ -425,7 +425,8 @@
       "headerNamePlaceholder": "Nome intestazione (es. X-Spam-Status)",
       "subTabRules": "Regole",
       "subTabBlockList": "Lista blocchi",
-      "actionMoveSelectFolder": "Seleziona una cartella…"
+      "actionMoveSelectFolder": "Seleziona una cartella…",
+      "actionMoveRequiresAccount": "Richiede un account specifico"
     },
     "blockList": {
       "description": "Le e-mail dei mittenti bloccati vengono automaticamente spostate nel cestino.",
