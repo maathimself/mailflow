@@ -39,6 +39,29 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
+describe('applyInboxRules — destination action no-ops do not remove message', () => {
+  it('leaves message in inbox when move action has a blank destination', async () => {
+    const rule = mkRule([{ type: 'move', value: '' }]);
+    query.mockResolvedValueOnce({ rows: [rule] });
+
+    const result = await applyInboxRules([mkMsg()], account, mockImap);
+
+    expect(result).toHaveLength(1);
+    expect(mockImap.bulkMoveMessages).not.toHaveBeenCalled();
+  });
+
+  it('leaves message in inbox when archive folder is not configured', async () => {
+    const rule = mkRule([{ type: 'archive', value: '' }]);
+    query.mockResolvedValueOnce({ rows: [rule] });
+    resolveArchiveFolder.mockResolvedValue(null);
+
+    const result = await applyInboxRules([mkMsg()], account, mockImap);
+
+    expect(result).toHaveLength(1);
+    expect(mockImap.bulkMoveMessages).not.toHaveBeenCalled();
+  });
+});
+
 describe('applyInboxRules — destination action deduplication', () => {
   it('executes only the first destination action when a legacy rule has move + archive', async () => {
     const rule = mkRule([

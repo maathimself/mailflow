@@ -7,16 +7,18 @@ router.use(requireAuth);
 
 const DESTINATION_ACTIONS = new Set(['move', 'archive', 'delete']);
 
-// Strip duplicate destination actions, keeping the first one found.
+// Strip duplicate destination actions (keeping the first) and trim move values.
 export function normalizeActions(actions) {
   let destSeen = false;
-  return actions.filter(a => {
-    if (DESTINATION_ACTIONS.has(a.type)) {
-      if (destSeen) return false;
-      destSeen = true;
-    }
-    return true;
-  });
+  return actions
+    .filter(a => {
+      if (DESTINATION_ACTIONS.has(a.type)) {
+        if (destSeen) return false;
+        destSeen = true;
+      }
+      return true;
+    })
+    .map(a => (a.type === 'move' && a.value ? { ...a, value: a.value.trim() } : a));
 }
 
 router.get('/', async (req, res) => {

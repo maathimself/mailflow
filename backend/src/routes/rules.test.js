@@ -52,4 +52,14 @@ describe('normalizeActions', () => {
   it('returns an empty array for an empty input', () => {
     expect(normalizeActions([])).toEqual([]);
   });
+
+  it('trims whitespace from move destination values', () => {
+    const actions = [{ type: 'move', value: '  INBOX/Work  ' }];
+    expect(normalizeActions(actions)).toEqual([{ type: 'move', value: 'INBOX/Work' }]);
+  });
+
+  it('does not modify non-move action values', () => {
+    const actions = [{ type: 'mark_read', value: '  ' }, { type: 'star', value: '' }];
+    expect(normalizeActions(actions)).toEqual(actions);
+  });
 });
