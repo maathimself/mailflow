@@ -570,6 +570,11 @@ export class ImapManager {
     this._flagDebounceTimers   = new Map(); // accountId -> debounce timer for flag-change syncs
     this._expungeDebounceTimers = new Map(); // accountId -> debounce timer for expunge reconciles
     this._pendingFlagSync = new Set(); // accountId — flag sync was skipped because a full sync was running; drain after sync
+    // Tracks UIDs that are actively being moved by inboxRules so reconcileDeletes
+    // does not delete the DB row if an EXPUNGE arrives before the DB update completes,
+    // or if the server is non-UIDPLUS and the DB temporarily holds a stale UID.
+    // Keys are "${accountId}:${folder}:${uid}" strings.
+    this._pendingMoveUids = new Set();
 
     // Health check: every 90 seconds, find any enabled IMAP accounts that have no
     // active connection and no in-progress connect attempt, and reconnect them.
@@ -2747,6 +2752,20 @@ export class ImapManager {
   // Phase 1: collect all server UID sets via one pool connection (IMAP-only, no DB writes).
   // Phase 2: diff and delete outside the IMAP connection so a DB error never evicts a
   // healthy pool client.
+  // Guard a specific (accountId, folder, uid) triple so reconcileDeletes skips it.
+  // Called by applyAction in inboxRules before initiating an IMAP move.
+  _guardMoveUid(accountId, folder, uid) {
+    this._pendingMoveUids.add(`${accountId}:${folder}:${uid}`);
+  }
+
+  _unguardMoveUid(accountId, folder, uid) {
+    this._pendingMoveUids.delete(`${accountId}:${folder}:${uid}`);
+  }
+
+  _isMoveUidGuarded(accountId, folder, uid) {
+    return this._pendingMoveUids.has(`${accountId}:${folder}:${uid}`);
+  }
+
   async reconcileDeletes(account) {
     const folderResult = await query(
       'SELECT DISTINCT folder FROM messages WHERE account_id = $1',
@@ -2792,7 +2811,7 @@ export class ImapManager {
       );
       const orphanUids = dbResult.rows
         .map(r => Number(r.uid))
-        .filter(uid => !serverUidSet.has(uid));
+        .filter(uid => !serverUidSet.has(uid) && !this._isMoveUidGuarded(account.id, folder, uid));
 
       if (orphanUids.length === 0) continue;
 

@@ -864,6 +864,7 @@
       "fieldHeader": "Header",
       "opRegex": "entspricht Regex",
       "headerNamePlaceholder": "Header-Name (z. B. X-Spam-Status)",
+      "bodyConditionNote": "Die Textsuche funktioniert nur für bereits vollständig abgerufene Nachrichten. Neue Nachrichten stimmen möglicherweise erst überein, wenn ihr Inhalt heruntergeladen wurde.",
       "subTabRules": "Regeln",
       "subTabBlockList": "Blockliste",
       "actionMoveSelectFolder": "Ordner auswählen…",

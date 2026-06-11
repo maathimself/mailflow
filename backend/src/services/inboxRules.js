@@ -199,16 +199,23 @@ export async function applyBlockList(messages, account, imapManager) {
       const allTrashPaths = await resolveAllTrashPaths(account.id, account.folder_mappings);
       const strategy = getDeleteStrategy(msg.folder, trashFolder, allTrashPaths);
       if (strategy.action === 'move') {
-        const result = await imapManager.bulkMoveMessages(account, [msg.uid], msg.folder, strategy.destination);
-        if (!result.failed?.length) {
-          const newUid = result.uidMap?.get(Number(msg.uid));
-          if (newUid) {
-            await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3', [strategy.destination, newUid, msg.id]);
+        imapManager._guardMoveUid(account.id, msg.folder, msg.uid);
+        try {
+          const result = await imapManager.bulkMoveMessages(account, [msg.uid], msg.folder, strategy.destination);
+          if (!result.failed?.length) {
+            const newUid = result.uidMap?.get(Number(msg.uid));
+            if (newUid) {
+              await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3', [strategy.destination, newUid, msg.id]);
+            } else {
+              imapManager._guardMoveUid(account.id, strategy.destination, msg.uid);
+              await query('UPDATE messages SET folder = $1 WHERE id = $2', [strategy.destination, msg.id]);
+              setTimeout(() => imapManager._unguardMoveUid(account.id, strategy.destination, msg.uid), 10_000);
+            }
           } else {
-            await query('UPDATE messages SET folder = $1 WHERE id = $2', [strategy.destination, msg.id]);
+            remaining.push(msg);
           }
-        } else {
-          remaining.push(msg);
+        } finally {
+          imapManager._unguardMoveUid(account.id, msg.folder, msg.uid);
         }
       } else if (strategy.action === 'expunge') {
         await imapManager.setFlag(account, msg.uid, msg.folder, '\\Deleted', true);
@@ -251,23 +258,37 @@ async function applyAction(action, msg, account, imapManager) {
     case 'move': {
       const destFolder = action.value;
       if (!destFolder) return false;
-      // IMAP first — if the server-side move fails (throws or returns failed UIDs),
-      // the error propagates to the caller so the DB is never updated. This prevents
-      // a DB/IMAP split where the DB shows the message in destFolder but IMAP still
-      // has it in INBOX, which caused the next sync to bounce the message back via
-      // the relocation logic.
-      const moveResult = await imapManager.bulkMoveMessages(account, [msg.uid], msg.folder, destFolder);
-      if (moveResult.failed?.length) throw new Error(`IMAP move to ${destFolder} failed for uid ${msg.uid}`);
-      // Update UID alongside folder. The IMAP MOVE assigns the message a new UID in
-      // the destination folder. Without this, reconcileDeletes fires ~1.5 s later
-      // (triggered by the EXPUNGE IDLE event), sees the old source UID absent from
-      // the destination's server UID set, and deletes the DB row — silently losing
-      // the message. mail.js user-initiated moves already do this correctly.
-      const newUid = moveResult.uidMap?.get(Number(msg.uid));
-      if (newUid) {
-        await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3', [destFolder, newUid, msg.id]);
-      } else {
-        await query('UPDATE messages SET folder = $1 WHERE id = $2', [destFolder, msg.id]);
+      // Guard the source UID before the IMAP move so reconcileDeletes cannot delete
+      // the DB row if an EXPUNGE notification arrives while the move is in flight.
+      imapManager._guardMoveUid(account.id, msg.folder, msg.uid);
+      try {
+        // IMAP first — if the server-side move fails (throws or returns failed UIDs),
+        // the error propagates to the caller so the DB is never updated. This prevents
+        // a DB/IMAP split where the DB shows the message in destFolder but IMAP still
+        // has it in INBOX, which caused the next sync to bounce the message back.
+        const moveResult = await imapManager.bulkMoveMessages(account, [msg.uid], msg.folder, destFolder);
+        if (moveResult.failed?.length) throw new Error(`IMAP move to ${destFolder} failed for uid ${msg.uid}`);
+        // Update UID alongside folder. The IMAP MOVE assigns the message a new UID in
+        // the destination folder. Without this, reconcileDeletes fires ~1.5 s later
+        // (triggered by the EXPUNGE IDLE event), sees the old source UID absent from
+        // the destination's server UID set, and deletes the DB row — silently losing
+        // the message.
+        const newUid = moveResult.uidMap?.get(Number(msg.uid));
+        if (newUid) {
+          await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3', [destFolder, newUid, msg.id]);
+        } else {
+          // Non-UIDPLUS server: DB will hold the stale source UID in the destination
+          // folder until the next sync corrects it. Guard the stale UID in the
+          // destination so reconcileDeletes does not treat it as an orphan in the
+          // meantime. The guard auto-expires after 10 s — well beyond the 1.5 s
+          // EXPUNGE debounce; a regular sync (~60 s) will update the UID before the
+          // next periodic reconcile (every 10 sync ticks, ~10 min).
+          imapManager._guardMoveUid(account.id, destFolder, msg.uid);
+          await query('UPDATE messages SET folder = $1 WHERE id = $2', [destFolder, msg.id]);
+          setTimeout(() => imapManager._unguardMoveUid(account.id, destFolder, msg.uid), 10_000);
+        }
+      } finally {
+        imapManager._unguardMoveUid(account.id, msg.folder, msg.uid);
       }
       return true;
     }
@@ -275,13 +296,20 @@ async function applyAction(action, msg, account, imapManager) {
     case 'archive': {
       const archiveFolder = await resolveArchiveFolder(account.id, account.folder_mappings);
       if (!archiveFolder) return false;
-      const archiveResult = await imapManager.bulkMoveMessages(account, [msg.uid], msg.folder, archiveFolder);
-      if (archiveResult.failed?.length) throw new Error(`IMAP archive failed for uid ${msg.uid}`);
-      const newArchiveUid = archiveResult.uidMap?.get(Number(msg.uid));
-      if (newArchiveUid) {
-        await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3', [archiveFolder, newArchiveUid, msg.id]);
-      } else {
-        await query('UPDATE messages SET folder = $1 WHERE id = $2', [archiveFolder, msg.id]);
+      imapManager._guardMoveUid(account.id, msg.folder, msg.uid);
+      try {
+        const archiveResult = await imapManager.bulkMoveMessages(account, [msg.uid], msg.folder, archiveFolder);
+        if (archiveResult.failed?.length) throw new Error(`IMAP archive failed for uid ${msg.uid}`);
+        const newArchiveUid = archiveResult.uidMap?.get(Number(msg.uid));
+        if (newArchiveUid) {
+          await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3', [archiveFolder, newArchiveUid, msg.id]);
+        } else {
+          imapManager._guardMoveUid(account.id, archiveFolder, msg.uid);
+          await query('UPDATE messages SET folder = $1 WHERE id = $2', [archiveFolder, msg.id]);
+          setTimeout(() => imapManager._unguardMoveUid(account.id, archiveFolder, msg.uid), 10_000);
+        }
+      } finally {
+        imapManager._unguardMoveUid(account.id, msg.folder, msg.uid);
       }
       return true;
     }
@@ -292,13 +320,20 @@ async function applyAction(action, msg, account, imapManager) {
       const strategy = getDeleteStrategy(msg.folder, trashFolder, allTrashPaths);
       if (strategy.action === 'no_trash') return false;
       if (strategy.action === 'move') {
-        const deleteResult = await imapManager.bulkMoveMessages(account, [msg.uid], msg.folder, strategy.destination);
-        if (deleteResult.failed?.length) throw new Error(`IMAP delete-move failed for uid ${msg.uid}`);
-        const newDeleteUid = deleteResult.uidMap?.get(Number(msg.uid));
-        if (newDeleteUid) {
-          await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3', [strategy.destination, newDeleteUid, msg.id]);
-        } else {
-          await query('UPDATE messages SET folder = $1 WHERE id = $2', [strategy.destination, msg.id]);
+        imapManager._guardMoveUid(account.id, msg.folder, msg.uid);
+        try {
+          const deleteResult = await imapManager.bulkMoveMessages(account, [msg.uid], msg.folder, strategy.destination);
+          if (deleteResult.failed?.length) throw new Error(`IMAP delete-move failed for uid ${msg.uid}`);
+          const newDeleteUid = deleteResult.uidMap?.get(Number(msg.uid));
+          if (newDeleteUid) {
+            await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3', [strategy.destination, newDeleteUid, msg.id]);
+          } else {
+            imapManager._guardMoveUid(account.id, strategy.destination, msg.uid);
+            await query('UPDATE messages SET folder = $1 WHERE id = $2', [strategy.destination, msg.id]);
+            setTimeout(() => imapManager._unguardMoveUid(account.id, strategy.destination, msg.uid), 10_000);
+          }
+        } finally {
+          imapManager._unguardMoveUid(account.id, msg.folder, msg.uid);
         }
       } else if (strategy.action === 'expunge') {
         await imapManager.setFlag(account, msg.uid, msg.folder, '\\Deleted', true);

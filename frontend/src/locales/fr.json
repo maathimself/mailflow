@@ -423,6 +423,7 @@
       "fieldHeader": "En-tête",
       "opRegex": "correspond à l'expression régulière",
       "headerNamePlaceholder": "Nom de l'en-tête (ex. X-Spam-Status)",
+      "bodyConditionNote": "La recherche dans le corps ne fonctionne que pour les messages déjà entièrement téléchargés. Les nouveaux messages peuvent ne pas correspondre tant que leur contenu n'a pas été téléchargé.",
       "subTabRules": "Règles",
       "subTabBlockList": "Liste de blocage",
       "actionMoveSelectFolder": "Sélectionner un dossier…",

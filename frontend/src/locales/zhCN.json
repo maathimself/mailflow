@@ -425,6 +425,7 @@
       "fieldHeader": "邮件头",
       "opRegex": "匹配正则表达式",
       "headerNamePlaceholder": "头部名称（如 X-Spam-Status）",
+      "bodyConditionNote": "正文匹配仅适用于已完全获取的邮件。新邮件在内容下载完成之前可能无法匹配。",
       "subTabRules": "规则",
       "subTabBlockList": "黑名单"
     },

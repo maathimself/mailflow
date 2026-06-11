@@ -409,6 +409,7 @@
       "opEndsWith": "ends with",
       "opRegex": "matches regex",
       "headerNamePlaceholder": "Header name (e.g. X-Spam-Status)",
+      "bodyConditionNote": "Body matching only works for messages already fully fetched. New messages may not match until their body has been downloaded.",
       "subTabRules": "Rules",
       "subTabBlockList": "Block List",
       "actionsLabel": "Actions",

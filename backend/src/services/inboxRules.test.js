@@ -33,6 +33,8 @@ const mkRule = (actions, overrides = {}) => ({
 const mockImap = {
   bulkMoveMessages: vi.fn(),
   setFlag: vi.fn(),
+  _guardMoveUid: vi.fn(),
+  _unguardMoveUid: vi.fn(),
 };
 
 beforeEach(() => {

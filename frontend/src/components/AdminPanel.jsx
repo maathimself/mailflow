@@ -4208,6 +4208,11 @@ function RulesTab() {
                   placeholder={t('admin.rules.headerNamePlaceholder')}
                 />
               )}
+              {cond.field === 'body' && (
+                <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--text-tertiary)' }}>
+                  {t('admin.rules.bodyConditionNote')}
+                </p>
+              )}
             </div>
           ))}
           <button
