@@ -226,7 +226,7 @@ describe('applyInboxRules — destination action deduplication', () => {
 });
 
 describe('applyInboxRules — already-relocated message skips subsequent rules', () => {
-  it('does not apply a second matching rule after the first rule moved the message', async () => {
+  it('does not apply a second MOVE rule after the first rule moved the message', async () => {
     const rule1 = mkRule(
       [{ type: 'move', value: 'INBOX/Work' }],
       { id: 'rule-1', stop_processing: false }
@@ -242,10 +242,67 @@ describe('applyInboxRules — already-relocated message skips subsequent rules',
 
     const result = await applyInboxRules([mkMsg()], account, mockImap);
 
-    // message removed from remaining; rule2 never fired
+    // message removed from remaining; second move never fired
     expect(result.remaining).toHaveLength(0);
     expect(mockImap.bulkMoveMessages).toHaveBeenCalledOnce();
     expect(mockImap.bulkMoveMessages).toHaveBeenCalledWith(account, [100], 'INBOX', 'INBOX/Work');
+  });
+
+  it('applies a subsequent mark_read rule even after an earlier rule moved the message', async () => {
+    // Real-world scenario: rule 1 moves to a folder, rule 2 marks as read.
+    // Both share the same condition. mark_read should still apply because it
+    // operates on msg.id (not the stale INBOX uid) and is not a destination action.
+    const rule1 = mkRule(
+      [{ type: 'move', value: 'INBOX/Work' }],
+      { id: 'rule-1', stop_processing: false }
+    );
+    const rule2 = mkRule(
+      [{ type: 'mark_read', value: '' }],
+      { id: 'rule-2', stop_processing: false }
+    );
+    query
+      .mockResolvedValueOnce({ rows: [rule1, rule2] }) // getRulesForAccount
+      .mockResolvedValueOnce({ rows: [] })               // UPDATE folder+uid (rule1 move)
+      .mockResolvedValueOnce({ rows: [] });               // UPDATE is_read (rule2 mark_read)
+    mockImap.bulkMoveMessages.mockResolvedValue({ failed: [], uidMap: new Map([[100, 200]]) });
+    mockImap.setFlag.mockResolvedValue(undefined);
+
+    const result = await applyInboxRules([mkMsg()], account, mockImap);
+
+    expect(result.remaining).toHaveLength(0); // message still moved
+    // mark_read DB update fired: third query call (after rules fetch + move update)
+    expect(query).toHaveBeenCalledTimes(3);
+    // setFlag targeted the NEW uid (200) in the destination folder (INBOX/Work)
+    expect(mockImap.setFlag).toHaveBeenCalledWith(account, 200, 'INBOX/Work', '\\Seen', true);
+  });
+
+  it('does not double-decrement unread count when mark_read fires before move (reversed priority)', async () => {
+    // Rule 1 (priority 0): mark_read. Rule 2 (priority 1): move.
+    // mark_read must set msg.is_read = true in-memory so the subsequent move's
+    // wasUnread check sees the updated state and does not decrement unread again.
+    const rule1 = mkRule(
+      [{ type: 'mark_read', value: '' }],
+      { id: 'rule-1', stop_processing: false }
+    );
+    const rule2 = mkRule(
+      [{ type: 'move', value: 'INBOX/Work' }],
+      { id: 'rule-2', stop_processing: false }
+    );
+    query
+      .mockResolvedValueOnce({ rows: [rule1, rule2] }) // getRulesForAccount
+      .mockResolvedValueOnce({ rows: [] })               // UPDATE is_read (rule1 mark_read)
+      .mockResolvedValueOnce({ rows: [] });               // UPDATE folder+uid (rule2 move)
+    mockImap.setFlag.mockResolvedValue(undefined);
+    mockImap.bulkMoveMessages.mockResolvedValue({ failed: [], uidMap: new Map([[100, 200]]) });
+
+    await applyInboxRules([mkMsg({ is_read: false })], account, mockImap);
+
+    // mark_read should adjust INBOX unread (-1); move should NOT adjust unread again
+    // because wasUnread is false after mark_read updated msg.is_read in-memory.
+    expect(adjustFolderCounts).toHaveBeenCalledWith('acc-1', 'INBOX', 0, -1);  // mark_read
+    expect(adjustFolderCounts).toHaveBeenCalledWith('acc-1', 'INBOX', -1, 0);  // move source (no unread delta)
+    expect(adjustFolderCounts).toHaveBeenCalledWith('acc-1', 'INBOX/Work', 1, 0); // move dest (no unread delta)
+    expect(adjustFolderCounts).toHaveBeenCalledTimes(3);
   });
 });
 
