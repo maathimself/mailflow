@@ -28,6 +28,42 @@ function upgradeUrl(url) {
   return typeof url === 'string' && url.startsWith('http://') ? 'https://' + url.slice(7) : url;
 }
 
+// Normalise an anchor href value to an absolute https/mailto/tel URL, or return
+// null if the href cannot be safely resolved (relative paths, fragments, etc.).
+// Returns null for hrefs that would resolve against the mailflow origin in a
+// same-origin srcdoc iframe — callers should omit the href attribute entirely.
+function normalizeHref(href) {
+  if (!href) return null;
+  const h = href.trim();
+  if (!h) return null;
+  if (/^https:\/\//i.test(h)) return h;
+  if (/^http:\/\//i.test(h)) return 'https://' + h.slice(7);
+  if (/^(mailto:|cid:|tel:|sms:)/i.test(h)) return h;
+  if (h.startsWith('//')) return 'https:' + h;
+  // Fragment, root-relative, path-relative, query-only — unsafe to resolve in iframe
+  if (/^[#/?.]/i.test(h)) return null;
+  // Explicitly block dangerous schemes even if they somehow reach this point
+  if (/^(javascript|data|vbscript):/i.test(h)) return null;
+  // Bare domain (e.g. "benchmade.com", "www.example.com/path") — no scheme, has a dot
+  if (/^[a-z0-9]/i.test(h) && h.includes('.')) return 'https://' + h;
+  return null;
+}
+
+// Rewrite anchor hrefs in already-cached HTML — applied at serve-time for emails
+// stored before href normalisation was added to sanitizeEmail().
+export function rewriteAnchorHrefs(html) {
+  if (!html) return html;
+  return html.replace(
+    /(<a\b[^>]*?\s)href=(["'])([^"']*)\2/gi,
+    (match, pre, q, raw) => {
+      const normalized = normalizeHref(raw);
+      if (normalized === null) return pre; // drop the href attribute
+      if (normalized === raw) return match;
+      return `${pre}href=${q}${normalized}${q}`;
+    }
+  );
+}
+
 // eBay's imageser service (svcs.ebay.com/imageser) wraps real product images
 // behind a session-authenticated rendering layer.  Cross-site iframe requests
 // never carry eBay cookies (SameSite policy), so imageser returns 1 byte instead
@@ -148,12 +184,19 @@ export function sanitizeEmail(html) {
       'th': ['abbr', 'axis', 'headers', 'scope'],
     },
     transformTags: {
-      // Ensure all links open safely — no opener reference so sites with
-      // COOP: same-origin (e.g. Stripe, GitHub) don't show a security warning.
-      'a': (tagName, attribs) => ({
-        tagName,
-        attribs: { ...attribs, rel: 'noopener noreferrer' },
-      }),
+      // Ensure all links open safely.  Also normalise bare-domain hrefs like
+      // "benchmade.com" → "https://benchmade.com" so they work as expected in
+      // the sandboxed iframe, and strip relative/fragment hrefs that would
+      // otherwise resolve to the mailflow origin.
+      'a': (tagName, attribs) => {
+        const out = { ...attribs, rel: 'noopener noreferrer' };
+        if ('href' in out) {
+          const normalized = normalizeHref(out.href);
+          if (normalized === null) delete out.href;
+          else out.href = normalized;
+        }
+        return { tagName, attribs: out };
+      },
       // Upgrade http:// → https:// for image sources and inline style url() refs.
       // Many marketing emails still use plain-http image URLs which are blocked as
       // mixed content on an https host, causing images to silently fail.

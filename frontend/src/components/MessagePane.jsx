@@ -350,6 +350,24 @@ export default function MessagePane() {
       setHeight();
       rafId = requestAnimationFrame(setHeight);
 
+      // Intercept all link clicks so they always open in a real browser tab.
+      // Without this, relative hrefs (e.g. href="/") resolve to the mailflow
+      // origin via allow-same-origin and open a new mailflow tab instead of
+      // the intended destination.  We read the raw attribute to bypass
+      // browser resolution and only forward absolute http(s)/mailto links.
+      doc.addEventListener('click', (ev) => {
+        const anchor = ev.target.closest('a[href]');
+        if (!anchor) return;
+        ev.preventDefault();
+        let raw = anchor.getAttribute('href') || '';
+        if (raw.startsWith('//')) raw = 'https:' + raw;
+        if (/^https?:\/\//i.test(raw)) {
+          window.open(raw, '_blank', 'noopener,noreferrer');
+        } else if (/^mailto:/i.test(raw)) {
+          window.open(raw);
+        }
+      });
+
       // Re-measure after each lazy-loaded image settles
       doc.querySelectorAll('img').forEach(img => {
         if (!img.complete) {

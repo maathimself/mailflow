@@ -5,7 +5,7 @@ const archiver = require('archiver');
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { imapManager } from '../index.js';
-import { sanitizeEmail, stripEmailHead, hasRemoteImages, blockRemoteImages, rewriteEbayImageserUrls } from '../services/emailSanitizer.js';
+import { sanitizeEmail, stripEmailHead, hasRemoteImages, blockRemoteImages, rewriteEbayImageserUrls, rewriteAnchorHrefs } from '../services/emailSanitizer.js';
 import { buildSnippetFromHtml, decodeNamedEntity, INVISIBLE_CHARS_RE } from '../services/messageParser.js';
 import { resolveTrashFolder, resolveAllTrashPaths, resolveArchiveFolder, getDeleteStrategy, adjustFolderCounts } from '../utils/mailUtils.js';
 import { listMessages } from '../services/messageService.js';
@@ -247,6 +247,17 @@ router.get('/messages/:id/body', async (req, res) => {
     // without them; the real image is always in the `imageUrl` query parameter.
     if (html && html.includes('svcs.ebay.com/imageser')) {
       const rewritten = rewriteEbayImageserUrls(html);
+      if (rewritten !== html) {
+        html = rewritten;
+        query('UPDATE messages SET body_html = $1 WHERE id = $2', [sanitizeDbText(html), id]).catch(() => {});
+      }
+    }
+    // Normalise bare-domain hrefs (e.g. href="benchmade.com") cached before href
+    // normalisation was added to sanitizeEmail().  Without this, clicking such links
+    // in the sandboxed iframe resolves them against the mailflow origin and opens a
+    // new mailflow tab instead of the sender's website.
+    if (html && /<a\b[^>]*\shref=["'](?!https?:\/\/|mailto:|cid:|tel:|\/\/|[#/.])/i.test(html)) {
+      const rewritten = rewriteAnchorHrefs(html);
       if (rewritten !== html) {
         html = rewritten;
         query('UPDATE messages SET body_html = $1 WHERE id = $2', [sanitizeDbText(html), id]).catch(() => {});

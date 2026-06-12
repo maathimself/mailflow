@@ -6,6 +6,7 @@ import {
   hasRemoteImages,
   blockRemoteImages,
   rewriteEbayImageserUrls,
+  rewriteAnchorHrefs,
 } from './emailSanitizer.js';
 
 // ── stripEmailHead ─────────────────────────────────────────────────────────
@@ -88,6 +89,95 @@ describe('sanitizeEmail — link handling', () => {
   it('preserves mailto href', () => {
     const out = sanitizeEmail('<a href="mailto:user@example.com">email</a>');
     expect(out).toContain('href="mailto:user@example.com"');
+  });
+
+  it('upgrades bare domain href to https', () => {
+    const out = sanitizeEmail('<a href="benchmade.com">logo</a>');
+    expect(out).toContain('href="https://benchmade.com"');
+  });
+
+  it('upgrades bare domain with path to https', () => {
+    const out = sanitizeEmail('<a href="www.example.com/path?q=1">link</a>');
+    expect(out).toContain('href="https://www.example.com/path?q=1"');
+  });
+
+  it('upgrades protocol-relative href to https', () => {
+    const out = sanitizeEmail('<a href="//example.com/foo">link</a>');
+    expect(out).toContain('href="https://example.com/foo"');
+  });
+
+  it('upgrades http href to https', () => {
+    const out = sanitizeEmail('<a href="http://example.com">link</a>');
+    expect(out).toContain('href="https://example.com"');
+    expect(out).not.toContain('href="http://');
+  });
+
+  it('removes root-relative href', () => {
+    const out = sanitizeEmail('<a href="/">home</a>');
+    expect(out).not.toContain('href="/"');
+  });
+
+  it('removes path-relative href', () => {
+    const out = sanitizeEmail('<a href="./page">link</a>');
+    expect(out).not.toContain('href="./page"');
+  });
+
+  it('removes fragment href', () => {
+    const out = sanitizeEmail('<a href="#section">link</a>');
+    expect(out).not.toContain('href="#section"');
+  });
+
+  it('removes empty href', () => {
+    const out = sanitizeEmail('<a href="">link</a>');
+    expect(out).not.toContain('href=""');
+  });
+});
+
+// ── rewriteAnchorHrefs ─────────────────────────────────────────────────────
+
+describe('rewriteAnchorHrefs', () => {
+  it('upgrades bare domain href to absolute https', () => {
+    const out = rewriteAnchorHrefs('<a href="benchmade.com">logo</a>');
+    expect(out).toContain('href="https://benchmade.com"');
+  });
+
+  it('upgrades bare domain with path', () => {
+    const out = rewriteAnchorHrefs('<a href="www.example.com/foo">x</a>');
+    expect(out).toContain('href="https://www.example.com/foo"');
+  });
+
+  it('upgrades protocol-relative href', () => {
+    const out = rewriteAnchorHrefs('<a href="//example.com">x</a>');
+    expect(out).toContain('href="https://example.com"');
+  });
+
+  it('removes root-relative href', () => {
+    const out = rewriteAnchorHrefs('<a href="/">x</a>');
+    expect(out).not.toContain('href="/"');
+  });
+
+  it('leaves absolute https href unchanged', () => {
+    const html = '<a href="https://example.com">x</a>';
+    expect(rewriteAnchorHrefs(html)).toBe(html);
+  });
+
+  it('leaves mailto href unchanged', () => {
+    const html = '<a href="mailto:a@b.com">x</a>';
+    expect(rewriteAnchorHrefs(html)).toBe(html);
+  });
+
+  it('handles multiple anchors in one pass', () => {
+    const out = rewriteAnchorHrefs(
+      '<a href="benchmade.com">logo</a> <a href="https://safe.com">safe</a> <a href="/">bad</a>'
+    );
+    expect(out).toContain('href="https://benchmade.com"');
+    expect(out).toContain('href="https://safe.com"');
+    expect(out).not.toContain('href="/"');
+  });
+
+  it('returns falsy input unchanged', () => {
+    expect(rewriteAnchorHrefs(null)).toBeNull();
+    expect(rewriteAnchorHrefs('')).toBe('');
   });
 });
 
