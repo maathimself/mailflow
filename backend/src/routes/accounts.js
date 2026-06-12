@@ -11,7 +11,13 @@ const ALLOWED_SMTP_PORTS = new Set([465, 587]);
 
 function validatePort(port, allowed) {
   const n = Number(port);
-  if (!Number.isInteger(n) || !allowed.has(n)) {
+  if (!Number.isInteger(n) || n < 1 || n > 65535) {
+    return `Port ${port} is not a valid port number`;
+  }
+  // When private/local hosts are explicitly allowed (e.g. Proton Mail Bridge on 1143/1025),
+  // skip the whitelist — the operator has already opted into unrestricted host access.
+  if (process.env.ALLOW_PRIVATE_IMAP_HOSTS === 'true') return null;
+  if (!allowed.has(n)) {
     return `Port ${port} is not allowed. Allowed: ${[...allowed].join(', ')}`;
   }
   return null;
