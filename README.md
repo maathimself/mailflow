@@ -507,7 +507,7 @@ nginx  (frontend container — internal only)
 
 ## Upgrading
 
-### v1.5.0 — Mail Server Connection Policy
+### Mail Server Connection Policy
 
 **Breaking change for accounts with "Skip TLS verification" enabled.**
 
