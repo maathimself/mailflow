@@ -679,7 +679,15 @@
       "eventSsoLogin": "SSO 登录",
       "activityTitle": "登录活动",
       "loginProtectionTitle": "登录保护",
-      "qrCodeAlt": "QR码"
+      "qrCodeAlt": "QR码",
+      "mailPolicyTitle": "邮件服务器连接策略",
+      "mailPolicyDesc": "控制用户可以配置的连接类型。面向互联网的部署请禁用这些选项。",
+      "allowPrivateHosts": "允许私有/本地主机",
+      "allowPrivateHostsDesc": "允许连接到私有或本地地址的 IMAP 和 SMTP 服务器（例如 127.0.0.1、192.168.x.x）。protonmail-bridge 及类似本地邮件桥接程序需要此选项。",
+      "allowInsecureTls": "允许不安全的 TLS",
+      "allowInsecureTlsDesc": "允许用户按账户禁用 TLS 证书验证。自签名证书的服务器需要此选项。",
+      "allowNonstandardPorts": "允许非标准端口",
+      "allowNonstandardPortsDesc": "允许任意 IMAP 或 SMTP 端口，而不仅限于 143/993（IMAP）和 465/587（SMTP）。protonmail-bridge 等使用非标准端口的服务器需要此选项。"
     },
     "privacy": {
       "title": "隐私",

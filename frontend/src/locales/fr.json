@@ -679,7 +679,15 @@
       "eventSsoLogin": "Connexion SSO",
       "activityTitle": "Activité de connexion",
       "loginProtectionTitle": "Protection de connexion",
-      "qrCodeAlt": "code QR"
+      "qrCodeAlt": "code QR",
+      "mailPolicyTitle": "Politique de connexion au serveur de messagerie",
+      "mailPolicyDesc": "Contrôle les types de connexion que les utilisateurs peuvent configurer. Désactiver pour les déploiements exposés à Internet.",
+      "allowPrivateHosts": "Autoriser les hôtes privés / locaux",
+      "allowPrivateHostsDesc": "Permet de se connecter à des serveurs IMAP et SMTP sur des adresses privées ou locales (p. ex. 127.0.0.1, 192.168.x.x). Nécessaire pour protonmail-bridge et les passerelles de messagerie locales similaires.",
+      "allowInsecureTls": "Autoriser le TLS non sécurisé",
+      "allowInsecureTlsDesc": "Permet aux utilisateurs de désactiver la vérification du certificat TLS par compte. Nécessaire pour les serveurs avec des certificats auto-signés.",
+      "allowNonstandardPorts": "Autoriser les ports non standard",
+      "allowNonstandardPortsDesc": "Autorise n'importe quel port IMAP ou SMTP, pas seulement 143/993 (IMAP) et 465/587 (SMTP). Nécessaire pour les serveurs comme protonmail-bridge qui utilisent des ports non standard."
     },
     "privacy": {
       "title": "Confidentialité",
