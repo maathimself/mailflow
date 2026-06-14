@@ -505,6 +505,18 @@ nginx  (frontend container — internal only)
 
 ---
 
+## Upgrading
+
+### v1.5.0 — Mail Server Connection Policy
+
+**Breaking change for accounts with "Skip TLS verification" enabled.**
+
+This release introduces an admin-controlled connection policy (Settings → Security → Mail Server Connection Policy). TLS verification is now enforced by default at the server level.
+
+If any accounts were configured with **Skip TLS verification** (e.g. for a self-signed certificate on a local IMAP server), those accounts will stop syncing after upgrading. To restore connectivity, an admin must enable **Allow insecure TLS** in Settings → Security before or immediately after deploying.
+
+---
+
 ## Security notes
 
 - The first registered user becomes the admin automatically
