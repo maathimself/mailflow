@@ -5,6 +5,7 @@ import { query } from '../services/db.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { decrypt, encrypt } from '../services/encryption.js';
 import { validateHost, resolveForConnection } from '../services/hostValidation.js';
+import { getConnectionPolicy, invalidateConnectionPolicyCache } from '../services/connectionPolicy.js';
 import { reloadAuthSettings } from '../services/authLimiter.js';
 
 const router = Router();
@@ -174,6 +175,7 @@ router.patch('/settings', async (req, res) => {
       console.log(`[admin] ${req.session.username} set ${key}=${val}`);
     }
   }
+  invalidateConnectionPolicyCache();
   res.json({ ok: true });
 });
 
@@ -271,8 +273,9 @@ router.post('/invites', async (req, res) => {
         } else {
           smtpAuth = { user: account.auth_user, pass: decrypt(account.auth_pass) };
         }
-        const acctResolved = await resolveForConnection(account.smtp_host, { allowPrivate: !!account.allow_private_host });
-        const acctTls = { rejectUnauthorized: !account.imap_skip_tls_verify };
+        const policy = await getConnectionPolicy();
+        const acctResolved = await resolveForConnection(account.smtp_host, { allowPrivate: policy.allowPrivateHosts });
+        const acctTls = { rejectUnauthorized: policy.allowInsecureTls ? !account.imap_skip_tls_verify : true };
         if (acctResolved.servername) acctTls.servername = acctResolved.servername;
         transport = nodemailer.createTransport({
           host: acctResolved.host,
