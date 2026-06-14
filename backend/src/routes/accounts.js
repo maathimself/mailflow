@@ -35,10 +35,11 @@ router.use(requireAuth);
 // Fields safe to return to the client — matches the GET list, excludes credentials and tokens
 const SAFE_FIELDS = [
   'id', 'name', 'sender_name', 'email_address', 'color', 'protocol',
-  'imap_host', 'imap_port', 'smtp_host', 'smtp_port',
+  'imap_host', 'imap_port', 'imap_skip_tls_verify',
+  'smtp_host', 'smtp_port', 'smtp_tls',
   'auth_user', 'oauth_provider', 'enabled',
   'last_sync', 'sync_error', 'sort_order', 'folder_mappings',
-  'imap_skip_tls_verify', 'signature', 'created_at',
+  'signature', 'created_at',
 ];
 function safeAccount(row) {
   const obj = Object.fromEntries(SAFE_FIELDS.map(k => [k, row[k]]));
@@ -49,9 +50,9 @@ function safeAccount(row) {
 
 router.get('/', async (req, res) => {
   const result = await query(
-    `SELECT id, name, sender_name, email_address, color, protocol, imap_host, imap_port,
-            smtp_host, smtp_port, auth_user, oauth_provider, enabled,
-            last_sync, sync_error, sort_order, folder_mappings, imap_skip_tls_verify, signature, created_at
+    `SELECT id, name, sender_name, email_address, color, protocol, imap_host, imap_port, imap_tls, imap_skip_tls_verify,
+            smtp_host, smtp_port, smtp_tls, auth_user, oauth_provider, enabled,
+            last_sync, sync_error, sort_order, folder_mappings, signature, created_at
      FROM email_accounts WHERE user_id = $1 ORDER BY sort_order, created_at`,
     [req.session.userId]
   );
@@ -84,7 +85,7 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
   const {
     name, sender_name = null, email_address, color = '#6366f1', protocol = 'imap',
-    imap_host, imap_port = 993, imap_tls = true,
+    imap_host, imap_port = 993, imap_skip_tls_verify = false,
     smtp_host, smtp_port = 587, smtp_tls = 'STARTTLS',
     auth_user, auth_pass,
     oauth_provider, oauth_access_token, oauth_refresh_token,
@@ -116,14 +117,14 @@ router.post('/', async (req, res) => {
     const result = await query(`
       INSERT INTO email_accounts (
         user_id, name, sender_name, email_address, color, protocol,
-        imap_host, imap_port, imap_tls, smtp_host, smtp_port, smtp_tls,
+        imap_host, imap_port, imap_tls, imap_skip_tls_verify, smtp_host, smtp_port, smtp_tls,
         auth_user, auth_pass, oauth_provider, oauth_access_token, oauth_refresh_token,
         signature
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
       RETURNING *
     `, [
       req.session.userId, name, sender_name || null, email_address, color, protocol,
-      imap_host, imap_port, imap_tls, smtp_host, smtp_port, smtp_tls,
+      imap_host, imap_port, Number(imap_port) % 1000 === 993, !!imap_skip_tls_verify, smtp_host, smtp_port, smtp_tls,
       auth_user, encrypt(auth_pass), oauth_provider, encrypt(oauth_access_token), encrypt(oauth_refresh_token),
       sanitizeSignature(signature) || null
     ]);
@@ -158,6 +159,16 @@ router.put('/:id', async (req, res) => {
   }
   const policy = await getConnectionPolicy();
 
+  if ('imap_host' in updates && updates.imap_host) {
+    const err = await validateHost(updates.imap_host, { allowPrivate: policy.allowPrivateHosts });
+    if (err) return res.status(400).json({ error: `IMAP: ${err}` });
+  }
+  if ('imap_port' in updates && updates.imap_port !== undefined && updates.imap_port !== null) {
+    if (!policy.allowNonstandardPorts) {
+      const err = validatePort(updates.imap_port, ALLOWED_IMAP_PORTS);
+      if (err) return res.status(400).json({ error: `IMAP: ${err}` });
+    }
+  }
   if ('smtp_host' in updates && updates.smtp_host) {
     const err = await validateHost(updates.smtp_host, { allowPrivate: policy.allowPrivateHosts });
     if (err) return res.status(400).json({ error: `SMTP: ${err}` });
@@ -169,7 +180,8 @@ router.put('/:id', async (req, res) => {
     }
   }
 
-  const allowed = ['name', 'sender_name', 'color', 'enabled', 'auth_user', 'auth_pass', 'sort_order', 'smtp_host', 'smtp_port', 'folder_mappings', 'imap_skip_tls_verify', 'signature'];
+  if ('imap_port' in updates) updates.imap_tls = Number(updates.imap_port) % 1000 === 993;
+  const allowed = ['name', 'sender_name', 'color', 'enabled', 'auth_user', 'auth_pass', 'sort_order', 'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify', 'smtp_host', 'smtp_port', 'smtp_tls', 'folder_mappings', 'signature'];
   const sets = [];
   const values = [];
   let i = 1;
@@ -195,10 +207,13 @@ router.put('/:id', async (req, res) => {
   // Sync live IMAP state after DB update (fire-and-forget, non-fatal)
   const isDisabling = 'enabled' in updates && !updates.enabled;
   const needsReconnect = !isDisabling && (
-    'enabled' in updates ||        // re-enabling
-    'auth_user' in updates ||      // login username changed
-    'auth_pass' in updates ||      // password changed
-    'imap_skip_tls_verify' in updates  // TLS setting changed
+    'enabled' in updates ||
+    'auth_user' in updates ||
+    'auth_pass' in updates ||
+    'imap_host' in updates ||
+    'imap_port' in updates ||
+    'imap_tls' in updates ||
+    'imap_skip_tls_verify' in updates
   );
 
   if (isDisabling) {

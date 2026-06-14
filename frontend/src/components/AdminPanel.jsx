@@ -56,7 +56,7 @@ function AccountForm({ initial, onSave, onCancel }) {
   const isEdit = !!initial?.id;
   const [form, setForm] = useState(initial || {
     name: '', email_address: '', color: '#6366f1', protocol: 'imap',
-    imap_host: '', imap_port: 993, imap_tls: true,
+    imap_host: '', imap_port: 993, imap_skip_tls_verify: false,
     smtp_host: '', smtp_port: 587, smtp_tls: 'STARTTLS',
     auth_user: '', auth_pass: '',
   });
@@ -347,7 +347,7 @@ function AccountsTab() {
   };
 
   const handleEdit = async (form) => {
-    const updates = { name: form.name, sender_name: form.sender_name || null, color: form.color, smtp_host: form.smtp_host, smtp_port: form.smtp_port, signature: form.signature || null };
+    const updates = { name: form.name, sender_name: form.sender_name || null, color: form.color, imap_host: form.imap_host, imap_port: form.imap_port, imap_skip_tls_verify: !!form.imap_skip_tls_verify, smtp_host: form.smtp_host, smtp_port: form.smtp_port, smtp_tls: form.smtp_tls, signature: form.signature || null };
     if (form.auth_pass) updates.auth_pass = form.auth_pass;
     if (form.auth_user) updates.auth_user = form.auth_user;
     await api.updateAccount(editTarget.id, updates);
