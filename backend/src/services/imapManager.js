@@ -1557,6 +1557,7 @@ export class ImapManager {
                       AND message_id = $4
                       AND (folder != $1 OR uid != $2)
                       AND 1 = (SELECT COUNT(*) FROM messages WHERE account_id = $3 AND message_id = $4)
+                      AND COALESCE((SELECT special_use FROM folders WHERE account_id = $3 AND path = $1), '') NOT IN ('\\All', '\\Important')
                     RETURNING id
                   `, [folder, parsed.uid, account.id, bfMsgId]);
                   if (relocated.rows.length > 0) continue;
