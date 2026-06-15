@@ -142,12 +142,16 @@ router.get('/thread/:threadId', async (req, res) => {
     const userAccountIds = accountsResult.rows.map(r => r.id);
     if (!userAccountIds.length) return res.json({ messages: [] });
 
-    // Only restrict expansion to INBOX when viewing the INBOX — ensures the expansion
-    // matches what the list shows. For All Mail and any other folder show all messages
-    // regardless of which folder they were synced under (All Mail backfill is skipped so
-    // not every message has a [Gmail]/All Mail row in the DB).
-    const folderFilter = (folder === 'INBOX') ? `AND m.folder = $3` : '';
-    const params = (folder === 'INBOX') ? [userAccountIds, threadId, folder] : [userAccountIds, threadId];
+    const accountsWithMappings = await query(
+      'SELECT id, folder_mappings FROM email_accounts WHERE id = ANY($1)',
+      [userAccountIds]
+    );
+    const excludedPaths = (await Promise.all(
+      accountsWithMappings.rows.flatMap(a => [
+        resolveTrashFolder(a.id, a.folder_mappings),
+        resolveArchiveFolder(a.id, a.folder_mappings),
+      ])
+    )).filter(Boolean);
 
     const result = await query(`
       WITH deduped AS (
@@ -163,13 +167,13 @@ router.get('/thread/:threadId', async (req, res) => {
         WHERE m.is_deleted = false
           AND m.account_id = ANY($1)
           AND m.thread_key = $2
-          ${folderFilter}
+          AND m.folder != ALL($3::text[])
         ORDER BY m.message_id,
                  CASE WHEN m.folder = 'INBOX' THEN 0 ELSE 1 END,
                  m.date ASC
       )
       SELECT * FROM deduped ORDER BY date ASC
-    `, params);
+    `, [userAccountIds, threadId, excludedPaths]);
 
     res.json({ messages: result.rows });
   } catch (err) {

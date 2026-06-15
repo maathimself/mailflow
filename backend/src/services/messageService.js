@@ -1,4 +1,5 @@
 import { query } from './db.js';
+import { resolveTrashFolder, resolveArchiveFolder } from '../utils/mailUtils.js';
 
 export async function listMessages({ userId, accountId, folder = 'INBOX', limit = 50, offset = 0, unreadOnly, threaded }) {
   const accountsResult = await query(
@@ -62,12 +63,17 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
   if (threaded === 'true' || threaded === true) {
     const filterValues = [...values];
     const threadAccountParam = isSpecificAccount ? [accountId] : userAccountIds;
-    // For INBOX-specific views the thread badge must match the expansion, so scope
-    // thread_totals to that folder. For other folders (All Mail, Sent, etc.) count
-    // across all folders so the badge reflects the true thread size.
-    const threadFolderFilter = isSpecificAccount
-      ? (folder === 'INBOX' ? `AND folder = $2` : '')
-      : `AND folder = 'INBOX'`;
+
+    const accountsWithMappings = await query(
+      'SELECT id, folder_mappings FROM email_accounts WHERE id = ANY($1)',
+      [threadAccountParam]
+    );
+    const excludedPaths = (await Promise.all(
+      accountsWithMappings.rows.flatMap(a => [
+        resolveTrashFolder(a.id, a.folder_mappings),
+        resolveArchiveFolder(a.id, a.folder_mappings),
+      ])
+    )).filter(Boolean);
 
     const threadResult = await query(`
       WITH paged_threads AS (
@@ -106,7 +112,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
         WHERE m.account_id = ANY($${p})
           AND m.is_deleted = false
           AND m.message_id IS NOT NULL
-          ${threadFolderFilter}
+          AND m.folder != ALL($${p + 3}::text[])
           AND m.thread_key IN (SELECT thread_id FROM paged_threads)
         GROUP BY m.thread_key
       ),
@@ -130,7 +136,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
       FROM ranked
       WHERE rn = 1
       ORDER BY date DESC
-    `, [...filterValues, threadAccountParam, safeLimit, safeOffset]);
+    `, [...filterValues, threadAccountParam, safeLimit, safeOffset, excludedPaths]);
 
     const threadCountResult = await query(`
       SELECT COUNT(DISTINCT m.thread_key)::int AS total
