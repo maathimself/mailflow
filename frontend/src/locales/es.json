@@ -62,6 +62,21 @@
     "sendTooltip": "Enviar (Ctrl+Intro)",
     "sending": "Enviando…",
     "discard": "Descartar",
+    "saveDraft": "Guardar borrador",
+    "savingDraft": "Guardando…",
+    "draftSaved": "Borrador guardado",
+    "closeDraft": {
+      "title": "¿Guardar este borrador?",
+      "save": "Guardar borrador",
+      "discard": "Descartar",
+      "keepEditing": "Seguir editando"
+    },
+    "discardDraft": {
+      "title": "¿Descartar borrador?",
+      "discard": "Descartar",
+      "keepEditing": "Seguir editando"
+    },
+    "draftHasAttachments": "Los archivos adjuntos no se guardan con los borradores. Deberás volver a adjuntarlos al reabrir.",
     "emptySubject": {
       "title": "¿Enviar sin asunto?",
       "sendAnyway": "Enviar de todas formas",

@@ -167,6 +167,11 @@ export const api = {
   deleteRule:  (id)       => request('DELETE', `/rules/${id}`),
   reorderRules:(ids)      => request('PATCH',  '/rules/reorder', { ids }),
 
+  // Drafts
+  saveDraft:   (data)              => request('POST',   '/mail/draft', data),
+  deleteDraft: (accountId, uid, folder) =>
+    request('DELETE', `/mail/draft/${uid}?accountId=${encodeURIComponent(accountId)}&folder=${encodeURIComponent(folder)}`),
+
   // Block List
   getBlockList:          ()      => request('GET',    '/block-list'),
   addToBlockList:        (email) => request('POST',   '/block-list', { emailAddress: email }),

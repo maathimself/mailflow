@@ -62,6 +62,21 @@
     "sendTooltip": "发送（Ctrl+Enter）",
     "sending": "发送中…",
     "discard": "丢弃",
+    "saveDraft": "保存草稿",
+    "savingDraft": "保存中…",
+    "draftSaved": "草稿已保存",
+    "closeDraft": {
+      "title": "保存此草稿？",
+      "save": "保存草稿",
+      "discard": "丢弃",
+      "keepEditing": "继续编辑"
+    },
+    "discardDraft": {
+      "title": "丢弃草稿？",
+      "discard": "丢弃",
+      "keepEditing": "继续编辑"
+    },
+    "draftHasAttachments": "附件不会随草稿保存，重新打开时需要重新添加。",
     "emptySubject": {
       "title": "没有主题，确定发送？",
       "sendAnyway": "仍然发送",

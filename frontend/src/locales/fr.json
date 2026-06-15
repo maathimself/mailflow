@@ -62,6 +62,21 @@
     "sendTooltip": "Envoyer (Ctrl+Entrée)",
     "sending": "Envoi…",
     "discard": "Supprimer",
+    "saveDraft": "Enregistrer le brouillon",
+    "savingDraft": "Enregistrement…",
+    "draftSaved": "Brouillon enregistré",
+    "closeDraft": {
+      "title": "Enregistrer ce brouillon ?",
+      "save": "Enregistrer le brouillon",
+      "discard": "Supprimer",
+      "keepEditing": "Continuer à éditer"
+    },
+    "discardDraft": {
+      "title": "Supprimer le brouillon ?",
+      "discard": "Supprimer",
+      "keepEditing": "Continuer à éditer"
+    },
+    "draftHasAttachments": "Les pièces jointes ne sont pas sauvegardées avec les brouillons. Vous devrez les rattacher à la réouverture.",
     "emptySubject": {
       "title": "Envoyer sans objet ?",
       "sendAnyway": "Envoyer quand même",

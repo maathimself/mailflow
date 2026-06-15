@@ -1633,7 +1633,45 @@ export default function MessageList() {
     handleContextAction(hasUnreadInThread ? 'markRead' : 'markUnread', message);
   };
 
+  const isDraftsFolder = (() => {
+    if (!selectedAccountId) return false;
+    const account = accounts.find(a => a.id === selectedAccountId);
+    if (!account) return false;
+    if (account.folder_mappings?.drafts && account.folder_mappings.drafts === selectedFolder) return true;
+    const folderList = folders[selectedAccountId] || [];
+    const folderInfo = folderList.find(f => f.path === selectedFolder);
+    return folderInfo?.special_use === '\\Drafts';
+  })();
+
+  const formatAddressArray = (arr) => {
+    if (!Array.isArray(arr)) return [];
+    return arr.map(a => {
+      if (typeof a === 'string') return a;
+      const addr = a.address || a.email || '';
+      return (a.name && addr) ? `${a.name} <${addr}>` : (addr || a.name || '');
+    }).filter(Boolean);
+  };
+
   const handleSelect = async (message) => {
+    if (isDraftsFolder) {
+      try {
+        const bodyData = await api.getMessageBody(message.id);
+        openCompose({
+          accountId: message.account_id,
+          draftUid: message.uid,
+          draftFolder: message.folder,
+          to: formatAddressArray(message.to_addresses),
+          cc: formatAddressArray(message.cc_addresses),
+          subject: message.subject || '',
+          body: bodyData.html || bodyData.text || '',
+          bodyIsHtml: !!bodyData.html,
+        });
+      } catch (err) {
+        console.error('Failed to open draft:', err.message);
+        setSelectedMessage(message.id);
+      }
+      return;
+    }
     setSelectedMessage(message.id);
     if (!message.is_read) {
       updateMessage(message.id, { is_read: true });

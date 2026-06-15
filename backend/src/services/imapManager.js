@@ -1866,12 +1866,19 @@ export class ImapManager {
     }
   }
 
-  async appendToSent(account, folder, rawMessage) {
+  async appendToFolder(account, folder, rawMessage, flags = ['\\Seen']) {
+    let uid = null;
     await withFreshClient(account, async (client) => {
-      const result = await client.append(folder, rawMessage, ['\\Seen']);
+      const result = await client.append(folder, rawMessage, flags);
       if (result === false) throw new Error('IMAP append returned false — server did not confirm message was stored');
+      if (result && typeof result.uid === 'number') uid = result.uid;
     });
-    console.log(`Appended sent message to IMAP ${logAccount(account)}/${folder}`);
+    console.log(`Appended to IMAP ${logAccount(account)}/${folder} uid=${uid}`);
+    return { uid, folder };
+  }
+
+  async appendToSent(account, folder, rawMessage) {
+    await this.appendToFolder(account, folder, rawMessage, ['\\Seen']);
   }
 
   // Syncs the most recent messages in a specific folder on demand.

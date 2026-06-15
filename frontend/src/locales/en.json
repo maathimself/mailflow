@@ -62,6 +62,21 @@
     "sendTooltip": "Send (Ctrl+Enter)",
     "sending": "Sending…",
     "discard": "Discard",
+    "saveDraft": "Save draft",
+    "savingDraft": "Saving…",
+    "draftSaved": "Draft saved",
+    "closeDraft": {
+      "title": "Save this draft?",
+      "save": "Save draft",
+      "discard": "Discard",
+      "keepEditing": "Keep editing"
+    },
+    "discardDraft": {
+      "title": "Discard draft?",
+      "discard": "Discard",
+      "keepEditing": "Keep editing"
+    },
+    "draftHasAttachments": "Attachments are not saved with drafts. They will need to be re-attached when you reopen this draft.",
     "emptySubject": {
       "title": "Send without a subject?",
       "sendAnyway": "Send anyway",
