@@ -56,7 +56,7 @@ function AccountForm({ initial, onSave, onCancel }) {
   const isEdit = !!initial?.id;
   const [form, setForm] = useState(initial || {
     name: '', email_address: '', color: '#6366f1', protocol: 'imap',
-    imap_host: '', imap_port: 993, imap_tls: true,
+    imap_host: '', imap_port: 993, imap_skip_tls_verify: false,
     smtp_host: '', smtp_port: 587, smtp_tls: 'STARTTLS',
     auth_user: '', auth_pass: '',
   });
@@ -64,6 +64,17 @@ function AccountForm({ initial, onSave, onCancel }) {
   const [error, setError] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [selectedPreset, setSelectedPreset] = useState(null);
+  const [mailPolicy, setMailPolicy] = useState({ allowPrivateHosts: false, allowInsecureTls: false, allowNonstandardPorts: false });
+
+  useEffect(() => {
+    api.admin.getSettings()
+      .then(d => setMailPolicy({
+        allowPrivateHosts:     d.settings.allow_private_hosts === 'true',
+        allowInsecureTls:      d.settings.allow_insecure_tls === 'true',
+        allowNonstandardPorts: d.settings.allow_nonstandard_ports === 'true',
+      }))
+      .catch(() => {});
+  }, []);
 
   const set = (key, val) => setForm(f => ({ ...f, [key]: val }));
 
@@ -195,12 +206,38 @@ function AccountForm({ initial, onSave, onCancel }) {
             onBlur={e => e.target.style.borderColor = 'var(--border)'} />
         </Field>
         <Field label={t('admin.accounts.imapPort')}>
-          <input type="number" value={form.imap_port || 993} onChange={e => set('imap_port', parseInt(e.target.value))}
+          <input
+            type={mailPolicy.allowNonstandardPorts ? 'text' : 'number'}
+            value={form.imap_port || 993}
+            onChange={e => set('imap_port', mailPolicy.allowNonstandardPorts ? e.target.value : parseInt(e.target.value))}
             style={inputStyle}
             onFocus={e => e.target.style.borderColor = 'var(--accent)'}
             onBlur={e => e.target.style.borderColor = 'var(--border)'} />
         </Field>
       </div>
+
+      {mailPolicy.allowInsecureTls && (
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginTop: 10 }}>
+          <button
+            type="button"
+            onClick={() => set('imap_skip_tls_verify', !form.imap_skip_tls_verify)}
+            style={{
+              width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer', padding: 0,
+              background: form.imap_skip_tls_verify ? 'var(--amber)' : 'var(--bg-elevated)',
+              position: 'relative', transition: 'background 0.2s', flexShrink: 0, marginTop: 1,
+            }}
+          >
+            <span style={{
+              position: 'absolute', top: 2, left: form.imap_skip_tls_verify ? 18 : 2, width: 16, height: 16,
+              borderRadius: '50%', background: 'white', transition: 'left 0.2s',
+            }} />
+          </button>
+          <div>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{t('admin.accounts.skipTlsVerify')}</div>
+            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>{t('admin.accounts.skipTlsVerifyDesc')}</div>
+          </div>
+        </div>
+      )}
 
       {isMicrosoftImapHost(form.imap_host) && (
         <div style={{
@@ -233,7 +270,10 @@ function AccountForm({ initial, onSave, onCancel }) {
             onBlur={e => e.target.style.borderColor = 'var(--border)'} />
         </Field>
         <Field label={t('admin.accounts.smtpPort')}>
-          <input type="number" value={form.smtp_port || 587} onChange={e => set('smtp_port', parseInt(e.target.value))}
+          <input
+            type={mailPolicy.allowNonstandardPorts ? 'text' : 'number'}
+            value={form.smtp_port || 587}
+            onChange={e => set('smtp_port', mailPolicy.allowNonstandardPorts ? e.target.value : parseInt(e.target.value))}
             style={inputStyle}
             onFocus={e => e.target.style.borderColor = 'var(--accent)'}
             onBlur={e => e.target.style.borderColor = 'var(--border)'} />
@@ -307,7 +347,7 @@ function AccountsTab() {
   };
 
   const handleEdit = async (form) => {
-    const updates = { name: form.name, sender_name: form.sender_name || null, color: form.color, smtp_host: form.smtp_host, smtp_port: form.smtp_port, signature: form.signature || null };
+    const updates = { name: form.name, sender_name: form.sender_name || null, color: form.color, imap_host: form.imap_host, imap_port: form.imap_port, imap_skip_tls_verify: !!form.imap_skip_tls_verify, smtp_host: form.smtp_host, smtp_port: form.smtp_port, smtp_tls: form.smtp_tls, signature: form.signature || null };
     if (form.auth_pass) updates.auth_pass = form.auth_pass;
     if (form.auth_user) updates.auth_user = form.auth_user;
     await api.updateAccount(editTarget.id, updates);
@@ -4973,6 +5013,11 @@ function SecurityTab() {
   const [protectionSaved, setProtectionSaved] = useState(false);
   const [protectionError, setProtectionError] = useState('');
 
+  // Admin-only: self-hosted mail server policy
+  const [allowPrivateHosts, setAllowPrivateHosts] = useState(false);
+  const [allowInsecureTls, setAllowInsecureTls] = useState(false);
+  const [allowNonstandardPorts, setAllowNonstandardPorts] = useState(false);
+
   // Admin-only: auth activity log
   const [authEvents, setAuthEvents] = useState([]);
   const [eventsLoading, setEventsLoading] = useState(false);
@@ -4983,6 +5028,9 @@ function SecurityTab() {
       .then(d => {
         if (d.settings.auth_max_attempts) setMaxAttempts(parseInt(d.settings.auth_max_attempts));
         if (d.settings.auth_window_minutes) setWindowMins(parseInt(d.settings.auth_window_minutes));
+        setAllowPrivateHosts(d.settings.allow_private_hosts === 'true');
+        setAllowInsecureTls(d.settings.allow_insecure_tls === 'true');
+        setAllowNonstandardPorts(d.settings.allow_nonstandard_ports === 'true');
       })
       .catch(console.error);
     loadAuthEvents();
@@ -5018,6 +5066,10 @@ function SecurityTab() {
     } finally {
       setProtectionSaving(false);
     }
+  };
+
+  const toggleMailPolicy = async (key, newVal) => {
+    await api.admin.updateSettings({ [key]: newVal }).catch(console.error);
   };
 
   const eventLabel = (type) => {
@@ -5158,6 +5210,47 @@ function SecurityTab() {
                 ? t('admin.security.protectionSaved')
                 : t('admin.security.saveProtection')}
           </button>
+        </div>
+      )}
+
+      {/* Mail server connection policy — admin only */}
+      {user?.isAdmin && (
+        <div style={{
+          background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+          borderRadius: 12, padding: '20px 24px', marginBottom: 20,
+        }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+            {t('admin.security.mailPolicyTitle')}
+          </div>
+          <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>
+            {t('admin.security.mailPolicyDesc')}
+          </div>
+          {[
+            { key: 'allow_private_hosts',     val: allowPrivateHosts,     set: setAllowPrivateHosts,     label: t('admin.security.allowPrivateHosts'),     desc: t('admin.security.allowPrivateHostsDesc') },
+            { key: 'allow_insecure_tls',      val: allowInsecureTls,      set: setAllowInsecureTls,      label: t('admin.security.allowInsecureTls'),      desc: t('admin.security.allowInsecureTlsDesc') },
+            { key: 'allow_nonstandard_ports', val: allowNonstandardPorts, set: setAllowNonstandardPorts, label: t('admin.security.allowNonstandardPorts'), desc: t('admin.security.allowNonstandardPortsDesc') },
+          ].map(({ key, val, set, label, desc }) => (
+            <div key={key} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 14 }}>
+              <button
+                type="button"
+                onClick={() => { const newVal = !val; set(newVal); toggleMailPolicy(key, newVal); }}
+                style={{
+                  width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer', padding: 0,
+                  background: val ? 'var(--amber)' : 'var(--bg-elevated)',
+                  position: 'relative', transition: 'background 0.2s', flexShrink: 0, marginTop: 1,
+                }}
+              >
+                <span style={{
+                  position: 'absolute', top: 2, left: val ? 18 : 2, width: 16, height: 16,
+                  borderRadius: '50%', background: 'white', transition: 'left 0.2s',
+                }} />
+              </button>
+              <div>
+                <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{label}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>{desc}</div>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 

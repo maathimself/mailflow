@@ -463,6 +463,8 @@
       "imapHost": "Host IMAP",
       "imapHostPh": "imap.gmail.com",
       "imapPort": "Porta",
+      "skipTlsVerify": "Ignora la verifica del certificato TLS",
+      "skipTlsVerifyDesc": "Accetta certificati autofirmati. Usare solo per server sulla rete locale.",
       "smtpSection": "Impostazioni SMTP",
       "smtpHost": "Host SMTP",
       "smtpHostPh": "smtp.gmail.com",
@@ -677,7 +679,15 @@
       "eventSsoLogin": "Accesso SSO",
       "activityTitle": "Attività di accesso",
       "loginProtectionTitle": "Protezione accesso",
-      "qrCodeAlt": "codice QR"
+      "qrCodeAlt": "codice QR",
+      "mailPolicyTitle": "Politica di connessione al server di posta",
+      "mailPolicyDesc": "Controlla quali tipi di connessione gli utenti possono configurare. Disabilitare per le distribuzioni accessibili da Internet.",
+      "allowPrivateHosts": "Consenti host privati / locali",
+      "allowPrivateHostsDesc": "Consente di connettersi a server IMAP e SMTP a indirizzi privati o locali (es. 127.0.0.1, 192.168.x.x). Necessario per protonmail-bridge e bridge di posta locali simili.",
+      "allowInsecureTls": "Consenti TLS non sicuro",
+      "allowInsecureTlsDesc": "Consente agli utenti di disabilitare la verifica del certificato TLS per account. Necessario per server con certificati autofirmati.",
+      "allowNonstandardPorts": "Consenti porte non standard",
+      "allowNonstandardPortsDesc": "Consente qualsiasi porta IMAP o SMTP, non solo 143/993 (IMAP) e 465/587 (SMTP). Necessario per server come protonmail-bridge che utilizzano porte non standard."
     },
     "privacy": {
       "title": "Privacy",
