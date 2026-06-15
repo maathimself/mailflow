@@ -182,7 +182,17 @@ export default function ComposeModal() {
   const [minimized, setMinimized] = useState(false);
   const [maximized, setMaximized] = useState(false);
   const [pos, setPos] = useState(null);
-  const [customSize, setCustomSize] = useState(null);
+  const [customSize, setCustomSize] = useState(() => {
+    try {
+      const saved = localStorage.getItem('mailflow_compose_size');
+      if (!saved) return null;
+      const { width, height } = JSON.parse(saved);
+      return {
+        width:  Math.min(Math.max(360, width),  window.innerWidth  - 16),
+        height: Math.min(Math.max(200, height), window.innerHeight - 40),
+      };
+    } catch { return null; }
+  });
   const [showReplyType, setShowReplyType] = useState(false);
   const [htmlMode, setHtmlMode] = useState(false);
   const [htmlSource, setHtmlSource] = useState('');
@@ -359,6 +369,7 @@ export default function ComposeModal() {
     const startX = rect.left;
     const startY = rect.top;
     const w = rect.width;
+    const h = rect.height;
     // Immediately switch from bottom/right to top/left in the DOM — no re-render
     // needed, so there is no frame where the window jumps to a stale position.
     el.style.bottom = '';
@@ -375,7 +386,7 @@ export default function ComposeModal() {
     // pointermove event, which was the source of lag and jerkiness.
     const onMove = (ev) => {
       curX = Math.max(0, Math.min(window.innerWidth - w, startX + ev.clientX - startMouseX));
-      curY = Math.max(0, Math.min(window.innerHeight - 40, startY + ev.clientY - startMouseY));
+      curY = Math.max(0, Math.min(Math.max(0, window.innerHeight - h), startY + ev.clientY - startMouseY));
       el.style.left = curX + 'px';
       el.style.top = curY + 'px';
     };
@@ -442,7 +453,10 @@ export default function ComposeModal() {
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
       dragCleanupRef.current = null;
-      if (commit) setCustomSize({ width: curW, height: curH });
+      if (commit) {
+        setCustomSize({ width: curW, height: curH });
+        try { localStorage.setItem('mailflow_compose_size', JSON.stringify({ width: curW, height: curH })); } catch {}
+      }
     };
     const cleanupNoCommit = () => cleanup({ commit: false });
     dragCleanupRef.current = cleanup;
@@ -1282,12 +1296,12 @@ export default function ComposeModal() {
         zIndex: 1000, display: 'flex', flexDirection: 'column',
       } : {
         position: 'fixed', bottom: 0, right: 24,
-        width: 540, maxWidth: 'calc(100vw - 48px)',
+        width: customSize?.width || 540, maxWidth: 'calc(100vw - 48px)',
+        ...(customSize?.height ? { height: customSize.height } : { maxHeight: '75vh' }),
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
         borderRadius: 10,
         boxShadow: 'var(--shadow-modal)',
         zIndex: 1000, display: 'flex', flexDirection: 'column',
-        maxHeight: '75vh',
         animation: 'compose-enter var(--motion-normal) var(--ease-emphasized) backwards',
       }}
     >
