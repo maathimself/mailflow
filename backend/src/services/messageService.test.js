@@ -1,13 +1,39 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('./db.js', () => ({ query: vi.fn() }));
+vi.mock('../utils/mailUtils.js', () => ({
+  resolveTrashFolder: vi.fn(),
+  resolveArchiveFolder: vi.fn(),
+}));
 
 const { query } = await import('./db.js');
+const { resolveTrashFolder, resolveArchiveFolder } = await import('../utils/mailUtils.js');
 import { listMessages } from './messageService.js';
 
 beforeEach(() => {
   query.mockClear();
+  resolveTrashFolder.mockClear();
+  resolveArchiveFolder.mockClear();
+  resolveTrashFolder.mockResolvedValue(null);
+  resolveArchiveFolder.mockResolvedValue(null);
 });
+
+// Threaded mode query call order:
+//   0: accounts
+//   1: folder cache
+//   2: accountsWithMappings
+//   3+: resolveTrashFolder / resolveArchiveFolder (via Promise.all, not query calls)
+//   next: thread CTE
+//   last: thread count
+
+function mockThreadedQueries({ accounts = [{ id: 'acc-1' }], folderCache = { total_count: 10, unread_count: 0 }, threadRows = [], threadTotal = 0 } = {}) {
+  query
+    .mockResolvedValueOnce({ rows: accounts })
+    .mockResolvedValueOnce({ rows: [folderCache] })
+    .mockResolvedValueOnce({ rows: accounts.map(a => ({ id: a.id, folder_mappings: {} })) })
+    .mockResolvedValueOnce({ rows: threadRows })
+    .mockResolvedValueOnce({ rows: [{ total: threadTotal }] });
+}
 
 describe('listMessages — account scope', () => {
   it('returns empty result immediately when user has no enabled accounts', async () => {
@@ -27,11 +53,9 @@ describe('listMessages — account scope', () => {
 
     const result = await listMessages({ userId: 'user-1', accountId: 'acc-other' });
 
-    // Unified inbox returns the cached total from the folder sum query
     expect(result.total).toBe(5);
     expect(result.resolvedAccountId).toBeNull();
 
-    // The folder count query should have used total_count (not unread_count)
     const countSql = query.mock.calls[1][0];
     expect(countSql).toContain('total_count');
     expect(countSql).not.toContain('unread_count');
@@ -93,14 +117,9 @@ describe('listMessages — total count selection', () => {
   });
 });
 
-// Threaded mode: 4 query calls — accounts, folder cache, thread CTE, thread count
 describe('listMessages — threaded mode', () => {
   it('returns thread count as total, ignoring the cached folder count', async () => {
-    query
-      .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })                       // accounts
-      .mockResolvedValueOnce({ rows: [{ total_count: 99, unread_count: 2 }] })  // folder cache (not used)
-      .mockResolvedValueOnce({ rows: [{ id: 'msg-1' }] })                       // thread CTE
-      .mockResolvedValueOnce({ rows: [{ total: 5 }] });                          // thread count
+    mockThreadedQueries({ threadRows: [{ id: 'msg-1' }], threadTotal: 5 });
 
     const result = await listMessages({ userId: 'user-1', accountId: 'acc-1', threaded: 'true' });
 
@@ -109,44 +128,74 @@ describe('listMessages — threaded mode', () => {
     expect(result.messages).toHaveLength(1);
   });
 
-  it('scopes thread_totals to INBOX when viewing a specific account INBOX', async () => {
-    query
-      .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
-      .mockResolvedValueOnce({ rows: [{ total_count: 10, unread_count: 0 }] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ total: 0 }] });
+  it('excludes trash and archive paths from thread_totals', async () => {
+    resolveTrashFolder.mockResolvedValue('[Gmail]/Bin');
+    resolveArchiveFolder.mockResolvedValue(null);
+    mockThreadedQueries();
 
     await listMessages({ userId: 'user-1', accountId: 'acc-1', folder: 'INBOX', threaded: 'true' });
 
-    const cteSql = query.mock.calls[2][0];
-    expect(cteSql).toContain('AND folder = $2');
+    const cteSql = query.mock.calls[3][0];
+    expect(cteSql).toContain('folder != ALL(');
+    // excluded paths are passed as the last param
+    const cteParams = query.mock.calls[3][1];
+    expect(cteParams.at(-1)).toContain('[Gmail]/Bin');
   });
 
-  it('counts thread messages across all folders when viewing a non-INBOX folder', async () => {
-    query
-      .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
-      .mockResolvedValueOnce({ rows: [{ total_count: 10, unread_count: 0 }] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ total: 0 }] });
+  it('passes empty excluded paths when no trash or archive folder exists', async () => {
+    resolveTrashFolder.mockResolvedValue(null);
+    resolveArchiveFolder.mockResolvedValue(null);
+    mockThreadedQueries();
+
+    await listMessages({ userId: 'user-1', accountId: 'acc-1', folder: 'INBOX', threaded: 'true' });
+
+    const cteParams = query.mock.calls[3][1];
+    expect(cteParams.at(-1)).toEqual([]);
+  });
+
+  it('excludes both trash and archive when both exist', async () => {
+    resolveTrashFolder.mockResolvedValue('Trash');
+    resolveArchiveFolder.mockResolvedValue('Archive');
+    mockThreadedQueries();
+
+    await listMessages({ userId: 'user-1', accountId: 'acc-1', folder: 'INBOX', threaded: 'true' });
+
+    const cteParams = query.mock.calls[3][1];
+    expect(cteParams.at(-1)).toEqual(expect.arrayContaining(['Trash', 'Archive']));
+  });
+
+  it('counts thread messages across all non-excluded folders', async () => {
+    mockThreadedQueries();
 
     await listMessages({ userId: 'user-1', accountId: 'acc-1', folder: 'Sent', threaded: 'true' });
 
-    // thread_totals must not be scoped to a specific folder so the badge reflects true thread size
-    const cteSql = query.mock.calls[2][0];
-    expect(cteSql).not.toContain('AND folder = $2');
+    const cteSql = query.mock.calls[3][0];
+    expect(cteSql).toContain('folder != ALL(');
     expect(cteSql).not.toContain("AND folder = 'INBOX'");
   });
 
-  it('scopes thread_totals to INBOX for unified inbox threaded view', async () => {
+  it('does not scope thread_totals to INBOX when viewing a specific account INBOX', async () => {
+    mockThreadedQueries();
+
+    await listMessages({ userId: 'user-1', accountId: 'acc-1', folder: 'INBOX', threaded: 'true' });
+
+    const cteSql = query.mock.calls[3][0];
+    expect(cteSql).not.toContain('AND folder = $2');
+    expect(cteSql).toContain('folder != ALL(');
+  });
+
+  it('does not scope thread_totals to INBOX for unified inbox', async () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }, { id: 'acc-2' }] })
       .mockResolvedValueOnce({ rows: [{ n: 20 }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: {} }, { id: 'acc-2', folder_mappings: {} }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ total: 0 }] });
 
     await listMessages({ userId: 'user-1', threaded: 'true' });
 
-    const cteSql = query.mock.calls[2][0];
-    expect(cteSql).toContain("AND folder = 'INBOX'");
+    const cteSql = query.mock.calls[3][0];
+    expect(cteSql).not.toContain("AND folder = 'INBOX'");
+    expect(cteSql).toContain('folder != ALL(');
   });
 });
