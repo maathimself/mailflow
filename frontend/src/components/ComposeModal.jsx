@@ -109,6 +109,8 @@ export default function ComposeModal() {
   const [quotedBody, setQuotedBody] = useState(() => composeData?.quotedBody || '');
   const [quotedBodyHtml] = useState(() => composeData?.quotedBodyHtml || null);
   const [showDiscardSheet, setShowDiscardSheet] = useState(false);
+  const [showEmptySubjectWarn, setShowEmptySubjectWarn] = useState(false);
+  const [showForgottenAttachWarn, setShowForgottenAttachWarn] = useState(false);
   const [attachments, setAttachments] = useState([]);
   const [fwdAttachments, setFwdAttachments] = useState(() => composeData?.forwardedAttachments || []);
 
@@ -511,10 +513,30 @@ export default function ComposeModal() {
     }
   };
 
-  const handleSend = async () => {
+  const handleSend = async ({ skipSubjectWarn = false, skipAttachWarn = false } = {}) => {
     const { accountId, aliasId } = resolveFrom(fromValue);
     const toFinal = [...toChips, ...(toInput.trim() ? [toInput.trim()] : [])];
     if (!toFinal.length || !accountId) return;
+
+    if (!skipSubjectWarn && subject.trim() === '') {
+      setShowEmptySubjectWarn(true);
+      return;
+    }
+
+    if (!skipAttachWarn) {
+      const composedText = plaintextEmail
+        ? body
+        : (htmlMode ? htmlSource.replace(/<[^>]+>/g, ' ') : (editor?.getText() ?? ''));
+      const keywords = t('compose.attachmentKeywords').split('|');
+      const lower = composedText.toLowerCase();
+      const hasAttachmentWord = keywords.some(kw => lower.includes(kw.toLowerCase()));
+      const hasNoAttachment = attachments.length === 0 && fwdAttachments.length === 0;
+      if (hasAttachmentWord && hasNoAttachment) {
+        setShowForgottenAttachWarn(true);
+        return;
+      }
+    }
+
     localStorage.setItem('mailflow_last_from_account', accountId);
     setSending(true);
     setError('');
@@ -1025,6 +1047,77 @@ export default function ComposeModal() {
           </div>
         </>
       )}
+
+      {/* Empty subject warning sheet */}
+      {showEmptySubjectWarn && (
+        <>
+          <div
+            onClick={() => setShowEmptySubjectWarn(false)}
+            style={{ position: 'fixed', inset: 0, zIndex: 2100, background: 'rgba(0,0,0,0.4)' }}
+          />
+          <div style={{
+            position: 'fixed', left: 0, right: 0, bottom: 0,
+            zIndex: 2101, background: 'var(--bg-elevated)',
+            borderRadius: '16px 16px 0 0',
+            paddingBottom: 'calc(var(--sab) + 8px)',
+            boxShadow: 'var(--shadow-modal)',
+            animation: 'sheet-enter 0.22s var(--ease-emphasized) both',
+          }}>
+            <div style={{ padding: '16px 20px 8px', fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}>
+              {t('compose.emptySubject.title')}
+            </div>
+            <button
+              onClick={() => { setShowEmptySubjectWarn(false); handleSend({ skipSubjectWarn: true }); }}
+              style={{ width: '100%', padding: '16px 20px', textAlign: 'left', background: 'none', border: 'none', color: 'var(--accent)', fontSize: 16, fontWeight: 500, cursor: 'pointer', borderBottom: '1px solid var(--border-subtle)', WebkitTapHighlightColor: 'transparent' }}
+            >
+              {t('compose.emptySubject.sendAnyway')}
+            </button>
+            <button
+              onClick={() => setShowEmptySubjectWarn(false)}
+              style={{ width: '100%', padding: '16px 20px', textAlign: 'left', background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 16, fontWeight: 500, cursor: 'pointer', WebkitTapHighlightColor: 'transparent' }}
+            >
+              {t('compose.emptySubject.cancel')}
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* Forgotten attachment warning sheet */}
+      {showForgottenAttachWarn && (
+        <>
+          <div
+            onClick={() => setShowForgottenAttachWarn(false)}
+            style={{ position: 'fixed', inset: 0, zIndex: 2100, background: 'rgba(0,0,0,0.4)' }}
+          />
+          <div style={{
+            position: 'fixed', left: 0, right: 0, bottom: 0,
+            zIndex: 2101, background: 'var(--bg-elevated)',
+            borderRadius: '16px 16px 0 0',
+            paddingBottom: 'calc(var(--sab) + 8px)',
+            boxShadow: 'var(--shadow-modal)',
+            animation: 'sheet-enter 0.22s var(--ease-emphasized) both',
+          }}>
+            <div style={{ padding: '16px 20px 4px', fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}>
+              {t('compose.forgottenAttachment.title')}
+            </div>
+            <div style={{ padding: '10px 20px 12px', fontSize: 13, color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-subtle)' }}>
+              {t('compose.forgottenAttachment.body')}
+            </div>
+            <button
+              onClick={() => { setShowForgottenAttachWarn(false); handleSend({ skipSubjectWarn: true, skipAttachWarn: true }); }}
+              style={{ width: '100%', padding: '16px 20px', textAlign: 'left', background: 'none', border: 'none', color: 'var(--accent)', fontSize: 16, fontWeight: 500, cursor: 'pointer', borderBottom: '1px solid var(--border-subtle)', WebkitTapHighlightColor: 'transparent' }}
+            >
+              {t('compose.forgottenAttachment.sendAnyway')}
+            </button>
+            <button
+              onClick={() => setShowForgottenAttachWarn(false)}
+              style={{ width: '100%', padding: '16px 20px', textAlign: 'left', background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 16, fontWeight: 500, cursor: 'pointer', WebkitTapHighlightColor: 'transparent' }}
+            >
+              {t('compose.forgottenAttachment.cancel')}
+            </button>
+          </div>
+        </>
+      )}
       </>
     );
   }
@@ -1475,6 +1568,77 @@ export default function ComposeModal() {
         </div>
       )}
     </div>
+
+    {/* Empty subject warning dialog */}
+    {showEmptySubjectWarn && (
+      <>
+        <div
+          onClick={() => setShowEmptySubjectWarn(false)}
+          style={{ position: 'fixed', inset: 0, zIndex: 2100, background: 'rgba(0,0,0,0.4)' }}
+        />
+        <div style={{
+          position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
+          zIndex: 2101, background: 'var(--bg-elevated)',
+          borderRadius: 12, boxShadow: 'var(--shadow-modal)',
+          minWidth: 280, maxWidth: 360, padding: '20px 24px 16px',
+        }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 16 }}>
+            {t('compose.emptySubject.title')}
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button
+              onClick={() => setShowEmptySubjectWarn(false)}
+              style={{ padding: '7px 14px', background: 'none', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer' }}
+            >
+              {t('compose.emptySubject.cancel')}
+            </button>
+            <button
+              onClick={() => { setShowEmptySubjectWarn(false); handleSend({ skipSubjectWarn: true }); }}
+              style={{ padding: '7px 14px', background: 'var(--accent)', border: 'none', borderRadius: 6, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+            >
+              {t('compose.emptySubject.sendAnyway')}
+            </button>
+          </div>
+        </div>
+      </>
+    )}
+
+    {/* Forgotten attachment warning dialog */}
+    {showForgottenAttachWarn && (
+      <>
+        <div
+          onClick={() => setShowForgottenAttachWarn(false)}
+          style={{ position: 'fixed', inset: 0, zIndex: 2100, background: 'rgba(0,0,0,0.4)' }}
+        />
+        <div style={{
+          position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
+          zIndex: 2101, background: 'var(--bg-elevated)',
+          borderRadius: 12, boxShadow: 'var(--shadow-modal)',
+          minWidth: 280, maxWidth: 360, padding: '20px 24px 16px',
+        }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>
+            {t('compose.forgottenAttachment.title')}
+          </div>
+          <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>
+            {t('compose.forgottenAttachment.body')}
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button
+              onClick={() => setShowForgottenAttachWarn(false)}
+              style={{ padding: '7px 14px', background: 'none', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer' }}
+            >
+              {t('compose.forgottenAttachment.cancel')}
+            </button>
+            <button
+              onClick={() => { setShowForgottenAttachWarn(false); handleSend({ skipSubjectWarn: true, skipAttachWarn: true }); }}
+              style={{ padding: '7px 14px', background: 'var(--accent)', border: 'none', borderRadius: 6, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+            >
+              {t('compose.forgottenAttachment.sendAnyway')}
+            </button>
+          </div>
+        </div>
+      </>
+    )}
     </>
   );
 }

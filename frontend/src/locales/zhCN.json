@@ -62,6 +62,18 @@
     "sendTooltip": "发送（Ctrl+Enter）",
     "sending": "发送中…",
     "discard": "丢弃",
+    "emptySubject": {
+      "title": "没有主题，确定发送？",
+      "sendAnyway": "仍然发送",
+      "cancel": "取消"
+    },
+    "forgottenAttachment": {
+      "title": "是否忘记添加附件？",
+      "body": "您的邮件提到了附件，但未附加任何文件。",
+      "sendAnyway": "仍然发送",
+      "cancel": "取消"
+    },
+    "attachmentKeywords": "附件|已附上|请见附件|详见附件|见附件|如附件所示",
     "sent": {
       "title": "邮件已发送",
       "action": "查看"

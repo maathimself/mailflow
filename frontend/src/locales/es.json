@@ -62,6 +62,18 @@
     "sendTooltip": "Enviar (Ctrl+Intro)",
     "sending": "Enviando…",
     "discard": "Descartar",
+    "emptySubject": {
+      "title": "¿Enviar sin asunto?",
+      "sendAnyway": "Enviar de todas formas",
+      "cancel": "Cancelar"
+    },
+    "forgottenAttachment": {
+      "title": "¿Olvidaste un archivo adjunto?",
+      "body": "Tu mensaje menciona un adjunto pero no hay nada adjunto.",
+      "sendAnyway": "Enviar de todas formas",
+      "cancel": "Cancelar"
+    },
+    "attachmentKeywords": "adjunto|adjunta|adjuntos|adjuntas|se adjunta|ver adjunto|archivo adjunto|encontrará adjunto",
     "sent": {
       "title": "Mensaje enviado",
       "action": "Ver"

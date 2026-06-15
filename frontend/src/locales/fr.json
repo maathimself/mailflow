@@ -62,6 +62,18 @@
     "sendTooltip": "Envoyer (Ctrl+Entrée)",
     "sending": "Envoi…",
     "discard": "Supprimer",
+    "emptySubject": {
+      "title": "Envoyer sans objet ?",
+      "sendAnyway": "Envoyer quand même",
+      "cancel": "Annuler"
+    },
+    "forgottenAttachment": {
+      "title": "Pièce jointe oubliée ?",
+      "body": "Votre message mentionne une pièce jointe, mais rien n'est joint.",
+      "sendAnyway": "Envoyer quand même",
+      "cancel": "Annuler"
+    },
+    "attachmentKeywords": "ci-joint|ci-jointe|ci-joints|pièce jointe|pièces jointes|en pièce jointe|voir pièce jointe|veuillez trouver ci-joint",
     "sent": {
       "title": "Message envoyé",
       "action": "Voir"

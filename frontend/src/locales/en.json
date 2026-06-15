@@ -62,6 +62,18 @@
     "sendTooltip": "Send (Ctrl+Enter)",
     "sending": "Sending…",
     "discard": "Discard",
+    "emptySubject": {
+      "title": "Send without a subject?",
+      "sendAnyway": "Send anyway",
+      "cancel": "Cancel"
+    },
+    "forgottenAttachment": {
+      "title": "Forgot an attachment?",
+      "body": "Your message mentions an attachment but nothing is attached.",
+      "sendAnyway": "Send anyway",
+      "cancel": "Cancel"
+    },
+    "attachmentKeywords": "attach|attached|attachment|attachments|see attached|find attached|enclosed|please find",
     "sent": {
       "title": "Message sent",
       "action": "View"

@@ -62,6 +62,18 @@
     "sendTooltip": "Invia (Ctrl+Invio)",
     "sending": "Invio…",
     "discard": "Scarta",
+    "emptySubject": {
+      "title": "Inviare senza oggetto?",
+      "sendAnyway": "Invia comunque",
+      "cancel": "Annulla"
+    },
+    "forgottenAttachment": {
+      "title": "Hai dimenticato un allegato?",
+      "body": "Il tuo messaggio menziona un allegato ma non è stato allegato nulla.",
+      "sendAnyway": "Invia comunque",
+      "cancel": "Annulla"
+    },
+    "attachmentKeywords": "allegato|allegata|allegati|in allegato|si allega|vedi allegato|trova in allegato|come da allegato",
     "sent": {
       "title": "Messaggio inviato",
       "action": "Visualizza"

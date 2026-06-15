@@ -62,6 +62,18 @@
     "sendTooltip": "Senden (Ctrl+Eingabe)",
     "sending": "Wird gesendet…",
     "discard": "Verwerfen",
+    "emptySubject": {
+      "title": "Ohne Betreff senden?",
+      "sendAnyway": "Trotzdem senden",
+      "cancel": "Abbrechen"
+    },
+    "forgottenAttachment": {
+      "title": "Anhang vergessen?",
+      "body": "Ihre Nachricht erwähnt einen Anhang, aber es ist nichts angehängt.",
+      "sendAnyway": "Trotzdem senden",
+      "cancel": "Abbrechen"
+    },
+    "attachmentKeywords": "anbei|im Anhang|Anhang|Anlage|beiliegend|finden Sie im Anhang|beigefügt|siehe Anhang",
     "sent": {
       "title": "Nachricht gesendet",
       "action": "Anzeigen"
