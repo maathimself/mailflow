@@ -82,9 +82,21 @@ export const useStore = create((set, get) => ({
   appendMessages: (newMessages) => set(state => ({
     messages: [...state.messages, ...newMessages]
   })),
-  updateMessage: (id, updates) => set(state => ({
-    messages: state.messages.map(m => m.id === id ? { ...m, ...updates } : m)
-  })),
+  updateMessage: (id, updates) => set(state => {
+    const apply = (m) => m.id === id ? { ...m, ...updates } : m;
+    const threadMessages = Object.fromEntries(
+      Object.entries(state.threadMessages).map(([tid, msgs]) => [tid, msgs.map(apply)])
+    );
+    // Resync the thread row's aggregate read state to its (possibly updated) sub-messages
+    const messages = state.messages.map(m => {
+      const updated = apply(m);
+      const subs = threadMessages[updated.thread_id || updated.id];
+      if (!subs) return updated;
+      const unread_count = subs.filter(s => !s.is_read).length;
+      return { ...updated, unread_count, is_read: unread_count === 0 };
+    });
+    return { messages, searchResults: state.searchResults.map(apply), threadMessages };
+  }),
   removeMessage: (id) => set(state => ({
     messages: state.messages.filter(m => m.id !== id),
     searchResults: state.searchResults.filter(m => m.id !== id),
