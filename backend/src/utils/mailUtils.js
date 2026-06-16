@@ -29,6 +29,16 @@ export async function resolveAllTrashPaths(accountId, folderMappings) {
   return new Set(result.rows.map(r => r.path));
 }
 
+export async function resolveAllDraftsPaths(accountId, folderMappings) {
+  if (folderMappings?.drafts) return new Set([folderMappings.drafts]);
+  const result = await query(
+    `SELECT path FROM folders WHERE account_id = $1
+     AND (special_use = '\\Drafts' OR lower(name) LIKE '%draft%')`,
+    [accountId]
+  );
+  return new Set(result.rows.map(r => r.path));
+}
+
 export async function resolveArchiveFolder(accountId, folderMappings) {
   if (folderMappings?.archive) return folderMappings.archive;
   const result = await query(

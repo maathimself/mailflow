@@ -62,6 +62,33 @@
     "sendTooltip": "Send (Ctrl+Enter)",
     "sending": "Sending…",
     "discard": "Discard",
+    "saveDraft": "Save draft",
+    "savingDraft": "Saving…",
+    "draftSaved": "Draft saved",
+    "closeDraft": {
+      "title": "Save this draft?",
+      "save": "Save draft",
+      "discard": "Discard",
+      "keepEditing": "Keep editing"
+    },
+    "discardDraft": {
+      "title": "Discard draft?",
+      "discard": "Discard",
+      "keepEditing": "Keep editing"
+    },
+    "draftHasAttachments": "Attachments are not saved with drafts. They will need to be re-attached when you reopen this draft.",
+    "emptySubject": {
+      "title": "Send without a subject?",
+      "sendAnyway": "Send anyway",
+      "cancel": "Cancel"
+    },
+    "forgottenAttachment": {
+      "title": "Forgot an attachment?",
+      "body": "Your message mentions an attachment but nothing is attached.",
+      "sendAnyway": "Send anyway",
+      "cancel": "Cancel"
+    },
+    "attachmentKeywords": "attach|attached|attachment|attachments|see attached|find attached|enclosed|please find",
     "sent": {
       "title": "Message sent",
       "action": "View"
@@ -429,7 +456,11 @@
       "saving": "Saving…",
       "errorRequired": "Rule name and at least one condition and action are required.",
       "errorMoveFolder": "Please enter a destination folder for the Move action.",
-      "errorSave": "Failed to save rule."
+      "errorSave": "Failed to save rule.",
+      "runButton": "Run rules on inbox",
+      "running": "Running…",
+      "runResult": "Done — {{matched}} of {{processed}} messages matched",
+      "runError": "Failed to run rules"
     },
     "blockList": {
       "description": "Emails from blocked senders are automatically moved to trash.",

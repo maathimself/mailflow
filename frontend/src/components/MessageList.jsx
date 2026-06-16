@@ -975,6 +975,12 @@ export default function MessageList() {
   // Keep scRef in sync so scheduleDelete can read displayMessages without a stale closure
   scRef.current.displayMessages = displayMessages;
 
+  // Arrow-key navigation: intercepts ArrowDown/ArrowUp when the list container has focus.
+  const handleListKeyDown = useCallback((e) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); shortcutBus.emit('nextMessage'); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); shortcutBus.emit('prevMessage'); }
+  }, []);
+
   // Called when the avatar is clicked: enters selection mode and selects that message
   const handleAvatarClick = useCallback((id) => {
     const idx = displayMessages.findIndex(m => m.id === id);
@@ -1340,6 +1346,14 @@ export default function MessageList() {
     };
   }, []);
 
+  // Scroll the selected message row into view whenever selection changes.
+  // block:'nearest' is a no-op when the row is already visible, so mouse clicks don't cause jumps.
+  useEffect(() => {
+    if (!selectedMessageId || !listRef.current) return;
+    const row = listRef.current.querySelector(`[data-msgid="${selectedMessageId}"]`);
+    row?.scrollIntoView({ block: 'nearest' });
+  }, [selectedMessageId]);
+
   const handleOpenFolderPicker = useCallback(async (selectedMsgs) => {
     if (showFolderPicker) { setShowFolderPicker(false); return; }
     const accountIds = [...new Set(selectedMsgs.map(m => m.account_id))];
@@ -1633,8 +1647,47 @@ export default function MessageList() {
     handleContextAction(hasUnreadInThread ? 'markRead' : 'markUnread', message);
   };
 
+  const isDraftsFolder = (() => {
+    if (!selectedAccountId) return false;
+    const account = accounts.find(a => a.id === selectedAccountId);
+    if (!account) return false;
+    if (account.folder_mappings?.drafts && account.folder_mappings.drafts === selectedFolder) return true;
+    const folderList = folders[selectedAccountId] || [];
+    const folderInfo = folderList.find(f => f.path === selectedFolder);
+    return folderInfo?.special_use === '\\Drafts';
+  })();
+
+  const formatAddressArray = (arr) => {
+    if (!Array.isArray(arr)) return [];
+    return arr.map(a => {
+      if (typeof a === 'string') return a;
+      const addr = a.address || a.email || '';
+      return (a.name && addr) ? `${a.name} <${addr}>` : (addr || a.name || '');
+    }).filter(Boolean);
+  };
+
   const handleSelect = async (message) => {
+    if (isDraftsFolder) {
+      try {
+        const bodyData = await api.getMessageBody(message.id);
+        openCompose({
+          accountId: message.account_id,
+          draftUid: message.uid,
+          draftFolder: message.folder,
+          to: formatAddressArray(message.to_addresses),
+          cc: formatAddressArray(message.cc_addresses),
+          subject: message.subject || '',
+          body: bodyData.html || bodyData.text || '',
+          bodyIsHtml: !!bodyData.html,
+        });
+      } catch (err) {
+        console.error('Failed to open draft:', err.message);
+        setSelectedMessage(message.id);
+      }
+      return;
+    }
     setSelectedMessage(message.id);
+    listRef.current?.focus({ preventScroll: true });
     if (!message.is_read) {
       updateMessage(message.id, { is_read: true });
       decrementUnread(message.account_id);
@@ -2266,7 +2319,9 @@ export default function MessageList() {
         <div
           ref={listRef}
           onScroll={handleScroll}
-          style={{ height: '100%', overflowY: 'auto', overflowX: 'hidden' }}
+          onKeyDown={handleListKeyDown}
+          tabIndex={0}
+          style={{ height: '100%', overflowY: 'auto', overflowX: 'hidden', outline: 'none' }}
         >
           {/* Pull-to-refresh indicator */}
           {isMobile && (
@@ -3106,7 +3161,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
   const rightActionView = getSwipeActionView(swipeLeftAction, message, t, unreadCount);
 
   return (
-    <div style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+    <div data-msgid={message.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
       {/* Swipe container wraps only the header row */}
       <div style={{ position: 'relative', overflow: 'hidden' }}>
 
@@ -3378,6 +3433,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
 
   return (
     <div
+      data-msgid={message.id}
       onMouseEnter={() => !isMobile && setHovered(true)}
       onMouseLeave={() => !isMobile && setHovered(false)}
       style={{

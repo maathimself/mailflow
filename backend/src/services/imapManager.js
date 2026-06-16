@@ -1147,6 +1147,7 @@ export class ImapManager {
                   AND message_id = $4
                   AND (folder != $1 OR uid != $2)
                   AND 1 = (SELECT COUNT(*) FROM messages WHERE account_id = $3 AND message_id = $4)
+                  AND COALESCE((SELECT special_use FROM folders WHERE account_id = $3 AND path = $1), '') NOT IN ('\\All', '\\Important')
                 RETURNING id
               `, [folder, parsed.uid, account.id, msgId]);
               if (relocated.rows.length > 0) return;
@@ -1556,6 +1557,7 @@ export class ImapManager {
                       AND message_id = $4
                       AND (folder != $1 OR uid != $2)
                       AND 1 = (SELECT COUNT(*) FROM messages WHERE account_id = $3 AND message_id = $4)
+                      AND COALESCE((SELECT special_use FROM folders WHERE account_id = $3 AND path = $1), '') NOT IN ('\\All', '\\Important')
                     RETURNING id
                   `, [folder, parsed.uid, account.id, bfMsgId]);
                   if (relocated.rows.length > 0) continue;
@@ -1864,12 +1866,19 @@ export class ImapManager {
     }
   }
 
-  async appendToSent(account, folder, rawMessage) {
+  async appendToFolder(account, folder, rawMessage, flags = ['\\Seen']) {
+    let uid = null;
     await withFreshClient(account, async (client) => {
-      const result = await client.append(folder, rawMessage, ['\\Seen']);
+      const result = await client.append(folder, rawMessage, flags);
       if (result === false) throw new Error('IMAP append returned false — server did not confirm message was stored');
+      if (result && typeof result.uid === 'number') uid = result.uid;
     });
-    console.log(`Appended sent message to IMAP ${logAccount(account)}/${folder}`);
+    console.log(`Appended to IMAP ${logAccount(account)}/${folder} uid=${uid}`);
+    return { uid, folder };
+  }
+
+  async appendToSent(account, folder, rawMessage) {
+    await this.appendToFolder(account, folder, rawMessage, ['\\Seen']);
   }
 
   // Syncs the most recent messages in a specific folder on demand.

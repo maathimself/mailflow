@@ -62,6 +62,33 @@
     "sendTooltip": "Senden (Ctrl+Eingabe)",
     "sending": "Wird gesendet…",
     "discard": "Verwerfen",
+    "saveDraft": "Entwurf speichern",
+    "savingDraft": "Wird gespeichert…",
+    "draftSaved": "Entwurf gespeichert",
+    "closeDraft": {
+      "title": "Diesen Entwurf speichern?",
+      "save": "Entwurf speichern",
+      "discard": "Verwerfen",
+      "keepEditing": "Weiter bearbeiten"
+    },
+    "discardDraft": {
+      "title": "Entwurf verwerfen?",
+      "discard": "Verwerfen",
+      "keepEditing": "Weiter bearbeiten"
+    },
+    "draftHasAttachments": "Anhänge werden nicht mit Entwürfen gespeichert. Sie müssen beim erneuten Öffnen neu hinzugefügt werden.",
+    "emptySubject": {
+      "title": "Ohne Betreff senden?",
+      "sendAnyway": "Trotzdem senden",
+      "cancel": "Abbrechen"
+    },
+    "forgottenAttachment": {
+      "title": "Anhang vergessen?",
+      "body": "Ihre Nachricht erwähnt einen Anhang, aber es ist nichts angehängt.",
+      "sendAnyway": "Trotzdem senden",
+      "cancel": "Abbrechen"
+    },
+    "attachmentKeywords": "anbei|im Anhang|Anhang|Anlage|beiliegend|finden Sie im Anhang|beigefügt|siehe Anhang",
     "sent": {
       "title": "Nachricht gesendet",
       "action": "Anzeigen"
@@ -865,6 +892,10 @@
       "editButton": "Bearbeiten",
       "deleteConfirm": "Diese Regel löschen?",
       "errorSave": "Regel konnte nicht gespeichert werden.",
+      "runButton": "Regeln auf Posteingang anwenden",
+      "running": "Wird ausgeführt…",
+      "runResult": "Fertig — {{matched}} von {{processed}} Nachrichten abgeglichen",
+      "runError": "Fehler beim Ausführen der Regeln",
       "formTitleEdit": "Regel bearbeiten",
       "fieldTo": "An",
       "fieldHasAttachment": "Hat Anhang",

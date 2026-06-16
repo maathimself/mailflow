@@ -109,6 +109,14 @@ export default function ComposeModal() {
   const [quotedBody, setQuotedBody] = useState(() => composeData?.quotedBody || '');
   const [quotedBodyHtml] = useState(() => composeData?.quotedBodyHtml || null);
   const [showDiscardSheet, setShowDiscardSheet] = useState(false);
+  const [showEmptySubjectWarn, setShowEmptySubjectWarn] = useState(false);
+  const [showForgottenAttachWarn, setShowForgottenAttachWarn] = useState(false);
+  const [showCloseDialog, setShowCloseDialog] = useState(false);
+  const [showAttachWarnForDraft, setShowAttachWarnForDraft] = useState(false);
+  const [draftUid, setDraftUid] = useState(() => composeData?.draftUid ?? null);
+  const [draftFolder, setDraftFolder] = useState(() => composeData?.draftFolder ?? null);
+  const [draftAccountId, setDraftAccountId] = useState(() => composeData?.accountId ?? null);
+  const [savingDraft, setSavingDraft] = useState(false);
   const [attachments, setAttachments] = useState([]);
   const [fwdAttachments, setFwdAttachments] = useState(() => composeData?.forwardedAttachments || []);
 
@@ -174,7 +182,17 @@ export default function ComposeModal() {
   const [minimized, setMinimized] = useState(false);
   const [maximized, setMaximized] = useState(false);
   const [pos, setPos] = useState(null);
-  const [customSize, setCustomSize] = useState(null);
+  const [customSize, setCustomSize] = useState(() => {
+    try {
+      const saved = localStorage.getItem('mailflow_compose_size');
+      if (!saved) return null;
+      const { width, height } = JSON.parse(saved);
+      return {
+        width:  Math.min(Math.max(360, width),  window.innerWidth  - 16),
+        height: Math.min(Math.max(200, height), window.innerHeight - 40),
+      };
+    } catch { return null; }
+  });
   const [showReplyType, setShowReplyType] = useState(false);
   const [htmlMode, setHtmlMode] = useState(false);
   const [htmlSource, setHtmlSource] = useState('');
@@ -351,6 +369,7 @@ export default function ComposeModal() {
     const startX = rect.left;
     const startY = rect.top;
     const w = rect.width;
+    const h = rect.height;
     // Immediately switch from bottom/right to top/left in the DOM — no re-render
     // needed, so there is no frame where the window jumps to a stale position.
     el.style.bottom = '';
@@ -367,7 +386,7 @@ export default function ComposeModal() {
     // pointermove event, which was the source of lag and jerkiness.
     const onMove = (ev) => {
       curX = Math.max(0, Math.min(window.innerWidth - w, startX + ev.clientX - startMouseX));
-      curY = Math.max(0, Math.min(window.innerHeight - 40, startY + ev.clientY - startMouseY));
+      curY = Math.max(0, Math.min(Math.max(0, window.innerHeight - h), startY + ev.clientY - startMouseY));
       el.style.left = curX + 'px';
       el.style.top = curY + 'px';
     };
@@ -434,7 +453,10 @@ export default function ComposeModal() {
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
       dragCleanupRef.current = null;
-      if (commit) setCustomSize({ width: curW, height: curH });
+      if (commit) {
+        setCustomSize({ width: curW, height: curH });
+        try { localStorage.setItem('mailflow_compose_size', JSON.stringify({ width: curW, height: curH })); } catch {}
+      }
     };
     const cleanupNoCommit = () => cleanup({ commit: false });
     dragCleanupRef.current = cleanup;
@@ -511,10 +533,30 @@ export default function ComposeModal() {
     }
   };
 
-  const handleSend = async () => {
+  const handleSend = async ({ skipSubjectWarn = false, skipAttachWarn = false } = {}) => {
     const { accountId, aliasId } = resolveFrom(fromValue);
     const toFinal = [...toChips, ...(toInput.trim() ? [toInput.trim()] : [])];
     if (!toFinal.length || !accountId) return;
+
+    if (!skipSubjectWarn && subject.trim() === '') {
+      setShowEmptySubjectWarn(true);
+      return;
+    }
+
+    if (!skipAttachWarn) {
+      const composedText = plaintextEmail
+        ? body
+        : (htmlMode ? htmlSource.replace(/<[^>]+>/g, ' ') : (editor?.getText() ?? ''));
+      const keywords = t('compose.attachmentKeywords').split('|');
+      const lower = composedText.toLowerCase();
+      const hasAttachmentWord = keywords.some(kw => lower.includes(kw.toLowerCase()));
+      const hasNoAttachment = attachments.length === 0 && fwdAttachments.length === 0;
+      if (hasAttachmentWord && hasNoAttachment) {
+        setShowForgottenAttachWarn(true);
+        return;
+      }
+    }
+
     localStorage.setItem('mailflow_last_from_account', accountId);
     setSending(true);
     setError('');
@@ -551,6 +593,9 @@ export default function ComposeModal() {
         } : {}),
       });
       closeCompose();
+      if (draftUid != null && draftFolder != null && draftAccountId) {
+        api.deleteDraft(draftAccountId, draftUid, draftFolder).catch(() => {});
+      }
       const sentFolder = accounts.find(a => a.id === accountId)?.folder_mappings?.sent || 'Sent';
       addNotification({
         title: t('compose.sent.title'),
@@ -561,6 +606,77 @@ export default function ComposeModal() {
     } catch (err) {
       setError(err.message);
       setSending(false);
+    }
+  };
+
+  const isDirty = () => {
+    const currentBody = plaintextEmail ? body : (htmlMode ? htmlSource : (editor?.isEmpty ? '' : (editor?.getHTML() ?? '')));
+    return (
+      currentBody !== initialBodyRef.current ||
+      subject !== initialSubjectRef.current ||
+      normalizeTo(toChips) !== initialToRef.current ||
+      toInput.trim() !== '' ||
+      attachments.length > 0
+    );
+  };
+
+  const doSaveDraft = async ({ closeAfter = true } = {}) => {
+    const { accountId, aliasId } = resolveFrom(fromValue);
+    if (!accountId) return;
+    setSavingDraft(true);
+    try {
+      const bodyToSend = plaintextEmail ? body : (htmlMode ? htmlSource : (editor?.getHTML() ?? ''));
+      const result = await api.saveDraft({
+        accountId,
+        ...(aliasId ? { aliasId } : {}),
+        to: [...toChips, ...(toInput.trim() ? [toInput.trim()] : [])],
+        cc: [...ccChips, ...(ccInput.trim() ? [ccInput.trim()] : [])],
+        bcc: [...bccChips, ...(bccInput.trim() ? [bccInput.trim()] : [])],
+        subject,
+        body: bodyToSend,
+        bodyIsHtml: !plaintextEmail,
+        ...(quotedBody ? { quotedBody } : {}),
+        ...(!plaintextEmail && (quotedBodyHtml != null || quotedHtmlRef.current)
+          ? { quotedBodyHtml: quotedHtmlRef.current ? quotedHtmlRef.current.innerHTML : quotedBodyHtml }
+          : {}),
+        ...(signatureContentRef.current || fromSignature != null
+          ? { editedSignature: plaintextEmail ? plainSig : signatureContentRef.current }
+          : {}),
+        ...(draftUid != null && draftFolder != null ? { existingUid: draftUid, existingFolder: draftFolder } : {}),
+      });
+      if (result.uid != null) {
+        setDraftUid(result.uid);
+        setDraftFolder(result.folder);
+        setDraftAccountId(accountId);
+      }
+      if (closeAfter) {
+        closeCompose();
+      } else {
+        addNotification({ title: t('compose.draftSaved'), body: subject || t('common.noSubject') });
+      }
+    } catch (err) {
+      console.error('Save draft failed:', err.message);
+    } finally {
+      setSavingDraft(false);
+    }
+  };
+
+  const handleSaveDraft = () => {
+    if ((attachments.length > 0 || fwdAttachments.length > 0) && !showAttachWarnForDraft) {
+      setShowAttachWarnForDraft(true);
+      return;
+    }
+    setShowAttachWarnForDraft(false);
+    doSaveDraft({ closeAfter: true });
+  };
+
+  const handleClose = () => {
+    if (isDirty()) {
+      setShowCloseDialog(true);
+    } else if (draftUid != null) {
+      setShowCloseDialog(true);
+    } else {
+      closeCompose();
     }
   };
 
@@ -668,14 +784,7 @@ export default function ComposeModal() {
         }}>
           <button
             onClick={() => {
-              const currentBody = plaintextEmail ? body : (htmlMode ? htmlSource : (editor?.isEmpty ? '' : (editor?.getHTML() ?? '')));
-              const isDirty =
-                currentBody !== initialBodyRef.current ||
-                subject !== initialSubjectRef.current ||
-                normalizeTo(toChips) !== initialToRef.current ||
-                toInput.trim() !== '' ||
-                attachments.length > 0;
-              if (isDirty) {
+              if (isDirty() || draftUid != null) {
                 setShowDiscardSheet(true);
               } else {
                 closeCompose();
@@ -973,15 +1082,12 @@ export default function ComposeModal() {
         </div>
       </div>
 
-      {/* Discard confirmation sheet */}
+      {/* Discard/save-draft confirmation sheet */}
       {showDiscardSheet && (
         <>
           <div
             onClick={() => setShowDiscardSheet(false)}
-            style={{
-              position: 'fixed', inset: 0, zIndex: 2100,
-              background: 'rgba(0,0,0,0.4)',
-            }}
+            style={{ position: 'fixed', inset: 0, zIndex: 2100, background: 'rgba(0,0,0,0.4)' }}
           />
           <div style={{
             position: 'fixed', left: 0, right: 0, bottom: 0,
@@ -991,36 +1097,134 @@ export default function ComposeModal() {
             boxShadow: 'var(--shadow-modal)',
             animation: 'sheet-enter 0.22s var(--ease-emphasized) both',
           }}>
-            <div style={{
-              padding: '16px 20px 8px',
-              fontSize: 15, fontWeight: 600, color: 'var(--text-primary)',
-              borderBottom: '1px solid var(--border-subtle)',
-            }}>
-              Discard draft?
+            <div style={{ padding: '16px 20px 8px', fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}>
+              {isDirty() ? t('compose.closeDraft.title') : t('compose.discardDraft.title')}
             </div>
+            {isDirty() && (
+              <button
+                onClick={() => { setShowDiscardSheet(false); handleSaveDraft(); }}
+                disabled={savingDraft}
+                style={{ width: '100%', padding: '16px 20px', textAlign: 'left', background: 'none', border: 'none', color: 'var(--accent)', fontSize: 16, fontWeight: 500, cursor: 'pointer', borderBottom: '1px solid var(--border-subtle)', WebkitTapHighlightColor: 'transparent' }}
+              >
+                {savingDraft ? t('compose.savingDraft') : t('compose.closeDraft.save')}
+              </button>
+            )}
             <button
-              onClick={closeCompose}
-              style={{
-                width: '100%', padding: '16px 20px', textAlign: 'left',
-                background: 'none', border: 'none',
-                color: 'var(--red)', fontSize: 16, fontWeight: 500,
-                cursor: 'pointer', borderBottom: '1px solid var(--border-subtle)',
-                WebkitTapHighlightColor: 'transparent',
+              onClick={() => {
+                setShowDiscardSheet(false);
+                if (draftUid != null && draftFolder != null && draftAccountId) {
+                  api.deleteDraft(draftAccountId, draftUid, draftFolder).catch(() => {});
+                }
+                closeCompose();
               }}
+              style={{ width: '100%', padding: '16px 20px', textAlign: 'left', background: 'none', border: 'none', color: 'var(--red)', fontSize: 16, fontWeight: 500, cursor: 'pointer', borderBottom: '1px solid var(--border-subtle)', WebkitTapHighlightColor: 'transparent' }}
             >
-              Discard
+              {isDirty() ? t('compose.closeDraft.discard') : t('compose.discardDraft.discard')}
             </button>
             <button
               onClick={() => setShowDiscardSheet(false)}
-              style={{
-                width: '100%', padding: '16px 20px', textAlign: 'left',
-                background: 'none', border: 'none',
-                color: 'var(--accent)', fontSize: 16, fontWeight: 500,
-                cursor: 'pointer',
-                WebkitTapHighlightColor: 'transparent',
-              }}
+              style={{ width: '100%', padding: '16px 20px', textAlign: 'left', background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 16, fontWeight: 500, cursor: 'pointer', WebkitTapHighlightColor: 'transparent' }}
             >
-              Keep editing
+              {isDirty() ? t('compose.closeDraft.keepEditing') : t('compose.discardDraft.keepEditing')}
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* Draft attachment warning sheet */}
+      {showAttachWarnForDraft && (
+        <>
+          <div onClick={() => setShowAttachWarnForDraft(false)} style={{ position: 'fixed', inset: 0, zIndex: 2100, background: 'rgba(0,0,0,0.4)' }} />
+          <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 2101, background: 'var(--bg-elevated)', borderRadius: '16px 16px 0 0', paddingBottom: 'calc(var(--sab) + 8px)', boxShadow: 'var(--shadow-modal)', animation: 'sheet-enter 0.22s var(--ease-emphasized) both' }}>
+            <div style={{ padding: '16px 20px 4px', fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}>
+              {t('compose.saveDraft')}
+            </div>
+            <div style={{ padding: '10px 20px 12px', fontSize: 13, color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-subtle)' }}>
+              {t('compose.draftHasAttachments')}
+            </div>
+            <button
+              onClick={() => { setShowAttachWarnForDraft(false); doSaveDraft({ closeAfter: true }); }}
+              disabled={savingDraft}
+              style={{ width: '100%', padding: '16px 20px', textAlign: 'left', background: 'none', border: 'none', color: 'var(--accent)', fontSize: 16, fontWeight: 500, cursor: 'pointer', borderBottom: '1px solid var(--border-subtle)', WebkitTapHighlightColor: 'transparent' }}
+            >
+              {savingDraft ? t('compose.savingDraft') : t('compose.closeDraft.save')}
+            </button>
+            <button
+              onClick={() => setShowAttachWarnForDraft(false)}
+              style={{ width: '100%', padding: '16px 20px', textAlign: 'left', background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 16, fontWeight: 500, cursor: 'pointer', WebkitTapHighlightColor: 'transparent' }}
+            >
+              {t('compose.closeDraft.keepEditing')}
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* Empty subject warning sheet */}
+      {showEmptySubjectWarn && (
+        <>
+          <div
+            onClick={() => setShowEmptySubjectWarn(false)}
+            style={{ position: 'fixed', inset: 0, zIndex: 2100, background: 'rgba(0,0,0,0.4)' }}
+          />
+          <div style={{
+            position: 'fixed', left: 0, right: 0, bottom: 0,
+            zIndex: 2101, background: 'var(--bg-elevated)',
+            borderRadius: '16px 16px 0 0',
+            paddingBottom: 'calc(var(--sab) + 8px)',
+            boxShadow: 'var(--shadow-modal)',
+            animation: 'sheet-enter 0.22s var(--ease-emphasized) both',
+          }}>
+            <div style={{ padding: '16px 20px 8px', fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}>
+              {t('compose.emptySubject.title')}
+            </div>
+            <button
+              onClick={() => { setShowEmptySubjectWarn(false); handleSend({ skipSubjectWarn: true }); }}
+              style={{ width: '100%', padding: '16px 20px', textAlign: 'left', background: 'none', border: 'none', color: 'var(--accent)', fontSize: 16, fontWeight: 500, cursor: 'pointer', borderBottom: '1px solid var(--border-subtle)', WebkitTapHighlightColor: 'transparent' }}
+            >
+              {t('compose.emptySubject.sendAnyway')}
+            </button>
+            <button
+              onClick={() => setShowEmptySubjectWarn(false)}
+              style={{ width: '100%', padding: '16px 20px', textAlign: 'left', background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 16, fontWeight: 500, cursor: 'pointer', WebkitTapHighlightColor: 'transparent' }}
+            >
+              {t('compose.emptySubject.cancel')}
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* Forgotten attachment warning sheet */}
+      {showForgottenAttachWarn && (
+        <>
+          <div
+            onClick={() => setShowForgottenAttachWarn(false)}
+            style={{ position: 'fixed', inset: 0, zIndex: 2100, background: 'rgba(0,0,0,0.4)' }}
+          />
+          <div style={{
+            position: 'fixed', left: 0, right: 0, bottom: 0,
+            zIndex: 2101, background: 'var(--bg-elevated)',
+            borderRadius: '16px 16px 0 0',
+            paddingBottom: 'calc(var(--sab) + 8px)',
+            boxShadow: 'var(--shadow-modal)',
+            animation: 'sheet-enter 0.22s var(--ease-emphasized) both',
+          }}>
+            <div style={{ padding: '16px 20px 4px', fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}>
+              {t('compose.forgottenAttachment.title')}
+            </div>
+            <div style={{ padding: '10px 20px 12px', fontSize: 13, color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-subtle)' }}>
+              {t('compose.forgottenAttachment.body')}
+            </div>
+            <button
+              onClick={() => { setShowForgottenAttachWarn(false); handleSend({ skipSubjectWarn: true, skipAttachWarn: true }); }}
+              style={{ width: '100%', padding: '16px 20px', textAlign: 'left', background: 'none', border: 'none', color: 'var(--accent)', fontSize: 16, fontWeight: 500, cursor: 'pointer', borderBottom: '1px solid var(--border-subtle)', WebkitTapHighlightColor: 'transparent' }}
+            >
+              {t('compose.forgottenAttachment.sendAnyway')}
+            </button>
+            <button
+              onClick={() => setShowForgottenAttachWarn(false)}
+              style={{ width: '100%', padding: '16px 20px', textAlign: 'left', background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 16, fontWeight: 500, cursor: 'pointer', WebkitTapHighlightColor: 'transparent' }}
+            >
+              {t('compose.forgottenAttachment.cancel')}
             </button>
           </div>
         </>
@@ -1092,12 +1296,12 @@ export default function ComposeModal() {
         zIndex: 1000, display: 'flex', flexDirection: 'column',
       } : {
         position: 'fixed', bottom: 0, right: 24,
-        width: 540, maxWidth: 'calc(100vw - 48px)',
+        width: customSize?.width || 540, maxWidth: 'calc(100vw - 48px)',
+        ...(customSize?.height ? { height: customSize.height } : { maxHeight: '75vh' }),
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
         borderRadius: 10,
         boxShadow: 'var(--shadow-modal)',
         zIndex: 1000, display: 'flex', flexDirection: 'column',
-        maxHeight: '75vh',
         animation: 'compose-enter var(--motion-normal) var(--ease-emphasized) backwards',
       }}
     >
@@ -1201,7 +1405,7 @@ export default function ComposeModal() {
               </svg>
             )}
           </TitleBtn>
-          <TitleBtn onClick={closeCompose} danger title={t('compose.toolbar.close')}>
+          <TitleBtn onClick={handleClose} danger title={t('compose.toolbar.close')}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
             </svg>
@@ -1452,11 +1656,12 @@ export default function ComposeModal() {
 
         {error && <span style={{ fontSize: 12, color: 'var(--red)', flex: 1 }}>{error}</span>}
 
-        <button onClick={closeCompose} style={{
-          marginLeft: 'auto', background: 'none', border: 'none',
-          color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 12, padding: '4px 8px',
-        }}>
-          {t('compose.discard')}
+        <button
+          onClick={handleSaveDraft}
+          disabled={savingDraft}
+          style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: savingDraft ? 'default' : 'pointer', fontSize: 12, padding: '4px 8px' }}
+        >
+          {savingDraft ? t('compose.savingDraft') : t('compose.saveDraft')}
         </button>
       </div>
 
@@ -1475,6 +1680,153 @@ export default function ComposeModal() {
         </div>
       )}
     </div>
+
+    {/* Empty subject warning dialog */}
+    {showEmptySubjectWarn && (
+      <>
+        <div
+          onClick={() => setShowEmptySubjectWarn(false)}
+          style={{ position: 'fixed', inset: 0, zIndex: 2100, background: 'rgba(0,0,0,0.4)' }}
+        />
+        <div style={{
+          position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
+          zIndex: 2101, background: 'var(--bg-elevated)',
+          borderRadius: 12, boxShadow: 'var(--shadow-modal)',
+          minWidth: 280, maxWidth: 360, padding: '20px 24px 16px',
+        }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 16 }}>
+            {t('compose.emptySubject.title')}
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button
+              onClick={() => setShowEmptySubjectWarn(false)}
+              style={{ padding: '7px 14px', background: 'none', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer' }}
+            >
+              {t('compose.emptySubject.cancel')}
+            </button>
+            <button
+              onClick={() => { setShowEmptySubjectWarn(false); handleSend({ skipSubjectWarn: true }); }}
+              style={{ padding: '7px 14px', background: 'var(--accent)', border: 'none', borderRadius: 6, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+            >
+              {t('compose.emptySubject.sendAnyway')}
+            </button>
+          </div>
+        </div>
+      </>
+    )}
+
+    {/* Forgotten attachment warning dialog */}
+    {showForgottenAttachWarn && (
+      <>
+        <div
+          onClick={() => setShowForgottenAttachWarn(false)}
+          style={{ position: 'fixed', inset: 0, zIndex: 2100, background: 'rgba(0,0,0,0.4)' }}
+        />
+        <div style={{
+          position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
+          zIndex: 2101, background: 'var(--bg-elevated)',
+          borderRadius: 12, boxShadow: 'var(--shadow-modal)',
+          minWidth: 280, maxWidth: 360, padding: '20px 24px 16px',
+        }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>
+            {t('compose.forgottenAttachment.title')}
+          </div>
+          <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>
+            {t('compose.forgottenAttachment.body')}
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button
+              onClick={() => setShowForgottenAttachWarn(false)}
+              style={{ padding: '7px 14px', background: 'none', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer' }}
+            >
+              {t('compose.forgottenAttachment.cancel')}
+            </button>
+            <button
+              onClick={() => { setShowForgottenAttachWarn(false); handleSend({ skipSubjectWarn: true, skipAttachWarn: true }); }}
+              style={{ padding: '7px 14px', background: 'var(--accent)', border: 'none', borderRadius: 6, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+            >
+              {t('compose.forgottenAttachment.sendAnyway')}
+            </button>
+          </div>
+        </div>
+      </>
+    )}
+
+    {/* Close / save draft dialog */}
+    {showCloseDialog && (
+      <>
+        <div
+          onClick={() => setShowCloseDialog(false)}
+          style={{ position: 'fixed', inset: 0, zIndex: 2100, background: 'rgba(0,0,0,0.4)' }}
+        />
+        <div style={{
+          position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
+          zIndex: 2101, background: 'var(--bg-elevated)',
+          borderRadius: 12, boxShadow: 'var(--shadow-modal)',
+          minWidth: 280, maxWidth: 380, padding: '20px 24px 16px',
+        }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 16 }}>
+            {isDirty() ? t('compose.closeDraft.title') : t('compose.discardDraft.title')}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {isDirty() && (
+              <button
+                onClick={() => { setShowCloseDialog(false); handleSaveDraft(); }}
+                disabled={savingDraft}
+                style={{ padding: '8px 16px', background: 'var(--accent)', border: 'none', borderRadius: 7, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', textAlign: 'center' }}
+              >
+                {savingDraft ? t('compose.savingDraft') : t('compose.closeDraft.save')}
+              </button>
+            )}
+            <button
+              onClick={() => {
+                setShowCloseDialog(false);
+                if (draftUid != null && draftFolder != null && draftAccountId) {
+                  api.deleteDraft(draftAccountId, draftUid, draftFolder).catch(() => {});
+                }
+                closeCompose();
+              }}
+              style={{ padding: '8px 16px', background: 'none', border: '1px solid var(--border)', borderRadius: 7, color: 'var(--red)', fontSize: 13, cursor: 'pointer', textAlign: 'center' }}
+            >
+              {isDirty() ? t('compose.closeDraft.discard') : t('compose.discardDraft.discard')}
+            </button>
+            <button
+              onClick={() => setShowCloseDialog(false)}
+              style={{ padding: '8px 16px', background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer', textAlign: 'center' }}
+            >
+              {isDirty() ? t('compose.closeDraft.keepEditing') : t('compose.discardDraft.keepEditing')}
+            </button>
+          </div>
+        </div>
+      </>
+    )}
+
+    {/* Desktop draft attachment warning */}
+    {showAttachWarnForDraft && (
+      <>
+        <div onClick={() => setShowAttachWarnForDraft(false)} style={{ position: 'fixed', inset: 0, zIndex: 2100, background: 'rgba(0,0,0,0.4)' }} />
+        <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', zIndex: 2101, background: 'var(--bg-elevated)', borderRadius: 12, boxShadow: 'var(--shadow-modal)', minWidth: 280, maxWidth: 380, padding: '20px 24px 16px' }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>
+            {t('compose.saveDraft')}
+          </div>
+          <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>
+            {t('compose.draftHasAttachments')}
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button onClick={() => setShowAttachWarnForDraft(false)} style={{ padding: '7px 14px', background: 'none', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer' }}>
+              {t('compose.closeDraft.keepEditing')}
+            </button>
+            <button
+              onClick={() => { setShowAttachWarnForDraft(false); doSaveDraft({ closeAfter: true }); }}
+              disabled={savingDraft}
+              style={{ padding: '7px 14px', background: 'var(--accent)', border: 'none', borderRadius: 6, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+            >
+              {savingDraft ? t('compose.savingDraft') : t('compose.closeDraft.save')}
+            </button>
+          </div>
+        </div>
+      </>
+    )}
     </>
   );
 }

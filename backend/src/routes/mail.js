@@ -7,7 +7,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { imapManager } from '../index.js';
 import { sanitizeEmail, stripEmailHead, hasRemoteImages, blockRemoteImages, rewriteEbayImageserUrls, rewriteAnchorHrefs } from '../services/emailSanitizer.js';
 import { buildSnippetFromHtml, decodeNamedEntity, INVISIBLE_CHARS_RE } from '../services/messageParser.js';
-import { resolveTrashFolder, resolveAllTrashPaths, resolveArchiveFolder, getDeleteStrategy, adjustFolderCounts } from '../utils/mailUtils.js';
+import { resolveTrashFolder, resolveAllTrashPaths, resolveAllDraftsPaths, resolveArchiveFolder, getDeleteStrategy, adjustFolderCounts } from '../utils/mailUtils.js';
 import { listMessages } from '../services/messageService.js';
 
 const router = Router();
@@ -837,15 +837,16 @@ router.post('/messages/bulk-delete', async (req, res) => {
       const account = accountResult.rows[0];
       const trashPath = await resolveTrashFolder(accountId, msgs[0].folder_mappings);
       const allTrashPaths = await resolveAllTrashPaths(accountId, msgs[0].folder_mappings);
+      const allDraftsPaths = await resolveAllDraftsPaths(accountId, msgs[0].folder_mappings);
 
       if (!trashPath) {
         console.error(`bulk-delete: no Trash folder found for account ${accountId} — skipping ${msgs.length} messages`);
         continue;
       }
 
-      // Messages in ANY trash-like folder are permanently deleted; others move to canonical trash.
-      const toExpunge = msgs.filter(m => allTrashPaths.has(m.folder));
-      const toMove    = msgs.filter(m => !allTrashPaths.has(m.folder));
+      // Drafts and messages already in Trash are permanently deleted; others move to Trash.
+      const toExpunge = msgs.filter(m => allTrashPaths.has(m.folder) || allDraftsPaths.has(m.folder));
+      const toMove    = msgs.filter(m => !allTrashPaths.has(m.folder) && !allDraftsPaths.has(m.folder));
 
       // Permanently delete messages already in a trash-like folder (grouped by actual folder).
       if (toExpunge.length) {
@@ -1299,7 +1300,7 @@ router.post('/messages/:id/snooze', async (req, res) => {
   res.json({ ok: true });
 });
 
-// Delete (move to trash)
+// Delete (move to trash; drafts are permanently deleted)
 router.delete('/messages/:id', async (req, res) => {
   const { id } = req.params;
   if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
@@ -1315,10 +1316,25 @@ router.delete('/messages/:id', async (req, res) => {
 
   const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]);
   const account = accountResult.rows[0];
+  const wasUnread = !message.is_read ? 1 : 0;
+
+  // Drafts bypass Trash and are permanently deleted (consistent with all major email clients).
+  const allDraftsPaths = await resolveAllDraftsPaths(message.account_id, account.folder_mappings);
+  if (allDraftsPaths.has(message.folder)) {
+    try {
+      await imapManager.permanentDeleteMessage(account, message.uid, message.folder);
+    } catch (err) {
+      console.error('IMAP permanent delete (draft) failed:', err.message);
+      return res.status(500).json({ error: 'Failed to delete draft' });
+    }
+    await query('DELETE FROM messages WHERE id = $1', [id]);
+    adjustFolderCounts(message.account_id, message.folder, -1, -wasUnread);
+    return res.json({ ok: true });
+  }
+
   const trashPath = await resolveTrashFolder(message.account_id, account.folder_mappings);
   const allTrashPaths = await resolveAllTrashPaths(message.account_id, account.folder_mappings);
   const strategy = getDeleteStrategy(message.folder, trashPath, allTrashPaths);
-  const wasUnread = !message.is_read ? 1 : 0;
 
   if (strategy.action === 'no_trash') {
     return res.status(422).json({ error: 'No Trash folder configured for this account' });
@@ -1337,6 +1353,10 @@ router.delete('/messages/:id', async (req, res) => {
         return res.status(500).json({ error: 'Failed to delete message' });
       }
       if (newUid != null) {
+        // Delete any stale row the sync may have already inserted at the destination,
+        // then update the source row in place to avoid a unique-constraint violation.
+        await query('DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 AND id != $4',
+          [message.account_id, newUid, trashPath, id]);
         await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3', [trashPath, newUid, id]);
       } else {
         // Non-UIDPLUS: DB holds the stale source UID at the destination. Guard it so

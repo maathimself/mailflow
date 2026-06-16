@@ -62,6 +62,33 @@
     "sendTooltip": "发送（Ctrl+Enter）",
     "sending": "发送中…",
     "discard": "丢弃",
+    "saveDraft": "保存草稿",
+    "savingDraft": "保存中…",
+    "draftSaved": "草稿已保存",
+    "closeDraft": {
+      "title": "保存此草稿？",
+      "save": "保存草稿",
+      "discard": "丢弃",
+      "keepEditing": "继续编辑"
+    },
+    "discardDraft": {
+      "title": "丢弃草稿？",
+      "discard": "丢弃",
+      "keepEditing": "继续编辑"
+    },
+    "draftHasAttachments": "附件不会随草稿保存，重新打开时需要重新添加。",
+    "emptySubject": {
+      "title": "没有主题，确定发送？",
+      "sendAnyway": "仍然发送",
+      "cancel": "取消"
+    },
+    "forgottenAttachment": {
+      "title": "是否忘记添加附件？",
+      "body": "您的邮件提到了附件，但未附加任何文件。",
+      "sendAnyway": "仍然发送",
+      "cancel": "取消"
+    },
+    "attachmentKeywords": "附件|已附上|请见附件|详见附件|见附件|如附件所示",
     "sent": {
       "title": "邮件已发送",
       "action": "查看"
@@ -423,6 +450,10 @@
       "errorRequired": "名称、至少一个条件和一个动作为必填项。",
       "errorMoveFolder": "请为「移动」动作指定目标文件夹。",
       "errorSave": "无法保存规则。",
+      "runButton": "对收件箱运行规则",
+      "running": "运行中…",
+      "runResult": "完成 — {{processed}} 封邮件中有 {{matched}} 封匹配",
+      "runError": "运行规则失败",
       "fieldBody": "正文",
       "fieldHeader": "邮件头",
       "opRegex": "匹配正则表达式",

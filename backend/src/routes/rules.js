@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { applyInboxRules } from '../services/inboxRules.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -55,6 +56,95 @@ router.get('/', async (req, res) => {
     console.error('GET /rules error:', err.message);
     res.status(500).json({ error: 'Failed to load rules' });
   }
+});
+
+router.post('/run', async (req, res) => {
+  const imapMgr = req.app.get('imapManager');
+  const { accountId } = req.body;
+
+  let accountIds;
+  try {
+    if (accountId) {
+      const owned = await query(
+        'SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2',
+        [accountId, req.session.userId]
+      );
+      if (!owned.rows.length) return res.status(404).json({ error: 'Account not found' });
+      accountIds = [accountId];
+    } else {
+      const accts = await query(
+        'SELECT id FROM email_accounts WHERE user_id = $1',
+        [req.session.userId]
+      );
+      accountIds = accts.rows.map(r => r.id);
+    }
+  } catch (err) {
+    console.error('POST /rules/run account lookup error:', err.message);
+    return res.status(500).json({ error: 'Failed to run rules' });
+  }
+
+  let processed = 0;
+  let matched = 0;
+
+  for (const acctId of accountIds) {
+    try {
+      const rulesCheck = await query(
+        'SELECT COUNT(*) AS cnt FROM inbox_rules WHERE user_id = $1 AND enabled = true AND (account_id IS NULL OR account_id = $2)',
+        [req.session.userId, acctId]
+      );
+      if (parseInt(rulesCheck.rows[0].cnt, 10) === 0) continue;
+
+      const acctResult = await query(
+        'SELECT id, user_id, folder_mappings FROM email_accounts WHERE id = $1',
+        [acctId]
+      );
+      const account = acctResult.rows[0];
+      if (!account) continue;
+
+      const msgResult = await query(
+        `SELECT id, uid, folder, from_email, from_name, to_addresses, subject, has_attachments, is_read
+         FROM messages
+         WHERE account_id = $1 AND lower(folder) = 'inbox'
+         LIMIT 1000`,
+        [acctId]
+      );
+      if (!msgResult.rows.length) continue;
+
+      const messages = msgResult.rows.map(row => {
+        let toArr = [];
+        try {
+          const raw = typeof row.to_addresses === 'string'
+            ? JSON.parse(row.to_addresses)
+            : row.to_addresses;
+          if (Array.isArray(raw)) {
+            toArr = raw.map(a => ({ email: a.address || a.email || '', name: a.name || '' }));
+          }
+        } catch {}
+        return {
+          id: row.id,
+          uid: row.uid,
+          folder: row.folder,
+          fromEmail: row.from_email || '',
+          fromName: row.from_name || '',
+          to: toArr,
+          subject: row.subject || '',
+          hasAttachments: !!row.has_attachments,
+          isRead: !!row.is_read,
+          is_read: !!row.is_read,
+          parsedHeaders: {},
+        };
+      });
+
+      const before = messages.length;
+      const { remaining } = await applyInboxRules(messages, account, imapMgr);
+      processed += before;
+      matched += before - remaining.length;
+    } catch (err) {
+      console.error(`POST /rules/run error for account ${acctId}:`, err.message);
+    }
+  }
+
+  res.json({ processed, matched });
 });
 
 router.post('/', async (req, res) => {

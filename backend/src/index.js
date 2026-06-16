@@ -9,6 +9,7 @@ import RedisStore from 'connect-redis';
 import 'dotenv/config';
 
 import sendRoutes from './routes/send.js';
+import draftRoutes from './routes/draft.js';
 import oauthRoutes from './routes/oauth.js';
 import integrationsRoutes, { loadIntegrationConfigs } from './routes/integrations.js';
 import authRoutes from './routes/auth.js';
@@ -99,6 +100,7 @@ app.use((req, res, next) => {
 });
 // 25 MB attachment limit → ~34 MB base64 on the wire; add headroom for the rest of the payload.
 app.use('/api/mail/send', express.json({ limit: '35mb' }));
+app.use('/api/mail/draft', express.json({ limit: '35mb' }));
 app.use(express.json({ limit: '1mb' }));
 // Return a clean JSON error when the body parser rejects an oversized payload.
 app.use((err, req, res, next) => {
@@ -122,6 +124,7 @@ app.use('/api/integrations', integrationsRoutes);
 app.use('/api/accounts', accountRoutes);
 app.use('/api/mail', mailRoutes);
 app.use('/api/mail', sendRoutes);
+app.use('/api/mail', draftRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/totp', totpRoutes);

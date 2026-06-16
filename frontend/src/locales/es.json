@@ -62,6 +62,33 @@
     "sendTooltip": "Enviar (Ctrl+Intro)",
     "sending": "Enviando…",
     "discard": "Descartar",
+    "saveDraft": "Guardar borrador",
+    "savingDraft": "Guardando…",
+    "draftSaved": "Borrador guardado",
+    "closeDraft": {
+      "title": "¿Guardar este borrador?",
+      "save": "Guardar borrador",
+      "discard": "Descartar",
+      "keepEditing": "Seguir editando"
+    },
+    "discardDraft": {
+      "title": "¿Descartar borrador?",
+      "discard": "Descartar",
+      "keepEditing": "Seguir editando"
+    },
+    "draftHasAttachments": "Los archivos adjuntos no se guardan con los borradores. Deberás volver a adjuntarlos al reabrir.",
+    "emptySubject": {
+      "title": "¿Enviar sin asunto?",
+      "sendAnyway": "Enviar de todas formas",
+      "cancel": "Cancelar"
+    },
+    "forgottenAttachment": {
+      "title": "¿Olvidaste un archivo adjunto?",
+      "body": "Tu mensaje menciona un adjunto pero no hay nada adjunto.",
+      "sendAnyway": "Enviar de todas formas",
+      "cancel": "Cancelar"
+    },
+    "attachmentKeywords": "adjunto|adjunta|adjuntos|adjuntas|se adjunta|ver adjunto|archivo adjunto|encontrará adjunto",
     "sent": {
       "title": "Mensaje enviado",
       "action": "Ver"
@@ -421,6 +448,10 @@
       "errorRequired": "Se requiere nombre, al menos una condición y una acción.",
       "errorMoveFolder": "Ingresa una carpeta de destino para la acción Mover.",
       "errorSave": "No se pudo guardar la regla.",
+      "runButton": "Aplicar reglas a la bandeja de entrada",
+      "running": "Ejecutando…",
+      "runResult": "Listo — {{matched}} de {{processed}} mensajes coincidieron",
+      "runError": "Error al ejecutar las reglas",
       "fieldBody": "Cuerpo",
       "fieldHeader": "Encabezado",
       "opRegex": "coincide con regex",

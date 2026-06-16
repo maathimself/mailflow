@@ -3906,6 +3906,23 @@ function RulesTab() {
   const [formError, setFormError] = useState('');
   const [formSaving, setFormSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [runningRules, setRunningRules] = useState(false);
+  const [runResult, setRunResult] = useState(null);
+  const [runError, setRunError] = useState('');
+
+  async function handleRunRules() {
+    setRunningRules(true);
+    setRunResult(null);
+    setRunError('');
+    try {
+      const result = await api.runRules();
+      setRunResult(result);
+    } catch {
+      setRunError(t('admin.rules.runError'));
+    } finally {
+      setRunningRules(false);
+    }
+  }
 
   useEffect(() => {
     api.getRules()
@@ -4350,13 +4367,31 @@ function RulesTab() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
         <span style={{ fontWeight: 600, fontSize: 15 }}>{t('admin.rules.title')}</span>
-        <button
-          onClick={() => openAdd({})}
-          style={{ padding: '7px 14px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 7, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
-        >
-          + {t('admin.rules.newButton')}
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            onClick={handleRunRules}
+            disabled={runningRules}
+            style={{ padding: '7px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 7, fontWeight: 600, fontSize: 13, cursor: runningRules ? 'not-allowed' : 'pointer', color: 'var(--text-primary)', opacity: runningRules ? 0.6 : 1 }}
+          >
+            {runningRules ? t('admin.rules.running') : t('admin.rules.runButton')}
+          </button>
+          <button
+            onClick={() => openAdd({})}
+            style={{ padding: '7px 14px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 7, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
+          >
+            + {t('admin.rules.newButton')}
+          </button>
+        </div>
       </div>
+
+      {runResult && (
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12 }}>
+          {t('admin.rules.runResult', { matched: runResult.matched, processed: runResult.processed })}
+        </div>
+      )}
+      {runError && (
+        <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 12 }}>{runError}</div>
+      )}
 
       {loading && <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{t('common.loading')}</div>}
 
