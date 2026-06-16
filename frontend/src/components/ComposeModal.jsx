@@ -596,6 +596,9 @@ export default function ComposeModal() {
       if (draftUid != null && draftFolder != null && draftAccountId) {
         api.deleteDraft(draftAccountId, draftUid, draftFolder).catch(() => {});
       }
+      if (composeData?.threadKey) {
+        window.dispatchEvent(new CustomEvent('mailflow:reply-sent', { detail: { threadKey: composeData.threadKey } }));
+      }
       const sentFolder = accounts.find(a => a.id === accountId)?.folder_mappings?.sent || 'Sent';
       addNotification({
         title: t('compose.sent.title'),

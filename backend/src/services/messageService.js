@@ -97,7 +97,9 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
                a.color AS account_color
         FROM messages m
         JOIN email_accounts a ON m.account_id = a.id
-        WHERE ${where}
+        WHERE m.is_deleted = false
+          AND m.account_id = ANY($${p})
+          AND m.folder != ALL($${p + 3}::text[])
           AND m.thread_key IN (SELECT thread_id FROM paged_threads)
         ORDER BY m.account_id,
                  m.thread_key,

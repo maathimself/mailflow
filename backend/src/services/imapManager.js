@@ -1116,6 +1116,7 @@ export class ImapManager {
         const maxKnownUid = Number(max_uid);
 
         let newMessages = [];
+        const allNewlyInserted = [];
 
         // Insert/update a single fetched message and track it as new if appropriate.
         // Called from both Phase 1 and Phase 2; ON CONFLICT handles deduplication so
@@ -1200,8 +1201,10 @@ export class ImapManager {
               sanitizeStr(safeHtml), sanitizeStr(text), JSON.stringify(atts || []),
               refs, threadId,
             ]);
-            if (result.rows[0]?.is_new && !parsed.isRead) {
-              newMessages.push({ ...parsed, id: result.rows[0].id, accountId: account.id, folder });
+            if (result.rows[0]?.is_new) {
+              const entry = { ...parsed, id: result.rows[0].id, accountId: account.id, folder };
+              allNewlyInserted.push(entry);
+              if (!parsed.isRead) newMessages.push(entry);
             }
             // Propagate resolved thread_id to any earlier messages that used this
             // message as a provisional thread root (out-of-order delivery / sync).
@@ -1293,16 +1296,18 @@ export class ImapManager {
                 .catch(err => console.warn('Push notification error:', err.message));
             });
           }
-          // Pre-warm the body cache for newly arrived messages so clicking one
-          // immediately after receipt doesn't require a live IMAP fetch.
-          // Only do this for small batches (periodic new mail, not initial bulk sync).
-          if (newMessages.length <= 5) {
-            const msgsToCache = newMessages.slice();
-            setImmediate(() => {
-              this.prefetchNewMessageBodies(account, msgsToCache)
-                .catch(err => console.warn(`Body prefetch error for ${logAccount(account)}:`, err.message));
-            });
-          }
+        }
+        // Pre-warm the body cache for newly arrived messages so clicking one
+        // immediately after receipt doesn't require a live IMAP fetch.
+        // Covers read messages too (e.g. user's own sent mail), so their snippets
+        // populate for thread previews. Only fires for small batches to avoid
+        // hammering IMAP during initial bulk sync.
+        if (allNewlyInserted.length > 0 && allNewlyInserted.length <= 5) {
+          const msgsToCache = allNewlyInserted.slice();
+          setImmediate(() => {
+            this.prefetchNewMessageBodies(account, msgsToCache)
+              .catch(err => console.warn(`Body prefetch error for ${logAccount(account)}:`, err.message));
+          });
         }
         await query('UPDATE email_accounts SET last_sync = NOW() WHERE id = $1', [account.id]);
       } finally {
@@ -1911,6 +1916,7 @@ export class ImapManager {
   // By the time the user clicks the email (typically 2–10s later), the body is already
   // in the DB and the click returns instantly without a live IMAP round-trip.
   async prefetchNewMessageBodies(account, messages) {
+    let anySnippetUpdated = false;
     for (const msg of messages) {
       try {
         // Skip if body already cached (concurrent click may have triggered this too)
@@ -1941,10 +1947,16 @@ export class ImapManager {
              WHERE id = $4`,
             [sanitizeStr(safeHtml), sanitizeStr(text), JSON.stringify(attachments || []), msg.id, sanitizeStr(snip)]
           );
+          if (snip) anySnippetUpdated = true;
         }
       } catch (err) {
         console.warn(`Body prefetch failed for uid ${msg.uid}:`, err.message);
       }
+    }
+    // Tell the frontend to re-pull snippets so newly synced messages no longer
+    // appear blank in thread previews.
+    if (anySnippetUpdated) {
+      this.broadcast({ type: 'sync_complete', accountId: account.id }, account.user_id);
     }
   }
 

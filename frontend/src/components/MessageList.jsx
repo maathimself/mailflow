@@ -130,6 +130,42 @@ export default function MessageList() {
     });
   }, []);
 
+  const pendingRepliedThreadRef = useRef(null);
+
+  // Fetch a thread from the server and merge it into threadMessages without
+  // disturbing existing message references — preserves the open message body
+  // and only fills in new messages and previously-empty snippets.
+  const mergeServerThread = useCallback(async (threadKey, folder, isReplied) => {
+    try {
+      const d = await api.getThread(threadKey, folder);
+      if (!d.messages) return;
+      const existing = useStore.getState().threadMessages[threadKey] || [];
+      const existingMap = new Map(existing.map(m => [m.id, m]));
+      const newOnly = d.messages.filter(x => !existingMap.has(x.id));
+      // Backfill snippets that were empty on first fetch (body prefetch lags sync_complete)
+      let snippetFilled = false;
+      const merged = d.messages.map(fresh => {
+        const prev = existingMap.get(fresh.id);
+        if (!prev) return fresh;
+        if (!prev.snippet && fresh.snippet) {
+          snippetFilled = true;
+          return { ...prev, snippet: fresh.snippet };
+        }
+        return prev;
+      });
+      if (newOnly.length === 0 && !snippetFilled) return;
+      // Clear the reply ref only once the new message AND its snippet are both present
+      if (isReplied && newOnly.length > 0 && merged.every(m => m.snippet)) {
+        pendingRepliedThreadRef.current = null;
+      }
+      setThreadMessages(threadKey, merged);
+      // Auto-expand the replied thread if it was collapsed
+      if (isReplied && newOnly.length > 0 && useStore.getState().expandedThreadId !== threadKey) {
+        setExpandedThreadId(threadKey);
+      }
+    } catch { /* intentional */ }
+  }, [setThreadMessages, setExpandedThreadId]);
+
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const currentPageRef = useRef(1);
@@ -323,12 +359,38 @@ export default function MessageList() {
               const kept = useStore.getState().messages.find(m => m.id === activeId);
               if (kept) msgs = [kept, ...msgs];
             }
+
+            // If a reply just promoted a new message to be the thread's "latest" in
+            // the list, the user's currently open message would drop out and the
+            // panel would empty. Stash it under threadMessages so MessagePane's
+            // fallback lookup keeps finding it.
+            const oldMessages = useStore.getState().messages;
+            if (activeId && !msgs.some(m => m.id === activeId)) {
+              const kept = oldMessages.find(m => m.id === activeId);
+              if (kept && kept.thread_id) {
+                const tm = useStore.getState().threadMessages[kept.thread_id] || [];
+                if (!tm.some(m => m.id === activeId)) {
+                  setThreadMessages(kept.thread_id, [...tm, kept]);
+                }
+              }
+            }
+
             setMessages(msgs);
             if (sm === 'paginated') {
               setHasMoreMessages(false);
             } else {
               setMessagesOffset(data.messages.length);
               setHasMoreMessages(data.messages.length < data.total);
+            }
+
+            // Refresh threads that need an update — the just-replied thread and the
+            // currently-expanded thread (in case a new message arrived in it).
+            if (state.threadedView) {
+              const repliedThreadKey = pendingRepliedThreadRef.current;
+              const expandedTid = useStore.getState().expandedThreadId;
+              const effectiveFolder = selectedAccountId ? selectedFolder : 'INBOX';
+              new Set([repliedThreadKey, expandedTid].filter(Boolean))
+                .forEach(tk => mergeServerThread(tk, effectiveFolder, tk === repliedThreadKey));
             }
           } catch { /* intentional */ }
         };
@@ -337,7 +399,17 @@ export default function MessageList() {
     };
     window.addEventListener('mailflow:refresh', handler);
     return () => window.removeEventListener('mailflow:refresh', handler);
-  }, [selectedAccountId, selectedFolder, unreadOnly, searchQuery, applyReadGuard, setHasMoreMessages, setMessages, setMessagesOffset, setMessagesTotal]);
+  }, [selectedAccountId, selectedFolder, unreadOnly, searchQuery, applyReadGuard, setHasMoreMessages, setMessages, setMessagesOffset, setMessagesTotal, setThreadMessages, mergeServerThread]);
+
+  // Store the replied thread key so the next mailflow:refresh (from sync_complete) can refresh it
+  useEffect(() => {
+    const handler = (e) => {
+      const { threadKey } = e.detail || {};
+      if (threadKey) pendingRepliedThreadRef.current = threadKey;
+    };
+    window.addEventListener('mailflow:reply-sent', handler);
+    return () => window.removeEventListener('mailflow:reply-sent', handler);
+  }, []);
 
   // Search
   const SEARCH_PAGE = 50;
@@ -901,6 +973,7 @@ export default function MessageList() {
       isReplyAll: replyAll,
       originalFrom: sender,
       allRecipients,
+      threadKey: message.thread_id,
     });
   }, [accounts, openCompose]);
   
@@ -1482,6 +1555,7 @@ export default function MessageList() {
           isReplyAll: replyAll,
           originalFrom: sender,
           allRecipients,
+          threadKey: message.thread_id,
         });
         break;
       }
