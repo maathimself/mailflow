@@ -7,7 +7,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "node --test",
-    "lint": "eslint src"
+    "lint": "eslint src --max-warnings 0"
   },
   "dependencies": {
     "@emoji-mart/data": "^1.2.1",

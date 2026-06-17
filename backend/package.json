@@ -7,7 +7,7 @@
     "dev": "node --watch src/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "eslint src"
+    "lint": "eslint src --max-warnings 0"
   },
   "dependencies": {
     "archiver": "^7.0.1",
