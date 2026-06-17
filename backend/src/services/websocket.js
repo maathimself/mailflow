@@ -1,7 +1,7 @@
 // Derive the expected origin from APP_URL once at startup.
 // If APP_URL is not set, origin validation is skipped — log a warning so operators know.
 const ALLOWED_ORIGIN = (() => {
-  try { return process.env.APP_URL ? new URL(process.env.APP_URL).origin : null; } catch (_) { return null; }
+  try { return process.env.APP_URL ? new URL(process.env.APP_URL).origin : null; } catch { return null; }
 })();
 if (!ALLOWED_ORIGIN) {
   if (process.env.NODE_ENV === 'production') {
@@ -50,7 +50,7 @@ export function setupWebSocket(wss, sessionMiddleware, imapManager) {
       try {
         const msg = JSON.parse(data);
         if (msg.type === 'ping') ws.send(JSON.stringify({ type: 'pong' }));
-      } catch (_) {}
+      } catch { /* ignore malformed client message */ }
     });
 
     ws.on('close', () => {

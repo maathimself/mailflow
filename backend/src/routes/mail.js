@@ -21,6 +21,7 @@ function safeFilename(name) {
   // spoof displayed file extensions (e.g. U+202E reverses the filename visually).
   const cleaned = String(name)
     .replace(/[/\\]/g, '_')
+    // eslint-disable-next-line no-control-regex -- intentionally stripping control characters
     .replace(/[\x00-\x1f\x7f]/g, '')
     .replace(/[‪-‮⁦-⁩‏؜]/g, '')
     .trim()
@@ -30,6 +31,7 @@ function safeFilename(name) {
 
 // Validate a folder name / path component: no control chars, max 255 chars.
 function isValidFolderName(name) {
+  // eslint-disable-next-line no-control-regex -- intentionally rejecting control characters
   return typeof name === 'string' && name.length > 0 && name.length <= 255 && !/[\x00-\x1f\x7f]/.test(name);
 }
 
@@ -449,7 +451,7 @@ router.get('/messages/:id/attachments/:part', async (req, res) => {
   let partNum;
   try {
     partNum = decodeURIComponent(part);
-  } catch (_) {
+  } catch {
     return res.status(400).json({ error: 'Invalid attachment part identifier' });
   }
 
@@ -1267,7 +1269,7 @@ router.post('/messages/:id/snooze', async (req, res) => {
   const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [msg.account_id]);
   const account = accountResult.rows[0];
 
-  let snoozedUid = null;
+  let snoozedUid;
   imapManager._guardMoveUid(msg.account_id, msg.folder, msg.uid);
   try {
     try {
@@ -1344,7 +1346,7 @@ router.delete('/messages/:id', async (req, res) => {
     // Guard the source UID before the IMAP move so reconcileDeletes cannot delete
     // the DB row if an EXPUNGE arrives while the move is in flight.
     imapManager._guardMoveUid(message.account_id, message.folder, message.uid);
-    let newUid = null;
+    let newUid;
     try {
       try {
         newUid = await imapManager.moveMessage(account, message.uid, message.folder, trashPath);

@@ -55,7 +55,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
           );
       total = r.rows[0]?.n ?? 0;
     }
-  } catch (_) {
+  } catch {
     total = 0;
   }
 

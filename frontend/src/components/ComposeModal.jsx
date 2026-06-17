@@ -455,7 +455,7 @@ export default function ComposeModal() {
       dragCleanupRef.current = null;
       if (commit) {
         setCustomSize({ width: curW, height: curH });
-        try { localStorage.setItem('mailflow_compose_size', JSON.stringify({ width: curW, height: curH })); } catch {}
+        try { localStorage.setItem('mailflow_compose_size', JSON.stringify({ width: curW, height: curH })); } catch { /* localStorage unavailable */ }
       }
     };
     const cleanupNoCommit = () => cleanup({ commit: false });

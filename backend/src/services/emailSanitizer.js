@@ -77,7 +77,7 @@ function unwrapEbayImgUrl(url) {
       const direct = u.searchParams.get('imageUrl');
       if (direct && direct.startsWith('https://')) return direct;
     }
-  } catch (_) {}
+  } catch { /* invalid URL — return as-is */ }
   return url;
 }
 
@@ -97,7 +97,7 @@ export function rewriteEbayImageserUrls(html) {
           const direct = u.searchParams.get('imageUrl');
           if (direct && direct.startsWith('https://')) return `${pre}src=${q}${direct}${q}`;
         }
-      } catch (_) {}
+      } catch { /* invalid URL — leave src unchanged */ }
       return match;
     }
   );

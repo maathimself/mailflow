@@ -2,7 +2,6 @@ import crypto from 'crypto';
 
 const ALGORITHM = 'aes-256-gcm';
 const IV_BYTES = 12;
-const TAG_BYTES = 16;
 const PREFIX = 'enc:v1:';
 
 // Cache the parsed key buffer so we don't re-allocate on every encrypt/decrypt call.

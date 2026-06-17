@@ -56,6 +56,7 @@ router.post('/register', authLimiter, async (req, res) => {
   if (trimmedUsername.length < 1 || trimmedUsername.length > 120) {
     return res.status(400).json({ error: 'Username must be between 1 and 120 characters' });
   }
+  // eslint-disable-next-line no-control-regex -- intentionally rejecting control characters
   if (/[\x00-\x1f\x7f]/.test(trimmedUsername)) {
     return res.status(400).json({ error: 'Username contains invalid characters' });
   }
@@ -209,7 +210,7 @@ router.post('/login', authLimiter, async (req, res) => {
     logAuthEvent('login_success', { username: user.username, userId: user.id, ip: req.ip, success: true });
     res.locals.resetRateLimit?.();
     res.json({ user: { id: user.id, username: user.username, displayName: user.display_name, avatar: user.avatar, isAdmin: user.is_admin, totpEnabled: user.totp_enabled } });
-  } catch (err) {
+  } catch {
     res.status(500).json({ error: 'Login failed' });
   }
 });

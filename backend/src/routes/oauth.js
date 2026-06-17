@@ -141,7 +141,7 @@ async function processMicrosoftTokens(userId, tokens, { tenantId, clientId }) {
       displayName = payload.name || null;
     } catch (jwtErr) {
       console.error('Microsoft id_token validation failed:', jwtErr.message);
-      throw new Error('Could not validate Microsoft identity token — please try again');
+      throw new Error('Could not validate Microsoft identity token — please try again', { cause: jwtErr });
     }
   }
 

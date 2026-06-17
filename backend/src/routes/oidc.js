@@ -7,7 +7,7 @@ import { query, pool } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { decrypt, isEncrypted } from '../services/encryption.js';
 import { imapManager } from '../index.js';
-import { validateHostLiteral, validateHost } from '../services/hostValidation.js';
+import { validateHost } from '../services/hostValidation.js';
 import { logAuthEvent } from '../services/authEvents.js';
 
 // In-memory OIDC discovery cache keyed by issuerUrl
@@ -118,7 +118,7 @@ oidcApiRouter.get('/providers', async (req, res) => {
       'SELECT id, name, slug FROM oidc_providers WHERE enabled = true ORDER BY name ASC'
     );
     res.json({ providers: result.rows });
-  } catch (err) {
+  } catch {
     res.status(500).json({ error: 'Failed to load providers' });
   }
 });
@@ -136,7 +136,7 @@ oidcApiRouter.get('/identities', requireAuth, async (req, res) => {
       [req.session.userId]
     );
     res.json({ identities: result.rows });
-  } catch (err) {
+  } catch {
     res.status(500).json({ error: 'Failed to load identities' });
   }
 });
@@ -161,7 +161,7 @@ oidcApiRouter.delete('/identities/:id', requireAuth, async (req, res) => {
       [req.params.id, req.session.userId]
     );
     res.json({ ok: true });
-  } catch (err) {
+  } catch {
     res.status(500).json({ error: 'Failed to unlink identity' });
   }
 });

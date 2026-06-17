@@ -249,7 +249,7 @@ router.post('/invites', async (req, res) => {
           });
           fromHeader = `${cfg.fromName || 'MailFlow'} <${cfg.fromEmail || cfg.user}>`;
         }
-      } catch {}
+      } catch { /* fall through to personal account */ }
     }
 
     // 2. Fall back to admin's first SMTP-enabled personal account
@@ -368,7 +368,7 @@ router.post('/system-email', async (req, res) => {
     "SELECT value FROM system_settings WHERE key = 'system_email_config'"
   );
   if (existing.rows.length) {
-    try { existingPass = JSON.parse(existing.rows[0].value).pass; } catch {}
+    try { existingPass = JSON.parse(existing.rows[0].value).pass; } catch { /* keep existingPass null */ }
   }
 
   const encryptedPass = pass && pass !== '••••••••'

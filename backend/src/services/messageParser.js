@@ -114,7 +114,7 @@ function decodeBodyPart(buf, encoding, charset) {
   let rawBytes;
   if (enc === 'base64') {
     const b64 = buf.toString('ascii').replace(/\s/g, '');
-    try { rawBytes = Buffer.from(b64, 'base64'); } catch (_) { rawBytes = buf; }
+    try { rawBytes = Buffer.from(b64, 'base64'); } catch { rawBytes = buf; }
   } else if (enc === 'quoted-printable') {
     const cleaned = buf.toString('ascii').replace(/=\r\n/g, '').replace(/=\n/g, '');
     const bytes = [];
@@ -138,7 +138,7 @@ function decodeBodyPart(buf, encoding, charset) {
 
   try {
     return new TextDecoder(cs, { fatal: false }).decode(rawBytes);
-  } catch (_) {
+  } catch {
     return rawBytes.toString('utf8');
   }
 }
@@ -222,7 +222,7 @@ export async function parseMessage(msg) {
         }
 
         snippet = text.replace(/\s+/g, ' ').trim().substring(0, 200);
-      } catch (_) {}
+      } catch { /* leave snippet empty on parse failure */ }
     }
   }
 

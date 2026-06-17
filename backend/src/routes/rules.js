@@ -119,7 +119,7 @@ router.post('/run', async (req, res) => {
           if (Array.isArray(raw)) {
             toArr = raw.map(a => ({ email: a.address || a.email || '', name: a.name || '' }));
           }
-        } catch {}
+        } catch { /* malformed to_addresses — leave toArr empty */ }
         return {
           id: row.id,
           uid: row.uid,

@@ -89,7 +89,7 @@ function decodeBody(buf, encoding, charset) {
   if (enc === 'base64') {
     // base64 payload is 7-bit ASCII so toString('ascii') is safe here
     const b64 = (Buffer.isBuffer(buf) ? buf : Buffer.from(buf)).toString('ascii').replace(/\s/g, '');
-    try { rawBytes = Buffer.from(b64, 'base64'); } catch (_) { rawBytes = buf; }
+    try { rawBytes = Buffer.from(b64, 'base64'); } catch { rawBytes = buf; }
   } else if (enc === 'quoted-printable') {
     const qpStr = (Buffer.isBuffer(buf) ? buf : Buffer.from(buf)).toString('ascii');
     const cleaned = qpStr.replace(/=\r\n/g, '').replace(/=\n/g, '');
@@ -117,7 +117,7 @@ function decodeBody(buf, encoding, charset) {
   // fatal:false replaces unrecognised bytes with U+FFFD rather than throwing.
   try {
     return new TextDecoder(cs, { fatal: false }).decode(rawBytes);
-  } catch (_) {
+  } catch {
     return rawBytes.toString('utf8'); // unknown charset — best effort
   }
 }
@@ -773,7 +773,7 @@ export class ImapManager {
     if (timer) { clearTimeout(timer); this.syncIntervals.delete(accountId); }
     const client = this.connections.get(accountId);
     if (client) {
-      try { await client.logout(); } catch (_) {}
+      try { await client.logout(); } catch { /* already disconnected */ }
       this.connections.delete(accountId);
     }
     this.syncThrottleSkips.delete(accountId);
@@ -1338,7 +1338,7 @@ export class ImapManager {
 
     const openBfClient = async () => {
       // Always clean up any existing client before creating a new one
-      if (bfClient) { try { await bfClient.logout(); } catch (_) {} bfClient = null; }
+      if (bfClient) { try { await bfClient.logout(); } catch { /* already disconnected */ } bfClient = null; }
       const row = (await query('SELECT * FROM email_accounts WHERE id = $1', [account.id])).rows[0];
       if (!row) throw new Error('Account deleted');
       const fresh = await ensureFreshToken(row);
@@ -1643,7 +1643,7 @@ export class ImapManager {
           consecutiveErrors++;
           const detail = extractImapError(err);
           // Discard the broken connection — openBfClient will reconnect next iteration
-          if (bfClient) { try { await bfClient.logout(); } catch (_) {} bfClient = null; }
+          if (bfClient) { try { await bfClient.logout(); } catch { /* already disconnected */ } bfClient = null; }
           batchesOnConn = cfg.batchesPerConn; // force reconnect
 
           if (consecutiveErrors >= 3) {
@@ -1677,7 +1677,7 @@ export class ImapManager {
     } catch (err) {
       console.error(`Backfill failed for ${logAccount(account)}/${folder}:`, err.message);
     } finally {
-      if (bfClient) { try { await bfClient.logout(); } catch (_) {} }
+      if (bfClient) { try { await bfClient.logout(); } catch { /* already disconnected */ } }
       this.backfillRunning.delete(backfillKey);
     }
   }
@@ -1756,7 +1756,7 @@ export class ImapManager {
       logger.debug(`Snippet indexer: ${logAccount(account)} has ${totalMissing} messages without snippets`);
 
       const openClient = async () => {
-        if (siClient) { try { await siClient.logout(); } catch (_) {} siClient = null; }
+        if (siClient) { try { await siClient.logout(); } catch { /* already disconnected */ } siClient = null; }
         const row = (await query('SELECT * FROM email_accounts WHERE id = $1', [account.id])).rows[0];
         if (!row) throw new Error('Account deleted');
         const fresh = await ensureFreshToken(row);
@@ -1831,7 +1831,7 @@ export class ImapManager {
                       [sanitizeStr(parsed.snippet), account.id, msg.uid, folder]
                     );
                   }
-                } catch (_) {}
+                } catch { /* skip snippet on parse/update failure */ }
               }
             } finally {
               lock.release();
@@ -1861,7 +1861,7 @@ export class ImapManager {
     } catch (err) {
       console.error(`Snippet indexer error ${logAccount(account)}:`, err.message);
     } finally {
-      if (siClient) { try { await siClient.logout(); } catch (_) {} }
+      if (siClient) { try { await siClient.logout(); } catch { /* already disconnected */ } }
       this.snippetIndexerRunning.delete(account.id);
     }
   }
@@ -2012,7 +2012,7 @@ export class ImapManager {
     const doFetch = () => withFreshClient(account, async (client) => {
       let html = null;
       let text = null;
-      let attachments = [];
+      let attachments;
       // Always address by UID string with uid:true option — direct UID FETCH avoids
       // the two-step SEARCH+FETCH path that object-range syntax triggers, which can
       // silently return nothing on stale connections or when a server-side search
@@ -2047,7 +2047,7 @@ export class ImapManager {
                 }
               }
             }
-          } catch (_) {
+          } catch {
             structure = null;
             prefetched.clear();
             for await (const msg of client.fetch(uidStr, { uid: true, bodyStructure: true }, { uid: true })) {
@@ -2112,7 +2112,7 @@ export class ImapManager {
                 const v = msg.bodyParts?.get(part.part);
                 if (v && v.length > 0) prefetched.set(part.part, v);
               }
-            } catch (_) {} // don't let a single part failure block others
+            } catch { /* don't let a single part failure block others */ }
           }
         }
 
