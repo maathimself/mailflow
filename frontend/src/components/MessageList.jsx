@@ -1689,7 +1689,12 @@ export default function MessageList() {
     setSelectedMessage(message.id);
     listRef.current?.focus({ preventScroll: true });
     if (!message.is_read) {
-      updateMessage(message.id, { is_read: true });
+      // Pass unread_count alongside is_read: threaded rows render their unread state
+      // from unread_count, so a single-message ("header only") thread would otherwise
+      // stay bold until a refresh. handleSelect only runs for single messages, so 0 is
+      // correct here (multi-message threads go through expansion, not handleSelect).
+      const prevUnread = message.unread_count;
+      updateMessage(message.id, { is_read: true, unread_count: 0 });
       decrementUnread(message.account_id);
       setPending(message.id, message.account_id);
       api.bulkRead([message.id], true)
@@ -1700,7 +1705,7 @@ export default function MessageList() {
         })
         .catch(e => {
           console.error('markRead failed:', e.message);
-          updateMessage(message.id, { is_read: false });
+          updateMessage(message.id, { is_read: false, unread_count: prevUnread });
           incrementUnread(message.account_id);
           pendingMarkReadMap.delete(message.id);
         });
