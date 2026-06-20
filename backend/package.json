@@ -19,7 +19,7 @@
     "express-session": "^1.17.3",
     "imapflow": "^1.0.162",
     "jose": "^6.2.3",
-    "nodemailer": "^8.0.7",
+    "nodemailer": "^9.0.1",
     "otplib": "^12.0.1",
     "pg": "^8.11.3",
     "qrcode": "^1.5.3",
