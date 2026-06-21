@@ -1,0 +1,86 @@
+name: Update Sponsors
+
+on:
+  schedule:
+    - cron: '0 3 * * 0'   # weekly, Sunday 03:00 UTC
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch sponsors and update README
+        env:
+          SPONSORS_TOKEN: ${{ secrets.SPONSORS_TOKEN }}
+        run: |
+          node - <<'EOF'
+          import { readFileSync, writeFileSync } from 'fs';
+
+          const query = `
+            query {
+              user(login: "maathimself") {
+                sponsorshipsAsMaintainer(first: 100, includePrivate: false, activeOnly: true) {
+                  nodes {
+                    sponsorEntity {
+                      ... on User         { login avatarUrl(size: 64) url }
+                      ... on Organization { login avatarUrl(size: 64) url }
+                    }
+                  }
+                }
+              }
+            }
+          `;
+
+          const res = await fetch('https://api.github.com/graphql', {
+            method: 'POST',
+            headers: {
+              Authorization: `bearer ${process.env.SPONSORS_TOKEN}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ query }),
+          });
+
+          const { data, errors } = await res.json();
+          if (errors) { console.error(errors); process.exit(1); }
+
+          const sponsors = data.user.sponsorshipsAsMaintainer.nodes
+            .map(n => n.sponsorEntity)
+            .filter(Boolean);
+
+          let section;
+          if (sponsors.length === 0) {
+            section = '_No sponsors yet — be the first!_';
+          } else {
+            section = sponsors
+              .map(s => `<a href="${s.url}" title="${s.login}"><img src="${s.avatarUrl}" width="48" height="48" alt="${s.login}" style="border-radius:50%;margin:4px"></a>`)
+              .join('\n');
+          }
+
+          const readme = readFileSync('README.md', 'utf8');
+          const updated = readme.replace(
+            /<!-- SPONSORS-START -->[\s\S]*?<!-- SPONSORS-END -->/,
+            `<!-- SPONSORS-START -->\n${section}\n<!-- SPONSORS-END -->`
+          );
+
+          if (updated === readme) {
+            console.log('No changes.');
+          } else {
+            writeFileSync('README.md', updated);
+            console.log(`Updated: ${sponsors.length} sponsor(s).`);
+          }
+          EOF
+
+      - name: Commit if changed
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git diff --quiet README.md || (
+            git add README.md &&
+            git commit -m "chore: update sponsors list"
+          )
+          git push

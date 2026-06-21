@@ -499,6 +499,20 @@ nginx  (frontend container — internal only)
   └── backend, PostgreSQL, Redis (internal network, unchanged)
 ```
 
+## Supporters
+
+MailFlow is free and open source. If it's useful to you, consider supporting development:
+
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-Support_MailFlow-FF5E5B?logo=ko-fi&logoColor=white&style=for-the-badge)](https://ko-fi.com/mailflow)
+[![GitHub Sponsors](https://img.shields.io/badge/GitHub_Sponsors-Sponsor-ea4aaa?logo=github-sponsors&logoColor=white&style=for-the-badge)](https://github.com/sponsors/maathimself)
+
+### GitHub Sponsors
+
+<!-- SPONSORS-START -->
+<!-- SPONSORS-END -->
+
+---
+
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=maathimself/mailflow&type=Date)](https://star-history.com/#maathimself/mailflow&Date)
