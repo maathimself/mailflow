@@ -74,6 +74,13 @@ jobs:
             `<!-- SPONSORS-START -->\n${section}\n<!-- SPONSORS-END -->`
           );
 
+          const json = JSON.stringify(sponsors.map(s => ({
+            login: s.login,
+            avatarUrl: s.avatarUrl,
+            url: s.url,
+          })), null, 2);
+          writeFileSync('sponsors.json', json);
+
           if (updated === readme) {
             console.log('No changes.');
           } else {
@@ -86,8 +93,8 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git diff --quiet README.md || (
-            git add README.md &&
+          git diff --quiet README.md sponsors.json || (
+            git add README.md sponsors.json &&
             git commit -m "chore: update sponsors list" &&
             git push
           )
