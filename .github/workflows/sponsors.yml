@@ -13,6 +13,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.SPONSORS_TOKEN }}
 
       - name: Fetch sponsors and update README
         env:
