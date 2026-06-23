@@ -2,14 +2,16 @@
   <img src="media/mailflow-logo.png" width="200" alt="MailFlow Logo">
 </p>
 
-# MailFlow
+<p align="center">
+  A self-hosted, unified webmail client. Connect multiple IMAP/SMTP accounts and manage them all in one clean interface.
+</p>
 
-A self-hosted, unified webmail client. Connect multiple IMAP/SMTP accounts (Gmail, iCloud,
-Outlook, custom) and read them all in one clean interface.
-
-Please open an issue [here](https://github.com/maathimself/mailflow/issues) if you encounter
-a problem. See the [Security Notes](https://github.com/maathimself/mailflow/tree/main?tab=readme-ov-file#security-notes)
-section before deploying.
+<p align="center">
+  <a href="#installation">Quick Start</a> ·
+  <a href="#email-provider-setup">Setup Guide</a> ·
+  <a href="CONTRIBUTING.md">Contributing</a> ·
+  <a href="https://github.com/maathimself/mailflow/issues">Roadmap</a>
+</p>
 
 ## Licensing
 
