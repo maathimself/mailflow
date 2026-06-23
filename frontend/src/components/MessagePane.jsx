@@ -6,7 +6,7 @@ import { format } from 'date-fns';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { getEffectiveShortcuts, parseModKey, modCompactLabel } from '../utils/defaultShortcuts.js';
 import { useMobile } from '../hooks/useMobile.js';
-import { clearDeleteGuard, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.js';
+import { clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
 import { senderColor } from '../themes.js';
 import MessageHeaderModal from './MessageHeaderModal.jsx';
@@ -860,16 +860,35 @@ ${bodyContent}
     );
   }
 
-  const handleDelete = async () => {
-    setPendingDelete(message.id);
-    try {
-      await api.deleteMessage(message.id);
-      setCompletedDelete(message.id);
-      removeMessage(message.id);
-    } catch (err) {
-      clearDeleteGuard(message.id);
-      console.error(err);
-    }
+  const handleDelete = () => {
+    const deleted = message;
+    setPendingDelete(deleted.id);
+    removeMessage(deleted.id);
+    if (!deleted.is_read) decrementUnread(deleted.account_id);
+    let undone = false;
+    const timer = setTimeout(async () => {
+      if (undone) return;
+      try {
+        await api.deleteMessage(deleted.id);
+        setCompletedDelete(deleted.id);
+      } catch {
+        clearDeleteGuard(deleted.id);
+        useStore.getState().restoreMessages([deleted]);
+        if (!deleted.is_read) incrementUnread(deleted.account_id);
+        addNotification({ type: 'error', title: t('messageList.deleted.failTitle'), body: t('messageList.deleted.failBody') });
+      }
+    }, 4500);
+    addNotification({
+      title: t('messageList.deleted.title'),
+      body: t('messageList.deleted.body'),
+      onUndo: () => {
+        undone = true;
+        clearTimeout(timer);
+        clearPendingDelete(deleted.id);
+        useStore.getState().restoreMessages([deleted]);
+        if (!deleted.is_read) incrementUnread(deleted.account_id);
+      },
+    });
   };
 
   const handleArchive = () => {
