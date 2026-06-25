@@ -1,6 +1,6 @@
 import { ImapFlow } from 'imapflow';
 import { query } from './db.js';
-import { parseMessage, buildSnippetFromHtml } from './messageParser.js';
+import { parseMessage, snippetFromBody } from './messageParser.js';
 import { refreshMicrosoftToken } from '../routes/oauth.js';
 import { sanitizeEmail } from './emailSanitizer.js';
 import { logger } from './logger.js';
@@ -1947,15 +1947,7 @@ export class ImapManager {
         );
         const safeHtml = html ? sanitizeEmail(html) : null;
         if (safeHtml || text) {
-          // Build a snippet for the list preview.
-          let snip = '';
-          if (text) {
-            snip = text.replace(/\s+/g, ' ').trim().substring(0, 200);
-          } else if (safeHtml || html) {
-            // Prefer sanitized HTML — it has comments and template markers already
-            // removed by sanitizeEmail(), so the snippet is cleaner.
-            snip = buildSnippetFromHtml(safeHtml || html);
-          }
+          const snip = snippetFromBody(text, safeHtml || html);
           await query(
             `UPDATE messages
              SET body_html = $1, body_text = $2, attachments = $3,
@@ -2006,12 +1998,7 @@ export class ImapManager {
         const { html, text, attachments } = await this.fetchMessageBody(account, msg.uid, msg.folder);
         const safeHtml = html ? sanitizeEmail(html) : null;
         if (safeHtml || text) {
-          let snip = '';
-          if (text) {
-            snip = text.replace(/\s+/g, ' ').trim().substring(0, 200);
-          } else if (safeHtml || html) {
-            snip = buildSnippetFromHtml(safeHtml || html);
-          }
+          const snip = snippetFromBody(text, safeHtml || html);
           await query(
             `UPDATE messages
              SET body_html = $1, body_text = $2, attachments = $3,

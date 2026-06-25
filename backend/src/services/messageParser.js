@@ -43,6 +43,27 @@ export function decodeNamedEntity(_, name) {
   return v !== undefined ? v : ' ';
 }
 
+// Build a plain-text snippet from either a decoded text/plain or text/html body.
+// Single canonical function used by all snippet-generation paths (IMAP sync,
+// body prefetch, backfill) so entity handling is identical everywhere.
+export function snippetFromBody(text, html) {
+  if (text) {
+    return text
+      // Strip Markdown-style [label](url) links — ESPs like Klaviyo generate text/plain
+      // by converting HTML anchors to Markdown, so the entire body can be link syntax.
+      .replace(/\[([^\]\r\n]*)\]\([^)\r\n]*\)/g, '$1')
+      .replace(/&#x([0-9A-Fa-f]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+      .replace(/&#([0-9]+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
+      .replace(/&([a-z][a-z0-9]*);/gi, decodeNamedEntity)
+      .replace(INVISIBLE_CHARS_RE, '')
+      .replace(/\s+/g, ' ').trim().substring(0, 200);
+  }
+  if (html) {
+    return buildSnippetFromHtml(html);
+  }
+  return '';
+}
+
 // Strip HTML markup and decode all entities to produce a plain-text snippet.
 // Exported so imapManager can use the same logic when building snippets from
 // pre-fetched raw HTML bodies (avoiding duplicated, inconsistent entity handling).
@@ -212,9 +233,10 @@ export async function parseMessage(msg) {
         if (isHtml) {
           text = buildSnippetFromHtml(text);
         } else {
-          // Plain-text parts: some senders embed HTML entities (&zwnj;, &#847;, etc.)
-          // as preheader fillers; decode numeric entities then strip invisible chars.
+          // Plain-text parts: strip Markdown links and decode HTML entities embedded
+          // by some senders (&zwnj;, &#847;, etc.) as preheader fillers.
           text = text
+            .replace(/\[([^\]\r\n]*)\]\([^)\r\n]*\)/g, '$1')
             .replace(/&#x([0-9A-Fa-f]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
             .replace(/&#([0-9]+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
             .replace(/&([a-z][a-z0-9]*);/gi, decodeNamedEntity)

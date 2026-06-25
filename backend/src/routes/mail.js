@@ -6,7 +6,7 @@ import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { imapManager } from '../index.js';
 import { sanitizeEmail, stripEmailHead, hasRemoteImages, blockRemoteImages, rewriteEbayImageserUrls, rewriteAnchorHrefs } from '../services/emailSanitizer.js';
-import { buildSnippetFromHtml, decodeNamedEntity, INVISIBLE_CHARS_RE } from '../services/messageParser.js';
+import { snippetFromBody } from '../services/messageParser.js';
 import { resolveTrashFolder, resolveAllTrashPaths, resolveAllDraftsPaths, resolveArchiveFolder, getDeleteStrategy, adjustFolderCounts } from '../utils/mailUtils.js';
 import { listMessages } from '../services/messageService.js';
 
@@ -66,29 +66,13 @@ async function runInBatches(items, concurrency, fn) {
 //   - ##marker## — unexpanded template placeholders (UPS, Epsilon marketing mail)
 //   - --> — dangling HTML comment end leaked by comment-stripping gap
 function snippetIsGarbled(s) {
-  return s && (/&[a-z][a-z0-9]*;/i.test(s) || /##[^#]*##/.test(s) || /-->/.test(s));
+  return s && (
+    /&[a-z][a-z0-9]*;/i.test(s) ||   // undecoded HTML entity
+    /##[^#]*##/.test(s) ||             // unexpanded template placeholder
+    /-->/.test(s) ||                   // dangling HTML comment fragment
+    /\[[^\]]+\]\(https?:\/\//.test(s)  // Markdown link syntax from ESP text/plain generators
+  );
 }
-
-// Extract a plain-text snippet from a message body for list previews.
-// Delegates to the shared buildSnippetFromHtml for HTML bodies so both the
-// sync path (messageParser) and the backfill/repair path (here) produce
-// identical quality snippets.
-function snippetFromBody(text, html) {
-  if (text) {
-    // Some senders embed HTML entities in text/plain parts as preheader fillers.
-    return text
-      .replace(/&#x([0-9A-Fa-f]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
-      .replace(/&#([0-9]+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
-      .replace(/&([a-z][a-z0-9]*);/gi, decodeNamedEntity)
-      .replace(INVISIBLE_CHARS_RE, '')
-      .replace(/\s+/g, ' ').trim().substring(0, 200);
-  }
-  if (html) {
-    return buildSnippetFromHtml(html);
-  }
-  return '';
-}
-
 
 // Get messages (unified or per-account/folder)
 router.get('/messages', async (req, res) => {
