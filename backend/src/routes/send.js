@@ -39,10 +39,12 @@ function sanitizeSmtpError(err) {
 }
 
 // Extract name and email from an RFC 5322 address string.
-// Handles "Name <email>", "Name<email>", and bare "email" forms.
+// Handles "Name <email>", "Name<email>", bare "<email>", and bare "email" forms.
 function parseAddress(str) {
   const m = str.match(/^(.+?)\s*<([^>]+)>\s*$/);
   if (m) return { name: m[1].trim().replace(/^"|"$/g, '').trim(), email: m[2].trim().toLowerCase() };
+  const bare = str.match(/^\s*<([^>]+)>\s*$/);
+  if (bare) return { name: '', email: bare[1].trim().toLowerCase() };
   return { name: '', email: str.trim().toLowerCase() };
 }
 
