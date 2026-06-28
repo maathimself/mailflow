@@ -32,20 +32,14 @@ jobs:
           }
 
           def api(method, path, body=None):
-            url = f'{PLANKA_URL}/api{path}'
-            print(f'  {method} {url}')
             req = urllib.request.Request(
-              url,
+              f'{PLANKA_URL}/api{path}',
               data=json.dumps(body).encode() if body else None,
               headers={'Authorization': f'Bearer {TOKEN}', 'Content-Type': 'application/json'},
               method=method,
             )
-            try:
-              with urllib.request.urlopen(req) as r:
-                return json.loads(r.read())
-            except urllib.error.HTTPError as e:
-              print(f'  ERROR {e.code}: {e.read().decode()}')
-              raise
+            with urllib.request.urlopen(req) as r:
+              return json.loads(r.read())
 
           number = os.environ['ISSUE_NUMBER']
           title  = os.environ['ISSUE_TITLE']
@@ -66,7 +60,7 @@ jobs:
             label_name = label.get('name', '').lower()
             planka_label_id = LABEL_MAP.get(label_name)
             if planka_label_id:
-              api('POST', f'/cards/{card_id}/labels', {'labelId': planka_label_id})
+              api('POST', f'/cards/{card_id}/card-labels', {'labelId': planka_label_id})
 
           print(f'Created Planka card for issue #{number}: {title}')
           PYEOF
