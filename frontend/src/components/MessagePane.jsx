@@ -138,7 +138,9 @@ export default function MessagePane() {
   const [showMovePicker, setShowMovePicker] = useState(false);
   const [movePickerFolders, setMovePickerFolders] = useState([]);
   const [movePickerLoading, setMovePickerLoading] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
   const moveBtnRef = useRef(null);
+  const moreMenuRef = useRef(null);
   const scrollContainerRef = useRef(null);
   const iframeRef = useRef(null);
   const roRef = useRef(null);
@@ -785,6 +787,7 @@ ${bodyContent}
   useEffect(() => {
     setShowMovePicker(false);
     setShowHeaderModal(false);
+    setShowMoreMenu(false);
   }, [selectedMessageId]);
 
   useEffect(() => {
@@ -797,6 +800,17 @@ ${bodyContent}
     document.addEventListener('pointerdown', onPointer);
     return () => document.removeEventListener('pointerdown', onPointer);
   }, [showMovePicker]);
+
+  useEffect(() => {
+    if (!showMoreMenu) return;
+    const onPointer = (e) => {
+      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target)) {
+        setShowMoreMenu(false);
+      }
+    };
+    document.addEventListener('pointerdown', onPointer);
+    return () => document.removeEventListener('pointerdown', onPointer);
+  }, [showMoreMenu]);
 
   const recentForMove = message
     ? recentFolders
@@ -1240,22 +1254,67 @@ ${bodyContent}
 
         <div style={{ flex: 1 }} />
 
-        <PaneBtn onClick={() => setShowHeaderModal(true)} title={t('contextMenu.viewHeaders')}>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-            <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
-            <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
-          </svg>
-        </PaneBtn>
-
-        <PaneBtn onClick={handlePrint} title={isMobile ? t('message.print') : `${t('message.print')}${shortcutLabel('printMessage') ? ` (${shortcutLabel('printMessage')})` : ''}`}>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-            <polyline points="6 9 6 2 18 2 18 9"/>
-            <path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/>
-            <rect x="6" y="14" width="12" height="8"/>
-          </svg>
-          {!isMobile && t('message.print')}
-          {!isMobile && shortcutLabel('printMessage') && <kbd style={{ fontSize: 11, padding: '1px 5px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>{shortcutLabel('printMessage')}</kbd>}
-        </PaneBtn>
+        {isMobile ? (
+          <div style={{ position: 'relative' }} ref={moreMenuRef}>
+            <PaneBtn onClick={() => setShowMoreMenu(v => !v)} title={t('message.more')}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                <circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>
+              </svg>
+            </PaneBtn>
+            {showMoreMenu && (
+              <div style={{
+                position: 'absolute', top: '100%', right: 0, marginTop: 4,
+                background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                borderRadius: 8, overflow: 'hidden', zIndex: 100,
+                boxShadow: '0 4px 20px rgba(0,0,0,0.4)', minWidth: 190,
+              }}>
+                <div
+                  onClick={() => { setShowHeaderModal(true); setShowMoreMenu(false); }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+                    <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
+                    <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+                  </svg>
+                  {t('contextMenu.viewHeaders')}
+                </div>
+                <div
+                  onClick={() => { handlePrint(); setShowMoreMenu(false); }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)' }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+                    <polyline points="6 9 6 2 18 2 18 9"/>
+                    <path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/>
+                    <rect x="6" y="14" width="12" height="8"/>
+                  </svg>
+                  {t('message.print')}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <>
+            <PaneBtn onClick={() => setShowHeaderModal(true)} title={t('contextMenu.viewHeaders')}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+                <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
+                <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+              </svg>
+            </PaneBtn>
+            <PaneBtn onClick={handlePrint} title={`${t('message.print')}${shortcutLabel('printMessage') ? ` (${shortcutLabel('printMessage')})` : ''}`}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+                <polyline points="6 9 6 2 18 2 18 9"/>
+                <path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/>
+                <rect x="6" y="14" width="12" height="8"/>
+              </svg>
+              {t('message.print')}
+              {shortcutLabel('printMessage') && <kbd style={{ fontSize: 11, padding: '1px 5px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>{shortcutLabel('printMessage')}</kbd>}
+            </PaneBtn>
+          </>
+        )}
 
         <PaneBtn onClick={handleStarToggle} title={t('message.star')}>
           <svg width="15" height="15" viewBox="0 0 24 24"
