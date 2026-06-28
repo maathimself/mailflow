@@ -48,7 +48,7 @@ jobs:
           labels = json.loads(os.environ.get('ISSUE_LABELS', '[]'))
 
           card_name = f'#{number}: {title}'
-          card = api('POST', '/cards', {'listId': BACKLOG_LIST_ID, 'name': card_name, 'type': 'story'})
+          card = api('POST', f'/lists/{BACKLOG_LIST_ID}/cards', {'name': card_name, 'type': 'story', 'position': 65535})
           card_id = card['item']['id']
 
           description = f'**GitHub**: {url}'
