@@ -32,14 +32,20 @@ jobs:
           }
 
           def api(method, path, body=None):
+            url = f'{PLANKA_URL}/api{path}'
+            print(f'  {method} {url}')
             req = urllib.request.Request(
-              f'{PLANKA_URL}/api{path}',
+              url,
               data=json.dumps(body).encode() if body else None,
               headers={'Authorization': f'Bearer {TOKEN}', 'Content-Type': 'application/json'},
               method=method,
             )
-            with urllib.request.urlopen(req) as r:
-              return json.loads(r.read())
+            try:
+              with urllib.request.urlopen(req) as r:
+                return json.loads(r.read())
+            except urllib.error.HTTPError as e:
+              print(f'  ERROR {e.code}: {e.read().decode()}')
+              raise
 
           number = os.environ['ISSUE_NUMBER']
           title  = os.environ['ISSUE_TITLE']
