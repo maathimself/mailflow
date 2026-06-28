@@ -913,37 +913,43 @@ export default function ComposeModal() {
               inputStyle={mobileInputStyle}
               getSuggestions={getSuggestions}
             />
-            {(!showCc || !showBcc) && (
-              <div style={{ display: 'flex', flexShrink: 0 }}>
-                {!showCc && (
-                  <button
-                    onClick={() => setShowCc(true)}
-                    style={{
-                      background: 'none', border: 'none',
-                      color: 'var(--text-tertiary)', cursor: 'pointer',
-                      fontSize: 13, padding: '10px 0 4px 8px',
-                      WebkitTapHighlightColor: 'transparent',
-                    }}
-                  >
-                    {t('compose.cc')}
-                  </button>
-                )}
-                {!showBcc && (
-                  <button
-                    onClick={() => setShowBcc(true)}
-                    style={{
-                      background: 'none', border: 'none',
-                      color: 'var(--text-tertiary)', cursor: 'pointer',
-                      fontSize: 13, padding: '10px 0 4px 8px',
-                      WebkitTapHighlightColor: 'transparent',
-                    }}
-                  >
-                    {t('compose.bcc')}
-                  </button>
-                )}
-              </div>
-            )}
           </div>
+
+          {/* Cc/Bcc toggle row */}
+          {(!showCc || !showBcc) && (
+            <div style={{
+              display: 'flex', justifyContent: 'flex-end',
+              borderBottom: '1px solid var(--border-subtle)',
+              padding: '0 16px', flexShrink: 0,
+            }}>
+              {!showCc && (
+                <button
+                  onClick={() => setShowCc(true)}
+                  style={{
+                    background: 'none', border: 'none',
+                    color: 'var(--text-tertiary)', cursor: 'pointer',
+                    fontSize: 13, padding: '8px 0 8px 16px',
+                    WebkitTapHighlightColor: 'transparent',
+                  }}
+                >
+                  {t('compose.cc')}
+                </button>
+              )}
+              {!showBcc && (
+                <button
+                  onClick={() => setShowBcc(true)}
+                  style={{
+                    background: 'none', border: 'none',
+                    color: 'var(--text-tertiary)', cursor: 'pointer',
+                    fontSize: 13, padding: '8px 0 8px 16px',
+                    WebkitTapHighlightColor: 'transparent',
+                  }}
+                >
+                  {t('compose.bcc')}
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Cc */}
           {showCc && (
