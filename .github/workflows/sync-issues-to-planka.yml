@@ -1,0 +1,66 @@
+name: Sync new issues to Planka
+
+on:
+  issues:
+    types: [opened, reopened]
+
+jobs:
+  sync:
+    runs-on: self-hosted
+    steps:
+      - name: Create Planka card
+        env:
+          PLANKA_TOKEN: ${{ secrets.PLANKA_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body || '' }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+          ISSUE_LABELS: ${{ toJson(github.event.issue.labels) }}
+        run: |
+          python3 - << 'PYEOF'
+          import os, json, urllib.request, urllib.parse
+
+          PLANKA_URL = 'http://localhost:3000'
+          TOKEN = os.environ['PLANKA_TOKEN']
+          BACKLOG_LIST_ID = '1807603656845952025'
+
+          LABEL_MAP = {
+            'bug':           '1807603998396515365',
+            'enhancement':   '1807603998723671078',
+            'chore':         '1807603999134712871',
+            'documentation': '1807603999587697704',
+          }
+
+          def api(method, path, body=None):
+            req = urllib.request.Request(
+              f'{PLANKA_URL}/api{path}',
+              data=json.dumps(body).encode() if body else None,
+              headers={'Authorization': f'Bearer {TOKEN}', 'Content-Type': 'application/json'},
+              method=method,
+            )
+            with urllib.request.urlopen(req) as r:
+              return json.loads(r.read())
+
+          number = os.environ['ISSUE_NUMBER']
+          title  = os.environ['ISSUE_TITLE']
+          body   = os.environ.get('ISSUE_BODY', '')
+          url    = os.environ['ISSUE_URL']
+          labels = json.loads(os.environ.get('ISSUE_LABELS', '[]'))
+
+          card_name = f'#{number}: {title}'
+          card = api('POST', '/cards', {'listId': BACKLOG_LIST_ID, 'name': card_name, 'type': 'story'})
+          card_id = card['item']['id']
+
+          description = f'**GitHub**: {url}'
+          if body.strip():
+            description += f'\n\n{body}'
+          api('PATCH', f'/cards/{card_id}', {'description': description})
+
+          for label in labels:
+            label_name = label.get('name', '').lower()
+            planka_label_id = LABEL_MAP.get(label_name)
+            if planka_label_id:
+              api('POST', f'/cards/{card_id}/labels', {'labelId': planka_label_id})
+
+          print(f'Created Planka card for issue #{number}: {title}')
+          PYEOF
