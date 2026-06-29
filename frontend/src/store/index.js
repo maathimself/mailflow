@@ -82,9 +82,27 @@ export const useStore = create((set, get) => ({
   appendMessages: (newMessages) => set(state => ({
     messages: [...state.messages, ...newMessages]
   })),
-  updateMessage: (id, updates) => set(state => ({
-    messages: state.messages.map(m => m.id === id ? { ...m, ...updates } : m)
-  })),
+  updateMessage: (id, updates) => set(state => {
+    const apply = (m) => m.id === id ? { ...m, ...updates } : m;
+    const threadMessages = Object.fromEntries(
+      Object.entries(state.threadMessages).map(([tid, msgs]) => [tid, msgs.map(apply)])
+    );
+    // Resync the parent thread row's aggregate read state only when a sub-message was
+    // updated. Sub-messages live exclusively in threadMessages, not in the main list.
+    // Resyncing on direct thread-row updates would read stale sub-messages and revert
+    // keyboard mark-read and setMessagesReadState changes.
+    const inMainList = state.messages.some(m => m.id === id);
+    const messages = state.messages.map(m => {
+      const updated = apply(m);
+      if (inMainList) return updated;
+      const tid = m.thread_id || m.id;
+      const subs = threadMessages[tid];
+      if (!subs) return updated;
+      const unread_count = subs.filter(s => !s.is_read).length;
+      return { ...updated, unread_count, is_read: unread_count === 0 };
+    });
+    return { messages, searchResults: state.searchResults.map(apply), threadMessages };
+  }),
   removeMessage: (id) => set(state => ({
     messages: state.messages.filter(m => m.id !== id),
     searchResults: state.searchResults.filter(m => m.id !== id),
