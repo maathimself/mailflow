@@ -111,8 +111,18 @@ export default function MailApp() {
 
   useEffect(() => {
     if (!isMobile) return;
+    // In standalone PWA mode (iOS home-screen install), push a guard entry on
+    // startup so there is always at least one history entry above the baseline.
+    // The handler re-pushes it after every popstate so back swipes always land
+    // inside the app rather than exiting the PWA and showing a blank Safari page.
+    if (window.navigator.standalone) {
+      history.pushState({ mailflow: 'guard' }, '', '/');
+    }
     const handler = () => {
       if (selectedMessageIdRef.current) setSelectedMessage(null);
+      if (window.navigator.standalone) {
+        history.pushState({ mailflow: 'guard' }, '', '/');
+      }
     };
     window.addEventListener('popstate', handler);
     return () => window.removeEventListener('popstate', handler);
