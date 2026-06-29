@@ -103,7 +103,9 @@ router.use(requireAuth);
 
 
 router.post('/send', async (req, res) => {
-  const { accountId, aliasId, to, cc = [], bcc = [], subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, inReplyTo, references, attachments, editedSignature, forwardedAttachments } = req.body;
+  const { accountId, aliasId, to, cc = [], bcc = [], subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, inReplyTo, references, attachments, editedSignature, forwardedAttachments, priority } = req.body;
+  const VALID_PRIORITIES = new Set(['high', 'normal', 'low']);
+  const emailPriority = VALID_PRIORITIES.has(priority) ? priority : 'normal';
   if (!accountId || !to?.length) return res.status(400).json({ error: 'accountId and to required' });
 
   if (attachments !== undefined) {
@@ -269,6 +271,7 @@ router.post('/send', async (req, res) => {
       cc: normalizedCc.join(', ') || undefined,
       bcc: normalizedBcc.join(', ') || undefined,
       subject: normalizedSubject,
+      ...(emailPriority !== 'normal' ? { priority: emailPriority } : {}),
       text: effectiveSignature
         ? bodyToPlain(body, bodyIsHtml) + '\n\n-- \n' + sigToPlainText(effectiveSignature) + (quotedBody || '')
         : bodyToPlain(body, bodyIsHtml) + (quotedBody || ''),

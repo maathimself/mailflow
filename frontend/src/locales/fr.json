@@ -109,7 +109,11 @@
       "insertTable": "Insérer un tableau",
       "highlight": "Couleur de surlignage",
       "removeHighlight": "Supprimer le surlignage"
-    }
+    },
+    "priority": "Priorité",
+    "priorityHigh": "Haute priorité",
+    "priorityNormal": "Normal",
+    "priorityLow": "Basse priorité"
   },
   "message": {
     "selectToRead": "Sélectionnez un message à lire",

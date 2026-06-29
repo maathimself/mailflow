@@ -109,7 +109,11 @@
       "insertTable": "Insertar tabla",
       "highlight": "Color de resaltado",
       "removeHighlight": "Quitar resaltado"
-    }
+    },
+    "priority": "Prioridad",
+    "priorityHigh": "Alta prioridad",
+    "priorityNormal": "Normal",
+    "priorityLow": "Baja prioridad"
   },
   "message": {
     "selectToRead": "Selecciona un mensaje para leer",

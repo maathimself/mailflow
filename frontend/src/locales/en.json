@@ -109,7 +109,11 @@
       "insertTable": "Insert table",
       "highlight": "Highlight color",
       "removeHighlight": "Remove highlight"
-    }
+    },
+    "priority": "Priority",
+    "priorityHigh": "High priority",
+    "priorityNormal": "Normal",
+    "priorityLow": "Low priority"
   },
   "message": {
     "selectToRead": "Select a message to read",

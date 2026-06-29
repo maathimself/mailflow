@@ -109,7 +109,11 @@
       "insertTable": "Вставить таблицу",
       "highlight": "Цвет выделения",
       "removeHighlight": "Убрать выделение"
-    }
+    },
+    "priority": "Приоритет",
+    "priorityHigh": "Высокий приоритет",
+    "priorityNormal": "Обычный",
+    "priorityLow": "Низкий приоритет"
   },
   "message": {
     "selectToRead": "Выберите сообщение для чтения",

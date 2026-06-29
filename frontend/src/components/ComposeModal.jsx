@@ -179,6 +179,7 @@ export default function ComposeModal() {
   const [replyAll, setReplyAll] = useState(() => !!composeData?.isReplyAll);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
+  const [priority, setPriority] = useState('normal');
   const [minimized, setMinimized] = useState(false);
   const [maximized, setMaximized] = useState(false);
   const [pos, setPos] = useState(null);
@@ -581,6 +582,7 @@ export default function ComposeModal() {
           : {}),
         inReplyTo: composeData?.inReplyTo,
         references: composeData?.references || undefined,
+        ...(priority !== 'normal' ? { priority } : {}),
         ...(attachments.length ? {
           attachments: attachments.map(a => ({
             filename: a.name,
@@ -988,6 +990,23 @@ export default function ComposeModal() {
               placeholder={t('compose.subject')}
               style={mobileInputStyle}
             />
+          </div>
+
+          {/* Priority */}
+          <div style={fieldStyle}>
+            <span style={labelStyle}>{t('compose.priority')}</span>
+            <select
+              value={priority}
+              onChange={e => setPriority(e.target.value)}
+              style={{
+                ...mobileInputStyle, cursor: 'pointer',
+                color: priority === 'high' ? 'var(--red)' : priority === 'low' ? 'var(--text-tertiary)' : 'var(--text-primary)',
+              }}
+            >
+              <option value="high">{t('compose.priorityHigh')}</option>
+              <option value="normal">{t('compose.priorityNormal')}</option>
+              <option value="low">{t('compose.priorityLow')}</option>
+            </select>
           </div>
 
           {/* Body */}
@@ -1674,10 +1693,27 @@ export default function ComposeModal() {
 
         {error && <span style={{ fontSize: 12, color: 'var(--red)', flex: 1 }}>{error}</span>}
 
+        <select
+          value={priority}
+          onChange={e => setPriority(e.target.value)}
+          title={t('compose.priority')}
+          style={{
+            marginLeft: 'auto',
+            background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+            borderRadius: 4, fontSize: 11, padding: '2px 4px',
+            cursor: 'pointer', outline: 'none',
+            color: priority === 'high' ? 'var(--red)' : priority === 'low' ? 'var(--text-tertiary)' : 'var(--text-secondary)',
+          }}
+        >
+          <option value="high">{t('compose.priorityHigh')}</option>
+          <option value="normal">{t('compose.priorityNormal')}</option>
+          <option value="low">{t('compose.priorityLow')}</option>
+        </select>
+
         <button
           onClick={handleSaveDraft}
           disabled={savingDraft}
-          style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: savingDraft ? 'default' : 'pointer', fontSize: 12, padding: '4px 8px' }}
+          style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: savingDraft ? 'default' : 'pointer', fontSize: 12, padding: '4px 8px' }}
         >
           {savingDraft ? t('compose.savingDraft') : t('compose.saveDraft')}
         </button>
@@ -1890,14 +1926,31 @@ const FONT_SIZES = [
   { label: '36', value: '36px' },
 ];
 
-const FONTS = [
-  { label: 'Default', value: '' },
-  { label: 'Arial', value: 'Arial, Helvetica, sans-serif' },
-  { label: 'Georgia', value: 'Georgia, serif' },
-  { label: 'Times New Roman', value: '"Times New Roman", Times, serif' },
-  { label: 'Courier New', value: '"Courier New", Courier, monospace' },
-  { label: 'Verdana', value: 'Verdana, Geneva, sans-serif' },
-  { label: 'Trebuchet MS', value: '"Trebuchet MS", Helvetica, sans-serif' },
+const FONT_GROUPS = [
+  { label: 'Sans-serif', fonts: [
+    { label: 'Arial', value: 'Arial, Helvetica, sans-serif' },
+    { label: 'Calibri', value: 'Calibri, Candara, "Segoe UI", sans-serif' },
+    { label: 'Helvetica Neue', value: '"Helvetica Neue", Helvetica, Arial, sans-serif' },
+    { label: 'Optima', value: 'Optima, Candara, "Noto Sans", sans-serif' },
+    { label: 'Segoe UI', value: '"Segoe UI", system-ui, sans-serif' },
+    { label: 'Tahoma', value: 'Tahoma, Geneva, sans-serif' },
+    { label: 'Trebuchet MS', value: '"Trebuchet MS", Helvetica, sans-serif' },
+    { label: 'Verdana', value: 'Verdana, Geneva, sans-serif' },
+  ]},
+  { label: 'Serif', fonts: [
+    { label: 'Garamond', value: 'Garamond, "Times New Roman", serif' },
+    { label: 'Georgia', value: 'Georgia, serif' },
+    { label: 'Palatino', value: '"Palatino Linotype", "Book Antiqua", Palatino, serif' },
+    { label: 'Times New Roman', value: '"Times New Roman", Times, serif' },
+  ]},
+  { label: 'Monospace', fonts: [
+    { label: 'Consolas', value: 'Consolas, "Courier New", monospace' },
+    { label: 'Courier New', value: '"Courier New", Courier, monospace' },
+  ]},
+  { label: 'Display', fonts: [
+    { label: 'Comic Sans MS', value: '"Comic Sans MS", "Comic Sans", cursive' },
+    { label: 'Impact', value: 'Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif' },
+  ]},
 ];
 
 // Defined at module level so React never remounts it due to reference change
@@ -2094,7 +2147,12 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml }
             padding: '2px 4px', cursor: 'pointer', outline: 'none', maxWidth: 100,
           }}
         >
-          {FONTS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+          <option value="">Default</option>
+          {FONT_GROUPS.map(g => (
+            <optgroup key={g.label} label={g.label}>
+              {g.fonts.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+            </optgroup>
+          ))}
         </select>
 
         {/* Font size picker */}

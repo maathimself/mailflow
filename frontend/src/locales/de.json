@@ -109,7 +109,11 @@
       "insertTable": "Tabelle einfügen",
       "highlight": "Hervorhebungsfarbe",
       "removeHighlight": "Hervorhebung entfernen"
-    }
+    },
+    "priority": "Priorität",
+    "priorityHigh": "Hohe Priorität",
+    "priorityNormal": "Normal",
+    "priorityLow": "Niedrige Priorität"
   },
   "message": {
     "selectToRead": "Nachricht auswählen zum Lesen",
