@@ -159,7 +159,7 @@ export default function MailApp() {
     // this covers stale counts when the WebSocket is temporarily disconnected.
     const interval = setInterval(refreshCounts, 300000);
     return () => clearInterval(interval);
-  }, [setAccounts, setUnreadCounts]);
+  }, [setAccounts, setUnreadCounts, setTodoistConnected]);
 
   // Update browser tab title, favicon badge, and PWA home screen badge with unread count
   useEffect(() => {
