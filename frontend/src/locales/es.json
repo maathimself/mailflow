@@ -766,6 +766,7 @@
       "mfaDeviceTrust7d": "7 días",
       "mfaDeviceTrust30d": "30 días",
       "mfaDeviceTrustForever": "Permanente",
+      "mfaSsoLockedNotice": "La aplicación de MFA no es aplicable cuando el inicio de sesión con contraseña está desactivado. Los usuarios se autentican a través de SSO, que gestiona sus propios requisitos de MFA.",
       "recoveryEmailTitle": "Correo de recuperación",
       "recoveryEmailDesc": "Reciba un código de inicio de sesión por correo si pierde acceso a su aplicación de autenticación.",
       "recoveryEmailPh": "tu@correo.com"

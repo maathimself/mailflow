@@ -2574,7 +2574,7 @@ function SSOTab() {
         }}>
           <div>
             <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
-              {internalAuthDisabled ? t('admin.sso.passwordLoginDisabled') : t('admin.sso.passwordLoginEnabled')}
+              {t('admin.sso.passwordLoginTitle')}
             </div>
             <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>
               {internalAuthDisabled ? t('admin.sso.passwordLoginDisabledDesc') : t('admin.sso.passwordLoginEnabledDesc')}
@@ -5271,6 +5271,7 @@ function SecurityTab() {
   const [mfaSaving, setMfaSaving] = useState(false);
   const [mfaSaved, setMfaSaved] = useState(false);
   const [mfaError, setMfaError] = useState('');
+  const [ssoPasswordLocked, setSsoPasswordLocked] = useState(false);
 
   // Personal: recovery email for email-OTP fallback
   const [recoveryEmail, setRecoveryEmail] = useState('');
@@ -5294,6 +5295,11 @@ function SecurityTab() {
           setAllowNonstandardPorts(d.settings.allow_nonstandard_ports === 'true');
           if (d.settings.mfa_enforcement) setMfaEnforcement(d.settings.mfa_enforcement);
           if (d.settings.mfa_device_trust) setMfaDeviceTrust(d.settings.mfa_device_trust);
+          if (d.settings.internal_auth_disabled === 'true') {
+            api.admin.oidc.getProviders()
+              .then(pd => setSsoPasswordLocked(pd.providers.some(p => p.enabled)))
+              .catch(console.error);
+          }
         })
         .catch(console.error);
       loadAuthEvents();
@@ -5508,85 +5514,6 @@ function SecurityTab() {
               : protectionSaved
                 ? t('admin.security.protectionSaved')
                 : t('admin.security.saveProtection')}
-          </button>
-        </div>
-      )}
-
-      {/* MFA enforcement — admin only */}
-      {user?.isAdmin && (
-        <div style={{
-          background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-          borderRadius: 12, padding: '20px 24px', marginBottom: 20,
-        }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-            {t('admin.security.mfaEnforcementTitle')}
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 16 }}>
-            {t('admin.security.mfaEnforcementDesc')}
-          </div>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-            {[
-              { val: 'off', label: t('admin.security.mfaEnforcementOff') },
-              { val: 'required', label: t('admin.security.mfaEnforcementRequired') },
-            ].map(({ val, label }) => (
-              <button
-                key={val}
-                type="button"
-                onClick={() => setMfaEnforcement(val)}
-                style={{
-                  padding: '7px 16px', borderRadius: 7, fontSize: 13, fontWeight: 500, cursor: 'pointer',
-                  background: mfaEnforcement === val ? 'var(--accent)' : 'var(--bg-tertiary)',
-                  color: mfaEnforcement === val ? 'white' : 'var(--text-secondary)',
-                  border: mfaEnforcement === val ? 'none' : '1px solid var(--border)',
-                }}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 4 }}>
-            {t('admin.security.mfaDeviceTrustTitle')}
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 12 }}>
-            {t('admin.security.mfaDeviceTrustDesc')}
-          </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
-            {[
-              { val: 'never', label: t('admin.security.mfaDeviceTrustNever') },
-              { val: '7d', label: t('admin.security.mfaDeviceTrust7d') },
-              { val: '30d', label: t('admin.security.mfaDeviceTrust30d') },
-              { val: 'permanent', label: t('admin.security.mfaDeviceTrustForever') },
-            ].map(({ val, label }) => (
-              <button
-                key={val}
-                type="button"
-                onClick={() => setMfaDeviceTrust(val)}
-                style={{
-                  padding: '7px 14px', borderRadius: 7, fontSize: 13, fontWeight: 500, cursor: 'pointer',
-                  background: mfaDeviceTrust === val ? 'var(--accent)' : 'var(--bg-tertiary)',
-                  color: mfaDeviceTrust === val ? 'white' : 'var(--text-secondary)',
-                  border: mfaDeviceTrust === val ? 'none' : '1px solid var(--border)',
-                }}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          {mfaError && (
-            <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 8 }}>{mfaError}</div>
-          )}
-          <button
-            onClick={saveMfaSettings}
-            disabled={mfaSaving}
-            style={{
-              padding: '8px 18px', background: mfaSaved ? 'rgba(34,197,94,0.15)' : 'var(--accent)',
-              border: mfaSaved ? '1px solid rgba(34,197,94,0.4)' : 'none',
-              borderRadius: 7, color: mfaSaved ? '#22c55e' : 'white',
-              fontSize: 13, fontWeight: 500,
-              cursor: mfaSaving ? 'not-allowed' : 'pointer', opacity: mfaSaving ? 0.6 : 1,
-            }}
-          >
-            {mfaSaving ? t('admin.security.savingProtection') : mfaSaved ? t('admin.security.protectionSaved') : t('admin.security.saveProtection')}
           </button>
         </div>
       )}
@@ -5847,6 +5774,97 @@ function SecurityTab() {
           }}>{success}</div>
         )}
       </div>
+
+      {/* MFA enforcement — admin only */}
+      {user?.isAdmin && (
+        <div style={{
+          background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+          borderRadius: 12, padding: '20px 24px', marginBottom: 20,
+        }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+            {t('admin.security.mfaEnforcementTitle')}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 12 }}>
+            {t('admin.security.mfaEnforcementDesc')}
+          </div>
+          {ssoPasswordLocked ? (
+            <div style={{
+              padding: '8px 12px', borderRadius: 7,
+              background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)',
+              fontSize: 12, color: 'var(--text-secondary)',
+            }}>
+              {t('admin.security.mfaSsoLockedNotice')}
+            </div>
+          ) : (
+            <>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+                {[
+                  { val: 'off', label: t('admin.security.mfaEnforcementOff') },
+                  { val: 'required', label: t('admin.security.mfaEnforcementRequired') },
+                ].map(({ val, label }) => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => setMfaEnforcement(val)}
+                    style={{
+                      padding: '7px 16px', borderRadius: 7, fontSize: 13, fontWeight: 500, cursor: 'pointer',
+                      background: mfaEnforcement === val ? 'var(--accent)' : 'var(--bg-tertiary)',
+                      color: mfaEnforcement === val ? 'white' : 'var(--text-secondary)',
+                      border: mfaEnforcement === val ? 'none' : '1px solid var(--border)',
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 4 }}>
+                {t('admin.security.mfaDeviceTrustTitle')}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 12 }}>
+                {t('admin.security.mfaDeviceTrustDesc')}
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+                {[
+                  { val: 'never', label: t('admin.security.mfaDeviceTrustNever') },
+                  { val: '7d', label: t('admin.security.mfaDeviceTrust7d') },
+                  { val: '30d', label: t('admin.security.mfaDeviceTrust30d') },
+                  { val: 'permanent', label: t('admin.security.mfaDeviceTrustForever') },
+                ].map(({ val, label }) => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => setMfaDeviceTrust(val)}
+                    style={{
+                      padding: '7px 14px', borderRadius: 7, fontSize: 13, fontWeight: 500, cursor: 'pointer',
+                      background: mfaDeviceTrust === val ? 'var(--accent)' : 'var(--bg-tertiary)',
+                      color: mfaDeviceTrust === val ? 'white' : 'var(--text-secondary)',
+                      border: mfaDeviceTrust === val ? 'none' : '1px solid var(--border)',
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {mfaError && (
+                <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 8 }}>{mfaError}</div>
+              )}
+              <button
+                onClick={saveMfaSettings}
+                disabled={mfaSaving}
+                style={{
+                  padding: '8px 18px', background: mfaSaved ? 'rgba(34,197,94,0.15)' : 'var(--accent)',
+                  border: mfaSaved ? '1px solid rgba(34,197,94,0.4)' : 'none',
+                  borderRadius: 7, color: mfaSaved ? '#22c55e' : 'white',
+                  fontSize: 13, fontWeight: 500,
+                  cursor: mfaSaving ? 'not-allowed' : 'pointer', opacity: mfaSaving ? 0.6 : 1,
+                }}
+              >
+                {mfaSaving ? t('admin.security.savingProtection') : mfaSaved ? t('admin.security.protectionSaved') : t('admin.security.saveProtection')}
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Recovery email — all users */}
       <div style={{

@@ -766,6 +766,7 @@
       "mfaDeviceTrust7d": "7天",
       "mfaDeviceTrust30d": "30天",
       "mfaDeviceTrustForever": "永久",
+      "mfaSsoLockedNotice": "当密码登录被禁用时，MFA 强制不适用。用户通过 SSO 进行身份验证，SSO 管理自己的 MFA 要求。",
       "recoveryEmailTitle": "恢复邮箱",
       "recoveryEmailDesc": "如果您失去对认证器应用的访问权限，可通过电子邮件接收登录码。",
       "recoveryEmailPh": "you@email.com"

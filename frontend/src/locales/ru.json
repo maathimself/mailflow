@@ -766,6 +766,7 @@
       "mfaDeviceTrust7d": "7 дней",
       "mfaDeviceTrust30d": "30 дней",
       "mfaDeviceTrustForever": "Навсегда",
+      "mfaSsoLockedNotice": "Применение MFA неприменимо, когда вход по паролю отключён. Пользователи аутентифицируются через SSO, который управляет собственными требованиями MFA.",
       "recoveryEmailTitle": "Резервная почта",
       "recoveryEmailDesc": "Получите код входа по электронной почте, если потеряете доступ к приложению-аутентификатору.",
       "recoveryEmailPh": "you@email.com"

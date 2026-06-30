@@ -355,14 +355,21 @@ export default function MessagePane() {
       // scale the entire wrapper div down proportionally so all content is visible.
       const iframeW = iframe.offsetWidth;
       if (iframeW > 0) {
-        const contentW = Math.max(
-          doc.documentElement ? doc.documentElement.scrollWidth : 0,
-          doc.body            ? doc.body.scrollWidth            : 0,
-        );
+        // Measure via #mf-scale-wrapper rather than doc.body/documentElement —
+        // on iOS Safari the injected "html, body { overflow: hidden }" causes
+        // body.scrollWidth to return the clipped (iframe) width rather than the
+        // actual content width, so wide emails are never detected and never scaled.
+        // The wrapper div has no overflow constraint, so its scrollWidth is reliable.
+        const wrapper = doc.getElementById('mf-scale-wrapper');
+        const contentW = wrapper
+          ? wrapper.scrollWidth
+          : Math.max(
+              doc.documentElement ? doc.documentElement.scrollWidth : 0,
+              doc.body            ? doc.body.scrollWidth            : 0,
+            );
         if (contentW > iframeW + 2) { // +2 absorbs sub-pixel rounding
           const scale = iframeW / contentW;
           emailScaleRef.current = scale;
-          const wrapper = doc.getElementById('mf-scale-wrapper');
           if (wrapper) {
             wrapper.style.transform       = `scale(${scale})`;
             wrapper.style.transformOrigin = 'top left';

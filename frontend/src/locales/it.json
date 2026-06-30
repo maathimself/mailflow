@@ -766,6 +766,7 @@
       "mfaDeviceTrust7d": "7 giorni",
       "mfaDeviceTrust30d": "30 giorni",
       "mfaDeviceTrustForever": "Permanente",
+      "mfaSsoLockedNotice": "L'applicazione MFA non è applicabile quando l'accesso con password è disabilitato. Gli utenti si autenticano tramite SSO, che gestisce i propri requisiti MFA.",
       "recoveryEmailTitle": "Email di recupero",
       "recoveryEmailDesc": "Ricevi un codice di accesso via email se perdi l’accesso alla tua app di autenticazione.",
       "recoveryEmailPh": "tua@email.it"

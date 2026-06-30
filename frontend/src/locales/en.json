@@ -766,6 +766,7 @@
       "mfaDeviceTrust7d": "7 days",
       "mfaDeviceTrust30d": "30 days",
       "mfaDeviceTrustForever": "Permanent",
+      "mfaSsoLockedNotice": "MFA enforcement is not applicable when password login is disabled. Users authenticate via SSO, which manages its own MFA requirements.",
       "recoveryEmailTitle": "Recovery email",
       "recoveryEmailDesc": "Receive a sign-in code by email if you lose access to your authenticator app.",
       "recoveryEmailPh": "your@email.com"
