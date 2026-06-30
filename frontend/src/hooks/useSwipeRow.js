@@ -10,6 +10,7 @@ export function useSwipeRow({ isMobile, message, onSwipeLeft, onSwipeRight, onLo
   const longPressTimerRef = useRef(null);
   const springBackTimerRef = useRef(null);
   const longPressActivatedRef = useRef(false);
+  const tapSuppressTimerRef = useRef(null);
   const latestRef = useRef({});
   // tappedRef is set to true when onTap fires so the subsequent click event can be
   // suppressed — prevents handleSelect from being called twice on the same tap.
@@ -48,6 +49,17 @@ export function useSwipeRow({ isMobile, message, onSwipeLeft, onSwipeRight, onLo
         clearTimeout(longPressTimerRef.current);
         longPressTimerRef.current = null;
       }
+    };
+    const resetSwipeState = () => {
+      swipeRef.current = { active: false, startX: 0, startY: 0, dir: null, x: 0 };
+    };
+    const suppressNextClick = () => {
+      if (tapSuppressTimerRef.current) clearTimeout(tapSuppressTimerRef.current);
+      tappedRef.current = true;
+      tapSuppressTimerRef.current = setTimeout(() => {
+        tappedRef.current = false;
+        tapSuppressTimerRef.current = null;
+      }, 300);
     };
 
     const onStart = (e) => {
@@ -104,23 +116,24 @@ export function useSwipeRow({ isMobile, message, onSwipeLeft, onSwipeRight, onLo
       cancelLongPress();
       const s = swipeRef.current;
       if (!s.active) {
-        s.dir = null;
+        const wasTap = !s.dir;
+        resetSwipeState();
         hideBgs();
         // Fire onTap immediately on touchend instead of waiting for the synthesized
         // click — eliminates any browser tap-delay and ensures the optimistic
         // mark-as-read update happens before back navigation can race against it.
+        // Only true taps should navigate; vertical scrolls and aborted horizontal
+        // drags must not open rows while the user is just swiping around.
         // Skip if a long press just activated (entering selection mode) so we don't
         // also navigate while React is still re-rendering the selection state.
-        if (latestRef.current.onTap && !longPressActivatedRef.current) {
-          tappedRef.current = true;
+        if (wasTap && latestRef.current.onTap && !longPressActivatedRef.current) {
+          suppressNextClick();
           latestRef.current.onTap(latestRef.current.message);
-          // Auto-clear in case the click never fires (rare — e.g. drag cancelled).
-          setTimeout(() => { tappedRef.current = false; }, 300);
         }
         return;
       }
       const x = s.x;
-      s.active = false; s.dir = null; s.x = 0;
+      resetSwipeState();
       springBack();
       if (x < -SWIPE_THRESHOLD) {
         latestRef.current.onSwipeLeft?.(latestRef.current.message);
@@ -131,6 +144,8 @@ export function useSwipeRow({ isMobile, message, onSwipeLeft, onSwipeRight, onLo
 
     const onCancel = () => {
       cancelLongPress();
+      resetSwipeState();
+      longPressActivatedRef.current = false;
       springBack();
     };
 
@@ -143,6 +158,11 @@ export function useSwipeRow({ isMobile, message, onSwipeLeft, onSwipeRight, onLo
     el.addEventListener('touchcancel', onCancel, { passive: true });
     return () => {
       cancelLongPress();
+      if (tapSuppressTimerRef.current) {
+        clearTimeout(tapSuppressTimerRef.current);
+        tapSuppressTimerRef.current = null;
+      }
+      tappedRef.current = false;
       if (springBackTimerRef.current) {
         clearTimeout(springBackTimerRef.current);
         springBackTimerRef.current = null;

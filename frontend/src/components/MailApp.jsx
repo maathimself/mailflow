@@ -115,12 +115,15 @@ export default function MailApp() {
     // startup so there is always at least one history entry above the baseline.
     // The handler re-pushes it after every popstate so back swipes always land
     // inside the app rather than exiting the PWA and showing a blank Safari page.
-    if (window.navigator.standalone) {
+    if (window.navigator.standalone && history.state?.mailflow !== 'guard') {
       history.pushState({ mailflow: 'guard' }, '', '/');
     }
-    const handler = () => {
+    const handler = (event) => {
       if (selectedMessageIdRef.current) setSelectedMessage(null);
-      if (window.navigator.standalone) {
+      // Backing out of a message lands on the existing guard entry. Re-pushing
+      // during that popstate can make iOS PWA history gestures temporarily stop
+      // delivering taps, so only re-arm when the user has backed past the guard.
+      if (window.navigator.standalone && event.state?.mailflow !== 'guard') {
         history.pushState({ mailflow: 'guard' }, '', '/');
       }
     };

@@ -123,7 +123,32 @@ export default function MessagePane() {
 
   const paneRef = useRef(null);
   const mountedRef = useRef(true);
-  useEffect(() => () => { mountedRef.current = false; }, []);
+  const swipeBackTimerRef = useRef(null);
+  useEffect(() => () => {
+    mountedRef.current = false;
+    if (swipeBackTimerRef.current) clearTimeout(swipeBackTimerRef.current);
+  }, []);
+
+  const resetPaneSwipeStyles = useCallback(() => {
+    const el = paneRef.current;
+    if (!el) return;
+    el.style.transition = '';
+    el.style.transform = '';
+  }, []);
+
+  // The mobile swipe-back gesture writes transform/transition inline for the
+  // dismiss animation. MessagePane stays mounted while hidden, so clear those
+  // inline styles before painting the next selected email. Also cancel the
+  // swipe-back timer so it can't fire history.back() after a new email has
+  // already been selected (race: user selects email B within the 220ms window).
+  useLayoutEffect(() => {
+    if (!isMobile || !selectedMessageId) return;
+    if (swipeBackTimerRef.current) {
+      clearTimeout(swipeBackTimerRef.current);
+      swipeBackTimerRef.current = null;
+    }
+    resetPaneSwipeStyles();
+  }, [isMobile, selectedMessageId, resetPaneSwipeStyles]);
 
   // Reset scroll position and iframe height synchronously before the browser
   // paints the new message, so the user never sees stale blank space from the
@@ -355,18 +380,24 @@ export default function MessagePane() {
       // scale the entire wrapper div down proportionally so all content is visible.
       const iframeW = iframe.offsetWidth;
       if (iframeW > 0) {
-        // Measure via #mf-scale-wrapper rather than doc.body/documentElement —
-        // on iOS Safari the injected "html, body { overflow: hidden }" causes
-        // body.scrollWidth to return the clipped (iframe) width rather than the
-        // actual content width, so wide emails are never detected and never scaled.
-        // The wrapper div has no overflow constraint, so its scrollWidth is reliable.
+        // iOS Safari clamps scrollWidth to the iframe viewport when overflow:hidden
+        // is set on html/body, so wide fixed-layout emails are never detected.
+        // Temporarily expose overflow-x inline (beating the !important stylesheet
+        // rule) to let scrollWidth reflect the true content width, then restore.
+        // Note: overflow-x:visible is coerced to auto when overflow-y is non-visible —
+        // that's fine; auto still returns the real scrollable content width.
+        const b = doc.body;
+        const h = doc.documentElement;
+        if (b) b.style.setProperty('overflow-x', 'visible', 'important');
+        if (h) h.style.setProperty('overflow-x', 'visible', 'important');
+        const contentW = Math.max(
+          h ? h.scrollWidth : 0,
+          b ? b.scrollWidth : 0,
+        );
+        if (b) b.style.removeProperty('overflow-x');
+        if (h) h.style.removeProperty('overflow-x');
+
         const wrapper = doc.getElementById('mf-scale-wrapper');
-        const contentW = wrapper
-          ? wrapper.scrollWidth
-          : Math.max(
-              doc.documentElement ? doc.documentElement.scrollWidth : 0,
-              doc.body            ? doc.body.scrollWidth            : 0,
-            );
         if (contentW > iframeW + 2) { // +2 absorbs sub-pixel rounding
           const scale = iframeW / contentW;
           emailScaleRef.current = scale;
@@ -559,12 +590,22 @@ export default function MessagePane() {
     const onEnd = (e) => {
       if (!active) return;
       active = false;
+      // Prevent the browser's synthesized click that fires ~300ms after touchend.
+      // Without this, after a swipe-back the pane hides and the list becomes
+      // visible at the same coordinates — the phantom click then hits a list row
+      // and ghost-selects an email the user never tapped.
+      e.preventDefault();
       const dx = e.changedTouches[0].clientX - startX;
       if (fromEdge) {
         if (dx > 80) {
           el.style.transition = 'transform 0.22s ease';
           el.style.transform = `translateX(${window.innerWidth}px)`;
-          setTimeout(() => { if (mountedRef.current) history.back(); }, 220);
+          if (swipeBackTimerRef.current) clearTimeout(swipeBackTimerRef.current);
+          swipeBackTimerRef.current = setTimeout(() => {
+            swipeBackTimerRef.current = null;
+            resetPaneSwipeStyles();
+            if (mountedRef.current) history.back();
+          }, 220);
         } else {
           el.style.transition = 'transform 0.25s ease';
           el.style.transform = 'translateX(0)';
@@ -604,13 +645,14 @@ export default function MessagePane() {
 
     el.addEventListener('touchstart', onStart, { passive: true });
     el.addEventListener('touchmove', onMove, { passive: false });
-    el.addEventListener('touchend', onEnd, { passive: true });
+    // Non-passive so onEnd can call e.preventDefault() to suppress the phantom click.
+    el.addEventListener('touchend', onEnd, { passive: false });
     return () => {
       el.removeEventListener('touchstart', onStart);
       el.removeEventListener('touchmove', onMove);
       el.removeEventListener('touchend', onEnd);
     };
-  }, [isMobile, setSelectedMessage]);
+  }, [isMobile, setSelectedMessage, resetPaneSwipeStyles]);
 
   const handleReply = (replyAll = false) => {
     if (!message) return;
@@ -2024,4 +2066,3 @@ function PaneBtn({ children, onClick, title, danger, style: extraStyle }) {
     </button>
   );
 }
-
