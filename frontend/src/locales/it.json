@@ -184,7 +184,7 @@
     "swipeStar": "Aggiungi stella",
     "swipeUnstar": "Rimuovi stella",
     "deleteSelected": "Elimina selezionati",
-    "moveToFolder": "Sposta nella cartella",
+    "moveToFolder": "Sposta",
     "moveToFolderDisabled": "Seleziona messaggi da un solo account per spostarli",
     "clearSelection": "Annulla selezione",
     "backToTop": "Torna in cima",
@@ -316,7 +316,7 @@
     "reply": "Rispondi",
     "replyAll": "Rispondi a tutti",
     "forward": "Inoltra",
-    "moveToFolder": "Sposta nella cartella",
+    "moveToFolder": "Sposta",
     "archive": "Archivia",
     "snooze": {
       "label": "Posticipa",
@@ -877,7 +877,6 @@
     },
     "integrations": {
       "title": "Integrazioni",
-      "description": "Connetti provider OAuth per account che non supportano password per app",
       "loading": "Caricamento…",
       "tabEmailProviders": "Provider email",
       "tabApps": "App",

@@ -184,7 +184,7 @@
     "swipeStar": "Mit Stern versehen",
     "swipeUnstar": "Stern entfernen",
     "deleteSelected": "Auswahl löschen",
-    "moveToFolder": "In Ordner verschieben",
+    "moveToFolder": "Verschieben",
     "moveToFolderDisabled": "Nachrichten aus einem Konto auswählen zum Verschieben",
     "clearSelection": "Auswahl aufheben",
     "backToTop": "Nach oben",
@@ -316,7 +316,7 @@
     "reply": "Antworten",
     "replyAll": "Allen antworten",
     "forward": "Weiterleiten",
-    "moveToFolder": "In Ordner verschieben",
+    "moveToFolder": "Verschieben",
     "archive": "Archivieren",
     "snooze": {
       "label": "Zurückstellen",
@@ -814,7 +814,6 @@
     },
     "integrations": {
       "title": "Integrationen",
-      "description": "OAuth-Anbieter für Konten verbinden, die keine App-Passwörter unterstützen",
       "loading": "Lädt…",
       "tabEmailProviders": "E-Mail-Anbieter",
       "tabApps": "Anwendungen",

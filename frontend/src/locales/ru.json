@@ -184,7 +184,7 @@
     "swipeStar": "Отметить звездой",
     "swipeUnstar": "Убрать звезду",
     "deleteSelected": "Удалить выбранные",
-    "moveToFolder": "Переместить в папку",
+    "moveToFolder": "Переместить",
     "moveToFolderDisabled": "Выберите сообщения из одного аккаунта для перемещения",
     "clearSelection": "Очистить выбор",
     "backToTop": "Наверх",
@@ -316,7 +316,7 @@
     "reply": "Ответить",
     "replyAll": "Ответить всем",
     "forward": "Переслать",
-    "moveToFolder": "Переместить в папку",
+    "moveToFolder": "Переместить",
     "archive": "Архивировать",
     "snooze": {
       "label": "Отложить",
@@ -877,7 +877,6 @@
     },
     "integrations": {
       "title": "Интеграции",
-      "description": "Подключите OAuth-провайдеров для аккаунтов, которые не поддерживают пароли приложений",
       "loading": "Загрузка…",
       "tabEmailProviders": "Почтовые провайдеры",
       "tabApps": "Приложения",

@@ -184,7 +184,7 @@
     "swipeStar": "Étoiler",
     "swipeUnstar": "Retirer l'étoile",
     "deleteSelected": "Supprimer la sélection",
-    "moveToFolder": "Déplacer vers un dossier",
+    "moveToFolder": "Déplacer",
     "moveToFolderDisabled": "Sélectionnez des messages d'un seul compte pour déplacer",
     "clearSelection": "Effacer la sélection",
     "backToTop": "Retour en haut",
@@ -316,7 +316,7 @@
     "reply": "Répondre",
     "replyAll": "Répondre à tous",
     "forward": "Transférer",
-    "moveToFolder": "Déplacer vers un dossier",
+    "moveToFolder": "Déplacer",
     "archive": "Archiver",
     "snooze": {
       "label": "Rappel",
@@ -877,7 +877,6 @@
     },
     "integrations": {
       "title": "Intégrations",
-      "description": "Connectez des fournisseurs OAuth pour les comptes qui ne prennent pas en charge les mots de passe d'application",
       "loading": "Chargement…",
       "tabEmailProviders": "Fournisseurs de messagerie",
       "tabApps": "Applications",

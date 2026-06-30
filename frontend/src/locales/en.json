@@ -184,7 +184,7 @@
     "swipeStar": "Star",
     "swipeUnstar": "Unstar",
     "deleteSelected": "Delete selected",
-    "moveToFolder": "Move to folder",
+    "moveToFolder": "Move",
     "moveToFolderDisabled": "Select messages from one account to move",
     "clearSelection": "Clear selection",
     "backToTop": "Back to top",
@@ -316,7 +316,7 @@
     "reply": "Reply",
     "replyAll": "Reply all",
     "forward": "Forward",
-    "moveToFolder": "Move to folder",
+    "moveToFolder": "Move",
     "archive": "Archive",
     "snooze": {
       "label": "Snooze",
@@ -877,7 +877,6 @@
     },
     "integrations": {
       "title": "Integrations",
-      "description": "Connect OAuth providers for accounts that don't support app passwords",
       "loading": "Loading…",
       "tabEmailProviders": "Email Providers",
       "tabApps": "Apps",
