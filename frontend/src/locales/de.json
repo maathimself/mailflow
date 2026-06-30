@@ -43,6 +43,28 @@
       "verify": "Bestätigen",
       "verifying": "Wird überprüft…",
       "backToLogin": "← Zurück zur Anmeldung"
+    },
+    "rememberDevice": "Dieses Gerät merken",
+    "emailOtp": {
+      "title": "E-Mail prüfen",
+      "desc": "Ein Bestätigungscode wurde an {{email}} gesendet",
+      "codePh": "6-stelliger Code",
+      "resend": "Code erneut senden",
+      "sending": "Senden…",
+      "verify": "Bestätigen",
+      "verifying": "Prüfe…"
+    },
+    "mfaEnroll": {
+      "title": "Zwei-Faktor-Authentifizierung einrichten",
+      "desc": "Ihre Organisation erfordert Zwei-Faktor-Authentifizierung. Richten Sie bitte eine Authentifizierungs-App ein, um fortzufahren.",
+      "scan": "QR-Code scannen",
+      "scanInstructions": "Scannen Sie diesen QR-Code mit Ihrer Authentifizierungs-App (z. B. Google Authenticator, Authy).",
+      "manualKey": "Kein Scanner? Schlüssel manuell eingeben:",
+      "next": "Weiter: Code bestätigen →",
+      "verifyInstructions": "Geben Sie den 6-stelligen Code aus Ihrer App ein, um die Einrichtung zu bestätigen.",
+      "enable": "2FA aktivieren & anmelden",
+      "enabling": "Aktiviere…",
+      "back": "← Zurück"
     }
   },
   "compose": {
@@ -670,7 +692,20 @@
       "allowInsecureTls": "Unsicheres TLS erlauben",
       "allowInsecureTlsDesc": "Erlaubt Benutzern, die TLS-Zertifikatsprüfung pro Konto zu deaktivieren. Erforderlich für Server mit selbstsignierten Zertifikaten.",
       "allowNonstandardPorts": "Nicht-standardmäßige Ports erlauben",
-      "allowNonstandardPortsDesc": "Erlaubt beliebige IMAP- oder SMTP-Ports, nicht nur 143/993 (IMAP) und 465/587 (SMTP). Erforderlich für Server wie protonmail-bridge, die andere Ports verwenden."
+      "allowNonstandardPortsDesc": "Erlaubt beliebige IMAP- oder SMTP-Ports, nicht nur 143/993 (IMAP) und 465/587 (SMTP). Erforderlich für Server wie protonmail-bridge, die andere Ports verwenden.",
+      "mfaEnforcementTitle": "MFA-Durchsetzung",
+      "mfaEnforcementDesc": "Alle Benutzer müssen sich beim Anmelden mit einem zweiten Faktor verifizieren.",
+      "mfaEnforcementOff": "Optional",
+      "mfaEnforcementRequired": "Pflicht",
+      "mfaDeviceTrustTitle": "Gerätevertrauen",
+      "mfaDeviceTrustDesc": "Wie lange einem verifizierten Gerät vertraut wird, bevor 2FA erneut erforderlich ist.",
+      "mfaDeviceTrustNever": "Nie",
+      "mfaDeviceTrust7d": "7 Tage",
+      "mfaDeviceTrust30d": "30 Tage",
+      "mfaDeviceTrustForever": "Dauerhaft",
+      "recoveryEmailTitle": "Wiederherstellungs-E-Mail",
+      "recoveryEmailDesc": "Erhalten Sie einen Anmeldecode per E-Mail, wenn Sie den Zugang zur Authentifizierungs-App verlieren.",
+      "recoveryEmailPh": "ihre@email.de"
     },
     "privacy": {
       "title": "Datenschutz",

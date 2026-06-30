@@ -266,6 +266,14 @@ const SAME_VALUE_ALLOWED = {
   // "Mobile" — same spelling in English, French, and Italian
   'contacts.phoneTypes.mobile': [['en', 'fr', 'it']],
 
+  // ── MFA / 2FA ─────────────────────────────────────────────────────────────
+  // "Optional" — same spelling in de and en
+  'admin.security.mfaEnforcementOff': [['de', 'en']],
+  // "Permanent" — same in en and fr; "Permanente" same in es and it
+  'admin.security.mfaDeviceTrustForever': [['en', 'fr'], ['es', 'it']],
+  // email placeholder — en and ru share same format
+  'admin.security.recoveryEmailPh': [['en', 'ru', 'zhCN']],
+
   // ── Todoist integration ────────────────────────────────────────────────────
   // "Todoist" — brand name, same in all locales
   'admin.integrations.todoist.title': 'any',

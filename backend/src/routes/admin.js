@@ -97,7 +97,8 @@ router.get('/auth-events', async (req, res) => {
 
 router.patch('/settings', async (req, res) => {
   const { registration_open, internal_auth_disabled, auth_max_attempts, auth_window_minutes,
-    allow_private_hosts, allow_insecure_tls, allow_nonstandard_ports } = req.body;
+    allow_private_hosts, allow_insecure_tls, allow_nonstandard_ports,
+    mfa_enforcement, mfa_device_trust } = req.body;
   if (typeof registration_open === 'boolean') {
     await query(
       `INSERT INTO system_settings (key, value, updated_at)
@@ -174,6 +175,28 @@ router.patch('/settings', async (req, res) => {
       );
       console.log(`[admin] ${req.session.username} set ${key}=${val}`);
     }
+  }
+  if (mfa_enforcement != null) {
+    if (!['off', 'required'].includes(mfa_enforcement)) {
+      return res.status(400).json({ error: 'mfa_enforcement must be "off" or "required"' });
+    }
+    await query(
+      `INSERT INTO system_settings (key, value, updated_at) VALUES ('mfa_enforcement', $1, NOW())
+       ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
+      [mfa_enforcement]
+    );
+    console.log(`[admin] ${req.session.username} set mfa_enforcement=${mfa_enforcement}`);
+  }
+  if (mfa_device_trust != null) {
+    if (!['never', '7d', '30d', 'permanent'].includes(mfa_device_trust)) {
+      return res.status(400).json({ error: 'mfa_device_trust must be "never", "7d", "30d", or "permanent"' });
+    }
+    await query(
+      `INSERT INTO system_settings (key, value, updated_at) VALUES ('mfa_device_trust', $1, NOW())
+       ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
+      [mfa_device_trust]
+    );
+    console.log(`[admin] ${req.session.username} set mfa_device_trust=${mfa_device_trust}`);
   }
   invalidateConnectionPolicyCache();
   res.json({ ok: true });

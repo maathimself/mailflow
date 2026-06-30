@@ -5265,22 +5265,45 @@ function SecurityTab() {
   const [allowInsecureTls, setAllowInsecureTls] = useState(false);
   const [allowNonstandardPorts, setAllowNonstandardPorts] = useState(false);
 
+  // Admin-only: MFA enforcement policy
+  const [mfaEnforcement, setMfaEnforcement] = useState('off');
+  const [mfaDeviceTrust, setMfaDeviceTrust] = useState('30d');
+  const [mfaSaving, setMfaSaving] = useState(false);
+  const [mfaSaved, setMfaSaved] = useState(false);
+  const [mfaError, setMfaError] = useState('');
+
+  // Personal: recovery email for email-OTP fallback
+  const [recoveryEmail, setRecoveryEmail] = useState('');
+  const [recoveryEmailLoaded, setRecoveryEmailLoaded] = useState('');
+  const [recoverySaving, setRecoverySaving] = useState(false);
+  const [recoverySaved, setRecoverySaved] = useState(false);
+  const [recoveryError, setRecoveryError] = useState('');
+
   // Admin-only: auth activity log
   const [authEvents, setAuthEvents] = useState([]);
   const [eventsLoading, setEventsLoading] = useState(false);
 
   useEffect(() => {
-    if (!user?.isAdmin) return;
-    api.admin.getSettings()
+    if (user?.isAdmin) {
+      api.admin.getSettings()
+        .then(d => {
+          if (d.settings.auth_max_attempts) setMaxAttempts(parseInt(d.settings.auth_max_attempts));
+          if (d.settings.auth_window_minutes) setWindowMins(parseInt(d.settings.auth_window_minutes));
+          setAllowPrivateHosts(d.settings.allow_private_hosts === 'true');
+          setAllowInsecureTls(d.settings.allow_insecure_tls === 'true');
+          setAllowNonstandardPorts(d.settings.allow_nonstandard_ports === 'true');
+          if (d.settings.mfa_enforcement) setMfaEnforcement(d.settings.mfa_enforcement);
+          if (d.settings.mfa_device_trust) setMfaDeviceTrust(d.settings.mfa_device_trust);
+        })
+        .catch(console.error);
+      loadAuthEvents();
+    }
+    api.getRecoveryEmail()
       .then(d => {
-        if (d.settings.auth_max_attempts) setMaxAttempts(parseInt(d.settings.auth_max_attempts));
-        if (d.settings.auth_window_minutes) setWindowMins(parseInt(d.settings.auth_window_minutes));
-        setAllowPrivateHosts(d.settings.allow_private_hosts === 'true');
-        setAllowInsecureTls(d.settings.allow_insecure_tls === 'true');
-        setAllowNonstandardPorts(d.settings.allow_nonstandard_ports === 'true');
+        setRecoveryEmail(d.email || '');
+        setRecoveryEmailLoaded(d.email || '');
       })
-      .catch(console.error);
-    loadAuthEvents();
+      .catch(() => {});
   }, [user?.isAdmin]);
 
   const loadAuthEvents = () => {
@@ -5317,6 +5340,35 @@ function SecurityTab() {
 
   const toggleMailPolicy = async (key, newVal) => {
     await api.admin.updateSettings({ [key]: newVal }).catch(console.error);
+  };
+
+  const saveMfaSettings = async () => {
+    setMfaSaving(true);
+    setMfaError('');
+    try {
+      await api.admin.updateSettings({ mfa_enforcement: mfaEnforcement, mfa_device_trust: mfaDeviceTrust });
+      setMfaSaved(true);
+      setTimeout(() => setMfaSaved(false), 3000);
+    } catch (err) {
+      setMfaError(err.message);
+    } finally {
+      setMfaSaving(false);
+    }
+  };
+
+  const saveRecoveryEmail = async () => {
+    setRecoverySaving(true);
+    setRecoveryError('');
+    try {
+      await api.updateRecoveryEmail(recoveryEmail.trim() || null);
+      setRecoveryEmailLoaded(recoveryEmail.trim());
+      setRecoverySaved(true);
+      setTimeout(() => setRecoverySaved(false), 3000);
+    } catch (err) {
+      setRecoveryError(err.message);
+    } finally {
+      setRecoverySaving(false);
+    }
   };
 
   const eventLabel = (type) => {
@@ -5456,6 +5508,85 @@ function SecurityTab() {
               : protectionSaved
                 ? t('admin.security.protectionSaved')
                 : t('admin.security.saveProtection')}
+          </button>
+        </div>
+      )}
+
+      {/* MFA enforcement — admin only */}
+      {user?.isAdmin && (
+        <div style={{
+          background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+          borderRadius: 12, padding: '20px 24px', marginBottom: 20,
+        }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+            {t('admin.security.mfaEnforcementTitle')}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 16 }}>
+            {t('admin.security.mfaEnforcementDesc')}
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+            {[
+              { val: 'off', label: t('admin.security.mfaEnforcementOff') },
+              { val: 'required', label: t('admin.security.mfaEnforcementRequired') },
+            ].map(({ val, label }) => (
+              <button
+                key={val}
+                type="button"
+                onClick={() => setMfaEnforcement(val)}
+                style={{
+                  padding: '7px 16px', borderRadius: 7, fontSize: 13, fontWeight: 500, cursor: 'pointer',
+                  background: mfaEnforcement === val ? 'var(--accent)' : 'var(--bg-tertiary)',
+                  color: mfaEnforcement === val ? 'white' : 'var(--text-secondary)',
+                  border: mfaEnforcement === val ? 'none' : '1px solid var(--border)',
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 4 }}>
+            {t('admin.security.mfaDeviceTrustTitle')}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 12 }}>
+            {t('admin.security.mfaDeviceTrustDesc')}
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+            {[
+              { val: 'never', label: t('admin.security.mfaDeviceTrustNever') },
+              { val: '7d', label: t('admin.security.mfaDeviceTrust7d') },
+              { val: '30d', label: t('admin.security.mfaDeviceTrust30d') },
+              { val: 'permanent', label: t('admin.security.mfaDeviceTrustForever') },
+            ].map(({ val, label }) => (
+              <button
+                key={val}
+                type="button"
+                onClick={() => setMfaDeviceTrust(val)}
+                style={{
+                  padding: '7px 14px', borderRadius: 7, fontSize: 13, fontWeight: 500, cursor: 'pointer',
+                  background: mfaDeviceTrust === val ? 'var(--accent)' : 'var(--bg-tertiary)',
+                  color: mfaDeviceTrust === val ? 'white' : 'var(--text-secondary)',
+                  border: mfaDeviceTrust === val ? 'none' : '1px solid var(--border)',
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {mfaError && (
+            <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 8 }}>{mfaError}</div>
+          )}
+          <button
+            onClick={saveMfaSettings}
+            disabled={mfaSaving}
+            style={{
+              padding: '8px 18px', background: mfaSaved ? 'rgba(34,197,94,0.15)' : 'var(--accent)',
+              border: mfaSaved ? '1px solid rgba(34,197,94,0.4)' : 'none',
+              borderRadius: 7, color: mfaSaved ? '#22c55e' : 'white',
+              fontSize: 13, fontWeight: 500,
+              cursor: mfaSaving ? 'not-allowed' : 'pointer', opacity: mfaSaving ? 0.6 : 1,
+            }}
+          >
+            {mfaSaving ? t('admin.security.savingProtection') : mfaSaved ? t('admin.security.protectionSaved') : t('admin.security.saveProtection')}
           </button>
         </div>
       )}
@@ -5715,6 +5846,51 @@ function SecurityTab() {
             color: '#22c55e', fontSize: 13,
           }}>{success}</div>
         )}
+      </div>
+
+      {/* Recovery email — all users */}
+      <div style={{
+        background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+        borderRadius: 12, padding: '20px 24px', marginBottom: 20,
+      }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+          {t('admin.security.recoveryEmailTitle')}
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 14 }}>
+          {t('admin.security.recoveryEmailDesc')}
+        </div>
+        <input
+          type="email"
+          value={recoveryEmail}
+          onChange={e => setRecoveryEmail(e.target.value)}
+          placeholder={t('admin.security.recoveryEmailPh')}
+          style={{
+            width: '100%', padding: '8px 10px', borderRadius: 8,
+            border: '1px solid var(--border)', background: 'var(--bg-primary)',
+            color: 'var(--text-primary)', fontSize: 14, outline: 'none',
+            boxSizing: 'border-box', marginBottom: 10,
+          }}
+          onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+          onBlur={e => e.target.style.borderColor = 'var(--border)'}
+        />
+        {recoveryError && (
+          <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 8 }}>{recoveryError}</div>
+        )}
+        <button
+          onClick={saveRecoveryEmail}
+          disabled={recoverySaving || recoveryEmail.trim() === recoveryEmailLoaded}
+          style={{
+            padding: '8px 18px',
+            background: recoverySaved ? 'rgba(34,197,94,0.15)' : 'var(--accent)',
+            border: recoverySaved ? '1px solid rgba(34,197,94,0.4)' : 'none',
+            borderRadius: 7, color: recoverySaved ? '#22c55e' : 'white',
+            fontSize: 13, fontWeight: 500,
+            cursor: (recoverySaving || recoveryEmail.trim() === recoveryEmailLoaded) ? 'not-allowed' : 'pointer',
+            opacity: (recoverySaving || recoveryEmail.trim() === recoveryEmailLoaded) ? 0.6 : 1,
+          }}
+        >
+          {recoverySaving ? t('common.saving') : recoverySaved ? t('admin.security.protectionSaved') : t('common.save')}
+        </button>
       </div>
 
       <LinkedIdentitiesSection />

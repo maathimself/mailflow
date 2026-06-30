@@ -43,7 +43,29 @@
       "backToLogin": "← Volver al inicio de sesión"
     },
     "ssoOnly": "Iniciar sesión con SSO",
-    "ssoOnlyDesc": "El inicio de sesión con contraseña está desactivado en este servidor."
+    "ssoOnlyDesc": "El inicio de sesión con contraseña está desactivado en este servidor.",
+    "rememberDevice": "Recordar este dispositivo",
+    "emailOtp": {
+      "title": "Revisa tu correo",
+      "desc": "Se ha enviado un código de verificación a {{email}}",
+      "codePh": "Código de 6 dígitos",
+      "resend": "Reenviar código",
+      "sending": "Enviando…",
+      "verify": "Verificar",
+      "verifying": "Verificando…"
+    },
+    "mfaEnroll": {
+      "title": "Configurar autenticación de dos factores",
+      "desc": "Su organización requiere autenticación de dos factores. Configure una aplicación de autenticación para continuar.",
+      "scan": "Escanear código QR",
+      "scanInstructions": "Escanee este código QR con su aplicación de autenticación (p. ej. Google Authenticator, Authy).",
+      "manualKey": "¿No puede escanear? Ingrese esta clave manualmente:",
+      "next": "Siguiente: verificar código →",
+      "verifyInstructions": "Ingrese el código de 6 dígitos de su aplicación para confirmar la configuración.",
+      "enable": "Activar 2FA e iniciar sesión",
+      "enabling": "Activando…",
+      "back": "← Atrás"
+    }
   },
   "compose": {
     "newMessage": "Nuevo mensaje",
@@ -733,7 +755,20 @@
       "allowInsecureTls": "Permitir TLS no seguro",
       "allowInsecureTlsDesc": "Permite a los usuarios desactivar la verificación del certificado TLS por cuenta. Necesario para servidores con certificados autofirmados.",
       "allowNonstandardPorts": "Permitir puertos no estándar",
-      "allowNonstandardPortsDesc": "Permite cualquier puerto IMAP o SMTP, no solo 143/993 (IMAP) y 465/587 (SMTP). Necesario para servidores como protonmail-bridge que usan puertos no estándar."
+      "allowNonstandardPortsDesc": "Permite cualquier puerto IMAP o SMTP, no solo 143/993 (IMAP) y 465/587 (SMTP). Necesario para servidores como protonmail-bridge que usan puertos no estándar.",
+      "mfaEnforcementTitle": "Aplicación de MFA",
+      "mfaEnforcementDesc": "Requerir que todos los usuarios verifiquen con un segundo factor al iniciar sesión.",
+      "mfaEnforcementOff": "Opcional",
+      "mfaEnforcementRequired": "Obligatorio",
+      "mfaDeviceTrustTitle": "Duración de confianza del dispositivo",
+      "mfaDeviceTrustDesc": "Cuánto tiempo se confía en un dispositivo verificado antes de requerir 2FA nuevamente.",
+      "mfaDeviceTrustNever": "Nunca",
+      "mfaDeviceTrust7d": "7 días",
+      "mfaDeviceTrust30d": "30 días",
+      "mfaDeviceTrustForever": "Permanente",
+      "recoveryEmailTitle": "Correo de recuperación",
+      "recoveryEmailDesc": "Reciba un código de inicio de sesión por correo si pierde acceso a su aplicación de autenticación.",
+      "recoveryEmailPh": "tu@correo.com"
     },
     "privacy": {
       "title": "Privacidad",

@@ -43,7 +43,29 @@
       "backToLogin": "← Retour à la connexion"
     },
     "ssoOnly": "Se connecter avec SSO",
-    "ssoOnlyDesc": "La connexion par mot de passe est désactivée sur ce serveur."
+    "ssoOnlyDesc": "La connexion par mot de passe est désactivée sur ce serveur.",
+    "rememberDevice": "Se souvenir de cet appareil",
+    "emailOtp": {
+      "title": "Vérifiez votre email",
+      "desc": "Un code de vérification a été envoyé à {{email}}",
+      "codePh": "Code à 6 chiffres",
+      "resend": "Renvoyer le code",
+      "sending": "Envoi…",
+      "verify": "Vérifier",
+      "verifying": "Vérification…"
+    },
+    "mfaEnroll": {
+      "title": "Configurer l’authentification à deux facteurs",
+      "desc": "Votre organisation exige l’authentification à deux facteurs. Veuillez configurer une application d’authentification pour continuer.",
+      "scan": "Scanner le QR code",
+      "scanInstructions": "Scannez ce QR code avec votre application d’authentification (p. ex. Google Authenticator, Authy).",
+      "manualKey": "Impossible de scanner ? Saisissez cette clé manuellement :",
+      "next": "Suivant : vérifier le code →",
+      "verifyInstructions": "Saisissez le code à 6 chiffres de votre application d’authentification pour confirmer la configuration.",
+      "enable": "Activer 2FA et se connecter",
+      "enabling": "Activation…",
+      "back": "← Retour"
+    }
   },
   "compose": {
     "newMessage": "Nouveau message",
@@ -733,7 +755,20 @@
       "allowInsecureTls": "Autoriser le TLS non sécurisé",
       "allowInsecureTlsDesc": "Permet aux utilisateurs de désactiver la vérification du certificat TLS par compte. Nécessaire pour les serveurs avec des certificats auto-signés.",
       "allowNonstandardPorts": "Autoriser les ports non standard",
-      "allowNonstandardPortsDesc": "Autorise n'importe quel port IMAP ou SMTP, pas seulement 143/993 (IMAP) et 465/587 (SMTP). Nécessaire pour les serveurs comme protonmail-bridge qui utilisent des ports non standard."
+      "allowNonstandardPortsDesc": "Autorise n'importe quel port IMAP ou SMTP, pas seulement 143/993 (IMAP) et 465/587 (SMTP). Nécessaire pour les serveurs comme protonmail-bridge qui utilisent des ports non standard.",
+      "mfaEnforcementTitle": "Application de la MFA",
+      "mfaEnforcementDesc": "Obliger tous les utilisateurs à vérifier avec un deuxième facteur à la connexion.",
+      "mfaEnforcementOff": "Facultatif",
+      "mfaEnforcementRequired": "Obligatoire",
+      "mfaDeviceTrustTitle": "Durée de confiance de l’appareil",
+      "mfaDeviceTrustDesc": "Durée de confiance d’un appareil vérifié avant de demander à nouveau la 2FA.",
+      "mfaDeviceTrustNever": "Jamais",
+      "mfaDeviceTrust7d": "7 jours",
+      "mfaDeviceTrust30d": "30 jours",
+      "mfaDeviceTrustForever": "Permanent",
+      "recoveryEmailTitle": "Email de récupération",
+      "recoveryEmailDesc": "Recevez un code de connexion par email si vous perdez accès à votre application d’authentification.",
+      "recoveryEmailPh": "vous@email.fr"
     },
     "privacy": {
       "title": "Confidentialité",

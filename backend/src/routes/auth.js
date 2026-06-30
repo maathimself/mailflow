@@ -1,13 +1,16 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import { authenticator } from 'otplib';
+import QRCode from 'qrcode';
 import { query, pool } from '../services/db.js';
 import { imapManager } from '../index.js';
-import { decrypt } from '../services/encryption.js';
+import { decrypt, encrypt } from '../services/encryption.js';
 import { pushConfigured } from '../services/pushNotifications.js';
 import { validateHost } from '../services/hostValidation.js';
 import { authLimiterConfig } from '../services/authLimiter.js';
 import { logAuthEvent } from '../services/authEvents.js';
+import { sendSystemEmail } from '../services/mailer.js';
 
 const router = Router();
 
@@ -17,6 +20,8 @@ const rateBuckets = new Map();
 // Separate per-user rate limit for the 2FA challenge step, keyed by pendingUserId.
 // Prevents TOTP brute-force from IPs that rotate to bypass the IP-based authLimiter.
 const totpChallengeBuckets = new Map();
+// Per-user rate limit for email OTP sends (3 sends per 5 min per pending user).
+const emailOtpSendBuckets = new Map();
 setInterval(() => {
   const now = Date.now();
   for (const [key, bucket] of rateBuckets) {
@@ -25,7 +30,56 @@ setInterval(() => {
   for (const [key, bucket] of totpChallengeBuckets) {
     if (now > bucket.resetAt) totpChallengeBuckets.delete(key);
   }
+  for (const [key, bucket] of emailOtpSendBuckets) {
+    if (now > bucket.resetAt) emailOtpSendBuckets.delete(key);
+  }
 }, 5 * 60 * 1000);
+
+function maskEmail(email) {
+  if (!email) return '';
+  const [local, domain] = email.split('@');
+  if (!domain) return email;
+  const masked = local.length <= 2
+    ? local[0] + '*'
+    : local[0] + '*'.repeat(Math.min(local.length - 2, 4)) + local[local.length - 1];
+  return masked + '@' + domain;
+}
+
+function getTrustDurationMs(setting) {
+  switch (setting) {
+    case '7d': return 7 * 24 * 60 * 60 * 1000;
+    case '30d': return 30 * 24 * 60 * 60 * 1000;
+    case 'permanent': return 365 * 24 * 60 * 60 * 1000;
+    default: return 0; // 'never'
+  }
+}
+
+async function createTrustedDevice(userId, req, res) {
+  const trustResult = await query(
+    "SELECT value FROM system_settings WHERE key = 'mfa_device_trust'"
+  );
+  const trustSetting = trustResult.rows[0]?.value || '30d';
+  const trustMs = getTrustDurationMs(trustSetting);
+  if (trustMs === 0) return; // trust=never, don't set cookie
+
+  const rawToken = crypto.randomBytes(32).toString('hex');
+  const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+  const expiresAt = new Date(Date.now() + trustMs);
+
+  await query(
+    `INSERT INTO trusted_devices (user_id, token_hash, expires_at)
+     VALUES ($1, $2, $3)`,
+    [userId, tokenHash, expiresAt]
+  );
+
+  res.cookie('mf_td', rawToken, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: req.secure,
+    path: '/',
+    maxAge: trustMs,
+  });
+}
 
 function rateLimit(config) {
   return (req, res, next) => {
@@ -193,11 +247,62 @@ router.post('/login', authLimiter, async (req, res) => {
     // Regenerate session ID before storing any auth state to prevent session fixation
     await new Promise((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
 
-    // If 2FA is enabled, require a TOTP challenge before creating a full session
+    // Check trusted device cookie — bypass 2FA if valid
+    const rawCookies = req.headers.cookie || '';
+    const deviceToken = rawCookies.split(';').map(c => c.trim()).find(c => c.startsWith('mf_td='))?.slice(6);
+    if (deviceToken) {
+      const tokenHash = crypto.createHash('sha256').update(deviceToken).digest('hex');
+      const deviceRes = await query(
+        `SELECT id FROM trusted_devices
+         WHERE user_id = $1 AND token_hash = $2
+           AND (expires_at IS NULL OR expires_at > NOW())`,
+        [user.id, tokenHash]
+      );
+      if (deviceRes.rows.length > 0) {
+        await query('UPDATE trusted_devices SET last_used_at = NOW() WHERE id = $1', [deviceRes.rows[0].id]);
+        req.session.userId = user.id;
+        req.session.username = user.username;
+        req.session.isAdmin = user.is_admin;
+        imapManager.connectAllForUser(user.id);
+        logAuthEvent('login_success', { username: user.username, userId: user.id, ip: req.ip, success: true });
+        res.locals.resetRateLimit?.();
+        return res.json({ user: { id: user.id, username: user.username, displayName: user.display_name, avatar: user.avatar, isAdmin: user.is_admin, totpEnabled: user.totp_enabled } });
+      }
+    }
+
+    // Load enforcement policy and device trust setting together
+    const policyResult = await query(
+      "SELECT key, value FROM system_settings WHERE key IN ('mfa_enforcement', 'mfa_device_trust')"
+    );
+    const policyMap = {};
+    for (const row of policyResult.rows) policyMap[row.key] = row.value;
+    const enforcement = policyMap.mfa_enforcement || 'off';
+    const trustSetting = policyMap.mfa_device_trust || '30d';
+    const deviceTrustAvailable = getTrustDurationMs(trustSetting) > 0;
+
+    // If user has TOTP configured, require a TOTP challenge before creating a full session
     if (user.totp_enabled) {
       req.session.pendingUserId = user.id;
       req.session.pendingTOTPExpiry = Date.now() + 5 * 60 * 1000; // 5-minute window
-      return res.json({ requiresTOTP: true });
+      return res.json({ requiresTOTP: true, deviceTrustAvailable });
+    }
+
+    // If MFA is enforced but this user has no TOTP, offer email OTP or force enrollment
+    if (enforcement === 'required') {
+      req.session.pendingUserId = user.id;
+      req.session.pendingTOTPExpiry = Date.now() + 10 * 60 * 1000; // 10-minute window
+      if (user.recovery_email) {
+        try {
+          await sendEmailOtpCode(user.id, user.recovery_email);
+          return res.json({ requiresEmailOTP: true, emailHint: maskEmail(user.recovery_email), deviceTrustAvailable });
+        } catch (err) {
+          console.error('Email OTP auto-send failed, falling back to enrollment:', err.message);
+          // Fall through — system email not configured; direct user to TOTP enrollment
+        }
+      }
+      // No TOTP and no usable recovery email — must enroll
+      req.session.pendingMFAEnrollment = true;
+      return res.json({ requiresMFAEnrollment: true });
     }
 
     req.session.userId = user.id;
@@ -217,7 +322,7 @@ router.post('/login', authLimiter, async (req, res) => {
 
 // Second step of login when 2FA is enabled
 router.post('/2fa/challenge', authLimiter, async (req, res) => {
-  const { code } = req.body;
+  const { code, rememberDevice } = req.body;
   if (!code) return res.status(400).json({ error: 'Code required' });
 
   if (!req.session.pendingUserId) {
@@ -262,11 +367,217 @@ router.post('/2fa/challenge', authLimiter, async (req, res) => {
   req.session.username = user.username;
   req.session.isAdmin = user.is_admin;
 
+  if (rememberDevice) {
+    try { await createTrustedDevice(user.id, req, res); } catch (err) { console.error('createTrustedDevice failed:', err.message); }
+  }
+
   imapManager.connectAllForUser(user.id);
   logAuthEvent('totp_success', { username: user.username, userId: user.id, ip: req.ip, success: true });
   res.locals.resetRateLimit?.();
   totpChallengeBuckets.delete(uid);
   res.json({ user: { id: user.id, username: user.username, displayName: user.display_name, avatar: user.avatar, isAdmin: user.is_admin, totpEnabled: user.totp_enabled } });
+});
+
+// Helper: generate and store an email OTP, send it to the given address
+async function sendEmailOtpCode(userId, toEmail) {
+  const codeNum = crypto.randomBytes(3).readUIntBE(0, 3) % 900000 + 100000;
+  const code = String(codeNum);
+  const codeHash = crypto.createHash('sha256').update(code).digest('hex');
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10-minute window
+
+  // Remove any previous unused OTPs for this user to prevent confusion
+  await query('DELETE FROM email_otp_tokens WHERE user_id = $1 AND used_at IS NULL', [userId]);
+  await query(
+    'INSERT INTO email_otp_tokens (user_id, code_hash, expires_at) VALUES ($1, $2, $3)',
+    [userId, codeHash, expiresAt]
+  );
+
+  await sendSystemEmail({
+    to: toEmail,
+    subject: 'Your MailFlow sign-in code',
+    text: `Your sign-in code is: ${code}\n\nThis code expires in 10 minutes.\n\nIf you did not request this code, you can ignore this email.`,
+    html: `
+      <div style="font-family:-apple-system,Arial,sans-serif;max-width:480px;margin:0 auto;padding:32px;color:#1a1a1a;">
+        <div style="margin-bottom:24px;">
+          <span style="font-size:22px;font-weight:700;color:#1a1a1a;">Mail</span><span style="font-size:22px;font-weight:600;color:#7c6af7;">Flow</span>
+        </div>
+        <h2 style="margin:0 0 12px;font-size:18px;font-weight:600;">Your sign-in code</h2>
+        <p style="color:#555;line-height:1.6;margin:0 0 24px;">Use the code below to sign in to MailFlow. It expires in 10 minutes.</p>
+        <div style="font-size:36px;font-weight:700;letter-spacing:0.2em;text-align:center;padding:20px;background:#f5f4ff;border-radius:8px;color:#7c6af7;margin-bottom:24px;">${code}</div>
+        <p style="color:#999;font-size:12px;margin:0;">If you did not request this code, you can ignore this email.</p>
+      </div>
+    `,
+  });
+}
+
+// POST /api/auth/2fa/send-email-otp — (re)send email OTP during pending login
+router.post('/2fa/send-email-otp', authLimiter, async (req, res) => {
+  if (!req.session.pendingUserId || req.session.pendingMFAEnrollment) {
+    return res.status(400).json({ error: 'No pending authentication' });
+  }
+  if (Date.now() > (req.session.pendingTOTPExpiry || 0)) {
+    return res.status(400).json({ error: 'Authentication timed out. Please log in again.' });
+  }
+
+  const uid = req.session.pendingUserId;
+  const now = Date.now();
+  const sendBucket = emailOtpSendBuckets.get(uid);
+  if (sendBucket && now <= sendBucket.resetAt) {
+    if (sendBucket.count >= 3) {
+      return res.status(429).json({ error: 'Too many code requests. Please wait before requesting another.' });
+    }
+    sendBucket.count++;
+  } else {
+    emailOtpSendBuckets.set(uid, { count: 1, resetAt: now + 5 * 60 * 1000 });
+  }
+
+  const userResult = await query('SELECT recovery_email FROM users WHERE id = $1', [uid]);
+  const recoveryEmail = userResult.rows[0]?.recovery_email;
+  if (!recoveryEmail) return res.status(400).json({ error: 'No recovery email configured' });
+
+  try {
+    await sendEmailOtpCode(uid, recoveryEmail);
+    res.json({ ok: true, emailHint: maskEmail(recoveryEmail) });
+  } catch (err) {
+    console.error('Email OTP send failed:', err.message);
+    res.status(500).json({ error: 'Failed to send verification code. Check system email configuration.' });
+  }
+});
+
+// POST /api/auth/2fa/verify-email-otp — verify email OTP code
+router.post('/2fa/verify-email-otp', authLimiter, async (req, res) => {
+  const { code, rememberDevice } = req.body;
+  if (!code) return res.status(400).json({ error: 'Code required' });
+  if (!req.session.pendingUserId || req.session.pendingMFAEnrollment) {
+    return res.status(400).json({ error: 'No pending authentication' });
+  }
+  const now = Date.now();
+  if (now > (req.session.pendingTOTPExpiry || 0)) {
+    delete req.session.pendingUserId;
+    delete req.session.pendingTOTPExpiry;
+    return res.status(400).json({ error: 'Authentication timed out. Please log in again.' });
+  }
+
+  const uid = req.session.pendingUserId;
+  // Reuse TOTP challenge bucket for verify attempts (5 per 15 min per user)
+  const challBucket = totpChallengeBuckets.get(uid);
+  if (challBucket && now <= challBucket.resetAt) {
+    if (challBucket.count >= 5) {
+      res.setHeader('Retry-After', Math.ceil((challBucket.resetAt - now) / 1000));
+      return res.status(429).json({ error: 'Too many attempts. Please log in again.' });
+    }
+    challBucket.count++;
+  } else {
+    totpChallengeBuckets.set(uid, { count: 1, resetAt: now + 15 * 60 * 1000 });
+  }
+
+  const codeHash = crypto.createHash('sha256').update(String(code).trim()).digest('hex');
+  const tokenResult = await query(
+    `SELECT id FROM email_otp_tokens
+     WHERE user_id = $1 AND code_hash = $2 AND used_at IS NULL AND expires_at > NOW()
+     ORDER BY created_at DESC LIMIT 1`,
+    [uid, codeHash]
+  );
+  if (!tokenResult.rows.length) {
+    logAuthEvent('totp_fail', { userId: uid, ip: req.ip, success: false });
+    return res.status(401).json({ error: 'Invalid or expired code' });
+  }
+
+  await query('UPDATE email_otp_tokens SET used_at = NOW() WHERE id = $1', [tokenResult.rows[0].id]);
+
+  const userResult = await query('SELECT * FROM users WHERE id = $1', [uid]);
+  const user = userResult.rows[0];
+  if (!user) return res.status(401).json({ error: 'Authentication failed' });
+
+  await new Promise((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
+  req.session.userId = user.id;
+  req.session.username = user.username;
+  req.session.isAdmin = user.is_admin;
+
+  if (rememberDevice) {
+    try { await createTrustedDevice(user.id, req, res); } catch (err) { console.error('createTrustedDevice failed:', err.message); }
+  }
+
+  imapManager.connectAllForUser(user.id);
+  logAuthEvent('totp_success', { username: user.username, userId: user.id, ip: req.ip, success: true });
+  res.locals.resetRateLimit?.();
+  totpChallengeBuckets.delete(uid);
+  res.json({ user: { id: user.id, username: user.username, displayName: user.display_name, avatar: user.avatar, isAdmin: user.is_admin, totpEnabled: user.totp_enabled } });
+});
+
+// GET /api/auth/2fa/enrollment/setup — generate TOTP QR for forced enrollment
+router.get('/2fa/enrollment/setup', async (req, res) => {
+  if (!req.session.pendingUserId || !req.session.pendingMFAEnrollment) {
+    return res.status(400).json({ error: 'No pending enrollment' });
+  }
+  if (Date.now() > (req.session.pendingTOTPExpiry || 0)) {
+    return res.status(400).json({ error: 'Session expired. Please log in again.' });
+  }
+
+  const userResult = await query('SELECT username FROM users WHERE id = $1', [req.session.pendingUserId]);
+  const username = userResult.rows[0]?.username || 'user';
+
+  const secret = authenticator.generateSecret(20);
+  const otpauthUrl = authenticator.keyuri(username, 'MailFlow', secret);
+  const qrCode = await QRCode.toDataURL(otpauthUrl);
+
+  req.session.pendingTOTPSecret = secret;
+  req.session.pendingTOTPSetupExpiry = Date.now() + 10 * 60 * 1000;
+
+  res.json({ secret, qrCode });
+});
+
+// POST /api/auth/2fa/enrollment/enable — verify TOTP and complete forced enrollment
+router.post('/2fa/enrollment/enable', authLimiter, async (req, res) => {
+  const { code } = req.body;
+  if (!code) return res.status(400).json({ error: 'Code required' });
+  if (!req.session.pendingUserId || !req.session.pendingMFAEnrollment) {
+    return res.status(400).json({ error: 'No pending enrollment' });
+  }
+  const now = Date.now();
+  if (now > (req.session.pendingTOTPExpiry || 0)) {
+    return res.status(400).json({ error: 'Session expired. Please log in again.' });
+  }
+  if (!req.session.pendingTOTPSecret || now > (req.session.pendingTOTPSetupExpiry || 0)) {
+    return res.status(400).json({ error: 'Setup session expired. Start over.' });
+  }
+
+  const uid = req.session.pendingUserId;
+  const challBucket = totpChallengeBuckets.get(uid);
+  if (challBucket && now <= challBucket.resetAt) {
+    if (challBucket.count >= 5) {
+      res.setHeader('Retry-After', Math.ceil((challBucket.resetAt - now) / 1000));
+      return res.status(429).json({ error: 'Too many attempts. Please log in again.' });
+    }
+    challBucket.count++;
+  } else {
+    totpChallengeBuckets.set(uid, { count: 1, resetAt: now + 15 * 60 * 1000 });
+  }
+
+  const secret = req.session.pendingTOTPSecret;
+  if (!authenticator.verify({ token: String(code).replace(/\s/g, ''), secret })) {
+    return res.status(400).json({ error: 'Invalid code — check your device clock and try again.' });
+  }
+
+  await query(
+    'UPDATE users SET totp_secret = $1, totp_enabled = true WHERE id = $2',
+    [encrypt(secret), uid]
+  );
+
+  const userResult = await query('SELECT * FROM users WHERE id = $1', [uid]);
+  const user = userResult.rows[0];
+  if (!user) return res.status(401).json({ error: 'Authentication failed' });
+
+  await new Promise((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
+  req.session.userId = user.id;
+  req.session.username = user.username;
+  req.session.isAdmin = user.is_admin;
+
+  imapManager.connectAllForUser(user.id);
+  logAuthEvent('totp_success', { username: user.username, userId: user.id, ip: req.ip, success: true });
+  res.locals.resetRateLimit?.();
+  totpChallengeBuckets.delete(uid);
+  res.json({ user: { id: user.id, username: user.username, displayName: user.display_name, avatar: user.avatar, isAdmin: user.is_admin, totpEnabled: true } });
 });
 
 router.post('/logout', (req, res) => {
@@ -469,6 +780,26 @@ router.post('/preferences/whitelist-add', async (req, res) => {
     )
     WHERE id = $1
   `, [req.session.userId, key, normalized]);
+  res.json({ ok: true });
+});
+
+// ── Recovery email ────────────────────────────────────────────────────────────
+
+router.get('/profile/recovery-email', async (req, res) => {
+  if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
+  const result = await query('SELECT recovery_email FROM users WHERE id = $1', [req.session.userId]);
+  res.json({ email: result.rows[0]?.recovery_email || null });
+});
+
+router.patch('/profile/recovery-email', async (req, res) => {
+  if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
+  const { email } = req.body;
+  if (email === undefined) return res.status(400).json({ error: 'email required' });
+  const trimmed = email ? String(email).trim().toLowerCase() : null;
+  if (trimmed && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+    return res.status(400).json({ error: 'Invalid email address' });
+  }
+  await query('UPDATE users SET recovery_email = $1 WHERE id = $2', [trimmed || null, req.session.userId]);
   res.json({ ok: true });
 });
 

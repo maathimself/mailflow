@@ -17,6 +17,16 @@ export default function LoginPage() {
   const [inviteEmail, setInviteEmail] = useState(null);
   const [totpRequired, setTotpRequired] = useState(false);
   const [totpCode, setTotpCode] = useState('');
+  const [rememberDevice, setRememberDevice] = useState(false);
+  const [deviceTrustAvailable, setDeviceTrustAvailable] = useState(false);
+  const [emailOtpRequired, setEmailOtpRequired] = useState(false);
+  const [emailOtpCode, setEmailOtpCode] = useState('');
+  const [emailHint, setEmailHint] = useState('');
+  const [emailOtpResending, setEmailOtpResending] = useState(false);
+  const [mfaEnrollRequired, setMfaEnrollRequired] = useState(false);
+  const [enrollData, setEnrollData] = useState(null); // { qrCode, secret }
+  const [enrollStep, setEnrollStep] = useState('intro'); // intro | scan | verify
+  const [enrollCode, setEnrollCode] = useState('');
   const [oidcProviders, setOidcProviders] = useState([]);
   const [oidcError, setOidcError] = useState('');
   const [internalAuthDisabled, setInternalAuthDisabled] = useState(false);
@@ -69,7 +79,23 @@ export default function LoginPage() {
       if (mode === 'login') {
         data = await api.login(username, password);
         if (data.requiresTOTP) {
+          setDeviceTrustAvailable(data.deviceTrustAvailable || false);
           setTotpRequired(true);
+          setLoading(false);
+          return;
+        }
+        if (data.requiresEmailOTP) {
+          setDeviceTrustAvailable(data.deviceTrustAvailable || false);
+          setEmailHint(data.emailHint || '');
+          setEmailOtpRequired(true);
+          setLoading(false);
+          return;
+        }
+        if (data.requiresMFAEnrollment) {
+          setEnrollStep('intro');
+          setEnrollCode('');
+          setEnrollData(null);
+          setMfaEnrollRequired(true);
           setLoading(false);
           return;
         }
@@ -91,12 +117,73 @@ export default function LoginPage() {
     setLoading(true);
     setError('');
     try {
-      const data = await api.totp.challenge(totpCode.trim());
+      const data = await api.totp.challenge(totpCode.trim(), rememberDevice);
       setUser(data.user);
       await loadPreferences();
     } catch (err) {
       setError(err.message);
       setTotpCode('');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const submitEmailOtp = async (e) => {
+    e.preventDefault();
+    if (!emailOtpCode.trim()) return;
+    setLoading(true);
+    setError('');
+    try {
+      const data = await api.totp.verifyEmailOtp(emailOtpCode.trim(), rememberDevice);
+      setUser(data.user);
+      await loadPreferences();
+    } catch (err) {
+      setError(err.message);
+      setEmailOtpCode('');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resendEmailOtp = async () => {
+    setEmailOtpResending(true);
+    setError('');
+    try {
+      const data = await api.totp.sendEmailOtp();
+      setEmailHint(data.emailHint || emailHint);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setEmailOtpResending(false);
+    }
+  };
+
+  const startEnrollment = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const data = await api.totp.enrollmentSetup();
+      setEnrollData(data);
+      setEnrollStep('scan');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const submitEnrollment = async (e) => {
+    e.preventDefault();
+    if (!enrollCode.trim()) return;
+    setLoading(true);
+    setError('');
+    try {
+      const data = await api.totp.enrollmentEnable(enrollCode.trim());
+      setUser(data.user);
+      await loadPreferences();
+    } catch (err) {
+      setError(err.message);
+      setEnrollCode('');
     } finally {
       setLoading(false);
     }
@@ -143,7 +230,7 @@ export default function LoginPage() {
           background: 'var(--bg-secondary)', border: '1px solid var(--border)',
           borderRadius: 16, padding: 32,
         }}>
-          {internalAuthDisabled && !totpRequired ? (
+          {internalAuthDisabled && !totpRequired && !emailOtpRequired && !mfaEnrollRequired ? (
             <>
               <h2 style={{ margin: '0 0 4px', fontSize: 18, fontWeight: 500, color: 'var(--text-primary)' }}>
                 {t('login.ssoOnly')}
@@ -222,6 +309,19 @@ export default function LoginPage() {
                   onFocus={e => e.target.style.borderColor = 'var(--accent)'}
                   onBlur={e => e.target.style.borderColor = 'var(--border)'}
                 />
+                {deviceTrustAvailable && (
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={rememberDevice}
+                      onChange={e => setRememberDevice(e.target.checked)}
+                      style={{ width: 15, height: 15, cursor: 'pointer', accentColor: 'var(--accent)' }}
+                    />
+                    <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                      {t('login.rememberDevice')}
+                    </span>
+                  </label>
+                )}
                 {error && (
                   <div style={{
                     padding: '10px 14px', background: 'rgba(248,113,113,0.1)',
@@ -243,7 +343,7 @@ export default function LoginPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => { setTotpRequired(false); setTotpCode(''); setError(''); }}
+                  onClick={() => { setTotpRequired(false); setTotpCode(''); setError(''); setRememberDevice(false); }}
                   style={{
                     background: 'none', border: 'none', color: 'var(--text-tertiary)',
                     fontSize: 13, cursor: 'pointer', padding: 0,
@@ -252,6 +352,256 @@ export default function LoginPage() {
                   {t('login.totp.backToLogin')}
                 </button>
               </form>
+            </>
+          ) : emailOtpRequired ? (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                <div style={{
+                  width: 36, height: 36, borderRadius: 10,
+                  background: 'var(--bg-tertiary)', display: 'flex',
+                  alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.75">
+                    <rect x="2" y="4" width="20" height="16" rx="2"/>
+                    <path d="m2 7 10 7 10-7"/>
+                  </svg>
+                </div>
+                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 500, color: 'var(--text-primary)' }}>
+                  {t('login.emailOtp.title')}
+                </h2>
+              </div>
+              <p style={{ margin: '0 0 20px', fontSize: 13, color: 'var(--text-tertiary)' }}>
+                {t('login.emailOtp.desc', { email: emailHint })}
+              </p>
+              <form onSubmit={submitEmailOtp} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={6}
+                  value={emailOtpCode}
+                  onChange={e => setEmailOtpCode(e.target.value.replace(/\D/g, ''))}
+                  autoFocus
+                  placeholder={t('login.emailOtp.codePh')}
+                  style={{
+                    width: '100%', padding: '12px 14px',
+                    background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+                    borderRadius: 8, color: 'var(--text-primary)', fontSize: 22,
+                    letterSpacing: '0.3em', textAlign: 'center',
+                    outline: 'none', boxSizing: 'border-box', fontVariantNumeric: 'tabular-nums',
+                  }}
+                  onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+                  onBlur={e => e.target.style.borderColor = 'var(--border)'}
+                />
+                {deviceTrustAvailable && (
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={rememberDevice}
+                      onChange={e => setRememberDevice(e.target.checked)}
+                      style={{ width: 15, height: 15, cursor: 'pointer', accentColor: 'var(--accent)' }}
+                    />
+                    <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                      {t('login.rememberDevice')}
+                    </span>
+                  </label>
+                )}
+                {error && (
+                  <div style={{
+                    padding: '10px 14px', background: 'rgba(248,113,113,0.1)',
+                    border: '1px solid rgba(248,113,113,0.3)', borderRadius: 8,
+                    color: 'var(--red)', fontSize: 13,
+                  }}>{error}</div>
+                )}
+                <button
+                  type="submit"
+                  disabled={loading || emailOtpCode.length !== 6}
+                  style={{
+                    padding: '11px 24px', background: 'var(--accent)',
+                    border: 'none', borderRadius: 8, color: 'white',
+                    fontSize: 14, fontWeight: 500, cursor: loading ? 'not-allowed' : 'pointer',
+                    opacity: loading || emailOtpCode.length !== 6 ? 0.6 : 1, marginTop: 4,
+                  }}
+                >
+                  {loading ? t('login.emailOtp.verifying') : t('login.emailOtp.verify')}
+                </button>
+                <button
+                  type="button"
+                  onClick={resendEmailOtp}
+                  disabled={emailOtpResending}
+                  style={{
+                    background: 'none', border: 'none', color: 'var(--text-tertiary)',
+                    fontSize: 13, cursor: emailOtpResending ? 'not-allowed' : 'pointer', padding: 0,
+                    opacity: emailOtpResending ? 0.6 : 1,
+                  }}
+                >
+                  {emailOtpResending ? t('login.emailOtp.sending') : t('login.emailOtp.resend')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setEmailOtpRequired(false); setEmailOtpCode(''); setError(''); setRememberDevice(false); }}
+                  style={{
+                    background: 'none', border: 'none', color: 'var(--text-tertiary)',
+                    fontSize: 13, cursor: 'pointer', padding: 0,
+                  }}
+                >
+                  {t('login.totp.backToLogin')}
+                </button>
+              </form>
+            </>
+          ) : mfaEnrollRequired ? (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                <div style={{
+                  width: 36, height: 36, borderRadius: 10,
+                  background: 'var(--bg-tertiary)', display: 'flex',
+                  alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.75">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                  </svg>
+                </div>
+                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 500, color: 'var(--text-primary)' }}>
+                  {t('login.mfaEnroll.title')}
+                </h2>
+              </div>
+
+              {enrollStep === 'intro' && (
+                <>
+                  <p style={{ margin: '0 0 20px', fontSize: 13, color: 'var(--text-tertiary)' }}>
+                    {t('login.mfaEnroll.desc')}
+                  </p>
+                  {error && (
+                    <div style={{
+                      padding: '10px 14px', background: 'rgba(248,113,113,0.1)',
+                      border: '1px solid rgba(248,113,113,0.3)', borderRadius: 8,
+                      color: 'var(--red)', fontSize: 13, marginBottom: 16,
+                    }}>{error}</div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={startEnrollment}
+                    disabled={loading}
+                    style={{
+                      width: '100%', padding: '11px 24px', background: 'var(--accent)',
+                      border: 'none', borderRadius: 8, color: 'white',
+                      fontSize: 14, fontWeight: 500, cursor: loading ? 'not-allowed' : 'pointer',
+                      opacity: loading ? 0.6 : 1,
+                    }}
+                  >
+                    {loading ? t('login.mfaEnroll.enabling') : t('login.mfaEnroll.scan')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setMfaEnrollRequired(false); setEnrollStep('intro'); setEnrollCode(''); setEnrollData(null); setError(''); }}
+                    style={{
+                      background: 'none', border: 'none', color: 'var(--text-tertiary)',
+                      fontSize: 13, cursor: 'pointer', padding: '8px 0 0', display: 'block', width: '100%',
+                    }}
+                  >
+                    {t('login.totp.backToLogin')}
+                  </button>
+                </>
+              )}
+
+              {enrollStep === 'scan' && enrollData && (
+                <>
+                  <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--text-secondary)' }}>
+                    {t('login.mfaEnroll.scanInstructions')}
+                  </p>
+                  <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
+                    <img
+                      src={enrollData.qrCode}
+                      alt={t('admin.security.qrCodeAlt')}
+                      style={{ width: 160, height: 160, borderRadius: 8, background: 'white', padding: 8 }}
+                    />
+                  </div>
+                  <p style={{ margin: '0 0 6px', fontSize: 12, color: 'var(--text-tertiary)', textAlign: 'center' }}>
+                    {t('login.mfaEnroll.manualKey')}
+                  </p>
+                  <div style={{
+                    fontFamily: 'monospace', fontSize: 12, letterSpacing: '0.08em',
+                    color: 'var(--text-secondary)', textAlign: 'center',
+                    background: 'var(--bg-tertiary)', borderRadius: 6, padding: '8px 12px',
+                    marginBottom: 20, wordBreak: 'break-all',
+                  }}>
+                    {enrollData.secret}
+                  </div>
+                  {error && (
+                    <div style={{
+                      padding: '10px 14px', background: 'rgba(248,113,113,0.1)',
+                      border: '1px solid rgba(248,113,113,0.3)', borderRadius: 8,
+                      color: 'var(--red)', fontSize: 13, marginBottom: 16,
+                    }}>{error}</div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => { setEnrollStep('verify'); setError(''); }}
+                    style={{
+                      width: '100%', padding: '10px', background: 'var(--accent)', border: 'none',
+                      borderRadius: 7, color: 'white', fontSize: 13, fontWeight: 500, cursor: 'pointer',
+                    }}
+                  >
+                    {t('login.mfaEnroll.next')}
+                  </button>
+                </>
+              )}
+
+              {enrollStep === 'verify' && (
+                <form onSubmit={submitEnrollment} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  <p style={{ margin: '0 0 4px', fontSize: 13, color: 'var(--text-secondary)' }}>
+                    {t('login.mfaEnroll.verifyInstructions')}
+                  </p>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    value={enrollCode}
+                    onChange={e => setEnrollCode(e.target.value.replace(/\D/g, ''))}
+                    autoFocus
+                    placeholder={t('login.totp.placeholder')}
+                    style={{
+                      width: '100%', padding: '12px 14px',
+                      background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+                      borderRadius: 8, color: 'var(--text-primary)', fontSize: 22,
+                      letterSpacing: '0.3em', textAlign: 'center',
+                      outline: 'none', boxSizing: 'border-box', fontVariantNumeric: 'tabular-nums',
+                    }}
+                    onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+                    onBlur={e => e.target.style.borderColor = 'var(--border)'}
+                  />
+                  {error && (
+                    <div style={{
+                      padding: '10px 14px', background: 'rgba(248,113,113,0.1)',
+                      border: '1px solid rgba(248,113,113,0.3)', borderRadius: 8,
+                      color: 'var(--red)', fontSize: 13,
+                    }}>{error}</div>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={loading || enrollCode.length !== 6}
+                    style={{
+                      padding: '11px 24px', background: 'var(--accent)',
+                      border: 'none', borderRadius: 8, color: 'white',
+                      fontSize: 14, fontWeight: 500, cursor: loading ? 'not-allowed' : 'pointer',
+                      opacity: loading || enrollCode.length !== 6 ? 0.6 : 1,
+                    }}
+                  >
+                    {loading ? t('login.mfaEnroll.enabling') : t('login.mfaEnroll.enable')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setEnrollStep('scan'); setEnrollCode(''); setError(''); }}
+                    style={{
+                      background: 'none', border: 'none', color: 'var(--text-tertiary)',
+                      fontSize: 13, cursor: 'pointer', padding: 0,
+                    }}
+                  >
+                    {t('login.mfaEnroll.back')}
+                  </button>
+                </form>
+              )}
             </>
           ) : (
           <>

@@ -43,6 +43,28 @@
       "verify": "Verify",
       "verifying": "Verifying…",
       "backToLogin": "← Back to login"
+    },
+    "rememberDevice": "Remember this device",
+    "emailOtp": {
+      "title": "Check your email",
+      "desc": "A verification code has been sent to {{email}}",
+      "codePh": "6-digit code",
+      "resend": "Resend code",
+      "sending": "Sending…",
+      "verify": "Verify",
+      "verifying": "Verifying…"
+    },
+    "mfaEnroll": {
+      "title": "Set up two-factor authentication",
+      "desc": "Your organization requires two-factor authentication. Please set up an authenticator app to continue.",
+      "scan": "Scan QR code",
+      "scanInstructions": "Scan this QR code with your authenticator app (e.g. Google Authenticator, Authy).",
+      "manualKey": "Can’t scan? Enter this key manually:",
+      "next": "Next: verify code →",
+      "verifyInstructions": "Enter the 6-digit code from your authenticator app to confirm setup.",
+      "enable": "Enable 2FA & sign in",
+      "enabling": "Enabling…",
+      "back": "← Back"
     }
   },
   "compose": {
@@ -733,7 +755,20 @@
       "allowInsecureTls": "Allow insecure TLS",
       "allowInsecureTlsDesc": "Allows users to disable TLS certificate verification per account. Required for servers with self-signed certificates.",
       "allowNonstandardPorts": "Allow non-standard ports",
-      "allowNonstandardPortsDesc": "Allows any IMAP or SMTP port, not just 143/993 (IMAP) and 465/587 (SMTP). Required for servers like protonmail-bridge that use non-standard ports."
+      "allowNonstandardPortsDesc": "Allows any IMAP or SMTP port, not just 143/993 (IMAP) and 465/587 (SMTP). Required for servers like protonmail-bridge that use non-standard ports.",
+      "mfaEnforcementTitle": "MFA enforcement",
+      "mfaEnforcementDesc": "Require all users to verify with a second factor when signing in.",
+      "mfaEnforcementOff": "Optional",
+      "mfaEnforcementRequired": "Required",
+      "mfaDeviceTrustTitle": "Device trust duration",
+      "mfaDeviceTrustDesc": "How long a verified device is trusted before requiring 2FA again. Only applies when MFA is required.",
+      "mfaDeviceTrustNever": "Never",
+      "mfaDeviceTrust7d": "7 days",
+      "mfaDeviceTrust30d": "30 days",
+      "mfaDeviceTrustForever": "Permanent",
+      "recoveryEmailTitle": "Recovery email",
+      "recoveryEmailDesc": "Receive a sign-in code by email if you lose access to your authenticator app.",
+      "recoveryEmailPh": "your@email.com"
     },
     "privacy": {
       "title": "Privacy",

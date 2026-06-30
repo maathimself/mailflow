@@ -42,13 +42,21 @@ export const api = {
   getRegistrationStatus: () => request('GET', '/auth/registration-status'),
   validateInvite: (token) => request('GET', `/auth/invite/${token}`),
 
+  // Recovery email (profile security)
+  getRecoveryEmail: () => request('GET', '/auth/profile/recovery-email'),
+  updateRecoveryEmail: (email) => request('PATCH', '/auth/profile/recovery-email', { email }),
+
   // TOTP / 2FA
   totp: {
     setup: () => request('GET', '/totp/setup'),
     enable: (code) => request('POST', '/totp/enable', { code }),
     disable: (password) => request('POST', '/totp/disable', { password }),
     cancel: () => request('POST', '/totp/cancel'),
-    challenge: (code) => request('POST', '/auth/2fa/challenge', { code }),
+    challenge: (code, rememberDevice) => request('POST', '/auth/2fa/challenge', { code, rememberDevice }),
+    sendEmailOtp: () => request('POST', '/auth/2fa/send-email-otp'),
+    verifyEmailOtp: (code, rememberDevice) => request('POST', '/auth/2fa/verify-email-otp', { code, rememberDevice }),
+    enrollmentSetup: () => request('GET', '/auth/2fa/enrollment/setup'),
+    enrollmentEnable: (code) => request('POST', '/auth/2fa/enrollment/enable', { code }),
   },
 
   // Admin

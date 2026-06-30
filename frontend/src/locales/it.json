@@ -43,7 +43,29 @@
       "backToLogin": "← Torna all'accesso"
     },
     "ssoOnly": "Accedi con SSO",
-    "ssoOnlyDesc": "L'accesso con password è disabilitato su questo server."
+    "ssoOnlyDesc": "L'accesso con password è disabilitato su questo server.",
+    "rememberDevice": "Ricorda questo dispositivo",
+    "emailOtp": {
+      "title": "Controlla la tua email",
+      "desc": "Un codice di verifica è stato inviato a {{email}}",
+      "codePh": "Codice a 6 cifre",
+      "resend": "Reinvia codice",
+      "sending": "Invio…",
+      "verify": "Verifica",
+      "verifying": "Verifica…"
+    },
+    "mfaEnroll": {
+      "title": "Configura l’autenticazione a due fattori",
+      "desc": "La tua organizzazione richiede l’autenticazione a due fattori. Configura un’app di autenticazione per continuare.",
+      "scan": "Scansiona il codice QR",
+      "scanInstructions": "Scansiona questo codice QR con la tua app di autenticazione (es. Google Authenticator, Authy).",
+      "manualKey": "Non riesci a scansionare? Inserisci questa chiave manualmente:",
+      "next": "Avanti: verifica codice →",
+      "verifyInstructions": "Inserisci il codice a 6 cifre dall’app di autenticazione per confermare la configurazione.",
+      "enable": "Abilita 2FA e accedi",
+      "enabling": "Abilitazione…",
+      "back": "← Indietro"
+    }
   },
   "compose": {
     "newMessage": "Nuovo messaggio",
@@ -733,7 +755,20 @@
       "allowInsecureTls": "Consenti TLS non sicuro",
       "allowInsecureTlsDesc": "Consente agli utenti di disabilitare la verifica del certificato TLS per account. Necessario per server con certificati autofirmati.",
       "allowNonstandardPorts": "Consenti porte non standard",
-      "allowNonstandardPortsDesc": "Consente qualsiasi porta IMAP o SMTP, non solo 143/993 (IMAP) e 465/587 (SMTP). Necessario per server come protonmail-bridge che utilizzano porte non standard."
+      "allowNonstandardPortsDesc": "Consente qualsiasi porta IMAP o SMTP, non solo 143/993 (IMAP) e 465/587 (SMTP). Necessario per server come protonmail-bridge che utilizzano porte non standard.",
+      "mfaEnforcementTitle": "Applicazione MFA",
+      "mfaEnforcementDesc": "Richiedere a tutti gli utenti di verificare con un secondo fattore al momento del login.",
+      "mfaEnforcementOff": "Facoltativo",
+      "mfaEnforcementRequired": "Obbligatorio",
+      "mfaDeviceTrustTitle": "Durata affidabilità dispositivo",
+      "mfaDeviceTrustDesc": "Per quanto tempo un dispositivo verificato è considerato affidabile prima di richiedere nuovamente la 2FA.",
+      "mfaDeviceTrustNever": "Mai",
+      "mfaDeviceTrust7d": "7 giorni",
+      "mfaDeviceTrust30d": "30 giorni",
+      "mfaDeviceTrustForever": "Permanente",
+      "recoveryEmailTitle": "Email di recupero",
+      "recoveryEmailDesc": "Ricevi un codice di accesso via email se perdi l’accesso alla tua app di autenticazione.",
+      "recoveryEmailPh": "tua@email.it"
     },
     "privacy": {
       "title": "Privacy",

@@ -43,7 +43,29 @@
       "backToLogin": "← 返回登录"
     },
     "ssoOnly": "通过 SSO 登录",
-    "ssoOnlyDesc": "此服务器已禁用密码登录。"
+    "ssoOnlyDesc": "此服务器已禁用密码登录。",
+    "rememberDevice": "记住此设备",
+    "emailOtp": {
+      "title": "查看您的邮件",
+      "desc": "验证码已发送至 {{email}}",
+      "codePh": "6位数字码",
+      "resend": "重新发送",
+      "sending": "发送中…",
+      "verify": "验证",
+      "verifying": "验证中…"
+    },
+    "mfaEnroll": {
+      "title": "设置双因素认证",
+      "desc": "您的组织要求双因素认证。请设置认证器应用以继续。",
+      "scan": "扫描二维码",
+      "scanInstructions": "使用您的认证器应用扫描此二维码（如 Google Authenticator、Authy）。",
+      "manualKey": "无法扫描？请手动输入此密钥：",
+      "next": "下一步：验证代码 →",
+      "verifyInstructions": "输入认证器应用中的6位代码以确认设置。",
+      "enable": "启用2FA并登录",
+      "enabling": "启用中…",
+      "back": "← 返回"
+    }
   },
   "compose": {
     "newMessage": "新邮件",
@@ -733,7 +755,20 @@
       "allowInsecureTls": "允许不安全的 TLS",
       "allowInsecureTlsDesc": "允许用户按账户禁用 TLS 证书验证。自签名证书的服务器需要此选项。",
       "allowNonstandardPorts": "允许非标准端口",
-      "allowNonstandardPortsDesc": "允许任意 IMAP 或 SMTP 端口，而不仅限于 143/993（IMAP）和 465/587（SMTP）。protonmail-bridge 等使用非标准端口的服务器需要此选项。"
+      "allowNonstandardPortsDesc": "允许任意 IMAP 或 SMTP 端口，而不仅限于 143/993（IMAP）和 465/587（SMTP）。protonmail-bridge 等使用非标准端口的服务器需要此选项。",
+      "mfaEnforcementTitle": "MFA强制要求",
+      "mfaEnforcementDesc": "要求所有用户登录时使用第二因素验证。",
+      "mfaEnforcementOff": "可选",
+      "mfaEnforcementRequired": "必需",
+      "mfaDeviceTrustTitle": "设备信任时长",
+      "mfaDeviceTrustDesc": "已验证设备被信任的时长，超时后重新要求2FA。",
+      "mfaDeviceTrustNever": "从不",
+      "mfaDeviceTrust7d": "7天",
+      "mfaDeviceTrust30d": "30天",
+      "mfaDeviceTrustForever": "永久",
+      "recoveryEmailTitle": "恢复邮箱",
+      "recoveryEmailDesc": "如果您失去对认证器应用的访问权限，可通过电子邮件接收登录码。",
+      "recoveryEmailPh": "you@email.com"
     },
     "privacy": {
       "title": "隐私",
