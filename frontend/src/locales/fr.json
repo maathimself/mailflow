@@ -55,6 +55,7 @@
     "cc": "Cc",
     "bcc": "Cci",
     "subject": "Objet",
+    "subjectPh": "Ajouter un objet",
     "toPh": "destinataire@exemple.com",
     "ccPh": "cc@exemple.com",
     "bccPh": "cci@exemple.com",
@@ -108,7 +109,9 @@
       "apply": "Appliquer",
       "insertTable": "Insérer un tableau",
       "highlight": "Couleur de surlignage",
-      "removeHighlight": "Supprimer le surlignage"
+      "removeHighlight": "Supprimer le surlignage",
+      "fontDefault": "Par défaut",
+      "moreFormatting": "Plus de mise en forme"
     },
     "priority": "Priorité",
     "priorityHigh": "Haute priorité",

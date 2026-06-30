@@ -55,6 +55,7 @@
     "cc": "Копия",
     "bcc": "Скрытая копия",
     "subject": "Тема",
+    "subjectPh": "Добавить тему",
     "toPh": "recipient@example.com",
     "ccPh": "cc@example.com",
     "bccPh": "bcc@example.com",
@@ -108,7 +109,9 @@
       "apply": "Применить",
       "insertTable": "Вставить таблицу",
       "highlight": "Цвет выделения",
-      "removeHighlight": "Убрать выделение"
+      "removeHighlight": "Убрать выделение",
+      "fontDefault": "По умолчанию",
+      "moreFormatting": "Ещё форматирование"
     },
     "priority": "Приоритет",
     "priorityHigh": "Высокий приоритет",

@@ -113,6 +113,10 @@ export default function ComposeModal() {
   const [showForgottenAttachWarn, setShowForgottenAttachWarn] = useState(false);
   const [showCloseDialog, setShowCloseDialog] = useState(false);
   const [showAttachWarnForDraft, setShowAttachWarnForDraft] = useState(false);
+  const [showPrioritySheet, setShowPrioritySheet] = useState(false);
+  const [showCcBccMenu, setShowCcBccMenu] = useState(false);
+  const [ccBccMenuPos, setCcBccMenuPos] = useState(null);
+  const ccBccMenuBtnRef = useRef(null);
   const [draftUid, setDraftUid] = useState(() => composeData?.draftUid ?? null);
   const [draftFolder, setDraftFolder] = useState(() => composeData?.draftFolder ?? null);
   const [draftAccountId, setDraftAccountId] = useState(() => composeData?.accountId ?? null);
@@ -771,8 +775,6 @@ export default function ComposeModal() {
       <>
       <div style={{
         position: 'fixed', inset: 0, zIndex: 1999,
-        backdropFilter: 'blur(8px)',
-        WebkitBackdropFilter: 'blur(8px)',
         background: 'rgba(0,0,0,0.25)',
         animation: 'backdrop-enter var(--motion-fast) var(--ease-standard) both',
       }} />
@@ -819,23 +821,37 @@ export default function ComposeModal() {
           }}>
             {modeLabel}
           </span>
-          <button
-            onClick={handleSend}
-            disabled={sending || (toChips.length === 0 && !toInput.trim())}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              minWidth: 60, justifyContent: 'flex-end',
-              background: 'none', border: 'none',
-              color: sending || (toChips.length === 0 && !toInput.trim()) ? 'var(--text-tertiary)' : 'var(--accent)',
-              fontSize: 16, fontWeight: 600,
-              cursor: sending || (toChips.length === 0 && !toInput.trim()) ? 'default' : 'pointer',
-              padding: '4px 0',
-              WebkitTapHighlightColor: 'transparent',
-              transition: 'color 0.15s',
-            }}
-          >
-            {sending ? sendSpinner : t('compose.send')}
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 60, justifyContent: 'flex-end' }}>
+            <button
+              onClick={() => setShowPrioritySheet(true)}
+              style={{
+                background: 'none', border: 'none', padding: '4px 8px',
+                cursor: 'pointer', display: 'flex', alignItems: 'center',
+                color: priority === 'high' ? 'var(--red)' : priority === 'low' ? '#4dabf7' : 'var(--text-tertiary)',
+                WebkitTapHighlightColor: 'transparent',
+              }}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/>
+                <line x1="4" y1="22" x2="4" y2="15" stroke="currentColor" strokeWidth="2" fill="none"/>
+              </svg>
+            </button>
+            <button
+              onClick={handleSend}
+              disabled={sending || (toChips.length === 0 && !toInput.trim())}
+              style={{
+                background: 'none', border: 'none',
+                color: sending || (toChips.length === 0 && !toInput.trim()) ? 'var(--text-tertiary)' : 'var(--accent)',
+                fontSize: 16, fontWeight: 600,
+                cursor: sending || (toChips.length === 0 && !toInput.trim()) ? 'default' : 'pointer',
+                padding: '4px 0',
+                WebkitTapHighlightColor: 'transparent',
+                transition: 'color 0.15s',
+              }}
+            >
+              {sending ? sendSpinner : t('compose.send')}
+            </button>
+          </div>
         </div>
 
         {/* Reply/Reply All toggle */}
@@ -906,8 +922,8 @@ export default function ComposeModal() {
           </div>
 
           {/* To */}
-          <div style={{ ...fieldStyle, alignItems: 'flex-start', paddingTop: 4 }}>
-            <span style={{ ...labelStyle, paddingTop: 10 }}>{t('compose.to')}</span>
+          <div style={fieldStyle}>
+            <span style={labelStyle}>{t('compose.to')}</span>
             <ChipInput
               chips={toChips} onChipsChange={setToChips}
               value={toInput} onChange={setToInput}
@@ -915,69 +931,56 @@ export default function ComposeModal() {
               autoFocus={!isReply && !isForward}
               inputStyle={mobileInputStyle}
               getSuggestions={getSuggestions}
+              containerStyle={{ padding: 0 }}
             />
+            {(!showCc || !showBcc) && (
+              <button
+                ref={ccBccMenuBtnRef}
+                onClick={() => {
+                  const r = ccBccMenuBtnRef.current?.getBoundingClientRect();
+                  if (r) setCcBccMenuPos({ top: r.bottom + 4, right: window.innerWidth - r.right });
+                  setShowCcBccMenu(m => !m);
+                }}
+                style={{
+                  background: 'none', border: 'none', padding: '10px 0 10px 8px',
+                  cursor: 'pointer', color: 'var(--text-tertiary)', flexShrink: 0,
+                  display: 'flex', alignItems: 'center',
+                  WebkitTapHighlightColor: 'transparent',
+                }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="6 9 12 15 18 9"/>
+                </svg>
+              </button>
+            )}
           </div>
-
-          {/* Cc/Bcc toggle row */}
-          {(!showCc || !showBcc) && (
-            <div style={{
-              display: 'flex', justifyContent: 'flex-end',
-              borderBottom: '1px solid var(--border-subtle)',
-              padding: '0 16px', flexShrink: 0,
-            }}>
-              {!showCc && (
-                <button
-                  onClick={() => setShowCc(true)}
-                  style={{
-                    background: 'none', border: 'none',
-                    color: 'var(--text-tertiary)', cursor: 'pointer',
-                    fontSize: 13, padding: '8px 0 8px 16px',
-                    WebkitTapHighlightColor: 'transparent',
-                  }}
-                >
-                  {t('compose.cc')}
-                </button>
-              )}
-              {!showBcc && (
-                <button
-                  onClick={() => setShowBcc(true)}
-                  style={{
-                    background: 'none', border: 'none',
-                    color: 'var(--text-tertiary)', cursor: 'pointer',
-                    fontSize: 13, padding: '8px 0 8px 16px',
-                    WebkitTapHighlightColor: 'transparent',
-                  }}
-                >
-                  {t('compose.bcc')}
-                </button>
-              )}
-            </div>
-          )}
 
           {/* Cc */}
           {showCc && (
-            <div style={{ ...fieldStyle, alignItems: 'flex-start', paddingTop: 4 }}>
-              <span style={{ ...labelStyle, paddingTop: 10 }}>{t('compose.cc')}</span>
+            <div style={fieldStyle}>
+              <span style={labelStyle}>{t('compose.cc')}</span>
               <ChipInput
                 chips={ccChips} onChipsChange={setCcChips}
                 value={ccInput} onChange={setCcInput}
                 placeholder={t('compose.ccPh')}
                 inputStyle={mobileInputStyle}
                 getSuggestions={getSuggestions}
+                containerStyle={{ padding: 0 }}
               />
             </div>
           )}
 
           {/* Bcc */}
           {showBcc && (
-            <div style={{ ...fieldStyle, alignItems: 'flex-start', paddingTop: 4 }}>
-              <span style={{ ...labelStyle, paddingTop: 10 }}>{t('compose.bcc')}</span>
+            <div style={fieldStyle}>
+              <span style={labelStyle}>{t('compose.bcc')}</span>
               <ChipInput
                 chips={bccChips} onChipsChange={setBccChips}
                 value={bccInput} onChange={setBccInput}
                 placeholder={t('compose.bccPh')}
                 inputStyle={mobileInputStyle}
                 getSuggestions={getSuggestions}
+                containerStyle={{ padding: 0 }}
               />
             </div>
           )}
@@ -987,26 +990,9 @@ export default function ComposeModal() {
             <span style={labelStyle}>{t('compose.subject')}</span>
             <input
               type="text" value={subject} onChange={e => setSubject(e.target.value)}
-              placeholder={t('compose.subject')}
+              placeholder={t('compose.subjectPh')}
               style={mobileInputStyle}
             />
-          </div>
-
-          {/* Priority */}
-          <div style={fieldStyle}>
-            <span style={labelStyle}>{t('compose.priority')}</span>
-            <select
-              value={priority}
-              onChange={e => setPriority(e.target.value)}
-              style={{
-                ...mobileInputStyle, cursor: 'pointer',
-                color: priority === 'high' ? 'var(--red)' : priority === 'low' ? 'var(--text-tertiary)' : 'var(--text-primary)',
-              }}
-            >
-              <option value="high">{t('compose.priorityHigh')}</option>
-              <option value="normal">{t('compose.priorityNormal')}</option>
-              <option value="low">{t('compose.priorityLow')}</option>
-            </select>
           </div>
 
           {/* Body */}
@@ -1035,6 +1021,7 @@ export default function ComposeModal() {
                   if (!htmlMode) { setHtmlSource(editor?.getHTML() ?? ''); setHtmlMode(true); }
                   else { editor?.commands.setContent(htmlSource, false); setHtmlMode(false); }
                 }}
+                isMobile
               />
               {htmlMode ? (
                 <textarea
@@ -1118,6 +1105,37 @@ export default function ComposeModal() {
           <div style={{ height: 'var(--sab)', flexShrink: 0 }} />
         </div>
       </div>
+
+      {/* Cc/Bcc dropdown */}
+      {showCcBccMenu && ccBccMenuPos && (
+        <>
+          <div onClick={() => { setShowCcBccMenu(false); setCcBccMenuPos(null); }} style={{ position: 'fixed', inset: 0, zIndex: 2050 }} />
+          <div style={{
+            position: 'fixed', top: ccBccMenuPos.top, right: ccBccMenuPos.right,
+            zIndex: 2051,
+            background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+            borderRadius: 10, overflow: 'hidden', boxShadow: 'var(--shadow-popover)',
+            minWidth: 110,
+          }}>
+            {!showCc && (
+              <button
+                onClick={() => { setShowCc(true); setShowCcBccMenu(false); setCcBccMenuPos(null); }}
+                style={{ width: '100%', padding: '13px 18px', textAlign: 'left', background: 'none', border: 'none', color: 'var(--text-primary)', fontSize: 15, cursor: 'pointer', borderBottom: !showBcc ? '1px solid var(--border-subtle)' : 'none', WebkitTapHighlightColor: 'transparent' }}
+              >
+                {t('compose.cc')}
+              </button>
+            )}
+            {!showBcc && (
+              <button
+                onClick={() => { setShowBcc(true); setShowCcBccMenu(false); setCcBccMenuPos(null); }}
+                style={{ width: '100%', padding: '13px 18px', textAlign: 'left', background: 'none', border: 'none', color: 'var(--text-primary)', fontSize: 15, cursor: 'pointer', WebkitTapHighlightColor: 'transparent' }}
+              >
+                {t('compose.bcc')}
+              </button>
+            )}
+          </div>
+        </>
+      )}
 
       {/* Discard/save-draft confirmation sheet */}
       {showDiscardSheet && (
@@ -1262,6 +1280,35 @@ export default function ComposeModal() {
               style={{ width: '100%', padding: '16px 20px', textAlign: 'left', background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 16, fontWeight: 500, cursor: 'pointer', WebkitTapHighlightColor: 'transparent' }}
             >
               {t('compose.forgottenAttachment.cancel')}
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* Priority picker sheet */}
+      {showPrioritySheet && (
+        <>
+          <div onClick={() => setShowPrioritySheet(false)} style={{ position: 'fixed', inset: 0, zIndex: 2100, background: 'rgba(0,0,0,0.4)' }} />
+          <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 2101, background: 'var(--bg-elevated)', borderRadius: '16px 16px 0 0', paddingBottom: 'calc(var(--sab) + 8px)', boxShadow: 'var(--shadow-modal)', animation: 'sheet-enter 0.22s var(--ease-emphasized) both' }}>
+            <div style={{ padding: '16px 20px 8px', fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}>
+              {t('compose.priority')}
+            </div>
+            {[
+              { value: 'high', label: t('compose.priorityHigh'), color: 'var(--red)' },
+              { value: 'normal', label: t('compose.priorityNormal'), color: 'var(--text-primary)' },
+              { value: 'low', label: t('compose.priorityLow'), color: '#4dabf7' },
+            ].map(({ value, label, color }) => (
+              <button key={value}
+                onClick={() => { setPriority(value); setShowPrioritySheet(false); }}
+                style={{ width: '100%', padding: '16px 20px', textAlign: 'left', background: 'none', border: 'none', color: priority === value ? 'var(--accent)' : color, fontSize: 16, fontWeight: priority === value ? 600 : 400, cursor: 'pointer', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', WebkitTapHighlightColor: 'transparent' }}>
+                {label}
+                {priority === value && (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                )}
+              </button>
+            ))}
+            <button onClick={() => setShowPrioritySheet(false)} style={{ width: '100%', padding: '16px 20px', textAlign: 'left', background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 16, fontWeight: 500, cursor: 'pointer', WebkitTapHighlightColor: 'transparent' }}>
+              {t('common.cancel')}
             </button>
           </div>
         </>
@@ -1977,7 +2024,7 @@ function Sep() {
   return <span style={{ width: 1, background: 'var(--border-subtle)', margin: '2px 4px', alignSelf: 'stretch' }} />;
 }
 
-function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml }) {
+function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, isMobile }) {
   const { t } = useTranslation();
   const savedSelectionRef = useRef(null);
   const [colorPos, setColorPos] = useState(null);
@@ -1998,6 +2045,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml }
   const emojiPopRef = useRef(null);
   const linkPopRef = useRef(null);
   const linkInputRef = useRef(null);
+  const [showMobileMore, setShowMobileMore] = useState(false);
 
   // Focus the link URL input without triggering a browser scroll — autoFocus
   // causes Chromium/Linux to scroll the viewport when the input is near the
@@ -2125,8 +2173,63 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml }
     <TBtn key={title} active={active} title={title} onMouseDown={onMD}>{children}</TBtn>
   );
 
+  const mtb = (active, title, onMD, children) => (
+    <button key={title} title={title} onMouseDown={onMD} style={{ background: active ? 'var(--bg-hover)' : 'none', border: 'none', borderRadius: 4, padding: '6px 4px', color: active ? 'var(--accent)' : 'var(--text-secondary)', cursor: 'pointer', fontSize: 14, fontWeight: 600, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 1, WebkitTapHighlightColor: 'transparent' }}>{children}</button>
+  );
+
   return (
     <>
+      {isMobile ? (
+        <>
+          <div style={{ borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', padding: '2px 0' }}>
+            {mtb(es.bold, 'Bold', e => { e.preventDefault(); editor.chain().focus().toggleBold().run(); }, <b>B</b>)}
+            {mtb(es.italic, 'Italic', e => { e.preventDefault(); editor.chain().focus().toggleItalic().run(); }, <i>I</i>)}
+            {mtb(es.underline, 'Underline', e => { e.preventDefault(); editor.chain().focus().toggleUnderline().run(); }, <u>U</u>)}
+            {mtb(es.strike, 'Strikethrough', e => { e.preventDefault(); editor.chain().focus().toggleStrike().run(); }, <s>S</s>)}
+            {onAttach && (
+              <button title={t('compose.toolbar.attachFile')} onMouseDown={e => { e.preventDefault(); onAttach(); }}
+                style={{ background: 'none', border: 'none', borderRadius: 4, padding: '6px 4px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 1, color: 'var(--text-secondary)', WebkitTapHighlightColor: 'transparent' }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
+                </svg>
+              </button>
+            )}
+            <button ref={linkBtnRef} title={t('compose.toolbar.insertLink')} onMouseDown={openLink}
+              style={{ background: es.link ? 'var(--bg-hover)' : 'none', border: 'none', borderRadius: 4, padding: '6px 4px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 1, color: es.link ? 'var(--accent)' : 'var(--text-secondary)', WebkitTapHighlightColor: 'transparent' }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
+            </button>
+            <button title={t('compose.toolbar.moreFormatting')} onMouseDown={e => { e.preventDefault(); setShowMobileMore(m => !m); }}
+              style={{ background: showMobileMore ? 'var(--bg-hover)' : 'none', border: 'none', borderRadius: 4, padding: '6px 4px', color: showMobileMore ? 'var(--accent)' : 'var(--text-secondary)', cursor: 'pointer', fontSize: 18, fontWeight: 300, lineHeight: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 1, WebkitTapHighlightColor: 'transparent' }}>+</button>
+          </div>
+          {showMobileMore && (
+            <div style={{ borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', padding: '2px 0', flexWrap: 'wrap' }}>
+              <button ref={colorBtnRef} title={t('compose.toolbar.textColor')} onMouseDown={openColor}
+                style={{ background: 'none', border: 'none', borderRadius: 4, padding: '6px 10px', cursor: 'pointer', display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 1, WebkitTapHighlightColor: 'transparent' }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-secondary)', lineHeight: 1 }}>A</span>
+                <span style={{ width: 14, height: 3, borderRadius: 1, background: es.color || 'var(--text-primary)' }} />
+              </button>
+              <button ref={highlightBtnRef} title={t('compose.toolbar.highlight')} onMouseDown={openHighlight}
+                style={{ background: 'none', border: 'none', borderRadius: 4, padding: '6px 10px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', WebkitTapHighlightColor: 'transparent' }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: '#1a1a1a', lineHeight: 1, background: es.backgroundColor || '#ffd43b', padding: '0 2px', borderRadius: 2, border: '1px solid rgba(0,0,0,0.2)' }}>A</span>
+              </button>
+              <Sep />
+              {mtb(es.alignLeft, 'Align left', e => { e.preventDefault(); editor.chain().focus().setTextAlign('left').run(); }, <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>)}
+              {mtb(es.alignCenter, 'Align center', e => { e.preventDefault(); editor.chain().focus().setTextAlign('center').run(); }, <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>)}
+              {mtb(es.alignRight, 'Align right', e => { e.preventDefault(); editor.chain().focus().setTextAlign('right').run(); }, <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="6" y1="18" x2="21" y2="18"/></svg>)}
+              <Sep />
+              {mtb(es.bulletList, 'Bullet list', e => { e.preventDefault(); editor.chain().focus().toggleBulletList().run(); }, <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4" cy="6" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1.5" fill="currentColor" stroke="none"/></svg>)}
+              {mtb(es.orderedList, 'Numbered list', e => { e.preventDefault(); editor.chain().focus().toggleOrderedList().run(); }, <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="10" y1="6" x2="21" y2="6"/><line x1="10" y1="12" x2="21" y2="12"/><line x1="10" y1="18" x2="21" y2="18"/><text x="1" y="8" fontSize="7" fill="currentColor" stroke="none" fontFamily="sans-serif">1.</text><text x="1" y="14" fontSize="7" fill="currentColor" stroke="none" fontFamily="sans-serif">2.</text><text x="1" y="20" fontSize="7" fill="currentColor" stroke="none" fontFamily="sans-serif">3.</text></svg>)}
+              {onToggleHtml && (
+                <>
+                  <Sep />
+                  <button title={htmlMode ? 'Back to rich text' : 'Edit HTML source'} onMouseDown={e => { e.preventDefault(); onToggleHtml(); }}
+                    style={{ background: htmlMode ? 'var(--accent-dim)' : 'none', border: 'none', borderRadius: 4, padding: '6px 10px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', color: htmlMode ? 'var(--accent)' : 'var(--text-secondary)', fontFamily: 'monospace', fontSize: 11, fontWeight: 600, letterSpacing: '-0.5px', WebkitTapHighlightColor: 'transparent' }}>{'</>'}</button>
+                </>
+              )}
+            </div>
+          )}
+        </>
+      ) : (
       <div style={{ borderBottom: '1px solid var(--border-subtle)', display: 'flex', gap: 2, padding: '4px 10px', flexWrap: 'wrap', alignItems: 'center' }}>
         {/* Font picker */}
         <select
@@ -2147,7 +2250,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml }
             padding: '2px 4px', cursor: 'pointer', outline: 'none', maxWidth: 100,
           }}
         >
-          <option value="">Default</option>
+          <option value="">{t('compose.toolbar.fontDefault')}</option>
           {FONT_GROUPS.map(g => (
             <optgroup key={g.label} label={g.label}>
               {g.fonts.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
@@ -2266,6 +2369,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml }
         )}
 
       </div>
+      )}
 
       {/* Popups — position:fixed so they escape any overflow clipping */}
       {colorPos && (
@@ -2462,7 +2566,7 @@ function AttachmentChips({ attachments, onRemove, mobile }) {
   );
 }
 
-function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFocus, inputStyle, getSuggestions }) {
+function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFocus, inputStyle, getSuggestions, containerStyle }) {
   const [suggestions, setSuggestions] = useState([]);
   const [suggIdx, setSuggIdx] = useState(-1);
   const debounceRef = useRef(null);
@@ -2521,7 +2625,7 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
   };
 
   return (
-    <div ref={wrapperRef} style={{ display: 'flex', flexWrap: 'wrap', gap: 4, flex: 1, alignItems: 'center', padding: '5px 0', minWidth: 0 }}>
+    <div ref={wrapperRef} style={{ display: 'flex', flexWrap: 'wrap', gap: 4, flex: 1, alignItems: 'center', padding: '5px 0', minWidth: 0, ...containerStyle }}>
       {chips.map((chip, i) => (
         <span key={i} style={{
           display: 'inline-flex', alignItems: 'center', gap: 3,

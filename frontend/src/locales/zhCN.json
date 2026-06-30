@@ -55,6 +55,7 @@
     "cc": "抄送",
     "bcc": "密送",
     "subject": "主题",
+    "subjectPh": "添加主题",
     "toPh": "recipient@example.com",
     "ccPh": "cc@example.com",
     "bccPh": "bcc@example.com",
@@ -108,7 +109,9 @@
       "apply": "应用",
       "insertTable": "插入表格",
       "highlight": "突出显示颜色",
-      "removeHighlight": "移除高亮"
+      "removeHighlight": "移除高亮",
+      "fontDefault": "默认",
+      "moreFormatting": "更多格式"
     },
     "priority": "优先级",
     "priorityHigh": "高优先级",

@@ -241,6 +241,9 @@ const SAME_VALUE_ALLOWED = {
   'compose.cc':  [['de', 'en', 'es', 'fr', 'it']],
   'compose.bcc': [['de', 'en', 'it']],
 
+  // "Normal" — loanword, same spelling in de, en, es, fr
+  'compose.priorityNormal': [['de', 'en', 'es', 'fr']],
+
   // "{{count}} message(s)" — identical spelling in en and fr
   'thread.messages_one':   [['en', 'fr']],
   'thread.messages_other': [['en', 'fr']],

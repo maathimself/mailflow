@@ -55,6 +55,7 @@
     "cc": "Cc",
     "bcc": "Cco",
     "subject": "Asunto",
+    "subjectPh": "Añadir asunto",
     "toPh": "destinatario@ejemplo.com",
     "ccPh": "cc@ejemplo.com",
     "bccPh": "cco@ejemplo.com",
@@ -108,7 +109,9 @@
       "apply": "Aplicar",
       "insertTable": "Insertar tabla",
       "highlight": "Color de resaltado",
-      "removeHighlight": "Quitar resaltado"
+      "removeHighlight": "Quitar resaltado",
+      "fontDefault": "Predeterminado",
+      "moreFormatting": "Más formato"
     },
     "priority": "Prioridad",
     "priorityHigh": "Alta prioridad",

@@ -55,6 +55,7 @@
     "cc": "Cc",
     "bcc": "Bcc",
     "subject": "Subject",
+    "subjectPh": "Add a subject",
     "toPh": "recipient@example.com",
     "ccPh": "cc@example.com",
     "bccPh": "bcc@example.com",
@@ -108,7 +109,9 @@
       "apply": "Apply",
       "insertTable": "Insert table",
       "highlight": "Highlight color",
-      "removeHighlight": "Remove highlight"
+      "removeHighlight": "Remove highlight",
+      "fontDefault": "Default",
+      "moreFormatting": "More formatting"
     },
     "priority": "Priority",
     "priorityHigh": "High priority",

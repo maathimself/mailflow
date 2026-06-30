@@ -55,6 +55,7 @@
     "cc": "Cc",
     "bcc": "Bcc",
     "subject": "Betreff",
+    "subjectPh": "Betreff hinzufügen",
     "toPh": "empfaenger@example.com",
     "ccPh": "cc@example.com",
     "bccPh": "bcc@example.com",
@@ -108,7 +109,9 @@
       "apply": "Anwenden",
       "insertTable": "Tabelle einfügen",
       "highlight": "Hervorhebungsfarbe",
-      "removeHighlight": "Hervorhebung entfernen"
+      "removeHighlight": "Hervorhebung entfernen",
+      "fontDefault": "Standard",
+      "moreFormatting": "Weitere Formatierung"
     },
     "priority": "Priorität",
     "priorityHigh": "Hohe Priorität",
