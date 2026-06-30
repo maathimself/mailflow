@@ -3219,8 +3219,9 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
   const messageCount = message.message_count || 1;
   const unreadCount  = parseInt(message.unread_count) || 0;
 
-  const { contentRef, swipeBgLeftRef, swipeBgRightRef } = useSwipeRow({
+  const { contentRef, swipeBgLeftRef, swipeBgRightRef, tappedRef } = useSwipeRow({
     isMobile, message, onSwipeLeft, onSwipeRight, onLongPress,
+    onTap: isMobile && !selectionMode ? onThreadClick : undefined,
   });
 
   const hasAvatar = !isNarrow && !isMobile;
@@ -3250,7 +3251,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
         onClick={selectionMode ? (e) => {
           if (e.shiftKey && onRangeSelect) { onRangeSelect(message.id); }
           else { onToggleSelect(message.id); }
-        } : onThreadClick}
+        } : () => { if (tappedRef.current) { tappedRef.current = false; return; } onThreadClick(); }}
         onContextMenu={!isMobile ? (e => onContextMenu(e, message)) : undefined}
         style={{
           display: 'flex', alignItems: 'flex-start', gap: 10,
@@ -3511,8 +3512,9 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const [avatarHovered, setAvatarHovered] = useState(false);
-  const { contentRef, swipeBgLeftRef, swipeBgRightRef } = useSwipeRow({
+  const { contentRef, swipeBgLeftRef, swipeBgRightRef, tappedRef } = useSwipeRow({
     isMobile, message, onSwipeLeft, onSwipeRight, onLongPress,
+    onTap: isMobile && !selectionMode ? () => onSelect(message) : undefined,
   });
 
   // On mobile the row content must be opaque — swipe action panels sit behind it
@@ -3539,6 +3541,8 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
         onToggleSelect(message.id);
       }
     } else {
+      // onTap already fired this from touchend — skip the redundant synthesized click.
+      if (tappedRef.current) { tappedRef.current = false; return; }
       onSelect(message);
     }
   };
