@@ -1191,14 +1191,14 @@ ${bodyContent}
 
       {/* Toolbar — always pinned at top, never scrolls */}
       <div style={{
-        padding: '12px 20px', borderBottom: '1px solid var(--border-subtle)',
+        padding: '8px 16px', borderBottom: '1px solid var(--border-subtle)',
         display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
         boxShadow: paneScrolled ? '0 1px 10px rgba(0,0,0,0.2)' : 'none',
         transition: 'box-shadow 0.2s ease',
       }}>
         {/* Split Reply button */}
         <div style={{ position: 'relative', display: 'flex' }}>
-          <PaneBtn onClick={() => handleReply(defaultReplyAll)} title={isMobile ? (defaultReplyAll ? t('message.replyAll') : t('message.reply')) : `${defaultReplyAll ? t('message.replyAll') : t('message.reply')}${shortcutLabel(defaultReplyAll ? 'replyAll' : 'reply') ? ` (${shortcutLabel(defaultReplyAll ? 'replyAll' : 'reply')})` : ''}`}>
+          <PaneBtn onClick={() => handleReply(defaultReplyAll)} style={{ borderRadius: '6px 0 0 6px' }} title={isMobile ? (defaultReplyAll ? t('message.replyAll') : t('message.reply')) : `${defaultReplyAll ? t('message.replyAll') : t('message.reply')}${shortcutLabel(defaultReplyAll ? 'replyAll' : 'reply') ? ` (${shortcutLabel(defaultReplyAll ? 'replyAll' : 'reply')})` : ''}`}>
             {defaultReplyAll ? (
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
                 <polyline points="7 17 2 12 7 7"/><polyline points="13 17 8 12 13 7"/><path d="M20 18v-2a4 4 0 00-4-4H2"/>
@@ -1208,8 +1208,6 @@ ${bodyContent}
                 <polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 00-4-4H4"/>
               </svg>
             )}
-            {!isMobile && (defaultReplyAll ? t('message.replyAll') : t('message.reply'))}
-            {!isMobile && shortcutLabel(defaultReplyAll ? 'replyAll' : 'reply') && <kbd style={{ fontSize: 11, padding: '1px 5px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>{shortcutLabel(defaultReplyAll ? 'replyAll' : 'reply')}</kbd>}
           </PaneBtn>
           <button
             onClick={() => setShowReplyMenu(v => !v)}
@@ -1264,8 +1262,6 @@ ${bodyContent}
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
             <polyline points="15 17 20 12 15 7"/><path d="M4 18v-2a4 4 0 014-4h12"/>
           </svg>
-          {!isMobile && t('message.forward')}
-          {!isMobile && shortcutLabel('forward') && <kbd style={{ fontSize: 11, padding: '1px 5px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>{shortcutLabel('forward')}</kbd>}
         </PaneBtn>
 
         <PaneBtn onClick={handleArchive} title={isMobile ? t('message.archive') : `${t('message.archive')}${shortcutLabel('archive') ? ` (${shortcutLabel('archive')})` : ''}`}>
@@ -1275,8 +1271,6 @@ ${bodyContent}
             <polyline points="9 13 12 16 15 13"/>
             <line x1="12" y1="11" x2="12" y2="16"/>
           </svg>
-          {!isMobile && t('message.archive')}
-          {!isMobile && shortcutLabel('archive') && <kbd style={{ fontSize: 11, padding: '1px 5px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>{shortcutLabel('archive')}</kbd>}
         </PaneBtn>
 
         {/* Move to folder */}
@@ -1285,7 +1279,6 @@ ${bodyContent}
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
               <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
             </svg>
-            {!isMobile && t('contextMenu.moveToFolder')}
           </PaneBtn>
           {/* Desktop dropdown */}
           {showMovePicker && !isMobile && (
@@ -1447,8 +1440,6 @@ ${bodyContent}
                 <path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/>
                 <rect x="6" y="14" width="12" height="8"/>
               </svg>
-              {t('message.print')}
-              {shortcutLabel('printMessage') && <kbd style={{ fontSize: 11, padding: '1px 5px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>{shortcutLabel('printMessage')}</kbd>}
             </PaneBtn>
           </>
         )}
@@ -2002,7 +1993,7 @@ ${bodyContent}
   );
 }
 
-function PaneBtn({ children, onClick, title, danger }) {
+function PaneBtn({ children, onClick, title, danger, style: extraStyle }) {
   const [hov, setHov] = useState(false);
   return (
     <button
@@ -2014,11 +2005,12 @@ function PaneBtn({ children, onClick, title, danger }) {
       style={{
         background: hov ? (danger ? 'rgba(248,113,113,0.1)' : 'var(--bg-tertiary)') : 'transparent',
         border: '1px solid ' + (hov ? (danger ? 'rgba(248,113,113,0.3)' : 'var(--border)') : 'transparent'),
-        borderRadius: 6, padding: '5px 10px',
+        borderRadius: 6, padding: '6px 8px',
         color: danger ? (hov ? 'var(--red)' : 'var(--text-tertiary)') : 'var(--text-secondary)',
         cursor: 'pointer', fontSize: 13,
         display: 'flex', alignItems: 'center', gap: 5,
         transition: 'all 0.1s',
+        ...extraStyle,
       }}
     >
       {children}
