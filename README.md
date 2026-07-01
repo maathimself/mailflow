@@ -40,12 +40,14 @@ If you contribute code, please read the [Contributor License Agreement](CLA.md).
 - **Command palette** — Cmd+K / Ctrl+K quick-access for actions and navigation
 - **Keyboard shortcuts** — full shortcut set, fully customisable per user
 - **Smart contact autocomplete** — learns from sent mail to rank suggestions
-- **Reply / Forward / Compose** — correct per-account SMTP routing
+- **Reply / Forward / Compose** — correct per-account SMTP routing; font family groups, email priority
 - **Folder navigation** — expand any account to browse folders
 - **Star, archive, delete, mark read** — synced back to IMAP
 - **User management** — admin panel, invite-only registration, invite emails
+- **Two-factor authentication** — TOTP (any authenticator app), email OTP fallback, persistent device trust; admin-configurable enforcement policy
 - **SSO / OIDC** — single sign-on via any OpenID Connect provider
 - **Microsoft 365 / OAuth2** — work accounts via Azure App Registration; personal Outlook.com via device code flow
+- **Todoist integration** — link a Todoist account and create tasks directly from emails
 
 ---
 
@@ -152,7 +154,7 @@ docker compose pull
 docker compose up -d
 ```
 
-To pin to a specific version instead of `latest`, add `MAILFLOW_VERSION=1.7.3` to your `.env`.
+To pin to a specific version instead of `latest`, add `MAILFLOW_VERSION=1.9.0` to your `.env`.
 
 ---
 
@@ -536,13 +538,19 @@ MailFlow is free and open source. If it's useful to you, consider supporting dev
 
 ## Upgrading
 
-### Mail Server Connection Policy
+### v1.9.0
+
+Two database migrations (`0019_user_integrations`, `0020_mfa_device_trust`) run automatically on startup. No manual steps required.
+
+2FA is off by default. Existing users are unaffected unless an admin enables enforcement under **Settings → Security**.
+
+### Mail Server Connection Policy (earlier releases)
 
 **Breaking change for accounts with "Skip TLS verification" enabled.**
 
-This release introduces an admin-controlled connection policy (Settings → Security → Mail Server Connection Policy). TLS verification is now enforced by default at the server level.
+An earlier release introduced an admin-controlled connection policy (Settings → Security → Mail Server Connection Policy). TLS verification is now enforced by default at the server level.
 
-If any accounts were configured with **Skip TLS verification** (e.g. for a self-signed certificate on a local IMAP server), those accounts will stop syncing after upgrading. To restore connectivity, an admin must enable **Allow insecure TLS** in Settings → Security before or immediately after deploying.
+If any accounts were configured with **Skip TLS verification** (e.g. for a self-signed certificate on a local IMAP server), those accounts will stop syncing after upgrading from an older version. To restore connectivity, an admin must enable **Allow insecure TLS** in Settings → Security before or immediately after deploying.
 
 ---
 
@@ -551,7 +559,7 @@ If any accounts were configured with **Skip TLS verification** (e.g. for a self-
 - The first registered user becomes the admin automatically
 - Close open registration in Settings → Users once you've set up your accounts
 - Use the invite system to onboard additional users
-- Enable two-factor authentication (TOTP) in Settings → Security for extra account protection
+- Enable two-factor authentication in Settings → Security — supports TOTP (authenticator app), email OTP fallback, and persistent device trust
 - Session cookies are `HttpOnly`, `SameSite=Lax`, with a 7-day TTL. The `Secure` flag is set automatically when the connection is HTTPS (direct or via a proxy that forwards `X-Forwarded-Proto: https`)
 - Passwords are bcrypt-hashed (cost factor 12)
 - Login and registration endpoints are rate-limited (10 attempts per 15 minutes per IP)
