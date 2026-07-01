@@ -1049,7 +1049,6 @@
     "priorityMedium": "Medium",
     "priorityNormal": "No priority",
     "dueDate": "Due date",
-    "dueDatePh": "e.g. tomorrow, next Monday",
     "create": "Create task",
     "creating": "Creating...",
     "taskCreated": "Task created in Todoist",

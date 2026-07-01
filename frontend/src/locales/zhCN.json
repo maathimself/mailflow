@@ -1049,7 +1049,6 @@
     "priorityMedium": "中",
     "priorityNormal": "无优先级",
     "dueDate": "截止日期",
-    "dueDatePh": "例如：明天、下周一",
     "create": "创建任务",
     "creating": "创建中...",
     "taskCreated": "任务已在 Todoist 中创建",

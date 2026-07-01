@@ -1049,7 +1049,6 @@
     "priorityMedium": "Mittel",
     "priorityNormal": "Keine Priorität",
     "dueDate": "Fälligkeitsdatum",
-    "dueDatePh": "z.B. morgen, nächsten Montag",
     "create": "Aufgabe erstellen",
     "creating": "Wird erstellt...",
     "taskCreated": "Aufgabe in Todoist erstellt",

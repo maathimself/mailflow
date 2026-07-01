@@ -1049,7 +1049,6 @@
     "priorityMedium": "Media",
     "priorityNormal": "Sin prioridad",
     "dueDate": "Fecha de vencimiento",
-    "dueDatePh": "ej. mañana, el próximo lunes",
     "create": "Crear tarea",
     "creating": "Creando...",
     "taskCreated": "Tarea creada en Todoist",

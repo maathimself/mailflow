@@ -1049,7 +1049,6 @@
     "priorityMedium": "Средний",
     "priorityNormal": "Без приоритета",
     "dueDate": "Срок выполнения",
-    "dueDatePh": "напр. завтра, следующий понедельник",
     "create": "Создать задачу",
     "creating": "Создание...",
     "taskCreated": "Задача создана в Todoist",

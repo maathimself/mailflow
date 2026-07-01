@@ -1049,7 +1049,6 @@
     "priorityMedium": "Moyenne",
     "priorityNormal": "Sans priorité",
     "dueDate": "Date d'échéance",
-    "dueDatePh": "ex. demain, lundi prochain",
     "create": "Créer la tâche",
     "creating": "Création...",
     "taskCreated": "Tâche créée dans Todoist",
