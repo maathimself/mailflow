@@ -1739,6 +1739,7 @@ export default function MessageList() {
       decrementUnread(message.account_id);
       setPending(message.id, message.account_id);
       api.bulkRead([message.id], true)
+        .catch(() => api.bulkRead([message.id], true))
         .then(() => {
           pendingMarkReadMap.delete(message.id);
           completedMarkReadMap.set(message.id, message.account_id);
