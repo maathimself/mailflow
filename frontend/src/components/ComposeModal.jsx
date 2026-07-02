@@ -4,7 +4,7 @@ import DOMPurify from 'dompurify';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { useMobile } from '../hooks/useMobile.js';
-import { useEditor, EditorContent, useEditorState } from '@tiptap/react';
+import { useEditor, EditorContent, useEditorState, NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react';
 import { Extension } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -35,6 +35,79 @@ function resizeImageToDataUrl(file, maxW = 800) {
     img.src = url;
   });
 }
+
+function ResizableImageView({ node, updateAttributes, selected }) {
+  const imgRef = useRef(null);
+  const { src, alt, title, width } = node.attrs;
+
+  const onMouseDown = useCallback((e) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = imgRef.current ? imgRef.current.offsetWidth : (width ?? 200);
+
+    const onMouseMove = (ev) => {
+      const newWidth = Math.max(50, Math.round(startW + ev.clientX - startX));
+      if (imgRef.current) imgRef.current.style.width = `${newWidth}px`;
+    };
+    const onMouseUp = (ev) => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      updateAttributes({ width: Math.max(50, Math.round(startW + ev.clientX - startX)) });
+    };
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }, [width, updateAttributes]);
+
+  return (
+    <NodeViewWrapper as="span" style={{ display: 'inline-block', position: 'relative' }}>
+      <img
+        ref={imgRef}
+        src={src}
+        alt={alt || ''}
+        title={title || undefined}
+        draggable={false}
+        style={{
+          width: width ? `${width}px` : undefined,
+          maxWidth: '100%',
+          outline: selected ? '2px solid var(--accent)' : 'none',
+        }}
+      />
+      {selected && (
+        <span
+          contentEditable={false}
+          onMouseDown={onMouseDown}
+          style={{
+            position: 'absolute',
+            right: -4,
+            bottom: -4,
+            width: 10,
+            height: 10,
+            background: 'var(--accent)',
+            cursor: 'nwse-resize',
+            borderRadius: 2,
+            userSelect: 'none',
+          }}
+        />
+      )}
+    </NodeViewWrapper>
+  );
+}
+
+const ResizableImage = Image.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      width: {
+        default: null,
+        parseHTML: el => parseInt(el.getAttribute('width') || el.style.width, 10) || null,
+        renderHTML: attrs => attrs.width ? { width: String(attrs.width), style: `width: ${attrs.width}px; max-width: 100%;` } : {},
+      },
+    };
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(ResizableImageView);
+  },
+});
 
 function stripHtml(html) {
   const div = document.createElement('div');
@@ -232,7 +305,7 @@ export default function ComposeModal() {
       BackgroundColor,
       FontSize,
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
-      Image.configure({ inline: true, allowBase64: true }),
+      ResizableImage.configure({ inline: true, allowBase64: true }),
       Table.configure({ resizable: false }),
       TableRow,
       TableHeader,
@@ -245,6 +318,11 @@ export default function ComposeModal() {
     editorProps: {
       attributes: { spellcheck: 'true' },
       handlePaste(view, event) {
+        // If clipboard has HTML containing a table (e.g. from Excel), let
+        // TipTap parse it natively — Excel provides both image/png and text/html;
+        // without this check the image path wins and the table is lost.
+        const html = event.clipboardData?.getData('text/html') ?? '';
+        if (html && /<table[\s>]/i.test(html)) return false;
         const items = Array.from(event.clipboardData?.items || []);
         const imageItem = items.find(it => it.type.startsWith('image/'));
         if (!imageItem) return false;
