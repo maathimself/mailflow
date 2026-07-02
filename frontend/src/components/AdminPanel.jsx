@@ -3010,6 +3010,12 @@ function AISection() {
         {t('admin.ai.description')}
       </p>
 
+      {!config && (
+        <div style={{ padding: '10px 14px', borderRadius: 8, background: 'var(--bg-secondary)', border: '1px solid var(--border)', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 20 }}>
+          {t('admin.ai.notConfigured')}
+        </div>
+      )}
+
       {config && (
         <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 14px', marginBottom: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
           <div>

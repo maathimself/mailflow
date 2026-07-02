@@ -1954,7 +1954,7 @@ ${bodyContent}
               <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                 {t('message.summary')}
               </span>
-              <button onClick={() => setAiSummary(null)} style={{
+              <button onClick={() => setAiSummary(null)} aria-label={t('message.summaryDismiss')} style={{
                 background: 'none', border: 'none', cursor: 'pointer',
                 color: 'var(--text-tertiary)', padding: '2px 4px', fontSize: 14, lineHeight: 1,
               }}>×</button>
