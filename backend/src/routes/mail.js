@@ -1513,7 +1513,11 @@ router.post('/messages/:id/ham', async (req, res) => {
     return res.status(400).json({ error: 'Message is not in the spam folder' });
   }
 
-  const result = await moveForSpamLabel(id, req.session.userId, 'INBOX', 'ham');
+  // Resolve inbox folder per account — Gmail, Exchange and others may not use
+  // the literal 'INBOX' (e.g. 'Inbox' on Dovecot, 'Posteingang', etc.).
+  // Same pattern as folder_mappings.sent / .drafts in send.js and draft.js.
+  const inboxFolder = lookup.rows[0].folder_mappings?.inbox || 'INBOX';
+  const result = await moveForSpamLabel(id, req.session.userId, inboxFolder, 'ham');
   if (!result.ok) return res.status(result.status).json({ error: result.error });
   res.json(result.body);
 });
