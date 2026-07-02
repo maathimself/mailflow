@@ -49,9 +49,11 @@ export default function TodoistTaskModal({ message, onClose }) {
     setCreating(true);
     setError('');
     try {
+      const mailflowLink = message?.id ? `[View in MailFlow](${window.location.origin}/?m=${message.id})` : '';
+      const fullDescription = [description.trim(), mailflowLink].filter(Boolean).join('\n\n');
       const task = await api.todoist.createTask({
         content: title.trim(),
-        description: description.trim() || undefined,
+        description: fullDescription,
         project_id: projectId || undefined,
         labels: selectedLabels.length ? selectedLabels : undefined,
         priority: priority > 1 ? priority : undefined,

@@ -134,6 +134,22 @@ export default function MailApp() {
   useWebSocket();
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const deepLinkId = params.get('m');
+    if (!deepLinkId) return;
+    history.replaceState(null, '', window.location.pathname);
+    api.getMessage(deepLinkId)
+      .then(msg => {
+        // threadMessages is not cleared by setMessages(), so storing the message
+        // here keeps it available to MessagePane even after the message list loads
+        // a different folder's page (which would evict it from the main array).
+        useStore.getState().setThreadMessages(`__dl_${msg.id}`, [msg]);
+        setSelectedMessage(msg.id);
+      })
+      .catch(err => console.warn('Deep link message not found:', err.message));
+  }, [setSelectedMessage]);
+
+  useEffect(() => {
     // Load accounts
     api.getAccounts()
       .then(accounts => {

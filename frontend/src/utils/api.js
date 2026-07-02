@@ -108,6 +108,7 @@ export const api = {
     const qs = new URLSearchParams(params).toString();
     return request('GET', `/mail/messages?${qs}`);
   },
+  getMessage: (id) => request('GET', `/mail/messages/${id}`),
   getMessageBody: (id, remoteImages = false) =>
     request('GET', `/mail/messages/${id}/body${remoteImages ? '?remoteImages=1' : ''}`),
   getThread: (threadId, folder) => {

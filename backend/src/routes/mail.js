@@ -98,6 +98,32 @@ router.get('/messages', async (req, res) => {
   res.json({ messages, total, ...(isThreaded ? { threaded: true } : {}) });
 });
 
+router.get('/messages/:id', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid message ID' });
+  try {
+    const result = await query(`
+      SELECT m.id, m.uid, m.folder, m.message_id, m.subject,
+             m.from_name, m.from_email, m.to_addresses, m.cc_addresses,
+             m.reply_to, m.in_reply_to,
+             m.date, m.snippet, m.is_read, m.is_starred,
+             m.has_attachments, m.account_id,
+             a.name AS account_name, a.email_address AS account_email,
+             a.color AS account_color
+      FROM messages m
+      JOIN email_accounts a ON m.account_id = a.id
+      WHERE m.id = $1
+        AND a.user_id = $2
+        AND m.is_deleted = false
+    `, [id, req.session.userId]);
+    if (!result.rows.length) return res.status(404).json({ error: 'Message not found' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('GET /messages/:id error:', err.message);
+    res.status(500).json({ error: 'Failed to load message' });
+  }
+});
+
 // Returns true if remote images should be blocked for this message given the user's preferences.
 // Default behaviour (no preference set) is to block.
 function shouldBlockImages(prefs, message) {
