@@ -110,6 +110,18 @@ function upgradeStyleUrls(style) {
   return style.replace(/url\(\s*(['"]?)http:\/\//gi, (_, q) => `url(${q}https://`);
 }
 
+// Strip external http/https url() expressions from <style> block CSS at sanitize time.
+// This prevents CSS-based exfiltration (loading pixel beacons or fonts) regardless of
+// the user's remote image blocking preference.  data: and cid: URIs are left intact.
+function stripExternalStyleBlockUrls(html) {
+  if (!html) return html;
+  return html.replace(
+    /(<style\b[^>]*>)([\s\S]*?)(<\/style>)/gi,
+    (_, open, content, close) =>
+      open + content.replace(/url\s*\(\s*(['"]?)https?:\/\/[^)]*\1\s*\)/gi, 'url()') + close
+  );
+}
+
 // Post-process sanitized HTML to upgrade http:// URLs inside <style> blocks.
 // sanitize-html only transforms attributes, not element text content, so <style>
 // block CSS must be handled separately after sanitization.
@@ -237,7 +249,7 @@ export function sanitizeEmail(html) {
   // Upgrade http:// URLs in <style> block CSS content — sanitize-html's transformTags
   // only handles attributes, so CSS url() inside <style> blocks must be fixed afterward.
   // Then strip dark-mode CSS that would override the forced-light rendering environment.
-  return stripDarkModeStyleBlocks(upgradeStyleBlocks(sanitized));
+  return stripDarkModeStyleBlocks(upgradeStyleBlocks(stripExternalStyleBlockUrls(sanitized)));
 }
 
 // Sanitize user-authored signature HTML — allows common formatting and images

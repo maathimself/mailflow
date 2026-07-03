@@ -1244,7 +1244,10 @@ export default function MessageList() {
     const key = `bulk:${ids[0]}`;
     ids.forEach(id => setPendingDelete(id));
     ids.forEach(id => removeMessage(id));
-    msgs.forEach(msg => { if (!msg.is_read) decrementUnread(msg.account_id); });
+    msgs.forEach(msg => {
+      const delta = parseInt(msg.unread_count) || (msg.is_read ? 0 : 1);
+      if (delta > 0) decrementUnread(msg.account_id, delta);
+    });
     setSelectedIds(new Set());
     setSelectionModeActive(false);
     setShowFolderPicker(false);
@@ -1268,7 +1271,10 @@ export default function MessageList() {
         const failedSet = new Set(failedIds);
         const failedMsgs = msgs.filter(msg => failedSet.has(msg.id));
         useStore.getState().restoreMessages(failedMsgs);
-        failedMsgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
+        failedMsgs.forEach(msg => {
+          const delta = parseInt(msg.unread_count) || (msg.is_read ? 0 : 1);
+          if (delta > 0) incrementUnread(msg.account_id, delta);
+        });
         addNotification({ type: 'error', title: t('messageList.bulkDeleted.failTitle'), body: t('messageList.bulkDeleted.failBody', { count: failedIds.length }) });
       }
     }, 4500);
@@ -1282,7 +1288,10 @@ export default function MessageList() {
         pendingDeleteTimers.current.delete(key);
         ids.forEach(id => clearPendingDelete(id));
         useStore.getState().restoreMessages(msgs);
-        msgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
+        msgs.forEach(msg => {
+          const delta = parseInt(msg.unread_count) || (msg.is_read ? 0 : 1);
+          if (delta > 0) incrementUnread(msg.account_id, delta);
+        });
       },
     });
   }, [removeMessage, decrementUnread, incrementUnread, addNotification, t]);

@@ -24,6 +24,9 @@ export async function runMigrations() {
     // unlike pg_advisory_xact_lock which releases at each COMMIT and would let
     // a second runner acquire the lock between migrations.
     await client.query('SELECT pg_advisory_lock(7418291834)');
+    // Disable statement_timeout for the migration client — bulk backfill migrations
+    // (0002, 0017) can take longer than the 30 s pool default on large databases.
+    await client.query('SET statement_timeout = 0');
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS schema_migrations (

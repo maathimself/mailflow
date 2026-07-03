@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { encrypt, decrypt } from '../services/encryption.js';
+import { validateHost } from '../services/hostValidation.js';
+import { getConnectionPolicy } from '../services/connectionPolicy.js';
 
 const router = Router();
 
@@ -31,9 +33,20 @@ router.patch('/admin/ai', requireAdmin, async (req, res) => {
     ? encrypt(apiKey)
     : (existingKey || null);
 
+  const trimmedBaseUrl = (baseUrl || '').trim().replace(/\/+$/, '');
+  if (trimmedBaseUrl) {
+    let urlHost;
+    try { urlHost = new URL(trimmedBaseUrl).hostname; } catch {
+      return res.status(400).json({ error: 'Invalid base URL' });
+    }
+    const policy = await getConnectionPolicy();
+    const hostErr = await validateHost(urlHost, { allowPrivate: policy.allowPrivateHosts });
+    if (hostErr) return res.status(400).json({ error: `Base URL: ${hostErr}` });
+  }
+
   const cfg = {
     enabled: enabled !== false,
-    baseUrl: (baseUrl || '').trim().replace(/\/+$/, ''),
+    baseUrl: trimmedBaseUrl,
     apiKey: encryptedKey,
     model: (model || '').trim(),
     features: {

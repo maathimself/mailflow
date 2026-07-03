@@ -1,4 +1,4 @@
-CREATE TABLE inbox_rules (
+CREATE TABLE IF NOT EXISTS inbox_rules (
   id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id          UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   account_id       UUID REFERENCES email_accounts(id) ON DELETE CASCADE,
@@ -13,5 +13,5 @@ CREATE TABLE inbox_rules (
   updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_inbox_rules_user    ON inbox_rules(user_id, enabled, priority);
-CREATE INDEX idx_inbox_rules_account ON inbox_rules(account_id) WHERE account_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_inbox_rules_user    ON inbox_rules(user_id, enabled, priority);
+CREATE INDEX IF NOT EXISTS idx_inbox_rules_account ON inbox_rules(account_id) WHERE account_id IS NOT NULL;

@@ -2,21 +2,18 @@ import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { invalidateSocialDomainCache, backfillCategories, aiClassifyMessage, BUILTIN_SETS } from '../services/categorizer.js';
+import { validateHost } from '../services/hostValidation.js';
 
 const router = Router();
 
 // Validate that a URL is a safe external HTTPS URL (no private/loopback IPs).
-// Returns an error string or null if valid.
-function validateSubscriptionUrl(raw) {
+// Returns an error string or null if valid. Async because it performs DNS resolution.
+async function validateSubscriptionUrl(raw) {
   let url;
   try { url = new URL(raw); } catch { return 'Invalid URL'; }
   if (url.protocol !== 'https:') return 'URL must use HTTPS';
-  const host = url.hostname.toLowerCase();
-  // Block localhost and private ranges
-  if (host === 'localhost' || host === '127.0.0.1' || host === '::1') return 'URL host not allowed';
-  if (/^10\.\d+\.\d+\.\d+$/.test(host)) return 'URL host not allowed';
-  if (/^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/.test(host)) return 'URL host not allowed';
-  if (/^192\.168\.\d+\.\d+$/.test(host)) return 'URL host not allowed';
+  const err = await validateHost(url.hostname);
+  if (err) return 'URL host not allowed';
   return null;
 }
 
@@ -105,7 +102,7 @@ router.post('/categories/sources', requireAuth, async (req, res) => {
   }
 
   if (sourceType === 'url') {
-    const urlErr = validateSubscriptionUrl(trimmedValue);
+    const urlErr = await validateSubscriptionUrl(trimmedValue);
     if (urlErr) return res.status(400).json({ error: urlErr });
   }
 

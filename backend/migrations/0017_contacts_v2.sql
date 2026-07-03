@@ -13,7 +13,7 @@ BEGIN
 END $$;
 
 -- One address book per user; each CardDAV client syncs a specific book.
-CREATE TABLE address_books (
+CREATE TABLE IF NOT EXISTS address_books (
   id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id      UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name         TEXT        NOT NULL DEFAULT 'Personal',
@@ -32,7 +32,7 @@ ON CONFLICT (user_id, name) DO NOTHING;
 
 -- Full contact record. vcard is the CardDAV source of truth;
 -- the other fields are denormalized for fast query/autocomplete.
-CREATE TABLE contacts (
+CREATE TABLE IF NOT EXISTS contacts (
   id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
   address_book_id UUID        NOT NULL REFERENCES address_books(id) ON DELETE CASCADE,
   user_id         UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -146,12 +146,12 @@ WHERE vcard IS NULL;
 UPDATE contacts SET etag = md5(vcard) WHERE vcard IS NOT NULL;
 
 -- Fast upsert by email when processing sent/received mail.
-CREATE UNIQUE INDEX contacts_user_primary_email_idx
+CREATE UNIQUE INDEX IF NOT EXISTS contacts_user_primary_email_idx
   ON contacts (user_id, primary_email)
   WHERE primary_email IS NOT NULL;
 
 -- Display name search for autocomplete.
-CREATE INDEX contacts_display_name_idx ON contacts (user_id, lower(display_name));
+CREATE INDEX IF NOT EXISTS contacts_display_name_idx ON contacts (user_id, lower(display_name));
 
 -- Drop the legacy table — data is now in the new contacts table.
 DROP TABLE IF EXISTS contacts_legacy;

@@ -6,6 +6,8 @@ import { requireAuth } from '../middleware/auth.js';
 import { refreshMicrosoftToken } from './oauth.js';
 import { decrypt } from '../services/encryption.js';
 import sanitizeHtml from 'sanitize-html';
+import { sanitizeSignature } from '../services/emailSanitizer.js';
+import { redisClient } from '../services/redis.js';
 import { redactEmail } from '../utils/redact.js';
 import { generateVCard } from '../utils/vcard.js';
 import { resolveForConnection } from '../services/hostValidation.js';
@@ -108,6 +110,17 @@ router.post('/send', async (req, res) => {
   const emailPriority = VALID_PRIORITIES.has(priority) ? priority : 'normal';
   if (!accountId || !to?.length) return res.status(400).json({ error: 'accountId and to required' });
 
+  // Idempotency guard — if the client retries with the same key, return the cached result
+  // instead of sending a duplicate email.
+  const idempotencyKey = typeof req.headers['x-idempotency-key'] === 'string'
+    ? req.headers['x-idempotency-key'].slice(0, 128)
+    : null;
+  if (idempotencyKey) {
+    const rk = `send_idem:${req.session.userId}:${idempotencyKey}`;
+    const cached = await redisClient.get(rk).catch(() => null);
+    if (cached) return res.json(JSON.parse(cached));
+  }
+
   if (attachments !== undefined) {
     if (!Array.isArray(attachments)) return res.status(400).json({ error: 'attachments must be an array' });
     const totalBytes = attachments.reduce((sum, a) => sum + (typeof a.content === 'string' ? Math.ceil(a.content.length * 0.75) : 0), 0);
@@ -165,8 +178,11 @@ router.post('/send', async (req, res) => {
     }
   }
 
-  // Allow the client to override the signature per-send (editedSignature === undefined means use DB value)
-  const effectiveSignature = editedSignature !== undefined ? (editedSignature || null) : fromSignature;
+  // Allow the client to override the signature per-send (editedSignature === undefined means use DB value).
+  // Sanitize client-supplied HTML to prevent injecting scripts or tracking pixels into sent mail.
+  const effectiveSignature = editedSignature !== undefined
+    ? (editedSignature ? sanitizeSignature(editedSignature) : null)
+    : fromSignature;  // fromSignature from DB is already sanitized on write
 
   // Fetch forwarded attachment content from IMAP before entering the SMTP try-block so that
   // attachment errors return descriptive messages rather than being sanitized as SMTP errors.
@@ -428,7 +444,12 @@ router.post('/send', async (req, res) => {
       }
     }
 
-    res.json({ ok: true });
+    const sendResult = { ok: true };
+    if (idempotencyKey) {
+      const rk = `send_idem:${req.session.userId}:${idempotencyKey}`;
+      redisClient.set(rk, JSON.stringify(sendResult), { EX: 86400 }).catch(() => {});
+    }
+    res.json(sendResult);
   } catch (err) {
     console.error('Send failed:', err.message);
     res.status(500).json({ error: sanitizeSmtpError(err) });

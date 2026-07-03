@@ -21,11 +21,11 @@ function getKey() {
 }
 
 // Returns a prefixed string: enc:v1:<iv_hex>:<tag_hex>:<ciphertext_hex>
-// Returns the original value unchanged if ENCRYPTION_KEY is not set.
+// Throws if ENCRYPTION_KEY is not configured — callers must not silently store plaintext credentials.
 export function encrypt(plaintext) {
   if (!plaintext) return plaintext;
   const key = getKey();
-  if (!key) return plaintext;
+  if (!key) throw new Error('ENCRYPTION_KEY is not set or invalid — cannot encrypt credential');
 
   const iv = crypto.randomBytes(IV_BYTES);
   const cipher = crypto.createCipheriv(ALGORITHM, key, iv);

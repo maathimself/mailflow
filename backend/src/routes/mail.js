@@ -9,6 +9,7 @@ import { sanitizeEmail, stripEmailHead, hasRemoteImages, blockRemoteImages, rewr
 import { snippetFromBody, decodeMimeWords } from '../services/messageParser.js';
 import { resolveTrashFolder, resolveAllTrashPaths, resolveAllDraftsPaths, resolveArchiveFolder, resolveSpamFolder, resolveAllSpamPaths, getDeleteStrategy, adjustFolderCounts } from '../utils/mailUtils.js';
 import { listMessages } from '../services/messageService.js';
+import { validateHost } from '../services/hostValidation.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -1621,19 +1622,13 @@ router.post('/messages/:id/unsubscribe', async (req, res) => {
 
   // RFC 8058 one-click: POST to the https URL on behalf of the user.
   if (isOneClick && httpsUrl) {
-    // Validate the URL is not a private IP before proxying.
+    // Validate the URL host — DNS-resolved check blocks hostnames that resolve to private IPs.
     let parsed;
     try { parsed = new URL(httpsUrl); } catch {
       return res.status(400).json({ error: 'Invalid unsubscribe URL' });
     }
-    const host = parsed.hostname.toLowerCase();
-    const isPrivate =
-      host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '0.0.0.0' ||
-      /^10\.\d+\.\d+\.\d+$/.test(host) ||
-      /^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/.test(host) ||
-      /^192\.168\.\d+\.\d+$/.test(host) ||
-      /^169\.254\./.test(host);
-    if (isPrivate) return res.status(400).json({ error: 'Unsubscribe URL not allowed' });
+    const hostErr = await validateHost(parsed.hostname);
+    if (hostErr) return res.status(400).json({ error: 'Unsubscribe URL not allowed' });
 
     try {
       const unsub = await fetch(httpsUrl, {

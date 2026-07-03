@@ -63,6 +63,13 @@ export function useWebSocket() {
   const { addNotification, updateAccount, setFolders, setBackfillProgress } = useStore();
 
   const connect = useCallback(() => {
+    // Clean up any existing socket before opening a new one — prevents duplicate
+    // connections if connect() is called while a previous socket is still open.
+    if (wsRef.current && wsRef.current.readyState !== WebSocket.CLOSED) {
+      wsRef.current.onclose = null;  // prevent old socket's close from scheduling another reconnect
+      clearInterval(wsRef.current._pingInterval);
+      wsRef.current.close();
+    }
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
 

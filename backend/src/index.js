@@ -4,9 +4,9 @@ import cors from 'cors';
 import { createServer } from 'http';
 import { readFileSync } from 'fs';
 import { WebSocketServer } from 'ws';
-import { createClient } from 'redis';
 import RedisStore from 'connect-redis';
 import 'dotenv/config';
+import { redisClient } from './services/redis.js';
 
 import sendRoutes from './routes/send.js';
 import draftRoutes from './routes/draft.js';
@@ -49,9 +49,7 @@ app.set('trust proxy', 1);
 const httpServer = createServer(app);
 const wss = new WebSocketServer({ server: httpServer });
 
-// Redis
-const redisClient = createClient({ url: process.env.REDIS_URL || 'redis://redis:6379' });
-redisClient.on('error', err => console.error('Redis error:', err));
+// Redis — connect the shared client before any route or session middleware uses it.
 await redisClient.connect();
 
 // Fail fast if required secrets are missing
@@ -101,6 +99,8 @@ app.use(cors({
 // Security headers on every response
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'same-origin');
   next();
 });
 // 25 MB attachment limit → ~34 MB base64 on the wire; add headroom for the rest of the payload.
@@ -202,4 +202,18 @@ try {
 const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => {
   console.log(`MailFlow backend running on port ${PORT}`);
+});
+
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received — shutting down gracefully');
+  httpServer.close(async () => {
+    try { await redisClient.quit(); } catch { /* ignore */ }
+    process.exit(0);
+  });
+  // Force exit if graceful shutdown takes more than 10 s
+  setTimeout(() => process.exit(1), 10_000).unref();
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled promise rejection:', reason);
 });

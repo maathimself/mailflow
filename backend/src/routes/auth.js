@@ -14,6 +14,7 @@ import { authLimiterConfig } from '../services/authLimiter.js';
 import { logAuthEvent } from '../services/authEvents.js';
 import { sendSystemEmail } from '../services/mailer.js';
 import { invalidateGlobalCategorizationCache } from '../services/categorizer.js';
+import { redisClient } from '../services/redis.js';
 
 const router = Router();
 
@@ -366,7 +367,17 @@ router.post('/2fa/challenge', authLimiter, async (req, res) => {
     return res.status(401).json({ error: 'Authentication failed' });
   }
 
-  if (!authenticator.verify({ token: String(code).replace(/\s/g, ''), secret: decrypt(user.totp_secret) })) {
+  const normalizedCode = String(code).replace(/\s/g, '');
+  if (!authenticator.verify({ token: normalizedCode, secret: decrypt(user.totp_secret) })) {
+    logAuthEvent('totp_fail', { username: user.username, userId: user.id, ip: req.ip, success: false });
+    return res.status(401).json({ error: 'Invalid code' });
+  }
+
+  // Prevent replay attacks — TOTP codes are valid for ±30 s (1 period).
+  // Store the consumed code in Redis for 90 s (one extra period) as a replay guard.
+  const replayKey = `totp_used:${user.id}:${normalizedCode}`;
+  const isFirstUse = await redisClient.set(replayKey, '1', { NX: true, EX: 90 });
+  if (!isFirstUse) {
     logAuthEvent('totp_fail', { username: user.username, userId: user.id, ip: req.ip, success: false });
     return res.status(401).json({ error: 'Invalid code' });
   }
@@ -590,11 +601,23 @@ router.post('/2fa/enrollment/enable', authLimiter, async (req, res) => {
   res.json({ user: { id: user.id, username: user.username, displayName: user.display_name, avatar: user.avatar, isAdmin: user.is_admin, totpEnabled: true } });
 });
 
-router.post('/logout', (req, res) => {
+router.post('/logout', async (req, res) => {
   const userId = req.session.userId;
+  const rawCookies = req.headers.cookie || '';
+  const deviceToken = rawCookies.split(';').map(c => c.trim()).find(c => c.startsWith('mf_td='))?.slice(6);
+
+  // Delete the trusted device record from DB before destroying the session
+  if (userId && deviceToken) {
+    const tokenHash = crypto.createHash('sha256').update(deviceToken).digest('hex');
+    query('DELETE FROM trusted_devices WHERE user_id = $1 AND token_hash = $2', [userId, tokenHash])
+      .catch(err => console.error('logout: failed to delete trusted device:', err.message));
+  }
+
   req.session.destroy((err) => {
     if (err) console.error('Session destroy error:', err.message);
-    res.clearCookie('connect.sid');
+    const cookieOpts = { path: '/', sameSite: 'lax', secure: req.secure };
+    res.clearCookie('connect.sid', cookieOpts);
+    res.clearCookie('mf_td', { ...cookieOpts, httpOnly: true });
     res.json({ ok: true });
   });
   if (userId) imapManager.disconnectUser(userId);
@@ -609,7 +632,7 @@ router.get('/me', async (req, res) => {
   res.json({ user: { id: user.id, username: user.username, displayName: user.display_name, avatar: user.avatar, isAdmin: user.is_admin, totpEnabled: user.totp_enabled, hasPassword: !!user.password_hash } });
 });
 
-router.post('/unlock', async (req, res) => {
+router.post('/unlock', authLimiter, async (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
   const { password } = req.body;
   if (!password) return res.status(400).json({ error: 'Password required' });
@@ -954,9 +977,12 @@ router.post('/reset-password', authLimiter, async (req, res) => {
 
   const tokenHash = crypto.createHash('sha256').update(token.trim()).digest('hex');
   try {
+    // Atomically consume the token — DELETE RETURNING prevents two concurrent resets
+    // from both reading a valid token, both updating the password, and only then deleting.
     const tokenResult = await query(
-      `SELECT user_id FROM password_reset_tokens
-       WHERE token_hash = $1 AND expires_at > NOW()`,
+      `DELETE FROM password_reset_tokens
+       WHERE token_hash = $1 AND expires_at > NOW()
+       RETURNING user_id`,
       [tokenHash]
     );
     if (!tokenResult.rows.length) {
@@ -966,7 +992,6 @@ router.post('/reset-password', authLimiter, async (req, res) => {
 
     const hash = await bcrypt.hash(password, 12);
     await query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, userId]);
-    await query('DELETE FROM password_reset_tokens WHERE user_id = $1', [userId]);
 
     res.locals.resetRateLimit?.();
     res.json({ ok: true });

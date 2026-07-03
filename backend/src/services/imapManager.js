@@ -1393,7 +1393,9 @@ export class ImapManager {
     if (this.backfillRunning.has(backfillKey)) return;
     this.backfillRunning.add(backfillKey);
 
-    const cfg = providerProfile(account);
+    // Spread into a local copy so per-run mutations (e.g. batchSize reduction on rate-limit)
+    // don't permanently modify the shared PROVIDERS singleton for other accounts.
+    const cfg = { ...providerProfile(account) };
 
     // Dedicated connection managed here — completely independent of the shared pool
     // so backfilling never blocks the user from opening emails.
@@ -2848,6 +2850,10 @@ export class ImapManager {
         console.log(`syncNow complete: ${logAccount(account)}`);
       } catch (err) {
         console.error(`syncNow error for ${logAccount(account)}:`, err.message);
+        const conn = this.connections.get(account.id);
+        if (conn?.client) {
+          try { await conn.client.logout(); } catch { /* already disconnected */ }
+        }
         this.connections.delete(account.id);
       } finally {
         this.syncingAccounts.delete(account.id);
@@ -2859,7 +2865,7 @@ export class ImapManager {
 
   startSnoozeWatcher() {
     this._snoozeWakeupRunning = false;
-    setInterval(() => {
+    this._snoozeWatcherTimer = setInterval(() => {
       if (this._snoozeWakeupRunning) return;
       this._snoozeWakeupRunning = true;
       this._runSnoozeWakeup()
@@ -2980,7 +2986,11 @@ export class ImapManager {
   broadcast(data, userId = null) {
     const msg = JSON.stringify(data);
     this.wss.clients.forEach(ws => {
-      if (ws.readyState === 1 && (!userId || ws.userId === userId)) ws.send(msg);
+      if (ws.readyState === 1 && (!userId || ws.userId === userId)) {
+        try { ws.send(msg); } catch (err) {
+          console.error('WebSocket broadcast send error:', err.message);
+        }
+      }
     });
   }
 

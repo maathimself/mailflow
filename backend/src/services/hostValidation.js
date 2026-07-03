@@ -36,6 +36,18 @@ function isPrivateIPv6(ip) {
     const embedded = h.slice(7);
     if (isIPv4(embedded)) return isPrivateIPv4(embedded);
   }
+  // 6to4 (2002::/16) — embeds an IPv4 address in bits 16-47.
+  // e.g. 2002:7f00:0001:: wraps 127.0.0.1 and bypasses IPv4 checks without this guard.
+  const sixToFour = h.match(/^2002:([0-9a-f]{1,4}):([0-9a-f]{1,4}):/);
+  if (sixToFour) {
+    const hi = parseInt(sixToFour[1].padStart(4, '0'), 16);
+    const lo = parseInt(sixToFour[2].padStart(4, '0'), 16);
+    const embedded = `${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`;
+    if (isPrivateIPv4(embedded)) return true;
+  }
+  // Teredo (2001:0000::/32) — reject the entire prefix; Teredo tunnels UDP through NAT
+  // and can reach private ranges via the embedded server/client address fields.
+  if (/^2001:0{1,4}:/.test(h)) return true;
   return false;
 }
 

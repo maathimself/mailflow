@@ -137,6 +137,17 @@ async function processMicrosoftTokens(userId, tokens, { tenantId, clientId }) {
     }
     try {
       const { payload } = await jwtVerify(id_token, jwks, verifyOpts);
+      // For multi-tenant configs the issuer check is skipped above, so validate that
+      // the iss claim matches the token's own tid.  This prevents cross-tenant identity
+      // injection where an attacker creates a Microsoft tenant with the victim's email,
+      // obtains a JWT signed by Microsoft, and submits it to a MailFlow instance
+      // configured for 'common'.
+      if (fixedTenants.has(tenantId) && payload.tid && payload.iss) {
+        const expectedIss = `https://login.microsoftonline.com/${payload.tid}/v2.0`;
+        if (payload.iss !== expectedIss) {
+          throw new Error(`id_token issuer mismatch: expected ${expectedIss}, got ${payload.iss}`);
+        }
+      }
       email = payload.email || payload.preferred_username || null;
       displayName = payload.name || null;
     } catch (jwtErr) {

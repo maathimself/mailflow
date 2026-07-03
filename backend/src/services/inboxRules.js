@@ -153,6 +153,26 @@ export async function applyInboxRules(messages, account, imapManager) {
   // parsedHeaders is already present on each msg from messageParser.js — no DB
   // fetch needed; header conditions can use msg.parsedHeaders directly.
 
+  // Pre-resolve destination folders before the message loop to avoid N+1 DB queries.
+  // applyAction will use these cached values; if pre-resolution fails the action
+  // falls back to resolving per-call (nullable ?? await pattern).
+  const hasDelete = rules.some(r => (r.actions || []).some(a => a?.type === 'delete'));
+  const hasArchive = rules.some(r => (r.actions || []).some(a => a?.type === 'archive'));
+  const preResolved = {};
+  try {
+    if (hasDelete) {
+      [preResolved.trashFolder, preResolved.allTrashPaths] = await Promise.all([
+        resolveTrashFolder(account.id, account.folder_mappings),
+        resolveAllTrashPaths(account.id, account.folder_mappings),
+      ]);
+    }
+    if (hasArchive) {
+      preResolved.archiveFolder = await resolveArchiveFolder(account.id, account.folder_mappings);
+    }
+  } catch (err) {
+    console.error('inboxRules: failed to pre-resolve folders:', err.message);
+  }
+
   const remaining = [...messages];
   const removedIds = new Set();
   // IDs of remaining-in-INBOX messages that had mark_read applied by a rule.
@@ -183,7 +203,7 @@ export async function applyInboxRules(messages, account, imapManager) {
         if (isDest && removedIds.has(msg.id)) continue;
         if (isDest) destSeen = true;
         try {
-          const acted = await applyAction(action, msg, account, imapManager);
+          const acted = await applyAction(action, msg, account, imapManager, preResolved);
           if (isDest && acted) removedIds.add(msg.id);
           // mark_read: add to mutedIds so caller suppresses sound/push.
           // star: intentionally NOT muted — a star-only rule should still alert.
@@ -221,6 +241,20 @@ export async function applyBlockList(messages, account, imapManager) {
   if (!blockedRows.length) return messages;
 
   const blockedSet = new Set(blockedRows.map(r => r.email_address.toLowerCase()));
+
+  // Resolve trash folders once before iterating — avoids N+1 DB queries when many messages
+  // are blocked in the same sync batch.
+  let trashFolder, allTrashPaths;
+  try {
+    [trashFolder, allTrashPaths] = await Promise.all([
+      resolveTrashFolder(account.id, account.folder_mappings),
+      resolveAllTrashPaths(account.id, account.folder_mappings),
+    ]);
+  } catch (err) {
+    console.error('blockList: failed to resolve trash folders:', err.message);
+    return messages;
+  }
+
   const remaining = [];
   for (const msg of messages) {
     if (!blockedSet.has((msg.fromEmail || '').toLowerCase())) {
@@ -228,8 +262,6 @@ export async function applyBlockList(messages, account, imapManager) {
       continue;
     }
     try {
-      const trashFolder = await resolveTrashFolder(account.id, account.folder_mappings);
-      const allTrashPaths = await resolveAllTrashPaths(account.id, account.folder_mappings);
       const strategy = getDeleteStrategy(msg.folder, trashFolder, allTrashPaths);
       if (strategy.action === 'move') {
         imapManager._guardMoveUid(account.id, msg.folder, msg.uid);
@@ -269,7 +301,7 @@ export async function applyBlockList(messages, account, imapManager) {
   return remaining;
 }
 
-async function applyAction(action, msg, account, imapManager) {
+async function applyAction(action, msg, account, imapManager, preResolved = {}) {
   switch (action.type) {
     case 'mark_read': {
       await query(
@@ -353,7 +385,7 @@ async function applyAction(action, msg, account, imapManager) {
     }
 
     case 'archive': {
-      const archiveFolder = await resolveArchiveFolder(account.id, account.folder_mappings);
+      const archiveFolder = preResolved.archiveFolder ?? await resolveArchiveFolder(account.id, account.folder_mappings);
       if (!archiveFolder) return false;
       const srcFolder = msg.folder;
       const srcUid = msg.uid;
@@ -381,8 +413,8 @@ async function applyAction(action, msg, account, imapManager) {
     }
 
     case 'delete': {
-      const trashFolder = await resolveTrashFolder(account.id, account.folder_mappings);
-      const allTrashPaths = await resolveAllTrashPaths(account.id, account.folder_mappings);
+      const trashFolder = preResolved.trashFolder ?? await resolveTrashFolder(account.id, account.folder_mappings);
+      const allTrashPaths = preResolved.allTrashPaths ?? await resolveAllTrashPaths(account.id, account.folder_mappings);
       const strategy = getDeleteStrategy(msg.folder, trashFolder, allTrashPaths);
       if (strategy.action === 'no_trash') return false;
       if (strategy.action === 'move') {
