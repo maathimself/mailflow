@@ -59,12 +59,15 @@ jobs:
             .map(n => n.sponsorEntity)
             .filter(Boolean);
 
+          const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+          const safeUrl = u => { try { const p = new URL(u).protocol; return p === 'https:' ? u : '#'; } catch { return '#'; } };
+
           let section;
           if (sponsors.length === 0) {
             section = '_No sponsors yet — be the first!_';
           } else {
             section = sponsors
-              .map(s => `<a href="${s.url}" title="${s.login}"><img src="${s.avatarUrl}" width="48" height="48" alt="${s.login}" style="border-radius:50%;margin:4px"></a>`)
+              .map(s => `<a href="${safeUrl(s.url)}" title="${esc(s.login)}"><img src="${safeUrl(s.avatarUrl)}" width="48" height="48" alt="${esc(s.login)}" style="border-radius:50%;margin:4px"></a>`)
               .join('\n');
           }
 
