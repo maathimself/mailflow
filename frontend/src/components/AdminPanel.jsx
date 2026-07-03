@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { useMobile } from '../hooks/useMobile.js';
@@ -6650,6 +6650,17 @@ export default function AdminPanel() {
   const isMobile = useMobile();
   const visibleTabs = TABS.filter(tab => (!tab.adminOnly || user?.isAdmin) && (!tab.mobileHidden || !isMobile));
 
+  const tabScrollRef = useRef(null);
+  const [tabRightOverflow, setTabRightOverflow] = useState(false);
+  useLayoutEffect(() => {
+    const el = tabScrollRef.current;
+    if (!el) return;
+    const check = () => setTabRightOverflow(el.scrollWidth > el.clientWidth && el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
+    check();
+    el.addEventListener('scroll', check, { passive: true });
+    return () => el.removeEventListener('scroll', check);
+  }, [isMobile, !!user?.isAdmin]);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [pendingSubTab, setPendingSubTab] = useState(null);
 
@@ -6763,7 +6774,7 @@ export default function AdminPanel() {
 
         {/* Horizontal scrollable tab bar */}
         <div style={{ position: 'relative', flexShrink: 0, borderBottom: '1px solid var(--border-subtle)' }}>
-          <div className="admin-tabs" style={{
+          <div ref={tabScrollRef} className="admin-tabs" style={{
             display: 'flex', gap: 6, padding: '10px 12px',
             overflowX: 'auto',
             WebkitOverflowScrolling: 'touch',
@@ -6791,7 +6802,7 @@ export default function AdminPanel() {
             ))}
           </div>
           {/* Right-edge fade to signal more tabs off-screen */}
-          <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: 48, pointerEvents: 'none', background: 'linear-gradient(to right, transparent, var(--bg-secondary))' }} />
+          {tabRightOverflow && <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: 48, pointerEvents: 'none', background: 'linear-gradient(to right, transparent, var(--bg-secondary))' }} />}
         </div>
 
         {/* Content — full width, scrollable */}

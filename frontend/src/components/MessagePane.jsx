@@ -496,7 +496,7 @@ export default function MessagePane() {
         if (/^https?:\/\//i.test(raw)) {
           window.open(raw, '_blank', 'noopener,noreferrer');
         } else if (/^mailto:/i.test(raw)) {
-          window.open(raw);
+          window.open(raw, '_blank', 'noopener,noreferrer');
         }
       });
 
@@ -1056,7 +1056,7 @@ ${bodyContent}
     if (/^https?:\/\//i.test(raw)) {
       window.open(raw, '_blank', 'noopener,noreferrer');
     } else if (/^mailto:/i.test(raw)) {
-      window.open(raw);
+      window.open(raw, '_blank', 'noopener,noreferrer');
     }
   }, []);
 
@@ -1284,7 +1284,7 @@ ${bodyContent}
         window.open(result.url, '_blank', 'noopener,noreferrer');
       } else if (result.type === 'mailto' && result.mailto) {
         setUnsubscribeStatus('done');
-        window.open(result.mailto);
+        window.open(result.mailto, '_blank', 'noopener,noreferrer');
       } else {
         setUnsubscribeStatus('error');
       }
