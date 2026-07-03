@@ -559,6 +559,7 @@ export default function MessagePane() {
       // transform:none!important on .email-* never cancels the scale.
       scaler.style.transform       = '';
       scaler.style.transformOrigin = '';
+      scaler.style.width           = '';
       outer.style.height    = '';
       outer.style.overflowX = '';
 
@@ -567,10 +568,15 @@ export default function MessagePane() {
 
       if (containerW > 0 && contentW > containerW + 2) {
         const scale = containerW / contentW;
+        // Lock scaler to the email's natural content width before applying the
+        // transform so scale(containerW/contentW) maps contentW → containerW
+        // exactly. Without this, scaler inherits innerRef's max-width:100% (=
+        // containerW) and the transform scales the wrong box entirely.
+        scaler.style.width           = `${contentW}px`;
         scaler.style.transform       = `scale(${scale})`;
         scaler.style.transformOrigin = 'top left';
         outer.style.height           = Math.round(inner.scrollHeight * scale) + 'px';
-        // Transform does not change layout width; hide the scrollbar in scaled mode.
+        // Transform does not change layout width; hide the overflow in scaled mode.
         outer.style.overflowX        = 'hidden';
       }
     };

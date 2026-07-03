@@ -330,11 +330,15 @@ body, #root {
 }
 
 /* Email div renderer — resets MailFlow styles from the inner email root so email
-   CSS starts from browser defaults. contain:content prevents fixed-position
-   elements inside the email from escaping the email container. */
+   CSS starts from browser defaults. contain:layout style scopes position:fixed/
+   absolute descendants and CSS counters. Paint containment is intentionally
+   omitted: it clips rendering to the element's border-box, which on mobile
+   (border-box == viewport width) silently hides the right side of wide emails
+   before the scale-to-fit transform in applyScale() has a chance to shrink them.
+   The parent card div carries contain:layout as a second layer of protection. */
 [data-mailflow-email] {
   all: revert;
-  contain: content;
+  contain: layout style;
   overflow-x: auto;
   max-width: 100%;
   color-scheme: light;
