@@ -370,6 +370,7 @@ export default function Sidebar() {
   const [showProfile, setShowProfile] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [userMenuPos, setUserMenuPos] = useState({ bottom: 0, left: 0 });
+  const [bottomExpanded, setBottomExpanded] = useState(false);
   const userMenuBtnRef = useRef(null);
   const userMenuPopoverRef = useRef(null);
 
@@ -1400,11 +1401,19 @@ export default function Sidebar() {
       {/* Bottom — mobile: inline user section; desktop: user menu button */}
       {isMobile ? (
         <div style={{ borderTop: '1px solid var(--border-subtle)', flexShrink: 0 }}>
-          {/* User identity */}
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 10,
-            padding: '12px 14px 10px',
-          }}>
+          {/* User identity — tap to expand/collapse actions */}
+          <div
+            onClick={() => setBottomExpanded(prev => !prev)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              paddingTop: 12, paddingLeft: 14, paddingRight: 14,
+              paddingBottom: bottomExpanded ? 10 : 'calc(var(--sab) + 10px)',
+              cursor: 'pointer', WebkitTapHighlightColor: 'transparent',
+            }}
+            onTouchStart={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+            onTouchEnd={e => e.currentTarget.style.background = ''}
+            onTouchCancel={e => e.currentTarget.style.background = ''}
+          >
             {user?.avatar ? (
               <img src={user.avatar} alt="" style={{ width: 34, height: 34, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
             ) : (
@@ -1433,8 +1442,14 @@ export default function Sidebar() {
                 </div>
               )}
             </div>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+              style={{ flexShrink: 0, color: 'var(--text-tertiary)', transform: bottomExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
           </div>
 
+          {bottomExpanded && (
+          <>
           {/* Block remote images */}
           <div style={{
             display: 'flex', alignItems: 'center', gap: 10,
@@ -1555,6 +1570,8 @@ export default function Sidebar() {
             </span>
             <span style={{ flex: 1, fontSize: 13, color: 'var(--red, #f87171)' }}>{t('sidebar.signOut')}</span>
           </div>
+          </>
+          )}
         </div>
       ) : (
         <>

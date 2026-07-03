@@ -6762,33 +6762,36 @@ export default function AdminPanel() {
         </div>
 
         {/* Horizontal scrollable tab bar */}
-        <div className="admin-tabs" style={{
-          display: 'flex', gap: 6, padding: '10px 12px',
-          overflowX: 'auto', flexShrink: 0,
-          borderBottom: '1px solid var(--border-subtle)',
-          WebkitOverflowScrolling: 'touch',
-          scrollbarWidth: 'none',
-        }}>
-          <style>{`.admin-tabs::-webkit-scrollbar { display: none; }`}</style>
-          {visibleTabs.map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => handleTabClick(tab.id)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 6,
-                padding: '7px 12px', borderRadius: 20, border: 'none',
-                background: adminTab === tab.id && !searchResults ? 'var(--accent)' : 'var(--bg-tertiary)',
-                color: adminTab === tab.id && !searchResults ? '#fff' : 'var(--text-secondary)',
-                cursor: 'pointer', fontSize: 13, fontWeight: 500,
-                whiteSpace: 'nowrap', flexShrink: 0,
-                WebkitTapHighlightColor: 'transparent',
-              }}
-            >
-              <span style={{ display: 'flex', opacity: adminTab === tab.id && !searchResults ? 1 : 0.7 }}>{tab.icon}</span>
-              {t(tab.labelKey)}
-              {tab.beta && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', padding: '1px 4px', borderRadius: 3, background: adminTab === tab.id && !searchResults ? 'rgba(255,255,255,0.25)' : 'color-mix(in srgb, var(--accent) 15%, transparent)', color: adminTab === tab.id && !searchResults ? '#fff' : 'var(--accent)' }}>BETA</span>}
-            </button>
-          ))}
+        <div style={{ position: 'relative', flexShrink: 0, borderBottom: '1px solid var(--border-subtle)' }}>
+          <div className="admin-tabs" style={{
+            display: 'flex', gap: 6, padding: '10px 12px',
+            overflowX: 'auto',
+            WebkitOverflowScrolling: 'touch',
+            scrollbarWidth: 'none',
+          }}>
+            <style>{`.admin-tabs::-webkit-scrollbar { display: none; }`}</style>
+            {visibleTabs.map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => handleTabClick(tab.id)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  padding: '7px 12px', borderRadius: 20, border: 'none',
+                  background: adminTab === tab.id && !searchResults ? 'var(--accent)' : 'var(--bg-tertiary)',
+                  color: adminTab === tab.id && !searchResults ? '#fff' : 'var(--text-secondary)',
+                  cursor: 'pointer', fontSize: 13, fontWeight: 500,
+                  whiteSpace: 'nowrap', flexShrink: 0,
+                  WebkitTapHighlightColor: 'transparent',
+                }}
+              >
+                <span style={{ display: 'flex', opacity: adminTab === tab.id && !searchResults ? 1 : 0.7 }}>{tab.icon}</span>
+                {t(tab.labelKey)}
+                {tab.beta && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', padding: '1px 4px', borderRadius: 3, background: adminTab === tab.id && !searchResults ? 'rgba(255,255,255,0.25)' : 'color-mix(in srgb, var(--accent) 15%, transparent)', color: adminTab === tab.id && !searchResults ? '#fff' : 'var(--accent)' }}>BETA</span>}
+              </button>
+            ))}
+          </div>
+          {/* Right-edge fade to signal more tabs off-screen */}
+          <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: 48, pointerEvents: 'none', background: 'linear-gradient(to right, transparent, var(--bg-secondary))' }} />
         </div>
 
         {/* Content — full width, scrollable */}
