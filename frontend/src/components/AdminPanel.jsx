@@ -6652,6 +6652,7 @@ export default function AdminPanel() {
 
   const tabScrollRef = useRef(null);
   const [tabRightOverflow, setTabRightOverflow] = useState(false);
+  const isAdmin = !!user?.isAdmin;
   useLayoutEffect(() => {
     const el = tabScrollRef.current;
     if (!el) return;
@@ -6659,7 +6660,7 @@ export default function AdminPanel() {
     check();
     el.addEventListener('scroll', check, { passive: true });
     return () => el.removeEventListener('scroll', check);
-  }, [isMobile, !!user?.isAdmin]);
+  }, [isMobile, isAdmin]);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [pendingSubTab, setPendingSubTab] = useState(null);
