@@ -2414,6 +2414,24 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
               style={{ background: es.link ? 'var(--bg-hover)' : 'none', border: 'none', borderRadius: 4, padding: '6px 4px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 1, color: es.link ? 'var(--accent)' : 'var(--text-secondary)', WebkitTapHighlightColor: 'transparent' }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
             </button>
+            {aiEnabled && (
+              <button ref={aiBtnRef} title={t('compose.toolbar.aiAssist')} onMouseDown={e => {
+                e.preventDefault();
+                if (aiMenuPos) { setAiMenuPos(null); return; }
+                const r = aiBtnRef.current.getBoundingClientRect();
+                const left = Math.max(4, Math.min(r.left, window.innerWidth - 160));
+                setAiMenuPos({ top: r.bottom + 4, left });
+              }} style={{
+                background: (aiMenuPos || aiPanelOpen) ? 'var(--accent-dim)' : 'none', border: 'none', borderRadius: 4,
+                padding: '6px 4px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                flex: 1, color: (aiMenuPos || aiPanelOpen) ? 'var(--accent)' : 'var(--text-secondary)', WebkitTapHighlightColor: 'transparent',
+              }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
+                  <path d="M5 3v4M19 17v4M3 5h4M17 19h4"/>
+                </svg>
+              </button>
+            )}
             <button title={t('compose.toolbar.moreFormatting')} onMouseDown={e => { e.preventDefault(); setShowMobileMore(m => !m); }}
               style={{ background: showMobileMore ? 'var(--bg-hover)' : 'none', border: 'none', borderRadius: 4, padding: '6px 4px', color: showMobileMore ? 'var(--accent)' : 'var(--text-secondary)', cursor: 'pointer', fontSize: 18, fontWeight: 300, lineHeight: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 1, WebkitTapHighlightColor: 'transparent' }}>+</button>
           </div>
