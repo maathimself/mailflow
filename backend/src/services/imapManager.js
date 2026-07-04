@@ -1273,8 +1273,15 @@ export class ImapManager {
         // recent messages, and handles the first-sync case (maxKnownUid=0).
         // Messages already inserted by Phase 1 are processed again here but the
         // ON CONFLICT DO UPDATE is idempotent and xmax=0 prevents double-notification.
+        //
+        // Re-read exists from the live connection rather than reusing the value captured
+        // at SELECT time. ImapFlow may have decremented it asynchronously if an EXPUNGE
+        // notification arrived during Phase 1, making the original fetchRange stale.
+        const liveExists = client.mailbox?.exists ?? 0;
+        const phase2Range = liveExists > limit
+          ? `${liveExists - limit + 1}:${liveExists}` : '1:*';
         try {
-          for await (const msg of client.fetch(fetchRange, fetchQuery)) {
+          for await (const msg of client.fetch(phase2Range, fetchQuery)) {
             await processMsg(msg);
           }
         } catch (err) {
