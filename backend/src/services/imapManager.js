@@ -1105,9 +1105,6 @@ export class ImapManager {
           SET total_count = $3, unread_count = $4, uid_validity = COALESCE($5, folders.uid_validity), updated_at = NOW()
         `, [account.id, folder, mailbox.exists, dbUnreadCount, currentValidity]);
 
-        const fetchRange = mailbox.exists > limit
-          ? `${mailbox.exists - limit + 1}:${mailbox.exists}` : '1:*';
-
         // Omit body parts for providers that throttle BODY[] fetches, and when
         // noBodyParts is set. Envelope/flags/uid/bodyStructure always fetched.
         const fetchQuery = {
