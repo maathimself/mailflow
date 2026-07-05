@@ -600,10 +600,19 @@ export function applyCustomCss(css) {
 
 export function applyTheme(themeName) {
   const theme = THEMES[themeName] || THEMES.dark;
-  const root = document.documentElement;
-  for (const [key, value] of Object.entries(theme.vars)) {
-    root.style.setProperty(key, value);
+
+  // Inject vars via a <style> element rather than root.style.setProperty so
+  // that <style id="mailflow-custom-css"> (appended afterward) can override
+  // theme variables at equal specificity using normal cascade source order.
+  let themeEl = document.getElementById('mailflow-theme');
+  if (!themeEl) {
+    themeEl = document.createElement('style');
+    themeEl.id = 'mailflow-theme';
+    document.head.appendChild(themeEl);
   }
+  themeEl.textContent = `:root {\n${
+    Object.entries(theme.vars).map(([k, v]) => `  ${k}: ${v};`).join('\n')
+  }\n}`;
 
   // Sync PWA/browser chrome colour with the active accent.
   const accent = theme.vars['--accent'];
