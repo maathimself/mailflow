@@ -664,7 +664,17 @@
       "defaultReplyDesc": "Die Schaltfläche Antworten sendet nur an den Absender",
       "defaultReplyAction": "Standard-Antwortoption",
       "defaultReply": "Antworten",
-      "defaultReplyAllDesc": "Die Schaltfläche Antworten sendet an alle Empfänger"
+      "defaultReplyAllDesc": "Die Schaltfläche Antworten sendet an alle Empfänger",
+      "markReadBehavior": "Als gelesen markieren",
+      "markReadImmediate": "Sofort",
+      "markReadImmediateDesc": "E-Mails sofort als gelesen markieren, sobald sie geöffnet werden.",
+      "markReadDelay": "Nach einer Verzögerung",
+      "markReadDelayDesc": "E-Mails nach einer bestimmten Anzeigezeit als gelesen markieren.",
+      "markReadManual": "Manuell",
+      "markReadManualDesc": "E-Mails niemals automatisch als gelesen markieren. Schaltfläche \"Als gelesen markieren\" verwenden.",
+      "markReadDelayLabel": "Verzögerung",
+      "markReadDelaySeconds": "{{count}} Sekunde",
+      "markReadDelaySeconds_other": "{{count}} Sekunden"
     },
     "notifications": {
       "title": "Benachrichtigungen",

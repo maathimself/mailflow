@@ -1400,7 +1400,7 @@ function SwipeActionIcon({ action, size = 17 }) {
 function LayoutsTab() {
   const { t } = useTranslation();
   const isMobile = useMobile();
-  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, replyDefault, setReplyDefault } = useStore();
+  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay } = useStore();
 
   const handleSelect = (key) => {
     setLayout(key);
@@ -1751,6 +1751,57 @@ function LayoutsTab() {
             );
           })}
         </div>
+      </div>
+
+      {/* Mark as read behaviour */}
+      <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+          {t('admin.messageList.markReadBehavior')}
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {[
+            { id: 'immediate', label: t('admin.messageList.markReadImmediate'), desc: t('admin.messageList.markReadImmediateDesc') },
+            { id: 'delay',     label: t('admin.messageList.markReadDelay'),     desc: t('admin.messageList.markReadDelayDesc') },
+            { id: 'manual',    label: t('admin.messageList.markReadManual'),    desc: t('admin.messageList.markReadManualDesc') },
+          ].map(({ id, label, desc }) => {
+            const active = markReadBehavior === id;
+            return (
+              <button
+                key={id}
+                onClick={() => setMarkReadBehavior(id)}
+                style={{
+                  flex: 1, padding: '10px 12px', textAlign: 'left',
+                  background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
+                  border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
+                  borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s', outline: 'none',
+                }}
+                onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; }}
+                onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
+              >
+                <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{label}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{desc}</div>
+              </button>
+            );
+          })}
+        </div>
+        {markReadBehavior === 'delay' && (
+          <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{t('admin.messageList.markReadDelayLabel')}</span>
+            <select
+              value={markReadDelay}
+              onChange={e => setMarkReadDelay(parseInt(e.target.value))}
+              style={{
+                background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+                borderRadius: 6, padding: '4px 8px', color: 'var(--text-primary)',
+                fontSize: 12, outline: 'none', cursor: 'pointer',
+              }}
+            >
+              {[1,2,3,5,10].map(s => (
+                <option key={s} value={s}>{t('admin.messageList.markReadDelaySeconds', { count: s })}</option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -6663,6 +6714,7 @@ function makeSearchIndex(t) {
     { label: t('admin.messageList.threadingMode'), keywords: ['thread', 'conversation', 'grouping', 'threading', 'group'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.composeFormat'), keywords: ['compose', 'format', 'rich text', 'plain text', 'html', 'editor'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.defaultReplyAction'), keywords: ['reply', 'reply all', 'default reply'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
+    { label: t('admin.messageList.markReadBehavior'), keywords: ['mark read', 'mark as read', 'read delay', 'auto read', 'manual read', 'unread'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     // Appearance > Fonts & Language
     { label: t('admin.appearance.language'), keywords: ['language', 'locale', 'french', 'english', 'spanish', 'german', 'deutsch', 'russian', 'chinese', 'italian', 'français', 'español'], tab: 'appearance', subtab: 'fonts', breadcrumb: fontsCrumb },
     { label: t('admin.appearance.fontSize'), keywords: ['font size', 'text size', 'zoom', 'scale', 'accessibility', 'larger text'], tab: 'appearance', subtab: 'fonts', breadcrumb: fontsCrumb },

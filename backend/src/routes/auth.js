@@ -714,7 +714,7 @@ router.patch('/preferences', async (req, res) => {
           threadedView, plaintextEmail, hoverQuickActions, swipeActions,
           expandedAccounts, collapsedFolders, favoriteFolders, recentFolders, fontSize,
           showAppBadge, showFaviconBadge, replyDefault, sidebarWidth,
-          categorizationEnabled } = req.body;
+          categorizationEnabled, markReadBehavior, markReadDelay } = req.body;
   // JSONB fields must be serialised to strings for the ::jsonb cast
   const imageWhitelistJson    = imageWhitelist    != null ? JSON.stringify(imageWhitelist)    : null;
   const shortcutsJson         = shortcuts         != null ? JSON.stringify(shortcuts)         : null;
@@ -727,6 +727,8 @@ router.patch('/preferences', async (req, res) => {
   const fontSizeVal           = fontSize          != null ? String(fontSize)                  : null;
   const replyDefaultVal       = (replyDefault === 'reply' || replyDefault === 'replyAll') ? replyDefault : null;
   const sidebarWidthVal       = (() => { const n = parseInt(sidebarWidth); return (n >= 160 && n <= 400) ? String(n) : null; })();
+  const markReadBehaviorVal   = ['immediate', 'delay', 'manual'].includes(markReadBehavior) ? markReadBehavior : null;
+  const markReadDelayVal      = (() => { const n = parseInt(markReadDelay); return (n >= 1 && n <= 10) ? String(n) : null; })();
   await query(`
     UPDATE users
     SET preferences = preferences
@@ -756,6 +758,8 @@ router.patch('/preferences', async (req, res) => {
       || CASE WHEN $25::text IS NOT NULL THEN jsonb_build_object('replyDefault', $25::text) ELSE '{}'::jsonb END
       || CASE WHEN $26::text IS NOT NULL THEN jsonb_build_object('sidebarWidth', $26::text) ELSE '{}'::jsonb END
       || CASE WHEN $27::boolean IS NOT NULL THEN jsonb_build_object('categorizationEnabled', $27::boolean) ELSE '{}'::jsonb END
+      || CASE WHEN $28::text IS NOT NULL THEN jsonb_build_object('markReadBehavior', $28::text) ELSE '{}'::jsonb END
+      || CASE WHEN $29::text IS NOT NULL THEN jsonb_build_object('markReadDelay', $29::text) ELSE '{}'::jsonb END
     WHERE id = $1
   `, [req.session.userId, theme ?? null, font ?? null, layout ?? null, notificationSound ?? null,
       pageSize ?? null, scrollMode ?? null, syncInterval ?? null,
@@ -763,7 +767,7 @@ router.patch('/preferences', async (req, res) => {
       language ?? null, threadedView ?? null, plaintextEmail ?? null, hoverQuickActions ?? null,
       swipeActionsJson, expandedAccountsJson, collapsedFoldersJson, favoriteFoldersJson, recentFoldersJson, fontSizeVal,
       showAppBadge ?? null, showFaviconBadge ?? null, replyDefaultVal, sidebarWidthVal,
-      categorizationEnabled ?? null]);
+      categorizationEnabled ?? null, markReadBehaviorVal, markReadDelayVal]);
 
   if (syncInterval != null) {
     const ms = parseInt(syncInterval) * 1000;

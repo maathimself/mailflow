@@ -727,7 +727,17 @@
       "defaultReplyDesc": "El botón Responder envía solo al remitente",
       "defaultReplyAction": "Acción de respuesta predeterminada",
       "defaultReply": "Responder",
-      "defaultReplyAllDesc": "El botón Responder envía a todos los destinatarios"
+      "defaultReplyAllDesc": "El botón Responder envía a todos los destinatarios",
+      "markReadBehavior": "Marcar como leído",
+      "markReadImmediate": "Inmediatamente",
+      "markReadImmediateDesc": "Marcar los correos como leídos en cuanto los abres.",
+      "markReadDelay": "Después de un tiempo",
+      "markReadDelayDesc": "Marcar los correos como leídos después de verlos durante un tiempo determinado.",
+      "markReadManual": "Manualmente",
+      "markReadManualDesc": "Nunca marcar correos como leídos automáticamente. Usa el botón de marcar como leído.",
+      "markReadDelayLabel": "Retraso",
+      "markReadDelaySeconds": "{{count}} segundo",
+      "markReadDelaySeconds_other": "{{count}} segundos"
     },
     "notifications": {
       "title": "Notificaciones",

@@ -204,9 +204,10 @@ const SAME_VALUE_ALLOWED = {
   'admin.rules.fieldFrom': [['es', 'fr']],
   'compose.from':          [['es', 'fr']],
 
-  // "contiene" / "Evento" — Romance languages share the same word
+  // "contiene" / "Evento" / "Manualmente" — Romance languages share the same word
   'admin.rules.opContains':          [['es', 'it']],
   'admin.security.activityColEvent': [['es', 'it']],
+  'admin.messageList.markReadManual': [['es', 'it']],
 
   // "Status" — same spelling in de and en
   'admin.security.activityColStatus': [['de', 'en']],

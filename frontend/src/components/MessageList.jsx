@@ -106,6 +106,7 @@ export default function MessageList() {
     swipeActions,
     folders, favoriteFolders, addFavoriteFolder, removeFavoriteFolder, setSelectedAccount,
     categorizationEnabled, categoryCounts, setCategoryCounts, adjustCategoryCount,
+    markReadBehavior, markReadDelay,
   } = useStore();
 
   const isMobile = useMobile();
@@ -1426,6 +1427,9 @@ export default function MessageList() {
     }
   }, [updateMessage, decrementUnread, incrementUnread, adjustCategoryCount]);
 
+  const autoMarkReadTimerRef = useRef(null);
+  useEffect(() => () => clearTimeout(autoMarkReadTimerRef.current), []);
+
   // Keep refs to bulk handlers so the shortcut effect (registered once) is never stale
   const bulkDeleteRef    = useRef(handleBulkDelete);
   const bulkArchiveRef   = useRef(handleBulkArchive);
@@ -1441,24 +1445,34 @@ export default function MessageList() {
 
     const markRead = (msg) => {
       if (msg.is_read) return;
-      const { updateMessage, decrementUnread, incrementUnread, adjustCategoryCount } = getState();
-      updateMessage(msg.id, { is_read: true });
-      decrementUnread(msg.account_id);
-      adjustCategoryCount(msg.category, -1);
-      setPending(msg.id, msg.account_id);
-      api.bulkRead([msg.id], true)
-        .then(() => {
-          pendingMarkReadMap.delete(msg.id);
-          completedMarkReadMap.set(msg.id, msg.account_id);
-          setTimeout(() => completedMarkReadMap.delete(msg.id), 10000);
-        })
-        .catch(e => {
-          console.error('markRead failed:', e.message);
-          updateMessage(msg.id, { is_read: false });
-          incrementUnread(msg.account_id);
-          adjustCategoryCount(msg.category, 1);
-          pendingMarkReadMap.delete(msg.id);
-        });
+      const { updateMessage, decrementUnread, incrementUnread, adjustCategoryCount, markReadBehavior, markReadDelay } = getState();
+      if (markReadBehavior === 'manual') return;
+      clearTimeout(autoMarkReadTimerRef.current);
+      autoMarkReadTimerRef.current = null;
+      const doMarkRead = () => {
+        updateMessage(msg.id, { is_read: true });
+        decrementUnread(msg.account_id);
+        adjustCategoryCount(msg.category, -1);
+        setPending(msg.id, msg.account_id);
+        api.bulkRead([msg.id], true)
+          .then(() => {
+            pendingMarkReadMap.delete(msg.id);
+            completedMarkReadMap.set(msg.id, msg.account_id);
+            setTimeout(() => completedMarkReadMap.delete(msg.id), 10000);
+          })
+          .catch(e => {
+            console.error('markRead failed:', e.message);
+            updateMessage(msg.id, { is_read: false });
+            incrementUnread(msg.account_id);
+            adjustCategoryCount(msg.category, 1);
+            pendingMarkReadMap.delete(msg.id);
+          });
+      };
+      if (markReadBehavior === 'delay') {
+        autoMarkReadTimerRef.current = setTimeout(doMarkRead, (markReadDelay || 1) * 1000);
+      } else {
+        doMarkRead();
+      }
     };
 
     const onNext = () => {
@@ -1986,26 +2000,35 @@ export default function MessageList() {
     }
     setSelectedMessage(message.id);
     listRef.current?.focus({ preventScroll: true });
-    if (!message.is_read) {
+    clearTimeout(autoMarkReadTimerRef.current);
+    autoMarkReadTimerRef.current = null;
+    if (!message.is_read && markReadBehavior !== 'manual') {
       const prevUnread = message.unread_count;
-      updateMessage(message.id, { is_read: true, unread_count: 0 });
-      decrementUnread(message.account_id);
-      adjustCategoryCount(message.category, -1);
-      setPending(message.id, message.account_id);
-      api.bulkRead([message.id], true)
-        .catch(() => api.bulkRead([message.id], true))
-        .then(() => {
-          pendingMarkReadMap.delete(message.id);
-          completedMarkReadMap.set(message.id, message.account_id);
-          setTimeout(() => completedMarkReadMap.delete(message.id), 10000);
-        })
-        .catch(e => {
-          console.error('markRead failed:', e.message);
-          updateMessage(message.id, { is_read: false, unread_count: prevUnread });
-          incrementUnread(message.account_id);
-          adjustCategoryCount(message.category, 1);
-          pendingMarkReadMap.delete(message.id);
-        });
+      const doMarkRead = () => {
+        updateMessage(message.id, { is_read: true, unread_count: 0 });
+        decrementUnread(message.account_id);
+        adjustCategoryCount(message.category, -1);
+        setPending(message.id, message.account_id);
+        api.bulkRead([message.id], true)
+          .catch(() => api.bulkRead([message.id], true))
+          .then(() => {
+            pendingMarkReadMap.delete(message.id);
+            completedMarkReadMap.set(message.id, message.account_id);
+            setTimeout(() => completedMarkReadMap.delete(message.id), 10000);
+          })
+          .catch(e => {
+            console.error('markRead failed:', e.message);
+            updateMessage(message.id, { is_read: false, unread_count: prevUnread });
+            incrementUnread(message.account_id);
+            adjustCategoryCount(message.category, 1);
+            pendingMarkReadMap.delete(message.id);
+          });
+      };
+      if (markReadBehavior === 'delay') {
+        autoMarkReadTimerRef.current = setTimeout(doMarkRead, markReadDelay * 1000);
+      } else {
+        doMarkRead();
+      }
     }
   };
 

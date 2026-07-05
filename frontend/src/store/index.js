@@ -344,6 +344,20 @@ export const useStore = create((set, get) => ({
     schedulePrefSave({ replyDefault: val });
   },
 
+  markReadBehavior: localStorage.getItem('mailflow_mark_read_behavior') || 'immediate',
+  setMarkReadBehavior: (val) => {
+    localStorage.setItem('mailflow_mark_read_behavior', val);
+    set({ markReadBehavior: val });
+    schedulePrefSave({ markReadBehavior: val });
+  },
+  markReadDelay: parseInt(localStorage.getItem('mailflow_mark_read_delay') || '1') || 1,
+  setMarkReadDelay: (val) => {
+    const n = Math.max(1, Math.min(10, parseInt(val) || 1));
+    localStorage.setItem('mailflow_mark_read_delay', String(n));
+    set({ markReadDelay: n });
+    schedulePrefSave({ markReadDelay: n });
+  },
+
   // Thread expansion cache (not persisted — reset on navigation)
   expandedThreadId: null,
   setExpandedThreadId: (id) => set({ expandedThreadId: id }),
@@ -634,6 +648,15 @@ export const useStore = create((set, get) => ({
       if (prefs.replyDefault === 'reply' || prefs.replyDefault === 'replyAll') {
         localStorage.setItem('mailflow_reply_default', prefs.replyDefault);
         set({ replyDefault: prefs.replyDefault });
+      }
+      if (prefs.markReadBehavior === 'immediate' || prefs.markReadBehavior === 'delay' || prefs.markReadBehavior === 'manual') {
+        localStorage.setItem('mailflow_mark_read_behavior', prefs.markReadBehavior);
+        set({ markReadBehavior: prefs.markReadBehavior });
+      }
+      if (prefs.markReadDelay) {
+        const n = Math.max(1, Math.min(10, parseInt(prefs.markReadDelay) || 1));
+        localStorage.setItem('mailflow_mark_read_delay', String(n));
+        set({ markReadDelay: n });
       }
       if (prefs.sidebarWidth) {
         const n = parseInt(prefs.sidebarWidth);

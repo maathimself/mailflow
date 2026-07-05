@@ -727,7 +727,17 @@
       "defaultReplyDesc": "回复按钮仅发送给发件人",
       "defaultReplyAction": "默认回复方式",
       "defaultReply": "回复",
-      "defaultReplyAllDesc": "回复按钮将发送给所有收件人"
+      "defaultReplyAllDesc": "回复按钮将发送给所有收件人",
+      "markReadBehavior": "标为已读",
+      "markReadImmediate": "立即",
+      "markReadImmediateDesc": "打开邮件后立即标为已读。",
+      "markReadDelay": "延迟后",
+      "markReadDelayDesc": "查看邮件一段时间后标为已读。",
+      "markReadManual": "手动",
+      "markReadManualDesc": "从不自动标为已读，请使用标为已读按钮。",
+      "markReadDelayLabel": "延迟",
+      "markReadDelaySeconds": "{{count}} 秒",
+      "markReadDelaySeconds_other": "{{count}} 秒"
     },
     "notifications": {
       "title": "通知",

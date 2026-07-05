@@ -727,7 +727,17 @@
       "defaultReplyDesc": "Кнопка «Ответить» отправляет только отправителю",
       "defaultReplyAction": "Действие ответа по умолчанию",
       "defaultReply": "Ответить",
-      "defaultReplyAllDesc": "Кнопка «Ответить» отправляет всем получателям"
+      "defaultReplyAllDesc": "Кнопка «Ответить» отправляет всем получателям",
+      "markReadBehavior": "Отметить как прочитанное",
+      "markReadImmediate": "Немедленно",
+      "markReadImmediateDesc": "Отмечать письма как прочитанные сразу при открытии.",
+      "markReadDelay": "С задержкой",
+      "markReadDelayDesc": "Отмечать письма как прочитанные после просмотра в течение заданного времени.",
+      "markReadManual": "Вручную",
+      "markReadManualDesc": "Никогда не отмечать письма как прочитанные автоматически. Используйте кнопку «Отметить как прочитанное».",
+      "markReadDelayLabel": "Задержка",
+      "markReadDelaySeconds": "{{count}} секунда",
+      "markReadDelaySeconds_other": "{{count}} секунд"
     },
     "notifications": {
       "title": "Уведомления",
