@@ -285,7 +285,7 @@ Edit `.env`. In addition to the required secrets, set these for a native install
 | `DB_NAME` | `mailflow` |
 | `DB_USER` | `mailflow` |
 | `DB_PASSWORD` | password you set in step 2 |
-| `REDIS_URL` | `redis://localhost:6379` |
+| `REDIS_URL` | `redis://localhost:6379` — or `redis+unix:///path/to/redis.sock` for a Unix socket |
 | `ENCRYPTION_KEY` | `openssl rand -hex 32` |
 
 ### 5. Build the frontend
