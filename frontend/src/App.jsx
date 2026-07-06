@@ -33,7 +33,8 @@ export default function App() {
     // Apply localStorage immediately so there's no flash while we check auth
     applyTheme(localStorage.getItem('mailflow_theme') || 'dark');
     applyFontSet(localStorage.getItem('mailflow_font') || 'default');
-    applyLayout(localStorage.getItem('mailflow_layout') || 'classic');
+    const savedListWidth = Number(localStorage.getItem('mailflow_list_width')) || undefined;
+    applyLayout(localStorage.getItem('mailflow_layout') || 'comfortable', savedListWidth);
 
     // Handle OAuth popup callback
     const params = new URLSearchParams(window.location.search);

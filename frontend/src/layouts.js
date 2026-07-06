@@ -4,18 +4,18 @@
 // rowPy / rowPx: vertical / horizontal padding inside each message row
 
 export const LAYOUTS = {
-  classic: {
-    label: 'Classic',
-    description: 'Sidebar, message list, and reading pane side by side',
+  focused: {
+    label: 'Focused',
+    description: 'Minimal list panel, maximum reading area',
     direction: 'row',
-    listWidth: 340,
-    rowPy: 11,
-    rowPx: 14,
+    listWidth: 210,
+    rowPy: 8,
+    rowPx: 10,
   },
 
   compact: {
     label: 'Compact',
-    description: 'Dense rows — fit more messages in the list at once',
+    description: 'Dense rows — fit more messages at once',
     direction: 'row',
     listWidth: 300,
     rowPy: 7,
@@ -31,20 +31,11 @@ export const LAYOUTS = {
     rowPx: 16,
   },
 
-  wide_reader: {
-    label: 'Wide Reader',
-    description: 'Narrow message list gives maximum reading pane width',
+  wide: {
+    label: 'Wide',
+    description: 'Broad list shows longer subjects and previews',
     direction: 'row',
-    listWidth: 240,
-    rowPy: 9,
-    rowPx: 12,
-  },
-
-  wide_list: {
-    label: 'Wide List',
-    description: 'Broader message list shows longer subjects and previews',
-    direction: 'row',
-    listWidth: 460,
+    listWidth: 560,
     rowPy: 13,
     rowPx: 16,
   },
@@ -57,20 +48,16 @@ export const LAYOUTS = {
     rowPy: 9,
     rowPx: 14,
   },
-
-  focused: {
-    label: 'Focused',
-    description: 'Minimal list panel, maximum reading area for distraction-free reading',
-    direction: 'row',
-    listWidth: 210,
-    rowPy: 8,
-    rowPx: 10,
-  },
 };
 
-export function applyLayout(layoutKey) {
-  const layout = LAYOUTS[layoutKey] || LAYOUTS.classic;
+// customListWidth: optional px override from drag-to-resize (persisted in localStorage).
+// When provided it is applied instead of the preset listWidth.
+export function applyLayout(layoutKey, customListWidth) {
+  const layout = LAYOUTS[layoutKey] || LAYOUTS.comfortable;
   const root = document.documentElement;
   root.style.setProperty('--layout-row-py', layout.rowPy + 'px');
   root.style.setProperty('--layout-row-px', layout.rowPx + 'px');
+  if (layout.listWidth != null) {
+    root.style.setProperty('--list-width', (customListWidth ?? layout.listWidth) + 'px');
+  }
 }

@@ -61,6 +61,7 @@ export default function MailApp() {
   const isMobile = useMobile();
   const sidebarDragRef = useRef(null);
   const sidebarResizeRef = useRef(null);
+  const listResizeRef = useRef(null);
 
   const handleSidebarResizeMouseDown = (e) => {
     e.preventDefault();
@@ -98,10 +99,44 @@ export default function MailApp() {
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
       }
+      if (listResizeRef.current) {
+        document.removeEventListener('mousemove', listResizeRef.current.onMouseMove);
+        document.removeEventListener('mouseup', listResizeRef.current.onMouseUp);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
     };
   }, []);
 
-  const currentLayout = LAYOUTS[layout] || LAYOUTS.classic;
+  const currentLayout = LAYOUTS[layout] || LAYOUTS.comfortable;
+
+  const handleListResizeMouseDown = (e) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--list-width')) || currentLayout.listWidth || 360;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMouseMove = (mv) => {
+      const dx = mv.clientX - startX;
+      const clamped = Math.max(180, Math.min(700, startWidth + dx));
+      document.documentElement.style.setProperty('--list-width', clamped + 'px');
+    };
+
+    const onMouseUp = () => {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      listResizeRef.current = null;
+      const finalWidth = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--list-width'));
+      if (finalWidth) localStorage.setItem('mailflow_list_width', String(finalWidth));
+    };
+
+    listResizeRef.current = { onMouseMove, onMouseUp };
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  };
 
   // Push a history entry when an email is opened on mobile so that the browser's
   // native back gesture (iOS swipe, Android back button) pops an in-app state
@@ -457,6 +492,18 @@ export default function MailApp() {
             </div>
             <div style={{ display: showContacts ? 'none' : 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', flexDirection: currentLayout.direction }}>
               <MessageList />
+              {currentLayout.direction === 'row' && (
+                <div
+                  onMouseDown={handleListResizeMouseDown}
+                  style={{
+                    width: 4, flexShrink: 0, cursor: 'col-resize',
+                    background: 'var(--border-subtle)',
+                    transition: 'background 0.15s',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'var(--accent)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'var(--border-subtle)'; }}
+                />
+              )}
               <MessagePane />
             </div>
           </div>

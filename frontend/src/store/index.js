@@ -424,9 +424,10 @@ export const useStore = create((set, get) => ({
   }),
 
   // Layout
-  layout: localStorage.getItem('mailflow_layout') || 'classic',
+  layout: localStorage.getItem('mailflow_layout') || 'comfortable',
   setLayout: (layout) => {
     localStorage.setItem('mailflow_layout', layout);
+    localStorage.removeItem('mailflow_list_width');
     set({ layout });
     applyLayout(layout);
     schedulePrefSave({ layout });
@@ -576,9 +577,14 @@ export const useStore = create((set, get) => ({
         applyFontSize(n);
       }
       if (prefs.layout) {
+        const prevLayout = get().layout;
         localStorage.setItem('mailflow_layout', prefs.layout);
         set({ layout: prefs.layout });
-        applyLayout(prefs.layout);
+        if (prefs.layout !== prevLayout) localStorage.removeItem('mailflow_list_width');
+        const savedListWidth = prefs.layout !== prevLayout
+          ? undefined
+          : (Number(localStorage.getItem('mailflow_list_width')) || undefined);
+        applyLayout(prefs.layout, savedListWidth);
       }
       if (prefs.notificationSound) {
         localStorage.setItem('mailflow_notification_sound', prefs.notificationSound);

@@ -2090,8 +2090,8 @@ export default function MessageList() {
 
   return (
     <div style={{
-      width: isMobile ? '100%' : (isColumn ? '100%' : currentLayout.listWidth),
-      minWidth: isMobile ? undefined : (isColumn ? undefined : Math.max(180, currentLayout.listWidth - 80)),
+      width: isMobile ? '100%' : (isColumn ? '100%' : 'var(--list-width)'),
+      minWidth: isMobile ? undefined : (isColumn ? undefined : 180),
       flex: isMobile ? 1 : (isColumn ? '0 0 42%' : undefined),
       minHeight: isColumn && !isMobile ? 0 : undefined,
       borderRight: (isMobile || isColumn) ? 'none' : '1px solid var(--border-subtle)',
