@@ -451,22 +451,35 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
         ) : moveView ? (
           /* Folder picker view */
           <>
-            <div
-              onClick={() => defaultMoveView ? onClose() : setMoveView(false)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 8,
-                padding: '8px 14px', cursor: 'pointer',
+            {defaultMoveView ? (
+              <div style={{
+                padding: '8px 14px',
                 borderBottom: '1px solid var(--border-subtle)',
-                color: 'var(--text-secondary)', fontSize: 12,
-              }}
-              onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <polyline points="15 18 9 12 15 6"/>
-              </svg>
-              {t('contextMenu.folders.back')}
-            </div>
+                fontSize: 11, fontWeight: 600,
+                color: 'var(--text-tertiary)',
+                textTransform: 'uppercase',
+                letterSpacing: '0.06em',
+              }}>
+                {t('contextMenu.folders.back')}
+              </div>
+            ) : (
+              <div
+                onClick={() => setMoveView(false)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '8px 14px', cursor: 'pointer',
+                  borderBottom: '1px solid var(--border-subtle)',
+                  color: 'var(--text-secondary)', fontSize: 12,
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <polyline points="15 18 9 12 15 6"/>
+                </svg>
+                {t('contextMenu.folders.back')}
+              </div>
+            )}
             <div style={{ maxHeight: 240, overflow: 'auto' }}>
               {moveFoldersLoading ? (
                 <div style={{ padding: '12px 14px', color: 'var(--text-tertiary)', fontSize: 12 }}>
