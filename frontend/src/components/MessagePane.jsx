@@ -677,13 +677,12 @@ export default function MessagePane() {
     const onEnd = (e) => {
       if (!active) return;
       active = false;
-      // Prevent the browser's synthesized click that fires ~300ms after touchend.
-      // Without this, after a swipe-back the pane hides and the list becomes
-      // visible at the same coordinates — the phantom click then hits a list row
-      // and ghost-selects an email the user never tapped.
-      e.preventDefault();
       const dx = e.changedTouches[0].clientX - startX;
       if (fromEdge) {
+        // Prevent the synthesized click that fires ~300ms after touchend.
+        // After swipe-back the pane hides and the list is visible at the same
+        // coordinates — the phantom click would ghost-select a list row.
+        e.preventDefault();
         if (dx > 80) {
           el.style.transition = 'transform 0.22s ease';
           el.style.transform = `translateX(${window.innerWidth}px)`;
