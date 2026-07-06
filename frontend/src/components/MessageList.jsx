@@ -107,11 +107,16 @@ export default function MessageList() {
     folders, favoriteFolders, addFavoriteFolder, removeFavoriteFolder, setSelectedAccount,
     categorizationEnabled, categoryCounts, setCategoryCounts, adjustCategoryCount,
     markReadBehavior, markReadDelay,
+    searchAllFolders,
   } = useStore();
 
   const isMobile = useMobile();
   const isUnified = selectedAccountId === null;
   const selectedAccount = accounts.find(a => a.id === selectedAccountId);
+  // Search is scoped to the current folder unless we're in the unified view or the
+  // user toggled "search all folders". An in: operator in the query overrides this
+  // server-side. undefined = search all folders.
+  const searchFolder = (!isUnified && !searchAllFolders) ? selectedFolder : undefined;
   const undoableNotifications = notifications.filter(n => n.onUndo);
 
   const currentLayout = LAYOUTS[layout] || LAYOUTS.classic;
@@ -400,7 +405,7 @@ export default function MessageList() {
     const seq = ++searchSeq.current;
     searchTimer.current = setTimeout(async () => {
       try {
-        const data = await api.search(searchQuery, selectedAccountId || undefined, { offset: 0 });
+        const data = await api.search(searchQuery, selectedAccountId || undefined, { offset: 0, folder: searchFolder });
         if (searchSeq.current !== seq) return;
         setSearchResults(applyReadGuard(data.messages));
         setSearchHasMore(data.messages.length === SEARCH_PAGE);
@@ -411,7 +416,7 @@ export default function MessageList() {
       }
     }, 300);
     return () => clearTimeout(searchTimer.current);
-  }, [searchQuery, selectedAccountId, applyReadGuard, setIsSearching, setSearchResults]);
+  }, [searchQuery, selectedAccountId, searchFolder, applyReadGuard, setIsSearching, setSearchResults]);
 
   const loadMoreSearch = useCallback(async () => {
     if (searchLoadingMore) return;
@@ -419,7 +424,7 @@ export default function MessageList() {
     setSearchLoadingMore(true);
     try {
       const offset = useStore.getState().searchResults.length;
-      const data = await api.search(qSnapshot, selectedAccountId || undefined, { offset });
+      const data = await api.search(qSnapshot, selectedAccountId || undefined, { offset, folder: searchFolder });
       // Discard results if the query changed while we were fetching
       if (useStore.getState().searchQuery !== qSnapshot) return;
       const current = useStore.getState().searchResults;
@@ -430,7 +435,7 @@ export default function MessageList() {
     } finally {
       setSearchLoadingMore(false);
     }
-  }, [searchQuery, selectedAccountId, searchLoadingMore, applyReadGuard]);
+  }, [searchQuery, selectedAccountId, searchFolder, searchLoadingMore, applyReadGuard]);
 
   // Infinite scroll + scroll-to-top visibility
   const handleScroll = useCallback(() => {
@@ -1183,7 +1188,7 @@ export default function MessageList() {
   const folderSearchResults = (() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return [];
-    if (/(?:^|\s)(?:from|to|subject|has|is|cc|bcc):/.test(q)) return [];
+    if (/(?:^|\s)-?(?:from|to|subject|has|is|cc|bcc|in|after|before):/.test(q)) return [];
     const results = [];
     for (const [accountId, folderList] of Object.entries(folders)) {
       if (!Array.isArray(folderList)) continue;
@@ -2615,6 +2620,8 @@ export default function MessageList() {
                 { op: 'is:starred',       desc: t('messageList.searchHelp.isStarred') },
                 { op: 'after:2024-01-01', desc: t('messageList.searchHelp.after') },
                 { op: 'before:2024-12-31',desc: t('messageList.searchHelp.before') },
+                { op: 'in:all',           desc: t('messageList.searchHelp.inAll') },
+                { op: '-from:amazon',     desc: t('messageList.searchHelp.negate') },
               ].map(({ op, desc }) => (
                 <div
                   key={op}

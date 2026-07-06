@@ -30,27 +30,41 @@ function searchLimiter(req, res, next) {
   next();
 }
 
-// Parse "from:amazon subject:invoice hello world" into structured operators + free-text terms.
-// Supports: from: to: subject: has: is: after: before:
-// Quoted values: from:"John Smith"
-function parseSearchQuery(raw) {
-  const ops = {};
+// Parses a raw search string into structured operator filters and free-text
+// terms. Supports from: to: subject: has: is: after: before: in:, quoted values
+// (from:"John Smith"), and a leading '-' that negates either an operator
+// (-from:smith) or a bare word (-invoice). Filters are a list (not a map) so
+// repeated/negated operators like `from:a -from:b` are all preserved.
+export function parseSearchQuery(raw) {
+  const filters = [];
   const terms = [];
 
-  const opPattern = /\b(from|to|subject|has|is|after|before):("([^"]*)"|([\S]+))/gi;
-  const remaining = raw.replace(opPattern, (_, key, _v, quoted, unquoted) => {
+  // The leading (-?) captures optional negation. \b sits between an optional '-'
+  // and the operator name, so both `from:` and `-from:` match.
+  const opPattern = /(-?)\b(from|to|subject|has|is|after|before|in):("([^"]*)"|([\S]+))/gi;
+  const remaining = raw.replace(opPattern, (_, neg, key, _v, quoted, unquoted) => {
     const k = key.toLowerCase();
     const v = (quoted !== undefined ? quoted : (unquoted || '')).toLowerCase().trim();
-    if (v) ops[k] = v;
+    if (v) filters.push({ key: k, value: v, negate: neg === '-' });
     return ' ';
   }).trim();
 
   for (const word of remaining.split(/\s+/)) {
-    const w = word.trim();
-    if (w) terms.push(w);
+    let w = word.trim();
+    if (!w || w === '-') continue; // skip blanks and a lone '-' (nothing to negate)
+    let negate = false;
+    if (w[0] === '-' && w.length > 1) { negate = true; w = w.slice(1); }
+    terms.push({ value: w, negate });
   }
 
-  return { ops, terms };
+  return { filters, terms };
+}
+
+// Wraps a positive condition so that when negated it also matches rows where the
+// underlying columns are NULL (COALESCE(..., false) treats NULL as "not a match",
+// which NOT then flips to a match — the intuitive meaning of exclusion).
+function negateCond(sql) {
+  return `NOT COALESCE((${sql}), false)`;
 }
 
 router.get('/', searchLimiter, async (req, res) => {
@@ -70,72 +84,109 @@ router.get('/', searchLimiter, async (req, res) => {
     ? [accountId] : userAccountIds;
 
   const cap = Math.max(1, Math.min(parseInt(limit) || 50, 200));
-  const { ops, terms } = parseSearchQuery(trimmed);
+  const { filters, terms } = parseSearchQuery(trimmed);
 
   const conditions = [];
   const params = [targetIds];
   let p = 2;
 
+  // Folder scope. `in:` in the query wins; otherwise the client-supplied `folder`
+  // param (the folder the user is currently viewing) applies. `undefined` means
+  // no in: operator was given, so we fall back to the param below.
+  //   folderScope === null   → search all folders
+  //   folderScope === string → restrict to that folder
+  let folderScope;
+  let folderFuzzy = false; // in:<name> matches loosely; the folder param is exact
+
   // ── Operator filters ──────────────────────────────────────────────────────
 
-  if (ops.from) {
-    params.push(`%${ops.from}%`);
-    conditions.push(`(m.from_email ILIKE $${p} OR m.from_name ILIKE $${p})`);
-    p++;
-  }
+  for (const f of filters) {
+    // in: controls scope rather than adding a row condition; negation is
+    // meaningless here so it's ignored.
+    if (f.key === 'in') {
+      if (f.value === 'all') { folderScope = null; }
+      else { folderScope = f.value; folderFuzzy = true; }
+      continue;
+    }
 
-  if (ops.subject) {
-    params.push(`%${ops.subject}%`);
-    conditions.push(`m.subject ILIKE $${p++}`);
-  }
+    let cond = null;
 
-  // to: searches the to/cc address JSON — cast to text covers name and email fields
-  if (ops.to) {
-    params.push(`%${ops.to}%`);
-    conditions.push(`(m.to_addresses::text ILIKE $${p} OR m.cc_addresses::text ILIKE $${p})`);
-    p++;
-  }
+    if (f.key === 'from') {
+      params.push(`%${f.value}%`);
+      cond = `(m.from_email ILIKE $${p} OR m.from_name ILIKE $${p})`;
+      p++;
+    } else if (f.key === 'subject') {
+      params.push(`%${f.value}%`);
+      cond = `m.subject ILIKE $${p++}`;
+    } else if (f.key === 'to') {
+      // to: searches the to/cc address JSON — cast to text covers name and email
+      params.push(`%${f.value}%`);
+      cond = `(m.to_addresses::text ILIKE $${p} OR m.cc_addresses::text ILIKE $${p})`;
+      p++;
+    } else if (f.key === 'has') {
+      if (f.value === 'attachment' || f.value === 'attachments') cond = `m.has_attachments = true`;
+    } else if (f.key === 'is') {
+      if (f.value === 'unread')  cond = `m.is_read = false`;
+      else if (f.value === 'read')    cond = `m.is_read = true`;
+      else if (f.value === 'starred') cond = `m.is_starred = true`;
+    } else if (f.key === 'after') {
+      const d = new Date(f.value);
+      if (!isNaN(d)) { params.push(d.toISOString()); cond = `m.date >= $${p++}`; }
+    } else if (f.key === 'before') {
+      const d = new Date(f.value);
+      if (!isNaN(d)) { params.push(d.toISOString()); cond = `m.date < $${p++}`; }
+    }
 
-  if (ops.has === 'attachment' || ops.has === 'attachments') {
-    conditions.push(`m.has_attachments = true`);
-  }
-
-  if (ops.is === 'unread')  conditions.push(`m.is_read = false`);
-  if (ops.is === 'read')    conditions.push(`m.is_read = true`);
-  if (ops.is === 'starred') conditions.push(`m.is_starred = true`);
-
-  if (ops.after) {
-    const d = new Date(ops.after);
-    if (!isNaN(d)) { params.push(d.toISOString()); conditions.push(`m.date >= $${p++}`); }
-  }
-  if (ops.before) {
-    const d = new Date(ops.before);
-    if (!isNaN(d)) { params.push(d.toISOString()); conditions.push(`m.date < $${p++}`); }
+    if (cond) conditions.push(f.negate ? negateCond(cond) : cond);
   }
 
   // ── Free-text terms ───────────────────────────────────────────────────────
   // Each term must match at least one of: from, subject (ILIKE — good for names
   // and partial words), or body content (FTS — good for large text with stemming).
   // AND between all terms: every word must appear somewhere in the email.
+  // A negated term (-word) must appear nowhere.
 
   for (const term of terms.slice(0, 10)) {
-    if (term.length < 2) continue; // single-char terms are too broad and expensive
-    params.push(`%${term}%`); // ILIKE pattern
+    if (term.value.length < 2) continue; // single-char terms are too broad and expensive
+    params.push(`%${term.value}%`); // ILIKE pattern
     const likeIdx = p++;
 
-    params.push(term); // raw term for plainto_tsquery
+    params.push(term.value); // raw term for plainto_tsquery
     const ftsIdx = p++;
 
-    conditions.push(`(
+    const cond = `(
         m.from_name ILIKE $${likeIdx}
         OR m.from_email ILIKE $${likeIdx}
         OR m.subject ILIKE $${likeIdx}
         OR m.search_vector @@ plainto_tsquery('english', $${ftsIdx})
         OR to_tsvector('english', coalesce(m.body_text,'')) @@ plainto_tsquery('english', $${ftsIdx})
-      )`);
+      )`;
+    conditions.push(term.negate ? negateCond(cond) : cond);
   }
 
+  // Require at least one real search condition before applying folder scope, so a
+  // bare `in:inbox` (or a lone folder param) never dumps an entire folder.
   if (!conditions.length) return res.json({ messages: [], query: q });
+
+  // Resolve folder scope: in: operator already set it; otherwise use the param.
+  if (folderScope === undefined) {
+    folderScope = (req.query.folder || '').trim() || null;
+    folderFuzzy = false;
+  }
+  if (folderScope) {
+    if (folderFuzzy) {
+      // in:<name> — case-insensitive match on a folder named exactly that, or a
+      // nested folder whose path ends in it (in:sent → "Sent" or "Personal/Sent").
+      // A multi-word leaf like "[Gmail]/Sent Mail" needs the quoted form in:"sent mail".
+      params.push(folderScope);
+      params.push(`%/${folderScope}`);
+      conditions.push(`(m.folder ILIKE $${p} OR m.folder ILIKE $${p + 1})`);
+      p += 2;
+    } else {
+      params.push(folderScope);
+      conditions.push(`m.folder = $${p++}`);
+    }
+  }
 
   const off = Math.max(0, parseInt(offset) || 0);
   params.push(cap);

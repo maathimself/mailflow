@@ -316,6 +316,8 @@
       "isStarred": "Starred only",
       "after": "After date",
       "before": "Before date",
+      "inAll": "Search all folders",
+      "negate": "Exclude (prefix with -)",
       "tip": "Combine operators with keywords · e.g."
     },
     "emptyInbox": "All caught up",
@@ -351,6 +353,7 @@
     "hiddenFolders_other": "{{count}} hidden folders",
     "hideHidden": "Hide hidden folders",
     "blockImages": "Block images",
+    "searchAllFolders": "Search all folders",
     "settings": "Settings",
     "lock": "Lock",
     "signOut": "Sign out",

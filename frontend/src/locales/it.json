@@ -316,6 +316,8 @@
       "isStarred": "Solo con stella",
       "after": "Dopo il",
       "before": "Prima del",
+      "inAll": "Cerca in tutte le cartelle",
+      "negate": "Escludi (prefisso -)",
       "tip": "Combina operatori con parole chiave · es."
     },
     "emptyInbox": "Sei in pari",
@@ -351,6 +353,7 @@
     "hiddenFolders_other": "{{count}} cartelle nascoste",
     "hideHidden": "Nascondi cartelle nascoste",
     "blockImages": "Blocca immagini",
+    "searchAllFolders": "Cerca in tutte le cartelle",
     "settings": "Impostazioni",
     "lock": "Blocca schermo",
     "signOut": "Esci",

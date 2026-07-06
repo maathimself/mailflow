@@ -285,6 +285,7 @@ export default function Sidebar() {
     setSelectedAccount, setShowAdmin, setAdminTab, openCompose,
     folders, setFolders, setAccounts, user, setUser, setLocked, sidebarCollapsed: sidebarCollapsedPref, toggleSidebar,
     blockRemoteImages, setBlockRemoteImages, setMobileSidebarOpen, addNotification,
+    searchAllFolders, setSearchAllFolders,
     hiddenFolders, setHiddenFolders,
     favoriteFolders, addFavoriteFolder, removeFavoriteFolder, renameFavoriteFolder, reorderFavoriteFolders,
     expandedAccounts, setExpandedAccounts,
@@ -1481,6 +1482,35 @@ export default function Sidebar() {
             </button>
           </div>
 
+          {/* Search all folders */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            padding: '8px 14px', cursor: 'default',
+          }}>
+            <span style={{ color: 'var(--text-tertiary)', display: 'flex', flexShrink: 0 }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+                <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+                <circle cx="11.5" cy="13.5" r="2.5"/><line x1="15" y1="17" x2="13.3" y2="15.3"/>
+              </svg>
+            </span>
+            <span style={{ flex: 1, fontSize: 13, color: 'var(--text-primary)' }}>{t('sidebar.searchAllFolders')}</span>
+            <button
+              onClick={() => setSearchAllFolders(!searchAllFolders)}
+              style={{
+                width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer',
+                background: searchAllFolders ? 'var(--accent)' : 'var(--bg-tertiary)',
+                position: 'relative', transition: 'background 0.2s', flexShrink: 0, padding: 0,
+                WebkitTapHighlightColor: 'transparent',
+              }}
+            >
+              <span style={{
+                position: 'absolute', top: 2, width: 16, height: 16, borderRadius: '50%',
+                background: 'white', transition: 'left 0.2s',
+                left: searchAllFolders ? 18 : 2,
+              }} />
+            </button>
+          </div>
+
           {/* Edit Profile */}
           <div
             onClick={() => { setShowProfile(true); setMobileSidebarOpen(false); }}
@@ -1698,6 +1728,34 @@ export default function Sidebar() {
                 position: 'absolute', top: 2, width: 16, height: 16, borderRadius: '50%',
                 background: 'white', transition: 'left 0.2s',
                 left: blockRemoteImages ? 18 : 2,
+              }} />
+            </button>
+          </div>
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '8px 13px', gap: 10,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+              <span style={{ color: 'var(--text-tertiary)', display: 'flex' }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+                  <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+                  <circle cx="11.5" cy="13.5" r="2.5"/><line x1="15" y1="17" x2="13.3" y2="15.3"/>
+                </svg>
+              </span>
+              <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>{t('sidebar.searchAllFolders')}</span>
+            </div>
+            <button
+              onClick={() => setSearchAllFolders(!searchAllFolders)}
+              style={{
+                width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer',
+                background: searchAllFolders ? 'var(--accent)' : 'var(--bg-tertiary)',
+                position: 'relative', transition: 'background 0.2s', flexShrink: 0, padding: 0,
+              }}
+            >
+              <span style={{
+                position: 'absolute', top: 2, width: 16, height: 16, borderRadius: '50%',
+                background: 'white', transition: 'left 0.2s',
+                left: searchAllFolders ? 18 : 2,
               }} />
             </button>
           </div>

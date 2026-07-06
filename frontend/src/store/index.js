@@ -225,6 +225,13 @@ export const useStore = create((set, get) => ({
     set({ scrollMode: mode });
     schedulePrefSave({ scrollMode: mode });
   },
+  // When true, search spans all folders instead of the current one (per device).
+  searchAllFolders: localStorage.getItem('mailflow_search_all_folders') === '1',
+  setSearchAllFolders: (v) => {
+    if (v) localStorage.setItem('mailflow_search_all_folders', '1');
+    else localStorage.removeItem('mailflow_search_all_folders');
+    set({ searchAllFolders: v });
+  },
   swipeActions: (() => {
     try {
       return JSON.parse(localStorage.getItem('mailflow_swipe_actions') || 'null') || { left: 'archive', right: 'markRead' };

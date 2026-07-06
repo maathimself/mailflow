@@ -316,6 +316,8 @@
       "isStarred": "Suivis uniquement",
       "after": "Après le",
       "before": "Avant le",
+      "inAll": "Rechercher dans tous les dossiers",
+      "negate": "Exclure (préfixe -)",
       "tip": "Combinez opérateurs et mots-clés · ex."
     },
     "emptyInbox": "Tout est lu",
@@ -351,6 +353,7 @@
     "hiddenFolders_other": "{{count}} dossiers masqués",
     "hideHidden": "Masquer les dossiers cachés",
     "blockImages": "Bloquer les images",
+    "searchAllFolders": "Rechercher dans tous les dossiers",
     "settings": "Paramètres",
     "lock": "Verrouiller",
     "signOut": "Se déconnecter",

@@ -316,6 +316,8 @@
       "isStarred": "Solo destacados",
       "after": "Después de",
       "before": "Antes de",
+      "inAll": "Buscar en todas las carpetas",
+      "negate": "Excluir (prefijo -)",
       "tip": "Combine operadores con palabras clave · ej."
     },
     "emptyInbox": "Todo al día",
@@ -351,6 +353,7 @@
     "hiddenFolders_other": "{{count}} carpetas ocultas",
     "hideHidden": "Ocultar carpetas ocultas",
     "blockImages": "Bloquear imágenes",
+    "searchAllFolders": "Buscar en todas las carpetas",
     "settings": "Ajustes",
     "lock": "Bloquear",
     "signOut": "Cerrar sesión",

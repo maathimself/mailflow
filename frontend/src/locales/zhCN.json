@@ -316,6 +316,8 @@
       "isStarred": "仅已加星标",
       "after": "在此日期之后",
       "before": "在此日期之前",
+      "inAll": "搜索所有文件夹",
+      "negate": "排除（前缀 -）",
       "tip": "将操作符与关键词组合使用 · 例如"
     },
     "emptyInbox": "全部已读",
@@ -351,6 +353,7 @@
     "hiddenFolders_other": "{{count}} 个隐藏文件夹",
     "hideHidden": "收起隐藏文件夹",
     "blockImages": "阻止图片",
+    "searchAllFolders": "搜索所有文件夹",
     "settings": "设置",
     "lock": "锁定",
     "signOut": "退出登录",

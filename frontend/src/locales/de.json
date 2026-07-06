@@ -316,6 +316,8 @@
       "isStarred": "Nur markierte",
       "after": "Nach Datum",
       "before": "Vor Datum",
+      "inAll": "Alle Ordner durchsuchen",
+      "negate": "Ausschließen (Präfix -)",
       "tip": "Operatoren mit Stichwörtern kombinieren · z.B."
     },
     "emptyInbox": "Alles gelesen",
@@ -351,6 +353,7 @@
     "hiddenFolders_other": "{{count}} ausgeblendete Ordner",
     "hideHidden": "Ausgeblendete Ordner verbergen",
     "blockImages": "Bilder blockieren",
+    "searchAllFolders": "Alle Ordner durchsuchen",
     "settings": "Einstellungen",
     "lock": "Sperren",
     "signOut": "Abmelden",

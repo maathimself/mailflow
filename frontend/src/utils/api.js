@@ -162,9 +162,10 @@ export const api = {
   emptyFolder: (accountId, path) => request('POST', '/mail/folders/empty', { accountId, path }),
 
   // Search
-  search: (q, accountId, { offset = 0 } = {}) => {
+  search: (q, accountId, { offset = 0, folder } = {}) => {
     const params = new URLSearchParams({ q });
     if (accountId) params.set('accountId', accountId);
+    if (folder) params.set('folder', folder);
     if (offset) params.set('offset', offset);
     return request('GET', `/search?${params}`);
   },
