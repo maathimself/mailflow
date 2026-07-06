@@ -1235,7 +1235,43 @@ export default function ComposeModal() {
                   else { editor?.commands.setContent(htmlSource, false); setHtmlMode(false); }
                 }}
                 isMobile
+                aiEnabled={!htmlMode && aiStatus?.enabled && aiStatus?.features?.compose}
+                onAiAction={handleAiAction}
+                aiPanelOpen={!!aiPanel}
               />
+              {aiPanel && !htmlMode && (
+                <div style={{ borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)', padding: '10px 16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>{t('compose.toolbar.aiPanelTitle')}</span>
+                    <button
+                      onClick={() => { aiAbortRef.current?.abort(); setAiPanel(null); }}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', fontSize: 16, lineHeight: 1, padding: '0 2px' }}
+                    >×</button>
+                  </div>
+                  {aiPanel.status === 'generating' && !aiPanel.text && (
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{t('compose.toolbar.aiGenerating')}</div>
+                  )}
+                  {aiPanel.status === 'error' ? (
+                    <div style={{ fontSize: 12, color: 'var(--red)' }}>{t('compose.toolbar.aiError', { message: aiPanel.text })}</div>
+                  ) : (
+                    <div style={{ fontSize: 13, color: 'var(--text-primary)', whiteSpace: 'pre-wrap', maxHeight: 160, overflowY: 'auto', lineHeight: 1.5 }}>
+                      {aiPanel.text}
+                    </div>
+                  )}
+                  {aiPanel.status === 'done' && (
+                    <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+                      <button
+                        onClick={applyAiText}
+                        style={{ fontSize: 13, padding: '8px 18px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 500, WebkitTapHighlightColor: 'transparent' }}
+                      >{t('compose.toolbar.aiApply')}</button>
+                      <button
+                        onClick={() => setAiPanel(null)}
+                        style={{ fontSize: 13, padding: '8px 18px', background: 'none', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-secondary)', cursor: 'pointer', WebkitTapHighlightColor: 'transparent' }}
+                      >{t('compose.toolbar.aiDismiss')}</button>
+                    </div>
+                  )}
+                </div>
+              )}
               {htmlMode ? (
                 <textarea
                   value={htmlSource}
