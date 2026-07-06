@@ -133,10 +133,25 @@ export function parseVCard(raw) {
       case 'NOTE':
         result.notes = unescapeValue(value).trim() || null;
         break;
-      case 'PHOTO':
-        // Store the raw encoded value; base64 data URIs come through here.
-        result.photoData = value.trim() || null;
+      case 'PHOTO': {
+        const v = value.trim();
+        if (!v) break;
+        if (v.startsWith('data:')) {
+          // vCard 4.0 inline data URI — store as-is.
+          result.photoData = v;
+        } else if (/^https?:\/\//i.test(v)) {
+          // External URL — skip to avoid privacy leak / fetch complexity.
+          result.photoData = null;
+        } else {
+          // vCard 3.0 ENCODING=b raw base64 — derive MIME from TYPE param.
+          const typeMatch = params.match(/TYPE=([^;]+)/i);
+          const rawType = typeMatch ? typeMatch[1].replace(/["']/g, '').toUpperCase() : 'JPEG';
+          const mimeMap = { JPEG: 'image/jpeg', JPG: 'image/jpeg', PNG: 'image/png', GIF: 'image/gif', WEBP: 'image/webp' };
+          const mimeType = mimeMap[rawType] || 'image/jpeg';
+          result.photoData = `data:${mimeType};base64,${v}`;
+        }
         break;
+      }
     }
   }
 

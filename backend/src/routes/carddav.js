@@ -390,15 +390,15 @@ router.put('/:userId/:bookId/:filename', async (req, res) => {
           vcard = $1, etag = $2,
           display_name = $3, first_name = $4, last_name = $5,
           primary_email = $6, emails = $7, phones = $8,
-          organization = $9, notes = $10,
+          organization = $9, notes = $10, photo_data = $11,
           is_auto = false, updated_at = NOW()
-        WHERE id = $11
+        WHERE id = $12
       `, [
         vcard, etag,
         parsed.displayName, parsed.firstName, parsed.lastName,
         primaryEmail,
         JSON.stringify(parsed.emails), JSON.stringify(parsed.phones),
-        parsed.organization, parsed.notes,
+        parsed.organization, parsed.notes, parsed.photoData,
         existing.rows[0].id,
       ]);
       await query(
@@ -412,14 +412,14 @@ router.put('/:userId/:bookId/:filename', async (req, res) => {
         INSERT INTO contacts (
           address_book_id, user_id, uid, vcard, etag,
           display_name, first_name, last_name, primary_email,
-          emails, phones, organization, notes, is_auto
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13, false)
+          emails, phones, organization, notes, photo_data, is_auto
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14, false)
       `, [
         bookId, userId, uid, vcard, etag,
         parsed.displayName, parsed.firstName, parsed.lastName,
         primaryEmail,
         JSON.stringify(parsed.emails), JSON.stringify(parsed.phones),
-        parsed.organization, parsed.notes,
+        parsed.organization, parsed.notes, parsed.photoData,
       ]);
       await query(
         'UPDATE address_books SET sync_token = gen_random_uuid()::text, updated_at = NOW() WHERE id = $1',

@@ -98,9 +98,13 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
                m.list_unsubscribe, m.list_unsubscribe_post,
                a.name  AS account_name,
                a.email_address AS account_email,
-               a.color AS account_color
+               a.color AS account_color,
+               (co.id IS NOT NULL) AS has_contact_photo
         FROM messages m
         JOIN email_accounts a ON m.account_id = a.id
+        LEFT JOIN contacts co ON co.user_id = a.user_id
+                              AND co.primary_email = lower(m.from_email)
+                              AND co.photo_data IS NOT NULL
         WHERE ${where}
           AND m.thread_key IN (SELECT thread_id FROM paged_threads)
         ORDER BY m.account_id,
@@ -124,9 +128,10 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
         SELECT d.*,
                COALESCE(tt.message_count, 1) AS message_count,
                COUNT(*) FILTER (WHERE NOT d.is_read) OVER (PARTITION BY d.thread_id)::int AS unread_count,
-               FIRST_VALUE(d.subject)    OVER (PARTITION BY d.thread_id ORDER BY d.date ASC) AS thread_subject,
-               FIRST_VALUE(d.from_name)  OVER (PARTITION BY d.thread_id ORDER BY d.date ASC) AS thread_from_name,
-               FIRST_VALUE(d.from_email) OVER (PARTITION BY d.thread_id ORDER BY d.date ASC) AS thread_from_email,
+               FIRST_VALUE(d.subject)           OVER (PARTITION BY d.thread_id ORDER BY d.date ASC) AS thread_subject,
+               FIRST_VALUE(d.from_name)          OVER (PARTITION BY d.thread_id ORDER BY d.date ASC) AS thread_from_name,
+               FIRST_VALUE(d.from_email)         OVER (PARTITION BY d.thread_id ORDER BY d.date ASC) AS thread_from_email,
+               FIRST_VALUE(d.has_contact_photo)  OVER (PARTITION BY d.thread_id ORDER BY d.date ASC) AS thread_has_contact_photo,
                ROW_NUMBER() OVER (PARTITION BY d.thread_id ORDER BY d.date DESC) AS rn
         FROM deduped d
         LEFT JOIN thread_totals tt ON tt.thread_id = d.thread_id
@@ -137,7 +142,8 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
              date, snippet, is_starred, is_read, has_attachments, account_id,
              account_name, account_email, account_color,
              category, list_unsubscribe, list_unsubscribe_post,
-             message_count, unread_count
+             message_count, unread_count,
+             thread_has_contact_photo AS has_contact_photo
       FROM ranked
       WHERE rn = 1
       ORDER BY date DESC
@@ -167,9 +173,13 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
            m.date, m.snippet, m.is_read, m.is_starred,
            m.has_attachments, m.account_id, m.category,
            m.list_unsubscribe, m.list_unsubscribe_post,
-           a.name as account_name, a.email_address as account_email, a.color as account_color
+           a.name as account_name, a.email_address as account_email, a.color as account_color,
+           (co.id IS NOT NULL) AS has_contact_photo
     FROM messages m
     JOIN email_accounts a ON m.account_id = a.id
+    LEFT JOIN contacts co ON co.user_id = a.user_id
+                          AND co.primary_email = lower(m.from_email)
+                          AND co.photo_data IS NOT NULL
     WHERE ${where}
     ORDER BY m.date DESC
     LIMIT $${limitParam} OFFSET $${offsetParam}

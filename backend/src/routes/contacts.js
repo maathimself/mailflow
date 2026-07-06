@@ -86,6 +86,46 @@ router.get('/', async (req, res) => {
   }
 });
 
+// GET /api/contacts/photo?email=:email
+// Returns the contact photo for the given sender email as image bytes.
+// This route must remain ABOVE /:id to prevent Express matching "photo" as an id.
+router.get('/photo', async (req, res) => {
+  const { email } = req.query;
+  const userId = req.session.userId;
+
+  if (!email || typeof email !== 'string') return res.status(400).end();
+
+  try {
+    const result = await query(
+      `SELECT photo_data FROM contacts
+       WHERE user_id = $1 AND primary_email = lower($2) AND photo_data IS NOT NULL
+       LIMIT 1`,
+      [userId, email.trim()]
+    );
+
+    if (!result.rows.length) return res.status(404).end();
+
+    const photoData = result.rows[0].photo_data;
+    res.set('Cache-Control', 'private, max-age=86400');
+
+    if (photoData.startsWith('data:')) {
+      const commaIdx = photoData.indexOf(',');
+      if (commaIdx < 0) return res.status(404).end();
+      const mimeMatch = photoData.slice(0, commaIdx).match(/data:([^;]+)/);
+      const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+      res.set('Content-Type', mimeType);
+      return res.send(Buffer.from(photoData.slice(commaIdx + 1), 'base64'));
+    }
+
+    // Fallback: treat as raw base64 JPEG (shouldn't occur after vcard.js fix).
+    res.set('Content-Type', 'image/jpeg');
+    return res.send(Buffer.from(photoData, 'base64'));
+  } catch (err) {
+    console.error('Contact photo error:', err);
+    res.status(500).end();
+  }
+});
+
 // GET /api/contacts/:id
 router.get('/:id', async (req, res) => {
   const userId = req.session.userId;

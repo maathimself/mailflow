@@ -28,6 +28,7 @@ import categoriesRoutes from './routes/categories.js';
 import carddavRouter from './routes/carddav.js';
 import { encryptExistingCredentials, query } from './services/db.js';
 import { runMigrations } from './services/migrations.js';
+import { parseVCard } from './utils/vcard.js';
 import { reloadAuthSettings } from './services/authLimiter.js';
 import { setupWebSocket } from './services/websocket.js';
 import { ImapManager } from './services/imapManager.js';
@@ -163,6 +164,25 @@ setupWebSocket(wss, sessionMiddleware, imapManager);
 
 // Run pending schema migrations then start
 await runMigrations();
+
+// One-time backfill: populate photo_data from existing vcard column for contacts
+// that were synced before CardDAV PUT started persisting photo_data.
+async function backfillContactPhotos() {
+  const { rows } = await query(
+    `SELECT id, vcard FROM contacts WHERE vcard IS NOT NULL AND photo_data IS NULL`
+  );
+  if (!rows.length) return;
+
+  let count = 0;
+  for (const row of rows) {
+    const parsed = parseVCard(row.vcard);
+    if (!parsed.photoData) continue;
+    await query('UPDATE contacts SET photo_data = $1 WHERE id = $2', [parsed.photoData, row.id]);
+    count++;
+  }
+  if (count > 0) console.log(`Backfilled contact photos for ${count} contact(s)`);
+}
+await backfillContactPhotos();
 
 // Load configurable auth rate limit values from DB (seeded by migration above).
 await reloadAuthSettings();

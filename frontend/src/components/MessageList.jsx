@@ -3697,6 +3697,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
             onClick={selectionMode ? e => { e.stopPropagation(); onToggleSelect(message.id); } : undefined}
             style={{
               width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
+              position: 'relative', overflow: 'hidden',
               background: avatarAsCheckbox
                 ? (isChecked ? 'var(--accent)' : 'var(--bg-tertiary)')
                 : senderColor(message.from_email || message.from_name),
@@ -3722,7 +3723,17 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                 </svg>
               )
             ) : (
-              (message.from_name || message.from_email || '?')[0].toUpperCase()
+              <>
+                {(message.from_name || message.from_email || '?')[0].toUpperCase()}
+                {message.has_contact_photo && message.from_email && (
+                  <img
+                    src={`/api/contacts/photo?email=${encodeURIComponent(message.from_email)}`}
+                    alt=""
+                    style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+                    onError={e => { e.currentTarget.style.display = 'none'; }}
+                  />
+                )}
+              </>
             )}
           </div>
         )}
@@ -4041,6 +4052,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
             onMouseLeave={() => setAvatarHovered(false)}
             style={{
               width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
+              position: 'relative', overflow: 'hidden',
               background: avatarAsCheckbox
                 ? (isChecked ? 'var(--accent)' : 'var(--bg-tertiary)')
                 : senderColor(message.from_email || message.from_name),
@@ -4065,7 +4077,17 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
                 </svg>
               )
             ) : (
-              (message.from_name || message.from_email || '?')[0].toUpperCase()
+              <>
+                {(message.from_name || message.from_email || '?')[0].toUpperCase()}
+                {message.has_contact_photo && message.from_email && (
+                  <img
+                    src={`/api/contacts/photo?email=${encodeURIComponent(message.from_email)}`}
+                    alt=""
+                    style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+                    onError={e => { e.currentTarget.style.display = 'none'; }}
+                  />
+                )}
+              </>
             )}
           </div>
         )}
