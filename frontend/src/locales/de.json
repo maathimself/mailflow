@@ -419,7 +419,8 @@
       "loading": "Ordner werden geladen…",
       "empty": "Keine Ordner gefunden",
       "recent": "Zuletzt verwendet",
-      "favorites": "Favoriten"
+      "favorites": "Favoriten",
+      "search": "Ordner suchen…"
     },
     "categorize": "Kategorisieren als…",
     "createRule": "Regel aus Nachricht erstellen",

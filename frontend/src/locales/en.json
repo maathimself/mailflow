@@ -424,7 +424,8 @@
       "loading": "Loading folders…",
       "empty": "No folders found",
       "recent": "Recent",
-      "favorites": "Favorites"
+      "favorites": "Favorites",
+      "search": "Search folders…"
     }
   },
   "commandPalette": {

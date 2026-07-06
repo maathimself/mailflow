@@ -32,6 +32,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
   const [customDate, setCustomDate] = useState('');
   const [customTime, setCustomTime] = useState('09:00');
   const [categorizeView, setCategorizeView] = useState(false);
+  const [folderSearch, setFolderSearch] = useState('');
   const unreadCount = Number.parseInt(message.unread_count, 10);
   const hasUnread = Number.isFinite(unreadCount) ? unreadCount > 0 : !message.is_read;
 
@@ -250,7 +251,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
           border: '1px solid var(--border)',
           borderRadius: 10, zIndex: 4000,
           boxShadow: 'var(--shadow-modal)',
-          width: 260, overflow: 'hidden',
+          width: 320, overflow: 'hidden',
           animation: 'contextMenuIn 0.12s ease',
         }}
       >
@@ -480,6 +481,21 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
                 {t('contextMenu.folders.back')}
               </div>
             )}
+            <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--border-subtle)' }}>
+              <input
+                autoFocus
+                value={folderSearch}
+                onChange={e => setFolderSearch(e.target.value)}
+                placeholder={t('contextMenu.folders.search')}
+                style={{
+                  width: '100%', boxSizing: 'border-box',
+                  padding: '5px 8px', fontSize: 12,
+                  background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+                  borderRadius: 5, color: 'var(--text-primary)',
+                  outline: 'none',
+                }}
+              />
+            </div>
             <div style={{ maxHeight: 240, overflow: 'auto' }}>
               {moveFoldersLoading ? (
                 <div style={{ padding: '12px 14px', color: 'var(--text-tertiary)', fontSize: 12 }}>
@@ -490,6 +506,26 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
                   {t('contextMenu.folders.empty')}
                 </div>
               ) : (() => {
+                const searchQuery = folderSearch.trim().toLowerCase();
+                if (searchQuery) {
+                  const filtered = (moveFolders || [])
+                    .filter(f => f.path !== message.folder && f.name.toLowerCase().includes(searchQuery));
+                  return filtered.length === 0 ? (
+                    <div style={{ padding: '12px 14px', color: 'var(--text-tertiary)', fontSize: 12 }}>
+                      {t('contextMenu.folders.empty')}
+                    </div>
+                  ) : (
+                    <>
+                      {filtered.map(folder => (
+                        <FolderMenuItem
+                          key={folder.path}
+                          folder={folder}
+                          onClick={() => { onAction('moveTo', folder.path); onClose(); }}
+                        />
+                      ))}
+                    </>
+                  );
+                }
                 const recentForAccount = recentFolders
                   .filter(r => r.accountId === message.account_id && r.path !== message.folder)
                   .map(r => (moveFolders || []).find(f => f.path === r.path))

@@ -424,7 +424,8 @@
       "loading": "Caricamento cartelle…",
       "empty": "Nessuna cartella trovata",
       "recent": "Recenti",
-      "favorites": "Preferiti"
+      "favorites": "Preferiti",
+      "search": "Cerca cartelle…"
     }
   },
   "commandPalette": {

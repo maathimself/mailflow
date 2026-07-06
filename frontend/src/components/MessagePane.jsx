@@ -253,6 +253,7 @@ export default function MessagePane() {
   const [showMovePicker, setShowMovePicker] = useState(false);
   const [movePickerFolders, setMovePickerFolders] = useState([]);
   const [movePickerLoading, setMovePickerLoading] = useState(false);
+  const [moveSearch, setMoveSearch] = useState('');
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showTodoistModal, setShowTodoistModal] = useState(false);
   const [aiStatus, setAiStatus] = useState(null);
@@ -1143,6 +1144,10 @@ ${bodyContent}
   }, [showMovePicker]);
 
   useEffect(() => {
+    if (!showMovePicker) setMoveSearch('');
+  }, [showMovePicker]);
+
+  useEffect(() => {
     if (!showMoreMenu) return;
     const onPointer = (e) => {
       if (moreMenuRef.current && !moreMenuRef.current.contains(e.target)) {
@@ -1564,7 +1569,7 @@ ${bodyContent}
               position: 'absolute', top: 'calc(100% + 4px)', left: 0,
               background: 'var(--bg-elevated)', border: '1px solid var(--border)',
               borderRadius: 8, boxShadow: 'var(--shadow-popover)',
-              minWidth: 200, maxWidth: 280, maxHeight: 320, overflowY: 'auto',
+              minWidth: 200, maxWidth: 320,
               zIndex: 200,
             }}>
               {movePickerLoading ? (
@@ -1577,14 +1582,34 @@ ${bodyContent}
                 </div>
               ) : (
                 <>
-                  {recentForMove.length > 0 && (
-                    <>
-                      <div style={{ padding: '5px 12px 3px', fontSize: 10, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                        {t('contextMenu.folders.recent')}
-                      </div>
-                      {recentForMove.map(f => (
+                  <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--border-subtle)' }}>
+                    <input
+                      autoFocus
+                      value={moveSearch}
+                      onChange={e => setMoveSearch(e.target.value)}
+                      placeholder={t('contextMenu.folders.search')}
+                      style={{
+                        width: '100%', boxSizing: 'border-box',
+                        padding: '5px 8px', fontSize: 12,
+                        background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+                        borderRadius: 5, color: 'var(--text-primary)',
+                        outline: 'none',
+                      }}
+                    />
+                  </div>
+                  <div style={{ maxHeight: 285, overflowY: 'auto' }}>
+                  {(() => {
+                    const q = moveSearch.trim().toLowerCase();
+                    if (q) {
+                      const filtered = movePickerFolders
+                        .filter(f => f.path !== message.folder && f.name.toLowerCase().includes(q));
+                      return filtered.length === 0 ? (
+                        <div style={{ padding: '12px 12px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12 }}>
+                          {t('contextMenu.folders.empty')}
+                        </div>
+                      ) : filtered.map(f => (
                         <button
-                          key={`recent-${f.path}`}
+                          key={f.path}
                           onClick={() => handleMoveToFolder(f.path)}
                           style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', background: 'none', border: 'none', color: 'var(--text-primary)', fontSize: 13, cursor: 'pointer', textAlign: 'left', transition: 'background 0.1s' }}
                           onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
@@ -1593,45 +1618,69 @@ ${bodyContent}
                           <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} /></span>
                           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
                         </button>
-                      ))}
-                      <div style={{ height: 1, background: 'var(--border-subtle)', margin: '3px 0' }} />
-                    </>
-                  )}
-                  {favoritesForMove.length > 0 && (
-                    <>
-                      <div style={{ padding: '5px 12px 3px', fontSize: 10, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                        {t('contextMenu.folders.favorites')}
-                      </div>
-                      {favoritesForMove.map(f => (
-                        <button
-                          key={`fav-${f.path}`}
-                          onClick={() => handleMoveToFolder(f.path)}
-                          style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', background: 'none', border: 'none', color: 'var(--text-primary)', fontSize: 13, cursor: 'pointer', textAlign: 'left', transition: 'background 0.1s' }}
-                          onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-                          onMouseLeave={e => e.currentTarget.style.background = 'none'}
-                        >
-                          <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} /></span>
-                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
-                        </button>
-                      ))}
-                      <div style={{ height: 1, background: 'var(--border-subtle)', margin: '3px 0' }} />
-                    </>
-                  )}
-                  {movePickerFolders
-                    .filter(f => f.path !== message.folder)
-                    .map(f => (
-                      <button
-                        key={f.path}
-                        onClick={() => handleMoveToFolder(f.path)}
-                        style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', background: 'none', border: 'none', color: 'var(--text-primary)', fontSize: 13, cursor: 'pointer', textAlign: 'left', transition: 'background 0.1s' }}
-                        onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-                        onMouseLeave={e => e.currentTarget.style.background = 'none'}
-                      >
-                        <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} /></span>
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
-                      </button>
-                    ))
-                  }
+                      ));
+                    }
+                    return (
+                      <>
+                        {recentForMove.length > 0 && (
+                          <>
+                            <div style={{ padding: '5px 12px 3px', fontSize: 10, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                              {t('contextMenu.folders.recent')}
+                            </div>
+                            {recentForMove.map(f => (
+                              <button
+                                key={`recent-${f.path}`}
+                                onClick={() => handleMoveToFolder(f.path)}
+                                style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', background: 'none', border: 'none', color: 'var(--text-primary)', fontSize: 13, cursor: 'pointer', textAlign: 'left', transition: 'background 0.1s' }}
+                                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+                                onMouseLeave={e => e.currentTarget.style.background = 'none'}
+                              >
+                                <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} /></span>
+                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                              </button>
+                            ))}
+                            <div style={{ height: 1, background: 'var(--border-subtle)', margin: '3px 0' }} />
+                          </>
+                        )}
+                        {favoritesForMove.length > 0 && (
+                          <>
+                            <div style={{ padding: '5px 12px 3px', fontSize: 10, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                              {t('contextMenu.folders.favorites')}
+                            </div>
+                            {favoritesForMove.map(f => (
+                              <button
+                                key={`fav-${f.path}`}
+                                onClick={() => handleMoveToFolder(f.path)}
+                                style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', background: 'none', border: 'none', color: 'var(--text-primary)', fontSize: 13, cursor: 'pointer', textAlign: 'left', transition: 'background 0.1s' }}
+                                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+                                onMouseLeave={e => e.currentTarget.style.background = 'none'}
+                              >
+                                <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} /></span>
+                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                              </button>
+                            ))}
+                            <div style={{ height: 1, background: 'var(--border-subtle)', margin: '3px 0' }} />
+                          </>
+                        )}
+                        {movePickerFolders
+                          .filter(f => f.path !== message.folder)
+                          .map(f => (
+                            <button
+                              key={f.path}
+                              onClick={() => handleMoveToFolder(f.path)}
+                              style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', background: 'none', border: 'none', color: 'var(--text-primary)', fontSize: 13, cursor: 'pointer', textAlign: 'left', transition: 'background 0.1s' }}
+                              onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+                              onMouseLeave={e => e.currentTarget.style.background = 'none'}
+                            >
+                              <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} /></span>
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                            </button>
+                          ))
+                        }
+                      </>
+                    );
+                  })()}
+                  </div>
                 </>
               )}
             </div>
@@ -2408,6 +2457,20 @@ ${bodyContent}
             <div style={{ padding: '4px 20px 12px', fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>
               {t('contextMenu.moveToFolder')}
             </div>
+            <div style={{ padding: '0 20px 12px' }}>
+              <input
+                value={moveSearch}
+                onChange={e => setMoveSearch(e.target.value)}
+                placeholder={t('contextMenu.folders.search')}
+                style={{
+                  width: '100%', boxSizing: 'border-box',
+                  padding: '8px 12px', fontSize: 14,
+                  background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+                  borderRadius: 8, color: 'var(--text-primary)',
+                  outline: 'none',
+                }}
+              />
+            </div>
             <div style={{ borderTop: '1px solid var(--border-subtle)', overflowY: 'auto', maxHeight: '60vh' }}>
               {movePickerLoading ? (
                 <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
@@ -2417,59 +2480,80 @@ ${bodyContent}
                 <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
                   {t('contextMenu.folders.empty')}
                 </div>
-              ) : (
-                <>
-                  {recentForMove.length > 0 && (
-                    <>
-                      <div style={{ padding: '8px 20px 4px', fontSize: 11, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                        {t('contextMenu.folders.recent')}
-                      </div>
-                      {recentForMove.map(f => (
+              ) : (() => {
+                const q = moveSearch.trim().toLowerCase();
+                if (q) {
+                  const filtered = movePickerFolders
+                    .filter(f => f.path !== message.folder && f.name.toLowerCase().includes(q));
+                  return filtered.length === 0 ? (
+                    <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
+                      {t('contextMenu.folders.empty')}
+                    </div>
+                  ) : filtered.map(f => (
+                    <button
+                      key={f.path}
+                      onClick={() => handleMoveToFolder(f.path)}
+                      style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', minHeight: 48, padding: '0 20px', background: 'none', border: 'none', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: 15, cursor: 'pointer', textAlign: 'left' }}
+                    >
+                      <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} size={18} /></span>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                    </button>
+                  ));
+                }
+                return (
+                  <>
+                    {recentForMove.length > 0 && (
+                      <>
+                        <div style={{ padding: '8px 20px 4px', fontSize: 11, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                          {t('contextMenu.folders.recent')}
+                        </div>
+                        {recentForMove.map(f => (
+                          <button
+                            key={`recent-${f.path}`}
+                            onClick={() => handleMoveToFolder(f.path)}
+                            style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', minHeight: 48, padding: '0 20px', background: 'none', border: 'none', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: 15, cursor: 'pointer', textAlign: 'left' }}
+                          >
+                            <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} size={18} /></span>
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                          </button>
+                        ))}
+                        <div style={{ height: 1, background: 'var(--border-subtle)', margin: '3px 0' }} />
+                      </>
+                    )}
+                    {favoritesForMove.length > 0 && (
+                      <>
+                        <div style={{ padding: '8px 20px 4px', fontSize: 11, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                          {t('contextMenu.folders.favorites')}
+                        </div>
+                        {favoritesForMove.map(f => (
+                          <button
+                            key={`fav-${f.path}`}
+                            onClick={() => handleMoveToFolder(f.path)}
+                            style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', minHeight: 48, padding: '0 20px', background: 'none', border: 'none', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: 15, cursor: 'pointer', textAlign: 'left' }}
+                          >
+                            <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} size={18} /></span>
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                          </button>
+                        ))}
+                        <div style={{ height: 1, background: 'var(--border-subtle)', margin: '3px 0' }} />
+                      </>
+                    )}
+                    {movePickerFolders
+                      .filter(f => f.path !== message.folder)
+                      .map(f => (
                         <button
-                          key={`recent-${f.path}`}
+                          key={f.path}
                           onClick={() => handleMoveToFolder(f.path)}
                           style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', minHeight: 48, padding: '0 20px', background: 'none', border: 'none', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: 15, cursor: 'pointer', textAlign: 'left' }}
                         >
                           <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} size={18} /></span>
                           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
                         </button>
-                      ))}
-                      <div style={{ height: 1, background: 'var(--border-subtle)', margin: '3px 0' }} />
-                    </>
-                  )}
-                  {favoritesForMove.length > 0 && (
-                    <>
-                      <div style={{ padding: '8px 20px 4px', fontSize: 11, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                        {t('contextMenu.folders.favorites')}
-                      </div>
-                      {favoritesForMove.map(f => (
-                        <button
-                          key={`fav-${f.path}`}
-                          onClick={() => handleMoveToFolder(f.path)}
-                          style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', minHeight: 48, padding: '0 20px', background: 'none', border: 'none', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: 15, cursor: 'pointer', textAlign: 'left' }}
-                        >
-                          <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} size={18} /></span>
-                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
-                        </button>
-                      ))}
-                      <div style={{ height: 1, background: 'var(--border-subtle)', margin: '3px 0' }} />
-                    </>
-                  )}
-                  {movePickerFolders
-                    .filter(f => f.path !== message.folder)
-                    .map(f => (
-                      <button
-                        key={f.path}
-                        onClick={() => handleMoveToFolder(f.path)}
-                        style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', minHeight: 48, padding: '0 20px', background: 'none', border: 'none', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: 15, cursor: 'pointer', textAlign: 'left' }}
-                      >
-                        <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} size={18} /></span>
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
-                      </button>
-                    ))
-                  }
-                </>
-              )}
+                      ))
+                    }
+                  </>
+                );
+              })()}
             </div>
           </div>
         </>

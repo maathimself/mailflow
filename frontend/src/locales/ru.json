@@ -424,7 +424,8 @@
       "loading": "Загрузка папок…",
       "empty": "Папки не найдены",
       "recent": "Недавние",
-      "favorites": "Избранное"
+      "favorites": "Избранное",
+      "search": "Поиск папок…"
     }
   },
   "commandPalette": {

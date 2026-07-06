@@ -164,6 +164,7 @@ export default function MessageList() {
   const [showFolderPicker, setShowFolderPicker] = useState(false);
   const [pickerFolders, setPickerFolders] = useState([]);
   const [pickerLoading, setPickerLoading] = useState(false);
+  const [pickerSearch, setPickerSearch] = useState('');
   const folderPickerRef = useRef(null);
   // Tracks the index of the last toggled row for shift-click range selection
   const lastSelectIdxRef = useRef(-1);
@@ -250,6 +251,10 @@ export default function MessageList() {
       document.removeEventListener('pointerdown', onPointer);
     };
   }, []);
+
+  useEffect(() => {
+    if (!showFolderPicker) setPickerSearch('');
+  }, [showFolderPicker]);
 
   // Collapse any open thread when the message list resets
   useEffect(() => {
@@ -2988,8 +2993,7 @@ export default function MessageList() {
                   border: '1px solid var(--border)',
                   borderRadius: 8,
                   boxShadow: 'var(--shadow-popover)',
-                  minWidth: 200, maxWidth: 280,
-                  maxHeight: 320, overflowY: 'auto',
+                  minWidth: 200, maxWidth: 320,
                   zIndex: 100,
                 }}>
                   {pickerLoading ? (
@@ -3002,35 +3006,64 @@ export default function MessageList() {
                     </div>
                   ) : (
                     <>
-                      <div style={{ padding: '8px 12px 4px', fontSize: 10, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                        {t('messageList.moveToFolder')}
+                      <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--border-subtle)' }}>
+                        <input
+                          autoFocus
+                          value={pickerSearch}
+                          onChange={e => setPickerSearch(e.target.value)}
+                          placeholder={t('contextMenu.folders.search')}
+                          style={{
+                            width: '100%', boxSizing: 'border-box',
+                            padding: '5px 8px', fontSize: 12,
+                            background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+                            borderRadius: 5, color: 'var(--text-primary)',
+                            outline: 'none',
+                          }}
+                        />
                       </div>
-                      {pickerFolders
-                        .filter(f => f.path !== selectedFolder)
-                        .map(f => (
-                          <button
-                            key={f.path}
-                            onClick={() => handleBulkMove([...selectedIds], selectedMsgs, f.path)}
-                            style={{
-                              display: 'flex', alignItems: 'center', gap: 8,
-                              width: '100%', padding: '8px 12px',
-                              background: 'none', border: 'none',
-                              color: 'var(--text-primary)', fontSize: 13,
-                              cursor: 'pointer', textAlign: 'left',
-                              transition: 'background 0.1s',
-                            }}
-                            onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-                            onMouseLeave={e => e.currentTarget.style.background = 'none'}
-                          >
-                            <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}>
-                              <FolderIcon specialUse={f.special_use} />
-                            </span>
-                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {f.name}
-                            </span>
-                          </button>
-                        ))
-                      }
+                      <div style={{ maxHeight: 285, overflowY: 'auto' }}>
+                      {(() => {
+                        const q = pickerSearch.trim().toLowerCase();
+                        const displayed = pickerFolders
+                          .filter(f => f.path !== selectedFolder && (!q || f.name.toLowerCase().includes(q)));
+                        return displayed.length === 0 ? (
+                          <div style={{ padding: '12px 12px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12 }}>
+                            {t('contextMenu.folders.empty')}
+                          </div>
+                        ) : (
+                          <>
+                            {!q && (
+                              <div style={{ padding: '8px 12px 4px', fontSize: 10, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                                {t('messageList.moveToFolder')}
+                              </div>
+                            )}
+                            {displayed.map(f => (
+                              <button
+                                key={f.path}
+                                onClick={() => handleBulkMove([...selectedIds], selectedMsgs, f.path)}
+                                style={{
+                                  display: 'flex', alignItems: 'center', gap: 8,
+                                  width: '100%', padding: '8px 12px',
+                                  background: 'none', border: 'none',
+                                  color: 'var(--text-primary)', fontSize: 13,
+                                  cursor: 'pointer', textAlign: 'left',
+                                  transition: 'background 0.1s',
+                                }}
+                                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+                                onMouseLeave={e => e.currentTarget.style.background = 'none'}
+                              >
+                                <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}>
+                                  <FolderIcon specialUse={f.special_use} />
+                                </span>
+                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {f.name}
+                                </span>
+                              </button>
+                            ))}
+                          </>
+                        );
+                      })()}
+                      </div>
                     </>
                   )}
                 </div>
@@ -3063,6 +3096,20 @@ export default function MessageList() {
                     <div style={{ padding: '4px 20px 12px', fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>
                       {t('messageList.moveToFolder')}
                     </div>
+                    <div style={{ padding: '0 20px 12px' }}>
+                      <input
+                        value={pickerSearch}
+                        onChange={e => setPickerSearch(e.target.value)}
+                        placeholder={t('contextMenu.folders.search')}
+                        style={{
+                          width: '100%', boxSizing: 'border-box',
+                          padding: '8px 12px', fontSize: 14,
+                          background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+                          borderRadius: 8, color: 'var(--text-primary)',
+                          outline: 'none',
+                        }}
+                      />
+                    </div>
                     <div style={{ borderTop: '1px solid var(--border-subtle)', overflowY: 'auto', maxHeight: '60vh' }}>
                       {pickerLoading ? (
                         <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
@@ -3072,9 +3119,15 @@ export default function MessageList() {
                         <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
                           {t('contextMenu.folders.empty')}
                         </div>
-                      ) : pickerFolders
-                        .filter(f => f.path !== selectedFolder)
-                        .map(f => (
+                      ) : (() => {
+                        const q = pickerSearch.trim().toLowerCase();
+                        const displayed = pickerFolders
+                          .filter(f => f.path !== selectedFolder && (!q || f.name.toLowerCase().includes(q)));
+                        return displayed.length === 0 ? (
+                          <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
+                            {t('contextMenu.folders.empty')}
+                          </div>
+                        ) : displayed.map(f => (
                           <button
                             key={f.path}
                             onClick={() => { handleBulkMove([...selectedIds], selectedMsgs, f.path); setShowFolderPicker(false); }}
@@ -3095,8 +3148,8 @@ export default function MessageList() {
                               {f.name}
                             </span>
                           </button>
-                        ))
-                      }
+                        ));
+                      })()}
                     </div>
                   </div>
                 </>

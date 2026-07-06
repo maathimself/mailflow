@@ -424,7 +424,8 @@
       "loading": "Chargement des dossiers…",
       "empty": "Aucun dossier trouvé",
       "recent": "Récents",
-      "favorites": "Favoris"
+      "favorites": "Favoris",
+      "search": "Rechercher des dossiers…"
     }
   },
   "commandPalette": {

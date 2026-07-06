@@ -424,7 +424,8 @@
       "loading": "Cargando carpetas…",
       "empty": "No se encontraron carpetas",
       "recent": "Recientes",
-      "favorites": "Favoritos"
+      "favorites": "Favoritos",
+      "search": "Buscar carpetas…"
     }
   },
   "commandPalette": {
