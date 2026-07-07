@@ -50,10 +50,20 @@ export const LAYOUTS = {
   },
 };
 
+export const DEFAULT_LAYOUT = 'comfortable';
+
+// Coerce a layout key to a known preset, falling back to the default. Guards
+// against stale or removed presets persisted in localStorage or synced from the
+// server — an unknown key (e.g. an old "classic" preset) must never reach a
+// consumer, since it used to crash the message list (#207).
+export function normalizeLayout(layoutKey) {
+  return layoutKey && LAYOUTS[layoutKey] ? layoutKey : DEFAULT_LAYOUT;
+}
+
 // customListWidth: optional px override from drag-to-resize (persisted in localStorage).
 // When provided it is applied instead of the preset listWidth.
 export function applyLayout(layoutKey, customListWidth) {
-  const layout = LAYOUTS[layoutKey] || LAYOUTS.comfortable;
+  const layout = LAYOUTS[normalizeLayout(layoutKey)];
   const root = document.documentElement;
   root.style.setProperty('--layout-row-py', layout.rowPy + 'px');
   root.style.setProperty('--layout-row-px', layout.rowPx + 'px');

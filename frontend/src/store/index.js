@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { api } from '../utils/api.js';
 import { applyTheme, applyCustomCss } from '../themes.js';
 import { applyFontSet, applyFontSize } from '../fonts.js';
-import { applyLayout } from '../layouts.js';
+import { applyLayout, normalizeLayout } from '../layouts.js';
 import i18n from '../i18n.js';
 
 // Accumulate rapid preference changes and flush at most once per second.
@@ -431,13 +431,20 @@ export const useStore = create((set, get) => ({
   }),
 
   // Layout
-  layout: localStorage.getItem('mailflow_layout') || 'comfortable',
+  layout: (() => {
+    const raw = localStorage.getItem('mailflow_layout');
+    const clean = normalizeLayout(raw);
+    // Self-heal a stale/removed preset so it can never reach a consumer (#207).
+    if (raw && raw !== clean) localStorage.setItem('mailflow_layout', clean);
+    return clean;
+  })(),
   setLayout: (layout) => {
-    localStorage.setItem('mailflow_layout', layout);
+    const clean = normalizeLayout(layout);
+    localStorage.setItem('mailflow_layout', clean);
     localStorage.removeItem('mailflow_list_width');
-    set({ layout });
-    applyLayout(layout);
-    schedulePrefSave({ layout });
+    set({ layout: clean });
+    applyLayout(clean);
+    schedulePrefSave({ layout: clean });
   },
 
   // Image privacy
@@ -584,14 +591,15 @@ export const useStore = create((set, get) => ({
         applyFontSize(n);
       }
       if (prefs.layout) {
+        const clean = normalizeLayout(prefs.layout);
         const prevLayout = get().layout;
-        localStorage.setItem('mailflow_layout', prefs.layout);
-        set({ layout: prefs.layout });
-        if (prefs.layout !== prevLayout) localStorage.removeItem('mailflow_list_width');
-        const savedListWidth = prefs.layout !== prevLayout
+        localStorage.setItem('mailflow_layout', clean);
+        set({ layout: clean });
+        if (clean !== prevLayout) localStorage.removeItem('mailflow_list_width');
+        const savedListWidth = clean !== prevLayout
           ? undefined
           : (Number(localStorage.getItem('mailflow_list_width')) || undefined);
-        applyLayout(prefs.layout, savedListWidth);
+        applyLayout(clean, savedListWidth);
       }
       if (prefs.notificationSound) {
         localStorage.setItem('mailflow_notification_sound', prefs.notificationSound);
