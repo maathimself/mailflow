@@ -8,6 +8,7 @@ import { getEffectiveShortcuts, parseModKey, modCompactLabel } from '../utils/de
 import { useMobile } from '../hooks/useMobile.js';
 import { clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
+import DOMPurify from 'dompurify';
 import { BUILTIN_SUMMARIZE } from '../aiActions.js';
 import { getResults, saveResult, removeResult } from '../aiResults.js';
 const USE_DIV_RENDER = import.meta.env.VITE_EMAIL_DIV_RENDER === 'true';
@@ -997,14 +998,16 @@ export default function MessagePane() {
     const ccStr = parseList(message.cc_addresses).map(fmtAddr).join(', ');
 
     const bodyContent = body?.html
-      ? body.html
+      ? DOMPurify.sanitize(body.html, { ADD_ATTR: ['target'] })
       : body?.text
         ? `<pre style="white-space:pre-wrap;font-family:sans-serif;font-size:14px">${esc(body.text)}</pre>`
         : '';
 
     const win = window.open('', '_blank');
     if (!win) return;
-    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(message.subject)}</title>
+    // CSP blocks any script execution in this same-origin print window (it has no
+    // sandbox); combined with the DOMPurify pass above this neutralizes email HTML.
+    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="script-src 'none'; object-src 'none'; base-uri 'none'"><title>${esc(message.subject)}</title>
 <style>
   body { font-family: Arial, sans-serif; font-size: 14px; color: #111; margin: 32px; }
   .header { border-bottom: 1px solid #ccc; padding-bottom: 16px; margin-bottom: 24px; }
@@ -1069,7 +1072,7 @@ ${bodyContent}
     try {
       const res = await fetch('/api/ai/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'MailFlow' },
         credentials: 'include',
         signal: ctrl.signal,
         body: JSON.stringify({

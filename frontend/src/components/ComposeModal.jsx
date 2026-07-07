@@ -673,7 +673,7 @@ export default function ComposeModal() {
       const response = await fetch('/api/ai/chat', {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'MailFlow' },
         body: JSON.stringify({ messages }),
         signal: controller.signal,
       });

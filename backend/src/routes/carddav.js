@@ -15,8 +15,14 @@ import crypto from 'crypto';
 import { query } from '../services/db.js';
 import { parseVCard } from '../utils/vcard.js';
 import { authLimiterConfig } from '../services/authLimiter.js';
+import { consume as rlConsume } from '../services/rateLimiter.js';
+import { logAuthEvent } from '../services/authEvents.js';
 
 const router = Router();
+
+// Precomputed valid hash so a non-existent username takes the same time as a real
+// one (constant-time — closes the username-enumeration timing oracle).
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync('mailflow-timing-equalizer', 12);
 
 // ── Rate limiting (shared config, separate buckets from login) ────────────────
 
@@ -74,17 +80,22 @@ async function cardavAuth(req, res, next) {
       [username]
     );
     const user = r.rows[0];
-    if (!user || !user.password_hash) {
+    // Count CardDAV auth failures against the same per-IP limiter as login and log
+    // them to the audit trail — brute-force/visibility parity with the login path.
+    const authFail = async () => {
+      const { limited } = await rlConsume(`auth:${req.ip}`, authLimiterConfig.maxRequests, authLimiterConfig.windowMs);
+      logAuthEvent('carddav_auth_fail', { username: username || null, ip: req.ip, success: false });
       res.setHeader('WWW-Authenticate', 'Basic realm="MailFlow CardDAV"');
-      return res.status(401).end();
+      return res.status(limited ? 429 : 401).end();
+    };
+    if (!user || !user.password_hash) {
+      await bcrypt.compare(password, DUMMY_PASSWORD_HASH); // constant-time vs the real path
+      return authFail();
     }
     // Verify password before checking totp_enabled so the response is
     // indistinguishable regardless of whether the account exists or has 2FA.
     const ok = await bcrypt.compare(password, user.password_hash);
-    if (!ok) {
-      res.setHeader('WWW-Authenticate', 'Basic realm="MailFlow CardDAV"');
-      return res.status(401).end();
-    }
+    if (!ok) return authFail();
     // CardDAV HTTP Basic cannot satisfy a TOTP second factor.
     // Block access entirely for accounts with 2FA enabled until app-specific
     // passwords are implemented. Return 403 (not 401) so clients don't retry.

@@ -16,6 +16,34 @@ function normalizeStr(val) {
   return (val || '').toLowerCase().trim();
 }
 
+// Returns true if a user-supplied regex is unsafe to run: too long, uncompilable,
+// or a catastrophic-backtracking shape. User regexes run synchronously on the event
+// loop for every incoming message, so a single bad pattern can freeze the whole
+// server (ReDoS). Exported so rules can be rejected at creation time too.
+export function isDangerousRegex(src) {
+  if (!src || typeof src !== 'string' || src.length > 200) return true;
+  // Quantified alternation / quantifier-then-quantifier, e.g. (a|a)+, (a+).*+ .
+  if (/\(.*[+*]\).*[+*]|\(.*\|.*\).*[+*]/.test(src)) return true;
+  // Nested quantifiers of any form, incl. bounded {n,m}: (a+)+, (a{1,9}){1,9}, (a*)? .
+  // Linear scan tracking whether the current group already contains a quantifier;
+  // a quantifier applied to such a group is the classic exponential shape.
+  const groupHasQuant = [];
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    if (c === '\\') { i++; continue; }                                   // escaped literal
+    if (c === '[') { i++; while (i < src.length && src[i] !== ']') { if (src[i] === '\\') i++; i++; } continue; } // char class
+    if (c === '(') { groupHasQuant.push(false); continue; }
+    if (c === '*' || c === '+' || c === '{' || c === '?') { if (groupHasQuant.length) groupHasQuant[groupHasQuant.length - 1] = true; continue; }
+    if (c === ')') {
+      const inner = groupHasQuant.pop();
+      const next = src[i + 1];
+      if (inner && (next === '*' || next === '+' || next === '{' || next === '?')) return true;
+    }
+  }
+  try { new RegExp(src); } catch { return true; }
+  return false;
+}
+
 function matchOperator(operator, fieldVal, ruleVal) {
   const f = normalizeStr(fieldVal);
   const r = normalizeStr(ruleVal);
@@ -31,11 +59,9 @@ function matchOperator(operator, fieldVal, ruleVal) {
     case 'starts_with':  return f.startsWith(r);
     case 'ends_with':    return f.endsWith(r);
     case 'regex': {
-      // Guard against ReDoS: reject overly long patterns and known catastrophic
-      // backtracking constructs (nested quantifiers like (a+)+, (a|a)+, etc.)
-      // before compiling, since user-supplied patterns run on every incoming message.
-      if (!ruleVal || ruleVal.length > 200) return false;
-      if (/(\(.*[+*]\).*[+*]|\(.*\|.*\).*[+*])/.test(ruleVal)) return false;
+      // Reject catastrophic-backtracking patterns before compiling (ReDoS guard);
+      // user patterns run synchronously on every incoming message.
+      if (isDangerousRegex(ruleVal)) return false;
       try {
         return new RegExp(ruleVal, 'i').test(fieldVal || '');
       } catch {

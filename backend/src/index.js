@@ -120,6 +120,20 @@ app.use((err, req, res, next) => {
 });
 app.use(sessionMiddleware);
 
+// CSRF defense-in-depth for the cookie-authenticated /api surface. A mutating
+// request must carry a custom header that a cross-site <form> cannot set and a
+// cross-origin fetch cannot send without a CORS preflight — which the CORS policy
+// above restricts to FRONTEND_URL. SameSite=lax cookies are the primary defense;
+// this closes same-site/subdomain and legacy-browser gaps. The external DAV server
+// (/carddav) and OAuth flows (/oauth) are mounted outside /api and use their own
+// auth, so they are intentionally not gated here.
+const CSRF_SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+app.use('/api', (req, res, next) => {
+  if (CSRF_SAFE_METHODS.has(req.method)) return next();
+  if (req.get('X-Requested-With')) return next();
+  return res.status(403).json({ error: 'Missing required X-Requested-With header' });
+});
+
 // Make imap manager available globally
 export const imapManager = new ImapManager(wss);
 app.set('imapManager', imapManager);

@@ -925,14 +925,20 @@ router.post('/messages/bulk-delete', async (req, res) => {
             from_name, from_email, to_addresses, cc_addresses,
             reply_to, in_reply_to, date, snippet, is_read, is_starred,
             has_attachments, flags, body_html, body_text, attachments,
-            thread_references, thread_id, is_bulk
+            thread_references, thread_id, is_bulk,
+            read_changed_at, star_changed_at, spam_score_sa, spam_score_ml,
+            spam_verdict, spam_analyzed_at, spam_details, spam_user_override,
+            category, list_unsubscribe, list_unsubscribe_post, unsubscribed_at
           )
           SELECT
             d.account_id, u.new_uid, $4, d.message_id, d.subject,
             d.from_name, d.from_email, d.to_addresses, d.cc_addresses,
             d.reply_to, d.in_reply_to, d.date, d.snippet, d.is_read, d.is_starred,
             d.has_attachments, d.flags, d.body_html, d.body_text, d.attachments,
-            d.thread_references, d.thread_id, d.is_bulk
+            d.thread_references, d.thread_id, d.is_bulk,
+            d.read_changed_at, d.star_changed_at, d.spam_score_sa, d.spam_score_ml,
+            d.spam_verdict, d.spam_analyzed_at, d.spam_details, d.spam_user_override,
+            d.category, d.list_unsubscribe, d.list_unsubscribe_post, d.unsubscribed_at
           FROM deleted d
           JOIN uid_map u ON d.id = u.src_id
           ON CONFLICT (account_id, uid, folder) DO NOTHING
@@ -1091,14 +1097,20 @@ router.post('/messages/bulk-move', async (req, res) => {
           from_name, from_email, to_addresses, cc_addresses,
           reply_to, in_reply_to, date, snippet, is_read, is_starred,
           has_attachments, flags, body_html, body_text, attachments,
-          thread_references, thread_id, is_bulk
+          thread_references, thread_id, is_bulk,
+          read_changed_at, star_changed_at, spam_score_sa, spam_score_ml,
+          spam_verdict, spam_analyzed_at, spam_details, spam_user_override,
+          category, list_unsubscribe, list_unsubscribe_post, unsubscribed_at
         )
         SELECT
           d.account_id, u.new_uid, $4, d.message_id, d.subject,
           d.from_name, d.from_email, d.to_addresses, d.cc_addresses,
           d.reply_to, d.in_reply_to, d.date, d.snippet, d.is_read, d.is_starred,
           d.has_attachments, d.flags, d.body_html, d.body_text, d.attachments,
-          d.thread_references, d.thread_id, d.is_bulk
+          d.thread_references, d.thread_id, d.is_bulk,
+          d.read_changed_at, d.star_changed_at, d.spam_score_sa, d.spam_score_ml,
+          d.spam_verdict, d.spam_analyzed_at, d.spam_details, d.spam_user_override,
+          d.category, d.list_unsubscribe, d.list_unsubscribe_post, d.unsubscribed_at
         FROM deleted d
         JOIN uid_map u ON d.id = u.src_id
         ON CONFLICT (account_id, uid, folder) DO NOTHING
@@ -1216,14 +1228,20 @@ router.post('/messages/bulk-archive', async (req, res) => {
           from_name, from_email, to_addresses, cc_addresses,
           reply_to, in_reply_to, date, snippet, is_read, is_starred,
           has_attachments, flags, body_html, body_text, attachments,
-          thread_references, thread_id, is_bulk
+          thread_references, thread_id, is_bulk,
+          read_changed_at, star_changed_at, spam_score_sa, spam_score_ml,
+          spam_verdict, spam_analyzed_at, spam_details, spam_user_override,
+          category, list_unsubscribe, list_unsubscribe_post, unsubscribed_at
         )
         SELECT
           d.account_id, u.new_uid, $4, d.message_id, d.subject,
           d.from_name, d.from_email, d.to_addresses, d.cc_addresses,
           d.reply_to, d.in_reply_to, d.date, d.snippet, d.is_read, d.is_starred,
           d.has_attachments, d.flags, d.body_html, d.body_text, d.attachments,
-          d.thread_references, d.thread_id, d.is_bulk
+          d.thread_references, d.thread_id, d.is_bulk,
+          d.read_changed_at, d.star_changed_at, d.spam_score_sa, d.spam_score_ml,
+          d.spam_verdict, d.spam_analyzed_at, d.spam_details, d.spam_user_override,
+          d.category, d.list_unsubscribe, d.list_unsubscribe_post, d.unsubscribed_at
         FROM deleted d
         JOIN uid_map u ON d.id = u.src_id
         ON CONFLICT (account_id, uid, folder) DO NOTHING

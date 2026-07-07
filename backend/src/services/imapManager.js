@@ -841,6 +841,11 @@ export class ImapManager {
       // current credentials and config rather than the stale closure-captured object.
       let syncAccount = account;
       if (!activeClient) {
+        // Participate in the same lock as connectAccount()/health-check so a
+        // concurrent reconnect can't create a second client that overwrites and
+        // orphans this one (which would leak the IMAP connection + IDLE listeners).
+        if (this.connectingAccounts.has(account.id)) return; // another path is reconnecting; skip this tick
+        this.connectingAccounts.add(account.id);
         console.log(`Reconnecting ${logAccount(account)}...`);
         try {
           const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [account.id]);
@@ -869,6 +874,8 @@ export class ImapManager {
         } catch (reconnErr) {
           console.error(`Reconnect failed for ${logAccount(account)}:`, reconnErr.message);
           return;
+        } finally {
+          this.connectingAccounts.delete(account.id);
         }
       }
       // noBodyParts=true: envelope/flags/uid only — avoids slow servers timing out on body fetches.
@@ -3046,6 +3053,12 @@ export class ImapManager {
   }
 
   async reconcileDeletes(account) {
+    // Captured before the Phase 1 snapshot. Any row inserted or re-synced after this
+    // instant (new IDLE mail, a bulk-move reinsert) is NOT in the snapshot yet, so it
+    // would look like an orphan. Excluding rows synced at/after the cutoff closes that
+    // TOCTOU window without an extra IMAP round-trip. synced_at defaults to now() on
+    // every insert; null-synced legacy rows are treated as old and stay eligible.
+    const reconcileStartedAt = new Date();
     const folderResult = await query(
       'SELECT DISTINCT folder FROM messages WHERE account_id = $1',
       [account.id]
@@ -3085,8 +3098,8 @@ export class ImapManager {
     let hadChanges = false;
     for (const [folder, serverUidSet] of serverUidsByFolder) {
       const dbResult = await query(
-        'SELECT uid FROM messages WHERE account_id = $1 AND folder = $2',
-        [account.id, folder]
+        'SELECT uid FROM messages WHERE account_id = $1 AND folder = $2 AND (synced_at IS NULL OR synced_at < $3)',
+        [account.id, folder, reconcileStartedAt]
       );
       const orphanUids = dbResult.rows
         .map(r => Number(r.uid))
@@ -3095,9 +3108,11 @@ export class ImapManager {
       if (orphanUids.length === 0) continue;
 
       console.log(`Reconcile: removing ${orphanUids.length} server-deleted message(s) from ${logAccount(account)}/${folder}`);
+      // Re-assert the cutoff in the DELETE: a row updated to a fresh synced_at between
+      // the SELECT above and here (e.g. a concurrent bulk-move reinsert) is spared.
       await query(
-        'DELETE FROM messages WHERE account_id = $1 AND folder = $2 AND uid = ANY($3::bigint[])',
-        [account.id, folder, orphanUids]
+        'DELETE FROM messages WHERE account_id = $1 AND folder = $2 AND uid = ANY($3::bigint[]) AND (synced_at IS NULL OR synced_at < $4)',
+        [account.id, folder, orphanUids, reconcileStartedAt]
       );
       // Resync cached folder counts from actual row data — reconcile deletes rows
       // without going through adjustFolderCounts, so counts would otherwise drift.

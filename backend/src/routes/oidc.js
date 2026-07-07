@@ -429,24 +429,14 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
       if (!email || (!emailVerified && provider.require_email_verified !== false)) {
         return oidcError(res, 'login', 'No account found. Contact your administrator.');
       }
-      // Try matching by username first (accounts created with email as username),
-      // then fall back to matching via an owned email account — covers manually-created
-      // accounts whose username is not their email address.
-      let { rows: [user] } = await client.query(
+      // Match ONLY on the canonical identity (username). We deliberately do NOT
+      // fall back to matching any owned email_accounts.email_address: proving control
+      // of an address that a user added as a secondary mailbox must not log you in as
+      // that user (identity-confusion / account-takeover risk with shared mailboxes).
+      const { rows: [user] } = await client.query(
         'SELECT id, username, is_admin FROM users WHERE username = $1',
         [email.toLowerCase()]
       );
-      if (!user) {
-        const fallback = await client.query(
-          `SELECT u.id, u.username, u.is_admin
-           FROM users u
-           JOIN email_accounts ea ON ea.user_id = u.id
-           WHERE LOWER(ea.email_address) = $1
-           LIMIT 1`,
-          [email.toLowerCase()]
-        );
-        user = fallback.rows[0] || null;
-      }
       if (!user) {
         return oidcError(res, 'login', 'No account found matching this email. Contact your administrator.');
       }
@@ -501,9 +491,12 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
         } else {
           const countRow = await client.query('SELECT COUNT(*) AS count FROM users');
           const isFirstUser = parseInt(countRow.rows[0].count) === 0;
-          // First-ever user is always admin regardless of claim (bootstrap).
-          // For subsequent users, use the claim result if configured, else false.
-          const isAdmin = isFirstUser || adminFromClaim === true;
+          // Admin is granted ONLY via a verified group claim — never via the
+          // "first user" bootstrap for SSO-provisioned accounts. Otherwise, if a
+          // provider were ever enabled before a local admin exists, the first
+          // external SSO login would silently become admin. The initial admin must
+          // be created through local registration.
+          const isAdmin = adminFromClaim === true;
           const newUser = await client.query(
             'INSERT INTO users (username, password_hash, is_admin) VALUES ($1, NULL, $2) RETURNING id, username, is_admin',
             [email.toLowerCase(), isAdmin]

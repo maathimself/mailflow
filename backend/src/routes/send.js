@@ -123,6 +123,7 @@ router.post('/send', async (req, res) => {
 
   if (attachments !== undefined) {
     if (!Array.isArray(attachments)) return res.status(400).json({ error: 'attachments must be an array' });
+    if (attachments.length > 100) return res.status(400).json({ error: 'Too many attachments (max 100)' });
     const totalBytes = attachments.reduce((sum, a) => sum + (typeof a.content === 'string' ? Math.ceil(a.content.length * 0.75) : 0), 0);
     if (totalBytes > 26_214_400) return res.status(400).json({ error: 'Total attachment size exceeds 25 MB' });
     for (const [i, a] of attachments.entries()) {
@@ -233,7 +234,13 @@ router.post('/send', async (req, res) => {
 
   try {
     if (account.oauth_provider === 'microsoft') {
-      account = await refreshMicrosoftToken(account);
+      // Only refresh when the token is near/at expiry (mirrors imapManager's
+      // ensureFreshToken). Refreshing on every send needlessly rotates the AAD
+      // refresh token and can invalidate it under concurrent sends.
+      const expiryMs = account.oauth_token_expiry ? new Date(account.oauth_token_expiry).getTime() : 0;
+      if (expiryMs - Date.now() < 5 * 60 * 1000) {
+        account = await refreshMicrosoftToken(account);
+      }
     }
 
     let smtpAuth;

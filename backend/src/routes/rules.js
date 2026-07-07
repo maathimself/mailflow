@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
-import { applyInboxRules } from '../services/inboxRules.js';
+import { applyInboxRules, isDangerousRegex } from '../services/inboxRules.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -24,6 +24,9 @@ export function validateConditions(conditions) {
     }
     if (cond.field === 'header' && !String(cond.headerName || '').trim()) {
       return 'Header name is required for header conditions';
+    }
+    if (cond.operator === 'regex' && isDangerousRegex(String(cond.value || ''))) {
+      return 'Regex pattern is invalid or too complex (possible catastrophic backtracking)';
     }
   }
   return null;

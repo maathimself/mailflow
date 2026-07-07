@@ -1,10 +1,17 @@
 const BASE = '/api';
 
+// Sent on every /api request so the backend CSRF guard accepts it. A cross-site
+// form/navigation cannot set a custom header, and a cross-origin fetch that tries
+// triggers a CORS preflight the server rejects. Any raw fetch() to /api elsewhere
+// in the app must include this same header (see CSRF_HEADER).
+export const CSRF_HEADER = 'X-Requested-With';
+export const CSRF_VALUE = 'MailFlow';
+
 async function request(method, path, body) {
   const opts = {
     method,
     credentials: 'include',
-    headers: {},
+    headers: { [CSRF_HEADER]: CSRF_VALUE },
   };
   if (body) {
     opts.headers['Content-Type'] = 'application/json';

@@ -52,13 +52,20 @@ export function decrypt(value) {
   }
 
   const [ivHex, tagHex, ctHex] = parts;
-  const iv = Buffer.from(ivHex, 'hex');
-  const tag = Buffer.from(tagHex, 'hex');
-  const ciphertext = Buffer.from(ctHex, 'hex');
-
-  const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
-  decipher.setAuthTag(tag);
-  return decipher.update(ciphertext) + decipher.final('utf8');
+  try {
+    const iv = Buffer.from(ivHex, 'hex');
+    const tag = Buffer.from(tagHex, 'hex');
+    const ciphertext = Buffer.from(ctHex, 'hex');
+    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+    decipher.setAuthTag(tag);
+    return decipher.update(ciphertext) + decipher.final('utf8');
+  } catch {
+    // Wrong ENCRYPTION_KEY (e.g. rotated without re-encrypting) or tampered data.
+    // Return null so callers hit the uniform "corrupted credential" path instead of
+    // throwing an opaque 500 / uncaught error.
+    console.error('Failed to decrypt stored credential — wrong ENCRYPTION_KEY or tampered data');
+    return null;
+  }
 }
 
 // Returns true if a value is already encrypted with our scheme.

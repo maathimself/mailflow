@@ -1,7 +1,7 @@
 import { randomBytes } from 'crypto';
 import { Router } from 'express';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
-import { query } from '../services/db.js';
+import { query, withTransaction } from '../services/db.js';
 import { imapManager } from '../index.js';
 import { encrypt, decrypt } from '../services/encryption.js';
 import { redactEmail } from '../utils/redact.js';
@@ -158,42 +158,53 @@ async function processMicrosoftTokens(userId, tokens, { tenantId, clientId }) {
 
   if (!email) throw new Error('Could not retrieve email address from Microsoft profile — ensure the openid, email, and profile scopes are granted');
 
-  const existing = await query(
-    'SELECT id FROM email_accounts WHERE user_id = $1 AND email_address = $2',
-    [userId, email]
-  );
+  // Serialize the check-then-insert per (user, email) with a transaction-scoped
+  // advisory lock. Two OAuth callbacks racing for the same mailbox would otherwise
+  // both miss the SELECT and each INSERT, producing duplicate account rows. The
+  // second waiter blocks until the first commits, then sees the row and updates it.
+  const account = await withTransaction(async (client) => {
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',
+      [`oauth-account:${userId}:${email.toLowerCase()}`]);
 
-  let accountId;
-  if (existing.rows.length) {
-    accountId = existing.rows[0].id;
-    await query(`
-      UPDATE email_accounts SET
-        oauth_access_token = $1, oauth_refresh_token = $2, oauth_token_expiry = $3,
-        name = $4, sync_error = NULL
-      WHERE id = $5
-    `, [encrypt(access_token), encrypt(refresh_token), expiry, displayName || email, accountId]);
-  } else {
-    const colors = ['#0078d4', '#106ebe', '#005a9e', '#004578'];
-    const color = colors[Math.floor(Math.random() * colors.length)];
-    const result = await query(`
-      INSERT INTO email_accounts (
-        user_id, name, email_address, color, protocol,
-        imap_host, imap_port, imap_tls,
-        smtp_host, smtp_port, smtp_tls,
-        auth_user,
-        oauth_provider, oauth_access_token, oauth_refresh_token, oauth_token_expiry
-      ) VALUES ($1,$2,$3,$4,'imap',
-        'outlook.office365.com', 993, true,
-        'smtp.office365.com', 587, 'STARTTLS',
-        $3,
-        'microsoft', $5, $6, $7)
-      RETURNING *
-    `, [userId, displayName, email, color, encrypt(access_token), encrypt(refresh_token), expiry]);
-    accountId = result.rows[0].id;
-  }
+    const existing = await client.query(
+      'SELECT id FROM email_accounts WHERE user_id = $1 AND email_address = $2',
+      [userId, email]
+    );
 
-  const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
-  imapManager.connectAccount(accountResult.rows[0]).catch(err =>
+    let accountId;
+    if (existing.rows.length) {
+      accountId = existing.rows[0].id;
+      await client.query(`
+        UPDATE email_accounts SET
+          oauth_access_token = $1, oauth_refresh_token = $2, oauth_token_expiry = $3,
+          name = $4, sync_error = NULL
+        WHERE id = $5
+      `, [encrypt(access_token), encrypt(refresh_token), expiry, displayName || email, accountId]);
+    } else {
+      const colors = ['#0078d4', '#106ebe', '#005a9e', '#004578'];
+      const color = colors[Math.floor(Math.random() * colors.length)];
+      const result = await client.query(`
+        INSERT INTO email_accounts (
+          user_id, name, email_address, color, protocol,
+          imap_host, imap_port, imap_tls,
+          smtp_host, smtp_port, smtp_tls,
+          auth_user,
+          oauth_provider, oauth_access_token, oauth_refresh_token, oauth_token_expiry
+        ) VALUES ($1,$2,$3,$4,'imap',
+          'outlook.office365.com', 993, true,
+          'smtp.office365.com', 587, 'STARTTLS',
+          $3,
+          'microsoft', $5, $6, $7)
+        RETURNING *
+      `, [userId, displayName, email, color, encrypt(access_token), encrypt(refresh_token), expiry]);
+      accountId = result.rows[0].id;
+    }
+
+    const accountResult = await client.query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
+    return accountResult.rows[0];
+  });
+
+  imapManager.connectAccount(account).catch(err =>
     console.error(`OAuth connect failed for ${redactEmail(email)}:`, err.message)
   );
   return email;
@@ -288,8 +299,20 @@ router.get('/microsoft/device/poll', async (req, res) => {
   }
 });
 
+// Serialize refreshes per account so concurrent callers share one token-endpoint
+// call — AAD rotates the refresh token on each refresh, and two racing refreshes
+// would strand a superseded refresh token and lock the account out.
+const inFlightMsRefresh = new Map(); // accountId -> Promise
+export function refreshMicrosoftToken(account) {
+  const existing = inFlightMsRefresh.get(account.id);
+  if (existing) return existing;
+  const p = doRefreshMicrosoftToken(account).finally(() => inFlightMsRefresh.delete(account.id));
+  inFlightMsRefresh.set(account.id, p);
+  return p;
+}
+
 // Refresh an expired Microsoft token
-export async function refreshMicrosoftToken(account) {
+async function doRefreshMicrosoftToken(account) {
   const { clientId, clientSecret, tenantId } = getMsConfig();
 
   const storedRefreshToken = decrypt(account.oauth_refresh_token);

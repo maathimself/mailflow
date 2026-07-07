@@ -19,6 +19,10 @@ import { consume as rlConsume, reset as rlReset } from '../services/rateLimiter.
 
 const router = Router();
 
+// A precomputed valid bcrypt hash used to equalize login timing when the account
+// doesn't exist or is SSO-only, so response latency doesn't leak account existence.
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync('mailflow-timing-equalizer', 12);
+
 function maskEmail(email) {
   if (!email) return '';
   const [local, domain] = email.split('@');
@@ -35,6 +39,26 @@ function getTrustDurationMs(setting) {
     case '30d': return 30 * 24 * 60 * 60 * 1000;
     case 'permanent': return 365 * 24 * 60 * 60 * 1000;
     default: return 0; // 'never'
+  }
+}
+
+// Delete every server-side session belonging to a user (Redis-backed store, keys
+// prefixed "sess:"). Used after a password reset so a pre-existing session can't
+// outlive a credential change. Best-effort — never throws to the caller.
+async function destroyUserSessions(userId) {
+  try {
+    let cursor = 0;
+    do {
+      const res = await redisClient.scan(cursor, { MATCH: 'sess:*', COUNT: 200 });
+      cursor = res.cursor;
+      for (const key of res.keys) {
+        const raw = await redisClient.get(key);
+        if (!raw) continue;
+        try { if (JSON.parse(raw).userId === userId) await redisClient.del(key); } catch { /* not this user / unparsable */ }
+      }
+    } while (cursor !== 0);
+  } catch (err) {
+    console.error('destroyUserSessions failed:', err.message);
   }
 }
 
@@ -214,11 +238,15 @@ router.post('/login', authLimiter, async (req, res) => {
     const result = await query('SELECT * FROM users WHERE username = $1', [username.toLowerCase().trim()]);
     const user = result.rows[0];
     if (!user) {
+      // Run a dummy bcrypt compare so the response time doesn't reveal whether the
+      // username exists (equalize with the real-user path below).
+      await bcrypt.compare(password, DUMMY_PASSWORD_HASH);
       logAuthEvent('login_fail', { username: username.toLowerCase().trim(), ip: req.ip, success: false });
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
     if (!user.password_hash) {
+      await bcrypt.compare(password, DUMMY_PASSWORD_HASH); // equalize timing for SSO-only accounts
       logAuthEvent('login_fail', { username: user.username, userId: user.id, ip: req.ip, success: false });
       return res.status(401).json({ error: 'This account uses single sign-on. Please sign in with your SSO provider.' });
     }
@@ -965,6 +993,11 @@ router.post('/reset-password', authLimiter, async (req, res) => {
 
     const hash = await bcrypt.hash(password, 12);
     await query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, userId]);
+
+    // Revoke all existing sessions and trusted devices so a pre-existing (possibly
+    // attacker) session/device can't survive a compromise-driven password reset.
+    await destroyUserSessions(userId);
+    await query('DELETE FROM trusted_devices WHERE user_id = $1', [userId]);
 
     res.locals.resetRateLimit?.();
     res.json({ ok: true });

@@ -979,7 +979,7 @@ export default function MessageList() {
             fetch('/api/mail/messages/bulk-delete', {
               method: 'POST',
               credentials: 'include',
-              headers: { 'Content-Type': 'application/json' },
+              headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'MailFlow' },
               body: JSON.stringify({ ids: deleteIds }),
               keepalive: true,
             });
@@ -987,6 +987,7 @@ export default function MessageList() {
             fetch(`/api/mail/messages/${deleteIds[0]}`, {
               method: 'DELETE',
               credentials: 'include',
+              headers: { 'X-Requested-With': 'MailFlow' },
               keepalive: true,
             });
           }
