@@ -2924,11 +2924,15 @@ function AttachmentChips({ attachments, onRemove, mobile }) {
 }
 
 function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFocus, inputStyle, getSuggestions, containerStyle }) {
+  const { t } = useTranslation();
   const [suggestions, setSuggestions] = useState([]);
   const [suggIdx, setSuggIdx] = useState(-1);
   const debounceRef = useRef(null);
   const wrapperRef = useRef(null);
+  const inputRef = useRef(null);
   const [dropStyle, setDropStyle] = useState(null);
+  const [menu, setMenu] = useState(null); // { x, y, index } | null — recipient chip context menu
+  const longPressRef = useRef(null);
 
   // Debounce contact suggestions — only when getSuggestions is wired up
   useEffect(() => {
@@ -2943,7 +2947,11 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
         // Measure wrapper position for the fixed dropdown — escapes overflow:auto containers
         if (wrapperRef.current) {
           const rect = wrapperRef.current.getBoundingClientRect();
-          setDropStyle({ top: rect.bottom + 2, left: rect.left, width: Math.max(rect.width, 220) });
+          // Cap the height so a long list overflows and scrolls inside its own box
+          // rather than extending behind the mobile keyboard (which lets the drag
+          // fall through and scroll the page underneath).
+          const avail = (window.visualViewport?.height || window.innerHeight) - rect.bottom - 16;
+          setDropStyle({ top: rect.bottom + 2, left: rect.left, width: Math.max(rect.width, 220), maxHeight: Math.max(120, Math.min(240, avail)) });
         }
         setSuggestions(results);
         setSuggIdx(-1);
@@ -2981,15 +2989,68 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
     }
   };
 
+  // Pull the bare email out of a chip string ("Jane <jane@x.com>" -> "jane@x.com").
+  const chipEmail = (chip) => {
+    const m = (chip || '').match(/<([^>]+)>/);
+    return (m ? m[1] : chip || '').trim();
+  };
+  const copyText = (text) => { navigator.clipboard?.writeText(text).catch(() => {}); };
+
+  // Load a chip back into the input for editing, preserving any half-typed text.
+  const startEdit = (i) => {
+    const chipText = chips[i];
+    const rest = chips.filter((_, j) => j !== i);
+    const pending = value.trim();
+    onChipsChange(pending ? [...rest, pending] : rest);
+    onChange(chipText);
+    clearSuggestions();
+    setMenu(null);
+    setTimeout(() => inputRef.current?.focus(), 0);
+  };
+
+  // Open the chip menu, clamped so it stays within the viewport.
+  const openMenu = (clientX, clientY, index) => {
+    setMenu({ x: Math.min(clientX, window.innerWidth - 176), y: Math.min(clientY, window.innerHeight - 168), index });
+  };
+  const onChipTouchStart = (e, i) => {
+    const touch = e.touches[0];
+    clearTimeout(longPressRef.current);
+    longPressRef.current = setTimeout(() => openMenu(touch.clientX, touch.clientY, i), 500);
+  };
+  const cancelLongPress = () => clearTimeout(longPressRef.current);
+
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    const onKey = (e) => { if (e.key === 'Escape') setMenu(null); };
+    document.addEventListener('pointerdown', close);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('pointerdown', close); document.removeEventListener('keydown', onKey); };
+  }, [menu]);
+
+  const menuItems = menu ? [
+    { label: t('common.edit'),                   fn: () => startEdit(menu.index) },
+    { label: t('compose.recipientMenu.copy'),    fn: () => { copyText(chipEmail(chips[menu.index])); setMenu(null); } },
+    { label: t('compose.recipientMenu.copyAll'), fn: () => { copyText(chips.map(chipEmail).join(', ')); setMenu(null); } },
+    { label: t('common.remove'),                 fn: () => { onChipsChange(chips.filter((_, j) => j !== menu.index)); setMenu(null); }, danger: true },
+  ] : [];
+
   return (
     <div ref={wrapperRef} style={{ display: 'flex', flexWrap: 'wrap', gap: 4, flex: 1, alignItems: 'center', padding: '5px 0', minWidth: 0, ...containerStyle }}>
       {chips.map((chip, i) => (
-        <span key={i} style={{
-          display: 'inline-flex', alignItems: 'center', gap: 3,
-          background: 'var(--accent-dim)', color: 'var(--accent)',
-          borderRadius: 6, padding: '2px 6px 2px 8px', fontSize: 12,
-          maxWidth: 220,
-        }}>
+        <span key={i}
+          title={chip}
+          onDoubleClick={() => startEdit(i)}
+          onContextMenu={(e) => { e.preventDefault(); openMenu(e.clientX, e.clientY, i); }}
+          onTouchStart={(e) => onChipTouchStart(e, i)}
+          onTouchEnd={cancelLongPress}
+          onTouchMove={cancelLongPress}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 3,
+            background: 'var(--accent-dim)', color: 'var(--accent)',
+            borderRadius: 6, padding: '2px 6px 2px 8px', fontSize: 12,
+            maxWidth: 220, cursor: 'default', userSelect: 'none',
+          }}>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{chip}</span>
           <button
             type="button"
@@ -3003,6 +3064,7 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
         </span>
       ))}
       <input
+        ref={inputRef}
         type="text"
         value={value}
         onChange={e => onChange(e.target.value)}
@@ -3013,18 +3075,22 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
         style={{ ...inputStyle, flex: '1 1 80px', minWidth: 80 }}
       />
       {suggestions.length > 0 && dropStyle && (
-        <div style={{
-          position: 'fixed',
-          top: dropStyle.top, left: dropStyle.left, width: dropStyle.width,
-          zIndex: 9800,
-          background: 'var(--bg-elevated)', border: '1px solid var(--border)',
-          borderRadius: 8, boxShadow: 'var(--shadow-popover)',
-          overflow: 'hidden',
-        }}>
+        <div
+          onMouseDown={e => e.preventDefault()} /* keep the input focused; don't clear on interaction */
+          style={{
+            position: 'fixed',
+            top: dropStyle.top, left: dropStyle.left, width: dropStyle.width,
+            maxHeight: dropStyle.maxHeight,
+            zIndex: 9800,
+            background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+            borderRadius: 8, boxShadow: 'var(--shadow-popover)',
+            overflowY: 'auto', overflowX: 'hidden', touchAction: 'pan-y',
+            WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain',
+          }}>
           {suggestions.map((contact, i) => (
             <div
               key={contact.email}
-              onMouseDown={e => { e.preventDefault(); commitSuggestion(contact); }}
+              onClick={() => commitSuggestion(contact)}
               onMouseEnter={() => setSuggIdx(i)}
               style={{
                 padding: '8px 12px', cursor: 'pointer',
@@ -3041,6 +3107,31 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
               <div style={{ fontSize: 11, color: 'var(--text-tertiary)', lineHeight: 1.3 }}>
                 {contact.email}
               </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {menu && (
+        <div
+          onPointerDown={e => e.stopPropagation()}
+          style={{
+            position: 'fixed', top: menu.y, left: menu.x, zIndex: 9900, minWidth: 160,
+            background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+            borderRadius: 8, boxShadow: 'var(--shadow-popover)', overflow: 'hidden', padding: 4,
+          }}
+        >
+          {menuItems.map(item => (
+            <div
+              key={item.label}
+              onClick={item.fn}
+              style={{
+                padding: '8px 12px', fontSize: 13, cursor: 'pointer', borderRadius: 6,
+                color: item.danger ? 'var(--red)' : 'var(--text-primary)', whiteSpace: 'nowrap',
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+            >
+              {item.label}
             </div>
           ))}
         </div>

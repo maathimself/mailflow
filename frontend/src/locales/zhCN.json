@@ -171,7 +171,11 @@
     "priority": "优先级",
     "priorityHigh": "高优先级",
     "priorityNormal": "普通",
-    "priorityLow": "低优先级"
+    "priorityLow": "低优先级",
+    "recipientMenu": {
+      "copy": "复制地址",
+      "copyAll": "复制此栏全部"
+    }
   },
   "message": {
     "selectToRead": "请选择一封邮件以阅读",

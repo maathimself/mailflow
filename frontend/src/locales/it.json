@@ -171,7 +171,11 @@
     "priority": "Priorità",
     "priorityHigh": "Alta priorità",
     "priorityNormal": "Normale",
-    "priorityLow": "Bassa priorità"
+    "priorityLow": "Bassa priorità",
+    "recipientMenu": {
+      "copy": "Copia indirizzo",
+      "copyAll": "Copia tutti in questo campo"
+    }
   },
   "message": {
     "selectToRead": "Seleziona un messaggio da leggere",

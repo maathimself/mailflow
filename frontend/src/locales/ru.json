@@ -171,7 +171,11 @@
     "priority": "Приоритет",
     "priorityHigh": "Высокий приоритет",
     "priorityNormal": "Обычный",
-    "priorityLow": "Низкий приоритет"
+    "priorityLow": "Низкий приоритет",
+    "recipientMenu": {
+      "copy": "Копировать адрес",
+      "copyAll": "Копировать все в этом поле"
+    }
   },
   "message": {
     "selectToRead": "Выберите сообщение для чтения",
