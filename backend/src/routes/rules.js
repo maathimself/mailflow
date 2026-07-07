@@ -25,6 +25,9 @@ export function validateConditions(conditions) {
     if (cond.field === 'header' && !String(cond.headerName || '').trim()) {
       return 'Header name is required for header conditions';
     }
+    if (cond.field === 'read_status' && !['read', 'unread'].includes(String(cond.value))) {
+      return 'Read status condition must be "read" or "unread"';
+    }
     if (cond.operator === 'regex' && isDangerousRegex(String(cond.value || ''))) {
       return 'Regex pattern is invalid or too complex (possible catastrophic backtracking)';
     }

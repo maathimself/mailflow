@@ -110,6 +110,13 @@ function evaluateCondition(cond, msg) {
     case 'has_attachment': {
       return !!msg.hasAttachments;
     }
+    case 'read_status': {
+      // value is 'read' or 'unread'. Mirror the msg.isRead ?? msg.is_read fallback
+      // used by the action handlers so both the real-time and run-rules message
+      // shapes are covered. Any non-'read' value is treated as 'unread'.
+      const isRead = !!(msg.isRead ?? msg.is_read);
+      return value === 'read' ? isRead : !isRead;
+    }
     case 'body': {
       return matchOperator(operator, msg._bodyText || '', value);
     }

@@ -70,6 +70,51 @@ describe('applyInboxRules — blank condition value never matches', () => {
   });
 });
 
+describe('applyInboxRules — read_status condition', () => {
+  it('fires a read-matching rule when the message is read', async () => {
+    const rule = mkRule(
+      [{ type: 'move', value: 'INBOX/Trash' }],
+      { conditions: [{ field: 'read_status', value: 'read' }] }
+    );
+    query.mockResolvedValueOnce({ rows: [rule] });
+    query.mockResolvedValue({ rows: [] });
+    mockImap.bulkMoveMessages.mockResolvedValue({ failed: [], uidMap: new Map([[100, 200]]) });
+
+    const result = await applyInboxRules([mkMsg({ is_read: true })], account, mockImap);
+
+    expect(mockImap.bulkMoveMessages).toHaveBeenCalledTimes(1);
+    expect(result.remaining).toHaveLength(0);
+  });
+
+  it('does not fire a read-matching rule when the message is unread', async () => {
+    const rule = mkRule(
+      [{ type: 'move', value: 'INBOX/Trash' }],
+      { conditions: [{ field: 'read_status', value: 'read' }] }
+    );
+    query.mockResolvedValueOnce({ rows: [rule] });
+
+    const result = await applyInboxRules([mkMsg({ is_read: false })], account, mockImap);
+
+    expect(mockImap.bulkMoveMessages).not.toHaveBeenCalled();
+    expect(result.remaining).toHaveLength(1);
+  });
+
+  it('fires an unread-matching rule when the message is unread', async () => {
+    const rule = mkRule(
+      [{ type: 'move', value: 'INBOX/Trash' }],
+      { conditions: [{ field: 'read_status', value: 'unread' }] }
+    );
+    query.mockResolvedValueOnce({ rows: [rule] });
+    query.mockResolvedValue({ rows: [] });
+    mockImap.bulkMoveMessages.mockResolvedValue({ failed: [], uidMap: new Map([[100, 200]]) });
+
+    const result = await applyInboxRules([mkMsg({ is_read: false })], account, mockImap);
+
+    expect(mockImap.bulkMoveMessages).toHaveBeenCalledTimes(1);
+    expect(result.remaining).toHaveLength(0);
+  });
+});
+
 describe('applyInboxRules — malformed condition does not abort other rules', () => {
   it('skips the malformed rule and still applies a subsequent valid rule', async () => {
     const badRule = {

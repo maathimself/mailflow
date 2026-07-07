@@ -5121,6 +5121,7 @@ function RulesTab() {
     if (!conds.length) return '—';
     return conds.slice(0, 2).map(c => {
       if (c.field === 'has_attachment') return t('admin.rules.fieldHasAttachment');
+      if (c.field === 'read_status') return c.value === 'read' ? t('admin.rules.readStatusRead') : t('admin.rules.readStatusUnread');
       return `${c.field} ${c.operator} "${c.value}"`;
     }).join(` ${rule.condition_logic} `) + (conds.length > 2 ? ` +${conds.length - 2}` : '');
   }
@@ -5139,6 +5140,7 @@ function RulesTab() {
     { value: 'body',           label: t('admin.rules.fieldBody') },
     { value: 'header',         label: t('admin.rules.fieldHeader') },
     { value: 'has_attachment', label: t('admin.rules.fieldHasAttachment') },
+    { value: 'read_status',    label: t('admin.rules.fieldReadStatus') },
   ];
   const OPERATORS = [
     { value: 'contains',     label: t('admin.rules.opContains') },
@@ -5230,6 +5232,10 @@ function RulesTab() {
                         const next = { ...c, field: newField };
                         if (newField !== 'header') delete next.headerName;
                         if (newField === 'has_attachment') { delete next.operator; delete next.value; }
+                        else if (newField === 'read_status') {
+                          delete next.operator;
+                          if (next.value !== 'read' && next.value !== 'unread') next.value = 'unread';
+                        }
                         else if (!next.operator) next.operator = 'contains';
                         return next;
                       });
@@ -5239,7 +5245,7 @@ function RulesTab() {
                 >
                   {FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
                 </select>
-                {cond.field !== 'has_attachment' && (
+                {cond.field !== 'has_attachment' && cond.field !== 'read_status' && (
                   <>
                     <select
                       style={{ ...inputStyle, width: 'auto', flex: '0 0 auto' }}
@@ -5258,6 +5264,16 @@ function RulesTab() {
                     />
                   </>
                 )}
+                {cond.field === 'read_status' && (
+                  <select
+                    style={{ ...inputStyle, flex: 1 }}
+                    value={cond.value === 'read' ? 'read' : 'unread'}
+                    onChange={e => setCondition(idx, 'value', e.target.value)}
+                  >
+                    <option value="read">{t('admin.rules.readStatusRead')}</option>
+                    <option value="unread">{t('admin.rules.readStatusUnread')}</option>
+                  </select>
+                )}
                 <button
                   onClick={() => removeCondition(idx)}
                   style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 16, padding: '0 4px', flexShrink: 0 }}
@@ -5272,6 +5288,11 @@ function RulesTab() {
                   onChange={e => setCondition(idx, 'headerName', e.target.value)}
                   placeholder={t('admin.rules.headerNamePlaceholder')}
                 />
+              )}
+              {cond.field === 'read_status' && (
+                <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--text-tertiary)' }}>
+                  {t('admin.rules.readStatusNote')}
+                </p>
               )}
               {cond.field === 'body' && (
                 <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--text-tertiary)' }}>

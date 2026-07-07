@@ -31,6 +31,20 @@ describe('validateConditions', () => {
   it('returns null for an empty conditions array', () => {
     expect(validateConditions([])).toBeNull();
   });
+
+  it('returns null for a read_status condition with value "read"', () => {
+    expect(validateConditions([{ field: 'read_status', value: 'read' }])).toBeNull();
+  });
+
+  it('returns null for a read_status condition with value "unread"', () => {
+    expect(validateConditions([{ field: 'read_status', value: 'unread' }])).toBeNull();
+  });
+
+  it('returns an error for a read_status condition with a missing or invalid value', () => {
+    expect(validateConditions([{ field: 'read_status' }])).toBeTruthy();
+    expect(validateConditions([{ field: 'read_status', value: '' }])).toBeTruthy();
+    expect(validateConditions([{ field: 'read_status', value: 'maybe' }])).toBeTruthy();
+  });
 });
 
 describe('normalizeActions', () => {
