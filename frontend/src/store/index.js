@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { api } from '../utils/api.js';
-import { applyTheme, applyCustomCss } from '../themes.js';
+import { applyTheme, applyCustomCss, getInitialTheme } from '../themes.js';
 import { applyFontSet, applyFontSize } from '../fonts.js';
 import { applyLayout, normalizeLayout } from '../layouts.js';
 import { DEFAULT_AI_ACTIONS } from '../aiActions.js';
@@ -377,7 +377,7 @@ export const useStore = create((set, get) => ({
   setLoadingThread: (id) => set({ loadingThread: id }),
 
   // Theme
-  theme: localStorage.getItem('mailflow_theme') || 'dark',
+  theme: localStorage.getItem('mailflow_theme') || getInitialTheme(),
   setTheme: (theme) => {
     localStorage.setItem('mailflow_theme', theme);
     set({ theme });

@@ -598,6 +598,16 @@ export function applyCustomCss(css) {
 
 // ── Theme application ─────────────────────────────────────────────────────────
 
+// The theme to use before any stored/server preference is known — i.e. on the
+// login screen and the very first visit. Honors the OS light/dark setting and
+// falls back to dark. matchMedia is guarded so a missing API never throws.
+export function getInitialTheme() {
+  try {
+    if (window.matchMedia?.('(prefers-color-scheme: light)').matches) return 'light';
+  } catch { /* matchMedia unavailable — fall through to dark */ }
+  return 'dark';
+}
+
 export function applyTheme(themeName) {
   const theme = THEMES[themeName] || THEMES.dark;
 

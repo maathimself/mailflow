@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useStore } from './store/index.js';
 import { api } from './utils/api.js';
-import { applyTheme } from './themes.js';
+import { applyTheme, getInitialTheme } from './themes.js';
 import { applyFontSet } from './fonts.js'; // still used for the instant localStorage apply on mount
 import { applyLayout } from './layouts.js';
 import LoginPage from './components/LoginPage.jsx';
@@ -31,7 +31,7 @@ export default function App() {
 
   useEffect(() => {
     // Apply localStorage immediately so there's no flash while we check auth
-    applyTheme(localStorage.getItem('mailflow_theme') || 'dark');
+    applyTheme(localStorage.getItem('mailflow_theme') || getInitialTheme());
     applyFontSet(localStorage.getItem('mailflow_font') || 'default');
     const savedListWidth = Number(localStorage.getItem('mailflow_list_width')) || undefined;
     applyLayout(localStorage.getItem('mailflow_layout') || 'comfortable', savedListWidth);

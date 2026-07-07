@@ -472,11 +472,16 @@ export default function Sidebar() {
 
   const handleLogout = async () => {
     await api.logout();
+    // Appearance/localization prefs (theme, font, layout, language) are deliberately
+    // NOT cleared: keeping them means the login screen and the next visit retain the
+    // last-used look instead of snapping back to the default dark theme (issue #208).
+    // They are re-synced from the account's server-side preferences after login.
+    // The keys below are mailbox/session state that can reference the previous user's
+    // accounts or folders, so they are cleared on sign-out.
     [
-      'mailflow_theme', 'mailflow_font', 'mailflow_layout',
       'mailflow_notification_sound', 'mailflow_custom_sound', 'mailflow_custom_sound_name',
       'mailflow_page_size', 'mailflow_scroll_mode', 'mailflow_sync_interval',
-      'mailflow_threaded_view', 'mailflow_plaintext_email', 'mailflow_language',
+      'mailflow_threaded_view', 'mailflow_plaintext_email',
       'mailflow_hover_quick_actions', 'mailflow_swipe_actions',
       'mailflow_expanded_accounts', 'mailflow_collapsed_folders',
     ].forEach(k => localStorage.removeItem(k));
