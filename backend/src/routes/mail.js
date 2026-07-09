@@ -220,6 +220,25 @@ router.get('/unread-counts', async (req, res) => {
   res.json({ total, byAccount });
 });
 
+// Hard cap on a live IMAP body fetch. Connection acquisition is already bounded at 30s
+// inside imapManager, but the FETCH itself is not — on a half-open/stalled connection
+// (e.g. an account mid-reconnect, as happens on large flaky mailboxes) it can hang
+// indefinitely, and with no response the client's body spinner spins forever. 40s sits
+// above the 30s connect bound so a legitimately slow connect still completes.
+const BODY_FETCH_TIMEOUT_MS = 40000;
+
+// Reject with a tagged error if `promise` doesn't settle within `ms`. The underlying
+// fetch keeps running and releases its pooled client via withFreshClient's own cleanup;
+// we just stop making the HTTP request wait on it. clearTimeout avoids keeping the
+// event loop alive after the race settles.
+function fetchWithTimeout(promise, ms) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error('BODY_FETCH_TIMEOUT')), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 // Get full message body + attachments list
 router.get('/messages/:id/body', async (req, res) => {
   const { id } = req.params;
@@ -306,7 +325,10 @@ router.get('/messages/:id/body', async (req, res) => {
     const account = accountResult.rows[0];
     imapManager.noteUserActivity(account.id);
 
-    const { html, text, attachments } = await imapManager.fetchMessageBody(account, message.uid, message.folder);
+    const { html, text, attachments } = await fetchWithTimeout(
+      imapManager.fetchMessageBody(account, message.uid, message.folder),
+      BODY_FETCH_TIMEOUT_MS
+    );
 
     const safeHtml = html ? sanitizeDbText(sanitizeEmail(html)) : null;
     const safeText = sanitizeDbText(text);
@@ -343,6 +365,12 @@ router.get('/messages/:id/body', async (req, res) => {
       return res.status(503).json({
         error: 'The mail server is temporarily throttling access. Please wait a few minutes and try again.',
         throttled: true,
+      });
+    }
+    if (msg === 'BODY_FETCH_TIMEOUT') {
+      return res.status(504).json({
+        error: 'This message is taking too long to load — the mail server may be temporarily unreachable. Please try again.',
+        timeout: true,
       });
     }
     res.status(500).json({ error: msg });
