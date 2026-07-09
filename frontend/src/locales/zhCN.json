@@ -138,6 +138,7 @@
     "attachmentKeywords": "附件|已附上|请见附件|详见附件|见附件|如附件所示",
     "sent": {
       "title": "邮件已发送",
+      "noCopy": "已发送，但未保存到已发送文件夹",
       "action": "查看"
     },
     "toolbar": {

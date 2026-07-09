@@ -138,6 +138,7 @@
     "attachmentKeywords": "attach|attached|attachment|attachments|see attached|find attached|enclosed|please find",
     "sent": {
       "title": "Message sent",
+      "noCopy": "Sent, but not saved to your Sent folder",
       "action": "View"
     },
     "toolbar": {

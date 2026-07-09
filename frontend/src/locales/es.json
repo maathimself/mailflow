@@ -138,6 +138,7 @@
     "attachmentKeywords": "adjunto|adjunta|adjuntos|adjuntas|se adjunta|ver adjunto|archivo adjunto|encontrará adjunto",
     "sent": {
       "title": "Mensaje enviado",
+      "noCopy": "Enviado, pero no guardado en Enviados",
       "action": "Ver"
     },
     "toolbar": {

@@ -138,6 +138,7 @@
     "attachmentKeywords": "ci-joint|ci-jointe|ci-joints|pièce jointe|pièces jointes|en pièce jointe|voir pièce jointe|veuillez trouver ci-joint",
     "sent": {
       "title": "Message envoyé",
+      "noCopy": "Envoyé, mais non enregistré dans Envoyés",
       "action": "Voir"
     },
     "toolbar": {

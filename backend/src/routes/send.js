@@ -110,14 +110,17 @@ router.post('/send', async (req, res) => {
   const emailPriority = VALID_PRIORITIES.has(priority) ? priority : 'normal';
   if (!accountId || !to?.length) return res.status(400).json({ error: 'accountId and to required' });
 
-  // Idempotency guard — if the client retries with the same key, return the cached result
-  // instead of sending a duplicate email.
+  // Idempotency guard. The client sends a stable X-Idempotency-Key per logical send: a
+  // sequential retry after a lost success response returns the cached result, and a
+  // concurrent same-key submit is blocked by the reservation set just before delivery
+  // (below). Neither can produce a duplicate email. Fixes audit finding [1].
   const idempotencyKey = typeof req.headers['x-idempotency-key'] === 'string'
     ? req.headers['x-idempotency-key'].slice(0, 128)
     : null;
-  if (idempotencyKey) {
-    const rk = `send_idem:${req.session.userId}:${idempotencyKey}`;
-    const cached = await redisClient.get(rk).catch(() => null);
+  const idemKeyRedis = idempotencyKey ? `send_idem:${req.session.userId}:${idempotencyKey}` : null;
+  if (idemKeyRedis) {
+    const cached = await redisClient.get(idemKeyRedis).catch(() => null);
+    if (cached === '__inflight__') return res.status(409).json({ error: 'This message is already being sent.' });
     if (cached) return res.json(JSON.parse(cached));
   }
 
@@ -232,6 +235,7 @@ router.post('/send', async (req, res) => {
     }
   }
 
+  let delivered = false; // true once transport.sendMail has actually handed off the message
   try {
     if (account.oauth_provider === 'microsoft') {
       // Only refresh when the token is near/at expiry (mirrors imapManager's
@@ -342,7 +346,19 @@ router.post('/send', async (req, res) => {
       rawMessage = Buffer.concat(chunks);
     }
 
+    // Reserve the idempotency key atomically right before delivery so a concurrent
+    // same-key submit cannot also send (the post-send cache alone can't stop concurrent
+    // duplicates). Overwritten with the result on success; released in the catch only if
+    // delivery never happened, so a genuine retry after a pre-send failure can proceed.
+    if (idemKeyRedis) {
+      // TTL comfortably above the worst-case send (large attachment over a slow SMTP
+      // server) so the in-flight guard cannot lapse while this request is still running.
+      const reserved = await redisClient.set(idemKeyRedis, '__inflight__', { NX: true, EX: 300 }).catch(() => 'OK');
+      if (reserved === null) return res.status(409).json({ error: 'This message is already being sent.' });
+    }
+
     await transport.sendMail(mailOptions);
+    delivered = true;
 
     // Auto-learn sent recipients so they rank above inbound-only senders in autocomplete.
     // Fire-and-forget — a DB error here must never affect the send response.
@@ -422,27 +438,40 @@ router.post('/send', async (req, res) => {
     }
     console.log(`Post-send: ${redactEmail(account.email_address)} sentFolder=${sentFolder} autoSaves=${serverAutoSaves}`);
 
+    // sentCopySaved: null = not applicable (server auto-saves, or no Sent folder resolved);
+    // true/false = whether OUR IMAP APPEND landed the Sent copy. Surfaced to the client so
+    // it can warn when a delivered message could not be saved to Sent. Fixes audit finding [2].
+    let sentCopySaved = null;
     if (sentFolder) {
       if (rawMessage) {
-        // APPEND directly to IMAP Sent, then run a sync to pull it into the DB
-        imapManager.appendToSent(account, sentFolder, rawMessage)
-          .then(() => {
-            setTimeout(() => {
-              imapManager.syncFolderOnDemand(account, sentFolder)
-                .then(() => console.log(`Post-append sync done: ${redactEmail(account.email_address)}/${sentFolder}`))
-                .catch(e => console.error(`Post-append sync failed: ${e.message}`));
-            }, 1000);
-          })
-          .catch(err => {
-            console.error(`IMAP append failed for ${redactEmail(account.email_address)}/${sentFolder}: ${err.message}`);
-            // Fall back to delayed sync
-            setTimeout(() => {
-              imapManager.syncFolderOnDemand(account, sentFolder)
-                .catch(e => console.error(`Fallback sync failed: ${e.message}`));
-            }, 5000);
-          });
+        // Non-auto-saving account: APPEND the Sent copy ourselves — exactly ONCE. IMAP
+        // APPEND is NOT idempotent (unlike a \Seen flag), so we must not retry: a retry
+        // whose first attempt merely timed out (but still lands on the server) would store
+        // a SECOND copy. Bound the wait so a stalled connection can't hang the response;
+        // the abandoned append can at worst still save the single copy. On failure, warn
+        // the user and schedule a fallback sync in case the append landed late. Audit [2].
+        sentCopySaved = false;
+        try {
+          await Promise.race([
+            imapManager.appendToSent(account, sentFolder, rawMessage),
+            new Promise((_, rej) => setTimeout(() => rej(new Error('Sent APPEND timed out')), 20000)),
+          ]);
+          sentCopySaved = true;
+          setTimeout(() => {
+            imapManager.syncFolderOnDemand(account, sentFolder)
+              .catch(e => console.error(`Post-append sync failed: ${e.message}`));
+          }, 1000);
+        } catch (appendErr) {
+          console.error(`IMAP append to Sent failed for ${redactEmail(account.email_address)}/${sentFolder}: ${appendErr.message}`);
+          // The append may still have landed (or land shortly) — pull the folder so a
+          // late-completing append self-corrects the DB rather than staying invisible.
+          setTimeout(() => {
+            imapManager.syncFolderOnDemand(account, sentFolder)
+              .catch(e => console.error(`Post-append fallback sync failed: ${e.message}`));
+          }, 8000);
+        }
       } else {
-        // Server auto-saves via SMTP; just sync after a delay
+        // Server auto-saves via SMTP; just sync after a delay.
         const syncAttempt = (label) => imapManager.syncFolderOnDemand(account, sentFolder)
           .then(() => console.log(`Post-send ${label} sync done: ${redactEmail(account.email_address)}/${sentFolder}`))
           .catch(e => console.error(`Post-send ${label} sync failed: ${e.message}`));
@@ -452,13 +481,28 @@ router.post('/send', async (req, res) => {
     }
 
     const sendResult = { ok: true };
-    if (idempotencyKey) {
-      const rk = `send_idem:${req.session.userId}:${idempotencyKey}`;
-      redisClient.set(rk, JSON.stringify(sendResult), { EX: 86400 }).catch(() => {});
-    }
+    // Surface only the problem case so existing success handling is unchanged; the UI warns
+    // when a delivered message could not be saved to the account's Sent folder.
+    if (sentCopySaved === false) sendResult.sentCopySaved = false;
+    // Overwrite the in-flight reservation with the final result so a retry after a lost
+    // response returns this instead of re-sending.
+    if (idemKeyRedis) redisClient.set(idemKeyRedis, JSON.stringify(sendResult), { EX: 86400 }).catch(() => {});
     res.json(sendResult);
   } catch (err) {
     console.error('Send failed:', err.message);
+    if (idemKeyRedis) {
+      if (delivered) {
+        // The message WAS delivered but a later step threw. Persist a DURABLE success
+        // result (not just the short-lived reservation) so a retry at ANY time returns it
+        // instead of re-running transport.sendMail — otherwise the reservation would lapse
+        // and the same key could deliver a second copy. Fixes audit review [1]/[8].
+        redisClient.set(idemKeyRedis, JSON.stringify({ ok: true }), { EX: 86400 }).catch(() => {});
+      } else {
+        // Delivery never happened — release so a genuine retry after a pre-send failure
+        // can proceed immediately.
+        redisClient.del(idemKeyRedis).catch(() => {});
+      }
+    }
     res.status(500).json({ error: sanitizeSmtpError(err) });
   }
 });

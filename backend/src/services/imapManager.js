@@ -27,6 +27,18 @@ const resolveAccountHost = async (account) => {
   return { resolved, policy };
 };
 
+// Race a promise against a timeout. On timeout the underlying promise keeps running (JS
+// can't cancel it) but its result is ignored, so use this only for steps that hold no
+// resource needing explicit teardown (token refresh, DNS resolution) — an abandoned
+// pending promise is then harmless. Prevents a single hung network step from wedging a
+// sequential loop whose re-entrancy guard would otherwise never reset.
+function raceTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timeout (${ms}ms)`)), ms)),
+  ]);
+}
+
 // Body parts that cover ~99% of real-world email structures (used for full body caching)
 const BODY_PREFETCH_PARTS = ['1', '1.1', '1.2', '2', '2.1', '2.2', '1.1.1', '1.2.1'];
 
@@ -43,6 +55,43 @@ const QUIET_WINDOW_MS = 8000;
 // any real indexing progress clears the backoff so a recovered account resumes promptly.
 const SNIPPET_BACKOFF_BASE_MS = 10 * 60 * 1000;
 const SNIPPET_BACKOFF_MAX_MS = 2 * 60 * 60 * 1000;
+
+// A connected account that hasn't completed a successful sync tick in this long is
+// likely on a stale/half-open connection — the socket is alive so it passes the
+// presence-only health check and never gets reconnected. Well above the max 120s sync
+// interval so it only fires on a genuine stall. Logged for diagnosis; auto-recovery is
+// deliberately deferred until the mechanism is confirmed from these logs.
+const STALE_SYNC_WARN_MS = 5 * 60 * 1000;
+
+// How often to actively probe each connected account for a "deaf" sync connection —
+// one that still passes commands but has stopped reflecting new mail (the ~60-min
+// delay we observed). A fresh connection's UID SEARCH is authoritative; if the server
+// holds any UID above our highest synced UID, the persistent connection missed new mail
+// and is force-reconnected. Accounts are probed sequentially, so worst-case new-mail
+// latency is ~this interval only when providers respond promptly; several simultaneously
+// unreachable servers can serialize-delay later accounts within a cycle.
+const STALENESS_CHECK_MS = 3 * 60 * 1000;
+
+// A sync tick that has been running longer than this is "hung" (half-open connection) —
+// a normal INBOX sync fetches 20 messages, envelope/flags only, and completes in a few
+// seconds. The staleness check uses this to tell a HEALTHY in-flight sync (started
+// recently, about to commit — leave it alone) from a HUNG one that has pinned the
+// account's sync lock and must be torn down so a fresh reconnect can catch up. Generous
+// enough (30s) that a merely-slow-but-progressing sync is not misread as hung, yet well
+// below the 55s sync wall-clock so recovery beats the slow timeout-then-reconnect self-heal.
+const SYNC_HUNG_MS = 30 * 1000;
+
+// Durable flag push. A read/star change is written to the DB and pushed to IMAP
+// immediately; if that push fails (deaf/half-open pool connection, provider blip) the
+// message is queued here and re-pushed every cycle until the server confirms — otherwise
+// a later flag-sync PULL would silently revert the user's change. The cycle interval MUST
+// stay below the 30s read_changed_at/star_changed_at "local wins" window: each cycle
+// re-bumps the marker so that window never lapses while a push is still outstanding, which
+// is why we don't need to touch the three pull-sync guards. Give up (clear the marker so
+// the server's truth can show through) after MAX_ATTEMPTS connected failures.
+const FLAG_PUSH_RECONCILE_MS = 15 * 1000;
+const FLAG_PUSH_MAX_ATTEMPTS = 40;   // ~10 min of connected retries before honest revert
+const FLAG_PUSH_PER_CYCLE = 30;      // cap setFlag attempts per account per cycle (bounds cycle time)
 
 // Unicode bidi override/embedding characters that can visually reverse a filename,
 // making "malware.exe" display as "malware.pdf" to the user.
@@ -287,6 +336,32 @@ const PROVIDERS = {
     skipFolderPatterns: [],
     skipFolderNames: [],
   },
+  purelymail: {
+    // PurelyMail (Dovecot-based) is connection-sensitive and shows two failure modes on
+    // large, mostly-uncached mailboxes: (1) long-lived sessions go "deaf"/half-open, and
+    // (2) heavy background BODY[] work saturates the small body-fetch pool, timing out live
+    // opens. So it gets a deliberately conservative profile:
+    //   snippetIndex:false      — disables BOTH the background snippet indexer AND the
+    //                             on-view folder body prefetch (both gate on this flag), the
+    //                             bulk of the BODY[] load on a 50k-message uncached mailbox.
+    //   speculativeFetch:false  — PurelyMail returns malformed 0-byte literals for batched
+    //                             multi-part BODY[] fetches; two-step (structure then parts)
+    //                             is reliable.
+    //   preferFreshBodyFetch    — user/new-mail body fetches use a brand-new login instead of
+    //                             the shared pool, so they neither contend with flag writes on
+    //                             the size-2 pool nor inherit a frozen pooled session view.
+    batchSize: 100, batchDelay: 1500, errorDelay: 15000, batchesPerConn: 15,
+    fetchBody: false,
+    pushesFlags: true,
+    snippetIndex: false,
+    speculativeFetch: false,
+    preferFreshBodyFetch: true,
+    prefetchNewBodies: false, // don't pre-warm bodies of newly-arrived mail either — keeps
+                              // ALL background BODY[] work off this connection-sensitive
+                              // provider; a brand-new message is fetched live on first open.
+    skipFolderPatterns: [],
+    skipFolderNames: [],
+  },
   generic: {
     batchSize: 100, batchDelay: 1500, errorDelay: 15000, batchesPerConn: 15,
     fetchBody: false,
@@ -304,6 +379,7 @@ export function providerProfile(account) {
   if (host.includes('.yahoo.com') || host.includes('.ymail.com')) return PROVIDERS.yahoo;
   if (host.includes('.icloud.com') || host.includes('.apple.com') || host.includes('.me.com')) return PROVIDERS.apple;
   if (host.includes('.outlook.com') || host.includes('office365.com') || host.includes('.hotmail.com') || host.includes('.live.com') || (account.oauth_provider === 'microsoft')) return PROVIDERS.microsoft;
+  if (host.includes('purelymail.com')) return PROVIDERS.purelymail;
   return PROVIDERS.generic;
 }
 
@@ -578,6 +654,34 @@ async function withFreshClient(account, fn) {
   }
 }
 
+// Like withFreshClient, but bypasses the pool entirely: it opens a BRAND-NEW IMAP login,
+// runs fn(client), and tears it down. Used as the body-fetch retry path. When a pooled
+// connection returns nothing for a recently-arrived UID (the PurelyMail "frozen view"
+// symptom, where every existing session — persistent or pooled — shares a stale mailbox
+// snapshot), only a fresh login reliably sees the message. A pool retry could instead
+// grab a second frozen connection and return a blank body, so the retry must be genuinely
+// fresh. Not pooled itself — a body fetch is user-initiated and infrequent, so the
+// one-off login cost is acceptable for guaranteed correctness.
+async function withFreshLogin(account, fn) {
+  const fresh = await ensureFreshToken(account);
+  const { resolved, policy } = await resolveAccountHost(fresh);
+  const client = new ImapFlow(makeClientCfg(fresh, resolved, { policy }));
+  client.on('error', () => {}); // avoid unhandled 'error' on abrupt close
+  try {
+    await Promise.race([
+      client.connect(),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('IMAP connection timeout (30s)')), 30000)
+      ),
+    ]);
+    return await fn(client);
+  } finally {
+    // close() (not logout()): destroys the socket and aborts a still-pending connect()
+    // left running by the race timeout, so a slow login can't leak a session.
+    try { client.close(); } catch { /* already closed */ }
+  }
+}
+
 export class ImapManager {
   constructor(wss) {
     this.wss = wss;
@@ -587,6 +691,7 @@ export class ImapManager {
     this.backfillAllRunning = new Set(); // accountId — prevent concurrent full backfill sequences
     this.onDemandSyncing = new Set(); // `${accountId}:${folder}` — prevent duplicate on-demand syncs
     this.syncingAccounts = new Set(); // prevent overlapping interval syncs
+    this.syncStartedAt = new Map();   // accountId -> ms when the current sync tick began (hung-sync detection)
     this.syncThrottleSkips = new Map(); // accountId -> remaining ticks to skip when throttled
     this.connectingAccounts = new Set(); // prevent concurrent connectAccount calls for same account
     this.userSyncIntervalMs = new Map(); // userId -> interval ms (user-configurable)
@@ -594,14 +699,19 @@ export class ImapManager {
     this.snippetBackoff = new Map();        // accountId -> { failures, until } circuit breaker
     this.lastUserActivity = new Map();      // accountId -> ms timestamp of last live body fetch
     this.syncTickCount = new Map(); // accountId -> successful sync ticks (for reconcile scheduling)
+    this.lastSyncOkAt = new Map(); // accountId -> ms timestamp of last successful sync tick (staleness detection)
     this._flagDebounceTimers   = new Map(); // accountId -> debounce timer for flag-change syncs
     this._expungeDebounceTimers = new Map(); // accountId -> debounce timer for expunge reconciles
     this._pendingFlagSync = new Set(); // accountId — flag sync was skipped because a full sync was running; drain after sync
+    // accountId -> Map<`${messageId}:${flag}`, { messageId, flag, attempts }>: local read/star
+    // changes whose IMAP push failed and must be retried until the server confirms them.
+    this._pendingFlagPush = new Map();
     // Tracks UIDs that are actively being moved by inboxRules so reconcileDeletes
     // does not delete the DB row if an EXPUNGE arrives before the DB update completes,
     // or if the server is non-UIDPLUS and the DB temporarily holds a stale UID.
     // Keys are "${accountId}:${folder}:${uid}" strings.
-    this._pendingMoveUids = new Set();
+    this._pendingMoveUids = new Map(); // "acct:folder:uid" -> active guard count (ref-counted)
+    this._stalenessCheckRunning = false; // re-entrancy guard for the staleness-probe cycle
 
     // Health check: every 90 seconds, find any enabled IMAP accounts that have no
     // active connection and no in-progress connect attempt, and reconnect them.
@@ -610,7 +720,7 @@ export class ImapManager {
     this._healthCheckTimer = setInterval(async () => {
       try {
         const result = await query(
-          "SELECT id FROM email_accounts WHERE enabled = true AND protocol = 'imap'"
+          "SELECT id, email_address FROM email_accounts WHERE enabled = true AND protocol = 'imap'"
         );
         for (const row of result.rows) {
           if (!this.connections.has(row.id) && !this.connectingAccounts.has(row.id)) {
@@ -622,6 +732,16 @@ export class ImapManager {
             this.connectAccount(account).catch(err =>
               console.error(`Health check reconnect failed for ${logAccount(account)}:`, err.message)
             );
+          } else if (this.connections.has(row.id)) {
+            // Observability: a connected account whose sync ticks have silently stalled
+            // (stale/half-open connection) passes the presence check above and is never
+            // reconnected. Warn so the condition is diagnosable from logs. Auto-recovery
+            // is intentionally NOT done here yet — confirm the mechanism first.
+            const last = this.lastSyncOkAt.get(row.id);
+            if (last && Date.now() - last > STALE_SYNC_WARN_MS) {
+              const mins = Math.round((Date.now() - last) / 60000);
+              console.warn(`Health check: ${logAccount(row)} connected but no successful sync in ${mins}m — possible stale connection`);
+            }
           }
         }
       } catch (err) {
@@ -654,6 +774,304 @@ export class ImapManager {
         console.error('Snippet scheduler error:', err.message);
       }
     }, 10 * 60 * 1000); // every 10 minutes
+
+    // Active staleness check. A long-lived IDLE connection can go "deaf": commands keep
+    // succeeding but the server stops reflecting new mail on it, so sync ticks complete
+    // without seeing arrivals (observed as ~8–60 min delays on an otherwise-healthy
+    // account). IDLE re-entry does NOT clear it — and, critically, neither does a reused
+    // POOL connection: with some servers (e.g. PurelyMail) every existing session shares
+    // the same frozen mailbox view, so only a BRAND-NEW LOGIN reliably sees the missed
+    // mail. So each cycle we open a genuinely fresh ImapFlow connection per account (the
+    // key fix over the earlier pooled probe, which shared the frozen view and could not
+    // see the missed mail), ask the server via UID SEARCH whether it holds any UID ABOVE
+    // our highest synced UID, and if so evict the persistent connection (which also
+    // unhangs a stuck sync on it) plus the body-fetch pool, then reconnect. The probe is
+    // an independent login, so it runs even while a sync is in flight — including a HUNG
+    // half-open sync, which is the very case that needs recovery. To avoid churning a
+    // genuinely HEALTHY in-flight sync (one about to commit the mail it is fetching), the
+    // eviction defers only when a sync started within the last SYNC_HUNG_MS. It is a
+    // UID-watermark test (not a message-count comparison) so old never-synced messages
+    // (a backfill gap) don't cause endless reconnect-churn.
+    this._stalenessCheckTimer = setInterval(async () => {
+      // Re-entrancy guard: the per-account probes below do blocking network I/O
+      // sequentially, so a slow cycle (many accounts, or one on a degraded provider)
+      // can outlast STALENESS_CHECK_MS. Without this, setInterval would launch a second
+      // concurrent cycle, multiplying simultaneous fresh logins per account and pushing
+      // connection-limited providers (e.g. iCloud) over their session limit.
+      if (this._stalenessCheckRunning) return;
+      this._stalenessCheckRunning = true;
+      try {
+        for (const accountId of [...this.connections.keys()]) {
+          // Skip ONLY when a reconnect is already in flight — that path owns recovery.
+          // We deliberately do NOT skip accounts that are mid-sync: the probe below is a
+          // genuinely independent fresh login, so it runs safely alongside a sync — and a
+          // HUNG sync (half-open connection, pinning the sync lock for the full 55s) is
+          // exactly when the persistent connection is deaf and we most need to act. The
+          // earlier "skip busy accounts" guard disabled recovery during precisely that
+          // window, leaving only the slow timeout-then-reconnect self-heal.
+          if (this.connectingAccounts.has(accountId)) continue;
+
+          // Capture the exact connection object we are judging. If it is replaced (a
+          // reconnect completes) between here and the eviction decision below, we must
+          // NOT evict its healthy successor.
+          const observed = this.connections.get(accountId);
+          if (!observed) continue;
+
+          try {
+            const acct = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
+            const account = acct.rows[0];
+            if (!account) continue;
+            // Our highest synced INBOX UID — the watermark for "have we seen the newest mail".
+            const { rows: [w] } = await query(
+              "SELECT MAX(uid)::bigint AS maxuid FROM messages WHERE account_id = $1 AND folder = 'INBOX'",
+              [accountId]
+            );
+            const maxUid = w.maxuid ? Number(w.maxuid) : 0;
+            if (!maxUid) continue; // nothing synced yet — backfill owns initial population
+
+            let missed = 0;
+            let probe = null;
+            try {
+              // Genuinely fresh login — NOT withFreshClient/pool, which can share the
+              // frozen mailbox view. Token refresh and host/DNS resolution are bounded
+              // (raceTimeout) so a hang in either can't wedge the sequential loop and, via
+              // the re-entrancy guard, silently freeze the check for ALL accounts. The
+              // probe socket is created only AFTER those succeed, so the finally below
+              // always has a real client to close (no post-timeout connection can escape).
+              const fresh = await raceTimeout(ensureFreshToken(account), 15000, 'Staleness token refresh');
+              const { resolved, policy } = await raceTimeout(resolveAccountHost(fresh), 15000, 'Staleness host resolve');
+              probe = new ImapFlow(makeClientCfg(fresh, resolved, { policy }));
+              probe.on('error', () => {}); // avoid unhandled 'error' on abrupt close
+              missed = await Promise.race([
+                (async () => {
+                  await probe.connect();
+                  const lock = await probe.getMailboxLock('INBOX');
+                  try {
+                    // Filter guards the IMAP `n:*` quirk: when n exceeds the highest UID
+                    // the server returns that highest UID, which is NOT above maxUid. Cap to
+                    // the newest 200 — enough to prove a miss without a huge FETCH on a deep gap.
+                    const above = await probe.search({ uid: `${maxUid + 1}:*` }, { uid: true });
+                    const candidates = (above || []).filter(u => u > maxUid).slice(-200);
+                    if (candidates.length === 0) return 0;
+                    // A raw UID above the watermark is NOT proof of missed mail. Two benign
+                    // cases (both documented on these accounts) would otherwise force endless
+                    // reconnects of a HEALTHY connection:
+                    //  - phantom UIDs the server lists but FETCH never returns (seen on iCloud):
+                    //    can never be stored, so the watermark can never reach them → infinite loop.
+                    //  - Message-ID dedup: a self-sent / mailing-list copy that also exists in
+                    //    Sent/Archive is stored under that folder (its INBOX row was relocated by
+                    //    Message-ID), so our INBOX watermark sits below the live server max even
+                    //    though we HAVE the message.
+                    // Confirm genuine misses: FETCH the candidates' envelopes; drop any that
+                    // won't FETCH (phantom) and any whose Message-ID we already store in ANY
+                    // folder (dedup). Only a fetchable message we don't already have is "missed".
+                    const fetched = [];
+                    for await (const m of probe.fetch(candidates.join(','), { uid: true, envelope: true }, { uid: true })) {
+                      const raw = m.envelope?.messageId;
+                      fetched.push(raw ? raw.replace(/[<>]/g, '').trim() : null);
+                    }
+                    if (fetched.length === 0) return 0; // every candidate was a phantom
+                    const withMid = fetched.filter(Boolean);
+                    let have = new Set();
+                    if (withMid.length) {
+                      // message_id is stored inconsistently (some rows keep the angle
+                      // brackets, some don't) — query both forms and normalise on compare.
+                      const forms = [];
+                      for (const id of withMid) forms.push(id, `<${id}>`);
+                      const { rows } = await query(
+                        'SELECT message_id FROM messages WHERE account_id = $1 AND message_id = ANY($2::text[])',
+                        [accountId, forms]
+                      );
+                      have = new Set(rows.map(r => r.message_id.replace(/[<>]/g, '').trim()));
+                    }
+                    // Fetchable + (no Message-ID, or one we don't already store) = genuinely missed.
+                    return fetched.filter(mid => !(mid && have.has(mid))).length;
+                  } finally { lock.release(); }
+                })(),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('Staleness probe timeout (25s)')), 25000)),
+              ]);
+            } finally {
+              // close() (not logout()) — destroys the socket AND aborts a still-pending
+              // connect() left running by the race timeout, so a slow login can't leak an
+              // authenticated session that lingers on a connection-limited server.
+              if (probe) { try { probe.close(); } catch { /* already closed */ } }
+            }
+
+            if (missed === 0) continue;
+
+            // The server holds mail above our watermark. Decide whether it's safe to tear
+            // down the persistent connection:
+            //  - a reconnect started, or the connection was swapped out from under us while
+            //    we probed → defer; the successor owns recovery.
+            if (this.connectingAccounts.has(accountId)) continue;
+            if (this.connections.get(accountId) !== observed) continue;
+            //  - a sync that started only moments ago may be a HEALTHY tick fetching exactly
+            //    this mail and about to commit — don't churn it. A sync running longer than
+            //    SYNC_HUNG_MS has hung on a half-open connection (normal syncs finish in
+            //    seconds), which is exactly what must be evicted.
+            const wasSyncing = this.syncingAccounts.has(accountId);
+            if (wasSyncing) {
+              // Fail closed: only evict a syncing account when we can PROVE the sync is hung
+              // (a recorded start time older than SYNC_HUNG_MS). If the start time is missing
+              // (e.g. a code path that took the sync lock without recording one) or recent,
+              // treat it as a healthy in-flight tick and defer.
+              const startedAt = this.syncStartedAt.get(accountId);
+              if (!startedAt || Date.now() - startedAt < SYNC_HUNG_MS) continue;
+            }
+
+            console.warn(`Staleness check: ${logAccount(account)} server has ${missed} INBOX message(s) above synced UID ${maxUid} — persistent connection ${wasSyncing ? 'hung mid-sync' : 'missed mail'}, forcing reconnect`);
+            this.connections.delete(accountId);
+            // close() (not logout()): logout() sends a LOGOUT command that itself hangs on a
+            // half-open socket, so it would NOT promptly unhang a stuck sync. close() destroys
+            // the socket immediately, forcing the hung sync command to reject at once so its
+            // _syncTick reaches finally and releases the sync lock before the reconnect below.
+            try { observed.close(); } catch { /* already closed */ }
+            // The body-fetch pool shares the same frozen/half-open fate as the deaf
+            // persistent connection (same account, same server session state), so drop it
+            // too. Otherwise the next body fetch hangs on a stale pooled connection until
+            // its 30s command timeout before retrying — the "preview hangs then eventually
+            // loads" symptom after a late-notification reconnect.
+            evictPool(accountId);
+
+            // Reconnect + catch up. If a sync was hung, the close() above makes it error and
+            // release the sync lock in ~a second; _syncTick would no-op while that lock is
+            // still held, so give it a brief beat first. If nothing was syncing, reconnect now.
+            const reconnect = () => this._syncTick(account).catch(err =>
+              console.error(`Staleness reconnect sync failed for ${logAccount(account)}:`, extractImapError(err)));
+            if (wasSyncing) setTimeout(reconnect, 3000);
+            else reconnect();
+          } catch (err) {
+            console.warn(`Staleness check error for ${accountId}:`, err.message);
+          }
+        }
+      } finally {
+        this._stalenessCheckRunning = false;
+      }
+    }, STALENESS_CHECK_MS);
+
+    // Durable flag-push reconciler: re-push any read/star change whose IMAP write failed,
+    // until the server confirms it. Runs below the 30s local-wins window so its per-cycle
+    // marker re-bump keeps a pull from reverting the change while the retry is outstanding.
+    this._flagPushReconcilerTimer = setInterval(() => {
+      if (this._flagPushRunning) return;
+      this._flagPushRunning = true;
+      this._reconcileFlagPushes()
+        .catch(err => console.error('Flag-push reconciler error:', err.message))
+        .finally(() => { this._flagPushRunning = false; });
+    }, FLAG_PUSH_RECONCILE_MS);
+  }
+
+  // Record a local read/star change whose immediate IMAP push failed so the reconciler
+  // re-pushes it until the server confirms. Keyed by message+flag; a repeat toggle updates
+  // the intended `value` and preserves the attempt count. The reconciler pushes and
+  // re-asserts THIS value — never a re-read of the row, which a concurrent flag-pull could
+  // have reverted (that re-read was a silent-loss bug).
+  _enqueueFlagPush(accountId, messageId, flag, value) {
+    if (!accountId || !messageId) return;
+    let ops = this._pendingFlagPush.get(accountId);
+    if (!ops) { ops = new Map(); this._pendingFlagPush.set(accountId, ops); }
+    const key = `${messageId}:${flag}`;
+    const existing = ops.get(key);
+    ops.set(key, { messageId, flag, value: !!value, attempts: existing ? existing.attempts : 0 });
+  }
+
+  // A later push of the SAME message+flag succeeded — drop any queued op so the reconciler
+  // can't re-assert/re-push a now-stale value (e.g. mark-read failed, then mark-unread
+  // succeeded: the queued read=true must not resurrect).
+  _resolveFlagPush(accountId, messageId, flag) {
+    const ops = this._pendingFlagPush.get(accountId);
+    if (!ops) return;
+    const key = `${messageId}:${flag}`;
+    // Mark resolved as well as delete: a reconciler cycle may already hold this op object in
+    // its snapshot, parked on an await — the flag lets it bail before clobbering the newer value.
+    const op = ops.get(key);
+    if (op) op.resolved = true;
+    ops.delete(key);
+    if (ops.size === 0) this._pendingFlagPush.delete(accountId);
+  }
+
+  // Re-bump the *_changed_at marker for every pending message up-front, before any
+  // (possibly slow) setFlag, so the 30s "local wins" window can't lapse mid-cycle and let
+  // a concurrent pull revert an unconfirmed change.
+  async _rebumpFlagMarkers(ops) {
+    const readIds = [];
+    const starIds = [];
+    for (const op of ops.values()) {
+      (op.flag === '\\Seen' ? readIds : starIds).push(op.messageId);
+    }
+    if (readIds.length) {
+      await query('UPDATE messages SET read_changed_at = NOW() WHERE id = ANY($1::uuid[])', [readIds]).catch(() => {});
+    }
+    if (starIds.length) {
+      await query('UPDATE messages SET star_changed_at = NOW() WHERE id = ANY($1::uuid[])', [starIds]).catch(() => {});
+    }
+  }
+
+  // Clear the marker for a message+flag once the server has confirmed (or we give up), so a
+  // subsequent flag-sync pull resumes reflecting the server for that message.
+  async _clearFlagMarker(messageId, flag) {
+    const col = flag === '\\Seen' ? 'read_changed_at' : 'star_changed_at';
+    // col is a fixed internal literal (not user input) — safe to interpolate.
+    await query(`UPDATE messages SET ${col} = NULL WHERE id = $1`, [messageId]).catch(() => {});
+  }
+
+  async _reconcileFlagPushes() {
+    for (const [accountId, ops] of this._pendingFlagPush) {
+      if (ops.size === 0) { this._pendingFlagPush.delete(accountId); continue; }
+
+      // Hold the local-wins window for all pending messages this cycle regardless of
+      // whether we can push right now.
+      await this._rebumpFlagMarkers(ops);
+
+      // Only attempt pushes while the account has a live connection; otherwise keep the
+      // ops queued (markers already re-bumped) and wait for reconnect. Not counted as an
+      // attempt, so an outage doesn't burn the give-up budget.
+      if (!this.connections.has(accountId)) continue;
+
+      const acct = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
+      const account = acct.rows[0];
+      if (!account) { this._pendingFlagPush.delete(accountId); continue; }
+
+      let processed = 0;
+      for (const [key, op] of [...ops]) {
+        if (processed >= FLAG_PUSH_PER_CYCLE) break; // rest wait for the next cycle
+        if (!ops.has(key)) continue; // resolved by a concurrent successful push mid-cycle
+        processed++;
+        // Re-read only uid/folder (a move changes them) + existence — NOT the flag value,
+        // which we own via op.value. A concurrent pull may have reverted the row, so
+        // re-assert our intended value locally (with a fresh marker) before pushing the
+        // same value, so a slow cycle can never let the change be silently lost.
+        const { rows: [msg] } = await query(
+          'SELECT uid, folder FROM messages WHERE id = $1',
+          [op.messageId]
+        );
+        if (!msg) { ops.delete(key); continue; } // message gone — nothing to push
+        // A concurrent successful push may have resolved this op during the await above —
+        // don't re-assert/re-push a now-stale value over the newer one.
+        if (op.resolved) continue;
+        if (op.flag === '\\Seen') {
+          await query('UPDATE messages SET is_read = $1, read_changed_at = NOW() WHERE id = $2', [op.value, op.messageId]).catch(() => {});
+        } else {
+          await query('UPDATE messages SET is_starred = $1, star_changed_at = NOW() WHERE id = $2', [op.value, op.messageId]).catch(() => {});
+        }
+        try {
+          await this.setFlag(account, msg.uid, msg.folder, op.flag, op.value);
+          // If a newer value was pushed elsewhere while our setFlag was in flight, leave its
+          // marker in place and let the pull reconcile, rather than clearing to our stale push.
+          if (!op.resolved) await this._clearFlagMarker(op.messageId, op.flag); // confirmed on server
+          ops.delete(key);
+        } catch (err) {
+          op.attempts += 1;
+          if (op.attempts >= FLAG_PUSH_MAX_ATTEMPTS) {
+            console.warn(`Flag-push giving up after ${op.attempts} attempts (${op.flag} msg=${op.messageId}): ${extractImapError(err)}`);
+            await this._clearFlagMarker(op.messageId, op.flag); // honest revert to server truth
+            ops.delete(key);
+          }
+          // else keep queued; marker + value re-asserted above so nothing is lost before retry
+        }
+      }
+      if (ops.size === 0) this._pendingFlagPush.delete(accountId);
+    }
   }
 
   // Attach the three IDLE event listeners shared by both the initial connect path
@@ -817,6 +1235,7 @@ export class ImapManager {
     }
     this.syncThrottleSkips.delete(accountId);
     this.syncTickCount.delete(accountId);
+    this.lastSyncOkAt.delete(accountId);
     this._pendingFlagSync.delete(accountId);
     const flagTimer = this._flagDebounceTimers.get(accountId);
     if (flagTimer) { clearTimeout(flagTimer); this._flagDebounceTimers.delete(accountId); }
@@ -846,8 +1265,10 @@ export class ImapManager {
     }
     if (this.syncingAccounts.has(account.id)) return;
     this.syncingAccounts.add(account.id);
+    this.syncStartedAt.set(account.id, Date.now());
+    let activeClient = null;
     try {
-      let activeClient = this.connections.get(account.id);
+      activeClient = this.connections.get(account.id);
       // syncAccount tracks the freshest account data available — updated to freshAccount
       // on reconnect so that IDLE listeners, provider detection, and flag syncs all use
       // current credentials and config rather than the stale closure-captured object.
@@ -859,19 +1280,35 @@ export class ImapManager {
         if (this.connectingAccounts.has(account.id)) return; // another path is reconnecting; skip this tick
         this.connectingAccounts.add(account.id);
         console.log(`Reconnecting ${logAccount(account)}...`);
+        // Kept outside the race so a timeout can force-close a half-open client.
+        let pendingClient = null;
         try {
-          const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [account.id]);
-          if (!accountResult.rows.length) return;
-          const freshAccount = await ensureFreshToken(accountResult.rows[0]);
-          syncAccount = freshAccount;
-          const { resolved, policy } = await resolveAccountHost(freshAccount);
-          activeClient = new ImapFlow(makeClientCfg(freshAccount, resolved, { enableIdle: true, policy }));
-          await Promise.race([
-            activeClient.connect(),
+          // One overall timeout guards the ENTIRE reconnect. The DB query, token refresh
+          // and host resolution below are otherwise un-timeout-guarded; a hang in any of
+          // them would never reach the finally, leaving connectingAccounts set — which
+          // silently freezes both future sync ticks (the skip guard above) and the health
+          // check (it skips accounts mid-connect) for this account until the await
+          // eventually resolves. 40s covers a slow connect (~30s) plus the setup steps.
+          const reconnected = await Promise.race([
+            (async () => {
+              const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [account.id]);
+              // Bail if the account was deleted OR disabled since this reconnect was queued.
+              // The staleness check schedules a reconnect via setTimeout that disconnectAccount
+              // cannot cancel, so a user disabling a stuck account must not be silently revived.
+              if (!accountResult.rows.length || !accountResult.rows[0].enabled) return null;
+              const freshAccount = await ensureFreshToken(accountResult.rows[0]);
+              const { resolved, policy } = await resolveAccountHost(freshAccount);
+              pendingClient = new ImapFlow(makeClientCfg(freshAccount, resolved, { enableIdle: true, policy }));
+              await pendingClient.connect();
+              return { client: pendingClient, account: freshAccount };
+            })(),
             new Promise((_, reject) =>
-              setTimeout(() => reject(new Error('IMAP connection timeout (30s)')), 30000)
+              setTimeout(() => reject(new Error('Reconnect timeout (40s)')), 40000)
             ),
           ]);
+          if (!reconnected) return; // account deleted mid-reconnect
+          activeClient = reconnected.client;
+          syncAccount = reconnected.account;
           activeClient.on('close', () => {
             if (this.connections.get(account.id) === activeClient) {
               this.connections.delete(account.id);
@@ -885,6 +1322,9 @@ export class ImapManager {
           console.log(`Reconnected ${logAccount(syncAccount)}`);
         } catch (reconnErr) {
           console.error(`Reconnect failed for ${logAccount(account)}:`, reconnErr.message);
+          // Force-close a client left mid-connect when the timeout fired so it doesn't
+          // linger as an orphaned socket.
+          if (pendingClient) pendingClient.logout().catch(() => {});
           return;
         } finally {
           this.connectingAccounts.delete(account.id);
@@ -898,6 +1338,9 @@ export class ImapManager {
           setTimeout(() => reject(new Error('Sync wall-clock timeout (55s)')), 55000)
         ),
       ]);
+      // Mark a successful sync tick — the health check uses this to spot a connected
+      // account whose syncs have silently stalled (stale/half-open connection).
+      this.lastSyncOkAt.set(account.id, Date.now());
       this.broadcast({ type: 'sync_complete', accountId: account.id }, account.user_id);
 
       // Some providers (e.g. Google) don't push flag changes via IDLE — poll every tick.
@@ -931,13 +1374,18 @@ export class ImapManager {
       if (detail.includes('THROTTLED') || detail.includes('throttl')) {
         this.syncThrottleSkips.set(account.id, 4);
       }
+      // Identity-guard: the staleness check may have deleted this connection out from
+      // under a hung sync, and a fresh reconnect (health check / another tick) may already
+      // occupy the map slot. Only tear down the client THIS tick owned — never a healthy
+      // successor connection.
       const dead = this.connections.get(account.id);
-      if (dead) {
+      if (dead && dead === activeClient) {
         this.connections.delete(account.id);
         dead.logout().catch(() => {});
       }
     } finally {
       this.syncingAccounts.delete(account.id);
+      this.syncStartedAt.delete(account.id);
     }
   }
 
@@ -1390,8 +1838,10 @@ export class ImapManager {
           }
           // Pre-warm the body cache for newly arrived messages so clicking one
           // immediately after receipt doesn't require a live IMAP fetch.
-          // Only do this for small batches (periodic new mail, not initial bulk sync).
-          if (newMessages.length <= 5) {
+          // Only do this for small batches (periodic new mail, not initial bulk sync),
+          // and skip it for providers that opt out of background BODY[] work (PurelyMail),
+          // where a brand-new message is instead fetched live (fresh login) on first open.
+          if (newMessages.length <= 5 && providerProfile(account).prefetchNewBodies !== false) {
             const msgsToCache = newMessages.slice();
             setImmediate(() => {
               this.prefetchNewMessageBodies(account, msgsToCache)
@@ -2271,8 +2721,11 @@ export class ImapManager {
   // Auto-retries once on transient connection errors (stale pool connection, NAT
   // timeout, half-open TCP, etc.) so a single click is enough in all common cases.
   async fetchMessageBody(account, uid, folder) {
-    // Inner fetch — called up to twice (once for stale-connection retry)
-    const doFetch = () => withFreshClient(account, async (client) => {
+    // Inner fetch — called up to twice. `acquire` selects how the connection is obtained:
+    // the first attempt uses the pool (withFreshClient); the retry uses a genuinely fresh
+    // login (withFreshLogin) so a frozen/half-open pooled connection can't hang or return
+    // a blank body for recently-arrived mail.
+    const doFetch = (acquire) => acquire(account, async (client) => {
       let html = null;
       let text = null;
       let attachments;
@@ -2414,15 +2867,21 @@ export class ImapManager {
       return { html: sanitizeStr(html), text: sanitizeStr(text), attachments };
     });
 
+    // Providers flagged preferFreshBodyFetch (e.g. PurelyMail) skip the shared pool on the
+    // FIRST attempt too: a brand-new login avoids both contending with flag writes on the
+    // size-2 pool and inheriting a frozen/half-open pooled session view that would hang the
+    // fetch until its command timeout. Other providers keep pool-first for TLS reuse.
+    const firstAcquire = providerProfile(account).preferFreshBodyFetch ? withFreshLogin : withFreshClient;
     try {
-      return await doFetch();
+      return await doFetch(firstAcquire);
     } catch (firstErr) {
       const detail = extractImapError(firstErr);
       // Retry once on any transient connection-level error (dead pool connection,
-      // half-open TCP, NAT expiry, commandTimeout, socket reset, etc.).
-      // withFreshClient already evicted the bad connection, so the retry gets a
-      // truly fresh one.  Server-side rejections (auth, permission, unknown mailbox)
-      // will fail again on retry and propagate to the caller.
+      // half-open TCP, NAT expiry, commandTimeout, socket reset, or an empty UID FETCH
+      // from a frozen mailbox view). withFreshClient already evicted the bad pooled
+      // connection; the retry then goes through a BRAND-NEW login (withFreshLogin) rather
+      // than the pool, so a second frozen/dead pooled connection can't hang or blank it.
+      // Server-side rejections (auth, permission, unknown mailbox) fail again and propagate.
       const isTransient = (
         detail === 'Command failed' ||
         /Command canceled/i.test(detail) ||
@@ -2434,7 +2893,7 @@ export class ImapManager {
       );
       if (isTransient) {
         try {
-          return await doFetch();
+          return await doFetch(withFreshLogin);
         } catch (retryErr) {
           const retryDetail = extractImapError(retryErr);
           // 'Command failed' on the retry means the UID FETCH returned nothing both
@@ -2542,29 +3001,39 @@ export class ImapManager {
 
   async setFlag(account, uid, folder, flag, value) {
     console.log(`setFlag: uid=${uid} folder=${folder} flag=${flag} value=${value}`);
-    try {
-      await withFreshClient(account, async (client) => {
-        const lock = await client.getMailboxLock(folder);
-        try {
-          let flagResult;
-          if (value) {
-            flagResult = await client.messageFlagsAdd(String(uid), [flag], { uid: true });
-          } else {
-            flagResult = await client.messageFlagsRemove(String(uid), [flag], { uid: true });
-          }
-          if (flagResult === false) {
-            console.warn(`setFlag: ImapFlow returned false for uid=${uid} ${flag}=${value} — server may not have applied the flag`);
-          } else {
+    // Up to 2 attempts. ImapFlow returns false when the server did NOT apply the flag —
+    // typically a stale/half-open pooled connection whose SELECT view is missing the UID.
+    // Throwing on false makes withFreshClient evict that client from the pool, so the
+    // retry acquires a fresh connection (this is exactly why marking a message
+    // individually a moment later succeeds). Re-applying a flag is idempotent, so the
+    // retry is safe. Surfacing the final failure keeps callers such as bulk-read from
+    // reporting success while the DB read/flag state silently drifts from the server —
+    // which a later flag-sync would then revert, leaving the message unexpectedly unread.
+    let lastErr = null;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        await withFreshClient(account, async (client) => {
+          const lock = await client.getMailboxLock(folder);
+          try {
+            const flagResult = value
+              ? await client.messageFlagsAdd(String(uid), [flag], { uid: true })
+              : await client.messageFlagsRemove(String(uid), [flag], { uid: true });
+            if (flagResult === false) {
+              throw new Error(`server did not apply ${flag}=${value} for uid=${uid} (no matching message)`);
+            }
             logger.debug(`setFlag success: uid=${uid} ${flag}=${value}`);
+          } finally {
+            lock.release();
           }
-        } finally {
-          lock.release();
-        }
-      });
-    } catch (err) {
-      console.error(`setFlag failed: uid=${uid}:`, err.message);
-      throw err;
+        });
+        return; // applied
+      } catch (err) {
+        lastErr = err;
+        if (attempt < 2) await new Promise(r => setTimeout(r, 400));
+      }
     }
+    console.error(`setFlag failed after retry: uid=${uid} ${flag}=${value}:`, lastErr?.message);
+    throw lastErr;
   }
 
   async createFolder(account, path) {
@@ -2774,8 +3243,13 @@ export class ImapManager {
             // Destination count confirms the move; build uidMap if counts match exactly.
             const uidMap = new Map();
             if (destNewUids.length === succeeded.length) {
+              // IMAP MOVE assigns destination UIDs in ascending source-UID order, so BOTH
+              // sides must be sorted before zipping. `succeeded` is in arbitrary input
+              // order (not UID order), so zipping it against the sorted destination UIDs
+              // mapped each message to the wrong new UID. Fixes audit finding [6].
+              const sortedSrc = succeeded.map(Number).sort((a, b) => a - b);
               const sortedNew = [...destNewUids].sort((a, b) => a - b);
-              succeeded.forEach((uid, i) => uidMap.set(Number(uid), sortedNew[i]));
+              sortedSrc.forEach((uid, i) => uidMap.set(uid, sortedNew[i]));
             }
             console.log(`bulkMoveMessages: ${succeeded.length}/${uids.length} confirmed moved via UID SEARCH + dest verification`);
             return { uidMap, succeeded, failed };
@@ -2813,9 +3287,12 @@ export class ImapManager {
         console.warn(`bulkMoveMessages reconcile: expected ${sourceUids.length} new UIDs in ${toFolder}, found ${newUids.length} — skipping UID update (will reconcile on next sync)`);
         return new Map();
       }
+      // IMAP MOVE assigns destination UIDs in ascending source-UID order, so sort BOTH
+      // sides before zipping — sourceUids is in arbitrary input order. Fixes audit [6].
+      const sortedSrc = sourceUids.map(Number).sort((a, b) => a - b);
       const sortedNew = [...newUids].sort((a, b) => a - b);
       const uidMap = new Map();
-      sourceUids.forEach((uid, i) => uidMap.set(Number(uid), sortedNew[i]));
+      sortedSrc.forEach((uid, i) => uidMap.set(uid, sortedNew[i]));
       console.log(`bulkMoveMessages: reconciled ${uidMap.size} UIDs via destination UIDNEXT scan`);
       return uidMap;
     } catch (err) {
@@ -2911,6 +3388,7 @@ export class ImapManager {
         return;
       }
       this.syncingAccounts.add(account.id);
+      this.syncStartedAt.set(account.id, Date.now());
       try {
         // noBodyParts=true: metadata-only, same as the periodic interval sync.
         // Bodies are cached on first open; fetching them here would slow manual refresh.
@@ -2918,13 +3396,17 @@ export class ImapManager {
         console.log(`syncNow complete: ${logAccount(account)}`);
       } catch (err) {
         console.error(`syncNow error for ${logAccount(account)}:`, err.message);
+        // Identity-guard: if this manual refresh hung and the staleness check meanwhile
+        // reconnected a fresh client into the map slot, tear down ONLY the client this
+        // syncNow used — never the healthy successor.
         const conn = this.connections.get(account.id);
-        if (conn) {
+        if (conn && conn === client) {
           try { await conn.logout(); } catch { /* already disconnected */ }
+          this.connections.delete(account.id);
         }
-        this.connections.delete(account.id);
       } finally {
         this.syncingAccounts.delete(account.id);
+        this.syncStartedAt.delete(account.id);
       }
     }));
 
@@ -3072,13 +3554,20 @@ export class ImapManager {
   // Phase 2: diff and delete outside the IMAP connection so a DB error never evicts a
   // healthy pool client.
   // Guard a specific (accountId, folder, uid) triple so reconcileDeletes skips it.
-  // Called by applyAction in inboxRules before initiating an IMAP move.
+  // Ref-counted so overlapping guards on the same triple (e.g. a bulk move holding it
+  // for the whole batch while an inbox-rule move guards the same message) compose: an
+  // unguard only frees the triple once the LAST holder releases it, so one operation
+  // cannot strip another's in-flight protection. Audit review hardening [5].
   _guardMoveUid(accountId, folder, uid) {
-    this._pendingMoveUids.add(`${accountId}:${folder}:${uid}`);
+    const key = `${accountId}:${folder}:${uid}`;
+    this._pendingMoveUids.set(key, (this._pendingMoveUids.get(key) || 0) + 1);
   }
 
   _unguardMoveUid(accountId, folder, uid) {
-    this._pendingMoveUids.delete(`${accountId}:${folder}:${uid}`);
+    const key = `${accountId}:${folder}:${uid}`;
+    const n = (this._pendingMoveUids.get(key) || 0) - 1;
+    if (n > 0) this._pendingMoveUids.set(key, n);
+    else this._pendingMoveUids.delete(key);
   }
 
   _isMoveUidGuarded(accountId, folder, uid) {

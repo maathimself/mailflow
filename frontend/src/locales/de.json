@@ -138,6 +138,7 @@
     "attachmentKeywords": "anbei|im Anhang|Anhang|Anlage|beiliegend|finden Sie im Anhang|beigefügt|siehe Anhang",
     "sent": {
       "title": "Nachricht gesendet",
+      "noCopy": "Gesendet, aber nicht im Ordner Gesendet gespeichert",
       "action": "Anzeigen"
     },
     "toolbar": {

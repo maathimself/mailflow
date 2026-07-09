@@ -296,6 +296,10 @@ export default function ComposeModal() {
   const [aiStatus, setAiStatus] = useState(null);
   const [aiPanel, setAiPanel] = useState(null);
   const aiAbortRef = useRef(null);
+  // Stable idempotency key for the current logical send. Generated on the first send
+  // attempt, reused across retries (so a retry after a lost response dedupes rather than
+  // double-sending), and cleared on success. Fixes audit finding [1].
+  const idempotencyKeyRef = useRef(null);
   const replyTypeRef = useRef(null);
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -735,6 +739,7 @@ export default function ComposeModal() {
   };
 
   const handleSend = async ({ skipSubjectWarn = false, skipAttachWarn = false } = {}) => {
+    if (sending) return; // guard against a rapid double-submit (e.g. double Ctrl/Cmd+Enter)
     const { accountId, aliasId } = resolveFrom(fromValue);
     const toFinal = [...toChips, ...(toInput.trim() ? [toInput.trim()] : [])];
     if (!toFinal.length || !accountId) return;
@@ -762,8 +767,12 @@ export default function ComposeModal() {
     setSending(true);
     setError('');
     const bodyToSend = plaintextEmail ? body : (htmlMode ? htmlSource : (editor?.getHTML() ?? ''));
+    // crypto.randomUUID needs a secure context; fall back for plain-HTTP LAN deployments.
+    if (!idempotencyKeyRef.current) {
+      idempotencyKeyRef.current = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    }
     try {
-      await api.post('/mail/send', {
+      const sendResult = await api.post('/mail/send', {
         accountId,
         ...(aliasId ? { aliasId } : {}),
         to: toFinal,
@@ -793,18 +802,27 @@ export default function ComposeModal() {
         ...(fwdAttachments.length ? {
           forwardedAttachments: fwdAttachments.map(a => ({ messageId: a.messageId, part: a.part })),
         } : {}),
-      });
+      }, { 'X-Idempotency-Key': idempotencyKeyRef.current });
+      // Send confirmed — clear the key so a subsequent send from a reused modal gets a fresh one.
+      idempotencyKeyRef.current = null;
       const replyThreadId = isReply ? composeData?.threadId : null;
       closeCompose();
       if (draftUid != null && draftFolder != null && draftAccountId) {
         api.deleteDraft(draftAccountId, draftUid, draftFolder).catch(() => {});
       }
       const sentFolder = accounts.find(a => a.id === accountId)?.folder_mappings?.sent || 'Sent';
+      // The message was delivered; sentCopySaved:false means it couldn't be saved to the
+      // account's Sent folder — tell the user so they know their record is incomplete.
+      const sentCopyFailed = sendResult?.sentCopySaved === false;
       addNotification({
-        title: t('compose.sent.title'),
+        title: sentCopyFailed ? t('compose.sent.noCopy') : t('compose.sent.title'),
         body: subject || t('common.noSubject'),
-        onAction: () => setSelectedAccount(accountId, sentFolder),
-        actionLabel: t('compose.sent.action'),
+        // When the Sent copy wasn't saved, omit the "View" action — it would navigate to a
+        // Sent folder that doesn't contain the message.
+        ...(sentCopyFailed ? {} : {
+          onAction: () => setSelectedAccount(accountId, sentFolder),
+          actionLabel: t('compose.sent.action'),
+        }),
       });
       if (replyThreadId) {
         const refreshThread = async () => {

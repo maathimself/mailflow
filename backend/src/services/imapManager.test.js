@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('imapflow', () => ({ ImapFlow: vi.fn() }));
 vi.mock('./db.js', () => ({ query: vi.fn() }));
-vi.mock('./messageParser.js', () => ({ parseMessage: vi.fn(), buildSnippetFromHtml: vi.fn(), detectBulkFromParsedHeaders: vi.fn(), parseRawHeaders: vi.fn() }));
+vi.mock('./messageParser.js', () => ({ parseMessage: vi.fn(), buildSnippetFromHtml: vi.fn(), snippetFromBody: vi.fn(), decodeMimeWords: vi.fn(), detectBulkFromParsedHeaders: vi.fn(), parseRawHeaders: vi.fn() }));
 vi.mock('../routes/oauth.js', () => ({ refreshMicrosoftToken: vi.fn() }));
 vi.mock('./emailSanitizer.js', () => ({ sanitizeEmail: vi.fn() }));
 vi.mock('./encryption.js', () => ({ decrypt: vi.fn() }));
@@ -59,7 +59,20 @@ describe('providerProfile — host detection', () => {
   });
 
   it.each([
+    ['imap.purelymail.com'],
     ['mail.purelymail.com'],
+  ])('detects purelymail (conservative profile) for %s', host => {
+    const p = providerProfile(account(host));
+    // Conservative: no background body prefetch/snippet indexing, no speculative BODY[]
+    // fetch, and user body fetches bypass the pool — see PROVIDERS.purelymail.
+    expect(p.snippetIndex).toBe(false);
+    expect(p.speculativeFetch).toBe(false);
+    expect(p.preferFreshBodyFetch).toBe(true);
+    expect(p.prefetchNewBodies).toBe(false);
+    expect(p.pushesFlags).toBe(true);
+  });
+
+  it.each([
     ['imap.fastmail.com'],
     ['imap.protonmail.com'],
   ])('falls back to generic for unknown host %s', host => {
@@ -106,7 +119,8 @@ describe('providerProfile — skipFolderPatterns', () => {
   });
 
   it('generic has no skip patterns', () => {
-    expect(providerProfile(account('mail.purelymail.com')).skipFolderPatterns).toHaveLength(0);
+    // Use a genuinely-unknown host — purelymail.com now routes to its own profile.
+    expect(providerProfile(account('imap.fastmail.com')).skipFolderPatterns).toHaveLength(0);
   });
 });
 

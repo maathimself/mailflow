@@ -138,6 +138,7 @@
     "attachmentKeywords": "allegato|allegata|allegati|in allegato|si allega|vedi allegato|trova in allegato|come da allegato",
     "sent": {
       "title": "Messaggio inviato",
+      "noCopy": "Inviato, ma non salvato in Inviati",
       "action": "Visualizza"
     },
     "toolbar": {

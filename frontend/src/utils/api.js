@@ -7,11 +7,11 @@ const BASE = '/api';
 export const CSRF_HEADER = 'X-Requested-With';
 export const CSRF_VALUE = 'MailFlow';
 
-async function request(method, path, body) {
+async function request(method, path, body, extraHeaders) {
   const opts = {
     method,
     credentials: 'include',
-    headers: { [CSRF_HEADER]: CSRF_VALUE },
+    headers: { [CSRF_HEADER]: CSRF_VALUE, ...(extraHeaders || {}) },
   };
   if (body) {
     opts.headers['Content-Type'] = 'application/json';
@@ -30,7 +30,7 @@ async function request(method, path, body) {
 
 export const api = {
   get: (path) => request('GET', path),
-  post: (path, body) => request('POST', path, body),
+  post: (path, body, extraHeaders) => request('POST', path, body, extraHeaders),
   put: (path, body) => request('PUT', path, body),
   patch: (path, body) => request('PATCH', path, body),
   delete: (path) => request('DELETE', path),

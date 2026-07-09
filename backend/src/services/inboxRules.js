@@ -328,6 +328,8 @@ async function applyAction(action, msg, account, imapManager, resolverCache = {}
       );
       imapManager.setFlag(account, msg.uid, msg.folder, '\\Seen', true).catch(err => {
         console.error('inboxRules: setFlag \\Seen failed:', err.message);
+        // Durable retry so a later flag-sync pull can't silently revert the rule's effect.
+        imapManager._enqueueFlagPush(account.id, msg.id, '\\Seen', true);
       });
       // msg.isRead (camelCase from parseMessage) and msg.is_read (snake_case in test
       // fixtures) both represent the pre-action read state; use whichever is present.
@@ -348,6 +350,8 @@ async function applyAction(action, msg, account, imapManager, resolverCache = {}
       );
       imapManager.setFlag(account, msg.uid, msg.folder, '\\Flagged', true).catch(err => {
         console.error('inboxRules: setFlag \\Flagged failed:', err.message);
+        // Durable retry so a later flag-sync pull can't silently revert the rule's effect.
+        imapManager._enqueueFlagPush(account.id, msg.id, '\\Flagged', true);
       });
       break;
     }

@@ -570,8 +570,12 @@ router.patch('/messages/:id/read', async (req, res) => {
 
   try {
     await imapManager.setFlag(accountResult.rows[0], message.uid, message.folder, '\\Seen', read);
+    imapManager._resolveFlagPush(message.account_id, id, '\\Seen'); // confirmed — drop any stale queued op
   } catch (err) {
     console.error('IMAP flag update failed:', err.message);
+    // Push failed — queue a durable retry so a later flag-sync pull can't silently revert
+    // the user's change once the 30s local-wins window lapses.
+    imapManager._enqueueFlagPush(message.account_id, id, '\\Seen', read);
   }
 
   res.json({ ok: true, is_read: read });
@@ -601,8 +605,11 @@ router.patch('/messages/:id/star', async (req, res) => {
 
   try {
     await imapManager.setFlag(accountResult.rows[0], message.uid, message.folder, '\\Flagged', starred);
+    imapManager._resolveFlagPush(message.account_id, id, '\\Flagged'); // confirmed — drop any stale queued op
   } catch (err) {
     console.error('IMAP star update failed:', err.message);
+    // Push failed — queue a durable retry so a later flag-sync pull can't silently revert it.
+    imapManager._enqueueFlagPush(message.account_id, id, '\\Flagged', starred);
   }
 
   res.json({ ok: true, is_starred: starred });
@@ -831,6 +838,10 @@ router.post('/messages/bulk-read', async (req, res) => {
       results.forEach((r, i) => {
         if (r.status === 'rejected') {
           console.error(`bulk-read IMAP ${msgs[i].id}:`, r.reason.message);
+          // Durable retry so a later flag-sync pull can't revert this message to unread.
+          imapManager._enqueueFlagPush(accountId, msgs[i].id, '\\Seen', read);
+        } else {
+          imapManager._resolveFlagPush(accountId, msgs[i].id, '\\Seen'); // confirmed
         }
       });
     }
@@ -855,6 +866,7 @@ router.post('/messages/bulk-delete', async (req, res) => {
     return res.status(400).json({ error: 'Invalid message id format' });
   }
 
+  const moveGuards = [];
   try {
     const result = await query(
       `SELECT m.*, a.user_id, a.folder_mappings FROM messages m
@@ -865,6 +877,15 @@ router.post('/messages/bulk-delete', async (req, res) => {
 
     const owned = result.rows;
     if (!owned.length) return res.json({ ok: true, deleted: [] });
+
+    // Guard source UIDs for the whole operation so reconcileDeletes can't delete a
+    // trash-move source row between the IMAP move and the re-INSERT CTE (message vanishing
+    // from both folders). Harmless for the expunge path (those rows are deleted anyway).
+    // Unguarded in the finally. Fixes audit finding [5].
+    for (const m of owned) {
+      moveGuards.push({ accountId: m.account_id, folder: m.folder, uid: m.uid });
+      imapManager._guardMoveUid(m.account_id, m.folder, m.uid);
+    }
 
     const byAccount = {};
     for (const msg of owned) {
@@ -1033,6 +1054,8 @@ router.post('/messages/bulk-delete', async (req, res) => {
   } catch (err) {
     console.error('bulk-delete error:', err);
     res.status(500).json({ error: 'Failed to delete messages' });
+  } finally {
+    for (const g of moveGuards) imapManager._unguardMoveUid(g.accountId, g.folder, g.uid);
   }
 });
 
@@ -1052,6 +1075,7 @@ router.post('/messages/bulk-move', async (req, res) => {
     return res.status(400).json({ error: 'Invalid message id format' });
   }
 
+  const moveGuards = [];
   try {
     const result = await query(
       `SELECT m.*, a.user_id FROM messages m
@@ -1062,6 +1086,17 @@ router.post('/messages/bulk-move', async (req, res) => {
 
     const owned = result.rows;
     if (!owned.length) return res.json({ ok: true, moved: [] });
+
+    // Guard every source (account, folder, uid) for the whole bulk move. bulkMoveMessages
+    // removes the UIDs from the server (seconds of wall-clock), and a concurrent
+    // reconcileDeletes tick would otherwise see the source rows as orphans and delete them
+    // before the DELETE...RETURNING CTE re-inserts them at the destination — dropping the
+    // message from BOTH folders. Unguarded in the finally once the CTE has committed.
+    // Mirrors the single-message move paths. Fixes audit finding [5].
+    for (const m of owned) {
+      moveGuards.push({ accountId: m.account_id, folder: m.folder, uid: m.uid });
+      imapManager._guardMoveUid(m.account_id, m.folder, m.uid);
+    }
 
     const byAccount = {};
     for (const msg of owned) {
@@ -1175,6 +1210,8 @@ router.post('/messages/bulk-move', async (req, res) => {
   } catch (err) {
     console.error('bulk-move error:', err);
     res.status(500).json({ error: 'Failed to move messages' });
+  } finally {
+    for (const g of moveGuards) imapManager._unguardMoveUid(g.accountId, g.folder, g.uid);
   }
 });
 
@@ -1191,6 +1228,7 @@ router.post('/messages/bulk-archive', async (req, res) => {
     return res.status(400).json({ error: 'Invalid message IDs' });
   }
 
+  const moveGuards = [];
   try {
     const result = await query(
       `SELECT m.*, a.user_id, a.folder_mappings FROM messages m
@@ -1201,6 +1239,14 @@ router.post('/messages/bulk-archive', async (req, res) => {
 
     const owned = result.rows;
     if (!owned.length) return res.json({ ok: true, archived: [], noArchiveFolder: [] });
+
+    // Guard source UIDs for the whole operation so reconcileDeletes can't delete a source
+    // row between the IMAP move and the re-INSERT CTE (message vanishing from both folders).
+    // Unguarded in the finally. Fixes audit finding [5].
+    for (const m of owned) {
+      moveGuards.push({ accountId: m.account_id, folder: m.folder, uid: m.uid });
+      imapManager._guardMoveUid(m.account_id, m.folder, m.uid);
+    }
 
     const byAccount = {};
     for (const msg of owned) {
@@ -1330,6 +1376,8 @@ router.post('/messages/bulk-archive', async (req, res) => {
   } catch (err) {
     console.error('bulk-archive error:', err);
     res.status(500).json({ error: 'Failed to archive messages' });
+  } finally {
+    for (const g of moveGuards) imapManager._unguardMoveUid(g.accountId, g.folder, g.uid);
   }
 });
 
