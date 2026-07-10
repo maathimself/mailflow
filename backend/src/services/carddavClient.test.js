@@ -136,4 +136,26 @@ END:VCARD</card:address-data>
     const cards = parseCards(xml, BASE);
     expect(cards[0].vcard).toContain('Tom & Jerry');
   });
+
+  it('parses a large book whose response exceeds 1000 XML entity references', () => {
+    // Regression: fast-xml-parser >=4.5.5 defaults maxTotalExpansions to 1000.
+    // A real address book's REPORT response carries far more counted entity
+    // references than that (&lt; / &gt; / &quot; in vCard data), so the whole
+    // sync was rejected with "Entity expansion limit exceeded".
+    const N = 1500;
+    const responses = Array.from({ length: N }, (_, i) => `
+  <d:response><d:href>/dav/c/uid${i}.vcf</d:href>
+    <d:propstat><d:prop><d:getetag>"e${i}"</d:getetag>
+      <card:address-data>BEGIN:VCARD
+VERSION:3.0
+UID:uid${i}
+ORG:Tom &lt;${i}&gt; Ltd
+END:VCARD</card:address-data>
+    </d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>
+  </d:response>`).join('');
+    const xml = `<d:multistatus xmlns:d="DAV:" xmlns:card="urn:ietf:params:xml:ns:carddav">${responses}</d:multistatus>`;
+    const cards = parseCards(xml, BASE);
+    expect(cards).toHaveLength(N);
+    expect(cards[0].vcard).toContain('Tom <0> Ltd'); // entities still decoded
+  });
 });

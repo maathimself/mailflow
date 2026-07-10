@@ -14,6 +14,12 @@ const parser = new XMLParser({
   ignoreAttributes: false,
   removeNSPrefix: true,   // <d:response> -> response, so parsing is namespace-agnostic
   trimValues: false,      // preserve vCard line structure inside <address-data>
+  // fast-xml-parser >=4.5.5 caps total entity expansions at 1000/document, which a
+  // large address book's REPORT exceeds (vCard data carries many &lt;/&gt;/&quot;
+  // refs). Lift the count cap, but pin maxExpansionDepth to 10 (fast-xml-parser's
+  // boolean-mode default) so the object form doesn't silently loosen the
+  // nested-entity (billion-laughs) depth guard from 10 to 10000.
+  processEntities: { maxTotalExpansions: Infinity, maxExpansionDepth: 10 },
 });
 
 const toArray = (x) => (Array.isArray(x) ? x : x == null ? [] : [x]);
