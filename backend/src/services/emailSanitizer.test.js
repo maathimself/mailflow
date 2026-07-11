@@ -3,6 +3,7 @@ import {
   stripEmailHead,
   sanitizeEmail,
   sanitizeSignature,
+  sanitizeComposeBody,
   hasRemoteImages,
   blockRemoteImages,
   rewriteEbayImageserUrls,
@@ -353,6 +354,40 @@ describe('rewriteEbayImageserUrls', () => {
   it('returns HTML without imageser unchanged (fast path)', () => {
     const html = '<p>No images here</p>';
     expect(rewriteEbayImageserUrls(html)).toBe(html);
+  });
+});
+
+// ── sanitizeComposeBody ────────────────────────────────────────────────────
+
+describe('sanitizeComposeBody', () => {
+  it('preserves inline data: images from the compose editor', () => {
+    const html = '<p><span style="font-size:14px"><img src="data:image/png;base64,abc123" width="200">test</span></p>';
+    const out = sanitizeComposeBody(html);
+    expect(out).toContain('src="data:image/png;base64,abc123"');
+    expect(out).toContain('test');
+  });
+
+  it('preserves https:// images', () => {
+    const html = '<img src="https://example.com/photo.jpg" alt="photo">';
+    const out = sanitizeComposeBody(html);
+    expect(out).toContain('src="https://example.com/photo.jpg"');
+    expect(out).toContain('alt="photo"');
+  });
+
+  it('strips http:// images (only https and data allowed)', () => {
+    const out = sanitizeComposeBody('<img src="http://example.com/tracker.png">');
+    expect(out).not.toContain('src="http://');
+  });
+
+  it('strips <script> tags', () => {
+    const out = sanitizeComposeBody('<p>Hi</p><script>alert(1)</script>');
+    expect(out).not.toContain('<script');
+    expect(out).toContain('Hi');
+  });
+
+  it('returns falsy input unchanged', () => {
+    expect(sanitizeComposeBody(null)).toBeNull();
+    expect(sanitizeComposeBody('')).toBe('');
   });
 });
 

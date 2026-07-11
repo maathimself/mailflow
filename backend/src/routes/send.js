@@ -6,7 +6,8 @@ import { requireAuth } from '../middleware/auth.js';
 import { refreshMicrosoftToken } from './oauth.js';
 import { decrypt } from '../services/encryption.js';
 import sanitizeHtml from 'sanitize-html';
-import { sanitizeSignature } from '../services/emailSanitizer.js';
+import { sanitizeSignature, sanitizeComposeBody } from '../services/emailSanitizer.js';
+import { embedInlineDataImages } from '../utils/inlineImages.js';
 import { redisClient } from '../services/redis.js';
 import { redactEmail } from '../utils/redact.js';
 import { generateVCard } from '../utils/vcard.js';
@@ -49,6 +50,32 @@ function parseAddress(str) {
   const bare = str.match(/^\s*<([^>]+)>\s*$/);
   if (bare) return { name: '', email: bare[1].trim().toLowerCase() };
   return { name: '', email: str.trim().toLowerCase() };
+}
+
+function mapRecipientList(list) {
+  return (list || []).map(addr => parseAddress(addr));
+}
+
+function buildSentSnippet(body, bodyIsHtml) {
+  return bodyToPlain(body, bodyIsHtml).replace(/\s+/g, ' ').trim().substring(0, 200);
+}
+
+function scheduleSentMetadataUpsert(account, sentFolder, mailOptions, meta) {
+  if (!sentFolder || !mailOptions.messageId) return;
+  setImmediate(async () => {
+    for (const delay of [3000, 10000, 20000]) {
+      await new Promise(r => setTimeout(r, delay));
+      try {
+        const uid = await imapManager.findUidByMessageId(account, sentFolder, mailOptions.messageId);
+        if (uid) {
+          await imapManager.upsertSentMessageRecord(account, sentFolder, uid, meta);
+          return;
+        }
+      } catch (err) {
+        console.warn('Post-send sent metadata upsert failed:', err.message);
+      }
+    }
+  });
 }
 
 // Reject any recipient address that contains newlines, null bytes, or looks
@@ -94,10 +121,7 @@ function bodyToPlain(body, isHtml) {
 
 function bodyToHtml(body, isHtml) {
   if (!isHtml) return textToHtml(body);
-  return sanitizeHtml(body, {
-    allowedTags: sanitizeHtml.defaults.allowedTags.concat(['u', 's']),
-    allowedAttributes: { '*': ['style'], 'a': ['href', 'target', 'rel'] },
-  });
+  return sanitizeComposeBody(body);
 }
 
 const router = Router();
@@ -302,20 +326,27 @@ router.post('/send', async (req, res) => {
       text: effectiveSignature
         ? bodyToPlain(body, bodyIsHtml) + '\n\n-- \n' + sigToPlainText(effectiveSignature) + (quotedBody || '')
         : bodyToPlain(body, bodyIsHtml) + (quotedBody || ''),
-      ...(plaintextEmail ? {} : {
-        html: bodyToHtml(body, bodyIsHtml) +
-          (effectiveSignature
-            ? '<div style="margin-top:16px;color:#555;font-size:13px">' + effectiveSignature + '</div>'
-            : '') +
-          (quotedBodyHtml || (quotedBody ? textToHtml(quotedBody) : '')),
-      }),
     };
+
+    let inlineImageAttachments = [];
+    if (!plaintextEmail) {
+      const rawHtml = bodyToHtml(body, bodyIsHtml) +
+        (effectiveSignature
+          ? '<div style="margin-top:16px;color:#555;font-size:13px">' + effectiveSignature + '</div>'
+          : '') +
+        (quotedBodyHtml || (quotedBody ? textToHtml(quotedBody) : ''));
+      const embedded = embedInlineDataImages(rawHtml);
+      mailOptions.html = embedded.html;
+      inlineImageAttachments = embedded.attachments;
+    }
+
     if (inReplyTo) {
       mailOptions.inReplyTo = sanitizeHeaderValue(inReplyTo);
       // Use the full prior references chain if available; fall back to just inReplyTo.
       mailOptions.references = sanitizeHeaderValue(references || inReplyTo);
     }
     const allAttachments = [
+      ...inlineImageAttachments,
       ...(attachments?.length ? attachments.map(a => ({
         filename: sanitizeHeaderValue(a.filename),
         content: Buffer.from(a.content, 'base64'),
@@ -442,6 +473,17 @@ router.post('/send', async (req, res) => {
     // true/false = whether OUR IMAP APPEND landed the Sent copy. Surfaced to the client so
     // it can warn when a delivered message could not be saved to Sent. Fixes audit finding [2].
     let sentCopySaved = null;
+    const sentMeta = sentFolder ? {
+      messageId: mailOptions.messageId,
+      subject: normalizedSubject,
+      fromName,
+      fromEmail,
+      to: mapRecipientList(normalizedTo),
+      cc: mapRecipientList(normalizedCc),
+      snippet: buildSentSnippet(body, bodyIsHtml),
+      date: new Date(),
+    } : null;
+
     if (sentFolder) {
       if (rawMessage) {
         // Non-auto-saving account: APPEND the Sent copy ourselves — exactly ONCE. IMAP
@@ -452,11 +494,15 @@ router.post('/send', async (req, res) => {
         // the user and schedule a fallback sync in case the append landed late. Audit [2].
         sentCopySaved = false;
         try {
-          await Promise.race([
+          const { uid } = await Promise.race([
             imapManager.appendToSent(account, sentFolder, rawMessage),
             new Promise((_, rej) => setTimeout(() => rej(new Error('Sent APPEND timed out')), 20000)),
           ]);
           sentCopySaved = true;
+          if (uid && sentMeta) {
+            await imapManager.upsertSentMessageRecord(account, sentFolder, uid, sentMeta)
+              .catch(err => console.warn('Sent metadata upsert failed:', err.message));
+          }
           setTimeout(() => {
             imapManager.syncFolderOnDemand(account, sentFolder)
               .catch(e => console.error(`Post-append sync failed: ${e.message}`));
@@ -471,6 +517,8 @@ router.post('/send', async (req, res) => {
           }, 8000);
         }
       } else {
+        // Server auto-saves via SMTP; seed metadata once the Sent copy is searchable.
+        if (sentMeta) scheduleSentMetadataUpsert(account, sentFolder, mailOptions, sentMeta);
         // Server auto-saves via SMTP; just sync after a delay.
         const syncAttempt = (label) => imapManager.syncFolderOnDemand(account, sentFolder)
           .then(() => console.log(`Post-send ${label} sync done: ${redactEmail(account.email_address)}/${sentFolder}`))

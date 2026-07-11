@@ -1,6 +1,6 @@
 import { ImapFlow } from 'imapflow';
 import { query } from './db.js';
-import { parseMessage, snippetFromBody, detectBulkFromParsedHeaders, parseRawHeaders, decodeMimeWords } from './messageParser.js';
+import { parseMessage, snippetFromBody, detectBulkFromParsedHeaders, parseRawHeaders, parseHeadersInput, headersToRawString, decodeMimeWords, enrichParsedMetadata } from './messageParser.js';
 import { classifyMessage, loadSocialDomains, getGlobalCategorizationEnabled } from './categorizer.js';
 import { refreshMicrosoftToken } from '../routes/oauth.js';
 import { sanitizeEmail } from './emailSanitizer.js';
@@ -386,6 +386,46 @@ export function providerProfile(account) {
 // Per-account connection pool for body fetches — avoids TLS handshake on every click
 const connectionPools = new Map(); // accountId -> { clients: [], waiting: [] }
 const POOL_SIZE = 2;
+
+// When a message moves folders (same Message-ID, new UID), refresh metadata too —
+// otherwise a draft→sent relocate can leave subject/addresses stale forever.
+const RELOCATE_MESSAGE_SQL = `
+  UPDATE messages SET
+    folder = $1::text,
+    uid = $2::bigint,
+    is_deleted = false,
+    subject = CASE
+      WHEN $5::text IS NOT NULL AND $5::text <> '' AND $5::text <> '(no subject)'
+      THEN $5::text ELSE messages.subject END,
+    from_name = COALESCE(NULLIF($6::text, ''), messages.from_name),
+    from_email = COALESCE(NULLIF($7::text, ''), messages.from_email),
+    to_addresses = CASE
+      WHEN $8::jsonb::text IS NOT NULL AND $8::jsonb::text <> '[]'
+      THEN $8::jsonb ELSE messages.to_addresses END,
+    cc_addresses = CASE
+      WHEN $9::jsonb::text IS NOT NULL AND $9::jsonb::text <> '[]'
+      THEN $9::jsonb ELSE messages.cc_addresses END,
+    reply_to = COALESCE(NULLIF(messages.reply_to::text, '[]'), $10::text)::jsonb,
+    date = $11::timestamptz
+  WHERE account_id = $3::uuid
+    AND message_id = $4::text
+    AND (folder != $1::text OR uid != $2::bigint)
+    AND 1 = (SELECT COUNT(*) FROM messages WHERE account_id = $3::uuid AND message_id = $4::text)
+    AND COALESCE((SELECT special_use FROM folders WHERE account_id = $3::uuid AND path = $1::text), '') NOT IN ('\\All', '\\Important')
+  RETURNING id`;
+
+function relocateMessageParams(folder, parsed, accountId, msgId) {
+  return [
+    folder, parsed.uid, accountId, msgId,
+    sanitizeStr(parsed.subject),
+    sanitizeStr(parsed.fromName),
+    sanitizeStr(parsed.fromEmail),
+    JSON.stringify(parsed.to),
+    JSON.stringify(parsed.cc),
+    JSON.stringify(parsed.replyTo || []),
+    safeDate(parsed.date),
+  ];
+}
 
 // Strip null bytes that PostgreSQL's UTF-8 encoding rejects (some emails contain them)
 function sanitizeStr(str) {
@@ -1625,6 +1665,13 @@ export class ImapManager {
         const processMsg = async (msg) => {
           try {
             const parsed = await parseMessage(msg);
+            enrichParsedMetadata(parsed, {
+              accountEmail: account.email_address,
+              accountName: account.name,
+              senderName: account.sender_name,
+              folderPath: folder,
+              sentFolderPath: account.folder_mappings?.sent,
+            });
             if (!parsed.uid) {
               console.warn(`Message sync skipped: IMAP FETCH returned no UID for ${account.email}/${folder}`);
               return;
@@ -1647,15 +1694,7 @@ export class ImapManager {
             // merging Gmail's virtual-folder copies (same message_id in INBOX and
             // [Gmail]/All Mail simultaneously).
             if (msgId) {
-              const relocated = await query(`
-                UPDATE messages SET folder = $1, uid = $2, is_deleted = false
-                WHERE account_id = $3
-                  AND message_id = $4
-                  AND (folder != $1 OR uid != $2)
-                  AND 1 = (SELECT COUNT(*) FROM messages WHERE account_id = $3 AND message_id = $4)
-                  AND COALESCE((SELECT special_use FROM folders WHERE account_id = $3 AND path = $1), '') NOT IN ('\\All', '\\Important')
-                RETURNING id
-              `, [folder, parsed.uid, account.id, msgId]);
+              const relocated = await query(RELOCATE_MESSAGE_SQL, relocateMessageParams(folder, parsed, account.id, msgId));
               if (relocated.rows.length > 0) return;
             }
 
@@ -1679,8 +1718,25 @@ export class ImapManager {
                 list_unsubscribe, list_unsubscribe_post
               ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
               ON CONFLICT (account_id, uid, folder) DO UPDATE
-              SET from_name = $6, from_email = $7,
-                  to_addresses = $8, cc_addresses = $9,
+              SET subject = CASE
+                    WHEN EXCLUDED.subject IS NOT NULL
+                         AND EXCLUDED.subject != ''
+                         AND EXCLUDED.subject != '(no subject)'
+                    THEN EXCLUDED.subject
+                    ELSE messages.subject
+                  END,
+                  from_name = COALESCE(NULLIF(EXCLUDED.from_name, ''), messages.from_name),
+                  from_email = COALESCE(NULLIF(EXCLUDED.from_email, ''), messages.from_email),
+                  to_addresses = CASE
+                    WHEN EXCLUDED.to_addresses::text IS NOT NULL AND EXCLUDED.to_addresses::text <> '[]'
+                    THEN EXCLUDED.to_addresses
+                    ELSE messages.to_addresses
+                  END,
+                  cc_addresses = CASE
+                    WHEN EXCLUDED.cc_addresses::text IS NOT NULL AND EXCLUDED.cc_addresses::text <> '[]'
+                    THEN EXCLUDED.cc_addresses
+                    ELSE messages.cc_addresses
+                  END,
                   reply_to = COALESCE(NULLIF(messages.reply_to::text, '[]'), EXCLUDED.reply_to::text)::jsonb,
                   in_reply_to = COALESCE(messages.in_reply_to, EXCLUDED.in_reply_to),
                   snippet = CASE WHEN EXCLUDED.snippet != '' THEN EXCLUDED.snippet
@@ -2099,6 +2155,13 @@ export class ImapManager {
             for await (const msg of bfClient.fetch(uidSet, bfQuery, { uid: true })) {
               try {
                 const parsed = await parseMessage(msg);
+                enrichParsedMetadata(parsed, {
+                  accountEmail: account.email_address,
+                  accountName: account.name,
+                  senderName: account.sender_name,
+                  folderPath: folder,
+                  sentFolderPath: account.folder_mappings?.sent,
+                });
                 if (!parsed.uid) {
                   console.warn(`Backfill skipped: IMAP FETCH returned no UID for ${account.email}/${folder}`);
                   continue;
@@ -2118,15 +2181,7 @@ export class ImapManager {
                 const bfThreadId = await computeThreadId(account.id, bfMsgId, bfReplyTo, bfRefs, sanitizeStr(parsed.subject));
 
                 if (bfMsgId) {
-                  const relocated = await query(`
-                    UPDATE messages SET folder = $1, uid = $2, is_deleted = false
-                    WHERE account_id = $3
-                      AND message_id = $4
-                      AND (folder != $1 OR uid != $2)
-                      AND 1 = (SELECT COUNT(*) FROM messages WHERE account_id = $3 AND message_id = $4)
-                      AND COALESCE((SELECT special_use FROM folders WHERE account_id = $3 AND path = $1), '') NOT IN ('\\All', '\\Important')
-                    RETURNING id
-                  `, [folder, parsed.uid, account.id, bfMsgId]);
+                  const relocated = await query(RELOCATE_MESSAGE_SQL, relocateMessageParams(folder, parsed, account.id, bfMsgId));
                   if (relocated.rows.length > 0) continue;
                 }
 
@@ -2150,8 +2205,25 @@ export class ImapManager {
                     list_unsubscribe, list_unsubscribe_post
                   ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
                   ON CONFLICT (account_id, uid, folder) DO UPDATE
-                  SET from_name = $6, from_email = $7,
-                      to_addresses = $8, cc_addresses = $9,
+                  SET subject = CASE
+                        WHEN EXCLUDED.subject IS NOT NULL
+                             AND EXCLUDED.subject != ''
+                             AND EXCLUDED.subject != '(no subject)'
+                        THEN EXCLUDED.subject
+                        ELSE messages.subject
+                      END,
+                      from_name = COALESCE(NULLIF(EXCLUDED.from_name, ''), messages.from_name),
+                      from_email = COALESCE(NULLIF(EXCLUDED.from_email, ''), messages.from_email),
+                      to_addresses = CASE
+                        WHEN EXCLUDED.to_addresses::text IS NOT NULL AND EXCLUDED.to_addresses::text <> '[]'
+                        THEN EXCLUDED.to_addresses
+                        ELSE messages.to_addresses
+                      END,
+                      cc_addresses = CASE
+                        WHEN EXCLUDED.cc_addresses::text IS NOT NULL AND EXCLUDED.cc_addresses::text <> '[]'
+                        THEN EXCLUDED.cc_addresses
+                        ELSE messages.cc_addresses
+                      END,
                       reply_to = COALESCE(NULLIF(messages.reply_to::text, '[]'), EXCLUDED.reply_to::text)::jsonb,
                       in_reply_to = COALESCE(messages.in_reply_to, EXCLUDED.in_reply_to),
                       snippet = CASE WHEN EXCLUDED.snippet != '' THEN EXCLUDED.snippet
@@ -2358,7 +2430,7 @@ export class ImapManager {
           }, { uid: true })) {
             const dbId = uidToId.get(msg.uid);
             if (dbId == null) continue;
-            const h = parseRawHeaders(msg.headers);
+            const h = parseHeadersInput(msg.headers);
             updates.push({ id: dbId, isBulk: detectBulkFromParsedHeaders(h) });
           }
         } finally {
@@ -2604,7 +2676,71 @@ export class ImapManager {
   }
 
   async appendToSent(account, folder, rawMessage) {
-    await this.appendToFolder(account, folder, rawMessage, ['\\Seen']);
+    return this.appendToFolder(account, folder, rawMessage, ['\\Seen']);
+  }
+
+  // Persist authoritative Sent metadata right after SMTP/APPEND so a later IMAP sync
+  // with an incomplete ENVELOPE (common for multipart/related inline-image mail) cannot
+  // wipe subject/from/to.
+  async upsertSentMessageRecord(account, folder, uid, {
+    messageId,
+    subject,
+    fromName,
+    fromEmail,
+    to = [],
+    cc = [],
+    snippet = '',
+    date = new Date(),
+  }) {
+    if (!uid || !folder) return;
+    const msgId = sanitizeStr(messageId);
+    const threadId = msgId || null;
+    await query(`
+      INSERT INTO messages (
+        account_id, uid, folder, message_id, subject,
+        from_name, from_email, to_addresses, cc_addresses,
+        date, snippet, is_read, is_starred, has_attachments, flags, thread_id
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,true,false,false,'[]',$12)
+      ON CONFLICT (account_id, uid, folder) DO UPDATE SET
+        message_id = COALESCE(EXCLUDED.message_id, messages.message_id),
+        subject = CASE
+          WHEN EXCLUDED.subject IS NOT NULL AND EXCLUDED.subject <> '' AND EXCLUDED.subject <> '(no subject)'
+          THEN EXCLUDED.subject ELSE messages.subject END,
+        from_name = COALESCE(NULLIF(EXCLUDED.from_name, ''), messages.from_name),
+        from_email = COALESCE(NULLIF(EXCLUDED.from_email, ''), messages.from_email),
+        to_addresses = CASE
+          WHEN EXCLUDED.to_addresses::text IS NOT NULL AND EXCLUDED.to_addresses::text <> '[]'
+          THEN EXCLUDED.to_addresses ELSE messages.to_addresses END,
+        cc_addresses = CASE
+          WHEN EXCLUDED.cc_addresses::text IS NOT NULL AND EXCLUDED.cc_addresses::text <> '[]'
+          THEN EXCLUDED.cc_addresses ELSE messages.cc_addresses END,
+        date = EXCLUDED.date,
+        snippet = CASE WHEN EXCLUDED.snippet <> '' THEN EXCLUDED.snippet ELSE messages.snippet END,
+        is_read = true,
+        thread_id = COALESCE(messages.thread_id, EXCLUDED.thread_id)
+    `, [
+      account.id, uid, folder, msgId,
+      sanitizeStr(subject || '(no subject)'),
+      sanitizeStr(fromName || ''), sanitizeStr(fromEmail || ''),
+      JSON.stringify(to), JSON.stringify(cc),
+      safeDate(date), sanitizeStr(snippet || ''), threadId,
+    ]);
+  }
+
+  async findUidByMessageId(account, folder, messageId) {
+    if (!messageId || !folder) return null;
+    const mid = String(messageId).replace(/[<>]/g, '').trim();
+    if (!mid) return null;
+    return withFreshClient(account, async (client) => {
+      const lock = await client.getMailboxLock(folder);
+      try {
+        const uids = await client.search({ header: ['Message-ID', mid] }, { uid: true });
+        if (!uids?.length) return null;
+        return uids[uids.length - 1];
+      } finally {
+        lock.release();
+      }
+    });
   }
 
   // Syncs the most recent messages in a specific folder on demand.
@@ -2918,12 +3054,26 @@ export class ImapManager {
     return withFreshClient(account, async (client) => {
       const lock = await client.getMailboxLock(folder);
       try {
+        const uidStr = String(uid);
         let headers = '';
-        for await (const msg of client.fetch(String(uid), { uid: true, headers: true }, { uid: true })) {
-          if (msg.headers) {
-            headers = msg.headers.toString();
+
+        for await (const msg of client.fetch(uidStr, { uid: true, headers: true }, { uid: true })) {
+          if (msg.headers) headers = headersToRawString(msg.headers);
+        }
+
+        // Some providers return an empty HEADER.FIELDS response — fall back to the
+        // leading bytes of the raw message, which always include the header block.
+        if (!headers.trim()) {
+          for await (const msg of client.fetch(uidStr, { uid: true, source: { start: 0, maxLength: 65536 } }, { uid: true })) {
+            if (msg.source) {
+              const raw = Buffer.isBuffer(msg.source) ? msg.source.toString('utf8') : String(msg.source);
+              const sep = raw.search(/\r?\n\r?\n/);
+              headers = sep >= 0 ? raw.slice(0, sep) : raw;
+              break;
+            }
           }
         }
+
         return headers;
       } finally {
         lock.release();

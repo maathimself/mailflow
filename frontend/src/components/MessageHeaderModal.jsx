@@ -3,19 +3,26 @@ import { useTranslation } from 'react-i18next';
 import { api } from '../utils/api.js';
 import { useMobile } from '../hooks/useMobile.js';
 
-export default function MessageHeaderModal({ messageId, subject, onClose }) {
+export default function MessageHeaderModal({ messageId, subject, onClose, onSubjectResolved }) {
   const { t } = useTranslation();
   const isMobile = useMobile();
   const [headers, setHeaders] = useState(null);
+  const [resolvedSubject, setResolvedSubject] = useState(subject);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     api.getMessageHeaders(messageId)
-      .then(data => setHeaders(data.headers))
+      .then(data => {
+        setHeaders(data.headers);
+        if (data.subject && data.subject !== '(no subject)') {
+          setResolvedSubject(data.subject);
+          onSubjectResolved?.(data.subject);
+        }
+      })
       .catch(err => setHeaders(`Error: ${err.message}`))
       .finally(() => setLoading(false));
-  }, [messageId]);
+  }, [messageId, onSubjectResolved]);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(headers || '');
@@ -44,6 +51,10 @@ export default function MessageHeaderModal({ messageId, subject, onClose }) {
     'return-path','received','x-mailer','mime-version','content-type','dkim-signature',
     'authentication-results','x-spam-status','x-spam-score']);
 
+  const displaySubject = (resolvedSubject && resolvedSubject !== '(no subject)')
+    ? resolvedSubject
+    : (parsedHeaders.find(h => h.key.toLowerCase() === 'subject')?.value || t('common.noSubject'));
+
   if (isMobile) {
     return (
       <div style={{
@@ -62,7 +73,7 @@ export default function MessageHeaderModal({ messageId, subject, onClose }) {
               {t('contextMenu.headers.title')}
             </div>
             <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {subject}
+              {displaySubject}
             </div>
           </div>
           <button
@@ -170,7 +181,7 @@ export default function MessageHeaderModal({ messageId, subject, onClose }) {
               fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2,
               maxWidth: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             }}>
-              {subject}
+              {displaySubject}
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>

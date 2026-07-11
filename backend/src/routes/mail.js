@@ -6,7 +6,7 @@ import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { imapManager } from '../index.js';
 import { sanitizeEmail, stripEmailHead, hasRemoteImages, blockRemoteImages, rewriteEbayImageserUrls, rewriteAnchorHrefs } from '../services/emailSanitizer.js';
-import { snippetFromBody, decodeMimeWords } from '../services/messageParser.js';
+import { snippetFromBody, decodeMimeWords, parseRawHeaders, buildHeadersFromMessage } from '../services/messageParser.js';
 import { resolveTrashFolder, resolveAllTrashPaths, resolveAllDraftsPaths, resolveArchiveFolder, resolveSpamFolder, resolveAllSpamPaths, getDeleteStrategy, adjustFolderCounts } from '../utils/mailUtils.js';
 import { listMessages } from '../services/messageService.js';
 import { validateHost } from '../services/hostValidation.js';
@@ -395,8 +395,30 @@ router.get('/messages/:id/headers', async (req, res) => {
     const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]);
     const account = accountResult.rows[0];
 
-    const headers = await imapManager.fetchHeaders(account, message.uid, message.folder);
-    res.json({ headers });
+    let headers = '';
+    try {
+      headers = await imapManager.fetchHeaders(account, message.uid, message.folder);
+    } catch (fetchErr) {
+      console.warn('Headers IMAP fetch failed:', fetchErr.message);
+    }
+
+    if (!headers?.trim()) {
+      headers = buildHeadersFromMessage(message);
+    }
+
+    let resolvedSubject = message.subject;
+    if (headers?.trim()) {
+      const parsed = parseRawHeaders(headers);
+      const imapSubject = decodeMimeWords(parsed.subject || '').trim();
+      if (imapSubject && imapSubject !== '(no subject)') {
+        resolvedSubject = imapSubject;
+        if (!message.subject || message.subject === '(no subject)') {
+          await query('UPDATE messages SET subject = $1 WHERE id = $2', [imapSubject, id]);
+        }
+      }
+    }
+
+    res.json({ headers, subject: resolvedSubject });
   } catch (err) {
     console.error('Headers fetch error:', err);
     res.status(500).json({ error: 'Failed to fetch message headers' });

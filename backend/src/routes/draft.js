@@ -3,7 +3,8 @@ import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import sanitizeHtml from 'sanitize-html';
-import { sanitizeSignature } from '../services/emailSanitizer.js';
+import { sanitizeSignature, sanitizeComposeBody } from '../services/emailSanitizer.js';
+import { embedInlineDataImages } from '../utils/inlineImages.js';
 import { imapManager } from '../index.js';
 
 const router = Router();
@@ -57,11 +58,13 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
     : (body || '');
 
   const bodyHtml = bodyIsHtml
-    ? sanitizeHtml(body || '', {
-        allowedTags: sanitizeHtml.defaults.allowedTags.concat(['u', 's']),
-        allowedAttributes: { '*': ['style'], 'a': ['href', 'target', 'rel'] },
-      })
+    ? sanitizeComposeBody(body || '')
     : textToHtml(body || '');
+
+  const rawHtml = bodyHtml +
+    (effectiveSignature ? `<div style="margin-top:16px;color:#555;font-size:13px">${effectiveSignature}</div>` : '') +
+    (quotedBodyHtml || (quotedBody ? textToHtml(quotedBody) : ''));
+  const { html: draftHtml, attachments: inlineImageAttachments } = embedInlineDataImages(rawHtml);
 
   const mailOptions = {
     from: `${fromName} <${fromEmail}>`,
@@ -70,9 +73,8 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
     bcc: (Array.isArray(bcc) ? bcc : []).filter(Boolean).join(', ') || undefined,
     subject: sanitizeHeaderValue(subject || ''),
     text: sigText ? `${bodyText}\n\n-- \n${sigText}${quotedBody || ''}` : `${bodyText}${quotedBody || ''}`,
-    html: bodyHtml +
-      (effectiveSignature ? `<div style="margin-top:16px;color:#555;font-size:13px">${effectiveSignature}</div>` : '') +
-      (quotedBodyHtml || (quotedBody ? textToHtml(quotedBody) : '')),
+    html: draftHtml,
+    ...(inlineImageAttachments.length ? { attachments: inlineImageAttachments } : {}),
   };
 
   const streamTransport = nodemailer.createTransport({ streamTransport: true, newline: 'unix' });

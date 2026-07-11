@@ -210,6 +210,160 @@ export function parseRawHeaders(buf) {
   return result;
 }
 
+// Normalize imapflow header payloads (Buffer, string, Map-like) into a key/value map.
+export function parseHeadersInput(headers) {
+  if (!headers) return {};
+  if (Buffer.isBuffer(headers) || typeof headers === 'string') return parseRawHeaders(headers);
+  if (typeof headers === 'object') {
+    const result = {};
+    if (typeof headers.forEach === 'function') {
+      headers.forEach((val, key) => {
+        const k = String(key).toLowerCase();
+        const v = Array.isArray(val) ? val.join('\n') : String(val);
+        result[k] = result[k] ? `${result[k]}\n${v}` : v;
+      });
+      if (Object.keys(result).length) return result;
+    }
+    for (const [key, val] of Object.entries(headers)) {
+      const k = String(key).toLowerCase();
+      const v = Array.isArray(val) ? val.join('\n') : String(val);
+      result[k] = result[k] ? `${result[k]}\n${v}` : v;
+    }
+    if (Object.keys(result).length) return result;
+  }
+  return parseRawHeaders(String(headers));
+}
+
+export function headersToRawString(headers) {
+  if (!headers) return '';
+  if (Buffer.isBuffer(headers)) return headers.toString('utf8');
+  const parsed = parseHeadersInput(headers);
+  if (Object.keys(parsed).length) {
+    return Object.entries(parsed)
+      .flatMap(([k, v]) => v.split('\n').map(line => `${k}: ${line}`))
+      .join('\r\n');
+  }
+  const s = String(headers);
+  return s === '[object Object]' ? '' : s;
+}
+
+function formatAddressEntry(entry) {
+  if (typeof entry === 'string') return decodeMimeWords(entry);
+  const email = entry?.email || '';
+  const name = entry?.name || '';
+  if (name && email) return `"${decodeMimeWords(name)}" <${email}>`;
+  return email || decodeMimeWords(name) || '';
+}
+
+function parseAddressJson(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  try {
+    const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+// Build a best-effort RFC822 header block from stored message metadata.
+export function buildHeadersFromMessage(msg) {
+  const lines = [];
+  const fromEmail = msg.from_email || '';
+  const fromName = msg.from_name || '';
+  if (fromEmail || fromName) {
+    lines.push(`From: ${formatAddressEntry({ name: fromName, email: fromEmail })}`);
+  }
+  const to = parseAddressJson(msg.to_addresses);
+  if (to.length) lines.push(`To: ${to.map(formatAddressEntry).join(', ')}`);
+  const cc = parseAddressJson(msg.cc_addresses);
+  if (cc.length) lines.push(`Cc: ${cc.map(formatAddressEntry).join(', ')}`);
+  const replyTo = parseAddressJson(msg.reply_to);
+  if (replyTo.length) lines.push(`Reply-To: ${replyTo.map(formatAddressEntry).join(', ')}`);
+  const subject = msg.subject && msg.subject !== '(no subject)' ? decodeMimeWords(msg.subject) : '';
+  if (subject) lines.push(`Subject: ${subject}`);
+  if (msg.message_id) lines.push(`Message-ID: ${msg.message_id}`);
+  if (msg.date) {
+    try { lines.push(`Date: ${new Date(msg.date).toUTCString()}`); } catch { /* skip */ }
+  }
+  if (msg.in_reply_to) lines.push(`In-Reply-To: ${msg.in_reply_to}`);
+  if (msg.thread_references) lines.push(`References: ${msg.thread_references}`);
+  return lines.join('\r\n');
+}
+
+function resolveSubject(envelopeSubject, parsedHeaders) {
+  const fromEnvelope = envelopeSubject ? decodeMimeWords(envelopeSubject).trim() : '';
+  const fromHeader = parsedHeaders.subject ? decodeMimeWords(parsedHeaders.subject).trim() : '';
+  return fromEnvelope || fromHeader || '(no subject)';
+}
+
+function parseSingleMailbox(str) {
+  const trimmed = decodeMimeWords(str.trim());
+  const m = trimmed.match(/^(.+?)\s*<([^>]+)>\s*$/);
+  if (m) {
+    return {
+      name: m[1].replace(/^"|"$/g, '').trim(),
+      email: m[2].trim().toLowerCase(),
+    };
+  }
+  const bare = trimmed.match(/^\s*<([^>]+)>\s*$/);
+  if (bare) return { name: '', email: bare[1].trim().toLowerCase() };
+  if (trimmed.includes('@')) return { name: '', email: trimmed.toLowerCase() };
+  return { name: trimmed, email: '' };
+}
+
+// Parse a comma-separated RFC 5322 address list (To/Cc/Bcc headers).
+export function parseMailboxList(headerValue) {
+  if (!headerValue) return [];
+  const results = [];
+  let current = '';
+  let inQuote = false;
+  for (let i = 0; i < headerValue.length; i++) {
+    const c = headerValue[i];
+    if (c === '"') inQuote = !inQuote;
+    if (c === ',' && !inQuote) {
+      if (current.trim()) results.push(parseSingleMailbox(current));
+      current = '';
+      continue;
+    }
+    current += c;
+  }
+  if (current.trim()) results.push(parseSingleMailbox(current));
+  return results.filter(r => r.email);
+}
+
+// Fill gaps when IMAP ENVELOPE is incomplete — common for multipart/related Sent copies.
+export function enrichParsedMetadata(parsed, {
+  accountEmail,
+  accountName,
+  senderName,
+  folderPath,
+  sentFolderPath,
+} = {}) {
+  const isSentFolder = (sentFolderPath && folderPath === sentFolderPath)
+    || (typeof folderPath === 'string' && /\bsent\b/i.test(folderPath));
+
+  if (isSentFolder && !parsed.fromEmail && accountEmail) {
+    parsed.fromEmail = accountEmail;
+    parsed.fromName = parsed.fromName || senderName || accountName || '';
+  }
+
+  if ((!parsed.subject || parsed.subject === '(no subject)') && parsed.parsedHeaders?.subject) {
+    const subject = decodeMimeWords(parsed.parsedHeaders.subject).trim();
+    if (subject) parsed.subject = subject;
+  }
+
+  if ((!parsed.to || parsed.to.length === 0) && parsed.parsedHeaders?.to) {
+    parsed.to = parseMailboxList(parsed.parsedHeaders.to);
+  }
+
+  if ((!parsed.cc || parsed.cc.length === 0) && parsed.parsedHeaders?.cc) {
+    parsed.cc = parseMailboxList(parsed.parsedHeaders.cc);
+  }
+
+  return parsed;
+}
+
 export function detectBulkFromParsedHeaders(h) {
   if (!h) return false;
   if (h['list-unsubscribe'] || h['list-id'] || h['list-post']) return true;
@@ -341,16 +495,16 @@ export async function parseMessage(msg) {
     hasAttachments = detectAttachments(msg.bodyStructure);
   }
 
-  const parsedHeaders = msg.headers && Buffer.isBuffer(msg.headers) ? parseRawHeaders(msg.headers) : {};
+  const parsedHeaders = parseHeadersInput(msg.headers);
   const references = (() => {
     if (msg.headers && typeof msg.headers.get === 'function') return msg.headers.get('references') || null;
-    return parsedHeaders['references'] || null;
+    return parsedHeaders.references || null;
   })();
 
   return {
     uid: msg.uid,
     messageId: envelope.messageId || null,
-    subject: envelope.subject || '(no subject)',
+    subject: resolveSubject(envelope.subject, parsedHeaders),
     fromName,
     fromEmail,
     to: mapAddrs(envelope.to),

@@ -200,6 +200,10 @@ export default function MessagePane() {
   const message = allMessages.find(m => m.id === selectedMessageId)
     ?? Object.values(threadMessages).flat().find(m => m.id === selectedMessageId);
 
+  useEffect(() => {
+    setResolvedSubject(null);
+  }, [message?.id]);
+
   // Antispam (v0.1) — toolbar visibility for the spam / ham buttons.
   // Mirrors the heuristic in ContextMenu.jsx so the toolbar matches the menu.
   const account = accounts.find(a => a.id === message?.account_id);
@@ -263,6 +267,7 @@ export default function MessagePane() {
   const [savingAllow, setSavingAllow] = useState(false);
   const [paneScrolled, setPaneScrolled] = useState(false);
   const [showHeaderModal, setShowHeaderModal] = useState(false);
+  const [resolvedSubject, setResolvedSubject] = useState(null);
   const [showMovePicker, setShowMovePicker] = useState(false);
   const [movePickerFolders, setMovePickerFolders] = useState([]);
   const [movePickerLoading, setMovePickerLoading] = useState(false);
@@ -2085,7 +2090,12 @@ ${bodyContent}
             color: 'var(--text-primary)', lineHeight: 1.3,
             fontFamily: 'var(--font-display)',
           }}>
-            {message.subject || t('message.noSubject')}
+            {(() => {
+              const paneSubject = resolvedSubject || message.subject;
+              return (paneSubject && paneSubject !== '(no subject)')
+                ? paneSubject
+                : t('message.noSubject');
+            })()}
           </div>
 
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 16px' }}>
@@ -2731,8 +2741,12 @@ ${bodyContent}
       {showHeaderModal && (
         <MessageHeaderModal
           messageId={message.id}
-          subject={message.subject}
+          subject={resolvedSubject || message.subject}
           onClose={() => setShowHeaderModal(false)}
+          onSubjectResolved={(s) => {
+            setResolvedSubject(s);
+            updateMessage(message.id, { subject: s });
+          }}
         />
       )}
 
