@@ -7,6 +7,9 @@
   "background_color": "#0f0f11",
   "theme_color": "#7c6af7",
   "orientation": "portrait-primary",
+  "protocol_handlers": [
+    { "protocol": "mailto", "url": "/?mailto=%s" }
+  ],
   "icons": [
     {
       "src": "/icon-512.png",

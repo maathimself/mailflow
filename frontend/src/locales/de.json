@@ -687,6 +687,11 @@
       "markReadDelayDesc": "E-Mails nach einer bestimmten Anzeigezeit als gelesen markieren.",
       "markReadManual": "Manuell",
       "markReadManualDesc": "E-Mails niemals automatisch als gelesen markieren. Schaltfläche \"Als gelesen markieren\" verwenden.",
+      "defaultMailApp": "Standard-E-Mail-App",
+      "defaultMailAppDesc": "MailFlow in diesem Browser mailto:-Links öffnen lassen. Der Browser fragt zur Bestätigung nach. Funktioniert in Firefox und Chrome/Edge; unter iOS nicht verfügbar.",
+      "defaultMailAppBtn": "MailFlow registrieren",
+      "defaultMailAppOk": "Bestätigen Sie die Abfrage im Browser, um abzuschließen.",
+      "defaultMailAppError": "Ihr Browser hat die Anfrage blockiert.",
       "markReadDelayLabel": "Verzögerung",
       "markReadDelaySeconds": "{{count}} Sekunde",
       "markReadDelaySeconds_other": "{{count}} Sekunden"

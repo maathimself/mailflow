@@ -754,6 +754,11 @@
       "markReadDelayDesc": "查看邮件一段时间后标为已读。",
       "markReadManual": "手动",
       "markReadManualDesc": "从不自动标为已读，请使用标为已读按钮。",
+      "defaultMailApp": "默认邮件应用",
+      "defaultMailAppDesc": "让 MailFlow 在此浏览器中打开 mailto: 链接。浏览器会要求你确认。支持 Firefox 和 Chrome/Edge；iOS 不支持。",
+      "defaultMailAppBtn": "注册 MailFlow",
+      "defaultMailAppOk": "在浏览器中确认提示以完成。",
+      "defaultMailAppError": "浏览器已阻止该请求。",
       "markReadDelayLabel": "延迟",
       "markReadDelaySeconds": "{{count}} 秒",
       "markReadDelaySeconds_other": "{{count}} 秒"

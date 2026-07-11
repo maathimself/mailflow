@@ -754,6 +754,11 @@
       "markReadDelayDesc": "Marquer les e-mails comme lus après les avoir consultés pendant un certain temps.",
       "markReadManual": "Manuellement",
       "markReadManualDesc": "Ne jamais marquer les e-mails comme lus automatiquement. Utiliser le bouton marquer comme lu.",
+      "defaultMailApp": "Application e-mail par défaut",
+      "defaultMailAppDesc": "Faites en sorte que MailFlow ouvre les liens mailto: dans ce navigateur. Le navigateur vous demandera de confirmer. Fonctionne dans Firefox et Chrome/Edge ; non disponible sur iOS.",
+      "defaultMailAppBtn": "Enregistrer MailFlow",
+      "defaultMailAppOk": "Confirmez l'invite dans votre navigateur pour terminer.",
+      "defaultMailAppError": "Votre navigateur a bloqué la demande.",
       "markReadDelayLabel": "Délai",
       "markReadDelaySeconds": "{{count}} seconde",
       "markReadDelaySeconds_other": "{{count}} secondes"

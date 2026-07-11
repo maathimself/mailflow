@@ -1403,6 +1403,21 @@ function LayoutsTab() {
   const isMobile = useMobile();
   const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay } = useStore();
 
+  // "Set MailFlow as your default email app": registerProtocolHandler is the
+  // cross-browser path (works in Firefox and non-installed Chromium) and must be
+  // called from a user gesture, so it lives behind this button. Feature-detected in
+  // the JSX; not available on iOS/Safari.
+  const [mailtoStatus, setMailtoStatus] = useState(null);
+  const registerMailtoHandler = () => {
+    try {
+      navigator.registerProtocolHandler('mailto', window.location.origin + '/?mailto=%s');
+      setMailtoStatus('ok');
+    } catch (e) {
+      console.error('registerProtocolHandler failed:', e.message);
+      setMailtoStatus('error');
+    }
+  };
+
   const handleSelect = (key) => {
     setLayout(key);
     applyLayout(key);
@@ -1804,6 +1819,36 @@ function LayoutsTab() {
           </div>
         )}
       </div>
+
+      {typeof navigator !== 'undefined' && 'registerProtocolHandler' in navigator && (
+        <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+            {t('admin.messageList.defaultMailApp')}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 12 }}>
+            {t('admin.messageList.defaultMailAppDesc')}
+          </div>
+          <button
+            onClick={registerMailtoHandler}
+            style={{
+              padding: '8px 14px', background: 'var(--accent)', color: '#fff',
+              border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 500,
+            }}
+          >
+            {t('admin.messageList.defaultMailAppBtn')}
+          </button>
+          {mailtoStatus === 'ok' && (
+            <span style={{ marginLeft: 12, fontSize: 12, color: 'var(--text-secondary)' }}>
+              {t('admin.messageList.defaultMailAppOk')}
+            </span>
+          )}
+          {mailtoStatus === 'error' && (
+            <span style={{ marginLeft: 12, fontSize: 12, color: 'var(--red)' }}>
+              {t('admin.messageList.defaultMailAppError')}
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }

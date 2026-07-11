@@ -754,6 +754,11 @@
       "markReadDelayDesc": "Segna le email come lette dopo averle visualizzate per un certo tempo.",
       "markReadManual": "Manualmente",
       "markReadManualDesc": "Non segnare mai le email come lette automaticamente. Usa il pulsante segna come letto.",
+      "defaultMailApp": "App email predefinita",
+      "defaultMailAppDesc": "Fai in modo che MailFlow apra i link mailto: in questo browser. Il browser ti chiederà conferma. Funziona in Firefox e Chrome/Edge; non disponibile su iOS.",
+      "defaultMailAppBtn": "Registra MailFlow",
+      "defaultMailAppOk": "Conferma la richiesta nel browser per completare.",
+      "defaultMailAppError": "Il browser ha bloccato la richiesta.",
       "markReadDelayLabel": "Ritardo",
       "markReadDelaySeconds": "{{count}} secondo",
       "markReadDelaySeconds_other": "{{count}} secondi"

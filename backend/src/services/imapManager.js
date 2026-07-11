@@ -2232,7 +2232,10 @@ export class ImapManager {
                 ? (latest.subject || '(no subject)')
                 : `${alertCount} new messages`,
               icon: '/icon-512.png',
-              url: '/',
+              // Deep-link the notification to the latest message (the notification's
+              // tag collapses arrivals into one card representing `latest`). Guarded:
+              // fall back to the inbox if the id is somehow absent.
+              url: latest.id ? `/?m=${latest.id}` : '/',
             };
             // Try to include the total unread count for the home screen badge.
             // If the query fails for any reason, send the push without it so

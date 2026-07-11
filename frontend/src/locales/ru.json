@@ -754,6 +754,11 @@
       "markReadDelayDesc": "Отмечать письма как прочитанные после просмотра в течение заданного времени.",
       "markReadManual": "Вручную",
       "markReadManualDesc": "Никогда не отмечать письма как прочитанные автоматически. Используйте кнопку «Отметить как прочитанное».",
+      "defaultMailApp": "Почтовое приложение по умолчанию",
+      "defaultMailAppDesc": "Разрешите MailFlow открывать ссылки mailto: в этом браузере. Браузер попросит подтверждение. Работает в Firefox и Chrome/Edge; недоступно на iOS.",
+      "defaultMailAppBtn": "Зарегистрировать MailFlow",
+      "defaultMailAppOk": "Подтвердите запрос в браузере, чтобы завершить.",
+      "defaultMailAppError": "Браузер заблокировал запрос.",
       "markReadDelayLabel": "Задержка",
       "markReadDelaySeconds": "{{count}} секунда",
       "markReadDelaySeconds_other": "{{count}} секунд"

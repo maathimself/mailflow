@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
@@ -7,6 +7,7 @@ import { useMobile } from '../hooks/useMobile.js';
 import { LAYOUTS } from '../layouts.js';
 import { updateFaviconBadge } from '../themes.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
+import { setPending, pendingMarkReadMap, completedMarkReadMap } from '../utils/pendingReads.js';
 import { buildKeyMap, buildModKeyMap, getEffectiveShortcuts, getGroupedActions, parseModKey, modLabel, SPECIAL_KEYS, SPECIAL_KEY_LABELS } from '../utils/defaultShortcuts.js';
 import Sidebar from './Sidebar.jsx';
 import MessageList from './MessageList.jsx';
@@ -18,6 +19,34 @@ const ContactsPage = lazy(() => import('./ContactsPage.jsx'));
 
 const ComposeModal = lazy(() => import('./ComposeModal.jsx'));
 const AdminPanel   = lazy(() => import('./AdminPanel.jsx'));
+
+// Read + atomically clear the deep-link the service worker persisted on a
+// notification tap (shared IndexedDB store 'mailflow-nav'). Fully guarded so any
+// storage error resolves to null instead of throwing.
+function takePendingDeepLink() {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (v) => { if (!settled) { settled = true; resolve(v); } };
+    try {
+      const open = indexedDB.open('mailflow-nav', 1);
+      open.onupgradeneeded = () => { try { open.result.createObjectStore('kv'); } catch { /* store already exists */ } };
+      open.onerror = () => done(null);
+      open.onblocked = () => done(null);
+      open.onsuccess = () => {
+        try {
+          const db = open.result;
+          const tx = db.transaction('kv', 'readwrite');
+          const store = tx.objectStore('kv');
+          const getReq = store.get('pending_deeplink');
+          getReq.onsuccess = () => { if (getReq.result != null) store.delete('pending_deeplink'); };
+          tx.oncomplete = () => { const v = getReq.result ?? null; db.close(); done(v); };
+          tx.onerror = () => { db.close(); done(null); };
+          tx.onabort = () => { db.close(); done(null); };
+        } catch { done(null); }
+      };
+    } catch { done(null); }
+  });
+}
 
 const lazyFallback = (
   <div style={{ position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
@@ -178,22 +207,121 @@ export default function MailApp() {
 
   useWebSocket();
 
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const deepLinkId = params.get('m') || sessionStorage.getItem('mailflow_deep_link_id');
-    if (!deepLinkId) return;
-    sessionStorage.removeItem('mailflow_deep_link_id');
-    history.replaceState(null, '', window.location.pathname);
-    api.getMessage(deepLinkId)
+  // Open a specific message by id (fetch → cache → select). Shared by the on-load
+  // deep-link path and the service-worker notification-tap path so both behave
+  // identically.
+  const openDeepLinkMessage = useCallback((id) => {
+    return api.getMessage(id)
       .then(msg => {
         // threadMessages is not cleared by setMessages(), so storing the message
         // here keeps it available to MessagePane even after the message list loads
         // a different folder's page (which would evict it from the main array).
         useStore.getState().setThreadMessages(`__dl_${msg.id}`, [msg]);
         setSelectedMessage(msg.id);
+        // The deep-link opens the message directly, bypassing the list/pane
+        // selectAndMarkRead — so mark it read here too. Mirrors that logic exactly,
+        // including the pending-read guard that stops a concurrent sync from
+        // reverting the optimistic flag. Respects the user's manual-mark preference.
+        const st = useStore.getState();
+        if (msg.is_read || st.markReadBehavior === 'manual') return;
+        st.updateMessage(msg.id, { is_read: true });
+        st.decrementUnread(msg.account_id);
+        st.adjustCategoryCount(msg.category, -1);
+        setPending(msg.id, msg.account_id);
+        api.bulkRead([msg.id], true)
+          .then(() => {
+            pendingMarkReadMap.delete(msg.id);
+            completedMarkReadMap.set(msg.id, msg.account_id);
+            setTimeout(() => completedMarkReadMap.delete(msg.id), 10000);
+          })
+          .catch(e => {
+            console.error('Deep-link markRead failed:', e.message);
+            st.updateMessage(msg.id, { is_read: false });
+            st.incrementUnread(msg.account_id);
+            st.adjustCategoryCount(msg.category, 1);
+            pendingMarkReadMap.delete(msg.id);
+          });
       })
       .catch(err => console.warn('Deep link message not found:', err.message));
   }, [setSelectedMessage]);
+
+  // Consume the deep-link the SW persisted on a notification tap: read+clear it,
+  // then open the message. IndexedDB is the reliable channel on iOS (postMessage can
+  // be missed on a focus-with-reload, openWindow's URL is ignored on cold launch).
+  const consumePendingDeepLink = useCallback(() => {
+    takePendingDeepLink().then((url) => {
+      if (!url) return;
+      try {
+        const id = new URL(url, window.location.origin).searchParams.get('m');
+        if (id) openDeepLinkMessage(id);
+      } catch { /* ignore a malformed persisted deep-link */ }
+    });
+  }, [openDeepLinkMessage]);
+
+  // On load: open a deep-linked message from ?m= (Chromium honors openWindow) or a
+  // stored id, plus any target the SW persisted for a notification tap.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const deepLinkId = params.get('m') || sessionStorage.getItem('mailflow_deep_link_id');
+    if (deepLinkId) {
+      sessionStorage.removeItem('mailflow_deep_link_id');
+      history.replaceState(null, '', window.location.pathname);
+      openDeepLinkMessage(deepLinkId);
+    }
+    consumePendingDeepLink();
+  }, [openDeepLinkMessage, consumePendingDeepLink]);
+
+  // A notification tap that returns to a backgrounded app (the achievable iOS case)
+  // fires visibilitychange; the SW also nudges via postMessage. Both just consume the
+  // persisted target — read+clear is atomic, so whichever runs first wins.
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === 'visible') consumePendingDeepLink(); };
+    document.addEventListener('visibilitychange', onVisible);
+    let onSwMessage;
+    if ('serviceWorker' in navigator) {
+      onSwMessage = (event) => {
+        if (event.data && event.data.type === 'mailflow_deeplink') consumePendingDeepLink();
+      };
+      navigator.serviceWorker.addEventListener('message', onSwMessage);
+    }
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      if (onSwMessage) navigator.serviceWorker.removeEventListener('message', onSwMessage);
+    };
+  }, [consumePendingDeepLink]);
+
+  // PWA mailto: handler (manifest protocol_handlers → /?mailto=<encoded mailto: URL>).
+  // Parse the mailto and open a pre-filled compose window. Runs once on mount; a no-op
+  // for a normal launch since the param is absent.
+  useEffect(() => {
+    const raw = new URLSearchParams(window.location.search).get('mailto');
+    if (!raw) return;
+    // Strip only the mailto param first so a refresh doesn't reopen compose.
+    const loc = new URL(window.location.href);
+    loc.searchParams.delete('mailto');
+    history.replaceState(null, '', loc.pathname + loc.search);
+    try {
+      const mt = new URL(raw);
+      if (mt.protocol !== 'mailto:') return;
+      const safeDecode = (x) => { try { return decodeURIComponent(x); } catch { return x; } };
+      // pathname addresses are raw-encoded; searchParams values are already decoded.
+      const splitAddrs = (s, decode) => !s ? [] : s.split(',').map(a => decode ? safeDecode(a.trim()) : a.trim()).filter(Boolean);
+      const esc = (x) => x.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      // A mailto body is plain text (RFC 6068); escape it so it renders literally in
+      // the HTML editor and can't inject markup.
+      const bodyText = mt.searchParams.get('body') || '';
+      openCompose({
+        accountId: useStore.getState().selectedAccountId || undefined,
+        to: [...splitAddrs(mt.pathname, true), ...splitAddrs(mt.searchParams.get('to'), false)],
+        cc: splitAddrs(mt.searchParams.get('cc'), false),
+        bcc: splitAddrs(mt.searchParams.get('bcc'), false),
+        subject: mt.searchParams.get('subject') || '',
+        body: bodyText ? esc(bodyText).replace(/\r?\n/g, '<br>') : '',
+      });
+    } catch (err) {
+      console.warn('Invalid mailto link:', err.message);
+    }
+  }, [openCompose]);
 
   useEffect(() => {
     // Load accounts
