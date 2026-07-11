@@ -39,6 +39,82 @@ function raceTimeout(promise, ms, label) {
   ]);
 }
 
+// A per-key counting semaphore: at most `limit` holders per key run concurrently; the rest
+// await FIFO until a holder releases. Used to cap concurrent IMAP backfills per provider
+// host so a user with many accounts on one provider doesn't open a backfill connection for
+// every account at once (which trips per-IP/per-account connection limits, bans, locks).
+// Every acquire() MUST be paired with exactly one release(key) in a finally.
+export function createKeyedSemaphore(limit) {
+  const slots = new Map(); // key -> { active: number, waiters: (() => void)[] }
+  return {
+    async acquire(key) {
+      let s = slots.get(key);
+      if (!s) { s = { active: 0, waiters: [] }; slots.set(key, s); }
+      if (s.active < limit) { s.active++; return; }
+      // At capacity — wait to be handed a slot by a future release (active is not
+      // incremented here; release hands its own slot over without changing the count).
+      await new Promise(resolve => s.waiters.push(resolve));
+    },
+    release(key) {
+      const s = slots.get(key);
+      if (!s) return;
+      const next = s.waiters.shift();
+      if (next) {
+        next(); // hand this slot directly to the next waiter — active count unchanged
+      } else {
+        s.active = Math.max(0, s.active - 1);
+        if (s.active === 0) slots.delete(key); // no holders, no waiters — drop the entry
+      }
+    },
+    activeCount(key) { return slots.get(key)?.active || 0; },
+    waitingCount(key) { return slots.get(key)?.waiters.length || 0; },
+  };
+}
+
+// Max concurrent full backfills per provider host. Small so a many-account-on-one-provider
+// user stays well under connection limits; backfill is background catch-up, so serialising
+// it is safe. Other providers/accounts are unaffected (the semaphore is keyed by host).
+const BACKFILL_MAX_PER_HOST = 2;
+
+// Connection-refusal cooldown. When a provider refuses a NEW connection (per-IP/per-account
+// limit, "try again later", temporary lock, throttling), back that account off with growing
+// delay instead of retrying it every health-check tick — repeated refusals are exactly what
+// escalate a provider to IP bans / account locks. Cleared the moment the account connects.
+const CONNECT_COOLDOWN_BASE_MS = 30 * 1000;      // first refusal ≈ 30s
+const CONNECT_COOLDOWN_MAX_MS = 15 * 60 * 1000;  // capped at 15 min
+
+// True when an IMAP error looks like a connection-limit / throttle / temporary refusal —
+// the class of failure that should back off rather than retry hard. Deliberately broad on
+// the safe side: a false positive only means a ~30s backoff, never data loss.
+export function isConnectionRefusal(detail) {
+  return /connection not available|too many|maximum number|number of connections|rate.?limit|temporarily|try again|connection limit|over quota|throttl/i.test(String(detail || ''));
+}
+
+// Exponential backoff for consecutive connection refusals: 30s, 60s, 120s, 240s, 480s, …
+// capped at CONNECT_COOLDOWN_MAX_MS.
+export function connectCooldownMs(failures) {
+  const n = Math.max(1, failures);
+  return Math.min(CONNECT_COOLDOWN_BASE_MS * (2 ** Math.min(n - 1, 5)), CONNECT_COOLDOWN_MAX_MS);
+}
+
+// Decide a folder's sync fetch strategy from its CONDSTORE modseq state. Pure and total so
+// it can be exhaustively unit-tested — it is the load-bearing correctness decision for delta
+// sync. Returns one of:
+//   'unchanged' — server HIGHESTMODSEQ equals our stored watermark: nothing changed, skip fetch.
+//   'delta'     — modseq advanced: one CHANGEDSINCE fetch returns every new message AND flag
+//                 change since the watermark (strictly more complete than the UID/seq phases).
+//   'full'      — no usable baseline (first sync, UIDVALIDITY reset, or a server without
+//                 CONDSTORE): run the legacy UID-watermark + sequence phases and re-seed.
+// modseq values are 64-bit unsigned and only comparable within one UIDVALIDITY epoch — inputs
+// may be BigInt, decimal string, or null; comparison is done in BigInt to avoid Number()
+// precision loss above 2^53. NEVER compare these as JS Numbers.
+export function planModseqSync({ storedModseq, serverModseq, uidValidityChanged }) {
+  if (uidValidityChanged) return 'full';    // epoch reset — the stored modseq is meaningless now
+  if (serverModseq == null) return 'full';  // server didn't advertise CONDSTORE HIGHESTMODSEQ
+  if (storedModseq == null) return 'full';  // no baseline yet — full sync seeds the watermark
+  return BigInt(storedModseq) === BigInt(serverModseq) ? 'unchanged' : 'delta';
+}
+
 // Body parts that cover ~99% of real-world email structures (used for full body caching)
 const BODY_PREFETCH_PARTS = ['1', '1.1', '1.2', '2', '2.1', '2.2', '1.1.1', '1.2.1'];
 
@@ -288,7 +364,12 @@ function safeDate(d) {
 //
 // fetchBody:           store body_html/body_text during backfill/sync.
 //                      Disabled for providers that throttle BODY[] fetches at scale.
+// usesIdle:            keep the persistent sync connection in IMAP IDLE for push events.
+// maxSyncIntervalMs:   clamp the user's sync interval for providers whose IDLE is unreliable.
+// freshInboxUidPoll:   on fresh-login sync, first do a cheap UID search and only run the
+//                      heavier FETCH sync when the server actually has new UIDs.
 // pushesFlags:         server pushes flag changes via IDLE; false = poll every sync tick.
+// flagPollEveryTicks:  for non-push flag providers, poll flags every N successful sync ticks.
 // snippetIndex:        run the background snippet indexer after backfill.
 //                      Disabled for providers that throttle body fetches too aggressively.
 // skipFolderPatterns:  folder path substrings to skip during backfill (label-view dedup).
@@ -337,10 +418,11 @@ const PROVIDERS = {
     skipFolderNames: [],
   },
   purelymail: {
-    // PurelyMail (Dovecot-based) is connection-sensitive and shows two failure modes on
-    // large, mostly-uncached mailboxes: (1) long-lived sessions go "deaf"/half-open, and
-    // (2) heavy background BODY[] work saturates the small body-fetch pool, timing out live
-    // opens. So it gets a deliberately conservative profile:
+    // PurelyMail (Dovecot-based) is connection-sensitive and shows three failure modes on
+    // large, mostly-uncached mailboxes: (1) long-lived IDLE sessions go "deaf"/half-open,
+    // (2) IDLE EXISTS can simply not arrive, so new mail is only discovered by polling, and
+    // (3) heavy background BODY[] work saturates the small body-fetch pool, timing out live
+    // opens. So it gets a deliberately conservative, poll-first profile:
     //   snippetIndex:false      — disables BOTH the background snippet indexer AND the
     //                             on-view folder body prefetch (both gate on this flag), the
     //                             bulk of the BODY[] load on a 50k-message uncached mailbox.
@@ -350,15 +432,23 @@ const PROVIDERS = {
     //   preferFreshBodyFetch    — user/new-mail body fetches use a brand-new login instead of
     //                             the shared pool, so they neither contend with flag writes on
     //                             the size-2 pool nor inherit a frozen pooled session view.
+    //   usesIdle:false          — new mail IDLE is unreliable on the observed account; fresh
+    //                             poll sync is the source of truth for notifications.
     batchSize: 100, batchDelay: 1500, errorDelay: 15000, batchesPerConn: 15,
     fetchBody: false,
-    pushesFlags: true,
+    usesIdle: false,
+    pushesFlags: false,
     snippetIndex: false,
     speculativeFetch: false,
     preferFreshBodyFetch: true,
-    prefetchNewBodies: false, // don't pre-warm bodies of newly-arrived mail either — keeps
-                              // ALL background BODY[] work off this connection-sensitive
-                              // provider; a brand-new message is fetched live on first open.
+    freshInboxSync: true,
+    freshInboxUidPoll: true,
+    autoBackfillExistingOnConnect: false,
+    maxSyncIntervalMs: 10000,
+    flagPollEveryTicks: 6,
+    prefetchNewBodies: true,
+    prefetchNewBodiesLimit: 1, // warm only the newest arrival; avoids BODY[] bursts while
+                               // making notification-click opens use the DB cache.
     skipFolderPatterns: [],
     skipFolderNames: [],
   },
@@ -381,6 +471,12 @@ export function providerProfile(account) {
   if (host.includes('.outlook.com') || host.includes('office365.com') || host.includes('.hotmail.com') || host.includes('.live.com') || (account.oauth_provider === 'microsoft')) return PROVIDERS.microsoft;
   if (host.includes('purelymail.com')) return PROVIDERS.purelymail;
   return PROVIDERS.generic;
+}
+
+export function effectiveSyncIntervalMs(account, requestedMs) {
+  const profile = providerProfile(account);
+  if (profile.maxSyncIntervalMs) return Math.min(requestedMs, profile.maxSyncIntervalMs);
+  return requestedMs;
 }
 
 // Per-account connection pool for body fetches — avoids TLS handshake on every click
@@ -689,6 +785,8 @@ export class ImapManager {
     this.syncIntervals = new Map();
     this.backfillRunning = new Set(); // `${accountId}:${folder}` — prevent duplicate folder backfills
     this.backfillAllRunning = new Set(); // accountId — prevent concurrent full backfill sequences
+    this._backfillSem = createKeyedSemaphore(BACKFILL_MAX_PER_HOST); // cap concurrent backfills per provider host
+    this._connectCooldown = new Map(); // accountId -> { until: ms, failures: number } after connection refusals
     this.onDemandSyncing = new Set(); // `${accountId}:${folder}` — prevent duplicate on-demand syncs
     this.syncingAccounts = new Set(); // prevent overlapping interval syncs
     this.syncStartedAt = new Map();   // accountId -> ms when the current sync tick began (hung-sync detection)
@@ -724,6 +822,10 @@ export class ImapManager {
         );
         for (const row of result.rows) {
           if (!this.connections.has(row.id) && !this.connectingAccounts.has(row.id)) {
+            // Respect the connection-refusal cooldown — connectAccount would bail anyway, so
+            // skip early to avoid a needless credential fetch and a misleading log line.
+            const cd = this._connectCooldown.get(row.id);
+            if (cd && Date.now() < cd.until) continue;
             // Only fetch full credentials when a reconnect is actually needed
             const full = await query('SELECT * FROM email_accounts WHERE id = $1', [row.id]);
             const account = full.rows[0];
@@ -1128,6 +1230,16 @@ export class ImapManager {
   }
 
   async connectAccount(account) {
+    // Back off if this account is in a connection-refusal cooldown. Retrying a provider that
+    // is rejecting connections (per-IP/per-account limit, temporary lock) every health-check
+    // tick is exactly what escalates to IP bans / account locks. The cooldown is cleared the
+    // moment a connect succeeds (below), so a transient refusal recovers on its own.
+    const cd = this._connectCooldown.get(account.id);
+    if (cd && Date.now() < cd.until) {
+      logger.debug(`connectAccount: ${logAccount(account)} cooling down ${Math.round((cd.until - Date.now()) / 1000)}s after ${cd.failures} refusal(s)`);
+      return false;
+    }
+
     // Guard against concurrent connect calls for the same account.
     // This happens when startup and a WebSocket connection both call connectAllForUser
     // before the first connectAccount completes — without this, both would connect the
@@ -1149,7 +1261,7 @@ export class ImapManager {
     const { resolved, policy } = await resolveAccountHost(account);
     let client;
     try {
-      client = new ImapFlow(makeClientCfg(account, resolved, { enableIdle: true, policy }));
+      client = new ImapFlow(makeClientCfg(account, resolved, { enableIdle: providerProfile(account).usesIdle !== false, policy }));
       // Race the connect against a 30-second timeout.
       // client.connect() has no built-in connection timeout — on slow or unresponsive
       // IMAP servers (e.g. purelymail.com during cold starts) it can hang indefinitely,
@@ -1184,37 +1296,60 @@ export class ImapManager {
       // not prevent the account from being marked connected. The 60-second interval
       // will retry the sync on the next tick.
       try {
-        await this.syncFolders(account, client);
+        await raceTimeout(this.syncFolders(account, client), 20000, 'Initial folder sync');
         // noBodyParts=true: consistent with the periodic sync — envelope/flags/uid only.
         // Fetching body parts on initial connect stalls on slow servers (purelymail et al).
-        await this.syncMessages(account, client, 'INBOX', 20, false, true);
+        if (providerProfile(account).freshInboxSync) {
+          await this._syncInboxWithFreshLogin(account);
+        } else {
+          await raceTimeout(
+            this.syncMessages(account, client, 'INBOX', 20, false, true),
+            40000,
+            'Initial message sync',
+          );
+        }
       } catch (syncErr) {
         console.warn(`Initial sync skipped for ${logAccount(account)}: ${extractImapError(syncErr)}`);
       }
 
       // Pre-warm one pool connection immediately so the first email click doesn't
-      // incur a cold TLS handshake. Fire-and-forget — errors are non-fatal.
-      setImmediate(() => {
-        acquirePooledClient(account)
-          .then(c => releasePooledClient(account, c))
-          .catch(err => console.warn(`Pool pre-warm failed for ${logAccount(account)}:`, err.message));
-      });
+      // incur a cold TLS handshake. Fire-and-forget — errors are non-fatal. Skip it for
+      // providers whose body fetches bypass the pool anyway (preferFreshBodyFetch, e.g.
+      // PurelyMail): there it only opens an unused connection on a connection-sensitive
+      // server during the startup backfill window, which is exactly the pressure we're
+      // trying to reduce.
+      if (!providerProfile(account).preferFreshBodyFetch) {
+        setImmediate(() => {
+          acquirePooledClient(account)
+            .then(c => releasePooledClient(account, c))
+            .catch(err => console.warn(`Pool pre-warm failed for ${logAccount(account)}:`, err.message));
+        });
+      }
 
       // Backfill uses its OWN connection so it doesn't block the sync connection.
       // backfillAllFolders runs INBOX first, then all other known folders sequentially.
-      this.backfillAllFolders(account).catch(err =>
-        console.error(`Backfill error for ${logAccount(account)}:`, err.message)
-      );
+      if (await this._shouldAutoBackfillOnConnect(account)) {
+        this.backfillAllFolders(account).catch(err =>
+          console.error(`Backfill error for ${logAccount(account)}:`, err.message)
+        );
+      } else {
+        logger.debug(`Backfill deferred on connect for ${logAccount(account)} — account already has cached mail`);
+      }
 
       const intervalMs = this.userSyncIntervalMs.get(account.user_id) || 60000;
       this._startSyncInterval(account, intervalMs);
 
+      this._connectCooldown.delete(account.id); // healthy again — clear any refusal cooldown
       console.log(`Connected account: ${logAccount(account)}`);
       this.broadcast({ type: 'account_connected', accountId: account.id }, account.user_id);
       return true;
     } catch (err) {
       const detail = extractImapError(err);
       console.error(`Failed to connect ${logAccount(account)}:`, detail);
+      // On a connection-refusal/throttle, back this account off with growing delay so we
+      // stop hammering a provider that's at its limit. Other errors don't set a cooldown —
+      // the health check retries them normally.
+      if (isConnectionRefusal(detail)) this._noteConnectionRefusal(account);
       await query('UPDATE email_accounts SET sync_error = $1 WHERE id = $2', [detail, account.id]);
       this.broadcast({ type: 'account_error', accountId: account.id, error: detail }, account.user_id);
       return false;
@@ -1256,6 +1391,77 @@ export class ImapManager {
     }
   }
 
+  // Arm/extend an account's connection-refusal backoff. Shared by connectAccount, the
+  // interval reconnect, AND the fresh-login sync path so all three back off identically
+  // instead of hammering a provider that's at its connection limit. Returns the delay in ms.
+  _noteConnectionRefusal(account) {
+    const failures = (this._connectCooldown.get(account.id)?.failures || 0) + 1;
+    const ms = connectCooldownMs(failures);
+    this._connectCooldown.set(account.id, { until: Date.now() + ms, failures });
+    console.warn(`Connection refused for ${logAccount(account)} — backing off ${Math.round(ms / 1000)}s (refusal #${failures})`);
+    return ms;
+  }
+
+  async _syncInboxWithFreshLogin(account) {
+    let client = null;
+    try {
+      const fresh = await raceTimeout(ensureFreshToken(account), 15000, 'Fresh sync token refresh');
+      const { resolved, policy } = await raceTimeout(resolveAccountHost(fresh), 15000, 'Fresh sync host resolve');
+      client = new ImapFlow(makeClientCfg(fresh, resolved, { policy }));
+      client.on('error', () => {}); // close() below intentionally aborts timed-out sockets
+      await raceTimeout(client.connect(), 30000, 'Fresh sync connect');
+      if (providerProfile(account).freshInboxUidPoll) {
+        const pollResult = await raceTimeout(
+          this._pollInboxUidWatermark(account, client),
+          15000,
+          'Fresh UID poll',
+        );
+        if (!pollResult.hasNewUid) return pollResult;
+      }
+      return await raceTimeout(
+        this.syncMessages(account, client, 'INBOX', 20, false, true),
+        55000,
+        'Fresh sync wall-clock',
+      );
+    } finally {
+      if (client) { try { client.close(); } catch { /* already closed */ } }
+    }
+  }
+
+  async _pollInboxUidWatermark(account, client) {
+    const lock = await client.getMailboxLock('INBOX');
+    try {
+      const mailbox = client.mailbox;
+      if (!mailbox || mailbox.exists === 0) {
+        await query('UPDATE email_accounts SET last_sync = NOW() WHERE id = $1', [account.id]);
+        return { insertedCount: 0, broadcastedNewMessages: false, hasNewUid: false };
+      }
+
+      const { rows: [{ max_uid }] } = await query(
+        "SELECT COALESCE(MAX(uid), 0) as max_uid FROM messages WHERE account_id = $1 AND folder = 'INBOX'",
+        [account.id]
+      );
+      const maxKnownUid = Number(max_uid);
+      if (maxKnownUid <= 0) return { hasNewUid: true };
+
+      const above = await client.search({ uid: `${maxKnownUid + 1}:*` }, { uid: true });
+      const hasNewUid = (above || []).some(uid => Number(uid) > maxKnownUid);
+      if (hasNewUid) return { hasNewUid: true };
+
+      await query('UPDATE email_accounts SET last_sync = NOW() WHERE id = $1', [account.id]);
+      return { insertedCount: 0, broadcastedNewMessages: false, hasNewUid: false };
+    } finally {
+      lock.release();
+    }
+  }
+
+  async _shouldAutoBackfillOnConnect(account) {
+    const profile = providerProfile(account);
+    if (profile.autoBackfillExistingOnConnect !== false) return true;
+    const existing = await query('SELECT 1 FROM messages WHERE account_id = $1 LIMIT 1', [account.id]);
+    return existing.rows.length === 0;
+  }
+
   // Extracted sync tick — runs on every interval tick for an account.
   async _syncTick(account) {
     const skips = this.syncThrottleSkips.get(account.id) || 0;
@@ -1267,6 +1473,8 @@ export class ImapManager {
     this.syncingAccounts.add(account.id);
     this.syncStartedAt.set(account.id, Date.now());
     let activeClient = null;
+    let usedFreshSyncClient = false;
+    let syncResult;
     try {
       activeClient = this.connections.get(account.id);
       // syncAccount tracks the freshest account data available — updated to freshAccount
@@ -1274,6 +1482,11 @@ export class ImapManager {
       // current credentials and config rather than the stale closure-captured object.
       let syncAccount = account;
       if (!activeClient) {
+        // Respect the connection-refusal cooldown — the 60s sync interval must NOT hammer a
+        // provider that's rejecting connections just because the socket dropped. connectAccount
+        // and the health check honor the same cooldown; this closes the interval bypass.
+        const cd = this._connectCooldown.get(account.id);
+        if (cd && Date.now() < cd.until) return;
         // Participate in the same lock as connectAccount()/health-check so a
         // concurrent reconnect can't create a second client that overwrites and
         // orphans this one (which would leak the IMAP connection + IDLE listeners).
@@ -1298,7 +1511,7 @@ export class ImapManager {
               if (!accountResult.rows.length || !accountResult.rows[0].enabled) return null;
               const freshAccount = await ensureFreshToken(accountResult.rows[0]);
               const { resolved, policy } = await resolveAccountHost(freshAccount);
-              pendingClient = new ImapFlow(makeClientCfg(freshAccount, resolved, { enableIdle: true, policy }));
+              pendingClient = new ImapFlow(makeClientCfg(freshAccount, resolved, { enableIdle: providerProfile(freshAccount).usesIdle !== false, policy }));
               await pendingClient.connect();
               return { client: pendingClient, account: freshAccount };
             })(),
@@ -1319,9 +1532,16 @@ export class ImapManager {
           });
           this._attachIdleListeners(activeClient, syncAccount);
           this.connections.set(account.id, activeClient);
+          // Mirror connectAccount's success cleanup: clear the refusal backoff so the next
+          // failure starts fresh, and clear the stale sync_error the UI is still showing.
+          this._connectCooldown.delete(account.id);
+          await query('UPDATE email_accounts SET sync_error = NULL WHERE id = $1', [account.id]);
           console.log(`Reconnected ${logAccount(syncAccount)}`);
         } catch (reconnErr) {
-          console.error(`Reconnect failed for ${logAccount(account)}:`, reconnErr.message);
+          const detail = extractImapError(reconnErr);
+          // Back off on a connection-refusal so the interval stops hammering — mirrors connectAccount.
+          if (isConnectionRefusal(detail)) this._noteConnectionRefusal(account);
+          console.error(`Reconnect failed for ${logAccount(account)}:`, detail);
           // Force-close a client left mid-connect when the timeout fired so it doesn't
           // linger as an orphaned socket.
           if (pendingClient) pendingClient.logout().catch(() => {});
@@ -1330,25 +1550,50 @@ export class ImapManager {
           this.connectingAccounts.delete(account.id);
         }
       }
+      // Honor the connection-refusal cooldown on the sync path itself, not just on reconnect.
+      // freshInboxSync providers (PurelyMail) keep the persistent connection open and sync via
+      // a brand-new login every tick, so a refused fresh login never passes through the
+      // reconnect gate above — without this check the 10s poll would keep hammering a provider
+      // that's rejecting logins. Cleared on any healthy sync (below) and on a good reconnect.
+      const syncCd = this._connectCooldown.get(account.id);
+      if (syncCd && Date.now() < syncCd.until) return;
       // noBodyParts=true: envelope/flags/uid only — avoids slow servers timing out on body fetches.
-      // Wall-clock timeout guards against half-open TCP sockets that never trigger commandTimeout.
-      await Promise.race([
-        this.syncMessages(syncAccount, activeClient, 'INBOX', 20, false, true),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Sync wall-clock timeout (55s)')), 55000)
-        ),
-      ]);
+      // PurelyMail's long-lived sessions can go "deaf" while a brand-new login sees current
+      // mail; use a fresh login for the periodic backstop so missed IDLE events are caught on
+      // the user's sync interval instead of waiting for the 3-minute staleness probe.
+      if (providerProfile(syncAccount).freshInboxSync) {
+        usedFreshSyncClient = true;
+        syncResult = await this._syncInboxWithFreshLogin(syncAccount);
+      } else {
+        // Wall-clock timeout guards against half-open TCP sockets that never trigger commandTimeout.
+        syncResult = await Promise.race([
+          this.syncMessages(syncAccount, activeClient, 'INBOX', 20, false, true),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Sync wall-clock timeout (55s)')), 55000)
+          ),
+        ]);
+      }
       // Mark a successful sync tick — the health check uses this to spot a connected
       // account whose syncs have silently stalled (stale/half-open connection).
       this.lastSyncOkAt.set(account.id, Date.now());
-      this.broadcast({ type: 'sync_complete', accountId: account.id }, account.user_id);
+      // Healthy again — clear any refusal backoff so the failure count resets and a later
+      // refusal starts from the base delay rather than a still-escalated one. No-op when unset.
+      this._connectCooldown.delete(account.id);
+      if ((syncResult?.insertedCount || 0) > 0 && !syncResult?.broadcastedNewMessages) {
+        this.broadcast({ type: 'sync_complete', accountId: account.id }, account.user_id);
+      }
 
-      // Some providers (e.g. Google) don't push flag changes via IDLE — poll every tick.
-      // Others (Dovecot, iCloud, PurelyMail) push via the `flags` IDLE event,
+      const ticks = (this.syncTickCount.get(account.id) || 0) + 1;
+      this.syncTickCount.set(account.id, ticks);
+
+      // Some providers (e.g. Google) don't push flag changes via IDLE — poll on the
+      // provider's configured cadence. Others (Dovecot, iCloud) push via `flags`,
       // but if a flag event fired while this sync was running it was deferred into
       // _pendingFlagSync rather than dropped — drain it now.
       const hasPending = this._pendingFlagSync.has(account.id);
-      if (!providerProfile(syncAccount).pushesFlags || hasPending) {
+      const syncProfile = providerProfile(syncAccount);
+      const flagPollEvery = Math.max(1, Number(syncProfile.flagPollEveryTicks) || 1);
+      if ((!syncProfile.pushesFlags && ticks % flagPollEvery === 0) || hasPending) {
         this._pendingFlagSync.delete(account.id);
         setImmediate(() => {
           this._syncFlagsForRange(syncAccount).catch(err =>
@@ -1359,8 +1604,6 @@ export class ImapManager {
 
       // Reconcile remote deletes every 10 successful ticks (~10 min at 60 s interval).
       // Uses a pooled connection so it never blocks the sync client.
-      const ticks = (this.syncTickCount.get(account.id) || 0) + 1;
-      this.syncTickCount.set(account.id, ticks);
       if (ticks % 10 === 0) {
         setImmediate(() => {
           this.reconcileDeletes(syncAccount).catch(err =>
@@ -1374,12 +1617,16 @@ export class ImapManager {
       if (detail.includes('THROTTLED') || detail.includes('throttl')) {
         this.syncThrottleSkips.set(account.id, 4);
       }
+      // A refusal on the sync path (notably the fresh-login poll, which never reaches the
+      // reconnect gate) must arm the same backoff the connect paths use — otherwise the poll
+      // keeps hammering a provider that's refusing logins. Honored by the check above next tick.
+      if (isConnectionRefusal(detail)) this._noteConnectionRefusal(account);
       // Identity-guard: the staleness check may have deleted this connection out from
       // under a hung sync, and a fresh reconnect (health check / another tick) may already
       // occupy the map slot. Only tear down the client THIS tick owned — never a healthy
       // successor connection.
       const dead = this.connections.get(account.id);
-      if (dead && dead === activeClient) {
+      if (!usedFreshSyncClient && dead && dead === activeClient) {
         this.connections.delete(account.id);
         dead.logout().catch(() => {});
       }
@@ -1483,6 +1730,7 @@ export class ImapManager {
   }
 
   _startSyncInterval(account, ms) {
+    ms = effectiveSyncIntervalMs(account, ms);
     // Stagger the first tick by a random offset within [0, min(ms, 30s)] so that
     // many accounts starting simultaneously (e.g. after a container restart) don't
     // all hit their mail servers at the same instant.
@@ -1558,25 +1806,50 @@ export class ImapManager {
       const lock = await client.getMailboxLock(folder);
       try {
         const mailbox = client.mailbox;
-        if (!mailbox || mailbox.exists === 0) return;
+        if (!mailbox || mailbox.exists === 0) return { insertedCount: 0, broadcastedNewMessages: false };
 
         // UIDVALIDITY check — detects server-side mailbox rebuilds (migration, restore).
         // If UIDVALIDITY changed, all stored UIDs for this folder are invalid; purge them
         // and let backfill re-populate from the new UID epoch.
         const currentValidity = mailbox.uidValidity ? Number(mailbox.uidValidity) : null;
+        // CONDSTORE HIGHESTMODSEQ read at SELECT time (M). ImapFlow auto-enables CONDSTORE on
+        // connect, so this is populated on any server that supports it and null otherwise —
+        // in which case delta sync transparently falls back to the full UID/sequence phases.
+        // Kept as a BigInt (or null); never coerced to a JS Number (modseq can exceed 2^53).
+        const serverModseq = mailbox.highestModseq ?? null;
+        let storedModseq = null;        // decimal string from the DB, or null (no baseline yet)
+        let uidValidityChanged = false; // true resets the modseq baseline (epoch changed)
         if (currentValidity) {
           const foldRow = await query(
-            'SELECT uid_validity FROM folders WHERE account_id = $1 AND path = $2',
+            'SELECT uid_validity, highest_modseq FROM folders WHERE account_id = $1 AND path = $2',
             [account.id, folder]
           );
           const storedValidity = foldRow.rows[0]?.uid_validity ? Number(foldRow.rows[0].uid_validity) : null;
+          storedModseq = foldRow.rows[0]?.highest_modseq ?? null;
           if (storedValidity !== null && storedValidity !== currentValidity) {
+            uidValidityChanged = true;
             console.warn(`UIDVALIDITY changed for ${logAccount(account)}/${folder}: ${storedValidity} → ${currentValidity}. Purging stale messages and re-backfilling.`);
             await query('DELETE FROM messages WHERE account_id = $1 AND folder = $2', [account.id, folder]);
-            setImmediate(() => {
-              this.backfillMessages(account, folder).catch(err =>
-                console.error(`Post-UIDVALIDITY backfill error for ${logAccount(account)}/${folder}:`, err.message)
-              );
+            // The stored modseq belongs to the OLD UIDVALIDITY epoch and is no longer
+            // comparable — clear it so the next sync re-seeds cleanly from the new epoch.
+            await query('UPDATE folders SET highest_modseq = NULL WHERE account_id = $1 AND path = $2', [account.id, folder]);
+            storedModseq = null;
+            // Route through the per-host backfill cap too: a provider-side mailbox rebuild
+            // can reset UIDVALIDITY across many accounts/folders at once, which would
+            // otherwise flood connections on exactly the many-account-per-provider setup the
+            // cap protects. Acquire at the call site (not inside backfillMessages) —
+            // backfillAllFolders already holds the slot while calling it per folder, so an
+            // internal acquire would self-deadlock at the limit.
+            const reindexHost = (account.imap_host || '').toLowerCase();
+            setImmediate(async () => {
+              await this._backfillSem.acquire(reindexHost);
+              try {
+                await this.backfillMessages(account, folder);
+              } catch (err) {
+                console.error(`Post-UIDVALIDITY backfill error for ${logAccount(account)}/${folder}:`, err.message);
+              } finally {
+                this._backfillSem.release(reindexHost);
+              }
             });
           }
         }
@@ -1618,6 +1891,8 @@ export class ImapManager {
         const maxKnownUid = Number(max_uid);
 
         let newMessages = [];
+        let insertedCount = 0;
+        let broadcastedNewMessages = false;
 
         // Insert/update a single fetched message and track it as new if appropriate.
         // Called from both Phase 1 and Phase 2; ON CONFLICT handles deduplication so
@@ -1722,8 +1997,11 @@ export class ImapManager {
               sanitizeStr(decodeMimeWords(parsed.parsedHeaders?.['list-unsubscribe'] ?? null)),
               sanitizeStr(decodeMimeWords(parsed.parsedHeaders?.['list-unsubscribe-post'] ?? null)),
             ]);
-            if (result.rows[0]?.is_new && !parsed.isRead) {
-              newMessages.push({ ...parsed, id: result.rows[0].id, accountId: account.id, folder });
+            if (result.rows[0]?.is_new) {
+              insertedCount++;
+              if (!parsed.isRead) {
+                newMessages.push({ ...parsed, id: result.rows[0].id, accountId: account.id, folder });
+              }
             }
             // Propagate resolved thread_id to any earlier messages that used this
             // message as a provisional thread root (out-of-order delivery / sync).
@@ -1739,44 +2017,84 @@ export class ImapManager {
           }
         };
 
-        // Phase 1 — UID-watermark fetch: guaranteed to find ALL messages that arrived
-        // since the last sync, regardless of how many there are.  The sequence-range
-        // approach below is limited to `limit` messages and would silently miss older
-        // arrivals in the batch when more than `limit` messages arrive between ticks.
-        // Skipped on first sync (maxKnownUid=0) because backfill owns initial population.
-        if (maxKnownUid > 0) {
+        // Choose the fetch strategy from the CONDSTORE modseq state (pure/testable helper).
+        const plan = planModseqSync({ storedModseq, serverModseq, uidValidityChanged });
+
+        if (plan === 'delta') {
+          // Delta fetch — the server told us (via HIGHESTMODSEQ) that something changed. One
+          // CHANGEDSINCE pass over the whole mailbox returns ONLY messages with modseq greater
+          // than our watermark (server-side filtered, so it's cheap even on a 50k mailbox):
+          // every new arrival AND every flag change since the last sync, in one shot. This is
+          // strictly more complete than the UID-watermark + last-N-sequence phases below — no
+          // out-of-order-UID gap and no "flag change older than N" gap. Deletes are not
+          // reported by CONDSTORE and are still reconciled separately by reconcileDeletes().
           try {
-            for await (const msg of client.fetch(`${maxKnownUid + 1}:*`, fetchQuery, { uid: true })) {
+            for await (const msg of client.fetch('1:*', fetchQuery, { uid: true, changedSince: BigInt(storedModseq) })) {
               await processMsg(msg);
             }
           } catch (err) {
             if (!extractImapError(err).toLowerCase().includes('invalid messageset')) throw err;
-            // UID range became stale due to concurrent expunge between SELECT and FETCH.
+            // Range became stale due to concurrent expunge between SELECT and FETCH.
+            // Non-fatal — the watermark is not advanced below, so next sync retries.
+            console.warn(`Delta sync skipped for ${logAccount(account)}/${folder}: stale range after concurrent expunge`);
+          }
+        } else if (plan === 'full') {
+          // Full sync fallback — no usable modseq baseline (first sync, UIDVALIDITY reset, or a
+          // server without CONDSTORE). Uses the two legacy phases; the watermark is seeded from
+          // serverModseq below so subsequent syncs can go delta.
+
+          // Phase 1 — UID-watermark fetch: guaranteed to find ALL messages that arrived
+          // since the last sync, regardless of how many there are.  The sequence-range
+          // approach below is limited to `limit` messages and would silently miss older
+          // arrivals in the batch when more than `limit` messages arrive between ticks.
+          // Skipped on first sync (maxKnownUid=0) because backfill owns initial population.
+          if (maxKnownUid > 0) {
+            try {
+              for await (const msg of client.fetch(`${maxKnownUid + 1}:*`, fetchQuery, { uid: true })) {
+                await processMsg(msg);
+              }
+            } catch (err) {
+              if (!extractImapError(err).toLowerCase().includes('invalid messageset')) throw err;
+              // UID range became stale due to concurrent expunge between SELECT and FETCH.
+              // Non-fatal — next sync will catch up.
+              console.warn(`Message sync phase 1 skipped for ${logAccount(account)}/${folder}: stale UID range after concurrent expunge`);
+            }
+          }
+
+          // Phase 2 — Sequence-range fetch: syncs flag changes (is_read, is_starred) for
+          // recent messages, and handles the first-sync case (maxKnownUid=0).
+          // Messages already inserted by Phase 1 are processed again here but the
+          // ON CONFLICT DO UPDATE is idempotent and xmax=0 prevents double-notification.
+          //
+          // Re-read exists from the live connection rather than reusing the value captured
+          // at SELECT time. ImapFlow may have decremented it asynchronously if an EXPUNGE
+          // notification arrived during Phase 1, making the original fetchRange stale.
+          const liveExists = client.mailbox?.exists ?? 0;
+          const phase2Range = liveExists > limit
+            ? `${liveExists - limit + 1}:${liveExists}` : '1:*';
+          try {
+            for await (const msg of client.fetch(phase2Range, fetchQuery)) {
+              await processMsg(msg);
+            }
+          } catch (err) {
+            if (!extractImapError(err).toLowerCase().includes('invalid messageset')) throw err;
+            // Sequence range became stale due to concurrent expunge between SELECT and FETCH.
             // Non-fatal — next sync will catch up.
-            console.warn(`Message sync phase 1 skipped for ${logAccount(account)}/${folder}: stale UID range after concurrent expunge`);
+            console.warn(`Message sync phase 2 skipped for ${logAccount(account)}/${folder}: stale sequence range after concurrent expunge`);
           }
         }
+        // plan === 'unchanged': modseq matched the watermark — nothing changed, no fetch.
 
-        // Phase 2 — Sequence-range fetch: syncs flag changes (is_read, is_starred) for
-        // recent messages, and handles the first-sync case (maxKnownUid=0).
-        // Messages already inserted by Phase 1 are processed again here but the
-        // ON CONFLICT DO UPDATE is idempotent and xmax=0 prevents double-notification.
-        //
-        // Re-read exists from the live connection rather than reusing the value captured
-        // at SELECT time. ImapFlow may have decremented it asynchronously if an EXPUNGE
-        // notification arrived during Phase 1, making the original fetchRange stale.
-        const liveExists = client.mailbox?.exists ?? 0;
-        const phase2Range = liveExists > limit
-          ? `${liveExists - limit + 1}:${liveExists}` : '1:*';
-        try {
-          for await (const msg of client.fetch(phase2Range, fetchQuery)) {
-            await processMsg(msg);
-          }
-        } catch (err) {
-          if (!extractImapError(err).toLowerCase().includes('invalid messageset')) throw err;
-          // Sequence range became stale due to concurrent expunge between SELECT and FETCH.
-          // Non-fatal — next sync will catch up.
-          console.warn(`Message sync phase 2 skipped for ${logAccount(account)}/${folder}: stale sequence range after concurrent expunge`);
+        // Advance the CONDSTORE watermark ONLY after the fetch above completed without throwing,
+        // and store the value read at SELECT time (M). Any mail arriving mid-fetch has modseq
+        // greater than M, so it is simply re-caught next tick — over-fetching is harmless, but
+        // advancing past unprocessed changes would drop them permanently. Skipped when nothing
+        // changed (already equal) and on a UIDVALIDITY reset (reseed from the new epoch instead).
+        if (serverModseq != null && !uidValidityChanged && plan !== 'unchanged') {
+          await query(
+            'UPDATE folders SET highest_modseq = $1 WHERE account_id = $2 AND path = $3',
+            [serverModseq.toString(), account.id, folder]
+          );
         }
 
         if (newMessages.length > 0) {
@@ -1806,6 +2124,7 @@ export class ImapManager {
             folder, messages: newMessages.slice(-5), count: newMessages.length,
             alertMessages: alertMessages.slice(-5), alertCount,
           }, account.user_id);
+          if (newMessages.length > 0) broadcastedNewMessages = true;
           // Web Push — INBOX only, alert-eligible messages only. Non-inbox folder syncs
           // (Archive, Spam, on-demand) can surface old or filtered messages; sending push
           // for them or for mark_read-silenced messages would be misleading.
@@ -1839,10 +2158,11 @@ export class ImapManager {
           // Pre-warm the body cache for newly arrived messages so clicking one
           // immediately after receipt doesn't require a live IMAP fetch.
           // Only do this for small batches (periodic new mail, not initial bulk sync),
-          // and skip it for providers that opt out of background BODY[] work (PurelyMail),
-          // where a brand-new message is instead fetched live (fresh login) on first open.
-          if (newMessages.length <= 5 && providerProfile(account).prefetchNewBodies !== false) {
-            const msgsToCache = newMessages.slice();
+          // and let provider profiles cap or disable the work when BODY[] is sensitive.
+          const prefetchProfile = providerProfile(account);
+          if (newMessages.length <= 5 && prefetchProfile.prefetchNewBodies !== false) {
+            const warmLimit = Math.max(1, Number(prefetchProfile.prefetchNewBodiesLimit) || newMessages.length);
+            const msgsToCache = newMessages.slice(-warmLimit);
             setImmediate(() => {
               this.prefetchNewMessageBodies(account, msgsToCache)
                 .catch(err => console.warn(`Body prefetch error for ${logAccount(account)}:`, err.message));
@@ -1866,6 +2186,7 @@ export class ImapManager {
           }
         }
         await query('UPDATE email_accounts SET last_sync = NOW() WHERE id = $1', [account.id]);
+        return { insertedCount, broadcastedNewMessages };
       } finally {
         lock.release();
       }
@@ -1903,7 +2224,10 @@ export class ImapManager {
       // Always clean up any existing client before creating a new one
       if (bfClient) { try { await bfClient.logout(); } catch { /* already disconnected */ } bfClient = null; }
       const row = (await query('SELECT * FROM email_accounts WHERE id = $1', [account.id])).rows[0];
-      if (!row) throw new Error('Account deleted');
+      // Re-check enabled here: a backfill can sit queued behind the per-host semaphore, and
+      // the user may disable the account while it waits. disconnectAccount doesn't cancel a
+      // queued backfill, so without this a disabled account would still get a fresh connection.
+      if (!row || !row.enabled) throw new Error('Account deleted or disabled');
       const fresh = await ensureFreshToken(row);
       const { resolved, policy } = await resolveAccountHost(fresh);
       const newClient = new ImapFlow(makeClientCfg(fresh, resolved, { policy }));
@@ -2388,8 +2712,19 @@ export class ImapManager {
   async backfillAllFolders(account) {
     if (this.backfillAllRunning.has(account.id)) return;
     this.backfillAllRunning.add(account.id);
+    const host = (account.imap_host || '').toLowerCase();
+    // Broadcast start BEFORE waiting on the per-host semaphore so a queued reindex shows as
+    // "in progress" in the admin UI instead of looking idle while it waits for a slot. The
+    // matching backfill_all_complete always fires from the finally, so the pair stays balanced.
     this.broadcast({ type: 'backfill_all_start', accountId: account.id }, account.user_id);
+    let slotHeld = false;
     try {
+      // Cap concurrent backfills per provider host: a user with many accounts on one
+      // provider would otherwise open a backfill connection for every account at once,
+      // tripping connection limits. This only queues the background catch-up — live sync
+      // (IDLE + the periodic interval) is unaffected and keeps flowing while queued.
+      await this._backfillSem.acquire(host);
+      slotHeld = true;
       const { skipFolderPatterns, skipFolderNames } = providerProfile(account);
 
       // INBOX first — highest priority, existing behaviour
@@ -2411,6 +2746,7 @@ export class ImapManager {
       }
 
     } finally {
+      if (slotHeld) this._backfillSem.release(host); // free the per-host slot for the next account
       this.backfillAllRunning.delete(account.id);
       this.broadcast({ type: 'backfill_all_complete', accountId: account.id }, account.user_id);
       // Both run as background jobs after the complete signal — neither should block the UI.
@@ -3389,20 +3725,32 @@ export class ImapManager {
       }
       this.syncingAccounts.add(account.id);
       this.syncStartedAt.set(account.id, Date.now());
+      let usedFreshSyncClient = false;
       try {
         // noBodyParts=true: metadata-only, same as the periodic interval sync.
         // Bodies are cached on first open; fetching them here would slow manual refresh.
-        await this.syncMessages(account, client, 'INBOX', 20, false, true);
+        // For freshInboxSync providers (PurelyMail) the persistent connection can be "deaf"
+        // to new mail, so a manual refresh must use a brand-new login too — otherwise the
+        // button is less reliable than the automatic poll it's meant to shortcut.
+        if (providerProfile(account).freshInboxSync) {
+          usedFreshSyncClient = true;
+          await this._syncInboxWithFreshLogin(account);
+        } else {
+          await this.syncMessages(account, client, 'INBOX', 20, false, true);
+        }
         console.log(`syncNow complete: ${logAccount(account)}`);
       } catch (err) {
         console.error(`syncNow error for ${logAccount(account)}:`, err.message);
         // Identity-guard: if this manual refresh hung and the staleness check meanwhile
         // reconnected a fresh client into the map slot, tear down ONLY the client this
-        // syncNow used — never the healthy successor.
-        const conn = this.connections.get(account.id);
-        if (conn && conn === client) {
-          try { await conn.logout(); } catch { /* already disconnected */ }
-          this.connections.delete(account.id);
+        // syncNow used — never the healthy successor. Skip teardown entirely when the error
+        // came from a fresh login (its own connection), not the persistent one.
+        if (!usedFreshSyncClient) {
+          const conn = this.connections.get(account.id);
+          if (conn && conn === client) {
+            try { await conn.logout(); } catch { /* already disconnected */ }
+            this.connections.delete(account.id);
+          }
         }
       } finally {
         this.syncingAccounts.delete(account.id);
