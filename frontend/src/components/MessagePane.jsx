@@ -1294,7 +1294,12 @@ ${bodyContent}
   }, [selectedMessageId]);
 
   useEffect(() => {
-    if (!showMovePicker) return;
+    // Desktop only. The mobile picker is a bottom sheet rendered OUTSIDE moveBtnRef (see the
+    // "Mobile move-to-folder bottom sheet" below), so on mobile this outside-pointerdown
+    // handler fired on a folder tap and unmounted the sheet BEFORE its click landed — the move
+    // silently failed and the sheet "backed out" (#236). The mobile sheet dismisses itself via
+    // its own scrim onClick, so this desktop dropdown affordance isn't needed there.
+    if (!showMovePicker || isMobile) return;
     const onPointer = (e) => {
       if (moveBtnRef.current && !moveBtnRef.current.contains(e.target)) {
         setShowMovePicker(false);
@@ -1302,7 +1307,7 @@ ${bodyContent}
     };
     document.addEventListener('pointerdown', onPointer);
     return () => document.removeEventListener('pointerdown', onPointer);
-  }, [showMovePicker]);
+  }, [showMovePicker, isMobile]);
 
   useEffect(() => {
     if (!showMovePicker) setMoveSearch('');
