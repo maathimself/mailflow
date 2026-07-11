@@ -85,24 +85,15 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
     }
   };
 
-  // Close on outside click or Escape. Uses the CAPTURE phase plus a ref-contains check
-  // rather than a bubble-phase document click: list rows call stopPropagation() on their
-  // click, which prevents a bubble-phase document handler from ever firing, so clicking an
-  // empty area of the message list left the menu stuck open. Capture fires top-down before
-  // any stopPropagation, so a click anywhere outside the menu dismisses it.
+  // Close on Escape. Outside-click/tap dismissal is handled by the transparent full-screen
+  // scrim rendered behind the menu (see the return below), which is strictly more robust than
+  // a document click listener: it catches taps inside the email <iframe> (pointer/click events
+  // never cross the frame boundary to reach `document`) and it can't be defeated by a row
+  // calling stopPropagation() on its click.
   useEffect(() => {
-    const handleClick = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) onClose();
-    };
     const handleKey = e => { if (e.key === 'Escape') onClose(); };
-    setTimeout(() => {
-      document.addEventListener('click', handleClick, true);
-      document.addEventListener('keydown', handleKey);
-    }, 0);
-    return () => {
-      document.removeEventListener('click', handleClick, true);
-      document.removeEventListener('keydown', handleKey);
-    };
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
   }, [onClose]);
 
   const items = [
@@ -248,6 +239,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
 
   return (
     <>
+      <div onClick={onClose} aria-hidden style={{ position: 'fixed', inset: 0, zIndex: 3999 }} />
       <div
         ref={menuRef}
         onClick={e => e.stopPropagation()}

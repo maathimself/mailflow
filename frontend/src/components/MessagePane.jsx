@@ -1298,45 +1298,16 @@ ${bodyContent}
     setAiClassifying(false);
   }, [selectedMessageId]);
 
-  useEffect(() => {
-    // Desktop only. The mobile picker is a bottom sheet rendered OUTSIDE moveBtnRef (see the
-    // "Mobile move-to-folder bottom sheet" below), so on mobile this outside-pointerdown
-    // handler fired on a folder tap and unmounted the sheet BEFORE its click landed — the move
-    // silently failed and the sheet "backed out" (#236). The mobile sheet dismisses itself via
-    // its own scrim onClick, so this desktop dropdown affordance isn't needed there.
-    if (!showMovePicker || isMobile) return;
-    const onPointer = (e) => {
-      if (moveBtnRef.current && !moveBtnRef.current.contains(e.target)) {
-        setShowMovePicker(false);
-      }
-    };
-    document.addEventListener('pointerdown', onPointer);
-    return () => document.removeEventListener('pointerdown', onPointer);
-  }, [showMovePicker, isMobile]);
+  // The reading-pane dropdown menus (move / more / AI) each dismiss via a transparent
+  // full-screen scrim rendered behind the menu — see their JSX below. A document-level
+  // pointerdown/click listener CANNOT catch taps inside the email <iframe> body (pointer
+  // events never cross the frame boundary), so tapping the message left the menu stuck open.
+  // The scrim sits above the iframe and closes the menu on any outside tap (mobile + desktop).
+  // It also can't be defeated by an ancestor's stopPropagation the way a bubbling handler can.
 
   useEffect(() => {
     if (!showMovePicker) setMoveSearch('');
   }, [showMovePicker]);
-
-  useEffect(() => {
-    if (!showMoreMenu) return;
-    const onPointer = (e) => {
-      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target)) {
-        setShowMoreMenu(false);
-      }
-    };
-    document.addEventListener('pointerdown', onPointer);
-    return () => document.removeEventListener('pointerdown', onPointer);
-  }, [showMoreMenu]);
-
-  useEffect(() => {
-    if (!showAiMenu) return;
-    const onPointer = (e) => {
-      if (aiMenuRef.current && !aiMenuRef.current.contains(e.target)) setShowAiMenu(false);
-    };
-    document.addEventListener('pointerdown', onPointer);
-    return () => document.removeEventListener('pointerdown', onPointer);
-  }, [showAiMenu]);
 
   const recentForMove = message
     ? recentFolders
@@ -1689,7 +1660,8 @@ ${bodyContent}
               <polyline points="6 9 12 15 18 9"/>
             </svg>
           </button>
-          {showReplyMenu && (
+          {showReplyMenu && (<>
+            <div onClick={() => setShowReplyMenu(false)} aria-hidden style={{ position: 'fixed', inset: 0, zIndex: 99 }} />
             <div
               style={{
                 position: 'absolute', top: '100%', left: 0, marginTop: 4,
@@ -1718,7 +1690,7 @@ ${bodyContent}
                 </div>
               ))}
             </div>
-          )}
+          </>)}
         </div>
 
         <PaneBtn onClick={handleForward} title={isMobile ? t('message.forward') : `${t('message.forward')}${shortcutLabel('forward') ? ` (${shortcutLabel('forward')})` : ''}`}>
@@ -1744,7 +1716,8 @@ ${bodyContent}
             </svg>
           </PaneBtn>
           {/* Desktop dropdown */}
-          {showMovePicker && !isMobile && (
+          {showMovePicker && !isMobile && (<>
+            <div onClick={() => setShowMovePicker(false)} aria-hidden style={{ position: 'fixed', inset: 0, zIndex: 199 }} />
             <div style={{
               position: 'absolute', top: 'calc(100% + 4px)', left: 0,
               background: 'var(--bg-elevated)', border: '1px solid var(--border)',
@@ -1864,7 +1837,7 @@ ${bodyContent}
                 </>
               )}
             </div>
-          )}
+          </>)}
         </div>
 
         <div style={{ flex: 1 }} />
@@ -1876,7 +1849,8 @@ ${bodyContent}
                 <circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>
               </svg>
             </PaneBtn>
-            {showMoreMenu && (
+            {showMoreMenu && (<>
+              <div onClick={() => setShowMoreMenu(false)} aria-hidden style={{ position: 'fixed', inset: 0, zIndex: 99 }} />
               <div style={{
                 position: 'absolute', top: '100%', right: 0, marginTop: 4,
                 background: 'var(--bg-elevated)', border: '1px solid var(--border)',
@@ -1979,7 +1953,7 @@ ${bodyContent}
                   </div>
                 )}
               </div>
-            )}
+            </>)}
           </div>
         ) : (
           <>
@@ -2038,7 +2012,8 @@ ${bodyContent}
                   </svg>
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                 </PaneBtn>
-                {showAiMenu && (
+                {showAiMenu && (<>
+                  <div onClick={() => setShowAiMenu(false)} aria-hidden style={{ position: 'fixed', inset: 0, zIndex: 49 }} />
                   <div style={{
                     position: 'absolute', top: '100%', right: 0, marginTop: 6, zIndex: 50, minWidth: 220,
                     background: 'var(--bg-elevated, var(--bg-secondary))', border: '1px solid var(--border)',
@@ -2049,7 +2024,7 @@ ${bodyContent}
                     <div style={{ height: 1, background: 'var(--border-subtle)', margin: '4px 0' }} />
                     {renderAiItem('__manage', t('message.manageAiActions'), () => { setShowAiMenu(false); setAdminTab('ai-actions'); setShowAdmin(true); }, { muted: true })}
                   </div>
-                )}
+                </>)}
               </div>
             )}
           </>

@@ -3070,7 +3070,8 @@ export default function MessageList() {
                 </svg>
               </BulkBtn>
 
-              {showFolderPicker && !isMobile && (
+              {showFolderPicker && !isMobile && (<>
+                <div onClick={() => setShowFolderPicker(false)} aria-hidden style={{ position: 'fixed', inset: 0, zIndex: 99 }} />
                 <div style={{
                   position: 'absolute', top: 'calc(100% + 4px)', right: 0,
                   background: 'var(--bg-elevated)',
@@ -3151,7 +3152,7 @@ export default function MessageList() {
                     </>
                   )}
                 </div>
-              )}
+              </>)}
               {/* Mobile folder picker — bottom sheet */}
               {showFolderPicker && isMobile && (
                 <>
