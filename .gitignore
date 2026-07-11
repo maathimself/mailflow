@@ -2,6 +2,9 @@
 .env
 *.env.local
 
+# Local docker compose overrides (e.g. temporary LOG_LEVEL=debug for a soak) — never committed
+docker-compose.override.yml
+
 # Dependencies
 node_modules/
 

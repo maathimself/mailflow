@@ -10,7 +10,7 @@ vi.mock('./pushNotifications.js', () => ({ sendPushToUser: vi.fn() }));
 vi.mock('../utils/redact.js', () => ({ redactEmail: vi.fn() }));
 vi.mock('./hostValidation.js', () => ({ resolveForConnection: vi.fn() }));
 
-import { providerProfile, makeClientCfg } from './imapManager.js';
+import { providerProfile, makeClientCfg, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, planModseqSync } from './imapManager.js';
 
 const account = (imap_host, oauth_provider = null) => ({ imap_host, oauth_provider });
 
@@ -63,13 +63,20 @@ describe('providerProfile — host detection', () => {
     ['mail.purelymail.com'],
   ])('detects purelymail (conservative profile) for %s', host => {
     const p = providerProfile(account(host));
-    // Conservative: no background body prefetch/snippet indexing, no speculative BODY[]
-    // fetch, and user body fetches bypass the pool — see PROVIDERS.purelymail.
+    // Conservative and poll-first: no broad background body prefetch/snippet indexing,
+    // no speculative BODY[] fetch, and user body fetches bypass the pool — see
+    // PROVIDERS.purelymail.
     expect(p.snippetIndex).toBe(false);
     expect(p.speculativeFetch).toBe(false);
     expect(p.preferFreshBodyFetch).toBe(true);
-    expect(p.prefetchNewBodies).toBe(false);
-    expect(p.pushesFlags).toBe(true);
+    expect(p.freshInboxSync).toBe(true);
+    expect(p.autoBackfillExistingOnConnect).toBe(false);
+    expect(p.usesIdle).toBe(false);
+    expect(p.pushesFlags).toBe(false);
+    expect(p.maxSyncIntervalMs).toBe(10000);
+    expect(p.flagPollEveryTicks).toBe(6);
+    expect(p.prefetchNewBodies).toBe(true);
+    expect(p.prefetchNewBodiesLimit).toBe(1);
   });
 
   it.each([
@@ -214,5 +221,171 @@ describe('makeClientCfg — rejectUnauthorized', () => {
   it('does not set servername when resolved.servername is null', () => {
     const cfg = makeClientCfg(baseAccount, resolved);
     expect(cfg.tls.servername).toBeUndefined();
+  });
+});
+
+// ── createKeyedSemaphore — per-host backfill concurrency cap ───────────────────
+
+describe('createKeyedSemaphore', () => {
+  it('runs up to `limit` holders per key concurrently', async () => {
+    const sem = createKeyedSemaphore(2);
+    await sem.acquire('h');
+    await sem.acquire('h');
+    expect(sem.activeCount('h')).toBe(2);
+    expect(sem.waitingCount('h')).toBe(0);
+  });
+
+  it('queues acquirers beyond the limit until a release', async () => {
+    const sem = createKeyedSemaphore(1);
+    await sem.acquire('h');
+    let entered = false;
+    const p = sem.acquire('h').then(() => { entered = true; });
+    await Promise.resolve();
+    expect(sem.waitingCount('h')).toBe(1);
+    expect(entered).toBe(false);
+    sem.release('h');
+    await p;
+    expect(entered).toBe(true);
+    expect(sem.waitingCount('h')).toBe(0);
+    expect(sem.activeCount('h')).toBe(1);
+  });
+
+  it('hands slots to waiters in FIFO order', async () => {
+    const sem = createKeyedSemaphore(1);
+    await sem.acquire('h');
+    const order = [];
+    const a = sem.acquire('h').then(() => order.push('a'));
+    const b = sem.acquire('h').then(() => order.push('b'));
+    await Promise.resolve();
+    sem.release('h');
+    await a;
+    sem.release('h');
+    await b;
+    expect(order).toEqual(['a', 'b']);
+  });
+
+  it('treats different keys independently', async () => {
+    const sem = createKeyedSemaphore(1);
+    await sem.acquire('h1');
+    await sem.acquire('h2'); // different host — not blocked by h1 being full
+    expect(sem.activeCount('h1')).toBe(1);
+    expect(sem.activeCount('h2')).toBe(1);
+  });
+
+  it('cleans up the entry once fully released', async () => {
+    const sem = createKeyedSemaphore(1);
+    await sem.acquire('h');
+    sem.release('h');
+    expect(sem.activeCount('h')).toBe(0);
+    expect(sem.waitingCount('h')).toBe(0);
+  });
+
+  it('release is a safe no-op for an unknown key', () => {
+    const sem = createKeyedSemaphore(1);
+    expect(() => sem.release('never-acquired')).not.toThrow();
+  });
+});
+
+// ── connection-refusal cooldown ───────────────────────────────────────────────
+
+describe('isConnectionRefusal', () => {
+  it.each([
+    'Connection not available',
+    'Too many simultaneous connections',
+    'Maximum number of connections exceeded',
+    'Please try again later',
+    'Account temporarily locked',
+    'THROTTLED: too many requests',
+    'rate limit exceeded',
+  ])('flags a refusal: %s', (msg) => {
+    expect(isConnectionRefusal(msg)).toBe(true);
+  });
+
+  it.each([
+    ['Invalid credentials'],
+    ['Mailbox does not exist'],
+    ['ECONNRESET'],
+    [''],
+    [null],
+    [undefined],
+  ])('does not flag a non-refusal: %s', (msg) => {
+    expect(isConnectionRefusal(msg)).toBe(false);
+  });
+});
+
+describe('connectCooldownMs', () => {
+  it('grows exponentially from 30s and caps at 15 min', () => {
+    expect(connectCooldownMs(1)).toBe(30_000);
+    expect(connectCooldownMs(2)).toBe(60_000);
+    expect(connectCooldownMs(3)).toBe(120_000);
+    expect(connectCooldownMs(4)).toBe(240_000);
+    expect(connectCooldownMs(5)).toBe(480_000);
+    expect(connectCooldownMs(6)).toBe(900_000); // 960k clamped to the 15-min cap
+    expect(connectCooldownMs(20)).toBe(900_000);
+  });
+
+  it('treats 0 / negative failures as at least one', () => {
+    expect(connectCooldownMs(0)).toBe(30_000);
+    expect(connectCooldownMs(-3)).toBe(30_000);
+  });
+});
+
+// ── effectiveSyncIntervalMs — provider interval clamp ─────────────────────────
+
+describe('effectiveSyncIntervalMs', () => {
+  it('clamps to the provider cap when the requested interval is longer', () => {
+    // PurelyMail polls via fresh login (IDLE is unreliable) and caps at 10s.
+    expect(effectiveSyncIntervalMs(account('imap.purelymail.com'), 60000)).toBe(10000);
+  });
+
+  it('leaves a faster-than-cap request untouched', () => {
+    expect(effectiveSyncIntervalMs(account('imap.purelymail.com'), 5000)).toBe(5000);
+  });
+
+  it('passes the requested interval through for providers without a cap', () => {
+    expect(effectiveSyncIntervalMs(account('imap.fastmail.com'), 60000)).toBe(60000);
+    expect(effectiveSyncIntervalMs(account('imap.gmail.com'), 120000)).toBe(120000);
+  });
+});
+
+// ── planModseqSync — CONDSTORE delta-sync strategy decision ────────────────────
+
+describe('planModseqSync', () => {
+  it('falls back to full sync when there is no stored baseline (first sync / seed)', () => {
+    expect(planModseqSync({ storedModseq: null, serverModseq: '42', uidValidityChanged: false })).toBe('full');
+  });
+
+  it('falls back to full sync when the server has no modseq (no CONDSTORE)', () => {
+    expect(planModseqSync({ storedModseq: '42', serverModseq: null, uidValidityChanged: false })).toBe('full');
+    expect(planModseqSync({ storedModseq: null, serverModseq: null, uidValidityChanged: false })).toBe('full');
+  });
+
+  it('forces full sync on a UIDVALIDITY change even when the modseqs happen to match', () => {
+    // modseq is only comparable within a UIDVALIDITY epoch — a matching value across a
+    // reset must NOT be treated as "nothing changed".
+    expect(planModseqSync({ storedModseq: '100', serverModseq: '100', uidValidityChanged: true })).toBe('full');
+    expect(planModseqSync({ storedModseq: '100', serverModseq: '200', uidValidityChanged: true })).toBe('full');
+  });
+
+  it('returns "unchanged" when the stored watermark equals the server modseq', () => {
+    expect(planModseqSync({ storedModseq: '500', serverModseq: '500', uidValidityChanged: false })).toBe('unchanged');
+  });
+
+  it('returns "delta" when the server modseq has advanced', () => {
+    expect(planModseqSync({ storedModseq: '500', serverModseq: '501', uidValidityChanged: false })).toBe('delta');
+  });
+
+  it('accepts BigInt and string interchangeably (ImapFlow yields BigInt, pg yields string)', () => {
+    expect(planModseqSync({ storedModseq: '77', serverModseq: 77n, uidValidityChanged: false })).toBe('unchanged');
+    expect(planModseqSync({ storedModseq: 77n, serverModseq: '78', uidValidityChanged: false })).toBe('delta');
+  });
+
+  it('compares in BigInt so values above 2^53 stay exact (a JS Number would collapse them)', () => {
+    // 9007199254740993 and ...992 are indistinguishable as JS Numbers (both round to 2^53).
+    const a = '9007199254740992';
+    const b = '9007199254740993';
+    expect(Number(a) === Number(b)).toBe(true);            // the trap we must avoid
+    expect(planModseqSync({ storedModseq: a, serverModseq: b, uidValidityChanged: false })).toBe('delta');
+    expect(planModseqSync({ storedModseq: b, serverModseq: b, uidValidityChanged: false })).toBe('unchanged');
   });
 });
