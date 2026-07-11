@@ -14,6 +14,9 @@ const parser = new XMLParser({
   ignoreAttributes: false,
   removeNSPrefix: true,   // <d:response> -> response, so parsing is namespace-agnostic
   trimValues: false,      // preserve vCard line structure inside <address-data>
+  // Large CardDAV REPORTs can exceed fast-xml-parser's 1000-expansion default.
+  // Raise it generously while preserving the previous depth setting.
+  processEntities: { maxTotalExpansions: 10_000_000, maxExpansionDepth: 10 },
 });
 
 const toArray = (x) => (Array.isArray(x) ? x : x == null ? [] : [x]);
@@ -175,8 +178,12 @@ export async function fetchAddressBookCards({ url, username, password, allowPriv
 // testing. Returns [{ href, etag, vcard }].
 export function parseCards(xmlText, baseUrl) {
   const xml = parser.parse(xmlText);
+  const responses = toArray(xml?.multistatus?.response);
+  if (responses.some(response => /\b507\b/.test(textOf(response.status)))) {
+    throw new Error('CardDAV server returned a truncated address book response');
+  }
   const cards = [];
-  for (const response of toArray(xml?.multistatus?.response)) {
+  for (const response of responses) {
     const props = propsOf(response);
     const vcard = textOf(props['address-data']).trim();
     if (!vcard) continue; // collection self-entry or a non-vCard resource

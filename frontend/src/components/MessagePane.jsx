@@ -12,6 +12,7 @@ import DOMPurify from 'dompurify';
 import { BUILTIN_SUMMARIZE } from '../aiActions.js';
 import { getResults, saveResult, removeResult } from '../aiResults.js';
 const USE_DIV_RENDER = import.meta.env.VITE_EMAIL_DIV_RENDER === 'true';
+const MESSAGE_OPENING_EVENT = 'mailflow:message-opening';
 
 // Module-level regex so the spam-name heuristic isn't recompiled on every
 // render — same heuristic as ContextMenu.jsx, both files read this constant.
@@ -110,6 +111,8 @@ export default function MessagePane() {
   // Arrow buttons and swipe gestures bypass handleSelect in MessageList, so they
   // must duplicate the mark-as-read logic here to keep state consistent.
   const selectAndMarkRead = useCallback((msg) => {
+    window.dispatchEvent(new CustomEvent(MESSAGE_OPENING_EVENT));
+    api.getMessageBody(msg.id).catch(() => {});
     setSelectedMessage(msg.id);
     clearTimeout(autoMarkReadTimerRef.current);
     autoMarkReadTimerRef.current = null;
@@ -362,7 +365,7 @@ export default function MessagePane() {
     }
   }, [blockRemoteImages, imageWhitelist]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!selectedMessageId) {
       setBody(null);
       setBodyError(null);
@@ -811,6 +814,8 @@ export default function MessagePane() {
           target = list[idx - 1];
         }
         if (target) {
+          window.dispatchEvent(new CustomEvent(MESSAGE_OPENING_EVENT));
+          api.getMessageBody(target.id).catch(() => {});
           setSel(target.id);
           clearTimeout(autoMarkReadTimerRef.current);
           autoMarkReadTimerRef.current = null;
@@ -1294,7 +1299,12 @@ ${bodyContent}
   }, [selectedMessageId]);
 
   useEffect(() => {
-    if (!showMovePicker) return;
+    // Desktop only. The mobile picker is a bottom sheet rendered OUTSIDE moveBtnRef (see the
+    // "Mobile move-to-folder bottom sheet" below), so on mobile this outside-pointerdown
+    // handler fired on a folder tap and unmounted the sheet BEFORE its click landed — the move
+    // silently failed and the sheet "backed out" (#236). The mobile sheet dismisses itself via
+    // its own scrim onClick, so this desktop dropdown affordance isn't needed there.
+    if (!showMovePicker || isMobile) return;
     const onPointer = (e) => {
       if (moveBtnRef.current && !moveBtnRef.current.contains(e.target)) {
         setShowMovePicker(false);
@@ -1302,7 +1312,7 @@ ${bodyContent}
     };
     document.addEventListener('pointerdown', onPointer);
     return () => document.removeEventListener('pointerdown', onPointer);
-  }, [showMovePicker]);
+  }, [showMovePicker, isMobile]);
 
   useEffect(() => {
     if (!showMovePicker) setMoveSearch('');

@@ -164,6 +164,8 @@ export default function MessageList() {
   const listRef = useRef(null);
   const searchInputRef = useRef(null); // for focusSearch shortcut
   const pendingDeleteTimers = useRef(new Map()); // id/thread key -> pending delete metadata
+  const recentMessageOpenUntilRef = useRef(0);
+  const deferredRefreshTimerRef = useRef(null);
 
   // Bulk selection state
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -183,6 +185,13 @@ export default function MessageList() {
 
   useEffect(() => { currentPageRef.current = currentPage; }, [currentPage]);
   useEffect(() => { setActiveCategory('primary'); }, [selectedAccountId, selectedFolder]);
+  useEffect(() => {
+    const markOpening = () => {
+      recentMessageOpenUntilRef.current = Date.now() + 1500;
+    };
+    window.addEventListener('mailflow:message-opening', markOpening);
+    return () => window.removeEventListener('mailflow:message-opening', markOpening);
+  }, []);
   const searchTimer = useRef(null);
 
   // Category tab scroll arrows
@@ -347,52 +356,63 @@ export default function MessageList() {
     }
   }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, loadingMessages, hasMoreMessages, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, appendMessages, setHasMoreMessages, setLoadingMessages, setMessagesOffset]);
 
-  // Listen for backfill refresh events from WebSocket
+  // Listen for background refresh events from WebSocket. If a message was just
+  // opened, give its body request a brief head start before reloading the full list.
   useEffect(() => {
+    const run = async () => {
+      try {
+        const state = useStore.getState();
+        const ps = state.pageSize;
+        const sm = state.scrollMode;
+        let params;
+        if (sm === 'paginated') {
+          const pg = currentPageRef.current;
+          params = { limit: ps, offset: (pg - 1) * ps };
+        } else {
+          const currentOffset = state.messagesOffset;
+          // Backend caps limit at 500 — don't request more or the list silently shrinks
+          params = { limit: Math.min(currentOffset || ps, 500), offset: 0 };
+        }
+        if (selectedAccountId) { params.accountId = selectedAccountId; params.folder = selectedFolder; }
+        if (unreadOnly) params.unreadOnly = 'true';
+        if (state.threadedView) params.threaded = 'true';
+        if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
+        const data = await api.getMessages(params);
+        setMessagesTotal(data.total);
+        // If the unread filter is on and the currently open message was just marked
+        // read, the server won't return it — preserve it so the user can keep reading.
+        let msgs = applyReadGuard(data.messages);
+        const activeId = useStore.getState().selectedMessageId;
+        if (unreadOnly && activeId && !msgs.some(m => m.id === activeId)) {
+          const kept = useStore.getState().messages.find(m => m.id === activeId);
+          if (kept) msgs = [kept, ...msgs];
+        }
+        setMessages(msgs);
+        if (sm === 'paginated') {
+          setHasMoreMessages(false);
+        } else {
+          setMessagesOffset(data.messages.length);
+          setHasMoreMessages(data.messages.length < data.total);
+        }
+      } catch { /* intentional */ }
+    };
+
     const handler = () => {
       if (!useStore.getState().loadingMessages && !searchQuery.trim()) {
-        const run = async () => {
-          try {
-            const state = useStore.getState();
-            const ps = state.pageSize;
-            const sm = state.scrollMode;
-            let params;
-            if (sm === 'paginated') {
-              const pg = currentPageRef.current;
-              params = { limit: ps, offset: (pg - 1) * ps };
-            } else {
-              const currentOffset = state.messagesOffset;
-              // Backend caps limit at 500 — don't request more or the list silently shrinks
-              params = { limit: Math.min(currentOffset || ps, 500), offset: 0 };
-            }
-            if (selectedAccountId) { params.accountId = selectedAccountId; params.folder = selectedFolder; }
-            if (unreadOnly) params.unreadOnly = 'true';
-            if (state.threadedView) params.threaded = 'true';
-            if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
-            const data = await api.getMessages(params);
-            setMessagesTotal(data.total);
-            // If the unread filter is on and the currently open message was just marked
-            // read, the server won't return it — preserve it so the user can keep reading.
-            let msgs = applyReadGuard(data.messages);
-            const activeId = useStore.getState().selectedMessageId;
-            if (unreadOnly && activeId && !msgs.some(m => m.id === activeId)) {
-              const kept = useStore.getState().messages.find(m => m.id === activeId);
-              if (kept) msgs = [kept, ...msgs];
-            }
-            setMessages(msgs);
-            if (sm === 'paginated') {
-              setHasMoreMessages(false);
-            } else {
-              setMessagesOffset(data.messages.length);
-              setHasMoreMessages(data.messages.length < data.total);
-            }
-          } catch { /* intentional */ }
-        };
-        run();
+        const delayMs = Math.max(0, recentMessageOpenUntilRef.current - Date.now());
+        clearTimeout(deferredRefreshTimerRef.current);
+        if (delayMs > 0) {
+          deferredRefreshTimerRef.current = setTimeout(run, delayMs);
+        } else {
+          run();
+        }
       }
     };
     window.addEventListener('mailflow:refresh', handler);
-    return () => window.removeEventListener('mailflow:refresh', handler);
+    return () => {
+      window.removeEventListener('mailflow:refresh', handler);
+      clearTimeout(deferredRefreshTimerRef.current);
+    };
   }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, searchQuery, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setHasMoreMessages, setMessages, setMessagesOffset, setMessagesTotal]);
 
   // Search
@@ -2063,6 +2083,8 @@ export default function MessageList() {
       }
       return;
     }
+    recentMessageOpenUntilRef.current = Date.now() + 1500;
+    api.getMessageBody(message.id).catch(() => {});
     setSelectedMessage(message.id);
     listRef.current?.focus({ preventScroll: true });
     clearTimeout(autoMarkReadTimerRef.current);

@@ -115,6 +115,9 @@ export function useWebSocket() {
   const handleMessage = useCallback((data) => {
     switch (data.type) {
       case 'new_messages': {
+        // Blip the sync icon — a real change just synced in, so show background activity
+        // even though we no longer broadcast sync_complete on every (mostly-idle) tick.
+        window.dispatchEvent(new CustomEvent('mailflow:sync_done'));
         const { messages, count, accountId, folder } = data;
         // alertMessages/alertCount are provided by the server when inbox rules ran;
         // they exclude messages silenced by a mark_read rule. Fall back to the full
@@ -220,16 +223,21 @@ export function useWebSocket() {
       }
 
       case 'folder_updated': {
-        // Emitted by move/archive routes after messages land in a destination folder.
-        // Triggers a silent refresh so the destination folder shows the moved messages
-        // without playing sounds or popping notifications.
-        const { accountId: fuAccountId, folder: fuFolder } = data;
+        // Emitted by move/archive/delete routes after messages leave one folder and land in
+        // another. The event names ONE folder (usually the move destination), but the change
+        // matters to whoever is viewing the *source* too — that's the device the message must
+        // disappear from. So refresh the current view for any relevant account rather than only
+        // when the viewed folder matches the event's folder; otherwise a move on one device
+        // isn't reflected on another until a manual reload. Blip the sync icon so the change is
+        // visible, refresh counts for sidebar badges, but no sounds/notifications.
+        const { accountId: fuAccountId } = data;
         const fuStore = useStore.getState();
         const fuRelevant = fuStore.selectedAccountId === null || fuStore.selectedAccountId === fuAccountId;
-        const fuVisible  = fuStore.selectedFolder === (fuFolder || 'INBOX');
-        if (fuRelevant && fuVisible) {
+        if (fuRelevant) {
           window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+          window.dispatchEvent(new CustomEvent('mailflow:sync_done'));
         }
+        api.getUnreadCounts().then(_applyServerCounts).catch(() => {});
         break;
       }
 
@@ -258,8 +266,10 @@ export function useWebSocket() {
 
       case 'flags_synced': {
         // Lightweight flag update (read/starred changed on another client).
-        // Refresh the message list and unread counts without the full sync_done event.
+        // Refresh the message list and unread counts, and blip the sync icon so background
+        // sync activity stays visible now that sync_complete no longer fires every tick.
         window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+        window.dispatchEvent(new CustomEvent('mailflow:sync_done'));
         api.getUnreadCounts().then(_applyServerCounts).catch(() => {});
         break;
       }

@@ -6,6 +6,7 @@ const BASE = '/api';
 // in the app must include this same header (see CSRF_HEADER).
 export const CSRF_HEADER = 'X-Requested-With';
 export const CSRF_VALUE = 'MailFlow';
+const messageBodyRequests = new Map();
 
 async function request(method, path, body, extraHeaders) {
   const opts = {
@@ -26,6 +27,16 @@ async function request(method, path, body, extraHeaders) {
     throw new Error(err.error || 'Request failed');
   }
   return res.json();
+}
+
+function getMessageBody(id, remoteImages = false) {
+  const key = `${id}:${remoteImages ? 'remote' : 'blocked'}`;
+  const existing = messageBodyRequests.get(key);
+  if (existing) return existing;
+  const promise = request('GET', `/mail/messages/${id}/body${remoteImages ? '?remoteImages=1' : ''}`)
+    .finally(() => messageBodyRequests.delete(key));
+  messageBodyRequests.set(key, promise);
+  return promise;
 }
 
 export const api = {
@@ -118,8 +129,7 @@ export const api = {
     return request('GET', `/mail/messages?${qs}`);
   },
   getMessage: (id) => request('GET', `/mail/messages/${id}`),
-  getMessageBody: (id, remoteImages = false) =>
-    request('GET', `/mail/messages/${id}/body${remoteImages ? '?remoteImages=1' : ''}`),
+  getMessageBody,
   getThread: (threadId, folder) => {
     const qs = folder ? `?folder=${encodeURIComponent(folder)}` : '';
     return request('GET', `/mail/thread/${encodeURIComponent(threadId)}${qs}`);
