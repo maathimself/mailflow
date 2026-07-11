@@ -24,7 +24,6 @@ export function embedInlineDataImages(html) {
 
     const [, , mimeSubtype, b64] = srcMatch;
     const cid = `img-${randomBytes(8).toString('hex')}-${index}@mailflow`;
-    index += 1;
 
     attachments.push({
       filename: `image-${index}.${mimeToExtension(mimeSubtype)}`,
@@ -33,6 +32,7 @@ export function embedInlineDataImages(html) {
       contentDisposition: 'inline',
       contentType: `image/${mimeSubtype}`,
     });
+    index += 1;
 
     const newAttrs = attrs.replace(DATA_SRC_RE, ` src="cid:${cid}"`);
     return `<img${newAttrs}>`;

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../utils/api.js';
 import { useMobile } from '../hooks/useMobile.js';
@@ -10,6 +10,8 @@ export default function MessageHeaderModal({ messageId, subject, onClose, onSubj
   const [resolvedSubject, setResolvedSubject] = useState(subject);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+  const onSubjectResolvedRef = useRef(onSubjectResolved);
+  onSubjectResolvedRef.current = onSubjectResolved;
 
   useEffect(() => {
     api.getMessageHeaders(messageId)
@@ -17,12 +19,12 @@ export default function MessageHeaderModal({ messageId, subject, onClose, onSubj
         setHeaders(data.headers);
         if (data.subject && data.subject !== '(no subject)') {
           setResolvedSubject(data.subject);
-          onSubjectResolved?.(data.subject);
+          onSubjectResolvedRef.current?.(data.subject);
         }
       })
       .catch(err => setHeaders(`Error: ${err.message}`))
       .finally(() => setLoading(false));
-  }, [messageId, onSubjectResolved]);
+  }, [messageId]);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(headers || '');
