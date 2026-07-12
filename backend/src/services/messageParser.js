@@ -43,10 +43,29 @@ export function decodeNamedEntity(_, name) {
   return v !== undefined ? v : ' ';
 }
 
+// Detect a text/plain part that is actually a raw HTML document — some senders
+// put the full HTML body in the text/plain alternative. A document-level opener
+// is definitive; otherwise require several closing tags near the start so prose
+// that merely mentions a tag ("use the <b> element") is not misrouted. Only the
+// head of the body is scanned to keep this cheap on large messages.
+function looksLikeHtml(text) {
+  const head = text.slice(0, 2048);
+  if (/^\s*<(?:!doctype|html|head|body)[\s>]/i.test(head)) return true;
+  const closingTags = head.match(/<\/[a-z][a-z0-9]*\s*>/gi);
+  return closingTags !== null && closingTags.length >= 3;
+}
+
 // Build a plain-text snippet from either a decoded text/plain or text/html body.
 // Single canonical function used by all snippet-generation paths (IMAP sync,
 // body prefetch, backfill) so entity handling is identical everywhere.
 export function snippetFromBody(text, html) {
+  // HTML shipped in the text/plain part must go through the HTML stripper,
+  // otherwise the markup itself becomes the "preview" (<!DOCTYPE html ...).
+  if (text && looksLikeHtml(text)) {
+    const stripped = buildSnippetFromHtml(text);
+    if (stripped) return stripped;
+    text = '';
+  }
   if (text) {
     const cleaned = text
       // Strip [image: alt text] placeholders produced by Google's HTML-to-text converter
@@ -55,11 +74,28 @@ export function snippetFromBody(text, html) {
       .replace(/\[image:[^\]]*\]/gi, '')
       // Strip Markdown-style [label](url) links — ESPs like Klaviyo generate text/plain
       // by converting HTML anchors to Markdown, so the entire body can be link syntax.
+      // Must run before the bare-URL pass below: stripping the URL first would leave
+      // a dangling "[label]()" that no longer matches this pattern.
       .replace(/\[([^\]\r\n]*)\]\([^)\r\n]*\)/g, '$1')
+      // Drop raw link targets — they carry no preview value, the link text does.
+      // Covers scheme'd URLs and mailto:, plus protocol-less www. hosts. Bare
+      // domains without a scheme ("visit example.com") are prose, not unambiguous
+      // links, and are kept. HTML-to-text converters render anchors as
+      // "label ( URL )" or "<URL>"; removing the URL here leaves an empty wrapper
+      // that the bracket collapse below sweeps up.
+      .replace(/(?:https?:\/\/|mailto:)[^\s<>()[\]]+/gi, '')
+      .replace(/(?<![\w@.])www\.[^\s<>()[\]]+/gi, '')
+      // Entity decoding must precede the bracket collapse: unknown entities decode
+      // to a space, which can hollow out a wrapper (e.g. "(&nbsp;)" -> "( )").
       .replace(/&#x([0-9A-Fa-f]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
       .replace(/&#([0-9]+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
       .replace(/&([a-z][a-z0-9]*);/gi, decodeNamedEntity)
       .replace(INVISIBLE_CHARS_RE, '')
+      // Collapse wrappers left empty by the URL/link stripping above (and any
+      // pre-existing "()" litter from partially converted bodies).
+      .replace(/\(\s*\)|\[\s*\]|<\s*>/g, ' ')
+      // Drop standalone runs of Markdown emphasis/divider chars ("**", "____").
+      .replace(/(?<=^|\s)[*_]{2,}(?=\s|$)/g, '')
       .replace(/\s+/g, ' ').trim();
     if (cleaned) return cleaned.substring(0, 200);
     // Text body was entirely image placeholders — fall through to HTML.
@@ -469,22 +505,10 @@ export async function parseMessage(msg) {
 
     if (rawBuf) {
       try {
-        let text = decodeBodyPart(rawBuf, encoding, charset);
-
-        if (isHtml) {
-          text = buildSnippetFromHtml(text);
-        } else {
-          // Plain-text parts: strip Markdown links and decode HTML entities embedded
-          // by some senders (&zwnj;, &#847;, etc.) as preheader fillers.
-          text = text
-            .replace(/\[([^\]\r\n]*)\]\([^)\r\n]*\)/g, '$1')
-            .replace(/&#x([0-9A-Fa-f]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
-            .replace(/&#([0-9]+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
-            .replace(/&([a-z][a-z0-9]*);/gi, decodeNamedEntity)
-            .replace(INVISIBLE_CHARS_RE, '');
-        }
-
-        snippet = text.replace(/\s+/g, ' ').trim().substring(0, 200);
+        const text = decodeBodyPart(rawBuf, encoding, charset);
+        // Route through the canonical snippet builders so sync-time snippets get
+        // the same link/markup/entity cleanup as body prefetch and backfill.
+        snippet = isHtml ? buildSnippetFromHtml(text) : snippetFromBody(text);
       } catch { /* leave snippet empty on parse failure */ }
     }
   }
