@@ -152,6 +152,30 @@ END:VCARD</card:address-data>
     expect(cards[0].vcard).toContain('Tom & Jerry');
   });
 
+  it('decodes numeric character references (Nextcloud encodes vCard CRLF as &#13;)', () => {
+    // SabreDAV/Nextcloud emits each line's trailing CR as the numeric reference
+    // &#13; inside <address-data>; fast-xml-parser leaves those literal, so without
+    // decoding every parsed field would end in "&#13;" and an empty property would
+    // render as just "&#13;" (issue #242). Decimal/hex refs must both be handled.
+    const xml = `<d:multistatus xmlns:d="DAV:" xmlns:card="urn:ietf:params:xml:ns:carddav">
+  <d:response><d:href>/dav/c/n.vcf</d:href>
+    <d:propstat><d:prop><d:getetag>n</d:getetag>
+      <card:address-data>BEGIN:VCARD&#13;
+VERSION:3.0&#13;
+FN:Andr&#233;e&#13;
+NOTE:&#13;
+END:VCARD&#13;
+</card:address-data>
+    </d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>
+  </d:response>
+</d:multistatus>`;
+    const card = parseCards(xml, BASE)[0];
+    expect(card.vcard).not.toContain('&#13;');     // CR references decoded away
+    const parsed = parseVCard(card.vcard);
+    expect(parsed.displayName).toBe('Andrée'); // decimal &#233; decoded, no trailing junk
+    expect(parsed.notes).toBeNull();                // empty NOTE no longer "&#13;"
+  });
+
   it('parses a large book whose response exceeds 1000 XML entity references', () => {
     // Regression: fast-xml-parser >=4.5.5 defaults maxTotalExpansions to 1000.
     // A real address book's REPORT response carries far more counted entity

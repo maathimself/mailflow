@@ -78,6 +78,25 @@ function textOf(node) {
   return '';
 }
 
+// fast-xml-parser decodes named XML entities (&amp; -> &) but leaves numeric
+// character references (&#13;, &#xE9;) as literal text. Nextcloud/SabreDAV encodes
+// each vCard line's trailing CR as &#13; inside <address-data> so the CRLF endings
+// survive XML line-ending normalization; without decoding, every parsed field keeps
+// a literal "&#13;" (and an empty property renders as just "&#13;"). Decode decimal
+// and hex references back to their characters — the vCard parser then handles the
+// restored CR/LF normally. Named entities are left for the XML parser to resolve.
+function decodeXmlCharRefs(str) {
+  return str.replace(/&#([xX][0-9a-fA-F]+|\d+);/g, (match, code) => {
+    const cp = (code[0] === 'x' || code[0] === 'X')
+      ? parseInt(code.slice(1), 16)
+      : parseInt(code, 10);
+    // Reject out-of-range and surrogate code points; leave those references as-is.
+    if (!Number.isFinite(cp) || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) return match;
+    try { return String.fromCodePoint(cp); }
+    catch { return match; }
+  });
+}
+
 // Resolve an href (often an absolute path) against the request URL's origin.
 function absolute(href, baseUrl) {
   try { return new URL(href, baseUrl).href; }
@@ -185,7 +204,7 @@ export function parseCards(xmlText, baseUrl) {
   const cards = [];
   for (const response of responses) {
     const props = propsOf(response);
-    const vcard = textOf(props['address-data']).trim();
+    const vcard = decodeXmlCharRefs(textOf(props['address-data'])).trim();
     if (!vcard) continue; // collection self-entry or a non-vCard resource
     cards.push({
       href: absolute(textOf(response.href) || response.href, baseUrl),
