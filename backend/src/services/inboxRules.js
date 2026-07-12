@@ -1,5 +1,5 @@
 import { query } from './db.js';
-import { resolveArchiveFolder, resolveTrashFolder, resolveAllTrashPaths, getDeleteStrategy, adjustFolderCounts } from '../utils/mailUtils.js';
+import { resolveArchiveFolder, isAllMailFolder, resolveTrashFolder, resolveAllTrashPaths, getDeleteStrategy, adjustFolderCounts } from '../utils/mailUtils.js';
 
 async function getRulesForAccount(userId, accountId) {
   const result = await query(
@@ -410,6 +410,11 @@ async function applyAction(action, msg, account, imapManager, resolverCache = {}
       if (!resolverCache._archiveResolved) {
         resolverCache._archiveResolved = true;
         resolverCache.archiveFolder = await resolveArchiveFolder(account.id, account.folder_mappings);
+        // Gmail's All Mail (special_use '\All') is excluded from sync/backfill and the
+        // relocate guard (imapManager.js) — see mailUtils.js resolveArchiveFolder/isAllMailFolder.
+        resolverCache.archiveIsAllMail = resolverCache.archiveFolder
+          ? await isAllMailFolder(account.id, resolverCache.archiveFolder)
+          : false;
       }
       const archiveFolder = resolverCache.archiveFolder;
       if (!archiveFolder) return false;
@@ -420,16 +425,20 @@ async function applyAction(action, msg, account, imapManager, resolverCache = {}
         const archiveResult = await imapManager.bulkMoveMessages(account, [srcUid], srcFolder, archiveFolder);
         if (archiveResult.failed?.length) throw new Error(`IMAP archive failed for uid ${srcUid}`);
         const newArchiveUid = archiveResult.uidMap?.get(Number(srcUid));
-        if (newArchiveUid) {
+        const wasUnread = !(msg.isRead ?? msg.is_read);
+        if (resolverCache.archiveIsAllMail) {
+          // No sync loop maintains a messages row filed under All Mail — the message
+          // vanishes from our view instead of getting re-homed there (see mail.js bulk-archive).
+          await query('DELETE FROM messages WHERE id = $1', [msg.id]);
+        } else if (newArchiveUid) {
           await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3', [archiveFolder, newArchiveUid, msg.id]);
         } else {
           imapManager._guardMoveUid(account.id, archiveFolder, srcUid);
           await query('UPDATE messages SET folder = $1 WHERE id = $2', [archiveFolder, msg.id]);
           setTimeout(() => imapManager._unguardMoveUid(account.id, archiveFolder, srcUid), 10_000);
         }
-        const wasUnread = !(msg.isRead ?? msg.is_read);
         adjustFolderCounts(account.id, srcFolder, -1, wasUnread ? -1 : 0);
-        adjustFolderCounts(account.id, archiveFolder, 1, wasUnread ? 1 : 0);
+        if (!resolverCache.archiveIsAllMail) adjustFolderCounts(account.id, archiveFolder, 1, wasUnread ? 1 : 0);
         msg.folder = archiveFolder;
         msg.uid = newArchiveUid || srcUid;
       } finally {

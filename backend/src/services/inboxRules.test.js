@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('./db.js', () => ({ query: vi.fn() }));
 vi.mock('../utils/mailUtils.js', () => ({
   resolveArchiveFolder: vi.fn(),
+  isAllMailFolder: vi.fn(),
   resolveTrashFolder: vi.fn(),
   resolveAllTrashPaths: vi.fn(),
   getDeleteStrategy: vi.fn(),
@@ -10,7 +11,7 @@ vi.mock('../utils/mailUtils.js', () => ({
 }));
 
 const { query } = await import('./db.js');
-const { resolveArchiveFolder, adjustFolderCounts } = await import('../utils/mailUtils.js');
+const { resolveArchiveFolder, isAllMailFolder, adjustFolderCounts } = await import('../utils/mailUtils.js');
 import { applyInboxRules } from './inboxRules.js';
 
 const account = { id: 'acc-1', user_id: 'user-1', folder_mappings: {} };
@@ -158,6 +159,28 @@ describe('applyInboxRules — destination action no-ops do not remove message', 
 
     expect(result.remaining).toHaveLength(1);
     expect(mockImap.bulkMoveMessages).not.toHaveBeenCalled();
+  });
+});
+
+describe('applyInboxRules — archive to Gmail All Mail', () => {
+  it('deletes the message row instead of re-homing it into the All Mail folder', async () => {
+    const rule = mkRule([{ type: 'archive', value: '' }]);
+    query
+      .mockResolvedValueOnce({ rows: [rule] })                  // getRulesForAccount
+      .mockResolvedValueOnce({ rows: [] });                      // DELETE FROM messages
+    resolveArchiveFolder.mockResolvedValue('[Gmail]/All Mail');
+    isAllMailFolder.mockResolvedValue(true);
+    mockImap.bulkMoveMessages.mockResolvedValue({ failed: [], uidMap: new Map([[100, 200]]) });
+
+    const result = await applyInboxRules([mkMsg({ is_read: false })], account, mockImap);
+
+    expect(result.remaining).toHaveLength(0); // message removed from inbox
+    const deleteCall = query.mock.calls[1];
+    expect(deleteCall[0]).toMatch(/DELETE FROM messages/);
+    expect(deleteCall[1]).toEqual(['msg-1']);
+    // Source folder count decrements; All Mail destination count is never touched.
+    expect(adjustFolderCounts).toHaveBeenCalledWith('acc-1', 'INBOX', -1, -1);
+    expect(adjustFolderCounts).toHaveBeenCalledTimes(1);
   });
 });
 
