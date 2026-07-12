@@ -39,16 +39,42 @@ export async function resolveAllDraftsPaths(accountId, folderMappings) {
   return new Set(result.rows.map(r => r.path));
 }
 
+// Resolve the canonical archive folder path for an account.
+// folder_mappings.archive (user-configured) takes priority over special_use and the
+// name heuristic. Falls back to special_use = '\All' (Gmail's "All Mail") last, since
+// stock Gmail over IMAP exposes no '\Archive' folder — archiving there means moving
+// the message to All Mail, which strips the INBOX label.
+// IMPORTANT: callers that persist the destination back to the messages table must
+// special-case an '\All' result — see isAllMailFolder below.
 export async function resolveArchiveFolder(accountId, folderMappings) {
   if (folderMappings?.archive) return folderMappings.archive;
   const result = await query(
     `SELECT path FROM folders WHERE account_id = $1
-     AND (special_use = '\\Archive' OR lower(name) LIKE '%archive%')
-     ORDER BY (CASE WHEN special_use = '\\Archive' THEN 0 ELSE 1 END)
+     AND (special_use = '\\Archive' OR lower(name) LIKE '%archive%' OR special_use = '\\All')
+     ORDER BY (CASE
+       WHEN special_use = '\\Archive' THEN 0
+       WHEN lower(name) LIKE '%archive%' THEN 1
+       ELSE 2
+     END)
      LIMIT 1`,
     [accountId]
   );
   return result.rows[0]?.path || null;
+}
+
+// True when `path` is this account's Gmail-style "All Mail" folder (special_use = '\All').
+// All Mail is excluded from sync/backfill (imapManager.js skipFolderPatterns) and from
+// the relocate guard, so no sync loop ever maintains a messages row filed under it.
+// Callers that move a message there (see resolveArchiveFolder) must delete the source
+// row instead of re-homing it into folder = <All Mail path> — the message should
+// simply vanish from our view, matching how the app treats All Mail everywhere else.
+export async function isAllMailFolder(accountId, path) {
+  if (!path) return false;
+  const result = await query(
+    `SELECT 1 FROM folders WHERE account_id = $1 AND path = $2 AND special_use = '\\All'`,
+    [accountId, path]
+  );
+  return result.rows.length > 0;
 }
 
 // Resolve the canonical spam/junk folder path for an account.
