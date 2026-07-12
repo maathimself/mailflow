@@ -74,23 +74,34 @@ export function parseModKey(key) {
 }
 
 // Returns the reverse lookup map: key → action, for fast dispatch (plain keys only).
+// Collisions (two actions resolving to the same key, e.g. via user overrides)
+// keep last-writer-wins behavior but are logged so they're not silently lost.
 export function buildKeyMap(userOverrides = {}) {
   const effective = getEffectiveShortcuts(userOverrides);
   const map = {};
   for (const [action, key] of Object.entries(effective)) {
-    if (key && !parseModKey(key)) map[key] = action;
+    if (!key || parseModKey(key)) continue;
+    if (map[key]) {
+      console.warn(`[shortcuts] key "${key}" is bound to both "${map[key]}" and "${action}"; "${action}" wins`);
+    }
+    map[key] = action;
   }
   return map;
 }
 
 // Returns a reverse lookup for modifier+key shortcuts: bare key → action.
 // e.g. { p: 'printMessage' } when printMessage is bound to 'ctrl+p'.
+// Collisions are logged the same way as buildKeyMap (see above).
 export function buildModKeyMap(userOverrides = {}) {
   const effective = getEffectiveShortcuts(userOverrides);
   const map = {};
   for (const [action, key] of Object.entries(effective)) {
     const parsed = parseModKey(key);
-    if (parsed) map[parsed.bare] = action;
+    if (!parsed) continue;
+    if (map[parsed.bare]) {
+      console.warn(`[shortcuts] key "${parsed.bare}" is bound to both "${map[parsed.bare]}" and "${action}"; "${action}" wins`);
+    }
+    map[parsed.bare] = action;
   }
   return map;
 }
