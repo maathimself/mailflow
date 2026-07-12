@@ -4040,16 +4040,16 @@ export class ImapManager {
           // Update DB: change folder, mark unread, and update UID if the move returned one.
           if (newUid != null) {
             await query(
-              'UPDATE messages SET folder = $1, is_read = false, read_changed_at = NOW(), uid = $4 WHERE account_id = $2 AND message_id = $3',
-              [row.original_folder, row.account_id, row.message_id_header, newUid]
+              'UPDATE messages SET folder = $1, is_read = false, read_changed_at = NOW(), uid = $4 WHERE account_id = $2 AND message_id = $3 AND folder = $5',
+              [row.original_folder, row.account_id, row.message_id_header, newUid, row.snoozed_folder]
             );
           } else {
             // Non-UIDPLUS: DB holds the stale source UID at the destination. Guard it so
             // reconcileDeletes does not treat it as an orphan before the next sync corrects it.
             this._guardMoveUid(row.account_id, row.original_folder, row.uid);
             await query(
-              'UPDATE messages SET folder = $1, is_read = false, read_changed_at = NOW() WHERE account_id = $2 AND message_id = $3',
-              [row.original_folder, row.account_id, row.message_id_header]
+              'UPDATE messages SET folder = $1, is_read = false, read_changed_at = NOW() WHERE account_id = $2 AND message_id = $3 AND folder = $4',
+              [row.original_folder, row.account_id, row.message_id_header, row.snoozed_folder]
             );
             setTimeout(() => this._unguardMoveUid(row.account_id, row.original_folder, row.uid), 10_000);
           }
