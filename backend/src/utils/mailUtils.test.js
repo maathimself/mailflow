@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { resolveTrashFolder, resolveArchiveFolder, resolveSpamFolder, getDeleteStrategy } from './mailUtils.js';
+import { resolveTrashFolder, resolveArchiveFolder, isAllMailFolder, resolveSpamFolder, getDeleteStrategy } from './mailUtils.js';
 
 vi.mock('../services/db.js', () => ({
   query: vi.fn(),
@@ -58,17 +58,45 @@ describe('resolveArchiveFolder', () => {
     expect(result).toBe('INBOX.archive-2024');
   });
 
+  it('falls back to special_use=\\All (Gmail All Mail) when nothing else matches', async () => {
+    query.mockResolvedValue({ rows: [{ path: '[Gmail]/All Mail' }] });
+    const result = await resolveArchiveFolder(4, {});
+    expect(result).toBe('[Gmail]/All Mail');
+  });
+
   it('returns null when no archive folder is found', async () => {
     query.mockResolvedValue({ rows: [] });
     const result = await resolveArchiveFolder(3, undefined);
     expect(result).toBeNull();
   });
 
-  it('uses ORDER BY to prefer special_use match over name heuristic', async () => {
+  it('uses ORDER BY to prefer special_use=\\Archive, then name match, then \\All last', async () => {
     query.mockResolvedValue({ rows: [] });
     await resolveArchiveFolder(1, null);
     const sql = query.mock.calls[0][0];
-    expect(sql).toContain("CASE WHEN special_use = '\\Archive' THEN 0 ELSE 1 END");
+    expect(sql).toContain("WHEN special_use = '\\Archive' THEN 0");
+    expect(sql).toContain("WHEN lower(name) LIKE '%archive%' THEN 1");
+  });
+});
+
+describe('isAllMailFolder', () => {
+  it('returns false without querying the DB when path is falsy', async () => {
+    const result = await isAllMailFolder(1, null);
+    expect(result).toBe(false);
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('returns true when the folder row has special_use = \\All', async () => {
+    query.mockResolvedValue({ rows: [{ '?column?': 1 }] });
+    const result = await isAllMailFolder(1, '[Gmail]/All Mail');
+    expect(result).toBe(true);
+    expect(query).toHaveBeenCalledOnce();
+  });
+
+  it('returns false when no matching \\All row exists', async () => {
+    query.mockResolvedValue({ rows: [] });
+    const result = await isAllMailFolder(1, 'Archive');
+    expect(result).toBe(false);
   });
 });
 
