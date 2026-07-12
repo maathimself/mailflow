@@ -7,7 +7,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { imapManager } from '../index.js';
 import { sanitizeEmail, stripEmailHead, hasRemoteImages, blockRemoteImages, rewriteEbayImageserUrls, rewriteAnchorHrefs } from '../services/emailSanitizer.js';
 import { snippetFromBody, decodeMimeWords, parseRawHeaders, buildHeadersFromMessage } from '../services/messageParser.js';
-import { resolveTrashFolder, resolveAllTrashPaths, resolveAllDraftsPaths, resolveArchiveFolder, resolveSpamFolder, resolveAllSpamPaths, getDeleteStrategy, adjustFolderCounts } from '../utils/mailUtils.js';
+import { resolveTrashFolder, resolveAllTrashPaths, resolveAllDraftsPaths, resolveArchiveFolder, isAllMailFolder, resolveSpamFolder, resolveAllSpamPaths, getDeleteStrategy, adjustFolderCounts } from '../utils/mailUtils.js';
 import { listMessages } from '../services/messageService.js';
 import { validateHost } from '../services/hostValidation.js';
 import { safeFetch } from '../services/safeFetch.js';
@@ -1278,12 +1278,19 @@ router.post('/messages/bulk-archive', async (req, res) => {
     const archivedIds = [];
     const noArchiveFolder = [];
     const accountsById = {};
+    // Archive-folder paths that resolved to Gmail's All Mail (special_use '\All').
+    // All Mail is excluded from sync/backfill and the relocate guard (imapManager.js),
+    // so messages archived there get their DB row deleted below instead of re-homed.
+    const allMailDestFolders = new Set();
 
     for (const [accountId, msgs] of Object.entries(byAccount)) {
       const archiveFolder = await resolveArchiveFolder(accountId, msgs[0].folder_mappings);
       if (!archiveFolder) {
         noArchiveFolder.push(accountId);
         continue;
+      }
+      if (await isAllMailFolder(accountId, archiveFolder)) {
+        allMailDestFolders.add(archiveFolder);
       }
 
       const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
@@ -1304,13 +1311,19 @@ router.post('/messages/bulk-archive', async (req, res) => {
       }
     }
 
-    // Update DB: same CTE DELETE+INSERT pattern as bulk-move.
+    // Update DB: same CTE DELETE+INSERT pattern as bulk-move — except when the
+    // destination is Gmail's All Mail, where the message just vanishes from our view
+    // (see allMailDestFolders above), so a plain DELETE with no reinsert is correct.
     const byFolder = {};
     for (const { id, folder, newUid } of archivedIds) {
       (byFolder[folder] = byFolder[folder] || []).push({ id, newUid });
     }
     for (const [archiveFolder, entries] of Object.entries(byFolder)) {
       const allIds  = entries.map(e => e.id);
+      if (allMailDestFolders.has(archiveFolder)) {
+        await query('DELETE FROM messages WHERE id = ANY($1::uuid[])', [allIds]);
+        continue;
+      }
       const withUid = entries.filter(e => e.newUid != null);
       await query(`
         WITH deleted AS (
@@ -1349,6 +1362,7 @@ router.post('/messages/bulk-archive', async (req, res) => {
     const needResync = new Map(); // accountId -> Set<archiveFolder>
     for (const e of archivedIds) {
       if (e.newUid) continue;
+      if (allMailDestFolders.has(e.folder)) continue; // no DB row there to keep fresh
       if (!needResync.has(e.accountId)) needResync.set(e.accountId, new Set());
       needResync.get(e.accountId).add(e.folder);
     }
@@ -1373,6 +1387,7 @@ router.post('/messages/bulk-archive', async (req, res) => {
         if (!folderDeltas[srcKey]) folderDeltas[srcKey] = { accountId: msg.account_id, path: msg.folder, totalDelta: 0, unreadDelta: 0 };
         folderDeltas[srcKey].totalDelta--;
         folderDeltas[srcKey].unreadDelta -= wasUnread;
+        if (allMailDestFolders.has(dest)) continue; // All Mail counts aren't tracked
         const dstKey = `${msg.account_id}:${dest}`;
         if (!folderDeltas[dstKey]) folderDeltas[dstKey] = { accountId: msg.account_id, path: dest, totalDelta: 0, unreadDelta: 0 };
         folderDeltas[dstKey].totalDelta++;
@@ -1382,7 +1397,7 @@ router.post('/messages/bulk-archive', async (req, res) => {
         adjustFolderCounts(accountId, path, totalDelta, unreadDelta);
       }
       // Notify clients viewing each destination folder to refresh silently.
-      const destFolders = [...new Set(archivedIds.map(a => a.folder))];
+      const destFolders = [...new Set(archivedIds.map(a => a.folder))].filter(f => !allMailDestFolders.has(f));
       for (const dest of destFolders) {
         const accountIds = [...new Set(archivedIds.filter(a => a.folder === dest).map(a => {
           const msg = owned.find(m => m.id === a.id);
