@@ -376,7 +376,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
                     onClose();
                   }}
                   style={{
-                    width: '100%', background: 'var(--accent)', color: '#fff',
+                    width: '100%', background: 'var(--accent)', color: 'var(--accent-text)',
                     border: 'none', borderRadius: 6, padding: '7px 0',
                     fontSize: 13, fontWeight: 500, cursor: 'pointer',
                     opacity: (!customDate || !customTime) ? 0.5 : 1,

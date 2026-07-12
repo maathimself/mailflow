@@ -1290,7 +1290,7 @@ export default function ComposeModal() {
                     <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
                       <button
                         onClick={applyAiText}
-                        style={{ fontSize: 13, padding: '8px 18px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 500, WebkitTapHighlightColor: 'transparent' }}
+                        style={{ fontSize: 13, padding: '8px 18px', background: 'var(--accent)', color: 'var(--accent-text)', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 500, WebkitTapHighlightColor: 'transparent' }}
                       >{t('compose.toolbar.aiApply')}</button>
                       <button
                         onClick={() => setAiPanel(null)}
@@ -1910,7 +1910,7 @@ export default function ComposeModal() {
             <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
               <button
                 onClick={applyAiText}
-                style={{ fontSize: 12, padding: '5px 14px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 500 }}
+                style={{ fontSize: 12, padding: '5px 14px', background: 'var(--accent)', color: 'var(--accent-text)', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 500 }}
               >{t('compose.toolbar.aiApply')}</button>
               <button
                 onClick={() => setAiPanel(null)}
@@ -2023,7 +2023,7 @@ export default function ComposeModal() {
           title={sending ? undefined : t('compose.sendTooltip')}
           style={{
             padding: '8px 20px', background: 'var(--accent)',
-            border: 'none', borderRadius: 7, color: 'white',
+            border: 'none', borderRadius: 7, color: 'var(--accent-text)',
             fontSize: 13, fontWeight: 500,
             cursor: sending || (toChips.length === 0 && !toInput.trim()) ? 'not-allowed' : 'pointer',
             opacity: sending || (toChips.length === 0 && !toInput.trim()) ? 0.6 : 1,
@@ -2120,7 +2120,7 @@ export default function ComposeModal() {
             </button>
             <button
               onClick={() => { setShowEmptySubjectWarn(false); handleSend({ skipSubjectWarn: true }); }}
-              style={{ padding: '7px 14px', background: 'var(--accent)', border: 'none', borderRadius: 6, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+              style={{ padding: '7px 14px', background: 'var(--accent)', border: 'none', borderRadius: 6, color: 'var(--accent-text)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
             >
               {t('compose.emptySubject.sendAnyway')}
             </button>
@@ -2157,7 +2157,7 @@ export default function ComposeModal() {
             </button>
             <button
               onClick={() => { setShowForgottenAttachWarn(false); handleSend({ skipSubjectWarn: true, skipAttachWarn: true }); }}
-              style={{ padding: '7px 14px', background: 'var(--accent)', border: 'none', borderRadius: 6, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+              style={{ padding: '7px 14px', background: 'var(--accent)', border: 'none', borderRadius: 6, color: 'var(--accent-text)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
             >
               {t('compose.forgottenAttachment.sendAnyway')}
             </button>
@@ -2187,7 +2187,7 @@ export default function ComposeModal() {
               <button
                 onClick={() => { setShowCloseDialog(false); handleSaveDraft(true); }}
                 disabled={savingDraft}
-                style={{ padding: '8px 16px', background: 'var(--accent)', border: 'none', borderRadius: 7, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', textAlign: 'center' }}
+                style={{ padding: '8px 16px', background: 'var(--accent)', border: 'none', borderRadius: 7, color: 'var(--accent-text)', fontSize: 13, fontWeight: 600, cursor: 'pointer', textAlign: 'center' }}
               >
                 {savingDraft ? t('compose.savingDraft') : t('compose.closeDraft.save')}
               </button>
@@ -2233,7 +2233,7 @@ export default function ComposeModal() {
             <button
               onClick={() => { setShowAttachWarnForDraft(false); doSaveDraft({ closeAfter: attachWarnDraftCloseAfter }); }}
               disabled={savingDraft}
-              style={{ padding: '7px 14px', background: 'var(--accent)', border: 'none', borderRadius: 6, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+              style={{ padding: '7px 14px', background: 'var(--accent)', border: 'none', borderRadius: 6, color: 'var(--accent-text)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
             >
               {savingDraft ? t('compose.savingDraft') : t('compose.closeDraft.save')}
             </button>
@@ -2781,7 +2781,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
               placeholder="https://..."
               style={{ flex: 1, background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 5, padding: '6px 8px', color: 'var(--text-primary)', fontSize: 12, outline: 'none' }} />
             <button onMouseDown={e => { e.preventDefault(); submitLink(); }}
-              style={{ background: 'var(--accent)', border: 'none', borderRadius: 5, color: 'white', fontSize: 12, padding: '6px 12px', cursor: 'pointer', flexShrink: 0 }}>{t('compose.toolbar.apply')}</button>
+              style={{ background: 'var(--accent)', border: 'none', borderRadius: 5, color: 'var(--accent-text)', fontSize: 12, padding: '6px 12px', cursor: 'pointer', flexShrink: 0 }}>{t('compose.toolbar.apply')}</button>
           </div>
           {es.link && (
             <button onMouseDown={e => { e.preventDefault(); editor.chain().focus().unsetLink().run(); setLinkPos(null); }}

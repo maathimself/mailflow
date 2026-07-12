@@ -858,7 +858,7 @@ export default function Sidebar() {
           style={{
             width: '100%', padding: sidebarCollapsed ? '10px' : '10px 14px',
             background: 'var(--accent)', border: 'none', borderRadius: 8,
-            color: 'white', fontSize: 13, fontWeight: 500,
+            color: 'var(--accent-text)', fontSize: 13, fontWeight: 500,
             cursor: 'pointer', display: 'flex', alignItems: 'center',
             justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
             gap: 8, transition: 'opacity 0.15s',
@@ -1228,7 +1228,7 @@ export default function Sidebar() {
                       }}
                     />
                     <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
-                      <button onClick={handleCreateFolderSubmit} style={{ background: 'var(--accent)', border: 'none', borderRadius: 4, color: 'white', padding: '2px 6px', cursor: 'pointer', fontSize: 11 }}>✓</button>
+                      <button onClick={handleCreateFolderSubmit} style={{ background: 'var(--accent)', border: 'none', borderRadius: 4, color: 'var(--accent-text)', padding: '2px 6px', cursor: 'pointer', fontSize: 11 }}>✓</button>
                       <button onClick={() => { setCreatingFolder(null); setCreateName(''); }} style={{ background: 'var(--bg-tertiary)', border: 'none', borderRadius: 4, color: 'var(--text-secondary)', padding: '2px 6px', cursor: 'pointer', fontSize: 11 }}>✕</button>
                     </div>
                   </div>
@@ -1320,7 +1320,7 @@ export default function Sidebar() {
 
                         {isRenaming ? (
                           <div style={{ display: 'flex', gap: 2, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-                            <button onClick={handleRenameSubmit} disabled={folderOpLoading} style={{ background: 'var(--accent)', border: 'none', borderRadius: 4, color: 'white', padding: '2px 6px', cursor: 'pointer', fontSize: 11 }}>
+                            <button onClick={handleRenameSubmit} disabled={folderOpLoading} style={{ background: 'var(--accent)', border: 'none', borderRadius: 4, color: 'var(--accent-text)', padding: '2px 6px', cursor: 'pointer', fontSize: 11 }}>
                               {folderOpLoading ? '…' : '✓'}
                             </button>
                             <button onClick={() => setRenamingFolder(null)} style={{ background: 'var(--bg-tertiary)', border: 'none', borderRadius: 4, color: 'var(--text-secondary)', padding: '2px 6px', cursor: 'pointer', fontSize: 11 }}>✕</button>
@@ -1427,7 +1427,7 @@ export default function Sidebar() {
                 width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
                 background: 'var(--accent)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 14, fontWeight: 700, color: 'white',
+                fontSize: 14, fontWeight: 700, color: 'var(--accent-text)',
               }}>
                 {((user?.displayName || user?.username || '?')[0]).toUpperCase()}
               </div>
@@ -1650,7 +1650,7 @@ export default function Sidebar() {
                 width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
                 background: 'var(--accent)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 12, fontWeight: 700, color: 'white',
+                fontSize: 12, fontWeight: 700, color: 'var(--accent-text)',
               }}>
                 {((user?.displayName || user?.username || '?')[0]).toUpperCase()}
               </div>
@@ -1870,7 +1870,7 @@ function NavItem({ icon, label, active, collapsed, badge, onClick }) {
           <span style={{ fontSize: 13, fontWeight: active ? 500 : 400, flex: 1 }}>{label}</span>
           {badge > 0 && (
             <span style={{
-              fontSize: 11, fontWeight: 600, color: 'white',
+              fontSize: 11, fontWeight: 600, color: 'var(--accent-text)',
               background: 'var(--accent)', padding: '1px 7px',
               borderRadius: 10, minWidth: 20, textAlign: 'center',
             }}>

@@ -73,7 +73,7 @@ export default function LockScreen() {
           ) : (
             <div style={{
               width: 48, height: 48, borderRadius: '50%',
-              background: 'var(--accent)', color: '#fff',
+              background: 'var(--accent)', color: 'var(--accent-text)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               fontSize: 20, fontWeight: 700, margin: '0 auto 8px',
             }}>
@@ -112,7 +112,7 @@ export default function LockScreen() {
             disabled={unlocking || !password.trim()}
             style={{
               width: '100%', padding: '10px 0',
-              background: 'var(--accent)', color: '#fff', border: 'none',
+              background: 'var(--accent)', color: 'var(--accent-text)', border: 'none',
               borderRadius: 8, fontWeight: 600, fontSize: 14,
               cursor: unlocking ? 'not-allowed' : 'pointer',
               opacity: unlocking ? 0.7 : 1,

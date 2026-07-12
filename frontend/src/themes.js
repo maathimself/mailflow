@@ -15,6 +15,7 @@ export const THEMES = {
       '--text-secondary': '#9898a8',
       '--text-tertiary': '#5a5a6a',
       '--accent': '#7c6af7',
+      '--accent-text': '#ffffff',
       '--accent-dim': '#3d3569',
       '--accent-glow': 'rgba(124,106,247,0.15)',
       '--green': '#4ade80',
@@ -39,6 +40,7 @@ export const THEMES = {
       '--text-secondary': '#4a4a6a',
       '--text-tertiary': '#8888aa',
       '--accent': '#6366f1',
+      '--accent-text': '#ffffff',
       '--accent-dim': '#e0e0ff',
       '--accent-glow': 'rgba(99,102,241,0.12)',
       '--green': '#16a34a',
@@ -63,6 +65,7 @@ export const THEMES = {
       '--text-secondary': '#d5c4a1',
       '--text-tertiary': '#928374',
       '--accent': '#d79921',
+      '--accent-text': '#ffffff',
       '--accent-dim': '#3c3401',
       '--accent-glow': 'rgba(215,153,33,0.15)',
       '--green': '#b8bb26',
@@ -87,6 +90,7 @@ export const THEMES = {
       '--text-secondary': '#bac2de',
       '--text-tertiary': '#6c7086',
       '--accent': '#cba6f7',
+      '--accent-text': '#ffffff',
       '--accent-dim': '#2a1f3d',
       '--accent-glow': 'rgba(203,166,247,0.15)',
       '--green': '#a6e3a1',
@@ -111,6 +115,7 @@ export const THEMES = {
       '--text-secondary': '#5c5f77',
       '--text-tertiary': '#9ca0b0',
       '--accent': '#8839ef',
+      '--accent-text': '#ffffff',
       '--accent-dim': '#e5d4fc',
       '--accent-glow': 'rgba(136,57,239,0.1)',
       '--green': '#40a02b',
@@ -135,6 +140,7 @@ export const THEMES = {
       '--text-secondary': '#e5e9f0',
       '--text-tertiary': '#7b88a1',
       '--accent': '#88c0d0',
+      '--accent-text': '#ffffff',
       '--accent-dim': '#1e3040',
       '--accent-glow': 'rgba(136,192,208,0.15)',
       '--green': '#a3be8c',
@@ -159,6 +165,7 @@ export const THEMES = {
       '--text-secondary': '#a9b1d6',
       '--text-tertiary': '#565f89',
       '--accent': '#7aa2f7',
+      '--accent-text': '#ffffff',
       '--accent-dim': '#1a2342',
       '--accent-glow': 'rgba(122,162,247,0.15)',
       '--green': '#9ece6a',
@@ -183,6 +190,7 @@ export const THEMES = {
       '--text-secondary': '#657b83',
       '--text-tertiary': '#4a6068',
       '--accent': '#268bd2',
+      '--accent-text': '#ffffff',
       '--accent-dim': '#0a2a3d',
       '--accent-glow': 'rgba(38,139,210,0.15)',
       '--green': '#859900',
@@ -207,6 +215,7 @@ export const THEMES = {
       '--text-secondary': '#e0e0e8',
       '--text-tertiary': '#6272a4',
       '--accent': '#bd93f9',
+      '--accent-text': '#ffffff',
       '--accent-dim': '#2a1f45',
       '--accent-glow': 'rgba(189,147,249,0.15)',
       '--green': '#50fa7b',
@@ -231,6 +240,7 @@ export const THEMES = {
       '--text-secondary': '#c5c3d6',
       '--text-tertiary': '#6e6a86',
       '--accent': '#c4a7e7',
+      '--accent-text': '#ffffff',
       '--accent-dim': '#2a1f3d',
       '--accent-glow': 'rgba(196,167,231,0.15)',
       '--green': '#9ccfd8',
@@ -255,6 +265,7 @@ export const THEMES = {
       '--text-secondary': '#7aacff',
       '--text-tertiary': '#3a5880',
       '--accent': '#3b9eff',
+      '--accent-text': '#ffffff',
       '--accent-dim': '#0a1e40',
       '--accent-glow': 'rgba(59,158,255,0.15)',
       '--green': '#4ade80',
@@ -279,6 +290,7 @@ export const THEMES = {
       '--text-secondary': '#c080ff',
       '--text-tertiary': '#803080',
       '--accent': '#ff00aa',
+      '--accent-text': '#ffffff',
       '--accent-dim': '#3d0025',
       '--accent-glow': 'rgba(255,0,170,0.18)',
       '--green': '#00ff9d',
@@ -303,6 +315,7 @@ export const THEMES = {
       '--text-secondary': '#7acc90',
       '--text-tertiary': '#3a6644',
       '--accent': '#00c896',
+      '--accent-text': '#ffffff',
       '--accent-dim': '#003325',
       '--accent-glow': 'rgba(0,200,150,0.15)',
       '--green': '#5af0a0',
@@ -327,6 +340,7 @@ export const THEMES = {
       '--text-secondary': '#e0b880',
       '--text-tertiary': '#805030',
       '--accent': '#ff9900',
+      '--accent-text': '#ffffff',
       '--accent-dim': '#3d2200',
       '--accent-glow': 'rgba(255,153,0,0.15)',
       '--green': '#7cb87a',
@@ -351,6 +365,7 @@ export const THEMES = {
       '--text-secondary': '#b0a080',
       '--text-tertiary': '#605840',
       '--accent': '#c8a840',
+      '--accent-text': '#ffffff',
       '--accent-dim': '#2d2000',
       '--accent-glow': 'rgba(200,168,64,0.15)',
       '--green': '#6ab87a',
@@ -375,6 +390,7 @@ export const THEMES = {
       '--text-secondary': '#5a4830',
       '--text-tertiary': '#9a8868',
       '--accent': '#8b4513',
+      '--accent-text': '#ffffff',
       '--accent-dim': '#f0e8d8',
       '--accent-glow': 'rgba(139,69,19,0.12)',
       '--selection-bg': 'rgba(139,69,19,0.25)',
@@ -400,6 +416,7 @@ export const THEMES = {
       '--text-secondary': '#90a0c8',
       '--text-tertiary': '#505880',
       '--accent': '#4a90d9',
+      '--accent-text': '#ffffff',
       '--accent-dim': '#0a1a30',
       '--accent-glow': 'rgba(74,144,217,0.15)',
       '--green': '#5ab880',
@@ -424,6 +441,7 @@ export const THEMES = {
       '--text-secondary': '#cfcfc2',
       '--text-tertiary': '#75715e',
       '--accent': '#ae81ff',
+      '--accent-text': '#ffffff',
       '--accent-dim': '#2a1f45',
       '--accent-glow': 'rgba(174,129,255,0.15)',
       '--green': '#a6e22e',
@@ -448,6 +466,7 @@ export const THEMES = {
       '--text-secondary': '#cccccc',
       '--text-tertiary': '#888888',
       '--accent': '#f5e642',
+      '--accent-text': '#000000',
       '--accent-dim': '#2a2600',
       '--accent-glow': 'rgba(245,230,66,0.15)',
       '--green': '#00ff00',
@@ -472,6 +491,7 @@ export const THEMES = {
       '--text-secondary': '#d0b080',
       '--text-tertiary': '#806040',
       '--accent': '#d4773a',
+      '--accent-text': '#ffffff',
       '--accent-dim': '#3d1800',
       '--accent-glow': 'rgba(212,119,58,0.15)',
       '--green': '#7aaa6a',
@@ -586,6 +606,7 @@ export function applyCustomCss(css) {
   let el = document.getElementById(CUSTOM_CSS_ID);
   if (!css) {
     if (el) el.remove();
+    refreshAccentDerived(); // revert favicon/logo if the removed CSS was overriding --accent
     return;
   }
   if (!el) {
@@ -594,6 +615,7 @@ export function applyCustomCss(css) {
     document.head.appendChild(el);
   }
   el.textContent = css;
+  refreshAccentDerived(); // flow a custom --accent override through to favicon/logo
 }
 
 // ── Theme application ─────────────────────────────────────────────────────────
@@ -606,6 +628,46 @@ export function getInitialTheme() {
     if (window.matchMedia?.('(prefers-color-scheme: light)').matches) return 'light';
   } catch { /* matchMedia unavailable — fall through to dark */ }
   return 'dark';
+}
+
+// ── Effective accent (theme value, or a custom-CSS override of --accent) ───────
+
+// The accent actually in effect. A custom-CSS override of --accent wins over the
+// theme's declared value, so JS-driven chrome (favicon, PWA theme-color, the logo
+// mark) reads the *computed* value to match what var(--accent) resolves to in CSS.
+export function getEffectiveAccent(fallback = '#7c6af7') {
+  try {
+    const v = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+    return v || fallback;
+  } catch { return fallback; }
+}
+
+// Subscribers (e.g. the logo mark) notified when the effective accent changes, so
+// they update on a custom-CSS accent override too — not only on a theme switch.
+const _accentListeners = new Set();
+export function subscribeAccent(fn) {
+  _accentListeners.add(fn);
+  return () => { _accentListeners.delete(fn); };
+}
+
+// Recompute everything derived from the accent (favicon, PWA theme-color, logo)
+// from the *effective* accent. Called after both applyTheme and applyCustomCss so
+// the accent's source (preset theme or custom override) doesn't matter.
+function refreshAccentDerived() {
+  const accent = getEffectiveAccent();
+  if (!accent.startsWith('#')) return; // favicon rasteriser + meta expect a hex colour
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', accent);
+  // Only invalidate the base favicon cache when the accent actually changed — the
+  // double applyTheme at startup (localStorage then server prefs) usually repeats it.
+  if (_baseAccent !== accent) {
+    _baseCanvas = null;
+    _baseAccent = null;
+  }
+  _applyFavicon(accent);
+  if (_badgeCount > 0) _warmBase(accent);
+  _accentListeners.forEach(fn => {
+    try { fn(accent); } catch { /* a listener error must not break theming */ }
+  });
 }
 
 export function applyTheme(themeName) {
@@ -624,28 +686,10 @@ export function applyTheme(themeName) {
     Object.entries(theme.vars).map(([k, v]) => `  ${k}: ${v};`).join('\n')
   }\n}`;
 
-  // Sync PWA/browser chrome colour with the active accent.
-  const accent = theme.vars['--accent'];
-  if (accent && accent.startsWith('#')) {
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', accent);
-  }
-
-  // Update browser tab favicon to match the active accent colour, preserving
-  // any unread badge that was previously set. Only invalidate the base cache
-  // when the accent actually changes — the double applyTheme call at startup
-  // (localStorage then server prefs) often uses the same accent, and
-  // needlessly invalidating the cache creates a window where exists_hint
-  // falls through to the slow async path.
-  if (accent && accent.startsWith('#')) {
-    if (_baseAccent !== accent) {
-      _baseCanvas = null;
-      _baseAccent = null;
-    }
-    _applyFavicon(accent);
-    // If there's an active badge, also warm the base so subsequent badge updates
-    // hit the fast synchronous path rather than going through async rasterization.
-    if (_badgeCount > 0) _warmBase(accent);
-  }
+  // Recompute favicon + PWA theme-color + logo from the *effective* accent. If a
+  // custom-CSS override of --accent is present, getComputedStyle picks it up here;
+  // applyCustomCss also re-runs this so an override applied afterwards is reflected.
+  refreshAccentDerived();
 }
 
 // ── Favicon badge ─────────────────────────────────────────────────────────────

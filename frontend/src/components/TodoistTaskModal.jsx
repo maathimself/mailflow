@@ -266,7 +266,7 @@ export default function TodoistTaskModal({ message, onClose }) {
             disabled={creating || !title.trim()}
             style={{
               padding: '7px 16px', borderRadius: 7, border: 'none',
-              background: 'var(--accent)', color: 'white',
+              background: 'var(--accent)', color: 'var(--accent-text)',
               cursor: (creating || !title.trim()) ? 'default' : 'pointer',
               fontSize: 13, fontWeight: 500, opacity: (creating || !title.trim()) ? 0.7 : 1,
             }}

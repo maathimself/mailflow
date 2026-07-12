@@ -1,12 +1,18 @@
 // Shared MailFlow logo mark — used in Sidebar and LoginPage.
-// Reads the active theme's accent hex directly from THEMES so the SVG colour
-// matches var(--accent) without relying on CSS variable resolution in SVG.
-import { useStore } from '../store/index.js';
-import { THEMES } from '../themes.js';
+// Reads the *effective* accent hex (theme value, or a custom-CSS override of
+// --accent) so the SVG colour matches var(--accent) without relying on CSS
+// variable resolution inside SVG, and updates on theme AND custom-CSS changes.
+import { useState, useEffect } from 'react';
+import { getEffectiveAccent, subscribeAccent } from '../themes.js';
 
 export default function LogoMark({ size = 32 }) {
-  const theme = useStore(s => s.theme);
-  const accent = THEMES[theme]?.vars['--accent'] ?? '#7c6af7';
+  const [accent, setAccent] = useState(getEffectiveAccent);
+  useEffect(() => {
+    // Re-sync in case the accent changed between render and this effect, then
+    // subscribe for future theme/custom-CSS changes (cleanup unsubscribes).
+    setAccent(getEffectiveAccent());
+    return subscribeAccent(setAccent);
+  }, []);
 
   const id = `lm_${size}`;
   return (

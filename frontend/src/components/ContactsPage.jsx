@@ -503,7 +503,7 @@ export default function ContactsPage() {
               onClick={startNew}
               style={{
                 background: 'var(--accent)', border: 'none', borderRadius: 6,
-                color: 'white', fontSize: 12, fontWeight: 500,
+                color: 'var(--accent-text)', fontSize: 12, fontWeight: 500,
                 padding: '4px 10px', cursor: 'pointer',
               }}
             >
@@ -741,7 +741,7 @@ function ContactForm({
           disabled={saving}
           style={{
             background: 'var(--accent)', border: 'none', borderRadius: 7,
-            color: 'white', fontSize: 13, fontWeight: 500,
+            color: 'var(--accent-text)', fontSize: 13, fontWeight: 500,
             padding: '8px 20px', cursor: saving ? 'not-allowed' : 'pointer',
             opacity: saving ? 0.7 : 1,
           }}

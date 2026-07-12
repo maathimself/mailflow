@@ -2251,7 +2251,7 @@ export default function MessageList() {
             {headerUnread > 0 && !searchQuery.trim() && (
               <span style={{
                 flexShrink: 0,
-                fontSize: 11, fontWeight: 600, color: 'white',
+                fontSize: 11, fontWeight: 600, color: 'var(--accent-text)',
                 background: 'var(--accent)', padding: '1px 7px',
                 borderRadius: 10, minWidth: 20, textAlign: 'center',
               }}>
@@ -3555,7 +3555,7 @@ export default function MessageList() {
               background: 'var(--accent)', border: 'none',
               boxShadow: 'var(--shadow-popover)', cursor: 'pointer',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: 'white',
+              color: 'var(--accent-text)',
               opacity: fabVisible ? 1 : 0,
               transform: fabVisible ? 'scale(1)' : 'scale(0.8)',
               transition: 'opacity 0.2s ease, transform 0.2s ease',
@@ -3760,7 +3760,7 @@ function EmptyState({ folderSyncing, searchQuery, unreadOnly, selectedFolder, ac
       {isInbox && (
         <button onClick={onCompose} style={{
           padding: '7px 18px', borderRadius: 8, border: 'none',
-          background: 'var(--accent)', color: 'white', cursor: 'pointer', fontSize: 13, fontWeight: 500,
+          background: 'var(--accent)', color: 'var(--accent-text)', cursor: 'pointer', fontSize: 13, fontWeight: 500,
         }}>{t('sidebar.compose')}</button>
       )}
     </div>
@@ -3870,7 +3870,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
           >
             {avatarAsCheckbox ? (
               isChecked ? (
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" strokeWidth="3" style={{ stroke: 'var(--accent-text)' }}>
                   <polyline points="20 6 9 17 4 12"/>
                 </svg>
               ) : (
@@ -4224,7 +4224,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
           >
             {avatarAsCheckbox ? (
               isChecked ? (
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" strokeWidth="3" style={{ stroke: 'var(--accent-text)' }}>
                   <polyline points="20 6 9 17 4 12"/>
                 </svg>
               ) : (

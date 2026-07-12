@@ -339,7 +339,7 @@ function AccountForm({ initial, onSave, onCancel }) {
       <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
         <button onClick={handleSubmit} disabled={saving || (!isEdit && isMicrosoftImapHost(form.imap_host))} style={{
           flex: 1, padding: '10px', background: 'var(--accent)',
-          border: 'none', borderRadius: 8, color: 'white',
+          border: 'none', borderRadius: 8, color: 'var(--accent-text)',
           fontSize: 13, fontWeight: 500,
           cursor: (saving || (!isEdit && isMicrosoftImapHost(form.imap_host))) ? 'not-allowed' : 'pointer',
           opacity: (saving || (!isEdit && isMicrosoftImapHost(form.imap_host))) ? 0.4 : 1,
@@ -635,7 +635,7 @@ function AccountsTab() {
           <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
             <button onClick={handleAliasSave} disabled={aliasFormSaving} style={{
               flex: 1, padding: '10px', background: 'var(--accent)',
-              border: 'none', borderRadius: 8, color: 'white',
+              border: 'none', borderRadius: 8, color: 'var(--accent-text)',
               fontSize: 13, fontWeight: 500, cursor: aliasFormSaving ? 'not-allowed' : 'pointer',
               opacity: aliasFormSaving ? 0.7 : 1,
             }}>
@@ -673,7 +673,7 @@ function AccountsTab() {
           style={{
             display: 'flex', alignItems: 'center', gap: 6,
             padding: '7px 12px', background: 'var(--accent)',
-            border: 'none', borderRadius: 7, color: 'white',
+            border: 'none', borderRadius: 7, color: 'var(--accent-text)',
             cursor: 'pointer', fontSize: 12, fontWeight: 500, marginBottom: 16,
           }}
         >
@@ -812,7 +812,7 @@ function AccountsTab() {
           disabled={foldersSaving || foldersLoading}
           style={{
             marginTop: 8, padding: '9px 20px', background: 'var(--accent)',
-            border: 'none', borderRadius: 7, color: 'white',
+            border: 'none', borderRadius: 7, color: 'var(--accent-text)',
             fontSize: 13, fontWeight: 500, cursor: (foldersSaving || foldersLoading) ? 'not-allowed' : 'pointer',
             opacity: (foldersSaving || foldersLoading) ? 0.7 : 1,
           }}
@@ -833,7 +833,7 @@ function AccountsTab() {
         <button onClick={() => setSubview('add')} style={{
           display: 'flex', alignItems: 'center', gap: 6,
           padding: '7px 12px', background: 'var(--accent)',
-          border: 'none', borderRadius: 7, color: 'white',
+          border: 'none', borderRadius: 7, color: 'var(--accent-text)',
           cursor: 'pointer', fontSize: 12, fontWeight: 500,
         }}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -1095,7 +1095,7 @@ function ThemesTab() {
             onClick={handleSaveCustomCss}
             disabled={cssSaving}
             style={{
-              background: 'var(--accent)', color: '#fff', border: 'none',
+              background: 'var(--accent)', color: 'var(--accent-text)', border: 'none',
               borderRadius: 7, padding: '8px 18px', fontSize: 13,
               fontWeight: 500, cursor: cssSaving ? 'default' : 'pointer',
               opacity: cssSaving ? 0.7 : 1,
@@ -1831,7 +1831,7 @@ function LayoutsTab() {
           <button
             onClick={registerMailtoHandler}
             style={{
-              padding: '8px 14px', background: 'var(--accent)', color: '#fff',
+              padding: '8px 14px', background: 'var(--accent)', color: 'var(--accent-text)',
               border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 500,
             }}
           >
@@ -1962,7 +1962,7 @@ function CardDavCard() {
               </div>
               {errBox}
               <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={handleSync} disabled={syncing} style={{ padding: '6px 14px', borderRadius: 7, cursor: syncing ? 'default' : 'pointer', border: 'none', background: 'var(--accent)', color: 'white', fontSize: 13, fontWeight: 500, opacity: syncing ? 0.7 : 1 }}>
+                <button onClick={handleSync} disabled={syncing} style={{ padding: '6px 14px', borderRadius: 7, cursor: syncing ? 'default' : 'pointer', border: 'none', background: 'var(--accent)', color: 'var(--accent-text)', fontSize: 13, fontWeight: 500, opacity: syncing ? 0.7 : 1 }}>
                   {syncing ? t('admin.integrations.carddav.syncing') : t('admin.integrations.carddav.syncNow')}
                 </button>
                 <button onClick={handleDisconnect} disabled={disconnecting} style={{ padding: '6px 14px', borderRadius: 7, cursor: disconnecting ? 'default' : 'pointer', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', fontSize: 13, opacity: disconnecting ? 0.6 : 1 }}>
@@ -1987,7 +1987,7 @@ function CardDavCard() {
               {errBox}
               <div style={{ display: 'flex', gap: 8 }}>
                 <button onClick={handleConnect} disabled={connecting || !form.serverUrl.trim() || !form.username.trim() || !form.password}
-                  style={{ padding: '6px 14px', borderRadius: 7, cursor: (connecting || !form.serverUrl.trim() || !form.username.trim() || !form.password) ? 'default' : 'pointer', border: 'none', background: 'var(--accent)', color: 'white', fontSize: 13, fontWeight: 500, opacity: (connecting || !form.serverUrl.trim() || !form.username.trim() || !form.password) ? 0.7 : 1 }}>
+                  style={{ padding: '6px 14px', borderRadius: 7, cursor: (connecting || !form.serverUrl.trim() || !form.username.trim() || !form.password) ? 'default' : 'pointer', border: 'none', background: 'var(--accent)', color: 'var(--accent-text)', fontSize: 13, fontWeight: 500, opacity: (connecting || !form.serverUrl.trim() || !form.username.trim() || !form.password) ? 0.7 : 1 }}>
                   {connecting ? t('admin.integrations.carddav.connecting') : t('admin.integrations.carddav.connect')}
                 </button>
               </div>
@@ -2612,7 +2612,7 @@ function IntegrationsTab() {
                         style={{
                           padding: '6px 14px', borderRadius: 7,
                           cursor: (tdConnecting || !tdToken.trim()) ? 'default' : 'pointer',
-                          border: 'none', background: 'var(--accent)', color: 'white',
+                          border: 'none', background: 'var(--accent)', color: 'var(--accent-text)',
                           fontSize: 13, fontWeight: 500, opacity: (tdConnecting || !tdToken.trim()) ? 0.7 : 1,
                         }}
                       >
@@ -3036,7 +3036,7 @@ function SSOTab() {
           onClick={openNew}
           style={{
             padding: '9px 16px', background: 'var(--accent)', border: 'none',
-            borderRadius: 7, color: 'white', fontSize: 13, fontWeight: 500, cursor: 'pointer',
+            borderRadius: 7, color: 'var(--accent-text)', fontSize: 13, fontWeight: 500, cursor: 'pointer',
           }}
         >{t('admin.sso.addProvider')}</button>
       )}
@@ -3258,7 +3258,7 @@ function SSOTab() {
               disabled={saving}
               style={{
                 padding: '9px 18px', background: 'var(--accent)', border: 'none',
-                borderRadius: 7, color: 'white', fontSize: 13, fontWeight: 500,
+                borderRadius: 7, color: 'var(--accent-text)', fontSize: 13, fontWeight: 500,
                 cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.6 : 1,
               }}
             >{saving ? t('common.saving') : t('admin.sso.save')}</button>
@@ -3416,7 +3416,7 @@ function AISection() {
         {msgBox}
 
         <button type="submit" disabled={saving || !form.baseUrl || !form.model}
-          style={{ padding: '8px 18px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 7, fontSize: 13, fontWeight: 500, cursor: 'pointer', opacity: (saving || !form.baseUrl || !form.model) ? 0.5 : 1 }}>
+          style={{ padding: '8px 18px', background: 'var(--accent)', color: 'var(--accent-text)', border: 'none', borderRadius: 7, fontSize: 13, fontWeight: 500, cursor: 'pointer', opacity: (saving || !form.baseUrl || !form.model) ? 0.5 : 1 }}>
           {saving ? t('common.saving') : t('common.save')}
         </button>
       </form>
@@ -3504,7 +3504,7 @@ function AiActionsTab() {
       <button
         onClick={addAction}
         disabled={items.length >= AI_ACTION_LIMITS.max}
-        style={{ marginTop: 14, padding: '8px 16px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 7, fontSize: 13, fontWeight: 500, cursor: items.length >= AI_ACTION_LIMITS.max ? 'default' : 'pointer', opacity: items.length >= AI_ACTION_LIMITS.max ? 0.5 : 1 }}
+        style={{ marginTop: 14, padding: '8px 16px', background: 'var(--accent)', color: 'var(--accent-text)', border: 'none', borderRadius: 7, fontSize: 13, fontWeight: 500, cursor: items.length >= AI_ACTION_LIMITS.max ? 'default' : 'pointer', opacity: items.length >= AI_ACTION_LIMITS.max ? 0.5 : 1 }}
       >
         {t('admin.aiActions.add')}
       </button>
@@ -3698,7 +3698,7 @@ function CategoriesSection() {
           placeholder={t('admin.categories.addManualPh')} style={{ ...inputStyle, flex: 1 }} />
         <button type="submit" disabled={adding || !manualInput.trim()} style={{
           padding: '7px 14px', background: 'var(--accent)', border: 'none', borderRadius: 6,
-          color: 'white', fontSize: 13, cursor: 'pointer', opacity: (adding || !manualInput.trim()) ? 0.5 : 1, flexShrink: 0,
+          color: 'var(--accent-text)', fontSize: 13, cursor: 'pointer', opacity: (adding || !manualInput.trim()) ? 0.5 : 1, flexShrink: 0,
         }}>
           {t('admin.categories.addBtn')}
         </button>
@@ -3758,7 +3758,7 @@ function CategoriesSection() {
             </select>
             <button onClick={handleRecategorize} disabled={recategorizing || !recatAccount} style={{
               padding: '7px 14px', background: 'var(--accent)', border: 'none', borderRadius: 6,
-              color: 'white', fontSize: 13, cursor: 'pointer',
+              color: 'var(--accent-text)', fontSize: 13, cursor: 'pointer',
               opacity: (recategorizing || !recatAccount) ? 0.5 : 1, flexShrink: 0,
             }}>
               {recategorizing ? t('admin.categories.recategorizing') : t('admin.categories.recategorize')}
@@ -3899,7 +3899,7 @@ function SystemEmailSection() {
         )}
 
         <button type="submit" disabled={saving || !form.host || !form.user}
-          style={{ padding: '8px 18px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 7, fontSize: 13, fontWeight: 500, cursor: 'pointer', opacity: (saving || !form.host || !form.user) ? 0.5 : 1 }}>
+          style={{ padding: '8px 18px', background: 'var(--accent)', color: 'var(--accent-text)', border: 'none', borderRadius: 7, fontSize: 13, fontWeight: 500, cursor: 'pointer', opacity: (saving || !form.host || !form.user) ? 0.5 : 1 }}>
           {saving ? t('common.saving') : t('common.save')}
         </button>
       </form>
@@ -4224,7 +4224,7 @@ function UsersAndInvitesPanel() {
           disabled={inviteLoading || !inviteEmail.includes('@')}
           style={{
             padding: '9px 16px', background: 'var(--accent)',
-            border: 'none', borderRadius: 7, color: 'white',
+            border: 'none', borderRadius: 7, color: 'var(--accent-text)',
             fontSize: 13, fontWeight: 500, cursor: inviteLoading ? 'not-allowed' : 'pointer',
             opacity: inviteLoading || !inviteEmail.includes('@') ? 0.6 : 1,
             flexShrink: 0,
@@ -5432,7 +5432,7 @@ function RulesTab() {
           <button
             onClick={handleSave}
             disabled={formSaving}
-            style={{ flex: 1, padding: '9px 0', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 7, fontWeight: 600, fontSize: 13, cursor: formSaving ? 'not-allowed' : 'pointer', opacity: formSaving ? 0.7 : 1 }}
+            style={{ flex: 1, padding: '9px 0', background: 'var(--accent)', color: 'var(--accent-text)', border: 'none', borderRadius: 7, fontWeight: 600, fontSize: 13, cursor: formSaving ? 'not-allowed' : 'pointer', opacity: formSaving ? 0.7 : 1 }}
           >
             {formSaving ? t('admin.rules.saving') : t('admin.rules.saveButton')}
           </button>
@@ -5461,7 +5461,7 @@ function RulesTab() {
           </button>
           <button
             onClick={() => openAdd({})}
-            style={{ padding: '7px 14px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 7, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
+            style={{ padding: '7px 14px', background: 'var(--accent)', color: 'var(--accent-text)', border: 'none', borderRadius: 7, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
           >
             + {t('admin.rules.newButton')}
           </button>
@@ -5589,7 +5589,7 @@ function BlockListTab() {
         <button
           type="submit"
           disabled={adding || !newEmail.trim()}
-          style={{ padding: '8px 16px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 7, fontWeight: 600, fontSize: 13, cursor: adding ? 'not-allowed' : 'pointer', opacity: adding ? 0.7 : 1, flexShrink: 0 }}
+          style={{ padding: '8px 16px', background: 'var(--accent)', color: 'var(--accent-text)', border: 'none', borderRadius: 7, fontWeight: 600, fontSize: 13, cursor: adding ? 'not-allowed' : 'pointer', opacity: adding ? 0.7 : 1, flexShrink: 0 }}
         >
           {t('admin.blockList.addButton')}
         </button>
@@ -6083,7 +6083,7 @@ function PrivacyTab() {
               />
               <button onClick={addAddress} disabled={saving} style={{
                 padding: '8px 14px', background: 'var(--accent)', border: 'none',
-                borderRadius: 7, color: 'white', fontSize: 13, fontWeight: 500,
+                borderRadius: 7, color: 'var(--accent-text)', fontSize: 13, fontWeight: 500,
                 cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.6 : 1,
               }}>{t('common.add')}</button>
             </div>
@@ -6124,7 +6124,7 @@ function PrivacyTab() {
               />
               <button onClick={addDomain} disabled={saving} style={{
                 padding: '8px 14px', background: 'var(--accent)', border: 'none',
-                borderRadius: 7, color: 'white', fontSize: 13, fontWeight: 500,
+                borderRadius: 7, color: 'var(--accent-text)', fontSize: 13, fontWeight: 500,
                 cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.6 : 1,
               }}>{t('common.add')}</button>
             </div>
@@ -6490,7 +6490,7 @@ function SecurityTab() {
               disabled={loading}
               style={{
                 padding: '8px 16px', background: 'var(--accent)', border: 'none',
-                borderRadius: 7, color: 'white', fontSize: 13, fontWeight: 500,
+                borderRadius: 7, color: 'var(--accent-text)', fontSize: 13, fontWeight: 500,
                 cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.6 : 1,
                 flexShrink: 0,
               }}
@@ -6540,7 +6540,7 @@ function SecurityTab() {
               onClick={() => setStep('verify')}
               style={{
                 width: '100%', padding: '10px', background: 'var(--accent)', border: 'none',
-                borderRadius: 7, color: 'white', fontSize: 13, fontWeight: 500, cursor: 'pointer',
+                borderRadius: 7, color: 'var(--accent-text)', fontSize: 13, fontWeight: 500, cursor: 'pointer',
               }}
             >
               {t('admin.security.totpNext')}
@@ -6588,7 +6588,7 @@ function SecurityTab() {
                 disabled={loading || verifyCode.length !== 6}
                 style={{
                   padding: '10px', background: 'var(--accent)', border: 'none',
-                  borderRadius: 7, color: 'white', fontSize: 13, fontWeight: 500,
+                  borderRadius: 7, color: 'var(--accent-text)', fontSize: 13, fontWeight: 500,
                   cursor: loading || verifyCode.length !== 6 ? 'not-allowed' : 'pointer',
                   opacity: loading || verifyCode.length !== 6 ? 0.6 : 1,
                 }}

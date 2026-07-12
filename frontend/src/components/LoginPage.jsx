@@ -388,7 +388,7 @@ export default function LoginPage() {
                   disabled={loading || totpCode.length !== 6}
                   style={{
                     padding: '11px 24px', background: 'var(--accent)',
-                    border: 'none', borderRadius: 8, color: 'white',
+                    border: 'none', borderRadius: 8, color: 'var(--accent-text)',
                     fontSize: 14, fontWeight: 500, cursor: loading ? 'not-allowed' : 'pointer',
                     opacity: loading || totpCode.length !== 6 ? 0.6 : 1, marginTop: 4,
                   }}
@@ -472,7 +472,7 @@ export default function LoginPage() {
                   disabled={loading || emailOtpCode.length !== 6}
                   style={{
                     padding: '11px 24px', background: 'var(--accent)',
-                    border: 'none', borderRadius: 8, color: 'white',
+                    border: 'none', borderRadius: 8, color: 'var(--accent-text)',
                     fontSize: 14, fontWeight: 500, cursor: loading ? 'not-allowed' : 'pointer',
                     opacity: loading || emailOtpCode.length !== 6 ? 0.6 : 1, marginTop: 4,
                   }}
@@ -565,7 +565,7 @@ export default function LoginPage() {
                       disabled={loading || !forgotEmail.trim()}
                       style={{
                         padding: '11px 24px', background: 'var(--accent)',
-                        border: 'none', borderRadius: 8, color: 'white',
+                        border: 'none', borderRadius: 8, color: 'var(--accent-text)',
                         fontSize: 14, fontWeight: 500, cursor: loading ? 'not-allowed' : 'pointer',
                         opacity: loading || !forgotEmail.trim() ? 0.6 : 1, marginTop: 4,
                       }}
@@ -668,7 +668,7 @@ export default function LoginPage() {
                       disabled={loading || !newPassword || !newPasswordConfirm}
                       style={{
                         padding: '11px 24px', background: 'var(--accent)',
-                        border: 'none', borderRadius: 8, color: 'white',
+                        border: 'none', borderRadius: 8, color: 'var(--accent-text)',
                         fontSize: 14, fontWeight: 500, cursor: loading ? 'not-allowed' : 'pointer',
                         opacity: loading || !newPassword || !newPasswordConfirm ? 0.6 : 1, marginTop: 4,
                       }}
@@ -721,7 +721,7 @@ export default function LoginPage() {
                     disabled={loading}
                     style={{
                       width: '100%', padding: '11px 24px', background: 'var(--accent)',
-                      border: 'none', borderRadius: 8, color: 'white',
+                      border: 'none', borderRadius: 8, color: 'var(--accent-text)',
                       fontSize: 14, fontWeight: 500, cursor: loading ? 'not-allowed' : 'pointer',
                       opacity: loading ? 0.6 : 1,
                     }}
@@ -776,7 +776,7 @@ export default function LoginPage() {
                     onClick={() => { setEnrollStep('verify'); setError(''); }}
                     style={{
                       width: '100%', padding: '10px', background: 'var(--accent)', border: 'none',
-                      borderRadius: 7, color: 'white', fontSize: 13, fontWeight: 500, cursor: 'pointer',
+                      borderRadius: 7, color: 'var(--accent-text)', fontSize: 13, fontWeight: 500, cursor: 'pointer',
                     }}
                   >
                     {t('login.mfaEnroll.next')}
@@ -820,7 +820,7 @@ export default function LoginPage() {
                     disabled={loading || enrollCode.length !== 6}
                     style={{
                       padding: '11px 24px', background: 'var(--accent)',
-                      border: 'none', borderRadius: 8, color: 'white',
+                      border: 'none', borderRadius: 8, color: 'var(--accent-text)',
                       fontSize: 14, fontWeight: 500, cursor: loading ? 'not-allowed' : 'pointer',
                       opacity: loading || enrollCode.length !== 6 ? 0.6 : 1,
                     }}
@@ -929,7 +929,7 @@ export default function LoginPage() {
               disabled={loading || !username || !password}
               style={{
                 padding: '11px 24px', background: 'var(--accent)',
-                border: 'none', borderRadius: 8, color: 'white',
+                border: 'none', borderRadius: 8, color: 'var(--accent-text)',
                 fontSize: 14, fontWeight: 500, cursor: loading ? 'not-allowed' : 'pointer',
                 opacity: loading || !username || !password ? 0.6 : 1,
                 transition: 'opacity 0.15s, transform 0.1s', marginTop: 4,

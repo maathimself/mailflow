@@ -134,7 +134,7 @@ export default function ProfileModal({ onClose }) {
                   width: 80, height: 80, borderRadius: '50%',
                   background: 'var(--accent)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 28, fontWeight: 700, color: 'white',
+                  fontSize: 28, fontWeight: 700, color: 'var(--accent-text)',
                 }}>
                   {initials}
                 </div>
@@ -219,7 +219,7 @@ export default function ProfileModal({ onClose }) {
             disabled={saving}
             style={{
               padding: '7px 16px', borderRadius: 7, border: 'none',
-              background: 'var(--accent)', color: 'white', cursor: saving ? 'default' : 'pointer',
+              background: 'var(--accent)', color: 'var(--accent-text)', cursor: saving ? 'default' : 'pointer',
               fontSize: 13, fontWeight: 500, opacity: saving ? 0.7 : 1,
             }}
           >
