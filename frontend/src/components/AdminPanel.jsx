@@ -2316,7 +2316,7 @@ function IntegrationsTab() {
                   </Field>
                 </div>
 
-                <Field label={t('admin.integrations.microsoft.clientSecret')} required>
+                <Field label={t('admin.integrations.microsoft.clientSecret')}>
                   <input type="password" autoComplete="new-password" value={msForm.clientSecret}
                     onChange={e => setMsForm(f => ({ ...f, clientSecret: e.target.value }))}
                     placeholder={t('admin.integrations.microsoft.clientSecretPh')}
@@ -2325,7 +2325,7 @@ function IntegrationsTab() {
                     onBlur={e => e.target.style.borderColor = 'var(--border)'} />
                 </Field>
 
-                <Field label={t('admin.integrations.microsoft.redirectUri')} required>
+                <Field label={t('admin.integrations.microsoft.redirectUri')}>
                   <input value={msForm.redirectUri}
                     onChange={e => setMsForm(f => ({ ...f, redirectUri: e.target.value }))}
                     placeholder={`http://${window.location.hostname}:8080/oauth/microsoft/callback`}

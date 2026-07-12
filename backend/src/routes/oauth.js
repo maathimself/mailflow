@@ -105,7 +105,8 @@ router.get('/microsoft/callback', async (req, res) => {
       throw new Error(tokens.error_description || tokens.error || 'Token exchange failed');
     }
 
-    await processMicrosoftTokens(userId, tokens, { tenantId, clientId });
+    // Authorization-code flow uses the client secret → confidential client.
+    await processMicrosoftTokens(userId, tokens, { tenantId, clientId, publicClient: false });
 
     // Redirect back to app with success
     res.redirect('/?oauth_success=microsoft');
@@ -116,7 +117,7 @@ router.get('/microsoft/callback', async (req, res) => {
 });
 
 // Shared: validate tokens, upsert account, connect IMAP.
-async function processMicrosoftTokens(userId, tokens, { tenantId, clientId }) {
+async function processMicrosoftTokens(userId, tokens, { tenantId, clientId, publicClient = false }) {
   const { access_token, refresh_token, expires_in, id_token } = tokens;
   const expiresInSecs = Number.isFinite(expires_in) && expires_in > 0 ? expires_in : 3600;
   const expiry = new Date(Date.now() + expiresInSecs * 1000);
@@ -177,9 +178,9 @@ async function processMicrosoftTokens(userId, tokens, { tenantId, clientId }) {
       await client.query(`
         UPDATE email_accounts SET
           oauth_access_token = $1, oauth_refresh_token = $2, oauth_token_expiry = $3,
-          name = $4, sync_error = NULL
-        WHERE id = $5
-      `, [encrypt(access_token), encrypt(refresh_token), expiry, displayName || email, accountId]);
+          name = $4, oauth_public_client = $5, sync_error = NULL
+        WHERE id = $6
+      `, [encrypt(access_token), encrypt(refresh_token), expiry, displayName || email, publicClient, accountId]);
     } else {
       const colors = ['#0078d4', '#106ebe', '#005a9e', '#004578'];
       const color = colors[Math.floor(Math.random() * colors.length)];
@@ -189,14 +190,16 @@ async function processMicrosoftTokens(userId, tokens, { tenantId, clientId }) {
           imap_host, imap_port, imap_tls,
           smtp_host, smtp_port, smtp_tls,
           auth_user,
-          oauth_provider, oauth_access_token, oauth_refresh_token, oauth_token_expiry
+          oauth_provider, oauth_access_token, oauth_refresh_token, oauth_token_expiry,
+          oauth_public_client
         ) VALUES ($1,$2,$3,$4,'imap',
           'outlook.office365.com', 993, true,
           'smtp.office365.com', 587, 'STARTTLS',
           $3,
-          'microsoft', $5, $6, $7)
+          'microsoft', $5, $6, $7,
+          $8)
         RETURNING *
-      `, [userId, displayName, email, color, encrypt(access_token), encrypt(refresh_token), expiry]);
+      `, [userId, displayName, email, color, encrypt(access_token), encrypt(refresh_token), expiry, publicClient]);
       accountId = result.rows[0].id;
     }
 
@@ -290,7 +293,9 @@ router.get('/microsoft/device/poll', async (req, res) => {
     }
 
     deviceFlows.delete(req.session.userId);
-    await processMicrosoftTokens(req.session.userId, tokens, { tenantId: flow.tenantId, clientId: flow.clientId });
+    // Device-code flow never uses a client secret → public client. Its refresh must
+    // omit the secret too, or Microsoft rejects it with AADSTS90023 (#216).
+    await processMicrosoftTokens(req.session.userId, tokens, { tenantId: flow.tenantId, clientId: flow.clientId, publicClient: true });
     res.json({ status: 'success' });
   } catch (err) {
     console.error('Device code poll error:', err.message);
@@ -318,43 +323,61 @@ async function doRefreshMicrosoftToken(account) {
   const storedRefreshToken = decrypt(account.oauth_refresh_token);
   if (!storedRefreshToken) throw new Error('OAuth refresh token is missing or corrupted — please reconnect your account');
 
-  // Device-code / public-client setups have no client secret. Including an absent secret
-  // would serialize as "client_secret=undefined", which Microsoft rejects (AADSTS7000215),
-  // so the account would connect fine and then break ~1h later when the first refresh runs.
-  // The device init/poll requests already omit it; only send it for confidential (auth-code)
-  // clients. AAD ignores an unnecessary secret for a public client if one is ever present.
-  const refreshParams = new URLSearchParams({
-    client_id: clientId,
-    refresh_token: storedRefreshToken,
-    grant_type: 'refresh_token',
-    scope: 'https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send offline_access',
-  });
-  if (clientSecret) refreshParams.set('client_secret', clientSecret);
+  // Public clients (device-code flow — personal Outlook.com/Hotmail) must NOT send a
+  // client_secret on refresh: Microsoft rejects it with AADSTS90023 ("Public clients
+  // can't send a client secret"). Confidential clients (auth-code flow) must send it.
+  // Key this on the account's recorded flow, not on whether a secret is configured
+  // globally, since one instance can host both kinds. (#216)
+  const tokenUrl = `${MICROSOFT_AUTH_URL}/${tenantId}/oauth2/v2.0/token`;
+  const postRefresh = (withSecret) => {
+    const params = new URLSearchParams({
+      client_id: clientId,
+      refresh_token: storedRefreshToken,
+      grant_type: 'refresh_token',
+      scope: 'https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send offline_access',
+    });
+    if (withSecret) params.set('client_secret', clientSecret);
+    return fetch(tokenUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params,
+      signal: AbortSignal.timeout(10000),
+    });
+  };
 
-  const tokenRes = await fetch(`${MICROSOFT_AUTH_URL}/${tenantId}/oauth2/v2.0/token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: refreshParams,
-    signal: AbortSignal.timeout(10000),
-  });
+  const sendSecret = !!clientSecret && !account.oauth_public_client;
+  let tokenRes = await postRefresh(sendSecret);
+  let tokens = await tokenRes.json();
+  let becamePublic = false;
 
-  const tokens = await tokenRes.json();
+  // Self-heal accounts predating the oauth_public_client column: if we sent a secret
+  // and Microsoft says a public client can't (AADSTS90023), this is really a public
+  // (device-code) client — retry without the secret and record it so future refreshes
+  // skip the secret straight away.
+  if (!tokenRes.ok && sendSecret && /AADSTS90023/i.test(tokens.error_description || tokens.error || '')) {
+    tokenRes = await postRefresh(false);
+    tokens = await tokenRes.json();
+    becamePublic = tokenRes.ok;
+  }
+
   if (!tokenRes.ok) throw new Error(tokens.error_description || 'Token refresh failed');
 
   const { access_token, refresh_token, expires_in } = tokens;
   const refreshExpiresInSecs = Number.isFinite(expires_in) && expires_in > 0 ? expires_in : 3600;
   const expiry = new Date(Date.now() + refreshExpiresInSecs * 1000);
+  const isPublic = !!account.oauth_public_client || becamePublic;
 
   await query(`
     UPDATE email_accounts SET
       oauth_access_token = $1,
       oauth_refresh_token = COALESCE($2, oauth_refresh_token),
-      oauth_token_expiry = $3
-    WHERE id = $4
-  `, [encrypt(access_token), refresh_token ? encrypt(refresh_token) : null, expiry, account.id]);
+      oauth_token_expiry = $3,
+      oauth_public_client = $4
+    WHERE id = $5
+  `, [encrypt(access_token), refresh_token ? encrypt(refresh_token) : null, expiry, isPublic, account.id]);
 
   // Return plaintext tokens so callers can use them immediately without decrypting
-  return { ...account, oauth_access_token: access_token, oauth_token_expiry: expiry };
+  return { ...account, oauth_access_token: access_token, oauth_token_expiry: expiry, oauth_public_client: isPublic };
 }
 
 export default router;
