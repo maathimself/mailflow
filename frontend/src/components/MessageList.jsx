@@ -38,6 +38,21 @@ function parseAddressField(raw) {
   } catch { return ''; }
 }
 
+// Auto-advance the reading pane when the open message leaves the list: select the
+// row that takes its place (next in display order, or previous if it was the last,
+// or nothing if the list is now empty). Mirrors scheduleDelete's inline advance;
+// call before removeMessage so the outgoing row is still present for the lookup.
+// No-op unless the removed message is the currently selected one.
+function advanceSelectionAfterRemoval(removedId) {
+  const { messages, searchResults, searchQuery, selectedMessageId, setSelectedMessage } = useStore.getState();
+  if (selectedMessageId !== removedId) return;
+  const displayMsgs = searchQuery.trim() ? searchResults : messages;
+  const idx = displayMsgs.findIndex(m => m.id === removedId);
+  if (idx === -1) return;
+  const next = displayMsgs[idx + 1] || displayMsgs[idx - 1] || null;
+  setSelectedMessage(next?.id ?? null);
+}
+
 const SWIPE_ACTIONS = {
   archive: { color: 'var(--amber, #d97706)' },
   delete: { color: 'var(--red, #ef4444)' },
@@ -1104,6 +1119,7 @@ export default function MessageList() {
   }, [setMessagesReadState]);
 
   const handleSwipeArchive = useCallback(async (message) => {
+    advanceSelectionAfterRemoval(message.id);
     removeMessage(message.id);
     if (!message.is_read) decrementUnread(message.account_id);
     let undone = false;
@@ -1607,6 +1623,7 @@ export default function MessageList() {
       } else if (selectedMessageId) {
         const msg = pool.find(m => m.id === selectedMessageId);
         if (!msg) return;
+        advanceSelectionAfterRemoval(selectedMessageId);
         removeMessage(selectedMessageId);
         if (!msg.is_read) decrementUnread(msg.account_id);
         api.bulkArchive([selectedMessageId]).then(result => {
@@ -1864,6 +1881,7 @@ export default function MessageList() {
         break;
       case 'archive': {
         const archived = message;
+        advanceSelectionAfterRemoval(archived.id);
         removeMessage(archived.id);
         if (!archived.is_read) decrementUnread(archived.account_id);
         let archiveUndone = false;
