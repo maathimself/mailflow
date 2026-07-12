@@ -11,6 +11,10 @@ import { NOTIFICATION_SOUNDS, playNotificationSound, playCustomSound, warmUpAudi
 import { usePushNotifications } from '../hooks/usePushNotifications.js';
 import SignatureEditor from './SignatureEditor.jsx';
 import { getEffectiveShortcuts, getGroupedActions, ACTION_DEFS, SPECIAL_KEY_LABELS, parseModKey, modLabel } from '../utils/defaultShortcuts.js';
+import { DndContext, closestCenter } from "@dnd-kit/core";
+import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { restrictToVerticalAxis, restrictToParentElement } from "@dnd-kit/modifiers";
 
 // ─── Shared field component ───────────────────────────────────────────────────
 function Field({ label, required, children }) {
@@ -5126,6 +5130,18 @@ function RulesTab() {
     }
   }
 
+  async function handleMove({ active, over }) {
+    if (!over || active.id === over.id) return;
+    
+    const from = rules.findIndex(r => r.id === active.id);
+    const to = rules.findIndex(r => r.id === over.id);
+
+    const reordered = arrayMove(rules, from, to);
+    
+    const updated = await api.reorderRules(reordered.map(r => r.id));
+    setRules(reordered);
+  }
+
   function setCondition(idx, key, val) {
     setFormData(prev => {
       const conditions = prev.conditions.map((c, i) => i === idx ? { ...c, [key]: val } : c);
@@ -5447,6 +5463,61 @@ function RulesTab() {
     );
   }
 
+  const SortableRule = ({ rule }) => {
+    const { setNodeRef, transform, transition, attributes, listeners } = useSortable({ id: rule.id });
+
+    return (
+      <div ref={setNodeRef} style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 8, padding: '12px 14px', marginBottom: 8, transform: CSS.Transform.toString(transform), transition }}>
+        {confirmDelete === rule.id ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 13, color: 'var(--text-primary)', flex: 1 }}>{t('admin.rules.deleteConfirm')}</span>
+            <button
+              onClick={() => handleDelete(rule.id)}
+              style={{ padding: '5px 12px', background: 'var(--red)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}
+            >
+              {t('admin.rules.deleteButton')}
+            </button>
+            <button
+              onClick={() => setConfirmDelete(null)}
+              style={{ padding: '5px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 6, fontSize: 12, cursor: 'pointer', color: 'var(--text-primary)' }}
+            >
+              {t('common.cancel')}
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+            <div {...attributes} {...listeners} style={{ cursor: 'grab', fontSize: 18, userSelect: 'none' }} >
+              ☰
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 0, cursor: 'pointer', marginTop: 2, flexShrink: 0 }}>
+              <input type="checkbox" checked={rule.enabled} onChange={() => handleToggle(rule)} />
+            </label>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 2 }}>{rule.name || '(unnamed)'}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {conditionSummary(rule)} → {actionSummary(rule)}
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+              <button
+                onClick={() => openEdit(rule)}
+                style={{ padding: '4px 10px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 6, fontSize: 12, cursor: 'pointer', color: 'var(--text-primary)' }}
+              >
+                {t('admin.rules.editButton')}
+              </button>
+              <button
+                onClick={() => setConfirmDelete(rule.id)}
+                style={{ padding: '4px 10px', background: 'none', border: '1px solid var(--red)', borderRadius: 6, fontSize: 12, cursor: 'pointer', color: 'var(--red)' }}
+              >
+                {t('admin.rules.deleteButton')}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
@@ -5483,53 +5554,13 @@ function RulesTab() {
         <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{t('admin.rules.empty')}</div>
       )}
 
-      {rules.map(rule => (
-        <div key={rule.id} style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 8, padding: '12px 14px', marginBottom: 8 }}>
-          {confirmDelete === rule.id ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 13, color: 'var(--text-primary)', flex: 1 }}>{t('admin.rules.deleteConfirm')}</span>
-              <button
-                onClick={() => handleDelete(rule.id)}
-                style={{ padding: '5px 12px', background: 'var(--red)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}
-              >
-                {t('admin.rules.deleteButton')}
-              </button>
-              <button
-                onClick={() => setConfirmDelete(null)}
-                style={{ padding: '5px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 6, fontSize: 12, cursor: 'pointer', color: 'var(--text-primary)' }}
-              >
-                {t('common.cancel')}
-              </button>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 0, cursor: 'pointer', marginTop: 2, flexShrink: 0 }}>
-                <input type="checkbox" checked={rule.enabled} onChange={() => handleToggle(rule)} />
-              </label>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 2 }}>{rule.name || '(unnamed)'}</div>
-                <div style={{ fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {conditionSummary(rule)} → {actionSummary(rule)}
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                <button
-                  onClick={() => openEdit(rule)}
-                  style={{ padding: '4px 10px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 6, fontSize: 12, cursor: 'pointer', color: 'var(--text-primary)' }}
-                >
-                  {t('admin.rules.editButton')}
-                </button>
-                <button
-                  onClick={() => setConfirmDelete(rule.id)}
-                  style={{ padding: '4px 10px', background: 'none', border: '1px solid var(--red)', borderRadius: 6, fontSize: 12, cursor: 'pointer', color: 'var(--red)' }}
-                >
-                  {t('admin.rules.deleteButton')}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      ))}
+      <DndContext collisionDetection={closestCenter} modifiers={[restrictToVerticalAxis, restrictToParentElement]} onDragEnd={handleMove}>
+        <SortableContext items={rules.map(r => r.id)} strategy={verticalListSortingStrategy}>
+          {rules.map(rule => (
+            <SortableRule key={rule.id} rule={rule} />
+          ))}
+        </SortableContext>
+      </DndContext>
     </div>
   );
 }
