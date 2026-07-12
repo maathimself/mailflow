@@ -544,7 +544,7 @@ MailFlow is free and open source. If it's useful to you, consider supporting dev
 
 ## Star History
 
-[![Stargazers over time](https://starchart.cc/maathimself/mailflow.svg)](https://starchart.cc/maathimself/mailflow)
+[![Stargazers over time](.github/assets/star-history.svg)](https://github.com/maathimself/mailflow/stargazers)
 
 ---
 
