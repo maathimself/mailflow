@@ -701,6 +701,9 @@
     },
     "messageList": {
       "title": "邮件列表",
+      "senderFavicons": "发件人网站图标",
+      "senderFaviconsDesc": "为没有联系人照片的发件人显示网站图标。只会将发件人的域名发送到 Twenty Icons，绝不会发送完整的电子邮件地址。",
+      "senderFaviconsSaveError": "无法保存发件人网站图标设置。",
       "scrollingMode": "滚动模式",
       "infiniteScroll": "无限滚动",
       "infiniteScrollDesc": "向下滚动时自动加载",

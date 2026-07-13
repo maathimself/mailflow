@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { api } from '../utils/api.js';
 import { useStore } from '../store/index.js';
 import { useMobile } from '../hooks/useMobile.js';
+import SenderAvatarImage from './SenderAvatarImage.jsx';
 
 // Deterministic avatar color from a string
 function avatarColor(str) {
@@ -16,7 +17,7 @@ function avatarColor(str) {
   return colors[h % colors.length];
 }
 
-function Avatar({ name, email, size = 36 }) {
+function Avatar({ name, email, size = 36, hasContactPhoto }) {
   const label = (name || email || '?').charAt(0).toUpperCase();
   const color  = avatarColor(name || email || '');
   return (
@@ -26,8 +27,10 @@ function Avatar({ name, email, size = 36 }) {
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       fontSize: size * 0.44, fontWeight: 600, color,
       flexShrink: 0, userSelect: 'none',
+      position: 'relative', overflow: 'hidden',
     }}>
       {label}
+      <SenderAvatarImage email={email} hasContactPhoto={hasContactPhoto} />
     </div>
   );
 }
@@ -295,7 +298,12 @@ export default function ContactsPage() {
             onMouseEnter={e => { if (selected?.id !== c.id) e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
             onMouseLeave={e => { if (selected?.id !== c.id) e.currentTarget.style.background = 'transparent'; }}
           >
-            <Avatar name={c.display_name} email={c.primary_email} size={34} />
+            <Avatar
+              name={c.display_name}
+              email={c.primary_email}
+              size={34}
+              hasContactPhoto={c.has_contact_photo}
+            />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{
                 fontSize: 13, fontWeight: 500, color: 'var(--text-primary)',
@@ -546,7 +554,12 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
         </div>
       )}
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 18, marginBottom: 28, paddingRight: c.read_only ? 0 : 128 }}>
-        <Avatar name={c.display_name} email={c.primary_email} size={60} />
+        <Avatar
+          name={c.display_name}
+          email={c.primary_email}
+          size={60}
+          hasContactPhoto={Boolean(c.photo_data)}
+        />
         <div style={{ flex: 1, minWidth: 0 }}>
           <h2 style={{ margin: 0, fontSize: 22, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {c.display_name || c.primary_email}

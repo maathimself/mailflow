@@ -492,6 +492,22 @@ const allKeys = [...new Set(langs.flatMap(l => Object.keys(locales[l])))].sort()
 
 describe('i18n locale files', () => {
 
+  it('places sender favicon setting copy under the admin message-list namespace', () => {
+    const keys = [
+      'senderFavicons',
+      'senderFaviconsDesc',
+      'senderFaviconsSaveError',
+    ];
+    for (const lang of langs) {
+      for (const key of keys) {
+        assert.equal(typeof locales[lang][`admin.messageList.${key}`], 'string',
+          `${lang} is missing admin.messageList.${key}`);
+        assert.equal(locales[lang][`messageList.${key}`], undefined,
+          `${lang} has misplaced messageList.${key}`);
+      }
+    }
+  });
+
   describe('source coverage — every key must be referenced in the source', () => {
     it('no unused keys', () => {
       const source = loadSourceText();

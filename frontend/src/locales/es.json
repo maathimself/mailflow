@@ -701,6 +701,9 @@
     },
     "messageList": {
       "title": "Lista de mensajes",
+      "senderFavicons": "Favicons de remitentes",
+      "senderFaviconsDesc": "Mostrar iconos de sitios web para los remitentes sin foto de contacto. Solo se envía a Twenty Icons el dominio del remitente, nunca su dirección de correo completa.",
+      "senderFaviconsSaveError": "No se pudo guardar el ajuste de favicons de remitentes.",
       "scrollingMode": "Modo de desplazamiento",
       "infiniteScroll": "Desplazamiento infinito",
       "infiniteScrollDesc": "Se carga automáticamente al desplazarte hacia abajo",

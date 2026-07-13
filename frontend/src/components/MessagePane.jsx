@@ -34,6 +34,7 @@ import { senderColor } from '../themes.js';
 import MessageHeaderModal from './MessageHeaderModal.jsx';
 import FolderIcon from './FolderIcon.jsx';
 import TodoistTaskModal from './TodoistTaskModal.jsx';
+import SenderAvatarImage from './SenderAvatarImage.jsx';
 
 function parseAddressField(raw) {
   try {
@@ -2105,8 +2106,13 @@ ${bodyContent}
               background: senderColor(message.from_email || message.from_name),
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               fontSize: 16, fontWeight: 700, color: 'white',
+              position: 'relative', overflow: 'hidden',
             }}>
               {(message.from_name || message.from_email || '?')[0].toUpperCase()}
+              <SenderAvatarImage
+                email={message.from_email}
+                hasContactPhoto={message.has_contact_photo}
+              />
             </div>
 
             {/* Sender info */}

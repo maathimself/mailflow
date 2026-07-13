@@ -634,6 +634,9 @@
     },
     "messageList": {
       "title": "Nachrichtenliste",
+      "senderFavicons": "Absender-Favicons",
+      "senderFaviconsDesc": "Website-Symbole für Absender ohne Kontaktfoto anzeigen. An Twenty Icons wird nur die Domain des Absenders gesendet, niemals die vollständige E-Mail-Adresse.",
+      "senderFaviconsSaveError": "Die Einstellung für Absender-Favicons konnte nicht gespeichert werden.",
       "scrollingMode": "Scrollmodus",
       "infiniteScroll": "Endloser Scroll",
       "infiniteScrollDesc": "Lädt automatisch beim Scrollen",
