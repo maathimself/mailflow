@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
+import { activateOnKey, collapsedTooltip } from '../utils/sidebar.js';
 import { useMobile } from '../hooks/useMobile.js';
 import LogoMark from './LogoMark.jsx';
 import ProfileModal from './ProfileModal.jsx';
@@ -1100,9 +1101,13 @@ export default function Sidebar() {
           const isSelected = selectedAccountId === account.id;
           const accountFolders = folders[account.id] || [];
 
+          const selectInbox = () => setSelectedAccount(account.id, 'INBOX');
+          const rowLabel = collapsedTooltip(account.email_address, sidebarCollapsed);
+
           return (
             <div key={account.id}>
-              {/* Account row */}
+              {/* Only the collapsed row may carry a button role: expanded, it holds
+                  the expand toggle, and a button cannot nest inside a button. */}
               <div
                 style={{
                   display: 'flex', alignItems: 'center', gap: 8,
@@ -1121,8 +1126,13 @@ export default function Sidebar() {
                   if (!(isSelected && selectedFolder === 'INBOX'))
                     e.currentTarget.style.background = 'transparent';
                 }}
-                onClick={() => setSelectedAccount(account.id, 'INBOX')}
+                onClick={selectInbox}
                 onContextMenu={!sidebarCollapsed ? (e) => openAccountCtxMenu(e, account) : undefined}
+                title={rowLabel}
+                aria-label={rowLabel}
+                role={sidebarCollapsed ? 'button' : undefined}
+                tabIndex={sidebarCollapsed ? 0 : undefined}
+                onKeyDown={sidebarCollapsed ? activateOnKey(selectInbox) : undefined}
               >
                 {/* Account indicator */}
                 {sidebarCollapsed ? (
@@ -1847,6 +1857,11 @@ function NavItem({ icon, label, active, collapsed, badge, onClick }) {
   return (
     <div
       onClick={onClick}
+      onKeyDown={activateOnKey(onClick)}
+      role="button"
+      tabIndex={0}
+      title={collapsedTooltip(label, collapsed)}
+      aria-label={collapsedTooltip(label, collapsed)}
       style={{
         display: 'flex', alignItems: 'center',
         gap: 8, padding: collapsed ? '9px' : '8px 10px',
