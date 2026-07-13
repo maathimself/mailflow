@@ -1,13 +1,19 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useStore } from '../store/index.js';
+import { useStore, selectSelectedMessageMid } from '../store/index.js';
 import { api } from '../utils/api.js';
-import { format, isToday, isYesterday, isThisYear } from 'date-fns';
 import { LAYOUTS } from '../layouts.js';
 import { senderColor } from '../themes.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { useSwipeRow } from '../hooks/useSwipeRow.js';
 import ContextMenu from './ContextMenu.jsx';
+import RowHoverActions from './RowHoverActions.jsx';
+import GtdTabList from './GtdTabList.jsx';
+import {
+  gtdActiveForContext, buildGtdDisplaySections, GTD_COLORS, GTD_CHIP_BG, sectionBadge, isSelectedRow,
+  classifyThread, unclassifyThread,
+} from '../utils/gtd.js';
+import { formatDate } from '../utils/formatDate.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
 import { applyDeleteGuard, clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.js';
@@ -20,15 +26,6 @@ function FolderIcon({ specialUse, size = 13 }) {
   if (s.includes('draft'))  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>;
   if (s.includes('spam') || s.includes('junk')) return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3L4 7v5c0 5 3.5 9.3 8 10.3C16.5 21.3 20 17 20 12V7L12 3z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>;
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>;
-}
-
-function formatDate(dateStr) {
-  if (!dateStr) return '';
-  const d = new Date(dateStr);
-  if (isToday(d)) return format(d, 'h:mm a');
-  if (isYesterday(d)) return 'Yesterday';
-  if (isThisYear(d)) return format(d, 'MMM d');
-  return format(d, 'MMM d, yyyy');
 }
 
 function parseAddressField(raw) {
@@ -123,7 +120,11 @@ export default function MessageList() {
     categorizationEnabled, categoryCounts, setCategoryCounts, adjustCategoryCount,
     markReadBehavior, markReadDelay,
     searchAllFolders,
+    activeGtdTab, setActiveGtdTab, gtdSections,
   } = useStore();
+  // RFC message_id of the open message, so a row highlights when it is a different DB copy
+  // of the selected message (multi-folder model) — e.g. the inbox copy of a GTD sidebar click.
+  const selectedMid = useStore(selectSelectedMessageMid);
 
   const isMobile = useMobile();
   const isUnified = selectedAccountId === null;
@@ -199,7 +200,7 @@ export default function MessageList() {
   const layoutPickerRef = useRef(null);
 
   useEffect(() => { currentPageRef.current = currentPage; }, [currentPage]);
-  useEffect(() => { setActiveCategory('primary'); }, [selectedAccountId, selectedFolder]);
+  useEffect(() => { setActiveCategory('primary'); setActiveGtdTab(null); }, [selectedAccountId, selectedFolder, setActiveGtdTab]);
   useEffect(() => {
     const markOpening = () => {
       recentMessageOpenUntilRef.current = Date.now() + 1500;
@@ -223,6 +224,18 @@ export default function MessageList() {
   useEffect(() => {
     updateCatScrollEdges();
   }, [activeCategory, selectedAccountId, selectedFolder, categorizationEnabled, updateCatScrollEdges]);
+
+  // GTD surfaces (pills + tab list) apply when GTD is enabled for the context.
+  const gtdActive = gtdActiveForContext(accounts, selectedAccountId);
+  // While a GTD tab is selected the list body shows that section instead of the
+  // folder listing. Same visibility envelope as the tab strip (INBOX, no search).
+  const showGtdTab = gtdActive && !!activeGtdTab && selectedFolder === 'INBOX' && !searchQuery.trim();
+  // Unread badge per GTD tab, from the shared sections store (Waiting merged).
+  const gtdTabUnread = (() => {
+    const map = {};
+    for (const s of buildGtdDisplaySections(gtdSections)) map[s.key] = s.unread;
+    return map;
+  })();
 
   // Fetch unread counts per category for the tab bar badges.
   // Re-fetches whenever the account/folder changes or new mail arrives.
@@ -828,6 +841,35 @@ export default function MessageList() {
     e.stopPropagation();
     setMessagesStarredState(message, !message.is_starred);
   };
+
+  // GTD "done" from the inbox hover cluster (all-states mode): the backend marks the thread
+  // read, strips every GTD label it carries, and archives the INBOX copy. Optimistic like
+  // archive — advance the selection and drop the row immediately, no undo toast — and on
+  // failure restore the row and surface the same notification the GTD sidebar's done uses.
+  const handleGtdDone = useCallback(async (e, message) => {
+    e.stopPropagation();
+    advanceSelectionAfterRemoval(message.id);
+    removeMessage(message.id);
+    // gtdDone marks the WHOLE thread read server-side and unreadCounts is message-based, so
+    // drop the row's full thread-unread (unread_count) like scheduleDelete does — a fixed -1
+    // under-counts a multi-unread thread. Fall back to this row's own unread when absent.
+    const unreadCount = Number.parseInt(message.unread_count, 10);
+    const unreadDelta = Number.isFinite(unreadCount) ? unreadCount : (message.is_read ? 0 : 1);
+    if (unreadDelta > 0) decrementUnread(message.account_id, unreadDelta);
+    try {
+      const res = await api.gtdDone(message.id);
+      // Labels stripped but the archive step failed: the optimistic removal is still
+      // correct, but the email is still in the inbox — say so rather than leave a gap.
+      if (res?.archiveFailed) {
+        addNotification({ title: t('gtd.doneArchiveFailed'), body: message.subject || t('common.noSubject') });
+      }
+    } catch (err) {
+      console.error('GTD done failed:', err.message);
+      useStore.getState().restoreMessages([message]);
+      if (unreadDelta > 0) incrementUnread(message.account_id, unreadDelta);
+      addNotification({ title: t('gtd.doneFailed'), body: message.subject || t('common.noSubject') });
+    }
+  }, [removeMessage, decrementUnread, incrementUnread, addNotification, t]);
 
   // Undo-able delete: optimistically remove, delay the API call by 4.5s so user can undo
   const scheduleDelete = useCallback(async (message) => {
@@ -1535,6 +1577,7 @@ export default function MessageList() {
   const bulkDeleteRef    = useRef(handleBulkDelete);
   const bulkArchiveRef   = useRef(handleBulkArchive);
   const scheduleDeleteRef = useRef(scheduleDelete);
+  const handleContextActionRef = useRef(null); // assigned below, once handleContextAction is defined
   useEffect(() => { bulkDeleteRef.current    = handleBulkDelete;  }, [handleBulkDelete]);
   useEffect(() => { bulkArchiveRef.current   = handleBulkArchive; }, [handleBulkArchive]);
   useEffect(() => { scheduleDeleteRef.current = scheduleDelete;   }, [scheduleDelete]);
@@ -1683,6 +1726,23 @@ export default function MessageList() {
       searchInputRef.current?.select();
     };
 
+    // GTD classify keys (t/w/d): COPY the selected message into a state's label
+    // folder, reusing the same classify dispatch as the context menu (no parallel
+    // action path). Silent no-op unless the message's account has GTD enabled, so
+    // the keys stay inert for non-GTD accounts.
+    const gtdClassifySelected = (state) => () => {
+      const { messages, searchResults, searchQuery, selectedMessageId, accounts } = getState();
+      if (!selectedMessageId) return;
+      const pool = searchQuery.trim() ? searchResults : messages;
+      const msg = pool.find(m => m.id === selectedMessageId);
+      if (!msg) return;
+      if (!accounts.find(a => a.id === msg.account_id)?.gtd_enabled) return;
+      handleContextActionRef.current?.('gtdClassify', msg, state);
+    };
+    const onGtdTodo      = gtdClassifySelected('todo');
+    const onGtdWatch     = gtdClassifySelected('watch');
+    const onGtdDelegated = gtdClassifySelected('delegated');
+
     shortcutBus.on('nextMessage',   onNext);
     shortcutBus.on('prevMessage',   onPrev);
     shortcutBus.on('openMessage',   onOpen);
@@ -1691,6 +1751,9 @@ export default function MessageList() {
     shortcutBus.on('delete',        onDelete);
     shortcutBus.on('toggleRead',    onToggleRead);
     shortcutBus.on('focusSearch',   onFocusSearch);
+    shortcutBus.on('gtdTodo',       onGtdTodo);
+    shortcutBus.on('gtdWatch',      onGtdWatch);
+    shortcutBus.on('gtdDelegated',  onGtdDelegated);
 
     return () => {
       shortcutBus.off('nextMessage',   onNext);
@@ -1701,6 +1764,9 @@ export default function MessageList() {
       shortcutBus.off('delete',        onDelete);
       shortcutBus.off('toggleRead',    onToggleRead);
       shortcutBus.off('focusSearch',   onFocusSearch);
+      shortcutBus.off('gtdTodo',       onGtdTodo);
+      shortcutBus.off('gtdWatch',      onGtdWatch);
+      shortcutBus.off('gtdDelegated',  onGtdDelegated);
     };
   }, []);
 
@@ -1984,6 +2050,27 @@ export default function MessageList() {
         });
         break;
       }
+      case 'gtdClassify': {
+        // Classify = COPY into the state's label folder. The message stays put
+        // (no optimistic removal / undo — it does not leave INBOX), so we just
+        // fire the copy and poke the GTD sections store instead of waiting on the WS event.
+        await classifyThread(message.id, data, {
+          gtdClassify: api.gtdClassify,
+          addNotification,
+          scheduleGtdSectionsFetch: useStore.getState().scheduleGtdSectionsFetch,
+          t,
+        });
+        break;
+      }
+      case 'gtdRemove': {
+        await unclassifyThread(message.id, data, {
+          gtdUnclassify: api.gtdUnclassify,
+          addNotification,
+          scheduleGtdSectionsFetch: useStore.getState().scheduleGtdSectionsFetch,
+          t,
+        });
+        break;
+      }
       case 'createRuleFromMessage': {
         const store = useStore.getState();
         store.setRulesPreFill({ fromEmail: message.from_email, fromName: message.from_name });
@@ -2054,6 +2141,11 @@ export default function MessageList() {
         break;
     }
   };
+  // Expose the latest handleContextAction to the once-registered shortcut effect via
+  // a post-commit effect (the sibling handler refs' pattern), rather than mutating the
+  // ref during render. No dep array: handleContextAction isn't memoized, so it syncs
+  // on every commit.
+  useEffect(() => { handleContextActionRef.current = handleContextAction; });
 
   const handleThreadMarkRead = (e, message) => {
     e.stopPropagation();
@@ -2784,8 +2876,8 @@ export default function MessageList() {
         </div>
       )}
 
-      {/* Category tabs — shown in INBOX when categorization is enabled (globally or per-account) */}
-      {(categorizationEnabled || (!isUnified && selectedAccount?.categorization_enabled)) && selectedFolder === 'INBOX' && !searchQuery.trim() && (
+      {/* Category + GTD tabs — shown in INBOX when categorization and/or GTD is active */}
+      {(categorizationActive || gtdActive) && selectedFolder === 'INBOX' && !searchQuery.trim() && (
         <div style={{ position: 'relative', flexShrink: 0, borderBottom: '1px solid var(--border-subtle)' }}>
           {!isMobile && catScrollEdges.left && (
             <button
@@ -2809,13 +2901,13 @@ export default function MessageList() {
               background: 'var(--bg-secondary)',
             }}
           >
-            {['primary', 'newsletter', 'promotion', 'automated', 'social'].map(cat => {
+            {categorizationActive && ['primary', 'newsletter', 'promotion', 'automated', 'social'].map(cat => {
               const unread = categoryCounts[cat] || 0;
-              const isActive = activeCategory === cat;
+              const isActive = activeCategory === cat && !activeGtdTab;
               return (
                 <button
                   key={cat}
-                  onClick={() => setActiveCategory(cat)}
+                  onClick={() => { setActiveGtdTab(null); setActiveCategory(cat); }}
                   style={{
                     padding: '3px 11px', flexShrink: 0,
                     borderRadius: 100,
@@ -2838,6 +2930,79 @@ export default function MessageList() {
                       minWidth: 16, textAlign: 'center',
                     }}>
                       {unread > 99 ? '99+' : unread}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+            {/* GTD pills — Inbox | Todo | Waiting | Reference | Someday. Inbox is the
+                whole-inbox default (activeGtdTab === null, no GTD tab selected); the
+                rest switch the list to that state's section (from the shared sections
+                store, not ?category=). Waiting merges watch+delegated. This order
+                matches GTD_DISPLAY_SECTION_ORDER (todo → waiting → reference → someday) after
+                the leading Inbox pill; the two arrays stay independent (do not fold
+                into one constant). */}
+            {gtdActive && (
+              <button
+                key="gtd-inbox"
+                onClick={() => setActiveGtdTab(null)}
+                style={{
+                  padding: '3px 11px', flexShrink: 0, borderRadius: 100,
+                  border: `1px solid ${activeGtdTab === null ? 'var(--accent)' : 'var(--border)'}`,
+                  background: 'none',
+                  color: activeGtdTab === null ? 'var(--accent)' : 'var(--text-secondary)',
+                  cursor: 'pointer', fontSize: 11, fontWeight: activeGtdTab === null ? 600 : 400,
+                  whiteSpace: 'nowrap', transition: 'color 0.15s, border-color 0.15s',
+                  display: 'flex', alignItems: 'center', gap: 5,
+                }}
+              >
+                {t('gtd.inbox')}
+                {headerUnread > 0 && (
+                  <span style={{
+                    fontSize: 10, fontWeight: 600, lineHeight: 1,
+                    padding: '1px 5px', borderRadius: 100,
+                    background: activeGtdTab === null ? 'var(--accent)' : 'var(--text-tertiary)',
+                    color: 'var(--bg-primary)',
+                    minWidth: 16, textAlign: 'center',
+                  }}>
+                    {headerUnread > 99 ? '99+' : headerUnread}
+                  </span>
+                )}
+              </button>
+            )}
+            {gtdActive && [
+              { key: 'todo', label: t('gtd.state.todo') },
+              { key: 'waiting', label: t('gtd.waiting') },
+              { key: 'reference', label: t('gtd.state.reference') },
+              { key: 'someday', label: t('gtd.state.someday') },
+            ].map(({ key, label }) => {
+              const isActive = activeGtdTab === key;
+              const color = GTD_COLORS[key === 'waiting' ? 'watch' : key];
+              const chipBg = GTD_CHIP_BG[key === 'waiting' ? 'watch' : key];
+              const badge = sectionBadge(gtdTabUnread[key]);
+              return (
+                <button
+                  key={`gtd-${key}`}
+                  onClick={() => setActiveGtdTab(isActive ? null : key)}
+                  style={{
+                    padding: '3px 11px', flexShrink: 0, borderRadius: 100,
+                    border: `1px solid ${isActive ? color : 'var(--border)'}`,
+                    background: isActive ? chipBg : 'none',
+                    color: isActive ? color : 'var(--text-secondary)',
+                    cursor: 'pointer', fontSize: 11, fontWeight: isActive ? 600 : 400,
+                    whiteSpace: 'nowrap', transition: 'color 0.15s, border-color 0.15s',
+                    display: 'flex', alignItems: 'center', gap: 5,
+                  }}
+                >
+                  {label}
+                  {badge && (
+                    <span style={{
+                      fontSize: 10, fontWeight: 600, lineHeight: 1,
+                      padding: '1px 5px', borderRadius: 100,
+                      background: isActive ? color : 'var(--text-tertiary)',
+                      color: 'var(--bg-primary)', minWidth: 16, textAlign: 'center',
+                    }}>
+                      {badge}
                     </span>
                   )}
                 </button>
@@ -2869,6 +3034,7 @@ export default function MessageList() {
           tabIndex={0}
           style={{ height: '100%', overflowY: 'auto', overflowX: 'hidden', outline: 'none', overscrollBehavior: 'contain' }}
         >
+          {showGtdTab ? <GtdTabList /> : (<>
           {/* Pull-to-refresh indicator */}
           {isMobile && (
             <div style={{
@@ -3291,8 +3457,9 @@ export default function MessageList() {
                 threadMsgs={threadMessages[tid] || null}
                 isLoadingThread={loadingThread === tid}
                 selectedMessageId={selectedMessageId}
+                selectedMid={selectedMid}
                 lastViewedMessageId={lastViewedMessageId}
-                showAccount={isUnified}
+                showAccount={false} /* No per-account dot on unified rows: it added noise beside the unread indicator; the account is visible in the message pane header. */
                 isNarrow={isNarrow}
                 onThreadClick={() => handleThreadClick(message)}
                 onSelect={handleSelect}
@@ -3305,6 +3472,7 @@ export default function MessageList() {
                   setContextMenu({ x: e.clientX, y: e.clientY, message: msg });
                 }}
                 onMove={handleRowMove}
+                onGtdDone={gtdActiveForContext(accounts, message.account_id) ? handleGtdDone : undefined}
                 isMobile={isMobile}
                 swipeLeftAction={swipeLeftAction}
                 swipeRightAction={swipeRightAction}
@@ -3326,11 +3494,11 @@ export default function MessageList() {
               <MessageRow
                 key={message.id}
                 message={message}
-                selected={selectedMessageId === message.id}
+                selected={isSelectedRow(message, selectedMessageId, selectedMid)}
                 lastViewed={lastViewedMessageId === message.id && selectedMessageId !== message.id}
                 isChecked={selectedIds.has(message.id)}
                 selectionMode={selectionMode}
-                showAccount={isUnified}
+                showAccount={false} /* No per-account dot on unified rows: it added noise beside the unread indicator; the account is visible in the message pane header. */
                 isNarrow={isNarrow}
                 onSelect={handleSelect}
                 onToggleSelect={handleRowToggleSelect}
@@ -3345,6 +3513,7 @@ export default function MessageList() {
                   setContextMenu({ x: e.clientX, y: e.clientY, message: msg });
                 }}
                 onMove={handleRowMove}
+                onGtdDone={gtdActiveForContext(accounts, message.account_id) ? handleGtdDone : undefined}
                 onDragStart={handleRowDragStart}
                 isMobile={isMobile}
                 swipeLeftAction={swipeLeftAction}
@@ -3477,6 +3646,7 @@ export default function MessageList() {
             </div>
           );
         })()}
+        </>)}
         </div>
 
         {/* Scroll-to-top button — desktop only (mobile handled in FAB container below) */}
@@ -3767,7 +3937,7 @@ function EmptyState({ folderSyncing, searchQuery, unreadOnly, selectedFolder, ac
   );
 }
 
-function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, lastViewedMessageId, showAccount, isNarrow, onThreadClick, onSelect, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress }) {
+function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, lastViewedMessageId, showAccount, isNarrow, onThreadClick, onSelect, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onGtdDone, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const messageCount = message.message_count || 1;
@@ -3780,7 +3950,13 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
 
   const hasAvatar = !isNarrow && !isMobile;
   const avatarAsCheckbox = hasAvatar && selectionMode;
-  const isLastViewed = lastViewedMessageId === message.id
+  // Identity-matched selection (parity with the flat MessageRow's isSelectedRow): a GTD sidebar
+  // deep-link opens a different DB copy of the same mail, so match the head or any cached
+  // sub-message on message_id, not just the raw id, or the inbox thread row won't light up.
+  const selectedHere = isSelectedRow(message, selectedMessageId, selectedMid)
+    || !!threadMsgs?.some(m => isSelectedRow(m, selectedMessageId, selectedMid));
+  const isLastViewed = selectedHere
+    || lastViewedMessageId === message.id
     || (lastViewedMessageId && threadMsgs?.some(m => m.id === lastViewedMessageId));
   const bgDefault = isMobile ? 'var(--bg-primary)' : 'transparent';
   const rowBg = isChecked
@@ -3962,52 +4138,17 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
           </div>
         </div>
         {hovered && hoverQuickActions && (
-          <div style={{
-            position: 'absolute', bottom: 6, right: 8,
-            display: 'flex', alignItems: 'center', gap: 2,
-            background: rowBg,
-            borderRadius: 5,
-            padding: '1px 2px',
-          }}>
-
-            <ActionBtn
-              title={unreadCount > 0 ? t('contextMenu.markRead') : t('contextMenu.markUnread')}
-              onClick={e => onMarkRead(e, message)}
-            >
-              {unreadCount > 0 ? (
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-                  <path style={{ strokeLinecap: 'round' }} d="M22,9v9c0,1.1-.9,2-2,2H4c-1.1,0-2-.9-2-2v-9"/><polyline points="22 9 12 16 2 9" /><polyline points="2 9 12 2 22 9" />
-                </svg>
-              ) : (
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-                  <path style={{ strokeLinecap: 'round' }} d="M22,10.91v7.09c0,1.1-.9,2-2,2H4c-1.1,0-2-.9-2-2V6c0-1.1.9-2,2-2h11"/><polyline style={{ strokeLinecap: 'round' }} points="16.36 9.95 12 13 2 6"/><circle style={{ strokeMiterlimit: 10, fill: 'currentColor' }} cx="19.96" cy="6" r="3"/>
-                </svg>
-              )}
-            </ActionBtn>
-
-            <ActionBtn title={message.is_starred ? t('contextMenu.unstar') : t('contextMenu.star')} onClick={e => onStar(e, message)}>
-              <svg width="13" height="13" viewBox="0 0 24 24"
-                fill={message.is_starred ? 'var(--amber)' : 'none'}
-                stroke={message.is_starred ? 'var(--amber)' : 'currentColor'} strokeWidth="2">
-                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-              </svg>
-            </ActionBtn>
-
-            <ActionBtn title={t('message.delete')} onClick={e => onDelete(e, message)}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <polyline points="3 6 5 6 21 6"/>
-                <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
-              </svg>
-            </ActionBtn>
-
-            {onMove && (
-              <ActionBtn title={t('contextMenu.moveToFolder')} onClick={e => onMove(e, message)}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
-                </svg>
-              </ActionBtn>
-            )}
-          </div>
+          <RowHoverActions
+            message={message}
+            isRead={unreadCount === 0}
+            background={rowBg}
+            deleteTitleKey="message.delete"
+            onMarkRead={onMarkRead}
+            onStar={onStar}
+            onDelete={onDelete}
+            onMove={onMove}
+            onGtdDone={onGtdDone}
+          />
         )}
       </div>
       </div>{/* end swipe container */}
@@ -4073,7 +4214,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
   );
 }
 
-function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, showAccount, isNarrow, onSelect, onToggleSelect, onRangeSelect, onAvatarClick, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, onLongPress }) {
+function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, showAccount, isNarrow, onSelect, onToggleSelect, onRangeSelect, onAvatarClick, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onGtdDone, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, onLongPress }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const [avatarHovered, setAvatarHovered] = useState(false);
@@ -4313,77 +4454,20 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
 
       {/* Hover actions — absolutely positioned so they never affect row height */}
       {hovered && hoverQuickActions && (
-        <div style={{
-          position: 'absolute', bottom: 6, right: 8,
-          display: 'flex', alignItems: 'center', gap: 2,
-          background: 'var(--bg-tertiary)',
-          borderRadius: 5,
-          padding: '1px 2px',
-        }}>
-          {/* Mark read/unread */}
-          <ActionBtn title={message.is_read ? t('contextMenu.markUnread') : t('contextMenu.markRead')} onClick={e => onMarkRead(e, message)}>
-            {message.is_read ? (
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-                <path style={{ strokeLinecap: 'round' }} d="M22,10.91v7.09c0,1.1-.9,2-2,2H4c-1.1,0-2-.9-2-2V6c0-1.1.9-2,2-2h11"/><polyline style={{ strokeLinecap: 'round' }} points="16.36 9.95 12 13 2 6"/><circle style={{ strokeMiterlimit: 10, fill: 'currentColor' }} cx="19.96" cy="6" r="3"/>
-              </svg>
-            ) : (
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-                <path style={{ strokeLinecap: 'round' }} d="M22,9v9c0,1.1-.9,2-2,2H4c-1.1,0-2-.9-2-2v-9"/><polyline points="22 9 12 16 2 9" /><polyline points="2 9 12 2 22 9" />
-              </svg>
-            )}
-          </ActionBtn>
-
-          {/* Star */}
-          <ActionBtn title={message.is_starred ? t('contextMenu.unstar') : t('contextMenu.star')} onClick={e => onStar(e, message)}>
-            <svg width="13" height="13" viewBox="0 0 24 24"
-              fill={message.is_starred ? 'var(--amber)' : 'none'}
-              stroke={message.is_starred ? 'var(--amber)' : 'currentColor'} strokeWidth="2">
-              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-            </svg>
-          </ActionBtn>
-
-          {/* Delete */}
-          <ActionBtn title={t('common.delete')} onClick={e => onDelete(e, message)}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <polyline points="3 6 5 6 21 6"/>
-              <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
-            </svg>
-          </ActionBtn>
-
-          {/* Move to folder */}
-          {onMove && (
-            <ActionBtn title={t('contextMenu.moveToFolder')} onClick={e => onMove(e, message)}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
-              </svg>
-            </ActionBtn>
-          )}
-        </div>
+        <RowHoverActions
+          message={message}
+          isRead={message.is_read}
+          background="var(--bg-tertiary)"
+          deleteTitleKey="common.delete"
+          onMarkRead={onMarkRead}
+          onStar={onStar}
+          onDelete={onDelete}
+          onMove={onMove}
+          onGtdDone={onGtdDone}
+        />
       )}
       </div>
     </div>
-  );
-}
-
-function ActionBtn({ children, onClick, title }) {
-  const [hov, setHov] = useState(false);
-  return (
-    <button
-      onClick={onClick}
-      title={title}
-      onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => setHov(false)}
-      style={{
-        background: hov ? 'var(--bg-hover)' : 'none',
-        border: 'none', padding: '3px', borderRadius: 4,
-        color: hov ? 'var(--text-secondary)' : 'var(--text-tertiary)',
-        cursor: 'pointer',
-        display: 'flex', alignItems: 'center',
-        transition: 'background 0.1s, color 0.1s',
-      }}
-    >
-      {children}
-    </button>
   );
 }
 

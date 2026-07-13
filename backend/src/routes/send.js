@@ -14,6 +14,7 @@ import { generateVCard } from '../utils/vcard.js';
 import { resolveForConnection } from '../services/hostValidation.js';
 import { getConnectionPolicy } from '../services/connectionPolicy.js';
 import { imapManager } from '../index.js';
+import { runTransitionsForSentMessage } from '../services/gtdTransitions.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -137,7 +138,7 @@ router.post('/send', async (req, res) => {
   // Idempotency guard. The client sends a stable X-Idempotency-Key per logical send: a
   // sequential retry after a lost success response returns the cached result, and a
   // concurrent same-key submit is blocked by the reservation set just before delivery
-  // (below). Neither can produce a duplicate email. Fixes audit finding [1].
+  // (below). Neither can produce a duplicate email.
   const idempotencyKey = typeof req.headers['x-idempotency-key'] === 'string'
     ? req.headers['x-idempotency-key'].slice(0, 128)
     : null;
@@ -471,7 +472,7 @@ router.post('/send', async (req, res) => {
 
     // sentCopySaved: null = not applicable (server auto-saves, or no Sent folder resolved);
     // true/false = whether OUR IMAP APPEND landed the Sent copy. Surfaced to the client so
-    // it can warn when a delivered message could not be saved to Sent. Fixes audit finding [2].
+    // it can warn when a delivered message could not be saved to Sent.
     let sentCopySaved = null;
     const sentMeta = sentFolder ? {
       messageId: mailOptions.messageId,
@@ -505,6 +506,13 @@ router.post('/send', async (req, res) => {
           }
           setTimeout(() => {
             imapManager.syncFolderOnDemand(account, sentFolder)
+              // Once the Sent copy is in the DB, re-run GTD transitions for its thread: a reply
+              // to a Todo/Someday thread means the owner acted, so that label should drop. The
+              // sent message reaches no other GTD hook (Sent isn't INBOX, and the tick watches
+              // only the state folders), so this is the only trigger. Swallow on failure — the
+              // next inbound sync / GTD tick self-heals.
+              .then(() => runTransitionsForSentMessage(imapManager, account, mailOptions.messageId)
+                .catch(e => console.warn(`Post-append GTD transition failed: ${e.message}`)))
               .catch(e => console.error(`Post-append sync failed: ${e.message}`));
           }, 1000);
         } catch (appendErr) {
@@ -519,9 +527,17 @@ router.post('/send', async (req, res) => {
       } else {
         // Server auto-saves via SMTP; seed metadata once the Sent copy is searchable.
         if (sentMeta) scheduleSentMetadataUpsert(account, sentFolder, mailOptions, sentMeta);
-        // Server auto-saves via SMTP; just sync after a delay.
+        // Server auto-saves via SMTP; just sync after a delay. Two attempts because the
+        // provider (e.g. Gmail) can be slow to expose the sent message; the 3s pass usually
+        // catches it, the 15s pass is the safety net. GTD transitions run after each: the 3s
+        // attempt may miss (Sent copy not yet visible → empty thread set → no-op) and the 15s
+        // attempt then catches it; if 3s already stripped, 15s is an idempotent no-op.
         const syncAttempt = (label) => imapManager.syncFolderOnDemand(account, sentFolder)
-          .then(() => console.log(`Post-send ${label} sync done: ${redactEmail(account.email_address)}/${sentFolder}`))
+          .then(() => {
+            console.log(`Post-send ${label} sync done: ${redactEmail(account.email_address)}/${sentFolder}`);
+            return runTransitionsForSentMessage(imapManager, account, mailOptions.messageId)
+              .catch(e => console.warn(`Post-send ${label} GTD transition failed: ${e.message}`));
+          })
           .catch(e => console.error(`Post-send ${label} sync failed: ${e.message}`));
         setTimeout(() => syncAttempt('3s'), 3000);
         setTimeout(() => syncAttempt('15s'), 15000);
@@ -543,7 +559,7 @@ router.post('/send', async (req, res) => {
         // The message WAS delivered but a later step threw. Persist a DURABLE success
         // result (not just the short-lived reservation) so a retry at ANY time returns it
         // instead of re-running transport.sendMail — otherwise the reservation would lapse
-        // and the same key could deliver a second copy. Fixes audit review [1]/[8].
+        // and the same key could deliver a second copy.
         redisClient.set(idemKeyRedis, JSON.stringify({ ok: true }), { EX: 86400 }).catch(() => {});
       } else {
         // Delivery never happened — release so a genuine retry after a pre-send failure

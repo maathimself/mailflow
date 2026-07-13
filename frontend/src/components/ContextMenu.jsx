@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
+import { GTD_STATES, GTD_COLORS, resolveAccountGtdFolders, gtdStatesInFolders } from '../utils/gtd.js';
 import MessageHeaderModal from './MessageHeaderModal.jsx';
 
 // Module-level regex — spam-name heuristic shared with MessagePane.jsx so
@@ -12,8 +13,13 @@ const SPAM_NAME_RE = /(spam|junk|bulk|indesiderata|spamverdacht|courrier\s*ind|p
 // ─── Context Menu ─────────────────────────────────────────────────────────────
 const CATEGORIES = ['primary', 'newsletter', 'promotion', 'automated', 'social'];
 
-export default function ContextMenu({ x, y, message, onClose, onAction, defaultMoveView = false }) {
+export default function ContextMenu({ x, y, message, onClose, onAction, defaultMoveView = false, variant = 'inbox' }) {
   const { t } = useTranslation();
+  // GTD sidebar entries reuse this menu but trim it to a compact triage set:
+  // it drops actions that need inbox-list context (select) or MailApp/compose flows the
+  // the sidebar cannot cheaply reach (reply/forward/archive/snooze/categorize/rule/blocklist/spam),
+  // and adds the GTD "done" checkmark. read/star/move/classify+remove/delete stay.
+  const gtdSidebarEntry = variant === 'gtdSidebar';
   const recentFolders = useStore(s => s.recentFolders);
   const favoriteFolders = useStore(s => s.favoriteFolders);
   // Pull the current account so we can render the spam/ham visibility based on
@@ -22,8 +28,15 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
   const accountFolders = useStore(s => s.folders[message.account_id] || []);
   const categorizationEnabled = useStore(s => s.categorizationEnabled);
   const categorizationActive = categorizationEnabled || !!account?.categorization_enabled;
+  // GTD classify is available only for accounts with GTD enabled. "Remove from
+  // <state>" is offered only for the states this thread is actually labelled with
+  // (its folders[] — present on GTD entries, absent on plain inbox rows).
+  const gtdActive = !!account?.gtd_enabled;
+  const gtdFolders = resolveAccountGtdFolders(account);
+  const gtdRemovableStates = gtdStatesInFolders(message.folders, gtdFolders);
   const menuRef = useRef(null);
   const [showHeaderModal, setShowHeaderModal] = useState(false);
+  const [gtdView, setGtdView] = useState(false);
   const [moveView, setMoveView] = useState(defaultMoveView);
   const [moveFolders, setMoveFolders] = useState(null);
   const [moveFoldersLoading, setMoveFoldersLoading] = useState(defaultMoveView);
@@ -121,17 +134,17 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
           </svg>,
           action: () => onAction('toggleStar'),
         },
-        {
+        ...(gtdSidebarEntry ? [] : [{
           label: t('contextMenu.select'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="3" y="3" width="18" height="18" rx="3"/><polyline points="9 12 11 14 15 10"/></svg>,
           action: () => onAction('bulkSelect'),
-        },
+        }]),
       ]
     },
     {
       group: 'Actions',
       actions: [
-        {
+        ...(gtdSidebarEntry ? [] : [{
           label: t('contextMenu.reply'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 00-4-4H4"/></svg>,
           action: () => onAction('reply'),
@@ -145,7 +158,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
           label: t('contextMenu.forward'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polyline points="15 17 20 12 15 7"/><path d="M4 18v-2a4 4 0 014-4h12"/></svg>,
           action: () => onAction('forward'),
-        },
+        }]),
         {
           label: t('contextMenu.moveToFolder'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>,
@@ -153,26 +166,40 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
           keepOpen: true,
           hasSubmenu: true,
         },
-        {
+        ...(gtdSidebarEntry ? [] : [{
           label: t('contextMenu.archive'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a1 1 0 001 1h14a1 1 0 001-1V8"/><polyline points="9 13 12 16 15 13"/><line x1="12" y1="11" x2="12" y2="16"/></svg>,
           action: () => onAction('archive'),
-        },
-        ...(message.folder !== 'Snoozed' ? [{
+        }]),
+        ...(message.folder !== 'Snoozed' && !gtdSidebarEntry ? [{
           label: t('contextMenu.snooze.label'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
           action: () => setSnoozeView(true),
           keepOpen: true,
           hasSubmenu: true,
         }] : []),
-        ...(categorizationActive ? [{
+        ...(categorizationActive && !gtdSidebarEntry ? [{
           label: t('contextMenu.categorize'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>,
           action: () => setCategorizeView(true),
           keepOpen: true,
           hasSubmenu: true,
         }] : []),
-        {
+        ...(gtdActive ? [{
+          label: t('gtd.title'),
+          icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>,
+          action: () => setGtdView(true),
+          keepOpen: true,
+          hasSubmenu: true,
+        }] : []),
+        // The sidebar's "done" checkmark — mirrors the row's hover cluster. Section-scoped
+        // stripping happens in the GTD content's onAction (it knows the entry's section).
+        ...(gtdSidebarEntry ? [{
+          label: t('gtd.done'),
+          icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polyline points="20 6 9 17 4 12"/></svg>,
+          action: () => onAction('gtdDone'),
+        }] : []),
+        ...(gtdSidebarEntry ? [] : [{
           label: t('contextMenu.createRule'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>,
           action: () => onAction('createRuleFromMessage'),
@@ -181,24 +208,24 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
           label: t('contextMenu.addToBlockList'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>,
           action: () => onAction('addToBlockList'),
-        },
+        }]),
         // Spam / ham are only shown when there's a real destination for the
         // action: "Mark as Spam" when the message isn't already in a spam-like
         // folder, "Mark as Not Spam" when it is. They live next to "Move to
         // folder" so the antispam workflow stays discoverable.
-        ...(spamFolderPaths.size > 0 && !inSpamFolder ? [{
+        ...(spamFolderPaths.size > 0 && !inSpamFolder && !gtdSidebarEntry ? [{
           label: t('contextMenu.markAsSpam'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M12 3L4 7v5c0 5 3.5 9.3 8 10.3C16.5 21.3 20 17 20 12V7L12 3z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
           action: () => onAction('markSpam'),
         }] : []),
-        ...(inSpamFolder ? [{
+        ...(inSpamFolder && !gtdSidebarEntry ? [{
           label: t('contextMenu.markAsHam'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M12 3L4 7v5c0 5 3.5 9.3 8 10.3C16.5 21.3 20 17 20 12V7L12 3z"/><polyline points="9 12 11 14 15 10"/></svg>,
           action: () => onAction('markHam'),
         }] : []),
       ]
     },
-    {
+    ...(gtdSidebarEntry ? [] : [{
       group: 'Copy',
       actions: [
         {
@@ -223,7 +250,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
           keepOpen: true,
         },
       ]
-    },
+    }]),
     {
       group: 'Danger',
       actions: [
@@ -281,7 +308,55 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
           </div>
         </div>
 
-        {categorizeView ? (
+        {gtdView ? (
+          <>
+            <div
+              onClick={() => setGtdView(false)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '8px 14px', cursor: 'pointer',
+                borderBottom: '1px solid var(--border-subtle)',
+                color: 'var(--text-secondary)', fontSize: 12,
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <polyline points="15 18 9 12 15 6"/>
+              </svg>
+              {t('gtd.title')}
+            </div>
+            {GTD_STATES.map(state => (
+              <div
+                key={state}
+                onClick={() => { onAction('gtdClassify', state); onClose(); }}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)' }}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <span style={{ width: 9, height: 9, borderRadius: 3, flexShrink: 0, background: GTD_COLORS[state] }} />
+                <span style={{ flex: 1 }}>{t(`gtd.state.${state}`)}</span>
+              </div>
+            ))}
+            {gtdRemovableStates.length > 0 && (
+              <>
+                <div style={{ height: 1, background: 'var(--border-subtle)', margin: '3px 0' }} />
+                {gtdRemovableStates.map(state => (
+                  <div
+                    key={`rm-${state}`}
+                    onClick={() => { onAction('gtdRemove', state); onClose(); }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-secondary)' }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    <span style={{ flex: 1 }}>{t('gtd.removeFrom', { state: t(`gtd.state.${state}`) })}</span>
+                  </div>
+                ))}
+              </>
+            )}
+          </>
+        ) : categorizeView ? (
           <>
             <div
               onClick={() => setCategorizeView(false)}

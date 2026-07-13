@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { resolveTrashFolder, resolveArchiveFolder, isAllMailFolder, resolveSpamFolder, getDeleteStrategy } from './mailUtils.js';
+import { resolveTrashFolder, resolveArchiveFolder, isAllMailFolder, resolveSpamFolder, getDeleteStrategy, fanOutReadToSiblings, fanOutStarToSiblings, fanOutBulkReadToSiblings } from './mailUtils.js';
 
 vi.mock('../services/db.js', () => ({
   query: vi.fn(),
@@ -165,5 +165,99 @@ describe('getDeleteStrategy', () => {
     // exists on the server. getDeleteStrategy correctly returns 'move'; the IMAP call will
     // fail and the route's try/catch will surface the error to the caller.
     expect(getDeleteStrategy('INBOX', 'INBOX/OldTrash')).toEqual({ action: 'move', destination: 'INBOX/OldTrash' });
+  });
+});
+
+// ── read/star fan-out to sibling label rows ──────────────────────────────────
+// With GTD multi-label siblings a message_id can own several rows (INBOX + Todo +
+// Watch). Marking one read/starred must fan out to the rest, and read fan-out must
+// adjust each sibling folder's unread count off the rows that actually flipped.
+
+// query.mock.calls entries are [sql, params]; find the one whose SQL contains `frag`.
+const callWith = (frag) => query.mock.calls.find(([sql]) => sql.includes(frag));
+// All folder-count adjustments issued (adjustFolderCounts → UPDATE folders …).
+const countCalls = () => query.mock.calls.filter(([sql]) => sql.includes('UPDATE folders'));
+
+describe('fanOutReadToSiblings', () => {
+  it('does nothing when the message has no Message-ID (no siblings possible)', async () => {
+    await fanOutReadToSiblings('acct-1', null, true);
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('updates only sibling rows whose is_read differs and adjusts their folder counts', async () => {
+    // Two siblings flip to read; the acted row is already read so it is not returned.
+    query.mockResolvedValueOnce({ rows: [{ folder: 'Todo' }, { folder: 'Watch' }] });
+    query.mockResolvedValue({ rows: [] }); // folder-count UPDATEs
+
+    await fanOutReadToSiblings('acct-1', '<abc@x>', true);
+
+    const upd = callWith('UPDATE messages SET is_read');
+    expect(upd).toBeTruthy();
+    // Scoped by account_id + message_id; prior-state filter excludes rows already at target.
+    expect(upd[0]).toContain('WHERE account_id = $2 AND message_id = $3 AND is_read <> $1');
+    expect(upd[0]).toContain('RETURNING folder');
+    expect(upd[1]).toEqual([true, 'acct-1', '<abc@x>']);
+
+    // One unread decrement per returned sibling folder (mark-read → unread −1).
+    const counts = countCalls();
+    expect(counts).toHaveLength(2);
+    expect(counts.map(c => c[1])).toEqual(
+      expect.arrayContaining([[0, -1, 'acct-1', 'Todo'], [0, -1, 'acct-1', 'Watch']])
+    );
+  });
+
+  it('runs the UPDATE but adjusts no counts when there are no siblings to flip', async () => {
+    query.mockResolvedValueOnce({ rows: [] }); // nothing flipped
+    await fanOutReadToSiblings('acct-1', '<solo@x>', true);
+    expect(callWith('UPDATE messages SET is_read')).toBeTruthy();
+    expect(countCalls()).toHaveLength(0);
+  });
+
+  it('increments unread on mark-unread fan-out', async () => {
+    query.mockResolvedValueOnce({ rows: [{ folder: 'Todo' }] });
+    query.mockResolvedValue({ rows: [] });
+    await fanOutReadToSiblings('acct-1', '<abc@x>', false);
+    expect(countCalls()[0][1]).toEqual([0, 1, 'acct-1', 'Todo']);
+  });
+});
+
+describe('fanOutStarToSiblings', () => {
+  it('does nothing when the message has no Message-ID', async () => {
+    await fanOutStarToSiblings('acct-1', null, true);
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('updates sibling is_starred and never touches folder counts', async () => {
+    query.mockResolvedValue({ rows: [{ folder: 'Todo' }] });
+    await fanOutStarToSiblings('acct-1', '<abc@x>', true);
+    const upd = callWith('UPDATE messages SET is_starred');
+    expect(upd[0]).toContain('WHERE account_id = $2 AND message_id = $3 AND is_starred <> $1');
+    expect(upd[1]).toEqual([true, 'acct-1', '<abc@x>']);
+    expect(countCalls()).toHaveLength(0);
+  });
+});
+
+describe('fanOutBulkReadToSiblings', () => {
+  it('does nothing for an empty id set', async () => {
+    await fanOutBulkReadToSiblings([], true);
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('flips siblings of the acted set (excluding the acted rows) and adjusts counts per folder', async () => {
+    query.mockResolvedValueOnce({ rows: [{ account_id: 'a1', folder: 'Todo' }, { account_id: 'a1', folder: 'Todo' }] });
+    query.mockResolvedValue({ rows: [] });
+
+    await fanOutBulkReadToSiblings(['id1', 'id2'], true);
+
+    const upd = callWith('UPDATE messages m SET is_read');
+    expect(upd[0]).toContain('FROM (');                    // derives acted (account_id, message_id) pairs
+    expect(upd[0]).toContain('m.id <> ALL($2::uuid[])');   // never re-count the acted rows
+    expect(upd[0]).toContain('RETURNING m.account_id, m.folder');
+    expect(upd[1]).toEqual([true, ['id1', 'id2']]);
+
+    // Two flipped rows in the same folder aggregate to a single −2 unread adjustment.
+    const counts = countCalls();
+    expect(counts).toHaveLength(1);
+    expect(counts[0][1]).toEqual([0, -2, 'a1', 'Todo']);
   });
 });

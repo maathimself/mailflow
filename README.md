@@ -58,6 +58,26 @@ If you contribute code, please read the [Contributor License Agreement](CLA.md).
 - **Microsoft 365 / OAuth2** — work accounts via Azure App Registration; personal Outlook.com via device code flow
 - **Todoist integration** — create tasks directly from emails; tasks include a deep link back to the original message
 - **CardDAV** — expose your MailFlow contacts as a CardDAV address book for sync with phone and desktop contact apps; contact photos sync and appear as sender avatars in the message list
+- **GTD workflow** — optional Getting-Things-Done rail: label threads Todo / Watch / Delegated / Someday / Reference (each backed by a real IMAP folder) with the t / w / d keys; opt in per account, see below
+
+---
+
+## GTD (Getting Things Done)
+
+An optional Getting-Things-Done workflow, off by default and enabled per account
+under Settings → Categories → GTD. When on, a rail beside the message list
+groups threads into five states, each backed by a real IMAP folder — so the labels
+are just server-side folders that sync to every mail client and survive MailFlow
+itself:
+
+- **Todo** / **Someday** — things you need to act on; the label clears itself once you reply.
+- **Watch** / **Delegated** — things you're waiting on; the label clears itself once the other party replies.
+- **Reference** — kept until you remove it by hand.
+
+Label the selected thread from the keyboard — **t** for Todo, **w** for Watch,
+**d** for Delegated (all remappable in the keyboard-shortcut settings) — or from the
+context menu, which also covers Someday and Reference. Each state's folder name is
+configurable per account, and accounts with GTD off behave exactly as before.
 
 ---
 
@@ -549,6 +569,10 @@ MailFlow is free and open source. If it's useful to you, consider supporting dev
 ---
 
 ## Upgrading
+
+### GTD
+
+GTD is opt-in per account (**Settings → Categories → GTD**). Migrations for the new schema are additive and apply automatically on first startup. No operator action needed.
 
 ### v2.2.0 – v2.4.1
 

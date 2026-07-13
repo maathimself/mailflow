@@ -1,6 +1,8 @@
 // Keyboard shortcut action definitions and helpers.
 //
-// Each action has a label, description, group (for display), and defaultKey.
+// Each action carries i18n key paths (groupKey / labelKey / descriptionKey) for
+// its display strings plus a defaultKey. The key paths are resolved with t() at
+// render time, so this module stays framework-free (no i18n import here).
 // defaultKey can be a multi-character string (e.g. 'gi') for two-key sequences.
 //
 // User overrides are stored as { actionName: key } in preferences and merged
@@ -19,26 +21,34 @@ export const SPECIAL_KEYS = new Set(Object.keys(SPECIAL_KEY_LABELS));
 
 export const ACTION_DEFS = {
   // ── Compose & search ───────────────────────────────────────────────────────
-  compose:       { group: 'Compose & Search', label: 'Compose',            description: 'Open new compose window',               defaultKey: 'c'  },
-  focusSearch:   { group: 'Compose & Search', label: 'Search',             description: 'Focus the search box',                  defaultKey: '/'  },
-  showHelp:      { group: 'Compose & Search', label: 'Show shortcuts',     description: 'Show this keyboard shortcut reference',  defaultKey: '?'  },
+  compose:       { groupKey: 'shortcuts.groups.composeSearch',  labelKey: 'shortcuts.actions.compose.label',       descriptionKey: 'shortcuts.actions.compose.description',       defaultKey: 'c'  },
+  focusSearch:   { groupKey: 'shortcuts.groups.composeSearch',  labelKey: 'shortcuts.actions.focusSearch.label',   descriptionKey: 'shortcuts.actions.focusSearch.description',   defaultKey: '/'  },
+  showHelp:      { groupKey: 'shortcuts.groups.composeSearch',  labelKey: 'shortcuts.actions.showHelp.label',      descriptionKey: 'shortcuts.actions.showHelp.description',      defaultKey: '?'  },
 
   // ── Navigation ─────────────────────────────────────────────────────────────
-  nextMessage:   { group: 'Navigation',       label: 'Next message',       description: 'Move to the next message',               defaultKey: 'j'  },
-  prevMessage:   { group: 'Navigation',       label: 'Previous message',   description: 'Move to the previous message',           defaultKey: 'k'  },
-  openMessage:   { group: 'Navigation',       label: 'Open first message', description: 'Open first message if none selected',    defaultKey: 'o'  },
-  goInbox:       { group: 'Navigation',       label: 'Go to Inbox',        description: 'Navigate to the unified inbox',          defaultKey: 'gi' },
+  nextMessage:   { groupKey: 'shortcuts.groups.navigation',     labelKey: 'shortcuts.actions.nextMessage.label',   descriptionKey: 'shortcuts.actions.nextMessage.description',   defaultKey: 'j'  },
+  prevMessage:   { groupKey: 'shortcuts.groups.navigation',     labelKey: 'shortcuts.actions.prevMessage.label',   descriptionKey: 'shortcuts.actions.prevMessage.description',   defaultKey: 'k'  },
+  openMessage:   { groupKey: 'shortcuts.groups.navigation',     labelKey: 'shortcuts.actions.openMessage.label',   descriptionKey: 'shortcuts.actions.openMessage.description',   defaultKey: 'o'  },
+  goInbox:       { groupKey: 'shortcuts.groups.navigation',     labelKey: 'shortcuts.actions.goInbox.label',       descriptionKey: 'shortcuts.actions.goInbox.description',       defaultKey: 'gi' },
+  toggleRightSidebar: { groupKey: 'shortcuts.groups.navigation', labelKey: 'shortcuts.actions.toggleRightSidebar.label', descriptionKey: 'shortcuts.actions.toggleRightSidebar.description', defaultKey: 'ctrl+/' },
 
   // ── Message actions ────────────────────────────────────────────────────────
-  reply:         { group: 'Message Actions',  label: 'Reply',              description: 'Reply to the current message',           defaultKey: 'r'  },
-  replyAll:      { group: 'Message Actions',  label: 'Reply all',          description: 'Reply all to the current message',       defaultKey: 'a'  },
-  forward:       { group: 'Message Actions',  label: 'Forward',            description: 'Forward the current message',            defaultKey: 'f'  },
-  archive:       { group: 'Message Actions',  label: 'Archive',            description: 'Archive message / selection',            defaultKey: 'e'  },
-  delete:        { group: 'Message Actions',  label: 'Delete',             description: 'Delete message / selection',             defaultKey: '#'  },
-  toggleStar:    { group: 'Message Actions',  label: 'Star',               description: 'Toggle star on the current message',     defaultKey: 's'  },
-  toggleRead:    { group: 'Message Actions',  label: 'Toggle read',        description: 'Mark current message read or unread',    defaultKey: 'm'  },
-  selectMessage: { group: 'Message Actions',  label: 'Select message',     description: 'Check or uncheck the current message',   defaultKey: 'x'      },
-  printMessage:  { group: 'Message Actions',  label: 'Print',              description: 'Print the current message',               defaultKey: 'ctrl+p' },
+  reply:         { groupKey: 'shortcuts.groups.messageActions', labelKey: 'shortcuts.actions.reply.label',         descriptionKey: 'shortcuts.actions.reply.description',         defaultKey: 'r'  },
+  replyAll:      { groupKey: 'shortcuts.groups.messageActions', labelKey: 'shortcuts.actions.replyAll.label',      descriptionKey: 'shortcuts.actions.replyAll.description',      defaultKey: 'a'  },
+  forward:       { groupKey: 'shortcuts.groups.messageActions', labelKey: 'shortcuts.actions.forward.label',       descriptionKey: 'shortcuts.actions.forward.description',       defaultKey: 'f'  },
+  archive:       { groupKey: 'shortcuts.groups.messageActions', labelKey: 'shortcuts.actions.archive.label',       descriptionKey: 'shortcuts.actions.archive.description',       defaultKey: 'e'  },
+  delete:        { groupKey: 'shortcuts.groups.messageActions', labelKey: 'shortcuts.actions.delete.label',        descriptionKey: 'shortcuts.actions.delete.description',        defaultKey: '#'  },
+  toggleStar:    { groupKey: 'shortcuts.groups.messageActions', labelKey: 'shortcuts.actions.toggleStar.label',    descriptionKey: 'shortcuts.actions.toggleStar.description',    defaultKey: 's'  },
+  toggleRead:    { groupKey: 'shortcuts.groups.messageActions', labelKey: 'shortcuts.actions.toggleRead.label',    descriptionKey: 'shortcuts.actions.toggleRead.description',    defaultKey: 'm'  },
+  selectMessage: { groupKey: 'shortcuts.groups.messageActions', labelKey: 'shortcuts.actions.selectMessage.label', descriptionKey: 'shortcuts.actions.selectMessage.description', defaultKey: 'x'      },
+  printMessage:  { groupKey: 'shortcuts.groups.messageActions', labelKey: 'shortcuts.actions.printMessage.label',  descriptionKey: 'shortcuts.actions.printMessage.description',  defaultKey: 'ctrl+p' },
+
+  // ── GTD ──────────────────────────────────────────────────────────────────────
+  // Classify the selected message into a GTD state (COPY into its label folder).
+  // Someday/Reference are intentionally keyless (context menu + user-bindable).
+  gtdTodo:       { groupKey: 'shortcuts.groups.gtd',            labelKey: 'shortcuts.actions.gtdTodo.label',       descriptionKey: 'shortcuts.actions.gtdTodo.description',       defaultKey: 't' },
+  gtdWatch:      { groupKey: 'shortcuts.groups.gtd',            labelKey: 'shortcuts.actions.gtdWatch.label',      descriptionKey: 'shortcuts.actions.gtdWatch.description',      defaultKey: 'w' },
+  gtdDelegated:  { groupKey: 'shortcuts.groups.gtd',            labelKey: 'shortcuts.actions.gtdDelegated.label',  descriptionKey: 'shortcuts.actions.gtdDelegated.description',  defaultKey: 'd' },
 };
 
 // Returns the effective shortcut map: action → key, with user overrides applied.
@@ -110,8 +120,8 @@ export function buildModKeyMap(userOverrides = {}) {
 export function getGroupedActions() {
   const groups = {};
   for (const [action, def] of Object.entries(ACTION_DEFS)) {
-    if (!groups[def.group]) groups[def.group] = [];
-    groups[def.group].push({ action, ...def });
+    if (!groups[def.groupKey]) groups[def.groupKey] = [];
+    groups[def.groupKey].push({ action, ...def });
   }
   return groups;
 }

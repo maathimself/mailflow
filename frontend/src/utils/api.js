@@ -271,6 +271,29 @@ export const api = {
     aiClassify: (messageId) => request('POST', `/categories/ai-classify/${messageId}`),
   },
 
+  // GTD — sections feed (rail + tabs) and classify/unclassify (COPY / remove copy)
+  getGtdSections: (params) => {
+    const p = new URLSearchParams();
+    if (params?.accountId) p.set('accountId', params.accountId);
+    if (params?.limit != null) p.set('limit', params.limit);
+    const qs = p.toString();
+    return request('GET', `/gtd/sections${qs ? '?' + qs : ''}`);
+  },
+  gtdClassify: (messageId, state) => request('POST', '/gtd/classify', { messageId, state }),
+  gtdUnclassify: (messageId, state) => request('DELETE', '/gtd/classify', { messageId, state }),
+  // GTD "done": strip the row's label(s) for these states, mark read, archive the INBOX
+  // copy. id is the rail head's row id (its label-folder copy); the server resolves the
+  // INBOX copy from the shared Message-ID.
+  gtdDone: (id, states) => request('POST', '/gtd/done', { id, states }),
+  gtdEnsureFolders: (accountId, folders) => request('POST', '/gtd/folders/ensure', { accountId, folders }),
+
+  // GTD — Inbox-Zero pet. Import uploads your own pet (pet.json text + a base64 spritesheet)
+  // and caches it server-side; meta returns the animation descriptor; the sheet URL is used
+  // directly as an <img>/background src (authenticated same-origin, cookies ride along).
+  importGtdPet: (payload) => request('POST', '/gtd/pet/import', payload),
+  getGtdPetMeta: (slug) => request('GET', `/gtd/pet/${encodeURIComponent(slug)}/meta`),
+  gtdPetSheetUrl: (slug) => `${BASE}/gtd/pet/${encodeURIComponent(slug)}/sheet`,
+
   // Todoist integration
   todoist: {
     status:       ()       => request('GET',    '/todoist/status'),

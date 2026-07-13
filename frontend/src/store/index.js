@@ -4,6 +4,8 @@ import { applyTheme, applyCustomCss, getInitialTheme } from '../themes.js';
 import { applyFontSet, applyFontSize } from '../fonts.js';
 import { applyLayout, normalizeLayout } from '../layouts.js';
 import { DEFAULT_AI_ACTIONS } from '../aiActions.js';
+import { removeGtdThreadFromSections, setGtdThreadReadInSections } from '../utils/gtd.js';
+import { clampRightSidebarWidth } from '../utils/rightSidebar.js';
 import i18n from '../i18n.js';
 
 // Accumulate rapid preference changes and flush at most once per second.
@@ -17,6 +19,22 @@ function schedulePrefSave(prefs) {
     _pendingPrefs = {};
     api.savePreferences(toSave).catch(() => {});
   }, 1000);
+}
+
+// GTD sections fetch coordination. A monotonic seq guards against stale
+// responses landing after a newer context switch; the timer debounces the
+// WS-driven refetch (gtd_sections_updated can fire several times per tick).
+let _gtdSectionsSeq = 0;
+let _gtdFetchTimer = null;
+
+function readGtdCollapsedSections() {
+  try {
+    const raw = JSON.parse(localStorage.getItem('mailflow_gtd_collapsed_sections') || 'null');
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  } catch { /* fall through to default */ }
+  // Someday is collapsed by default — lowest-priority section, out of the way
+  // until the user wants it.
+  return { someday: true };
 }
 
 export const useStore = create((set, get) => ({
@@ -443,6 +461,112 @@ export const useStore = create((set, get) => ({
     return { categoryCounts: { ...state.categoryCounts, [key]: Math.max(0, current + delta) } };
   }),
 
+  // ── Right-sidebar layout ────────────────────────────────────────────────────
+  // Independent column width (own var + handle, not --list-width).
+  rightSidebarWidth: clampRightSidebarWidth(localStorage.getItem('mailflow_right_sidebar_width')),
+  setRightSidebarWidth: (w) => {
+    const clamped = clampRightSidebarWidth(w);
+    localStorage.setItem('mailflow_right_sidebar_width', String(clamped));
+    set({ rightSidebarWidth: clamped });
+    schedulePrefSave({ rightSidebarWidth: clamped });
+  },
+  isRightSidebarResizing: false,
+  setIsRightSidebarResizing: (v) => set({ isRightSidebarResizing: v }),
+
+  rightSidebarHidden: localStorage.getItem('mailflow_right_sidebar_hidden') === 'true',
+  toggleRightSidebarHidden: () => set(state => {
+    const next = !state.rightSidebarHidden;
+    localStorage.setItem('mailflow_right_sidebar_hidden', String(next));
+    schedulePrefSave({ rightSidebarHidden: next });
+    return { rightSidebarHidden: next };
+  }),
+
+  // ── GTD content + tabs ──────────────────────────────────────────────────────
+  // Per-section collapse state (section key -> bool). Someday collapsed by default.
+  gtdCollapsedSections: readGtdCollapsedSections(),
+  toggleGtdSection: (section) => set(state => {
+    const next = { ...state.gtdCollapsedSections, [section]: !state.gtdCollapsedSections[section] };
+    localStorage.setItem('mailflow_gtd_collapsed_sections', JSON.stringify(next));
+    schedulePrefSave({ gtdCollapsedSections: next });
+    return { gtdCollapsedSections: next };
+  }),
+
+  // Active GTD browse tab in the message-list pill strip (null = normal list).
+  activeGtdTab: null,
+  setActiveGtdTab: (tab) => set({ activeGtdTab: tab }),
+
+  // Sections data feeding both the rail and the tab list. null before first load.
+  gtdSections: null,
+  fetchGtdSections: async () => {
+    const seq = ++_gtdSectionsSeq;
+    const accountId = get().selectedAccountId || undefined;
+    try {
+      const data = await api.getGtdSections({ accountId, limit: 50 });
+      if (seq !== _gtdSectionsSeq) return; // superseded by a newer fetch
+      set({ gtdSections: data.sections || {} });
+    } catch {
+      // Best-effort; scheduleGtdSectionsFetch/the next context change will retry.
+    }
+  },
+  // Debounced refetch — used by the WS gtd_sections_updated handler and after a
+  // classify so the rail converges without waiting on (or racing) the socket.
+  scheduleGtdSectionsFetch: () => {
+    clearTimeout(_gtdFetchTimer);
+    _gtdFetchTimer = setTimeout(() => { get().fetchGtdSections(); }, 400);
+  },
+  // Optimistically drop a thread's head from the given GTD state sections after a
+  // "done" action so the rail row disappears instantly; the gtd_sections_updated
+  // refetch reconciles the authoritative counts. identity is message_id||id; states
+  // are the backend section keys whose labels were removed (todo/watch/delegated/…).
+  // Delegates to a pure helper (unit-tested in gtd.test.js) that also keeps the deduped
+  // Waiting rollup in step so the Waiting badge is correct instantly.
+  removeGtdThread: (identity, states) => set(state => {
+    const next = removeGtdThreadFromSections(state.gtdSections, identity, states);
+    return next === state.gtdSections ? {} : { gtdSections: next };
+  }),
+  // Optimistically flip a section thread's read flag so a rail row's bold/normal styling
+  // updates instantly on a mark-read/unread from the rail; the WS/gtd refetch reconciles.
+  // identity is message_id||id and matches across every state a thread is labelled with
+  // (a merged Waiting row lives in both watch and delegated), keeping them in sync — and
+  // the deduped Waiting rollup's unread with them (pure helper, unit-tested in gtd.test.js).
+  markGtdThreadRead: (identity, isRead) => set(state => {
+    const next = setGtdThreadReadInSections(state.gtdSections, identity, isRead);
+    return next === state.gtdSections ? {} : { gtdSections: next };
+  }),
+  // Optimistically flip a section thread's star so a rail row's star fills/empties instantly
+  // on a toggle; the WS/gtd refetch reconciles. identity is message_id||id and matches across
+  // every state a thread is labelled with (a merged Waiting row lives in both watch and
+  // delegated), keeping them in sync. Star does not affect the unread rollup.
+  markGtdThreadStarred: (identity, isStarred) => set(state => {
+    const cur = state.gtdSections;
+    if (!cur || identity == null) return {};
+    const next = { ...cur };
+    let changed = false;
+    for (const [key, sec] of Object.entries(cur)) {
+      if (!sec || !Array.isArray(sec.threads)) continue;
+      let touched = false;
+      const threads = sec.threads.map(th => {
+        if ((th.message_id || th.id) !== identity || !!th.is_starred === isStarred) return th;
+        touched = true;
+        return { ...th, is_starred: isStarred };
+      });
+      if (!touched) continue;
+      changed = true;
+      next[key] = { ...sec, threads };
+    }
+    return changed ? { gtdSections: next } : {};
+  }),
+
+  // Which cached imported pet renders at inbox-zero (null = the built-in SVG dog).
+  // A flat user preference; the asset bytes live server-side, keyed by this slug.
+  gtdPetSlug: null,
+  setGtdPetSlug: (slug) => {
+    const value = slug || null;
+    set({ gtdPetSlug: value });
+    // '' is the explicit "clear" sentinel the prefs allow-list understands.
+    api.savePreferences({ gtdPetSlug: value || '' }).catch(() => {});
+  },
+
   // Layout
   layout: (() => {
     const raw = localStorage.getItem('mailflow_layout');
@@ -726,9 +850,41 @@ export const useStore = create((set, get) => ({
       if (typeof prefs.categorizationEnabled === 'boolean') {
         set({ categorizationEnabled: prefs.categorizationEnabled });
       }
+      if (prefs.rightSidebarWidth != null) {
+        const n = clampRightSidebarWidth(prefs.rightSidebarWidth);
+        localStorage.setItem('mailflow_right_sidebar_width', String(n));
+        set({ rightSidebarWidth: n });
+      }
+      if (prefs.gtdCollapsedSections && typeof prefs.gtdCollapsedSections === 'object' && !Array.isArray(prefs.gtdCollapsedSections)) {
+        localStorage.setItem('mailflow_gtd_collapsed_sections', JSON.stringify(prefs.gtdCollapsedSections));
+        set({ gtdCollapsedSections: prefs.gtdCollapsedSections });
+      }
+      if (typeof prefs.gtdPetSlug === 'string') {
+        set({ gtdPetSlug: prefs.gtdPetSlug || null });
+      }
+      if (typeof prefs.rightSidebarHidden === 'boolean') {
+        localStorage.setItem('mailflow_right_sidebar_hidden', String(prefs.rightSidebarHidden));
+        set({ rightSidebarHidden: prefs.rightSidebarHidden });
+      }
       if (prefs.customCss) {
         applyCustomCss(prefs.customCss);
       }
     } catch { /* intentional */ }
   },
 }));
+
+// The RFC message_id of the currently selected message, resolved from the same pools the
+// reading pane uses: the active folder/search list, then any stashed thread — including the
+// __dl_ deep-link stash written by GTD sidebar selection. Returns null when nothing is selected
+// or the selected row has no message_id. Lets the GTD sidebar and message list highlight every
+// copy of the open message by identity (not just the exact DB row that was clicked). A plain selector, not
+// a state field, so it stays in sync with the list automatically; returns a primitive so a
+// useStore(selectSelectedMessageMid) subscription only re-renders when the value changes.
+export function selectSelectedMessageMid(s) {
+  const id = s.selectedMessageId;
+  if (id == null) return null;
+  const pool = s.searchQuery?.trim() ? s.searchResults : s.messages;
+  const msg = pool.find(m => m.id === id)
+    ?? Object.values(s.threadMessages).flat().find(m => m.id === id);
+  return msg?.message_id ?? null;
+}

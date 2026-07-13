@@ -463,7 +463,95 @@
     "title": "Raccourcis clavier",
     "customizeHint": "Personnaliser les raccourcis dans Paramètres → Raccourcis",
     "closeHint": "Appuyez sur ? ou Échap pour fermer",
-    "then": "puis"
+    "then": "puis",
+    "groups": {
+      "composeSearch": "Rédaction et recherche",
+      "navigation": "Navigation",
+      "messageActions": "Actions sur les messages",
+      "gtd": "GTD"
+    },
+    "actions": {
+      "compose": {
+        "label": "Composer",
+        "description": "Ouvrir une nouvelle fenêtre de rédaction"
+      },
+      "focusSearch": {
+        "label": "Rechercher",
+        "description": "Placer le curseur dans le champ de recherche"
+      },
+      "showHelp": {
+        "label": "Afficher les raccourcis",
+        "description": "Afficher cette liste des raccourcis clavier"
+      },
+      "nextMessage": {
+        "label": "Message suivant",
+        "description": "Passer au message suivant"
+      },
+      "prevMessage": {
+        "label": "Message précédent",
+        "description": "Passer au message précédent"
+      },
+      "openMessage": {
+        "label": "Ouvrir le premier message",
+        "description": "Ouvrir le premier message si aucun n'est sélectionné"
+      },
+      "goInbox": {
+        "label": "Aller à la boîte de réception",
+        "description": "Accéder à la boîte de réception unifiée"
+      },
+      "reply": {
+        "label": "Répondre",
+        "description": "Répondre au message actuel"
+      },
+      "replyAll": {
+        "label": "Répondre à tous",
+        "description": "Répondre à tous pour le message actuel"
+      },
+      "forward": {
+        "label": "Transférer",
+        "description": "Transférer le message actuel"
+      },
+      "archive": {
+        "label": "Archiver",
+        "description": "Archiver le message / la sélection"
+      },
+      "delete": {
+        "label": "Supprimer",
+        "description": "Supprimer le message / la sélection"
+      },
+      "toggleStar": {
+        "label": "Étoile",
+        "description": "Activer ou désactiver l'étoile du message actuel"
+      },
+      "toggleRead": {
+        "label": "Marquer lu / non lu",
+        "description": "Marquer le message actuel comme lu ou non lu"
+      },
+      "selectMessage": {
+        "label": "Sélectionner le message",
+        "description": "Cocher ou décocher le message actuel"
+      },
+      "printMessage": {
+        "label": "Imprimer",
+        "description": "Imprimer le message actuel"
+      },
+      "gtdTodo": {
+        "label": "Marquer À faire",
+        "description": "Classer le message sélectionné comme À faire"
+      },
+      "gtdWatch": {
+        "label": "Marquer Surveiller",
+        "description": "Classer le message sélectionné comme Surveiller"
+      },
+      "gtdDelegated": {
+        "label": "Marquer Délégué",
+        "description": "Classer le message sélectionné comme Délégué"
+      },
+      "toggleRightSidebar": {
+        "label": "Afficher ou masquer la barre latérale droite",
+        "description": "Masquer ou afficher la barre latérale droite"
+      }
+    }
   },
   "notifications": {
     "newMessage": "Nouveau message"
@@ -994,7 +1082,41 @@
       "recategorize": "Recatégoriser",
       "recategorizing": "Traitement…",
       "recategorized": "Recatégorisation démarrée.",
-      "selectAccount": "Sélectionner un compte"
+      "selectAccount": "Sélectionner un compte",
+      "gtdReveal": "GTD",
+      "gtdRevealDesc": "Affiche ci-dessous les réglages GTD par compte ; chaque compte garde son propre interrupteur."
+    },
+    "gtd": {
+      "description": "Transformez Mailflow en système GTD. Activez-le par compte, puis associez chaque état au dossier IMAP qui contient son étiquette.",
+      "noAccounts": "Ajoutez d'abord un compte de messagerie pour configurer GTD.",
+      "enableDesc": "GTD est activé. Les étiquettes se synchronisent comme des dossiers et les états changent automatiquement.",
+      "enableHint": "Activer les étiquettes GTD et les transitions d'état automatiques pour ce compte.",
+      "foldersTitle": "Dossiers d'étiquettes",
+      "foldersDesc": "Chaque état GTD correspond à un dossier IMAP. Laissez un champ vide pour utiliser le nom par défaut.",
+      "savedOk": "Association des dossiers enregistrée.",
+      "saveFailed": "Impossible d'enregistrer l'association des dossiers.",
+      "createFolders": "Créer les dossiers manquants",
+      "creating": "Création…",
+      "createResult": "{{created}} créés, {{existing}} déjà présents.",
+      "createFailed": "Impossible de créer les dossiers.",
+      "duplicateFolder": "Ces états GTD pointent vers le même dossier : {{states}}. Attribuez un dossier différent à chaque état.",
+      "rejectedFolders": "Certains noms de dossier étaient invalides et ont été réinitialisés à leurs valeurs par défaut : {{states}}.",
+      "pet": {
+        "title": "Mascotte de boîte vide",
+        "description": "Remplacez le chien par défaut en boîte vide par une mascotte à vous.",
+        "clear": "Utiliser le chien par défaut",
+        "current": "Mascotte actuelle : {{slug}}",
+        "usingDog": "Le chien par défaut est utilisé.",
+        "hoverHint": "Survolez pour animer.",
+        "importTitle": "Importez la vôtre",
+        "importHint": "Téléversez un pet.json et son spritesheet (PNG, WebP ou GIF).",
+        "chooseJson": "Fichier pet.json",
+        "chooseSheet": "Image du spritesheet",
+        "import": "Importer",
+        "importing": "Importation…",
+        "imported": "{{name}} importée — survolez l’aperçu pour la voir bouger.",
+        "importFailed": "Impossible d’importer cette mascotte."
+      }
     },
     "systemEmail": {
       "tabUsers": "Utilisateurs et invitations",
@@ -1260,5 +1382,35 @@
     "creating": "Création...",
     "taskCreated": "Tâche créée dans Todoist",
     "openTask": "Ouvrir dans Todoist"
+  },
+  "rightSidebar": {
+    "hide": "Masquer la barre latérale droite",
+    "show": "Afficher la barre latérale droite"
+  },
+  "gtd": {
+    "title": "GTD",
+    "inbox": "Boîte de réception",
+    "waiting": "En attente",
+    "inboxZero": "Boîte vide ✓",
+    "allClear": "Tout est clair",
+    "allClearHint": "Rien ne vous attend.",
+    "viewAll": "Voir les {{count}}",
+    "toggleSection": "Basculer {{section}}",
+    "tabEmpty": "Rien ici pour l'instant",
+    "removeFrom": "Retirer de {{state}}",
+    "classified": "Étiquette appliquée",
+    "classifyFailed": "Impossible d'appliquer l'étiquette",
+    "removed": "Étiquette retirée",
+    "removeFailed": "Impossible de retirer l'étiquette",
+    "done": "Marquer comme terminé",
+    "doneFailed": "Impossible de marquer comme terminé",
+    "doneArchiveFailed": "Marqué comme terminé, mais l'archivage a échoué — toujours dans la boîte de réception",
+    "state": {
+      "todo": "À faire",
+      "watch": "Surveiller",
+      "delegated": "Délégué",
+      "someday": "Un jour",
+      "reference": "Référence"
+    }
   }
 }

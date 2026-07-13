@@ -14,6 +14,8 @@ import { authLimiterConfig } from '../services/authLimiter.js';
 import { logAuthEvent } from '../services/authEvents.js';
 import { sendSystemEmail } from '../services/mailer.js';
 import { invalidateGlobalCategorizationCache } from '../services/categorizer.js';
+import { sanitizeGtdPrefs } from '../utils/gtdPrefs.js';
+import { sanitizeRightSidebarPrefs } from '../utils/rightSidebarPrefs.js';
 import { redisClient } from '../services/redis.js';
 import { consume as rlConsume, reset as rlReset } from '../services/rateLimiter.js';
 
@@ -695,6 +697,12 @@ router.patch('/preferences', async (req, res) => {
           expandedAccounts, collapsedFolders, favoriteFolders, recentFolders, fontSize,
           showAppBadge, showFaviconBadge, replyDefault, sidebarWidth,
           categorizationEnabled, markReadBehavior, markReadDelay, aiActions } = req.body;
+  // GTD content and generic right-sidebar layout preferences are independent flat
+  // top-level keys with separate allow-lists. gtdEnabled is intentionally NOT a user
+  // preference — it lives per-account in email_accounts.gtd_enabled.
+  const { gtdCollapsedSections, gtdPetSlug } = sanitizeGtdPrefs(req.body);
+  const { rightSidebarWidth, rightSidebarHidden } = sanitizeRightSidebarPrefs(req.body);
+  const gtdCollapsedSectionsJson = gtdCollapsedSections != null ? JSON.stringify(gtdCollapsedSections) : null;
   // JSONB fields must be serialised to strings for the ::jsonb cast
   const imageWhitelistJson    = imageWhitelist    != null ? JSON.stringify(imageWhitelist)    : null;
   const shortcutsJson         = shortcuts         != null ? JSON.stringify(shortcuts)         : null;
@@ -751,6 +759,10 @@ router.patch('/preferences', async (req, res) => {
       || CASE WHEN $28::text IS NOT NULL THEN jsonb_build_object('markReadBehavior', $28::text) ELSE '{}'::jsonb END
       || CASE WHEN $29::text IS NOT NULL THEN jsonb_build_object('markReadDelay', $29::text) ELSE '{}'::jsonb END
       || CASE WHEN $30::jsonb IS NOT NULL THEN jsonb_build_object('aiActions', $30::jsonb) ELSE '{}'::jsonb END
+      || CASE WHEN $31::int IS NOT NULL THEN jsonb_build_object('rightSidebarWidth', $31::int) ELSE '{}'::jsonb END
+      || CASE WHEN $32::boolean IS NOT NULL THEN jsonb_build_object('rightSidebarHidden', $32::boolean) ELSE '{}'::jsonb END
+      || CASE WHEN $33::jsonb IS NOT NULL THEN jsonb_build_object('gtdCollapsedSections', $33::jsonb) ELSE '{}'::jsonb END
+      || CASE WHEN $34::text IS NOT NULL THEN jsonb_build_object('gtdPetSlug', $34::text) ELSE '{}'::jsonb END
     WHERE id = $1
   `, [req.session.userId, theme ?? null, font ?? null, layout ?? null, notificationSound ?? null,
       pageSize ?? null, scrollMode ?? null, syncInterval ?? null,
@@ -758,7 +770,8 @@ router.patch('/preferences', async (req, res) => {
       language ?? null, threadedView ?? null, plaintextEmail ?? null, hoverQuickActions ?? null,
       swipeActionsJson, expandedAccountsJson, collapsedFoldersJson, favoriteFoldersJson, recentFoldersJson, fontSizeVal,
       showAppBadge ?? null, showFaviconBadge ?? null, replyDefaultVal, sidebarWidthVal,
-      categorizationEnabled ?? null, markReadBehaviorVal, markReadDelayVal, aiActionsJson]);
+      categorizationEnabled ?? null, markReadBehaviorVal, markReadDelayVal, aiActionsJson,
+      rightSidebarWidth, rightSidebarHidden, gtdCollapsedSectionsJson, gtdPetSlug]);
 
   if (syncInterval != null) {
     const ms = parseInt(syncInterval) * 1000;

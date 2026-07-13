@@ -4,6 +4,7 @@ import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { playNotificationSound } from '../utils/notificationSounds.js';
 import { pendingMarkReadMap } from '../utils/pendingReads.js';
+import { gtdActiveForContext } from '../utils/gtd.js';
 import { updateFaviconBadge } from '../themes.js';
 
 // Compute the correct favicon count given unread counts and the currently
@@ -51,6 +52,8 @@ const NO_RECONNECT_CODES = new Set([4001, 4003]);
 
 // Module-level timer for debouncing backfill_progress refreshes
 let backfillRefreshTimer = null;
+// Debounce the unread-count refetch triggered by cross-device flag updates.
+let flagCountRefreshTimer = null;
 const BACKOFF_BASE = 1000;
 const BACKOFF_MAX = 30000;
 
@@ -76,9 +79,17 @@ export function useWebSocket() {
     ws.onopen = () => {
       const wasReconnect = reconnectAttempt.current > 0;
       reconnectAttempt.current = 0;
-      // Ping every 30s to keep alive
+      ws._lastActivity = Date.now();
+      // Ping every 30s. If no message (including the server's pong) has arrived in ~2.5 intervals,
+      // the socket is half-open — common after sleep/network blips, where onclose never fires and
+      // the tab silently stops receiving updates. Force-close it so onclose schedules a reconnect.
       const pingInterval = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping' }));
+        if (ws.readyState !== WebSocket.OPEN) return;
+        if (Date.now() - (ws._lastActivity || 0) > 75000) {
+          try { ws.close(); } catch { /* onclose reconnects */ }
+          return;
+        }
+        ws.send(JSON.stringify({ type: 'ping' }));
       }, 30000);
       ws._pingInterval = pingInterval;
       // On reconnect, catch up on any messages that arrived during the outage
@@ -87,10 +98,17 @@ export function useWebSocket() {
         api.getUnreadCounts().then(counts => {
           useStore.setState({ unreadCounts: counts });
         }).catch(() => {});
+        // Rail sections can drift during the outage — gtd_sections_updated events
+        // fired while the socket was down are lost, not buffered. Refetch them the
+        // same way we refresh messages/unread, but only for GTD users so a non-GTD
+        // context adds no extra traffic on every reconnect.
+        const { accounts, selectedAccountId, scheduleGtdSectionsFetch } = useStore.getState();
+        if (gtdActiveForContext(accounts, selectedAccountId)) scheduleGtdSectionsFetch();
       }
     };
 
     ws.onmessage = (event) => {
+      ws._lastActivity = Date.now(); // any inbound frame (incl. pong) proves the socket is alive
       try {
         const data = JSON.parse(event.data);
         handleMessage(data);
@@ -273,6 +291,41 @@ export function useWebSocket() {
         api.getUnreadCounts().then(_applyServerCounts).catch(() => {});
         break;
       }
+
+      case 'gtd_sections_updated': {
+        // GTD label folders changed (tick, classify copy/remove, or a transition
+        // strip). Refetch the rail/tab sections — NOT gated on selectedFolder
+        // (label folders never become the selected folder), debounced in the
+        // store since this can fire several times per tick. Only refetch when the
+        // event's account is in the current rail scope (unified sees every account).
+        const store = useStore.getState();
+        if (store.selectedAccountId === null || store.selectedAccountId === data.accountId) {
+          store.scheduleGtdSectionsFetch();
+        }
+        break;
+      }
+
+      case 'message_flags': {
+        // A read/star flag changed on ANOTHER of this user's devices. Apply it to the matching
+        // rows in place — no full folder refetch (that would flicker and refetch-storm while
+        // speeding through mail on another device). Sidebar counts follow via a debounced poll.
+        const { changes } = data;
+        if (Array.isArray(changes) && changes.length) {
+          const { updateMessage } = useStore.getState();
+          for (const c of changes) {
+            if (!c || !c.id) continue;
+            const patch = {};
+            if (typeof c.is_read === 'boolean') patch.is_read = c.is_read;
+            if (typeof c.is_starred === 'boolean') patch.is_starred = c.is_starred;
+            if (Object.keys(patch).length) updateMessage(c.id, patch);
+          }
+          clearTimeout(flagCountRefreshTimer);
+          flagCountRefreshTimer = setTimeout(() => {
+            api.getUnreadCounts().then(_applyServerCounts).catch(() => {});
+          }, 400);
+        }
+        break;
+      }
     }
   }, [addNotification, updateAccount, setFolders, setBackfillProgress, t]);
 
@@ -283,6 +336,26 @@ export function useWebSocket() {
       mountedRef.current = false;
       clearTimeout(reconnectTimer.current);
       if (wsRef.current) wsRef.current.close();
+    };
+  }, [connect]);
+
+  // Revive a dropped socket the moment the user returns to the tab or the network comes back,
+  // instead of waiting out the reconnect backoff. (Half-open sockets are handled by the heartbeat.)
+  useEffect(() => {
+    const revive = () => {
+      if (document.visibilityState !== 'visible') return;
+      const ws = wsRef.current;
+      if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+        clearTimeout(reconnectTimer.current);
+        reconnectAttempt.current = 0;
+        connect();
+      }
+    };
+    document.addEventListener('visibilitychange', revive);
+    window.addEventListener('online', revive);
+    return () => {
+      document.removeEventListener('visibilitychange', revive);
+      window.removeEventListener('online', revive);
     };
   }, [connect]);
 
