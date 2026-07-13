@@ -1,16 +1,53 @@
 import { describe, it, expect, vi } from 'vitest';
 
-// search.js opens a DB handle and registers auth middleware at import time;
-// neither is exercised by the pure parser under test, so stub them out.
+// Keep route tests deterministic without opening a real DB or session store.
 vi.mock('../services/db.js', () => ({ query: vi.fn() }));
-vi.mock('../middleware/auth.js', () => ({ requireAuth: vi.fn() }));
+vi.mock('../middleware/auth.js', () => ({
+  requireAuth: (req, _res, next) => {
+    req.session = { userId: 'u1' };
+    next();
+  },
+}));
 
+import express from 'express';
+import { query } from '../services/db.js';
 import {
+  default as searchRoutes,
   parseSearchQuery,
   resolveSearchFolderScope,
   shouldExcludeTrashFromSearch,
   trashFolderExclusionCondition,
 } from './search.js';
+
+describe('GET /search', () => {
+  it('selects recipient metadata needed by the selected-message header', async () => {
+    const recipients = [{ name: 'Example Recipient', email: 'recipient@example.com' }];
+    query.mockReset();
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'a1' }] })
+      .mockImplementationOnce(async sql => {
+        expect(sql).toContain('m.to_addresses');
+        expect(sql).toContain('m.cc_addresses');
+        return { rows: [{ id: 'm1', to_addresses: recipients, cc_addresses: [] }] };
+      });
+
+    const app = express();
+    app.use('/search', searchRoutes);
+    const server = await new Promise(resolve => {
+      const listening = app.listen(0, () => resolve(listening));
+    });
+
+    try {
+      const response = await fetch(`http://127.0.0.1:${server.address().port}/search?q=recipient`);
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        messages: [{ id: 'm1', to_addresses: recipients, cc_addresses: [] }],
+      });
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+    }
+  });
+});
 
 describe('parseSearchQuery', () => {
   it('treats bare words as free-text terms', () => {

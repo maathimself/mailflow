@@ -69,6 +69,56 @@ describe('snippetFromBody', () => {
 });
 
 describe('parseMessage', () => {
+  it('preserves every parseable X-Delivered-to value in header order', async () => {
+    const parsed = await parseMessage({
+      uid: 1,
+      envelope: {},
+      flags: new Set(),
+      headers: Buffer.from(
+        'X-Delivered-to: First@Example.com\r\n' +
+        'X-Delivered-to: "Mask" <second@example.com>\r\n' +
+        'X-Delivered-to: not-an-address\r\n',
+      ),
+    });
+    expect(parsed.deliveryAddresses).toEqual(['first@example.com', 'second@example.com']);
+  });
+
+  it('parses folded and comma-separated X-Delivered-to values', async () => {
+    const parsed = await parseMessage({
+      uid: 1,
+      envelope: {},
+      flags: new Set(),
+      headers: Buffer.from(
+        'X-Delivered-to: "First" <first@example.com>,\r\n' +
+        ' second@example.com\r\n',
+      ),
+    });
+    expect(parsed.deliveryAddresses).toEqual(['first@example.com', 'second@example.com']);
+  });
+
+  it('retains duplicate X-Delivered-to values in order', async () => {
+    const parsed = await parseMessage({
+      uid: 1,
+      envelope: {},
+      flags: new Set(),
+      headers: Buffer.from(
+        'X-Delivered-to: mask@example.com\r\n' +
+        'X-Delivered-to: MASK@example.com\r\n',
+      ),
+    });
+    expect(parsed.deliveryAddresses).toEqual(['mask@example.com', 'mask@example.com']);
+  });
+
+  it('returns no delivery addresses when X-Delivered-to is missing', async () => {
+    const parsed = await parseMessage({
+      uid: 1,
+      envelope: {},
+      flags: new Set(),
+      headers: Buffer.from('To: recipient@example.com\r\n'),
+    });
+    expect(parsed.deliveryAddresses).toEqual([]);
+  });
+
   it('cleans link URLs out of sync-time snippets from text/plain parts', async () => {
     const parsed = await parseMessage({
       uid: 1,

@@ -35,6 +35,7 @@ import { parseVCard } from './utils/vcard.js';
 import { reloadAuthSettings } from './services/authLimiter.js';
 import { setupWebSocket } from './services/websocket.js';
 import { ImapManager } from './services/imapManager.js';
+import { startFastmailAliasScheduler } from './services/fastmailAliasSync.js';
 
 const packageMeta = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
 let buildMeta = {};
@@ -207,6 +208,9 @@ await reloadAuthSettings();
 
 // Encrypt any plaintext credentials left in the DB from before this feature was added
 await encryptExistingCredentials();
+
+// Start an immediate Fastmail identity refresh and continue on the background cadence.
+startFastmailAliasScheduler();
 
 // Load OAuth integration configs from DB into process.env
 await loadIntegrationConfigs();

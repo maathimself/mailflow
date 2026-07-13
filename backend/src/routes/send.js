@@ -14,6 +14,7 @@ import { generateVCard } from '../utils/vcard.js';
 import { resolveForConnection } from '../services/hostValidation.js';
 import { getConnectionPolicy } from '../services/connectionPolicy.js';
 import { imapManager } from '../index.js';
+import { authorizeSender } from '../services/senderAuthorization.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -40,6 +41,16 @@ function sanitizeSmtpError(err) {
     return 'Secure connection to the mail server failed. Check your TLS settings.';
   }
   return 'Failed to send message. Please try again.';
+}
+
+function isSenderAuthorizationRejection(err) {
+  const detail = [err?.message, err?.response, err?.code].filter(Boolean).join(' ');
+  const hasSenderStatus = err?.responseCode === 550
+    || err?.responseCode === 553
+    || /(?:^|\s)(?:550|553)(?:\s|$)/.test(detail);
+  return hasSenderStatus
+    && /\b(?:from|sender|identity)\b/i.test(detail)
+    && /\b(?:authoriz(?:e|ed|ation)|unauthoriz(?:e|ed)|not\s+(?:allowed|permitted|valid|verified)|permission)\b/i.test(detail);
 }
 
 // Extract name and email from an RFC 5322 address string.
@@ -129,15 +140,13 @@ router.use(requireAuth);
 
 
 router.post('/send', async (req, res) => {
-  const { accountId, aliasId, to, cc = [], bcc = [], subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, inReplyTo, references, attachments, editedSignature, forwardedAttachments, priority } = req.body;
+  const { sender, to, cc = [], bcc = [], subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, inReplyTo, references, attachments, editedSignature, forwardedAttachments, priority } = req.body;
   const VALID_PRIORITIES = new Set(['high', 'normal', 'low']);
   const emailPriority = VALID_PRIORITIES.has(priority) ? priority : 'normal';
-  if (!accountId || !to?.length) return res.status(400).json({ error: 'accountId and to required' });
+  if (!to?.length) return res.status(400).json({ error: 'sender and to required' });
 
-  // Idempotency guard. The client sends a stable X-Idempotency-Key per logical send: a
-  // sequential retry after a lost success response returns the cached result, and a
-  // concurrent same-key submit is blocked by the reservation set just before delivery
-  // (below). Neither can produce a duplicate email. Fixes audit finding [1].
+  // Return a previously completed logical send before revalidating inputs that may
+  // legitimately have gone stale after the original delivery.
   const idempotencyKey = typeof req.headers['x-idempotency-key'] === 'string'
     ? req.headers['x-idempotency-key'].slice(0, 128)
     : null;
@@ -147,6 +156,22 @@ router.post('/send', async (req, res) => {
     if (cached === '__inflight__') return res.status(409).json({ error: 'This message is already being sent.' });
     if (cached) return res.json(JSON.parse(cached));
   }
+
+  let authorizedSender;
+  try {
+    authorizedSender = await authorizeSender({ userId: req.session.userId, sender });
+  } catch (err) {
+    if (err?.code === 'SENDER_UNAVAILABLE') {
+      return res.status(422).json({ error: 'Sender unavailable', code: 'SENDER_UNAVAILABLE' });
+    }
+    // Log only the safe error shape: an unexpected failure here can carry alias or DB
+    // detail that must not reach logs (credential hygiene), so never log err.message.
+    console.error('Sender authorization failed:', err?.name, err?.code);
+    return res.status(500).json({ error: 'Failed to authorize sender' });
+  }
+  let account = authorizedSender.account;
+  const accountId = account.id;
+  const { fromName, fromEmail, fromReplyTo, fromBcc = [], fromSignature } = authorizedSender;
 
   if (attachments !== undefined) {
     if (!Array.isArray(attachments)) return res.status(400).json({ error: 'attachments must be an array' });
@@ -177,34 +202,8 @@ router.post('/send', async (req, res) => {
   }
   const normalizedSubject = sanitizeHeaderValue(subject || '');
 
-  const [result, prefResult] = await Promise.all([
-    query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]),
-    query('SELECT preferences FROM users WHERE id = $1', [req.session.userId]),
-  ]);
-  if (!result.rows.length) return res.status(404).json({ error: 'Account not found' });
+  const prefResult = await query('SELECT preferences FROM users WHERE id = $1', [req.session.userId]);
   const plaintextEmail = prefResult.rows[0]?.preferences?.plaintextEmail === true;
-  let account = result.rows[0];
-
-  // Resolve the From identity — account by default, alias if requested
-  let fromName = account.sender_name || account.name;
-  let fromEmail = account.email_address;
-  let fromSignature = account.signature;
-  let fromReplyTo = null;
-
-  if (aliasId) {
-    const aliasResult = await query(
-      'SELECT * FROM account_aliases WHERE id = $1 AND account_id = $2',
-      [aliasId, accountId]
-    );
-    if (aliasResult.rows.length) {
-      const alias = aliasResult.rows[0];
-      fromName = alias.name;
-      fromEmail = alias.email;
-      fromReplyTo = alias.reply_to || null;
-      // null (DB default) means inherit from account; only override when alias has an explicit signature set
-      if (alias.signature !== null) fromSignature = alias.signature;
-    }
-  }
 
   // Allow the client to override the signature per-send (editedSignature === undefined means use DB value).
   // Sanitize client-supplied HTML to prevent injecting scripts or tracking pixels into sent mail.
@@ -320,7 +319,7 @@ router.post('/send', async (req, res) => {
       ...(fromReplyTo ? { replyTo: fromReplyTo } : {}),
       to: normalizedTo.join(', '),
       cc: normalizedCc.join(', ') || undefined,
-      bcc: normalizedBcc.join(', ') || undefined,
+      bcc: [...normalizedBcc, ...fromBcc].length ? [...normalizedBcc, ...fromBcc] : undefined,
       subject: normalizedSubject,
       ...(emailPriority !== 'normal' ? { priority: emailPriority } : {}),
       text: effectiveSignature
@@ -537,7 +536,14 @@ router.post('/send', async (req, res) => {
     if (idemKeyRedis) redisClient.set(idemKeyRedis, JSON.stringify(sendResult), { EX: 86400 }).catch(() => {});
     res.json(sendResult);
   } catch (err) {
-    console.error('Send failed:', err.message);
+    const fastmailSenderRejected = !delivered
+      && account.fastmail_api_token
+      && isSenderAuthorizationRejection(err);
+    console.error('Send failed:', account.fastmail_api_token
+      ? (fastmailSenderRejected
+        ? 'Fastmail sender authorization rejected'
+        : 'Fastmail SMTP send failed')
+      : err.message);
     if (idemKeyRedis) {
       if (delivered) {
         // The message WAS delivered but a later step threw. Persist a DURABLE success
@@ -550,6 +556,12 @@ router.post('/send', async (req, res) => {
         // can proceed immediately.
         redisClient.del(idemKeyRedis).catch(() => {});
       }
+    }
+    if (fastmailSenderRejected) {
+      return res.status(422).json({
+        error: 'This sending address is no longer authorized by Fastmail. Refresh addresses or choose another sender.',
+        code: 'SENDER_NOT_AUTHORIZED',
+      });
     }
     res.status(500).json({ error: sanitizeSmtpError(err) });
   }

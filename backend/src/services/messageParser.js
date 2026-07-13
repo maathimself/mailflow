@@ -368,6 +368,15 @@ export function parseMailboxList(headerValue) {
   return results.filter(r => r.email);
 }
 
+export function parseDeliveryAddresses(value) {
+  if (!value) return [];
+  return String(value)
+    .split(/\r?\n/)
+    .flatMap(line => parseMailboxList(line))
+    .map(entry => entry.email.trim().toLowerCase())
+    .filter(Boolean);
+}
+
 // Fill gaps when IMAP ENVELOPE is incomplete — common for multipart/related Sent copies.
 export function enrichParsedMetadata(parsed, {
   accountEmail,
@@ -537,6 +546,7 @@ export async function parseMessage(msg) {
     inReplyTo: envelope.inReplyTo || null,
     references,
     parsedHeaders,
+    deliveryAddresses: parseDeliveryAddresses(parsedHeaders['x-delivered-to']),
     date: msg.internalDate || envelope.date || new Date(),
     snippet,
     isRead,

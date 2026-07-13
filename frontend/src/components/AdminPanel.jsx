@@ -42,6 +42,7 @@ const PRESETS = {
   gmail:   { label: 'Gmail',   imap_host: 'imap.gmail.com',        imap_port: 993, smtp_host: 'smtp.gmail.com',        smtp_port: 587 },
   yahoo:   { label: 'Yahoo',   imap_host: 'imap.mail.yahoo.com',   imap_port: 993, smtp_host: 'smtp.mail.yahoo.com',   smtp_port: 587 },
   icloud:  { label: 'iCloud',  imap_host: 'imap.mail.me.com',      imap_port: 993, smtp_host: 'smtp.mail.me.com',      smtp_port: 587 },
+  fastmail: { label: 'Fastmail', imap_host: 'imap.fastmail.com', imap_port: 993, smtp_host: 'smtp.fastmail.com', smtp_port: 465, smtp_tls: 'SSL' },
   custom:  { label: 'Custom' },
 };
 
@@ -49,6 +50,12 @@ const PRESETS = {
 function isMicrosoftImapHost(host) {
   const h = (host || '').toLowerCase();
   return h.includes('.outlook.com') || h.includes('office365.com') || h.includes('.hotmail.com') || h.includes('.live.com');
+}
+
+function isFastmailConfig(config) {
+  return !!(config?.fastmail_configured
+    || config?.imap_host === 'imap.fastmail.com'
+    || config?.smtp_host === 'smtp.fastmail.com');
 }
 
 function AccountForm({ initial, onSave, onCancel }) {
@@ -82,9 +89,18 @@ function AccountForm({ initial, onSave, onCancel }) {
 
   const handlePreset = (key) => {
     const p = PRESETS[key];
-    if (p.imap_host) setForm(f => ({ ...f, ...p, label: undefined }));
+    if (p.imap_host) setForm(f => ({
+      ...f,
+      ...p,
+      label: undefined,
+      auth_user: key === 'fastmail' && !f.auth_user ? f.email_address : f.auth_user,
+    }));
     setSelectedPreset(key);
   };
+
+  const isFastmail = selectedPreset === 'fastmail'
+    || isFastmailConfig(initial)
+    || isFastmailConfig(form);
 
   const handleSubmit = async () => {
     if (!form.email_address || !form.auth_user || !form.imap_host) {
@@ -98,7 +114,9 @@ function AccountForm({ initial, onSave, onCancel }) {
     setSaving(true);
     setError('');
     try {
-      await onSave(form);
+      const payload = { ...form };
+      if (!payload.fastmail_api_token?.trim()) delete payload.fastmail_api_token;
+      await onSave(payload);
     } catch (err) {
       setError(err.message);
       setSaving(false);
@@ -112,7 +130,7 @@ function AccountForm({ initial, onSave, onCancel }) {
         <div style={{ display: 'flex', gap: 6, marginBottom: 18, flexWrap: 'wrap' }}>
           {Object.entries(PRESETS).map(([key]) => {
             const active = selectedPreset === key;
-            const presetLabel = key === 'gmail' ? t('admin.accounts.presetGmail') : key === 'yahoo' ? t('admin.accounts.presetYahoo') : key === 'icloud' ? t('admin.accounts.presetIcloud') : t('admin.accounts.presetCustom');
+            const presetLabel = key === 'gmail' ? t('admin.accounts.presetGmail') : key === 'yahoo' ? t('admin.accounts.presetYahoo') : key === 'icloud' ? t('admin.accounts.presetIcloud') : key === 'fastmail' ? t('admin.accounts.presetFastmail') : t('admin.accounts.presetCustom');
             return (
               <button key={key} onClick={() => handlePreset(key)} style={{
                 padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 500,
@@ -194,6 +212,31 @@ function AccountForm({ initial, onSave, onCancel }) {
           </button>
         </div>
       </Field>
+
+      {isFastmail && (
+        <div style={{ fontSize: 11, color: 'var(--text-tertiary)', lineHeight: 1.5, marginTop: -8, marginBottom: 14 }}>
+          {t('admin.accounts.fastmailAppPasswordHint')}
+        </div>
+      )}
+
+      {isFastmail && (
+        <Field label={t('admin.accounts.fastmailApiToken')}>
+          <input
+            type="password"
+            value={form.fastmail_api_token || ''}
+            onChange={e => set('fastmail_api_token', e.target.value)}
+            placeholder={initial?.fastmail_configured ? '••••••••' : undefined}
+            autoComplete="new-password"
+            style={inputStyle}
+            onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+            onBlur={e => e.target.style.borderColor = 'var(--border)'}
+          />
+          <div style={{ fontSize: 11, color: 'var(--text-tertiary)', lineHeight: 1.5, marginTop: 5 }}>
+            <div>{t('admin.accounts.fastmailApiTokenHint')}</div>
+            <div>{t('admin.accounts.fastmailPermissionsHint')}</div>
+          </div>
+        </Field>
+      )}
 
       <div style={{ height: 1, background: 'var(--border-subtle)', margin: '16px 0' }} />
       <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 10, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
@@ -376,6 +419,7 @@ function AccountsTab() {
   const [aliasFormId, setAliasFormId] = useState(null);
   const [aliasFormError, setAliasFormError] = useState('');
   const [aliasFormSaving, setAliasFormSaving] = useState(false);
+  const [fastmailRefreshing, setFastmailRefreshing] = useState(false);
 
   const handleAdd = async (form) => {
     const account = await api.addAccount(form);
@@ -387,8 +431,12 @@ function AccountsTab() {
     const updates = { name: form.name, sender_name: form.sender_name || null, color: form.color, imap_host: form.imap_host, imap_port: form.imap_port, imap_skip_tls_verify: !!form.imap_skip_tls_verify, smtp_host: form.smtp_host, smtp_port: form.smtp_port, smtp_tls: form.smtp_tls, signature: form.signature || null, categorization_enabled: !!form.categorization_enabled };
     if (form.auth_pass) updates.auth_pass = form.auth_pass;
     if (form.auth_user) updates.auth_user = form.auth_user;
-    await api.updateAccount(editTarget.id, updates);
-    updateAccount(editTarget.id, updates);
+    if (form.fastmail_api_token) updates.fastmail_api_token = form.fastmail_api_token;
+    const saved = await api.updateAccount(editTarget.id, updates);
+    const safeUpdates = { ...updates };
+    delete safeUpdates.auth_pass;
+    delete safeUpdates.fastmail_api_token;
+    updateAccount(editTarget.id, { ...safeUpdates, ...saved });
     setSubview('list');
     setEditTarget(null);
   };
@@ -517,6 +565,42 @@ function AccountsTab() {
         const newAliases = (editTarget.aliases || []).filter(a => a.id !== aliasId);
         updateAccount(editTarget.id, { aliases: newAliases });
         setEditTarget(prev => ({ ...prev, aliases: newAliases }));
+      },
+    });
+  };
+
+  const replaceFastmailSnapshot = (snapshot) => {
+    updateAccount(snapshot.id, snapshot);
+    setEditTarget(snapshot);
+  };
+
+  const handleFastmailRefresh = async () => {
+    setFastmailRefreshing(true);
+    try {
+      replaceFastmailSnapshot(await api.refreshFastmailAliases(editTarget.id));
+    } catch (err) {
+      addNotification({ type: 'error', title: t('admin.accounts.fastmailRefresh'), body: err.message });
+    } finally {
+      setFastmailRefreshing(false);
+    }
+  };
+
+  const handleFastmailDisconnect = () => {
+    setConfirmDialog({
+      title: t('admin.accounts.fastmailDisconnect'),
+      message: t('admin.accounts.fastmailDisconnectConfirm'),
+      confirmLabel: t('admin.accounts.fastmailDisconnect'),
+      onConfirm: async () => {
+        try {
+          const account = await api.updateAccount(editTarget.id, { fastmail_api_token: null });
+          replaceFastmailSnapshot({
+            ...editTarget,
+            ...account,
+            aliases: (editTarget.aliases || []).filter(alias => alias.provenance === 'manual'),
+          });
+        } catch (err) {
+          addNotification({ type: 'error', title: t('admin.accounts.fastmailDisconnect'), body: err.message });
+        }
       },
     });
   };
@@ -654,6 +738,82 @@ function AccountsTab() {
     }
 
     const aliases = editTarget.aliases || [];
+    const fastmailAliases = aliases.filter(a =>
+      a.provenance === 'fastmail' && a.fastmail_identity_id && !a.fastmail_masked_email_id && !a.email.startsWith('*@')
+    );
+    const maskedEmails = aliases.filter(a => a.provenance === 'fastmail' && a.fastmail_masked_email_id);
+    const wildcardIdentities = aliases.filter(a => a.provenance === 'fastmail' && a.email.startsWith('*@'));
+    const manualAliases = aliases.filter(a => a.provenance === 'manual');
+    const isFastmailAccount = isFastmailConfig(editTarget)
+      || aliases.some(alias => alias.provenance === 'fastmail');
+
+    const renderAliasRows = (group, managed) => group.map(alias => (
+      <div key={alias.id} style={{
+        display: 'flex', alignItems: 'center', gap: 12,
+        padding: '12px 14px', marginBottom: 8,
+        border: '1px solid var(--border-subtle)', borderRadius: 10,
+        background: 'var(--bg-tertiary)',
+      }}>
+        <div style={{
+          width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
+          background: 'var(--bg-hover)', display: 'flex',
+          alignItems: 'center', justifyContent: 'center',
+          color: 'var(--text-secondary)',
+        }}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+            <circle cx="12" cy="8" r="4"/>
+            <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
+          </svg>
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{alias.name}</div>
+          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1 }}>{alias.email}</div>
+          {managed && (
+            <>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1 }}>
+                {t('admin.aliases.managedInFastmail')}
+              </div>
+              {alias.fastmail_label && (
+                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1 }}>{alias.fastmail_label}</div>
+              )}
+            </>
+          )}
+          {alias.reply_to && (
+            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1 }}>
+              {t('admin.aliases.replyToLabel')} {alias.reply_to}
+            </div>
+          )}
+        </div>
+        {!managed && (
+          <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+            <IconBtn onClick={() => handleAliasEdit(alias)} title={t('common.edit')}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+                <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+              </svg>
+            </IconBtn>
+            <IconBtn onClick={() => handleAliasDelete(alias.id)} title={t('common.delete')} danger>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
+              </svg>
+            </IconBtn>
+          </div>
+        )}
+      </div>
+    ));
+
+    const renderGroup = (title, group, managed) => {
+      if (!group.length) return null;
+      return (
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+            {title}
+          </div>
+          {renderAliasRows(group, managed)}
+        </div>
+      );
+    };
     return (
       <>
       <div>
@@ -667,6 +827,43 @@ function AccountsTab() {
         <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 16, lineHeight: 1.6, padding: '10px 12px', background: 'var(--bg-tertiary)', borderRadius: 8, border: '1px solid var(--border-subtle)' }}>
           {t('admin.aliases.description')}
         </div>
+
+        {isFastmailAccount && (
+          <>
+            <div style={{ padding: '12px 14px', marginBottom: 16, border: '1px solid var(--border-subtle)', borderRadius: 10, background: 'var(--bg-secondary)' }}>
+              <div style={{ fontSize: 13, color: editTarget.fastmail_configured ? 'var(--green)' : 'var(--text-secondary)', marginBottom: 6 }}>
+                {editTarget.fastmail_configured ? t('admin.accounts.fastmailConfigured') : t('admin.accounts.fastmailNotConfigured')}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: editTarget.fastmail_sync_error ? 6 : 10 }}>
+                {t('admin.accounts.fastmailLastSync')}: {editTarget.fastmail_last_sync ? new Date(editTarget.fastmail_last_sync).toLocaleString() : t('common.never')}
+              </div>
+              {editTarget.fastmail_sync_error && (
+                <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 10 }}>{editTarget.fastmail_sync_error}</div>
+              )}
+              {editTarget.fastmail_configured && (
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button onClick={handleFastmailRefresh} disabled={fastmailRefreshing} style={{
+                    padding: '7px 12px', background: 'var(--accent)', border: 'none', borderRadius: 7,
+                    color: 'white', cursor: fastmailRefreshing ? 'not-allowed' : 'pointer', fontSize: 12,
+                    opacity: fastmailRefreshing ? 0.7 : 1,
+                  }}>
+                    {fastmailRefreshing ? t('admin.accounts.fastmailRefreshing') : t('admin.accounts.fastmailRefresh')}
+                  </button>
+                  <button onClick={handleFastmailDisconnect} style={{
+                    padding: '7px 12px', background: 'transparent', border: '1px solid var(--red)', borderRadius: 7,
+                    color: 'var(--red)', cursor: 'pointer', fontSize: 12,
+                  }}>
+                    {t('admin.accounts.fastmailDisconnect')}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <a href="https://app.fastmail.com/settings/addresses" target="_blank" rel="noreferrer" style={{ display: 'inline-block', color: 'var(--accent)', fontSize: 12, marginBottom: 16 }}>
+              {t('admin.aliases.manageInFastmail')}
+            </a>
+          </>
+        )}
 
         <button
           onClick={() => { setAliasFormData({ name: '', email: '', reply_to: '', signature: '' }); setAliasFormMode('add'); }}
@@ -683,58 +880,14 @@ function AccountsTab() {
           {t('admin.aliases.addButton')}
         </button>
 
-        {aliases.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-tertiary)', fontSize: 13 }}>
+        {isFastmailAccount && renderGroup(t('admin.aliases.fastmailAliases'), fastmailAliases, true)}
+        {isFastmailAccount && renderGroup(t('admin.aliases.maskedEmails'), maskedEmails, true)}
+        {isFastmailAccount && renderGroup(t('admin.aliases.wildcardIdentities'), wildcardIdentities, true)}
+        {renderGroup(t('admin.aliases.manualAliases'), manualAliases, false)}
+        {aliases.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '12px 0', color: 'var(--text-tertiary)', fontSize: 13 }}>
             {t('admin.aliases.empty')}
           </div>
-        ) : (
-          aliases.map(alias => (
-            <div key={alias.id} style={{
-              display: 'flex', alignItems: 'center', gap: 12,
-              padding: '12px 14px', marginBottom: 8,
-              border: '1px solid var(--border-subtle)', borderRadius: 10,
-              background: 'var(--bg-tertiary)',
-            }}>
-              <div style={{
-                width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
-                background: 'var(--bg-hover)', display: 'flex',
-                alignItems: 'center', justifyContent: 'center',
-                color: 'var(--text-secondary)',
-              }}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-                  <circle cx="12" cy="8" r="4"/>
-                  <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
-                </svg>
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
-                  {alias.name}
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1 }}>
-                  {alias.email}
-                </div>
-                {alias.reply_to && (
-                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1 }}>
-                    {t('admin.aliases.replyToLabel')} {alias.reply_to}
-                  </div>
-                )}
-              </div>
-              <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                <IconBtn onClick={() => handleAliasEdit(alias)} title={t('common.edit')}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
-                    <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                  </svg>
-                </IconBtn>
-                <IconBtn onClick={() => handleAliasDelete(alias.id)} title={t('common.delete')} danger>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <polyline points="3 6 5 6 21 6"/>
-                    <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
-                  </svg>
-                </IconBtn>
-              </div>
-            </div>
-          ))
         )}
       </div>
       <ConfirmOverlay dialog={confirmDialog} onClose={() => setConfirmDialog(null)} />

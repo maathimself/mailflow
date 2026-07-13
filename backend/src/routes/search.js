@@ -225,9 +225,12 @@ router.get('/', searchLimiter, async (req, res) => {
   params.push(off);
 
   try {
+    // to/cc are returned so a reply composed straight from a search result can resolve
+    // which of the user's aliases to send from (senderResolver) without re-fetching.
     const result = await query(`
       SELECT
         m.id, m.uid, m.folder, m.subject, m.from_name, m.from_email,
+        m.to_addresses, m.cc_addresses,
         m.date, m.snippet, m.is_read, m.is_starred, m.has_attachments, m.account_id,
         a.name as account_name, a.email_address as account_email, a.color as account_color
       FROM messages m

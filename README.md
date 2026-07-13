@@ -414,6 +414,23 @@ Gmail requires an **App Password** (not your normal password):
 | SMTP Port | `587` |
 | Username | your full iCloud email (`you@icloud.com`) |
 
+### Fastmail
+
+Fastmail uses two credentials for different responsibilities:
+
+1. Create a Fastmail app password and enter it in the account's **Password** field for IMAP and SMTP access.
+2. Create a Fastmail API token with **Email submission** and **Masked Email** permissions, then enter it in the **Fastmail API token** field.
+
+| Setting | Value |
+|---|---|
+| IMAP Host | `imap.fastmail.com` |
+| IMAP Port | `993` |
+| SMTP Host | `smtp.fastmail.com` |
+| SMTP Port | `465` |
+| Username | your full Fastmail email (`you@fastmail.com`) |
+
+MailFlow uses the API token to synchronize the sending identities and masked addresses that Fastmail authorizes. Manage provider-owned addresses in Fastmail, then use **Refresh addresses** in MailFlow when you need an immediate synchronization.
+
 ### Microsoft 365 / Outlook (OAuth2)
 
 **Work / school accounts (Microsoft 365):** require modern auth via Azure App Registration:

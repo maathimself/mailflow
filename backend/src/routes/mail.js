@@ -11,6 +11,7 @@ import { resolveTrashFolder, resolveAllTrashPaths, resolveAllDraftsPaths, resolv
 import { listMessages } from '../services/messageService.js';
 import { validateHost } from '../services/hostValidation.js';
 import { safeFetch } from '../services/safeFetch.js';
+import { resolveMessageSender } from '../services/senderResolver.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -112,7 +113,7 @@ router.get('/messages/:id', async (req, res) => {
   try {
     const result = await query(`
       SELECT m.id, m.uid, m.folder, m.message_id, m.subject,
-             m.from_name, m.from_email, m.to_addresses, m.cc_addresses,
+             m.from_name, m.from_email, m.to_addresses, m.cc_addresses, m.delivery_addresses,
              m.reply_to, m.in_reply_to,
              m.date, m.snippet, m.is_read, m.is_starred,
              m.has_attachments, m.account_id, m.category,
@@ -130,6 +131,28 @@ router.get('/messages/:id', async (req, res) => {
   } catch (err) {
     console.error('GET /messages/:id error:', err.message);
     res.status(500).json({ error: 'Failed to load message' });
+  }
+});
+
+router.post('/messages/:id/resolve-sender', async (req, res) => {
+  if (!UUID_RE.test(req.params.id)) return res.status(400).json({ error: 'Invalid message ID' });
+  const purpose = req.body?.purpose;
+  if (purpose !== 'reply' && purpose !== 'draft') {
+    return res.status(400).json({ error: 'purpose must be reply or draft' });
+  }
+  try {
+    const result = await resolveMessageSender({
+      messageId: req.params.id,
+      userId: req.session.userId,
+      purpose,
+    });
+    res.json(result);
+  } catch (err) {
+    if (err.status === 404) return res.status(404).json({ error: 'Message not found' });
+    // Log only the safe error shape: an unexpected resolve-sender failure can carry
+    // alias or DB detail that must not reach logs (credential hygiene); never log err.message.
+    console.error('POST /messages/:id/resolve-sender failed:', err?.name, err?.code);
+    res.status(500).json({ error: 'Failed to resolve sender' });
   }
 });
 
@@ -169,7 +192,7 @@ router.get('/thread/:threadId', async (req, res) => {
       WITH deduped AS (
         SELECT DISTINCT ON (m.message_id)
                m.id, m.uid, m.folder, m.message_id, m.thread_id, m.subject,
-               m.from_name, m.from_email, m.to_addresses, m.cc_addresses,
+               m.from_name, m.from_email, m.to_addresses, m.cc_addresses, m.delivery_addresses,
                m.reply_to, m.in_reply_to,
                m.date, m.snippet, m.is_read, m.is_starred,
                m.has_attachments, m.account_id, m.category,
@@ -993,7 +1016,7 @@ router.post('/messages/bulk-delete', async (req, res) => {
           )
           INSERT INTO messages (
             account_id, uid, folder, message_id, subject,
-            from_name, from_email, to_addresses, cc_addresses,
+            from_name, from_email, to_addresses, cc_addresses, delivery_addresses,
             reply_to, in_reply_to, date, snippet, is_read, is_starred,
             has_attachments, flags, body_html, body_text, attachments,
             thread_references, thread_id, is_bulk,
@@ -1003,7 +1026,7 @@ router.post('/messages/bulk-delete', async (req, res) => {
           )
           SELECT
             d.account_id, u.new_uid, $4, d.message_id, d.subject,
-            d.from_name, d.from_email, d.to_addresses, d.cc_addresses,
+            d.from_name, d.from_email, d.to_addresses, d.cc_addresses, d.delivery_addresses,
             d.reply_to, d.in_reply_to, d.date, d.snippet, d.is_read, d.is_starred,
             d.has_attachments, d.flags, d.body_html, d.body_text, d.attachments,
             d.thread_references, d.thread_id, d.is_bulk,
@@ -1179,7 +1202,7 @@ router.post('/messages/bulk-move', async (req, res) => {
         )
         INSERT INTO messages (
           account_id, uid, folder, message_id, subject,
-          from_name, from_email, to_addresses, cc_addresses,
+          from_name, from_email, to_addresses, cc_addresses, delivery_addresses,
           reply_to, in_reply_to, date, snippet, is_read, is_starred,
           has_attachments, flags, body_html, body_text, attachments,
           thread_references, thread_id, is_bulk,
@@ -1189,7 +1212,7 @@ router.post('/messages/bulk-move', async (req, res) => {
         )
         SELECT
           d.account_id, u.new_uid, $4, d.message_id, d.subject,
-          d.from_name, d.from_email, d.to_addresses, d.cc_addresses,
+          d.from_name, d.from_email, d.to_addresses, d.cc_addresses, d.delivery_addresses,
           d.reply_to, d.in_reply_to, d.date, d.snippet, d.is_read, d.is_starred,
           d.has_attachments, d.flags, d.body_html, d.body_text, d.attachments,
           d.thread_references, d.thread_id, d.is_bulk,
@@ -1334,7 +1357,7 @@ router.post('/messages/bulk-archive', async (req, res) => {
         )
         INSERT INTO messages (
           account_id, uid, folder, message_id, subject,
-          from_name, from_email, to_addresses, cc_addresses,
+          from_name, from_email, to_addresses, cc_addresses, delivery_addresses,
           reply_to, in_reply_to, date, snippet, is_read, is_starred,
           has_attachments, flags, body_html, body_text, attachments,
           thread_references, thread_id, is_bulk,
@@ -1344,7 +1367,7 @@ router.post('/messages/bulk-archive', async (req, res) => {
         )
         SELECT
           d.account_id, u.new_uid, $4, d.message_id, d.subject,
-          d.from_name, d.from_email, d.to_addresses, d.cc_addresses,
+          d.from_name, d.from_email, d.to_addresses, d.cc_addresses, d.delivery_addresses,
           d.reply_to, d.in_reply_to, d.date, d.snippet, d.is_read, d.is_starred,
           d.has_attachments, d.flags, d.body_html, d.body_text, d.attachments,
           d.thread_references, d.thread_id, d.is_bulk,

@@ -11,6 +11,8 @@ import ContextMenu from './ContextMenu.jsx';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
 import { applyDeleteGuard, clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.js';
+import { buildReplyComposeData } from '../utils/replyCompose.js';
+import { resolveSenderOrFallback } from '../utils/senderIdentity.js';
 
 // Folder icon for move picker
 function FolderIcon({ specialUse, size = 13 }) {
@@ -1147,75 +1149,14 @@ export default function MessageList() {
     setMessagesStarredState(message, !message.is_starred);
   }, [setMessagesStarredState]);
 
-  const handleSwipeReply = useCallback((message, replyAll = false) => {
-    const replyToArr = Array.isArray(message.reply_to)
-      ? message.reply_to
-      : (() => { try { return JSON.parse(message.reply_to || '[]'); } catch { return []; } })();
-    const replyTarget = (replyToArr.length && replyToArr[0].email)
-      ? replyToArr[0]
-      : { name: message.from_name || '', email: message.from_email || '' };
-    const sender = replyTarget.email ? [replyTarget] : [];
-
-    const myAccount = accounts.find(a => a.id === message.account_id);
-    const myEmail = myAccount?.email_address || '';
-    const myAddresses = new Set([
-      myEmail.toLowerCase(),
-      ...(myAccount?.aliases || []).map(al => al.email.toLowerCase()),
-    ]);
-
-    const replyAliasId = (() => {
-      const aliases = myAccount?.aliases || [];
-      if (!aliases.length) return null;
-      try {
-        const toArr = Array.isArray(message.to_addresses)
-          ? message.to_addresses
-          : JSON.parse(message.to_addresses || '[]');
-        const ccArr = Array.isArray(message.cc_addresses)
-          ? message.cc_addresses
-          : JSON.parse(message.cc_addresses || '[]');
-        const allEmails = [...toArr, ...ccArr].map(t => t.email?.toLowerCase()).filter(Boolean);
-        const fromEmail = (message.from_email || '').toLowerCase();
-        const match = aliases.find(al => {
-          const aliasEmail = al.email.toLowerCase();
-          return allEmails.includes(aliasEmail) || fromEmail === aliasEmail;
-        });
-        return match ? match.id : null;
-      } catch { return null; }
-    })();
-
-    const allRecipients = (() => {
-      try {
-        const toArr = Array.isArray(message.to_addresses)
-          ? message.to_addresses
-          : JSON.parse(message.to_addresses || '[]');
-        const ccArr = Array.isArray(message.cc_addresses)
-          ? message.cc_addresses
-          : JSON.parse(message.cc_addresses || '[]');
-        return [...toArr, ...ccArr].filter(
-          t => t.email && !myAddresses.has(t.email.toLowerCase()) && t.email !== replyTarget.email
-        );
-      } catch { return []; }
-    })();
-
-    const referencesChain = [message.in_reply_to, message.message_id]
-      .filter(Boolean).join(' ').trim() || null;
-    const rawSubject = (message.subject || '').trim();
-
-    openCompose({
-      to: sender,
-      cc: replyAll ? allRecipients : [],
-      subject: rawSubject.startsWith('Re:') ? rawSubject : rawSubject ? `Re: ${rawSubject}` : 'Re:',
-      body: '',
-      quotedBody: '',
-      inReplyTo: message.message_id,
-      references: referencesChain,
-      accountId: message.account_id,
-      aliasId: replyAliasId,
-      isReply: true,
-      isReplyAll: replyAll,
-      originalFrom: sender,
-      allRecipients,
-    });
+  const handleSwipeReply = useCallback(async (message, replyAll = false) => {
+    const resolved = await resolveSenderOrFallback(() => api.resolveMessageSender(message.id, 'reply'));
+    openCompose(buildReplyComposeData({
+      message,
+      account: accounts.find(account => account.id === message.account_id),
+      resolved,
+      replyAll,
+    }));
   }, [accounts, openCompose]);
   
   const runSwipeAction = useCallback((action, message) => {
@@ -1759,88 +1700,15 @@ export default function MessageList() {
       case 'replyAll': {
         const replyAll = action === 'replyAll';
 
-        const replyToArr = Array.isArray(message.reply_to)
-          ? message.reply_to
-          : (() => { try { return JSON.parse(message.reply_to || '[]'); } catch { return []; } })();
-        const replyTarget = (replyToArr.length && replyToArr[0].email)
-          ? replyToArr[0]
-          : { name: message.from_name || '', email: message.from_email || '' };
-        const sender = replyTarget.email ? [replyTarget] : [];
-
-        const myAccount = accounts.find(a => a.id === message.account_id);
-        const myEmail = myAccount?.email_address || '';
-        const myAddresses = new Set([
-          myEmail.toLowerCase(),
-          ...(myAccount?.aliases || []).map(al => al.email.toLowerCase()),
-        ]);
-
-        const replyAliasId = (() => {
-          const aliases = myAccount?.aliases || [];
-          if (!aliases.length) return null;
-          try {
-            const toArr = Array.isArray(message.to_addresses)
-              ? message.to_addresses
-              : JSON.parse(message.to_addresses || '[]');
-            const ccArr = Array.isArray(message.cc_addresses)
-              ? message.cc_addresses
-              : JSON.parse(message.cc_addresses || '[]');
-            const allEmails = [...toArr, ...ccArr].map(t => t.email?.toLowerCase()).filter(Boolean);
-            const fromEmail = (message.from_email || '').toLowerCase();
-            const match = aliases.find(al => {
-              const aliasEmail = al.email.toLowerCase();
-              return allEmails.includes(aliasEmail) || fromEmail === aliasEmail;
-            });
-            return match ? match.id : null;
-          } catch { return null; }
-        })();
-
-        const allRecipients = (() => {
-          try {
-            const toArr = Array.isArray(message.to_addresses)
-              ? message.to_addresses
-              : JSON.parse(message.to_addresses || '[]');
-            const ccArr = Array.isArray(message.cc_addresses)
-              ? message.cc_addresses
-              : JSON.parse(message.cc_addresses || '[]');
-            return [...toArr, ...ccArr].filter(
-              t => t.email && !myAddresses.has(t.email.toLowerCase()) && t.email !== replyTarget.email
-            );
-          } catch { return []; }
-        })();
-
-        const referencesChain = [message.in_reply_to, message.message_id]
-          .filter(Boolean).join(' ').trim() || null;
-        const rawSubject = (message.subject || '').trim();
-
+        const resolved = await resolveSenderOrFallback(() => api.resolveMessageSender(message.id, 'reply'));
         const replyBody = await api.getMessageBody(message.id).catch(() => null);
-        const replyDate = message.date ? new Date(message.date).toLocaleString() : '';
-        const replySafeName = (message.from_name || '').replace(/[\r\n]+/g, ' ');
-        const replyFromStr = replySafeName
-          ? `${replySafeName} <${message.from_email}>`
-          : message.from_email || '';
-        const quotedText = replyBody?.text
-          ? `\n\n---\nOn ${replyDate}, ${replyFromStr} wrote:\n${replyBody.text.split('\n').map(l => '> ' + l).join('\n')}`
-          : '';
-        const quotedBodyHtml = replyBody?.html
-          ? `<div style="border-left:3px solid var(--border,#ccc);padding-left:12px;margin-top:12px;color:var(--text-secondary,#666)"><p style="margin:0 0 6px;font-size:12px">On ${replyDate}, ${replyFromStr} wrote:</p>${replyBody.html}</div>`
-          : null;
-
-        openCompose({
-          to: sender,
-          cc: replyAll ? allRecipients : [],
-          subject: rawSubject.startsWith('Re:') ? rawSubject : rawSubject ? `Re: ${rawSubject}` : 'Re:',
-          body: '',
-          quotedBody: quotedText,
-          quotedBodyHtml,
-          inReplyTo: message.message_id,
-          references: referencesChain,
-          accountId: message.account_id,
-          aliasId: replyAliasId,
-          isReply: true,
-          isReplyAll: replyAll,
-          originalFrom: sender,
-          allRecipients,
-        });
+        openCompose(buildReplyComposeData({
+          message,
+          account: accounts.find(account => account.id === message.account_id),
+          resolved,
+          replyAll,
+          body: replyBody,
+        }));
         break;
       }
       case 'forward': {
@@ -2084,7 +1952,10 @@ export default function MessageList() {
   const handleSelect = async (message) => {
     if (isDraftsFolder) {
       try {
-        const bodyData = await api.getMessageBody(message.id);
+        const [bodyData, resolved] = await Promise.all([
+          api.getMessageBody(message.id),
+          resolveSenderOrFallback(() => api.resolveMessageSender(message.id, 'draft')),
+        ]);
         openCompose({
           accountId: message.account_id,
           draftUid: message.uid,
@@ -2094,6 +1965,8 @@ export default function MessageList() {
           subject: message.subject || '',
           body: bodyData.html || bodyData.text || '',
           bodyIsHtml: !!bodyData.html,
+          sender: resolved.sender,
+          senderRequired: resolved.requiresSelection,
         });
       } catch (err) {
         console.error('Failed to open draft:', err.message);

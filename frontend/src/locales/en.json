@@ -91,6 +91,8 @@
     }
   },
   "compose": {
+    "selectSender": "Select a sending address",
+    "senderRequired": "Choose a sending address before continuing.",
     "newMessage": "New Message",
     "reply": "Reply",
     "replyAll": "Reply All",
@@ -624,6 +626,7 @@
       "addAccount": "Add account",
       "saving": "Saving…",
       "presetGmail": "Gmail",
+      "presetFastmail": "Fastmail",
       "presetYahoo": "Yahoo Mail",
       "presetIcloud": "iCloud",
       "presetCustom": "Custom",
@@ -638,7 +641,18 @@
       "categorizationSection": "Email Categorization",
       "categorizationEnabled": "Enable inbox categorization",
       "categorizationEnabledDesc": "Sort incoming emails into category tabs. Disabled by default.",
-      "enabledGlobally": "Enabled globally"
+      "enabledGlobally": "Enabled globally",
+      "fastmailApiToken": "Fastmail API token",
+      "fastmailApiTokenHint": "Write-only and encrypted at rest. Leave blank to keep the current token.",
+      "fastmailAppPasswordHint": "Use a Fastmail app password in the Password field above.",
+      "fastmailPermissionsHint": "Create the token with Email submission and Masked Email permissions.",
+      "fastmailConfigured": "Fastmail address sync configured",
+      "fastmailNotConfigured": "Fastmail address sync not configured",
+      "fastmailLastSync": "Last address sync",
+      "fastmailRefresh": "Refresh addresses",
+      "fastmailRefreshing": "Refreshing addresses…",
+      "fastmailDisconnect": "Disconnect Fastmail sync",
+      "fastmailDisconnectConfirm": "Remove the API token and all Fastmail-managed addresses from Mailflow? Manual aliases and the email account will remain."
     },
     "folderMappings": {
       "title": "Folder mappings",
@@ -675,7 +689,13 @@
       "errorRequired": "Name and email are required",
       "deleteConfirmTitle": "Delete alias?",
       "deleteConfirmBody": "This alias will be permanently removed. This cannot be undone.",
-      "deleteConfirmLabel": "Delete"
+      "deleteConfirmLabel": "Delete",
+      "fastmailAliases": "Fastmail aliases",
+      "maskedEmails": "Masked Email addresses",
+      "wildcardIdentities": "Wildcard identities",
+      "manualAliases": "Manual Mailflow aliases",
+      "managedInFastmail": "Managed in Fastmail",
+      "manageInFastmail": "Manage addresses in Fastmail"
     },
     "appearance": {
       "title": "Appearance",

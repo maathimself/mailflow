@@ -1,8 +1,8 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('imapflow', () => ({ ImapFlow: vi.fn() }));
 vi.mock('./db.js', () => ({ query: vi.fn() }));
-vi.mock('./messageParser.js', () => ({ parseMessage: vi.fn(), buildSnippetFromHtml: vi.fn(), snippetFromBody: vi.fn(), decodeMimeWords: vi.fn(), detectBulkFromParsedHeaders: vi.fn(), parseRawHeaders: vi.fn() }));
+vi.mock('./messageParser.js', () => ({ parseMessage: vi.fn(), enrichParsedMetadata: vi.fn(), buildSnippetFromHtml: vi.fn(), snippetFromBody: vi.fn(), decodeMimeWords: vi.fn(), detectBulkFromParsedHeaders: vi.fn(), parseRawHeaders: vi.fn() }));
 vi.mock('../routes/oauth.js', () => ({ refreshMicrosoftToken: vi.fn() }));
 vi.mock('./emailSanitizer.js', () => ({ sanitizeEmail: vi.fn() }));
 vi.mock('./encryption.js', () => ({ decrypt: vi.fn() }));
@@ -10,7 +10,9 @@ vi.mock('./pushNotifications.js', () => ({ sendPushToUser: vi.fn() }));
 vi.mock('../utils/redact.js', () => ({ redactEmail: vi.fn() }));
 vi.mock('./hostValidation.js', () => ({ resolveForConnection: vi.fn() }));
 
-import { providerProfile, makeClientCfg, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, planModseqSync, connectStaggerFor } from './imapManager.js';
+import { ImapManager, providerProfile, makeClientCfg, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, planModseqSync, connectStaggerFor } from './imapManager.js';
+import { query } from './db.js';
+import { parseMessage } from './messageParser.js';
 
 const account = (imap_host, oauth_provider = null) => ({ imap_host, oauth_provider });
 
@@ -221,6 +223,91 @@ describe('makeClientCfg — rejectUnauthorized', () => {
   it('does not set servername when resolved.servername is null', () => {
     const cfg = makeClientCfg(baseAccount, resolved);
     expect(cfg.tls.servername).toBeUndefined();
+  });
+});
+
+describe('message delivery-address persistence', () => {
+  beforeEach(() => {
+    query.mockReset();
+    parseMessage.mockReset();
+  });
+
+  it('binds parsed delivery addresses in folder-sync inserts without erasing them on an empty refetch', async () => {
+    const parsed = {
+      uid: 2,
+      messageId: null,
+      subject: 'Delivered alias',
+      fromName: 'Sender',
+      fromEmail: 'sender@example.com',
+      to: [],
+      cc: [],
+      deliveryAddresses: ['mask@example.com'],
+      replyTo: [],
+      inReplyTo: null,
+      references: null,
+      parsedHeaders: {},
+      date: new Date('2026-07-12T12:00:00Z'),
+      snippet: '',
+      isRead: true,
+      isStarred: false,
+      hasAttachments: false,
+      flags: [],
+      isBulk: false,
+    };
+    parseMessage.mockResolvedValueOnce(parsed).mockResolvedValueOnce({
+      ...parsed,
+      deliveryAddresses: [],
+    });
+
+    const inserts = [];
+    query.mockImplementation(async (sql, params = []) => {
+      if (sql.includes('COUNT(*) FILTER (WHERE is_read = false)')) return { rows: [{ n: 0 }] };
+      if (sql.includes('COALESCE(MAX(uid), 0) as max_uid')) return { rows: [{ max_uid: 1 }] };
+      if (sql.includes('INSERT INTO messages')) {
+        inserts.push([sql, params]);
+        return { rows: [{ id: 'msg-1', is_new: false }] };
+      }
+      return { rows: [] };
+    });
+
+    let fetchCount = 0;
+    const client = {
+      mailbox: { exists: 2 },
+      getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
+      fetch: vi.fn(() => (async function* () {
+        fetchCount++;
+        if (fetchCount <= 2) yield { uid: 2 };
+      })()),
+    };
+    const manager = Object.create(ImapManager.prototype);
+    manager.broadcast = vi.fn();
+
+    await manager.syncMessages({ id: 'acct-1', user_id: 'user-1', imap_host: 'imap.fastmail.com' }, client, 'INBOX', 50, false);
+
+    expect(inserts).toHaveLength(2);
+    expect(inserts[0][0]).toMatch(/to_addresses, cc_addresses,\s+delivery_addresses/);
+    expect(inserts[0][1][9]).toBe(JSON.stringify(['mask@example.com']));
+    expect(inserts[1][1][9]).toBe(JSON.stringify([]));
+    expect(inserts[1][0]).toContain("WHEN EXCLUDED.delivery_addresses::text IS NOT NULL AND EXCLUDED.delivery_addresses::text <> '[]'");
+    expect(inserts[1][0]).toContain('ELSE messages.delivery_addresses');
+  });
+
+  it('preserves stored delivery addresses when sent metadata has no delivery header', async () => {
+    query.mockResolvedValueOnce({ rows: [] });
+    const manager = Object.create(ImapManager.prototype);
+
+    await manager.upsertSentMessageRecord(
+      { id: 'acct-1' },
+      'Sent',
+      42,
+      { messageId: '<sent@example.com>', subject: 'Sent message' },
+    );
+
+    const [sql, params] = query.mock.calls[0];
+    expect(sql).toMatch(/to_addresses, cc_addresses,\s+delivery_addresses/);
+    expect(params[9]).toBe(JSON.stringify([]));
+    expect(sql).toContain("WHEN EXCLUDED.delivery_addresses::text IS NOT NULL AND EXCLUDED.delivery_addresses::text <> '[]'");
+    expect(sql).toContain('ELSE messages.delivery_addresses');
   });
 });
 

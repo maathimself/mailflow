@@ -117,6 +117,7 @@ export const api = {
   deleteAccount: (id) => request('DELETE', `/accounts/${id}`),
   reconnectAccount: (id) => request('POST', `/accounts/${id}/reconnect`),
   reindexAccount: (id) => request('POST', `/accounts/${id}/reindex`),
+  refreshFastmailAliases: (id) => request('POST', `/accounts/${id}/fastmail/refresh`),
   getFolders: (accountId) => request('GET', `/accounts/${accountId}/folders`),
   getAliases: (accountId) => request('GET', `/accounts/${accountId}/aliases`),
   addAlias: (accountId, data) => request('POST', `/accounts/${accountId}/aliases`, data),
@@ -129,6 +130,7 @@ export const api = {
     return request('GET', `/mail/messages?${qs}`);
   },
   getMessage: (id) => request('GET', `/mail/messages/${id}`),
+  resolveMessageSender: (id, purpose) => request('POST', `/mail/messages/${id}/resolve-sender`, { purpose }),
   getMessageBody,
   getThread: (threadId, folder) => {
     const qs = folder ? `?folder=${encodeURIComponent(folder)}` : '';

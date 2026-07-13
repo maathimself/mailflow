@@ -537,8 +537,11 @@ const RELOCATE_MESSAGE_SQL = `
     cc_addresses = CASE
       WHEN $9::jsonb::text IS NOT NULL AND $9::jsonb::text <> '[]'
       THEN $9::jsonb ELSE messages.cc_addresses END,
-    reply_to = COALESCE(NULLIF(messages.reply_to::text, '[]'), $10::text)::jsonb,
-    date = $11::timestamptz
+    delivery_addresses = CASE
+      WHEN $10::jsonb::text IS NOT NULL AND $10::jsonb::text <> '[]'
+      THEN $10::jsonb ELSE messages.delivery_addresses END,
+    reply_to = COALESCE(NULLIF(messages.reply_to::text, '[]'), $11::text)::jsonb,
+    date = $12::timestamptz
   WHERE account_id = $3::uuid
     AND message_id = $4::text
     AND (folder != $1::text OR uid != $2::bigint)
@@ -554,6 +557,7 @@ function relocateMessageParams(folder, parsed, accountId, msgId) {
     sanitizeStr(parsed.fromEmail),
     JSON.stringify(parsed.to),
     JSON.stringify(parsed.cc),
+    JSON.stringify(parsed.deliveryAddresses || []),
     JSON.stringify(parsed.replyTo || []),
     safeDate(parsed.date),
   ];
@@ -2001,13 +2005,13 @@ export class ImapManager {
             const result = await query(`
               INSERT INTO messages (
                 account_id, uid, folder, message_id, subject,
-                from_name, from_email, to_addresses, cc_addresses,
+                from_name, from_email, to_addresses, cc_addresses, delivery_addresses,
                 reply_to, in_reply_to,
                 date, snippet, is_read, is_starred, has_attachments, flags,
                 body_html, body_text, attachments,
                 thread_references, thread_id, is_bulk, category,
                 list_unsubscribe, list_unsubscribe_post
-              ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
+              ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
               ON CONFLICT (account_id, uid, folder) DO UPDATE
               SET subject = CASE
                     WHEN EXCLUDED.subject IS NOT NULL
@@ -2028,6 +2032,11 @@ export class ImapManager {
                     THEN EXCLUDED.cc_addresses
                     ELSE messages.cc_addresses
                   END,
+                  delivery_addresses = CASE
+                    WHEN EXCLUDED.delivery_addresses::text IS NOT NULL AND EXCLUDED.delivery_addresses::text <> '[]'
+                    THEN EXCLUDED.delivery_addresses
+                    ELSE messages.delivery_addresses
+                  END,
                   reply_to = COALESCE(NULLIF(messages.reply_to::text, '[]'), EXCLUDED.reply_to::text)::jsonb,
                   in_reply_to = COALESCE(messages.in_reply_to, EXCLUDED.in_reply_to),
                   snippet = CASE WHEN EXCLUDED.snippet != '' THEN EXCLUDED.snippet
@@ -2044,7 +2053,7 @@ export class ImapManager {
                     THEN messages.is_starred
                     ELSE EXCLUDED.is_starred
                   END,
-                  flags = $17,
+                  flags = $18,
                   body_html = COALESCE(messages.body_html, EXCLUDED.body_html),
                   body_text = COALESCE(messages.body_text, EXCLUDED.body_text),
                   attachments = COALESCE(messages.attachments::text, EXCLUDED.attachments::text)::jsonb,
@@ -2060,6 +2069,7 @@ export class ImapManager {
               msgId, sanitizeStr(parsed.subject),
               sanitizeStr(parsed.fromName), sanitizeStr(parsed.fromEmail),
               JSON.stringify(parsed.to), JSON.stringify(parsed.cc),
+              JSON.stringify(parsed.deliveryAddresses || []),
               JSON.stringify(parsed.replyTo || []), inReplyTo,
               safeDate(parsed.date), sanitizeStr(parsed.snippet),
               parsed.isRead, parsed.isStarred,
@@ -2580,13 +2590,13 @@ export class ImapManager {
                 await query(`
                   INSERT INTO messages (
                     account_id, uid, folder, message_id, subject,
-                    from_name, from_email, to_addresses, cc_addresses,
+                    from_name, from_email, to_addresses, cc_addresses, delivery_addresses,
                     reply_to, in_reply_to,
                     date, snippet, is_read, is_starred, has_attachments, flags,
                     body_html, body_text, attachments,
                     thread_references, thread_id, is_bulk, category,
                     list_unsubscribe, list_unsubscribe_post
-                  ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
+                  ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
                   ON CONFLICT (account_id, uid, folder) DO UPDATE
                   SET subject = CASE
                         WHEN EXCLUDED.subject IS NOT NULL
@@ -2606,6 +2616,11 @@ export class ImapManager {
                         WHEN EXCLUDED.cc_addresses::text IS NOT NULL AND EXCLUDED.cc_addresses::text <> '[]'
                         THEN EXCLUDED.cc_addresses
                         ELSE messages.cc_addresses
+                      END,
+                      delivery_addresses = CASE
+                        WHEN EXCLUDED.delivery_addresses::text IS NOT NULL AND EXCLUDED.delivery_addresses::text <> '[]'
+                        THEN EXCLUDED.delivery_addresses
+                        ELSE messages.delivery_addresses
                       END,
                       reply_to = COALESCE(NULLIF(messages.reply_to::text, '[]'), EXCLUDED.reply_to::text)::jsonb,
                       in_reply_to = COALESCE(messages.in_reply_to, EXCLUDED.in_reply_to),
@@ -2638,6 +2653,7 @@ export class ImapManager {
                   bfMsgId, sanitizeStr(parsed.subject),
                   sanitizeStr(parsed.fromName), sanitizeStr(parsed.fromEmail),
                   JSON.stringify(parsed.to), JSON.stringify(parsed.cc),
+                  JSON.stringify(parsed.deliveryAddresses || []),
                   JSON.stringify(parsed.replyTo || []), bfReplyTo,
                   safeDate(parsed.date), sanitizeStr(parsed.snippet),
                   parsed.isRead, parsed.isStarred,
@@ -3109,9 +3125,9 @@ export class ImapManager {
     await query(`
       INSERT INTO messages (
         account_id, uid, folder, message_id, subject,
-        from_name, from_email, to_addresses, cc_addresses,
+        from_name, from_email, to_addresses, cc_addresses, delivery_addresses,
         date, snippet, is_read, is_starred, has_attachments, flags, thread_id
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,true,false,false,'[]',$12)
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb,$11,$12,true,false,false,'[]',$13)
       ON CONFLICT (account_id, uid, folder) DO UPDATE SET
         message_id = COALESCE(EXCLUDED.message_id, messages.message_id),
         subject = CASE
@@ -3125,6 +3141,9 @@ export class ImapManager {
         cc_addresses = CASE
           WHEN EXCLUDED.cc_addresses::text IS NOT NULL AND EXCLUDED.cc_addresses::text <> '[]'
           THEN EXCLUDED.cc_addresses ELSE messages.cc_addresses END,
+        delivery_addresses = CASE
+          WHEN EXCLUDED.delivery_addresses::text IS NOT NULL AND EXCLUDED.delivery_addresses::text <> '[]'
+          THEN EXCLUDED.delivery_addresses ELSE messages.delivery_addresses END,
         date = EXCLUDED.date,
         snippet = CASE WHEN EXCLUDED.snippet <> '' THEN EXCLUDED.snippet ELSE messages.snippet END,
         is_read = true,
@@ -3134,6 +3153,7 @@ export class ImapManager {
       sanitizeStr(subject || '(no subject)'),
       sanitizeStr(fromName || ''), sanitizeStr(fromEmail || ''),
       JSON.stringify(to), JSON.stringify(cc),
+      JSON.stringify([]),
       safeDate(date), sanitizeStr(snippet || ''), threadId,
     ]);
   }

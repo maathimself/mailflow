@@ -1,11 +1,13 @@
 import { Router } from 'express';
-import { query } from '../services/db.js';
+import { query, withTransaction } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { imapManager } from '../index.js';
 import { encrypt } from '../services/encryption.js';
 import { sanitizeSignature } from '../services/emailSanitizer.js';
 import { validateHost } from '../services/hostValidation.js';
 import { getConnectionPolicy } from '../services/connectionPolicy.js';
+import { loadFastmailSession } from '../services/fastmailClient.js';
+import { syncFastmailAliases } from '../services/fastmailAliasSync.js';
 
 const ALLOWED_IMAP_PORTS = new Set([143, 993]);
 const ALLOWED_SMTP_PORTS = new Set([465, 587]);
@@ -35,17 +37,45 @@ router.use(requireAuth);
 // Fields safe to return to the client — matches the GET list, excludes credentials and tokens
 const SAFE_FIELDS = [
   'id', 'name', 'sender_name', 'email_address', 'color', 'protocol',
-  'imap_host', 'imap_port', 'imap_skip_tls_verify',
+  'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify',
   'smtp_host', 'smtp_port', 'smtp_tls',
   'auth_user', 'oauth_provider', 'enabled',
   'last_sync', 'sync_error', 'sort_order', 'folder_mappings',
   'signature', 'created_at', 'categorization_enabled',
+  'fastmail_last_sync', 'fastmail_sync_error',
 ];
 function safeAccount(row) {
   const obj = Object.fromEntries(SAFE_FIELDS.map(k => [k, row[k]]));
+  obj.fastmail_configured = row.fastmail_configured ?? Boolean(row.fastmail_api_token);
   // Sanitize on read so legacy values stored before the write-time sanitizer are safe
   if (obj.signature) obj.signature = sanitizeSignature(obj.signature);
   return obj;
+}
+
+async function loadOwnedAccount(id, userId) {
+  const result = await query(
+    'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2',
+    [id, userId],
+  );
+  return result.rows[0] || null;
+}
+
+async function loadSafeAccountWithAliases(id, userId) {
+  const account = await loadOwnedAccount(id, userId);
+  if (!account) return null;
+  const aliasResult = await query(
+    `SELECT id, account_id, name, email, reply_to, signature, provenance,
+            fastmail_identity_id, fastmail_masked_email_id, fastmail_label, created_at
+     FROM account_aliases WHERE account_id = $1 ORDER BY created_at`,
+    [id],
+  );
+  return {
+    ...safeAccount(account),
+    aliases: aliasResult.rows.map(alias => ({
+      ...alias,
+      signature: alias.signature ? sanitizeSignature(alias.signature) : alias.signature,
+    })),
+  };
 }
 
 router.get('/', async (req, res) => {
@@ -53,7 +83,9 @@ router.get('/', async (req, res) => {
     `SELECT id, name, sender_name, email_address, color, protocol, imap_host, imap_port, imap_tls, imap_skip_tls_verify,
             smtp_host, smtp_port, smtp_tls, auth_user, oauth_provider, enabled,
             last_sync, sync_error, sort_order, folder_mappings, signature, created_at,
-            categorization_enabled
+            categorization_enabled,
+            fastmail_last_sync, fastmail_sync_error,
+            (fastmail_api_token IS NOT NULL) AS fastmail_configured
      FROM email_accounts WHERE user_id = $1 ORDER BY sort_order, created_at`,
     [req.session.userId]
   );
@@ -63,7 +95,8 @@ router.get('/', async (req, res) => {
   let aliasMap = {};
   if (accountIds.length) {
     const aliasResult = await query(
-      `SELECT id, account_id, name, email, reply_to, signature, created_at
+      `SELECT id, account_id, name, email, reply_to, signature, provenance,
+              fastmail_identity_id, fastmail_masked_email_id, fastmail_label, created_at
        FROM account_aliases WHERE account_id = ANY($1) ORDER BY created_at`,
       [accountIds]
     );
@@ -74,8 +107,7 @@ router.get('/', async (req, res) => {
   }
 
   res.json(result.rows.map(a => ({
-    ...a,
-    signature: a.signature ? sanitizeSignature(a.signature) : a.signature,
+    ...safeAccount(a),
     aliases: (aliasMap[a.id] || []).map(alias => ({
       ...alias,
       signature: alias.signature ? sanitizeSignature(alias.signature) : alias.signature,
@@ -89,7 +121,7 @@ router.post('/', async (req, res) => {
     imap_host, imap_port = 993, imap_skip_tls_verify = false,
     smtp_host, smtp_port = 587, smtp_tls = 'STARTTLS',
     auth_user, auth_pass,
-    oauth_provider, oauth_access_token, oauth_refresh_token,
+    oauth_provider, oauth_access_token, oauth_refresh_token, fastmail_api_token,
     signature = null
   } = req.body;
 
@@ -99,6 +131,18 @@ router.post('/', async (req, res) => {
   }
   if (sender_name && hasHeaderInjectionChars(sender_name)) {
     return res.status(400).json({ error: 'Sender name cannot contain control characters' });
+  }
+
+  if (fastmail_api_token) {
+    try {
+      await loadFastmailSession(fastmail_api_token);
+    } catch (error) {
+      // A bad token / configuration fault is a client error — reject before creating the
+      // account. A transient reach failure (sync-class) is tolerated: create the account
+      // anyway and let the post-insert sync record the error, matching the refresh path.
+      if (error.code === 'FASTMAIL_CONFIG') return res.status(error.status).json({ error: error.message });
+      if (error.code !== 'FASTMAIL_SYNC') throw error;
+    }
   }
 
   const policy = await getConnectionPolicy();
@@ -120,13 +164,14 @@ router.post('/', async (req, res) => {
         user_id, name, sender_name, email_address, color, protocol,
         imap_host, imap_port, imap_tls, imap_skip_tls_verify, smtp_host, smtp_port, smtp_tls,
         auth_user, auth_pass, oauth_provider, oauth_access_token, oauth_refresh_token,
-        signature
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+        fastmail_api_token, signature
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
       RETURNING *
     `, [
       req.session.userId, name, sender_name || null, email_address, color, protocol,
       imap_host, imap_port, Number(imap_port) % 1000 === 993, !!imap_skip_tls_verify, smtp_host, smtp_port, smtp_tls,
       auth_user, encrypt(auth_pass), oauth_provider, encrypt(oauth_access_token), encrypt(oauth_refresh_token),
+      encrypt(fastmail_api_token),
       sanitizeSignature(signature) || null
     ]);
 
@@ -137,8 +182,18 @@ router.post('/', async (req, res) => {
       imapManager.connectAccount(account).catch(console.error);
     }
 
+    if (fastmail_api_token) {
+      try {
+        await syncFastmailAliases(account.id);
+      } catch {
+        return res.json(await loadSafeAccountWithAliases(account.id, req.session.userId));
+      }
+      return res.json(await loadSafeAccountWithAliases(account.id, req.session.userId));
+    }
+
     res.json(safeAccount(account));
   } catch (err) {
+    if (err.code === 'FASTMAIL_CONFIG') return res.status(err.status).json({ error: err.message });
     console.error(err);
     res.status(500).json({ error: 'Failed to add account' });
   }
@@ -151,6 +206,31 @@ router.put('/:id', async (req, res) => {
   // Verify ownership
   const check = await query('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
+
+  if ('fastmail_api_token' in updates && !updates.fastmail_api_token) {
+    const updated = await withTransaction(async client => {
+      const result = await client.query(
+        `UPDATE email_accounts
+         SET fastmail_api_token = NULL, fastmail_last_sync = NULL, fastmail_sync_error = NULL
+         WHERE id = $1 AND user_id = $2 RETURNING *`,
+        [id, req.session.userId],
+      );
+      await client.query(
+        "DELETE FROM account_aliases WHERE account_id = $1 AND provenance = 'fastmail'",
+        [id],
+      );
+      return result.rows[0];
+    });
+    return res.json(safeAccount(updated));
+  }
+  if (updates.fastmail_api_token) {
+    try {
+      await loadFastmailSession(updates.fastmail_api_token);
+    } catch (error) {
+      if (error.code === 'FASTMAIL_CONFIG') return res.status(error.status).json({ error: error.message });
+      throw error;
+    }
+  }
 
   if ('name' in updates && hasHeaderInjectionChars(updates.name)) {
     return res.status(400).json({ error: 'Name cannot contain control characters' });
@@ -182,14 +262,14 @@ router.put('/:id', async (req, res) => {
   }
 
   if ('imap_port' in updates) updates.imap_tls = Number(updates.imap_port) % 1000 === 993;
-  const allowed = ['name', 'sender_name', 'color', 'enabled', 'auth_user', 'auth_pass', 'sort_order', 'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify', 'smtp_host', 'smtp_port', 'smtp_tls', 'folder_mappings', 'signature', 'categorization_enabled'];
+  const allowed = ['name', 'sender_name', 'color', 'enabled', 'auth_user', 'auth_pass', 'fastmail_api_token', 'sort_order', 'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify', 'smtp_host', 'smtp_port', 'smtp_tls', 'folder_mappings', 'signature', 'categorization_enabled'];
   const sets = [];
   const values = [];
   let i = 1;
   for (const key of allowed) {
     if (key in updates) {
       sets.push(`${key} = $${i++}`);
-      const value = (key === 'auth_pass' && updates[key]) ? encrypt(updates[key])
+      const value = ((key === 'auth_pass' || key === 'fastmail_api_token') && updates[key]) ? encrypt(updates[key])
         : (key === 'signature') ? sanitizeSignature(updates[key]) || null
         : updates[key];
       values.push(value);
@@ -203,7 +283,14 @@ router.put('/:id', async (req, res) => {
     values
   );
   const updated = result.rows[0];
-  res.json(safeAccount(updated));
+  let payload = safeAccount(updated);
+  if (updates.fastmail_api_token) {
+    try {
+      await syncFastmailAliases(updated.id, { credentialChanged: true });
+    } catch { /* the persisted safe status is returned below */ }
+    payload = await loadSafeAccountWithAliases(updated.id, req.session.userId);
+  }
+  res.json(payload);
 
   // Sync live IMAP state after DB update (fire-and-forget, non-fatal)
   const isDisabling = 'enabled' in updates && !updates.enabled;
@@ -258,6 +345,24 @@ router.post('/:id/reconnect', async (req, res) => {
   res.json({ ok: true });
 });
 
+router.post('/:id/fastmail/refresh', async (req, res) => {
+  const account = await loadOwnedAccount(req.params.id, req.session.userId);
+  if (!account) return res.status(404).json({ error: 'Account not found' });
+  if (!account.fastmail_api_token) {
+    return res.status(409).json({ error: 'Fastmail is not configured for this account' });
+  }
+  try {
+    await syncFastmailAliases(account.id);
+    return res.json(await loadSafeAccountWithAliases(account.id, req.session.userId));
+  } catch {
+    const current = await loadSafeAccountWithAliases(account.id, req.session.userId);
+    return res.status(502).json({
+      error: current?.fastmail_sync_error || 'Fastmail synchronization failed',
+      code: 'FASTMAIL_SYNC_FAILED',
+    });
+  }
+});
+
 // ── Alias CRUD ─────────────────────────────────────────────────────────────
 
 router.get('/:id/aliases', async (req, res) => {
@@ -266,7 +371,9 @@ router.get('/:id/aliases', async (req, res) => {
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
 
   const result = await query(
-    'SELECT id, account_id, name, email, reply_to, signature, created_at FROM account_aliases WHERE account_id = $1 ORDER BY created_at',
+    `SELECT id, account_id, name, email, reply_to, signature, provenance,
+            fastmail_identity_id, fastmail_masked_email_id, fastmail_label, created_at
+     FROM account_aliases WHERE account_id = $1 ORDER BY created_at`,
     [id]
   );
   res.json(result.rows.map(alias => ({
@@ -302,12 +409,18 @@ router.put('/:id/aliases/:aliasId', async (req, res) => {
   }
 
   const check = await query(
-    `SELECT a.id FROM account_aliases a
+    `SELECT a.id, a.provenance FROM account_aliases a
      JOIN email_accounts e ON a.account_id = e.id
      WHERE a.id = $1 AND e.user_id = $2 AND e.id = $3`,
     [aliasId, req.session.userId, id]
   );
   if (!check.rows.length) return res.status(404).json({ error: 'Alias not found' });
+  if (check.rows[0].provenance !== 'manual') {
+    return res.status(409).json({
+      error: 'Fastmail-managed addresses are read-only. Manage them in Fastmail.',
+      code: 'PROVIDER_MANAGED_ALIAS',
+    });
+  }
 
   const result = await query(
     'UPDATE account_aliases SET name = $1, email = $2, reply_to = $3, signature = $4 WHERE id = $5 RETURNING *',
@@ -320,12 +433,18 @@ router.delete('/:id/aliases/:aliasId', async (req, res) => {
   const { id, aliasId } = req.params;
 
   const check = await query(
-    `SELECT a.id FROM account_aliases a
+    `SELECT a.id, a.provenance FROM account_aliases a
      JOIN email_accounts e ON a.account_id = e.id
      WHERE a.id = $1 AND e.user_id = $2 AND e.id = $3`,
     [aliasId, req.session.userId, id]
   );
   if (!check.rows.length) return res.status(404).json({ error: 'Alias not found' });
+  if (check.rows[0].provenance !== 'manual') {
+    return res.status(409).json({
+      error: 'Fastmail-managed addresses are read-only. Manage them in Fastmail.',
+      code: 'PROVIDER_MANAGED_ALIAS',
+    });
+  }
 
   await query('DELETE FROM account_aliases WHERE id = $1', [aliasId]);
   res.json({ ok: true });

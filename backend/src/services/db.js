@@ -51,11 +51,12 @@ export async function encryptExistingCredentials() {
   }
 
   const result = await pool.query(`
-    SELECT id, auth_pass, oauth_access_token, oauth_refresh_token
+    SELECT id, auth_pass, oauth_access_token, oauth_refresh_token, fastmail_api_token
     FROM email_accounts
     WHERE (auth_pass IS NOT NULL AND auth_pass NOT LIKE 'enc:v1:%')
        OR (oauth_access_token IS NOT NULL AND oauth_access_token NOT LIKE 'enc:v1:%')
        OR (oauth_refresh_token IS NOT NULL AND oauth_refresh_token NOT LIKE 'enc:v1:%')
+       OR (fastmail_api_token IS NOT NULL AND fastmail_api_token NOT LIKE 'enc:v1:%')
   `);
 
   let count = 0;
@@ -67,6 +68,9 @@ export async function encryptExistingCredentials() {
       updates.oauth_access_token = encrypt(row.oauth_access_token);
     if (row.oauth_refresh_token && !isEncrypted(row.oauth_refresh_token))
       updates.oauth_refresh_token = encrypt(row.oauth_refresh_token);
+    if (row.fastmail_api_token && !isEncrypted(row.fastmail_api_token)) {
+      updates.fastmail_api_token = encrypt(row.fastmail_api_token);
+    }
 
     if (Object.keys(updates).length) {
       const keys = Object.keys(updates);

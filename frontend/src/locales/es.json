@@ -91,6 +91,8 @@
     }
   },
   "compose": {
+    "selectSender": "Selecciona una dirección de envío",
+    "senderRequired": "Elige una dirección de envío antes de continuar.",
     "newMessage": "Nuevo mensaje",
     "reply": "Responder",
     "replyAll": "Responder a todos",
@@ -622,6 +624,7 @@
       "addAccount": "Añadir cuenta",
       "saving": "Guardando…",
       "presetGmail": "Gmail",
+      "presetFastmail": "Fastmail",
       "presetYahoo": "Yahoo Mail",
       "presetIcloud": "iCloud",
       "presetCustom": "Personalizado",
@@ -638,7 +641,18 @@
       "categorizationSection": "Categorización de correo",
       "categorizationEnabled": "Activar categorización del buzón",
       "categorizationEnabledDesc": "Clasifica los correos entrantes en pestañas de categorías. Desactivado por defecto.",
-      "enabledGlobally": "Activado globalmente"
+      "enabledGlobally": "Activado globalmente",
+      "fastmailApiToken": "Token de API de Fastmail",
+      "fastmailApiTokenHint": "Es de solo escritura y se guarda cifrado. Déjalo vacío para conservar el token actual.",
+      "fastmailAppPasswordHint": "Usa una contraseña de aplicación de Fastmail en el campo Contraseña de arriba.",
+      "fastmailPermissionsHint": "Crea el token con permisos de Envío de correo y Correo enmascarado.",
+      "fastmailConfigured": "Sincronización de direcciones de Fastmail configurada",
+      "fastmailNotConfigured": "Sincronización de direcciones de Fastmail no configurada",
+      "fastmailLastSync": "Última sincronización de direcciones",
+      "fastmailRefresh": "Actualizar direcciones",
+      "fastmailRefreshing": "Actualizando direcciones…",
+      "fastmailDisconnect": "Desconectar la sincronización de Fastmail",
+      "fastmailDisconnectConfirm": "¿Eliminar de Mailflow el token de API y todas las direcciones gestionadas por Fastmail? Los alias manuales y la cuenta de correo se conservarán."
     },
     "folderMappings": {
       "title": "Asignación de carpetas",
@@ -675,7 +689,13 @@
       "errorRequired": "El nombre y el correo son obligatorios",
       "deleteConfirmTitle": "¿Eliminar alias?",
       "deleteConfirmBody": "Este alias será eliminado permanentemente. Esta acción no se puede deshacer.",
-      "deleteConfirmLabel": "Eliminar"
+      "deleteConfirmLabel": "Eliminar",
+      "fastmailAliases": "Alias de Fastmail",
+      "maskedEmails": "Direcciones de correo enmascarado",
+      "wildcardIdentities": "Identidades con comodín",
+      "manualAliases": "Alias manuales de Mailflow",
+      "managedInFastmail": "Gestionado en Fastmail",
+      "manageInFastmail": "Gestionar direcciones en Fastmail"
     },
     "appearance": {
       "title": "Apariencia",

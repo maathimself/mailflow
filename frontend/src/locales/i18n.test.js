@@ -117,6 +117,7 @@ const SAME_VALUE_ALLOWED = {
   // ── Universal placeholders / brand names (all locales share) ───────────────
   'admin.accounts.imapHostPh':              'any', // imap.gmail.com
   'admin.accounts.presetGmail':             'any', // Gmail
+  'admin.accounts.presetFastmail':          'any', // Fastmail
   'admin.accounts.presetIcloud':            'any', // iCloud
   'admin.accounts.presetYahoo':             'any', // Yahoo Mail
   'admin.accounts.smtpHostPh':              'any', // smtp.gmail.com
@@ -141,6 +142,9 @@ const SAME_VALUE_ALLOWED = {
   // "Alias" — Latin origin, same spelling in es, fr, it
   'admin.accounts.aliases': [['es', 'fr', 'it']],
   'admin.aliases.title':     [['es', 'fr', 'it']],
+
+  // "Alias Fastmail" — the borrowed noun and brand form are identical in fr and it
+  'admin.aliases.fastmailAliases': [['fr', 'it']],
 
 
   // email placeholder — example.com address looks the same in en, ru, zhCN

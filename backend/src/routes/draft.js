@@ -6,6 +6,7 @@ import sanitizeHtml from 'sanitize-html';
 import { sanitizeSignature, sanitizeComposeBody } from '../services/emailSanitizer.js';
 import { embedInlineDataImages } from '../utils/inlineImages.js';
 import { imapManager } from '../index.js';
+import { authorizeSender } from '../services/senderAuthorization.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -21,31 +22,8 @@ function textToHtml(text) {
     .join('');
 }
 
-async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature }) {
-  const acctResult = await query(
-    'SELECT * FROM email_accounts WHERE id = $1',
-    [accountId]
-  );
-  if (!acctResult.rows.length) throw Object.assign(new Error('Account not found'), { status: 404 });
-  const account = acctResult.rows[0];
-
-  let fromName = account.sender_name || account.name;
-  let fromEmail = account.email_address;
-  let fromSignature = account.signature;
-
-  if (aliasId) {
-    const aliasResult = await query(
-      'SELECT * FROM account_aliases WHERE id = $1 AND account_id = $2',
-      [aliasId, accountId]
-    );
-    if (aliasResult.rows.length) {
-      const alias = aliasResult.rows[0];
-      fromName = alias.name;
-      fromEmail = alias.email;
-      if (alias.signature !== null) fromSignature = alias.signature;
-    }
-  }
-
+async function buildRawDraft({ authorizedSender, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature }) {
+  const { fromName, fromEmail, fromReplyTo, fromBcc = [], fromSignature } = authorizedSender;
   const rawSignature = editedSignature !== undefined ? (editedSignature || null) : fromSignature;
   const effectiveSignature = rawSignature ? sanitizeSignature(rawSignature) : null;
 
@@ -68,9 +46,13 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
 
   const mailOptions = {
     from: `${fromName} <${fromEmail}>`,
+    ...(fromReplyTo ? { replyTo: fromReplyTo } : {}),
     to: (Array.isArray(to) ? to : [to]).filter(Boolean).join(', ') || undefined,
     cc: (Array.isArray(cc) ? cc : []).filter(Boolean).join(', ') || undefined,
-    bcc: (Array.isArray(bcc) ? bcc : []).filter(Boolean).join(', ') || undefined,
+    bcc: [
+      ...(Array.isArray(bcc) ? bcc : []).filter(Boolean),
+      ...fromBcc,
+    ].filter(Boolean),
     subject: sanitizeHeaderValue(subject || ''),
     text: sigText ? `${bodyText}\n\n-- \n${sigText}${quotedBody || ''}` : `${bodyText}${quotedBody || ''}`,
     html: draftHtml,
@@ -85,7 +67,7 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
     streamInfo.message.on('end', resolve);
     streamInfo.message.on('error', reject);
   });
-  return { rawMessage: Buffer.concat(chunks), account };
+  return Buffer.concat(chunks);
 }
 
 async function resolveDraftsFolder(account) {
@@ -99,17 +81,35 @@ async function resolveDraftsFolder(account) {
 }
 
 router.post('/draft', async (req, res) => {
-  const { accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, editedSignature, existingUid, existingFolder } = req.body;
-  if (!accountId) return res.status(400).json({ error: 'accountId required' });
+  const { sender, to, cc, bcc, subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, editedSignature, existingUid, existingFolder } = req.body;
 
-  const ownerCheck = await query(
-    'SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2',
-    [accountId, req.session.userId]
-  );
-  if (!ownerCheck.rows.length) return res.status(404).json({ error: 'Account not found' });
+  let authorizedSender;
+  try {
+    authorizedSender = await authorizeSender({ userId: req.session.userId, sender });
+  } catch (err) {
+    if (err?.code === 'SENDER_UNAVAILABLE') {
+      return res.status(422).json({ error: 'Sender unavailable', code: 'SENDER_UNAVAILABLE' });
+    }
+    // Log only the safe error shape: an unexpected failure here can carry alias or DB
+    // detail that must not reach logs (credential hygiene), so never log err.message.
+    console.error('Draft sender authorization failed:', err?.name, err?.code);
+    return res.status(500).json({ error: 'Failed to authorize sender' });
+  }
 
   try {
-    const { rawMessage, account } = await buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature });
+    const { account } = authorizedSender;
+    const rawMessage = await buildRawDraft({
+      authorizedSender,
+      to,
+      cc,
+      bcc,
+      subject,
+      body,
+      bodyIsHtml,
+      quotedBody,
+      quotedBodyHtml,
+      editedSignature,
+    });
 
     const draftsFolder = await resolveDraftsFolder(account);
     if (!draftsFolder) return res.status(422).json({ error: 'No Drafts folder found for this account' });
@@ -133,7 +133,10 @@ router.post('/draft', async (req, res) => {
     res.json({ uid, folder: draftsFolder });
   } catch (err) {
     console.error('Save draft failed:', err.message);
-    res.status(err.status || 500).json({ error: err.message || 'Failed to save draft' });
+    res.status(err.status || 500).json({
+      error: err.message || 'Failed to save draft',
+      ...(err.code ? { code: err.code } : {}),
+    });
   }
 });
 

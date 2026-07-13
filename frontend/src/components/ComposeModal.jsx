@@ -15,6 +15,12 @@ import { Table } from '@tiptap/extension-table';
 import { TableRow } from '@tiptap/extension-table-row';
 import { TableHeader } from '@tiptap/extension-table-header';
 import { TableCell } from '@tiptap/extension-table-cell';
+import {
+  buildSenderOptions,
+  resolveSenderSignature,
+  senderToValue,
+  valueToSender,
+} from '../utils/senderIdentity.js';
 
 // Resize an image blob/file to max maxW pixels wide, preserving aspect ratio.
 // Returns a Promise<string> of a base64 data URL.
@@ -173,6 +179,24 @@ function parseChips(val) {
   return parts;
 }
 
+function SenderOptions({ fromValue, groups, emptyLabel }) {
+  return <>
+    {!fromValue && <option value="" disabled>{emptyLabel}</option>}
+    {groups.map(({ account, options }) => (
+      <optgroup key={account.id} label={account.name} style={{ background: 'var(--bg-tertiary)' }}>
+        {options.map(option => {
+          const value = senderToValue(option.sender);
+          return (
+            <option key={value} value={value} style={{ background: 'var(--bg-tertiary)' }}>
+              {option.label}
+            </option>
+          );
+        })}
+      </optgroup>
+    ))}
+  </>;
+}
+
 export default function ComposeModal() {
   const { t } = useTranslation();
   const { closeCompose, composeData, accounts, addNotification, setSelectedAccount, plaintextEmail, setThreadMessages } = useStore();
@@ -234,36 +258,34 @@ export default function ComposeModal() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps -- form initialisation runs once on mount; re-running on composeData changes would reset user edits
 
   const initialFromValue = () => {
-    if (composeData?.aliasId && composeData?.accountId) {
-      return `alias:${composeData.aliasId}:${composeData.accountId}`;
-    }
+    if (composeData?.senderRequired) return '';
+    if (composeData?.sender) return senderToValue(composeData.sender);
     const lastUsedId = localStorage.getItem('mailflow_last_from_account');
     const acctId = composeData?.accountId
       || useStore.getState().selectedAccountId
       || (lastUsedId && accounts.find(a => a.id === lastUsedId) ? lastUsedId : null)
       || accounts[0]?.id
       || '';
-    return acctId ? `account:${acctId}` : '';
+    return acctId ? senderToValue({ accountId: acctId, aliasId: null, fromEmail: null }) : '';
   };
   const [fromValue, setFromValue] = useState(initialFromValue);
 
-  const resolveFrom = (val) => {
-    if (!val) return { accountId: '', aliasId: null };
-    if (val.startsWith('alias:')) {
-      const parts = val.split(':');
-      return { aliasId: parts[1], accountId: parts[2] };
-    }
-    return { accountId: val.replace('account:', ''), aliasId: null };
-  };
+  const senderOptionGroups = accounts.map(account => ({
+    account,
+    options: buildSenderOptions(account, composeData?.sender),
+  }));
 
-  const fromResolved = resolveFrom(fromValue);
+  const fromResolved = valueToSender(fromValue) || { accountId: '', aliasId: null, fromEmail: null };
   const fromAccount = accounts.find(a => a.id === fromResolved.accountId);
   const fromAlias = fromResolved.aliasId
     ? fromAccount?.aliases?.find(al => al.id === fromResolved.aliasId)
     : null;
-  const fromSignature = fromAlias
-    ? (fromAlias.signature !== null && fromAlias.signature !== undefined ? fromAlias.signature : fromAccount?.signature || null)
-    : (fromAccount?.signature || null);
+  const fromSignature = resolveSenderSignature({
+    account: fromAccount,
+    alias: fromAlias,
+    selectedSender: fromResolved,
+    resolvedSender: composeData?.sender,
+  });
 
   const getSuggestions = useCallback(async (q) => {
     try {
@@ -740,9 +762,14 @@ export default function ComposeModal() {
 
   const handleSend = async ({ skipSubjectWarn = false, skipAttachWarn = false } = {}) => {
     if (sending) return; // guard against a rapid double-submit (e.g. double Ctrl/Cmd+Enter)
-    const { accountId, aliasId } = resolveFrom(fromValue);
+    const sender = valueToSender(fromValue);
+    if (!sender) {
+      setError(t('compose.senderRequired'));
+      return;
+    }
+    const accountId = sender.accountId;
     const toFinal = [...toChips, ...(toInput.trim() ? [toInput.trim()] : [])];
-    if (!toFinal.length || !accountId) return;
+    if (!toFinal.length) return;
 
     if (!skipSubjectWarn && subject.trim() === '') {
       setShowEmptySubjectWarn(true);
@@ -773,8 +800,7 @@ export default function ComposeModal() {
     }
     try {
       const sendResult = await api.post('/mail/send', {
-        accountId,
-        ...(aliasId ? { aliasId } : {}),
+        sender,
         to: toFinal,
         cc: [...ccChips, ...(ccInput.trim() ? [ccInput.trim()] : [])],
         bcc: [...bccChips, ...(bccInput.trim() ? [bccInput.trim()] : [])],
@@ -856,14 +882,17 @@ export default function ComposeModal() {
   };
 
   const doSaveDraft = async ({ closeAfter = false } = {}) => {
-    const { accountId, aliasId } = resolveFrom(fromValue);
-    if (!accountId) return;
+    const sender = valueToSender(fromValue);
+    if (!sender) {
+      setError(t('compose.senderRequired'));
+      return;
+    }
+    const accountId = sender.accountId;
     setSavingDraft(true);
     try {
       const bodyToSend = plaintextEmail ? body : (htmlMode ? htmlSource : (editor?.isEmpty ? '' : (editor?.getHTML() ?? '')));
       const result = await api.saveDraft({
-        accountId,
-        ...(aliasId ? { aliasId } : {}),
+        sender,
         to: [...toChips, ...(toInput.trim() ? [toInput.trim()] : [])],
         cc: [...ccChips, ...(ccInput.trim() ? [ccInput.trim()] : [])],
         bcc: [...bccChips, ...(bccInput.trim() ? [bccInput.trim()] : [])],
@@ -1136,29 +1165,11 @@ export default function ComposeModal() {
               onChange={e => setFromValue(e.target.value)}
               style={{ ...mobileInputStyle, cursor: 'pointer' }}
             >
-              {accounts.map(a => {
-                const aliases = a.aliases || [];
-                const displayName = a.sender_name || a.name;
-                if (!aliases.length) {
-                  return (
-                    <option key={a.id} value={`account:${a.id}`} style={{ background: 'var(--bg-tertiary)' }}>
-                      {displayName} &lt;{a.email_address}&gt;
-                    </option>
-                  );
-                }
-                return (
-                  <optgroup key={a.id} label={a.name} style={{ background: 'var(--bg-tertiary)' }}>
-                    <option value={`account:${a.id}`} style={{ background: 'var(--bg-tertiary)' }}>
-                      {displayName} &lt;{a.email_address}&gt;
-                    </option>
-                    {aliases.map(alias => (
-                      <option key={alias.id} value={`alias:${alias.id}:${a.id}`} style={{ background: 'var(--bg-tertiary)' }}>
-                        {alias.name} &lt;{alias.email}&gt;
-                      </option>
-                    ))}
-                  </optgroup>
-                );
-              })}
+              <SenderOptions
+                fromValue={fromValue}
+                groups={senderOptionGroups}
+                emptyLabel={t('compose.selectSender')}
+              />
             </select>
           </div>
 
@@ -1784,29 +1795,11 @@ export default function ComposeModal() {
             onChange={e => setFromValue(e.target.value)}
             style={{ flex: 1, padding: '8px 4px', background: 'transparent', border: 'none', color: 'var(--text-primary)', fontSize: 13, outline: 'none', cursor: 'pointer' }}
           >
-            {accounts.map(a => {
-              const aliases = a.aliases || [];
-              const displayName = a.sender_name || a.name;
-              if (!aliases.length) {
-                return (
-                  <option key={a.id} value={`account:${a.id}`} style={{ background: 'var(--bg-tertiary)' }}>
-                    {displayName} &lt;{a.email_address}&gt;
-                  </option>
-                );
-              }
-              return (
-                <optgroup key={a.id} label={a.name} style={{ background: 'var(--bg-tertiary)' }}>
-                  <option value={`account:${a.id}`} style={{ background: 'var(--bg-tertiary)' }}>
-                    {displayName} &lt;{a.email_address}&gt;
-                  </option>
-                  {aliases.map(alias => (
-                    <option key={alias.id} value={`alias:${alias.id}:${a.id}`} style={{ background: 'var(--bg-tertiary)' }}>
-                      {alias.name} &lt;{alias.email}&gt;
-                    </option>
-                  ))}
-                </optgroup>
-              );
-            })}
+            <SenderOptions
+              fromValue={fromValue}
+              groups={senderOptionGroups}
+              emptyLabel={t('compose.selectSender')}
+            />
           </select>
         </div>
 

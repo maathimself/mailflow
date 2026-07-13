@@ -91,6 +91,8 @@
     }
   },
   "compose": {
+    "selectSender": "Выберите адрес отправителя",
+    "senderRequired": "Перед продолжением выберите адрес отправителя.",
     "newMessage": "Новое сообщение",
     "reply": "Ответить",
     "replyAll": "Ответить всем",
@@ -622,6 +624,7 @@
       "addAccount": "Добавить аккаунт",
       "saving": "Сохранение…",
       "presetGmail": "Gmail",
+      "presetFastmail": "Fastmail",
       "presetYahoo": "Yahoo Mail",
       "presetIcloud": "iCloud",
       "presetCustom": "Другое",
@@ -638,7 +641,18 @@
       "categorizationSection": "Категоризация почты",
       "categorizationEnabled": "Включить категоризацию входящих",
       "categorizationEnabledDesc": "Сортирует входящие письма по вкладкам категорий. По умолчанию отключено.",
-      "enabledGlobally": "Включено глобально"
+      "enabledGlobally": "Включено глобально",
+      "fastmailApiToken": "API-токен Fastmail",
+      "fastmailApiTokenHint": "Доступен только для записи и хранится в зашифрованном виде. Оставьте поле пустым, чтобы сохранить текущий токен.",
+      "fastmailAppPasswordHint": "В поле пароля выше укажите пароль приложения Fastmail.",
+      "fastmailPermissionsHint": "Создайте токен с разрешениями «Отправка почты» и «Маскированная почта».",
+      "fastmailConfigured": "Синхронизация адресов Fastmail настроена",
+      "fastmailNotConfigured": "Синхронизация адресов Fastmail не настроена",
+      "fastmailLastSync": "Последняя синхронизация адресов",
+      "fastmailRefresh": "Обновить адреса",
+      "fastmailRefreshing": "Адреса обновляются…",
+      "fastmailDisconnect": "Отключить синхронизацию Fastmail",
+      "fastmailDisconnectConfirm": "Удалить из Mailflow API-токен и все адреса под управлением Fastmail? Ручные псевдонимы и почтовая учётная запись сохранятся."
     },
     "folderMappings": {
       "title": "Сопоставление папок",
@@ -675,7 +689,13 @@
       "errorRequired": "Требуются имя и адрес электронной почты",
       "deleteConfirmTitle": "Удалить алиас?",
       "deleteConfirmBody": "Этот алиас будет удалён безвозвратно. Это действие нельзя отменить.",
-      "deleteConfirmLabel": "Удалить"
+      "deleteConfirmLabel": "Удалить",
+      "fastmailAliases": "Псевдонимы Fastmail",
+      "maskedEmails": "Маскированные адреса",
+      "wildcardIdentities": "Подстановочные идентификаторы",
+      "manualAliases": "Ручные псевдонимы Mailflow",
+      "managedInFastmail": "Управляется в Fastmail",
+      "manageInFastmail": "Управлять адресами в Fastmail"
     },
     "appearance": {
       "title": "Внешний вид",

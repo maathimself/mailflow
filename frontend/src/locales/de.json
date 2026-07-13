@@ -91,6 +91,8 @@
     }
   },
   "compose": {
+    "selectSender": "Absenderadresse auswählen",
+    "senderRequired": "Wähle eine Absenderadresse aus, bevor du fortfährst.",
     "newMessage": "Neue Nachricht",
     "reply": "Antworten",
     "replyAll": "Allen antworten",
@@ -557,6 +559,7 @@
       "addAccount": "Konto hinzufügen",
       "saving": "Wird gespeichert…",
       "presetGmail": "Gmail",
+      "presetFastmail": "Fastmail",
       "presetYahoo": "Yahoo Mail",
       "presetIcloud": "iCloud",
       "presetCustom": "Benutzerdefiniert",
@@ -571,7 +574,18 @@
       "categorizationSection": "E-Mail-Kategorisierung",
       "categorizationEnabled": "Posteingang-Kategorisierung aktivieren",
       "categorizationEnabledDesc": "Eingehende E-Mails in Kategorie-Tabs einteilen. Standardmäßig deaktiviert.",
-      "enabledGlobally": "Global aktiviert"
+      "enabledGlobally": "Global aktiviert",
+      "fastmailApiToken": "Fastmail-API-Token",
+      "fastmailApiTokenHint": "Nur schreibbar und verschlüsselt gespeichert. Leer lassen, um den aktuellen Token zu behalten.",
+      "fastmailAppPasswordHint": "Verwende oben im Passwortfeld ein Fastmail-App-Passwort.",
+      "fastmailPermissionsHint": "Erstelle den Token mit den Berechtigungen E-Mail-Versand und Maskierte E-Mail.",
+      "fastmailConfigured": "Fastmail-Adressabgleich eingerichtet",
+      "fastmailNotConfigured": "Fastmail-Adressabgleich nicht eingerichtet",
+      "fastmailLastSync": "Letzter Adressabgleich",
+      "fastmailRefresh": "Adressen aktualisieren",
+      "fastmailRefreshing": "Adressen werden aktualisiert…",
+      "fastmailDisconnect": "Fastmail-Abgleich trennen",
+      "fastmailDisconnectConfirm": "API-Token und alle von Fastmail verwalteten Adressen aus Mailflow entfernen? Manuelle Aliasse und das E-Mail-Konto bleiben erhalten."
     },
     "folderMappings": {
       "title": "Ordnerzuordnungen",
@@ -608,7 +622,13 @@
       "errorRequired": "Name und E-Mail sind erforderlich",
       "deleteConfirmTitle": "Alias löschen?",
       "deleteConfirmBody": "Dieser Alias wird dauerhaft entfernt. Dies kann nicht rückgängig gemacht werden.",
-      "deleteConfirmLabel": "Löschen"
+      "deleteConfirmLabel": "Löschen",
+      "fastmailAliases": "Fastmail-Aliasse",
+      "maskedEmails": "Maskierte E-Mail-Adressen",
+      "wildcardIdentities": "Wildcard-Identitäten",
+      "manualAliases": "Manuelle Mailflow-Aliasse",
+      "managedInFastmail": "In Fastmail verwaltet",
+      "manageInFastmail": "Adressen in Fastmail verwalten"
     },
     "appearance": {
       "title": "Darstellung",

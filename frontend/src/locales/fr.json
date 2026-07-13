@@ -91,6 +91,8 @@
     }
   },
   "compose": {
+    "selectSender": "Sélectionner une adresse d’envoi",
+    "senderRequired": "Choisissez une adresse d’envoi avant de continuer.",
     "newMessage": "Nouveau message",
     "reply": "Répondre",
     "replyAll": "Répondre à tous",
@@ -622,6 +624,7 @@
       "addAccount": "Ajouter un compte",
       "saving": "Enregistrement…",
       "presetGmail": "Gmail",
+      "presetFastmail": "Fastmail",
       "presetYahoo": "Yahoo Mail",
       "presetIcloud": "iCloud",
       "presetCustom": "Personnalisé",
@@ -638,7 +641,18 @@
       "categorizationSection": "Catégorisation des e-mails",
       "categorizationEnabled": "Activer la catégorisation",
       "categorizationEnabledDesc": "Classe les e-mails entrants dans des onglets de catégories. Désactivé par défaut.",
-      "enabledGlobally": "Activé globalement"
+      "enabledGlobally": "Activé globalement",
+      "fastmailApiToken": "Jeton API Fastmail",
+      "fastmailApiTokenHint": "Accessible uniquement en écriture et stocké chiffré. Laissez vide pour conserver le jeton actuel.",
+      "fastmailAppPasswordHint": "Utilisez un mot de passe d’application Fastmail dans le champ Mot de passe ci-dessus.",
+      "fastmailPermissionsHint": "Créez le jeton avec les autorisations Envoi d’e-mails et E-mail masqué.",
+      "fastmailConfigured": "Synchronisation des adresses Fastmail configurée",
+      "fastmailNotConfigured": "Synchronisation des adresses Fastmail non configurée",
+      "fastmailLastSync": "Dernière synchronisation des adresses",
+      "fastmailRefresh": "Actualiser les adresses",
+      "fastmailRefreshing": "Actualisation des adresses…",
+      "fastmailDisconnect": "Déconnecter la synchronisation Fastmail",
+      "fastmailDisconnectConfirm": "Supprimer de Mailflow le jeton API et toutes les adresses gérées par Fastmail ? Les alias manuels et le compte e-mail seront conservés."
     },
     "folderMappings": {
       "title": "Mappage des dossiers",
@@ -675,7 +689,13 @@
       "errorRequired": "Le nom et l'e-mail sont requis",
       "deleteConfirmTitle": "Supprimer l'alias ?",
       "deleteConfirmBody": "Cet alias sera définitivement supprimé. Cette action est irréversible.",
-      "deleteConfirmLabel": "Supprimer"
+      "deleteConfirmLabel": "Supprimer",
+      "fastmailAliases": "Alias Fastmail",
+      "maskedEmails": "Adresses e-mail masquées",
+      "wildcardIdentities": "Identités génériques",
+      "manualAliases": "Alias Mailflow manuels",
+      "managedInFastmail": "Géré dans Fastmail",
+      "manageInFastmail": "Gérer les adresses dans Fastmail"
     },
     "appearance": {
       "title": "Apparence",

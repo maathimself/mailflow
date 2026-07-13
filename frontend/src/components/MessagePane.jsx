@@ -8,6 +8,8 @@ import { getEffectiveShortcuts, parseModKey, modCompactLabel } from '../utils/de
 import { useMobile } from '../hooks/useMobile.js';
 import { clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
+import { buildReplyComposeData } from '../utils/replyCompose.js';
+import { resolveSenderOrFallback } from '../utils/senderIdentity.js';
 import DOMPurify from 'dompurify';
 import { BUILTIN_SUMMARIZE } from '../aiActions.js';
 import { getResults, saveResult, removeResult } from '../aiResults.js';
@@ -863,91 +865,18 @@ export default function MessagePane() {
     };
   }, [isMobile, setSelectedMessage, resetPaneSwipeStyles]);
 
-  const handleReply = (replyAll = false) => {
+  const handleReply = async (replyAll = false) => {
     if (!message) return;
-    const date = message.date ? new Date(message.date).toLocaleString() : '';
-    const safeName = (message.from_name || '').replace(/[\r\n]+/g, ' ');
-    const fromStr = safeName
-      ? `${safeName} <${message.from_email}>`
-      : message.from_email || '';
-    const quotedText = body?.text
-      ? `\n\n---\nOn ${date}, ${fromStr} wrote:\n${body.text.split('\n').map(l => '> ' + l).join('\n')}`
-      : '';
-    const quotedBodyHtml = body?.html
-      ? `<div style="border-left:3px solid var(--border,#ccc);padding-left:12px;margin-top:12px;color:var(--text-secondary,#666)"><p style="margin:0 0 6px;font-size:12px">On ${date}, ${fromStr} wrote:</p>${body.html}</div>`
-      : null;
-
-    const replyToArr = Array.isArray(message.reply_to)
-      ? message.reply_to
-      : (() => { try { return JSON.parse(message.reply_to || '[]'); } catch { return []; } })();
-    const replyTarget = (replyToArr.length && replyToArr[0].email)
-      ? replyToArr[0]
-      : { name: message.from_name || '', email: message.from_email || '' };
-    const sender = replyTarget.email ? [replyTarget] : [];
-
-    const myAccount = accounts.find(a => a.id === message.account_id);
-    const myEmail = myAccount?.email_address || '';
-
-    const replyAliasId = (() => {
-      const aliases = myAccount?.aliases || [];
-      if (!aliases.length) return null;
-      try {
-        const toArr = Array.isArray(message.to_addresses)
-          ? message.to_addresses
-          : JSON.parse(message.to_addresses || '[]');
-        const ccArr = Array.isArray(message.cc_addresses)
-          ? message.cc_addresses
-          : JSON.parse(message.cc_addresses || '[]');
-        const allEmails = [...toArr, ...ccArr].map(t => t.email?.toLowerCase()).filter(Boolean);
-        const fromEmail = (message.from_email || '').toLowerCase();
-        const match = aliases.find(al => {
-          const aliasEmail = al.email.toLowerCase();
-          return allEmails.includes(aliasEmail) || fromEmail === aliasEmail;
-        });
-        return match ? match.id : null;
-      } catch { return null; }
-    })();
-
-    const myAddresses = new Set([
-      myEmail.toLowerCase(),
-      ...(myAccount?.aliases || []).map(al => al.email.toLowerCase()),
-    ]);
-    const allRecipients = (() => {
-      try {
-        const toArr = Array.isArray(message.to_addresses)
-          ? message.to_addresses
-          : JSON.parse(message.to_addresses || '[]');
-        const ccArr = Array.isArray(message.cc_addresses)
-          ? message.cc_addresses
-          : JSON.parse(message.cc_addresses || '[]');
-        return [...toArr, ...ccArr].filter(
-          t => t.email && !myAddresses.has(t.email.toLowerCase()) && t.email !== replyTarget.email
-        );
-      } catch { return []; }
-    })();
-
-    const referencesChain = [message.in_reply_to, message.message_id]
-      .filter(Boolean).join(' ').trim() || null;
-
-    const rawSubject = (message.subject || '').trim();
-    const reSubject = rawSubject.startsWith('Re:') ? rawSubject : rawSubject ? `Re: ${rawSubject}` : 'Re:';
-
+    const resolved = await resolveSenderOrFallback(() => api.resolveMessageSender(message.id, 'reply'));
     setShowReplyMenu(false);
     openCompose({
-      to: sender,
-      cc: replyAll ? allRecipients : [],
-      subject: reSubject,
-      body: '',
-      quotedBody: quotedText,
-      quotedBodyHtml,
-      inReplyTo: message.message_id,
-      references: referencesChain,
-      accountId: message.account_id,
-      aliasId: replyAliasId,
-      isReply: true,
-      isReplyAll: replyAll,
-      originalFrom: sender,
-      allRecipients,
+      ...buildReplyComposeData({
+        message,
+        account: accounts.find(account => account.id === message.account_id),
+        resolved,
+        replyAll,
+        body,
+      }),
       threadId: message.thread_id,
     });
   };
