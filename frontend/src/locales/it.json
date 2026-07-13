@@ -462,7 +462,82 @@
     "title": "Scorciatoie da tastiera",
     "customizeHint": "Personalizza le scorciatoie in Impostazioni → Scorciatoie",
     "closeHint": "Premi ? o Esc per chiudere",
-    "then": "poi"
+    "then": "poi",
+    "groups": {
+      "composeSearch": "Composizione e ricerca",
+      "navigation": "Navigazione",
+      "messageActions": "Azioni sui messaggi"
+    },
+    "actions": {
+      "compose": {
+        "label": "Scrivi",
+        "description": "Apri una nuova finestra di composizione"
+      },
+      "focusSearch": {
+        "label": "Cerca",
+        "description": "Attiva il campo di ricerca"
+      },
+      "showHelp": {
+        "label": "Mostra scorciatoie",
+        "description": "Mostra questo elenco di scorciatoie da tastiera"
+      },
+      "nextMessage": {
+        "label": "Messaggio successivo",
+        "description": "Passa al messaggio successivo"
+      },
+      "prevMessage": {
+        "label": "Messaggio precedente",
+        "description": "Passa al messaggio precedente"
+      },
+      "openMessage": {
+        "label": "Apri il primo messaggio",
+        "description": "Apri il primo messaggio se non ne è selezionato nessuno"
+      },
+      "goInbox": {
+        "label": "Vai alla Posta in arrivo",
+        "description": "Vai alla posta in arrivo unificata"
+      },
+      "reply": {
+        "label": "Rispondi",
+        "description": "Rispondi al messaggio corrente"
+      },
+      "replyAll": {
+        "label": "Rispondi a tutti",
+        "description": "Rispondi a tutti per il messaggio corrente"
+      },
+      "forward": {
+        "label": "Inoltra",
+        "description": "Inoltra il messaggio corrente"
+      },
+      "archive": {
+        "label": "Archivia",
+        "description": "Archivia messaggio / selezione"
+      },
+      "delete": {
+        "label": "Elimina",
+        "description": "Elimina messaggio / selezione"
+      },
+      "toggleStar": {
+        "label": "Segna con stella",
+        "description": "Attiva o disattiva la stella sul messaggio corrente"
+      },
+      "toggleRead": {
+        "label": "Segna letto / non letto",
+        "description": "Segna il messaggio corrente come letto o non letto"
+      },
+      "selectMessage": {
+        "label": "Seleziona messaggio",
+        "description": "Seleziona o deseleziona il messaggio corrente"
+      },
+      "printMessage": {
+        "label": "Stampa",
+        "description": "Stampa il messaggio corrente"
+      },
+      "toggleRightSidebar": {
+        "label": "Mostra o nascondi la barra laterale destra",
+        "description": "Nascondi o mostra la barra laterale destra"
+      }
+    }
   },
   "notifications": {
     "newMessage": "Nuovo messaggio"
@@ -1259,5 +1334,9 @@
     "creating": "Creazione...",
     "taskCreated": "Attività creata in Todoist",
     "openTask": "Apri in Todoist"
+  },
+  "rightSidebar": {
+    "hide": "Nascondi la barra laterale destra",
+    "show": "Mostra la barra laterale destra"
   }
 }

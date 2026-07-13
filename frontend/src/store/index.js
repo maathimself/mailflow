@@ -4,6 +4,7 @@ import { applyTheme, applyCustomCss, getInitialTheme } from '../themes.js';
 import { applyFontSet, applyFontSize } from '../fonts.js';
 import { applyLayout, normalizeLayout } from '../layouts.js';
 import { DEFAULT_AI_ACTIONS } from '../aiActions.js';
+import { clampRightSidebarWidth } from '../utils/rightSidebar.js';
 import i18n from '../i18n.js';
 
 // Accumulate rapid preference changes and flush at most once per second.
@@ -443,6 +444,26 @@ export const useStore = create((set, get) => ({
     return { categoryCounts: { ...state.categoryCounts, [key]: Math.max(0, current + delta) } };
   }),
 
+  // ── Right-sidebar layout ────────────────────────────────────────────────────
+  // Independent column width (own var + handle, not --list-width).
+  rightSidebarWidth: clampRightSidebarWidth(localStorage.getItem('mailflow_right_sidebar_width')),
+  setRightSidebarWidth: (w) => {
+    const clamped = clampRightSidebarWidth(w);
+    localStorage.setItem('mailflow_right_sidebar_width', String(clamped));
+    set({ rightSidebarWidth: clamped });
+    schedulePrefSave({ rightSidebarWidth: clamped });
+  },
+  isRightSidebarResizing: false,
+  setIsRightSidebarResizing: (v) => set({ isRightSidebarResizing: v }),
+
+  rightSidebarHidden: localStorage.getItem('mailflow_right_sidebar_hidden') === 'true',
+  toggleRightSidebarHidden: () => set(state => {
+    const next = !state.rightSidebarHidden;
+    localStorage.setItem('mailflow_right_sidebar_hidden', String(next));
+    schedulePrefSave({ rightSidebarHidden: next });
+    return { rightSidebarHidden: next };
+  }),
+
   // Layout
   layout: (() => {
     const raw = localStorage.getItem('mailflow_layout');
@@ -725,6 +746,15 @@ export const useStore = create((set, get) => ({
       }
       if (typeof prefs.categorizationEnabled === 'boolean') {
         set({ categorizationEnabled: prefs.categorizationEnabled });
+      }
+      if (prefs.rightSidebarWidth != null) {
+        const n = clampRightSidebarWidth(prefs.rightSidebarWidth);
+        localStorage.setItem('mailflow_right_sidebar_width', String(n));
+        set({ rightSidebarWidth: n });
+      }
+      if (typeof prefs.rightSidebarHidden === 'boolean') {
+        localStorage.setItem('mailflow_right_sidebar_hidden', String(prefs.rightSidebarHidden));
+        set({ rightSidebarHidden: prefs.rightSidebarHidden });
       }
       if (prefs.customCss) {
         applyCustomCss(prefs.customCss);

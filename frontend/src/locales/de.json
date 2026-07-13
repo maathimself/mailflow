@@ -462,7 +462,82 @@
     "title": "Tastaturkürzel",
     "customizeHint": "Kürzel anpassen unter Einstellungen → Tastaturkürzel",
     "closeHint": "? oder Esc zum Schließen drücken",
-    "then": "dann"
+    "then": "dann",
+    "groups": {
+      "composeSearch": "Verfassen & Suche",
+      "navigation": "Navigation",
+      "messageActions": "Nachrichtenaktionen"
+    },
+    "actions": {
+      "compose": {
+        "label": "Verfassen",
+        "description": "Neues Fenster zum Verfassen öffnen"
+      },
+      "focusSearch": {
+        "label": "Suchen",
+        "description": "Suchfeld fokussieren"
+      },
+      "showHelp": {
+        "label": "Kürzel anzeigen",
+        "description": "Diese Tastenkürzel-Übersicht anzeigen"
+      },
+      "nextMessage": {
+        "label": "Nächste Nachricht",
+        "description": "Zur nächsten Nachricht wechseln"
+      },
+      "prevMessage": {
+        "label": "Vorherige Nachricht",
+        "description": "Zur vorherigen Nachricht wechseln"
+      },
+      "openMessage": {
+        "label": "Erste Nachricht öffnen",
+        "description": "Erste Nachricht öffnen, wenn keine ausgewählt ist"
+      },
+      "goInbox": {
+        "label": "Zum Posteingang",
+        "description": "Zum vereinheitlichten Posteingang wechseln"
+      },
+      "reply": {
+        "label": "Antworten",
+        "description": "Auf die aktuelle Nachricht antworten"
+      },
+      "replyAll": {
+        "label": "Allen antworten",
+        "description": "Allen auf die aktuelle Nachricht antworten"
+      },
+      "forward": {
+        "label": "Weiterleiten",
+        "description": "Die aktuelle Nachricht weiterleiten"
+      },
+      "archive": {
+        "label": "Archivieren",
+        "description": "Nachricht / Auswahl archivieren"
+      },
+      "delete": {
+        "label": "Löschen",
+        "description": "Nachricht / Auswahl löschen"
+      },
+      "toggleStar": {
+        "label": "Markieren",
+        "description": "Stern für die aktuelle Nachricht umschalten"
+      },
+      "toggleRead": {
+        "label": "Gelesen umschalten",
+        "description": "Aktuelle Nachricht als gelesen oder ungelesen markieren"
+      },
+      "selectMessage": {
+        "label": "Nachricht auswählen",
+        "description": "Aktuelle Nachricht an- oder abwählen"
+      },
+      "printMessage": {
+        "label": "Drucken",
+        "description": "Die aktuelle Nachricht drucken"
+      },
+      "toggleRightSidebar": {
+        "label": "Rechte Seitenleiste umschalten",
+        "description": "Rechte Seitenleiste aus- oder einblenden"
+      }
+    }
   },
   "notifications": {
     "newMessage": "Neue Nachricht"
@@ -1259,5 +1334,9 @@
     "creating": "Wird erstellt...",
     "taskCreated": "Aufgabe in Todoist erstellt",
     "openTask": "In Todoist öffnen"
+  },
+  "rightSidebar": {
+    "hide": "Rechte Seitenleiste ausblenden",
+    "show": "Rechte Seitenleiste einblenden"
   }
 }

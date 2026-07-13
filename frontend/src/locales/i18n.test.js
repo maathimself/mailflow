@@ -291,6 +291,10 @@ const SAME_VALUE_ALLOWED = {
   // "Social" — international term used as-is in en, es, and it
   'messageList.categories.social': [['en', 'es', 'it']],
 
+  // ── Keyboard shortcuts ─────────────────────────────────────────────────────
+  // "Navigation" — spelled identically in de, en, fr (es "Navegación", it "Navigazione")
+  'shortcuts.groups.navigation': [['de', 'en', 'fr']],
+
   // ── Todoist integration ────────────────────────────────────────────────────
   // "Todoist" — brand name, same in all locales
   'admin.integrations.todoist.title': 'any',

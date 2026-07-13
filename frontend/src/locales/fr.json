@@ -462,7 +462,82 @@
     "title": "Raccourcis clavier",
     "customizeHint": "Personnaliser les raccourcis dans Paramètres → Raccourcis",
     "closeHint": "Appuyez sur ? ou Échap pour fermer",
-    "then": "puis"
+    "then": "puis",
+    "groups": {
+      "composeSearch": "Rédaction et recherche",
+      "navigation": "Navigation",
+      "messageActions": "Actions sur les messages"
+    },
+    "actions": {
+      "compose": {
+        "label": "Composer",
+        "description": "Ouvrir une nouvelle fenêtre de rédaction"
+      },
+      "focusSearch": {
+        "label": "Rechercher",
+        "description": "Placer le curseur dans le champ de recherche"
+      },
+      "showHelp": {
+        "label": "Afficher les raccourcis",
+        "description": "Afficher cette liste des raccourcis clavier"
+      },
+      "nextMessage": {
+        "label": "Message suivant",
+        "description": "Passer au message suivant"
+      },
+      "prevMessage": {
+        "label": "Message précédent",
+        "description": "Passer au message précédent"
+      },
+      "openMessage": {
+        "label": "Ouvrir le premier message",
+        "description": "Ouvrir le premier message si aucun n'est sélectionné"
+      },
+      "goInbox": {
+        "label": "Aller à la boîte de réception",
+        "description": "Accéder à la boîte de réception unifiée"
+      },
+      "reply": {
+        "label": "Répondre",
+        "description": "Répondre au message actuel"
+      },
+      "replyAll": {
+        "label": "Répondre à tous",
+        "description": "Répondre à tous pour le message actuel"
+      },
+      "forward": {
+        "label": "Transférer",
+        "description": "Transférer le message actuel"
+      },
+      "archive": {
+        "label": "Archiver",
+        "description": "Archiver le message / la sélection"
+      },
+      "delete": {
+        "label": "Supprimer",
+        "description": "Supprimer le message / la sélection"
+      },
+      "toggleStar": {
+        "label": "Étoile",
+        "description": "Activer ou désactiver l'étoile du message actuel"
+      },
+      "toggleRead": {
+        "label": "Marquer lu / non lu",
+        "description": "Marquer le message actuel comme lu ou non lu"
+      },
+      "selectMessage": {
+        "label": "Sélectionner le message",
+        "description": "Cocher ou décocher le message actuel"
+      },
+      "printMessage": {
+        "label": "Imprimer",
+        "description": "Imprimer le message actuel"
+      },
+      "toggleRightSidebar": {
+        "label": "Afficher ou masquer la barre latérale droite",
+        "description": "Masquer ou afficher la barre latérale droite"
+      }
+    }
   },
   "notifications": {
     "newMessage": "Nouveau message"
@@ -1259,5 +1334,9 @@
     "creating": "Création...",
     "taskCreated": "Tâche créée dans Todoist",
     "openTask": "Ouvrir dans Todoist"
+  },
+  "rightSidebar": {
+    "hide": "Masquer la barre latérale droite",
+    "show": "Afficher la barre latérale droite"
   }
 }

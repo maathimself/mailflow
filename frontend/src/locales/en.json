@@ -462,7 +462,82 @@
     "title": "Keyboard Shortcuts",
     "customizeHint": "Customise shortcuts in Settings → Shortcuts",
     "closeHint": "Press ? or Esc to close",
-    "then": "then"
+    "then": "then",
+    "groups": {
+      "composeSearch": "Compose & Search",
+      "navigation": "Navigation",
+      "messageActions": "Message Actions"
+    },
+    "actions": {
+      "compose": {
+        "label": "Compose",
+        "description": "Open new compose window"
+      },
+      "focusSearch": {
+        "label": "Search",
+        "description": "Focus the search box"
+      },
+      "showHelp": {
+        "label": "Show shortcuts",
+        "description": "Show this keyboard shortcut reference"
+      },
+      "nextMessage": {
+        "label": "Next message",
+        "description": "Move to the next message"
+      },
+      "prevMessage": {
+        "label": "Previous message",
+        "description": "Move to the previous message"
+      },
+      "openMessage": {
+        "label": "Open first message",
+        "description": "Open first message if none selected"
+      },
+      "goInbox": {
+        "label": "Go to Inbox",
+        "description": "Navigate to the unified inbox"
+      },
+      "reply": {
+        "label": "Reply",
+        "description": "Reply to the current message"
+      },
+      "replyAll": {
+        "label": "Reply all",
+        "description": "Reply all to the current message"
+      },
+      "forward": {
+        "label": "Forward",
+        "description": "Forward the current message"
+      },
+      "archive": {
+        "label": "Archive",
+        "description": "Archive message / selection"
+      },
+      "delete": {
+        "label": "Delete",
+        "description": "Delete message / selection"
+      },
+      "toggleStar": {
+        "label": "Star",
+        "description": "Toggle star on the current message"
+      },
+      "toggleRead": {
+        "label": "Toggle read",
+        "description": "Mark current message read or unread"
+      },
+      "selectMessage": {
+        "label": "Select message",
+        "description": "Check or uncheck the current message"
+      },
+      "printMessage": {
+        "label": "Print",
+        "description": "Print the current message"
+      },
+      "toggleRightSidebar": {
+        "label": "Toggle right sidebar",
+        "description": "Hide or show the right sidebar"
+      }
+    }
   },
   "notifications": {
     "newMessage": "New message"
@@ -1259,5 +1334,9 @@
     "creating": "Creating...",
     "taskCreated": "Task created in Todoist",
     "openTask": "Open in Todoist"
+  },
+  "rightSidebar": {
+    "hide": "Hide right sidebar",
+    "show": "Show right sidebar"
   }
 }

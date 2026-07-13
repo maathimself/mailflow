@@ -14,6 +14,7 @@ import { authLimiterConfig } from '../services/authLimiter.js';
 import { logAuthEvent } from '../services/authEvents.js';
 import { sendSystemEmail } from '../services/mailer.js';
 import { invalidateGlobalCategorizationCache } from '../services/categorizer.js';
+import { sanitizeRightSidebarPrefs } from '../utils/rightSidebarPrefs.js';
 import { redisClient } from '../services/redis.js';
 import { consume as rlConsume, reset as rlReset } from '../services/rateLimiter.js';
 
@@ -695,6 +696,9 @@ router.patch('/preferences', async (req, res) => {
           expandedAccounts, collapsedFolders, favoriteFolders, recentFolders, fontSize,
           showAppBadge, showFaviconBadge, replyDefault, sidebarWidth,
           categorizationEnabled, markReadBehavior, markReadDelay, aiActions } = req.body;
+  // Right-sidebar layout preferences are flat top-level keys with their own
+  // allow-list, sanitized separately from the destructured block above.
+  const { rightSidebarWidth, rightSidebarHidden } = sanitizeRightSidebarPrefs(req.body);
   // JSONB fields must be serialised to strings for the ::jsonb cast
   const imageWhitelistJson    = imageWhitelist    != null ? JSON.stringify(imageWhitelist)    : null;
   const shortcutsJson         = shortcuts         != null ? JSON.stringify(shortcuts)         : null;
@@ -751,6 +755,8 @@ router.patch('/preferences', async (req, res) => {
       || CASE WHEN $28::text IS NOT NULL THEN jsonb_build_object('markReadBehavior', $28::text) ELSE '{}'::jsonb END
       || CASE WHEN $29::text IS NOT NULL THEN jsonb_build_object('markReadDelay', $29::text) ELSE '{}'::jsonb END
       || CASE WHEN $30::jsonb IS NOT NULL THEN jsonb_build_object('aiActions', $30::jsonb) ELSE '{}'::jsonb END
+      || CASE WHEN $31::int IS NOT NULL THEN jsonb_build_object('rightSidebarWidth', $31::int) ELSE '{}'::jsonb END
+      || CASE WHEN $32::boolean IS NOT NULL THEN jsonb_build_object('rightSidebarHidden', $32::boolean) ELSE '{}'::jsonb END
     WHERE id = $1
   `, [req.session.userId, theme ?? null, font ?? null, layout ?? null, notificationSound ?? null,
       pageSize ?? null, scrollMode ?? null, syncInterval ?? null,
@@ -758,7 +764,8 @@ router.patch('/preferences', async (req, res) => {
       language ?? null, threadedView ?? null, plaintextEmail ?? null, hoverQuickActions ?? null,
       swipeActionsJson, expandedAccountsJson, collapsedFoldersJson, favoriteFoldersJson, recentFoldersJson, fontSizeVal,
       showAppBadge ?? null, showFaviconBadge ?? null, replyDefaultVal, sidebarWidthVal,
-      categorizationEnabled ?? null, markReadBehaviorVal, markReadDelayVal, aiActionsJson]);
+      categorizationEnabled ?? null, markReadBehaviorVal, markReadDelayVal, aiActionsJson,
+      rightSidebarWidth, rightSidebarHidden]);
 
   if (syncInterval != null) {
     const ms = parseInt(syncInterval) * 1000;

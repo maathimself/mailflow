@@ -462,7 +462,82 @@
     "title": "Atajos de teclado",
     "customizeHint": "Personaliza los atajos en Ajustes → Atajos",
     "closeHint": "Pulsa ? o Esc para cerrar",
-    "then": "luego"
+    "then": "luego",
+    "groups": {
+      "composeSearch": "Redacción y búsqueda",
+      "navigation": "Navegación",
+      "messageActions": "Acciones de mensaje"
+    },
+    "actions": {
+      "compose": {
+        "label": "Redactar",
+        "description": "Abrir una nueva ventana de redacción"
+      },
+      "focusSearch": {
+        "label": "Buscar",
+        "description": "Enfocar el cuadro de búsqueda"
+      },
+      "showHelp": {
+        "label": "Mostrar atajos",
+        "description": "Mostrar esta referencia de atajos de teclado"
+      },
+      "nextMessage": {
+        "label": "Mensaje siguiente",
+        "description": "Ir al mensaje siguiente"
+      },
+      "prevMessage": {
+        "label": "Mensaje anterior",
+        "description": "Ir al mensaje anterior"
+      },
+      "openMessage": {
+        "label": "Abrir el primer mensaje",
+        "description": "Abrir el primer mensaje si no hay ninguno seleccionado"
+      },
+      "goInbox": {
+        "label": "Ir a la bandeja de entrada",
+        "description": "Ir a la bandeja de entrada unificada"
+      },
+      "reply": {
+        "label": "Responder",
+        "description": "Responder al mensaje actual"
+      },
+      "replyAll": {
+        "label": "Responder a todos",
+        "description": "Responder a todos en el mensaje actual"
+      },
+      "forward": {
+        "label": "Reenviar",
+        "description": "Reenviar el mensaje actual"
+      },
+      "archive": {
+        "label": "Archivar",
+        "description": "Archivar mensaje / selección"
+      },
+      "delete": {
+        "label": "Eliminar",
+        "description": "Eliminar mensaje / selección"
+      },
+      "toggleStar": {
+        "label": "Destacar",
+        "description": "Activar o quitar el destacado del mensaje actual"
+      },
+      "toggleRead": {
+        "label": "Marcar leído / no leído",
+        "description": "Marcar el mensaje actual como leído o no leído"
+      },
+      "selectMessage": {
+        "label": "Seleccionar mensaje",
+        "description": "Marcar o desmarcar el mensaje actual"
+      },
+      "printMessage": {
+        "label": "Imprimir",
+        "description": "Imprimir el mensaje actual"
+      },
+      "toggleRightSidebar": {
+        "label": "Alternar la barra lateral derecha",
+        "description": "Ocultar o mostrar la barra lateral derecha"
+      }
+    }
   },
   "notifications": {
     "newMessage": "Nuevo mensaje"
@@ -1259,5 +1334,9 @@
     "creating": "Creando...",
     "taskCreated": "Tarea creada en Todoist",
     "openTask": "Abrir en Todoist"
+  },
+  "rightSidebar": {
+    "hide": "Ocultar la barra lateral derecha",
+    "show": "Mostrar la barra lateral derecha"
   }
 }

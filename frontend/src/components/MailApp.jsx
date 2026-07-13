@@ -65,6 +65,8 @@ export default function MailApp() {
     fontSize, showAppBadge, showFaviconBadge,
     sidebarWidth, setSidebarWidth, setIsSidebarResizing,
     showContacts, setTodoistConnected,
+    rightSidebarWidth, setRightSidebarWidth, isRightSidebarResizing, setIsRightSidebarResizing,
+    rightSidebarHidden, toggleRightSidebarHidden,
   } = useStore();
 
   const scale = fontSize / 100;
@@ -91,6 +93,12 @@ export default function MailApp() {
   const sidebarDragRef = useRef(null);
   const sidebarResizeRef = useRef(null);
   const listResizeRef = useRef(null);
+  const rightSidebarResizeRef = useRef(null);
+
+  // Keep the right sidebar's width CSS var in sync with the persisted preference.
+  useEffect(() => {
+    document.documentElement.style.setProperty('--right-sidebar-width', rightSidebarWidth + 'px');
+  }, [rightSidebarWidth]);
 
   const handleSidebarResizeMouseDown = (e) => {
     e.preventDefault();
@@ -134,10 +142,27 @@ export default function MailApp() {
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
       }
+      if (rightSidebarResizeRef.current) {
+        document.removeEventListener('mousemove', rightSidebarResizeRef.current.onMouseMove);
+        document.removeEventListener('mouseup', rightSidebarResizeRef.current.onMouseUp);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
     };
   }, []);
 
   const currentLayout = LAYOUTS[layout] || LAYOUTS.comfortable;
+
+  // Shortcut hint (e.g. "⌘/") for the collapse/expand tooltips, derived from the
+  // live shortcut map via the existing helpers — no new plumbing. '' when unbound.
+  const rightSidebarToggleParsed = parseModKey(getEffectiveShortcuts(shortcuts).toggleRightSidebar);
+  const rightSidebarToggleHint = rightSidebarToggleParsed ? `${modLabel(rightSidebarToggleParsed.mod)}${rightSidebarToggleParsed.bare}` : '';
+  // The right sidebar renders when a feature supplies content. No provider
+  // exists yet — the first consumer swaps this seam for its element; the
+  // layout/shortcut infrastructure below is feature-agnostic and keys off
+  // the seam, not any feature condition.
+  const rightSidebarContent = null;
+  const rightSidebarApplicable = !isMobile && currentLayout.direction === 'row' && rightSidebarContent != null;
 
   const handleListResizeMouseDown = (e) => {
     e.preventDefault();
@@ -163,6 +188,38 @@ export default function MailApp() {
     };
 
     listResizeRef.current = { onMouseMove, onMouseUp };
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  };
+
+  // Right-sidebar resize — its own width var + handle, independent of --list-width.
+  // The handle sits to its left, so dragging left widens the sidebar.
+  const handleRightSidebarResizeMouseDown = (e) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--right-sidebar-width')) || rightSidebarWidth || 296;
+    setIsRightSidebarResizing(true);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMouseMove = (mv) => {
+      const dx = mv.clientX - startX;
+      const clamped = Math.max(200, Math.min(600, startWidth - dx));
+      document.documentElement.style.setProperty('--right-sidebar-width', clamped + 'px');
+    };
+
+    const onMouseUp = () => {
+      setIsRightSidebarResizing(false);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      rightSidebarResizeRef.current = null;
+      const finalWidth = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--right-sidebar-width'));
+      if (finalWidth) setRightSidebarWidth(finalWidth);
+    };
+
+    rightSidebarResizeRef.current = { onMouseMove, onMouseUp };
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
   };
@@ -478,6 +535,14 @@ export default function MailApp() {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Whole right-sidebar collapse toggle (cmd+/). Re-subscribed when applicability
+  // flips so the handler never toggles a sidebar that is not rendered.
+  useEffect(() => {
+    const onToggleRightSidebar = () => { if (rightSidebarApplicable) toggleRightSidebarHidden(); };
+    shortcutBus.on('toggleRightSidebar', onToggleRightSidebar);
+    return () => shortcutBus.off('toggleRightSidebar', onToggleRightSidebar);
+  }, [rightSidebarApplicable, toggleRightSidebarHidden]);
+
   // Close help overlay on Escape
   useEffect(() => {
     if (!showShortcutHelp) return;
@@ -633,6 +698,64 @@ export default function MailApp() {
                 />
               )}
               <MessagePane />
+              {/* Generic right-sidebar column, populated from the content seam above. */}
+              {currentLayout.direction === 'row' && rightSidebarContent != null && (
+                <>
+                  {/* Resize handle is omitted while the sidebar is hidden. */}
+                  {!rightSidebarHidden && (
+                    <div
+                      onMouseDown={handleRightSidebarResizeMouseDown}
+                      style={{
+                        width: 4, flexShrink: 0, cursor: 'col-resize',
+                        background: 'var(--border-subtle)',
+                        transition: 'background 0.15s',
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'var(--accent)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'var(--border-subtle)'; }}
+                    />
+                  )}
+                  {/* Column wrapper collapses its width when hidden (message list reflows);
+                      the inner block keeps its full width and slides off the right edge.
+                      overflow:hidden clips the sidebar as it slides, kept mounted so both
+                      directions animate. */}
+                  <div style={{
+                    position: 'relative', flexShrink: 0, overflow: 'hidden', height: '100%',
+                    width: rightSidebarHidden ? 0 : 'var(--right-sidebar-width, 296px)',
+                    // Disabled while dragging (mirrors Sidebar's isSidebarResizing guard):
+                    // otherwise every mousemove's CSS-var write would animate toward the new
+                    // width instead of tracking the cursor.
+                    transition: isRightSidebarResizing ? 'none' : 'width 0.2s ease',
+                  }}>
+                    <div style={{
+                      width: 'var(--right-sidebar-width, 296px)', height: '100%',
+                      transform: rightSidebarHidden ? 'translateX(100%)' : 'translateX(0)',
+                      transition: 'transform 0.2s ease',
+                    }}>
+                      {rightSidebarContent}
+                    </div>
+                  </div>
+                  {/* Slim always-visible reopen affordance pinned to the right edge. */}
+                  {rightSidebarHidden && (
+                    <button
+                      onClick={toggleRightSidebarHidden}
+                      aria-label={t('rightSidebar.show')}
+                      title={rightSidebarToggleHint ? `${t('rightSidebar.show')} (${rightSidebarToggleHint})` : t('rightSidebar.show')}
+                      style={{
+                        width: 18, flexShrink: 0, cursor: 'pointer', padding: 0,
+                        border: 'none', borderLeft: '1px solid var(--border)',
+                        background: 'var(--bg-secondary)', color: 'var(--text-tertiary)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.background = 'var(--bg-hover)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.background = 'var(--bg-secondary)'; }}
+                    >
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <polyline points="15 18 9 12 15 6" />
+                      </svg>
+                    </button>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </>
@@ -731,14 +854,14 @@ function ShortcutHelpOverlay({ shortcuts, onClose }) {
           {Object.entries(groups).map(([groupName, actions]) => (
             <div key={groupName} style={{ marginBottom: 20 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
-                {groupName}
+                {t(groupName)}
               </div>
-              {actions.map(({ action, description }) => (
+              {actions.map(({ action, descriptionKey }) => (
                 <div key={action} style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                   padding: '5px 0', borderBottom: '1px solid var(--border-subtle)',
                 }}>
-                  <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{description}</span>
+                  <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{t(descriptionKey)}</span>
                   {keyBadge(effective[action])}
                 </div>
               ))}

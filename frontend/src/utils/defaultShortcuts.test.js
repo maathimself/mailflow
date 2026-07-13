@@ -41,4 +41,15 @@ describe('buildModKeyMap', () => {
     assert.match(message, /"printMessage"/);
     assert.equal(map.p, 'printMessage', 'later action (printMessage) should win');
   });
+
+  it('binds toggleRightSidebar to ctrl+/ without colliding with the plain "/" search key', (t) => {
+    // ctrl+/ (right-sidebar toggle) and bare / (focusSearch) resolve in different maps, so
+    // they must coexist with no collision warning.
+    const warn = t.mock.method(console, 'warn', () => {});
+    const modMap = buildModKeyMap();
+    const keyMap = buildKeyMap();
+    assert.equal(modMap['/'], 'toggleRightSidebar', 'ctrl+/ resolves to the right-sidebar toggle');
+    assert.equal(keyMap['/'], 'focusSearch', 'bare / stays the search key (separate map)');
+    assert.equal(warn.mock.callCount(), 0);
+  });
 });

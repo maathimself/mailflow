@@ -462,7 +462,82 @@
     "title": "键盘快捷键",
     "customizeHint": "可在「设置 → 快捷键」中自定义快捷键",
     "closeHint": "按 ? 或 Esc 关闭",
-    "then": "然后"
+    "then": "然后",
+    "groups": {
+      "composeSearch": "撰写与搜索",
+      "navigation": "导航",
+      "messageActions": "邮件操作"
+    },
+    "actions": {
+      "compose": {
+        "label": "撰写",
+        "description": "打开新的撰写窗口"
+      },
+      "focusSearch": {
+        "label": "搜索",
+        "description": "聚焦搜索框"
+      },
+      "showHelp": {
+        "label": "显示快捷键",
+        "description": "显示此键盘快捷键参考"
+      },
+      "nextMessage": {
+        "label": "下一封邮件",
+        "description": "移动到下一封邮件"
+      },
+      "prevMessage": {
+        "label": "上一封邮件",
+        "description": "移动到上一封邮件"
+      },
+      "openMessage": {
+        "label": "打开第一封邮件",
+        "description": "若未选中任何邮件则打开第一封"
+      },
+      "goInbox": {
+        "label": "前往收件箱",
+        "description": "跳转到统一收件箱"
+      },
+      "reply": {
+        "label": "回复",
+        "description": "回复当前邮件"
+      },
+      "replyAll": {
+        "label": "回复全部",
+        "description": "回复当前邮件的所有收件人"
+      },
+      "forward": {
+        "label": "转发",
+        "description": "转发当前邮件"
+      },
+      "archive": {
+        "label": "归档",
+        "description": "归档邮件 / 所选项"
+      },
+      "delete": {
+        "label": "删除",
+        "description": "删除邮件 / 所选项"
+      },
+      "toggleStar": {
+        "label": "加星标",
+        "description": "切换当前邮件的星标"
+      },
+      "toggleRead": {
+        "label": "切换已读状态",
+        "description": "将当前邮件标记为已读或未读"
+      },
+      "selectMessage": {
+        "label": "选择邮件",
+        "description": "勾选或取消勾选当前邮件"
+      },
+      "printMessage": {
+        "label": "打印",
+        "description": "打印当前邮件"
+      },
+      "toggleRightSidebar": {
+        "label": "切换右侧边栏",
+        "description": "隐藏或显示右侧边栏"
+      }
+    }
   },
   "notifications": {
     "newMessage": "新邮件"
@@ -1259,5 +1334,9 @@
     "creating": "创建中...",
     "taskCreated": "任务已在 Todoist 中创建",
     "openTask": "在 Todoist 中打开"
+  },
+  "rightSidebar": {
+    "hide": "隐藏右侧边栏",
+    "show": "显示右侧边栏"
   }
 }
