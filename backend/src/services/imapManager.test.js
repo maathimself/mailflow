@@ -11,9 +11,10 @@ vi.mock('../utils/redact.js', () => ({ redactEmail: vi.fn() }));
 vi.mock('./hostValidation.js', () => ({ resolveForConnection: vi.fn() }));
 vi.mock('./gtdTransitions.js', () => ({ runGtdTransitions: vi.fn(), threadKeysForMessageIds: vi.fn(), threadKeysInFolders: vi.fn() }));
 
-import { providerProfile, makeClientCfg, gtdRelocateGuard, insertCopiedSibling, deleteMessageCopyRow, emitAfterDeferredCopySync, emitGtdSectionsRefreshOnDelete, emitGtdSectionsRefreshIfEnabled, selectGtdReevalIds, ensureMailbox, runGtdSyncTick, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, planModseqSync, connectStaggerFor } from './imapManager.js';
+import { ImapManager, providerProfile, makeClientCfg, gtdRelocateGuard, insertCopiedSibling, deleteMessageCopyRow, emitAfterDeferredCopySync, emitGtdSectionsRefreshOnDelete, emitGtdSectionsRefreshIfEnabled, selectGtdReevalIds, ensureMailbox, runGtdSyncTick, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, planModseqSync, connectStaggerFor } from './imapManager.js';
 import { query } from './db.js';
 import { invalidateGtdConfigCache } from './gtdConfig.js';
+import { invalidateRightSidebarConfig } from './rightSidebarConfig.js';
 import { runGtdTransitions, threadKeysInFolders } from './gtdTransitions.js';
 
 const account = (imap_host, oauth_provider = null) => ({ imap_host, oauth_provider });
@@ -676,6 +677,58 @@ describe('emitGtdSectionsRefreshIfEnabled', () => {
     await emitGtdSectionsRefreshIfEnabled(mgr, { id: 'acct-bf-zero', user_id: 'user-1' }, 0);
     expect(mgr.broadcast).not.toHaveBeenCalled();
     expect(query).not.toHaveBeenCalled();
+  });
+});
+
+// ── _runSnoozeWakeup — post-wakeup section refreshes ─────────────────────────
+// A woken message re-enters its original folder unread, flipping thread-level unread
+// rollups that the snooze_wakeup broadcast alone doesn't reach. The wakeup loop must nudge
+// the sidebar (and GTD) after that broadcast, gated on the account actually having them
+// configured. Driven through the prototype so the constructor's timers never start; only db
+// is mocked here, so getRightSidebarConfig/getGtdConfig run for real against the routed query.
+describe('_runSnoozeWakeup — section refresh emits', () => {
+  const ACCT = 'acct-snooze';
+  const dueRow = {
+    snooze_id: 's1', user_id: 'user-1', account_id: ACCT,
+    message_id_header: '<m@x>', original_folder: 'INBOX', snoozed_folder: 'Snoozed',
+    uid: 10, is_read: false,
+  };
+  const buildMgr = () => ({
+    _guardMoveUid: vi.fn(),
+    _unguardMoveUid: vi.fn(),
+    moveMessageGetNewUid: vi.fn().mockResolvedValue(99),
+    setFlag: vi.fn().mockResolvedValue(undefined),
+    broadcast: vi.fn(),
+  });
+
+  const routeQueries = (labels) => query.mockImplementation(async (sql) => {
+    if (sql.includes('FROM snoozed_messages sm') && sql.includes('JOIN messages m')) return { rows: [dueRow] };
+    if (sql.includes('right_sidebar_labels FROM email_accounts')) return { rows: [{ right_sidebar_labels: labels }] };
+    if (sql.includes('gtd_enabled, gtd_folders FROM email_accounts')) return { rows: [{ gtd_enabled: false, gtd_folders: {} }] };
+    if (sql.startsWith('SELECT * FROM email_accounts')) return { rows: [{ id: ACCT, user_id: 'user-1' }] };
+    return { rows: [] };
+  });
+
+  beforeEach(() => {
+    query.mockReset();
+    invalidateRightSidebarConfig(ACCT);
+    invalidateGtdConfigCache(ACCT);
+  });
+
+  it('nudges the right sidebar after a wakeup when the account has configured labels', async () => {
+    routeQueries(['Receipts']);
+    const mgr = buildMgr();
+    await ImapManager.prototype._runSnoozeWakeup.call(mgr);
+    expect(mgr.broadcast).toHaveBeenCalledWith({ type: 'snooze_wakeup', accountId: ACCT }, 'user-1');
+    expect(mgr.broadcast).toHaveBeenCalledWith({ type: 'right_sidebar_updated', accountId: ACCT }, 'user-1');
+  });
+
+  it('stays silent on the sidebar when the account configured no labels', async () => {
+    routeQueries([]);
+    const mgr = buildMgr();
+    await ImapManager.prototype._runSnoozeWakeup.call(mgr);
+    expect(mgr.broadcast).toHaveBeenCalledWith({ type: 'snooze_wakeup', accountId: ACCT }, 'user-1');
+    expect(mgr.broadcast).not.toHaveBeenCalledWith({ type: 'right_sidebar_updated', accountId: ACCT }, 'user-1');
   });
 });
 

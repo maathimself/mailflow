@@ -606,7 +606,8 @@
       "groupAccountMail": "Konto und Mail",
       "groupDisplay": "Anzeige",
       "groupSecurityIntegrations": "Sicherheit und Integrationen",
-      "groupAdmin": "Administration"
+      "groupAdmin": "Administration",
+      "rightSidebar": "Rechte Seitenleiste"
     },
     "accounts": {
       "title": "E-Mail-Konten",
@@ -1305,6 +1306,20 @@
       "placeholder": "Einstellungen durchsuchen…",
       "noResults": "Keine Ergebnisse für «{{query}}»",
       "notificationSound": "Benachrichtigungston"
+    },
+    "rightSidebar": {
+      "title": "Labels der rechten Seitenleiste",
+      "description": "Wähle für jedes Konto die Labels aus, die in der rechten Seitenleiste angezeigt werden, und ziehe sie in die gewünschte Reihenfolge.",
+      "noAccounts": "Füge zuerst ein E-Mail-Konto hinzu, um Seitenleisten-Labels einzurichten.",
+      "selected": "Ausgewählte Labels",
+      "noLabels": "Keine Labels ausgewählt.",
+      "addPlaceholder": "Label auswählen…",
+      "unavailable": "Nicht verfügbar",
+      "drag": "Zum Sortieren ziehen",
+      "saved": "Seitenleisten-Labels gespeichert.",
+      "loadFailed": "Labels konnten nicht geladen werden.",
+      "saveFailed": "Seitenleisten-Labels konnten nicht gespeichert werden.",
+      "rejected": "Einige Labels wurden vom Server abgelehnt."
     }
   },
   "blockList": {
@@ -1384,7 +1399,10 @@
   },
   "rightSidebar": {
     "hide": "Rechte Seitenleiste ausblenden",
-    "show": "Rechte Seitenleiste einblenden"
+    "show": "Rechte Seitenleiste einblenden",
+    "title": "Etiketten",
+    "empty": "Keine konfigurierten Etiketten sind verfügbar.",
+    "toggleSection": "{{section}} umschalten"
   },
   "gtd": {
     "title": "GTD",

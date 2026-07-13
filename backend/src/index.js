@@ -29,6 +29,7 @@ import categoriesRoutes from './routes/categories.js';
 import gtdRoutes from './routes/gtd.js';
 import carddavRouter from './routes/carddav.js';
 import carddavAccountRouter from './routes/carddavAccount.js';
+import rightSidebarRoutes from './routes/rightSidebar.js';
 import { startCardavScheduler } from './services/carddavSync.js';
 import { encryptExistingCredentials, query } from './services/db.js';
 import { runMigrations } from './services/migrations.js';
@@ -160,6 +161,7 @@ app.use('/api/block-list', blockListRoutes);
 app.use('/api/contacts', contactsRoutes);
 app.use('/api/todoist', todoistRoutes);
 app.use('/api/carddav', carddavAccountRouter);
+app.use('/api/right-sidebar', rightSidebarRoutes);
 app.use('/api', aiRoutes);
 app.use('/api', categoriesRoutes);
 // Mounted at the /api/gtd subtree (not bare /api) so gtd.js's router-level

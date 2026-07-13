@@ -606,7 +606,8 @@
       "groupAccountMail": "Account e posta",
       "groupDisplay": "Schermo",
       "groupSecurityIntegrations": "Sicurezza e integrazioni",
-      "groupAdmin": "Amministrazione"
+      "groupAdmin": "Amministrazione",
+      "rightSidebar": "Barra laterale destra"
     },
     "rules": {
       "title": "Regole posta in arrivo",
@@ -1305,6 +1306,20 @@
       "placeholder": "Cerca impostazioni…",
       "noResults": "Nessun risultato per «{{query}}»",
       "notificationSound": "Suono di notifica"
+    },
+    "rightSidebar": {
+      "title": "Etichette della barra laterale destra",
+      "description": "Scegli le etichette mostrate nella barra laterale destra per ogni account, quindi trascinale nell’ordine desiderato.",
+      "noAccounts": "Aggiungi prima un account email per configurare le etichette laterali.",
+      "selected": "Etichette selezionate",
+      "noLabels": "Nessuna etichetta selezionata.",
+      "addPlaceholder": "Scegli un’etichetta…",
+      "unavailable": "Non disponibile",
+      "drag": "Trascina per riordinare",
+      "saved": "Etichette laterali salvate.",
+      "loadFailed": "Impossibile caricare le etichette.",
+      "saveFailed": "Impossibile salvare le etichette laterali.",
+      "rejected": "Il server ha rifiutato alcune etichette."
     }
   },
   "blockList": {
@@ -1384,7 +1399,10 @@
   },
   "rightSidebar": {
     "hide": "Nascondi la barra laterale destra",
-    "show": "Mostra la barra laterale destra"
+    "show": "Mostra la barra laterale destra",
+    "title": "Etichette",
+    "empty": "Non sono disponibili etichette configurate.",
+    "toggleSection": "Attiva/disattiva {{section}}"
   },
   "gtd": {
     "title": "GTD",

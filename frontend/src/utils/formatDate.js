@@ -1,8 +1,8 @@
 import { format, isToday, isYesterday, isThisYear } from 'date-fns';
 
-// Compact relative date label shared by MessageList and the GTD display surfaces.
-// Guards an invalid date to '' so a malformed value can never throw from
-// date-fns format().
+// Compact relative date label shared by the message list, the GTD display
+// surfaces, and the right sidebar. Guards an invalid date to '' so a malformed
+// value can never throw from date-fns format().
 export function formatDate(dateStr) {
   if (!dateStr) return '';
   const d = new Date(dateStr);

@@ -15,6 +15,7 @@ import { resolveForConnection } from './hostValidation.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { applyInboxRules, applyBlockList } from './inboxRules.js';
 import { generateVCard } from '../utils/vcard.js';
+import { getRightSidebarConfig } from './rightSidebarConfig.js';
 import { randomUUID } from 'crypto';
 
 
@@ -97,6 +98,20 @@ export function isConnectionRefusal(detail) {
 export function connectCooldownMs(failures) {
   const n = Math.max(1, failures);
   return Math.min(CONNECT_COOLDOWN_BASE_MS * (2 ** Math.min(n - 1, 5)), CONNECT_COOLDOWN_MAX_MS);
+}
+
+// Nudge the right sidebar after a sync actually changed something. Gated on the account
+// having configured labels (a cached read), so it stays inert for everyone who hasn't set
+// any up — the default. A failed emit is logged, never thrown: a stale section heals on the
+// next tick, whereas a throw here would break the sync itself.
+export async function emitRightSidebarRefreshIfConfigured(mgr, account, changedCount) {
+  if (!(changedCount > 0)) return;
+  try {
+    const folders = await getRightSidebarConfig(account.id);
+    if (folders.length) mgr.broadcast({ type: 'right_sidebar_updated', accountId: account.id }, account.user_id);
+  } catch (err) {
+    logger.debug(`Right sidebar refresh emit skipped for ${logAccount(account)}: ${err.message}`);
+  }
 }
 
 // Decide a folder's sync fetch strategy from its CONDSTORE modseq state. Pure and total so
@@ -2095,6 +2110,7 @@ export class ImapManager {
             // won't otherwise surface, so refresh GTD section data like the other mutation paths. Gated:
             // inert for non-GTD accounts (cached config). See emitGtdSectionsRefreshIfEnabled.
             await emitGtdSectionsRefreshIfEnabled(this, account, changed);
+            await emitRightSidebarRefreshIfConfigured(this, account, changed);
           }
         } finally {
           lock.release();
@@ -2555,6 +2571,7 @@ export class ImapManager {
               // is GTD-relevant, so refresh GTD section data like the other mutation paths rather than waiting
               // for the next tick. Gated: inert for non-GTD accounts. See emitGtdSectionsRefreshIfEnabled.
               await emitGtdSectionsRefreshIfEnabled(this, account, changed);
+              await emitRightSidebarRefreshIfConfigured(this, account, changed);
             }
           }
         } else if (plan === 'full') {
@@ -2654,6 +2671,8 @@ export class ImapManager {
             alertMessages: alertMessages.slice(-5), alertCount,
           }, account.user_id);
           if (newMessages.length > 0) broadcastedNewMessages = true;
+          // New mail may have landed in a folder the user shows as a sidebar section.
+          await emitRightSidebarRefreshIfConfigured(this, account, newMessages.length);
           // Web Push — INBOX only, alert-eligible messages only. Non-inbox folder syncs
           // (Archive, Spam, on-demand) can surface old or filtered messages; sending push
           // for them or for mark_read-silenced messages would be misleading.
@@ -3166,6 +3185,8 @@ export class ImapManager {
       // affected folder (backfillAllFolders loops here); the client debounces. Gated cheaply
       // on gtd_enabled + changedCount>0 only.
       await emitGtdSectionsRefreshIfEnabled(this, account, backfilledRows);
+      // Backfilling a configured folder is how its section first fills in.
+      await emitRightSidebarRefreshIfConfigured(this, account, missingUids.length);
     } catch (err) {
       console.error(`Backfill failed for ${logAccount(account)}/${folder}:`, err.message);
     } finally {
@@ -4598,6 +4619,11 @@ export class ImapManager {
         // Notify the user's open clients so the message reappears
         this.broadcast({ type: 'snooze_wakeup', accountId: row.account_id }, row.user_id);
 
+        // snooze_wakeup does not reach the GTD/sidebar rollups; the woken row re-enters its
+        // original folder unread, which can flip a section's thread-level unread count.
+        await emitGtdSectionsRefreshIfEnabled(this, account, 1);
+        await emitRightSidebarRefreshIfConfigured(this, account, 1);
+
         console.log(`Snooze wakeup: message ${row.message_id_header} restored to ${row.original_folder}`);
       } catch (err) {
         console.error(`Snooze wakeup failed for snooze_id ${row.snooze_id}:`, err.message);
@@ -4737,6 +4763,9 @@ export class ImapManager {
       // thread's INBOX (or label) copy GTD section data is now stale — this covers threads archived or
       // deleted by an external mail client, which nothing else here would refresh. Cheap gate.
       await emitGtdSectionsRefreshOnDelete(this, account, deletedCount);
+      // Mail deleted in another client is reconciled here, and nothing else would refresh
+      // a section that just lost a row to it.
+      await emitRightSidebarRefreshIfConfigured(this, account, 1);
     }
   }
 

@@ -9,10 +9,12 @@ import { updateFaviconBadge } from '../themes.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { setPending, pendingMarkReadMap, completedMarkReadMap } from '../utils/pendingReads.js';
 import { buildKeyMap, buildModKeyMap, getEffectiveShortcuts, getGroupedActions, parseModKey, modLabel, SPECIAL_KEYS, SPECIAL_KEY_LABELS } from '../utils/defaultShortcuts.js';
+import { clampRightSidebarWidth, rightSidebarActiveForContext } from '../utils/rightSidebar.js';
 import Sidebar from './Sidebar.jsx';
 import MessageList from './MessageList.jsx';
 import MessagePane from './MessagePane.jsx';
 import GtdSidebarContent from './GtdSidebarContent.jsx';
+import RightSidebarLabels from './RightSidebarLabels.jsx';
 import NotificationToasts from './NotificationToasts.jsx';
 import CommandPalette from './CommandPalette.jsx';
 import { gtdActiveForContext } from '../utils/gtd.js';
@@ -68,7 +70,7 @@ export default function MailApp() {
     sidebarWidth, setSidebarWidth, setIsSidebarResizing,
     showContacts, setTodoistConnected,
     accounts, rightSidebarWidth, setRightSidebarWidth, isRightSidebarResizing, setIsRightSidebarResizing,
-    fetchGtdSections, rightSidebarHidden, toggleRightSidebarHidden,
+    fetchGtdSections, rightSidebarHidden, toggleRightSidebarHidden, fetchRightSidebarSections,
   } = useStore();
   const syncInterval = useStore(s => s.syncInterval);
 
@@ -101,6 +103,17 @@ export default function MailApp() {
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, []);
+
+  // Load the sidebar's sections when it becomes active, when the account scope changes,
+  // and when the label configuration itself changes (saving in Settings updates the
+  // account, so the joined key below moves and refetches without extra plumbing).
+  const configuredLabelsKey = accounts
+    .map(account => `${account.id}:${(account.right_sidebar_labels || []).join(',')}`)
+    .join('|');
+  const rightSidebarActive = rightSidebarActiveForContext(accounts, selectedAccountId);
+  useEffect(() => {
+    if (rightSidebarActive) fetchRightSidebarSections();
+  }, [rightSidebarActive, selectedAccountId, configuredLabelsKey, fetchRightSidebarSections]);
 
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -172,12 +185,16 @@ export default function MailApp() {
   // live shortcut map via the existing helpers — no new plumbing. '' when unbound.
   const rightSidebarToggleParsed = parseModKey(getEffectiveShortcuts(shortcuts).toggleRightSidebar);
   const rightSidebarToggleHint = rightSidebarToggleParsed ? `${modLabel(rightSidebarToggleParsed.mod)}${rightSidebarToggleParsed.bare}` : '';
-  // The right sidebar renders when a feature supplies content. GTD is the
-  // current (only) provider; the layout/shortcut infrastructure below is
-  // feature-agnostic and keys off the seam, not the feature.
+  // The right sidebar renders when a feature supplies content. The layout/shortcut
+  // infrastructure below is feature-agnostic and keys off this seam, not off any
+  // feature condition. GTD supplies the content when it is active for the current
+  // context; otherwise configured label folders do. With neither, the seam stays
+  // null and the column never appears.
   const rightSidebarContent = gtdActive
     ? <GtdSidebarContent onCollapse={toggleRightSidebarHidden} toggleHint={rightSidebarToggleHint} />
-    : null;
+    : rightSidebarActive
+      ? <RightSidebarLabels onCollapse={toggleRightSidebarHidden} toggleHint={rightSidebarToggleHint} />
+      : null;
   const rightSidebarApplicable = !isMobile && currentLayout.direction === 'row' && rightSidebarContent != null;
 
   const handleListResizeMouseDown = (e) => {
@@ -220,7 +237,7 @@ export default function MailApp() {
 
     const onMouseMove = (mv) => {
       const dx = mv.clientX - startX;
-      const clamped = Math.max(200, Math.min(600, startWidth - dx));
+      const clamped = clampRightSidebarWidth(startWidth - dx);
       document.documentElement.style.setProperty('--right-sidebar-width', clamped + 'px');
     };
 

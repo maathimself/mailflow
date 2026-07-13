@@ -6,6 +6,7 @@ import { playNotificationSound } from '../utils/notificationSounds.js';
 import { pendingMarkReadMap } from '../utils/pendingReads.js';
 import { gtdActiveForContext } from '../utils/gtd.js';
 import { updateFaviconBadge } from '../themes.js';
+import { rightSidebarActiveForContext } from '../utils/rightSidebar.js';
 
 // Compute the correct favicon count given unread counts and the currently
 // selected account. Reads selectedAccountId from the store directly so this
@@ -13,6 +14,15 @@ import { updateFaviconBadge } from '../themes.js';
 function _faviconCount(counts) {
   const { selectedAccountId } = useStore.getState();
   return selectedAccountId ? (counts.byAccount[selectedAccountId] ?? 0) : counts.total;
+}
+
+// A label folder is never the selected folder, so the message-list refresh other events
+// trigger never touches the sidebar's sections — they need their own signal. The server
+// only sends right_sidebar_updated when the change actually landed in a configured folder,
+// so this stays quiet for everyone who hasn't set any labels up.
+function refreshRightSidebar() {
+  const { accounts, selectedAccountId, scheduleRightSidebarFetch } = useStore.getState();
+  if (rightSidebarActiveForContext(accounts, selectedAccountId)) scheduleRightSidebarFetch();
 }
 
 // Apply a fresh server count, guarding against double-adjustment of in-flight
@@ -104,6 +114,7 @@ export function useWebSocket() {
         // context adds no extra traffic on every reconnect.
         const { accounts, selectedAccountId, scheduleGtdSectionsFetch } = useStore.getState();
         if (gtdActiveForContext(accounts, selectedAccountId)) scheduleGtdSectionsFetch();
+        refreshRightSidebar();
       }
     };
 
@@ -323,6 +334,19 @@ export function useWebSocket() {
           flagCountRefreshTimer = setTimeout(() => {
             api.getUnreadCounts().then(_applyServerCounts).catch(() => {});
           }, 400);
+        }
+        break;
+      }
+
+      case 'right_sidebar_updated': {
+        // A configured label folder changed — from a sync tick, or from an action taken
+        // anywhere else in the app. Not gated on selectedFolder: a label folder is never
+        // the selected one. Debounced in the store, since one tick can emit several times.
+        // Only act when the event's account is in the current sidebar scope; unified view
+        // (selectedAccountId === null) sees every account.
+        const store = useStore.getState();
+        if (store.selectedAccountId === null || store.selectedAccountId === data.accountId) {
+          refreshRightSidebar();
         }
         break;
       }

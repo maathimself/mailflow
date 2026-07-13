@@ -28,6 +28,27 @@ describe('sanitizeRightSidebarPrefs — rightSidebarHidden', () => {
   });
 });
 
+describe('sanitizeRightSidebarPrefs — rightSidebarCollapsed', () => {
+  it('coerces each section value to a boolean', () => {
+    expect(sanitizeRightSidebarPrefs({ rightSidebarCollapsed: { Receipts: true, Newsletters: 0 } }).rightSidebarCollapsed)
+      .toEqual({ Receipts: true, Newsletters: false });
+  });
+
+  it('skips absent values and non-object shapes', () => {
+    expect(sanitizeRightSidebarPrefs({}).rightSidebarCollapsed).toBeNull();
+    expect(sanitizeRightSidebarPrefs({ rightSidebarCollapsed: ['Receipts'] }).rightSidebarCollapsed).toBeNull();
+    expect(sanitizeRightSidebarPrefs({ rightSidebarCollapsed: 'Receipts' }).rightSidebarCollapsed).toBeNull();
+  });
+
+  it('drops over-long keys and caps the map', () => {
+    const longKey = 'x'.repeat(256);
+    expect(sanitizeRightSidebarPrefs({ rightSidebarCollapsed: { [longKey]: true } }).rightSidebarCollapsed).toEqual({});
+
+    const many = Object.fromEntries(Array.from({ length: 60 }, (_, i) => [`s${i}`, true]));
+    expect(Object.keys(sanitizeRightSidebarPrefs({ rightSidebarCollapsed: many }).rightSidebarCollapsed)).toHaveLength(40);
+  });
+});
+
 describe('sanitizeRightSidebarPrefs — allow-list integrity', () => {
   it('reads only canonical right-sidebar keys', () => {
     const out = sanitizeRightSidebarPrefs({
@@ -35,7 +56,7 @@ describe('sanitizeRightSidebarPrefs — allow-list integrity', () => {
       rightSidebarHidden: false,
       theme: 'evil',
     });
-    expect(out).toEqual({ rightSidebarWidth: 300, rightSidebarHidden: false });
+    expect(out).toEqual({ rightSidebarWidth: 300, rightSidebarHidden: false, rightSidebarCollapsed: null });
     expect(out).not.toHaveProperty('theme');
   });
 });

@@ -130,9 +130,14 @@ export const api = {
   },
   getMessage: (id) => request('GET', `/mail/messages/${id}`),
   getMessageBody,
-  getThread: (threadId, folder) => {
-    const qs = folder ? `?folder=${encodeURIComponent(folder)}` : '';
-    return request('GET', `/mail/thread/${encodeURIComponent(threadId)}${qs}`);
+  // accountId disambiguates a thread_key that two accounts could share (a provider
+  // thread id is only unique within its own account); omit it to search them all.
+  getThread: (threadId, folder, accountId) => {
+    const p = new URLSearchParams();
+    if (folder) p.set('folder', folder);
+    if (accountId) p.set('accountId', accountId);
+    const qs = p.toString();
+    return request('GET', `/mail/thread/${encodeURIComponent(threadId)}${qs ? '?' + qs : ''}`);
   },
   bulkRead: (ids, read) => request('POST', '/mail/messages/bulk-read', { ids, read }),
   markStarred: (id, starred) => request('PATCH', `/mail/messages/${id}/star`, { starred }),
@@ -142,6 +147,14 @@ export const api = {
   bulkMove: (ids, folder) => request('POST', '/mail/messages/bulk-move', { ids, folder }),
   bulkArchive: (ids) => request('POST', '/mail/messages/bulk-archive', { ids }),
   getUnreadCounts: () => request('GET', '/mail/unread-counts'),
+
+  getRightSidebarSections: (params) => {
+    const p = new URLSearchParams();
+    if (params?.accountId) p.set('accountId', params.accountId);
+    if (params?.limit != null) p.set('limit', params.limit);
+    const qs = p.toString();
+    return request('GET', `/right-sidebar/sections${qs ? '?' + qs : ''}`);
+  },
 
   // Antispam (v0.1) — manual user feedback.
   // markSpam moves the message to the account's spam/junk folder and

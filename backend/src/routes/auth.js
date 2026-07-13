@@ -701,8 +701,9 @@ router.patch('/preferences', async (req, res) => {
   // top-level keys with separate allow-lists. gtdEnabled is intentionally NOT a user
   // preference — it lives per-account in email_accounts.gtd_enabled.
   const { gtdCollapsedSections, gtdPetSlug } = sanitizeGtdPrefs(req.body);
-  const { rightSidebarWidth, rightSidebarHidden } = sanitizeRightSidebarPrefs(req.body);
+  const { rightSidebarWidth, rightSidebarHidden, rightSidebarCollapsed } = sanitizeRightSidebarPrefs(req.body);
   const gtdCollapsedSectionsJson = gtdCollapsedSections != null ? JSON.stringify(gtdCollapsedSections) : null;
+  const rightSidebarCollapsedJson = rightSidebarCollapsed != null ? JSON.stringify(rightSidebarCollapsed) : null;
   // JSONB fields must be serialised to strings for the ::jsonb cast
   const imageWhitelistJson    = imageWhitelist    != null ? JSON.stringify(imageWhitelist)    : null;
   const shortcutsJson         = shortcuts         != null ? JSON.stringify(shortcuts)         : null;
@@ -763,6 +764,7 @@ router.patch('/preferences', async (req, res) => {
       || CASE WHEN $32::boolean IS NOT NULL THEN jsonb_build_object('rightSidebarHidden', $32::boolean) ELSE '{}'::jsonb END
       || CASE WHEN $33::jsonb IS NOT NULL THEN jsonb_build_object('gtdCollapsedSections', $33::jsonb) ELSE '{}'::jsonb END
       || CASE WHEN $34::text IS NOT NULL THEN jsonb_build_object('gtdPetSlug', $34::text) ELSE '{}'::jsonb END
+      || CASE WHEN $35::jsonb IS NOT NULL THEN jsonb_build_object('rightSidebarCollapsed', $35::jsonb) ELSE '{}'::jsonb END
     WHERE id = $1
   `, [req.session.userId, theme ?? null, font ?? null, layout ?? null, notificationSound ?? null,
       pageSize ?? null, scrollMode ?? null, syncInterval ?? null,
@@ -771,7 +773,7 @@ router.patch('/preferences', async (req, res) => {
       swipeActionsJson, expandedAccountsJson, collapsedFoldersJson, favoriteFoldersJson, recentFoldersJson, fontSizeVal,
       showAppBadge ?? null, showFaviconBadge ?? null, replyDefaultVal, sidebarWidthVal,
       categorizationEnabled ?? null, markReadBehaviorVal, markReadDelayVal, aiActionsJson,
-      rightSidebarWidth, rightSidebarHidden, gtdCollapsedSectionsJson, gtdPetSlug]);
+      rightSidebarWidth, rightSidebarHidden, gtdCollapsedSectionsJson, gtdPetSlug, rightSidebarCollapsedJson]);
 
   if (syncInterval != null) {
     const ms = parseInt(syncInterval) * 1000;

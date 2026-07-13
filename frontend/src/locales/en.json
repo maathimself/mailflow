@@ -606,7 +606,8 @@
       "groupAccountMail": "Account & Mail",
       "groupDisplay": "Display",
       "groupSecurityIntegrations": "Security & Integrations",
-      "groupAdmin": "Administration"
+      "groupAdmin": "Administration",
+      "rightSidebar": "Right sidebar"
     },
     "rules": {
       "title": "Inbox rules",
@@ -1305,6 +1306,20 @@
       "placeholder": "Search settings…",
       "noResults": "No settings match “{{query}}”",
       "notificationSound": "Notification sound"
+    },
+    "rightSidebar": {
+      "title": "Right sidebar labels",
+      "description": "Choose the labels shown in the right sidebar for each account, then drag them into the order you want.",
+      "noAccounts": "Add an email account first to configure sidebar labels.",
+      "selected": "Selected labels",
+      "noLabels": "No labels selected.",
+      "addPlaceholder": "Choose a label…",
+      "unavailable": "Unavailable",
+      "drag": "Drag to reorder",
+      "saved": "Sidebar labels saved.",
+      "loadFailed": "Couldn't load labels.",
+      "saveFailed": "Couldn't save sidebar labels.",
+      "rejected": "Some labels were rejected by the server."
     }
   },
   "blockList": {
@@ -1384,7 +1399,10 @@
   },
   "rightSidebar": {
     "hide": "Hide right sidebar",
-    "show": "Show right sidebar"
+    "show": "Show right sidebar",
+    "title": "Labels",
+    "empty": "No configured labels are available.",
+    "toggleSection": "Toggle {{section}}"
   },
   "gtd": {
     "title": "GTD",

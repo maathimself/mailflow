@@ -606,7 +606,8 @@
       "groupAccountMail": "账户与邮件",
       "groupDisplay": "显示",
       "groupSecurityIntegrations": "安全与集成",
-      "groupAdmin": "管理"
+      "groupAdmin": "管理",
+      "rightSidebar": "右侧边栏"
     },
     "rules": {
       "title": "收件箱规则",
@@ -1305,6 +1306,20 @@
       "placeholder": "搜索设置…",
       "noResults": "未找到与“{{query}}”匹配的设置",
       "notificationSound": "通知声音"
+    },
+    "rightSidebar": {
+      "title": "右侧边栏标签",
+      "description": "为每个账户选择要显示在右侧边栏中的标签，然后拖动调整顺序。",
+      "noAccounts": "请先添加电子邮件账户，再配置边栏标签。",
+      "selected": "已选标签",
+      "noLabels": "尚未选择标签。",
+      "addPlaceholder": "选择标签…",
+      "unavailable": "不可用",
+      "drag": "拖动以重新排序",
+      "saved": "边栏标签已保存。",
+      "loadFailed": "无法加载标签。",
+      "saveFailed": "无法保存边栏标签。",
+      "rejected": "服务器拒绝了部分标签。"
     }
   },
   "blockList": {
@@ -1384,7 +1399,10 @@
   },
   "rightSidebar": {
     "hide": "隐藏右侧边栏",
-    "show": "显示右侧边栏"
+    "show": "显示右侧边栏",
+    "title": "标签",
+    "empty": "没有可用的已配置标签。",
+    "toggleSection": "切换{{section}}"
   },
   "gtd": {
     "title": "GTD",

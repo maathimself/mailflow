@@ -14,6 +14,10 @@ const SPAM_NAME_RE = /(spam|junk|bulk|indesiderata|spamverdacht|courrier\s*ind|p
 const CATEGORIES = ['primary', 'newsletter', 'promotion', 'automated', 'social'];
 
 export default function ContextMenu({ x, y, message, onClose, onAction, defaultMoveView = false, variant = 'inbox' }) {
+  // The right sidebar reuses this menu on its rows but trims it to the actions that
+  // don't need inbox-list or compose context (a sidebar row is a deep link, not a
+  // list selection, and has no reply surface behind it).
+  const sidebarRow = variant === 'rightSidebar';
   const { t } = useTranslation();
   // GTD sidebar entries reuse this menu but trim it to a compact triage set:
   // it drops actions that need inbox-list context (select) or MailApp/compose flows the
@@ -134,7 +138,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
           </svg>,
           action: () => onAction('toggleStar'),
         },
-        ...(gtdSidebarEntry ? [] : [{
+        ...(gtdSidebarEntry || sidebarRow ? [] : [{
           label: t('contextMenu.select'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="3" y="3" width="18" height="18" rx="3"/><polyline points="9 12 11 14 15 10"/></svg>,
           action: () => onAction('bulkSelect'),
@@ -144,17 +148,17 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
     {
       group: 'Actions',
       actions: [
-        ...(gtdSidebarEntry ? [] : [{
+        ...(gtdSidebarEntry || sidebarRow ? [] : [{
           label: t('contextMenu.reply'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 00-4-4H4"/></svg>,
           action: () => onAction('reply'),
-        },
-        {
+        }]),
+        ...(gtdSidebarEntry || sidebarRow ? [] : [{
           label: t('contextMenu.replyAll'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polyline points="7 17 2 12 7 7"/><polyline points="12 17 7 12 12 7"/><path d="M22 18v-2a4 4 0 00-4-4H7"/></svg>,
           action: () => onAction('replyAll'),
-        },
-        {
+        }]),
+        ...(gtdSidebarEntry || sidebarRow ? [] : [{
           label: t('contextMenu.forward'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polyline points="15 17 20 12 15 7"/><path d="M4 18v-2a4 4 0 014-4h12"/></svg>,
           action: () => onAction('forward'),
@@ -171,21 +175,21 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a1 1 0 001 1h14a1 1 0 001-1V8"/><polyline points="9 13 12 16 15 13"/><line x1="12" y1="11" x2="12" y2="16"/></svg>,
           action: () => onAction('archive'),
         }]),
-        ...(message.folder !== 'Snoozed' && !gtdSidebarEntry ? [{
+        ...(message.folder !== 'Snoozed' && !gtdSidebarEntry && !sidebarRow ? [{
           label: t('contextMenu.snooze.label'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
           action: () => setSnoozeView(true),
           keepOpen: true,
           hasSubmenu: true,
         }] : []),
-        ...(categorizationActive && !gtdSidebarEntry ? [{
+        ...(categorizationActive && !gtdSidebarEntry && !sidebarRow ? [{
           label: t('contextMenu.categorize'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>,
           action: () => setCategorizeView(true),
           keepOpen: true,
           hasSubmenu: true,
         }] : []),
-        ...(gtdActive ? [{
+        ...(gtdActive && !sidebarRow ? [{
           label: t('gtd.title'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>,
           action: () => setGtdView(true),
@@ -199,12 +203,12 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polyline points="20 6 9 17 4 12"/></svg>,
           action: () => onAction('gtdDone'),
         }] : []),
-        ...(gtdSidebarEntry ? [] : [{
+        ...(gtdSidebarEntry || sidebarRow ? [] : [{
           label: t('contextMenu.createRule'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>,
           action: () => onAction('createRuleFromMessage'),
-        },
-        {
+        }]),
+        ...(gtdSidebarEntry || sidebarRow ? [] : [{
           label: t('contextMenu.addToBlockList'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>,
           action: () => onAction('addToBlockList'),
@@ -213,19 +217,19 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
         // action: "Mark as Spam" when the message isn't already in a spam-like
         // folder, "Mark as Not Spam" when it is. They live next to "Move to
         // folder" so the antispam workflow stays discoverable.
-        ...(spamFolderPaths.size > 0 && !inSpamFolder && !gtdSidebarEntry ? [{
+        ...(spamFolderPaths.size > 0 && !inSpamFolder && !gtdSidebarEntry && !sidebarRow ? [{
           label: t('contextMenu.markAsSpam'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M12 3L4 7v5c0 5 3.5 9.3 8 10.3C16.5 21.3 20 17 20 12V7L12 3z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
           action: () => onAction('markSpam'),
         }] : []),
-        ...(inSpamFolder && !gtdSidebarEntry ? [{
+        ...(inSpamFolder && !gtdSidebarEntry && !sidebarRow ? [{
           label: t('contextMenu.markAsHam'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M12 3L4 7v5c0 5 3.5 9.3 8 10.3C16.5 21.3 20 17 20 12V7L12 3z"/><polyline points="9 12 11 14 15 10"/></svg>,
           action: () => onAction('markHam'),
         }] : []),
       ]
     },
-    ...(gtdSidebarEntry ? [] : [{
+    ...(gtdSidebarEntry || sidebarRow ? [] : [{
       group: 'Copy',
       actions: [
         {
@@ -239,8 +243,8 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
           action: () => { navigator.clipboard.writeText(message.from_email || ''); onAction('copy'); },
         },
       ]
-    },
-    {
+    }]),
+    ...(gtdSidebarEntry ? [] : [{
       group: 'View',
       actions: [
         {

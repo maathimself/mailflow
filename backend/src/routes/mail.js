@@ -12,6 +12,8 @@ import { emitGtdIfRelevant } from '../services/gtdSections.js';
 import { listMessages } from '../services/messageService.js';
 import { validateHost } from '../services/hostValidation.js';
 import { safeFetch } from '../services/safeFetch.js';
+import { emitSectionUpdatesIfRelevant, groupSectionUpdateInputs } from '../services/sectionUpdates.js';
+import { invalidateRightSidebarConfig } from '../services/rightSidebarConfig.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -100,6 +102,16 @@ function emitGtdSectionsRefresh(rows, userId) {
   }
 }
 
+// Tell the right sidebar to refetch when a mutation touched a configured label folder.
+// Fire-and-forget: the rows are captured before a move/delete can drop them, and a failed
+// emit is logged, never surfaced, so it can't turn a completed mutation into a 500.
+function emitSectionRefresh(rows, userId, extraActedFolders) {
+  for (const { accountId, messageIds, actedFolders, threadKeys } of groupSectionUpdateInputs(rows, extraActedFolders)) {
+    emitSectionUpdatesIfRelevant(imapManager, accountId, userId, messageIds, actedFolders, threadKeys)
+      .catch(err => console.warn('Section refresh emit failed:', err.message));
+  }
+}
+
 // Get messages (unified or per-account/folder)
 router.get('/messages', async (req, res) => {
   const { accountId, folder = 'INBOX', limit = 50, offset = 0, unreadOnly, threaded, category } = req.query;
@@ -175,14 +187,20 @@ function shouldBlockImages(prefs, message) {
 // Get all messages belonging to a thread (for threaded view expansion)
 router.get('/thread/:threadId', async (req, res) => {
   const { threadId } = req.params;
+  const { accountId } = req.query;
   if (!threadId) return res.status(400).json({ error: 'threadId required' });
+  if (accountId && !UUID_RE.test(accountId)) return res.status(400).json({ error: 'Invalid account id' });
 
   try {
     const accountsResult = await query(
       'SELECT id FROM email_accounts WHERE user_id = $1 AND enabled = true',
       [req.session.userId]
     );
-    const userAccountIds = accountsResult.rows.map(r => r.id);
+    // Narrowing to one account still runs through the user's own account list, so a
+    // foreign id can only ever narrow to nothing — never widen.
+    const userAccountIds = accountsResult.rows
+      .map(r => r.id)
+      .filter(id => !accountId || id === accountId);
     if (!userAccountIds.length) return res.json({ messages: [] });
 
     // Show all non-deleted messages in the thread regardless of folder. This includes
@@ -645,6 +663,9 @@ router.patch('/messages/:id/read', async (req, res) => {
 
   // Refresh GTD section data if this message's thread carries a GTD label (its head shows read state).
   emitGtdSectionsRefresh([message], req.session.userId);
+  // A copy of this thread may sit in a configured label folder, whose section counts
+  // thread-level unread — so its rollup can change even when the label copy didn't.
+  emitSectionRefresh([message], req.session.userId);
 
   res.json({ ok: true, is_read: read });
 });
@@ -695,6 +716,7 @@ router.patch('/messages/:id/star', async (req, res) => {
 
   // Refresh GTD section data if this message's thread carries a GTD label (its head shows star state).
   emitGtdSectionsRefresh([message], req.session.userId);
+  emitSectionRefresh([message], req.session.userId);
   // Reflect the star change on the user's other sessions in place (no full refetch).
   if (!!message.is_starred !== !!starred) {
     imapManager.broadcast({ type: 'message_flags', accountId: message.account_id, changes: [{ id, is_starred: starred }] }, req.session.userId);
@@ -750,7 +772,14 @@ router.post('/mark-all-read', async (req, res) => {
     [accountId, req.session.userId]
   );
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
-  await query('UPDATE messages SET is_read = true, read_changed_at = NOW() WHERE account_id = $1 AND folder = $2', [accountId, folder]);
+  // Restrict to rows that actually flip: bumping read_changed_at on already-read mail only
+  // guards a change that didn't happen, and the returned rows drive the section refreshes below.
+  const updated = await query(
+    `UPDATE messages SET is_read = true, read_changed_at = NOW()
+     WHERE account_id = $1 AND folder = $2 AND is_read = false
+     RETURNING id, message_id, thread_key`,
+    [accountId, folder]
+  );
   await query('UPDATE folders SET unread_count = 0 WHERE account_id = $1 AND path = $2', [accountId, folder])
     .catch(err => console.error('Folder count update failed:', err.message));
   // Also update IMAP so the change survives the next sync (non-fatal if it fails)
@@ -758,6 +787,11 @@ router.post('/mark-all-read', async (req, res) => {
     console.warn('markAllReadImap failed:', err.message)
   );
   imapManager.broadcast({ type: 'sync_complete', accountId }, check.rows[0].user_id);
+  // The flip changes thread-level unread rollups, which no sync path sees (this route pushes
+  // to IMAP itself). Refresh GTD and sidebar sections; zero flipped rows emit nothing.
+  const rows = updated.rows.map(r => ({ ...r, account_id: accountId, folder }));
+  emitGtdSectionsRefresh(rows, req.session.userId);
+  emitSectionRefresh(rows, req.session.userId, [folder]);
   res.json({ ok: true });
 });
 
@@ -806,8 +840,17 @@ router.post('/folders/delete', async (req, res) => {
     console.error(`IMAP deleteFolder failed for ${path}:`, err.message);
     return res.status(500).json({ error: 'Failed to delete folder on server' });
   }
+  // Capture the folder's threads before the rows vanish: removing them can flip the
+  // thread-level unread rollup of a sibling copy sitting in a configured sidebar section.
+  const removed = await query(
+    'SELECT DISTINCT message_id, thread_key FROM messages WHERE account_id = $1 AND folder = $2 AND is_deleted = false',
+    [accountId, path]
+  );
   await query('DELETE FROM folders WHERE account_id = $1 AND path = $2', [accountId, path]);
   await query('DELETE FROM messages WHERE account_id = $1 AND folder = $2', [accountId, path]);
+  const removedRows = removed.rows.map(r => ({ ...r, account_id: accountId, folder: path }));
+  emitGtdSectionsRefresh(removedRows, req.session.userId);
+  emitSectionRefresh(removedRows, req.session.userId, [path]);
   res.json({ ok: true });
 });
 
@@ -834,6 +877,20 @@ router.post('/folders/rename', async (req, res) => {
       [newPath, newName.trim(), accountId, oldPath]
     );
     await query('UPDATE messages SET folder = $1 WHERE account_id = $2 AND folder = $3', [newPath, accountId, oldPath]);
+    // Keep the sidebar config pointing at the renamed folder. Exact-path only: the route
+    // remaps only exact-path message rows (child folders are reconciled by sync), so a
+    // configured child path must not be rewritten here. Invalidate the cache so the next
+    // section fetch — including the emit below — reads the remapped config.
+    const labels = check.rows[0].right_sidebar_labels;
+    if (Array.isArray(labels) && labels.includes(oldPath)) {
+      const remapped = labels.map(p => (p === oldPath ? newPath : p));
+      await query('UPDATE email_accounts SET right_sidebar_labels = $1 WHERE id = $2', [JSON.stringify(remapped), accountId]);
+      invalidateRightSidebarConfig(accountId);
+    }
+    // Refresh either section the rename may name — emitSectionRefresh can't carry acted
+    // folders without rows, so call the underlying emit directly with both paths.
+    emitSectionUpdatesIfRelevant(imapManager, accountId, req.session.userId, [], [oldPath, newPath], [])
+      .catch(err => console.warn('Section refresh emit failed:', err.message));
     res.json({ ok: true, newPath });
   } catch (err) {
     console.error('Rename folder error:', err);
@@ -855,12 +912,21 @@ router.post('/folders/empty', async (req, res) => {
     console.error(`IMAP emptyFolder failed for ${path}:`, err.message);
     return res.status(500).json({ error: 'Failed to empty folder on server' });
   }
+  // Capture the folder's threads before the rows vanish (see /folders/delete): emptying
+  // can flip the thread-level unread rollup of a sibling in a configured sidebar section.
+  const removed = await query(
+    'SELECT DISTINCT message_id, thread_key FROM messages WHERE account_id = $1 AND folder = $2 AND is_deleted = false',
+    [accountId, path]
+  );
   await query('DELETE FROM messages WHERE account_id = $1 AND folder = $2', [accountId, path]);
   await query(
     'UPDATE folders SET total_count = 0, unread_count = 0 WHERE account_id = $1 AND path = $2',
     [accountId, path]
   );
   imapManager.broadcast({ type: 'sync_complete', accountId }, check.rows[0].user_id);
+  const removedRows = removed.rows.map(r => ({ ...r, account_id: accountId, folder: path }));
+  emitGtdSectionsRefresh(removedRows, req.session.userId);
+  emitSectionRefresh(removedRows, req.session.userId, [path]);
   res.json({ ok: true });
 });
 
@@ -882,7 +948,9 @@ router.post('/messages/bulk-read', async (req, res) => {
 
   try {
     const result = await query(
-      `SELECT m.id, m.uid, m.folder, m.is_read, m.account_id, m.message_id, a.gtd_enabled FROM messages m
+      // message_id and thread_key are needed to spot a same-message copy or a thread
+      // sibling sitting in a configured label folder, whose section then needs refreshing.
+      `SELECT m.id, m.uid, m.folder, m.is_read, m.account_id, m.message_id, m.thread_key, a.gtd_enabled FROM messages m
        JOIN email_accounts a ON m.account_id = a.id
        WHERE m.id = ANY($2::uuid[]) AND a.user_id = $1`,
       [req.session.userId, ids]
@@ -953,6 +1021,7 @@ router.post('/messages/bulk-read', async (req, res) => {
 
     // Refresh GTD section data for any updated thread that carries a GTD label.
     emitGtdSectionsRefresh(toUpdate, req.session.userId);
+    emitSectionRefresh(toUpdate, req.session.userId);
 
     res.json({ ok: true, updated: toUpdate.map(m => m.id) });
   } catch (err) {
@@ -1160,6 +1229,7 @@ router.post('/messages/bulk-delete', async (req, res) => {
 
     // Refresh GTD section data for any deleted thread that still carries a GTD label sibling.
     emitGtdSectionsRefresh(owned, req.session.userId);
+    emitSectionRefresh(owned, req.session.userId);
 
     res.json({ ok: true, deleted: allSucceeded });
   } catch (err) {
@@ -1319,6 +1389,10 @@ router.post('/messages/bulk-move', async (req, res) => {
 
     // Refresh GTD section data for any moved thread that still carries a GTD label sibling.
     emitGtdSectionsRefresh(owned, req.session.userId);
+    // Name the destination explicitly: mail without a Message-ID can't be found again
+    // once it has moved, so the rows alone can't say where it landed.
+    const movedSet = new Set(movedIds);
+    emitSectionRefresh(owned.filter(message => movedSet.has(message.id)), req.session.userId, [folder]);
 
     res.json({ ok: true, moved: movedIds });
   } catch (err) {
@@ -1503,6 +1577,7 @@ router.post('/messages/bulk-archive', async (req, res) => {
 
     // Refresh GTD section data for any archived thread that still carries a GTD label sibling.
     emitGtdSectionsRefresh(owned, req.session.userId);
+    emitSectionRefresh(owned, req.session.userId);
 
     res.json({ ok: true, archived: archivedIds.map(a => a.id), noArchiveFolder });
   } catch (err) {
@@ -1588,6 +1663,8 @@ router.post('/messages/:id/snooze', async (req, res) => {
 
   // Refresh GTD section data if the snoozed message's thread carries a GTD label (its in_inbox flips).
   emitGtdSectionsRefresh([msg], req.session.userId);
+  // Snoozing moves the thread out of the inbox, so a section's in_inbox may change.
+  emitSectionRefresh([msg], req.session.userId);
 
   res.json({ ok: true });
 });
@@ -1678,6 +1755,7 @@ router.delete('/messages/:id', async (req, res) => {
   // Refresh GTD section data if this thread still carries a GTD label sibling (same staleness the
   // bulk-delete route addresses, reached via the single-message delete button).
   emitGtdSectionsRefresh([message], req.session.userId);
+  emitSectionRefresh([message], req.session.userId);
   res.json({ ok: true });
 });
 
@@ -1786,8 +1864,9 @@ async function moveForSpamLabel(messageId, userId, destinationFolder, label) {
 
   // Refresh GTD section data if the (un)spammed message's thread carries a GTD label. Covers both
   // /spam and /ham, which share this mover. The already-in-folder no-op path above returns
-  // early without a move, so GTD section data is untouched there.
+  // early without a move, so section data is untouched there.
   emitGtdSectionsRefresh([message], userId);
+  emitSectionRefresh([message], userId, [destinationFolder]);
 
   return { ok: true, status: 200, body: { ok: true, folder: destinationFolder, newUid: newUid || null } };
 }

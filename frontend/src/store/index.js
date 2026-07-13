@@ -5,7 +5,7 @@ import { applyFontSet, applyFontSize } from '../fonts.js';
 import { applyLayout, normalizeLayout } from '../layouts.js';
 import { DEFAULT_AI_ACTIONS } from '../aiActions.js';
 import { removeGtdThreadFromSections, setGtdThreadReadInSections } from '../utils/gtd.js';
-import { clampRightSidebarWidth } from '../utils/rightSidebar.js';
+import { clampRightSidebarWidth, removeRightSidebarThreadFromSections } from '../utils/rightSidebar.js';
 import i18n from '../i18n.js';
 
 // Accumulate rapid preference changes and flush at most once per second.
@@ -35,6 +35,21 @@ function readGtdCollapsedSections() {
   // Someday is collapsed by default — lowest-priority section, out of the way
   // until the user wants it.
   return { someday: true };
+}
+
+// Guards a slow fetch from overwriting a newer one, and debounces WS-driven refetches
+// (a single sync tick can emit several events).
+let _rightSidebarSectionsSeq = 0;
+let _rightSidebarFetchTimer = null;
+
+function readRightSidebarCollapsed() {
+  try {
+    const saved = localStorage.getItem('mailflow_right_sidebar_collapsed');
+    const parsed = saved ? JSON.parse(saved) : null;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
 }
 
 export const useStore = create((set, get) => ({
@@ -567,6 +582,40 @@ export const useStore = create((set, get) => ({
     api.savePreferences({ gtdPetSlug: value || '' }).catch(() => {});
   },
 
+  rightSidebarCollapsed: readRightSidebarCollapsed(),
+  toggleRightSidebarSection: (section) => set(state => {
+    const next = { ...state.rightSidebarCollapsed, [section]: !state.rightSidebarCollapsed[section] };
+    localStorage.setItem('mailflow_right_sidebar_collapsed', JSON.stringify(next));
+    schedulePrefSave({ rightSidebarCollapsed: next });
+    return { rightSidebarCollapsed: next };
+  }),
+
+  // ── Right-sidebar content ───────────────────────────────────────────────────
+  // Sections for the user's configured label folders. null before the first load.
+  rightSidebarSections: null,
+  setRightSidebarSections: (sections) => set({ rightSidebarSections: sections }),
+  fetchRightSidebarSections: async () => {
+    const seq = ++_rightSidebarSectionsSeq;
+    const accountId = get().selectedAccountId || undefined;
+    try {
+      const data = await api.getRightSidebarSections({ accountId, limit: 50 });
+      if (seq !== _rightSidebarSectionsSeq) return; // superseded by a newer fetch
+      set({ rightSidebarSections: data.sections || [] });
+    } catch {
+      // Best-effort; the next context change or scheduled fetch will retry.
+    }
+  },
+  // Debounced refetch — a sync tick can fire several events, and a row action wants
+  // the authoritative counts back without racing the optimistic update.
+  scheduleRightSidebarFetch: () => {
+    clearTimeout(_rightSidebarFetchTimer);
+    _rightSidebarFetchTimer = setTimeout(() => { get().fetchRightSidebarSections(); }, 400);
+  },
+  removeRightSidebarThread: (identity, paths) => set(state => {
+    const next = removeRightSidebarThreadFromSections(state.rightSidebarSections, identity, paths);
+    return next === state.rightSidebarSections ? {} : { rightSidebarSections: next };
+  }),
+
   // Layout
   layout: (() => {
     const raw = localStorage.getItem('mailflow_layout');
@@ -866,6 +915,10 @@ export const useStore = create((set, get) => ({
         localStorage.setItem('mailflow_right_sidebar_hidden', String(prefs.rightSidebarHidden));
         set({ rightSidebarHidden: prefs.rightSidebarHidden });
       }
+      if (prefs.rightSidebarCollapsed && typeof prefs.rightSidebarCollapsed === 'object' && !Array.isArray(prefs.rightSidebarCollapsed)) {
+        localStorage.setItem('mailflow_right_sidebar_collapsed', JSON.stringify(prefs.rightSidebarCollapsed));
+        set({ rightSidebarCollapsed: prefs.rightSidebarCollapsed });
+      }
       if (prefs.customCss) {
         applyCustomCss(prefs.customCss);
       }
@@ -873,18 +926,25 @@ export const useStore = create((set, get) => ({
   },
 }));
 
-// The RFC message_id of the currently selected message, resolved from the same pools the
-// reading pane uses: the active folder/search list, then any stashed thread — including the
-// __dl_ deep-link stash written by GTD sidebar selection. Returns null when nothing is selected
-// or the selected row has no message_id. Lets the GTD sidebar and message list highlight every
-// copy of the open message by identity (not just the exact DB row that was clicked). A plain selector, not
-// a state field, so it stays in sync with the list automatically; returns a primitive so a
-// useStore(selectSelectedMessageMid) subscription only re-renders when the value changes.
-export function selectSelectedMessageMid(s) {
+// The selected message, resolved from the same pools the reading pane uses: the active
+// folder/search list, then any stashed thread — including the __dl_ deep-link stash a
+// section click writes. A plain selector rather than a state field, so it stays in sync
+// with the list automatically.
+function selectedMessageFromState(s) {
   const id = s.selectedMessageId;
   if (id == null) return null;
   const pool = s.searchQuery?.trim() ? s.searchResults : s.messages;
-  const msg = pool.find(m => m.id === id)
+  return pool.find(m => m.id === id)
     ?? Object.values(s.threadMessages).flat().find(m => m.id === id);
-  return msg?.message_id ?? null;
+}
+
+// Primitives, so a subscription only re-renders when the selected identity actually
+// changes. Lets sidebar rows highlight every copy of the open message by identity,
+// not just the exact DB row that was clicked.
+export function selectSelectedMessageMid(s) {
+  return selectedMessageFromState(s)?.message_id ?? null;
+}
+
+export function selectSelectedMessageAccountId(s) {
+  return selectedMessageFromState(s)?.account_id ?? null;
 }

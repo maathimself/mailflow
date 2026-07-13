@@ -606,7 +606,8 @@
       "groupAccountMail": "Cuenta y correo",
       "groupDisplay": "Visualización",
       "groupSecurityIntegrations": "Seguridad e integraciones",
-      "groupAdmin": "Administración"
+      "groupAdmin": "Administración",
+      "rightSidebar": "Barra lateral derecha"
     },
     "rules": {
       "title": "Reglas de bandeja de entrada",
@@ -1305,6 +1306,20 @@
       "placeholder": "Buscar ajustes…",
       "noResults": "Sin resultados para «{{query}}»",
       "notificationSound": "Sonido de notificación"
+    },
+    "rightSidebar": {
+      "title": "Etiquetas de la barra lateral derecha",
+      "description": "Elige las etiquetas que se muestran en la barra lateral derecha de cada cuenta y arrástralas al orden que quieras.",
+      "noAccounts": "Añade primero una cuenta de correo para configurar las etiquetas laterales.",
+      "selected": "Etiquetas seleccionadas",
+      "noLabels": "No hay etiquetas seleccionadas.",
+      "addPlaceholder": "Elige una etiqueta…",
+      "unavailable": "No disponible",
+      "drag": "Arrastrar para reordenar",
+      "saved": "Etiquetas laterales guardadas.",
+      "loadFailed": "No se pudieron cargar las etiquetas.",
+      "saveFailed": "No se pudieron guardar las etiquetas laterales.",
+      "rejected": "El servidor rechazó algunas etiquetas."
     }
   },
   "blockList": {
@@ -1384,7 +1399,10 @@
   },
   "rightSidebar": {
     "hide": "Ocultar la barra lateral derecha",
-    "show": "Mostrar la barra lateral derecha"
+    "show": "Mostrar la barra lateral derecha",
+    "title": "Etiquetas",
+    "empty": "No hay etiquetas configuradas disponibles.",
+    "toggleSection": "Alternar {{section}}"
   },
   "gtd": {
     "title": "GTD",

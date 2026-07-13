@@ -17,6 +17,7 @@ import { formatDate } from '../utils/formatDate.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
 import { applyDeleteGuard, clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.js';
+import { resolveMessageRowTypography } from '../utils/messageRowTypography.js';
 
 // Folder icon for move picker
 function FolderIcon({ specialUse, size = 13 }) {
@@ -3942,6 +3943,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
   const [hovered, setHovered] = useState(false);
   const messageCount = message.message_count || 1;
   const unreadCount  = parseInt(message.unread_count) || 0;
+  const typography = resolveMessageRowTypography(unreadCount === 0);
 
   const { contentRef, swipeBgLeftRef, swipeBgRightRef, tappedRef } = useSwipeRow({
     isMobile, message, onSwipeLeft, onSwipeRight, onLongPress,
@@ -4078,8 +4080,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                 <div style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: message.account_color || '#6366f1' }} />
               )}
               <span style={{
-                fontSize: 13, fontWeight: unreadCount > 0 ? 600 : 400,
-                color: unreadCount > 0 ? 'var(--text-primary)' : 'var(--text-secondary)',
+                fontSize: 13, ...typography.sender,
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
               }}>
                 {message.from_name || message.from_email || t('common.unknown', 'Unknown')}
@@ -4118,20 +4119,19 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                   </svg>
                 </button>
               )}
-              <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{formatDate(message.date)}</span>
+              <span style={{ fontSize: 11, ...typography.date }}>{formatDate(message.date)}</span>
             </div>
           </div>
           {/* Row 2: subject */}
           <div style={{
-            fontSize: 12, fontWeight: unreadCount > 0 ? 500 : 400,
-            color: unreadCount > 0 ? 'var(--text-primary)' : 'var(--text-secondary)',
+            fontSize: 12, ...typography.subject,
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 2,
           }}>
             {message.subject || t('common.noSubject')}
           </div>
           {/* Row 3: snippet */}
           <div style={{
-            fontSize: 12, color: 'var(--text-tertiary)',
+            fontSize: 12, ...typography.preview,
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           }}>
             {message.snippet || ''}
@@ -4225,6 +4225,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
 
   // On mobile the row content must be opaque — swipe action panels sit behind it
   // and would show through a transparent background.
+  const typography = resolveMessageRowTypography(!!message.is_read);
   const bgDefault = isMobile ? 'var(--bg-primary)' : 'transparent';
   const selectedColor = message.account_color || 'var(--accent)';
   const bg = (selected && !selectionMode)
@@ -4399,8 +4400,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
               }} />
             )}
             <span style={{
-              fontSize: 13, fontWeight: message.is_read ? 400 : 600,
-              color: message.is_read ? 'var(--text-secondary)' : 'var(--text-primary)',
+              fontSize: 13, ...typography.sender,
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
               flex: 1, minWidth: 0,
             }}>
@@ -4423,7 +4423,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
                 </svg>
               </button>
             )}
-            <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
+            <span style={{ fontSize: 11, ...typography.date }}>
               {formatDate(message.date)}
             </span>
           </div>
@@ -4431,8 +4431,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
 
         {/* Row 2: Subject */}
         <div style={{
-          fontSize: 13, fontWeight: message.is_read ? 400 : 500,
-          color: message.is_read ? 'var(--text-secondary)' : 'var(--text-primary)',
+          fontSize: 13, ...typography.subject,
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           marginBottom: 3,
         }}>
@@ -4442,7 +4441,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
         {/* Row 3: Snippet */}
         <div style={{ display: 'flex', alignItems: 'center' }}>
           <span style={{
-            fontSize: 12, color: 'var(--text-tertiary)',
+            fontSize: 12, ...typography.preview,
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             flex: 1,
           }}>
@@ -4456,9 +4455,8 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
       {hovered && hoverQuickActions && (
         <RowHoverActions
           message={message}
-          isRead={message.is_read}
+          isRead={!!message.is_read}
           background="var(--bg-tertiary)"
-          deleteTitleKey="common.delete"
           onMarkRead={onMarkRead}
           onStar={onStar}
           onDelete={onDelete}

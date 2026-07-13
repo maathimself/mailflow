@@ -7,6 +7,7 @@ import { sanitizeSignature } from '../services/emailSanitizer.js';
 import { validateHost } from '../services/hostValidation.js';
 import { getConnectionPolicy } from '../services/connectionPolicy.js';
 import { invalidateGtdConfigCache, sanitizeGtdFoldersDetailed, findGtdFolderCollisions, DEFAULT_GTD_FOLDERS } from '../services/gtdConfig.js';
+import { invalidateRightSidebarConfig, sanitizeRightSidebarLabels } from '../services/rightSidebarConfig.js';
 import { createKeyedSerializer } from '../utils/keyedSerializer.js';
 
 // Serialize an account's reconnect triggers so a rapid settings change (e.g. a
@@ -48,7 +49,7 @@ const SAFE_FIELDS = [
   'auth_user', 'oauth_provider', 'enabled',
   'last_sync', 'sync_error', 'sort_order', 'folder_mappings',
   'signature', 'created_at', 'categorization_enabled',
-  'gtd_enabled', 'gtd_folders',
+  'gtd_enabled', 'gtd_folders', 'right_sidebar_labels',
 ];
 function safeAccount(row) {
   const obj = Object.fromEntries(SAFE_FIELDS.map(k => [k, row[k]]));
@@ -62,7 +63,7 @@ router.get('/', async (req, res) => {
     `SELECT id, name, sender_name, email_address, color, protocol, imap_host, imap_port, imap_tls, imap_skip_tls_verify,
             smtp_host, smtp_port, smtp_tls, auth_user, oauth_provider, enabled,
             last_sync, sync_error, sort_order, folder_mappings, signature, created_at,
-            categorization_enabled, gtd_enabled, gtd_folders
+            categorization_enabled, gtd_enabled, gtd_folders, right_sidebar_labels
      FROM email_accounts WHERE user_id = $1 ORDER BY sort_order, created_at`,
     [req.session.userId]
   );
@@ -219,7 +220,17 @@ router.put('/:id', async (req, res) => {
     gtdFoldersChanged = JSON.stringify(before) !== JSON.stringify(folders);
   }
 
-  const allowed = ['name', 'sender_name', 'color', 'enabled', 'auth_user', 'auth_pass', 'sort_order', 'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify', 'smtp_host', 'smtp_port', 'smtp_tls', 'folder_mappings', 'signature', 'categorization_enabled', 'gtd_enabled', 'gtd_folders'];
+  // Reserved/traversing/over-long label paths are dropped rather than rejecting the
+  // whole update; the settings form surfaces what was dropped via the *_rejected key.
+  let rightSidebarLabelsValue;
+  let rightSidebarRejected = [];
+  if ('right_sidebar_labels' in updates) {
+    const sanitized = sanitizeRightSidebarLabels(updates.right_sidebar_labels);
+    rightSidebarLabelsValue = JSON.stringify(sanitized.labels);
+    rightSidebarRejected = sanitized.rejected;
+  }
+
+  const allowed = ['name', 'sender_name', 'color', 'enabled', 'auth_user', 'auth_pass', 'sort_order', 'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify', 'smtp_host', 'smtp_port', 'smtp_tls', 'folder_mappings', 'signature', 'categorization_enabled', 'gtd_enabled', 'gtd_folders', 'right_sidebar_labels'];
   const sets = [];
   const values = [];
   let i = 1;
@@ -230,6 +241,7 @@ router.put('/:id', async (req, res) => {
         : (key === 'signature') ? sanitizeSignature(updates[key]) || null
         : (key === 'gtd_enabled') ? !!updates[key]
         : (key === 'gtd_folders') ? gtdFoldersValue
+        : (key === 'right_sidebar_labels') ? rightSidebarLabelsValue
         : updates[key];
       values.push(value);
     }
@@ -246,6 +258,10 @@ router.put('/:id', async (req, res) => {
   // Tell the client which submitted folder values were rejected (over-long /
   // traversal) and reset to defaults, so the settings form can surface it.
   if ('gtd_folders' in updates) payload.gtd_folders_rejected = gtdRejected;
+  if ('right_sidebar_labels' in updates) {
+    payload.right_sidebar_labels_rejected = rightSidebarRejected;
+    invalidateRightSidebarConfig(id);
+  }
   res.json(payload);
 
   // A GTD config change must drop the cached { enabled, folders } so the tick,

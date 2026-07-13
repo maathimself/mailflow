@@ -606,7 +606,8 @@
       "groupAccountMail": "Compte et courrier",
       "groupDisplay": "Affichage",
       "groupSecurityIntegrations": "Sécurité et intégrations",
-      "groupAdmin": "Administration"
+      "groupAdmin": "Administration",
+      "rightSidebar": "Barre latérale droite"
     },
     "rules": {
       "title": "Règles de boîte de réception",
@@ -1305,6 +1306,20 @@
       "placeholder": "Rechercher dans les paramètres…",
       "noResults": "Aucun résultat pour « {{query}} »",
       "notificationSound": "Son de notification"
+    },
+    "rightSidebar": {
+      "title": "Libellés de la barre latérale droite",
+      "description": "Choisissez les libellés affichés dans la barre latérale droite de chaque compte, puis faites-les glisser dans l’ordre souhaité.",
+      "noAccounts": "Ajoutez d’abord un compte e-mail pour configurer les libellés latéraux.",
+      "selected": "Libellés sélectionnés",
+      "noLabels": "Aucun libellé sélectionné.",
+      "addPlaceholder": "Choisir un libellé…",
+      "unavailable": "Indisponible",
+      "drag": "Faire glisser pour réorganiser",
+      "saved": "Libellés latéraux enregistrés.",
+      "loadFailed": "Impossible de charger les libellés.",
+      "saveFailed": "Impossible d’enregistrer les libellés latéraux.",
+      "rejected": "Certains libellés ont été refusés par le serveur."
     }
   },
   "blockList": {
@@ -1384,7 +1399,10 @@
   },
   "rightSidebar": {
     "hide": "Masquer la barre latérale droite",
-    "show": "Afficher la barre latérale droite"
+    "show": "Afficher la barre latérale droite",
+    "title": "Étiquettes",
+    "empty": "Aucune étiquette configurée n’est disponible.",
+    "toggleSection": "Basculer {{section}}"
   },
   "gtd": {
     "title": "GTD",
