@@ -694,7 +694,8 @@ router.patch('/preferences', async (req, res) => {
           threadedView, plaintextEmail, hoverQuickActions, swipeActions,
           expandedAccounts, collapsedFolders, favoriteFolders, recentFolders, fontSize,
           showAppBadge, showFaviconBadge, replyDefault, sidebarWidth,
-          categorizationEnabled, markReadBehavior, markReadDelay, aiActions } = req.body;
+          categorizationEnabled, markReadBehavior, markReadDelay, aiActions,
+          senderFavicons } = req.body;
   // JSONB fields must be serialised to strings for the ::jsonb cast
   const imageWhitelistJson    = imageWhitelist    != null ? JSON.stringify(imageWhitelist)    : null;
   const shortcutsJson         = shortcuts         != null ? JSON.stringify(shortcuts)         : null;
@@ -719,6 +720,11 @@ router.patch('/preferences', async (req, res) => {
     })).filter(a => a.id && a.label && a.prompt);
     return JSON.stringify(clean);
   })();
+  const hasSenderFavicons = Object.prototype.hasOwnProperty.call(req.body, 'senderFavicons');
+  if (hasSenderFavicons && typeof senderFavicons !== 'boolean') {
+    return res.status(400).json({ error: 'senderFavicons must be a boolean' });
+  }
+  const senderFaviconsVal = hasSenderFavicons ? senderFavicons : null;
   await query(`
     UPDATE users
     SET preferences = preferences
@@ -751,6 +757,10 @@ router.patch('/preferences', async (req, res) => {
       || CASE WHEN $28::text IS NOT NULL THEN jsonb_build_object('markReadBehavior', $28::text) ELSE '{}'::jsonb END
       || CASE WHEN $29::text IS NOT NULL THEN jsonb_build_object('markReadDelay', $29::text) ELSE '{}'::jsonb END
       || CASE WHEN $30::jsonb IS NOT NULL THEN jsonb_build_object('aiActions', $30::jsonb) ELSE '{}'::jsonb END
+      || CASE WHEN $31::boolean IS NOT NULL
+           THEN jsonb_build_object('senderFavicons', $31::boolean)
+           ELSE '{}'::jsonb
+         END
     WHERE id = $1
   `, [req.session.userId, theme ?? null, font ?? null, layout ?? null, notificationSound ?? null,
       pageSize ?? null, scrollMode ?? null, syncInterval ?? null,
@@ -758,7 +768,8 @@ router.patch('/preferences', async (req, res) => {
       language ?? null, threadedView ?? null, plaintextEmail ?? null, hoverQuickActions ?? null,
       swipeActionsJson, expandedAccountsJson, collapsedFoldersJson, favoriteFoldersJson, recentFoldersJson, fontSizeVal,
       showAppBadge ?? null, showFaviconBadge ?? null, replyDefaultVal, sidebarWidthVal,
-      categorizationEnabled ?? null, markReadBehaviorVal, markReadDelayVal, aiActionsJson]);
+      categorizationEnabled ?? null, markReadBehaviorVal, markReadDelayVal, aiActionsJson,
+      senderFaviconsVal]);
 
   if (syncInterval != null) {
     const ms = parseInt(syncInterval) * 1000;

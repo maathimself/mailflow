@@ -701,6 +701,9 @@
     },
     "messageList": {
       "title": "Message List",
+      "senderFavicons": "Sender favicons",
+      "senderFaviconsDesc": "Show website icons for senders without a contact photo. Only the sender's domain, never their full email address, is sent to Twenty Icons.",
+      "senderFaviconsSaveError": "Could not save the sender favicon setting.",
       "scrollingMode": "Scrolling mode",
       "infiniteScroll": "Infinite scroll",
       "infiniteScrollDesc": "Auto-loads as you scroll down",

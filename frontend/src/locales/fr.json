@@ -701,6 +701,9 @@
     },
     "messageList": {
       "title": "Liste des messages",
+      "senderFavicons": "Favicons des expéditeurs",
+      "senderFaviconsDesc": "Afficher les icônes de site web pour les expéditeurs sans photo de contact. Seul le domaine de l'expéditeur, jamais son adresse e-mail complète, est envoyé à Twenty Icons.",
+      "senderFaviconsSaveError": "Impossible d'enregistrer le réglage des favicons des expéditeurs.",
       "scrollingMode": "Mode de défilement",
       "infiniteScroll": "Défilement infini",
       "infiniteScrollDesc": "Se charge automatiquement en faisant défiler",

@@ -8,6 +8,7 @@ import { senderColor } from '../themes.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { useSwipeRow } from '../hooks/useSwipeRow.js';
 import ContextMenu from './ContextMenu.jsx';
+import SenderAvatarImage from './SenderAvatarImage.jsx';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
 import { applyDeleteGuard, clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.js';
@@ -3881,14 +3882,10 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
             ) : (
               <>
                 {(message.from_name || message.from_email || '?')[0].toUpperCase()}
-                {message.has_contact_photo && message.from_email && (
-                  <img
-                    src={`/api/contacts/photo?email=${encodeURIComponent(message.from_email)}`}
-                    alt=""
-                    style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
-                    onError={e => { e.currentTarget.style.display = 'none'; }}
-                  />
-                )}
+                <SenderAvatarImage
+                  email={message.from_email}
+                  hasContactPhoto={message.has_contact_photo}
+                />
               </>
             )}
           </div>
@@ -4235,14 +4232,10 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
             ) : (
               <>
                 {(message.from_name || message.from_email || '?')[0].toUpperCase()}
-                {message.has_contact_photo && message.from_email && (
-                  <img
-                    src={`/api/contacts/photo?email=${encodeURIComponent(message.from_email)}`}
-                    alt=""
-                    style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
-                    onError={e => { e.currentTarget.style.display = 'none'; }}
-                  />
-                )}
+                <SenderAvatarImage
+                  email={message.from_email}
+                  hasContactPhoto={message.has_contact_photo}
+                />
               </>
             )}
           </div>

@@ -65,6 +65,7 @@ router.get('/', async (req, res) => {
         c.primary_email, c.emails, c.phones, c.organization,
         c.notes, c.is_auto, c.send_count, c.last_sent,
         c.etag, c.created_at, c.updated_at,
+        (c.photo_data IS NOT NULL) AS has_contact_photo,
         (ab.source = 'carddav') AS read_only
       FROM contacts c
       JOIN address_books ab ON ab.id = c.address_book_id
