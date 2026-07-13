@@ -126,6 +126,71 @@ export function adjustFolderCounts(accountId, path, totalDelta, unreadDelta) {
   ).catch(err => console.error('Folder count adjust failed:', err.message));
 }
 
+// Fan a read-state change out to a message's sibling label rows. Under GTD a single
+// message_id owns one row per folder it is filed in (INBOX + Todo + Watch …); the
+// caller has already updated the acted row by PK, so this catches the rest. The
+// `is_read <> $1` filter both makes the write idempotent and excludes the acted row
+// (already at the target state), so only rows that genuinely flip are returned — and
+// each returned folder gets its unread count adjusted. Callers gate on the message
+// actually having siblings, so a plain single-folder message never reaches here.
+export async function fanOutReadToSiblings(accountId, messageId, read) {
+  if (!messageId) return; // no shared header → no siblings to fan out to
+  const res = await query(
+    `UPDATE messages SET is_read = $1, read_changed_at = NOW()
+      WHERE account_id = $2 AND message_id = $3 AND is_read <> $1
+      RETURNING folder`,
+    [read, accountId, messageId]
+  );
+  for (const row of res.rows) {
+    adjustFolderCounts(accountId, row.folder, 0, read ? -1 : 1);
+  }
+}
+
+// Star fan-out counterpart. Stars never contribute to folder unread counts (the star
+// route has never touched adjustFolderCounts), so this only mirrors the flag across
+// sibling rows.
+export async function fanOutStarToSiblings(accountId, messageId, starred) {
+  if (!messageId) return;
+  await query(
+    `UPDATE messages SET is_starred = $1, star_changed_at = NOW()
+      WHERE account_id = $2 AND message_id = $3 AND is_starred <> $1`,
+    [starred, accountId, messageId]
+  );
+}
+
+// Set-based read fan-out for bulk-read. Derives the acted (account_id, message_id)
+// pairs from the ids the route just updated, flips every sibling row of those pairs
+// that is not itself in the acted set (`m.id <> ALL`) and not already at the target
+// state, and adjusts unread counts per returned (account, folder). Ids are bound as a
+// single array param so the statement composes with the route's 500-id cap without
+// per-id placeholder expansion.
+export async function fanOutBulkReadToSiblings(actedIds, read) {
+  if (!actedIds.length) return;
+  const res = await query(
+    `UPDATE messages m SET is_read = $1, read_changed_at = NOW()
+       FROM (
+         SELECT DISTINCT account_id, message_id
+           FROM messages
+          WHERE id = ANY($2::uuid[]) AND message_id IS NOT NULL
+       ) acted
+      WHERE m.account_id = acted.account_id
+        AND m.message_id = acted.message_id
+        AND m.is_read <> $1
+        AND m.id <> ALL($2::uuid[])
+      RETURNING m.account_id, m.folder`,
+    [read, actedIds]
+  );
+  const deltas = {};
+  for (const row of res.rows) {
+    const key = `${row.account_id}:${row.folder}`;
+    if (!deltas[key]) deltas[key] = { accountId: row.account_id, folder: row.folder, unread: 0 };
+    deltas[key].unread += read ? -1 : 1;
+  }
+  for (const { accountId, folder, unread } of Object.values(deltas)) {
+    adjustFolderCounts(accountId, folder, 0, unread);
+  }
+}
+
 // Determine what action to take when deleting a message.
 // Returns { action: 'move', destination } | { action: 'expunge' } | { action: 'no_trash' }.
 // 'no_trash' must be treated as a safe failure — never permanently delete when

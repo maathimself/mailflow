@@ -4,6 +4,7 @@ import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { playNotificationSound } from '../utils/notificationSounds.js';
 import { pendingMarkReadMap } from '../utils/pendingReads.js';
+import { gtdActiveForContext } from '../utils/gtd.js';
 import { updateFaviconBadge } from '../themes.js';
 
 // Compute the correct favicon count given unread counts and the currently
@@ -87,6 +88,12 @@ export function useWebSocket() {
         api.getUnreadCounts().then(counts => {
           useStore.setState({ unreadCounts: counts });
         }).catch(() => {});
+        // Rail sections can drift during the outage — gtd_sections_updated events
+        // fired while the socket was down are lost, not buffered. Refetch them the
+        // same way we refresh messages/unread, but only for GTD users so a non-GTD
+        // context adds no extra traffic on every reconnect.
+        const { accounts, selectedAccountId, scheduleGtdSectionsFetch } = useStore.getState();
+        if (gtdActiveForContext(accounts, selectedAccountId)) scheduleGtdSectionsFetch();
       }
     };
 
@@ -271,6 +278,19 @@ export function useWebSocket() {
         window.dispatchEvent(new CustomEvent('mailflow:refresh'));
         window.dispatchEvent(new CustomEvent('mailflow:sync_done'));
         api.getUnreadCounts().then(_applyServerCounts).catch(() => {});
+        break;
+      }
+
+      case 'gtd_sections_updated': {
+        // GTD label folders changed (tick, classify copy/remove, or a transition
+        // strip). Refetch the rail/tab sections — NOT gated on selectedFolder
+        // (label folders never become the selected folder), debounced in the
+        // store since this can fire several times per tick. Only refetch when the
+        // event's account is in the current rail scope (unified sees every account).
+        const store = useStore.getState();
+        if (store.selectedAccountId === null || store.selectedAccountId === data.accountId) {
+          store.scheduleGtdSectionsFetch();
+        }
         break;
       }
     }

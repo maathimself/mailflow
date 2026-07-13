@@ -26,6 +26,7 @@ import contactsRoutes from './routes/contacts.js';
 import todoistRoutes from './routes/todoist.js';
 import aiRoutes from './routes/ai.js';
 import categoriesRoutes from './routes/categories.js';
+import gtdRoutes from './routes/gtd.js';
 import carddavRouter from './routes/carddav.js';
 import carddavAccountRouter from './routes/carddavAccount.js';
 import { startCardavScheduler } from './services/carddavSync.js';
@@ -110,6 +111,9 @@ app.use((req, res, next) => {
 // 25 MB attachment limit → ~34 MB base64 on the wire; add headroom for the rest of the payload.
 app.use('/api/mail/send', express.json({ limit: '35mb' }));
 app.use('/api/mail/draft', express.json({ limit: '35mb' }));
+// A pet-import body carries a base64 spritesheet (~33% larger than the 5 MB sheet cap
+// enforced after decode in gtdPet.importPet), so it needs more than the global 1 MB.
+app.use('/api/gtd/pet/import', express.json({ limit: '8mb' }));
 app.use(express.json({ limit: '1mb' }));
 // Return a clean JSON error when the body parser rejects an oversized payload.
 app.use((err, req, res, next) => {
@@ -158,6 +162,10 @@ app.use('/api/todoist', todoistRoutes);
 app.use('/api/carddav', carddavAccountRouter);
 app.use('/api', aiRoutes);
 app.use('/api', categoriesRoutes);
+// Mounted at the /api/gtd subtree (not bare /api) so gtd.js's router-level
+// requireAuth cannot intercept the unauthenticated /api/health and /api/version
+// probes registered below. Its routes drop the gtd/ path prefix accordingly.
+app.use('/api/gtd', gtdRoutes);
 
 // CardDAV server — body is read lazily inside each handler via rawBody()
 app.use('/carddav', carddavRouter);

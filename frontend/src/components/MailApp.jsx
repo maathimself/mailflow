@@ -12,8 +12,10 @@ import { buildKeyMap, buildModKeyMap, getEffectiveShortcuts, getGroupedActions, 
 import Sidebar from './Sidebar.jsx';
 import MessageList from './MessageList.jsx';
 import MessagePane from './MessagePane.jsx';
+import GtdSidebarContent from './GtdSidebarContent.jsx';
 import NotificationToasts from './NotificationToasts.jsx';
 import CommandPalette from './CommandPalette.jsx';
+import { gtdActiveForContext } from '../utils/gtd.js';
 
 const ContactsPage = lazy(() => import('./ContactsPage.jsx'));
 
@@ -65,9 +67,21 @@ export default function MailApp() {
     fontSize, showAppBadge, showFaviconBadge,
     sidebarWidth, setSidebarWidth, setIsSidebarResizing,
     showContacts, setTodoistConnected,
-    rightSidebarWidth, setRightSidebarWidth, isRightSidebarResizing, setIsRightSidebarResizing,
-    rightSidebarHidden, toggleRightSidebarHidden,
+    accounts, rightSidebarWidth, setRightSidebarWidth, isRightSidebarResizing, setIsRightSidebarResizing,
+    fetchGtdSections, rightSidebarHidden, toggleRightSidebarHidden,
   } = useStore();
+
+  // Single owner of the GTD sections fetch: reload whenever the context (unified
+  // vs a single account) changes and GTD is active there. Both the rail and the
+  // tab list read the resulting store slice; live updates arrive via WS.
+  const gtdActive = gtdActiveForContext(accounts, selectedAccountId);
+  // Also key on the set of GTD-enabled accounts so enabling a second account refetches
+  // the unified sections — gtdActive alone stays true and wouldn't retrigger when it
+  // flips from one enabled account to two.
+  const gtdEnabledKey = accounts.filter(a => a.gtd_enabled).map(a => a.id).sort().join(',');
+  useEffect(() => {
+    if (gtdActive) fetchGtdSections();
+  }, [gtdActive, selectedAccountId, gtdEnabledKey, fetchGtdSections]);
 
   const scale = fontSize / 100;
   const [vpSize, setVpSize] = useState({ w: window.innerWidth, h: window.innerHeight });
@@ -157,11 +171,12 @@ export default function MailApp() {
   // live shortcut map via the existing helpers — no new plumbing. '' when unbound.
   const rightSidebarToggleParsed = parseModKey(getEffectiveShortcuts(shortcuts).toggleRightSidebar);
   const rightSidebarToggleHint = rightSidebarToggleParsed ? `${modLabel(rightSidebarToggleParsed.mod)}${rightSidebarToggleParsed.bare}` : '';
-  // The right sidebar renders when a feature supplies content. No provider
-  // exists yet — the first consumer swaps this seam for its element; the
-  // layout/shortcut infrastructure below is feature-agnostic and keys off
-  // the seam, not any feature condition.
-  const rightSidebarContent = null;
+  // The right sidebar renders when a feature supplies content. GTD is the
+  // current (only) provider; the layout/shortcut infrastructure below is
+  // feature-agnostic and keys off the seam, not the feature.
+  const rightSidebarContent = gtdActive
+    ? <GtdSidebarContent onCollapse={toggleRightSidebarHidden} toggleHint={rightSidebarToggleHint} />
+    : null;
   const rightSidebarApplicable = !isMobile && currentLayout.direction === 'row' && rightSidebarContent != null;
 
   const handleListResizeMouseDown = (e) => {

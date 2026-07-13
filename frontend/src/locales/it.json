@@ -466,7 +466,8 @@
     "groups": {
       "composeSearch": "Composizione e ricerca",
       "navigation": "Navigazione",
-      "messageActions": "Azioni sui messaggi"
+      "messageActions": "Azioni sui messaggi",
+      "gtd": "GTD"
     },
     "actions": {
       "compose": {
@@ -532,6 +533,18 @@
       "printMessage": {
         "label": "Stampa",
         "description": "Stampa il messaggio corrente"
+      },
+      "gtdTodo": {
+        "label": "Segna Da fare",
+        "description": "Classifica il messaggio selezionato come Da fare"
+      },
+      "gtdWatch": {
+        "label": "Segna Osservare",
+        "description": "Classifica il messaggio selezionato come Osservare"
+      },
+      "gtdDelegated": {
+        "label": "Segna Delegato",
+        "description": "Classifica il messaggio selezionato come Delegato"
       },
       "toggleRightSidebar": {
         "label": "Mostra o nascondi la barra laterale destra",
@@ -1068,7 +1081,41 @@
       "recategorize": "Ricategorizza",
       "recategorizing": "Elaborazione…",
       "recategorized": "Ricategorizzazione avviata.",
-      "selectAccount": "Seleziona account"
+      "selectAccount": "Seleziona account",
+      "gtdReveal": "GTD",
+      "gtdRevealDesc": "Mostra qui sotto le impostazioni GTD per ogni account; ogni account mantiene il proprio interruttore."
+    },
+    "gtd": {
+      "description": "Trasforma Mailflow in un sistema GTD. Attivalo per account, poi associa ogni stato alla cartella IMAP che contiene la sua etichetta.",
+      "noAccounts": "Aggiungi prima un account di posta per configurare GTD.",
+      "enableDesc": "GTD è attivo. Le etichette si sincronizzano come cartelle e gli stati cambiano automaticamente.",
+      "enableHint": "Attiva le etichette GTD e i cambi di stato automatici per questo account.",
+      "foldersTitle": "Cartelle delle etichette",
+      "foldersDesc": "Ogni stato GTD corrisponde a una cartella IMAP. Lascia un campo vuoto per usare il nome predefinito.",
+      "savedOk": "Mappatura delle cartelle salvata.",
+      "saveFailed": "Impossibile salvare la mappatura delle cartelle.",
+      "createFolders": "Crea le cartelle mancanti",
+      "creating": "Creazione…",
+      "createResult": "{{created}} create, {{existing}} già esistenti.",
+      "createFailed": "Impossibile creare le cartelle.",
+      "duplicateFolder": "Questi stati GTD puntano alla stessa cartella: {{states}}. Assegna una cartella diversa a ogni stato.",
+      "rejectedFolders": "Alcuni nomi di cartella non erano validi e sono stati ripristinati ai valori predefiniti: {{states}}.",
+      "pet": {
+        "title": "Mascotte inbox zero",
+        "description": "Sostituisci il cane predefinito a inbox zero con una mascotte tua.",
+        "clear": "Usa il cane predefinito",
+        "current": "Mascotte attuale: {{slug}}",
+        "usingDog": "In uso il cane predefinito.",
+        "hoverHint": "Passa il mouse per animarla.",
+        "importTitle": "Importa la tua",
+        "importHint": "Carica un pet.json e il suo spritesheet (PNG, WebP o GIF).",
+        "chooseJson": "File pet.json",
+        "chooseSheet": "Immagine dello spritesheet",
+        "import": "Importa",
+        "importing": "Importazione…",
+        "imported": "{{name}} importata: passa il mouse sull’anteprima per vederla muoversi.",
+        "importFailed": "Impossibile importare questa mascotte."
+      }
     },
     "systemEmail": {
       "tabUsers": "Utenti e inviti",
@@ -1338,5 +1385,31 @@
   "rightSidebar": {
     "hide": "Nascondi la barra laterale destra",
     "show": "Mostra la barra laterale destra"
+  },
+  "gtd": {
+    "title": "GTD",
+    "inbox": "Posta in arrivo",
+    "waiting": "In attesa",
+    "inboxZero": "Posta a zero ✓",
+    "allClear": "Tutto libero",
+    "allClearHint": "Niente in attesa.",
+    "viewAll": "Vedi tutti ({{count}})",
+    "toggleSection": "Attiva/disattiva {{section}}",
+    "tabEmpty": "Ancora niente qui",
+    "removeFrom": "Rimuovi da {{state}}",
+    "classified": "Etichetta applicata",
+    "classifyFailed": "Impossibile applicare l'etichetta",
+    "removed": "Etichetta rimossa",
+    "removeFailed": "Impossibile rimuovere l'etichetta",
+    "done": "Segna come completato",
+    "doneFailed": "Impossibile segnare come completato",
+    "doneArchiveFailed": "Segnato come completato, ma archiviazione non riuscita: è ancora nella posta in arrivo",
+    "state": {
+      "todo": "Da fare",
+      "watch": "Osservare",
+      "delegated": "Delegato",
+      "someday": "Un giorno",
+      "reference": "Riferimento"
+    }
   }
 }

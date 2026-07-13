@@ -10,6 +10,17 @@ describe('buildKeyMap', () => {
     assert.equal(warn.mock.callCount(), 0);
   });
 
+  it('maps the GTD default keys (t/w/d) with no startup collision', (t) => {
+    // buildKeyMap runs at app startup with the merged defaults+overrides; the new
+    // GTD keys must not collide with any existing default.
+    const warn = t.mock.method(console, 'warn', () => {});
+    const map = buildKeyMap();
+    assert.equal(warn.mock.callCount(), 0, 'default key set must have no collisions');
+    assert.equal(map.t, 'gtdTodo');
+    assert.equal(map.w, 'gtdWatch');
+    assert.equal(map.d, 'gtdDelegated');
+  });
+
   it('warns and keeps last-writer-wins when an override collides with a default key', (t) => {
     const warn = t.mock.method(console, 'warn', () => {});
     // 'archive' defaults to 'e'; override 'delete' (default '#') to the same key.

@@ -7,7 +7,8 @@ import { requireAuth } from '../middleware/auth.js';
 import { imapManager } from '../index.js';
 import { sanitizeEmail, stripEmailHead, hasRemoteImages, blockRemoteImages, rewriteEbayImageserUrls, rewriteAnchorHrefs } from '../services/emailSanitizer.js';
 import { snippetFromBody, decodeMimeWords, parseRawHeaders, buildHeadersFromMessage } from '../services/messageParser.js';
-import { resolveTrashFolder, resolveAllTrashPaths, resolveAllDraftsPaths, resolveArchiveFolder, isAllMailFolder, resolveSpamFolder, resolveAllSpamPaths, getDeleteStrategy, adjustFolderCounts } from '../utils/mailUtils.js';
+import { resolveTrashFolder, resolveAllTrashPaths, resolveAllDraftsPaths, resolveArchiveFolder, isAllMailFolder, resolveSpamFolder, resolveAllSpamPaths, getDeleteStrategy, adjustFolderCounts, fanOutReadToSiblings, fanOutStarToSiblings, fanOutBulkReadToSiblings } from '../utils/mailUtils.js';
+import { emitGtdIfRelevant } from '../services/gtdSections.js';
 import { listMessages } from '../services/messageService.js';
 import { validateHost } from '../services/hostValidation.js';
 import { safeFetch } from '../services/safeFetch.js';
@@ -74,6 +75,29 @@ function snippetIsGarbled(s) {
     /-->/.test(s) ||                   // dangling HTML comment fragment
     /\[[^\]]+\]\(https?:\/\//.test(s)  // Markdown link syntax from ESP text/plain generators
   );
+}
+
+// Fire-and-forget GTD sections refresh after an ordinary mail mutation. Groups the acted
+// rows by account and asks emitGtdIfRelevant to broadcast gtd_sections_updated per
+// account whose messages still touch a designated GTD folder — either a live sibling
+// post-mutation, or one of the acted rows sitting in a GTD folder pre-mutation (covers
+// removing the last GTD-folder copy of a thread, which leaves no post-mutation sibling
+// to find). Rows are the pre-mutation message rows so their message_id and folder are
+// captured before a move/delete can drop them; a failed emit is logged, never surfaced,
+// so it can't turn a completed mutation into a 500.
+function emitGtdSectionsRefresh(rows, userId) {
+  const byAccount = new Map();
+  for (const m of rows) {
+    if (!m.message_id) continue;
+    if (!byAccount.has(m.account_id)) byAccount.set(m.account_id, { mids: new Set(), folders: new Set() });
+    const entry = byAccount.get(m.account_id);
+    entry.mids.add(m.message_id);
+    if (m.folder) entry.folders.add(m.folder);
+  }
+  for (const [accountId, { mids, folders }] of byAccount) {
+    emitGtdIfRelevant(imapManager, accountId, userId, [...mids], [...folders])
+      .catch(err => console.warn('GTD sections refresh emit failed:', err.message));
+  }
 }
 
 // Get messages (unified or per-account/folder)
@@ -569,7 +593,12 @@ router.patch('/messages/:id/read', async (req, res) => {
   const { read } = req.body;
 
   const result = await query(`
-    SELECT m.*, a.user_id FROM messages m
+    SELECT m.*, a.user_id,
+           CASE WHEN m.message_id IS NULL THEN 1
+                ELSE (SELECT COUNT(*) FROM messages s
+                       WHERE s.account_id = m.account_id AND s.message_id = m.message_id)
+           END AS sibling_count
+    FROM messages m
     JOIN email_accounts a ON m.account_id = a.id
     WHERE m.id = $1 AND a.user_id = $2
   `, [id, req.session.userId]);
@@ -590,6 +619,17 @@ router.patch('/messages/:id/read', async (req, res) => {
     adjustFolderCounts(message.account_id, message.folder, 0, read ? -1 : 1);
   }
 
+  // GTD: a labeled message owns a sibling row per folder. Fan the read change out to
+  // those rows (and their folder unread counts) so label views don't go stale. Gated on
+  // gtd_enabled (so a non-GTD account is byte-identical to pre-GTD behaviour) AND on the
+  // message actually having siblings — a plain single-folder message keeps the PK-only
+  // fast path. The IMAP \Seen flag is written to the acted folder only (below): Gmail
+  // propagates \Seen message-wide server-side, and per-copy writes to N folders would
+  // multiply round-trips — an asymmetry accepted in the GTD design.
+  if (accountResult.rows[0]?.gtd_enabled && Number(message.sibling_count) > 1) {
+    await fanOutReadToSiblings(message.account_id, message.message_id, read);
+  }
+
   try {
     await imapManager.setFlag(accountResult.rows[0], message.uid, message.folder, '\\Seen', read);
     imapManager._resolveFlagPush(message.account_id, id, '\\Seen'); // confirmed — drop any stale queued op
@@ -599,6 +639,9 @@ router.patch('/messages/:id/read', async (req, res) => {
     // the user's change once the 30s local-wins window lapses.
     imapManager._enqueueFlagPush(message.account_id, id, '\\Seen', read);
   }
+
+  // Refresh GTD section data if this message's thread carries a GTD label (its head shows read state).
+  emitGtdSectionsRefresh([message], req.session.userId);
 
   res.json({ ok: true, is_read: read });
 });
@@ -610,7 +653,12 @@ router.patch('/messages/:id/star', async (req, res) => {
   const { starred } = req.body;
 
   const result = await query(`
-    SELECT m.*, a.user_id FROM messages m
+    SELECT m.*, a.user_id,
+           CASE WHEN m.message_id IS NULL THEN 1
+                ELSE (SELECT COUNT(*) FROM messages s
+                       WHERE s.account_id = m.account_id AND s.message_id = m.message_id)
+           END AS sibling_count
+    FROM messages m
     JOIN email_accounts a ON m.account_id = a.id
     WHERE m.id = $1 AND a.user_id = $2
   `, [id, req.session.userId]);
@@ -625,6 +673,14 @@ router.patch('/messages/:id/star', async (req, res) => {
     query('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]),
   ]);
 
+  // GTD: fan the star change out to the message's sibling label rows (see the read
+  // handler). Gated on gtd_enabled to keep a non-GTD account byte-identical to pre-GTD.
+  // Stars don't affect folder unread counts, so no count adjustment. The IMAP \Flagged
+  // write below stays on the acted folder only.
+  if (accountResult.rows[0]?.gtd_enabled && Number(message.sibling_count) > 1) {
+    await fanOutStarToSiblings(message.account_id, message.message_id, starred);
+  }
+
   try {
     await imapManager.setFlag(accountResult.rows[0], message.uid, message.folder, '\\Flagged', starred);
     imapManager._resolveFlagPush(message.account_id, id, '\\Flagged'); // confirmed — drop any stale queued op
@@ -633,6 +689,9 @@ router.patch('/messages/:id/star', async (req, res) => {
     // Push failed — queue a durable retry so a later flag-sync pull can't silently revert it.
     imapManager._enqueueFlagPush(message.account_id, id, '\\Flagged', starred);
   }
+
+  // Refresh GTD section data if this message's thread carries a GTD label (its head shows star state).
+  emitGtdSectionsRefresh([message], req.session.userId);
 
   res.json({ ok: true, is_starred: starred });
 });
@@ -816,7 +875,7 @@ router.post('/messages/bulk-read', async (req, res) => {
 
   try {
     const result = await query(
-      `SELECT m.id, m.uid, m.folder, m.is_read, m.account_id FROM messages m
+      `SELECT m.id, m.uid, m.folder, m.is_read, m.account_id, m.message_id, a.gtd_enabled FROM messages m
        JOIN email_accounts a ON m.account_id = a.id
        WHERE m.id = ANY($2::uuid[]) AND a.user_id = $1`,
       [req.session.userId, ids]
@@ -845,6 +904,21 @@ router.post('/messages/bulk-read', async (req, res) => {
       adjustFolderCounts(accountId, folder, 0, delta);
     }
 
+    // GTD: fan the read change out to sibling label rows of every updated message that
+    // belongs to a gtd_enabled account, adjusting each sibling folder's unread count.
+    // Gating on gtd_enabled keeps a non-GTD account byte-identical to pre-GTD (no extra
+    // fan-out query); the fan-out itself is also self-limiting for messages without
+    // siblings. IMAP \Seen is still written per acted row only (below); Gmail propagates
+    // it message-wide server-side.
+    // gtdUpdatedIds is scoped to toUpdate (rows whose read-state actually changed), so a
+    // message already at the target state never triggers sibling fan-out here — unlike the
+    // single-message handler above, which fans out unconditionally regardless of whether the
+    // acted message's own state changed. That asymmetry is acceptable: nothing else in this
+    // path can push a sibling out of sync with its head, and the label-folder tick already
+    // self-heals any divergence on the next read.
+    const gtdUpdatedIds = toUpdate.filter(m => m.gtd_enabled).map(m => m.id);
+    if (gtdUpdatedIds.length) await fanOutBulkReadToSiblings(gtdUpdatedIds, read);
+
     // IMAP flag updates — group by account to fetch each account row once.
     const byAccount = {};
     for (const msg of toUpdate) {
@@ -867,6 +941,9 @@ router.post('/messages/bulk-read', async (req, res) => {
         }
       });
     }
+
+    // Refresh GTD section data for any updated thread that carries a GTD label.
+    emitGtdSectionsRefresh(toUpdate, req.session.userId);
 
     res.json({ ok: true, updated: toUpdate.map(m => m.id) });
   } catch (err) {
@@ -903,7 +980,7 @@ router.post('/messages/bulk-delete', async (req, res) => {
     // Guard source UIDs for the whole operation so reconcileDeletes can't delete a
     // trash-move source row between the IMAP move and the re-INSERT CTE (message vanishing
     // from both folders). Harmless for the expunge path (those rows are deleted anyway).
-    // Unguarded in the finally. Fixes audit finding [5].
+    // Released in the finally below.
     for (const m of owned) {
       moveGuards.push({ accountId: m.account_id, folder: m.folder, uid: m.uid });
       imapManager._guardMoveUid(m.account_id, m.folder, m.uid);
@@ -1072,6 +1149,9 @@ router.post('/messages/bulk-delete', async (req, res) => {
       }
     }
 
+    // Refresh GTD section data for any deleted thread that still carries a GTD label sibling.
+    emitGtdSectionsRefresh(owned, req.session.userId);
+
     res.json({ ok: true, deleted: allSucceeded });
   } catch (err) {
     console.error('bulk-delete error:', err);
@@ -1114,7 +1194,7 @@ router.post('/messages/bulk-move', async (req, res) => {
     // reconcileDeletes tick would otherwise see the source rows as orphans and delete them
     // before the DELETE...RETURNING CTE re-inserts them at the destination — dropping the
     // message from BOTH folders. Unguarded in the finally once the CTE has committed.
-    // Mirrors the single-message move paths. Fixes audit finding [5].
+    // Mirrors the single-message move paths.
     for (const m of owned) {
       moveGuards.push({ accountId: m.account_id, folder: m.folder, uid: m.uid });
       imapManager._guardMoveUid(m.account_id, m.folder, m.uid);
@@ -1228,6 +1308,9 @@ router.post('/messages/bulk-move', async (req, res) => {
       }
     }
 
+    // Refresh GTD section data for any moved thread that still carries a GTD label sibling.
+    emitGtdSectionsRefresh(owned, req.session.userId);
+
     res.json({ ok: true, moved: movedIds });
   } catch (err) {
     console.error('bulk-move error:', err);
@@ -1264,7 +1347,7 @@ router.post('/messages/bulk-archive', async (req, res) => {
 
     // Guard source UIDs for the whole operation so reconcileDeletes can't delete a source
     // row between the IMAP move and the re-INSERT CTE (message vanishing from both folders).
-    // Unguarded in the finally. Fixes audit finding [5].
+    // Released in the finally below.
     for (const m of owned) {
       moveGuards.push({ accountId: m.account_id, folder: m.folder, uid: m.uid });
       imapManager._guardMoveUid(m.account_id, m.folder, m.uid);
@@ -1409,6 +1492,9 @@ router.post('/messages/bulk-archive', async (req, res) => {
       }
     }
 
+    // Refresh GTD section data for any archived thread that still carries a GTD label sibling.
+    emitGtdSectionsRefresh(owned, req.session.userId);
+
     res.json({ ok: true, archived: archivedIds.map(a => a.id), noArchiveFolder });
   } catch (err) {
     console.error('bulk-archive error:', err);
@@ -1490,6 +1576,9 @@ router.post('/messages/:id/snooze', async (req, res) => {
 
   adjustFolderCounts(msg.account_id, msg.folder, -1, msg.is_read ? 0 : -1);
   adjustFolderCounts(msg.account_id, snoozedFolder, 1, msg.is_read ? 0 : 1);
+
+  // Refresh GTD section data if the snoozed message's thread carries a GTD label (its in_inbox flips).
+  emitGtdSectionsRefresh([msg], req.session.userId);
 
   res.json({ ok: true });
 });
@@ -1577,6 +1666,9 @@ router.delete('/messages/:id', async (req, res) => {
     adjustFolderCounts(message.account_id, message.folder, -1, -wasUnread);
   }
   imapManager.broadcast({ type: 'folder_updated', folder: message.folder, accountId: message.account_id }, req.session.userId);
+  // Refresh GTD section data if this thread still carries a GTD label sibling (same staleness the
+  // bulk-delete route addresses, reached via the single-message delete button).
+  emitGtdSectionsRefresh([message], req.session.userId);
   res.json({ ok: true });
 });
 
@@ -1682,6 +1774,11 @@ async function moveForSpamLabel(messageId, userId, destinationFolder, label) {
     { type: 'folder_updated', folder: destinationFolder, accountId: account.id },
     userId
   );
+
+  // Refresh GTD section data if the (un)spammed message's thread carries a GTD label. Covers both
+  // /spam and /ham, which share this mover. The already-in-folder no-op path above returns
+  // early without a move, so GTD section data is untouched there.
+  emitGtdSectionsRefresh([message], userId);
 
   return { ok: true, status: 200, body: { ok: true, folder: destinationFolder, newUid: newUid || null } };
 }

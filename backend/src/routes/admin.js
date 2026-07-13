@@ -9,6 +9,7 @@ import { getConnectionPolicy, invalidateConnectionPolicyCache } from '../service
 import { reloadAuthSettings } from '../services/authLimiter.js';
 import { imapManager } from '../index.js';
 import { stopCardavUser } from '../services/carddavSync.js';
+import { customPetSlug } from '../services/gtdPet.js';
 
 const router = Router();
 router.use(requireAdmin);
@@ -74,6 +75,16 @@ router.delete('/users/:id', async (req, res) => {
   await imapManager.disconnectUser(id).catch(err => console.warn('disconnectUser on delete:', err.message));
   stopCardavUser(id);
   await query('DELETE FROM users WHERE id = $1', [id]);
+  // The user's imported GTD pet is stored under a slug DERIVED from their id (customPetSlug),
+  // not linked to users by an FK, so the cascade delete can't reach it — remove it explicitly
+  // or its row (up to a 5MB spritesheet) is orphaned in gtd_pets forever. Best-effort like
+  // disconnectUser above: the user row is already gone, so failing here would misreport a
+  // completed delete as a 500 (and a retry would 404); an orphaned pet row is the lesser harm.
+  const petSlug = customPetSlug(id);
+  if (petSlug) {
+    await query('DELETE FROM gtd_pets WHERE slug = $1', [petSlug])
+      .catch(err => console.warn('gtd_pets cleanup on delete:', err.message));
+  }
   console.log(`[admin] ${req.session.username} deleted user ${target.rows[0].username} (${id})`);
   res.json({ ok: true });
 });

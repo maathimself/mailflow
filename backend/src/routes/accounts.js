@@ -6,6 +6,14 @@ import { encrypt } from '../services/encryption.js';
 import { sanitizeSignature } from '../services/emailSanitizer.js';
 import { validateHost } from '../services/hostValidation.js';
 import { getConnectionPolicy } from '../services/connectionPolicy.js';
+import { invalidateGtdConfigCache, sanitizeGtdFoldersDetailed, findGtdFolderCollisions, DEFAULT_GTD_FOLDERS } from '../services/gtdConfig.js';
+import { createKeyedSerializer } from '../utils/keyedSerializer.js';
+
+// Serialize an account's reconnect triggers so a rapid settings change (e.g. a
+// gtd_enabled double-toggle) can't fire two overlapping disconnect→connect chains —
+// connectAccount's in-progress guard would drop the second and leave the GTD sync
+// tick armed inconsistently with the final DB value. Queued per account id.
+const reconnectQueue = createKeyedSerializer();
 
 const ALLOWED_IMAP_PORTS = new Set([143, 993]);
 const ALLOWED_SMTP_PORTS = new Set([465, 587]);
@@ -40,6 +48,7 @@ const SAFE_FIELDS = [
   'auth_user', 'oauth_provider', 'enabled',
   'last_sync', 'sync_error', 'sort_order', 'folder_mappings',
   'signature', 'created_at', 'categorization_enabled',
+  'gtd_enabled', 'gtd_folders',
 ];
 function safeAccount(row) {
   const obj = Object.fromEntries(SAFE_FIELDS.map(k => [k, row[k]]));
@@ -53,7 +62,7 @@ router.get('/', async (req, res) => {
     `SELECT id, name, sender_name, email_address, color, protocol, imap_host, imap_port, imap_tls, imap_skip_tls_verify,
             smtp_host, smtp_port, smtp_tls, auth_user, oauth_provider, enabled,
             last_sync, sync_error, sort_order, folder_mappings, signature, created_at,
-            categorization_enabled
+            categorization_enabled, gtd_enabled, gtd_folders
      FROM email_accounts WHERE user_id = $1 ORDER BY sort_order, created_at`,
     [req.session.userId]
   );
@@ -148,8 +157,9 @@ router.put('/:id', async (req, res) => {
   const { id } = req.params;
   const updates = req.body;
 
-  // Verify ownership
-  const check = await query('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
+  // Verify ownership. gtd_folders comes back too so a folder remap can be compared
+  // against the stored value below (a change must reconnect to backfill the new folder).
+  const check = await query('SELECT id, gtd_folders FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
 
   if ('name' in updates && hasHeaderInjectionChars(updates.name)) {
@@ -182,7 +192,34 @@ router.put('/:id', async (req, res) => {
   }
 
   if ('imap_port' in updates) updates.imap_tls = Number(updates.imap_port) % 1000 === 993;
-  const allowed = ['name', 'sender_name', 'color', 'enabled', 'auth_user', 'auth_pass', 'sort_order', 'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify', 'smtp_host', 'smtp_port', 'smtp_tls', 'folder_mappings', 'signature', 'categorization_enabled'];
+
+  // Sanitize + validate GTD folder overrides up front so a folder collision or an
+  // over-long/traversal path is caught before we touch the DB. Collisions (two states
+  // resolving to one folder) are rejected outright; over-long/traversal values fall
+  // back to defaults and are reported to the client so the settings UI can flag them.
+  let gtdFoldersValue;
+  let gtdRejected = [];
+  let gtdFoldersChanged = false;
+  if ('gtd_folders' in updates) {
+    const { folders, rejected, reserved } = sanitizeGtdFoldersDetailed(updates.gtd_folders);
+    // A state mapped onto a live system folder (INBOX, Sent, …) is a hard error: /done would
+    // permanently delete that folder's real mail. Reject before any DB write.
+    if (reserved.length) {
+      return res.status(400).json({ error: 'A GTD state cannot map to a reserved system folder', reserved });
+    }
+    const collisions = findGtdFolderCollisions({ ...DEFAULT_GTD_FOLDERS, ...folders });
+    if (collisions.length) {
+      return res.status(400).json({ error: 'Two GTD states cannot map to the same folder', collisions });
+    }
+    gtdFoldersValue = folders;
+    gtdRejected = rejected;
+    // Did the overrides actually change? Sanitize both sides through the same function so
+    // key order is canonical, then compare. Only a real change forces a reconnect below.
+    const before = sanitizeGtdFoldersDetailed(check.rows[0].gtd_folders).folders;
+    gtdFoldersChanged = JSON.stringify(before) !== JSON.stringify(folders);
+  }
+
+  const allowed = ['name', 'sender_name', 'color', 'enabled', 'auth_user', 'auth_pass', 'sort_order', 'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify', 'smtp_host', 'smtp_port', 'smtp_tls', 'folder_mappings', 'signature', 'categorization_enabled', 'gtd_enabled', 'gtd_folders'];
   const sets = [];
   const values = [];
   let i = 1;
@@ -191,6 +228,8 @@ router.put('/:id', async (req, res) => {
       sets.push(`${key} = $${i++}`);
       const value = (key === 'auth_pass' && updates[key]) ? encrypt(updates[key])
         : (key === 'signature') ? sanitizeSignature(updates[key]) || null
+        : (key === 'gtd_enabled') ? !!updates[key]
+        : (key === 'gtd_folders') ? gtdFoldersValue
         : updates[key];
       values.push(value);
     }
@@ -203,9 +242,24 @@ router.put('/:id', async (req, res) => {
     values
   );
   const updated = result.rows[0];
-  res.json(safeAccount(updated));
+  const payload = safeAccount(updated);
+  // Tell the client which submitted folder values were rejected (over-long /
+  // traversal) and reset to defaults, so the settings form can surface it.
+  if ('gtd_folders' in updates) payload.gtd_folders_rejected = gtdRejected;
+  res.json(payload);
 
-  // Sync live IMAP state after DB update (fire-and-forget, non-fatal)
+  // A GTD config change must drop the cached { enabled, folders } so the tick,
+  // transition engine, and classify routes read the new value immediately.
+  if ('gtd_enabled' in updates || 'gtd_folders' in updates) invalidateGtdConfigCache(id);
+
+  // Sync live IMAP state after DB update (fire-and-forget, non-fatal).
+  // Toggling gtd_enabled reconnects so the GTD sync tick is armed/torn down (it is
+  // only decided at connectAccount) and the persistent-connection account object the
+  // INBOX/send transition hooks close over picks up the new flag. Remapping a GTD state
+  // to a different folder reconnects for the same reason: connectAccount's syncFolders +
+  // backfillAllFolders is what pulls the newly-designated folder's existing mail into the
+  // rail (backfillAllFolders backfills every discovered folder except the provider's
+  // skipFolderPatterns, which a GTD label folder never matches).
   const isDisabling = 'enabled' in updates && !updates.enabled;
   const needsReconnect = !isDisabling && (
     'enabled' in updates ||
@@ -214,18 +268,23 @@ router.put('/:id', async (req, res) => {
     'imap_host' in updates ||
     'imap_port' in updates ||
     'imap_tls' in updates ||
-    'imap_skip_tls_verify' in updates
+    'imap_skip_tls_verify' in updates ||
+    'gtd_enabled' in updates ||
+    gtdFoldersChanged
   );
 
+  // Both branches queue through the per-account serializer so overlapping settings
+  // changes (e.g. a rapid gtd_enabled double-toggle) apply their connection-state
+  // effects in order, never as two overlapping chains.
   if (isDisabling) {
-    imapManager.disconnectAccount(id).catch(err =>
-      console.error(`Failed to disconnect account ${id} after disable:`, err.message)
-    );
+    reconnectQueue(id, () => imapManager.disconnectAccount(id))
+      .catch(err => console.error(`Failed to disconnect account ${id} after disable:`, err.message));
   } else if (needsReconnect && updated.protocol === 'imap' && updated.enabled) {
-    imapManager.disconnectAccount(id)
-      .then(() => query('SELECT * FROM email_accounts WHERE id = $1', [id]))
-      .then(r => { if (r.rows.length) return imapManager.connectAccount(r.rows[0]); })
-      .catch(err => console.error(`Failed to reconnect account ${id} after update:`, err.message));
+    reconnectQueue(id, () =>
+      imapManager.disconnectAccount(id)
+        .then(() => query('SELECT * FROM email_accounts WHERE id = $1', [id]))
+        .then(r => { if (r.rows.length) return imapManager.connectAccount(r.rows[0]); })
+    ).catch(err => console.error(`Failed to reconnect account ${id} after update:`, err.message));
   }
 });
 
