@@ -356,6 +356,7 @@
   "sidebar": {
     "allInboxes": "所有收件箱",
     "compose": "撰写",
+    "toggleSidebar": "切换侧边栏",
     "newFolder": "新建文件夹",
     "folderPh": "文件夹名称…",
     "subfolderPh": "子文件夹名称…",
