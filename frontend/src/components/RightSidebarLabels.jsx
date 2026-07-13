@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useStore, selectSelectedMessageAccountId, selectSelectedMessageMid } from '../store/index.js';
 import { api } from '../utils/api.js';
+import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
 import {
   accountScopedMessageIdentity,
   collectThreadReadIds,
@@ -29,6 +30,8 @@ export default function RightSidebarLabels({ onCollapse, toggleHint }) {
   const scheduleFetch = useStore(state => state.scheduleRightSidebarFetch);
   const removeRightSidebarThread = useStore(state => state.removeRightSidebarThread);
   const addNotification = useStore(state => state.addNotification);
+  const accounts = useStore(state => state.accounts);
+  const openCompose = useStore(state => state.openCompose);
   const selectedMessageId = useStore(state => state.selectedMessageId);
   const selectedMid = useStore(selectSelectedMessageMid);
   const selectedMessageAccountId = useStore(selectSelectedMessageAccountId);
@@ -160,6 +163,38 @@ export default function RightSidebarLabels({ onCollapse, toggleHint }) {
       case 'moveTo': moveRow(message, sectionPath, data); break;
       case 'archive': archiveRow(message, sectionPath); break;
       case 'delete': deleteRow(message, sectionPath); break;
+      case 'reply':
+      case 'replyAll':
+        openReplyFromMessage(message, {
+          accounts,
+          openCompose,
+          getMessageBody: api.getMessageBody,
+          replyAll: action === 'replyAll',
+        }).catch(err => console.error('Right sidebar reply prefill failed:', err.message));
+        break;
+      case 'forward':
+        openForwardFromMessage(message, {
+          openCompose,
+          getMessageBody: api.getMessageBody,
+        }).catch(err => console.error('Right sidebar forward prefill failed:', err.message));
+        break;
+      case 'createRuleFromMessage': {
+        const store = useStore.getState();
+        store.setRulesPreFill({ fromEmail: message.from_email, fromName: message.from_name });
+        store.setAdminTab('rules');
+        store.setShowAdmin(true);
+        break;
+      }
+      case 'addToBlockList': {
+        const email = message.from_email;
+        if (!email) break;
+        api.addToBlockList(email).then(() => {
+          addNotification({ title: t('blockList.blocked'), body: email });
+        }).catch(() => {
+          addNotification({ title: t('blockList.errorAdd'), body: email });
+        });
+        break;
+      }
       default: break;
     }
   };
