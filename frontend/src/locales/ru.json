@@ -356,6 +356,7 @@
   "sidebar": {
     "allInboxes": "Все входящие",
     "compose": "Написать",
+    "toggleSidebar": "Переключить боковую панель",
     "newFolder": "Новая папка",
     "folderPh": "Название папки…",
     "subfolderPh": "Название подпапки…",

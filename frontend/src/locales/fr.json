@@ -356,6 +356,7 @@
   "sidebar": {
     "allInboxes": "Toutes les boîtes",
     "compose": "Composer",
+    "toggleSidebar": "Basculer la barre latérale",
     "newFolder": "Nouveau dossier",
     "folderPh": "Nom du dossier…",
     "subfolderPh": "Nom du sous-dossier…",

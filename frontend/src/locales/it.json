@@ -356,6 +356,7 @@
   "sidebar": {
     "allInboxes": "Tutte le caselle",
     "compose": "Scrivi",
+    "toggleSidebar": "Attiva/disattiva barra laterale",
     "newFolder": "Nuova cartella",
     "folderPh": "Nome cartella…",
     "subfolderPh": "Nome sottocartella…",

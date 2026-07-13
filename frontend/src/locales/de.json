@@ -356,6 +356,7 @@
   "sidebar": {
     "allInboxes": "Alle Posteingänge",
     "compose": "Verfassen",
+    "toggleSidebar": "Seitenleiste umschalten",
     "newFolder": "Neuer Ordner",
     "folderPh": "Ordnername…",
     "subfolderPh": "Unterordnername…",

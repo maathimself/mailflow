@@ -356,6 +356,7 @@
   "sidebar": {
     "allInboxes": "Todas las bandejas",
     "compose": "Redactar",
+    "toggleSidebar": "Alternar barra lateral",
     "newFolder": "Nueva carpeta",
     "folderPh": "Nombre de carpeta…",
     "subfolderPh": "Nombre de subcarpeta…",
