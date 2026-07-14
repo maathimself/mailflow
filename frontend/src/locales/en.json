@@ -356,6 +356,7 @@
   "sidebar": {
     "allInboxes": "All Inboxes",
     "compose": "Compose",
+    "toggleSidebar": "Toggle sidebar",
     "newFolder": "New folder",
     "folderPh": "Folder name…",
     "subfolderPh": "Subfolder name…",
@@ -462,7 +463,95 @@
     "title": "Keyboard Shortcuts",
     "customizeHint": "Customise shortcuts in Settings → Shortcuts",
     "closeHint": "Press ? or Esc to close",
-    "then": "then"
+    "then": "then",
+    "groups": {
+      "composeSearch": "Compose & Search",
+      "navigation": "Navigation",
+      "messageActions": "Message Actions",
+      "gtd": "GTD"
+    },
+    "actions": {
+      "compose": {
+        "label": "Compose",
+        "description": "Open new compose window"
+      },
+      "focusSearch": {
+        "label": "Search",
+        "description": "Focus the search box"
+      },
+      "showHelp": {
+        "label": "Show shortcuts",
+        "description": "Show this keyboard shortcut reference"
+      },
+      "nextMessage": {
+        "label": "Next message",
+        "description": "Move to the next message"
+      },
+      "prevMessage": {
+        "label": "Previous message",
+        "description": "Move to the previous message"
+      },
+      "openMessage": {
+        "label": "Open first message",
+        "description": "Open first message if none selected"
+      },
+      "goInbox": {
+        "label": "Go to Inbox",
+        "description": "Navigate to the unified inbox"
+      },
+      "reply": {
+        "label": "Reply",
+        "description": "Reply to the current message"
+      },
+      "replyAll": {
+        "label": "Reply all",
+        "description": "Reply all to the current message"
+      },
+      "forward": {
+        "label": "Forward",
+        "description": "Forward the current message"
+      },
+      "archive": {
+        "label": "Archive",
+        "description": "Archive message / selection"
+      },
+      "delete": {
+        "label": "Delete",
+        "description": "Delete message / selection"
+      },
+      "toggleStar": {
+        "label": "Star",
+        "description": "Toggle star on the current message"
+      },
+      "toggleRead": {
+        "label": "Toggle read",
+        "description": "Mark current message read or unread"
+      },
+      "selectMessage": {
+        "label": "Select message",
+        "description": "Check or uncheck the current message"
+      },
+      "printMessage": {
+        "label": "Print",
+        "description": "Print the current message"
+      },
+      "gtdTodo": {
+        "label": "Mark Todo",
+        "description": "Classify the selected message as Todo"
+      },
+      "gtdWatch": {
+        "label": "Mark Watch",
+        "description": "Classify the selected message as Watch"
+      },
+      "gtdDelegated": {
+        "label": "Mark Delegated",
+        "description": "Classify the selected message as Delegated"
+      },
+      "toggleRightSidebar": {
+        "label": "Toggle right sidebar",
+        "description": "Hide or show the right sidebar"
+      }
+    }
   },
   "notifications": {
     "newMessage": "New message"
@@ -993,7 +1082,41 @@
       "recategorize": "Re-categorize",
       "recategorizing": "Processing…",
       "recategorized": "Re-categorization started.",
-      "selectAccount": "Select account"
+      "selectAccount": "Select account",
+      "gtdReveal": "GTD",
+      "gtdRevealDesc": "Reveal the per-account GTD settings below; each account keeps its own on/off toggle."
+    },
+    "gtd": {
+      "description": "Turn Mailflow into a GTD system. Enable it per account, then map each state to the IMAP folder that holds its label.",
+      "noAccounts": "Add an email account first to configure GTD.",
+      "enableDesc": "GTD is on. Labels sync as folders and states transition automatically.",
+      "enableHint": "Turn on GTD labels and automatic state transitions for this account.",
+      "foldersTitle": "Label folders",
+      "foldersDesc": "Each GTD state maps to an IMAP folder. Leave a field blank to use the default name.",
+      "savedOk": "Folder mapping saved.",
+      "saveFailed": "Couldn't save the folder mapping.",
+      "createFolders": "Create missing folders",
+      "creating": "Creating…",
+      "createResult": "{{created}} created, {{existing}} already existed.",
+      "createFailed": "Couldn't create the folders.",
+      "duplicateFolder": "These GTD states map to the same folder: {{states}}. Give each state a different folder.",
+      "rejectedFolders": "Some folder names were invalid and reset to their defaults: {{states}}.",
+      "pet": {
+        "title": "Inbox Zero pet",
+        "description": "Replace the default dog at inbox zero with a pet of your own.",
+        "clear": "Use the default dog",
+        "current": "Current pet: {{slug}}",
+        "usingDog": "Using the default dog.",
+        "hoverHint": "Hover to animate.",
+        "importTitle": "Import your own",
+        "importHint": "Upload a pet.json and its spritesheet (PNG, WebP, or GIF).",
+        "chooseJson": "pet.json file",
+        "chooseSheet": "Spritesheet image",
+        "import": "Import",
+        "importing": "Importing…",
+        "imported": "Imported {{name}} — hover the preview to see it move.",
+        "importFailed": "Couldn't import that pet."
+      }
     },
     "systemEmail": {
       "tabUsers": "Users & Invites",
@@ -1259,5 +1382,35 @@
     "creating": "Creating...",
     "taskCreated": "Task created in Todoist",
     "openTask": "Open in Todoist"
+  },
+  "rightSidebar": {
+    "hide": "Hide right sidebar",
+    "show": "Show right sidebar"
+  },
+  "gtd": {
+    "title": "GTD",
+    "inbox": "Inbox",
+    "waiting": "Waiting",
+    "inboxZero": "Inbox Zero ✓",
+    "allClear": "All clear",
+    "allClearHint": "Nothing waiting on you.",
+    "viewAll": "View all {{count}}",
+    "toggleSection": "Toggle {{section}}",
+    "tabEmpty": "Nothing here yet",
+    "removeFrom": "Remove from {{state}}",
+    "classified": "Label applied",
+    "classifyFailed": "Couldn't apply label",
+    "removed": "Label removed",
+    "removeFailed": "Couldn't remove label",
+    "done": "Mark done",
+    "doneFailed": "Couldn't mark done",
+    "doneArchiveFailed": "Marked done, but archiving failed — still in your Inbox",
+    "state": {
+      "todo": "Todo",
+      "watch": "Watch",
+      "delegated": "Delegated",
+      "someday": "Someday",
+      "reference": "Reference"
+    }
   }
 }

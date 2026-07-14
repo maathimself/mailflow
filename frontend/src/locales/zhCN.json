@@ -356,6 +356,7 @@
   "sidebar": {
     "allInboxes": "所有收件箱",
     "compose": "撰写",
+    "toggleSidebar": "切换侧边栏",
     "newFolder": "新建文件夹",
     "folderPh": "文件夹名称…",
     "subfolderPh": "子文件夹名称…",
@@ -462,7 +463,95 @@
     "title": "键盘快捷键",
     "customizeHint": "可在「设置 → 快捷键」中自定义快捷键",
     "closeHint": "按 ? 或 Esc 关闭",
-    "then": "然后"
+    "then": "然后",
+    "groups": {
+      "composeSearch": "撰写与搜索",
+      "navigation": "导航",
+      "messageActions": "邮件操作",
+      "gtd": "GTD"
+    },
+    "actions": {
+      "compose": {
+        "label": "撰写",
+        "description": "打开新的撰写窗口"
+      },
+      "focusSearch": {
+        "label": "搜索",
+        "description": "聚焦搜索框"
+      },
+      "showHelp": {
+        "label": "显示快捷键",
+        "description": "显示此键盘快捷键参考"
+      },
+      "nextMessage": {
+        "label": "下一封邮件",
+        "description": "移动到下一封邮件"
+      },
+      "prevMessage": {
+        "label": "上一封邮件",
+        "description": "移动到上一封邮件"
+      },
+      "openMessage": {
+        "label": "打开第一封邮件",
+        "description": "若未选中任何邮件则打开第一封"
+      },
+      "goInbox": {
+        "label": "前往收件箱",
+        "description": "跳转到统一收件箱"
+      },
+      "reply": {
+        "label": "回复",
+        "description": "回复当前邮件"
+      },
+      "replyAll": {
+        "label": "回复全部",
+        "description": "回复当前邮件的所有收件人"
+      },
+      "forward": {
+        "label": "转发",
+        "description": "转发当前邮件"
+      },
+      "archive": {
+        "label": "归档",
+        "description": "归档邮件 / 所选项"
+      },
+      "delete": {
+        "label": "删除",
+        "description": "删除邮件 / 所选项"
+      },
+      "toggleStar": {
+        "label": "加星标",
+        "description": "切换当前邮件的星标"
+      },
+      "toggleRead": {
+        "label": "切换已读状态",
+        "description": "将当前邮件标记为已读或未读"
+      },
+      "selectMessage": {
+        "label": "选择邮件",
+        "description": "勾选或取消勾选当前邮件"
+      },
+      "printMessage": {
+        "label": "打印",
+        "description": "打印当前邮件"
+      },
+      "gtdTodo": {
+        "label": "标记为待办",
+        "description": "将所选邮件归类为待办"
+      },
+      "gtdWatch": {
+        "label": "标记为关注",
+        "description": "将所选邮件归类为关注"
+      },
+      "gtdDelegated": {
+        "label": "标记为已委派",
+        "description": "将所选邮件归类为已委派"
+      },
+      "toggleRightSidebar": {
+        "label": "切换右侧边栏",
+        "description": "隐藏或显示右侧边栏"
+      }
+    }
   },
   "notifications": {
     "newMessage": "新邮件"
@@ -993,7 +1082,41 @@
       "recategorize": "重新分类",
       "recategorizing": "处理中…",
       "recategorized": "重新分类已启动。",
-      "selectAccount": "选择账户"
+      "selectAccount": "选择账户",
+      "gtdReveal": "GTD",
+      "gtdRevealDesc": "在下方显示每个账户的 GTD 设置；每个账户仍由各自的开关控制。"
+    },
+    "gtd": {
+      "description": "把 Mailflow 变成一个 GTD 系统。按账户启用，然后将每个状态映射到存放其标签的 IMAP 文件夹。",
+      "noAccounts": "请先添加一个邮箱账户以配置 GTD。",
+      "enableDesc": "GTD 已启用。标签会作为文件夹同步，状态会自动流转。",
+      "enableHint": "为此账户启用 GTD 标签和自动状态流转。",
+      "foldersTitle": "标签文件夹",
+      "foldersDesc": "每个 GTD 状态对应一个 IMAP 文件夹。留空则使用默认名称。",
+      "savedOk": "文件夹映射已保存。",
+      "saveFailed": "无法保存文件夹映射。",
+      "createFolders": "创建缺失的文件夹",
+      "creating": "正在创建…",
+      "createResult": "已创建 {{created}} 个，{{existing}} 个已存在。",
+      "createFailed": "无法创建文件夹。",
+      "duplicateFolder": "这些 GTD 状态映射到同一个文件夹：{{states}}。请为每个状态指定不同的文件夹。",
+      "rejectedFolders": "部分文件夹名称无效，已重置为默认值：{{states}}。",
+      "pet": {
+        "title": "收件箱清零宠物",
+        "description": "在收件箱清零时用你自己的宠物替换默认的小狗。",
+        "clear": "使用默认小狗",
+        "current": "当前宠物：{{slug}}",
+        "usingDog": "正在使用默认小狗。",
+        "hoverHint": "悬停即可播放动画。",
+        "importTitle": "导入你自己的",
+        "importHint": "上传 pet.json 及其精灵表（PNG、WebP 或 GIF）。",
+        "chooseJson": "pet.json 文件",
+        "chooseSheet": "精灵表图片",
+        "import": "导入",
+        "importing": "导入中…",
+        "imported": "已导入 {{name}}，将鼠标悬停在预览上即可看到动画。",
+        "importFailed": "无法导入该宠物。"
+      }
     },
     "systemEmail": {
       "tabUsers": "用户与邀请",
@@ -1259,5 +1382,35 @@
     "creating": "创建中...",
     "taskCreated": "任务已在 Todoist 中创建",
     "openTask": "在 Todoist 中打开"
+  },
+  "rightSidebar": {
+    "hide": "隐藏右侧边栏",
+    "show": "显示右侧边栏"
+  },
+  "gtd": {
+    "title": "GTD",
+    "inbox": "收件箱",
+    "waiting": "等待中",
+    "inboxZero": "收件箱清零 ✓",
+    "allClear": "全部清空",
+    "allClearHint": "没有待办事项。",
+    "viewAll": "查看全部 {{count}}",
+    "toggleSection": "切换{{section}}",
+    "tabEmpty": "这里还没有内容",
+    "removeFrom": "从{{state}}中移除",
+    "classified": "已添加标签",
+    "classifyFailed": "无法添加标签",
+    "removed": "已移除标签",
+    "removeFailed": "无法移除标签",
+    "done": "标记为完成",
+    "doneFailed": "无法标记为完成",
+    "doneArchiveFailed": "已标记为完成，但归档失败——邮件仍在收件箱中",
+    "state": {
+      "todo": "待办",
+      "watch": "关注",
+      "delegated": "已委派",
+      "someday": "将来",
+      "reference": "参考"
+    }
   }
 }

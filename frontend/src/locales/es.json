@@ -356,6 +356,7 @@
   "sidebar": {
     "allInboxes": "Todas las bandejas",
     "compose": "Redactar",
+    "toggleSidebar": "Alternar barra lateral",
     "newFolder": "Nueva carpeta",
     "folderPh": "Nombre de carpeta…",
     "subfolderPh": "Nombre de subcarpeta…",
@@ -462,7 +463,95 @@
     "title": "Atajos de teclado",
     "customizeHint": "Personaliza los atajos en Ajustes → Atajos",
     "closeHint": "Pulsa ? o Esc para cerrar",
-    "then": "luego"
+    "then": "luego",
+    "groups": {
+      "composeSearch": "Redacción y búsqueda",
+      "navigation": "Navegación",
+      "messageActions": "Acciones de mensaje",
+      "gtd": "GTD"
+    },
+    "actions": {
+      "compose": {
+        "label": "Redactar",
+        "description": "Abrir una nueva ventana de redacción"
+      },
+      "focusSearch": {
+        "label": "Buscar",
+        "description": "Enfocar el cuadro de búsqueda"
+      },
+      "showHelp": {
+        "label": "Mostrar atajos",
+        "description": "Mostrar esta referencia de atajos de teclado"
+      },
+      "nextMessage": {
+        "label": "Mensaje siguiente",
+        "description": "Ir al mensaje siguiente"
+      },
+      "prevMessage": {
+        "label": "Mensaje anterior",
+        "description": "Ir al mensaje anterior"
+      },
+      "openMessage": {
+        "label": "Abrir el primer mensaje",
+        "description": "Abrir el primer mensaje si no hay ninguno seleccionado"
+      },
+      "goInbox": {
+        "label": "Ir a la bandeja de entrada",
+        "description": "Ir a la bandeja de entrada unificada"
+      },
+      "reply": {
+        "label": "Responder",
+        "description": "Responder al mensaje actual"
+      },
+      "replyAll": {
+        "label": "Responder a todos",
+        "description": "Responder a todos en el mensaje actual"
+      },
+      "forward": {
+        "label": "Reenviar",
+        "description": "Reenviar el mensaje actual"
+      },
+      "archive": {
+        "label": "Archivar",
+        "description": "Archivar mensaje / selección"
+      },
+      "delete": {
+        "label": "Eliminar",
+        "description": "Eliminar mensaje / selección"
+      },
+      "toggleStar": {
+        "label": "Destacar",
+        "description": "Activar o quitar el destacado del mensaje actual"
+      },
+      "toggleRead": {
+        "label": "Marcar leído / no leído",
+        "description": "Marcar el mensaje actual como leído o no leído"
+      },
+      "selectMessage": {
+        "label": "Seleccionar mensaje",
+        "description": "Marcar o desmarcar el mensaje actual"
+      },
+      "printMessage": {
+        "label": "Imprimir",
+        "description": "Imprimir el mensaje actual"
+      },
+      "gtdTodo": {
+        "label": "Marcar Por hacer",
+        "description": "Clasificar el mensaje seleccionado como Por hacer"
+      },
+      "gtdWatch": {
+        "label": "Marcar Vigilar",
+        "description": "Clasificar el mensaje seleccionado como Vigilar"
+      },
+      "gtdDelegated": {
+        "label": "Marcar Delegado",
+        "description": "Clasificar el mensaje seleccionado como Delegado"
+      },
+      "toggleRightSidebar": {
+        "label": "Alternar la barra lateral derecha",
+        "description": "Ocultar o mostrar la barra lateral derecha"
+      }
+    }
   },
   "notifications": {
     "newMessage": "Nuevo mensaje"
@@ -993,7 +1082,41 @@
       "recategorize": "Recategorizar",
       "recategorizing": "Procesando…",
       "recategorized": "Recategorización iniciada.",
-      "selectAccount": "Seleccionar cuenta"
+      "selectAccount": "Seleccionar cuenta",
+      "gtdReveal": "GTD",
+      "gtdRevealDesc": "Muestra abajo los ajustes de GTD por cuenta; cada cuenta conserva su propio interruptor."
+    },
+    "gtd": {
+      "description": "Convierte Mailflow en un sistema GTD. Actívalo por cuenta y asigna cada estado a la carpeta IMAP que contiene su etiqueta.",
+      "noAccounts": "Añade primero una cuenta de correo para configurar GTD.",
+      "enableDesc": "GTD está activado. Las etiquetas se sincronizan como carpetas y los estados cambian automáticamente.",
+      "enableHint": "Activa las etiquetas GTD y los cambios de estado automáticos para esta cuenta.",
+      "foldersTitle": "Carpetas de etiquetas",
+      "foldersDesc": "Cada estado GTD se asigna a una carpeta IMAP. Deja un campo vacío para usar el nombre predeterminado.",
+      "savedOk": "Asignación de carpetas guardada.",
+      "saveFailed": "No se pudo guardar la asignación de carpetas.",
+      "createFolders": "Crear carpetas faltantes",
+      "creating": "Creando…",
+      "createResult": "{{created}} creadas, {{existing}} ya existían.",
+      "createFailed": "No se pudieron crear las carpetas.",
+      "duplicateFolder": "Estos estados GTD apuntan a la misma carpeta: {{states}}. Asigna una carpeta distinta a cada estado.",
+      "rejectedFolders": "Algunos nombres de carpeta no eran válidos y se restablecieron a sus valores predeterminados: {{states}}.",
+      "pet": {
+        "title": "Mascota de bandeja vacía",
+        "description": "Reemplaza el perro predeterminado en bandeja vacía por una mascota tuya.",
+        "clear": "Usar el perro predeterminado",
+        "current": "Mascota actual: {{slug}}",
+        "usingDog": "Usando el perro predeterminado.",
+        "hoverHint": "Pasa el cursor para animarla.",
+        "importTitle": "Importa la tuya",
+        "importHint": "Sube un pet.json y su spritesheet (PNG, WebP o GIF).",
+        "chooseJson": "Archivo pet.json",
+        "chooseSheet": "Imagen del spritesheet",
+        "import": "Importar",
+        "importing": "Importando…",
+        "imported": "{{name}} importada: pasa el cursor sobre la vista previa para verla moverse.",
+        "importFailed": "No se pudo importar esa mascota."
+      }
     },
     "systemEmail": {
       "tabUsers": "Usuarios e invitaciones",
@@ -1259,5 +1382,35 @@
     "creating": "Creando...",
     "taskCreated": "Tarea creada en Todoist",
     "openTask": "Abrir en Todoist"
+  },
+  "rightSidebar": {
+    "hide": "Ocultar la barra lateral derecha",
+    "show": "Mostrar la barra lateral derecha"
+  },
+  "gtd": {
+    "title": "GTD",
+    "inbox": "Bandeja de entrada",
+    "waiting": "En espera",
+    "inboxZero": "Bandeja vacía ✓",
+    "allClear": "Todo despejado",
+    "allClearHint": "Nada te espera.",
+    "viewAll": "Ver todos ({{count}})",
+    "toggleSection": "Alternar {{section}}",
+    "tabEmpty": "Nada aquí todavía",
+    "removeFrom": "Quitar de {{state}}",
+    "classified": "Etiqueta aplicada",
+    "classifyFailed": "No se pudo aplicar la etiqueta",
+    "removed": "Etiqueta eliminada",
+    "removeFailed": "No se pudo quitar la etiqueta",
+    "done": "Marcar como hecho",
+    "doneFailed": "No se pudo marcar como hecho",
+    "doneArchiveFailed": "Marcado como hecho, pero falló el archivado: sigue en la bandeja de entrada",
+    "state": {
+      "todo": "Por hacer",
+      "watch": "Vigilar",
+      "delegated": "Delegado",
+      "someday": "Algún día",
+      "reference": "Referencia"
+    }
   }
 }

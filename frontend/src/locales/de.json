@@ -356,6 +356,7 @@
   "sidebar": {
     "allInboxes": "Alle Posteingänge",
     "compose": "Verfassen",
+    "toggleSidebar": "Seitenleiste umschalten",
     "newFolder": "Neuer Ordner",
     "folderPh": "Ordnername…",
     "subfolderPh": "Unterordnername…",
@@ -462,7 +463,95 @@
     "title": "Tastaturkürzel",
     "customizeHint": "Kürzel anpassen unter Einstellungen → Tastaturkürzel",
     "closeHint": "? oder Esc zum Schließen drücken",
-    "then": "dann"
+    "then": "dann",
+    "groups": {
+      "composeSearch": "Verfassen & Suche",
+      "navigation": "Navigation",
+      "messageActions": "Nachrichtenaktionen",
+      "gtd": "GTD"
+    },
+    "actions": {
+      "compose": {
+        "label": "Verfassen",
+        "description": "Neues Fenster zum Verfassen öffnen"
+      },
+      "focusSearch": {
+        "label": "Suchen",
+        "description": "Suchfeld fokussieren"
+      },
+      "showHelp": {
+        "label": "Kürzel anzeigen",
+        "description": "Diese Tastenkürzel-Übersicht anzeigen"
+      },
+      "nextMessage": {
+        "label": "Nächste Nachricht",
+        "description": "Zur nächsten Nachricht wechseln"
+      },
+      "prevMessage": {
+        "label": "Vorherige Nachricht",
+        "description": "Zur vorherigen Nachricht wechseln"
+      },
+      "openMessage": {
+        "label": "Erste Nachricht öffnen",
+        "description": "Erste Nachricht öffnen, wenn keine ausgewählt ist"
+      },
+      "goInbox": {
+        "label": "Zum Posteingang",
+        "description": "Zum vereinheitlichten Posteingang wechseln"
+      },
+      "reply": {
+        "label": "Antworten",
+        "description": "Auf die aktuelle Nachricht antworten"
+      },
+      "replyAll": {
+        "label": "Allen antworten",
+        "description": "Allen auf die aktuelle Nachricht antworten"
+      },
+      "forward": {
+        "label": "Weiterleiten",
+        "description": "Die aktuelle Nachricht weiterleiten"
+      },
+      "archive": {
+        "label": "Archivieren",
+        "description": "Nachricht / Auswahl archivieren"
+      },
+      "delete": {
+        "label": "Löschen",
+        "description": "Nachricht / Auswahl löschen"
+      },
+      "toggleStar": {
+        "label": "Markieren",
+        "description": "Stern für die aktuelle Nachricht umschalten"
+      },
+      "toggleRead": {
+        "label": "Gelesen umschalten",
+        "description": "Aktuelle Nachricht als gelesen oder ungelesen markieren"
+      },
+      "selectMessage": {
+        "label": "Nachricht auswählen",
+        "description": "Aktuelle Nachricht an- oder abwählen"
+      },
+      "printMessage": {
+        "label": "Drucken",
+        "description": "Die aktuelle Nachricht drucken"
+      },
+      "gtdTodo": {
+        "label": "Als Aufgabe markieren",
+        "description": "Die ausgewählte Nachricht als Aufgabe einordnen"
+      },
+      "gtdWatch": {
+        "label": "Als Beobachten markieren",
+        "description": "Die ausgewählte Nachricht als Beobachten einordnen"
+      },
+      "gtdDelegated": {
+        "label": "Als Delegiert markieren",
+        "description": "Die ausgewählte Nachricht als Delegiert einordnen"
+      },
+      "toggleRightSidebar": {
+        "label": "Rechte Seitenleiste umschalten",
+        "description": "Rechte Seitenleiste aus- oder einblenden"
+      }
+    }
   },
   "notifications": {
     "newMessage": "Neue Nachricht"
@@ -926,7 +1015,41 @@
       "recategorize": "Neu kategorisieren",
       "recategorizing": "Verarbeite…",
       "recategorized": "Neukategorisierung gestartet.",
-      "selectAccount": "Konto auswählen"
+      "selectAccount": "Konto auswählen",
+      "gtdReveal": "GTD",
+      "gtdRevealDesc": "Blendet unten die GTD-Einstellungen pro Konto ein; jedes Konto behält seinen eigenen Schalter."
+    },
+    "gtd": {
+      "description": "Verwandeln Sie Mailflow in ein GTD-System. Aktivieren Sie es pro Konto und ordnen Sie jeden Zustand dem IMAP-Ordner zu, der sein Label enthält.",
+      "noAccounts": "Fügen Sie zuerst ein E-Mail-Konto hinzu, um GTD einzurichten.",
+      "enableDesc": "GTD ist aktiv. Labels werden als Ordner synchronisiert und Zustände wechseln automatisch.",
+      "enableHint": "GTD-Labels und automatische Zustandswechsel für dieses Konto aktivieren.",
+      "foldersTitle": "Label-Ordner",
+      "foldersDesc": "Jeder GTD-Zustand wird einem IMAP-Ordner zugeordnet. Lassen Sie ein Feld leer, um den Standardnamen zu verwenden.",
+      "savedOk": "Ordnerzuordnung gespeichert.",
+      "saveFailed": "Ordnerzuordnung konnte nicht gespeichert werden.",
+      "createFolders": "Fehlende Ordner erstellen",
+      "creating": "Wird erstellt…",
+      "createResult": "{{created}} erstellt, {{existing}} bereits vorhanden.",
+      "createFailed": "Ordner konnten nicht erstellt werden.",
+      "duplicateFolder": "Diese GTD-Zustände verweisen auf denselben Ordner: {{states}}. Weisen Sie jedem Zustand einen anderen Ordner zu.",
+      "rejectedFolders": "Einige Ordnernamen waren ungültig und wurden auf die Standardwerte zurückgesetzt: {{states}}.",
+      "pet": {
+        "title": "Inbox-Zero-Tier",
+        "description": "Ersetze bei Inbox Zero den Standardhund durch ein eigenes Tier.",
+        "clear": "Standardhund verwenden",
+        "current": "Aktuelles Tier: {{slug}}",
+        "usingDog": "Standardhund wird verwendet.",
+        "hoverHint": "Zum Animieren mit der Maus darüberfahren.",
+        "importTitle": "Eigenes importieren",
+        "importHint": "Lade eine pet.json und ihr Spritesheet hoch (PNG, WebP oder GIF).",
+        "chooseJson": "pet.json-Datei",
+        "chooseSheet": "Spritesheet-Bild",
+        "import": "Importieren",
+        "importing": "Wird importiert…",
+        "imported": "{{name}} importiert — bewege den Mauszeiger über die Vorschau, um es zu sehen.",
+        "importFailed": "Dieses Tier konnte nicht importiert werden."
+      }
     },
     "systemEmail": {
       "tabUsers": "Benutzer & Einladungen",
@@ -1259,5 +1382,35 @@
     "creating": "Wird erstellt...",
     "taskCreated": "Aufgabe in Todoist erstellt",
     "openTask": "In Todoist öffnen"
+  },
+  "rightSidebar": {
+    "hide": "Rechte Seitenleiste ausblenden",
+    "show": "Rechte Seitenleiste einblenden"
+  },
+  "gtd": {
+    "title": "GTD",
+    "inbox": "Posteingang",
+    "waiting": "Wartet",
+    "inboxZero": "Posteingang leer ✓",
+    "allClear": "Alles erledigt",
+    "allClearHint": "Nichts wartet auf dich.",
+    "viewAll": "Alle {{count}} anzeigen",
+    "toggleSection": "{{section}} umschalten",
+    "tabEmpty": "Noch nichts hier",
+    "removeFrom": "Aus {{state}} entfernen",
+    "classified": "Label angewendet",
+    "classifyFailed": "Label konnte nicht angewendet werden",
+    "removed": "Label entfernt",
+    "removeFailed": "Label konnte nicht entfernt werden",
+    "done": "Als erledigt markieren",
+    "doneFailed": "Konnte nicht als erledigt markiert werden",
+    "doneArchiveFailed": "Als erledigt markiert, aber Archivieren fehlgeschlagen – noch im Posteingang",
+    "state": {
+      "todo": "Aufgabe",
+      "watch": "Beobachten",
+      "delegated": "Delegiert",
+      "someday": "Irgendwann",
+      "reference": "Referenz"
+    }
   }
 }

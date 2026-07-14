@@ -115,6 +115,7 @@ const dir = dirname(fileURLToPath(import.meta.url));
 // Any unlisted pair will still fail.
 const SAME_VALUE_ALLOWED = {
   // ── Universal placeholders / brand names (all locales share) ───────────────
+  'admin.categories.gtdReveal':             'any', // "GTD" — brand-like acronym, same everywhere
   'admin.accounts.imapHostPh':              'any', // imap.gmail.com
   'admin.accounts.presetGmail':             'any', // Gmail
   'admin.accounts.presetIcloud':            'any', // iCloud
@@ -291,6 +292,16 @@ const SAME_VALUE_ALLOWED = {
   // "Social" — international term used as-is in en, es, and it
   'messageList.categories.social': [['en', 'es', 'it']],
 
+  // ── GTD ────────────────────────────────────────────────────────────────────
+  // "GTD" — acronym (Getting Things Done), same in every locale
+  'gtd.title': 'any',
+
+  // ── Keyboard shortcuts ─────────────────────────────────────────────────────
+  // "GTD" — acronym group heading, same in every locale (like admin.categories.gtdReveal)
+  'shortcuts.groups.gtd': 'any',
+  // "Navigation" — spelled identically in de, en, fr (es "Navegación", it "Navigazione")
+  'shortcuts.groups.navigation': [['de', 'en', 'fr']],
+
   // ── Todoist integration ────────────────────────────────────────────────────
   // "Todoist" — brand name, same in all locales
   'admin.integrations.todoist.title': 'any',
@@ -335,6 +346,11 @@ const DYNAMIC_KEYS = new Set([
   'messageList.categories.promotion',
   'messageList.categories.automated',
   'messageList.categories.social',
+  // t(`gtd.state.${state}`) — GTD state labels referenced via template literal for
+  // the merged-Waiting kind chip and the classify submenu (watch/delegated never
+  // appear as literals; the other three do via the tab pills).
+  'gtd.state.watch',
+  'gtd.state.delegated',
 ]);
 
 // JSX attribute names whose values must never be plain strings — always t().
