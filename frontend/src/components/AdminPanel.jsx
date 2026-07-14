@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { newAiAction, AI_ACTION_LIMITS } from '../aiActions.js';
@@ -11,6 +11,7 @@ import { NOTIFICATION_SOUNDS, playNotificationSound, playCustomSound, warmUpAudi
 import { usePushNotifications } from '../hooks/usePushNotifications.js';
 import SignatureEditor from './SignatureEditor.jsx';
 import GtdZeroPet from './GtdZeroPet.jsx';
+import CardDavConflicts from './CardDavConflicts.jsx';
 import { getEffectiveShortcuts, getGroupedActions, ACTION_DEFS, SPECIAL_KEY_LABELS, parseModKey, modLabel } from '../utils/defaultShortcuts.js';
 import { DEFAULT_GTD_FOLDERS, GTD_STATES, resolveAccountGtdFolders, diffGtdFolders, findGtdFolderCollisions } from '../utils/gtd.js';
 
@@ -1856,28 +1857,62 @@ function LayoutsTab() {
 }
 
 // ─── Integrations Tab ────────────────────────────────────────────────────────
-// CardDAV contact sync (e.g. Nextcloud). One-way, read-only pull.
+// CardDAV contact sync (e.g. Nextcloud).
 function CardDavCard() {
   const { t } = useTranslation();
   const [status, setStatus] = useState(null); // null while loading
   const [expanded, setExpanded] = useState(false);
-  const [form, setForm] = useState({ serverUrl: '', username: '', password: '', dupMode: 'separate', intervalMin: 60 });
+  const [form, setForm] = useState({ serverUrl: '', username: '', password: '', intervalMin: 60 });
   const [connecting, setConnecting] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const [error, setError] = useState('');
+  const [conflictCount, setConflictCount] = useState(0);
+  const [showConflicts, setShowConflicts] = useState(false);
+  const [healthUnavailable, setHealthUnavailable] = useState(false);
 
-  useEffect(() => { api.carddav.status().then(setStatus).catch(() => setStatus({ connected: false })); }, []);
+  const refreshHealth = useCallback(async () => {
+    setHealthUnavailable(false);
+    const [statusResult, conflictResult] = await Promise.allSettled([
+      api.carddav.status(),
+      api.carddav.getConflicts(),
+    ]);
+    if (statusResult.status === 'fulfilled') setStatus(statusResult.value);
+    else {
+      setStatus(current => current ?? { connected: false });
+      setHealthUnavailable(true);
+    }
+    if (conflictResult.status === 'fulfilled') setConflictCount(conflictResult.value.conflicts.length);
+    else setHealthUnavailable(true);
+  }, []);
+
+  const refreshStatus = useCallback(async () => {
+    try { setStatus(await api.carddav.status()); }
+    catch { setHealthUnavailable(true); }
+  }, []);
+
+  useEffect(() => { refreshHealth(); }, [refreshHealth]);
 
   const connected = status?.connected;
   const loading = status === null;
+  const needsAttention = Boolean(status?.lastError || conflictCount);
+  const healthLabel = healthUnavailable
+    ? t('admin.integrations.carddav.healthUnavailable')
+    : connected
+      ? t(needsAttention ? 'admin.integrations.carddav.healthNeedsAttention' : 'admin.integrations.carddav.healthHealthy')
+      : t('admin.integrations.carddav.notConnected');
+  const healthColor = connected && !needsAttention && !healthUnavailable
+    ? '#22c55e'
+    : healthUnavailable || needsAttention
+      ? 'var(--red, #f87171)'
+      : 'var(--text-tertiary)';
 
   const handleConnect = async () => {
     setConnecting(true); setError('');
     try {
       const s = await api.carddav.connect({
         serverUrl: form.serverUrl.trim(), username: form.username.trim(),
-        password: form.password, dupMode: form.dupMode, intervalMin: Number(form.intervalMin),
+        password: form.password, intervalMin: Number(form.intervalMin),
       });
       setStatus(s); setForm(f => ({ ...f, password: '' }));
     } catch (e) { setError(e.message || t('admin.integrations.carddav.connectFailed')); }
@@ -1885,13 +1920,13 @@ function CardDavCard() {
   };
   const handleSync = async () => {
     setSyncing(true); setError('');
-    try { const r = await api.carddav.sync(); setStatus(r.status); if (!r.ok && r.error) setError(r.error); }
+    try { const r = await api.carddav.sync(); setStatus(r.status); if (!r.ok && r.error) setError(r.error); await refreshHealth(); }
     catch (e) { setError(e.message); }
     finally { setSyncing(false); }
   };
   const handleDisconnect = async () => {
     setDisconnecting(true); setError('');
-    try { await api.carddav.disconnect(); setStatus({ connected: false }); }
+    try { await api.carddav.disconnect(); setStatus({ connected: false }); setConflictCount(0); setShowConflicts(false); }
     catch (e) { setError(e.message); }
     finally { setDisconnecting(false); }
   };
@@ -1921,8 +1956,8 @@ function CardDavCard() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{t('admin.integrations.carddav.title')}</span>
             <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: 'rgba(99,102,241,0.15)', color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('todoist.betaLabel')}</span>
-            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: (!loading && connected) ? 'rgba(34,197,94,0.1)' : 'var(--bg-primary)', color: (!loading && connected) ? '#22c55e' : 'var(--text-tertiary)', border: `1px solid ${(!loading && connected) ? '#22c55e' : 'var(--border)'}` }}>
-              {loading ? '...' : (connected ? t('admin.integrations.carddav.connected') : t('admin.integrations.carddav.notConnected'))}
+            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: 'var(--bg-primary)', color: healthColor, border: `1px solid ${loading ? 'var(--border)' : healthColor}` }}>
+              {loading ? '...' : healthLabel}
             </span>
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>{t('admin.integrations.carddav.description')}</div>
@@ -1946,16 +1981,11 @@ function CardDavCard() {
                 {status.lastError && (
                   <div style={{ marginTop: 4, color: 'var(--red, #f87171)' }}>{t('admin.integrations.carddav.syncFailed', { error: status.lastError })}</div>
                 )}
+                <div style={{ marginTop: 4 }}>
+                  {t('contacts.conflicts.count', { count: conflictCount })}
+                </div>
               </div>
 
-              <div>
-                <label style={labelStyle}>{t('admin.integrations.carddav.dupLabel')}</label>
-                <select value={status.dupMode || 'separate'} onChange={e => updateSetting({ dupMode: e.target.value })} style={{ ...inputStyle, cursor: 'pointer' }}>
-                  <option value="separate">{t('admin.integrations.carddav.dupSeparate')}</option>
-                  <option value="merge">{t('admin.integrations.carddav.dupMerge')}</option>
-                  <option value="skip">{t('admin.integrations.carddav.dupSkip')}</option>
-                </select>
-              </div>
               <div>
                 <label style={labelStyle}>{t('admin.integrations.carddav.intervalLabel')}</label>
                 <input type="number" min="15" max="1440" value={status.intervalMin || 60}
@@ -1970,7 +2000,19 @@ function CardDavCard() {
                 <button onClick={handleDisconnect} disabled={disconnecting} style={{ padding: '6px 14px', borderRadius: 7, cursor: disconnecting ? 'default' : 'pointer', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', fontSize: 13, opacity: disconnecting ? 0.6 : 1 }}>
                   {disconnecting ? t('common.loading') : t('admin.integrations.carddav.disconnect')}
                 </button>
+                {conflictCount > 0 && (
+                  <button onClick={() => setShowConflicts(value => !value)} style={{ padding: '6px 14px', borderRadius: 7, cursor: 'pointer', border: '1px solid var(--red-border, rgba(248,113,113,0.3))', background: 'var(--red-dim, rgba(248,113,113,0.1))', color: 'var(--red, #f87171)', fontSize: 13 }}>
+                    {t('admin.integrations.carddav.reviewConflicts')}
+                  </button>
+                )}
               </div>
+              {showConflicts && (
+                <CardDavConflicts
+                  onClose={() => setShowConflicts(false)}
+                  onCountChange={setConflictCount}
+                  onResolved={refreshStatus}
+                />
+              )}
             </>
           ) : (
             <>
@@ -1980,12 +2022,6 @@ function CardDavCard() {
                 <input type="text" value={form.username} onChange={e => setForm(f => ({ ...f, username: e.target.value }))} placeholder={t('admin.integrations.carddav.userPh')} style={inputStyle} /></div>
               <div><label style={labelStyle}>{t('admin.integrations.carddav.passLabel')}</label>
                 <input type="password" autoComplete="new-password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} placeholder={t('admin.integrations.carddav.passPh')} style={inputStyle} /></div>
-              <div><label style={labelStyle}>{t('admin.integrations.carddav.dupLabel')}</label>
-                <select value={form.dupMode} onChange={e => setForm(f => ({ ...f, dupMode: e.target.value }))} style={{ ...inputStyle, cursor: 'pointer' }}>
-                  <option value="separate">{t('admin.integrations.carddav.dupSeparate')}</option>
-                  <option value="merge">{t('admin.integrations.carddav.dupMerge')}</option>
-                  <option value="skip">{t('admin.integrations.carddav.dupSkip')}</option>
-                </select></div>
               {errBox}
               <div style={{ display: 'flex', gap: 8 }}>
                 <button onClick={handleConnect} disabled={connecting || !form.serverUrl.trim() || !form.username.trim() || !form.password}

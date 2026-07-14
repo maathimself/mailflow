@@ -4,18 +4,24 @@
 // distinct from routes/carddav.js, which is the CardDAV *server* MailFlow exposes.
 
 import { Router } from 'express';
-import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { encrypt } from '../services/encryption.js';
 import { validateHost } from '../services/hostValidation.js';
 import { getConnectionPolicy } from '../services/connectionPolicy.js';
 import { discoverAddressBooks } from '../services/carddavClient.js';
-import { syncUser, scheduleCardavUser, stopCardavUser, getCardavConfig } from '../services/carddavSync.js';
+import {
+  syncUser,
+  requestCarddavSync,
+  scheduleCardavUser,
+  getCardavConfig,
+  replaceCarddavConnection,
+  patchCarddavConnection,
+  disconnectCarddavAccount,
+} from '../services/carddavSync.js';
 
 const router = Router();
 router.use(requireAuth);
 
-const DUP_MODES = ['separate', 'merge', 'skip'];
 const clampInterval = (v) => Math.max(15, Math.min(1440, parseInt(v) || 60));
 
 // Public view of the connection — never leaks the stored password.
@@ -25,7 +31,6 @@ function publicStatus(config) {
     connected: true,
     serverUrl: config.serverUrl,
     username: config.username,
-    dupMode: config.dupMode || 'separate',
     intervalMin: config.intervalMin || 60,
     lastSyncAt: config.lastSyncAt || null,
     lastError: config.lastError || null,
@@ -39,7 +44,7 @@ router.get('/', async (req, res) => {
 });
 
 router.post('/connect', async (req, res) => {
-  const { serverUrl, username, password, dupMode, intervalMin } = req.body || {};
+  const { serverUrl, username, password, intervalMin } = req.body || {};
   if (!serverUrl || !username || !password) {
     return res.status(400).json({ error: 'Server URL, username, and password are required' });
   }
@@ -74,43 +79,47 @@ router.post('/connect', async (req, res) => {
     return res.status(400).json({ error: err.message });
   }
 
-  const config = {
+  const connection = {
     serverUrl, username,
     password: encrypt(password),
-    dupMode: DUP_MODES.includes(dupMode) ? dupMode : 'separate',
     intervalMin: clampInterval(intervalMin),
-    lastError: null,
   };
-  await query(
-    `INSERT INTO user_integrations (user_id, provider, config)
-     VALUES ($1, 'carddav', $2::jsonb)
-     ON CONFLICT (user_id, provider) DO UPDATE SET config = $2::jsonb, updated_at = NOW()`,
-    [req.session.userId, JSON.stringify(config)],
-  );
+  const config = await replaceCarddavConnection(req.session.userId, connection);
 
   scheduleCardavUser(req.session.userId, config.intervalMin);
   // Kick off the first sync in the background; the client polls GET / for status.
-  syncUser(req.session.userId).catch(() => {});
+  requestCarddavSync(req.session.userId, config.connectionGeneration);
   res.json(publicStatus(config));
 });
 
-// Update duplicate handling / interval (and optionally rotate the password).
+// Update the interval (and optionally rotate the password).
 router.patch('/', async (req, res) => {
   const existing = await getCardavConfig(req.session.userId);
   if (!existing?.serverUrl) return res.status(409).json({ error: 'CardDAV not connected' });
 
   const patch = {};
-  if (req.body.dupMode && DUP_MODES.includes(req.body.dupMode)) patch.dupMode = req.body.dupMode;
   if (req.body.intervalMin != null) patch.intervalMin = clampInterval(req.body.intervalMin);
-  if (req.body.password) patch.password = encrypt(req.body.password);
+  if (req.body.password) {
+    const policy = await getConnectionPolicy();
+    try {
+      await discoverAddressBooks({
+        serverUrl: existing.serverUrl,
+        username: existing.username,
+        password: req.body.password,
+        allowPrivate: policy.allowPrivateHosts,
+      });
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
+    }
+    patch.password = encrypt(req.body.password);
+  }
 
-  await query(
-    `UPDATE user_integrations SET config = config || $2::jsonb, updated_at = NOW()
-     WHERE user_id = $1 AND provider = 'carddav'`,
-    [req.session.userId, JSON.stringify(patch)],
-  );
+  const config = patch.password
+    ? await patchCarddavConnection(req.session.userId, patch, existing.connectionGeneration)
+    : await patchCarddavConnection(req.session.userId, patch);
   if (patch.intervalMin) scheduleCardavUser(req.session.userId, patch.intervalMin);
-  res.json(publicStatus({ ...existing, ...patch }));
+  if (patch.password) requestCarddavSync(req.session.userId, config.connectionGeneration);
+  res.json(publicStatus(config));
 });
 
 router.post('/sync', async (req, res) => {
@@ -121,16 +130,7 @@ router.post('/sync', async (req, res) => {
 });
 
 router.delete('/', async (req, res) => {
-  stopCardavUser(req.session.userId);
-  // Remove the synced (read-only) address books; contacts cascade with them.
-  await query(
-    "DELETE FROM address_books WHERE user_id = $1 AND source = 'carddav'",
-    [req.session.userId],
-  );
-  await query(
-    "DELETE FROM user_integrations WHERE user_id = $1 AND provider = 'carddav'",
-    [req.session.userId],
-  );
+  await disconnectCarddavAccount(req.session.userId);
   res.json({ ok: true });
 });
 

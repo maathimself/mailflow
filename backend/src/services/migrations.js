@@ -5,20 +5,20 @@ import { pool } from './db.js';
 
 const MIGRATIONS_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../migrations');
 
-async function getMigrationFiles() {
-  const files = (await readdir(MIGRATIONS_DIR))
+async function getMigrationFiles(migrationsDirectory) {
+  const files = (await readdir(migrationsDirectory))
     .filter(f => /^\d{4}_.+\.sql$/.test(f))
     .sort();
   return Promise.all(
     files.map(async filename => ({
       version: filename.replace(/\.sql$/, ''),
-      sql: await readFile(join(MIGRATIONS_DIR, filename), 'utf8'),
+      sql: await readFile(join(migrationsDirectory, filename), 'utf8'),
     }))
   );
 }
 
-export async function runMigrations() {
-  const client = await pool.connect();
+export async function runMigrationsWithPool(migrationPool, migrationsDirectory) {
+  const client = await migrationPool.connect();
   try {
     // Session-level advisory lock: held across individual migration transactions,
     // unlike pg_advisory_xact_lock which releases at each COMMIT and would let
@@ -38,7 +38,7 @@ export async function runMigrations() {
     const { rows } = await client.query('SELECT version FROM schema_migrations ORDER BY version');
     const applied = new Set(rows.map(r => r.version));
 
-    const migrations = await getMigrationFiles();
+    const migrations = await getMigrationFiles(migrationsDirectory);
 
     let ran = 0;
     for (const { version, sql } of migrations) {
@@ -93,4 +93,8 @@ export async function runMigrations() {
     await client.query('SELECT pg_advisory_unlock(7418291834)').catch(() => {});
     client.release();
   }
+}
+
+export async function runMigrations() {
+  return runMigrationsWithPool(pool, MIGRATIONS_DIR);
 }

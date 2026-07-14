@@ -103,6 +103,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import i18next from 'i18next';
 
 const dir = dirname(fileURLToPath(import.meta.url));
 
@@ -258,7 +259,8 @@ const SAME_VALUE_ALLOWED = {
   // "auto" — universal technical loanword, same in all locales
   'contacts.auto': 'any',
   // "contacts" — same word in English and French
-  'contacts.count': [['en', 'fr']],
+  'contacts.count_one': [['en', 'fr']],
+  'contacts.count_other': [['en', 'fr']],
   'contacts.title': [['en', 'fr']],
   // "Email" — international term used as-is in en, es, it, ru, zhCN
   'contacts.fields.email': [['en', 'es', 'it', 'ru', 'zhCN']],
@@ -351,6 +353,12 @@ const DYNAMIC_KEYS = new Set([
   // appear as literals; the other three do via the tab pills).
   'gtd.state.watch',
   'gtd.state.delegated',
+  // t(`contacts.additional.types.${kind}`) — remaining Additional-field kinds.
+  'contacts.additional.types.custom-text',
+  'contacts.additional.types.date',
+  'contacts.additional.types.geo',
+  'contacts.additional.types.im',
+  'contacts.additional.types.postal-address',
 ]);
 
 // JSX attribute names whose values must never be plain strings — always t().
@@ -520,12 +528,37 @@ describe('i18n locale files', () => {
   describe('key coverage — every key must appear in every locale', () => {
     for (const lang of langs) {
       it(`${lang} has no missing keys`, () => {
-        const present = new Set(Object.keys(locales[lang]));
-        const missing = allKeys.filter(k => !present.has(k));
+        const present = new Set(Object.keys(locales[lang]).map(baseKey));
+        const missing = [...new Set(allKeys.map(baseKey))].filter(k => !present.has(k));
         assert.equal(missing.length, 0,
           `Missing keys:\n${missing.map(k => `  - ${k}`).join('\n')}`);
       });
     }
+  });
+
+  it('uses locale-appropriate CardDAV and contact count plurals', async () => {
+    const bases = ['contacts.count', 'contacts.conflicts.count', 'contacts.conflicts.openCount'];
+    const suffixes = {
+      en: ['one', 'other'], de: ['one', 'other'], es: ['one', 'other'],
+      fr: ['one', 'other'], it: ['one', 'other'], ru: ['one', 'few', 'many'],
+      zhCN: ['other'],
+    };
+    for (const [lang, expected] of Object.entries(suffixes)) {
+      for (const base of bases) {
+        assert.deepEqual(
+          expected.filter(suffix => locales[lang][`${base}_${suffix}`] === undefined),
+          [],
+          `${lang} is missing plural forms for ${base}`,
+        );
+      }
+    }
+
+    const i18n = i18next.createInstance();
+    await i18n.init({
+      lng: 'en',
+      resources: { en: { translation: JSON.parse(readFileSync(join(dir, 'en.json'), 'utf8')) } },
+    });
+    assert.equal(i18n.t('contacts.conflicts.count', { count: 1 }), '1 unresolved conflict');
   });
 
   describe('value uniqueness — no unlisted locale pair should share a value for the same key', () => {
@@ -567,4 +600,78 @@ describe('i18n locale files', () => {
     });
   });
 
+});
+
+// Regression guard for the contacts type-label overflow — upstream fix b837b93 / PR #242.
+// Stale pre-normalization DB
+// rows can carry a non-canonical contact type (e.g. a raw compound TYPE param like
+// "cell,voice,pref"). A dynamic `t(`contacts.phoneTypes.${type}`)` lookup with no
+// defaultValue returns the raw i18n key, which — being a long, unbreakable token — overflows
+// the fixed-width DetailRow label. DYNAMIC_KEYS above treats these template-literal keys as
+// "referenced", so Suite 1 never validated their runtime resolution and the class slipped past.
+function dynamicTypeLabelOffenders() {
+  const srcDir = resolve(dir, '..'); // frontend/src (excludes node_modules / build output)
+  const offenders = [];
+  (function walk(d) {
+    for (const entry of readdirSync(d, { withFileTypes: true })) {
+      const full = join(d, entry.name);
+      if (entry.isDirectory()) {
+        if (full !== dir) walk(full); // skip locales/ (this test's own directory)
+        continue;
+      }
+      if (!entry.name.endsWith('.jsx') && !entry.name.endsWith('.js')) continue;
+      readFileSync(full, 'utf8').split('\n').forEach((line, i) => {
+        const text = line.trim();
+        if (/contacts\.(?:phone|email)Types\.\$\{/.test(text) && !text.includes('defaultValue')) {
+          offenders.push(`${full.replace(srcDir + '/', '')}:${i + 1}  ${text}`);
+        }
+      });
+    }
+  })(srcDir);
+  return offenders;
+}
+
+describe('contacts type labels — humanized fallback, never a raw i18n key', () => {
+  const nested = JSON.parse(readFileSync(join(dir, 'en.json'), 'utf8'));
+
+  it('resolves a non-canonical stored type to the humanized "other" label, not the key', async () => {
+    const i18n = i18next.createInstance();
+    await i18n.init({
+      lng: 'en',
+      fallbackLng: 'en',
+      resources: { en: { translation: nested } },
+      interpolation: { escapeValue: false },
+    });
+
+    const phoneOther = i18n.t('contacts.phoneTypes.other');
+    const emailOther = i18n.t('contacts.emailTypes.other');
+    assert.equal(phoneOther, 'Other'); // the defaultValue target exists and is humanized
+    assert.equal(emailOther, 'Other');
+
+    // A stale compound TYPE value has no canonical key; the guard's defaultValue resolves it
+    // to the humanized fallback instead of "contacts.phoneTypes.cell,voice,pref".
+    for (const type of ['cell,voice,pref', 'internet,work', 'fax']) {
+      const phoneLabel = i18n.t(`contacts.phoneTypes.${type}`, { defaultValue: phoneOther });
+      const emailLabel = i18n.t(`contacts.emailTypes.${type}`, { defaultValue: emailOther });
+      assert.equal(phoneLabel, 'Other');
+      assert.equal(emailLabel, 'Other');
+      assert.doesNotMatch(phoneLabel, /contacts\.(?:phone|email)Types\./);
+      assert.doesNotMatch(emailLabel, /contacts\.(?:phone|email)Types\./);
+    }
+
+    // The cell/iphone→mobile alias lands on the real canonical label.
+    assert.equal(i18n.t('contacts.phoneTypes.mobile', { defaultValue: phoneOther }), 'Mobile');
+
+    // Characterization of the underlying bug: WITHOUT the defaultValue, i18next returns the key.
+    assert.equal(i18n.t('contacts.phoneTypes.cell,voice,pref'),
+      'contacts.phoneTypes.cell,voice,pref');
+  });
+
+  it('never lets a dynamic contacts type-label lookup omit its defaultValue guard', () => {
+    const offenders = dynamicTypeLabelOffenders();
+    assert.deepEqual(offenders, [],
+      'A dynamic contacts type-label lookup with no { defaultValue } renders the raw i18n key '
+      + 'for a non-canonical stored type (see b837b93 / PR #242):\n'
+      + offenders.map(line => `  ${line}`).join('\n'));
+  });
 });

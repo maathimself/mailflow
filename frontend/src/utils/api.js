@@ -23,8 +23,12 @@ async function request(method, path, body, extraHeaders) {
     if (res.status === 401 && !path.startsWith('/auth/')) {
       window.dispatchEvent(new CustomEvent('mailflow:session_expired'));
     }
-    const err = await res.json().catch(() => ({ error: 'Request failed' }));
-    throw new Error(err.error || 'Request failed');
+    const data = await res.json().catch(() => ({ error: 'Request failed' }));
+    const error = new Error(data.error || 'Request failed');
+    error.status = res.status;
+    error.data = data;
+    if (typeof data.conflictId === 'string') error.conflictId = data.conflictId;
+    throw error;
   }
   return res.json();
 }
@@ -211,6 +215,12 @@ export const api = {
     update:     (data) => request('PATCH',  '/carddav', data),
     sync:       ()     => request('POST',   '/carddav/sync'),
     disconnect: ()     => request('DELETE', '/carddav'),
+    getConflicts: () => request('GET', '/carddav/conflicts'),
+    resolveConflict: (id, resolution) => request(
+      'POST',
+      `/carddav/conflicts/${encodeURIComponent(id)}/resolve`,
+      { resolution },
+    ),
   },
 
   // Image whitelist

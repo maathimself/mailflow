@@ -11,12 +11,30 @@
 
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
-import crypto from 'crypto';
 import { query } from '../services/db.js';
-import { parseVCard } from '../utils/vcard.js';
 import { authLimiterConfig } from '../services/authLimiter.js';
 import { consume as rlConsume } from '../services/rateLimiter.js';
 import { logAuthEvent } from '../services/authEvents.js';
+import { xmlEscape } from '../services/carddavXml.js';
+import {
+  CARDDAV_CONTACT_ERROR_STATUS,
+  createContactFromVCard,
+  deleteContactFromVCard,
+  replaceContactFromVCard,
+} from '../services/carddavContactService.js';
+import { presentedEtag, presentedVCard } from '../utils/vcardProperties.js';
+
+// Select the modeled columns + the retained remote vCard so a mapped contact can be
+// served losslessly (see presentedVCard). local_contact_id maps at most one active
+// remote object per contact, so this stays one row per contact.
+const CONTACT_READ_COLUMNS = `
+  c.uid, c.display_name, c.first_name, c.last_name, c.emails, c.phones,
+  c.organization, c.notes, c.photo_data, c.additional_fields,
+  c.vcard, c.etag, mapping.vcard AS mapping_vcard`;
+const CONTACT_MAPPING_JOIN = `
+  LEFT JOIN carddav_remote_objects mapping
+    ON mapping.local_contact_id = c.id
+   AND mapping.mapping_status <> 'pending_materialization'`;
 
 const router = Router();
 
@@ -37,6 +55,7 @@ setInterval(() => {
 // CardDAV clients can issue dozens of requests per sync (PROPFIND + per-card GET/PUT).
 // Use a generous per-IP ceiling independent of the login rate-limit config.
 const CARDDAV_MAX_REQUESTS = 500;
+const CARDDAV_MAX_BODY_BYTES = 1024 * 1024;
 
 function cardavRateLimit(req, res, next) {
   const { windowMs } = authLimiterConfig;
@@ -114,6 +133,10 @@ async function cardavAuth(req, res, next) {
 
 router.use(cardavRateLimit);
 router.use(cardavAuth);
+router.param('userId', (req, res, next, userId) => {
+  if (userId !== req.cardavUserId) return res.status(403).end();
+  next();
+});
 
 // ── XML helpers ───────────────────────────────────────────────────────────────
 
@@ -154,33 +177,159 @@ function propstat(props, status) {
   ].join('');
 }
 
-function xmlEscape(s) {
-  return String(s || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
 function sendXml(res, status, xml) {
   res.status(status)
      .setHeader('Content-Type', 'application/xml; charset=utf-8')
      .send(xml);
 }
 
-// Collect the request body as a string by reading the raw stream.
+function bodyTooLargeError() {
+  return Object.assign(new Error('CardDAV request body exceeds 1 MiB'), {
+    code: 'ERR_CARDDAV_BODY_TOO_LARGE',
+  });
+}
+
+function requestAbortedError() {
+  return Object.assign(new Error('CardDAV request body ended prematurely'), {
+    code: 'ERR_CARDDAV_REQUEST_ABORTED',
+  });
+}
+
+// Collect the request body as bytes before converting it to UTF-8.
 // We do not go through express.json/text — CardDAV uses custom content types.
-function rawBody(req) {
+export function readRawBody(req, { maxBytes = Infinity } = {}) {
   return new Promise((resolve, reject) => {
     // If a body parser already collected it (unlikely here), use it.
-    if (typeof req.body === 'string') return resolve(req.body);
-    if (Buffer.isBuffer(req.body)) return resolve(req.body.toString('utf8'));
-    let data = '';
-    req.setEncoding('utf8');
-    req.on('data', chunk => { data += chunk; });
-    req.on('end', () => resolve(data));
-    req.on('error', reject);
+    if (typeof req.body === 'string') {
+      return Buffer.byteLength(req.body, 'utf8') > maxBytes
+        ? reject(bodyTooLargeError())
+        : resolve(req.body);
+    }
+    if (Buffer.isBuffer(req.body)) {
+      return req.body.length > maxBytes
+        ? reject(bodyTooLargeError())
+        : resolve(req.body.toString('utf8'));
+    }
+
+    const chunks = [];
+    let total = 0;
+    let state = 'collecting';
+    const cleanup = () => {
+      req.removeListener('data', onData);
+      req.removeListener('end', onEnd);
+      req.removeListener('error', onError);
+      req.removeListener('close', onClose);
+      req.removeListener('aborted', onAborted);
+    };
+    const rejectAndDrain = (error, resume) => {
+      if (state !== 'collecting') return;
+      state = 'draining';
+      req.removeListener('data', onData);
+      req.removeListener('aborted', onAborted);
+      reject(error);
+      if (resume) req.resume();
+    };
+    const onData = chunk => {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      if (total + buffer.length > maxBytes) {
+        rejectAndDrain(bodyTooLargeError(), true);
+        return;
+      }
+      total += buffer.length;
+      chunks.push(buffer);
+    };
+    const onEnd = () => {
+      const shouldResolve = state === 'collecting';
+      state = 'settled';
+      cleanup();
+      if (shouldResolve) resolve(Buffer.concat(chunks, total).toString('utf8'));
+    };
+    const onError = error => {
+      if (state === 'draining') return;
+      state = 'settled';
+      cleanup();
+      reject(error);
+    };
+    const onClose = () => {
+      const shouldReject = state === 'collecting';
+      state = 'settled';
+      cleanup();
+      if (shouldReject) reject(requestAbortedError());
+    };
+    const onAborted = () => rejectAndDrain(requestAbortedError(), false);
+    req.on('data', onData);
+    req.on('end', onEnd);
+    req.on('error', onError);
+    req.on('close', onClose);
+    req.on('aborted', onAborted);
   });
+}
+
+function ifMatchEtag(req) {
+  const value = req.headers['if-match'];
+  return value && value !== '*' ? value.replace(/^"(.*)"$/, '$1') : null;
+}
+
+function requiresAbsentResource(req) {
+  return String(req.headers['if-none-match'] || '').trim() === '*';
+}
+
+// Read a served contact (modeled columns + retained mapping vCard) so the route can
+// serve, and validate preconditions against, the presented representation.
+async function readServedContact(bookId, userId, uid) {
+  const { rows: [contact] } = await query(
+    `SELECT ${CONTACT_READ_COLUMNS}
+     FROM contacts c
+     JOIN address_books ab ON ab.id = c.address_book_id
+     ${CONTACT_MAPPING_JOIN}
+     WHERE ab.id = $1 AND ab.user_id = $2 AND c.uid = $3`,
+    [bookId, userId, uid],
+  );
+  return contact || null;
+}
+
+// The strong validator MailFlow's CardDAV server exposes, derived from the presented
+// document, so GET/REPORT/PROPFIND all quote the same ETag and mutations
+// validate against it.
+function servedEtag(contact) {
+  return `"${presentedEtag(contact)}"`;
+}
+
+// A mapped contact (retained upstream document present) — its mutations delegate to the
+// shared external write path and must be conditional.
+function isMappedContact(contact) {
+  return Boolean(contact?.mapping_vcard);
+}
+
+// RFC 7232 §3.1/§3.2 + RFC 6352 §6.3.2 preconditions against the SERVED ETag,
+// centralized so every mutation path fences on the same validator GET exposes. Returns
+// the HTTP status to send, or null to proceed.
+function preconditionFailure(req, contact) {
+  if (requiresAbsentResource(req)) return contact ? 412 : null;
+  if (!contact) return null;
+  const clientEtag = ifMatchEtag(req);
+  if (isMappedContact(contact)) {
+    // A mapped mutation REQUIRES a REAL strong validator. ifMatchEtag returns
+    // null for absent, `*`, and empty If-Match — all of which lack freshness and would let
+    // a client authoritatively overwrite the upstream document — so 428 (retry with a real
+    // If-Match). A real ETag is compared strongly (412 on mismatch).
+    if (!clientEtag) return 428;
+    return clientEtag !== presentedEtag(contact) ? 412 : null;
+  }
+  return clientEtag && clientEtag !== presentedEtag(contact) ? 412 : null;
+}
+
+function carddavMutationError(res, err, operation) {
+  const status = {
+    ...CARDDAV_CONTACT_ERROR_STATUS,
+    ERR_CARDDAV_BODY_TOO_LARGE: 413,
+    ERR_CARDDAV_REQUEST_ABORTED: 400,
+    ERR_LOCAL_ETAG_MISMATCH: 412,
+    ERR_LOCAL_PRECONDITION_FAILED: 412,
+  }[err.code] ?? (Number.isInteger(err.status) ? err.status : null);
+  if (status) return res.status(status).end();
+  console.error(`CardDAV ${operation} error:`, err);
+  return res.status(500).end();
 }
 
 // ── OPTIONS (broadcast CardDAV support) ──────────────────────────────────────
@@ -213,7 +362,6 @@ router.propfind('/', async (req, res) => {
 
 router.propfind('/:userId/', async (req, res) => {
   const userId = req.cardavUserId;
-  if (req.params.userId !== userId) return res.status(403).end();
 
   const principalPath  = `/carddav/${userId}/`;
 
@@ -242,7 +390,6 @@ router.propfind('/:userId/', async (req, res) => {
 
 router.propfind('/:userId/:bookId/', async (req, res) => {
   const userId = req.cardavUserId;
-  if (req.params.userId !== userId) return res.status(403).end();
 
   const depth = req.headers['depth'] || '0';
 
@@ -268,9 +415,11 @@ router.propfind('/:userId/:bookId/', async (req, res) => {
     return sendXml(res, 207, multistatus([bookResponse]));
   }
 
-  // Depth: 1 — list all VCards in the book.
+  // Depth: 1 — list all VCards in the book. Quote the PRESENTED ETag so
+  // PROPFIND, REPORT, and GET all expose the same strong validator.
   const contacts = await query(
-    'SELECT uid, etag FROM contacts WHERE address_book_id = $1',
+    `SELECT ${CONTACT_READ_COLUMNS} FROM contacts c ${CONTACT_MAPPING_JOIN}
+     WHERE c.address_book_id = $1`,
     [book.id]
   );
 
@@ -278,7 +427,7 @@ router.propfind('/:userId/:bookId/', async (req, res) => {
     response(`${bookPath}${encodeURIComponent(c.uid)}.vcf`, [
       propstat([
         '<D:resourcetype/>',
-        `<D:getetag>"${xmlEscape(c.etag)}"</D:getetag>`,
+        `<D:getetag>${servedEtag(c)}</D:getetag>`,
         '<D:getcontenttype>text/vcard;charset=utf-8</D:getcontenttype>',
       ], '200 OK'),
     ])
@@ -291,7 +440,6 @@ router.propfind('/:userId/:bookId/', async (req, res) => {
 
 router.report('/:userId/:bookId/', async (req, res) => {
   const userId = req.cardavUserId;
-  if (req.params.userId !== userId) return res.status(403).end();
 
   const bookResult = await query(
     'SELECT * FROM address_books WHERE id = $1 AND user_id = $2',
@@ -301,12 +449,22 @@ router.report('/:userId/:bookId/', async (req, res) => {
   const book = bookResult.rows[0];
   const bookPath = `/carddav/${userId}/${book.id}/`;
 
-  const body = await rawBody(req);
+  // Bound the REPORT body like PUT — the handler only tests it for a marker
+  // string, so an unbounded body would be a memory-exhaustion vector (413).
+  let body;
+  try {
+    body = await readRawBody(req, { maxBytes: CARDDAV_MAX_BODY_BYTES });
+  } catch (err) {
+    return carddavMutationError(res, err, 'REPORT');
+  }
   const isSyncCollection = body.includes('sync-collection');
 
-  // Fetch all contacts with their vCard data.
+  // Fetch all contacts with their vCard data (retained remote vCard included so a
+  // mapped contact is served losslessly).
   const contacts = await query(
-    'SELECT uid, vcard, etag FROM contacts WHERE address_book_id = $1',
+    `SELECT ${CONTACT_READ_COLUMNS}
+     FROM contacts c ${CONTACT_MAPPING_JOIN}
+     WHERE c.address_book_id = $1`,
     [book.id]
   );
 
@@ -315,9 +473,9 @@ router.report('/:userId/:bookId/', async (req, res) => {
     return response(href, [
       propstat([
         '<D:resourcetype/>',
-        `<D:getetag>"${xmlEscape(c.etag)}"</D:getetag>`,
+        `<D:getetag>${servedEtag(c)}</D:getetag>`,
         '<D:getcontenttype>text/vcard;charset=utf-8</D:getcontenttype>',
-        `<C:address-data>${xmlEscape(c.vcard || '')}</C:address-data>`,
+        `<C:address-data>${xmlEscape(presentedVCard(c) || '')}</C:address-data>`,
       ], '200 OK'),
     ]);
   });
@@ -340,40 +498,71 @@ router.report('/:userId/:bookId/', async (req, res) => {
 
 router.get('/:userId/:bookId/:filename', async (req, res) => {
   const userId = req.cardavUserId;
-  if (req.params.userId !== userId) return res.status(403).end();
 
   const uid = req.params.filename.replace(/\.vcf$/i, '');
 
-  const result = await query(
-    `SELECT c.vcard, c.etag FROM contacts c
-     JOIN address_books ab ON ab.id = c.address_book_id
-     WHERE ab.id = $1 AND ab.user_id = $2 AND c.uid = $3`,
-    [req.params.bookId, userId, uid]
-  );
-  if (!result.rows.length) return res.status(404).end();
+  const contact = await readServedContact(req.params.bookId, userId, uid);
+  if (!contact) return res.status(404).end();
 
-  const { vcard, etag } = result.rows[0];
   res.set({
     'Content-Type': 'text/vcard;charset=utf-8',
-    'ETag': `"${etag}"`,
-  }).send(vcard);
+    'ETag': servedEtag(contact),
+  }).send(presentedVCard(contact));
 });
 
 // ── PUT /{userId}/{bookId}/{uid}.vcf (create or update) ──────────────────────
 
 router.put('/:userId/:bookId/:filename', async (req, res) => {
   const userId = req.cardavUserId;
-  if (req.params.userId !== userId) return res.status(403).end();
 
   const uid  = req.params.filename.replace(/\.vcf$/i, '');
-  const body = await rawBody(req);
-  if (!body.trim()) return res.status(400).end();
 
-  const parsed = parseVCard(body);
-  const vcard  = body; // store what the client sent verbatim
-  const etag   = crypto.createHash('md5').update(vcard).digest('hex');
+  try {
+    const body = await readRawBody(req, { maxBytes: CARDDAV_MAX_BODY_BYTES });
+    if (!body.trim()) return res.status(400).end();
+    const bookResult = await query(
+      'SELECT id FROM address_books WHERE id = $1 AND user_id = $2',
+      [req.params.bookId, userId]
+    );
+    if (!bookResult.rows.length) return res.status(404).end();
+    const bookId = bookResult.rows[0].id;
 
-  const primaryEmail = parsed.emails[0]?.value?.toLowerCase() || null;
+    const existing = await readServedContact(bookId, userId, uid);
+    const failure = preconditionFailure(req, existing);
+    if (failure) return res.status(failure).end();
+
+    if (existing) {
+      await replaceContactFromVCard(userId, {
+        localAddressBookId: bookId,
+        uid,
+        rawVCard: body,
+        expectedLocalEtag: existing.etag,
+      });
+      const served = await readServedContact(bookId, userId, uid);
+      if (served) res.set('ETag', servedEtag(served));
+      res.status(204).end();
+    } else {
+      await createContactFromVCard(userId, {
+        localAddressBookId: bookId,
+        uid,
+        rawVCard: body,
+        ...(requiresAbsentResource(req) ? { expectedAbsent: true } : {}),
+      });
+      const served = await readServedContact(bookId, userId, uid);
+      if (served) res.set('ETag', servedEtag(served));
+      res.status(201).end();
+    }
+  } catch (err) {
+    carddavMutationError(res, err, 'PUT');
+  }
+});
+
+// ── DELETE /{userId}/{bookId}/{uid}.vcf ──────────────────────────────────────
+
+router.delete('/:userId/:bookId/:filename', async (req, res) => {
+  const userId = req.cardavUserId;
+
+  const uid = req.params.filename.replace(/\.vcf$/i, '');
 
   try {
     const bookResult = await query(
@@ -382,97 +571,18 @@ router.put('/:userId/:bookId/:filename', async (req, res) => {
     );
     if (!bookResult.rows.length) return res.status(404).end();
     const bookId = bookResult.rows[0].id;
-
-    const existing = await query(
-      'SELECT id, etag FROM contacts WHERE address_book_id = $1 AND uid = $2',
-      [bookId, uid]
-    );
-
-    if (existing.rows.length) {
-      // Enforce If-Match precondition (RFC 6352 §6.3.2)
-      const ifMatch = req.headers['if-match'];
-      if (ifMatch && ifMatch !== '*') {
-        const clientEtag = ifMatch.replace(/^"(.*)"$/, '$1');
-        if (clientEtag !== existing.rows[0].etag) return res.status(412).end();
-      }
-      // Update
-      await query(`
-        UPDATE contacts SET
-          vcard = $1, etag = $2,
-          display_name = $3, first_name = $4, last_name = $5,
-          primary_email = $6, emails = $7, phones = $8,
-          organization = $9, notes = $10, photo_data = $11,
-          is_auto = false, updated_at = NOW()
-        WHERE id = $12
-      `, [
-        vcard, etag,
-        parsed.displayName, parsed.firstName, parsed.lastName,
-        primaryEmail,
-        JSON.stringify(parsed.emails), JSON.stringify(parsed.phones),
-        parsed.organization, parsed.notes, parsed.photoData,
-        existing.rows[0].id,
-      ]);
-      await query(
-        'UPDATE address_books SET sync_token = gen_random_uuid()::text, updated_at = NOW() WHERE id = $1',
-        [bookId]
-      );
-      res.set('ETag', `"${etag}"`).status(204).end();
-    } else {
-      // Create
-      await query(`
-        INSERT INTO contacts (
-          address_book_id, user_id, uid, vcard, etag,
-          display_name, first_name, last_name, primary_email,
-          emails, phones, organization, notes, photo_data, is_auto
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14, false)
-      `, [
-        bookId, userId, uid, vcard, etag,
-        parsed.displayName, parsed.firstName, parsed.lastName,
-        primaryEmail,
-        JSON.stringify(parsed.emails), JSON.stringify(parsed.phones),
-        parsed.organization, parsed.notes, parsed.photoData,
-      ]);
-      await query(
-        'UPDATE address_books SET sync_token = gen_random_uuid()::text, updated_at = NOW() WHERE id = $1',
-        [bookId]
-      );
-      res.set('ETag', `"${etag}"`).status(201).end();
-    }
-  } catch (err) {
-    if (err.code === '23505') return res.status(409).end(); // unique conflict
-    console.error('CardDAV PUT error:', err);
-    res.status(500).end();
-  }
-});
-
-// ── DELETE /{userId}/{bookId}/{uid}.vcf ──────────────────────────────────────
-
-router.delete('/:userId/:bookId/:filename', async (req, res) => {
-  const userId = req.cardavUserId;
-  if (req.params.userId !== userId) return res.status(403).end();
-
-  const uid = req.params.filename.replace(/\.vcf$/i, '');
-
-  try {
-    const result = await query(
-      `DELETE FROM contacts
-       USING address_books
-       WHERE contacts.address_book_id = address_books.id
-         AND address_books.id = $1
-         AND address_books.user_id = $2
-         AND contacts.uid = $3
-       RETURNING address_books.id AS book_id`,
-      [req.params.bookId, userId, uid]
-    );
-    if (!result.rows.length) return res.status(404).end();
-    await query(
-      'UPDATE address_books SET sync_token = gen_random_uuid()::text, updated_at = NOW() WHERE id = $1',
-      [result.rows[0].book_id]
-    );
+    const existing = await readServedContact(bookId, userId, uid);
+    if (!existing) return res.status(404).end();
+    const failure = preconditionFailure(req, existing);
+    if (failure) return res.status(failure).end();
+    await deleteContactFromVCard(userId, {
+      localAddressBookId: bookId,
+      uid,
+      expectedLocalEtag: existing.etag,
+    });
     res.status(204).end();
   } catch (err) {
-    console.error('CardDAV DELETE error:', err);
-    res.status(500).end();
+    carddavMutationError(res, err, 'DELETE');
   }
 });
 
