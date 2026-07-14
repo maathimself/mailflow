@@ -284,7 +284,7 @@ export default function Sidebar() {
   const {
     accounts, unreadCounts, selectedAccountId, selectedFolder,
     setSelectedAccount, setShowAdmin, setAdminTab, openCompose,
-    folders, setFolders, setAccounts, user, setUser, setLocked, sidebarCollapsed: sidebarCollapsedPref, toggleSidebar,
+    folders, setFolders, setAccounts, user, setUser, lockScreen, sidebarCollapsed: sidebarCollapsedPref, toggleSidebar,
     blockRemoteImages, setBlockRemoteImages, setMobileSidebarOpen, addNotification,
     searchAllFolders, setSearchAllFolders,
     hiddenFolders, setHiddenFolders,
@@ -1603,9 +1603,9 @@ export default function Sidebar() {
           )}
 
           {/* Lock */}
-          {user?.hasPassword && (
+          {user?.hasLockPin && (
             <div
-              onClick={() => { setMobileSidebarOpen(false); setLocked(true); }}
+              onClick={() => { setMobileSidebarOpen(false); lockScreen(); }}
               style={{
                 display: 'flex', alignItems: 'center', gap: 10,
                 padding: '8px 14px', cursor: 'pointer',
@@ -1821,11 +1821,11 @@ export default function Sidebar() {
             onClick={() => { setUserMenuOpen(false); setShowProfile(true); }} />
           <CtxMenuItem icon={ICONS.settings} label={t('sidebar.settings')}
             onClick={() => { setAdminTab('accounts'); setShowAdmin(true); setUserMenuOpen(false); }} />
-          {user?.hasPassword && (
+          {user?.hasLockPin && (
             <CtxMenuItem
               icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>}
               label={t('sidebar.lock')}
-              onClick={() => { setUserMenuOpen(false); setLocked(true); }}
+              onClick={() => { setUserMenuOpen(false); lockScreen(); }}
             />
           )}
           <CtxMenuItem icon={ICONS.logout} label={t('sidebar.signOut')} danger

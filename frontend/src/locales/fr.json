@@ -345,13 +345,13 @@
     }
   },
   "lockScreen": {
-    "subtitle": "Saisissez votre mot de passe pour déverrouiller",
-    "passwordPlaceholder": "Mot de passe",
+    "subtitle": "Saisissez votre PIN pour déverrouiller",
     "unlockButton": "Déverrouiller",
     "unlocking": "Déverrouillage…",
-    "wrongPassword": "Mot de passe incorrect",
     "signOut": "Se déconnecter",
-    "signingOut": "Déconnexion…"
+    "signingOut": "Déconnexion…",
+    "pinPlaceholder": "Saisir le PIN",
+    "wrongPin": "PIN incorrect"
   },
   "sidebar": {
     "allInboxes": "Toutes les boîtes",
@@ -1309,6 +1309,27 @@
       "placeholder": "Rechercher dans les paramètres…",
       "noResults": "Aucun résultat pour « {{query}} »",
       "notificationSound": "Son de notification"
+    },
+    "lock": {
+      "title": "Verrouillage de l'écran",
+      "description": "Verrouillez l'écran avec un code PIN distinct du mot de passe du compte, et éventuellement automatiquement après une période d'inactivité. Le déverrouillage ne vous déconnecte pas.",
+      "pinSet": "Code PIN défini",
+      "pinNotSet": "Aucun code PIN défini",
+      "setPin": "Définir un PIN",
+      "changePin": "Modifier le PIN",
+      "removePin": "Supprimer le PIN",
+      "currentPin": "PIN actuel",
+      "newPin": "Nouveau PIN (4 à 6 chiffres)",
+      "confirmPin": "Confirmer le PIN",
+      "pinLength": "Le PIN doit comporter 4 à 6 chiffres",
+      "pinMismatch": "Les codes PIN ne correspondent pas",
+      "saveFailed": "Échec de l'enregistrement",
+      "saved": "Enregistré",
+      "autoLock": "Verrouillage automatique",
+      "autoLockDesc": "Verrouiller automatiquement après inactivité",
+      "autoLockNeedsPin": "Définissez un PIN pour activer le verrouillage automatique",
+      "autoLockOff": "Désactivé",
+      "autoLockMin": "{{n}} min"
     }
   },
   "blockList": {

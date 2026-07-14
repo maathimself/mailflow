@@ -345,13 +345,13 @@
     }
   },
   "lockScreen": {
-    "subtitle": "Enter your password to unlock",
-    "passwordPlaceholder": "Password",
+    "subtitle": "Enter your PIN to unlock",
     "unlockButton": "Unlock",
     "unlocking": "Unlocking…",
-    "wrongPassword": "Incorrect password",
     "signOut": "Sign out",
-    "signingOut": "Signing out…"
+    "signingOut": "Signing out…",
+    "pinPlaceholder": "Enter PIN",
+    "wrongPin": "Incorrect PIN"
   },
   "sidebar": {
     "allInboxes": "All Inboxes",
@@ -1309,6 +1309,27 @@
       "placeholder": "Search settings…",
       "noResults": "No settings match “{{query}}”",
       "notificationSound": "Notification sound"
+    },
+    "lock": {
+      "title": "Screen lock",
+      "description": "Lock the screen with a PIN separate from your account password, and optionally auto-lock after inactivity. Unlocking keeps you signed in.",
+      "pinSet": "PIN is set",
+      "pinNotSet": "No PIN set",
+      "setPin": "Set PIN",
+      "changePin": "Change PIN",
+      "removePin": "Remove PIN",
+      "currentPin": "Current PIN",
+      "newPin": "New PIN (4–6 digits)",
+      "confirmPin": "Confirm PIN",
+      "pinLength": "PIN must be 4 to 6 digits",
+      "pinMismatch": "PINs do not match",
+      "saveFailed": "Could not save",
+      "saved": "Saved",
+      "autoLock": "Auto-lock",
+      "autoLockDesc": "Lock automatically after inactivity",
+      "autoLockNeedsPin": "Set a PIN to enable auto-lock",
+      "autoLockOff": "Off",
+      "autoLockMin": "{{n}} min"
     }
   },
   "blockList": {

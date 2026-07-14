@@ -71,6 +71,31 @@ export default function MailApp() {
     fetchGtdSections, rightSidebarHidden, toggleRightSidebarHidden,
   } = useStore();
   const syncInterval = useStore(s => s.syncInterval);
+  const autoLockMinutes = useStore(s => s.autoLockMinutes);
+  const lockScreen = useStore(s => s.lockScreen);
+
+  // Auto-lock after inactivity (#235). MailApp only mounts while unlocked, so this
+  // timer runs only when unlocked; hitting the timeout locks and unmounts this tree.
+  useEffect(() => {
+    if (!autoLockMinutes) return undefined;
+    const ms = autoLockMinutes * 60 * 1000;
+    let last = Date.now();
+    const bump = () => { last = Date.now(); };
+    const maybeLock = () => { if (Date.now() - last >= ms) lockScreen(); };
+    const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'wheel'];
+    events.forEach(e => window.addEventListener(e, bump, { passive: true }));
+    // Poll + check on refocus rather than a single setTimeout: a lone timeout gets
+    // throttled/frozen in a backgrounded tab, so an idle session might never fire.
+    // Comparing timestamps every 15s (and on visibilitychange) locks reliably and
+    // catches up when the tab is brought back to the foreground.
+    document.addEventListener('visibilitychange', maybeLock);
+    const iv = setInterval(maybeLock, 15000);
+    return () => {
+      clearInterval(iv);
+      document.removeEventListener('visibilitychange', maybeLock);
+      events.forEach(e => window.removeEventListener(e, bump));
+    };
+  }, [autoLockMinutes, lockScreen]);
 
   // Single owner of the GTD sections fetch: reload whenever the context (unified
   // vs a single account) changes and GTD is active there. Both the rail and the

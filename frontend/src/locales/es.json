@@ -345,13 +345,13 @@
     }
   },
   "lockScreen": {
-    "subtitle": "Introduce tu contraseña para desbloquear",
-    "passwordPlaceholder": "Contraseña",
+    "subtitle": "Introduce tu PIN para desbloquear",
     "unlockButton": "Desbloquear",
     "unlocking": "Desbloqueando…",
-    "wrongPassword": "Contraseña incorrecta",
     "signOut": "Cerrar sesión",
-    "signingOut": "Cerrando sesión…"
+    "signingOut": "Cerrando sesión…",
+    "pinPlaceholder": "Introduce el PIN",
+    "wrongPin": "PIN incorrecto"
   },
   "sidebar": {
     "allInboxes": "Todas las bandejas",
@@ -1309,6 +1309,27 @@
       "placeholder": "Buscar ajustes…",
       "noResults": "Sin resultados para «{{query}}»",
       "notificationSound": "Sonido de notificación"
+    },
+    "lock": {
+      "title": "Bloqueo de pantalla",
+      "description": "Bloquea la pantalla con un PIN independiente de la contraseña de tu cuenta y, opcionalmente, de forma automática tras la inactividad. Desbloquear no cierra tu sesión.",
+      "pinSet": "PIN configurado",
+      "pinNotSet": "Sin PIN configurado",
+      "setPin": "Configurar PIN",
+      "changePin": "Cambiar PIN",
+      "removePin": "Eliminar PIN",
+      "currentPin": "PIN actual",
+      "newPin": "Nuevo PIN (4–6 dígitos)",
+      "confirmPin": "Confirmar PIN",
+      "pinLength": "El PIN debe tener de 4 a 6 dígitos",
+      "pinMismatch": "Los PIN no coinciden",
+      "saveFailed": "No se pudo guardar",
+      "saved": "Guardado",
+      "autoLock": "Bloqueo automático",
+      "autoLockDesc": "Bloquear automáticamente tras la inactividad",
+      "autoLockNeedsPin": "Configura un PIN para activar el bloqueo automático",
+      "autoLockOff": "Desactivado",
+      "autoLockMin": "{{n}} min"
     }
   },
   "blockList": {

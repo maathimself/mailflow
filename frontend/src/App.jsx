@@ -10,7 +10,7 @@ import MailApp from './components/MailApp.jsx';
 import LockScreen from './components/LockScreen.jsx';
 
 export default function App() {
-  const { user, setUser, loadPreferences, isLocked } = useStore();
+  const { user, setUser, loadPreferences, isLocked, setLocked } = useStore();
   const [checking, setChecking] = useState(true);
 
   // Register service worker on first mount — independent of auth state.
@@ -24,10 +24,15 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const onExpired = () => setUser(null);
+    const onExpired = () => { setUser(null); setLocked(false); };
+    const onLocked = () => setLocked(true);
     window.addEventListener('mailflow:session_expired', onExpired);
-    return () => window.removeEventListener('mailflow:session_expired', onExpired);
-  }, [setUser]);
+    window.addEventListener('mailflow:locked', onLocked);
+    return () => {
+      window.removeEventListener('mailflow:session_expired', onExpired);
+      window.removeEventListener('mailflow:locked', onLocked);
+    };
+  }, [setUser, setLocked]);
 
   useEffect(() => {
     // Apply localStorage immediately so there's no flash while we check auth
@@ -53,6 +58,14 @@ export default function App() {
     api.me()
       .then(async (data) => {
         setUser(data.user);
+        // Server is authoritative for the screen lock (#235). Reconcile the overlay:
+        // show it if the session is locked; clear a stale client lock otherwise. Skip
+        // loading prefs while locked (the API is 423'd until unlock).
+        if (data.user?.locked) {
+          setLocked(true);
+          return;
+        }
+        if (localStorage.getItem('mailflow_locked') === '1') setLocked(false);
         // Load server preferences after confirming auth — overwrites localStorage so
         // settings survive cache clears and stay consistent across devices.
         await loadPreferences();
@@ -64,9 +77,12 @@ export default function App() {
         const resetToken = params.get('reset_token');
         if (resetToken) sessionStorage.setItem('mailflow_reset_token', resetToken);
         setUser(null);
+        // Clear any stale client lock so a locked session that has since expired
+        // doesn't strand the user back on the lock screen after they re-login (#235).
+        setLocked(false);
       })
       .finally(() => setChecking(false));
-  }, [loadPreferences, setUser]);
+  }, [loadPreferences, setUser, setLocked]);
 
   if (checking) {
     return (

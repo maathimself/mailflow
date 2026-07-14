@@ -137,6 +137,8 @@ const SAME_VALUE_ALLOWED = {
   // ── Specific language groups ───────────────────────────────────────────────
   // "Version" — same spelling in de, en, fr
   'admin.about.version': [['de', 'en', 'fr']],
+  // "{{n}} min" — the "min" abbreviation is shared in en, es, fr, it
+  'admin.lock.autoLockMin': [['en', 'es', 'fr', 'it']],
 
   // "Website" — international term, same in de and en
   'admin.about.website': [['de', 'en']],
@@ -231,7 +233,6 @@ const SAME_VALUE_ALLOWED = {
   // "Password" — international term, same in en and it
   'admin.systemEmail.password':      [['en', 'it']],
   'login.password':                  [['en', 'it']],
-  'lockScreen.passwordPlaceholder':  [['en', 'it']],
 
   // "Tema" — "Theme" translates identically in es and it
   'admin.tabs.theme': [['es', 'it']],

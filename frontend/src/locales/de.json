@@ -345,13 +345,13 @@
     }
   },
   "lockScreen": {
-    "subtitle": "Passwort eingeben, um zu entsperren",
-    "passwordPlaceholder": "Passwort",
+    "subtitle": "Gib deine PIN zum Entsperren ein",
     "unlockButton": "Entsperren",
     "unlocking": "Wird entsperrt…",
-    "wrongPassword": "Falsches Passwort",
     "signOut": "Abmelden",
-    "signingOut": "Wird abgemeldet…"
+    "signingOut": "Wird abgemeldet…",
+    "pinPlaceholder": "PIN eingeben",
+    "wrongPin": "Falsche PIN"
   },
   "sidebar": {
     "allInboxes": "Alle Posteingänge",
@@ -1309,6 +1309,27 @@
       "placeholder": "Einstellungen durchsuchen…",
       "noResults": "Keine Ergebnisse für «{{query}}»",
       "notificationSound": "Benachrichtigungston"
+    },
+    "lock": {
+      "title": "Bildschirmsperre",
+      "description": "Sperre den Bildschirm mit einer vom Kontopasswort unabhängigen PIN und optional automatisch nach Inaktivität. Das Entsperren meldet dich nicht ab.",
+      "pinSet": "PIN ist festgelegt",
+      "pinNotSet": "Keine PIN festgelegt",
+      "setPin": "PIN festlegen",
+      "changePin": "PIN ändern",
+      "removePin": "PIN entfernen",
+      "currentPin": "Aktuelle PIN",
+      "newPin": "Neue PIN (4–6 Ziffern)",
+      "confirmPin": "PIN bestätigen",
+      "pinLength": "Die PIN muss 4 bis 6 Ziffern haben",
+      "pinMismatch": "PINs stimmen nicht überein",
+      "saveFailed": "Speichern fehlgeschlagen",
+      "saved": "Gespeichert",
+      "autoLock": "Automatische Sperre",
+      "autoLockDesc": "Nach Inaktivität automatisch sperren",
+      "autoLockNeedsPin": "Lege eine PIN fest, um die automatische Sperre zu aktivieren",
+      "autoLockOff": "Aus",
+      "autoLockMin": "{{n}} Min."
     }
   },
   "blockList": {

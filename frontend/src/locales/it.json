@@ -345,13 +345,13 @@
     }
   },
   "lockScreen": {
-    "subtitle": "Inserisci la password per sbloccare",
-    "passwordPlaceholder": "Password",
+    "subtitle": "Inserisci il PIN per sbloccare",
     "unlockButton": "Sblocca",
     "unlocking": "Sblocco in corso…",
-    "wrongPassword": "Password errata",
     "signOut": "Esci",
-    "signingOut": "Disconnessione…"
+    "signingOut": "Disconnessione…",
+    "pinPlaceholder": "Inserisci il PIN",
+    "wrongPin": "PIN errato"
   },
   "sidebar": {
     "allInboxes": "Tutte le caselle",
@@ -1309,6 +1309,27 @@
       "placeholder": "Cerca impostazioni…",
       "noResults": "Nessun risultato per «{{query}}»",
       "notificationSound": "Suono di notifica"
+    },
+    "lock": {
+      "title": "Blocco schermo",
+      "description": "Blocca lo schermo con un PIN separato dalla password dell'account e, facoltativamente, automaticamente dopo l'inattività. Lo sblocco non ti disconnette.",
+      "pinSet": "PIN impostato",
+      "pinNotSet": "Nessun PIN impostato",
+      "setPin": "Imposta PIN",
+      "changePin": "Cambia PIN",
+      "removePin": "Rimuovi PIN",
+      "currentPin": "PIN attuale",
+      "newPin": "Nuovo PIN (4–6 cifre)",
+      "confirmPin": "Conferma PIN",
+      "pinLength": "Il PIN deve avere da 4 a 6 cifre",
+      "pinMismatch": "I PIN non corrispondono",
+      "saveFailed": "Impossibile salvare",
+      "saved": "Salvato",
+      "autoLock": "Blocco automatico",
+      "autoLockDesc": "Blocca automaticamente dopo l'inattività",
+      "autoLockNeedsPin": "Imposta un PIN per abilitare il blocco automatico",
+      "autoLockOff": "Disattivato",
+      "autoLockMin": "{{n}} min"
     }
   },
   "blockList": {

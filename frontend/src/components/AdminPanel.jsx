@@ -6537,6 +6537,110 @@ function PrivacyTab() {
 }
 
 // ─── Security Tab (TOTP 2FA) ──────────────────────────────────────────────────
+// Screen lock — personal PIN + auto-lock (#235). Self-contained so it doesn't touch
+// SecurityTab's existing state/logic.
+function ScreenLockSection() {
+  const { t } = useTranslation();
+  const { user, setUser, autoLockMinutes, setAutoLockMinutes } = useStore();
+  const hasPin = !!user?.hasLockPin;
+  const [mode, setMode] = useState(null); // null | 'set' | 'change' | 'remove'
+  const [currentPin, setCurrentPin] = useState('');
+  const [pin, setPin] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [saved, setSaved] = useState(false);
+
+  const digits = (v) => v.replace(/\D/g, '').slice(0, 6);
+  const reset = () => { setMode(null); setCurrentPin(''); setPin(''); setConfirm(''); setError(''); setSaved(false); };
+
+  async function savePin() {
+    if (pin.length < 4) { setError(t('admin.lock.pinLength')); return; }
+    if (pin !== confirm) { setError(t('admin.lock.pinMismatch')); return; }
+    setBusy(true); setError('');
+    try {
+      await api.setLockPin(pin, hasPin ? currentPin : undefined);
+      setUser({ ...user, hasLockPin: true });
+      reset(); setSaved(true); setTimeout(() => setSaved(false), 2500);
+    } catch (e) { setError(e?.message || t('admin.lock.saveFailed')); }
+    finally { setBusy(false); }
+  }
+
+  async function removePin() {
+    setBusy(true); setError('');
+    try {
+      await api.removeLockPin(currentPin);
+      setUser({ ...user, hasLockPin: false });
+      if (autoLockMinutes) setAutoLockMinutes(0); // no PIN → auto-lock can't unlock
+      reset();
+    } catch (e) { setError(e?.message || t('admin.lock.saveFailed')); }
+    finally { setBusy(false); }
+  }
+
+  const inputStyle = { width: '100%', padding: '8px 10px', background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 14, letterSpacing: '0.2em', textAlign: 'center', boxSizing: 'border-box' };
+  const btn = (primary) => ({ padding: '7px 14px', borderRadius: 6, fontSize: 13, fontWeight: 500, cursor: busy ? 'default' : 'pointer', border: primary ? 'none' : '1px solid var(--border)', background: primary ? 'var(--accent)' : 'var(--bg-tertiary)', color: primary ? 'var(--accent-text)' : 'var(--text-primary)', opacity: busy ? 0.6 : 1 });
+
+  return (
+    <div style={{ marginBottom: 28 }}>
+      <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>{t('admin.lock.title')}</div>
+      <p style={{ margin: '0 0 12px', fontSize: 12.5, color: 'var(--text-tertiary)', lineHeight: 1.5 }}>{t('admin.lock.description')}</p>
+
+      <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, padding: 14, marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+          <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>{hasPin ? t('admin.lock.pinSet') : t('admin.lock.pinNotSet')}</span>
+          {!mode && (
+            <div style={{ display: 'flex', gap: 8 }}>
+              {!hasPin && <button type="button" style={btn(true)} onClick={() => setMode('set')}>{t('admin.lock.setPin')}</button>}
+              {hasPin && <button type="button" style={btn(false)} onClick={() => setMode('change')}>{t('admin.lock.changePin')}</button>}
+              {hasPin && <button type="button" style={{ ...btn(false), color: 'var(--red)', borderColor: 'var(--red)' }} onClick={() => setMode('remove')}>{t('admin.lock.removePin')}</button>}
+            </div>
+          )}
+        </div>
+
+        {(mode === 'set' || mode === 'change') && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
+            {mode === 'change' && <input type="password" inputMode="numeric" autoComplete="off" placeholder={t('admin.lock.currentPin')} value={currentPin} onChange={e => setCurrentPin(digits(e.target.value))} style={inputStyle} />}
+            <input type="password" inputMode="numeric" autoComplete="off" placeholder={t('admin.lock.newPin')} value={pin} onChange={e => setPin(digits(e.target.value))} style={inputStyle} />
+            <input type="password" inputMode="numeric" autoComplete="off" placeholder={t('admin.lock.confirmPin')} value={confirm} onChange={e => setConfirm(digits(e.target.value))} style={inputStyle} />
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button type="button" style={btn(false)} onClick={reset} disabled={busy}>{t('common.cancel')}</button>
+              <button type="button" style={btn(true)} onClick={savePin} disabled={busy}>{t('common.save')}</button>
+            </div>
+          </div>
+        )}
+
+        {mode === 'remove' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
+            <input type="password" inputMode="numeric" autoComplete="off" placeholder={t('admin.lock.currentPin')} value={currentPin} onChange={e => setCurrentPin(digits(e.target.value))} style={inputStyle} />
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button type="button" style={btn(false)} onClick={reset} disabled={busy}>{t('common.cancel')}</button>
+              <button type="button" style={{ ...btn(true), background: 'var(--red)' }} onClick={removePin} disabled={busy}>{t('admin.lock.removePin')}</button>
+            </div>
+          </div>
+        )}
+
+        {error && <div style={{ fontSize: 12, color: 'var(--red)', marginTop: 8 }}>{error}</div>}
+        {saved && <div style={{ fontSize: 12, color: 'var(--green)', marginTop: 8 }}>{t('admin.lock.saved')}</div>}
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, opacity: hasPin ? 1 : 0.5 }}>
+        <div>
+          <div style={{ fontSize: 13, color: 'var(--text-primary)' }}>{t('admin.lock.autoLock')}</div>
+          <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{hasPin ? t('admin.lock.autoLockDesc') : t('admin.lock.autoLockNeedsPin')}</div>
+        </div>
+        <select value={autoLockMinutes} disabled={!hasPin} onChange={e => setAutoLockMinutes(Number(e.target.value))}
+          style={{ padding: '7px 9px', background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 13 }}>
+          <option value={0}>{t('admin.lock.autoLockOff')}</option>
+          <option value={1}>{t('admin.lock.autoLockMin', { n: 1 })}</option>
+          <option value={5}>{t('admin.lock.autoLockMin', { n: 5 })}</option>
+          <option value={15}>{t('admin.lock.autoLockMin', { n: 15 })}</option>
+          <option value={30}>{t('admin.lock.autoLockMin', { n: 30 })}</option>
+        </select>
+      </div>
+    </div>
+  );
+}
+
 function SecurityTab() {
   const { t } = useTranslation();
   const { user, setUser } = useStore();
@@ -6754,6 +6858,8 @@ function SecurityTab() {
       <p style={{ margin: '0 0 28px', fontSize: 13, color: 'var(--text-tertiary)' }}>
         {t('admin.security.description')}
       </p>
+
+      <ScreenLockSection />
 
       {/* Login Protection — admin only */}
       {user?.isAdmin && (

@@ -5,29 +5,11 @@ import { api } from '../utils/api.js';
 
 export default function LockScreen() {
   const { t } = useTranslation();
-  const { user, setUser, setLocked } = useStore();
-  const [password, setPassword] = useState('');
+  const { user, setUser, setLocked, loadPreferences } = useStore();
+  const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   const [unlocking, setUnlocking] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
-
-  async function handleUnlock(e) {
-    e.preventDefault();
-    if (!password.trim()) return;
-    setUnlocking(true);
-    setError('');
-    try {
-      await api.unlock(password);
-      setLocked(false);
-    } catch (err) {
-      setError(err?.message === 'Incorrect password'
-        ? t('lockScreen.wrongPassword')
-        : (err?.message || t('lockScreen.wrongPassword')));
-      setPassword('');
-    } finally {
-      setUnlocking(false);
-    }
-  }
 
   async function handleSignOut() {
     setSigningOut(true);
@@ -39,6 +21,29 @@ export default function LockScreen() {
     setUser(null);
   }
 
+  async function handleUnlock(e) {
+    e.preventDefault();
+    if (pin.length < 4) return;
+    setUnlocking(true);
+    setError('');
+    try {
+      await api.unlock(pin);
+      setLocked(false);
+      // A locked cold-load skips loadPreferences (the API was 423'd); load server-only
+      // settings now so they apply for the rest of the session (#235).
+      loadPreferences();
+    } catch (err) {
+      // Lockout: api.unlock already dispatched session_expired (server destroyed the
+      // session), which routes to login — nothing more to do here.
+      if (err?.signedOut) return;
+      const msg = err?.message || '';
+      setError(msg === 'Incorrect PIN' ? t('lockScreen.wrongPin') : (msg || t('lockScreen.wrongPin')));
+      setPin('');
+    } finally {
+      setUnlocking(false);
+    }
+  }
+
   const initials = ((user?.displayName || user?.username || '?')[0]).toUpperCase();
 
   return (
@@ -47,10 +52,12 @@ export default function LockScreen() {
       background: 'var(--bg-primary)',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       padding: 24,
+      animation: 'backdrop-enter 0.25s ease',
     }}>
       <div style={{
         width: '100%', maxWidth: 340,
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 24,
+        animation: 'modal-enter 0.35s cubic-bezier(0.16, 1, 0.3, 1)',
       }}>
         {/* Lock icon */}
         <div style={{
@@ -92,16 +99,19 @@ export default function LockScreen() {
         <form onSubmit={handleUnlock} style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 12 }}>
           <input
             type="password"
+            inputMode="numeric"
+            autoComplete="off"
             autoFocus
-            value={password}
-            onChange={e => { setPassword(e.target.value); setError(''); }}
-            placeholder={t('lockScreen.passwordPlaceholder')}
+            value={pin}
+            onChange={e => { setPin(e.target.value.replace(/\D/g, '').slice(0, 6)); setError(''); }}
+            placeholder={t('lockScreen.pinPlaceholder')}
             disabled={unlocking}
             style={{
               width: '100%', padding: '10px 12px',
               background: 'var(--bg-secondary)', border: `1px solid ${error ? 'var(--red)' : 'var(--border)'}`,
-              borderRadius: 8, color: 'var(--text-primary)', fontSize: 14,
+              borderRadius: 8, color: 'var(--text-primary)', fontSize: 18,
               outline: 'none', boxSizing: 'border-box',
+              textAlign: 'center', letterSpacing: '0.3em',
             }}
           />
           {error && (
@@ -109,13 +119,13 @@ export default function LockScreen() {
           )}
           <button
             type="submit"
-            disabled={unlocking || !password.trim()}
+            disabled={unlocking || pin.length < 4}
             style={{
               width: '100%', padding: '10px 0',
               background: 'var(--accent)', color: 'var(--accent-text)', border: 'none',
               borderRadius: 8, fontWeight: 600, fontSize: 14,
-              cursor: unlocking ? 'not-allowed' : 'pointer',
-              opacity: unlocking ? 0.7 : 1,
+              cursor: (unlocking || pin.length < 4) ? 'not-allowed' : 'pointer',
+              opacity: (unlocking || pin.length < 4) ? 0.7 : 1,
             }}
           >
             {unlocking ? t('lockScreen.unlocking') : t('lockScreen.unlockButton')}

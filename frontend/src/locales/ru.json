@@ -345,13 +345,13 @@
     }
   },
   "lockScreen": {
-    "subtitle": "Введите пароль для разблокировки",
-    "passwordPlaceholder": "Пароль",
+    "subtitle": "Введите PIN-код для разблокировки",
     "unlockButton": "Разблокировать",
     "unlocking": "Разблокировка…",
-    "wrongPassword": "Неверный пароль",
     "signOut": "Выйти",
-    "signingOut": "Выход…"
+    "signingOut": "Выход…",
+    "pinPlaceholder": "Введите PIN-код",
+    "wrongPin": "Неверный PIN-код"
   },
   "sidebar": {
     "allInboxes": "Все входящие",
@@ -1309,6 +1309,27 @@
       "placeholder": "Поиск настроек…",
       "noResults": "Нет результатов для «{{query}}»",
       "notificationSound": "Звук уведомления"
+    },
+    "lock": {
+      "title": "Блокировка экрана",
+      "description": "Блокируйте экран PIN-кодом, отдельным от пароля учётной записи, и при желании автоматически после бездействия. Разблокировка не завершает сеанс.",
+      "pinSet": "PIN-код установлен",
+      "pinNotSet": "PIN-код не установлен",
+      "setPin": "Задать PIN-код",
+      "changePin": "Изменить PIN-код",
+      "removePin": "Удалить PIN-код",
+      "currentPin": "Текущий PIN-код",
+      "newPin": "Новый PIN-код (4–6 цифр)",
+      "confirmPin": "Подтвердите PIN-код",
+      "pinLength": "PIN-код должен содержать от 4 до 6 цифр",
+      "pinMismatch": "PIN-коды не совпадают",
+      "saveFailed": "Не удалось сохранить",
+      "saved": "Сохранено",
+      "autoLock": "Автоблокировка",
+      "autoLockDesc": "Автоматически блокировать после бездействия",
+      "autoLockNeedsPin": "Задайте PIN-код, чтобы включить автоблокировку",
+      "autoLockOff": "Выкл.",
+      "autoLockMin": "{{n}} мин"
     }
   },
   "blockList": {

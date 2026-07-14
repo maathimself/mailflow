@@ -66,6 +66,7 @@ export const useStore = create((set, get) => ({
         unreadCounts: { total: 0, byAccount: {} },
         notifications: [], threadMessages: {}, expandedThreadId: null,
         backfillProgress: {},
+        gtdSections: null, categoryCounts: {}, activeGtdTab: null,
       });
     } else {
       const restoredMessageId = localStorage.getItem('mailflow_locked_message') || null;
@@ -73,6 +74,19 @@ export const useStore = create((set, get) => ({
       localStorage.removeItem('mailflow_locked');
       set({ isLocked: false, selectedMessageId: restoredMessageId });
     }
+  },
+  // Lock now: tell the server (it then 423s the API until unlocked), then drop into
+  // the lock overlay locally. Lock the UI even if the server call fails (#235).
+  lockScreen: () => {
+    // Lock the UI immediately (never block on the network), then enforce server-side.
+    get().setLocked(true);
+    api.lock().catch(() => {});
+  },
+  autoLockMinutes: 0,
+  setAutoLockMinutes: (m) => {
+    const v = [0, 1, 5, 15, 30].includes(Number(m)) ? Number(m) : 0;
+    set({ autoLockMinutes: v });
+    schedulePrefSave({ autoLockMinutes: String(v) });
   },
 
   // Accounts
@@ -775,6 +789,10 @@ export const useStore = create((set, get) => ({
       // blockRemoteImages: explicit false disables blocking; anything else keeps the default (true)
       if (prefs.blockRemoteImages === false) set({ blockRemoteImages: false });
       else if (prefs.blockRemoteImages === true) set({ blockRemoteImages: true });
+      if (prefs.autoLockMinutes != null) {
+        const n = Number(prefs.autoLockMinutes);
+        set({ autoLockMinutes: [0, 1, 5, 15, 30].includes(n) ? n : 0 });
+      }
       if (prefs.imageWhitelist) set({ imageWhitelist: prefs.imageWhitelist });
       if (prefs.shortcuts) set({ shortcuts: prefs.shortcuts });
       if (Array.isArray(prefs.aiActions)) {

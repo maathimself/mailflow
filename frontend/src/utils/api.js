@@ -20,6 +20,10 @@ async function request(method, path, body, extraHeaders) {
   }
   const res = await fetch(BASE + path, opts);
   if (!res.ok) {
+    if (res.status === 423) {
+      // Server-enforced screen lock (#235) — surface the lock overlay from any call.
+      window.dispatchEvent(new CustomEvent('mailflow:locked'));
+    }
     if (res.status === 401 && !path.startsWith('/auth/')) {
       window.dispatchEvent(new CustomEvent('mailflow:session_expired'));
     }
@@ -50,7 +54,26 @@ export const api = {
   login: (username, password) => request('POST', '/auth/login', { username, password }),
   register: (username, password, inviteToken) => request('POST', '/auth/register', { username, password, inviteToken }),
   logout: () => request('POST', '/auth/logout'),
-  unlock: (password) => request('POST', '/auth/unlock', { password }),
+  lock: () => request('POST', '/auth/lock'),
+  unlock: async (pin) => {
+    // Custom (not request()) so we can read the lockout flag on failure: after too many
+    // attempts the server destroys the session and returns { signedOut: true }; route to
+    // login via session_expired rather than showing an error.
+    const res = await fetch(BASE + '/auth/unlock', {
+      method: 'POST', credentials: 'include',
+      headers: { [CSRF_HEADER]: CSRF_VALUE, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) return data;
+    if (data.signedOut) {
+      window.dispatchEvent(new CustomEvent('mailflow:session_expired'));
+      const e = new Error('signed_out'); e.signedOut = true; throw e;
+    }
+    throw new Error(data.error || 'Incorrect PIN');
+  },
+  setLockPin: (pin, currentPin) => request('POST', '/auth/lock-pin', { pin, currentPin }),
+  removeLockPin: (currentPin) => request('DELETE', '/auth/lock-pin', { currentPin }),
   me: () => request('GET', '/auth/me'),
   forgotPassword: (email) => request('POST', '/auth/forgot-password', { email }),
   resetPassword: (token, password) => request('POST', '/auth/reset-password', { token, password }),

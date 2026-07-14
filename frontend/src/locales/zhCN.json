@@ -345,13 +345,13 @@
     }
   },
   "lockScreen": {
-    "subtitle": "输入密码以解锁",
-    "passwordPlaceholder": "密码",
+    "subtitle": "输入 PIN 码以解锁",
     "unlockButton": "解锁",
     "unlocking": "解锁中…",
-    "wrongPassword": "密码错误",
     "signOut": "退出登录",
-    "signingOut": "正在退出…"
+    "signingOut": "正在退出…",
+    "pinPlaceholder": "输入 PIN 码",
+    "wrongPin": "PIN 码错误"
   },
   "sidebar": {
     "allInboxes": "所有收件箱",
@@ -1309,6 +1309,27 @@
       "placeholder": "搜索设置…",
       "noResults": "未找到与“{{query}}”匹配的设置",
       "notificationSound": "通知声音"
+    },
+    "lock": {
+      "title": "屏幕锁定",
+      "description": "使用独立于账户密码的 PIN 码锁定屏幕，并可在闲置后自动锁定。解锁不会退出登录。",
+      "pinSet": "已设置 PIN 码",
+      "pinNotSet": "未设置 PIN 码",
+      "setPin": "设置 PIN 码",
+      "changePin": "更改 PIN 码",
+      "removePin": "移除 PIN 码",
+      "currentPin": "当前 PIN 码",
+      "newPin": "新 PIN 码（4–6 位数字）",
+      "confirmPin": "确认 PIN 码",
+      "pinLength": "PIN 码必须为 4 到 6 位数字",
+      "pinMismatch": "两次输入的 PIN 码不一致",
+      "saveFailed": "无法保存",
+      "saved": "已保存",
+      "autoLock": "自动锁定",
+      "autoLockDesc": "闲置后自动锁定",
+      "autoLockNeedsPin": "设置 PIN 码以启用自动锁定",
+      "autoLockOff": "关闭",
+      "autoLockMin": "{{n}} 分钟"
     }
   },
   "blockList": {

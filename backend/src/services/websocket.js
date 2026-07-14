@@ -39,6 +39,12 @@ export function setupWebSocket(wss, sessionMiddleware, imapManager) {
         ws.close(1008, 'Unauthorized');
         return;
       }
+      if (req.session.locked) {
+        // Screen lock (#235) is server-enforced: don't stream live mail to a locked
+        // session. The client closes its own socket on lock; this blocks a new one.
+        ws.close(1008, 'Locked');
+        return;
+      }
       ws.userId = userId;
       console.log(`WebSocket connected for user ${userId}`);
       ws.send(JSON.stringify({ type: 'connected' }));

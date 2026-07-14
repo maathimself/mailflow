@@ -139,6 +139,18 @@ app.use('/api', (req, res, next) => {
   return res.status(403).json({ error: 'Missing required X-Requested-With header' });
 });
 
+// Screen-lock enforcement (#235). A locked session may only reach the endpoints
+// needed to render the lock screen, unlock, or sign out; everything else returns
+// 423 Locked until the PIN is verified (routes/auth.js sets req.session.locked).
+// Matches the full path (minus query) so it can't fail open on mount-relative paths.
+const LOCK_ALLOWED = new Set(['/api/auth/unlock', '/api/auth/logout', '/api/auth/me', '/api/health', '/api/version']);
+app.use('/api', (req, res, next) => {
+  if (req.session?.locked && !LOCK_ALLOWED.has(req.originalUrl.split('?')[0])) {
+    return res.status(423).json({ error: 'Locked', locked: true });
+  }
+  next();
+});
+
 // Make imap manager available globally
 export const imapManager = new ImapManager(wss);
 app.set('imapManager', imapManager);
