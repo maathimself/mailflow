@@ -5513,9 +5513,6 @@ function RulesTab() {
               e.preventDefault();
               setRuleDropIdx(idx);
             }}
-            onDragLeave={e => {
-              // if (!e.currentTarget.contains(e.relatedTarget)) set
-            }}
             onDrop={e => {
               e.preventDefault();
               if (canDrag && ruleDragIdx !== null && ruleDragIdx !== idx) {
