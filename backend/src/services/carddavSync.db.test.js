@@ -2,13 +2,14 @@ import { createHash, randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   applyTestMigrations,
   assertMinimumPostgresVersion,
   createTestDatabase,
   dropTestDatabase,
   postgresTestContext,
+  quoteIdentifier,
   waitForPostgresState,
 } from './postgresTestHelpers.js';
 
@@ -1909,7 +1910,9 @@ describe('CardDAV full snapshot transaction', () => {
 
     await expect(pending).resolves.toMatchObject({ ok: true, bookCount: 1 });
     expect(mocks.fetchAddressBookDelta).toHaveBeenCalledOnce();
-    expect(mocks.withTransaction).toHaveBeenCalledTimes(3);
+    // The initial apply, its footprint-changed retry, the batch-wide
+    // write-target claim, and finalization.
+    expect(mocks.withTransaction).toHaveBeenCalledTimes(4);
   }, 120_000);
 
   it('persists projection fingerprint from final eligible target tokens', async () => {
@@ -4088,4 +4091,683 @@ describe('CardDAV full snapshot transaction', () => {
     await laterClient.end();
   }, 120_000);
 
+});
+
+// Per-book summaries use an isolated database so their role fixtures do not
+// interfere with the shared transaction-test database.
+describe('CardDAV per-book summaries', () => {
+  const summaryDatabaseName = `carddav_book_summary_${process.pid}_${randomUUID()
+    .replaceAll('-', '').slice(0, 10)}`;
+  let summaryAdminClient;
+  let summaryClient;
+
+  beforeAll(async () => {
+    summaryAdminClient = new Client({ connectionString: databaseUrl });
+    await summaryAdminClient.connect();
+    await summaryAdminClient.query(`CREATE DATABASE ${quoteIdentifier(summaryDatabaseName)}`);
+    summaryClient = new Client({ connectionString: connectionStringFor(summaryDatabaseName) });
+    await summaryClient.connect();
+    await applyMigrations(summaryClient, '0038');
+  }, 120_000);
+
+  afterAll(async () => {
+    if (summaryClient) await summaryClient.end();
+    if (summaryAdminClient) {
+      await summaryAdminClient.query(
+        `DROP DATABASE IF EXISTS ${quoteIdentifier(summaryDatabaseName)} WITH (FORCE)`,
+      );
+      await summaryAdminClient.end();
+    }
+  }, 120_000);
+
+  it('reports per-book roles, capabilities, and materialized/lookup counts read-only', async () => {
+    mocks.query.mockImplementation((sql, params) => summaryClient.query(sql, params));
+    const userId = randomUUID();
+    const writeBookId = randomUUID();
+    const lookupBookId = randomUUID();
+    const writeBookUrl = `https://dav.example.test/summary/write/${userId}`;
+    const lookupBookUrl = `https://dav.example.test/summary/lookup/${userId}`;
+
+    await summaryClient.query(
+      'INSERT INTO users (id, username) VALUES ($1, $2)',
+      [userId, `carddav-book-summary-${userId}`],
+    );
+    await summaryClient.query(`
+      INSERT INTO address_books (
+        id, user_id, name, source, external_url, created_at,
+        is_write_target, is_subscribed, is_lookup_source,
+        remote_create_capability, remote_update_capability, remote_delete_capability
+      ) VALUES
+        ($1, $3, 'Primary', 'carddav', $4, '2026-01-01T00:00:00Z',
+         true, true, true, 'allowed', 'allowed', 'allowed'),
+        ($2, $3, 'Apple Contacts', 'carddav', $5, '2026-01-02T00:00:00Z',
+         false, false, true, 'denied', 'denied', 'denied')
+    `, [writeBookId, lookupBookId, userId, writeBookUrl, lookupBookUrl]);
+    await summaryClient.query(`
+      INSERT INTO contacts (address_book_id, user_id, uid, display_name)
+      VALUES ($1, $2, 'contact-1', 'Ann Example')
+    `, [writeBookId, userId]);
+    await summaryClient.query(`
+      INSERT INTO carddav_remote_objects (
+        address_book_id, href, vcard, primary_email, mapping_status, lookup_display_name
+      ) VALUES ($1, '/ann.vcf', 'BEGIN:VCARD\r\nEND:VCARD\r\n', 'ann@example.test',
+                'lookup', 'Ann Example')
+    `, [lookupBookId]);
+
+    const summaries = await carddavSync.getCarddavBookSummaries(userId);
+
+    expect(summaries).toEqual([
+      {
+        id: writeBookId,
+        name: 'Primary',
+        externalUrl: writeBookUrl,
+        isWriteTarget: true,
+        isSubscribed: true,
+        isLookupSource: true,
+        capabilities: { create: 'allowed', update: 'allowed', delete: 'allowed' },
+        materializedCount: 1,
+        lookupCount: 0,
+        lastSyncAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+      },
+      {
+        id: lookupBookId,
+        name: 'Apple Contacts',
+        externalUrl: lookupBookUrl,
+        isWriteTarget: false,
+        isSubscribed: false,
+        isLookupSource: true,
+        capabilities: { create: 'denied', update: 'denied', delete: 'denied' },
+        materializedCount: 0,
+        lookupCount: 1,
+        lastSyncAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+      },
+    ]);
+  });
+
+  it('reports an ignored book as serving neither the list nor lookup', async () => {
+    mocks.query.mockImplementation((sql, params) => summaryClient.query(sql, params));
+    const userId = randomUUID();
+    const ignoredBookId = randomUUID();
+    const ignoredBookUrl = `https://dav.example.test/summary/ignored/${userId}`;
+
+    await summaryClient.query(
+      'INSERT INTO users (id, username) VALUES ($1, $2)',
+      [userId, `carddav-book-summary-ignored-${userId}`],
+    );
+    await summaryClient.query(`
+      INSERT INTO address_books (
+        id, user_id, name, source, external_url,
+        is_write_target, is_subscribed, is_lookup_source
+      ) VALUES ($1, $2, 'Ignored', 'carddav', $3, false, false, false)
+    `, [ignoredBookId, userId, ignoredBookUrl]);
+    // Ledger rows retained from when the book was still a lookup source; the
+    // next sync drops them, and until then they resolve no sender (the lookup
+    // probes filter on is_lookup_source), so the row must not advertise them.
+    await summaryClient.query(`
+      INSERT INTO carddav_remote_objects (
+        address_book_id, href, vcard, primary_email, mapping_status, lookup_display_name
+      ) VALUES ($1, '/stale.vcf', 'BEGIN:VCARD\r\nEND:VCARD\r\n', 'stale@example.test',
+                'lookup', 'Stale Example')
+    `, [ignoredBookId]);
+
+    await expect(carddavSync.getCarddavBookSummaries(userId)).resolves.toMatchObject([{
+      id: ignoredBookId,
+      isWriteTarget: false,
+      isSubscribed: false,
+      isLookupSource: false,
+      materializedCount: 0,
+      lookupCount: 0,
+    }]);
+  });
+
+  it('returns an empty list for a user with no carddav books', async () => {
+    mocks.query.mockImplementation((sql, params) => summaryClient.query(sql, params));
+    const userId = randomUUID();
+    await summaryClient.query(
+      'INSERT INTO users (id, username) VALUES ($1, $2)',
+      [userId, `carddav-book-summary-empty-${userId}`],
+    );
+
+    await expect(carddavSync.getCarddavBookSummaries(userId)).resolves.toEqual([]);
+  });
+});
+
+describe('CardDAV canonicalized-alias re-sync', () => {
+  const aliasDatabaseName = `carddav_alias_resync_${process.pid}_${randomUUID()
+    .replaceAll('-', '').slice(0, 10)}`;
+  let aliasAdminClient;
+  let aliasClient;
+
+  beforeAll(async () => {
+    aliasAdminClient = new Client({ connectionString: databaseUrl });
+    await aliasAdminClient.connect();
+    await aliasAdminClient.query(`CREATE DATABASE ${quoteIdentifier(aliasDatabaseName)}`);
+    aliasClient = new Client({ connectionString: connectionStringFor(aliasDatabaseName) });
+    await aliasClient.connect();
+    // Full schema, so discovery_alias_url exists and the alias-aware planning
+    // join, lock predicate, and reconciliation comparison run against real PG.
+    await applyMigrations(aliasClient, '0039');
+  }, 120_000);
+
+  afterAll(async () => {
+    if (aliasClient) await aliasClient.end();
+    if (aliasAdminClient) {
+      await aliasAdminClient.query(
+        `DROP DATABASE IF EXISTS ${quoteIdentifier(aliasDatabaseName)} WITH (FORCE)`,
+      );
+      await aliasAdminClient.end();
+    }
+  }, 120_000);
+
+  async function applyInTransaction(plan) {
+    await aliasClient.query('BEGIN');
+    try {
+      const result = await carddavSync.applyBookDelta(aliasClient, plan);
+      await aliasClient.query('COMMIT');
+      return result;
+    } catch (error) {
+      await aliasClient.query('ROLLBACK');
+      throw error;
+    }
+  }
+
+  it('applies a canonicalized book discovery still surfaces under its alias, in place', async () => {
+    const userId = randomUUID();
+    const generation = randomUUID();
+    const aliasUrl = `https://dav.example.test/addressbooks/${userId}/alias/`;
+    const canonicalUrl = `https://dav.example.test/addressbooks/${userId}/canonical/`;
+    const href = `${canonicalUrl}person.vcf`;
+
+    await aliasClient.query(
+      'INSERT INTO users (id, username) VALUES ($1, $2)',
+      [userId, `alias-resync-${userId}`],
+    );
+    await aliasClient.query(
+      `INSERT INTO user_integrations (user_id, provider, config)
+       VALUES ($1, 'carddav', jsonb_build_object(
+         'connectionGeneration', $2::text, 'contactCount', 1
+       ))`,
+      [userId, generation],
+    );
+    // Already canonicalized on an earlier sync: external_url holds the canonical
+    // URL, discovery_alias_url retains the alias the server keeps advertising.
+    const { rows: [book] } = await aliasClient.query(
+      `INSERT INTO address_books (
+         user_id, name, source, external_url, discovery_alias_url,
+         remote_sync_token, remote_sync_revision,
+         is_write_target, is_subscribed, is_lookup_source
+       ) VALUES ($1, 'Aliased Lookup', 'carddav', $2, $3, 'token-1', 1,
+                 false, false, true)
+       RETURNING id`,
+      [userId, canonicalUrl, aliasUrl],
+    );
+    await aliasClient.query(
+      `INSERT INTO carddav_remote_objects (
+         address_book_id, href, remote_etag, vcard, primary_email,
+         mapping_status, remote_semantic_hash, lookup_display_name
+       ) VALUES ($1, $2, 'old-etag', $3, 'person@example.test',
+                 'lookup', 'old-hash', 'Old Name')`,
+      [book.id, href, 'BEGIN:VCARD\r\nVERSION:3.0\r\nUID:person\r\nEND:VCARD\r\n'],
+    );
+
+    // Discovery returns the alias again; the delta reconciles to canonical.
+    const card = { ...remoteCard('person', 'person@example.test'), href };
+    const result = await applyInTransaction({
+      userId,
+      book: { url: aliasUrl, displayName: 'Aliased Lookup' },
+      connectionGeneration: generation,
+      expectedRemoteRevision: '1',
+      expectedRemoteToken: 'token-1',
+      nextRemoteToken: 'token-2',
+      capability: 'sync-collection',
+      replaceAll: true,
+      materialize: false,
+      collectionIdentity: { observedUrl: aliasUrl, canonicalUrl },
+      upserts: [card],
+      removedHrefs: [],
+    });
+
+    expect(result.bookId).toBe(book.id);
+
+    // The book advances in place — canonical URL and alias retained, token and
+    // revision moved — with no duplicate row inserted for the alias.
+    const { rows: books } = await aliasClient.query(
+      `SELECT id, external_url, discovery_alias_url, remote_sync_token,
+              remote_sync_revision::text AS remote_sync_revision
+       FROM address_books
+       WHERE user_id = $1 AND source = 'carddav'
+       ORDER BY id`,
+      [userId],
+    );
+    expect(books).toEqual([{
+      id: book.id,
+      external_url: canonicalUrl,
+      discovery_alias_url: aliasUrl,
+      remote_sync_token: 'token-2',
+      remote_sync_revision: '2',
+    }]);
+
+    const { rows: ledger } = await aliasClient.query(
+      `SELECT href, remote_etag, mapping_status, local_contact_id
+       FROM carddav_remote_objects
+       WHERE address_book_id = $1`,
+      [book.id],
+    );
+    expect(ledger).toEqual([{
+      href,
+      remote_etag: card.remoteEtag,
+      mapping_status: 'lookup',
+      local_contact_id: null,
+    }]);
+  }, 120_000);
+
+  it('reconciliation keeps a book seen only under its alias but still prunes a truly stale one', async () => {
+    const userId = randomUUID();
+    const aliasUrl = `https://dav.example.test/addressbooks/${userId}/rec-alias/`;
+    const canonicalUrl = `https://dav.example.test/addressbooks/${userId}/rec-canonical/`;
+    await aliasClient.query(
+      'INSERT INTO users (id, username) VALUES ($1, $2)',
+      [userId, `alias-reconcile-${userId}`],
+    );
+    const { rows: [book] } = await aliasClient.query(
+      `INSERT INTO address_books (
+         user_id, name, source, external_url, discovery_alias_url, is_lookup_source
+       ) VALUES ($1, 'Reconcile', 'carddav', $2, $3, true)
+       RETURNING id`,
+      [userId, canonicalUrl, aliasUrl],
+    );
+
+    await aliasClient.query('BEGIN');
+    const kept = await carddavSync.reconcileStaleCarddavBooks(aliasClient, userId, {
+      contactCount: 0,
+      seenUrls: [aliasUrl],
+    });
+    await aliasClient.query('COMMIT');
+    expect(kept).toEqual([]);
+    const { rows: survivors } = await aliasClient.query(
+      'SELECT id FROM address_books WHERE user_id = $1',
+      [userId],
+    );
+    expect(survivors).toEqual([{ id: book.id }]);
+
+    await aliasClient.query('BEGIN');
+    const removed = await carddavSync.reconcileStaleCarddavBooks(aliasClient, userId, {
+      contactCount: 0,
+      seenUrls: [],
+    });
+    await aliasClient.query('COMMIT');
+    expect(removed).toEqual([book.id]);
+    const { rows: afterRemoval } = await aliasClient.query(
+      'SELECT id FROM address_books WHERE user_id = $1',
+      [userId],
+    );
+    expect(afterRemoval).toEqual([]);
+  }, 120_000);
+});
+
+// Per-book role management: patchCarddavBookRoles applies
+// Subscribe / Look-up-senders / write-target changes in one connection-fenced
+// transaction. Full role schema so the one-write-target index, the
+// write-target/subscribed CHECK, and the lookup ledger columns are all real.
+describe('CardDAV per-book role management', () => {
+  const roleDatabaseName = `carddav_book_roles_${process.pid}_${randomUUID()
+    .replaceAll('-', '').slice(0, 10)}`;
+  let roleAdminClient;
+  let roleClient;
+
+  beforeAll(async () => {
+    roleAdminClient = new Client({ connectionString: databaseUrl });
+    await roleAdminClient.connect();
+    await roleAdminClient.query(`CREATE DATABASE ${quoteIdentifier(roleDatabaseName)}`);
+    roleClient = new Client({ connectionString: connectionStringFor(roleDatabaseName) });
+    await roleClient.connect();
+    await applyMigrations(roleClient, '0039');
+  }, 120_000);
+
+  afterAll(async () => {
+    if (roleClient) await roleClient.end();
+    if (roleAdminClient) {
+      await roleAdminClient.query(
+        `DROP DATABASE IF EXISTS ${quoteIdentifier(roleDatabaseName)} WITH (FORCE)`,
+      );
+      await roleAdminClient.end();
+    }
+  }, 120_000);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.query.mockImplementation((sql, params) => roleClient.query(sql, params));
+    mocks.withTransaction.mockImplementation(async callback => {
+      await roleClient.query('BEGIN');
+      try {
+        const result = await callback(roleClient);
+        await roleClient.query('COMMIT');
+        return result;
+      } catch (error) {
+        await roleClient.query('ROLLBACK');
+        throw error;
+      }
+    });
+  });
+
+  const GENERATION = 'role-generation';
+
+  async function seedRoleUser() {
+    const userId = randomUUID();
+    await roleClient.query('INSERT INTO users (id, username) VALUES ($1, $2)', [
+      userId, `carddav-roles-${userId}`,
+    ]);
+    await roleClient.query(
+      `INSERT INTO user_integrations (user_id, provider, config)
+       VALUES ($1, 'carddav', jsonb_build_object(
+         'serverUrl', 'https://dav.example.test/',
+         'username', 'role-user',
+         'connectionGeneration', $2::text
+       ))`,
+      [userId, GENERATION],
+    );
+    return userId;
+  }
+
+  async function seedBook(userId, {
+    name,
+    write = false,
+    subscribed = false,
+    lookup = true,
+    create = 'allowed',
+    token = null,
+  }) {
+    const url = `https://dav.example.test/books/${randomUUID()}/`;
+    const { rows: [book] } = await roleClient.query(
+      `INSERT INTO address_books (
+         user_id, name, source, external_url, remote_sync_token,
+         remote_create_capability, remote_update_capability, remote_delete_capability,
+         is_write_target, is_subscribed, is_lookup_source
+       ) VALUES ($1, $2, 'carddav', $3, $4, $5, 'allowed', 'allowed', $6, $7, $8)
+       RETURNING id, remote_sync_revision::text AS remote_sync_revision`,
+      [userId, name, url, token, create, write, subscribed, lookup],
+    );
+    return { id: book.id, url, remoteSyncRevision: book.remote_sync_revision };
+  }
+
+  async function bookRow(bookId) {
+    const { rows: [row] } = await roleClient.query(
+      `SELECT is_write_target, is_subscribed, is_lookup_source,
+              remote_sync_token, remote_sync_revision::text AS remote_sync_revision
+       FROM address_books WHERE id = $1`,
+      [bookId],
+    );
+    return row;
+  }
+
+  it('makeWriteTarget swaps the flag atomically and forces the new book subscribed', async () => {
+    const userId = await seedRoleUser();
+    const primary = await seedBook(userId, {
+      name: 'Primary', write: true, subscribed: true, lookup: true,
+    });
+    const apple = await seedBook(userId, {
+      name: 'Apple', write: false, subscribed: false, lookup: true, token: 'apple-token',
+    });
+
+    await carddavSync.patchCarddavBookRoles(
+      userId, apple.id, { makeWriteTarget: true }, GENERATION,
+    );
+
+    expect(await bookRow(apple.id)).toMatchObject({
+      is_write_target: true, is_subscribed: true, is_lookup_source: true,
+    });
+    // The previous holder keeps its contacts (still subscribed) but yields the flag.
+    expect(await bookRow(primary.id)).toMatchObject({
+      is_write_target: false, is_subscribed: true,
+    });
+    // Exactly one write-target survives the swap.
+    const { rows: targets } = await roleClient.query(
+      `SELECT id FROM address_books
+       WHERE user_id = $1 AND source = 'carddav' AND is_write_target = true`,
+      [userId],
+    );
+    expect(targets).toEqual([{ id: apple.id }]);
+    // The newly-subscribed book is scheduled for a full materializing re-pull.
+    const appleRow = await bookRow(apple.id);
+    expect(appleRow.remote_sync_token).toBeNull();
+    expect(appleRow.remote_sync_revision).not.toBe(apple.remoteSyncRevision);
+  }, 120_000);
+
+  it('rejects makeWriteTarget for a create-denied book and leaves roles unchanged', async () => {
+    const userId = await seedRoleUser();
+    const primary = await seedBook(userId, {
+      name: 'Primary', write: true, subscribed: true,
+    });
+    const readOnly = await seedBook(userId, {
+      name: 'Directory', write: false, subscribed: false, lookup: true, create: 'denied',
+    });
+
+    await expect(carddavSync.patchCarddavBookRoles(
+      userId, readOnly.id, { makeWriteTarget: true }, GENERATION,
+    )).rejects.toMatchObject({ code: 'ERR_CARDDAV_READ_ONLY' });
+
+    expect(await bookRow(readOnly.id)).toMatchObject({ is_write_target: false });
+    expect(await bookRow(primary.id)).toMatchObject({ is_write_target: true });
+  }, 120_000);
+
+  it('unsubscribe removes materialized contacts and demotes the ledger to lookup', async () => {
+    const userId = await seedRoleUser();
+    const book = await seedBook(userId, {
+      name: 'Secondary', write: false, subscribed: true, lookup: true,
+    });
+    const { rows: [contact] } = await roleClient.query(
+      `INSERT INTO contacts (address_book_id, user_id, uid, display_name, primary_email)
+       VALUES ($1, $2, 'materialized-1', 'Materialized Person', 'mat@example.test')
+       RETURNING id`,
+      [book.id, userId],
+    );
+    await roleClient.query(
+      `INSERT INTO carddav_remote_objects (
+         address_book_id, href, remote_etag, vcard, primary_email,
+         local_contact_id, mapping_status, remote_semantic_hash, local_contact_hash
+       ) VALUES ($1, $2, '"etag-1"', $3, 'mat@example.test', $4, 'synced', 'hash', 'local-hash')`,
+      [book.id, `${book.url}mat.vcf`, 'BEGIN:VCARD\r\nEND:VCARD\r\n', contact.id],
+    );
+
+    await carddavSync.patchCarddavBookRoles(
+      userId, book.id, { isSubscribed: false }, GENERATION,
+    );
+
+    expect(await bookRow(book.id)).toMatchObject({
+      is_write_target: false, is_subscribed: false, is_lookup_source: true,
+    });
+    const { rows: contacts } = await roleClient.query(
+      'SELECT id FROM contacts WHERE address_book_id = $1', [book.id],
+    );
+    expect(contacts).toEqual([]);
+    const { rows: ledger } = await roleClient.query(
+      `SELECT mapping_status, local_contact_id, local_contact_hash, lookup_display_name
+       FROM carddav_remote_objects WHERE address_book_id = $1`,
+      [book.id],
+    );
+    expect(ledger).toEqual([{
+      mapping_status: 'lookup',
+      local_contact_id: null,
+      local_contact_hash: null,
+      lookup_display_name: 'Materialized Person',
+    }]);
+  }, 120_000);
+
+  it('a materializing pull that lost a race with unsubscribe demotes instead of resurrecting contacts', async () => {
+    const userId = await seedRoleUser();
+    const book = await seedBook(userId, {
+      name: 'Racing', write: false, subscribed: true, lookup: true, token: 'race-token-1',
+    });
+    const href = `${book.url}race.vcf`;
+    const vcard = [
+      'BEGIN:VCARD', 'VERSION:3.0', 'UID:race', 'FN:Race Contact',
+      'EMAIL:race@example.test', 'END:VCARD', '',
+    ].join('\r\n');
+    const { rows: [contact] } = await roleClient.query(
+      `INSERT INTO contacts (address_book_id, user_id, uid, vcard, display_name, primary_email)
+       VALUES ($1, $2, 'race', $3, 'Race Contact', 'race@example.test')
+       RETURNING id`,
+      [book.id, userId, vcard],
+    );
+    await roleClient.query(
+      `INSERT INTO carddav_remote_objects (
+         address_book_id, href, remote_etag, vcard, primary_email,
+         local_contact_id, mapping_status, remote_semantic_hash, local_contact_hash
+       ) VALUES ($1, $2, '"race-1"', $3, 'race@example.test', $4, 'synced', 'sem', 'loc')`,
+      [book.id, href, vcard, contact.id],
+    );
+
+    // The user unsubscribes; the PATCH transaction commits first, removing the
+    // materialized contact and demoting the ledger to lookup.
+    await carddavSync.patchCarddavBookRoles(
+      userId, book.id, { isSubscribed: false }, GENERATION,
+    );
+
+    // A sync already in flight still carries its pre-unsubscribe materialize
+    // decision and its stale (still-valid) token/revision fences. Applying it
+    // must honor the book's live is_subscribed under the shared integration
+    // lock — never re-import the contact the user just removed.
+    await roleClient.query('BEGIN');
+    try {
+      await carddavSync.applyBookDelta(roleClient, {
+        userId,
+        book: { url: book.url, displayName: 'Racing' },
+        connectionGeneration: GENERATION,
+        expectedRemoteRevision: book.remoteSyncRevision,
+        expectedRemoteToken: 'race-token-1',
+        nextRemoteToken: 'race-token-2',
+        capability: 'sync-collection',
+        replaceAll: false,
+        materialize: true,
+        collectionIdentity: null,
+        upserts: [{
+          href,
+          remoteEtag: '"race-1"',
+          vcard,
+          contact: { displayName: 'Race Contact', primaryEmail: 'race@example.test' },
+        }],
+        removedHrefs: [],
+      });
+      await roleClient.query('COMMIT');
+    } catch (error) {
+      await roleClient.query('ROLLBACK');
+      throw error;
+    }
+
+    const { rows: contacts } = await roleClient.query(
+      'SELECT id FROM contacts WHERE address_book_id = $1', [book.id],
+    );
+    expect(contacts).toEqual([]);
+    const { rows: ledger } = await roleClient.query(
+      `SELECT mapping_status, local_contact_id
+       FROM carddav_remote_objects WHERE address_book_id = $1`,
+      [book.id],
+    );
+    expect(ledger).toEqual([{ mapping_status: 'lookup', local_contact_id: null }]);
+    expect(await bookRow(book.id)).toMatchObject({ is_subscribed: false });
+  }, 120_000);
+
+  it('rejects unsubscribing the write-target book', async () => {
+    const userId = await seedRoleUser();
+    const book = await seedBook(userId, {
+      name: 'Primary', write: true, subscribed: true, lookup: true,
+    });
+
+    await expect(carddavSync.patchCarddavBookRoles(
+      userId, book.id, { isSubscribed: false }, GENERATION,
+    )).rejects.toMatchObject({ code: 'ERR_CARDDAV_WRITE_TARGET_SUBSCRIBED' });
+
+    expect(await bookRow(book.id)).toMatchObject({ is_subscribed: true });
+  }, 120_000);
+
+  it('subscribing a lookup-only book schedules a full materializing reconcile', async () => {
+    const userId = await seedRoleUser();
+    const book = await seedBook(userId, {
+      name: 'Apple', write: false, subscribed: false, lookup: true, token: 'apple-token',
+    });
+
+    await carddavSync.patchCarddavBookRoles(
+      userId, book.id, { isSubscribed: true }, GENERATION,
+    );
+
+    const row = await bookRow(book.id);
+    expect(row).toMatchObject({ is_subscribed: true, is_lookup_source: true });
+    expect(row.remote_sync_token).toBeNull();
+    expect(row.remote_sync_revision).not.toBe(book.remoteSyncRevision);
+  }, 120_000);
+
+  it('turning off look-up-senders while unsubscribed leaves the book ignored', async () => {
+    const userId = await seedRoleUser();
+    const book = await seedBook(userId, {
+      name: 'Apple', write: false, subscribed: false, lookup: true,
+    });
+
+    await carddavSync.patchCarddavBookRoles(
+      userId, book.id, { isLookupSource: false }, GENERATION,
+    );
+
+    expect(await bookRow(book.id)).toMatchObject({
+      is_write_target: false, is_subscribed: false, is_lookup_source: false,
+    });
+  }, 120_000);
+
+  it('re-enabling look-up-senders on an ignored book schedules a full re-pull', async () => {
+    const userId = await seedRoleUser();
+    const book = await seedBook(userId, {
+      name: 'Apple', write: false, subscribed: false, lookup: false, token: 'apple-token',
+    });
+
+    await carddavSync.patchCarddavBookRoles(
+      userId, book.id, { isLookupSource: true }, GENERATION,
+    );
+
+    // An ignored book's ledger is dropped and never maintained, so resuming from
+    // the token it still carries would leave it lookup-on and empty forever.
+    const row = await bookRow(book.id);
+    expect(row).toMatchObject({ is_subscribed: false, is_lookup_source: true });
+    expect(row.remote_sync_token).toBeNull();
+    expect(row.remote_sync_revision).not.toBe(book.remoteSyncRevision);
+  }, 120_000);
+
+  it('fences a role change against a stale connection generation', async () => {
+    const userId = await seedRoleUser();
+    const book = await seedBook(userId, { name: 'Apple', subscribed: false, lookup: true });
+
+    await expect(carddavSync.patchCarddavBookRoles(
+      userId, book.id, { isSubscribed: true }, 'wrong-generation',
+    )).rejects.toMatchObject({
+      name: 'StaleCarddavPlanError', reason: 'connection-generation-changed',
+    });
+
+    expect(await bookRow(book.id)).toMatchObject({ is_subscribed: false });
+  }, 120_000);
+
+  it('rejects a role change with no fields and an unknown book', async () => {
+    const userId = await seedRoleUser();
+    const book = await seedBook(userId, { name: 'Apple', subscribed: false, lookup: true });
+
+    await expect(carddavSync.patchCarddavBookRoles(
+      userId, book.id, {}, GENERATION,
+    )).rejects.toMatchObject({ code: 'ERR_CARDDAV_BOOK_PATCH_EMPTY' });
+
+    await expect(carddavSync.patchCarddavBookRoles(
+      userId, randomUUID(), { isSubscribed: true }, GENERATION,
+    )).rejects.toMatchObject({ code: 'ERR_ADDRESS_BOOK_NOT_FOUND' });
+  }, 120_000);
+
+  it('rejects a role change when the connection is gone', async () => {
+    const userId = randomUUID();
+    await roleClient.query('INSERT INTO users (id, username) VALUES ($1, $2)', [
+      userId, `carddav-roles-none-${userId}`,
+    ]);
+    const { rows: [book] } = await roleClient.query(
+      `INSERT INTO address_books (user_id, name, source, external_url, is_lookup_source)
+       VALUES ($1, 'Orphan', 'carddav', $2, true) RETURNING id`,
+      [userId, `https://dav.example.test/books/${randomUUID()}/`],
+    );
+
+    await expect(carddavSync.patchCarddavBookRoles(
+      userId, book.id, { isSubscribed: true }, GENERATION,
+    )).rejects.toMatchObject({ name: 'StaleCarddavPlanError', reason: 'not-connected' });
+  }, 120_000);
 });

@@ -1214,7 +1214,25 @@
         "healthNeedsAttention": "Überprüfung nötig",
         "healthHealthy": "Fehlerfrei",
         "reviewConflicts": "Konflikte prüfen",
-        "help": "Verwenden Sie ein Nextcloud-App-Passwort, nicht Ihr Login-Passwort – SSO-Nutzer erstellen es unter Einstellungen → Sicherheit. Kontakte werden in beide Richtungen synchronisiert, wenn der Server Schreibzugriffe erlaubt."
+        "help": "Verwenden Sie ein Nextcloud-App-Passwort, nicht Ihr Login-Passwort – SSO-Nutzer erstellen es unter Einstellungen → Sicherheit. Kontakte werden in beide Richtungen synchronisiert, wenn der Server Schreibzugriffe erlaubt.",
+        "publishEmailedContacts": "Kontakte aus gesendeten E-Mails veröffentlichen",
+        "publishEmailedContactsDesc": "Fügt Personen, denen Sie schreiben, dem Zieladressbuch hinzu.",
+        "books": {
+          "title": "Adressbücher",
+          "empty": "Noch keine Adressbücher gefunden.",
+          "writeTarget": "Schreibziel",
+          "subscribed": "Abonniert",
+          "lookupOnly": "Nur Nachschlagen",
+          "ignored": "Ignoriert",
+          "writable": "Beschreibbar",
+          "readOnly": "Schreibgeschützt",
+          "unknownCapability": "Unbekannt",
+          "counts": "{{materialized}} in der Liste · {{lookup}} zum Nachschlagen",
+          "lastSync": "Zuletzt synchronisiert: {{when}}",
+          "subscribeLabel": "Abonnieren",
+          "lookupLabel": "Absender nachschlagen",
+          "updateFailed": "Adressbuch konnte nicht aktualisiert werden"
+        }
       }
     },
     "ssoLinked": {
@@ -1365,6 +1383,13 @@
     "carddavConflict": "CardDAV-Konflikt",
     "carddavPending": "Synchronisierung ausstehend",
     "carddavWriteUnconfirmed": "Ihre Änderung wurde möglicherweise bereits übernommen – der Kontakt wurde aktualisiert. Prüfen Sie ihn und versuchen Sie es bei Bedarf erneut.",
+    "promote": {
+      "action": "Im Adressbuch speichern",
+      "hint": "Speichere diesen Kontakt in deinem CardDAV-Adressbuch, damit er synchron bleibt.",
+      "noWriteTarget": "Kein Adressbuch ist als Schreibziel festgelegt. Wähle unter „Adressbücher“ in Einstellungen → CardDAV-Kontakte eines aus und versuche es erneut.",
+      "readOnly": "Das Schreibziel-Adressbuch nimmt keine neuen Kontakte an. Wähle unter „Adressbücher“ in Einstellungen → CardDAV-Kontakte ein beschreibbares aus.",
+      "failed": "Dieser Kontakt konnte nicht im Adressbuch gespeichert werden."
+    },
     "photo": {
       "title": "Foto",
       "contactAlt": "Kontaktfoto",

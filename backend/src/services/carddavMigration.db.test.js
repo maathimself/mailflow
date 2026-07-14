@@ -27,6 +27,8 @@ const databaseNames = {
   populatedCollision: `carddav_populated_collision_${databaseSuffix}`,
   populatedFirst: `carddav_populated_first_${databaseSuffix}`,
   emptyDuplicates: `carddav_empty_duplicates_${databaseSuffix}`,
+  multiBookBackfill: `carddav_multi_book_backfill_${databaseSuffix}`,
+  publishIntentBackfill: `carddav_publish_intent_backfill_${databaseSuffix}`,
 };
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -565,6 +567,45 @@ async function expectConflictRetentionSchema(client) {
   ]);
 }
 
+async function expectMultiBookSchema(client) {
+  const addressBookColumns = await readColumns(client, 'address_books');
+  expect(addressBookColumns).toMatchObject({
+    is_write_target: { data_type: 'boolean', is_nullable: 'NO', column_default: 'false' },
+    is_subscribed: { data_type: 'boolean', is_nullable: 'NO', column_default: 'false' },
+    is_lookup_source: { data_type: 'boolean', is_nullable: 'NO', column_default: 'true' },
+  });
+
+  const mappingColumns = await readColumns(client, 'carddav_remote_objects');
+  expect(mappingColumns.lookup_display_name).toEqual({
+    data_type: 'text',
+    is_nullable: 'YES',
+    column_default: null,
+  });
+
+  const checks = await readChecks(client, ['address_books', 'carddav_remote_objects']);
+  expect(checks).toEqual(expect.arrayContaining([
+    {
+      table_name: 'address_books',
+      check_clause: '(((NOT is_write_target) OR is_subscribed))',
+    },
+    {
+      table_name: 'carddav_remote_objects',
+      check_clause: "((mapping_status = ANY (ARRAY['pending_materialization'::text, 'synced'::text, 'pending_push'::text, 'conflict'::text, 'lookup'::text])))",
+    },
+  ]));
+
+  const indexDefinitions = await readIndexDefinitions(client, [
+    'carddav_one_write_target_idx',
+    'carddav_lookup_email_idx',
+  ]);
+  expect(indexDefinitions.carddav_one_write_target_idx).toBe(
+    "UNIQUE (user_id) WHERE ((source = 'carddav'::text) AND is_write_target)",
+  );
+  expect(indexDefinitions.carddav_lookup_email_idx).toBe(
+    "(primary_email) WHERE (mapping_status = 'lookup'::text)",
+  );
+}
+
 it('keeps migration versions unique and orders the CardDAV lifecycle migrations', async () => {
   const filenames = (await readdir(migrationsDirectory))
     .filter(filename => /^\d{4}_.+\.sql$/.test(filename))
@@ -576,6 +617,9 @@ it('keeps migration versions unique and orders the CardDAV lifecycle migrations'
   const expandIndex = filenames.indexOf('0035_carddav_bidirectional_sync.sql');
   const contractIndex = filenames.indexOf('0036_carddav_bidirectional_cleanup.sql');
   const retentionIndex = filenames.indexOf('0037_carddav_conflict_retention.sql');
+  const multiBookIndex = filenames.indexOf('0038_carddav_multi_book.sql');
+  const writeTargetAliasIndex = filenames.indexOf('0039_carddav_write_target_alias.sql');
+  const publishIntentIndex = filenames.indexOf('0040_carddav_publish_intent.sql');
 
   expect(duplicateVersions).toEqual([]);
   expect(upstreamIndex).toBeGreaterThanOrEqual(0);
@@ -583,6 +627,9 @@ it('keeps migration versions unique and orders the CardDAV lifecycle migrations'
   expect(expandIndex).toBe(incrementalIndex + 1);
   expect(contractIndex).toBe(expandIndex + 1);
   expect(retentionIndex).toBe(contractIndex + 1);
+  expect(multiBookIndex).toBe(retentionIndex + 1);
+  expect(writeTargetAliasIndex).toBe(multiBookIndex + 1);
+  expect(publishIntentIndex).toBe(writeTargetAliasIndex + 1);
 });
 
 describe('CardDAV schema migrations', () => {
@@ -1086,10 +1133,42 @@ describe('CardDAV schema migrations', () => {
         WHERE user_id = $1 AND provider = 'carddav'
       `, [userId]);
       expect(contractedIntegration.config).not.toHaveProperty('dupMode');
+
+      await applyMigrations(client, '0038', '0038');
+      await expectMultiBookSchema(client);
+
+      // Existing single-book user: backfill preserves today's behavior exactly —
+      // the one book becomes the write-target and stays subscribed + lookup.
+      const { rows: [backfilledBook] } = await client.query(`
+        SELECT is_write_target, is_subscribed, is_lookup_source
+        FROM address_books WHERE id = $1
+      `, [earliestBookId]);
+      expect(backfilledBook).toEqual({
+        is_write_target: true,
+        is_subscribed: true,
+        is_lookup_source: true,
+      });
+
+      // CHECK rejects a write-target that is not subscribed.
+      await expect(client.query(`
+        UPDATE address_books SET is_write_target = true, is_subscribed = false
+        WHERE id = $1
+      `, [earliestBookId])).rejects.toMatchObject({ code: '23514' });
+
+      // Partial unique index rejects a second write-target for the same user.
+      const secondCarddavBookId = randomUUID();
+      await client.query(`
+        INSERT INTO address_books (
+          id, user_id, name, source, external_url, is_subscribed, is_lookup_source
+        ) VALUES ($1, $2, 'Second Book', 'carddav', $3, true, true)
+      `, [secondCarddavBookId, userId, `https://carddav.example.test/second/${userId}`]);
+      await expect(client.query(`
+        UPDATE address_books SET is_write_target = true WHERE id = $1
+      `, [secondCarddavBookId])).rejects.toMatchObject({ code: '23505' });
     });
   }, 120_000);
 
-  it('creates the retained-conflict schema from migrations 0001 through 0037', async () => {
+  it('creates the multi-book publish-intent schema from migrations 0001 through 0040', async () => {
     await withDatabase(databaseNames.fresh, async client => {
       await assertMinimumPostgresVersion(client);
       const freshUserId = randomUUID();
@@ -1108,7 +1187,7 @@ describe('CardDAV schema migrations', () => {
         intervalMin: 45,
         nested: { preserve: true },
       })]);
-      await applyMigrations(client, '0034', '0037');
+      await applyMigrations(client, '0034', '0040');
       const { rows: [freshIntegration] } = await client.query(`
         SELECT config
         FROM user_integrations
@@ -1124,6 +1203,180 @@ describe('CardDAV schema migrations', () => {
       });
       await expectContractedBidirectionalSchema(client);
       await expectConflictRetentionSchema(client);
+      await applyMigrations(client, '0038', '0038');
+      await expectMultiBookSchema(client);
+      await applyMigrations(client, '0039', '0039');
+      const addressBookColumns = await readColumns(client, 'address_books');
+      expect(addressBookColumns.discovery_alias_url).toEqual({
+        data_type: 'text',
+        is_nullable: 'YES',
+        column_default: null,
+      });
     });
+  }, 120_000);
+
+  it('backfills the correct write-target per user by capability priority, then creation order', async () => {
+    const through0037Directory = await createMigrationDirectory('0001', '0037');
+    const migration0038Directory = await createMigrationDirectory('0038', '0038');
+    const migrationPool = new Pool({
+      connectionString: connectionStringFor(databaseNames.multiBookBackfill),
+    });
+    const priorityUserId = randomUUID();
+    const tieBreakUserId = randomUUID();
+    const allDeniedUserId = randomUUID();
+    // Later creation time, but 'allowed' — must win over an earlier 'unknown' book.
+    const allowedBookId = randomUUID();
+    const earlierUnknownBookId = randomUUID();
+    // Same-priority ('unknown') tie-break resolves by created_at, then id.
+    const earlierTieBookId = randomUUID();
+    const laterTieBookId = randomUUID();
+    // No create-capable book at all -> no write-target is assigned.
+    const deniedBookId = randomUUID();
+    const localBookId = randomUUID();
+
+    try {
+      await runMigrationsWithPool(migrationPool, through0037Directory);
+      await migrationPool.query(`
+        INSERT INTO users (id, username)
+        VALUES ($1, $4), ($2, $5), ($3, $6)
+      `, [
+        priorityUserId, tieBreakUserId, allDeniedUserId,
+        `carddav-priority-${priorityUserId}`,
+        `carddav-tiebreak-${tieBreakUserId}`,
+        `carddav-denied-${allDeniedUserId}`,
+      ]);
+      await migrationPool.query(`
+        INSERT INTO address_books (
+          id, user_id, name, source, external_url, remote_create_capability, created_at
+        ) VALUES
+          ($1, $6, 'Earlier Unknown', 'carddav', $7, 'unknown', '2026-01-01T00:00:00Z'),
+          ($2, $6, 'Later Allowed', 'carddav', $8, 'allowed', '2026-01-02T00:00:00Z'),
+          ($3, $9, 'Earlier Tie', 'carddav', $10, 'unknown', '2026-01-01T00:00:00Z'),
+          ($4, $9, 'Later Tie', 'carddav', $11, 'unknown', '2026-01-02T00:00:00Z'),
+          ($5, $12, 'Denied Only', 'carddav', $13, 'denied', '2026-01-01T00:00:00Z')
+      `, [
+        earlierUnknownBookId, allowedBookId, earlierTieBookId, laterTieBookId, deniedBookId,
+        priorityUserId, `https://dav.example.test/priority/unknown/${priorityUserId}`,
+        `https://dav.example.test/priority/allowed/${priorityUserId}`,
+        tieBreakUserId, `https://dav.example.test/tie/earlier/${tieBreakUserId}`,
+        `https://dav.example.test/tie/later/${tieBreakUserId}`,
+        allDeniedUserId, `https://dav.example.test/denied/${allDeniedUserId}`,
+      ]);
+      // A non-carddav (local) book must never be considered for the write-target.
+      await migrationPool.query(`
+        INSERT INTO address_books (id, user_id, name, source)
+        VALUES ($1, $2, 'Local Only', 'local')
+      `, [localBookId, priorityUserId]);
+
+      await runMigrationsWithPool(migrationPool, migration0038Directory);
+
+      const { rows: booksById } = await migrationPool.query(`
+        SELECT id, is_write_target, is_subscribed, is_lookup_source
+        FROM address_books
+        WHERE id = ANY($1::uuid[])
+      `, [[
+        earlierUnknownBookId, allowedBookId, earlierTieBookId,
+        laterTieBookId, deniedBookId, localBookId,
+      ]]);
+      const byId = Object.fromEntries(booksById.map(row => [row.id, row]));
+
+      // Capability priority: 'allowed' wins even though created later.
+      expect(byId[allowedBookId]).toEqual({
+        id: allowedBookId, is_write_target: true, is_subscribed: true, is_lookup_source: true,
+      });
+      expect(byId[earlierUnknownBookId]).toEqual({
+        id: earlierUnknownBookId, is_write_target: false, is_subscribed: true, is_lookup_source: true,
+      });
+
+      // Tie-break by creation order among equal-priority books.
+      expect(byId[earlierTieBookId]).toEqual({
+        id: earlierTieBookId, is_write_target: true, is_subscribed: true, is_lookup_source: true,
+      });
+      expect(byId[laterTieBookId]).toEqual({
+        id: laterTieBookId, is_write_target: false, is_subscribed: true, is_lookup_source: true,
+      });
+
+      // No create-capable book anywhere -> subscribed + lookup, but no write-target.
+      expect(byId[deniedBookId]).toEqual({
+        id: deniedBookId, is_write_target: false, is_subscribed: true, is_lookup_source: true,
+      });
+
+      // A local (non-carddav) book is untouched by the carddav-only backfill.
+      expect(byId[localBookId]).toEqual({
+        id: localBookId, is_write_target: false, is_subscribed: false, is_lookup_source: true,
+      });
+    } finally {
+      await migrationPool.end();
+      await rm(through0037Directory, { recursive: true, force: true });
+      await rm(migration0038Directory, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  // The non-regression guarantee of the publish-emailed-contacts setting: it
+  // ships OFF, so it may not un-publish anybody. Every contact that is explicit
+  // on the old schema is exporting today, and the backfill (publish_intent =
+  // NOT is_auto) is what keeps it exporting once publication is gated on intent.
+  // Only *new* explicit-by-email contacts land on the false default.
+  it('backfills publish intent from is_auto so existing explicit contacts keep exporting', async () => {
+    const through0039Directory = await createMigrationDirectory('0001', '0039');
+    const migration0040Directory = await createMigrationDirectory('0040', '0040');
+    const migrationPool = new Pool({
+      connectionString: connectionStringFor(databaseNames.publishIntentBackfill),
+    });
+    const userId = randomUUID();
+    const bookId = randomUUID();
+    const curatedId = randomUUID();
+    const emailedId = randomUUID();
+    const harvestedId = randomUUID();
+
+    try {
+      await runMigrationsWithPool(migrationPool, through0039Directory);
+      await migrationPool.query(
+        'INSERT INTO users (id, username) VALUES ($1, $2)',
+        [userId, `carddav-publish-intent-${userId}`],
+      );
+      await migrationPool.query(
+        "INSERT INTO address_books (id, user_id, name, source) VALUES ($1, $2, 'Personal', 'local')",
+        [bookId, userId],
+      );
+      // The two explicit contacts are indistinguishable on the old schema — one
+      // was hand-created, one only ever emailed — and both export today. The
+      // backfill must carry both across, or the setting would silently drop a
+      // contact the user is already syncing.
+      await migrationPool.query(`
+        INSERT INTO contacts (id, address_book_id, user_id, uid, display_name, is_auto)
+        VALUES
+          ($1, $4, $5, 'curated-uid',   'Curated Contact',  false),
+          ($2, $4, $5, 'emailed-uid',   'Emailed Sender',   false),
+          ($3, $4, $5, 'harvested-uid', 'Harvested Sender', true)
+      `, [curatedId, emailedId, harvestedId, bookId, userId]);
+
+      await runMigrationsWithPool(migrationPool, migration0040Directory);
+
+      const { rows } = await migrationPool.query(`
+        SELECT id, is_auto, carddav_publish_intent
+        FROM contacts
+        WHERE user_id = $1
+        ORDER BY display_name
+      `, [userId]);
+      expect(rows).toEqual([
+        { id: curatedId, is_auto: false, carddav_publish_intent: true },
+        { id: emailedId, is_auto: false, carddav_publish_intent: true },
+        { id: harvestedId, is_auto: true, carddav_publish_intent: false },
+      ]);
+
+      // New rows land on the default — an emailed contact created after the
+      // migration is not published until the user says so.
+      const contactColumns = await readColumns(migrationPool, 'contacts');
+      expect(contactColumns.carddav_publish_intent).toEqual({
+        data_type: 'boolean',
+        is_nullable: 'NO',
+        column_default: 'false',
+      });
+    } finally {
+      await migrationPool.end();
+      await rm(through0039Directory, { recursive: true, force: true });
+      await rm(migration0040Directory, { recursive: true, force: true });
+    }
   }, 120_000);
 });

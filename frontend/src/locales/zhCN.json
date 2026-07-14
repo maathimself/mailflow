@@ -1281,7 +1281,25 @@
         "healthNeedsAttention": "需要处理",
         "healthHealthy": "运行正常",
         "reviewConflicts": "查看冲突",
-        "help": "请使用 Nextcloud 应用专用密码，而非登录密码——SSO 用户需在“设置 → 安全”中创建。当服务器允许写入时，联系人会双向同步。"
+        "help": "请使用 Nextcloud 应用专用密码，而非登录密码——SSO 用户需在“设置 → 安全”中创建。当服务器允许写入时，联系人会双向同步。",
+        "publishEmailedContacts": "发布邮件联系人",
+        "publishEmailedContactsDesc": "将您发过邮件的人添加到写入目标通讯录。",
+        "books": {
+          "title": "通讯簿",
+          "empty": "尚未发现任何通讯簿。",
+          "writeTarget": "写入目标",
+          "subscribed": "已订阅",
+          "lookupOnly": "仅用于查找",
+          "ignored": "已忽略",
+          "writable": "可写入",
+          "readOnly": "只读",
+          "unknownCapability": "未知",
+          "counts": "列表中 {{materialized}} 个 · 用于查找 {{lookup}} 个",
+          "lastSync": "上次同步：{{when}}",
+          "subscribeLabel": "订阅",
+          "lookupLabel": "查找发件人",
+          "updateFailed": "无法更新通讯簿"
+        }
       }
     },
     "ssoLinked": {
@@ -1364,6 +1382,13 @@
     "carddavConflict": "CardDAV 数据冲突",
     "carddavPending": "同步待处理",
     "carddavWriteUnconfirmed": "您的更改可能已经生效——联系人已刷新。请检查后按需重试。",
+    "promote": {
+      "action": "保存到通讯录",
+      "hint": "将此联系人保存到 CardDAV 通讯录，以保持同步。",
+      "noWriteTarget": "尚未将任何通讯簿设为写入目标。请在「设置 → CardDAV 联系人」的「通讯簿」中选择一个，然后重试。",
+      "readOnly": "写入目标通讯簿不接受新联系人。请在「设置 → CardDAV 联系人」的「通讯簿」中选择一个可写入的通讯簿。",
+      "failed": "无法将此联系人保存到通讯录。"
+    },
     "photo": {
       "title": "头像",
       "contactAlt": "联系人头像",

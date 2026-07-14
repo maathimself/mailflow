@@ -1281,7 +1281,25 @@
         "healthNeedsAttention": "Intervention nécessaire",
         "healthHealthy": "Bon fonctionnement",
         "reviewConflicts": "Examiner les conflits",
-        "help": "Utilisez un mot de passe d’application Nextcloud, pas votre mot de passe de connexion — les utilisateurs SSO doivent en créer un dans Paramètres → Sécurité. Les contacts sont synchronisés dans les deux sens lorsque le serveur autorise l’écriture."
+        "help": "Utilisez un mot de passe d’application Nextcloud, pas votre mot de passe de connexion — les utilisateurs SSO doivent en créer un dans Paramètres → Sécurité. Les contacts sont synchronisés dans les deux sens lorsque le serveur autorise l’écriture.",
+        "publishEmailedContacts": "Publier les contacts destinataires",
+        "publishEmailedContactsDesc": "Ajoute les personnes auxquelles vous écrivez au carnet d’adresses cible.",
+        "books": {
+          "title": "Carnets d'adresses",
+          "empty": "Aucun carnet d'adresses détecté pour l'instant.",
+          "writeTarget": "Cible d'écriture",
+          "subscribed": "Abonné",
+          "lookupOnly": "Recherche uniquement",
+          "ignored": "Ignoré",
+          "writable": "Modifiable",
+          "readOnly": "Lecture seule",
+          "unknownCapability": "Inconnu",
+          "counts": "{{materialized}} dans la liste · {{lookup}} pour la recherche",
+          "lastSync": "Dernière synchro : {{when}}",
+          "subscribeLabel": "S'abonner",
+          "lookupLabel": "Rechercher les expéditeurs",
+          "updateFailed": "Échec de la mise à jour du carnet d'adresses"
+        }
       }
     },
     "ssoLinked": {
@@ -1365,6 +1383,13 @@
     "carddavConflict": "Conflit CardDAV",
     "carddavPending": "Synchronisation en attente",
     "carddavWriteUnconfirmed": "Votre modification a peut-être déjà été appliquée : le contact a été actualisé. Vérifiez-le et réessayez si nécessaire.",
+    "promote": {
+      "action": "Enregistrer dans le carnet d'adresses",
+      "hint": "Enregistrez ce contact dans votre carnet d'adresses CardDAV pour le garder synchronisé.",
+      "noWriteTarget": "Aucun carnet d'adresses n'est défini comme cible d'écriture. Choisissez-en un dans Carnets d'adresses, sous Paramètres → Contacts CardDAV, puis réessayez.",
+      "readOnly": "Le carnet d'adresses cible d'écriture n'accepte pas de nouveaux contacts. Choisissez-en un modifiable dans Carnets d'adresses, sous Paramètres → Contacts CardDAV.",
+      "failed": "Impossible d'enregistrer ce contact dans le carnet d'adresses."
+    },
     "photo": {
       "title": "Photographie",
       "contactAlt": "Photo du contact",

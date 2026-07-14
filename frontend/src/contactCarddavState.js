@@ -67,6 +67,44 @@ export function canUploadContactPhoto(contact) {
   return Boolean(contact) && contactCarddavState(contact).canEdit;
 }
 
+const NO_PROMOTION = { visible: false, enabled: false, reasonKey: null, bookName: null };
+
+// Promotion is the one deliberate action that turns an auto-collected contact
+// into a curated one and publishes it to the CardDAV write-target book. Editing
+// a harvested contact no longer does this (the backend preserves is_auto), so
+// the action needs its own control rather than riding along with a field edit.
+//
+// Hidden when there is nothing to promote (an explicit or already-mapped
+// contact) or nowhere to promote to (no CardDAV account). Shown but disabled —
+// with the reason — when the account has no usable write-target, because that
+// is a state the user can fix in the integration settings.
+export function contactPromotionState(contact, carddav) {
+  if (!contact?.is_auto || isCardDavContact(contact)) return NO_PROMOTION;
+  if (!carddav?.connected) return NO_PROMOTION;
+
+  const target = (carddav.books || []).find(book => book.isWriteTarget);
+  if (!target) {
+    return { visible: true, enabled: false, reasonKey: 'contacts.promote.noWriteTarget', bookName: null };
+  }
+  const bookName = target.name || null;
+  if (target.capabilities?.create === 'denied') {
+    return { visible: true, enabled: false, reasonKey: 'contacts.promote.readOnly', bookName };
+  }
+  return { visible: true, enabled: true, reasonKey: null, bookName };
+}
+
+// Book roles can change between the status read and the click, so a rejected
+// promotion is translated from its typed code rather than echoing the backend's
+// English message into a localized UI.
+const PROMOTE_FAILURE_KEYS = {
+  ERR_CARDDAV_NO_WRITE_TARGET: 'contacts.promote.noWriteTarget',
+  ERR_CARDDAV_READ_ONLY: 'contacts.promote.readOnly',
+};
+
+export function promoteFailureKey(error) {
+  return PROMOTE_FAILURE_KEYS[error?.data?.code] || 'contacts.promote.failed';
+}
+
 export function cloneFields(fields) {
   return (fields || []).map(field => ({
     id: field?.id,

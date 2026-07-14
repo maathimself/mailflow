@@ -207,12 +207,16 @@ export const api = {
   createContact: (data)     => request('POST',   '/contacts', data),
   updateContact: (id, data) => request('PATCH',  `/contacts/${id}`, data),
   deleteContact: (id)       => request('DELETE', `/contacts/${id}`),
+  // Make an auto-collected contact explicit and export it to the CardDAV
+  // write-target book. Editing the contact deliberately does not do this.
+  promoteContact: (id)      => request('POST',   `/contacts/${id}/promote`),
 
   // CardDAV contact sync (Nextcloud etc.)
   carddav: {
     status:     ()     => request('GET',    '/carddav'),
     connect:    (data) => request('POST',   '/carddav/connect', data),
     update:     (data) => request('PATCH',  '/carddav', data),
+    patchBook:  (id, roles) => request('PATCH', `/carddav/books/${encodeURIComponent(id)}`, roles),
     sync:       ()     => request('POST',   '/carddav/sync'),
     disconnect: ()     => request('DELETE', '/carddav'),
     getConflicts: () => request('GET', '/carddav/conflicts'),

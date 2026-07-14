@@ -91,6 +91,7 @@ function resolutionRow(overrides = {}) {
     contact_etag: 'local-etag-before',
     local_address_book_id: LOCAL_BOOK_ID,
     remote_book_url: 'https://dav.example.test/books/default/',
+    remote_book_is_write_target: true,
     connection_generation: 'generation-current',
     config: {
       serverUrl: 'https://dav.example.test/',
@@ -351,6 +352,44 @@ describe('conflict resolution lifecycle', () => {
     expect(sql.some(statement => /UPDATE contacts SET/.test(statement))).toBe(true);
     expect(sql.some(statement => /UPDATE carddav_remote_objects/.test(statement))).toBe(true);
     expect(sql.some(statement => /UPDATE carddav_conflicts/.test(statement))).toBe(true);
+  });
+
+  // multi-book-design.md's load-bearing invariant: a subscribed (or lookup)
+  // secondary is read-only from MailFlow regardless of server write
+  // capability, so 'keep-mailflow' — the one MailFlow-originated write this
+  // service performs — must refuse before any network call when this
+  // conflict's book isn't the write-target.
+  it('refuses keep-mailflow before any network call when the book is not the write-target', async () => {
+    const preflight = resolutionRow({ remote_book_is_write_target: false });
+    mocks.query.mockResolvedValueOnce({ rows: [preflight] });
+
+    await expect(conflictService.resolveConflict(
+      USER_ID,
+      CONFLICT_ID,
+      'keep-mailflow',
+    )).rejects.toMatchObject({ code: 'ERR_CARDDAV_READ_ONLY' });
+
+    expect(mocks.fetchCardResource).not.toHaveBeenCalled();
+    expect(mocks.putCardResource).not.toHaveBeenCalled();
+    expect(mocks.deleteCardResource).not.toHaveBeenCalled();
+    expect(mocks.withTransaction).not.toHaveBeenCalled();
+  });
+
+  it('allows keep-carddav regardless of write-target status (no MailFlow-originated write)', async () => {
+    const preflight = resolutionRow({ remote_book_is_write_target: false });
+    const client = resolutionClient(preflight);
+    mocks.query.mockResolvedValueOnce({ rows: [preflight] });
+    mocks.fetchCardResource.mockResolvedValueOnce({ href: HREF, etag: '"remote-1"', vcard: remoteVCard });
+    mocks.withTransaction.mockImplementationOnce(async callback => callback(client));
+
+    await expect(conflictService.resolveConflict(
+      USER_ID,
+      CONFLICT_ID,
+      'keep-carddav',
+    )).resolves.toMatchObject({ status: 'resolved', resolution: 'keep-carddav' });
+
+    expect(mocks.putCardResource).not.toHaveBeenCalled();
+    expect(mocks.deleteCardResource).not.toHaveBeenCalled();
   });
 
   it('keep-mailflow conditionally deletes a local tombstone before canonical confirmation', async () => {

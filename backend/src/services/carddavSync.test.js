@@ -106,6 +106,8 @@ function applyClient({
   lifecycleBooks = [],
   contactCount = 0,
   ledger = new Set(),
+  hasDiscoveryAlias = false,
+  bookRow = null,
 } = {}) {
   return {
     query: vi.fn(async (sql, params) => {
@@ -120,12 +122,12 @@ function applyClient({
           }],
         } : { rows: [] };
       }
-      if (/SELECT id, source, external_url, sync_token[\s\S]+FROM address_books/.test(sql)) {
+      if (/SELECT id, source, external_url[\s\S]*FROM address_books[\s\S]+FOR UPDATE/.test(sql)) {
         return { rows: lifecycleBooks };
       }
       if (/external_url = ANY\(\$2::text\[\]\)[\s\S]+FOR UPDATE/.test(sql)) {
         return bookPresent ? {
-          rows: [{
+          rows: [bookRow ?? {
             id: BOOK_ID,
             external_url: params[1][0],
             remote_sync_token: remoteToken,
@@ -139,6 +141,7 @@ function applyClient({
           ? { rows: [{
             id: '00000000-0000-4000-8000-000000000006',
             has_legacy_projection: false,
+            has_discovery_alias: hasDiscoveryAlias,
             connection_generation: connectionGeneration,
             contact_count: String(contactCount),
           }] }
@@ -645,6 +648,77 @@ describe('applyBookDelta', () => {
       USER_ID,
       [ALIAS_BOOK_URL, CANONICAL_BOOK_URL],
     ]);
+  });
+
+  it('resolves an already-canonicalized book seen again via its alias by discovery_alias_url', async () => {
+    // The book was canonicalized on an earlier sync: external_url now holds the
+    // canonical URL and discovery_alias_url retains the alias the server keeps
+    // advertising. Discovery returns the alias again, so the plan observes the
+    // alias but reconciles to the canonical URL. The locked row (matched by
+    // discovery_alias_url on the alias-aware schema) must resolve normally, not
+    // be rejected as observed-alias-missing.
+    const client = applyClient({
+      hasDiscoveryAlias: true,
+      bookRow: {
+        id: BOOK_ID,
+        external_url: CANONICAL_BOOK_URL,
+        discovery_alias_url: ALIAS_BOOK_URL,
+        remote_sync_token: null,
+        remote_sync_revision: '0',
+        sync_token: 'local-token-before',
+      },
+    });
+
+    await carddavSync.applyBookDelta(client, completePlan({
+      book: { url: ALIAS_BOOK_URL, displayName: 'Remote' },
+      collectionIdentity: {
+        observedUrl: ALIAS_BOOK_URL,
+        canonicalUrl: CANONICAL_BOOK_URL,
+      },
+    }));
+
+    // The lock uses the alias-aware predicate and the book advances in place —
+    // no new row is inserted for the alias.
+    const bookLock = client.query.mock.calls.find(([sql]) => (
+      /external_url = ANY\(\$2::text\[\]\)[\s\S]+FOR UPDATE/.test(sql)
+    ));
+    expect(bookLock[0]).toMatch(/discovery_alias_url = ANY\(\$2::text\[\]\)/);
+    expect(client.query.mock.calls.some(([sql]) => sql.includes('INSERT INTO address_books')))
+      .toBe(false);
+    const bookUpdate = client.query.mock.calls.find(([sql]) => /UPDATE address_books SET/.test(sql));
+    expect(bookUpdate[0]).toMatch(/remote_sync_revision = remote_sync_revision \+ 1/);
+  });
+
+  it('resolves an already-canonicalized book on a transitional schema by canonical URL', async () => {
+    // Same scenario, but the schema predates discovery_alias_url (migration
+    // 0034): the locked row carries no alias column, yet the row was still
+    // rewritten to its canonical external_url. The canonical-URL fallback must
+    // find it rather than inserting a duplicate or rejecting the sync.
+    const client = applyClient({
+      hasDiscoveryAlias: false,
+      bookRow: {
+        id: BOOK_ID,
+        external_url: CANONICAL_BOOK_URL,
+        remote_sync_token: null,
+        remote_sync_revision: '0',
+        sync_token: 'local-token-before',
+      },
+    });
+
+    await carddavSync.applyBookDelta(client, completePlan({
+      book: { url: ALIAS_BOOK_URL, displayName: 'Remote' },
+      collectionIdentity: {
+        observedUrl: ALIAS_BOOK_URL,
+        canonicalUrl: CANONICAL_BOOK_URL,
+      },
+    }));
+
+    const bookLock = client.query.mock.calls.find(([sql]) => (
+      /external_url = ANY\(\$2::text\[\]\)[\s\S]+FOR UPDATE/.test(sql)
+    ));
+    expect(bookLock[0]).not.toMatch(/discovery_alias_url/);
+    expect(client.query.mock.calls.some(([sql]) => sql.includes('INSERT INTO address_books')))
+      .toBe(false);
   });
 
   it('rejects a zero-row final book update as stale', async () => {
@@ -1220,6 +1294,161 @@ describe('prepareBookPlan fences', () => {
     expect(mocks.fetchAddressBookDelta).toHaveBeenCalledTimes(2);
     expect(mocks.withTransaction).not.toHaveBeenCalled();
   });
+
+  it('resolves the planning join by discovery_alias_url when discovery returns the alias', async () => {
+    // The book was rewritten to its canonical external_url on an earlier sync
+    // and retains the alias in discovery_alias_url. Discovery now returns the
+    // alias, so the join must match on discovery_alias_url to keep the book's
+    // stored incremental token — an external_url-only join would miss the row
+    // and force a full re-pull that then fails the apply step's alias check.
+    mocks.query.mockImplementation(async (sql, params) => {
+      expect(params).toEqual([USER_ID, ALIAS_BOOK_URL]);
+      if (/b\.discovery_alias_url = \$2/.test(sql)) {
+        return { rows: [{
+          book_id: BOOK_ID,
+          connection_generation: CONNECTION_GENERATION,
+          remote_sync_token: 'stored-token',
+          remote_sync_capability: 'sync-collection',
+          remote_sync_revision: '5',
+        }] };
+      }
+      return { rows: [{
+        book_id: null,
+        connection_generation: CONNECTION_GENERATION,
+        remote_sync_token: null,
+        remote_sync_capability: null,
+        remote_sync_revision: null,
+      }] };
+    });
+    mocks.fetchAddressBookDelta.mockImplementation(async request => ({
+      expectedRemoteToken: request.syncToken,
+      nextRemoteToken: 'after',
+      capability: 'sync-collection',
+      replaceAll: false,
+      collectionIdentity: { observedUrl: ALIAS_BOOK_URL, canonicalUrl: ALIAS_BOOK_URL },
+      upserts: [],
+      removedHrefs: [],
+    }));
+
+    const plan = await carddavSync.prepareBookPlan(
+      USER_ID,
+      { url: ALIAS_BOOK_URL, displayName: 'Remote', supportsSyncCollection: true },
+      { username: 'user', password: 'password' },
+    );
+
+    expect(plan).toMatchObject({
+      expectedRemoteToken: 'stored-token',
+      expectedRemoteRevision: '5',
+    });
+    expect(mocks.query.mock.calls[0][0]).toMatch(
+      /b\.external_url = \$2 OR b\.discovery_alias_url = \$2/,
+    );
+  });
+
+  it('falls back to an external_url-only planning join on a not-yet-migrated schema', async () => {
+    let aliasAttempts = 0;
+    mocks.query.mockImplementation(async sql => {
+      if (/discovery_alias_url/.test(sql)) {
+        aliasAttempts++;
+        throw Object.assign(
+          new Error('column "discovery_alias_url" does not exist'),
+          { code: '42703' },
+        );
+      }
+      return { rows: [{
+        book_id: BOOK_ID,
+        connection_generation: CONNECTION_GENERATION,
+        remote_sync_token: 'stored-token',
+        remote_sync_capability: 'sync-collection',
+        remote_sync_revision: '5',
+      }] };
+    });
+    mocks.fetchAddressBookDelta.mockImplementation(async request => ({
+      expectedRemoteToken: request.syncToken,
+      nextRemoteToken: 'after',
+      capability: 'sync-collection',
+      replaceAll: false,
+      collectionIdentity: { observedUrl: BOOK_URL, canonicalUrl: BOOK_URL },
+      upserts: [],
+      removedHrefs: [],
+    }));
+
+    const plan = await carddavSync.prepareBookPlan(
+      USER_ID,
+      { url: BOOK_URL, displayName: 'Remote', supportsSyncCollection: true },
+      { username: 'user', password: 'password' },
+    );
+
+    expect(aliasAttempts).toBe(1);
+    expect(plan).toMatchObject({
+      expectedRemoteToken: 'stored-token',
+      expectedRemoteRevision: '5',
+    });
+    const plainCall = mocks.query.mock.calls.find(([sql]) => !/discovery_alias_url/.test(sql));
+    expect(plainCall[0]).toMatch(/b\.external_url = \$2/);
+  });
+});
+
+describe('reconcileStaleCarddavBooks alias handling', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function reconcileClient(bookRows) {
+    const deletes = [];
+    const client = {
+      query: vi.fn(async (sql, params) => {
+        if (/SELECT id, source, external_url[\s\S]*FROM address_books[\s\S]+FOR UPDATE/.test(sql)) {
+          return { rows: bookRows };
+        }
+        if (/DELETE FROM address_books/.test(sql)) {
+          deletes.push(params);
+          return { rowCount: params[1].length };
+        }
+        if (/count\(\*\)::int/.test(sql)) return { rows: [{ count: 0 }] };
+        return { rows: [], rowCount: 0 };
+      }),
+    };
+    return { client, deletes };
+  }
+
+  it('keeps a carddav book discovery surfaced only under its alias', async () => {
+    const canonicalUrl = 'https://dav.example.test/addressbooks/canonical/';
+    const aliasUrl = 'https://dav.example.test/addressbooks/alias/';
+    const { client, deletes } = reconcileClient([{
+      id: BOOK_ID,
+      source: 'carddav',
+      external_url: canonicalUrl,
+      discovery_alias_url: aliasUrl,
+      sync_token: null,
+    }]);
+
+    const result = await carddavSync.reconcileStaleCarddavBooks(client, USER_ID, {
+      seenUrls: [aliasUrl],
+    });
+
+    expect(deletes).toEqual([]);
+    expect(result).toEqual([]);
+  });
+
+  it('still deletes a carddav book neither URL was seen for', async () => {
+    const goneUrl = 'https://dav.example.test/addressbooks/gone/';
+    const { client, deletes } = reconcileClient([{
+      id: BOOK_ID,
+      source: 'carddav',
+      external_url: goneUrl,
+      discovery_alias_url: null,
+      sync_token: null,
+    }]);
+
+    const result = await carddavSync.reconcileStaleCarddavBooks(client, USER_ID, {
+      seenUrls: ['https://dav.example.test/addressbooks/other/'],
+    });
+
+    expect(deletes).toHaveLength(1);
+    expect(deletes[0]).toEqual([USER_ID, [BOOK_ID]]);
+    expect(result).toEqual([BOOK_ID]);
+  });
 });
 
 describe('pull-first automatic export orchestration', () => {
@@ -1264,6 +1493,7 @@ describe('pull-first automatic export orchestration', () => {
       if (/mapping.local_contact_id = c.id/.test(sql)) {
         return { rows: [{ id: 'local-a' }, { id: 'local-b' }] };
       }
+      if (sql.includes('is_write_target')) return { rows: [{ '?column?': 1 }] };
       return { rows: [], rowCount: 0 };
     });
     mocks.discoverAddressBooks.mockResolvedValue(books);
@@ -1279,6 +1509,9 @@ describe('pull-first automatic export orchestration', () => {
     mocks.withTransaction
       .mockResolvedValueOnce({ remote: 0, updated: 0, removed: 0, skipped: 0, merged: 0 })
       .mockResolvedValueOnce({ remote: 0, updated: 0, removed: 0, skipped: 0, merged: 0 })
+      // The batch-wide write-target claim (see claimBestWriteTargetCandidate),
+      // once every book of this snapshot has been persisted.
+      .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce(0);
     mocks.exportExistingContact
       .mockRejectedValueOnce(Object.assign(new Error('read only'), {
@@ -1297,8 +1530,14 @@ describe('pull-first automatic export orchestration', () => {
       .toBeLessThan(mocks.withTransaction.mock.invocationCallOrder[0]);
     expect(mocks.withTransaction.mock.invocationCallOrder[1])
       .toBeLessThan(mocks.exportExistingContact.mock.invocationCallOrder[0]);
+    // The write-target claim (3rd withTransaction call) ranks the whole
+    // snapshot once every book has been persisted, before the export sweep
+    // starts, so a fresh multi-book connect's write-target is available to
+    // it within this same sync.
+    expect(mocks.withTransaction.mock.invocationCallOrder[2])
+      .toBeLessThan(mocks.exportExistingContact.mock.invocationCallOrder[0]);
     expect(mocks.exportExistingContact.mock.invocationCallOrder[1])
-      .toBeLessThan(mocks.withTransaction.mock.invocationCallOrder[2]);
+      .toBeLessThan(mocks.withTransaction.mock.invocationCallOrder[3]);
     expect(result).toMatchObject({
       ok: true,
       exportFailures: [{
@@ -1307,6 +1546,113 @@ describe('pull-first automatic export orchestration', () => {
         message: 'read only',
       }],
     });
+  });
+
+  it('skips the export sweep entirely when no write-target book is configured', async () => {
+    const books = [{
+      url: BOOK_URL,
+      displayName: 'Remote',
+      supportsSyncCollection: true,
+      discoveryIndex: 0,
+      capabilities: { create: 'allowed', update: 'allowed', delete: 'allowed' },
+    }];
+    mocks.query.mockImplementation(async sql => {
+      if (/SELECT config FROM user_integrations/.test(sql)) {
+        return { rows: [{ config: {
+          serverUrl: 'https://dav.example.test/',
+          username: 'user',
+          password: 'encrypted',
+          connectionGeneration: CONNECTION_GENERATION,
+        } }] };
+      }
+      if (/SELECT remote_sync_token/.test(sql)) {
+        return { rows: [{
+          remote_sync_token: null,
+          remote_sync_capability: 'unknown',
+          remote_sync_revision: '0',
+          connection_generation: CONNECTION_GENERATION,
+        }] };
+      }
+      // No is_write_target row for this user: the whole sweep, including the
+      // unmapped-explicit-contact query, must be skipped rather than surfacing
+      // one ERR_CARDDAV_NO_WRITE_TARGET failure per unmapped contact.
+      return { rows: [], rowCount: 0 };
+    });
+    mocks.discoverAddressBooks.mockResolvedValue(books);
+    mocks.fetchAddressBookDelta.mockResolvedValue({
+      expectedRemoteToken: null,
+      nextRemoteToken: 'token',
+      capability: 'sync-collection',
+      replaceAll: true,
+      collectionIdentity: { observedUrl: BOOK_URL, canonicalUrl: BOOK_URL },
+      upserts: [],
+      removedHrefs: [],
+    });
+    mocks.withTransaction
+      .mockResolvedValueOnce({ remote: 0, updated: 0, removed: 0, skipped: 0, merged: 0 })
+      .mockResolvedValueOnce(undefined) // batch-wide write-target claim
+      .mockResolvedValueOnce(0);
+
+    const result = await carddavSync.syncUser(USER_ID);
+
+    expect(result).toMatchObject({ ok: true, exportFailures: [] });
+    expect(mocks.exportExistingContact).not.toHaveBeenCalled();
+    expect(mocks.query.mock.calls.some(([sql]) => /c\.is_auto = false/.test(sql))).toBe(false);
+  });
+
+  it('runs the export sweep unconditionally on a not-yet-migrated (transitional) schema', async () => {
+    const books = [{
+      url: BOOK_URL,
+      displayName: 'Remote',
+      supportsSyncCollection: true,
+      discoveryIndex: 0,
+      capabilities: { create: 'allowed', update: 'allowed', delete: 'allowed' },
+    }];
+    mocks.query.mockImplementation(async sql => {
+      if (/SELECT config FROM user_integrations/.test(sql)) {
+        return { rows: [{ config: {
+          serverUrl: 'https://dav.example.test/',
+          username: 'user',
+          password: 'encrypted',
+          connectionGeneration: CONNECTION_GENERATION,
+        } }] };
+      }
+      if (/SELECT remote_sync_token/.test(sql)) {
+        return { rows: [{
+          remote_sync_token: null,
+          remote_sync_capability: 'unknown',
+          remote_sync_revision: '0',
+          connection_generation: CONNECTION_GENERATION,
+        }] };
+      }
+      if (/mapping.local_contact_id = c.id/.test(sql)) return { rows: [{ id: 'local-a' }] };
+      if (sql.includes('is_write_target')) {
+        throw Object.assign(new Error('column "is_write_target" does not exist'), { code: '42703' });
+      }
+      return { rows: [], rowCount: 0 };
+    });
+    mocks.discoverAddressBooks.mockResolvedValue(books);
+    mocks.fetchAddressBookDelta.mockResolvedValue({
+      expectedRemoteToken: null,
+      nextRemoteToken: 'token',
+      capability: 'sync-collection',
+      replaceAll: true,
+      collectionIdentity: { observedUrl: BOOK_URL, canonicalUrl: BOOK_URL },
+      upserts: [],
+      removedHrefs: [],
+    });
+    mocks.withTransaction
+      .mockResolvedValueOnce({ remote: 0, updated: 0, removed: 0, skipped: 0, merged: 0 })
+      .mockResolvedValueOnce(undefined) // batch-wide write-target claim
+      .mockResolvedValueOnce(0);
+    mocks.exportExistingContact.mockResolvedValueOnce({ id: 'local-a' });
+
+    const result = await carddavSync.syncUser(USER_ID);
+
+    expect(result).toMatchObject({ ok: true });
+    expect(mocks.exportExistingContact).toHaveBeenCalledWith(
+      USER_ID, 'local-a', { books, expectedGeneration: CONNECTION_GENERATION },
+    );
   });
 });
 
@@ -1328,6 +1674,7 @@ describe('network planning orchestration', () => {
     });
     mocks.withTransaction
       .mockImplementationOnce(callback => callback(client))
+      .mockResolvedValueOnce(undefined) // batch-wide write-target claim
       .mockResolvedValueOnce(0);
 
     await expect(carddavSync.syncUser(USER_ID)).resolves.toMatchObject({ ok: true });
@@ -1422,7 +1769,8 @@ describe('network planning orchestration', () => {
       removed: 0,
       fallback: 0,
     });
-    expect(mocks.withTransaction).toHaveBeenCalledTimes(3);
+    // Two books, plus the batch-wide write-target claim, plus finalization.
+    expect(mocks.withTransaction).toHaveBeenCalledTimes(4);
     expect(mocks.fetchAddressBookDelta).toHaveBeenCalledTimes(2);
     expect(mocks.query).toHaveBeenCalledWith(
       expect.stringContaining('SELECT remote_sync_token'),
@@ -1481,6 +1829,7 @@ describe('network planning orchestration', () => {
     });
     mocks.withTransaction
       .mockImplementationOnce(callback => callback(apply))
+      .mockImplementationOnce(callback => callback(apply)) // batch-wide write-target claim
       .mockImplementationOnce(callback => callback(finalize));
 
     const result = await carddavSync.syncUser(USER_ID);
@@ -1542,6 +1891,7 @@ describe('network planning orchestration', () => {
           connectionGeneration: CONNECTION_GENERATION,
         } }] };
       }
+      if (sql.includes('is_write_target')) return { rows: [{ '?column?': 1 }] };
       return { rows: [], rowCount: 0 };
     });
     mocks.discoverAddressBooks.mockResolvedValue([]);
@@ -1553,8 +1903,12 @@ describe('network planning orchestration', () => {
     expect(result).toEqual({ ok: false, error: 'not connected', ...EMPTY_COUNTERS });
     expect(finalize.query).toHaveBeenCalledOnce();
     expect(finalize.query.mock.calls[0][0]).toMatch(/FROM user_integrations[\s\S]+FOR UPDATE/);
-    expect(mocks.query).toHaveBeenCalledTimes(2);
-    expect(mocks.query.mock.calls[1][0]).toMatch(/c\.is_auto = false/);
+    expect(mocks.query).toHaveBeenCalledTimes(4);
+    // Per-book role load (multi-book Slice 3), then the write-target sweep gate,
+    // then the unmapped-explicit-contact query.
+    expect(mocks.query.mock.calls[1][0]).toMatch(/is_lookup_source/);
+    expect(mocks.query.mock.calls[2][0]).toMatch(/is_write_target = true/);
+    expect(mocks.query.mock.calls[3][0]).toMatch(/c\.is_auto = false/);
   });
 
   it('does not open a transaction or write when a later book multiget batch fails', async () => {
@@ -1765,7 +2119,9 @@ describe('network planning orchestration', () => {
     const result = await carddavSync.syncUser(USER_ID);
 
     expect(result).toMatchObject({ ok: true, bookCount: 2 });
-    expect(mocks.withTransaction).toHaveBeenCalledTimes(4);
+    // bookA + bookB + one refetched retry of bookB, plus the batch-wide
+    // write-target claim, plus finalization.
+    expect(mocks.withTransaction).toHaveBeenCalledTimes(5);
     expect(mocks.fetchAddressBookDelta.mock.calls.map(([request]) => [request.url, request.syncToken]))
       .toEqual([
         [BOOK_URL, 'first-before'],
@@ -1890,13 +2246,14 @@ describe('network planning orchestration', () => {
         reason: 'projection-footprint-changed',
       }))
       .mockImplementationOnce(callback => callback(applyClient()))
+      .mockImplementationOnce(callback => callback(applyClient())) // batch-wide write-target claim
       .mockImplementationOnce(callback => callback(applyClient({ lifecycleBooks: [] })));
 
     const result = await carddavSync.syncUser(USER_ID);
 
     expect(result).toMatchObject({ ok: true, bookCount: 1 });
     expect(mocks.fetchAddressBookDelta).toHaveBeenCalledOnce();
-    expect(mocks.withTransaction).toHaveBeenCalledTimes(3);
+    expect(mocks.withTransaction).toHaveBeenCalledTimes(4);
   });
 
   it('runs the latest committed replacement despite delayed queue request order', async () => {
@@ -2007,6 +2364,53 @@ describe('network planning orchestration', () => {
     await new Promise(resolve => setImmediate(resolve));
 
     expect(mocks.discoverAddressBooks).toHaveBeenCalledOnce();
+  });
+
+  it('queues a follow-up sync for a same-generation change the in-flight sync may have missed', async () => {
+    const started = deferred();
+    const release = deferred();
+    const followUpStarted = deferred();
+    let discoveries = 0;
+    mocks.query.mockImplementation(async sql => {
+      if (sql.includes("provider = 'carddav'") && sql.includes('SELECT config')) {
+        return { rows: [{ config: {
+          serverUrl: 'https://dav.example.test/',
+          username: 'user',
+          password: 'encrypted',
+          connectionGeneration: CONNECTION_GENERATION,
+        } }] };
+      }
+      return { rows: [], rowCount: 0 };
+    });
+    mocks.discoverAddressBooks.mockImplementation(async () => {
+      discoveries++;
+      if (discoveries === 1) {
+        started.resolve();
+        await release.promise;
+      } else {
+        followUpStarted.resolve();
+      }
+      return [];
+    });
+    mocks.withTransaction.mockImplementation(callback => callback(applyClient({
+      connectionGeneration: CONNECTION_GENERATION,
+      lifecycleBooks: [],
+    })));
+
+    expect(carddavSync.requestCarddavSync(USER_ID, CONNECTION_GENERATION)).toBe(true);
+    await started.promise;
+    // A book role patch commits without bumping the generation, so the in-flight
+    // sync may already be past the book it changed. Opting out of coalescing
+    // queues a re-run rather than dropping the pull-side effect until the next tick.
+    expect(carddavSync.requestCarddavSync(USER_ID, CONNECTION_GENERATION, { coalesce: false }))
+      .toBe(false);
+    expect(mocks.discoverAddressBooks).toHaveBeenCalledOnce();
+
+    release.resolve();
+    await followUpStarted.promise;
+    await new Promise(resolve => setImmediate(resolve));
+
+    expect(mocks.discoverAddressBooks).toHaveBeenCalledTimes(2);
   });
 });
 

@@ -1,4 +1,70 @@
 import { query } from './db.js';
+import { resolveLookupPhotos } from './carddavLookupService.js';
+
+// Resolve an inbound sender against the user's lookup-only CardDAV books — ledger
+// rows (mapping_status='lookup') that are retained for sender resolution but never
+// materialized as contacts (multi-book-design.md, Slice 4). LATERAL + LIMIT 1
+// yields at most one match, so a sender present in several lookup books never
+// multiplies message rows. It feeds two things below: a fallback display name when
+// the message header carries none, and `matched` — a marker that a retained vCard
+// exists for this sender.
+//
+// `matched` deliberately does NOT try to decide whether that vCard yields a
+// servable avatar: a syntactic "has a PHOTO property" check diverges from the
+// bounded decode the photo endpoint actually runs — it would miss a grouped
+// `item1.PHOTO` (a false no-avatar) and falsely promise a photo for an oversized,
+// URL-only, or malformed one (a guaranteed 404 GET /api/contacts/photo). Instead
+// SQL only flags the sender as a photo *candidate* (co.id IS NULL AND matched);
+// applyLookupPhotoGate below resolves each candidate through the real decode path
+// (resolveLookupPhoto), so has_contact_photo never promises a photo the endpoint
+// would 404 on, nor hides one it would serve.
+const LOOKUP_SENDER_JOIN = `
+        LEFT JOIN LATERAL (
+          SELECT lo.lookup_display_name, true AS matched
+          FROM carddav_remote_objects lo
+          JOIN address_books lab ON lab.id = lo.address_book_id
+          WHERE lo.mapping_status = 'lookup'
+            AND lo.primary_email = lower(m.from_email)
+            AND lab.user_id = a.user_id
+            AND lab.source = 'carddav'
+            AND lab.is_lookup_source = true
+          ORDER BY lo.updated_at DESC
+          LIMIT 1
+        ) lookup ON true`;
+
+// Turn the SQL photo *candidates* (co.id IS NULL AND a lookup vCard matched) into a
+// truthful has_contact_photo by running the same bounded decode the photo endpoint
+// uses. resolveLookupPhoto is memoized, so this also primes the cache that the
+// subsequent GET /api/contacts/photo reads from. Materialized-contact photos are
+// already resolved in SQL (co.id IS NOT NULL) and never re-checked here, so they
+// keep winning over the ledger fallback. Mutates and returns the rows.
+//
+// Candidates are collected as one set of distinct normalized sender emails and
+// resolved in a single batched probe (resolveLookupPhotos), so a page with N
+// distinct lookup senders costs one DB round-trip, not N. Fanning out one query
+// per sender would flood the connection pool on a large page, and — because the
+// in-process LRU cannot dedupe concurrent misses — race every duplicate of a
+// repeated sender to its own DB read + vCard decode (a cache stampede). The
+// batched probe both bounds the pool cost and shares the decode.
+async function applyLookupPhotoGate(userId, rows) {
+  const normalize = row => String(row.from_email ?? '').trim().toLowerCase();
+
+  const candidateEmails = new Set();
+  for (const row of rows) {
+    if (row.lookup_photo_candidate) candidateEmails.add(normalize(row));
+  }
+  const photoByEmail = candidateEmails.size
+    ? await resolveLookupPhotos(userId, [...candidateEmails])
+    : new Map();
+
+  for (const row of rows) {
+    if (row.lookup_photo_candidate && photoByEmail.get(normalize(row))) {
+      row.has_contact_photo = true;
+    }
+    delete row.lookup_photo_candidate;
+  }
+  return rows;
+}
 
 export async function listMessages({ userId, accountId, folder = 'INBOX', limit = 50, offset = 0, unreadOnly, threaded, category }) {
   const accountsResult = await query(
@@ -91,7 +157,9 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
         SELECT DISTINCT ON (m.account_id, m.thread_key, m.message_id)
                m.id, m.uid, m.folder, m.message_id,
                m.thread_key AS thread_id,
-               m.subject, m.from_name, m.from_email,
+               m.subject,
+               COALESCE(NULLIF(m.from_name, ''), lookup.lookup_display_name) AS from_name,
+               m.from_email,
                m.to_addresses, m.cc_addresses, m.reply_to, m.in_reply_to,
                m.date, m.snippet, m.is_read, m.is_starred,
                m.has_attachments, m.account_id, m.category,
@@ -99,12 +167,13 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
                a.name  AS account_name,
                a.email_address AS account_email,
                a.color AS account_color,
-               (co.id IS NOT NULL) AS has_contact_photo
+               (co.id IS NOT NULL) AS has_contact_photo,
+               (co.id IS NULL AND lookup.matched IS TRUE) AS lookup_photo_candidate
         FROM messages m
         JOIN email_accounts a ON m.account_id = a.id
         LEFT JOIN contacts co ON co.user_id = a.user_id
                               AND co.primary_email = lower(m.from_email)
-                              AND co.photo_data IS NOT NULL
+                              AND co.photo_data IS NOT NULL${LOOKUP_SENDER_JOIN}
         WHERE ${where}
           AND m.thread_key IN (SELECT thread_id FROM paged_threads)
         ORDER BY m.account_id,
@@ -132,6 +201,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
                FIRST_VALUE(d.from_name)          OVER (PARTITION BY d.thread_id ORDER BY d.date ASC) AS thread_from_name,
                FIRST_VALUE(d.from_email)         OVER (PARTITION BY d.thread_id ORDER BY d.date ASC) AS thread_from_email,
                FIRST_VALUE(d.has_contact_photo)  OVER (PARTITION BY d.thread_id ORDER BY d.date ASC) AS thread_has_contact_photo,
+               FIRST_VALUE(d.lookup_photo_candidate) OVER (PARTITION BY d.thread_id ORDER BY d.date ASC) AS thread_lookup_photo_candidate,
                ROW_NUMBER() OVER (PARTITION BY d.thread_id ORDER BY d.date DESC) AS rn
         FROM deduped d
         LEFT JOIN thread_totals tt ON tt.thread_id = d.thread_id
@@ -143,7 +213,8 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
              account_name, account_email, account_color,
              category, list_unsubscribe, list_unsubscribe_post,
              message_count, unread_count,
-             thread_has_contact_photo AS has_contact_photo
+             thread_has_contact_photo AS has_contact_photo,
+             thread_lookup_photo_candidate AS lookup_photo_candidate
       FROM ranked
       WHERE rn = 1
       ORDER BY date DESC
@@ -156,7 +227,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
     `, filterValues);
 
     return {
-      messages: threadResult.rows,
+      messages: await applyLookupPhotoGate(userId, threadResult.rows),
       total: threadCountResult.rows[0]?.total ?? 0,
       threaded: true,
       resolvedAccountId: isSpecificAccount ? accountId : null,
@@ -168,25 +239,28 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
   values.push(safeLimit, safeOffset);
 
   const result = await query(`
-    SELECT m.id, m.uid, m.folder, m.message_id, m.subject, m.from_name, m.from_email,
+    SELECT m.id, m.uid, m.folder, m.message_id, m.subject,
+           COALESCE(NULLIF(m.from_name, ''), lookup.lookup_display_name) AS from_name,
+           m.from_email,
            m.to_addresses, m.cc_addresses, m.reply_to, m.in_reply_to,
            m.date, m.snippet, m.is_read, m.is_starred,
            m.has_attachments, m.account_id, m.category,
            m.list_unsubscribe, m.list_unsubscribe_post,
            a.name as account_name, a.email_address as account_email, a.color as account_color,
-           (co.id IS NOT NULL) AS has_contact_photo
+           (co.id IS NOT NULL) AS has_contact_photo,
+           (co.id IS NULL AND lookup.matched IS TRUE) AS lookup_photo_candidate
     FROM messages m
     JOIN email_accounts a ON m.account_id = a.id
     LEFT JOIN contacts co ON co.user_id = a.user_id
                           AND co.primary_email = lower(m.from_email)
-                          AND co.photo_data IS NOT NULL
+                          AND co.photo_data IS NOT NULL${LOOKUP_SENDER_JOIN}
     WHERE ${where}
     ORDER BY m.date DESC
     LIMIT $${limitParam} OFFSET $${offsetParam}
   `, values);
 
   return {
-    messages: result.rows,
+    messages: await applyLookupPhotoGate(userId, result.rows),
     total,
     resolvedAccountId: isSpecificAccount ? accountId : null,
   };

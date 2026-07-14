@@ -10,11 +10,13 @@ import {
   canUploadContactPhoto,
   completePhotoRead,
   contactCarddavState,
+  contactPromotionState,
   contactToForm,
   formToContactDraft,
   initialPhotoReadState,
   invalidatePhotoRead,
   newAdditionalField,
+  promoteFailureKey,
   removeContactPhoto,
   saveFailureState,
   shouldRefreshContactAfterResolution,
@@ -76,6 +78,8 @@ export default function ContactsPage() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showNew, setShowNew]       = useState(false);
   const [conflictCount, setConflictCount] = useState(0);
+  const [carddav, setCarddav] = useState({ connected: false, books: [] });
+  const [promoting, setPromoting] = useState(false);
   const [showConflicts, setShowConflicts] = useState(false);
   const [activeConflictId, setActiveConflictId] = useState(null);
   const [photoRead, setPhotoRead] = useState(initialPhotoReadState);
@@ -126,7 +130,21 @@ export default function ContactsPage() {
     }
   }, []);
 
-  useEffect(() => { load(''); loadConflictCount(); }, [load, loadConflictCount]);
+  // The connection's per-book roles decide whether a harvested contact has a
+  // write-target to be promoted into (see contactPromotionState).
+  const loadCarddav = useCallback(async () => {
+    try {
+      setCarddav(await api.carddav.status());
+    } catch {
+      // Without a readable status the promote affordance simply stays hidden.
+    }
+  }, []);
+
+  useEffect(() => {
+    load('');
+    loadConflictCount();
+    loadCarddav();
+  }, [load, loadConflictCount, loadCarddav]);
 
   const onSearchChange = (e) => {
     const val = e.target.value;
@@ -281,6 +299,30 @@ export default function ContactsPage() {
         setError(failure.error);
       }
     } finally {
+      setSaving(false);
+    }
+  };
+
+  // The deliberate one-way promotion: the backend exports the contact to the
+  // write-target book and only then clears is_auto, so re-reading it here shows
+  // the confirmed result rather than an optimistic guess.
+  const promoteContact = async () => {
+    if (!selected || saving) return;
+    if (!contactPromotionState(selected, carddav).enabled) return;
+    setSaving(true);
+    setPromoting(true);
+    setError(null);
+    try {
+      const promoted = await api.promoteContact(selected.id);
+      await load(search);
+      setSelected(await api.getContact(promoted.id));
+    } catch (err) {
+      setError(t(promoteFailureKey(err)));
+      // A rejection means the stored roles differ from what this page read, so
+      // refresh them: the affordance re-renders to match the real state.
+      await loadCarddav();
+    } finally {
+      setPromoting(false);
       setSaving(false);
     }
   };
@@ -537,12 +579,15 @@ export default function ContactsPage() {
         <ContactDetail
           key={selected.id}
           contact={selected}
+          promotion={contactPromotionState(selected, carddav)}
           confirmDelete={confirmDelete}
           saving={saving}
           photoReading={photoRead.pending}
+          onSetPhoto={uploadDetailPhoto}
+          promoting={promoting}
           error={error}
           onEdit={startEdit}
-          onSetPhoto={uploadDetailPhoto}
+          onPromote={promoteContact}
           onDeleteRequest={() => setConfirmDelete(true)}
           onDeleteConfirm={deleteContact}
           onDeleteCancel={() => setConfirmDelete(false)}
@@ -728,7 +773,7 @@ export default function ContactsPage() {
   );
 }
 
-function ContactDetail({ contact: c, confirmDelete, saving, photoReading, error, onEdit, onSetPhoto, onDeleteRequest, onDeleteConfirm, onDeleteCancel, onOpenConflict, t }) {
+function ContactDetail({ contact: c, promotion, confirmDelete, saving, photoReading, promoting, error, onEdit, onSetPhoto, onPromote, onDeleteRequest, onDeleteConfirm, onDeleteCancel, onOpenConflict, t }) {
   const carddav = contactCarddavState(c);
   const pendingSync = carddav.labelKey === 'contacts.carddavPending';
   const photoInputRef = useRef(null);
@@ -788,9 +833,21 @@ function ContactDetail({ contact: c, confirmDelete, saving, photoReading, error,
             {c.is_auto && (
               <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 4 }}>{t('contacts.autoHint')}</div>
             )}
+            {promotion.reasonKey && (
+              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 4 }}>{t(promotion.reasonKey)}</div>
+            )}
           </div>
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 8, marginLeft: 'auto' }}>
+          {promotion.visible && (
+            <ActionBtn
+              onClick={onPromote}
+              disabled={saving || !promotion.enabled}
+              title={t('contacts.promote.hint')}
+            >
+              {promoting ? t('common.saving') : t('contacts.promote.action')}
+            </ActionBtn>
+          )}
           {carddav.labelKey && (
             <button
               onClick={carddav.conflictId ? () => onOpenConflict(carddav.conflictId) : undefined}
@@ -1206,11 +1263,12 @@ function DetailRow({ label, children }) {
   );
 }
 
-function ActionBtn({ children, onClick, danger, disabled }) {
+function ActionBtn({ children, onClick, danger, disabled, title }) {
   return (
     <button
       onClick={onClick}
       disabled={disabled}
+      title={title}
       className="btn-press"
       style={{
         background: danger ? 'transparent' : 'var(--bg-tertiary)',

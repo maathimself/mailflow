@@ -73,6 +73,9 @@ export const CARDDAV_CONTACT_ERROR_STATUS = Object.freeze({
   ERR_CONTACT_EXISTS: 409,
   ERR_CARDDAV_CONFLICT: 409,
   ERR_CARDDAV_READ_ONLY: 403,
+  ERR_CARDDAV_NO_WRITE_TARGET: 409,
+  ERR_CARDDAV_NOT_CONNECTED: 409,
+  ERR_CARDDAV_ALREADY_MAPPED: 409,
   ERR_CARDDAV_FINAL_FENCE: 503,
   ERR_CARDDAV_STALE_GENERATION: 503,
   ERR_CARDDAV_AMBIGUOUS_WRITE: 409,
@@ -247,7 +250,7 @@ function mergedReplacePayload(clientDocument, retainedDocument) {
       continue;
     }
     // A grouped property survives iff the group has an unmodeled member whose name the client
-    // omitted. Then the group survives, but W7: emit ONLY its unmodeled members and its
+    // omitted. Then the group survives, but emit ONLY its unmodeled members and its
     // X-ABLABEL — NEVER a modeled main (ADR/URL/TEL/…) the client already owns via its
     // full-state modeled fields, which would duplicate that property on the wire (the standard
     // Apple item1.ADR + item1.X-ABADR + item1.X-ABLABEL layout). ACCEPTED CONSEQUENCE: a
@@ -303,9 +306,24 @@ function capability(contact, operation) {
   return contact[`remote_${operation}_capability`] ?? 'unknown';
 }
 
+// A mapped contact whose remote book is not the user's designated
+// is_write_target is a subscribed (or lookup) secondary: read-only from
+// MailFlow *regardless of server write capability* (multi-book-design.md's
+// load-bearing invariant). Every caller only reaches assertWritable for a
+// mapped contact (contact.href is truthy — see updateContact et al.), so an
+// unmapped contact's absent mapping_is_write_target (undefined, not `false`)
+// never trips this. Same for a not-yet-migrated (transitional) schema, where
+// readContact omits the column entirely — consistent with every book being
+// unrestricted before multi-book roles existed.
 function assertWritable(contact, operation) {
   if (capability(contact, operation) === 'denied') {
     throw typedError(`This CardDAV address book does not allow ${operation}`, 'ERR_CARDDAV_READ_ONLY');
+  }
+  if (contact.mapping_is_write_target === false) {
+    throw typedError(
+      'This CardDAV address book is not the write-target and cannot be modified',
+      'ERR_CARDDAV_READ_ONLY',
+    );
   }
   if (contact.mapping_status === 'conflict' && contact.conflict_id) {
     throw new CardDavConflictError(contact.conflict_id);
@@ -324,15 +342,8 @@ async function readIntegration(client, userId, lock = false) {
   return integration?.config?.serverUrl ? integration : null;
 }
 
-async function readContact(client, userId, { contactId, localAddressBookId, uid }) {
-  const conditions = contactId
-    ? 'c.id = $2'
-    : 'c.address_book_id = $2 AND c.uid = $3';
-  const params = contactId
-    ? [userId, contactId]
-    : [userId, localAddressBookId, uid];
-  const { rows: [contact] } = await client.query(
-    `SELECT c.*,
+function readContactSql(conditions, includeWriteTarget) {
+  return `SELECT c.*,
             c.address_book_id AS local_address_book_id,
             mapping.address_book_id AS mapping_address_book_id,
             mapping.href, mapping.remote_etag, mapping.mapping_status,
@@ -346,6 +357,7 @@ async function readContact(client, userId, { contactId, localAddressBookId, uid 
             remote_book.remote_create_capability,
             remote_book.remote_update_capability,
             remote_book.remote_delete_capability,
+            ${includeWriteTarget ? 'remote_book.is_write_target AS mapping_is_write_target,' : ''}
             conflict.id AS conflict_id
      FROM contacts c
      JOIN address_books local_book ON local_book.id = c.address_book_id
@@ -357,10 +369,36 @@ async function readContact(client, userId, { contactId, localAddressBookId, uid 
        ON conflict.address_book_id = mapping.address_book_id
       AND conflict.href = mapping.href
       AND conflict.status = 'unresolved'
-     WHERE c.user_id = $1 AND ${conditions}`,
-    params,
-  );
-  return contact || null;
+     WHERE c.user_id = $1 AND ${conditions}`;
+}
+
+// The write-target join is read on every mapped-contact mutation (see
+// assertWritable), so it's guarded the same way selectedCreateBook guards its
+// own is_write_target read: catch PostgreSQL's undefined_column SQLSTATE
+// (a not-yet-migrated, transitional schema) and retry without that column,
+// rather than a separate information_schema pre-check on every read. A
+// SAVEPOINT is required around the first attempt because this always runs
+// inside the caller's transaction — an uncaught undefined_column error would
+// otherwise abort that whole transaction, not just this query.
+async function readContact(client, userId, { contactId, localAddressBookId, uid }) {
+  const conditions = contactId
+    ? 'c.id = $2'
+    : 'c.address_book_id = $2 AND c.uid = $3';
+  const params = contactId
+    ? [userId, contactId]
+    : [userId, localAddressBookId, uid];
+  await client.query('SAVEPOINT carddav_read_contact');
+  try {
+    const { rows: [contact] } = await client.query(readContactSql(conditions, true), params);
+    await client.query('RELEASE SAVEPOINT carddav_read_contact');
+    return contact || null;
+  } catch (error) {
+    if (!isUndefinedColumn(error)) throw error;
+    await client.query('ROLLBACK TO SAVEPOINT carddav_read_contact');
+    await client.query('RELEASE SAVEPOINT carddav_read_contact');
+    const { rows: [contact] } = await client.query(readContactSql(conditions, false), params);
+    return contact || null;
+  }
 }
 
 async function readOwnedBook(client, userId, addressBookId) {
@@ -406,11 +444,68 @@ async function discoverCreateContext(userId, integration) {
   }
 }
 
-function selectedCreateBook(books) {
-  if (!Array.isArray(books)) throw typedError('A fresh CardDAV book snapshot is required', 'ERR_CARDDAV_BOOKS');
-  const selected = books.find(book => book.capabilities?.create === 'allowed')
+// PostgreSQL's undefined_column SQLSTATE — a not-yet-migrated (transitional,
+// mid-deploy) database that predates the multi-book columns. Detected by
+// catching the error rather than a separate information_schema pre-check (as
+// supportsPendingIntentSchema does) because this query runs on every single
+// write, not once per sync; a second round trip here is exactly the kind of
+// per-write latency this hot path can't absorb.
+function isUndefinedColumn(error) {
+  return error?.code === '42703';
+}
+
+// The single destination for every MailFlow-originated create/export/promotion:
+// the book the user designated `is_write_target`, resolved against a *fresh*
+// discovery snapshot by `external_url` (discovery may run seconds or days after
+// the book was last persisted). There is deliberately no fallback to a
+// different book — a missing or now-denied write-target is a typed, actionable
+// error, never a silent re-route to "some other writable book" (that was the
+// wrong-book footgun this replaces).
+async function writeTargetBookUrls(userId) {
+  const { rows: [target] } = await query(
+    `SELECT external_url, discovery_alias_url
+     FROM address_books
+     WHERE user_id = $1 AND source = 'carddav' AND is_write_target = true`,
+    [userId],
+  );
+  return target ? { externalUrl: target.external_url, aliasUrl: target.discovery_alias_url } : null;
+}
+
+function firstCapableBook(books) {
+  return books.find(book => book.capabilities?.create === 'allowed')
     || books.find(book => (book.capabilities?.create ?? 'unknown') === 'unknown');
-  if (!selected) throw typedError('No writable CardDAV address book was discovered', 'ERR_CARDDAV_READ_ONLY');
+}
+
+async function selectedCreateBook(userId, books) {
+  if (!Array.isArray(books)) throw typedError('A fresh CardDAV book snapshot is required', 'ERR_CARDDAV_BOOKS');
+  let target;
+  try {
+    target = await writeTargetBookUrls(userId);
+  } catch (error) {
+    if (!isUndefinedColumn(error)) throw error;
+    const fallback = firstCapableBook(books);
+    if (!fallback) throw typedError('No writable CardDAV address book was discovered', 'ERR_CARDDAV_READ_ONLY');
+    return fallback;
+  }
+  if (!target) {
+    throw typedError('No CardDAV write-target address book is configured', 'ERR_CARDDAV_NO_WRITE_TARGET');
+  }
+  // Match by the stored canonical URL first, then by the discovery alias a
+  // redirect-reconciling server may still be advertising (see
+  // advanceDiscoveredBookState in carddavMappingState.js) — a fresh discovery
+  // snapshot can otherwise never re-find a book whose external_url sync
+  // already rewrote to a different canonical URL.
+  const selected = books.find(book => book.url === target.externalUrl)
+    || (target.aliasUrl && books.find(book => book.url === target.aliasUrl));
+  if (!selected) {
+    throw typedError(
+      'The configured CardDAV write-target address book was not found on this server',
+      'ERR_CARDDAV_NO_WRITE_TARGET',
+    );
+  }
+  if (selected.capabilities?.create === 'denied') {
+    throw typedError('The CardDAV write-target address book does not allow create', 'ERR_CARDDAV_READ_ONLY');
+  }
   return selected;
 }
 
@@ -474,6 +569,12 @@ export function contactValues(payload) {
   ];
 }
 
+// A contact created through this service is one the user deliberately created, so
+// it carries publish intent: unlike a contact that became explicit merely by being
+// emailed, it belongs in the address book whatever publishEmailedContacts says.
+// This matters most for a contact created while CardDAV is disconnected —
+// connecting an account later sweeps it out, and the intent recorded here is what
+// lets it through.
 export async function insertContact(client, userId, addressBookId, payload, {
   returning = API_CONTACT_COLUMNS,
 } = {}) {
@@ -481,8 +582,9 @@ export async function insertContact(client, userId, addressBookId, payload, {
     `INSERT INTO contacts (
        address_book_id, user_id, uid, vcard, etag,
        display_name, first_name, last_name, primary_email,
-       emails, phones, organization, notes, photo_data, additional_fields, is_auto
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12,$13,$14,$15::jsonb,false)
+       emails, phones, organization, notes, photo_data, additional_fields, is_auto,
+       carddav_publish_intent
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12,$13,$14,$15::jsonb,false,true)
      RETURNING ${returning}`,
     [addressBookId, userId, ...contactValues(payload)],
   );
@@ -494,24 +596,33 @@ function isLocalContactUidConflict(error) {
     && error.constraint === 'contacts_address_book_id_uid_key';
 }
 
+// `markExplicit` clears is_auto and records publish intent — together, the flip
+// that makes a harvested contact a curated one the export sweep will keep in sync.
+// Only a *remote-confirmed* create sets it (see commitRemoteCreate): editing a
+// field of an auto-collected contact deliberately leaves it auto-collected, so an
+// incidental cleanup of a harvested sender never publishes it to the shared
+// write-target book (multi-book-design.md, key decision 3). Promotion is the one
+// deliberate path, and the intent it records is what keeps the contact published
+// no matter what the publishEmailedContacts setting is later set to.
 export async function updateStoredContact(
   client,
   userId,
   contactId,
   payload,
   expectedEtag = null,
-  { returning = API_CONTACT_COLUMNS, onMissing = null } = {},
+  { returning = API_CONTACT_COLUMNS, onMissing = null, markExplicit = false } = {},
 ) {
   const etagFence = expectedEtag == null ? '' : 'AND etag = $16';
   const params = [...contactValues(payload), contactId, userId];
   if (expectedEtag != null) params.push(expectedEtag);
+  const explicit = markExplicit ? ' is_auto = false, carddav_publish_intent = true,' : '';
   const { rows: [row] } = await client.query(
     `UPDATE contacts SET
        uid = $1, vcard = $2, etag = $3,
        display_name = $4, first_name = $5, last_name = $6,
        primary_email = $7, emails = $8::jsonb, phones = $9::jsonb,
        organization = $10, notes = $11, photo_data = $12,
-       additional_fields = $13::jsonb, is_auto = false, updated_at = NOW()
+       additional_fields = $13::jsonb,${explicit} updated_at = NOW()
      WHERE id = $14 AND user_id = $15 ${etagFence}
      RETURNING ${returning}`,
     params,
@@ -707,6 +818,10 @@ async function commitRemoteCreate({ userId, preflight, localAddressBookId, book,
       }
       const localBook = localAddressBookId ?? await ensureLocalBook(client, userId);
       const remoteBook = await persistDiscoveredBook(client, { userId, ...book });
+      // The contact now exists in the write-target book, so it is explicit:
+      // an export of an already-explicit contact re-affirms the flag, and a
+      // promotion of a harvested one flips it — here, after the remote write
+      // is confirmed, never before.
       const row = preflight.contactId
         ? await updateStoredContact(
           client,
@@ -714,6 +829,7 @@ async function commitRemoteCreate({ userId, preflight, localAddressBookId, book,
           preflight.contactId,
           payload,
           preflight.localEtag,
+          { markExplicit: true },
         )
         : await insertContact(client, userId, localBook, payload);
       assertMappingApplied(await applyConfirmedRemoteContact(client, {
@@ -1277,7 +1393,7 @@ export async function createContact(userId, draft) {
     return withTransaction(client => createLocal(client, userId, null, payload));
   }
   const { books, creds } = await discoverCreateContext(userId, preflight.integration);
-  const selected = selectedCreateBook(books);
+  const selected = await selectedCreateBook(userId, books);
   const payload = payloadForDraft(uid, validatedDraft, selectedVCardVersion(selected));
   return remoteCreate({
     userId,
@@ -1342,7 +1458,7 @@ export async function deleteContact(userId, contactId) {
 }
 
 export async function exportExistingContact(userId, contactId, { books, expectedGeneration }) {
-  const selected = selectedCreateBook(books);
+  const selected = await selectedCreateBook(userId, books);
   const prepared = await withTransaction(async client => {
     const integration = await readIntegration(client, userId);
     if (!integration) throw typedError('CardDAV is not connected', 'ERR_CARDDAV_NOT_CONNECTED');
@@ -1385,6 +1501,27 @@ export async function exportExistingContact(userId, contactId, { books, expected
   });
 }
 
+// The deliberate promotion of an auto-collected contact: make it explicit and
+// export it to the write-target book *now*, so the user gets direct feedback
+// instead of a silent next-sync side effect. It is a one-way action, not a
+// per-contact sync toggle — once explicit, the contact simply obeys the normal
+// "explicit contacts synchronize automatically" rule.
+//
+// Deliberately the same write path as the sweep's export (exportExistingContact),
+// so promotion inherits every invariant unchanged: write-target-only routing,
+// the Retry-After gate, the connection-generation fence, and the remote-first
+// commit whose ambiguous-write recovery re-reads the remote before touching
+// local state. The is_auto flip rides along in that confirmed commit.
+export async function promoteContact(userId, contactId) {
+  const integration = await withTransaction(client => readIntegration(client, userId));
+  if (!integration) throw typedError('CardDAV is not connected', 'ERR_CARDDAV_NOT_CONNECTED');
+  const { books } = await discoverCreateContext(userId, integration);
+  return exportExistingContact(userId, contactId, {
+    books,
+    expectedGeneration: integration.config.connectionGeneration ?? null,
+  });
+}
+
 export async function createContactFromVCard(userId, {
   localAddressBookId,
   uid,
@@ -1422,7 +1559,7 @@ export async function createContactFromVCard(userId, {
   });
   if (prepared.local) return prepared.local;
   const { books, creds } = await discoverCreateContext(userId, prepared.integration);
-  const selected = selectedCreateBook(books);
+  const selected = await selectedCreateBook(userId, books);
   return remoteCreate({
     userId,
     preflight: prepared,

@@ -12,6 +12,7 @@ import { usePushNotifications } from '../hooks/usePushNotifications.js';
 import SignatureEditor from './SignatureEditor.jsx';
 import GtdZeroPet from './GtdZeroPet.jsx';
 import CardDavConflicts from './CardDavConflicts.jsx';
+import { cardDavBookControls, publishEmailedContactsToggle } from '../carddavBookState.js';
 import { getEffectiveShortcuts, getGroupedActions, ACTION_DEFS, SPECIAL_KEY_LABELS, parseModKey, modLabel } from '../utils/defaultShortcuts.js';
 import { DEFAULT_GTD_FOLDERS, GTD_STATES, resolveAccountGtdFolders, diffGtdFolders, findGtdFolderCollisions } from '../utils/gtd.js';
 
@@ -1858,6 +1859,77 @@ function LayoutsTab() {
 
 // ─── Integrations Tab ────────────────────────────────────────────────────────
 // CardDAV contact sync (e.g. Nextcloud).
+
+// Per-book row: role (write-target/subscribed/lookup-only/ignored) + observed
+// write-capability badges, the Subscribe and Look-up-senders toggles, a
+// write-target radio (disabled where the server denies create), and the row's
+// materialized/lookup counts. onPatch(bookId, roles) sends one role change; the
+// row is disabled (pending) while its own change is in flight. The role/control
+// derivation lives in carddavBookState.js so it is unit-tested without a DOM.
+function CardDavBookRow({ book, t, onPatch, pending }) {
+  const badgeStyle = {
+    fontSize: 11, padding: '2px 8px', borderRadius: 10,
+    background: 'var(--bg-tertiary)', color: 'var(--text-secondary)',
+    border: '1px solid var(--border)',
+  };
+  const controls = cardDavBookControls(book);
+  const controlLabel = disabled => ({
+    display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12,
+    color: 'var(--text-secondary)', opacity: disabled ? 0.5 : 1,
+    cursor: disabled ? 'default' : 'pointer',
+  });
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '6px 8px', borderRadius: 6, background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{book.name}</span>
+        <span style={badgeStyle}>{t(`admin.integrations.carddav.books.${controls.role}`)}</span>
+        <span style={badgeStyle}>{t(`admin.integrations.carddav.books.${controls.capability}`)}</span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+        <label style={controlLabel(controls.writeTargetDisabled || pending)}>
+          <input
+            type="radio"
+            name="carddav-write-target"
+            checked={controls.isWriteTarget}
+            disabled={controls.writeTargetDisabled || pending}
+            onChange={() => onPatch(book.id, { makeWriteTarget: true })}
+          />
+          {t('admin.integrations.carddav.books.writeTarget')}
+        </label>
+        <label style={controlLabel(controls.subscribeDisabled || pending)}>
+          <input
+            type="checkbox"
+            checked={controls.subscribeChecked}
+            disabled={controls.subscribeDisabled || pending}
+            onChange={() => onPatch(book.id, { isSubscribed: !controls.subscribeChecked })}
+          />
+          {t('admin.integrations.carddav.books.subscribeLabel')}
+        </label>
+        <label style={controlLabel(pending)}>
+          <input
+            type="checkbox"
+            checked={controls.lookupChecked}
+            disabled={pending}
+            onChange={() => onPatch(book.id, { isLookupSource: !controls.lookupChecked })}
+          />
+          {t('admin.integrations.carddav.books.lookupLabel')}
+        </label>
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
+        {t('admin.integrations.carddav.books.counts', {
+          materialized: book.materializedCount ?? 0,
+          lookup: book.lookupCount ?? 0,
+        })}
+        {' · '}
+        {t('admin.integrations.carddav.books.lastSync', {
+          when: book.lastSyncAt ? new Date(book.lastSyncAt).toLocaleString() : t('common.never'),
+        })}
+      </div>
+    </div>
+  );
+}
+
 function CardDavCard() {
   const { t } = useTranslation();
   const [status, setStatus] = useState(null); // null while loading
@@ -1870,6 +1942,7 @@ function CardDavCard() {
   const [conflictCount, setConflictCount] = useState(0);
   const [showConflicts, setShowConflicts] = useState(false);
   const [healthUnavailable, setHealthUnavailable] = useState(false);
+  const [bookPatchPending, setBookPatchPending] = useState(null);
 
   const refreshHealth = useCallback(async () => {
     setHealthUnavailable(false);
@@ -1906,6 +1979,7 @@ function CardDavCard() {
     : healthUnavailable || needsAttention
       ? 'var(--red, #f87171)'
       : 'var(--text-tertiary)';
+  const publishEmailed = publishEmailedContactsToggle(status);
 
   const handleConnect = async () => {
     setConnecting(true); setError('');
@@ -1933,6 +2007,21 @@ function CardDavCard() {
   const updateSetting = async (patch) => {
     setStatus(s => ({ ...s, ...patch }));
     try { await api.carddav.update(patch); } catch (e) { setError(e.message); }
+  };
+  // Change one book's role (Subscribe / Look-up-senders / write-target). The
+  // response is the refreshed per-book summary; a background sync then applies
+  // the pull-side effects (re-subscribe materializes; ignore drops the ledger).
+  const patchBook = async (bookId, roles) => {
+    setBookPatchPending(bookId);
+    setError('');
+    try {
+      setStatus(await api.carddav.patchBook(bookId, roles));
+      await refreshHealth();
+    } catch (e) {
+      setError(e.message || t('admin.integrations.carddav.books.updateFailed'));
+    } finally {
+      setBookPatchPending(null);
+    }
   };
 
   const inputStyle = { padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: 13, outline: 'none', width: '100%', boxSizing: 'border-box' };
@@ -1986,12 +2075,51 @@ function CardDavCard() {
                 </div>
               </div>
 
+              {Array.isArray(status.books) && (
+                <div>
+                  <label style={labelStyle}>{t('admin.integrations.carddav.books.title')}</label>
+                  {status.books.length === 0 ? (
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
+                      {t('admin.integrations.carddav.books.empty')}
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {status.books.map(book => (
+                        <CardDavBookRow
+                          key={book.id}
+                          book={book}
+                          t={t}
+                          onPatch={patchBook}
+                          pending={bookPatchPending === book.id}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div>
                 <label style={labelStyle}>{t('admin.integrations.carddav.intervalLabel')}</label>
                 <input type="number" min="15" max="1440" value={status.intervalMin || 60}
                   onChange={e => setStatus(s => ({ ...s, intervalMin: e.target.value }))}
                   onBlur={e => updateSetting({ intervalMin: Number(e.target.value) })} style={inputStyle} />
               </div>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={publishEmailed.checked}
+                  onChange={() => updateSetting(publishEmailed.patch)}
+                  style={{ marginTop: 2 }}
+                />
+                <span>
+                  <span style={{ display: 'block', fontSize: 13, color: 'var(--text-primary)' }}>
+                    {t('admin.integrations.carddav.publishEmailedContacts')}
+                  </span>
+                  <span style={{ display: 'block', marginTop: 2, fontSize: 12, color: 'var(--text-tertiary)' }}>
+                    {t('admin.integrations.carddav.publishEmailedContactsDesc')}
+                  </span>
+                </span>
+              </label>
               {errBox}
               <div style={{ display: 'flex', gap: 8 }}>
                 <button onClick={handleSync} disabled={syncing} style={{ padding: '6px 14px', borderRadius: 7, cursor: syncing ? 'default' : 'pointer', border: 'none', background: 'var(--accent)', color: 'var(--accent-text)', fontSize: 13, fontWeight: 500, opacity: syncing ? 0.7 : 1 }}>

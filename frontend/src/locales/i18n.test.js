@@ -359,6 +359,15 @@ const DYNAMIC_KEYS = new Set([
   'contacts.additional.types.geo',
   'contacts.additional.types.im',
   'contacts.additional.types.postal-address',
+  // t(`admin.integrations.carddav.books.${role}`) / `.${capability}` — CardDAV
+  // per-book role/capability badges computed at runtime in CardDavBookRow
+  'admin.integrations.carddav.books.writeTarget',
+  'admin.integrations.carddav.books.subscribed',
+  'admin.integrations.carddav.books.lookupOnly',
+  'admin.integrations.carddav.books.ignored',
+  'admin.integrations.carddav.books.writable',
+  'admin.integrations.carddav.books.readOnly',
+  'admin.integrations.carddav.books.unknownCapability',
 ]);
 
 // JSX attribute names whose values must never be plain strings — always t().

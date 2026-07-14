@@ -10,12 +10,14 @@ import {
   canUploadContactPhoto,
   completePhotoRead,
   contactCarddavState,
+  contactPromotionState,
   contactToForm,
   formToContactDraft,
   initialPhotoReadState,
   invalidatePhotoRead,
   isRefreshableWriteError,
   newAdditionalField,
+  promoteFailureKey,
   removeContactPhoto,
   saveFailureState,
   shouldRefreshContactAfterResolution,
@@ -84,6 +86,82 @@ describe('CardDAV contact state', () => {
     // A genuinely synced contact is unchanged.
     assert.equal(contactCarddavState({ sync_state: 'synced', remote_update_capability: 'allowed' }).labelKey,
       'contacts.carddavSynced');
+  });
+
+  // Editing a harvested contact no longer promotes it (the backend keeps
+  // is_auto), so promotion needs its own visible affordance — offered only when
+  // there is somewhere to send the contact.
+  it('offers promotion for a harvested contact only when a usable write-target exists', () => {
+    const harvested = { is_auto: true, sync_state: 'local' };
+    const books = [
+      { name: 'Personal', isWriteTarget: false, capabilities: { create: 'allowed' } },
+      { name: 'Shared', isWriteTarget: true, capabilities: { create: 'allowed' } },
+    ];
+
+    assert.deepEqual(contactPromotionState(harvested, { connected: true, books }), {
+      visible: true,
+      enabled: true,
+      reasonKey: null,
+      bookName: 'Shared',
+    });
+
+    // Connected but nothing designated to receive new contacts: the button
+    // stays visible and says why, because the fix lives in Settings.
+    assert.deepEqual(contactPromotionState(harvested, {
+      connected: true,
+      books: [{ name: 'Personal', isWriteTarget: false, capabilities: { create: 'allowed' } }],
+    }), {
+      visible: true,
+      enabled: false,
+      reasonKey: 'contacts.promote.noWriteTarget',
+      bookName: null,
+    });
+
+    // A write-target the server won't let MailFlow create in mirrors the
+    // backend's ERR_CARDDAV_READ_ONLY rather than pretending it can be used.
+    assert.deepEqual(contactPromotionState(harvested, {
+      connected: true,
+      books: [{ name: 'Shared', isWriteTarget: true, capabilities: { create: 'denied' } }],
+    }), {
+      visible: true,
+      enabled: false,
+      reasonKey: 'contacts.promote.readOnly',
+      bookName: 'Shared',
+    });
+  });
+
+  it('hides promotion for explicit, already-synced, and non-CardDAV contacts', () => {
+    const books = [{ name: 'Shared', isWriteTarget: true, capabilities: { create: 'allowed' } }];
+
+    // Already explicit: the sweep exports it automatically, nothing to promote.
+    assert.deepEqual(
+      contactPromotionState({ is_auto: false, sync_state: 'local' }, { connected: true, books }),
+      { visible: false, enabled: false, reasonKey: null, bookName: null },
+    );
+    // Already mapped to a remote object.
+    assert.deepEqual(
+      contactPromotionState({ is_auto: true, sync_state: 'synced' }, { connected: true, books }),
+      { visible: false, enabled: false, reasonKey: null, bookName: null },
+    );
+    // No CardDAV account at all: promotion is meaningless, so no affordance.
+    assert.deepEqual(
+      contactPromotionState({ is_auto: true, sync_state: 'local' }, { connected: false }),
+      { visible: false, enabled: false, reasonKey: null, bookName: null },
+    );
+  });
+
+  // The roles can change between the status read and the click, so a rejection
+  // is translated from its typed code rather than echoing the backend's English.
+  it('translates typed promotion failures and falls back for the rest', () => {
+    const failure = code => Object.assign(new Error('Request failed'), {
+      status: 409,
+      data: { error: 'Request failed', code },
+    });
+
+    assert.equal(promoteFailureKey(failure('ERR_CARDDAV_NO_WRITE_TARGET')), 'contacts.promote.noWriteTarget');
+    assert.equal(promoteFailureKey(failure('ERR_CARDDAV_READ_ONLY')), 'contacts.promote.readOnly');
+    assert.equal(promoteFailureKey(failure('ERR_CARDDAV_ALREADY_MAPPED')), 'contacts.promote.failed');
+    assert.equal(promoteFailureKey(new Error('Network down')), 'contacts.promote.failed');
   });
 
   it('initializes an editable form without dropping photos or typed Additional fields', () => {

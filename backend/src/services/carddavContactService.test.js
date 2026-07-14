@@ -68,6 +68,9 @@ it('exports the shared CardDAV contact error status mappings', () => {
     ERR_CONTACT_EXISTS: 409,
     ERR_CARDDAV_CONFLICT: 409,
     ERR_CARDDAV_READ_ONLY: 403,
+    ERR_CARDDAV_NO_WRITE_TARGET: 409,
+    ERR_CARDDAV_NOT_CONNECTED: 409,
+    ERR_CARDDAV_ALREADY_MAPPED: 409,
     ERR_CARDDAV_FINAL_FENCE: 503,
     ERR_CARDDAV_STALE_GENERATION: 503,
     ERR_CARDDAV_AMBIGUOUS_WRITE: 409,
@@ -159,6 +162,24 @@ const book = (overrides = {}) => ({
   addressData: [{ contentType: 'text/vcard', version: '3.0' }],
   ...overrides,
 });
+
+// Default write-target row matching the single default book most tests
+// discover, so existing single-book scenarios keep resolving the same way
+// selectedCreateBook did before it started reading the stored write-target.
+// Tests exercising multi-book resolution, a missing write-target, an alias,
+// or a denied one override this in their own body.
+function stubWriteTarget(externalUrl = BOOK_URL, aliasUrl = null) {
+  mocks.query.mockImplementation(async sql => {
+    if (sql.includes('is_write_target')) {
+      return {
+        rows: externalUrl
+          ? [{ external_url: externalUrl, discovery_alias_url: aliasUrl }]
+          : [],
+      };
+    }
+    return { rows: [] };
+  });
+}
 
 const mappedLocalHash = (contact = mapped()) => localContactHash({
   uid: contact.uid,
@@ -278,6 +299,7 @@ beforeEach(() => {
   runtime.inTransaction = false;
   runtime.events = [];
   mocks.randomUUID.mockReturnValue(UID);
+  stubWriteTarget();
 });
 
 describe('local-only contact mutations', () => {
@@ -543,6 +565,60 @@ describe('remote-first mapped lifecycle', () => {
     });
     expect(mocks.putCardResource).not.toHaveBeenCalled();
     expect(mocks.withTransaction).toHaveBeenCalledOnce();
+  });
+
+  // A subscribed (or lookup) secondary is read-only from MailFlow regardless
+  // of server write capability — the load-bearing invariant this slice's
+  // write routing must uphold, not just for creates/exports but for edits and
+  // deletes of a contact already mapped into a non-write-target book.
+  it('refuses to update a contact mapped into a book that is not the write-target', async () => {
+    transactions(preflightHandler({
+      contact: mapped({ mapping_is_write_target: false }),
+    }));
+
+    await expect(updateContact(USER_ID, CONTACT_ID, draft())).rejects.toMatchObject({
+      code: 'ERR_CARDDAV_READ_ONLY',
+    });
+    expect(mocks.putCardResource).not.toHaveBeenCalled();
+    expect(mocks.withTransaction).toHaveBeenCalledOnce();
+  });
+
+  it('refuses to delete a contact mapped into a book that is not the write-target', async () => {
+    transactions(preflightHandler({
+      contact: mapped({ mapping_is_write_target: false }),
+    }));
+
+    await expect(deleteContact(USER_ID, CONTACT_ID)).rejects.toMatchObject({
+      code: 'ERR_CARDDAV_READ_ONLY',
+    });
+    expect(mocks.deleteCardResource).not.toHaveBeenCalled();
+    expect(mocks.withTransaction).toHaveBeenCalledOnce();
+  });
+
+  it('reads a mapped contact without the write-target column on a not-yet-migrated (transitional) schema', async () => {
+    const transitionalPreflight = preflightHandler();
+    let savepointRolledBack = false;
+    transactions(
+      async (sql, params) => {
+        if (sql.includes('FROM contacts c') && sql.includes('mapping_is_write_target')) {
+          throw Object.assign(new Error('column "is_write_target" does not exist'), { code: '42703' });
+        }
+        if (sql === 'ROLLBACK TO SAVEPOINT carddav_read_contact') savepointRolledBack = true;
+        return transitionalPreflight(sql, params);
+      },
+      commitHandler(),
+    );
+    protocolMock(mocks.putCardResource, { href: HREF, etag: '"intermediate"' });
+    protocolMock(mocks.fetchCardResource, () => ({
+      href: HREF,
+      etag: '"remote-2"',
+      vcard: mocks.putCardResource.mock.calls[0][0].vcard,
+    }));
+
+    await expect(updateContact(USER_ID, CONTACT_ID, draft())).resolves.toEqual(confirmedRow());
+
+    expect(savepointRolledBack).toBe(true);
+    expect(mocks.putCardResource).toHaveBeenCalledOnce();
   });
 
   it('rejects a different interactive update while an intent awaits recovery', async () => {
@@ -832,16 +908,20 @@ describe('remote creates and export', () => {
     expect(mocks.putCardResource).not.toHaveBeenCalled();
   });
 
-  it('discovers, selects the first writable book, and uses one UID for the href and vCard', async () => {
-    const denied = book({
-      url: 'https://dav.example.test/books/denied/',
-      capabilities: { create: 'denied', update: 'denied', delete: 'denied' },
+  it('discovers, resolves the stored write-target book by external_url, and uses one UID for the href and vCard', async () => {
+    // The write-target book (matching BOOK_URL via stubWriteTarget()) is discovered
+    // second and would lose to a "first create-capable book" rule if one still
+    // existed; it must still be the one selected, proving resolution is by the
+    // stored external_url, never discovery order.
+    const otherCreateCapable = book({
+      url: 'https://dav.example.test/books/other/',
+      capabilities: { create: 'allowed', update: 'allowed', delete: 'allowed' },
     });
     const versionFour = book({
       addressData: [{ contentType: 'text/vcard', version: '4.0' }],
     });
     transactions(preflightHandler({ contact: null }), commitHandler());
-    mocks.discoverAddressBooks.mockResolvedValue([denied, versionFour]);
+    mocks.discoverAddressBooks.mockResolvedValue([otherCreateCapable, versionFour]);
     protocolMock(mocks.putCardResource, { href: HREF, etag: '"created"' });
     protocolMock(mocks.fetchCardResource, {
       href: HREF,
@@ -857,6 +937,81 @@ describe('remote creates and export', () => {
       href: `${UID}.vcf`,
       vcard: expect.stringMatching(new RegExp(`VERSION:4\\.0[\\s\\S]+UID:${UID}`)),
     }));
+  });
+
+  it('resolves the write-target book by its discovery alias when the DB holds the reconciled canonical URL', async () => {
+    // carddavSync.js reconciles a discovery alias by rewriting external_url to
+    // the canonical URL it redirects to (advanceDiscoveredBookState), but a
+    // fresh discovery snapshot keeps returning the alias forever afterward.
+    const aliasUrl = 'https://dav.example.test/books/alias/';
+    stubWriteTarget(BOOK_URL, aliasUrl);
+    const aliasedBook = book({ url: aliasUrl });
+    transactions(preflightHandler({ contact: null }), commitHandler());
+    mocks.discoverAddressBooks.mockResolvedValue([aliasedBook]);
+    protocolMock(mocks.putCardResource, { href: HREF, etag: '"created"' });
+    protocolMock(mocks.fetchCardResource, { href: HREF, etag: '"remote-1"', vcard: CANONICAL_VCARD });
+
+    await createContact(USER_ID, draft());
+
+    expect(mocks.putCardResource).toHaveBeenCalledWith(expect.objectContaining({ url: aliasUrl }));
+  });
+
+  it('rejects create with a typed error and no PUT when no write-target book is configured', async () => {
+    stubWriteTarget(null);
+    transactions(preflightHandler({ contact: null }));
+    const otherCreateCapable = book({ url: 'https://dav.example.test/books/other/' });
+    mocks.discoverAddressBooks.mockResolvedValue([otherCreateCapable]);
+
+    await expect(createContact(USER_ID, draft()))
+      .rejects.toMatchObject({ code: 'ERR_CARDDAV_NO_WRITE_TARGET' });
+
+    expect(mocks.putCardResource).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the first capable book on a not-yet-migrated (transitional) schema', async () => {
+    mocks.query.mockImplementation(async sql => {
+      if (sql.includes('is_write_target')) {
+        throw Object.assign(new Error('column "is_write_target" does not exist'), { code: '42703' });
+      }
+      throw new Error('unexpected query on the transitional schema');
+    });
+    transactions(preflightHandler({ contact: null }), commitHandler());
+    const denied = book({
+      url: 'https://dav.example.test/books/denied/',
+      capabilities: { create: 'denied', update: 'denied', delete: 'denied' },
+    });
+    mocks.discoverAddressBooks.mockResolvedValue([denied, book()]);
+    protocolMock(mocks.putCardResource, { href: HREF, etag: '"created"' });
+    protocolMock(mocks.fetchCardResource, { href: HREF, etag: '"remote-1"', vcard: CANONICAL_VCARD });
+
+    await createContact(USER_ID, draft());
+
+    expect(mocks.putCardResource).toHaveBeenCalledWith(expect.objectContaining({ url: BOOK_URL }));
+  });
+
+  it('rejects create with no fallback when the write-target book is absent from the fresh snapshot', async () => {
+    transactions(preflightHandler({ contact: null }));
+    const otherCreateCapable = book({ url: 'https://dav.example.test/books/other/' });
+    mocks.discoverAddressBooks.mockResolvedValue([otherCreateCapable]);
+
+    await expect(createContact(USER_ID, draft()))
+      .rejects.toMatchObject({ code: 'ERR_CARDDAV_NO_WRITE_TARGET' });
+
+    expect(mocks.putCardResource).not.toHaveBeenCalled();
+  });
+
+  it('rejects create with no fallback when the write-target book is now denied create', async () => {
+    transactions(preflightHandler({ contact: null }));
+    const otherCreateCapable = book({ url: 'https://dav.example.test/books/other/' });
+    const deniedWriteTarget = book({
+      capabilities: { create: 'denied', update: 'allowed', delete: 'allowed' },
+    });
+    mocks.discoverAddressBooks.mockResolvedValue([otherCreateCapable, deniedWriteTarget]);
+
+    await expect(createContact(USER_ID, draft()))
+      .rejects.toMatchObject({ code: 'ERR_CARDDAV_READ_ONLY' });
+
+    expect(mocks.putCardResource).not.toHaveBeenCalled();
   });
 
   it('checks the deterministic UID href after an ambiguous create before retrying PUT', async () => {
@@ -978,6 +1133,33 @@ describe('remote creates and export', () => {
 
     expect(mocks.discoverAddressBooks).not.toHaveBeenCalled();
     expect(mocks.putCardResource).toHaveBeenCalledOnce();
+  });
+
+  it('exports to the write-target book only, never a server-writable secondary in the same snapshot', async () => {
+    transactions(preflightHandler({ contact: mapped({ href: null, source: 'local' }) }), commitHandler());
+    protocolMock(mocks.putCardResource, { href: HREF, etag: '"created"' });
+    protocolMock(mocks.fetchCardResource, {
+      href: HREF,
+      etag: '"remote-1"',
+      vcard: CANONICAL_VCARD,
+    });
+    const writableSecondary = book({ url: 'https://dav.example.test/books/secondary/' });
+
+    await exportExistingContact(USER_ID, CONTACT_ID, { books: [writableSecondary, book()] });
+
+    expect(mocks.putCardResource).toHaveBeenCalledOnce();
+    expect(mocks.putCardResource).toHaveBeenCalledWith(expect.objectContaining({ url: BOOK_URL }));
+  });
+
+  it('rejects export with no fallback when no write-target book is configured', async () => {
+    stubWriteTarget(null);
+    transactions(preflightHandler({ contact: mapped({ href: null, source: 'local' }) }));
+    const otherCreateCapable = book({ url: 'https://dav.example.test/books/other/' });
+
+    await expect(exportExistingContact(USER_ID, CONTACT_ID, { books: [otherCreateCapable] }))
+      .rejects.toMatchObject({ code: 'ERR_CARDDAV_NO_WRITE_TARGET' });
+
+    expect(mocks.putCardResource).not.toHaveBeenCalled();
   });
 
   it('rejects an export planned by a stale connection generation before remote I/O', async () => {
@@ -1323,6 +1505,28 @@ describe('MailFlow CardDAV-server seams', () => {
     expect(mocks.withTransaction).toHaveBeenCalledOnce();
   });
 
+  it('rejects a MailFlow CardDAV-server create with no fallback when no write-target book is configured', async () => {
+    stubWriteTarget(null);
+    transactions(async sql => {
+      if (sql.includes('FROM address_books')) {
+        return { rows: [{ id: LOCAL_BOOK_ID, source: 'local' }] };
+      }
+      if (sql.includes('FROM contacts c')) return { rows: [] };
+      if (sql.includes('FROM user_integrations')) return { rows: [integration] };
+      return { rows: [], rowCount: 1 };
+    });
+    const otherCreateCapable = book({ url: 'https://dav.example.test/books/other/' });
+    mocks.discoverAddressBooks.mockResolvedValue([otherCreateCapable]);
+
+    await expect(createContactFromVCard(USER_ID, {
+      localAddressBookId: LOCAL_BOOK_ID,
+      uid: UID,
+      rawVCard: BASE_VCARD,
+    })).rejects.toMatchObject({ code: 'ERR_CARDDAV_NO_WRITE_TARGET' });
+
+    expect(mocks.putCardResource).not.toHaveBeenCalled();
+  });
+
   it('rejects a stale local ETag before an external request', async () => {
     transactions(preflightHandler({ contact: mapped({ etag: 'current-local-etag' }) }));
 
@@ -1333,6 +1537,33 @@ describe('MailFlow CardDAV-server seams', () => {
       expectedLocalEtag: 'stale-local-etag',
     })).rejects.toMatchObject({ code: 'ERR_LOCAL_ETAG_MISMATCH' });
     expect(mocks.putCardResource).not.toHaveBeenCalled();
+  });
+
+  it('refuses to replace a contact mapped into a book that is not the write-target', async () => {
+    transactions(preflightHandler({
+      contact: mapped({ mapping_is_write_target: false }),
+    }));
+
+    await expect(replaceContactFromVCard(USER_ID, {
+      localAddressBookId: BOOK_ID,
+      uid: UID,
+      rawVCard: CANONICAL_VCARD,
+      expectedLocalEtag: 'local-etag-before',
+    })).rejects.toMatchObject({ code: 'ERR_CARDDAV_READ_ONLY' });
+    expect(mocks.putCardResource).not.toHaveBeenCalled();
+  });
+
+  it('refuses to delete-from-vCard a contact mapped into a book that is not the write-target', async () => {
+    transactions(preflightHandler({
+      contact: mapped({ mapping_is_write_target: false }),
+    }));
+
+    await expect(deleteContactFromVCard(USER_ID, {
+      localAddressBookId: BOOK_ID,
+      uid: UID,
+      expectedLocalEtag: 'local-etag-before',
+    })).rejects.toMatchObject({ code: 'ERR_CARDDAV_READ_ONLY' });
+    expect(mocks.deleteCardResource).not.toHaveBeenCalled();
   });
 
   it('resolves delete ownership by local book plus UID and enforces the ETag', async () => {

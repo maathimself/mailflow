@@ -103,13 +103,14 @@ export async function getConflict(userId, id) {
   return row ? publicConflict(row) : null;
 }
 
-function resolutionStateSql(lock = false) {
+function resolutionStateSql(lock = false, includeWriteTarget = false) {
   const mappingJoin = lock ? 'JOIN' : 'LEFT JOIN';
   return `SELECT conflict.*, mapping.mapping_revision::text, mapping.mapping_status,
                  contact.id AS contact_id, contact.uid AS contact_uid,
                  contact.etag AS contact_etag,
                  contact.address_book_id AS local_address_book_id,
                  remote_book.external_url AS remote_book_url,
+                 ${includeWriteTarget ? 'remote_book.is_write_target AS remote_book_is_write_target,' : ''}
                  integration.config,
                  integration.config->>'connectionGeneration' AS connection_generation
           FROM carddav_conflicts conflict
@@ -130,12 +131,32 @@ function resolutionStateSql(lock = false) {
           ${lock ? 'FOR UPDATE OF conflict, mapping, integration' : ''}`;
 }
 
+// The write-target flag is only ever read by the unlocked pre-check
+// (resolveConflict, before any lock or transaction is open) to decide whether
+// a 'keep-mailflow' resolution may push to the remote resource at all — the
+// locked re-reads inside commitResolution/refreshConflictAfter412 persist an
+// already-decided outcome and never need it. Keeping it out of the locked
+// query also means it never needs a not-yet-migrated (transitional) schema
+// fallback: that query's shape doesn't change.
 async function readResolutionState(executor, userId, id, lock = false) {
-  const { rows: [state] } = await executor.query(
-    resolutionStateSql(lock),
-    [userId, id],
-  );
-  return state || null;
+  if (lock) {
+    const { rows: [state] } = await executor.query(resolutionStateSql(true), [userId, id]);
+    return state || null;
+  }
+  try {
+    const { rows: [state] } = await executor.query(
+      resolutionStateSql(false, true),
+      [userId, id],
+    );
+    return state || null;
+  } catch (error) {
+    if (error?.code !== '42703') throw error;
+    const { rows: [state] } = await executor.query(
+      resolutionStateSql(false, false),
+      [userId, id],
+    );
+    return state || null;
+  }
 }
 
 function staleConflict(id) {
@@ -345,6 +366,21 @@ export async function resolveConflict(userId, id, resolution) {
   if (resolution === 'keep-carddav') {
     const remote = await fetchLatestRemote(preflight, creds);
     return commitResolution(userId, preflight, resolution, remote);
+  }
+
+  // 'keep-mailflow' pushes the local side to the remote resource — the one
+  // MailFlow-originated write this function performs. A subscribed or lookup
+  // book is read-only from MailFlow regardless of server write capability
+  // (multi-book-design.md's load-bearing invariant), so refuse before any
+  // network call when this conflict's book isn't the write-target.
+  // `remote_book_is_write_target` is only ever `false` (never absent) when the
+  // schema was actually queried; on a not-yet-migrated (transitional) schema
+  // the column is omitted entirely and this check is skipped.
+  if (preflight.remote_book_is_write_target === false) {
+    throw typedError(
+      'This CardDAV address book is not the write-target; keep-MailFlow cannot push to it',
+      'ERR_CARDDAV_READ_ONLY',
+    );
   }
 
   const latest = await fetchLatestRemote(preflight, creds);

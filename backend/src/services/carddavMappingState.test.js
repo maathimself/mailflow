@@ -4,6 +4,7 @@ import {
   advanceDiscoveredBookState,
   applyConfirmedRemoteContact,
   applyRemoteTombstone,
+  claimBestWriteTargetCandidate,
   lockCarddavMapping,
   persistDiscoveredBook,
   persistPendingMutationIntent,
@@ -468,21 +469,308 @@ describe('refreshUnresolvedConflict', () => {
 });
 
 describe('persistDiscoveredBook', () => {
-  it('persists capabilities without overwriting sync state', async () => {
+  it('persists capabilities on an already-discovered book without touching its role flags or sync state', async () => {
+    // Matched by URL (findDiscoveredBookByUrl) — never a fresh INSERT, and
+    // never touches is_write_target/is_subscribed/external_url: those are
+    // only ever decided once, at first creation.
     const stored = { id: BOOK_ID, external_url: 'https://dav.example.test/addressbooks/default/' };
-    const client = { query: vi.fn(async () => ({ rows: [stored], rowCount: 1 })) };
+    const client = {
+      query: vi.fn(async sql => {
+        if (/SELECT 1 FROM address_books/.test(sql)) return { rows: [] };
+        if (/SELECT id FROM address_books/.test(sql)) return { rows: [{ id: BOOK_ID }] };
+        return { rows: [stored], rowCount: 1 };
+      }),
+    };
+
     await expect(persistDiscoveredBook(client, {
       userId: USER_ID,
       url: stored.external_url,
       displayName: 'Remote',
       capabilities: { create: 'allowed', update: 'denied', delete: 'unknown' },
     })).resolves.toEqual(stored);
+
+    expect(client.query).not.toHaveBeenCalledWith(
+      expect.stringMatching(/INSERT INTO address_books/),
+      expect.anything(),
+    );
+    const updateCall = client.query.mock.calls.find(([sql]) => /^UPDATE address_books SET/.test(sql));
+    expect(updateCall[0]).toMatch(
+      /remote_create_capability = \$2[\s\S]+remote_update_capability = \$3[\s\S]+remote_delete_capability = \$4[\s\S]+WHERE id = \$1/,
+    );
+    expect(updateCall[0]).not.toMatch(/is_write_target|is_subscribed|external_url\s*=/);
+    expect(updateCall[1]).toEqual([BOOK_ID, 'allowed', 'denied', 'unknown']);
+  });
+
+  it('resolves an existing book by its discovery alias and updates it instead of inserting a duplicate', async () => {
+    // Some CardDAV servers keep advertising a stable "alias" href for a
+    // collection whose canonical external_url advanceDiscoveredBookState
+    // already rewrote (see carddavContactService.js's selectedCreateBook).
+    // Matching only on external_url here would insert a second, non-write-
+    // target row for the same remote collection.
+    const stored = { id: BOOK_ID, external_url: 'https://dav.example.test/addressbooks/canonical/' };
+    const aliasUrl = 'https://dav.example.test/addressbooks/alias/';
+    const client = {
+      query: vi.fn(async sql => {
+        if (/SELECT 1 FROM address_books/.test(sql)) return { rows: [] };
+        if (/SELECT id FROM address_books/.test(sql)) return { rows: [{ id: BOOK_ID }] };
+        return { rows: [stored], rowCount: 1 };
+      }),
+    };
+
+    await expect(persistDiscoveredBook(client, {
+      userId: USER_ID,
+      url: aliasUrl,
+      displayName: 'Remote',
+      capabilities: { create: 'allowed', update: 'allowed', delete: 'allowed' },
+    })).resolves.toEqual(stored);
+
+    expect(client.query).toHaveBeenCalledWith(
+      expect.stringMatching(/SELECT id FROM address_books[\s\S]+external_url = \$2 OR discovery_alias_url = \$2/),
+      [USER_ID, aliasUrl],
+    );
+    expect(client.query).not.toHaveBeenCalledWith(
+      expect.stringMatching(/INSERT INTO address_books/),
+      expect.anything(),
+    );
+    const updateCall = client.query.mock.calls.find(([sql]) => /^UPDATE address_books SET/.test(sql));
+    expect(updateCall[1]).toEqual([BOOK_ID, 'allowed', 'allowed', 'allowed']);
+  });
+
+  it('claims the write-target for the first create-capable book a user discovers', async () => {
+    const stored = { id: BOOK_ID, external_url: 'https://dav.example.test/addressbooks/default/' };
+    const client = {
+      query: vi.fn(async sql => {
+        if (/SELECT 1 FROM address_books/.test(sql)) return { rows: [] };
+        if (/SELECT id FROM address_books/.test(sql)) return { rows: [] };
+        if (/INSERT INTO address_books/.test(sql)) return { rows: [stored], rowCount: 1 };
+        return { rows: [], rowCount: 1 };
+      }),
+    };
+
+    await persistDiscoveredBook(client, {
+      userId: USER_ID,
+      url: stored.external_url,
+      displayName: 'Remote',
+      capabilities: { create: 'allowed', update: 'allowed', delete: 'allowed' },
+    });
+
+    // Every brand-new book is inserted lookup-only (never claims directly,
+    // in per-book discovery order) ...
     expect(client.query).toHaveBeenCalledWith(
       expect.stringMatching(
-        /INSERT INTO address_books[\s\S]+remote_create_capability[\s\S]+ON CONFLICT[\s\S]+remote_create_capability = EXCLUDED.remote_create_capability/,
+        /INSERT INTO address_books[\s\S]+is_write_target, is_subscribed[\s\S]+VALUES \(\$1,\$2,'carddav',\$3,\$4,\$5,\$6,false,false\)/,
       ),
-      [USER_ID, 'Remote', stored.external_url, 'allowed', 'denied', 'unknown'],
+      [USER_ID, 'Remote', stored.external_url, 'allowed', 'allowed', 'allowed'],
     );
+    // ... and claimBestWriteTargetCandidate promotes it afterward, since it's
+    // the only (and therefore best) candidate.
+    expect(client.query).toHaveBeenCalledWith(
+      expect.stringMatching(/is_write_target = true, is_subscribed = true[\s\S]+NOT EXISTS/),
+      [USER_ID],
+    );
+  });
+
+  it('never lets a book claim its own write-target directly, in discovery order', async () => {
+    const stored = { id: BOOK_ID, external_url: 'https://dav.example.test/addressbooks/default/' };
+    const client = {
+      query: vi.fn(async sql => {
+        if (/SELECT 1 FROM address_books/.test(sql)) return { rows: [] };
+        if (/SELECT id FROM address_books/.test(sql)) return { rows: [] };
+        if (/INSERT INTO address_books/.test(sql)) return { rows: [stored], rowCount: 1 };
+        return { rows: [], rowCount: 1 };
+      }),
+    };
+
+    await persistDiscoveredBook(client, {
+      userId: USER_ID,
+      url: stored.external_url,
+      displayName: 'Remote',
+      capabilities: { create: 'denied', update: 'denied', delete: 'denied' },
+    });
+
+    expect(client.query).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /INSERT INTO address_books[\s\S]+VALUES \(\$1,\$2,'carddav',\$3,\$4,\$5,\$6,false,false\)/,
+      ),
+      [USER_ID, 'Remote', stored.external_url, 'denied', 'denied', 'denied'],
+    );
+    // The claim attempt still runs (it ranks across this user's *whole*
+    // snapshot of carddav books, not just this one), but its own ranking
+    // excludes denied books, so a lone denied book is never promoted.
+    expect(client.query).toHaveBeenCalledWith(
+      expect.stringMatching(/remote_create_capability <> 'denied'/),
+      [USER_ID],
+    );
+  });
+
+  it('defers the write-target claim when the caller is batching a discovery snapshot', async () => {
+    const stored = { id: BOOK_ID, external_url: 'https://dav.example.test/addressbooks/default/' };
+    const client = {
+      query: vi.fn(async sql => {
+        if (/SELECT 1 FROM address_books/.test(sql)) return { rows: [] };
+        if (/SELECT id FROM address_books/.test(sql)) return { rows: [] };
+        if (/INSERT INTO address_books/.test(sql)) return { rows: [stored], rowCount: 1 };
+        return { rows: [], rowCount: 1 };
+      }),
+    };
+
+    await persistDiscoveredBook(client, {
+      userId: USER_ID,
+      url: stored.external_url,
+      displayName: 'Remote',
+      capabilities: { create: 'allowed', update: 'allowed', delete: 'allowed' },
+      deferWriteTargetClaim: true,
+    });
+
+    expect(client.query).not.toHaveBeenCalledWith(
+      expect.stringMatching(/is_write_target = true, is_subscribed = true/),
+      expect.anything(),
+    );
+  });
+
+  it('retries an unrelated 23505 with the identical name instead of spuriously renaming the book', async () => {
+    const stored = { id: BOOK_ID, external_url: 'https://dav.example.test/addressbooks/default/' };
+    let insertAttempts = 0;
+    const client = {
+      query: vi.fn(async sql => {
+        if (/SELECT 1 FROM address_books/.test(sql)) return { rows: [] };
+        if (/SELECT id FROM address_books/.test(sql)) return { rows: [] };
+        if (/INSERT INTO address_books/.test(sql)) {
+          insertAttempts += 1;
+          if (insertAttempts === 1) {
+            // Not a (user_id, name) collision — e.g. a concurrent insert for
+            // this same external_url racing this one.
+            throw Object.assign(new Error('duplicate key'), {
+              code: '23505',
+              constraint: 'some_unrelated_constraint',
+            });
+          }
+          return { rows: [stored], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 1 };
+      }),
+    };
+
+    await expect(persistDiscoveredBook(client, {
+      userId: USER_ID,
+      url: stored.external_url,
+      displayName: 'Remote',
+      capabilities: { create: 'allowed', update: 'allowed', delete: 'allowed' },
+    })).resolves.toEqual(stored);
+
+    const insertCalls = client.query.mock.calls.filter(([sql]) => /INSERT INTO address_books/.test(sql));
+    expect(insertCalls).toHaveLength(2);
+    expect(insertCalls[0][1][1]).toBe('Remote');
+    expect(insertCalls[1][1][1]).toBe('Remote');
+  });
+
+  it('renames only on a genuine display-name collision, retrying with a numbered suffix', async () => {
+    const stored = { id: BOOK_ID, external_url: 'https://dav.example.test/addressbooks/default/' };
+    let insertAttempts = 0;
+    const client = {
+      query: vi.fn(async sql => {
+        if (/SELECT 1 FROM address_books/.test(sql)) return { rows: [] };
+        if (/SELECT id FROM address_books/.test(sql)) return { rows: [] };
+        if (/INSERT INTO address_books/.test(sql)) {
+          insertAttempts += 1;
+          if (insertAttempts === 1) {
+            throw Object.assign(new Error('duplicate key'), {
+              code: '23505',
+              constraint: 'address_books_user_id_name_key',
+            });
+          }
+          return { rows: [stored], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 1 };
+      }),
+    };
+
+    await expect(persistDiscoveredBook(client, {
+      userId: USER_ID,
+      url: stored.external_url,
+      displayName: 'Remote',
+      capabilities: { create: 'allowed', update: 'allowed', delete: 'allowed' },
+    })).resolves.toEqual(stored);
+
+    const insertCalls = client.query.mock.calls.filter(([sql]) => /INSERT INTO address_books/.test(sql));
+    expect(insertCalls).toHaveLength(2);
+    expect(insertCalls[0][1][1]).toBe('Remote');
+    expect(insertCalls[1][1][1]).toBe('Remote (2)');
+  });
+
+  it('inserts without multi-book role columns on a not-yet-migrated (transitional) schema', async () => {
+    const stored = { id: BOOK_ID, external_url: 'https://dav.example.test/addressbooks/default/' };
+    const client = {
+      query: vi.fn(async sql => {
+        if (/SELECT 1 FROM address_books/.test(sql)) {
+          throw Object.assign(new Error('column "is_write_target" does not exist'), { code: '42703' });
+        }
+        return { rows: [stored], rowCount: 1 };
+      }),
+    };
+
+    await expect(persistDiscoveredBook(client, {
+      userId: USER_ID,
+      url: stored.external_url,
+      displayName: 'Remote',
+      capabilities: { create: 'allowed', update: 'allowed', delete: 'allowed' },
+    })).resolves.toEqual(stored);
+
+    const insertCall = client.query.mock.calls.find(([sql]) => sql.includes('INSERT INTO address_books'));
+    expect(insertCall[0]).not.toMatch(/is_write_target/);
+    expect(insertCall[1]).toEqual([USER_ID, 'Remote', stored.external_url, 'allowed', 'allowed', 'allowed']);
+    expect(client.query.mock.calls.some(([sql]) => sql === 'ROLLBACK TO SAVEPOINT carddav_multi_book_probe')).toBe(true);
+    // No alias lookup on a not-yet-migrated schema (no discovery_alias_url column).
+    expect(client.query).not.toHaveBeenCalledWith(
+      expect.stringMatching(/SELECT id FROM address_books/),
+      expect.anything(),
+    );
+  });
+
+  it('ranks candidates by capability priority before created_at/id and no-ops once a write-target exists', async () => {
+    const client = { query: vi.fn(async () => ({ rows: [], rowCount: 1 })) };
+
+    await claimBestWriteTargetCandidate(client, USER_ID);
+
+    expect(client.query).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /UPDATE address_books SET[\s\S]+is_write_target = true, is_subscribed = true[\s\S]+remote_create_capability <> 'denied'[\s\S]+ORDER BY \(remote_create_capability = 'allowed'\) DESC, created_at, id[\s\S]+NOT EXISTS[\s\S]+is_write_target = true/,
+      ),
+      [USER_ID],
+    );
+  });
+
+  it('swallows a lost write-target race instead of throwing', async () => {
+    const client = {
+      query: vi.fn(async sql => {
+        if (/^UPDATE address_books SET/.test(sql)) {
+          throw Object.assign(new Error('duplicate key'), {
+            code: '23505',
+            constraint: 'carddav_one_write_target_idx',
+          });
+        }
+        return { rows: [], rowCount: 1 };
+      }),
+    };
+
+    await expect(claimBestWriteTargetCandidate(client, USER_ID)).resolves.toBeUndefined();
+
+    expect(client.query).toHaveBeenCalledWith('ROLLBACK TO SAVEPOINT carddav_write_target_claim');
+  });
+
+  it('no-ops on a not-yet-migrated (transitional) schema', async () => {
+    const client = {
+      query: vi.fn(async sql => {
+        if (/^UPDATE address_books SET/.test(sql)) {
+          throw Object.assign(new Error('column "is_write_target" does not exist'), { code: '42703' });
+        }
+        return { rows: [], rowCount: 1 };
+      }),
+    };
+
+    await expect(claimBestWriteTargetCandidate(client, USER_ID)).resolves.toBeUndefined();
+
+    expect(client.query).toHaveBeenCalledWith('ROLLBACK TO SAVEPOINT carddav_write_target_claim');
   });
 
   it('owns a single denied capability update without changing its siblings', async () => {
@@ -532,6 +820,149 @@ describe('persistDiscoveredBook', () => {
         'denied',
       ],
     );
+  });
+
+  it('records the discovery alias a canonical URL rewrite replaces', async () => {
+    const client = { query: vi.fn(async () => ({ rows: [], rowCount: 1 })) };
+
+    await advanceDiscoveredBookState(client, {
+      addressBookId: BOOK_ID,
+      expectedRemoteRevision: '4',
+      canonicalUrl: 'https://dav.example.test/addressbooks/canonical/',
+      remoteSyncToken: 'opaque-token-2',
+      remoteSyncCapability: 'supported',
+      remoteProjectionFingerprint: 'projection-fingerprint',
+      capabilities: { create: 'allowed', update: 'unknown', delete: 'denied' },
+    });
+
+    expect(client.query).toHaveBeenCalledWith(
+      expect.stringMatching(/discovery_alias_url = CASE[\s\S]+WHEN \$6 IS NOT NULL AND \$6 <> external_url THEN external_url/),
+      [
+        BOOK_ID,
+        'opaque-token-2',
+        'supported',
+        'projection-fingerprint',
+        '4',
+        'https://dav.example.test/addressbooks/canonical/',
+        'allowed',
+        'unknown',
+        'denied',
+      ],
+    );
+  });
+
+  it('advances book state without the alias column on a not-yet-migrated (transitional) schema', async () => {
+    let attempt = 0;
+    const client = {
+      query: vi.fn(async sql => {
+        if (sql.includes('UPDATE address_books') && sql.includes('discovery_alias_url')) {
+          attempt++;
+          throw Object.assign(new Error('column "discovery_alias_url" does not exist'), { code: '42703' });
+        }
+        return { rows: [], rowCount: 1 };
+      }),
+    };
+
+    await advanceDiscoveredBookState(client, {
+      addressBookId: BOOK_ID,
+      expectedRemoteRevision: '4',
+      canonicalUrl: 'https://dav.example.test/addressbooks/default/',
+      remoteSyncToken: 'opaque-token-2',
+      remoteSyncCapability: 'supported',
+      remoteProjectionFingerprint: 'projection-fingerprint',
+      capabilities: { create: 'allowed', update: 'unknown', delete: 'denied' },
+    });
+
+    expect(attempt).toBe(1);
+    const fallbackCall = client.query.mock.calls.find(([sql]) => (
+      sql.includes('UPDATE address_books') && !sql.includes('discovery_alias_url')
+    ));
+    expect(fallbackCall).toBeDefined();
+    expect(client.query.mock.calls.some(([sql]) => sql === 'ROLLBACK TO SAVEPOINT carddav_book_alias_column')).toBe(true);
+  });
+});
+
+describe('upsertLookupObjects chunking', () => {
+  // Must mirror the constants in carddavMappingState.js: 8 binds per row, and a
+  // chunk small enough that even the largest permitted lookup delta stays under
+  // PostgreSQL's 65,535-bind ceiling.
+  const COLUMNS_PER_ROW = 8;
+  const CHUNK_ROWS = 4000;
+  const PG_BIND_LIMIT = 65535;
+
+  function lookupChange(index) {
+    return {
+      addressBookId: BOOK_ID,
+      href: `https://dav.example.test/addressbooks/lookup/${index}.vcf`,
+      remoteEtag: `"etag-${index}"`,
+      vcard: `BEGIN:VCARD\r\nVERSION:3.0\r\nUID:lookup-${index}\r\nEND:VCARD\r\n`,
+      primaryEmail: `lookup-${index}@example.test`,
+      vcardVersion: '3.0',
+      remoteSemanticHash: `hash-${index}`,
+      lookupDisplayName: `Lookup ${index}`,
+    };
+  }
+
+  function recordingClient() {
+    const inserts = [];
+    const control = [];
+    const client = {
+      query: vi.fn(async (sql, params) => {
+        if (/INSERT INTO carddav_remote_objects/.test(sql)) {
+          inserts.push({ sql, params });
+          return { rowCount: params.length / COLUMNS_PER_ROW };
+        }
+        control.push(sql);
+        return { rows: [], rowCount: 0 };
+      }),
+    };
+    return { client, inserts, control };
+  }
+
+  // Each VALUES tuple ends with ",NOW())"; the ON CONFLICT clause never does, so
+  // this counts exactly the rows a single statement carries — independent of the
+  // parameter array.
+  function rowsInStatement(insert) {
+    return (insert.sql.match(/,NOW\(\)\)/g) || []).length;
+  }
+
+  it('writes nothing and issues no statement for an empty delta', async () => {
+    const { client, inserts } = recordingClient();
+    expect(await mappingState.upsertLookupObjects(client, [])).toBe(0);
+    expect(inserts).toHaveLength(0);
+  });
+
+  it('writes a single-row delta in one statement inside the caller transaction', async () => {
+    const { client, inserts, control } = recordingClient();
+    const written = await mappingState.upsertLookupObjects(client, [lookupChange(0)]);
+    expect(written).toBe(1);
+    expect(inserts).toHaveLength(1);
+    expect(rowsInStatement(inserts[0])).toBe(1);
+    expect(inserts[0].params).toHaveLength(COLUMNS_PER_ROW);
+    // No BEGIN/COMMIT/SAVEPOINT — the chunks share the caller's transaction.
+    expect(control).toEqual([]);
+  });
+
+  it('writes an exactly-full chunk in one statement', async () => {
+    const changes = Array.from({ length: CHUNK_ROWS }, (_, index) => lookupChange(index));
+    const { client, inserts } = recordingClient();
+    const written = await mappingState.upsertLookupObjects(client, changes);
+    expect(written).toBe(CHUNK_ROWS);
+    expect(inserts).toHaveLength(1);
+    expect(rowsInStatement(inserts[0])).toBe(CHUNK_ROWS);
+    expect(inserts[0].params).toHaveLength(CHUNK_ROWS * COLUMNS_PER_ROW);
+    expect(inserts[0].params.length).toBeLessThanOrEqual(PG_BIND_LIMIT);
+  });
+
+  it('splits one row past a full chunk into two statements, each within the bind budget', async () => {
+    const changes = Array.from({ length: CHUNK_ROWS + 1 }, (_, index) => lookupChange(index));
+    const { client, inserts } = recordingClient();
+    const written = await mappingState.upsertLookupObjects(client, changes);
+    expect(written).toBe(CHUNK_ROWS + 1);
+    expect(inserts.map(rowsInStatement)).toEqual([CHUNK_ROWS, 1]);
+    expect(inserts.every(insert => insert.params.length <= PG_BIND_LIMIT)).toBe(true);
+    // Every chunk rebuilds fresh $1-based placeholders.
+    expect(inserts[1].sql).toMatch(/VALUES \(\$1,/);
   });
 });
 

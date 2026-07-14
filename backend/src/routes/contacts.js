@@ -5,8 +5,10 @@ import {
   CARDDAV_CONTACT_ERROR_STATUS,
   createContact,
   deleteContact,
+  promoteContact,
   updateContact,
 } from '../services/carddavContactService.js';
+import { resolveLookupPhoto } from '../services/carddavLookupService.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -79,13 +81,16 @@ function contactError(res, err, fallback) {
     return res.status(CARDDAV_CONTACT_ERROR_STATUS[err.code])
       .json({ error: err.message, code: err.code, refresh: true });
   }
+  // The code rides along with the message so a client can translate the states
+  // it can act on (no write-target, read-only book) instead of echoing a raw
+  // English message into a localized UI.
   if (err.code === '23505') {
     return res.status(CARDDAV_CONTACT_ERROR_STATUS[err.code])
       .json({ error: 'A contact with that email already exists' });
   }
   const status = CARDDAV_CONTACT_ERROR_STATUS[err.code]
     ?? (Number.isInteger(err.status) ? err.status : null);
-  if (status) return res.status(status).json({ error: err.message });
+  if (status) return res.status(status).json({ error: err.message, code: err.code });
   console.error(`${fallback}:`, err);
   return res.status(500).json({ error: fallback });
 }
@@ -170,7 +175,18 @@ router.get('/photo', async (req, res) => {
       [userId, email.trim()]
     );
 
-    if (!result.rows.length) return res.status(404).end();
+    // Ledger fallback: a sender materialized in no contacts row may still live in
+    // a lookup-only CardDAV book, whose retained vCard PHOTO is decoded lazily.
+    // Contacts-table photos are resolved first, so they always win.
+    if (!result.rows.length) {
+      const lookup = await resolveLookupPhoto(userId, email);
+      if (lookup) {
+        res.set('Cache-Control', 'private, max-age=86400');
+        res.set('Content-Type', lookup.mime);
+        return res.send(lookup.bytes);
+      }
+      return res.status(404).end();
+    }
 
     const photoData = result.rows[0].photo_data;
     res.set('Cache-Control', 'private, max-age=86400');
@@ -243,6 +259,20 @@ router.patch('/:id', async (req, res) => {
     res.json(await updateContact(userId, req.params.id, draft));
   } catch (err) {
     contactError(res, err, 'Failed to update contact');
+  }
+});
+
+// POST /api/contacts/:id/promote
+// Make an auto-collected contact explicit and export it to the CardDAV
+// write-target book right away. Editing a harvested contact deliberately does
+// not do this (see updateStoredContact) — publishing a sender to a shared
+// address book is a one-way action the user takes on purpose, never a side
+// effect of tidying up a field.
+router.post('/:id/promote', async (req, res) => {
+  try {
+    res.json(await promoteContact(req.session.userId, req.params.id));
+  } catch (err) {
+    contactError(res, err, 'Failed to save contact to the address book');
   }
 });
 

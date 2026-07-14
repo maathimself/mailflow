@@ -1281,7 +1281,25 @@
         "healthNeedsAttention": "Richiede attenzione",
         "healthHealthy": "Servizio regolare",
         "reviewConflicts": "Esamina i conflitti",
-        "help": "Usa una password app di Nextcloud, non quella di accesso: gli utenti SSO devono crearne una in Impostazioni → Sicurezza. I contatti vengono sincronizzati in entrambe le direzioni quando il server consente la scrittura."
+        "help": "Usa una password app di Nextcloud, non quella di accesso: gli utenti SSO devono crearne una in Impostazioni → Sicurezza. I contatti vengono sincronizzati in entrambe le direzioni quando il server consente la scrittura.",
+        "publishEmailedContacts": "Pubblica i contatti a cui scrivi",
+        "publishEmailedContactsDesc": "Aggiunge le persone a cui scrivi alla rubrica di destinazione.",
+        "books": {
+          "title": "Rubriche",
+          "empty": "Nessuna rubrica ancora rilevata.",
+          "writeTarget": "Destinazione di scrittura",
+          "subscribed": "Sottoscritta",
+          "lookupOnly": "Solo ricerca",
+          "ignored": "Ignorata",
+          "writable": "Scrivibile",
+          "readOnly": "Sola lettura",
+          "unknownCapability": "Sconosciuto",
+          "counts": "{{materialized}} in elenco · {{lookup}} per la ricerca",
+          "lastSync": "Ultima sincronizzazione: {{when}}",
+          "subscribeLabel": "Iscriviti",
+          "lookupLabel": "Cerca mittenti",
+          "updateFailed": "Impossibile aggiornare la rubrica"
+        }
       }
     },
     "ssoLinked": {
@@ -1365,6 +1383,13 @@
     "carddavConflict": "Conflitto CardDAV",
     "carddavPending": "Sincronizzazione in sospeso",
     "carddavWriteUnconfirmed": "La tua modifica potrebbe essere già stata applicata: il contatto è stato aggiornato. Verifica e riprova se necessario.",
+    "promote": {
+      "action": "Salva nella rubrica",
+      "hint": "Salva questo contatto nella tua rubrica CardDAV per mantenerlo sincronizzato.",
+      "noWriteTarget": "Nessuna rubrica è impostata come destinazione di scrittura. Scegline una in Rubriche, sotto Impostazioni → Contatti CardDAV, poi riprova.",
+      "readOnly": "La rubrica di destinazione di scrittura non accetta nuovi contatti. Scegline una scrivibile in Rubriche, sotto Impostazioni → Contatti CardDAV.",
+      "failed": "Impossibile salvare questo contatto nella rubrica."
+    },
     "photo": {
       "title": "Immagine",
       "contactAlt": "Foto del contatto",

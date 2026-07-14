@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import bcrypt from 'bcryptjs';
 import express from 'express';
 import pg from 'pg';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createCarddavFixtureServer } from './carddavFixtureServer.js';
 import {
   applyTestMigrations,
@@ -538,15 +538,22 @@ async function failureBoundaryState(userId) {
   };
 }
 
-async function seedConnectedUser(fixture, overrides = {}) {
+async function seedUser() {
   const userId = randomUUID();
-  const connectionGeneration = overrides.connectionGeneration || randomUUID();
-  const password = overrides.password || 'fixture-password';
-  const encryptedPassword = encrypt(password);
   await databaseClient.query(
     'INSERT INTO users (id, username) VALUES ($1, $2)',
     [userId, `carddav-e2e-${userId}`],
   );
+  return userId;
+}
+
+// Attach a CardDAV connection to an existing user. Split out of seedConnectedUser
+// so a test can create contacts *before* the connection exists — the local-only
+// create path — and then connect and let the sweep publish them.
+async function connectSeededUser(fixture, userId, overrides = {}) {
+  const connectionGeneration = overrides.connectionGeneration || randomUUID();
+  const password = overrides.password || 'fixture-password';
+  const encryptedPassword = encrypt(password);
   const config = {
     serverUrl: fixture.serverUrl,
     username: overrides.username || 'fixture-user',
@@ -556,12 +563,38 @@ async function seedConnectedUser(fixture, overrides = {}) {
     lastError: 'seeded-error',
     bookCount: 0,
     contactCount: 0,
+    // Left absent unless a test sets it: a connection stored without the key is
+    // exactly what every existing user has, and absent must mean OFF.
+    ...(overrides.publishEmailedContacts === undefined
+      ? {}
+      : { publishEmailedContacts: overrides.publishEmailedContacts }),
   };
   await databaseClient.query(`
     INSERT INTO user_integrations (user_id, provider, config)
     VALUES ($1, 'carddav', $2::jsonb)
   `, [userId, JSON.stringify(config)]);
   return { userId, config, connectionGeneration, encryptedPassword, password };
+}
+
+async function seedConnectedUser(fixture, overrides = {}) {
+  return connectSeededUser(fixture, await seedUser(), overrides);
+}
+
+// Pre-designate a fixture connection's single book as the write target so a
+// test can exercise write routing in isolation, without first running the sync
+// whose first-connect bootstrap would assign the flag (that bootstrap is
+// covered end-to-end by the zero-config test below). This mirrors Slice 1's
+// migration backfill for an already-connected single-book user.
+async function seedWriteTargetBook(fixture, userId) {
+  const externalUrl = fixture.href('');
+  await databaseClient.query(`
+    INSERT INTO address_books (
+      user_id, name, source, external_url,
+      remote_create_capability, remote_update_capability, remote_delete_capability,
+      is_write_target, is_subscribed, is_lookup_source
+    ) VALUES ($1, 'Fixture Contacts', 'carddav', $2, 'allowed', 'allowed', 'allowed', true, true, true)
+  `, [userId, externalUrl]);
+  return externalUrl;
 }
 
 function remoteVcard(uid, name, email = `${uid}@example.test`) {
@@ -681,8 +714,9 @@ async function seedMappedExplicitContact(fixture, userId) {
   const { rows: [remoteBook] } = await databaseClient.query(`
     INSERT INTO address_books (
       user_id, name, source, external_url,
-      remote_create_capability, remote_update_capability, remote_delete_capability
-    ) VALUES ($1, 'Retry After Remote', 'carddav', $2, 'allowed', 'allowed', 'allowed')
+      remote_create_capability, remote_update_capability, remote_delete_capability,
+      is_write_target, is_subscribed, is_lookup_source
+    ) VALUES ($1, 'Retry After Remote', 'carddav', $2, 'allowed', 'allowed', 'allowed', true, true, true)
     RETURNING id
   `, [userId, fixture.href('')]);
   const { rows: [row] } = await databaseClient.query(`
@@ -748,9 +782,9 @@ async function seedUnmappedExplicitContact(userId, {
   const { rows: [row] } = await databaseClient.query(`
     INSERT INTO contacts (
       address_book_id, user_id, uid, vcard, etag, display_name,
-      primary_email, emails, phones, additional_fields, is_auto
+      primary_email, emails, phones, additional_fields, is_auto, carddav_publish_intent
     ) VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8::jsonb, '[]'::jsonb, '[]'::jsonb, false
+      $1, $2, $3, $4, $5, $6, $7, $8::jsonb, '[]'::jsonb, '[]'::jsonb, false, true
     )
     RETURNING id
   `, [
@@ -762,6 +796,59 @@ async function seedUnmappedExplicitContact(userId, {
     displayName,
     contact.emails[0].value,
     JSON.stringify(contact.emails),
+  ]);
+  return { ...row, uid, card };
+}
+
+// An unmapped local contact — explicit by default (the export sweep's subject),
+// or `isAuto` to stand in for a harvested sender the sweep must pass over. Both
+// share one local book, as they do in a real mailbox.
+// `publishIntent` defaults to the migration's backfill rule (NOT is_auto), so an
+// "explicit" seed means a contact the user curated before this setting existed.
+// A contact that became explicit only by being emailed is seeded by passing
+// isAuto: false with publishIntent: false — exactly the row send.js leaves behind.
+async function seedUnmappedContact(userId, {
+  uid = randomUUID(),
+  displayName = 'Unmapped Explicit',
+  isAuto = false,
+  publishIntent = !isAuto,
+} = {}) {
+  const contact = {
+    uid,
+    displayName,
+    emails: [{ value: `${uid}@example.test`, type: 'other', primary: true }],
+    phones: [],
+    organization: null,
+    notes: null,
+    photoData: null,
+    additionalFields: [],
+  };
+  const card = generateVCard(contact);
+  const { rows: [book] } = await databaseClient.query(`
+    INSERT INTO address_books (user_id, name)
+    VALUES ($1, 'Unmapped Explicit Local')
+    ON CONFLICT (user_id, name) DO UPDATE SET updated_at = address_books.updated_at
+    RETURNING id
+  `, [userId]);
+  const { rows: [row] } = await databaseClient.query(`
+    INSERT INTO contacts (
+      address_book_id, user_id, uid, vcard, etag, display_name,
+      primary_email, emails, phones, additional_fields, is_auto, carddav_publish_intent
+    ) VALUES (
+      $1, $2, $3, $4, $5, $6, $7, $8::jsonb, '[]'::jsonb, '[]'::jsonb, $9, $10
+    )
+    RETURNING id
+  `, [
+    book.id,
+    userId,
+    uid,
+    card,
+    createHash('md5').update(card).digest('hex'),
+    displayName,
+    contact.emails[0].value,
+    JSON.stringify(contact.emails),
+    isAuto,
+    publishIntent,
   ]);
   return { ...row, uid, card };
 }
@@ -842,7 +929,7 @@ async function seedTwoRemoteBooks(fixture, userId) {
     nextToken: 'two-book-b-1',
   });
   expect(await carddavSync.syncUser(userId)).toMatchObject({
-    ok: true, bookCount: 2, contactCount: 2,
+    ok: true, bookCount: 2, contactCount: 1,
   });
   const state = await projectionState(userId);
   return {
@@ -975,11 +1062,186 @@ describe('production CardDAV HTTP to PostgreSQL 16', () => {
     }
   }, 120_000);
 
+  // Both halves of the sweep's contract in one pass. An explicit local contact
+  // still exports automatically — the bidirectional spec's "existing explicit
+  // contacts synchronize automatically" invariant, untouched by Slice 6 — while
+  // a harvested contact sitting right beside it is never swept out to the
+  // shared book. Only a deliberate promotion makes it explicit.
+  it('sweeps an explicit unmapped contact to the write-target and never a harvested one', async () => {
+    const fixture = createCarddavFixtureServer();
+    await fixture.listen();
+    const seeded = await seedConnectedUser(fixture);
+    await seedWriteTargetBook(fixture, seeded.userId);
+    const explicit = await seedUnmappedContact(seeded.userId, {
+      displayName: 'Explicit Sweep',
+    });
+    const harvested = await seedUnmappedContact(seeded.userId, {
+      displayName: 'Harvested Sweep',
+      isAuto: true,
+    });
+    fixture.queueSync('', { events: [], nextToken: 'sweep-token' });
+
+    try {
+      expect(await carddavSync.syncUser(seeded.userId)).toMatchObject({
+        ok: true,
+        exportFailures: [],
+      });
+
+      const put = fixture.requests.filter(request => request.method === 'PUT');
+      expect(put).toHaveLength(1);
+      expect(put[0].body).toContain('FN:Explicit Sweep');
+      expect(put[0].path).toBe(`/addressbooks/fixture-user/contacts/${explicit.uid}.vcf`);
+
+      const { rows: autoFlags } = await databaseClient.query(
+        'SELECT id, is_auto FROM contacts WHERE user_id = $1 ORDER BY display_name',
+        [seeded.userId],
+      );
+      expect(autoFlags).toEqual([
+        { id: explicit.id, is_auto: false },
+        { id: harvested.id, is_auto: true },
+      ]);
+      const projection = await projectionState(seeded.userId);
+      expect(projection.ledger.map(row => row.local_contact_id)).toEqual([explicit.id]);
+    } finally {
+      await fixture.close();
+    }
+  }, 120_000);
+
+  // send.js flips is_auto to false for anyone the user emails — upstream behavior
+  // the autocomplete ranking in routes/search.js depends on, so it stays. That
+  // makes is_auto the wrong gate for *publishing*: replying to a harvested sender
+  // would silently push them into the user's shared address book. Publication is
+  // gated on carddav_publish_intent instead, which only a deliberate act sets.
+  //
+  // The contact is is_auto = false and unmapped, so the old is_auto-only sweep
+  // would export it. Its false publication intent is the only thing keeping it
+  // local while the setting is off.
+  it('never publishes a contact that became explicit only by being emailed', async () => {
+    const fixture = createCarddavFixtureServer();
+    await fixture.listen();
+    const seeded = await seedConnectedUser(fixture);
+    await seedWriteTargetBook(fixture, seeded.userId);
+    const emailed = await seedUnmappedContact(seeded.userId, {
+      displayName: 'Emailed Sender',
+      isAuto: false,
+      publishIntent: false,
+    });
+    fixture.queueSync('', { events: [], nextToken: 'publish-off-token' });
+
+    try {
+      expect(await carddavSync.syncUser(seeded.userId)).toMatchObject({
+        ok: true,
+        exportFailures: [],
+      });
+
+      const put = fixture.requests.filter(request => request.method === 'PUT');
+      expect(put).toHaveLength(0);
+
+      const projection = await projectionState(seeded.userId);
+      expect(projection.ledger).toHaveLength(0);
+      // Unpublished, but still an explicit contact for autocomplete's purposes.
+      const { rows: [row] } = await databaseClient.query(
+        'SELECT is_auto, carddav_publish_intent FROM contacts WHERE id = $1',
+        [emailed.id],
+      );
+      expect(row).toEqual({ is_auto: false, carddav_publish_intent: false });
+    } finally {
+      await fixture.close();
+    }
+  }, 120_000);
+
+  // The opt-in: the "dedicated Email contacts book" workflow, where emailing
+  // someone is itself the act of adding them.
+  it('publishes an emailed contact when publishEmailedContacts is enabled', async () => {
+    const fixture = createCarddavFixtureServer();
+    await fixture.listen();
+    const seeded = await seedConnectedUser(fixture, { publishEmailedContacts: true });
+    await seedWriteTargetBook(fixture, seeded.userId);
+    const emailed = await seedUnmappedContact(seeded.userId, {
+      displayName: 'Emailed Sender',
+      isAuto: false,
+      publishIntent: false,
+    });
+    const harvested = await seedUnmappedContact(seeded.userId, {
+      displayName: 'Harvested Sender',
+      isAuto: true,
+    });
+    fixture.queueSync('', { events: [], nextToken: 'publish-on-token' });
+
+    try {
+      expect(await carddavSync.syncUser(seeded.userId)).toMatchObject({
+        ok: true,
+        exportFailures: [],
+      });
+
+      // The setting widens publication to emailed contacts only — a contact that
+      // was merely harvested from an inbound header is still not the user's.
+      const put = fixture.requests.filter(request => request.method === 'PUT');
+      expect(put).toHaveLength(1);
+      expect(put[0].path).toBe(`/addressbooks/fixture-user/contacts/${emailed.uid}.vcf`);
+      expect(put[0].body).toContain('FN:Emailed Sender');
+
+      const projection = await projectionState(seeded.userId);
+      expect(projection.ledger.map(row => row.local_contact_id)).toEqual([emailed.id]);
+      const { rows: [writeTarget] } = await databaseClient.query(`
+        SELECT id FROM address_books
+        WHERE user_id = $1 AND source = 'carddav' AND is_write_target = true
+      `, [seeded.userId]);
+      expect(projection.ledger[0].address_book_id).toBe(writeTarget.id);
+      const { rows: [row] } = await databaseClient.query(
+        'SELECT is_auto FROM contacts WHERE id = $1',
+        [harvested.id],
+      );
+      expect(row).toEqual({ is_auto: true });
+    } finally {
+      await fixture.close();
+    }
+  }, 120_000);
+
+  // A contact typed into MailFlow while CardDAV was disconnected is the plainest
+  // possible deliberate act, so connecting an account publishes it — the setting
+  // governs emailed contacts, never ones the user actually created.
+  it('publishes a manually created contact on connect with the setting off', async () => {
+    const fixture = createCarddavFixtureServer();
+    await fixture.listen();
+    const userId = await seedUser();
+    const created = await carddavContactService.createContact(userId, {
+      displayName: 'Hand Written',
+      emails: [{ value: 'hand-written@example.test', type: 'work', primary: true }],
+      phones: [],
+      organization: null,
+      notes: null,
+      photoData: null,
+      additionalFields: [],
+    });
+    const seeded = await connectSeededUser(fixture, userId);
+    await seedWriteTargetBook(fixture, seeded.userId);
+    fixture.queueSync('', { events: [], nextToken: 'manual-create-token' });
+
+    try {
+      expect(await carddavSync.syncUser(seeded.userId)).toMatchObject({
+        ok: true,
+        exportFailures: [],
+      });
+
+      const put = fixture.requests.filter(request => request.method === 'PUT');
+      expect(put).toHaveLength(1);
+      expect(put[0].body).toContain('FN:Hand Written');
+      expect(put[0].path).toBe(`/addressbooks/fixture-user/contacts/${created.uid}.vcf`);
+
+      const projection = await projectionState(seeded.userId);
+      expect(projection.ledger.map(row => row.local_contact_id)).toEqual([created.id]);
+    } finally {
+      await fixture.close();
+    }
+  }, 120_000);
+
   it('retains a fresh export Retry-After instead of clearing it from stale sync config', async () => {
     const fixture = createCarddavFixtureServer();
     await fixture.listen();
     const seeded = await seedConnectedUser(fixture);
-    const local = await seedUnmappedExplicitContact(seeded.userId, {
+    await seedWriteTargetBook(fixture, seeded.userId);
+    const local = await seedUnmappedContact(seeded.userId, {
       displayName: 'Fresh Export Throttle',
     });
     await databaseClient.query(`
@@ -1062,6 +1324,7 @@ describe('production CardDAV HTTP to PostgreSQL 16', () => {
     const fixture = createCarddavFixtureServer();
     await fixture.listen();
     const seeded = await seedConnectedUser(fixture);
+    await seedWriteTargetBook(fixture, seeded.userId);
     const before = await failureBoundaryState(seeded.userId);
     fixture.queueWrite('PUT', {
       status: 429,
@@ -2141,6 +2404,7 @@ describe('production CardDAV HTTP to PostgreSQL 16', () => {
   }, 120_000);
 
   async function createPushOriginContact(fixture, userId, draft) {
+    await seedWriteTargetBook(fixture, userId);
     const created = await carddavContactService.createContact(userId, {
       firstName: null,
       lastName: null,
@@ -3143,9 +3407,13 @@ describe('production CardDAV HTTP to PostgreSQL 16', () => {
       ok: false,
       error: 'forced second count book failure',
     });
-    expect(failedState.contacts).toHaveLength(1);
+    // Book A (the fresh connect's write-target) materialized person-a and its
+    // removal committed, leaving no materialized contacts; book B is the
+    // lookup-only sibling (person-b lives in the ledger only), and its failed
+    // apply rolled back, so its lone lookup row survives.
+    expect(failedState.contacts).toHaveLength(0);
     expect(failedState.ledger).toHaveLength(1);
-    expect(failedIntegration.config.contactCount).toBe(1);
+    expect(failedIntegration.config.contactCount).toBe(0);
 
     fixture.reset();
     fixture.queueDiscovery({ books: [
@@ -3162,10 +3430,12 @@ describe('production CardDAV HTTP to PostgreSQL 16', () => {
     const retriedState = await projectionState(seeded.userId);
     const [retriedIntegration] = await integrationState(seeded.userId);
 
-    expect(retried).toMatchObject({ ok: true, contactCount: 1 });
-    expect(retriedState.contacts).toHaveLength(1);
+    expect(retried).toMatchObject({ ok: true, contactCount: 0 });
+    // Book A stays empty; book B's retried lookup apply refreshes its single
+    // ledger row (person-b-2) without materializing a contact.
+    expect(retriedState.contacts).toHaveLength(0);
     expect(retriedState.ledger).toHaveLength(1);
-    expect(retriedIntegration.config.contactCount).toBe(1);
+    expect(retriedIntegration.config.contactCount).toBe(0);
     await fixture.close();
   }, 120_000);
 
@@ -3189,6 +3459,1026 @@ describe('production CardDAV HTTP to PostgreSQL 16', () => {
     expect(state.contacts).toHaveLength(1);
     expect(state.ledger).toHaveLength(1);
     expect(integration.config.contactCount).toBe(1);
+    await fixture.close();
+  }, 120_000);
+
+  it('claims the write-target for the best create-capable book of a fresh connect, not whichever is discovered first', async () => {
+    const fixture = createCarddavFixtureServer();
+    await fixture.listen();
+    const seeded = await seedConnectedUser(fixture);
+    const unknownPath = '/addressbooks/fixture-user/unknown-first/';
+    const allowedPath = '/addressbooks/fixture-user/allowed-second/';
+    const unknownUrl = new URL(unknownPath, fixture.serverUrl).href;
+    const allowedUrl = new URL(allowedPath, fixture.serverUrl).href;
+    const unknownHref = new URL('unknown-first.vcf', unknownUrl).href;
+    const allowedHref = new URL('allowed-second.vcf', allowedUrl).href;
+    fixture.queueDiscovery({ books: [
+      // Discovered *first*, but with unconfirmed ('unknown') create
+      // capability — claiming per book, in discovery order (the bug this
+      // proves fixed) would let this one keep the write-target forever.
+      { href: unknownPath, displayName: 'Unknown First', privileges: false },
+      // Discovered *second*, with confirmed ('allowed') create capability —
+      // the design's capability-priority backfill rule requires this one to
+      // win instead.
+      { href: allowedPath, displayName: 'Allowed Second' },
+    ] });
+    fixture.putContact(
+      unknownHref, '"unknown-first-1"', remoteVcard('unknown-first', 'Unknown First'),
+    );
+    fixture.putContact(
+      allowedHref, '"allowed-second-1"', remoteVcard('allowed-second', 'Allowed Second'),
+    );
+    fixture.queueSync('', {
+      events: [{ href: unknownHref, etag: '"unknown-first-1"' }],
+      nextToken: 'unknown-first-token',
+    });
+    fixture.queueSync('', {
+      events: [{ href: allowedHref, etag: '"allowed-second-1"' }],
+      nextToken: 'allowed-second-token',
+    });
+
+    expect(await carddavSync.syncUser(seeded.userId)).toMatchObject({
+      ok: true, bookCount: 2, contactCount: 1,
+    });
+
+    const { rows: roles } = await databaseClient.query(`
+      SELECT external_url, is_write_target, is_subscribed, remote_create_capability
+      FROM address_books
+      WHERE user_id = $1 AND source = 'carddav'
+      ORDER BY external_url
+    `, [seeded.userId]);
+    expect(roles).toEqual([
+      {
+        external_url: allowedUrl,
+        is_write_target: true,
+        is_subscribed: true,
+        remote_create_capability: 'allowed',
+      },
+      {
+        external_url: unknownUrl,
+        is_write_target: false,
+        is_subscribed: false,
+        remote_create_capability: 'unknown',
+      },
+    ]);
+    await fixture.close();
+  }, 120_000);
+
+  // ── Multi-book Slice 3: split pull-from-materialize ─────────────────────────
+
+  async function bookRoles(userId) {
+    const { rows } = await databaseClient.query(`
+      SELECT external_url, is_write_target, is_subscribed, is_lookup_source
+      FROM address_books WHERE user_id = $1 AND source = 'carddav'
+      ORDER BY external_url
+    `, [userId]);
+    return rows;
+  }
+
+  async function ledgerRows(userId) {
+    const { rows } = await databaseClient.query(`
+      SELECT b.external_url, o.href, o.mapping_status, o.local_contact_id,
+             o.primary_email, o.lookup_display_name
+      FROM carddav_remote_objects o
+      JOIN address_books b ON b.id = o.address_book_id
+      WHERE b.user_id = $1
+      ORDER BY b.external_url, o.href
+    `, [userId]);
+    return rows;
+  }
+
+  it('first connect subscribes and materializes the write-target while a sibling defaults to lookup-only', async () => {
+    const fixture = createCarddavFixtureServer();
+    await fixture.listen();
+    const seeded = await seedConnectedUser(fixture);
+    const primaryPath = '/addressbooks/fixture-user/primary/';
+    const applePath = '/addressbooks/fixture-user/apple/';
+    const primaryUrl = new URL(primaryPath, fixture.serverUrl).href;
+    const appleUrl = new URL(applePath, fixture.serverUrl).href;
+    const primaryHref = new URL('primary.vcf', primaryUrl).href;
+    const appleHref = new URL('apple.vcf', appleUrl).href;
+    fixture.queueDiscovery({ books: [
+      { href: primaryPath, displayName: 'Primary' },
+      { href: applePath, displayName: 'Apple Contacts' },
+    ] });
+    fixture.putContact(primaryHref, '"primary-1"', remoteVcard('primary-person', 'Primary Person'));
+    fixture.putContact(appleHref, '"apple-1"', remoteVcard('apple-person', 'Apple Person'));
+    fixture.queueSync('', {
+      events: [{ href: primaryHref, etag: '"primary-1"' }],
+      nextToken: 'primary-token',
+    });
+    fixture.queueSync('', {
+      events: [{ href: appleHref, etag: '"apple-1"' }],
+      nextToken: 'apple-token',
+    });
+
+    expect(await carddavSync.syncUser(seeded.userId)).toMatchObject({
+      ok: true, bookCount: 2, contactCount: 1,
+    });
+
+    // Both books are create-capable, so the first discovered wins the
+    // write-target + subscribe; the sibling defaults to lookup-only.
+    expect(await bookRoles(seeded.userId)).toEqual([
+      { external_url: appleUrl, is_write_target: false, is_subscribed: false, is_lookup_source: true },
+      { external_url: primaryUrl, is_write_target: true, is_subscribed: true, is_lookup_source: true },
+    ]);
+    const state = await projectionState(seeded.userId);
+    expect(state.contacts).toHaveLength(1);
+    expect(state.contacts[0].primary_email).toBe('primary-person@example.test');
+    expect(state.contacts[0].address_book_id).toBe(
+      state.books.find(book => book.external_url === primaryUrl).id,
+    );
+    // The lookup sibling retains a ledger row with no local contact; the
+    // write-target keeps its ordinary synced, linked mapping.
+    expect(await ledgerRows(seeded.userId)).toEqual([
+      {
+        external_url: appleUrl,
+        href: appleHref,
+        mapping_status: 'lookup',
+        local_contact_id: null,
+        primary_email: 'apple-person@example.test',
+        lookup_display_name: 'Apple Person',
+      },
+      {
+        external_url: primaryUrl,
+        href: primaryHref,
+        mapping_status: 'synced',
+        local_contact_id: state.contacts[0].id,
+        primary_email: 'primary-person@example.test',
+        lookup_display_name: null,
+      },
+    ]);
+    await fixture.close();
+  }, 120_000);
+
+  it('bootstraps a fresh single-book connection so a create works with no manual role assignment', async () => {
+    const fixture = createCarddavFixtureServer();
+    await fixture.listen();
+    // A brand-new connection with NO write-target designated (no seedWriteTargetBook).
+    const seeded = await seedConnectedUser(fixture);
+    fixture.queueSync('', { events: [], nextToken: 'bootstrap-token' });
+
+    // The first discovery auto-assigns the single create-capable book as
+    // write-target + subscribed — the design's zero-config promise.
+    expect(await carddavSync.syncUser(seeded.userId)).toMatchObject({ ok: true, bookCount: 1 });
+    const { rows: [bootstrapped] } = await databaseClient.query(
+      `SELECT id, is_write_target, is_subscribed, is_lookup_source
+       FROM address_books WHERE user_id = $1 AND source = 'carddav'`,
+      [seeded.userId],
+    );
+    expect(bootstrapped).toMatchObject({
+      is_write_target: true, is_subscribed: true, is_lookup_source: true,
+    });
+
+    // A create now succeeds and lands in the auto-assigned write-target, even
+    // though the user never assigned a role manually.
+    const created = await carddavContactService.createContact(seeded.userId, {
+      displayName: 'Zero Config',
+      firstName: 'Zero',
+      lastName: 'Config',
+      emails: [{ value: 'zero-config@example.test', type: 'work', primary: true }],
+      phones: [],
+      organization: null,
+      notes: null,
+      photoData: null,
+      additionalFields: [],
+    });
+    expect(created.id).toBeTruthy();
+    const { rows: [mapping] } = await databaseClient.query(
+      `SELECT address_book_id, mapping_status
+       FROM carddav_remote_objects WHERE local_contact_id = $1`,
+      [created.id],
+    );
+    expect(mapping).toMatchObject({
+      address_book_id: bootstrapped.id,
+      mapping_status: 'synced',
+    });
+    await fixture.close();
+  }, 120_000);
+
+  it('pulls a lookup-only book into the ledger with mapping_status lookup and zero contacts', async () => {
+    const fixture = createCarddavFixtureServer();
+    await fixture.listen();
+    const seeded = await seedConnectedUser(fixture);
+    const lookupUrl = fixture.href('');
+    await databaseClient.query(`
+      INSERT INTO address_books (
+        user_id, name, source, external_url,
+        remote_create_capability, remote_update_capability, remote_delete_capability,
+        is_write_target, is_subscribed, is_lookup_source
+      ) VALUES ($1, 'Apple Contacts', 'carddav', $2, 'denied', 'denied', 'denied', false, false, true)
+    `, [seeded.userId, lookupUrl]);
+    const href = fixture.href('apple-only.vcf');
+    fixture.putContact(href, '"apple-only-1"', remoteVcard('apple-only', 'Apple Only'));
+    fixture.queueDiscovery({ books: [
+      { href: '/addressbooks/fixture-user/contacts/', displayName: 'Apple Contacts', privileges: [] },
+    ] });
+    fixture.queueSync('', {
+      events: [{ href, etag: '"apple-only-1"' }],
+      nextToken: 'apple-only-token',
+    });
+
+    expect(await carddavSync.syncUser(seeded.userId)).toMatchObject({
+      ok: true, bookCount: 1, contactCount: 0,
+    });
+
+    const state = await projectionState(seeded.userId);
+    expect(state.contacts).toHaveLength(0);
+    expect(await ledgerRows(seeded.userId)).toEqual([{
+      external_url: lookupUrl,
+      href,
+      mapping_status: 'lookup',
+      local_contact_id: null,
+      primary_email: 'apple-only@example.test',
+      lookup_display_name: 'Apple Only',
+    }]);
+    // A read-only lookup-only book is never promoted to the write-target.
+    expect(await bookRoles(seeded.userId)).toEqual([{
+      external_url: lookupUrl,
+      is_write_target: false,
+      is_subscribed: false,
+      is_lookup_source: true,
+    }]);
+    await fixture.close();
+  }, 120_000);
+
+  it('materializes a lookup-only book after it is subscribed via the role route', async () => {
+    const fixture = createCarddavFixtureServer();
+    await fixture.listen();
+    const seeded = await seedConnectedUser(fixture);
+    const lookupUrl = fixture.href('');
+    await databaseClient.query(`
+      INSERT INTO address_books (
+        user_id, name, source, external_url,
+        remote_create_capability, remote_update_capability, remote_delete_capability,
+        is_write_target, is_subscribed, is_lookup_source
+      ) VALUES ($1, 'Apple Contacts', 'carddav', $2, 'denied', 'denied', 'denied', false, false, true)
+    `, [seeded.userId, lookupUrl]);
+    const href = fixture.href('apple-only.vcf');
+    fixture.putContact(href, '"apple-only-1"', remoteVcard('apple-only', 'Apple Only'));
+    const discovery = { books: [
+      { href: '/addressbooks/fixture-user/contacts/', displayName: 'Apple Contacts', privileges: [] },
+    ] };
+    fixture.queueDiscovery(discovery);
+    fixture.queueSync('', { events: [{ href, etag: '"apple-only-1"' }], nextToken: 'apple-token-1' });
+
+    // First sync leaves the book lookup-only: ledger row, no materialized contact.
+    await carddavSync.syncUser(seeded.userId);
+    expect((await projectionState(seeded.userId)).contacts).toHaveLength(0);
+    const { rows: [book] } = await databaseClient.query(
+      "SELECT id FROM address_books WHERE user_id = $1 AND source = 'carddav'",
+      [seeded.userId],
+    );
+
+    // Subscribing resets the book's pull token so the next sync re-pulls in full.
+    await carddavSync.patchCarddavBookRoles(
+      seeded.userId, book.id, { isSubscribed: true }, seeded.connectionGeneration,
+    );
+    fixture.queueDiscovery(discovery);
+    fixture.queueSync('', { events: [{ href, etag: '"apple-only-1"' }], nextToken: 'apple-token-2' });
+    await carddavSync.syncUser(seeded.userId);
+
+    const state = await projectionState(seeded.userId);
+    expect(state.contacts).toHaveLength(1);
+    expect(state.contacts[0].primary_email).toBe('apple-only@example.test');
+    expect(state.contacts[0].address_book_id).toBe(book.id);
+    const { rows: [ledger] } = await databaseClient.query(
+      `SELECT mapping_status, local_contact_id
+       FROM carddav_remote_objects WHERE address_book_id = $1`,
+      [book.id],
+    );
+    expect(ledger).toEqual({ mapping_status: 'synced', local_contact_id: state.contacts[0].id });
+    await fixture.close();
+  }, 120_000);
+
+  it('updates and tombstones lookup ledger rows on a later incremental sync without materializing', async () => {
+    const fixture = createCarddavFixtureServer();
+    await fixture.listen();
+    const seeded = await seedConnectedUser(fixture);
+    const lookupUrl = fixture.href('');
+    await databaseClient.query(`
+      INSERT INTO address_books (
+        user_id, name, source, external_url,
+        remote_create_capability, remote_update_capability, remote_delete_capability,
+        is_write_target, is_subscribed, is_lookup_source
+      ) VALUES ($1, 'Apple Contacts', 'carddav', $2, 'denied', 'denied', 'denied', false, false, true)
+    `, [seeded.userId, lookupUrl]);
+    const hrefA = fixture.href('lookup-a.vcf');
+    const hrefB = fixture.href('lookup-b.vcf');
+    fixture.putContact(hrefA, '"lookup-a-1"', remoteVcard('lookup-a', 'Lookup A'));
+    fixture.putContact(hrefB, '"lookup-b-1"', remoteVcard('lookup-b', 'Lookup B'));
+    fixture.queueDiscovery({ books: [
+      { href: '/addressbooks/fixture-user/contacts/', displayName: 'Apple Contacts', privileges: [] },
+    ] });
+    fixture.queueSync('', {
+      events: [{ href: hrefA, etag: '"lookup-a-1"' }, { href: hrefB, etag: '"lookup-b-1"' }],
+      nextToken: 'lookup-token-1',
+    });
+
+    expect(await carddavSync.syncUser(seeded.userId)).toMatchObject({
+      ok: true, bookCount: 1, contactCount: 0,
+    });
+    expect(await ledgerRows(seeded.userId)).toHaveLength(2);
+    const { rows: [rowBBefore] } = await databaseClient.query(
+      'SELECT mapping_revision FROM carddav_remote_objects WHERE href = $1',
+      [hrefB],
+    );
+
+    // A later incremental sync: lookup-b's card changed (new name + email + etag)
+    // and lookup-a was deleted server-side. The changed row is re-projected and
+    // the deleted one tombstoned — still ledger-only, still zero contacts.
+    fixture.putContact(hrefB, '"lookup-b-2"', remoteVcard('lookup-b', 'Lookup B Renamed', 'lookup-b2@example.test'));
+    fixture.deleteContact(hrefA);
+    fixture.queueDiscovery({ books: [
+      { href: '/addressbooks/fixture-user/contacts/', displayName: 'Apple Contacts', privileges: [] },
+    ] });
+    fixture.queueSync('lookup-token-1', {
+      events: [{ href: hrefB, etag: '"lookup-b-2"' }, { href: hrefA, status: 404 }],
+      nextToken: 'lookup-token-2',
+    });
+
+    expect(await carddavSync.syncUser(seeded.userId)).toMatchObject({
+      ok: true, bookCount: 1, contactCount: 0,
+    });
+
+    const state = await projectionState(seeded.userId);
+    expect(state.contacts).toHaveLength(0);
+    expect(await ledgerRows(seeded.userId)).toEqual([{
+      external_url: lookupUrl,
+      href: hrefB,
+      mapping_status: 'lookup',
+      local_contact_id: null,
+      primary_email: 'lookup-b2@example.test',
+      lookup_display_name: 'Lookup B Renamed',
+    }]);
+    // The changed row was rewritten (revision bumped); the book stays lookup-only.
+    const { rows: [rowB] } = await databaseClient.query(
+      'SELECT mapping_revision FROM carddav_remote_objects WHERE href = $1',
+      [hrefB],
+    );
+    expect(Number(rowB.mapping_revision)).toBeGreaterThan(Number(rowBBefore.mapping_revision));
+    expect(await bookRoles(seeded.userId)).toEqual([{
+      external_url: lookupUrl,
+      is_write_target: false,
+      is_subscribed: false,
+      is_lookup_source: true,
+    }]);
+    await fixture.close();
+  }, 120_000);
+
+  it('leaves lookup rows outside an incremental delta untouched and correctly counted', async () => {
+    const fixture = createCarddavFixtureServer();
+    await fixture.listen();
+    const seeded = await seedConnectedUser(fixture);
+    const lookupUrl = fixture.href('');
+    await databaseClient.query(`
+      INSERT INTO address_books (
+        user_id, name, source, external_url,
+        remote_create_capability, remote_update_capability, remote_delete_capability,
+        is_write_target, is_subscribed, is_lookup_source
+      ) VALUES ($1, 'Apple Contacts', 'carddav', $2, 'denied', 'denied', 'denied', false, false, true)
+    `, [seeded.userId, lookupUrl]);
+    const hrefA = fixture.href('lookup-a.vcf');
+    const hrefB = fixture.href('lookup-b.vcf');
+    const hrefC = fixture.href('lookup-c.vcf');
+    fixture.putContact(hrefA, '"lookup-a-1"', remoteVcard('lookup-a', 'Lookup A'));
+    fixture.putContact(hrefB, '"lookup-b-1"', remoteVcard('lookup-b', 'Lookup B'));
+    fixture.putContact(hrefC, '"lookup-c-1"', remoteVcard('lookup-c', 'Lookup C'));
+    fixture.queueDiscovery({ books: [
+      { href: '/addressbooks/fixture-user/contacts/', displayName: 'Apple Contacts', privileges: [] },
+    ] });
+    fixture.queueSync('', {
+      events: [
+        { href: hrefA, etag: '"lookup-a-1"' },
+        { href: hrefB, etag: '"lookup-b-1"' },
+        { href: hrefC, etag: '"lookup-c-1"' },
+      ],
+      nextToken: 'lookup-token-1',
+    });
+
+    expect(await carddavSync.syncUser(seeded.userId)).toMatchObject({
+      ok: true, bookCount: 1, contactCount: 0,
+    });
+    const { rows: [rowCBefore] } = await databaseClient.query(
+      'SELECT mapping_revision FROM carddav_remote_objects WHERE href = $1',
+      [hrefC],
+    );
+
+    // A later incremental sync touches only lookup-b (changed) and lookup-a
+    // (deleted). lookup-c is absent from the delta, so it must be neither
+    // re-projected nor miscounted even though the projection no longer scans
+    // and locks the whole book — the cached count still drops by exactly one.
+    fixture.putContact(hrefB, '"lookup-b-2"', remoteVcard('lookup-b', 'Lookup B Renamed', 'lookup-b2@example.test'));
+    fixture.deleteContact(hrefA);
+    fixture.queueDiscovery({ books: [
+      { href: '/addressbooks/fixture-user/contacts/', displayName: 'Apple Contacts', privileges: [] },
+    ] });
+    fixture.queueSync('lookup-token-1', {
+      events: [{ href: hrefB, etag: '"lookup-b-2"' }, { href: hrefA, status: 404 }],
+      nextToken: 'lookup-token-2',
+    });
+
+    expect(await carddavSync.syncUser(seeded.userId)).toMatchObject({
+      ok: true, bookCount: 1, contactCount: 0,
+    });
+
+    const state = await projectionState(seeded.userId);
+    expect(state.contacts).toHaveLength(0);
+    expect(await ledgerRows(seeded.userId)).toEqual([
+      {
+        external_url: lookupUrl,
+        href: hrefB,
+        mapping_status: 'lookup',
+        local_contact_id: null,
+        primary_email: 'lookup-b2@example.test',
+        lookup_display_name: 'Lookup B Renamed',
+      },
+      {
+        external_url: lookupUrl,
+        href: hrefC,
+        mapping_status: 'lookup',
+        local_contact_id: null,
+        primary_email: 'lookup-c@example.test',
+        lookup_display_name: 'Lookup C',
+      },
+    ]);
+    // The untouched row was not rewritten — its mapping_revision holds steady.
+    const { rows: [rowCAfter] } = await databaseClient.query(
+      'SELECT mapping_revision FROM carddav_remote_objects WHERE href = $1',
+      [hrefC],
+    );
+    expect(Number(rowCAfter.mapping_revision)).toBe(Number(rowCBefore.mapping_revision));
+    await fixture.close();
+  }, 120_000);
+
+  it('skips an ignored book at the network layer, pulling nothing and retaining its row', async () => {
+    const fixture = createCarddavFixtureServer();
+    await fixture.listen();
+    const seeded = await seedConnectedUser(fixture);
+    const ignoredUrl = fixture.href('');
+    await databaseClient.query(`
+      INSERT INTO address_books (
+        user_id, name, source, external_url,
+        remote_create_capability, remote_update_capability, remote_delete_capability,
+        is_write_target, is_subscribed, is_lookup_source
+      ) VALUES ($1, 'Ignored Book', 'carddav', $2, 'denied', 'denied', 'denied', false, false, false)
+    `, [seeded.userId, ignoredUrl]);
+    fixture.putContact(fixture.href('ignored.vcf'), '"ignored-1"', remoteVcard('ignored', 'Ignored'));
+    fixture.queueDiscovery({ books: [
+      { href: '/addressbooks/fixture-user/contacts/', displayName: 'Ignored Book', privileges: [] },
+    ] });
+    // No queueSync: an ignored book must never issue a sync REPORT.
+
+    expect(await carddavSync.syncUser(seeded.userId)).toMatchObject({
+      ok: true, bookCount: 1, contactCount: 0,
+    });
+
+    expect(fixture.counters.sync).toBe(0);
+    expect(fixture.counters.multiget).toBe(0);
+    const state = await projectionState(seeded.userId);
+    expect(state.contacts).toHaveLength(0);
+    expect(await ledgerRows(seeded.userId)).toEqual([]);
+    // The row (and its ignored roles) survives, rather than being reconciled
+    // away and re-discovered as lookup-only next sync.
+    expect(await bookRoles(seeded.userId)).toEqual([{
+      external_url: ignoredUrl,
+      is_write_target: false,
+      is_subscribed: false,
+      is_lookup_source: false,
+    }]);
+    await fixture.close();
+  }, 120_000);
+
+  it('drops a newly ignored book\'s retained ledger rows on the next sync', async () => {
+    const fixture = createCarddavFixtureServer();
+    await fixture.listen();
+    const seeded = await seedConnectedUser(fixture);
+    // A lookup-only book with a retained ledger, as the previous sync left it.
+    const ignoredUrl = fixture.href('');
+    const { rows: [ignored] } = await databaseClient.query(`
+      INSERT INTO address_books (
+        user_id, name, source, external_url, remote_sync_token,
+        remote_create_capability, remote_update_capability, remote_delete_capability,
+        is_write_target, is_subscribed, is_lookup_source
+      ) VALUES ($1, 'Apple Contacts', 'carddav', $2, 'apple-token',
+                'denied', 'denied', 'denied', false, false, true)
+      RETURNING id
+    `, [seeded.userId, ignoredUrl]);
+    await databaseClient.query(`
+      INSERT INTO carddav_remote_objects (
+        address_book_id, href, remote_etag, vcard, primary_email,
+        mapping_status, lookup_display_name
+      ) VALUES ($1, $2, '"lookup-1"', $3, 'lookup-person@example.test',
+                'lookup', 'Lookup Person')
+    `, [ignored.id, fixture.href('lookup.vcf'), remoteVcard('lookup-person', 'Lookup Person')]);
+    await databaseClient.query(`
+      UPDATE user_integrations
+      SET config = config || jsonb_build_object('contactCount', 1)
+      WHERE user_id = $1 AND provider = 'carddav'
+    `, [seeded.userId]);
+
+    // The user switches Look-up-senders off on the unsubscribed book: ignored.
+    await carddavSync.patchCarddavBookRoles(
+      seeded.userId, ignored.id, { isLookupSource: false }, seeded.connectionGeneration,
+    );
+    fixture.reset();
+    fixture.queueDiscovery({ books: [
+      { href: '/addressbooks/fixture-user/contacts/', displayName: 'Apple Contacts', privileges: [] },
+    ] });
+    // No queueSync: an ignored book must never issue a sync REPORT.
+
+    expect(await carddavSync.syncUser(seeded.userId)).toMatchObject({
+      ok: true, bookCount: 1, contactCount: 0,
+    });
+
+    // Not pulled, its retained ledger dropped, its row (and roles) kept, and the
+    // cached count no longer carries the rows it no longer serves.
+    expect(fixture.counters.sync).toBe(0);
+    expect(await ledgerRows(seeded.userId)).toEqual([]);
+    expect(await bookRoles(seeded.userId)).toEqual([{
+      external_url: ignoredUrl,
+      is_write_target: false,
+      is_subscribed: false,
+      is_lookup_source: false,
+    }]);
+    const [integration] = await integrationState(seeded.userId);
+    expect(integration.config).toMatchObject({ contactCount: 0 });
+    await fixture.close();
+  }, 120_000);
+
+  it('repopulates the ledger when Look-up-senders is switched back on', async () => {
+    const fixture = createCarddavFixtureServer();
+    await fixture.listen();
+    const seeded = await seedConnectedUser(fixture);
+    const bookUrl = fixture.href('');
+    const lookupHref = fixture.href('lookup.vcf');
+    const lookupCard = remoteVcard('lookup-person', 'Lookup Person', 'lookup-person@example.test');
+    const { rows: [book] } = await databaseClient.query(`
+      INSERT INTO address_books (
+        user_id, name, source, external_url, remote_sync_token,
+        remote_create_capability, remote_update_capability, remote_delete_capability,
+        is_write_target, is_subscribed, is_lookup_source
+      ) VALUES ($1, 'Apple Contacts', 'carddav', $2, 'apple-token',
+                'denied', 'denied', 'denied', false, false, true)
+      RETURNING id
+    `, [seeded.userId, bookUrl]);
+    await databaseClient.query(`
+      INSERT INTO carddav_remote_objects (
+        address_book_id, href, remote_etag, vcard, primary_email,
+        mapping_status, lookup_display_name
+      ) VALUES ($1, $2, '"lookup-1"', $3, 'lookup-person@example.test',
+                'lookup', 'Lookup Person')
+    `, [book.id, lookupHref, lookupCard]);
+
+    // Ignored, then synced: the book is skipped and its retained ledger dropped.
+    await carddavSync.patchCarddavBookRoles(
+      seeded.userId, book.id, { isLookupSource: false }, seeded.connectionGeneration,
+    );
+    fixture.reset();
+    fixture.queueDiscovery({ books: [
+      { href: '/addressbooks/fixture-user/contacts/', displayName: 'Apple Contacts', privileges: [] },
+    ] });
+    expect(await carddavSync.syncUser(seeded.userId)).toMatchObject({ ok: true });
+    expect(await ledgerRows(seeded.userId)).toEqual([]);
+
+    // The user switches Look-up-senders back on. The book's ledger is gone, so an
+    // *incremental* delta from the token it still carries would resolve nobody
+    // forever — the pull that repopulates it has to be a full one.
+    await carddavSync.patchCarddavBookRoles(
+      seeded.userId, book.id, { isLookupSource: true }, seeded.connectionGeneration,
+    );
+    fixture.reset();
+    fixture.putContact(lookupHref, '"lookup-1"', lookupCard);
+    fixture.queueDiscovery({ books: [
+      { href: '/addressbooks/fixture-user/contacts/', displayName: 'Apple Contacts', privileges: [] },
+    ] });
+    // The stale token still resolves, and reports nothing new: a book that
+    // resumed from it would stay empty.
+    fixture.queueSync('apple-token', { events: [], nextToken: 'apple-token' });
+    fixture.queueSync('', {
+      events: [{ href: lookupHref, etag: '"lookup-1"' }],
+      nextToken: 'apple-2',
+    });
+
+    expect(await carddavSync.syncUser(seeded.userId)).toMatchObject({ ok: true });
+
+    // Pulled in full, back into the ledger — lookup-only, so no contact is
+    // materialized and the book stays unsubscribed.
+    expect(await ledgerRows(seeded.userId)).toEqual([{
+      external_url: bookUrl,
+      href: lookupHref,
+      mapping_status: 'lookup',
+      local_contact_id: null,
+      primary_email: 'lookup-person@example.test',
+      lookup_display_name: 'Lookup Person',
+    }]);
+    expect((await projectionState(seeded.userId)).contacts).toEqual([]);
+    expect(await bookRoles(seeded.userId)).toEqual([{
+      external_url: bookUrl,
+      is_write_target: false,
+      is_subscribed: false,
+      is_lookup_source: true,
+    }]);
+    await fixture.close();
+  }, 120_000);
+
+  it('keeps the ledger of a book re-enabled while the sync that would drop it ran', async () => {
+    const fixture = createCarddavFixtureServer();
+    await fixture.listen();
+    const seeded = await seedConnectedUser(fixture);
+    const writeTargetUrl = await seedWriteTargetBook(fixture, seeded.userId);
+    // A lookup-only book with a ledger, discovered *after* the write-target so the
+    // sync's book loop reaches it only once the write-target's pull has returned.
+    const applePath = '/addressbooks/fixture-user/apple/';
+    const appleUrl = new URL(applePath, fixture.serverUrl).href;
+    const appleHref = new URL('lookup.vcf', appleUrl).href;
+    const { rows: [apple] } = await databaseClient.query(`
+      INSERT INTO address_books (
+        user_id, name, source, external_url, remote_sync_token,
+        remote_create_capability, remote_update_capability, remote_delete_capability,
+        is_write_target, is_subscribed, is_lookup_source
+      ) VALUES ($1, 'Apple Contacts', 'carddav', $2, 'apple-token',
+                'denied', 'denied', 'denied', false, false, true)
+      RETURNING id
+    `, [seeded.userId, appleUrl]);
+    await databaseClient.query(`
+      INSERT INTO carddav_remote_objects (
+        address_book_id, href, remote_etag, vcard, primary_email,
+        mapping_status, lookup_display_name
+      ) VALUES ($1, $2, '"lookup-1"', $3, 'lookup-person@example.test',
+                'lookup', 'Lookup Person')
+    `, [apple.id, appleHref, remoteVcard('lookup-person', 'Lookup Person')]);
+    await databaseClient.query(`
+      UPDATE user_integrations
+      SET config = config || jsonb_build_object('contactCount', 1)
+      WHERE user_id = $1 AND provider = 'carddav'
+    `, [seeded.userId]);
+
+    await carddavSync.patchCarddavBookRoles(
+      seeded.userId, apple.id, { isLookupSource: false }, seeded.connectionGeneration,
+    );
+
+    // A sync starts and snapshots the roles: Apple is ignored, so its ledger is
+    // due to be dropped once the loop gets there. Hold it inside the
+    // write-target's pull, the network call that runs first.
+    const barrier = deferred();
+    const reached = deferred();
+    fixture.reset();
+    fixture.queueDiscovery({ books: [
+      { href: '/addressbooks/fixture-user/contacts/', displayName: 'Fixture Contacts' },
+      { href: applePath, displayName: 'Apple Contacts', privileges: [] },
+    ] });
+    fixture.queueSync('', {
+      events: [],
+      nextToken: 'write-target-1',
+      waitFor: barrier.promise,
+      reached: reached.resolve,
+    });
+    const pending = carddavSync.syncUser(seeded.userId);
+    await reached.promise;
+
+    // Mid-flight, the user switches Look-up-senders back on. The drop that is
+    // about to run carries the pre-patch 'ignored' classification — it must read
+    // the live roles under its lock, not act on that stale decision.
+    await carddavSync.patchCarddavBookRoles(
+      seeded.userId, apple.id, { isLookupSource: true }, seeded.connectionGeneration,
+    );
+    barrier.resolve();
+    expect(await pending).toMatchObject({ ok: true });
+
+    // The ledger the user just re-enabled survives; lookup-only rows do not
+    // contribute to the materialized contact count.
+    expect(await ledgerRows(seeded.userId)).toEqual([{
+      external_url: appleUrl,
+      href: appleHref,
+      mapping_status: 'lookup',
+      local_contact_id: null,
+      primary_email: 'lookup-person@example.test',
+      lookup_display_name: 'Lookup Person',
+    }]);
+    expect(await bookRoles(seeded.userId)).toEqual([
+      {
+        external_url: appleUrl,
+        is_write_target: false,
+        is_subscribed: false,
+        is_lookup_source: true,
+      },
+      {
+        external_url: writeTargetUrl,
+        is_write_target: true,
+        is_subscribed: true,
+        is_lookup_source: true,
+      },
+    ]);
+    const [integration] = await integrationState(seeded.userId);
+    expect(integration.config).toMatchObject({ contactCount: 0 });
+    await fixture.close();
+  }, 120_000);
+
+  it('leaves the connection without a write-target rather than claiming an ignored book', async () => {
+    const fixture = createCarddavFixtureServer();
+    await fixture.listen();
+    const seeded = await seedConnectedUser(fixture);
+    const writeTargetUrl = await seedWriteTargetBook(fixture, seeded.userId);
+    // The only other book is one the user deliberately excluded — create-capable,
+    // so the pre-fix ranking would happily hand it the write-target.
+    const ignoredPath = '/addressbooks/fixture-user/apple/';
+    const ignoredUrl = new URL(ignoredPath, fixture.serverUrl).href;
+    await databaseClient.query(`
+      INSERT INTO address_books (
+        user_id, name, source, external_url,
+        remote_create_capability, remote_update_capability, remote_delete_capability,
+        is_write_target, is_subscribed, is_lookup_source
+      ) VALUES ($1, 'Apple Contacts', 'carddav', $2, 'allowed', 'allowed', 'allowed',
+                false, false, false)
+    `, [seeded.userId, ignoredUrl]);
+
+    // The server deletes the write-target book: discovery stops advertising it, so
+    // this sync's stale-book cleanup drops its row and the user has no write-target.
+    fixture.reset();
+    fixture.queueDiscovery({ books: [
+      { href: ignoredPath, displayName: 'Apple Contacts' },
+    ] });
+    // No queueSync: the ignored book is still skipped at the network layer.
+
+    expect(await carddavSync.syncUser(seeded.userId)).toMatchObject({ ok: true });
+
+    // The excluded book is left exactly as the user set it — not promoted, not
+    // silently re-subscribed — and the deleted book's row is gone.
+    expect(fixture.counters.sync).toBe(0);
+    expect(await bookRoles(seeded.userId)).toEqual([{
+      external_url: ignoredUrl,
+      is_write_target: false,
+      is_subscribed: false,
+      is_lookup_source: false,
+    }]);
+    const { rows: written } = await databaseClient.query(`
+      SELECT external_url FROM address_books WHERE user_id = $1 AND external_url = $2
+    `, [seeded.userId, writeTargetUrl]);
+    expect(written).toEqual([]);
+
+    // Every remaining book was explicitly excluded, so there is nowhere honest to
+    // put a new contact: creates fail with the typed error the UI already surfaces
+    // rather than landing in a book the user turned off.
+    await expect(carddavContactService.createContact(seeded.userId, {
+      displayName: 'Nowhere To Go',
+      emails: [{ value: 'nowhere@example.test' }],
+    })).rejects.toMatchObject({ code: 'ERR_CARDDAV_NO_WRITE_TARGET' });
+    await fixture.close();
+  }, 120_000);
+
+  it('claims a non-ignored book over a better-ranked ignored one', async () => {
+    const fixture = createCarddavFixtureServer();
+    await fixture.listen();
+    const seeded = await seedConnectedUser(fixture);
+    await seedWriteTargetBook(fixture, seeded.userId);
+    // The ignored book outranks the newcomer on every axis the claim used to sort
+    // by: create-capable, advertised first, and the older row.
+    const ignoredPath = '/addressbooks/fixture-user/apple/';
+    const ignoredUrl = new URL(ignoredPath, fixture.serverUrl).href;
+    await databaseClient.query(`
+      INSERT INTO address_books (
+        user_id, name, source, external_url, created_at,
+        remote_create_capability, remote_update_capability, remote_delete_capability,
+        is_write_target, is_subscribed, is_lookup_source
+      ) VALUES ($1, 'Apple Contacts', 'carddav', $2, NOW() - interval '1 day',
+                'allowed', 'allowed', 'allowed', false, false, false)
+    `, [seeded.userId, ignoredUrl]);
+    const freshPath = '/addressbooks/fixture-user/fresh/';
+    const freshUrl = new URL(freshPath, fixture.serverUrl).href;
+    const freshHref = new URL('fresh-person.vcf', freshUrl).href;
+    const freshCard = remoteVcard('fresh-person', 'Fresh Person');
+
+    // The write-target book is deleted server-side; the ignored book and a
+    // brand-new book are all that is left.
+    fixture.reset();
+    fixture.queueDiscovery({ books: [
+      { href: ignoredPath, displayName: 'Apple Contacts' },
+      { href: freshPath, displayName: 'Fresh Contacts' },
+    ] });
+    fixture.putContact(freshHref, '"fresh-1"', freshCard);
+    fixture.queueSync('', {
+      events: [{ href: freshHref, etag: '"fresh-1"' }],
+      nextToken: 'fresh-1',
+    });
+
+    expect(await carddavSync.syncUser(seeded.userId)).toMatchObject({ ok: true });
+
+    // The newcomer takes the write-target and materializes in this same sync, and
+    // the ignored book keeps its roles — the claim and the pull agree on it.
+    expect(await bookRoles(seeded.userId)).toEqual([
+      {
+        external_url: ignoredUrl,
+        is_write_target: false,
+        is_subscribed: false,
+        is_lookup_source: false,
+      },
+      {
+        external_url: freshUrl,
+        is_write_target: true,
+        is_subscribed: true,
+        is_lookup_source: true,
+      },
+    ]);
+    const { contacts } = await projectionState(seeded.userId);
+    expect(contacts.map(contact => contact.display_name)).toEqual(['Fresh Person']);
+    await fixture.close();
+  }, 120_000);
+
+  it('moves the write-target without ever writing to the outgoing book', async () => {
+    const fixture = createCarddavFixtureServer();
+    await fixture.listen();
+    const seeded = await seedConnectedUser(fixture);
+    const outgoingUrl = await seedWriteTargetBook(fixture, seeded.userId);
+    const initial = await seedSingleRemoteContact(fixture, seeded.userId, {
+      uid: 'moved-target',
+      name: 'Before The Move',
+      token: 'move-1',
+    });
+    // The book the user is about to promote, discovered alongside the outgoing one.
+    const incomingPath = '/addressbooks/fixture-user/apple/';
+    const incomingUrl = new URL(incomingPath, fixture.serverUrl).href;
+    const { rows: [incoming] } = await databaseClient.query(`
+      INSERT INTO address_books (
+        user_id, name, source, external_url,
+        remote_create_capability, remote_update_capability, remote_delete_capability,
+        is_write_target, is_subscribed, is_lookup_source
+      ) VALUES ($1, 'Apple Contacts', 'carddav', $2, 'allowed', 'allowed', 'allowed',
+                false, false, true)
+      RETURNING id
+    `, [seeded.userId, incomingUrl]);
+
+    // An edit was pushed to the outgoing book (still the write-target then) whose
+    // acknowledgement was lost: the PUT landed, the intent is still open.
+    const { rows: [before] } = await databaseClient.query(`
+      SELECT o.address_book_id, o.href, o.local_contact_hash, c.uid
+      FROM carddav_remote_objects o
+      JOIN contacts c ON c.id = o.local_contact_id
+      WHERE c.user_id = $1 AND o.href = $2
+    `, [seeded.userId, initial.href]);
+    const attemptedVCard = remoteVcard(
+      before.uid,
+      'Edited Before The Move',
+      'moved-target@example.test',
+    );
+    fixture.putContact(initial.href, '"move-2"', attemptedVCard);
+    await databaseClient.query(`
+      UPDATE carddav_remote_objects SET
+        mapping_status = 'pending_push',
+        pending_operation = 'update', pending_vcard = $1,
+        pending_local_hash = $2, pending_remote_semantic_hash = $3,
+        pending_started_at = NOW(),
+        mapping_revision = mapping_revision + 1
+      WHERE address_book_id = $4 AND href = $5
+    `, [
+      attemptedVCard,
+      before.local_contact_hash,
+      semanticVCardHash(parseVCardDocument(attemptedVCard)),
+      before.address_book_id,
+      before.href,
+    ]);
+
+    await carddavSync.patchCarddavBookRoles(
+      seeded.userId, incoming.id, { makeWriteTarget: true }, seeded.connectionGeneration,
+    );
+
+    fixture.reset();
+    fixture.queueDiscovery({ books: [
+      { href: '/addressbooks/fixture-user/contacts/', displayName: 'Fixture Contacts' },
+      { href: incomingPath, displayName: 'Apple Contacts' },
+    ] });
+    fixture.queueSync('move-1', {
+      events: [{ href: initial.href, etag: '"move-2"' }],
+      nextToken: 'move-2',
+    });
+    fixture.queueSync('', { events: [], nextToken: 'apple-1' });
+
+    expect(await carddavSync.syncUser(seeded.userId)).toMatchObject({ ok: true });
+
+    // The outgoing book is a subscribed secondary now: the pending intent left on
+    // it is *observed* (one GET, single-PUT no-replay), never re-pushed, so the
+    // sync writes nothing to a book that is no longer the write-target.
+    expect(fixture.requests.filter(request => request.method === 'PUT')).toHaveLength(0);
+    expect(fixture.requests.filter(request => request.method === 'DELETE')).toHaveLength(0);
+    expect(await bookRoles(seeded.userId)).toEqual([
+      {
+        external_url: incomingUrl,
+        is_write_target: true,
+        is_subscribed: true,
+        is_lookup_source: true,
+      },
+      {
+        external_url: outgoingUrl,
+        is_write_target: false,
+        is_subscribed: true,
+        is_lookup_source: true,
+      },
+    ]);
+    const { rows: [recovered] } = await databaseClient.query(`
+      SELECT o.mapping_status, o.pending_operation, o.pending_vcard,
+             o.pending_local_hash, o.pending_started_at, c.display_name
+      FROM carddav_remote_objects o
+      JOIN contacts c ON c.id = o.local_contact_id
+      WHERE c.user_id = $1 AND o.href = $2
+    `, [seeded.userId, initial.href]);
+    expect(recovered).toMatchObject({
+      mapping_status: 'synced',
+      pending_operation: null,
+      pending_vcard: null,
+      pending_local_hash: null,
+      pending_started_at: null,
+      display_name: 'Edited Before The Move',
+    });
+    await fixture.close();
+  }, 120_000);
+
+  it('retains an ignored canonicalized book when discovery advertises only its alias', async () => {
+    const fixture = createCarddavFixtureServer();
+    await fixture.listen();
+    const seeded = await seedConnectedUser(fixture);
+    const aliasPath = '/addressbooks/fixture-user/apple/';
+    const aliasUrl = new URL(aliasPath, fixture.serverUrl).href;
+    const canonicalUrl = new URL('/addressbooks/fixture-user/apple-canonical/', fixture.serverUrl).href;
+    // The book was canonicalized earlier: it is stored under its canonical URL
+    // while a fresh discovery keeps advertising the alias href.
+    await databaseClient.query(`
+      INSERT INTO address_books (
+        user_id, name, source, external_url, discovery_alias_url,
+        remote_create_capability, remote_update_capability, remote_delete_capability,
+        is_write_target, is_subscribed, is_lookup_source
+      ) VALUES ($1, 'Apple Contacts', 'carddav', $2, $3, 'denied', 'denied', 'denied', false, false, false)
+    `, [seeded.userId, canonicalUrl, aliasUrl]);
+    fixture.queueDiscovery({ books: [
+      { href: aliasPath, displayName: 'Apple Contacts', privileges: [] },
+    ] });
+    // No queueSync: an ignored book must never issue a sync REPORT.
+
+    expect(await carddavSync.syncUser(seeded.userId)).toMatchObject({
+      ok: true, bookCount: 1, contactCount: 0,
+    });
+    expect(fixture.counters.sync).toBe(0);
+
+    // The ignored row is recorded seen by its external_url, not the fresh alias,
+    // so reconciliation keeps it (roles intact) rather than deleting it and
+    // re-discovering it as a pullable lookup-only book next sync.
+    expect(await bookRoles(seeded.userId)).toEqual([{
+      external_url: canonicalUrl,
+      is_write_target: false,
+      is_subscribed: false,
+      is_lookup_source: false,
+    }]);
+    const { rows: [row] } = await databaseClient.query(
+      `SELECT discovery_alias_url FROM address_books
+       WHERE user_id = $1 AND source = 'carddav'`,
+      [seeded.userId],
+    );
+    expect(row.discovery_alias_url).toBe(aliasUrl);
+    await fixture.close();
+  }, 120_000);
+
+  it('defaults a newly discovered book to lookup-only beside an established write-target', async () => {
+    const fixture = createCarddavFixtureServer();
+    await fixture.listen();
+    const seeded = await seedConnectedUser(fixture);
+    const writeUrl = await seedWriteTargetBook(fixture, seeded.userId);
+    const writeHref = fixture.href('primary.vcf');
+    const newPath = '/addressbooks/fixture-user/all-company/';
+    const newUrl = new URL(newPath, fixture.serverUrl).href;
+    const newHref = new URL('company.vcf', newUrl).href;
+    fixture.putContact(writeHref, '"primary-1"', remoteVcard('primary-person', 'Primary Person'));
+    fixture.putContact(newHref, '"company-1"', remoteVcard('company-person', 'Company Person'));
+    fixture.queueDiscovery({ books: [
+      { href: '/addressbooks/fixture-user/contacts/', displayName: 'Fixture Contacts' },
+      { href: newPath, displayName: 'All Company' },
+    ] });
+    fixture.queueSync('', {
+      events: [{ href: writeHref, etag: '"primary-1"' }],
+      nextToken: 'primary-token',
+    });
+    fixture.queueSync('', {
+      events: [{ href: newHref, etag: '"company-1"' }],
+      nextToken: 'company-token',
+    });
+
+    expect(await carddavSync.syncUser(seeded.userId)).toMatchObject({
+      ok: true, bookCount: 2, contactCount: 1,
+    });
+
+    // The established write-target keeps its role; the newcomer defaults to
+    // lookup-only and never steals the write-target.
+    expect(await bookRoles(seeded.userId)).toEqual([
+      { external_url: newUrl, is_write_target: false, is_subscribed: false, is_lookup_source: true },
+      { external_url: writeUrl, is_write_target: true, is_subscribed: true, is_lookup_source: true },
+    ]);
+    const state = await projectionState(seeded.userId);
+    expect(state.contacts).toHaveLength(1);
+    expect(state.contacts[0].primary_email).toBe('primary-person@example.test');
+    const lookup = await ledgerRows(seeded.userId);
+    expect(lookup.find(row => row.external_url === newUrl)).toMatchObject({
+      mapping_status: 'lookup',
+      local_contact_id: null,
+      lookup_display_name: 'Company Person',
+    });
     await fixture.close();
   }, 120_000);
 
@@ -3781,6 +5071,7 @@ describe('production CardDAV HTTP to PostgreSQL 16', () => {
     const fixture = createCarddavFixtureServer();
     await fixture.listen();
     const seeded = await seedConnectedUser(fixture);
+    await seedWriteTargetBook(fixture, seeded.userId);
     const { rows: [localBook] } = await databaseClient.query(`
       INSERT INTO address_books (user_id, name)
       VALUES ($1, 'Merged Photo Local') RETURNING id, sync_token
@@ -3801,8 +5092,8 @@ describe('production CardDAV HTTP to PostgreSQL 16', () => {
     const { rows: [localRow] } = await databaseClient.query(`
       INSERT INTO contacts (
         address_book_id, user_id, uid, vcard, etag, display_name, primary_email,
-        emails, phones, photo_data
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, '[]'::jsonb, NULL)
+        emails, phones, photo_data, carddav_publish_intent
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, '[]'::jsonb, NULL, true)
       RETURNING id
     `, [
       localBook.id,
@@ -3947,7 +5238,8 @@ describe('production CardDAV HTTP to PostgreSQL 16', () => {
       }),
     });
     expect(replacementResponse.status).toBe(200);
-    expect(await replacementResponse.json()).toEqual({
+    const { books: replacementBooks, ...replacementStatus } = await replacementResponse.json();
+    expect(replacementStatus).toEqual({
       connected: true,
       serverUrl: newFixture.serverUrl,
       username: 'replacement-user',
@@ -3956,7 +5248,23 @@ describe('production CardDAV HTTP to PostgreSQL 16', () => {
       lastError: null,
       bookCount: null,
       contactCount: 1,
+      publishEmailedContacts: false,
     });
+    // The old connection's book is still present (not yet reconciled away —
+    // that happens when its in-flight sync finishes below). It was this
+    // user's very first carddav book (created by seedSingleRemoteContact's
+    // real sync, above), so it auto-claimed the write-target the same way a
+    // fresh connection's first create-capable book always does; replacing the
+    // *connection* doesn't touch an already-existing book's roles.
+    expect(replacementBooks).toEqual([expect.objectContaining({
+      id: oldBook.id,
+      externalUrl: oldBook.external_url,
+      isWriteTarget: true,
+      isSubscribed: true,
+      isLookupSource: true,
+      materializedCount: 1,
+      lookupCount: 0,
+    })]);
     const [replacement] = await integrationState(seeded.userId);
     expect(replacement.config).toEqual({
       serverUrl: newFixture.serverUrl,
@@ -4013,6 +5321,17 @@ describe('production CardDAV HTTP to PostgreSQL 16', () => {
       remote_projection_fingerprint: expect.any(String),
     });
     expect(finalProjection.books[0].id).not.toBe(oldBook.id);
+    // The old connection's book (still flagged is_write_target through the
+    // window above) has now been reconciled away by this same sync, so the
+    // replacement connection's lone surviving book must claim the
+    // write-target itself — otherwise the deletion of the old flagged book
+    // would leave this connection with none at all.
+    const { rows: [finalRoles] } = await databaseClient.query(`
+      SELECT is_write_target, is_subscribed
+      FROM address_books
+      WHERE id = $1
+    `, [finalProjection.books[0].id]);
+    expect(finalRoles).toEqual({ is_write_target: true, is_subscribed: true });
     const finalContact = finalProjection.contacts[0];
     expect(finalProjection.contacts).toEqual([
       expectedLocalContact(
@@ -4278,4 +5597,326 @@ describe('production CardDAV HTTP to PostgreSQL 16', () => {
     expect(await materializedCarddavContactCount(seeded.userId)).toBe(4);
     await fixture.close();
   }, 120_000);
+  // A sender present only
+  // in a lookup-only book resolves its name and avatar from the retained ledger
+  // vCard without ever materializing a contact. These reuse the migrated database
+  // and shared pool above; they live here (rather than in an unwired file) so the
+  // in this integration suite so the database test command exercises them.
+  describe('inbound lookup fallback', () => {
+    const PHOTO_BYTES = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46]);
+    const PHOTO_B64 = PHOTO_BYTES.toString('base64');
+
+    let listMessages;
+    let resolveLookupPhoto;
+    let clearLookupPhotoCache;
+    let photoHandler;
+    let contactsListHandler;
+
+    function routeHandler(router, method, path) {
+      return router.stack
+        .find(layer => layer.route?.path === path && layer.route.methods[method])
+        .route.stack.at(-1).handle;
+    }
+
+    function lookupVCard(email, displayName, photo, photoGroup = null) {
+      const photoLine = photo
+        ? `${photoGroup ? `${photoGroup}.` : ''}PHOTO;ENCODING=b;TYPE=JPEG:${photo}`
+        : null;
+      return [
+        'BEGIN:VCARD',
+        'VERSION:3.0',
+        `UID:${email}`,
+        `FN:${displayName}`,
+        `EMAIL:${email}`,
+        ...(photoLine ? [photoLine] : []),
+        'END:VCARD',
+        '',
+      ].join('\r\n');
+    }
+
+    async function seedUserWithInbox() {
+      const userId = randomUUID();
+      await databaseClient.query('INSERT INTO users (id, username) VALUES ($1, $2)', [userId, `lookup-${userId}`]);
+      const { rows: [account] } = await databaseClient.query(`
+        INSERT INTO email_accounts (user_id, name, email_address, enabled)
+        VALUES ($1, 'Inbox', $2, true) RETURNING id
+      `, [userId, `${userId}@mailbox.test`]);
+      const { rows: [localBook] } = await databaseClient.query(
+        "INSERT INTO address_books (user_id, name) VALUES ($1, 'Personal') RETURNING id",
+        [userId],
+      );
+      return { userId, accountId: account.id, localBookId: localBook.id };
+    }
+
+    // A lookup-only book: pulled into the ledger and consulted for sender resolution
+    // but never materialized (is_subscribed=false, is_lookup_source=true).
+    async function seedLookupBook(userId) {
+      const { rows: [book] } = await databaseClient.query(`
+        INSERT INTO address_books (
+          user_id, name, source, external_url, is_write_target, is_subscribed, is_lookup_source
+        ) VALUES ($1, 'Apple Contacts', 'carddav', $2, false, false, true)
+        RETURNING id
+      `, [userId, `https://dav.example.test/${userId}/lookup/`]);
+      return book.id;
+    }
+
+    async function seedLookupRow(bookId, { email, displayName, photo, photoGroup = null }) {
+      await databaseClient.query(`
+        INSERT INTO carddav_remote_objects (
+          address_book_id, href, remote_etag, vcard, primary_email,
+          local_contact_id, mapping_status, lookup_display_name, last_synced_at
+        ) VALUES ($1, $2, '"e1"', $3, $4, NULL, 'lookup', $5, NOW())
+      `, [bookId, `${bookId}-${email}.vcf`, lookupVCard(email, displayName, photo, photoGroup), email, displayName]);
+    }
+
+    async function seedMessage(accountId, { fromEmail, fromName = '' }) {
+      await databaseClient.query(`
+        INSERT INTO messages (account_id, uid, folder, message_id, subject, from_name, from_email, date, is_deleted)
+        VALUES ($1, $2, 'INBOX', $3, 'Hello', $4, $5, NOW(), false)
+      `, [accountId, Math.floor(Math.random() * 1e9), randomUUID(), fromName, fromEmail]);
+    }
+
+    function photoResponse() {
+      const res = {
+        headers: {},
+        statusCode: 200,
+        body: undefined,
+        set: (key, value) => { res.headers[key] = value; return res; },
+        status: code => { res.statusCode = code; return res; },
+        send: body => { res.body = body; return res; },
+        end: () => res,
+      };
+      return res;
+    }
+
+    async function servePhoto(userId, email) {
+      const res = photoResponse();
+      await photoHandler({ session: { userId }, query: { email } }, res);
+      return res;
+    }
+
+    async function listContacts(userId) {
+      let payload;
+      const res = { json: value => { payload = value; }, status: () => res };
+      await contactsListHandler({ session: { userId }, query: {} }, res);
+      return payload;
+    }
+
+    beforeAll(async () => {
+      ({ listMessages } = await import('./messageService.js'));
+      ({ resolveLookupPhoto, _clearLookupPhotoCache: clearLookupPhotoCache } =
+        await import('./carddavLookupService.js'));
+      const { default: contactsRouter } = await import('../routes/contacts.js');
+      photoHandler = routeHandler(contactsRouter, 'get', '/photo');
+      contactsListHandler = routeHandler(contactsRouter, 'get', '/');
+    }, 120_000);
+
+    beforeEach(() => {
+      clearLookupPhotoCache();
+    });
+
+    it('resolves a lookup-only sender name + avatar from the ledger and keeps it out of GET /api/contacts', async () => {
+      const { userId, accountId } = await seedUserWithInbox();
+      const bookId = await seedLookupBook(userId);
+      await seedLookupRow(bookId, { email: 'lookup@example.test', displayName: 'Lookup Sender', photo: PHOTO_B64 });
+      await seedMessage(accountId, { fromEmail: 'lookup@example.test', fromName: '' });
+
+      const { messages } = await listMessages({ userId });
+      expect(messages).toHaveLength(1);
+      // Header carried no display name, so the ledger name fills it in.
+      expect(messages[0].from_name).toBe('Lookup Sender');
+      expect(messages[0].has_contact_photo).toBe(true);
+
+      const photo = await servePhoto(userId, 'lookup@example.test');
+      expect(photo.statusCode).toBe(200);
+      expect(photo.headers['Content-Type']).toBe('image/jpeg');
+      expect(photo.headers['Cache-Control']).toBe('private, max-age=86400');
+      expect(photo.body).toEqual(PHOTO_BYTES);
+
+      // The lookup entry is never materialized, so the contacts list stays empty.
+      const contacts = await listContacts(userId);
+      expect(contacts.total).toBe(0);
+      expect(contacts.contacts).toEqual([]);
+    }, 120_000);
+
+    it('gives every message row from one repeated lookup sender the resolved avatar', async () => {
+      // Several inbox rows share a single lookup-only sender. The photo gate dedupes
+      // by sender before probing the ledger (one shared resolve, not one per row),
+      // but the resolved avatar must still land on every matching row.
+      const { userId, accountId } = await seedUserWithInbox();
+      const bookId = await seedLookupBook(userId);
+      await seedLookupRow(bookId, { email: 'repeat@example.test', displayName: 'Repeat Sender', photo: PHOTO_B64 });
+      for (let i = 0; i < 4; i++) {
+        await seedMessage(accountId, { fromEmail: 'repeat@example.test', fromName: '' });
+      }
+
+      const { messages } = await listMessages({ userId });
+      expect(messages).toHaveLength(4);
+      expect(messages.every(message => message.has_contact_photo === true)).toBe(true);
+      expect(messages.every(message => message.from_name === 'Repeat Sender')).toBe(true);
+    }, 120_000);
+
+    it('resolves the lookup-only sender through the threaded query as well', async () => {
+      const { userId, accountId } = await seedUserWithInbox();
+      const bookId = await seedLookupBook(userId);
+      await seedLookupRow(bookId, { email: 'threaded@example.test', displayName: 'Threaded Sender', photo: PHOTO_B64 });
+      await seedMessage(accountId, { fromEmail: 'threaded@example.test', fromName: '' });
+
+      const { messages } = await listMessages({ userId, accountId, threaded: 'true' });
+      expect(messages).toHaveLength(1);
+      expect(messages[0].from_name).toBe('Threaded Sender');
+      expect(messages[0].has_contact_photo).toBe(true);
+    }, 120_000);
+
+    it('flags a grouped/labeled lookup PHOTO the syntactic gate would miss', async () => {
+      // `item1.PHOTO` is a valid grouped property (RFC 6350 §3.3); the vCard parser
+      // strips the group prefix, so the real decode path extracts and serves it. A
+      // syntactic "PHOTO at line start" check would miss it, so the gate must be
+      // computed through the same decode the photo endpoint runs.
+      const { userId, accountId } = await seedUserWithInbox();
+      const bookId = await seedLookupBook(userId);
+      await seedLookupRow(bookId, {
+        email: 'grouped@example.test', displayName: 'Grouped Sender', photo: PHOTO_B64, photoGroup: 'item1',
+      });
+      await seedMessage(accountId, { fromEmail: 'grouped@example.test', fromName: '' });
+
+      const { messages } = await listMessages({ userId });
+      expect(messages[0].has_contact_photo).toBe(true);
+
+      const threaded = await listMessages({ userId, accountId, threaded: 'true' });
+      expect(threaded.messages[0].has_contact_photo).toBe(true);
+
+      const photo = await servePhoto(userId, 'grouped@example.test');
+      expect(photo.statusCode).toBe(200);
+      expect(photo.headers['Content-Type']).toBe('image/jpeg');
+      expect(photo.body).toEqual(PHOTO_BYTES);
+    }, 120_000);
+
+    it('marks a photo-less lookup sender as no-avatar while still resolving its name (flat and threaded)', async () => {
+      const { userId, accountId } = await seedUserWithInbox();
+      const bookId = await seedLookupBook(userId);
+      // A ledger row with a display name but no PHOTO property in its vCard.
+      await seedLookupRow(bookId, { email: 'nophoto@example.test', displayName: 'No Photo Sender', photo: null });
+      await seedMessage(accountId, { fromEmail: 'nophoto@example.test', fromName: '' });
+
+      const { messages } = await listMessages({ userId });
+      expect(messages).toHaveLength(1);
+      // The ledger name still fills the missing header name...
+      expect(messages[0].from_name).toBe('No Photo Sender');
+      // ...but the avatar gate stays false, so the client never fires a
+      // guaranteed-404 GET /api/contacts/photo for a photo-less lookup sender.
+      expect(messages[0].has_contact_photo).toBe(false);
+
+      const threaded = await listMessages({ userId, accountId, threaded: 'true' });
+      expect(threaded.messages[0].from_name).toBe('No Photo Sender');
+      expect(threaded.messages[0].has_contact_photo).toBe(false);
+
+      expect((await servePhoto(userId, 'nophoto@example.test')).statusCode).toBe(404);
+    }, 120_000);
+
+    it('prefers the materialized contact photo over a competing ledger photo', async () => {
+      const { userId, accountId, localBookId } = await seedUserWithInbox();
+      const contactPhoto = 'data:image/png;base64,AQIDBA==';
+      await databaseClient.query(`
+        INSERT INTO contacts (address_book_id, user_id, uid, display_name, primary_email, photo_data, is_auto)
+        VALUES ($1, $2, $3, 'Real Contact', 'both@example.test', $4, false)
+      `, [localBookId, userId, randomUUID(), contactPhoto]);
+      const bookId = await seedLookupBook(userId);
+      await seedLookupRow(bookId, { email: 'both@example.test', displayName: 'Ledger Copy', photo: PHOTO_B64 });
+      await seedMessage(accountId, { fromEmail: 'both@example.test', fromName: 'Header Name' });
+
+      const photo = await servePhoto(userId, 'both@example.test');
+      expect(photo.statusCode).toBe(200);
+      expect(photo.headers['Content-Type']).toBe('image/png');
+      // The materialized contact's PNG is served, not the ledger's JPEG: contacts
+      // are resolved first, so the ledger fallback is never consulted here.
+      expect(photo.body).toEqual(Buffer.from('AQIDBA==', 'base64'));
+
+      const { messages } = await listMessages({ userId });
+      // co.id is non-null (materialized photo), so the sender is not even a ledger
+      // photo candidate — has_contact_photo comes from the contacts table alone.
+      expect(messages[0].has_contact_photo).toBe(true);
+      // A present header name is preserved (matches materialized-contact behavior).
+      expect(messages[0].from_name).toBe('Header Name');
+    }, 120_000);
+
+    it('falls back to the ledger photo when the materialized contact has none', async () => {
+      // A materialized contact exists but carries no photo_data, so the contacts
+      // query's own `photo_data IS NOT NULL` filter misses it and both the photo
+      // route and the has_contact_photo gate are forced onto the Slice 4 ledger
+      // fallback — the scenario where the two branches actually compete.
+      const { userId, accountId, localBookId } = await seedUserWithInbox();
+      await databaseClient.query(`
+        INSERT INTO contacts (address_book_id, user_id, uid, display_name, primary_email, photo_data, is_auto)
+        VALUES ($1, $2, $3, 'Photoless Contact', 'both@example.test', NULL, false)
+      `, [localBookId, userId, randomUUID()]);
+      const bookId = await seedLookupBook(userId);
+      await seedLookupRow(bookId, { email: 'both@example.test', displayName: 'Ledger Copy', photo: PHOTO_B64 });
+      await seedMessage(accountId, { fromEmail: 'both@example.test', fromName: '' });
+
+      // The photoless contact yields no bytes, so the retained vCard's PHOTO serves.
+      const photo = await servePhoto(userId, 'both@example.test');
+      expect(photo.statusCode).toBe(200);
+      expect(photo.headers['Content-Type']).toBe('image/jpeg');
+      expect(photo.body).toEqual(PHOTO_BYTES);
+
+      const { messages } = await listMessages({ userId });
+      // The gate reflects the servable ledger photo, not the empty contacts row.
+      expect(messages[0].has_contact_photo).toBe(true);
+      // Blank header name, so the ledger display name fills it in.
+      expect(messages[0].from_name).toBe('Ledger Copy');
+
+      const threaded = await listMessages({ userId, accountId, threaded: 'true' });
+      expect(threaded.messages[0].has_contact_photo).toBe(true);
+      expect(threaded.messages[0].from_name).toBe('Ledger Copy');
+    }, 120_000);
+
+    it('resolves nothing for a sender in neither contacts nor any lookup book', async () => {
+      const { userId, accountId } = await seedUserWithInbox();
+      await seedLookupBook(userId);
+      await seedMessage(accountId, { fromEmail: 'stranger@example.test', fromName: 'Stranger' });
+
+      const { messages } = await listMessages({ userId });
+      expect(messages[0].has_contact_photo).toBe(false);
+      expect(messages[0].from_name).toBe('Stranger');
+
+      expect(await resolveLookupPhoto(userId, 'stranger@example.test')).toBeNull();
+      expect((await servePhoto(userId, 'stranger@example.test')).statusCode).toBe(404);
+    }, 120_000);
+
+    it('refuses to serve a lookup PHOTO that exceeds the bounded decode limit', async () => {
+      const { userId, accountId } = await seedUserWithInbox();
+      const bookId = await seedLookupBook(userId);
+      const oversized = 'A'.repeat(513 * 1024);
+      await seedLookupRow(bookId, { email: 'big@example.test', displayName: 'Big Photo', photo: oversized });
+      await seedMessage(accountId, { fromEmail: 'big@example.test', fromName: '' });
+
+      expect(await resolveLookupPhoto(userId, 'big@example.test')).toBeNull();
+      expect((await servePhoto(userId, 'big@example.test')).statusCode).toBe(404);
+
+      // The gate agrees with the decode path: the ledger name still resolves, but
+      // has_contact_photo stays false so the client never fires a doomed GET that
+      // the photo endpoint would 404 on every render.
+      const { messages } = await listMessages({ userId });
+      expect(messages[0].from_name).toBe('Big Photo');
+      expect(messages[0].has_contact_photo).toBe(false);
+
+      const threaded = await listMessages({ userId, accountId, threaded: 'true' });
+      expect(threaded.messages[0].has_contact_photo).toBe(false);
+    }, 120_000);
+
+    it('scopes the fallback to is_lookup_source books only', async () => {
+      const { userId } = await seedUserWithInbox();
+      // A book flagged for lookup off (ignored): its ledger row must not resolve.
+      const { rows: [ignored] } = await databaseClient.query(`
+        INSERT INTO address_books (
+          user_id, name, source, external_url, is_write_target, is_subscribed, is_lookup_source
+        ) VALUES ($1, 'Ignored', 'carddav', $2, false, false, false)
+        RETURNING id
+      `, [userId, `https://dav.example.test/${userId}/ignored/`]);
+      await seedLookupRow(ignored.id, { email: 'ignored@example.test', displayName: 'Ignored', photo: PHOTO_B64 });
+
+      expect(await resolveLookupPhoto(userId, 'ignored@example.test')).toBeNull();
+    }, 120_000);
+  });
 });

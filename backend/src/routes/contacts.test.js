@@ -5,6 +5,8 @@ const mocks = vi.hoisted(() => ({
   createContact: vi.fn(),
   updateContact: vi.fn(),
   deleteContact: vi.fn(),
+  promoteContact: vi.fn(),
+  resolveLookupPhoto: vi.fn(),
 }));
 
 vi.mock('../services/db.js', () => ({ query: mocks.query }));
@@ -22,11 +24,18 @@ vi.mock('../services/carddavContactService.js', () => ({
     ERR_CARDDAV_AMBIGUOUS_WRITE: 409,
     ERR_CARDDAV_PENDING_INTENT: 409,
     ERR_CARDDAV_READ_ONLY: 403,
+    ERR_CARDDAV_NO_WRITE_TARGET: 409,
+    ERR_CARDDAV_NOT_CONNECTED: 409,
+    ERR_CARDDAV_ALREADY_MAPPED: 409,
     '23505': 409,
   },
   createContact: mocks.createContact,
   updateContact: mocks.updateContact,
   deleteContact: mocks.deleteContact,
+  promoteContact: mocks.promoteContact,
+}));
+vi.mock('../services/carddavLookupService.js', () => ({
+  resolveLookupPhoto: mocks.resolveLookupPhoto,
 }));
 
 const { default: router } = await import('./contacts.js');
@@ -39,15 +48,29 @@ function handler(method, path) {
 
 const listHandler = handler('get', '/');
 const getHandler = handler('get', '/:id');
+const photoHandler = handler('get', '/photo');
 const createHandler = handler('post', '/');
 const updateHandler = handler('patch', '/:id');
 const deleteHandler = handler('delete', '/:id');
+const promoteHandler = handler('post', '/:id/promote');
 
 function response() {
   return {
     json: vi.fn(),
     status: vi.fn().mockReturnThis(),
   };
+}
+
+function photoResponse() {
+  const res = {
+    headers: {},
+    statusCode: 200,
+    set: vi.fn((key, value) => { res.headers[key] = value; return res; }),
+    status: vi.fn(code => { res.statusCode = code; return res; }),
+    send: vi.fn(() => res),
+    end: vi.fn(() => res),
+  };
+  return res;
 }
 
 function draft(overrides = {}) {
@@ -124,6 +147,45 @@ describe('contact read routes', () => {
   });
 });
 
+describe('GET /api/contacts/photo', () => {
+  it('serves a materialized contact photo without consulting the lookup ledger', async () => {
+    mocks.query.mockResolvedValueOnce({ rows: [{ photo_data: 'data:image/png;base64,AQID' }] });
+    const res = photoResponse();
+
+    await photoHandler({ session: { userId: 'user-1' }, query: { email: 'ada@example.test' } }, res);
+
+    expect(mocks.resolveLookupPhoto).not.toHaveBeenCalled();
+    expect(res.headers['Content-Type']).toBe('image/png');
+    expect(res.headers['Cache-Control']).toBe('private, max-age=86400');
+    expect(res.send).toHaveBeenCalledWith(Buffer.from('AQID', 'base64'));
+  });
+
+  it('falls back to a lookup-only book avatar on a contacts miss', async () => {
+    mocks.query.mockResolvedValueOnce({ rows: [] });
+    mocks.resolveLookupPhoto.mockResolvedValueOnce({ mime: 'image/jpeg', bytes: Buffer.from([1, 2, 3]) });
+    const res = photoResponse();
+
+    await photoHandler({ session: { userId: 'user-1' }, query: { email: 'sender@example.test' } }, res);
+
+    expect(mocks.resolveLookupPhoto).toHaveBeenCalledWith('user-1', 'sender@example.test');
+    expect(res.headers['Content-Type']).toBe('image/jpeg');
+    expect(res.headers['Cache-Control']).toBe('private, max-age=86400');
+    expect(res.send).toHaveBeenCalledWith(Buffer.from([1, 2, 3]));
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('returns 404 when neither contacts nor a lookup book resolves the sender', async () => {
+    mocks.query.mockResolvedValueOnce({ rows: [] });
+    mocks.resolveLookupPhoto.mockResolvedValueOnce(null);
+    const res = photoResponse();
+
+    await photoHandler({ session: { userId: 'user-1' }, query: { email: 'nobody@example.test' } }, res);
+
+    expect(res.status).toHaveBeenCalledWith(404);
+    expect(res.send).not.toHaveBeenCalled();
+  });
+});
+
 describe('POST /api/contacts', () => {
   it('delegates exactly once and preserves local-only response behavior', async () => {
     const body = draft();
@@ -138,6 +200,22 @@ describe('POST /api/contacts', () => {
     expect(mocks.query).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(201);
     expect(res.json).toHaveBeenCalledWith(created);
+  });
+
+  it('returns 409 with an actionable message when no write-target book is configured', async () => {
+    mocks.createContact.mockRejectedValueOnce(Object.assign(
+      new Error('No CardDAV write-target address book is configured'),
+      { code: 'ERR_CARDDAV_NO_WRITE_TARGET' },
+    ));
+    const res = response();
+
+    await createHandler({ session: { userId: 'user-1' }, body: draft() }, res);
+
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(res.json).toHaveBeenCalledWith({
+      error: 'No CardDAV write-target address book is configured',
+      code: 'ERR_CARDDAV_NO_WRITE_TARGET',
+    });
   });
 
   it.each([
@@ -188,7 +266,10 @@ describe('PATCH /api/contacts/:id', () => {
 
     expect(mocks.updateContact).toHaveBeenCalledTimes(1);
     expect(res.status).toHaveBeenCalledWith(403);
-    expect(res.json).toHaveBeenCalledWith({ error: 'This CardDAV address book does not allow update' });
+    expect(res.json).toHaveBeenCalledWith({
+      error: 'This CardDAV address book does not allow update',
+      code: 'ERR_CARDDAV_READ_ONLY',
+    });
   });
 
   it('attempts an unknown-capability operation and reports its upstream denial', async () => {
@@ -315,5 +396,37 @@ describe('DELETE /api/contacts/:id', () => {
     expect(res.status).toHaveBeenCalledWith(409);
     expect(res.json).toHaveBeenCalledWith({ error: message, code, refresh: true });
     expect(res.json.mock.calls[0][0]).not.toHaveProperty('retriable', true);
+  });
+});
+
+describe('POST /api/contacts/:id/promote', () => {
+  it('delegates the promotion exactly once and returns the promoted contact', async () => {
+    const promoted = { id: 'contact-1', display_name: 'Ada Lovelace', is_auto: false };
+    mocks.promoteContact.mockResolvedValueOnce(promoted);
+    const res = response();
+
+    await promoteHandler({ session: { userId: 'user-1' }, params: { id: 'contact-1' } }, res);
+
+    expect(mocks.promoteContact).toHaveBeenCalledTimes(1);
+    expect(mocks.promoteContact).toHaveBeenCalledWith('user-1', 'contact-1');
+    expect(mocks.query).not.toHaveBeenCalled();
+    expect(res.json).toHaveBeenCalledWith(promoted);
+  });
+
+  // The codes the promote affordance translates into actionable copy, rather
+  // than echoing a raw English backend message into a localized UI.
+  it.each([
+    ['ERR_CARDDAV_NO_WRITE_TARGET', 409],
+    ['ERR_CARDDAV_READ_ONLY', 403],
+    ['ERR_CARDDAV_NOT_CONNECTED', 409],
+    ['ERR_CARDDAV_ALREADY_MAPPED', 409],
+  ])('surfaces %s as a typed HTTP %i the client can act on', async (code, status) => {
+    mocks.promoteContact.mockRejectedValueOnce(Object.assign(new Error('Promotion failed'), { code }));
+    const res = response();
+
+    await promoteHandler({ session: { userId: 'user-1' }, params: { id: 'contact-1' } }, res);
+
+    expect(res.status).toHaveBeenCalledWith(status);
+    expect(res.json).toHaveBeenCalledWith({ error: 'Promotion failed', code });
   });
 });

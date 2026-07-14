@@ -229,7 +229,32 @@ async function seedConnectedUser(fixture) {
   return { userId, connectionGeneration, localBookId: localBook.id };
 }
 
-async function seedMappedContact(fixture, name = 'Mapped Before') {
+// Write-target routing (multi-book Slice 2) resolves the stored is_write_target
+// book against a *fresh* discovery snapshot; nothing yet assigns that flag to a
+// newly discovered book (that bootstrap is out of this slice's scope — see
+// Slice 3/5 of the multi-book design), so a brand-new fixture connection must
+// have its single book pre-designated the write target, exactly as Slice 1's
+// migration backfill does for an already-connected single-book user.
+async function seedWriteTargetBook(fixture, userId) {
+  const externalUrl = new URL('/addressbooks/fixture-user/contacts/', fixture.serverUrl).href;
+  await databaseClient.query(`
+    INSERT INTO address_books (
+      user_id, name, source, external_url,
+      remote_create_capability, remote_update_capability, remote_delete_capability,
+      is_write_target, is_subscribed, is_lookup_source
+    ) VALUES ($1, 'Fixture Contacts', 'carddav', $2, 'allowed', 'allowed', 'allowed', true, true, true)
+  `, [userId, externalUrl]);
+  return externalUrl;
+}
+
+// `isWriteTarget` defaults to true: these fixtures back tests of pending-intent,
+// conflict, and throttle *mechanics*, not the write-target invariant itself, so
+// they seed a mapped contact whose book is the write target — mirroring what
+// Slice 1's migration backfill (or a real first-sync auto-assignment) already
+// established for an already-connected single-book user. A dedicated test
+// below covers `isWriteTarget: false` (a subscribed secondary) to prove the
+// invariant that a non-write-target book never receives a PUT/DELETE.
+async function seedMappedContact(fixture, name = 'Mapped Before', { isWriteTarget = true } = {}) {
   const seeded = await seedConnectedUser(fixture);
   const uid = randomUUID();
   const rawVCard = vcard(uid, name);
@@ -238,10 +263,15 @@ async function seedMappedContact(fixture, name = 'Mapped Before') {
   const { rows: [remoteBook] } = await databaseClient.query(`
     INSERT INTO address_books (
       user_id, name, source, external_url,
-      remote_create_capability, remote_update_capability, remote_delete_capability
-    ) VALUES ($1, 'Fixture Contacts', 'carddav', $2, 'allowed', 'allowed', 'allowed')
+      remote_create_capability, remote_update_capability, remote_delete_capability,
+      is_write_target, is_subscribed, is_lookup_source
+    ) VALUES ($1, 'Fixture Contacts', 'carddav', $2, 'allowed', 'allowed', 'allowed', $3, true, true)
     RETURNING id
-  `, [seeded.userId, new URL('/addressbooks/fixture-user/contacts/', fixture.serverUrl).href]);
+  `, [
+    seeded.userId,
+    new URL('/addressbooks/fixture-user/contacts/', fixture.serverUrl).href,
+    isWriteTarget,
+  ]);
   const { rows: [contact] } = await databaseClient.query(`
     INSERT INTO contacts (
       address_book_id, user_id, uid, vcard, etag, display_name,
@@ -276,6 +306,49 @@ async function seedMappedContact(fixture, name = 'Mapped Before') {
   return { ...seeded, uid, href, remoteEtag, remoteBookId: remoteBook.id, contact };
 }
 
+// A sender harvested from an inbound message: an unmapped `is_auto` contacts row
+// in the user's local book, exactly as imapManager's collector leaves it. The
+// carddav book is seeded create-capable either way, so only its is_write_target
+// flag decides whether promotion has a destination.
+async function seedAutoContact(fixture, {
+  displayName = 'Harvested Sender',
+  isWriteTarget = true,
+} = {}) {
+  const seeded = await seedConnectedUser(fixture);
+  const { rows: [remoteBook] } = await databaseClient.query(`
+    INSERT INTO address_books (
+      user_id, name, source, external_url,
+      remote_create_capability, remote_update_capability, remote_delete_capability,
+      is_write_target, is_subscribed, is_lookup_source
+    ) VALUES ($1, 'Fixture Contacts', 'carddav', $2, 'allowed', 'allowed', 'allowed', $3, true, true)
+    RETURNING id
+  `, [
+    seeded.userId,
+    new URL('/addressbooks/fixture-user/contacts/', fixture.serverUrl).href,
+    isWriteTarget,
+  ]);
+  const uid = randomUUID();
+  const email = `${uid}@example.test`;
+  const rawVCard = vcard(uid, displayName, email);
+  const { rows: [contact] } = await databaseClient.query(`
+    INSERT INTO contacts (
+      address_book_id, user_id, uid, vcard, etag, display_name,
+      primary_email, emails, phones, additional_fields, is_auto
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,'[]'::jsonb,'[]'::jsonb,true)
+    RETURNING id, etag
+  `, [
+    seeded.localBookId,
+    seeded.userId,
+    uid,
+    rawVCard,
+    createHash('md5').update(rawVCard).digest('hex'),
+    displayName,
+    email,
+    JSON.stringify([{ value: email, type: 'other', primary: true }]),
+  ]);
+  return { ...seeded, uid, email, remoteBookId: remoteBook.id, contact };
+}
+
 // Reproduce the state a sync pull leaves behind: the local contacts row holds the
 // LOSSY re-serialized vCard (generateVCard drops unmodeled properties) while the
 // carddav_remote_objects row retains the FULL remote vCard. The local UID is the
@@ -298,8 +371,9 @@ async function seedImportedContact(fixture, remoteVCard, remoteEtag = '"imported
   const { rows: [remoteBook] } = await databaseClient.query(`
     INSERT INTO address_books (
       user_id, name, source, external_url,
-      remote_create_capability, remote_update_capability, remote_delete_capability
-    ) VALUES ($1, 'Fixture Contacts', 'carddav', $2, 'allowed', 'allowed', 'allowed')
+      remote_create_capability, remote_update_capability, remote_delete_capability,
+      is_write_target, is_subscribed, is_lookup_source
+    ) VALUES ($1, 'Fixture Contacts', 'carddav', $2, 'allowed', 'allowed', 'allowed', true, true, true)
     RETURNING id
   `, [seeded.userId, new URL('/addressbooks/fixture-user/contacts/', fixture.serverUrl).href]);
   const { rows: [contact] } = await databaseClient.query(`
@@ -461,6 +535,7 @@ describe('CardDAV contact mutations against PostgreSQL 16 and HTTP', () => {
     const fixture = createCarddavFixtureServer();
     await fixture.listen();
     const { userId, localBookId } = await seedConnectedUser(fixture);
+    await seedWriteTargetBook(fixture, userId);
     const uid = randomUUID();
 
     try {
@@ -570,10 +645,220 @@ describe('CardDAV contact mutations against PostgreSQL 16 and HTTP', () => {
     }
   }, 120_000);
 
+  // carddavSync.js's canonical-URL reconciliation (advanceDiscoveredBookState)
+  // rewrites a book's external_url to the canonical URL a redirect resolves
+  // to, but records the alias it replaced in discovery_alias_url — because
+  // the server keeps advertising that alias in PROPFIND discovery forever
+  // afterward. selectedCreateBook matches the write-target by either URL, so
+  // an interactive create discovers and PUTs through the alias; persisting
+  // that discovered book must resolve back to the *existing* write-target
+  // row (by discovery_alias_url), never insert a second, non-write-target
+  // row for the same remote collection.
+  it('routes a create through the discovery alias into the existing write-target row, never a duplicate', async () => {
+    const fixture = createCarddavFixtureServer();
+    await fixture.listen();
+    const { userId, localBookId } = await seedConnectedUser(fixture);
+    const canonicalUrl = new URL('/addressbooks/fixture-user/canonical/', fixture.serverUrl).href;
+    const aliasUrl = new URL('/addressbooks/fixture-user/alias/', fixture.serverUrl).href;
+    const { rows: [writeTargetBook] } = await databaseClient.query(`
+      INSERT INTO address_books (
+        user_id, name, source, external_url, discovery_alias_url,
+        remote_create_capability, remote_update_capability, remote_delete_capability,
+        is_write_target, is_subscribed, is_lookup_source
+      ) VALUES ($1, 'Fixture Contacts', 'carddav', $2, $3, 'allowed', 'allowed', 'allowed', true, true, true)
+      RETURNING id
+    `, [userId, canonicalUrl, aliasUrl]);
+    const uid = randomUUID();
+
+    try {
+      resetObservation(fixture);
+      fixture.queueDiscovery({ books: [{ href: '/addressbooks/fixture-user/alias/', displayName: 'Alias Book' }] });
+      const created = await contactService.createContactFromVCard(userId, {
+        localAddressBookId: localBookId,
+        uid,
+        rawVCard: vcard(uid, 'Alias Routed Create'),
+      });
+
+      const { rows: books } = await databaseClient.query(`
+        SELECT id, external_url, discovery_alias_url, is_write_target,
+               remote_update_capability
+        FROM address_books
+        WHERE user_id = $1 AND source = 'carddav'
+      `, [userId]);
+      // Still exactly one carddav book — the pre-existing write-target row,
+      // untouched — never a second, non-write-target row for the alias URL.
+      expect(books).toEqual([{
+        id: writeTargetBook.id,
+        external_url: canonicalUrl,
+        discovery_alias_url: aliasUrl,
+        is_write_target: true,
+        remote_update_capability: 'allowed',
+      }]);
+      const afterCreate = await authoritativeState(userId);
+      // Mapped into that same write-target row: assertWritable's
+      // mapping_is_write_target check (carddavContactService.js) reads this
+      // join, so this contact is not stranded on a stray non-target
+      // duplicate that would reject every future update/delete as read-only.
+      expect(afterCreate.remoteObjects).toEqual([
+        expect.objectContaining({
+          address_book_id: writeTargetBook.id,
+          local_contact_id: created.id,
+        }),
+      ]);
+      expectNoNetworkInsideTransactions();
+    } finally {
+      await fixture.close();
+    }
+  }, 120_000);
+
+  // multi-book-design.md, key decision 3: an incidental cleanup of a harvested
+  // sender must not publish it. The edit lands locally and the contact stays
+  // auto-collected, so the next sync's export sweep (which only claims
+  // is_auto = false contacts) still passes it over.
+  it('keeps an edited harvested contact auto-collected and writes nothing remote', async () => {
+    const fixture = createCarddavFixtureServer();
+    await fixture.listen();
+    const seeded = await seedAutoContact(fixture);
+
+    try {
+      resetObservation(fixture);
+      const updated = await contactService.updateContact(
+        seeded.userId,
+        seeded.contact.id,
+        { displayName: 'Harvested Renamed', organization: 'Tidied Up' },
+      );
+
+      expect(updated).toMatchObject({
+        id: seeded.contact.id,
+        display_name: 'Harvested Renamed',
+        organization: 'Tidied Up',
+        is_auto: true,
+      });
+      const after = await authoritativeState(seeded.userId);
+      expect(after.contacts).toEqual([
+        expect.objectContaining({ id: seeded.contact.id, is_auto: true }),
+      ]);
+      expect(after.remoteObjects).toEqual([]);
+      expect(fixture.counters.requests).toBe(0);
+      expectNoNetworkInsideTransactions();
+    } finally {
+      await fixture.close();
+    }
+  }, 120_000);
+
+  // Promotion is the one deliberate action that makes a harvested contact
+  // explicit, and it lands in the designated write-target — never in the first
+  // create-capable book discovery happens to return (that was the wrong-book
+  // footgun). The local is_auto flip is remote-first: it commits only after the
+  // PUT is read back and confirmed.
+  it('promotes a harvested contact into the write-target book, never a sibling book', async () => {
+    const fixture = createCarddavFixtureServer();
+    await fixture.listen();
+    const seeded = await seedAutoContact(fixture, { isWriteTarget: false });
+    const writeTargetPath = '/addressbooks/fixture-user/shared/';
+    const writeTargetUrl = new URL(writeTargetPath, fixture.serverUrl).href;
+    const { rows: [writeTargetBook] } = await databaseClient.query(`
+      INSERT INTO address_books (
+        user_id, name, source, external_url,
+        remote_create_capability, remote_update_capability, remote_delete_capability,
+        is_write_target, is_subscribed, is_lookup_source
+      ) VALUES ($1, 'Shared Contacts', 'carddav', $2, 'allowed', 'allowed', 'allowed', true, true, true)
+      RETURNING id
+    `, [seeded.userId, writeTargetUrl]);
+
+    try {
+      resetObservation(fixture);
+      // Discovery returns the sibling book FIRST: only the stored write-target
+      // flag stands between this contact and the wrong book.
+      fixture.queueDiscovery({ books: [
+        { href: '/addressbooks/fixture-user/contacts/', displayName: 'Fixture Contacts' },
+        { href: writeTargetPath, displayName: 'Shared Contacts' },
+      ] });
+      const promoted = await contactService.promoteContact(seeded.userId, seeded.contact.id);
+
+      expect(promoted).toMatchObject({ id: seeded.contact.id, is_auto: false });
+      const put = fixture.requests.filter(request => request.method === 'PUT');
+      expect(put).toHaveLength(1);
+      expect(put[0].path).toBe(`${writeTargetPath}${seeded.uid}.vcf`);
+      expect(fixture.counters.create).toBe(1);
+
+      const after = await authoritativeState(seeded.userId);
+      expect(after.contacts).toEqual([
+        expect.objectContaining({ id: seeded.contact.id, is_auto: false }),
+      ]);
+      expect(after.remoteObjects).toEqual([
+        expect.objectContaining({
+          address_book_id: writeTargetBook.id,
+          href: new URL(`${seeded.uid}.vcf`, writeTargetUrl).href,
+          local_contact_id: seeded.contact.id,
+          mapping_status: 'synced',
+        }),
+      ]);
+      expect(after.conflicts).toEqual([]);
+      expectNoNetworkInsideTransactions();
+    } finally {
+      await fixture.close();
+    }
+  }, 120_000);
+
+  // Promotion is the deliberate act that makes a harvested contact the user's own,
+  // so it records the publish intent the export sweep gates on. Without that the
+  // contact would be relying on the publish-emailed-contacts setting — OFF here,
+  // as it is by default — to stay in the address book it was just added to.
+  it('records publish intent when promoting, independently of the emailed-contacts setting', async () => {
+    const fixture = createCarddavFixtureServer();
+    await fixture.listen();
+    const seeded = await seedAutoContact(fixture);
+
+    try {
+      resetObservation(fixture);
+      const promoted = await contactService.promoteContact(seeded.userId, seeded.contact.id);
+
+      expect(promoted).toMatchObject({ id: seeded.contact.id, is_auto: false });
+      expect(fixture.requests.filter(request => request.method === 'PUT')).toHaveLength(1);
+
+      const { rows: [row] } = await databaseClient.query(
+        'SELECT is_auto, carddav_publish_intent FROM contacts WHERE id = $1',
+        [seeded.contact.id],
+      );
+      expect(row).toEqual({ is_auto: false, carddav_publish_intent: true });
+      expectNoNetworkInsideTransactions();
+    } finally {
+      await fixture.close();
+    }
+  }, 120_000);
+
+  // The book is fully create-capable on the server, so only the missing
+  // write-target designation refuses this promotion — no silent fallback to
+  // "some other writable book", and no local is_auto flip without a remote.
+  it('refuses to promote without a write-target and leaves the contact harvested', async () => {
+    const fixture = createCarddavFixtureServer();
+    await fixture.listen();
+    const seeded = await seedAutoContact(fixture, { isWriteTarget: false });
+
+    try {
+      resetObservation(fixture);
+      const before = await authoritativeState(seeded.userId);
+      fixture.queueDiscovery({ books: [
+        { href: '/addressbooks/fixture-user/contacts/', displayName: 'Fixture Contacts' },
+      ] });
+      await expect(contactService.promoteContact(seeded.userId, seeded.contact.id))
+        .rejects.toMatchObject({ code: 'ERR_CARDDAV_NO_WRITE_TARGET' });
+
+      expect(await authoritativeState(seeded.userId)).toEqual(before);
+      expect(fixture.counters.create).toBe(0);
+      expect(fixture.requests.some(request => request.method === 'PUT')).toBe(false);
+      expectNoNetworkInsideTransactions();
+    } finally {
+      await fixture.close();
+    }
+  }, 120_000);
+
   it('atomically resolves concurrent mapped create-only requests for one book and UID', async () => {
     const fixture = createCarddavFixtureServer();
     await fixture.listen();
     const { userId, localBookId } = await seedConnectedUser(fixture);
+    await seedWriteTargetBook(fixture, userId);
     const uid = randomUUID();
     let preflightCommits = 0;
     let releasePreflightCommits;
@@ -667,12 +952,35 @@ describe('CardDAV contact mutations against PostgreSQL 16 and HTTP', () => {
     }
   });
 
-  // The recovery fetch after a 412 must reject a malformed or oversized REMOTE
-  // snapshot before it can persist. (A replace now overlays the client body onto the
-  // retained remote vCard, so the pending intent is bounded by the retained document
-  // rather than the raw client body; the pending-intent 1 MiB and conflict-snapshot
-  // 2 MiB size limits are unit-tested at their exact boundaries in
-  // carddavMappingState.test.js.)
+  // A subscribed or lookup secondary stays read-only from MailFlow even when
+  // the remote server advertises full mutation capability.
+  it('never PUTs or DELETEs a contact mapped into a book that is not the write-target', async () => {
+    const fixture = createCarddavFixtureServer();
+    await fixture.listen();
+    const seeded = await seedMappedContact(fixture, 'Secondary Mapped', { isWriteTarget: false });
+
+    try {
+      resetObservation(fixture);
+      const before = await authoritativeState(seeded.userId);
+      await expect(contactService.updateContact(
+        seeded.userId,
+        seeded.contact.id,
+        draft('Rejected Secondary Edit', `${seeded.uid}@example.test`),
+      )).rejects.toMatchObject({ code: 'ERR_CARDDAV_READ_ONLY' });
+      expect(await authoritativeState(seeded.userId)).toEqual(before);
+      expect(fixture.counters.requests).toBe(0);
+
+      await expect(contactService.deleteContact(seeded.userId, seeded.contact.id))
+        .rejects.toMatchObject({ code: 'ERR_CARDDAV_READ_ONLY' });
+      expect(await authoritativeState(seeded.userId)).toEqual(before);
+      expect(fixture.counters.requests).toBe(0);
+      expectNoNetworkInsideTransactions();
+    } finally {
+      await fixture.close();
+    }
+  });
+  // The recovery fetch after a 412 must reject a malformed or oversized remote
+  // snapshot before it can persist.
   it.each([
     {
       label: 'malformed remote snapshot',
@@ -1155,7 +1463,7 @@ describe('CardDAV contact mutations against PostgreSQL 16 and HTTP', () => {
     }
   }, 120_000);
 
-  it('does not duplicate the modeled main when a mixed Apple item-group survives (W7)', async () => {
+  it('does not duplicate the modeled main when a mixed Apple item-group survives', async () => {
     const fixture = createCarddavFixtureServer();
     await fixture.listen();
     try {

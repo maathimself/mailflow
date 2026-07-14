@@ -1281,7 +1281,25 @@
         "healthNeedsAttention": "Requiere atención",
         "healthHealthy": "Funcionamiento correcto",
         "reviewConflicts": "Revisar conflictos",
-        "help": "Usa una contraseña de aplicación de Nextcloud, no la de inicio de sesión: los usuarios de SSO deben crear una en Ajustes → Seguridad. Los contactos se sincronizan en ambos sentidos cuando el servidor permite escribir."
+        "help": "Usa una contraseña de aplicación de Nextcloud, no la de inicio de sesión: los usuarios de SSO deben crear una en Ajustes → Seguridad. Los contactos se sincronizan en ambos sentidos cuando el servidor permite escribir.",
+        "publishEmailedContacts": "Publicar contactos por correo",
+        "publishEmailedContactsDesc": "Añade las personas a las que escribes a la libreta de direcciones de destino.",
+        "books": {
+          "title": "Libretas de direcciones",
+          "empty": "Aún no se ha detectado ninguna libreta de direcciones.",
+          "writeTarget": "Destino de escritura",
+          "subscribed": "Suscrita",
+          "lookupOnly": "Solo consulta",
+          "ignored": "Ignorada",
+          "writable": "Editable",
+          "readOnly": "Solo lectura",
+          "unknownCapability": "Desconocido",
+          "counts": "{{materialized}} en la lista · {{lookup}} para consulta",
+          "lastSync": "Última sincronización: {{when}}",
+          "subscribeLabel": "Suscribir",
+          "lookupLabel": "Buscar remitentes",
+          "updateFailed": "No se pudo actualizar la libreta de direcciones"
+        }
       }
     },
     "ssoLinked": {
@@ -1365,6 +1383,13 @@
     "carddavConflict": "Conflicto de CardDAV",
     "carddavPending": "Sincronización pendiente",
     "carddavWriteUnconfirmed": "Es posible que tu cambio ya se haya aplicado: se actualizó el contacto. Revísalo y vuelve a intentarlo si es necesario.",
+    "promote": {
+      "action": "Guardar en la libreta de direcciones",
+      "hint": "Guarda este contacto en tu libreta de direcciones CardDAV para mantenerlo sincronizado.",
+      "noWriteTarget": "Ninguna libreta de direcciones es el destino de escritura. Elige una en Libretas de direcciones, dentro de Ajustes → Contactos CardDAV, e inténtalo de nuevo.",
+      "readOnly": "La libreta de destino de escritura no acepta contactos nuevos. Elige una editable en Libretas de direcciones, dentro de Ajustes → Contactos CardDAV.",
+      "failed": "No se pudo guardar este contacto en la libreta de direcciones."
+    },
     "photo": {
       "title": "Fotografía",
       "contactAlt": "Foto del contacto",

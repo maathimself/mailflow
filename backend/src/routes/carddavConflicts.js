@@ -15,6 +15,7 @@ function conflictError(res, error) {
     ERR_CARDDAV_CONFLICT_RESOLUTION: 400,
     ERR_CARDDAV_CONFLICT_NOT_FOUND: 404,
     ERR_CARDDAV_CONFLICT_STALE: 409,
+    ERR_CARDDAV_READ_ONLY: 403,
   }[error.code];
   if (status) return res.status(status).json({ error: error.message });
   throw error;

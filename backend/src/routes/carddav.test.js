@@ -34,6 +34,9 @@ vi.mock('../services/carddavContactService.js', () => ({
     ERR_CARDDAV_AMBIGUOUS_WRITE: 409,
     ERR_CARDDAV_PENDING_INTENT: 409,
     ERR_CARDDAV_READ_ONLY: 403,
+    ERR_CARDDAV_NO_WRITE_TARGET: 409,
+    ERR_CARDDAV_NOT_CONNECTED: 409,
+    ERR_CARDDAV_ALREADY_MAPPED: 409,
     '23505': 409,
   },
   createContactFromVCard: mocks.createContactFromVCard,
@@ -426,6 +429,20 @@ describe('PUT CardDAV contact resource', () => {
     await putHandler(request({ headers: { 'if-none-match': '*' } }), res);
 
     expect(res.status).toHaveBeenCalledWith(412);
+    expect(res.end).toHaveBeenCalled();
+  });
+
+  it('maps a missing write-target failure to 409 with no fallback', async () => {
+    mockResource(null);
+    mocks.createContactFromVCard.mockRejectedValueOnce(Object.assign(
+      new Error('No CardDAV write-target address book is configured'),
+      { code: 'ERR_CARDDAV_NO_WRITE_TARGET' },
+    ));
+    const res = response();
+
+    await putHandler(request({ headers: { 'if-none-match': '*' } }), res);
+
+    expect(res.status).toHaveBeenCalledWith(409);
     expect(res.end).toHaveBeenCalled();
   });
 

@@ -1281,7 +1281,25 @@
         "healthNeedsAttention": "Needs attention",
         "healthHealthy": "Healthy",
         "reviewConflicts": "Review conflicts",
-        "help": "Use a Nextcloud app password, not your login password — SSO users must create one under Settings → Security. Contacts sync in both directions when the server allows writes."
+        "help": "Use a Nextcloud app password, not your login password — SSO users must create one under Settings → Security. Contacts sync in both directions when the server allows writes.",
+        "publishEmailedContacts": "Publish emailed contacts",
+        "publishEmailedContactsDesc": "Add people you email to the write-target address book.",
+        "books": {
+          "title": "Address books",
+          "empty": "No address books discovered yet.",
+          "writeTarget": "Write target",
+          "subscribed": "Subscribed",
+          "lookupOnly": "Lookup only",
+          "ignored": "Ignored",
+          "writable": "Writable",
+          "readOnly": "Read-only",
+          "unknownCapability": "Unknown",
+          "counts": "{{materialized}} in list · {{lookup}} for lookup",
+          "lastSync": "Last synced {{when}}",
+          "subscribeLabel": "Subscribe",
+          "lookupLabel": "Look up senders",
+          "updateFailed": "Failed to update address book"
+        }
       }
     },
     "ssoLinked": {
@@ -1365,6 +1383,13 @@
     "carddavConflict": "CardDAV conflict",
     "carddavPending": "Sync pending",
     "carddavWriteUnconfirmed": "Your change may already have been applied — the contact was refreshed. Check it and try again if needed.",
+    "promote": {
+      "action": "Save to address book",
+      "hint": "Save this contact to your CardDAV address book to keep it in sync.",
+      "noWriteTarget": "No address book is set as the write target. Choose one under Address books in Settings → CardDAV Contacts, then try again.",
+      "readOnly": "The write-target address book does not accept new contacts. Choose a writable one under Address books in Settings → CardDAV Contacts.",
+      "failed": "Could not save this contact to the address book."
+    },
     "photo": {
       "title": "Photo",
       "contactAlt": "Contact photo",
