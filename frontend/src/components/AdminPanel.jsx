@@ -5135,12 +5135,13 @@ function RulesTab() {
   }
 
   async function handleReorderRules(from, to) {
-    const [moved] = rules.splice(from, 1);
-    rules.splice(to, 0, moved);
-    setRules(rules);
-    
-    const updated = await api.reorderRules(rules.map(r => r.id));
-    setRules(rules);
+    const reordered = [...rules];
+    const [moved] = reordered.splice(from, 1);
+    reordered.splice(to, 0, moved);
+
+    api.reorderRules(reordered.map(r => r.id)).then(() => {
+      setRules(reordered);
+    })
   }
 
   function setCondition(idx, key, val) {
@@ -5516,57 +5517,13 @@ function RulesTab() {
             onDrop={e => {
               e.preventDefault();
               if (canDrag && ruleDragIdx !== null && ruleDragIdx !== idx) {
-                handleReorderRules(ruleDragIdx, idx);
+                handleReorderRules(ruleDragIdx, idx)
               }
 
               setRuleDragIdx(null);
               setRuleDropIdx(null);
             }}
             onDragEnd={canDrag ? () => { setRuleDragIdx(null); setRuleDropIdx(null); } : undefined}
-            onTouchStart={e => {
-              e.preventDefault();
-
-              const touch = e.touches[0];
-              const x = touch.clientX;
-              const y = touch.clientY;
-
-              ruleTouchStart.current = { x, y };
-              ruleLongPressTimer.current = setTimeout(() => {
-                ruleLongPressTimer.current = null;
-                ruleTouchStart.current = null;
-
-                window.getSelection()?.removeAllRanges();
-              }, 500)
-            }}
-            onTouchMove={e => {
-              if (!ruleLongPressTimer.current || !ruleTouchStart.current) return;
-
-              const touch = e.touches[0];
-              const dx = Math.abs(touch.clientX - ruleTouchStart.current.x);
-              const dy = Math.abs(touch.clientY - ruleTouchStart.current.y);
-
-              if (dx > 10 || dy > 10) {
-                clearTimeout(ruleLongPressTimer.current);
-                ruleLongPressTimer.current = null;
-                ruleTouchStart.current = null;
-              }
-            }}
-            onTouchEnd={e => {
-              if (ruleLongPressTimer.current) {
-                clearTimeout(ruleLongPressTimer.current);
-                ruleLongPressTimer.current = null;
-                ruleTouchStart.current = null;
-              }
-            }}
-            onTouchCancel={e => {
-              clearTimeout(ruleLongPressTimer.current);
-              ruleLongPressTimer.current = null;
-              ruleTouchStart.current = null;
-            }}
-            onContextMenu={e => {
-              e.preventDefault();
-              e.stopPropagation();
-            }}
             style={{
               padding: '12px 14px',
               marginBottom: 8,
