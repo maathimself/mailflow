@@ -152,6 +152,9 @@ export const api = {
     return request('GET', `/mail/messages?${qs}`);
   },
   getMessage: (id) => request('GET', `/mail/messages/${id}`),
+  // Resolve a deep-link reference (stable Message-ID header, or a legacy UUID) to the
+  // current message row — durable across folder moves (#270).
+  resolveMessage: (ref) => request('GET', `/mail/resolve-message?ref=${encodeURIComponent(ref)}`),
   getMessageBody,
   getThread: (threadId, folder) => {
     const qs = folder ? `?folder=${encodeURIComponent(folder)}` : '';

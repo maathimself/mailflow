@@ -309,7 +309,10 @@ export default function MailApp() {
   // deep-link path and the service-worker notification-tap path so both behave
   // identically.
   const openDeepLinkMessage = useCallback((id) => {
-    return api.getMessage(id)
+    // resolveMessage matches the stable Message-ID header first, then the UUID — so a link
+    // still opens after the email was moved to another folder (#270). Legacy/notification
+    // links carry the UUID and resolve via the fallback.
+    return api.resolveMessage(id)
       .then(msg => {
         // threadMessages is not cleared by setMessages(), so storing the message
         // here keeps it available to MessagePane even after the message list loads
