@@ -15,6 +15,7 @@ import {
 } from '../utils/gtd.js';
 import { formatDate } from '../utils/formatDate.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
+import { createLatestRequest } from '../utils/latestRequest.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
 import { applyDeleteGuard, clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.js';
 
@@ -254,6 +255,8 @@ export default function MessageList() {
   }, [categorizationActive, selectedAccountId, selectedFolder, messagesRefreshToken, setCategoryCounts]);
 
   const searchSeq = useRef(0);
+  const refreshRequestRef = useRef(null);
+  if (refreshRequestRef.current === null) refreshRequestRef.current = createLatestRequest();
   // Bumped to force the search effect to re-run (e.g. after rules move messages) so an
   // active search snapshot drops messages that no longer match. See #223.
   const [searchReloadToken, setSearchReloadToken] = useState(0);
@@ -330,23 +333,27 @@ export default function MessageList() {
         if (unreadOnly) params.unreadOnly = 'true';
         if (threadedView) params.threaded = 'true';
         if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
-        const data = await api.getMessages(params);
-        if (cancelled) return;
-        setMessagesTotal(data.total);
-        setMessages(applyReadGuard(data.messages));
-        setMessagesOffset(data.messages.length);
-        setHasMoreMessages(data.messages.length < data.total);
+        await refreshRequestRef.current.run(
+          () => api.getMessages(params),
+          (data) => {
+            if (cancelled) return;
+            setMessagesTotal(data.total);
+            setMessages(applyReadGuard(data.messages));
+            setMessagesOffset(data.messages.length);
+            setHasMoreMessages(data.messages.length < data.total);
 
-        // If a specific non-INBOX folder opened empty, trigger an on-demand IMAP sync.
-        // The backend will broadcast sync_complete → mailflow:refresh once done.
-        if (data.messages.length === 0 && selectedAccountId && selectedFolder !== 'INBOX') {
-          setFolderSyncing(true);
-          api.syncFolder(selectedAccountId, selectedFolder)
-            .catch(err => console.error('syncFolder failed:', err.message))
-            .finally(() => { if (!cancelled) setFolderSyncing(false); });
-        } else {
-          setFolderSyncing(false);
-        }
+            // If a specific non-INBOX folder opened empty, trigger an on-demand IMAP sync.
+            // The backend will broadcast sync_complete → mailflow:refresh once done.
+            if (data.messages.length === 0 && selectedAccountId && selectedFolder !== 'INBOX') {
+              setFolderSyncing(true);
+              api.syncFolder(selectedAccountId, selectedFolder)
+                .catch(err => console.error('syncFolder failed:', err.message))
+                .finally(() => { if (!cancelled) setFolderSyncing(false); });
+            } else {
+              setFolderSyncing(false);
+            }
+          },
+        );
       } catch (err) {
         console.error('Failed to load messages:', err);
         setFolderSyncing(false);
@@ -405,23 +412,27 @@ export default function MessageList() {
         if (unreadOnly) params.unreadOnly = 'true';
         if (state.threadedView) params.threaded = 'true';
         if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
-        const data = await api.getMessages(params);
-        setMessagesTotal(data.total);
-        // If the unread filter is on and the currently open message was just marked
-        // read, the server won't return it — preserve it so the user can keep reading.
-        let msgs = applyReadGuard(data.messages);
-        const activeId = useStore.getState().selectedMessageId;
-        if (unreadOnly && activeId && !msgs.some(m => m.id === activeId)) {
-          const kept = useStore.getState().messages.find(m => m.id === activeId);
-          if (kept) msgs = [kept, ...msgs];
-        }
-        setMessages(msgs);
-        if (sm === 'paginated') {
-          setHasMoreMessages(false);
-        } else {
-          setMessagesOffset(data.messages.length);
-          setHasMoreMessages(data.messages.length < data.total);
-        }
+        await refreshRequestRef.current.run(
+          () => api.getMessages(params),
+          (data) => {
+            setMessagesTotal(data.total);
+            // If the unread filter is on and the currently open message was just marked
+            // read, the server won't return it — preserve it so the user can keep reading.
+            let msgs = applyReadGuard(data.messages);
+            const activeId = useStore.getState().selectedMessageId;
+            if (unreadOnly && activeId && !msgs.some(m => m.id === activeId)) {
+              const kept = useStore.getState().messages.find(m => m.id === activeId);
+              if (kept) msgs = [kept, ...msgs];
+            }
+            setMessages(msgs);
+            if (sm === 'paginated') {
+              setHasMoreMessages(false);
+            } else {
+              setMessagesOffset(data.messages.length);
+              setHasMoreMessages(data.messages.length < data.total);
+            }
+          },
+        );
       } catch { /* intentional */ }
     };
 
@@ -558,13 +569,17 @@ export default function MessageList() {
       if (unreadOnly) params.unreadOnly = 'true';
       if (threadedView) params.threaded = 'true';
       if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
-      const data = await api.getMessages(params);
-      setMessagesTotal(data.total);
-      setMessages(applyReadGuard(data.messages));
-      setMessagesOffset((pageNum - 1) * pageSize + data.messages.length);
-      setHasMoreMessages(false);
-      setExpandedThreadId(null);
-      if (listRef.current) listRef.current.scrollTop = 0;
+      await refreshRequestRef.current.run(
+        () => api.getMessages(params),
+        (data) => {
+          setMessagesTotal(data.total);
+          setMessages(applyReadGuard(data.messages));
+          setMessagesOffset((pageNum - 1) * pageSize + data.messages.length);
+          setHasMoreMessages(false);
+          setExpandedThreadId(null);
+          if (listRef.current) listRef.current.scrollTop = 0;
+        },
+      );
     } catch (err) {
       console.error('Failed to load page:', err);
     } finally {
@@ -1161,6 +1176,7 @@ export default function MessageList() {
   }, [setMessagesReadState]);
 
   const handleSwipeArchive = useCallback(async (message) => {
+    refreshRequestRef.current.invalidate();
     advanceSelectionAfterRemoval(message.id);
     removeMessage(message.id);
     if (!message.is_read) decrementUnread(message.account_id);
@@ -1494,6 +1510,7 @@ export default function MessageList() {
   }, []);
 
   const handleBulkArchive = useCallback((ids, msgs) => {
+    refreshRequestRef.current.invalidate();
     ids.forEach(id => removeMessage(id));
     msgs.forEach(msg => { if (!msg.is_read) decrementUnread(msg.account_id); });
     setSelectedIds(new Set());
@@ -1666,6 +1683,7 @@ export default function MessageList() {
       } else if (selectedMessageId) {
         const msg = pool.find(m => m.id === selectedMessageId);
         if (!msg) return;
+        refreshRequestRef.current.invalidate();
         advanceSelectionAfterRemoval(selectedMessageId);
         removeMessage(selectedMessageId);
         if (!msg.is_read) decrementUnread(msg.account_id);
@@ -1947,6 +1965,7 @@ export default function MessageList() {
         break;
       case 'archive': {
         const archived = message;
+        refreshRequestRef.current.invalidate();
         advanceSelectionAfterRemoval(archived.id);
         removeMessage(archived.id);
         if (!archived.is_read) decrementUnread(archived.account_id);
