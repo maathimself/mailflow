@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
+import { activateOnKey, collapsedTooltip } from '../utils/sidebar.js';
 import { useMobile } from '../hooks/useMobile.js';
 import LogoMark from './LogoMark.jsx';
 import ProfileModal from './ProfileModal.jsx';
@@ -283,7 +284,7 @@ export default function Sidebar() {
   const {
     accounts, unreadCounts, selectedAccountId, selectedFolder,
     setSelectedAccount, setShowAdmin, setAdminTab, openCompose,
-    folders, setFolders, setAccounts, user, setUser, setLocked, sidebarCollapsed: sidebarCollapsedPref, toggleSidebar,
+    folders, setFolders, setAccounts, user, setUser, lockScreen, sidebarCollapsed: sidebarCollapsedPref, toggleSidebar,
     blockRemoteImages, setBlockRemoteImages, setMobileSidebarOpen, addNotification,
     searchAllFolders, setSearchAllFolders,
     hiddenFolders, setHiddenFolders,
@@ -469,6 +470,18 @@ export default function Sidebar() {
       }
     });
   }, [accountsReady]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Update-available check (#261). Reads the cached server-side status; the browser
+  // never contacts GitHub. Silent on any failure.
+  const [updateInfo, setUpdateInfo] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/update')
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (!cancelled && d) setUpdateInfo(d); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   const handleLogout = async () => {
     await api.logout();
@@ -831,12 +844,16 @@ export default function Sidebar() {
         )}
         <button
           onClick={isMobile ? () => setMobileSidebarOpen(false) : toggleSidebar}
+          title={t('sidebar.toggleSidebar')}
+          className="btn-press"
           style={{
-            background: 'none', border: 'none', color: 'var(--text-tertiary)',
-            cursor: 'pointer', padding: 6, borderRadius: 6,
+            background: 'transparent', border: '1px solid transparent', color: 'var(--text-secondary)',
+            cursor: 'pointer', padding: 6, borderRadius: 6, transition: 'all 0.1s',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             marginLeft: sidebarCollapsed ? 'auto' : 0,
           }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-tertiary)'; e.currentTarget.style.borderColor = 'var(--border)'; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; }}
         >
           {isMobile ? (
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -1100,9 +1117,13 @@ export default function Sidebar() {
           const isSelected = selectedAccountId === account.id;
           const accountFolders = folders[account.id] || [];
 
+          const selectInbox = () => setSelectedAccount(account.id, 'INBOX');
+          const rowLabel = collapsedTooltip(account.email_address, sidebarCollapsed);
+
           return (
             <div key={account.id}>
-              {/* Account row */}
+              {/* Only the collapsed row may carry a button role: expanded, it holds
+                  the expand toggle, and a button cannot nest inside a button. */}
               <div
                 style={{
                   display: 'flex', alignItems: 'center', gap: 8,
@@ -1121,8 +1142,13 @@ export default function Sidebar() {
                   if (!(isSelected && selectedFolder === 'INBOX'))
                     e.currentTarget.style.background = 'transparent';
                 }}
-                onClick={() => setSelectedAccount(account.id, 'INBOX')}
+                onClick={selectInbox}
                 onContextMenu={!sidebarCollapsed ? (e) => openAccountCtxMenu(e, account) : undefined}
+                title={rowLabel}
+                aria-label={rowLabel}
+                role={sidebarCollapsed ? 'button' : undefined}
+                tabIndex={sidebarCollapsed ? 0 : undefined}
+                onKeyDown={sidebarCollapsed ? activateOnKey(selectInbox) : undefined}
               >
                 {/* Account indicator */}
                 {sidebarCollapsed ? (
@@ -1560,10 +1586,26 @@ export default function Sidebar() {
             </svg>
           </div>
 
-          {/* Lock */}
-          {user?.hasPassword && (
+          {/* Update available (#261) */}
+          {updateInfo?.updateAvailable && (
             <div
-              onClick={() => { setMobileSidebarOpen(false); setLocked(true); }}
+              onClick={() => { setMobileSidebarOpen(false); window.open(updateInfo.url, '_blank', 'noopener'); }}
+              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', cursor: 'pointer', WebkitTapHighlightColor: 'transparent' }}
+              onTouchStart={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+              onTouchEnd={e => e.currentTarget.style.background = ''}
+              onTouchCancel={e => e.currentTarget.style.background = ''}
+            >
+              <span style={{ color: 'var(--accent)', display: 'flex', flexShrink: 0 }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              </span>
+              <span style={{ flex: 1, fontSize: 13, color: 'var(--accent)' }}>{t('sidebar.updateAvailable', { version: updateInfo.latest })}</span>
+            </div>
+          )}
+
+          {/* Lock */}
+          {user?.hasLockPin && (
+            <div
+              onClick={() => { setMobileSidebarOpen(false); lockScreen(); }}
               style={{
                 display: 'flex', alignItems: 'center', gap: 10,
                 padding: '8px 14px', cursor: 'pointer',
@@ -1765,15 +1807,25 @@ export default function Sidebar() {
             </button>
           </div>
           <div style={{ height: 1, background: 'var(--border-subtle)', margin: '2px 0' }} />
+          {updateInfo?.updateAvailable && (
+            <>
+              <CtxMenuItem
+                icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>}
+                label={t('sidebar.updateAvailable', { version: updateInfo.latest })}
+                onClick={() => { setUserMenuOpen(false); window.open(updateInfo.url, '_blank', 'noopener'); }}
+              />
+              <div style={{ height: 1, background: 'var(--border-subtle)', margin: '2px 0' }} />
+            </>
+          )}
           <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>} label={t('profile.editProfile')}
             onClick={() => { setUserMenuOpen(false); setShowProfile(true); }} />
           <CtxMenuItem icon={ICONS.settings} label={t('sidebar.settings')}
             onClick={() => { setAdminTab('accounts'); setShowAdmin(true); setUserMenuOpen(false); }} />
-          {user?.hasPassword && (
+          {user?.hasLockPin && (
             <CtxMenuItem
               icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>}
               label={t('sidebar.lock')}
-              onClick={() => { setUserMenuOpen(false); setLocked(true); }}
+              onClick={() => { setUserMenuOpen(false); lockScreen(); }}
             />
           )}
           <CtxMenuItem icon={ICONS.logout} label={t('sidebar.signOut')} danger
@@ -1847,6 +1899,11 @@ function NavItem({ icon, label, active, collapsed, badge, onClick }) {
   return (
     <div
       onClick={onClick}
+      onKeyDown={activateOnKey(onClick)}
+      role="button"
+      tabIndex={0}
+      title={collapsedTooltip(label, collapsed)}
+      aria-label={collapsedTooltip(label, collapsed)}
       style={{
         display: 'flex', alignItems: 'center',
         gap: 8, padding: collapsed ? '9px' : '8px 10px',

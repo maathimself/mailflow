@@ -20,6 +20,10 @@ async function request(method, path, body, extraHeaders) {
   }
   const res = await fetch(BASE + path, opts);
   if (!res.ok) {
+    if (res.status === 423) {
+      // Server-enforced screen lock (#235) — surface the lock overlay from any call.
+      window.dispatchEvent(new CustomEvent('mailflow:locked'));
+    }
     if (res.status === 401 && !path.startsWith('/auth/')) {
       window.dispatchEvent(new CustomEvent('mailflow:session_expired'));
     }
@@ -50,7 +54,26 @@ export const api = {
   login: (username, password) => request('POST', '/auth/login', { username, password }),
   register: (username, password, inviteToken) => request('POST', '/auth/register', { username, password, inviteToken }),
   logout: () => request('POST', '/auth/logout'),
-  unlock: (password) => request('POST', '/auth/unlock', { password }),
+  lock: () => request('POST', '/auth/lock'),
+  unlock: async (pin) => {
+    // Custom (not request()) so we can read the lockout flag on failure: after too many
+    // attempts the server destroys the session and returns { signedOut: true }; route to
+    // login via session_expired rather than showing an error.
+    const res = await fetch(BASE + '/auth/unlock', {
+      method: 'POST', credentials: 'include',
+      headers: { [CSRF_HEADER]: CSRF_VALUE, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) return data;
+    if (data.signedOut) {
+      window.dispatchEvent(new CustomEvent('mailflow:session_expired'));
+      const e = new Error('signed_out'); e.signedOut = true; throw e;
+    }
+    throw new Error(data.error || 'Incorrect PIN');
+  },
+  setLockPin: (pin, currentPin) => request('POST', '/auth/lock-pin', { pin, currentPin }),
+  removeLockPin: (currentPin) => request('DELETE', '/auth/lock-pin', { currentPin }),
   me: () => request('GET', '/auth/me'),
   forgotPassword: (email) => request('POST', '/auth/forgot-password', { email }),
   resetPassword: (token, password) => request('POST', '/auth/reset-password', { token, password }),
@@ -270,6 +293,29 @@ export const api = {
     recategorize: (accountId) => request('POST', `/categories/recategorize/${accountId}`),
     aiClassify: (messageId) => request('POST', `/categories/ai-classify/${messageId}`),
   },
+
+  // GTD — sections feed (rail + tabs) and classify/unclassify (COPY / remove copy)
+  getGtdSections: (params) => {
+    const p = new URLSearchParams();
+    if (params?.accountId) p.set('accountId', params.accountId);
+    if (params?.limit != null) p.set('limit', params.limit);
+    const qs = p.toString();
+    return request('GET', `/gtd/sections${qs ? '?' + qs : ''}`);
+  },
+  gtdClassify: (messageId, state) => request('POST', '/gtd/classify', { messageId, state }),
+  gtdUnclassify: (messageId, state) => request('DELETE', '/gtd/classify', { messageId, state }),
+  // GTD "done": strip the row's label(s) for these states, mark read, archive the INBOX
+  // copy. id is the rail head's row id (its label-folder copy); the server resolves the
+  // INBOX copy from the shared Message-ID.
+  gtdDone: (id, states) => request('POST', '/gtd/done', { id, states }),
+  gtdEnsureFolders: (accountId, folders) => request('POST', '/gtd/folders/ensure', { accountId, folders }),
+
+  // GTD — Inbox-Zero pet. Import uploads your own pet (pet.json text + a base64 spritesheet)
+  // and caches it server-side; meta returns the animation descriptor; the sheet URL is used
+  // directly as an <img>/background src (authenticated same-origin, cookies ride along).
+  importGtdPet: (payload) => request('POST', '/gtd/pet/import', payload),
+  getGtdPetMeta: (slug) => request('GET', `/gtd/pet/${encodeURIComponent(slug)}/meta`),
+  gtdPetSheetUrl: (slug) => `${BASE}/gtd/pet/${encodeURIComponent(slug)}/sheet`,
 
   // Todoist integration
   todoist: {

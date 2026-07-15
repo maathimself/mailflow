@@ -345,17 +345,18 @@
     }
   },
   "lockScreen": {
-    "subtitle": "Inserisci la password per sbloccare",
-    "passwordPlaceholder": "Password",
+    "subtitle": "Inserisci il PIN per sbloccare",
     "unlockButton": "Sblocca",
     "unlocking": "Sblocco in corso…",
-    "wrongPassword": "Password errata",
     "signOut": "Esci",
-    "signingOut": "Disconnessione…"
+    "signingOut": "Disconnessione…",
+    "pinPlaceholder": "Inserisci il PIN",
+    "wrongPin": "PIN errato"
   },
   "sidebar": {
     "allInboxes": "Tutte le caselle",
     "compose": "Scrivi",
+    "toggleSidebar": "Attiva/disattiva barra laterale",
     "newFolder": "Nuova cartella",
     "folderPh": "Nome cartella…",
     "subfolderPh": "Nome sottocartella…",
@@ -395,7 +396,8 @@
     "renameFailed": "Rinomina fallita",
     "deleteFailed": "Eliminazione fallita",
     "emptyFailed": "Svuotamento fallito",
-    "backToAccounts": "Torna agli account"
+    "backToAccounts": "Torna agli account",
+    "updateAvailable": "Aggiornamento disponibile: v{{version}}"
   },
   "contextMenu": {
     "open": "Apri",
@@ -462,7 +464,95 @@
     "title": "Scorciatoie da tastiera",
     "customizeHint": "Personalizza le scorciatoie in Impostazioni → Scorciatoie",
     "closeHint": "Premi ? o Esc per chiudere",
-    "then": "poi"
+    "then": "poi",
+    "groups": {
+      "composeSearch": "Composizione e ricerca",
+      "navigation": "Navigazione",
+      "messageActions": "Azioni sui messaggi",
+      "gtd": "GTD"
+    },
+    "actions": {
+      "compose": {
+        "label": "Scrivi",
+        "description": "Apri una nuova finestra di composizione"
+      },
+      "focusSearch": {
+        "label": "Cerca",
+        "description": "Attiva il campo di ricerca"
+      },
+      "showHelp": {
+        "label": "Mostra scorciatoie",
+        "description": "Mostra questo elenco di scorciatoie da tastiera"
+      },
+      "nextMessage": {
+        "label": "Messaggio successivo",
+        "description": "Passa al messaggio successivo"
+      },
+      "prevMessage": {
+        "label": "Messaggio precedente",
+        "description": "Passa al messaggio precedente"
+      },
+      "openMessage": {
+        "label": "Apri il primo messaggio",
+        "description": "Apri il primo messaggio se non ne è selezionato nessuno"
+      },
+      "goInbox": {
+        "label": "Vai alla Posta in arrivo",
+        "description": "Vai alla posta in arrivo unificata"
+      },
+      "reply": {
+        "label": "Rispondi",
+        "description": "Rispondi al messaggio corrente"
+      },
+      "replyAll": {
+        "label": "Rispondi a tutti",
+        "description": "Rispondi a tutti per il messaggio corrente"
+      },
+      "forward": {
+        "label": "Inoltra",
+        "description": "Inoltra il messaggio corrente"
+      },
+      "archive": {
+        "label": "Archivia",
+        "description": "Archivia messaggio / selezione"
+      },
+      "delete": {
+        "label": "Elimina",
+        "description": "Elimina messaggio / selezione"
+      },
+      "toggleStar": {
+        "label": "Segna con stella",
+        "description": "Attiva o disattiva la stella sul messaggio corrente"
+      },
+      "toggleRead": {
+        "label": "Segna letto / non letto",
+        "description": "Segna il messaggio corrente come letto o non letto"
+      },
+      "selectMessage": {
+        "label": "Seleziona messaggio",
+        "description": "Seleziona o deseleziona il messaggio corrente"
+      },
+      "printMessage": {
+        "label": "Stampa",
+        "description": "Stampa il messaggio corrente"
+      },
+      "gtdTodo": {
+        "label": "Segna Da fare",
+        "description": "Classifica il messaggio selezionato come Da fare"
+      },
+      "gtdWatch": {
+        "label": "Segna Osservare",
+        "description": "Classifica il messaggio selezionato come Osservare"
+      },
+      "gtdDelegated": {
+        "label": "Segna Delegato",
+        "description": "Classifica il messaggio selezionato come Delegato"
+      },
+      "toggleRightSidebar": {
+        "label": "Mostra o nascondi la barra laterale destra",
+        "description": "Nascondi o mostra la barra laterale destra"
+      }
+    }
   },
   "notifications": {
     "newMessage": "Nuovo messaggio"
@@ -993,7 +1083,41 @@
       "recategorize": "Ricategorizza",
       "recategorizing": "Elaborazione…",
       "recategorized": "Ricategorizzazione avviata.",
-      "selectAccount": "Seleziona account"
+      "selectAccount": "Seleziona account",
+      "gtdReveal": "GTD",
+      "gtdRevealDesc": "Mostra qui sotto le impostazioni GTD per ogni account; ogni account mantiene il proprio interruttore."
+    },
+    "gtd": {
+      "description": "Trasforma Mailflow in un sistema GTD. Attivalo per account, poi associa ogni stato alla cartella IMAP che contiene la sua etichetta.",
+      "noAccounts": "Aggiungi prima un account di posta per configurare GTD.",
+      "enableDesc": "GTD è attivo. Le etichette si sincronizzano come cartelle e gli stati cambiano automaticamente.",
+      "enableHint": "Attiva le etichette GTD e i cambi di stato automatici per questo account.",
+      "foldersTitle": "Cartelle delle etichette",
+      "foldersDesc": "Ogni stato GTD corrisponde a una cartella IMAP. Lascia un campo vuoto per usare il nome predefinito.",
+      "savedOk": "Mappatura delle cartelle salvata.",
+      "saveFailed": "Impossibile salvare la mappatura delle cartelle.",
+      "createFolders": "Crea le cartelle mancanti",
+      "creating": "Creazione…",
+      "createResult": "{{created}} create, {{existing}} già esistenti.",
+      "createFailed": "Impossibile creare le cartelle.",
+      "duplicateFolder": "Questi stati GTD puntano alla stessa cartella: {{states}}. Assegna una cartella diversa a ogni stato.",
+      "rejectedFolders": "Alcuni nomi di cartella non erano validi e sono stati ripristinati ai valori predefiniti: {{states}}.",
+      "pet": {
+        "title": "Mascotte inbox zero",
+        "description": "Sostituisci il cane predefinito a inbox zero con una mascotte tua.",
+        "clear": "Usa il cane predefinito",
+        "current": "Mascotte attuale: {{slug}}",
+        "usingDog": "In uso il cane predefinito.",
+        "hoverHint": "Passa il mouse per animarla.",
+        "importTitle": "Importa la tua",
+        "importHint": "Carica un pet.json e il suo spritesheet (PNG, WebP o GIF).",
+        "chooseJson": "File pet.json",
+        "chooseSheet": "Immagine dello spritesheet",
+        "import": "Importa",
+        "importing": "Importazione…",
+        "imported": "{{name}} importata: passa il mouse sull’anteprima per vederla muoversi.",
+        "importFailed": "Impossibile importare questa mascotte."
+      }
     },
     "systemEmail": {
       "tabUsers": "Utenti e inviti",
@@ -1177,12 +1301,35 @@
       "license": "Licenza",
       "website": "Sito web",
       "sourceCode": "Codice sorgente",
-      "sponsor": "Supporta lo sviluppo"
+      "sponsor": "Supporta lo sviluppo",
+      "kofi": "Ko-fi",
+      "githubSponsors": "GitHub Sponsors"
     },
     "search": {
       "placeholder": "Cerca impostazioni…",
       "noResults": "Nessun risultato per «{{query}}»",
       "notificationSound": "Suono di notifica"
+    },
+    "lock": {
+      "title": "Blocco schermo",
+      "description": "Blocca lo schermo con un PIN separato dalla password dell'account e, facoltativamente, automaticamente dopo l'inattività. Lo sblocco non ti disconnette.",
+      "pinSet": "PIN impostato",
+      "pinNotSet": "Nessun PIN impostato",
+      "setPin": "Imposta PIN",
+      "changePin": "Cambia PIN",
+      "removePin": "Rimuovi PIN",
+      "currentPin": "PIN attuale",
+      "newPin": "Nuovo PIN (4–6 cifre)",
+      "confirmPin": "Conferma PIN",
+      "pinLength": "Il PIN deve avere da 4 a 6 cifre",
+      "pinMismatch": "I PIN non corrispondono",
+      "saveFailed": "Impossibile salvare",
+      "saved": "Salvato",
+      "autoLock": "Blocco automatico",
+      "autoLockDesc": "Blocca automaticamente dopo l'inattività",
+      "autoLockNeedsPin": "Imposta un PIN per abilitare il blocco automatico",
+      "autoLockOff": "Disattivato",
+      "autoLockMin": "{{n}} min"
     }
   },
   "blockList": {
@@ -1259,5 +1406,35 @@
     "creating": "Creazione...",
     "taskCreated": "Attività creata in Todoist",
     "openTask": "Apri in Todoist"
+  },
+  "rightSidebar": {
+    "hide": "Nascondi la barra laterale destra",
+    "show": "Mostra la barra laterale destra"
+  },
+  "gtd": {
+    "title": "GTD",
+    "inbox": "Posta in arrivo",
+    "waiting": "In attesa",
+    "inboxZero": "Posta a zero ✓",
+    "allClear": "Tutto libero",
+    "allClearHint": "Niente in attesa.",
+    "viewAll": "Vedi tutti ({{count}})",
+    "toggleSection": "Attiva/disattiva {{section}}",
+    "tabEmpty": "Ancora niente qui",
+    "removeFrom": "Rimuovi da {{state}}",
+    "classified": "Etichetta applicata",
+    "classifyFailed": "Impossibile applicare l'etichetta",
+    "removed": "Etichetta rimossa",
+    "removeFailed": "Impossibile rimuovere l'etichetta",
+    "done": "Segna come completato",
+    "doneFailed": "Impossibile segnare come completato",
+    "doneArchiveFailed": "Segnato come completato, ma archiviazione non riuscita: è ancora nella posta in arrivo",
+    "state": {
+      "todo": "Da fare",
+      "watch": "Osservare",
+      "delegated": "Delegato",
+      "someday": "Un giorno",
+      "reference": "Riferimento"
+    }
   }
 }

@@ -19,25 +19,12 @@
   <link rel="icon" type="image/svg+xml" href="/favicon.svg"/>
   <link rel="apple-touch-icon" href="/icon-512.png"/>
 
-  <!-- Preconnect -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-
   <!--
-    Default font set: DM Sans + Fraunces + JetBrains Mono
-    Other font sets loaded dynamically by fonts.js on user preference change
+    Self-hosted fonts — no external font requests. Generated into public/fonts/ by
+    scripts/selfhost-fonts, covering every family/weight/subset the app font sets and
+    chrome use. fonts.js only swaps CSS variables at runtime.
   -->
-  <link id="font-link-default" rel="stylesheet"
-    href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;1,9..144,300&family=JetBrains+Mono:wght@400;500&display=swap">
-
-  <!--
-    App chrome fonts — loaded always regardless of user font set:
-    Syne for the "MailFlow" title wordmark
-    Outfit for the logo lockup
-    Cormorant Garamond for email subject lines
-  -->
-  <link rel="stylesheet"
-    href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700&family=Outfit:wght@300;400;600;700&family=Cormorant+Garamond:ital,wght@0,400;0,600;1,300;1,400;1,600&display=swap">
+  <link rel="stylesheet" href="/fonts/fonts.css">
 </head>
 <body>
   <div id="root"></div>

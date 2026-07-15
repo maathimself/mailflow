@@ -2,7 +2,6 @@
 //   sans  — UI chrome, body text, message list
 //   mono  — code, headers display, email metadata
 //   display — headings, subject lines (can be serif/expressive)
-//   googleFonts — query string for Google Fonts API
 
 export const FONT_SETS = {
   default: {
@@ -14,7 +13,6 @@ export const FONT_SETS = {
       '--font-mono': "'JetBrains Mono', monospace",
       '--font-display': "'Fraunces', serif",
     },
-    googleFonts: 'family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;1,9..144,300&family=JetBrains+Mono:wght@400;500',
   },
 
   editorial: {
@@ -26,7 +24,6 @@ export const FONT_SETS = {
       '--font-mono': "'Fira Code', monospace",
       '--font-display': "'Playfair Display', serif",
     },
-    googleFonts: 'family=Playfair+Display:ital,wght@0,400;0,600;1,400&family=Lato:wght@300;400;700&family=Fira+Code:wght@400;500',
   },
 
   geometric: {
@@ -38,7 +35,6 @@ export const FONT_SETS = {
       '--font-mono': "'Space Mono', monospace",
       '--font-display': "'Outfit', sans-serif",
     },
-    googleFonts: 'family=Outfit:wght@300;400;500;600&family=Plus+Jakarta+Sans:wght@300;400;500;600&family=Space+Mono:wght@400;700',
   },
 
   humanist: {
@@ -50,7 +46,6 @@ export const FONT_SETS = {
       '--font-mono': "'Inconsolata', monospace",
       '--font-display': "'Libre Baskerville', serif",
     },
-    googleFonts: 'family=Mulish:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Inconsolata:wght@400;500',
   },
 
   grotesque: {
@@ -62,7 +57,6 @@ export const FONT_SETS = {
       '--font-mono': "'IBM Plex Mono', monospace",
       '--font-display': "'Syne', sans-serif",
     },
-    googleFonts: 'family=Syne:wght@400;600;700&family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;1,400&family=IBM+Plex+Mono:wght@400;500',
   },
 
   literary: {
@@ -74,7 +68,6 @@ export const FONT_SETS = {
       '--font-mono': "'Courier Prime', monospace",
       '--font-display': "'Cormorant Garamond', serif",
     },
-    googleFonts: 'family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Raleway:wght@300;400;500;600&family=Courier+Prime:ital,wght@0,400;1,400',
   },
 
   technical: {
@@ -86,7 +79,6 @@ export const FONT_SETS = {
       '--font-mono': "'Geist Mono', monospace",
       '--font-display': "'Geist', sans-serif",
     },
-    googleFonts: 'family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500',
   },
 
   rounded: {
@@ -98,7 +90,6 @@ export const FONT_SETS = {
       '--font-mono': "'Fira Code', monospace",
       '--font-display': "'Quicksand', sans-serif",
     },
-    googleFonts: 'family=Quicksand:wght@400;500;600&family=Nunito:wght@300;400;500&family=Fira+Code:wght@400;500',
   },
 
   academic: {
@@ -110,7 +101,6 @@ export const FONT_SETS = {
       '--font-mono': "'Source Code Pro', monospace",
       '--font-display': "'EB Garamond', serif",
     },
-    googleFonts: 'family=EB+Garamond:ital,wght@0,400;0,600;1,400&family=Source+Sans+3:wght@300;400;600&family=Source+Code+Pro:wght@400;500',
   },
 
   futurist: {
@@ -122,7 +112,6 @@ export const FONT_SETS = {
       '--font-mono': "'Space Mono', monospace",
       '--font-display': "'Oxanium', sans-serif",
     },
-    googleFonts: 'family=Oxanium:wght@400;600;700&family=Space+Grotesk:wght@300;400;500;600&family=Space+Mono:wght@400;700',
   },
 
   bodoni: {
@@ -134,7 +123,6 @@ export const FONT_SETS = {
       '--font-mono': "'JetBrains Mono', monospace",
       '--font-display': "'Bodoni Moda', serif",
     },
-    googleFonts: 'family=Bodoni+Moda:ital,opsz,wght@0,6..96,400;0,6..96,600;1,6..96,400&family=Karla:ital,wght@0,300;0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500',
   },
 
   poppins: {
@@ -146,7 +134,6 @@ export const FONT_SETS = {
       '--font-mono': "'Fira Code', monospace",
       '--font-display': "'Poppins', sans-serif",
     },
-    googleFonts: 'family=Poppins:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Fira+Code:wght@400;500',
   },
 
   cinzel: {
@@ -158,7 +145,6 @@ export const FONT_SETS = {
       '--font-mono': "'Courier Prime', monospace",
       '--font-display': "'Cinzel', serif",
     },
-    googleFonts: 'family=Cinzel:wght@400;600;700&family=Spectral:ital,wght@0,300;0,400;0,600;1,400&family=Courier+Prime:wght@400;700',
   },
 
   typewriter: {
@@ -170,7 +156,6 @@ export const FONT_SETS = {
       '--font-mono': "'Courier Prime', monospace",
       '--font-display': "'Special Elite', cursive",
     },
-    googleFonts: 'family=Special+Elite&family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,400&family=Courier+Prime:wght@400;700',
   },
 
   newspaper: {
@@ -182,7 +167,6 @@ export const FONT_SETS = {
       '--font-mono': "'Courier Prime', monospace",
       '--font-display': "'Oswald', sans-serif",
     },
-    googleFonts: 'family=Oswald:wght@400;500;600&family=Lora:ital,wght@0,400;0,600;1,400&family=Courier+Prime:wght@400;700',
   },
 
   magazine: {
@@ -194,7 +178,6 @@ export const FONT_SETS = {
       '--font-mono': "'Fira Code', monospace",
       '--font-display': "'Abril Fatface', cursive",
     },
-    googleFonts: 'family=Abril+Fatface&family=Barlow:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Fira+Code:wght@400;500',
   },
 
 
@@ -207,7 +190,6 @@ export const FONT_SETS = {
       '--font-mono': "'Space Mono', monospace",
       '--font-display': "'Onest', sans-serif",
     },
-    googleFonts: 'family=Onest:wght@300;400;500;600&family=Figtree:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Space+Mono:wght@400;700',
   },
 
   manrope: {
@@ -219,7 +201,6 @@ export const FONT_SETS = {
       '--font-mono': "'JetBrains Mono', monospace",
       '--font-display': "'Manrope', sans-serif",
     },
-    googleFonts: 'family=Manrope:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500',
   },
 
   studio: {
@@ -231,7 +212,6 @@ export const FONT_SETS = {
       '--font-mono': "'Space Mono', monospace",
       '--font-display': "'Bebas Neue', sans-serif",
     },
-    googleFonts: 'family=Bebas+Neue&family=Barlow:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Space+Mono:wght@400;700',
   },
 
   ink: {
@@ -243,7 +223,6 @@ export const FONT_SETS = {
       '--font-mono': "'Inconsolata', monospace",
       '--font-display': "'Merriweather', serif",
     },
-    googleFonts: 'family=Merriweather:ital,wght@0,300;0,400;0,700;1,400&family=Merriweather+Sans:ital,wght@0,300;0,400;0,500;1,400&family=Inconsolata:wght@400;500',
   },
 
   atlas: {
@@ -255,7 +234,6 @@ export const FONT_SETS = {
       '--font-mono': "'Space Mono', monospace",
       '--font-display': "'Josefin Slab', serif",
     },
-    googleFonts: 'family=Josefin+Slab:ital,wght@0,300;0,400;0,600;1,400&family=Josefin+Sans:ital,wght@0,300;0,400;0,600;1,400&family=Space+Mono:wght@400;700',
   },
 
   noto: {
@@ -267,7 +245,6 @@ export const FONT_SETS = {
       '--font-mono': "'Noto Sans Mono', monospace",
       '--font-display': "'Noto Serif', serif",
     },
-    googleFonts: 'family=Noto+Serif:ital,wght@0,400;0,600;1,400&family=Noto+Sans:ital,wght@0,300;0,400;0,500;1,400&family=Noto+Sans+Mono:wght@400;500',
   },
 
   heritage: {
@@ -279,7 +256,6 @@ export const FONT_SETS = {
       '--font-mono': "'Courier Prime', monospace",
       '--font-display': "'Cardo', serif",
     },
-    googleFonts: 'family=Cardo:ital,wght@0,400;0,700;1,400&family=Cabin:ital,wght@0,400;0,500;0,600;1,400&family=Courier+Prime:wght@400;700',
   },
 
   gothic: {
@@ -291,7 +267,6 @@ export const FONT_SETS = {
       '--font-mono': "'Courier Prime', monospace",
       '--font-display': "'Cinzel Decorative', serif",
     },
-    googleFonts: 'family=Cinzel+Decorative:wght@400;700&family=Lora:ital,wght@0,400;0,600;1,400&family=Courier+Prime:wght@400;700',
   },
 
   retro: {
@@ -303,7 +278,6 @@ export const FONT_SETS = {
       '--font-mono': "'Special Elite', cursive",
       '--font-display': "'Pacifico', cursive",
     },
-    googleFonts: 'family=Pacifico&family=Josefin+Sans:ital,wght@0,300;0,400;0,600;1,400&family=Special+Elite',
   },
 
   yeseva: {
@@ -315,7 +289,6 @@ export const FONT_SETS = {
       '--font-mono': "'Fira Code', monospace",
       '--font-display': "'Yeseva One', serif",
     },
-    googleFonts: 'family=Yeseva+One&family=Karla:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Fira+Code:wght@400;500',
   },
 
   terminal: {
@@ -327,7 +300,6 @@ export const FONT_SETS = {
       '--font-mono': "'Share Tech Mono', monospace",
       '--font-display': "'Share Tech Mono', monospace",
     },
-    googleFonts: 'family=Share+Tech+Mono',
   },
 
   pt: {
@@ -339,7 +311,6 @@ export const FONT_SETS = {
       '--font-mono': "'PT Mono', monospace",
       '--font-display': "'PT Serif', serif",
     },
-    googleFonts: 'family=PT+Serif:ital,wght@0,400;0,700;1,400&family=PT+Sans:ital,wght@0,400;0,700;1,400&family=PT+Mono',
   },
 
   marcellus: {
@@ -351,7 +322,6 @@ export const FONT_SETS = {
       '--font-mono': "'Source Code Pro', monospace",
       '--font-display': "'Marcellus SC', serif",
     },
-    googleFonts: 'family=Marcellus+SC&family=Open+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Source+Code+Pro:wght@400;500',
   },
 
   monochrome: {
@@ -363,7 +333,6 @@ export const FONT_SETS = {
       '--font-mono': "'JetBrains Mono', monospace",
       '--font-display': "'JetBrains Mono', monospace",
     },
-    googleFonts: 'family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,600;1,400',
   },
 
   rozha: {
@@ -375,7 +344,6 @@ export const FONT_SETS = {
       '--font-mono': "'Fira Code', monospace",
       '--font-display': "'Rozha One', serif",
     },
-    googleFonts: 'family=Rozha+One&family=Barlow:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Fira+Code:wght@400;500',
   },
 
   spectral: {
@@ -387,7 +355,6 @@ export const FONT_SETS = {
       '--font-mono': "'Source Code Pro', monospace",
       '--font-display': "'Spectral', serif",
     },
-    googleFonts: 'family=Spectral:ital,wght@0,300;0,400;0,600;1,400&family=Lato:wght@300;400;700&family=Source+Code+Pro:wght@400;500',
   },
 
   work: {
@@ -399,7 +366,6 @@ export const FONT_SETS = {
       '--font-mono': "'JetBrains Mono', monospace",
       '--font-display': "'Work Sans', sans-serif",
     },
-    googleFonts: 'family=Work+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500',
   },
 
   neuton: {
@@ -411,7 +377,6 @@ export const FONT_SETS = {
       '--font-mono': "'Inconsolata', monospace",
       '--font-display': "'Neuton', serif",
     },
-    googleFonts: 'family=Neuton:ital,wght@0,300;0,400;0,700;1,400&family=Hind:wght@300;400;500;600&family=Inconsolata:wght@400;500',
   },
 
   cabin: {
@@ -423,35 +388,23 @@ export const FONT_SETS = {
       '--font-mono': "'Source Code Pro', monospace",
       '--font-display': "'Cabin', sans-serif",
     },
-    googleFonts: 'family=Cabin:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Source+Code+Pro:wght@400;500',
   },
 };
 
-const loadedFonts = new Set();
+// Fonts are self-hosted and declared up front in public/fonts/fonts.css (loaded from
+// index.html), so there is nothing to fetch at runtime. Kept as an exported no-op
+// because AdminPanel still imports it. A declared @font-face never downloads until the
+// active font-family references it, so switching sets costs no network request.
+export function loadFontSet() {}
 
-// Inject the Google Fonts <link> for a font set without changing any CSS vars.
-// Safe to call multiple times — deduplicates by fontKey.
-export function loadFontSet(fontKey) {
-  const set = FONT_SETS[fontKey];
-  if (!set?.googleFonts || loadedFonts.has(fontKey)) return;
-  if (!document.getElementById(`font-link-${fontKey}`)) {
-    const link = document.createElement('link');
-    link.id = `font-link-${fontKey}`;
-    link.rel = 'stylesheet';
-    link.href = `https://fonts.googleapis.com/css2?${set.googleFonts}&display=swap`;
-    document.head.appendChild(link);
-  }
-  loadedFonts.add(fontKey);
-}
-
-// Apply a font set: inject Google Fonts and update the CSS custom properties.
+// Apply a font set: update the CSS custom properties. The self-hosted @font-face rules
+// are already present, so the browser lazy-loads only the active set's files.
 export function applyFontSet(fontKey) {
   const set = FONT_SETS[fontKey] || FONT_SETS.default;
   const root = document.documentElement;
   for (const [key, value] of Object.entries(set.vars)) {
     root.style.setProperty(key, value);
   }
-  loadFontSet(fontKey);
 }
 
 // Font size scaling is applied reactively in MailApp via the store's fontSize

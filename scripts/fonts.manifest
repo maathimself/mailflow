@@ -1,0 +1,39 @@
+# Font query manifest for scripts/selfhost-fonts.py — one Google css2 query per line.
+# Each line is the query the app uses for a font set (or app-chrome fonts).
+# Edit + re-run scripts/selfhost-fonts.py to regenerate public/fonts/.
+family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;1,9..144,300&family=JetBrains+Mono:wght@400;500
+family=Playfair+Display:ital,wght@0,400;0,600;1,400&family=Lato:wght@300;400;700&family=Fira+Code:wght@400;500
+family=Outfit:wght@300;400;500;600&family=Plus+Jakarta+Sans:wght@300;400;500;600&family=Space+Mono:wght@400;700
+family=Mulish:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Inconsolata:wght@400;500
+family=Syne:wght@400;600;700&family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;1,400&family=IBM+Plex+Mono:wght@400;500
+family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Raleway:wght@300;400;500;600&family=Courier+Prime:ital,wght@0,400;1,400
+family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500
+family=Quicksand:wght@400;500;600&family=Nunito:wght@300;400;500&family=Fira+Code:wght@400;500
+family=EB+Garamond:ital,wght@0,400;0,600;1,400&family=Source+Sans+3:wght@300;400;600&family=Source+Code+Pro:wght@400;500
+family=Oxanium:wght@400;600;700&family=Space+Grotesk:wght@300;400;500;600&family=Space+Mono:wght@400;700
+family=Bodoni+Moda:ital,opsz,wght@0,6..96,400;0,6..96,600;1,6..96,400&family=Karla:ital,wght@0,300;0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500
+family=Poppins:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Fira+Code:wght@400;500
+family=Cinzel:wght@400;600;700&family=Spectral:ital,wght@0,300;0,400;0,600;1,400&family=Courier+Prime:wght@400;700
+family=Special+Elite&family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,400&family=Courier+Prime:wght@400;700
+family=Oswald:wght@400;500;600&family=Lora:ital,wght@0,400;0,600;1,400&family=Courier+Prime:wght@400;700
+family=Abril+Fatface&family=Barlow:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Fira+Code:wght@400;500
+family=Onest:wght@300;400;500;600&family=Figtree:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Space+Mono:wght@400;700
+family=Manrope:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500
+family=Bebas+Neue&family=Barlow:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Space+Mono:wght@400;700
+family=Merriweather:ital,wght@0,300;0,400;0,700;1,400&family=Merriweather+Sans:ital,wght@0,300;0,400;0,500;1,400&family=Inconsolata:wght@400;500
+family=Josefin+Slab:ital,wght@0,300;0,400;0,600;1,400&family=Josefin+Sans:ital,wght@0,300;0,400;0,600;1,400&family=Space+Mono:wght@400;700
+family=Noto+Serif:ital,wght@0,400;0,600;1,400&family=Noto+Sans:ital,wght@0,300;0,400;0,500;1,400&family=Noto+Sans+Mono:wght@400;500
+family=Cardo:ital,wght@0,400;0,700;1,400&family=Cabin:ital,wght@0,400;0,500;0,600;1,400&family=Courier+Prime:wght@400;700
+family=Cinzel+Decorative:wght@400;700&family=Lora:ital,wght@0,400;0,600;1,400&family=Courier+Prime:wght@400;700
+family=Pacifico&family=Josefin+Sans:ital,wght@0,300;0,400;0,600;1,400&family=Special+Elite
+family=Yeseva+One&family=Karla:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Fira+Code:wght@400;500
+family=Share+Tech+Mono
+family=PT+Serif:ital,wght@0,400;0,700;1,400&family=PT+Sans:ital,wght@0,400;0,700;1,400&family=PT+Mono
+family=Marcellus+SC&family=Open+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Source+Code+Pro:wght@400;500
+family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,600;1,400
+family=Rozha+One&family=Barlow:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Fira+Code:wght@400;500
+family=Spectral:ital,wght@0,300;0,400;0,600;1,400&family=Lato:wght@300;400;700&family=Source+Code+Pro:wght@400;500
+family=Work+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500
+family=Neuton:ital,wght@0,300;0,400;0,700;1,400&family=Hind:wght@300;400;500;600&family=Inconsolata:wght@400;500
+family=Cabin:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Source+Code+Pro:wght@400;500
+family=Syne:wght@600;700&family=Outfit:wght@300;400;600;700&family=Cormorant+Garamond:ital,wght@0,400;0,600;1,300;1,400;1,600

@@ -49,6 +49,31 @@ export const THEMES = {
     }
   },
 
+  gtd: {
+    label: 'GTD',
+    description: 'Getting Things Done — dark, per-state accents',
+    preview: ['#0f0f11', '#161619', '#4A9EDD', '#e8e8ed'],
+    vars: {
+      '--bg-primary': '#0f0f11',
+      '--bg-secondary': '#161619',
+      '--bg-tertiary': '#1e1e23',
+      '--bg-elevated': '#242429',
+      '--bg-hover': '#2a2a30',
+      '--border': '#2e2e35',
+      '--border-subtle': '#232328',
+      '--text-primary': '#e8e8ed',
+      '--text-secondary': '#9898a8',
+      '--text-tertiary': '#5a5a6a',
+      '--accent': '#4A9EDD',
+      '--accent-text': '#ffffff',
+      '--accent-dim': '#10293f',
+      '--accent-glow': 'rgba(74,158,221,0.15)',
+      '--green': '#2FBD85',
+      '--red': '#E56A6A',
+      '--amber': '#D9B430',
+    }
+  },
+
   gruvbox: {
     label: 'Gruvbox',
     description: 'Retro groove',

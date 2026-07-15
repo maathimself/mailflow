@@ -14,6 +14,8 @@ import { authLimiterConfig } from '../services/authLimiter.js';
 import { logAuthEvent } from '../services/authEvents.js';
 import { sendSystemEmail } from '../services/mailer.js';
 import { invalidateGlobalCategorizationCache } from '../services/categorizer.js';
+import { sanitizeGtdPrefs } from '../utils/gtdPrefs.js';
+import { sanitizeRightSidebarPrefs } from '../utils/rightSidebarPrefs.js';
 import { redisClient } from '../services/redis.js';
 import { consume as rlConsume, reset as rlReset } from '../services/rateLimiter.js';
 
@@ -605,22 +607,84 @@ router.post('/logout', async (req, res) => {
 
 router.get('/me', async (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
-  const result = await query('SELECT id, username, display_name, avatar, is_admin, totp_enabled, password_hash FROM users WHERE id = $1', [req.session.userId]);
+  const result = await query('SELECT id, username, display_name, avatar, is_admin, totp_enabled, password_hash, lock_pin_hash FROM users WHERE id = $1', [req.session.userId]);
   const user = result.rows[0];
   if (!user) return res.status(401).json({ error: 'Not authenticated' });
   req.session.isAdmin = user.is_admin;
-  res.json({ user: { id: user.id, username: user.username, displayName: user.display_name, avatar: user.avatar, isAdmin: user.is_admin, totpEnabled: user.totp_enabled, hasPassword: !!user.password_hash } });
+  res.json({ user: { id: user.id, username: user.username, displayName: user.display_name, avatar: user.avatar, isAdmin: user.is_admin, totpEnabled: user.totp_enabled, hasPassword: !!user.password_hash, hasLockPin: !!user.lock_pin_hash, locked: !!req.session.locked } });
 });
 
-router.post('/unlock', authLimiter, async (req, res) => {
+// ── Screen-lock PIN (#235) ──────────────────────────────────────────────────
+// A dedicated PIN (not the account password / SSO) gates a server-enforced privacy
+// lock. Locking sets req.session.locked; the lock middleware in index.js then 423s
+// every API call except unlock/logout/me until the PIN is verified.
+const LOCK_PIN_RE = /^\d{4,6}$/;
+const MAX_UNLOCK_FAILS = 5;
+const LOCK_FAIL_WINDOW_MS = 15 * 60 * 1000;
+
+router.post('/lock', (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
-  const { password } = req.body;
-  if (!password) return res.status(400).json({ error: 'Password required' });
-  const result = await query('SELECT password_hash FROM users WHERE id = $1', [req.session.userId]);
+  req.session.locked = true;
+  res.json({ ok: true });
+});
+
+// The failed-attempt counter is an ATOMIC Redis counter (rlConsume), not a mutable
+// session field: express-session has no per-request locking, so concurrent guesses
+// would race past a session-object cap. Only FAILURES are counted (keyed per user), so
+// a correct PIN is never throttled — which also avoids the per-IP authLimiter pitfall
+// of blocking a correct PIN after intentional failures.
+router.post('/unlock', async (req, res) => {
+  if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
+  const pin = String(req.body?.pin ?? '');
+  if (!pin) return res.status(400).json({ error: 'PIN required' });
+  const result = await query('SELECT lock_pin_hash FROM users WHERE id = $1', [req.session.userId]);
   const user = result.rows[0];
-  if (!user || !user.password_hash) return res.status(400).json({ error: 'No password set for this account' });
-  const ok = await bcrypt.compare(password, user.password_hash);
-  if (!ok) return res.status(401).json({ error: 'Incorrect password' });
+  if (!user || !user.lock_pin_hash) return res.status(400).json({ error: 'No lock PIN set for this account' });
+  const failKey = `unlock:${req.session.userId}`;
+  const ok = await bcrypt.compare(pin, user.lock_pin_hash);
+  if (!ok) {
+    // limited === true on the MAX_UNLOCK_FAILS-th failure within the window.
+    const { limited } = await rlConsume(failKey, MAX_UNLOCK_FAILS - 1, LOCK_FAIL_WINDOW_MS);
+    if (limited) {
+      await rlReset(failKey);
+      // Sign out entirely so re-entry requires full re-auth (password / SSO).
+      return req.session.destroy(() => res.status(401).json({ error: 'Too many attempts', signedOut: true }));
+    }
+    return res.status(401).json({ error: 'Incorrect PIN' });
+  }
+  await rlReset(failKey);
+  req.session.locked = false;
+  res.json({ ok: true });
+});
+
+router.post('/lock-pin', async (req, res) => {
+  if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
+  const pin = String(req.body?.pin ?? '');
+  if (!LOCK_PIN_RE.test(pin)) return res.status(400).json({ error: 'PIN must be 4 to 6 digits' });
+  const result = await query('SELECT lock_pin_hash FROM users WHERE id = $1', [req.session.userId]);
+  const existing = result.rows[0]?.lock_pin_hash;
+  if (existing) {
+    // Changing an existing PIN requires the current one.
+    const currentPin = String(req.body?.currentPin ?? '');
+    if (!currentPin || !(await bcrypt.compare(currentPin, existing))) {
+      return res.status(403).json({ error: 'Current PIN is incorrect' });
+    }
+  }
+  const hash = await bcrypt.hash(pin, 10);
+  await query('UPDATE users SET lock_pin_hash = $1 WHERE id = $2', [hash, req.session.userId]);
+  res.json({ ok: true });
+});
+
+router.delete('/lock-pin', async (req, res) => {
+  if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
+  const result = await query('SELECT lock_pin_hash FROM users WHERE id = $1', [req.session.userId]);
+  const existing = result.rows[0]?.lock_pin_hash;
+  if (!existing) return res.json({ ok: true });
+  const currentPin = String(req.body?.currentPin ?? '');
+  if (!currentPin || !(await bcrypt.compare(currentPin, existing))) {
+    return res.status(403).json({ error: 'Current PIN is incorrect' });
+  }
+  await query('UPDATE users SET lock_pin_hash = NULL WHERE id = $1', [req.session.userId]);
   res.json({ ok: true });
 });
 
@@ -694,7 +758,14 @@ router.patch('/preferences', async (req, res) => {
           threadedView, plaintextEmail, hoverQuickActions, swipeActions,
           expandedAccounts, collapsedFolders, favoriteFolders, recentFolders, fontSize,
           showAppBadge, showFaviconBadge, replyDefault, sidebarWidth,
-          categorizationEnabled, markReadBehavior, markReadDelay, aiActions } = req.body;
+          categorizationEnabled, markReadBehavior, markReadDelay, aiActions,
+          autoLockMinutes } = req.body;
+  // GTD content and generic right-sidebar layout preferences are independent flat
+  // top-level keys with separate allow-lists. gtdEnabled is intentionally NOT a user
+  // preference — it lives per-account in email_accounts.gtd_enabled.
+  const { gtdCollapsedSections, gtdPetSlug } = sanitizeGtdPrefs(req.body);
+  const { rightSidebarWidth, rightSidebarHidden } = sanitizeRightSidebarPrefs(req.body);
+  const gtdCollapsedSectionsJson = gtdCollapsedSections != null ? JSON.stringify(gtdCollapsedSections) : null;
   // JSONB fields must be serialised to strings for the ::jsonb cast
   const imageWhitelistJson    = imageWhitelist    != null ? JSON.stringify(imageWhitelist)    : null;
   const shortcutsJson         = shortcuts         != null ? JSON.stringify(shortcuts)         : null;
@@ -709,6 +780,7 @@ router.patch('/preferences', async (req, res) => {
   const sidebarWidthVal       = (() => { const n = parseInt(sidebarWidth); return (n >= 160 && n <= 400) ? String(n) : null; })();
   const markReadBehaviorVal   = ['immediate', 'delay', 'manual'].includes(markReadBehavior) ? markReadBehavior : null;
   const markReadDelayVal      = (() => { const n = parseInt(markReadDelay); return (n >= 1 && n <= 10) ? String(n) : null; })();
+  const autoLockMinutesVal    = [0, 1, 5, 15, 30].includes(Number(autoLockMinutes)) ? String(Number(autoLockMinutes)) : null;
   // User-defined AI actions: bound the array and each field so the JSONB can't grow unbounded.
   const aiActionsJson = (() => {
     if (!Array.isArray(aiActions)) return null;
@@ -751,6 +823,11 @@ router.patch('/preferences', async (req, res) => {
       || CASE WHEN $28::text IS NOT NULL THEN jsonb_build_object('markReadBehavior', $28::text) ELSE '{}'::jsonb END
       || CASE WHEN $29::text IS NOT NULL THEN jsonb_build_object('markReadDelay', $29::text) ELSE '{}'::jsonb END
       || CASE WHEN $30::jsonb IS NOT NULL THEN jsonb_build_object('aiActions', $30::jsonb) ELSE '{}'::jsonb END
+      || CASE WHEN $31::int IS NOT NULL THEN jsonb_build_object('rightSidebarWidth', $31::int) ELSE '{}'::jsonb END
+      || CASE WHEN $32::boolean IS NOT NULL THEN jsonb_build_object('rightSidebarHidden', $32::boolean) ELSE '{}'::jsonb END
+      || CASE WHEN $33::jsonb IS NOT NULL THEN jsonb_build_object('gtdCollapsedSections', $33::jsonb) ELSE '{}'::jsonb END
+      || CASE WHEN $34::text IS NOT NULL THEN jsonb_build_object('gtdPetSlug', $34::text) ELSE '{}'::jsonb END
+      || CASE WHEN $35::text IS NOT NULL THEN jsonb_build_object('autoLockMinutes', $35::text) ELSE '{}'::jsonb END
     WHERE id = $1
   `, [req.session.userId, theme ?? null, font ?? null, layout ?? null, notificationSound ?? null,
       pageSize ?? null, scrollMode ?? null, syncInterval ?? null,
@@ -758,7 +835,8 @@ router.patch('/preferences', async (req, res) => {
       language ?? null, threadedView ?? null, plaintextEmail ?? null, hoverQuickActions ?? null,
       swipeActionsJson, expandedAccountsJson, collapsedFoldersJson, favoriteFoldersJson, recentFoldersJson, fontSizeVal,
       showAppBadge ?? null, showFaviconBadge ?? null, replyDefaultVal, sidebarWidthVal,
-      categorizationEnabled ?? null, markReadBehaviorVal, markReadDelayVal, aiActionsJson]);
+      categorizationEnabled ?? null, markReadBehaviorVal, markReadDelayVal, aiActionsJson,
+      rightSidebarWidth, rightSidebarHidden, gtdCollapsedSectionsJson, gtdPetSlug, autoLockMinutesVal]);
 
   if (syncInterval != null) {
     const ms = parseInt(syncInterval) * 1000;

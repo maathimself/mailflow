@@ -12,8 +12,10 @@ import { buildKeyMap, buildModKeyMap, getEffectiveShortcuts, getGroupedActions, 
 import Sidebar from './Sidebar.jsx';
 import MessageList from './MessageList.jsx';
 import MessagePane from './MessagePane.jsx';
+import GtdSidebarContent from './GtdSidebarContent.jsx';
 import NotificationToasts from './NotificationToasts.jsx';
 import CommandPalette from './CommandPalette.jsx';
+import { gtdActiveForContext } from '../utils/gtd.js';
 
 const ContactsPage = lazy(() => import('./ContactsPage.jsx'));
 
@@ -65,7 +67,47 @@ export default function MailApp() {
     fontSize, showAppBadge, showFaviconBadge,
     sidebarWidth, setSidebarWidth, setIsSidebarResizing,
     showContacts, setTodoistConnected,
+    accounts, rightSidebarWidth, setRightSidebarWidth, isRightSidebarResizing, setIsRightSidebarResizing,
+    fetchGtdSections, rightSidebarHidden, toggleRightSidebarHidden,
   } = useStore();
+  const syncInterval = useStore(s => s.syncInterval);
+  const autoLockMinutes = useStore(s => s.autoLockMinutes);
+  const lockScreen = useStore(s => s.lockScreen);
+
+  // Auto-lock after inactivity (#235). MailApp only mounts while unlocked, so this
+  // timer runs only when unlocked; hitting the timeout locks and unmounts this tree.
+  useEffect(() => {
+    if (!autoLockMinutes) return undefined;
+    const ms = autoLockMinutes * 60 * 1000;
+    let last = Date.now();
+    const bump = () => { last = Date.now(); };
+    const maybeLock = () => { if (Date.now() - last >= ms) lockScreen(); };
+    const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'wheel'];
+    events.forEach(e => window.addEventListener(e, bump, { passive: true }));
+    // Poll + check on refocus rather than a single setTimeout: a lone timeout gets
+    // throttled/frozen in a backgrounded tab, so an idle session might never fire.
+    // Comparing timestamps every 15s (and on visibilitychange) locks reliably and
+    // catches up when the tab is brought back to the foreground.
+    document.addEventListener('visibilitychange', maybeLock);
+    const iv = setInterval(maybeLock, 15000);
+    return () => {
+      clearInterval(iv);
+      document.removeEventListener('visibilitychange', maybeLock);
+      events.forEach(e => window.removeEventListener(e, bump));
+    };
+  }, [autoLockMinutes, lockScreen]);
+
+  // Single owner of the GTD sections fetch: reload whenever the context (unified
+  // vs a single account) changes and GTD is active there. Both the rail and the
+  // tab list read the resulting store slice; live updates arrive via WS.
+  const gtdActive = gtdActiveForContext(accounts, selectedAccountId);
+  // Also key on the set of GTD-enabled accounts so enabling a second account refetches
+  // the unified sections — gtdActive alone stays true and wouldn't retrigger when it
+  // flips from one enabled account to two.
+  const gtdEnabledKey = accounts.filter(a => a.gtd_enabled).map(a => a.id).sort().join(',');
+  useEffect(() => {
+    if (gtdActive) fetchGtdSections();
+  }, [gtdActive, selectedAccountId, gtdEnabledKey, fetchGtdSections]);
 
   const scale = fontSize / 100;
   const [vpSize, setVpSize] = useState({ w: window.innerWidth, h: window.innerHeight });
@@ -91,6 +133,12 @@ export default function MailApp() {
   const sidebarDragRef = useRef(null);
   const sidebarResizeRef = useRef(null);
   const listResizeRef = useRef(null);
+  const rightSidebarResizeRef = useRef(null);
+
+  // Keep the right sidebar's width CSS var in sync with the persisted preference.
+  useEffect(() => {
+    document.documentElement.style.setProperty('--right-sidebar-width', rightSidebarWidth + 'px');
+  }, [rightSidebarWidth]);
 
   const handleSidebarResizeMouseDown = (e) => {
     e.preventDefault();
@@ -134,10 +182,28 @@ export default function MailApp() {
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
       }
+      if (rightSidebarResizeRef.current) {
+        document.removeEventListener('mousemove', rightSidebarResizeRef.current.onMouseMove);
+        document.removeEventListener('mouseup', rightSidebarResizeRef.current.onMouseUp);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
     };
   }, []);
 
   const currentLayout = LAYOUTS[layout] || LAYOUTS.comfortable;
+
+  // Shortcut hint (e.g. "⌘/") for the collapse/expand tooltips, derived from the
+  // live shortcut map via the existing helpers — no new plumbing. '' when unbound.
+  const rightSidebarToggleParsed = parseModKey(getEffectiveShortcuts(shortcuts).toggleRightSidebar);
+  const rightSidebarToggleHint = rightSidebarToggleParsed ? `${modLabel(rightSidebarToggleParsed.mod)}${rightSidebarToggleParsed.bare}` : '';
+  // The right sidebar renders when a feature supplies content. GTD is the
+  // current (only) provider; the layout/shortcut infrastructure below is
+  // feature-agnostic and keys off the seam, not the feature.
+  const rightSidebarContent = gtdActive
+    ? <GtdSidebarContent onCollapse={toggleRightSidebarHidden} toggleHint={rightSidebarToggleHint} />
+    : null;
+  const rightSidebarApplicable = !isMobile && currentLayout.direction === 'row' && rightSidebarContent != null;
 
   const handleListResizeMouseDown = (e) => {
     e.preventDefault();
@@ -163,6 +229,38 @@ export default function MailApp() {
     };
 
     listResizeRef.current = { onMouseMove, onMouseUp };
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  };
+
+  // Right-sidebar resize — its own width var + handle, independent of --list-width.
+  // The handle sits to its left, so dragging left widens the sidebar.
+  const handleRightSidebarResizeMouseDown = (e) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--right-sidebar-width')) || rightSidebarWidth || 296;
+    setIsRightSidebarResizing(true);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMouseMove = (mv) => {
+      const dx = mv.clientX - startX;
+      const clamped = Math.max(200, Math.min(600, startWidth - dx));
+      document.documentElement.style.setProperty('--right-sidebar-width', clamped + 'px');
+    };
+
+    const onMouseUp = () => {
+      setIsRightSidebarResizing(false);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      rightSidebarResizeRef.current = null;
+      const finalWidth = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--right-sidebar-width'));
+      if (finalWidth) setRightSidebarWidth(finalWidth);
+    };
+
+    rightSidebarResizeRef.current = { onMouseMove, onMouseUp };
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
   };
@@ -205,7 +303,7 @@ export default function MailApp() {
     return () => window.removeEventListener('popstate', handler);
   }, [isMobile, setSelectedMessage]);
 
-  useWebSocket();
+  const wsRef = useWebSocket();
 
   // Open a specific message by id (fetch → cache → select). Shared by the on-load
   // deep-link path and the service-worker notification-tap path so both behave
@@ -354,6 +452,20 @@ export default function MailApp() {
     return () => clearInterval(interval);
   }, [setAccounts, setUnreadCounts, setTodoistConnected]);
 
+  // WebSocket-independent periodic refresh of the open message list, at the user's chosen sync
+  // interval. Only fires when the tab is visible AND the socket is not OPEN — a true fallback so
+  // read state and new mail still converge if the WebSocket is down, without redundant refetching
+  // while it's healthy (the socket delivers updates instantly in that case).
+  useEffect(() => {
+    const ms = Math.max(15, syncInterval || 60) * 1000;
+    const id = setInterval(() => {
+      if (document.visibilityState === 'visible' && wsRef.current?.readyState !== WebSocket.OPEN) {
+        window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+      }
+    }, ms);
+    return () => clearInterval(id);
+  }, [syncInterval, wsRef]);
+
   // Update browser tab title, favicon badge, and PWA home screen badge with unread count
   useEffect(() => {
     const total = unreadCounts.total;
@@ -477,6 +589,14 @@ export default function MailApp() {
       shortcutBus.off('showHelp',  onShowHelp);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Whole right-sidebar collapse toggle (cmd+/). Re-subscribed when applicability
+  // flips so the handler never toggles a sidebar that is not rendered.
+  useEffect(() => {
+    const onToggleRightSidebar = () => { if (rightSidebarApplicable) toggleRightSidebarHidden(); };
+    shortcutBus.on('toggleRightSidebar', onToggleRightSidebar);
+    return () => shortcutBus.off('toggleRightSidebar', onToggleRightSidebar);
+  }, [rightSidebarApplicable, toggleRightSidebarHidden]);
 
   // Close help overlay on Escape
   useEffect(() => {
@@ -633,6 +753,64 @@ export default function MailApp() {
                 />
               )}
               <MessagePane />
+              {/* Generic right-sidebar column, populated from the content seam above. */}
+              {currentLayout.direction === 'row' && rightSidebarContent != null && (
+                <>
+                  {/* Resize handle is omitted while the sidebar is hidden. */}
+                  {!rightSidebarHidden && (
+                    <div
+                      onMouseDown={handleRightSidebarResizeMouseDown}
+                      style={{
+                        width: 4, flexShrink: 0, cursor: 'col-resize',
+                        background: 'var(--border-subtle)',
+                        transition: 'background 0.15s',
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'var(--accent)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'var(--border-subtle)'; }}
+                    />
+                  )}
+                  {/* Column wrapper collapses its width when hidden (message list reflows);
+                      the inner block keeps its full width and slides off the right edge.
+                      overflow:hidden clips the sidebar as it slides, kept mounted so both
+                      directions animate. */}
+                  <div style={{
+                    position: 'relative', flexShrink: 0, overflow: 'hidden', height: '100%',
+                    width: rightSidebarHidden ? 0 : 'var(--right-sidebar-width, 296px)',
+                    // Disabled while dragging (mirrors Sidebar's isSidebarResizing guard):
+                    // otherwise every mousemove's CSS-var write would animate toward the new
+                    // width instead of tracking the cursor.
+                    transition: isRightSidebarResizing ? 'none' : 'width 0.2s ease',
+                  }}>
+                    <div style={{
+                      width: 'var(--right-sidebar-width, 296px)', height: '100%',
+                      transform: rightSidebarHidden ? 'translateX(100%)' : 'translateX(0)',
+                      transition: 'transform 0.2s ease',
+                    }}>
+                      {rightSidebarContent}
+                    </div>
+                  </div>
+                  {/* Slim always-visible reopen affordance pinned to the right edge. */}
+                  {rightSidebarHidden && (
+                    <button
+                      onClick={toggleRightSidebarHidden}
+                      aria-label={t('rightSidebar.show')}
+                      title={rightSidebarToggleHint ? `${t('rightSidebar.show')} (${rightSidebarToggleHint})` : t('rightSidebar.show')}
+                      style={{
+                        width: 18, flexShrink: 0, cursor: 'pointer', padding: 0,
+                        border: 'none', borderLeft: '1px solid var(--border)',
+                        background: 'var(--bg-secondary)', color: 'var(--text-tertiary)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.background = 'var(--bg-hover)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.background = 'var(--bg-secondary)'; }}
+                    >
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <polyline points="15 18 9 12 15 6" />
+                      </svg>
+                    </button>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </>
@@ -731,14 +909,14 @@ function ShortcutHelpOverlay({ shortcuts, onClose }) {
           {Object.entries(groups).map(([groupName, actions]) => (
             <div key={groupName} style={{ marginBottom: 20 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
-                {groupName}
+                {t(groupName)}
               </div>
-              {actions.map(({ action, description }) => (
+              {actions.map(({ action, descriptionKey }) => (
                 <div key={action} style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                   padding: '5px 0', borderBottom: '1px solid var(--border-subtle)',
                 }}>
-                  <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{description}</span>
+                  <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{t(descriptionKey)}</span>
                   {keyBadge(effective[action])}
                 </div>
               ))}
