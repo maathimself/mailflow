@@ -4972,8 +4972,6 @@ function RulesTab() {
   // Drag-and-drop state for rules reorder
   const [ruleDragIdx, setRuleDragIdx] = useState(null);
   const [ruleDropIdx, setRuleDropIdx] = useState(null);
-  const ruleLongPressTimer = useRef(null);
-  const ruleTouchStart = useRef(null); // { x, y } captured at touchstart for movement threshold
 
   const isMobile = useMobile();
 
@@ -5135,13 +5133,14 @@ function RulesTab() {
   }
 
   async function handleReorderRules(from, to) {
+    const copy = [...rules];
     const reordered = [...rules];
     const [moved] = reordered.splice(from, 1);
     reordered.splice(to, 0, moved);
 
-    api.reorderRules(reordered.map(r => r.id)).then(() => {
-      setRules(reordered);
-    })
+    setRules(reordered);
+
+    api.reorderRules(reordered.map(r => r.id)).catch(() => { setRules(copy); })
   }
 
   function setCondition(idx, key, val) {
