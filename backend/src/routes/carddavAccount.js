@@ -4,42 +4,56 @@
 // distinct from routes/carddav.js, which is the CardDAV *server* MailFlow exposes.
 
 import { Router } from 'express';
-import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { encrypt } from '../services/encryption.js';
 import { validateHost } from '../services/hostValidation.js';
 import { getConnectionPolicy } from '../services/connectionPolicy.js';
 import { discoverAddressBooks } from '../services/carddavClient.js';
-import { syncUser, scheduleCardavUser, stopCardavUser, getCardavConfig } from '../services/carddavSync.js';
+import {
+  syncUser,
+  requestCarddavSync,
+  scheduleCardavUser,
+  getCardavConfig,
+  getCarddavBookSummaries,
+  patchCarddavBookRoles,
+  replaceCarddavConnection,
+  patchCarddavConnection,
+  disconnectCarddavAccount,
+  StaleCarddavPlanError,
+} from '../services/carddavSync.js';
 
 const router = Router();
 router.use(requireAuth);
 
-const DUP_MODES = ['separate', 'merge', 'skip'];
 const clampInterval = (v) => Math.max(15, Math.min(1440, parseInt(v) || 60));
 
-// Public view of the connection — never leaks the stored password.
-function publicStatus(config) {
+// Public view of the connection — never leaks the stored password. `books` is
+// a per-book read-only summary (roles, capabilities, counts); `bookCount`/
+// `contactCount` remain as aggregate counts for backward compatibility.
+async function publicStatus(config, userId) {
   if (!config?.serverUrl) return { connected: false };
   return {
     connected: true,
     serverUrl: config.serverUrl,
     username: config.username,
-    dupMode: config.dupMode || 'separate',
     intervalMin: config.intervalMin || 60,
     lastSyncAt: config.lastSyncAt || null,
     lastError: config.lastError || null,
     bookCount: config.bookCount ?? null,
     contactCount: config.contactCount ?? null,
+    // Absent on every connection made before this setting existed, which must
+    // read as OFF — see the export sweep in carddavSync.js.
+    publishEmailedContacts: config.publishEmailedContacts === true,
+    books: await getCarddavBookSummaries(userId),
   };
 }
 
 router.get('/', async (req, res) => {
-  res.json(publicStatus(await getCardavConfig(req.session.userId)));
+  res.json(await publicStatus(await getCardavConfig(req.session.userId), req.session.userId));
 });
 
 router.post('/connect', async (req, res) => {
-  const { serverUrl, username, password, dupMode, intervalMin } = req.body || {};
+  const { serverUrl, username, password, intervalMin } = req.body || {};
   if (!serverUrl || !username || !password) {
     return res.status(400).json({ error: 'Server URL, username, and password are required' });
   }
@@ -74,63 +88,122 @@ router.post('/connect', async (req, res) => {
     return res.status(400).json({ error: err.message });
   }
 
-  const config = {
+  const connection = {
     serverUrl, username,
     password: encrypt(password),
-    dupMode: DUP_MODES.includes(dupMode) ? dupMode : 'separate',
     intervalMin: clampInterval(intervalMin),
-    lastError: null,
   };
-  await query(
-    `INSERT INTO user_integrations (user_id, provider, config)
-     VALUES ($1, 'carddav', $2::jsonb)
-     ON CONFLICT (user_id, provider) DO UPDATE SET config = $2::jsonb, updated_at = NOW()`,
-    [req.session.userId, JSON.stringify(config)],
-  );
+  const config = await replaceCarddavConnection(req.session.userId, connection);
 
   scheduleCardavUser(req.session.userId, config.intervalMin);
   // Kick off the first sync in the background; the client polls GET / for status.
-  syncUser(req.session.userId).catch(() => {});
-  res.json(publicStatus(config));
+  requestCarddavSync(req.session.userId, config.connectionGeneration);
+  res.json(await publicStatus(config, req.session.userId));
 });
 
-// Update duplicate handling / interval (and optionally rotate the password).
+// Update the interval and the publish-emailed-contacts setting (and optionally
+// rotate the password).
 router.patch('/', async (req, res) => {
   const existing = await getCardavConfig(req.session.userId);
   if (!existing?.serverUrl) return res.status(409).json({ error: 'CardDAV not connected' });
 
   const patch = {};
-  if (req.body.dupMode && DUP_MODES.includes(req.body.dupMode)) patch.dupMode = req.body.dupMode;
   if (req.body.intervalMin != null) patch.intervalMin = clampInterval(req.body.intervalMin);
-  if (req.body.password) patch.password = encrypt(req.body.password);
+  // Stored strictly as a boolean: this setting decides whether merely emailing
+  // someone publishes them to a shared address book, so a stray truthy value must
+  // never turn it on.
+  if (req.body.publishEmailedContacts != null) {
+    if (typeof req.body.publishEmailedContacts !== 'boolean') {
+      return res.status(400).json({ error: 'publishEmailedContacts must be a boolean' });
+    }
+    patch.publishEmailedContacts = req.body.publishEmailedContacts;
+  }
+  if (req.body.password) {
+    const policy = await getConnectionPolicy();
+    try {
+      await discoverAddressBooks({
+        serverUrl: existing.serverUrl,
+        username: existing.username,
+        password: req.body.password,
+        allowPrivate: policy.allowPrivateHosts,
+      });
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
+    }
+    patch.password = encrypt(req.body.password);
+  }
 
-  await query(
-    `UPDATE user_integrations SET config = config || $2::jsonb, updated_at = NOW()
-     WHERE user_id = $1 AND provider = 'carddav'`,
-    [req.session.userId, JSON.stringify(patch)],
-  );
+  const config = patch.password
+    ? await patchCarddavConnection(req.session.userId, patch, existing.connectionGeneration)
+    : await patchCarddavConnection(req.session.userId, patch);
   if (patch.intervalMin) scheduleCardavUser(req.session.userId, patch.intervalMin);
-  res.json(publicStatus({ ...existing, ...patch }));
+  if (patch.password) requestCarddavSync(req.session.userId, config.connectionGeneration);
+  // Turning the setting on widens the export sweep, so publish the contacts it
+  // now admits instead of leaving the user waiting for the next interval tick.
+  // Like a book-role patch, it leaves the connection generation untouched, so a
+  // sync already in flight may have read the old value and be past the sweep:
+  // queue an uncoalesced follow-up rather than trusting it to have seen this.
+  // Turning it off needs no sync — it publishes nothing new, and contacts already
+  // in the address book stay there.
+  if (patch.publishEmailedContacts === true) {
+    requestCarddavSync(req.session.userId, config.connectionGeneration, { coalesce: false });
+  }
+  res.json(await publicStatus(config, req.session.userId));
+});
+
+// Map a book role-change failure to an HTTP status. A generation fence miss or
+// a disconnected connection is a 409 (the connection changed under the client);
+// a missing book is 404; a create-denied write-target attempt is 403; an empty
+// patch is 400. Anything else propagates to the 500 handler.
+function bookPatchError(res, err) {
+  if (err instanceof StaleCarddavPlanError) {
+    return res.status(409).json({ error: err.message, code: err.reason });
+  }
+  const status = {
+    ERR_CARDDAV_BOOK_PATCH_EMPTY: 400,
+    ERR_ADDRESS_BOOK_NOT_FOUND: 404,
+    ERR_CARDDAV_READ_ONLY: 403,
+    ERR_CARDDAV_WRITE_TARGET_SUBSCRIBED: 409,
+  }[err.code];
+  if (status) return res.status(status).json({ error: err.message, code: err.code });
+  throw err;
+}
+
+// Per-book role management: Subscribe / Look-up-senders toggles and the
+// write-target radio (see patchCarddavBookRoles). Fenced against the connection
+// generation the caller just read, then a background sync applies the pull-side
+// effects (a re-subscribed book materializes; an ignored book's ledger drops).
+// The role change leaves the generation untouched, so a sync already in flight
+// for it may be past the patched book: request an uncoalesced sync, which queues
+// a re-run behind that one instead of trusting it to have seen the change.
+router.patch('/books/:id', async (req, res) => {
+  const config = await getCardavConfig(req.session.userId);
+  if (!config?.serverUrl) return res.status(409).json({ error: 'CardDAV not connected' });
+  const { isSubscribed, isLookupSource, makeWriteTarget } = req.body || {};
+  try {
+    await patchCarddavBookRoles(
+      req.session.userId,
+      req.params.id,
+      { isSubscribed, isLookupSource, makeWriteTarget },
+      config.connectionGeneration,
+    );
+  } catch (err) {
+    return bookPatchError(res, err);
+  }
+  requestCarddavSync(req.session.userId, config.connectionGeneration, { coalesce: false });
+  res.json(await publicStatus(config, req.session.userId));
 });
 
 router.post('/sync', async (req, res) => {
   const config = await getCardavConfig(req.session.userId);
   if (!config?.serverUrl) return res.status(409).json({ error: 'CardDAV not connected' });
   const result = await syncUser(req.session.userId);
-  res.json({ ...result, status: publicStatus(await getCardavConfig(req.session.userId)) });
+  const status = await publicStatus(await getCardavConfig(req.session.userId), req.session.userId);
+  res.json({ ...result, status });
 });
 
 router.delete('/', async (req, res) => {
-  stopCardavUser(req.session.userId);
-  // Remove the synced (read-only) address books; contacts cascade with them.
-  await query(
-    "DELETE FROM address_books WHERE user_id = $1 AND source = 'carddav'",
-    [req.session.userId],
-  );
-  await query(
-    "DELETE FROM user_integrations WHERE user_id = $1 AND provider = 'carddav'",
-    [req.session.userId],
-  );
+  await disconnectCarddavAccount(req.session.userId);
   res.json({ ok: true });
 });
 

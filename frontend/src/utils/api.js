@@ -27,8 +27,12 @@ async function request(method, path, body, extraHeaders) {
     if (res.status === 401 && !path.startsWith('/auth/')) {
       window.dispatchEvent(new CustomEvent('mailflow:session_expired'));
     }
-    const err = await res.json().catch(() => ({ error: 'Request failed' }));
-    throw new Error(err.error || 'Request failed');
+    const data = await res.json().catch(() => ({ error: 'Request failed' }));
+    const error = new Error(data.error || 'Request failed');
+    error.status = res.status;
+    error.data = data;
+    if (typeof data.conflictId === 'string') error.conflictId = data.conflictId;
+    throw error;
   }
   return res.json();
 }
@@ -226,14 +230,24 @@ export const api = {
   createContact: (data)     => request('POST',   '/contacts', data),
   updateContact: (id, data) => request('PATCH',  `/contacts/${id}`, data),
   deleteContact: (id)       => request('DELETE', `/contacts/${id}`),
+  // Make an auto-collected contact explicit and export it to the CardDAV
+  // write-target book. Editing the contact deliberately does not do this.
+  promoteContact: (id)      => request('POST',   `/contacts/${id}/promote`),
 
   // CardDAV contact sync (Nextcloud etc.)
   carddav: {
     status:     ()     => request('GET',    '/carddav'),
     connect:    (data) => request('POST',   '/carddav/connect', data),
     update:     (data) => request('PATCH',  '/carddav', data),
+    patchBook:  (id, roles) => request('PATCH', `/carddav/books/${encodeURIComponent(id)}`, roles),
     sync:       ()     => request('POST',   '/carddav/sync'),
     disconnect: ()     => request('DELETE', '/carddav'),
+    getConflicts: () => request('GET', '/carddav/conflicts'),
+    resolveConflict: (id, resolution) => request(
+      'POST',
+      `/carddav/conflicts/${encodeURIComponent(id)}/resolve`,
+      { resolution },
+    ),
   },
 
   // Image whitelist

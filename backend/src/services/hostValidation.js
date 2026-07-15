@@ -27,28 +27,59 @@ function isPrivateIPv4(ip) {
   );
 }
 
+function ipv6ToBigInt(ip) {
+  let normalized = ip.toLowerCase();
+  const lastWord = normalized.slice(normalized.lastIndexOf(':') + 1);
+  if (isIPv4(lastWord)) {
+    const value = ipv4ToLong(lastWord);
+    normalized = `${normalized.slice(0, normalized.lastIndexOf(':') + 1)}`
+      + `${(value >>> 16).toString(16)}:${(value & 0xffff).toString(16)}`;
+  }
+
+  const halves = normalized.split('::');
+  if (halves.length > 2) return null;
+  const left = halves[0] ? halves[0].split(':') : [];
+  const right = halves.length === 2 && halves[1] ? halves[1].split(':') : [];
+  const missing = 8 - left.length - right.length;
+  if (halves.length === 2 && missing < 1) return null;
+  const words = halves.length === 2
+    ? [...left, ...Array(missing).fill('0'), ...right]
+    : left;
+  if (words.length !== 8 || words.some(word => !/^[0-9a-f]{1,4}$/.test(word))) return null;
+
+  return words.reduce((value, word) => (value << 16n) | BigInt(`0x${word}`), 0n);
+}
+
+function inIPv6Cidr(ip, base, bits) {
+  const shift = 128n - BigInt(bits);
+  return (ip >> shift) === (base >> shift);
+}
+
+const ipv4MappedPrefix = ipv6ToBigInt('::ffff:0:0');
+const privateIPv6Cidrs = [
+  ['::', 128],
+  ['::1', 128],
+  ['64:ff9b:1::', 48],
+  ['100::', 64],
+  ['2001::', 32],       // Teredo
+  ['2001:db8::', 32],   // documentation
+  ['2001:10::', 28],    // ORCHID
+  ['2002::', 16],       // 6to4
+  ['fc00::', 7],        // unique-local
+  ['fe80::', 10],       // link-local
+  ['ff00::', 8],        // multicast
+].map(([base, bits]) => [ipv6ToBigInt(base), bits]);
+
 function isPrivateIPv6(ip) {
-  const h = ip.toLowerCase();
-  if (h === '::1' || h.startsWith('fc') || h.startsWith('fd') || h.startsWith('fe80')) return true;
-  // IPv4-mapped IPv6 (::ffff:x.x.x.x) — check the embedded IPv4 address.
-  // Without this, ::ffff:127.0.0.1 bypasses the IPv4 private-range checks.
-  if (h.startsWith('::ffff:')) {
-    const embedded = h.slice(7);
-    if (isIPv4(embedded)) return isPrivateIPv4(embedded);
+  const value = ipv6ToBigInt(ip);
+  if (value == null) return false;
+  if (inIPv6Cidr(value, ipv4MappedPrefix, 96)) {
+    const embedded = Number(value & 0xffffffffn);
+    const ipv4 = `${embedded >>> 24}.${(embedded >>> 16) & 0xff}`
+      + `.${(embedded >>> 8) & 0xff}.${embedded & 0xff}`;
+    return isPrivateIPv4(ipv4);
   }
-  // 6to4 (2002::/16) — embeds an IPv4 address in bits 16-47.
-  // e.g. 2002:7f00:0001:: wraps 127.0.0.1 and bypasses IPv4 checks without this guard.
-  const sixToFour = h.match(/^2002:([0-9a-f]{1,4}):([0-9a-f]{1,4}):/);
-  if (sixToFour) {
-    const hi = parseInt(sixToFour[1].padStart(4, '0'), 16);
-    const lo = parseInt(sixToFour[2].padStart(4, '0'), 16);
-    const embedded = `${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`;
-    if (isPrivateIPv4(embedded)) return true;
-  }
-  // Teredo (2001:0000::/32) — reject the entire prefix; Teredo tunnels UDP through NAT
-  // and can reach private ranges via the embedded server/client address fields.
-  if (/^2001:0{1,4}:/.test(h)) return true;
-  return false;
+  return privateIPv6Cidrs.some(([base, bits]) => inIPv6Cidr(value, base, bits));
 }
 
 // Synchronous check: literal IPs and reserved hostnames.

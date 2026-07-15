@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { newAiAction, AI_ACTION_LIMITS } from '../aiActions.js';
@@ -11,6 +11,8 @@ import { NOTIFICATION_SOUNDS, playNotificationSound, playCustomSound, warmUpAudi
 import { usePushNotifications } from '../hooks/usePushNotifications.js';
 import SignatureEditor from './SignatureEditor.jsx';
 import GtdZeroPet from './GtdZeroPet.jsx';
+import CardDavConflicts from './CardDavConflicts.jsx';
+import { cardDavBookControls, publishEmailedContactsToggle } from '../carddavBookState.js';
 import { getEffectiveShortcuts, getGroupedActions, ACTION_DEFS, SPECIAL_KEY_LABELS, parseModKey, modLabel } from '../utils/defaultShortcuts.js';
 import { DEFAULT_GTD_FOLDERS, GTD_STATES, resolveAccountGtdFolders, diffGtdFolders, findGtdFolderCollisions } from '../utils/gtd.js';
 
@@ -1856,28 +1858,135 @@ function LayoutsTab() {
 }
 
 // ─── Integrations Tab ────────────────────────────────────────────────────────
-// CardDAV contact sync (e.g. Nextcloud). One-way, read-only pull.
+// CardDAV contact sync (e.g. Nextcloud).
+
+// Per-book row: role (write-target/subscribed/lookup-only/ignored) + observed
+// write-capability badges, the Subscribe and Look-up-senders toggles, a
+// write-target radio (disabled where the server denies create), and the row's
+// materialized/lookup counts. onPatch(bookId, roles) sends one role change; the
+// row is disabled (pending) while its own change is in flight. The role/control
+// derivation lives in carddavBookState.js so it is unit-tested without a DOM.
+function CardDavBookRow({ book, t, onPatch, pending }) {
+  const badgeStyle = {
+    fontSize: 11, padding: '2px 8px', borderRadius: 10,
+    background: 'var(--bg-tertiary)', color: 'var(--text-secondary)',
+    border: '1px solid var(--border)',
+  };
+  const controls = cardDavBookControls(book);
+  const controlLabel = disabled => ({
+    display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12,
+    color: 'var(--text-secondary)', opacity: disabled ? 0.5 : 1,
+    cursor: disabled ? 'default' : 'pointer',
+  });
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '6px 8px', borderRadius: 6, background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{book.name}</span>
+        <span style={badgeStyle}>{t(`admin.integrations.carddav.books.${controls.role}`)}</span>
+        <span style={badgeStyle}>{t(`admin.integrations.carddav.books.${controls.capability}`)}</span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+        <label style={controlLabel(controls.writeTargetDisabled || pending)}>
+          <input
+            type="radio"
+            name="carddav-write-target"
+            checked={controls.isWriteTarget}
+            disabled={controls.writeTargetDisabled || pending}
+            onChange={() => onPatch(book.id, { makeWriteTarget: true })}
+          />
+          {t('admin.integrations.carddav.books.writeTarget')}
+        </label>
+        <label style={controlLabel(controls.subscribeDisabled || pending)}>
+          <input
+            type="checkbox"
+            checked={controls.subscribeChecked}
+            disabled={controls.subscribeDisabled || pending}
+            onChange={() => onPatch(book.id, { isSubscribed: !controls.subscribeChecked })}
+          />
+          {t('admin.integrations.carddav.books.subscribeLabel')}
+        </label>
+        <label style={controlLabel(pending)}>
+          <input
+            type="checkbox"
+            checked={controls.lookupChecked}
+            disabled={pending}
+            onChange={() => onPatch(book.id, { isLookupSource: !controls.lookupChecked })}
+          />
+          {t('admin.integrations.carddav.books.lookupLabel')}
+        </label>
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
+        {t('admin.integrations.carddav.books.counts', {
+          materialized: book.materializedCount ?? 0,
+          lookup: book.lookupCount ?? 0,
+        })}
+        {' · '}
+        {t('admin.integrations.carddav.books.lastSync', {
+          when: book.lastSyncAt ? new Date(book.lastSyncAt).toLocaleString() : t('common.never'),
+        })}
+      </div>
+    </div>
+  );
+}
+
 function CardDavCard() {
   const { t } = useTranslation();
   const [status, setStatus] = useState(null); // null while loading
   const [expanded, setExpanded] = useState(false);
-  const [form, setForm] = useState({ serverUrl: '', username: '', password: '', dupMode: 'separate', intervalMin: 60 });
+  const [form, setForm] = useState({ serverUrl: '', username: '', password: '', intervalMin: 60 });
   const [connecting, setConnecting] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const [error, setError] = useState('');
+  const [conflictCount, setConflictCount] = useState(0);
+  const [showConflicts, setShowConflicts] = useState(false);
+  const [healthUnavailable, setHealthUnavailable] = useState(false);
+  const [bookPatchPending, setBookPatchPending] = useState(null);
 
-  useEffect(() => { api.carddav.status().then(setStatus).catch(() => setStatus({ connected: false })); }, []);
+  const refreshHealth = useCallback(async () => {
+    setHealthUnavailable(false);
+    const [statusResult, conflictResult] = await Promise.allSettled([
+      api.carddav.status(),
+      api.carddav.getConflicts(),
+    ]);
+    if (statusResult.status === 'fulfilled') setStatus(statusResult.value);
+    else {
+      setStatus(current => current ?? { connected: false });
+      setHealthUnavailable(true);
+    }
+    if (conflictResult.status === 'fulfilled') setConflictCount(conflictResult.value.conflicts.length);
+    else setHealthUnavailable(true);
+  }, []);
+
+  const refreshStatus = useCallback(async () => {
+    try { setStatus(await api.carddav.status()); }
+    catch { setHealthUnavailable(true); }
+  }, []);
+
+  useEffect(() => { refreshHealth(); }, [refreshHealth]);
 
   const connected = status?.connected;
   const loading = status === null;
+  const needsAttention = Boolean(status?.lastError || conflictCount);
+  const healthLabel = healthUnavailable
+    ? t('admin.integrations.carddav.healthUnavailable')
+    : connected
+      ? t(needsAttention ? 'admin.integrations.carddav.healthNeedsAttention' : 'admin.integrations.carddav.healthHealthy')
+      : t('admin.integrations.carddav.notConnected');
+  const healthColor = connected && !needsAttention && !healthUnavailable
+    ? '#22c55e'
+    : healthUnavailable || needsAttention
+      ? 'var(--red, #f87171)'
+      : 'var(--text-tertiary)';
+  const publishEmailed = publishEmailedContactsToggle(status);
 
   const handleConnect = async () => {
     setConnecting(true); setError('');
     try {
       const s = await api.carddav.connect({
         serverUrl: form.serverUrl.trim(), username: form.username.trim(),
-        password: form.password, dupMode: form.dupMode, intervalMin: Number(form.intervalMin),
+        password: form.password, intervalMin: Number(form.intervalMin),
       });
       setStatus(s); setForm(f => ({ ...f, password: '' }));
     } catch (e) { setError(e.message || t('admin.integrations.carddav.connectFailed')); }
@@ -1885,19 +1994,34 @@ function CardDavCard() {
   };
   const handleSync = async () => {
     setSyncing(true); setError('');
-    try { const r = await api.carddav.sync(); setStatus(r.status); if (!r.ok && r.error) setError(r.error); }
+    try { const r = await api.carddav.sync(); setStatus(r.status); if (!r.ok && r.error) setError(r.error); await refreshHealth(); }
     catch (e) { setError(e.message); }
     finally { setSyncing(false); }
   };
   const handleDisconnect = async () => {
     setDisconnecting(true); setError('');
-    try { await api.carddav.disconnect(); setStatus({ connected: false }); }
+    try { await api.carddav.disconnect(); setStatus({ connected: false }); setConflictCount(0); setShowConflicts(false); }
     catch (e) { setError(e.message); }
     finally { setDisconnecting(false); }
   };
   const updateSetting = async (patch) => {
     setStatus(s => ({ ...s, ...patch }));
     try { await api.carddav.update(patch); } catch (e) { setError(e.message); }
+  };
+  // Change one book's role (Subscribe / Look-up-senders / write-target). The
+  // response is the refreshed per-book summary; a background sync then applies
+  // the pull-side effects (re-subscribe materializes; ignore drops the ledger).
+  const patchBook = async (bookId, roles) => {
+    setBookPatchPending(bookId);
+    setError('');
+    try {
+      setStatus(await api.carddav.patchBook(bookId, roles));
+      await refreshHealth();
+    } catch (e) {
+      setError(e.message || t('admin.integrations.carddav.books.updateFailed'));
+    } finally {
+      setBookPatchPending(null);
+    }
   };
 
   const inputStyle = { padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: 13, outline: 'none', width: '100%', boxSizing: 'border-box' };
@@ -1921,8 +2045,8 @@ function CardDavCard() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{t('admin.integrations.carddav.title')}</span>
             <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: 'rgba(99,102,241,0.15)', color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('todoist.betaLabel')}</span>
-            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: (!loading && connected) ? 'rgba(34,197,94,0.1)' : 'var(--bg-primary)', color: (!loading && connected) ? '#22c55e' : 'var(--text-tertiary)', border: `1px solid ${(!loading && connected) ? '#22c55e' : 'var(--border)'}` }}>
-              {loading ? '...' : (connected ? t('admin.integrations.carddav.connected') : t('admin.integrations.carddav.notConnected'))}
+            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: 'var(--bg-primary)', color: healthColor, border: `1px solid ${loading ? 'var(--border)' : healthColor}` }}>
+              {loading ? '...' : healthLabel}
             </span>
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>{t('admin.integrations.carddav.description')}</div>
@@ -1946,22 +2070,56 @@ function CardDavCard() {
                 {status.lastError && (
                   <div style={{ marginTop: 4, color: 'var(--red, #f87171)' }}>{t('admin.integrations.carddav.syncFailed', { error: status.lastError })}</div>
                 )}
+                <div style={{ marginTop: 4 }}>
+                  {t('contacts.conflicts.count', { count: conflictCount })}
+                </div>
               </div>
 
-              <div>
-                <label style={labelStyle}>{t('admin.integrations.carddav.dupLabel')}</label>
-                <select value={status.dupMode || 'separate'} onChange={e => updateSetting({ dupMode: e.target.value })} style={{ ...inputStyle, cursor: 'pointer' }}>
-                  <option value="separate">{t('admin.integrations.carddav.dupSeparate')}</option>
-                  <option value="merge">{t('admin.integrations.carddav.dupMerge')}</option>
-                  <option value="skip">{t('admin.integrations.carddav.dupSkip')}</option>
-                </select>
-              </div>
+              {Array.isArray(status.books) && (
+                <div>
+                  <label style={labelStyle}>{t('admin.integrations.carddav.books.title')}</label>
+                  {status.books.length === 0 ? (
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
+                      {t('admin.integrations.carddav.books.empty')}
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {status.books.map(book => (
+                        <CardDavBookRow
+                          key={book.id}
+                          book={book}
+                          t={t}
+                          onPatch={patchBook}
+                          pending={bookPatchPending === book.id}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div>
                 <label style={labelStyle}>{t('admin.integrations.carddav.intervalLabel')}</label>
                 <input type="number" min="15" max="1440" value={status.intervalMin || 60}
                   onChange={e => setStatus(s => ({ ...s, intervalMin: e.target.value }))}
                   onBlur={e => updateSetting({ intervalMin: Number(e.target.value) })} style={inputStyle} />
               </div>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={publishEmailed.checked}
+                  onChange={() => updateSetting(publishEmailed.patch)}
+                  style={{ marginTop: 2 }}
+                />
+                <span>
+                  <span style={{ display: 'block', fontSize: 13, color: 'var(--text-primary)' }}>
+                    {t('admin.integrations.carddav.publishEmailedContacts')}
+                  </span>
+                  <span style={{ display: 'block', marginTop: 2, fontSize: 12, color: 'var(--text-tertiary)' }}>
+                    {t('admin.integrations.carddav.publishEmailedContactsDesc')}
+                  </span>
+                </span>
+              </label>
               {errBox}
               <div style={{ display: 'flex', gap: 8 }}>
                 <button onClick={handleSync} disabled={syncing} style={{ padding: '6px 14px', borderRadius: 7, cursor: syncing ? 'default' : 'pointer', border: 'none', background: 'var(--accent)', color: 'var(--accent-text)', fontSize: 13, fontWeight: 500, opacity: syncing ? 0.7 : 1 }}>
@@ -1970,7 +2128,19 @@ function CardDavCard() {
                 <button onClick={handleDisconnect} disabled={disconnecting} style={{ padding: '6px 14px', borderRadius: 7, cursor: disconnecting ? 'default' : 'pointer', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', fontSize: 13, opacity: disconnecting ? 0.6 : 1 }}>
                   {disconnecting ? t('common.loading') : t('admin.integrations.carddav.disconnect')}
                 </button>
+                {conflictCount > 0 && (
+                  <button onClick={() => setShowConflicts(value => !value)} style={{ padding: '6px 14px', borderRadius: 7, cursor: 'pointer', border: '1px solid var(--red-border, rgba(248,113,113,0.3))', background: 'var(--red-dim, rgba(248,113,113,0.1))', color: 'var(--red, #f87171)', fontSize: 13 }}>
+                    {t('admin.integrations.carddav.reviewConflicts')}
+                  </button>
+                )}
               </div>
+              {showConflicts && (
+                <CardDavConflicts
+                  onClose={() => setShowConflicts(false)}
+                  onCountChange={setConflictCount}
+                  onResolved={refreshStatus}
+                />
+              )}
             </>
           ) : (
             <>
@@ -1980,12 +2150,6 @@ function CardDavCard() {
                 <input type="text" value={form.username} onChange={e => setForm(f => ({ ...f, username: e.target.value }))} placeholder={t('admin.integrations.carddav.userPh')} style={inputStyle} /></div>
               <div><label style={labelStyle}>{t('admin.integrations.carddav.passLabel')}</label>
                 <input type="password" autoComplete="new-password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} placeholder={t('admin.integrations.carddav.passPh')} style={inputStyle} /></div>
-              <div><label style={labelStyle}>{t('admin.integrations.carddav.dupLabel')}</label>
-                <select value={form.dupMode} onChange={e => setForm(f => ({ ...f, dupMode: e.target.value }))} style={{ ...inputStyle, cursor: 'pointer' }}>
-                  <option value="separate">{t('admin.integrations.carddav.dupSeparate')}</option>
-                  <option value="merge">{t('admin.integrations.carddav.dupMerge')}</option>
-                  <option value="skip">{t('admin.integrations.carddav.dupSkip')}</option>
-                </select></div>
               {errBox}
               <div style={{ display: 'flex', gap: 8 }}>
                 <button onClick={handleConnect} disabled={connecting || !form.serverUrl.trim() || !form.username.trim() || !form.password}
