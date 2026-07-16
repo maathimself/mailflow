@@ -13,3 +13,8 @@ export function getContextMenuPolicy(variant = 'inbox') {
     viewHeaders: true,
   };
 }
+
+export function resolveContextMenuMessage(message, variant, resolveMessage) {
+  if (variant !== 'gtdSidebar') return Promise.resolve(message);
+  return resolveMessage(message.message_id || message.id);
+}

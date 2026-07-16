@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { GTD_STATES, GTD_COLORS, resolveAccountGtdFolders, gtdStatesInFolders } from '../utils/gtd.js';
-import { getContextMenuPolicy } from '../utils/contextMenuPolicy.js';
+import { getContextMenuPolicy, resolveContextMenuMessage } from '../utils/contextMenuPolicy.js';
 import MessageHeaderModal from './MessageHeaderModal.jsx';
 
 // Module-level regex — spam-name heuristic shared with MessagePane.jsx so
@@ -34,7 +34,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
   const gtdFolders = resolveAccountGtdFolders(account);
   const gtdRemovableStates = gtdStatesInFolders(message.folders, gtdFolders);
   const menuRef = useRef(null);
-  const [showHeaderModal, setShowHeaderModal] = useState(false);
+  const [headerMessage, setHeaderMessage] = useState(null);
   const [gtdView, setGtdView] = useState(false);
   const [moveView, setMoveView] = useState(defaultMoveView);
   const [moveFolders, setMoveFolders] = useState(null);
@@ -245,7 +245,13 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
         {
           label: t('contextMenu.viewHeaders'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>,
-          action: () => { setShowHeaderModal(true); },
+          action: async () => {
+            try {
+              setHeaderMessage(await resolveContextMenuMessage(message, variant, api.resolveMessage));
+            } catch (err) {
+              console.error('Message header resolution failed:', err.message);
+            }
+          },
           keepOpen: true,
         },
       ]
@@ -680,11 +686,11 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
         )}
       </div>
 
-      {showHeaderModal && (
+      {headerMessage && (
         <MessageHeaderModal
-          messageId={message.id}
-          subject={message.subject}
-          onClose={() => { setShowHeaderModal(false); onClose(); }}
+          messageId={headerMessage.id}
+          subject={headerMessage.subject}
+          onClose={() => { setHeaderMessage(null); onClose(); }}
         />
       )}
     </>

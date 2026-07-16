@@ -11,6 +11,7 @@ import {
 } from '../utils/gtd.js';
 import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
 import { getGtdSidebarPreview } from '../utils/gtdSidebar.js';
+import { resolveContextMenuMessage } from '../utils/contextMenuPolicy.js';
 import GtdEntryRow from './GtdEntryRow.jsx';
 import GtdZeroPet from './GtdZeroPet.jsx';
 import RowHoverActions from './RowHoverActions.jsx';
@@ -228,7 +229,7 @@ export default function GtdSidebarContent({ onCollapse, toggleHint }) {
       case 'replyAll':
       case 'forward': {
         try {
-          const message = await api.getMessage(thread.id);
+          const message = await resolveContextMenuMessage(thread, 'gtdSidebar', api.resolveMessage);
           if (action === 'forward') {
             await openForwardFromMessage(message, {
               openCompose,
