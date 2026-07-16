@@ -684,46 +684,11 @@ export default function ComposeModal() {
     setAiPanel({ action, status: 'generating', text: '' });
 
     try {
-      const response = await fetch('/api/ai/chat', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'MailFlow' },
-        body: JSON.stringify({ messages }),
+      const fullText = await api.ai.chat(messages, {
         signal: controller.signal,
+        onDelta: (text) => setAiPanel(p => p ? { ...p, text } : p),
       });
-
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({ error: 'AI request failed' }));
-        setAiPanel(p => ({ ...p, status: 'error', text: err.error || 'AI request failed' }));
-        return;
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let fullText = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          const data = line.slice(6).trim();
-          if (data === '[DONE]') { reader.cancel(); break; }
-          try {
-            const parsed = JSON.parse(data);
-            const delta = parsed.choices?.[0]?.delta?.content ?? '';
-            if (delta) {
-              fullText += delta;
-              setAiPanel(p => p ? { ...p, text: fullText } : p);
-            }
-          } catch { /* skip malformed SSE line */ }
-        }
-      }
-      setAiPanel(p => p ? { ...p, status: 'done' } : p);
+      setAiPanel(p => p ? { ...p, status: 'done', text: fullText } : p);
     } catch (err) {
       if (err.name !== 'AbortError') {
         setAiPanel(p => p ? { ...p, status: 'error', text: err.message } : p);

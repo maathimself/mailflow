@@ -1,9 +1,23 @@
-import { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
+import { useCallback, useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { newAiAction, AI_ACTION_LIMITS } from '../aiActions.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { api } from '../utils/api.js';
+import {
+  AI_ACCOUNT_PROVIDER_OPTIONS,
+  AI_CONNECTION_METHOD_ACCOUNT,
+  AI_CONNECTION_METHOD_API,
+  AI_CONNECTION_METHOD_OPTIONS,
+  AI_PROVIDER_API_KEY,
+  AI_PROVIDER_CHATGPT,
+  OPENAI_MODELS_URL,
+  buildAiSavePayload,
+  createCodexDevicePoller,
+  isAiFormValid,
+  normalizeAiForm,
+  selectAiConnectionMethod,
+} from '../utils/aiConfig.js';
 import { THEMES, applyTheme, applyCustomCss } from '../themes.js';
 import { FONT_SETS, loadFontSet } from '../fonts.js';
 import { LAYOUTS, applyLayout } from '../layouts.js';
@@ -3283,31 +3297,104 @@ function SSOTab() {
 // ─── AI Section ───────────────────────────────────────────────────────────────
 function AISection() {
   const { t } = useTranslation();
+  const isMobile = useMobile();
   const [config, setConfig] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState({ enabled: true, baseUrl: '', apiKey: '', model: '', features: { compose: true, summarize: true } });
+  const [form, setForm] = useState(() => normalizeAiForm());
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [connecting, setConnecting] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [codexStatus, setCodexStatus] = useState({ connected: false, state: 'disconnected', reconnectRequired: false });
+  const [deviceState, setDeviceState] = useState(null);
+  const [copied, setCopied] = useState(false);
   const [msg, setMsg] = useState(null);
+  const pollerRef = useRef(null);
+  const formRef = useRef(form);
+  const tRef = useRef(t);
+
+  const persistForm = useCallback(async (nextForm) => {
+    const payload = buildAiSavePayload(nextForm);
+    const result = await api.ai.saveConfig(payload);
+    const saved = result.config || payload;
+    const normalized = normalizeAiForm(saved);
+    setConfig(saved);
+    formRef.current = normalized;
+    setForm(normalized);
+  }, []);
+
+  formRef.current = form;
+  tRef.current = t;
 
   useEffect(() => {
-    api.ai.getConfig()
-      .then(({ config: cfg }) => {
-        if (cfg) {
-          setConfig(cfg);
-          setForm({ enabled: cfg.enabled !== false, baseUrl: cfg.baseUrl || '', apiKey: cfg.apiKey || '', model: cfg.model || '', features: { compose: cfg.features?.compose !== false, summarize: cfg.features?.summarize !== false } });
+    let active = true;
+    const refreshCodexStatus = () => api.ai.codex.status()
+      .then((status) => {
+        if (!active) return;
+        setCodexStatus(status);
+        if (status.state === 'pending' && status.device) {
+          pollerRef.current?.start(status.device).catch(() => {});
         }
+      });
+    pollerRef.current = createCodexDevicePoller({
+      startDevice: api.ai.codex.start,
+      pollDevice: api.ai.codex.poll,
+      cancelDevice: api.ai.codex.cancel,
+      onState: (state) => {
+        if (!active) return;
+        setDeviceState(state);
+        setCopied(false);
+        if (state.phase === 'connected') {
+          const connectedForm = selectAiConnectionMethod({
+            ...formRef.current,
+            accountProvider: AI_PROVIDER_CHATGPT,
+          }, AI_CONNECTION_METHOD_ACCOUNT);
+          persistForm(connectedForm)
+            .then(() => {
+              if (active) setMsg({ type: 'ok', text: tRef.current('admin.ai.saved') });
+            })
+            .catch((error) => {
+              if (active) setMsg({ type: 'error', text: error.message });
+            });
+          refreshCodexStatus().catch(() => {
+            if (active) setCodexStatus({ connected: true, state: 'connected' });
+          });
+        } else if (state.phase === 'failed') {
+          setCodexStatus({ connected: false, state: 'reconnect_required', reconnectRequired: true, reason: state.reason });
+        } else if (['cancelled', 'expired'].includes(state.phase)) {
+          setCodexStatus({ connected: false, state: 'disconnected', reconnectRequired: false });
+        }
+      },
+    });
+
+    Promise.all([
+      api.ai.getConfig().then(({ config: cfg }) => {
+        if (!active) return;
+        const normalized = normalizeAiForm(cfg || {});
+        setConfig(cfg);
+        formRef.current = normalized;
+        setForm(normalized);
+      }),
+      refreshCodexStatus(),
+    ])
+      .catch((error) => {
+        if (active) setMsg({ type: 'error', text: error.message });
       })
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, []);
+      .finally(() => { if (active) setLoading(false); });
+
+    return () => {
+      active = false;
+      pollerRef.current?.dispose();
+      pollerRef.current = null;
+    };
+  }, [persistForm]);
 
   const handleSave = async (e) => {
     e.preventDefault();
     setSaving(true); setMsg(null);
     try {
-      await api.ai.saveConfig(form);
-      setConfig({ ...form });
+      await persistForm(form);
       setMsg({ type: 'ok', text: t('admin.ai.saved') });
     } catch (err) {
       setMsg({ type: 'error', text: err.message });
@@ -3324,20 +3411,62 @@ function AISection() {
     } finally { setTesting(false); }
   };
 
-  const handleRemove = async () => {
-    await api.ai.deleteConfig();
-    setConfig(null);
-    setForm({ enabled: true, baseUrl: '', apiKey: '', model: '', features: { compose: true, summarize: true } });
-    setMsg({ type: 'ok', text: t('admin.ai.removed') });
+  const handleConnect = async () => {
+    setConnecting(true); setMsg(null); setDeviceState(null); setCopied(false);
+    try {
+      await pollerRef.current?.start();
+      setCodexStatus({ connected: false, state: 'pending', reconnectRequired: false });
+    } catch (error) {
+      setMsg({ type: 'error', text: error.message });
+    } finally {
+      setConnecting(false);
+    }
   };
 
-  const field = (label, key, type = 'text', placeholder = '') => (
+  const handleCancel = async () => {
+    setCancelling(true); setMsg(null);
+    try {
+      await pollerRef.current?.cancel();
+      setCodexStatus({ connected: false, state: 'disconnected', reconnectRequired: false });
+    } catch (error) {
+      setMsg({ type: 'error', text: error.message });
+    } finally {
+      setCancelling(false);
+    }
+  };
+
+  const handleDisconnect = async () => {
+    setDisconnecting(true); setMsg(null);
+    try {
+      await api.ai.codex.disconnect();
+      setDeviceState(null);
+      setCodexStatus({ connected: false, state: 'disconnected', reconnectRequired: false });
+    } catch (error) {
+      setMsg({ type: 'error', text: error.message });
+    } finally {
+      setDisconnecting(false);
+    }
+  };
+
+  const handleCopyCode = async () => {
+    try {
+      await navigator.clipboard.writeText(deviceState.userCode);
+      setCopied(true);
+    } catch {
+      setMsg({ type: 'error', text: t('admin.ai.copyFailed') });
+    }
+  };
+
+  const field = (label, value, onChange, type = 'text', placeholder = '', help = null) => (
     <div style={{ marginBottom: 14 }}>
-      <label style={{ display: 'block', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 5 }}>{label}</label>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', marginBottom: 5 }}>
+        <label style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{label}</label>
+        {help && <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{help}</span>}
+      </div>
       <input
         type={type}
-        value={form[key]}
-        onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
+        value={value}
+        onChange={e => onChange(e.target.value)}
         placeholder={placeholder}
         autoComplete={type === 'password' ? 'new-password' : 'off'}
         style={{ width: '100%', background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 6, padding: '7px 10px', color: 'var(--text-primary)', fontSize: 13 }}
@@ -3364,7 +3493,7 @@ function AISection() {
   );
 
   const msgBox = msg && (
-    <div style={{ padding: '8px 12px', borderRadius: 6, marginBottom: 14, fontSize: 13,
+    <div role="status" aria-live="polite" style={{ padding: '8px 12px', borderRadius: 6, marginBottom: 14, fontSize: 13,
       background: msg.type === 'ok' ? 'rgba(74,222,128,0.1)' : 'rgba(248,113,113,0.1)',
       color: msg.type === 'ok' ? 'var(--green)' : 'var(--red)',
       border: `1px solid ${msg.type === 'ok' ? 'rgba(74,222,128,0.2)' : 'rgba(248,113,113,0.2)'}`,
@@ -3372,6 +3501,25 @@ function AISection() {
   );
 
   if (loading) return <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>{t('common.loading')}</div>;
+
+  const apiSelected = form.connectionMethod === AI_CONNECTION_METHOD_API;
+  const accountSelected = form.connectionMethod === AI_CONNECTION_METHOD_ACCOUNT;
+  const chatgptSelected = accountSelected && form.accountProvider === AI_PROVIDER_CHATGPT;
+  const chatgptConnected = codexStatus.connected === true || deviceState?.phase === 'connected';
+  const reconnectRequired = codexStatus.reconnectRequired === true || codexStatus.state === 'reconnect_required' || deviceState?.phase === 'failed';
+  const pendingDevice = deviceState?.phase === 'pending' ? deviceState : null;
+  const formValid = isAiFormValid(form);
+  const statusLabel = chatgptConnected
+    ? t('admin.ai.statusConnected')
+    : pendingDevice
+      ? t('admin.ai.statusPending')
+      : reconnectRequired
+        ? t('admin.ai.statusReconnect')
+        : deviceState?.phase === 'expired'
+          ? t('admin.ai.statusExpired')
+          : deviceState?.phase === 'cancelled'
+            ? t('admin.ai.statusCancelled')
+            : t('admin.ai.statusDisconnected');
 
   return (
     <div>
@@ -3388,39 +3536,126 @@ function AISection() {
       <form onSubmit={handleSave}>
         {toggle(t('admin.ai.enabled'), form.enabled, () => setForm(f => ({ ...f, enabled: !f.enabled })))}
 
-        {config && (
-          <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 14px', margin: '14px 0', display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{config.model}</div>
-              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{config.baseUrl}</div>
-            </div>
-            {/* type="button" is required: these live inside the form now, so without it they
-                would default to submit and trigger handleSave on click. */}
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button type="button" onClick={handleTest} disabled={testing} style={{ fontSize: 12, padding: '5px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', cursor: testing ? 'default' : 'pointer', opacity: testing ? 0.6 : 1 }}>
-                {testing ? t('admin.ai.testing') : t('admin.ai.test')}
-              </button>
-              <button type="button" onClick={handleRemove} style={{ fontSize: 12, padding: '5px 12px', background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', borderRadius: 6, color: 'var(--red)', cursor: 'pointer' }}>
-                {t('admin.ai.remove')}
-              </button>
-            </div>
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ display: 'block', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 5 }}>{t('admin.ai.connectionMethod')}</label>
+          <select
+            value={form.connectionMethod}
+            onChange={e => setForm(f => selectAiConnectionMethod(f, e.target.value))}
+            style={{ ...inputStyle, cursor: 'pointer' }}
+          >
+            <option value="" disabled>{t('admin.ai.connectionMethodPlaceholder')}</option>
+            {AI_CONNECTION_METHOD_OPTIONS.map(({ value, labelKey }) => (
+              <option key={value} value={value}>{t(labelKey)}</option>
+            ))}
+          </select>
+        </div>
+
+        {accountSelected && (
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ display: 'block', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 5 }}>{t('admin.ai.subscriptionProvider')}</label>
+            <select
+              value={form.accountProvider}
+              onChange={e => setForm(f => normalizeAiForm({ ...f, accountProvider: e.target.value }))}
+              style={{ ...inputStyle, cursor: 'pointer' }}
+            >
+              {AI_ACCOUNT_PROVIDER_OPTIONS.map(({ value, labelKey }) => (
+                <option key={value} value={value}>{t(labelKey)}</option>
+              ))}
+            </select>
           </div>
         )}
 
-        {field(t('admin.ai.baseUrl'), 'baseUrl', 'text', t('admin.ai.baseUrlPh'))}
-        {field(t('admin.ai.apiKey'), 'apiKey', 'password', t('admin.ai.apiKeyPh'))}
-        {field(t('admin.ai.model'), 'model', 'text', t('admin.ai.modelPh'))}
+        {!chatgptSelected && msgBox}
 
-        <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>{t('admin.ai.features')}</div>
-          {toggle(t('admin.ai.featureCompose'), form.features.compose, () => setForm(f => ({ ...f, features: { ...f.features, compose: !f.features.compose } })))}
-          {toggle(t('admin.ai.featureSummarize'), form.features.summarize, () => setForm(f => ({ ...f, features: { ...f.features, summarize: !f.features.summarize } })))}
-        </div>
+        {apiSelected && (
+          <>
+            {field(t('admin.ai.baseUrl'), form.apiKeyConfig.baseUrl, value => setForm(f => ({ ...f, apiKeyConfig: { ...f.apiKeyConfig, baseUrl: value } })), 'text', t('admin.ai.baseUrlPh'))}
+            {field(t('admin.ai.apiKey'), form.apiKeyConfig.apiKey, value => setForm(f => ({ ...f, apiKeyConfig: { ...f.apiKeyConfig, apiKey: value } })), 'password', t('admin.ai.apiKeyPh'))}
+            {field(t('admin.ai.model'), form.apiKeyConfig.model, value => setForm(f => ({ ...f, apiKeyConfig: { ...f.apiKeyConfig, model: value } })), 'text', t('admin.ai.modelPh'))}
+            {config?.provider === AI_PROVIDER_API_KEY && (
+              <button type="button" onClick={handleTest} disabled={testing} style={{ fontSize: 12, padding: '6px 12px', marginBottom: 14, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', cursor: testing ? 'default' : 'pointer', opacity: testing ? 0.6 : 1 }}>
+                {testing ? t('admin.ai.testing') : t('admin.ai.test')}
+              </button>
+            )}
+          </>
+        )}
 
-        {msgBox}
+        {chatgptSelected && (
+          <>
+            {field(
+              t('admin.ai.chatgptModel'),
+              form.chatgptConfig.model,
+              value => setForm(f => ({ ...f, chatgptConfig: { ...f.chatgptConfig, model: value } })),
+              'text',
+              t('admin.ai.chatgptModelPh'),
+              <>
+                <a href={OPENAI_MODELS_URL} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>
+                  {t('admin.ai.chatgptModelDocs')}
+                </a>
+              </>,
+            )}
 
-        <button type="submit" disabled={saving || !form.baseUrl || !form.model}
-          style={{ padding: '8px 18px', background: 'var(--accent)', color: 'var(--accent-text)', border: 'none', borderRadius: 7, fontSize: 13, fontWeight: 500, cursor: 'pointer', opacity: (saving || !form.baseUrl || !form.model) ? 0.5 : 1 }}>
+            <div style={{ marginBottom: 14, padding: '12px 14px', borderRadius: 8, background: 'var(--bg-tertiary)', border: '1px solid var(--border)' }}>
+              <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', gap: 12, marginBottom: (pendingDevice || msg) ? 12 : 0 }}>
+                <div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{t('admin.ai.connectionStatus')}</div>
+                  <div style={{ fontSize: 13, color: chatgptConnected ? 'var(--green)' : reconnectRequired ? 'var(--red)' : 'var(--text-primary)', marginTop: 2 }}>{statusLabel}</div>
+                  {chatgptConnected && codexStatus.accountLabel && (
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>{t('admin.ai.connectedAs', { account: codexStatus.accountLabel })}</div>
+                  )}
+                </div>
+                <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 8 }}>
+                  {chatgptConnected && (
+                    <button type="button" onClick={handleTest} disabled={testing} style={{ fontSize: 12, padding: '6px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', cursor: testing ? 'default' : 'pointer', opacity: testing ? 0.6 : 1 }}>
+                      {testing ? t('admin.ai.testing') : t('admin.ai.test')}
+                    </button>
+                  )}
+                  {chatgptConnected ? (
+                    <button type="button" onClick={handleDisconnect} disabled={disconnecting} style={{ fontSize: 12, padding: '6px 12px', background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', borderRadius: 6, color: 'var(--red)', cursor: disconnecting ? 'default' : 'pointer', opacity: disconnecting ? 0.6 : 1 }}>
+                      {disconnecting ? t('admin.ai.disconnecting') : t('admin.ai.disconnect')}
+                    </button>
+                  ) : !pendingDevice && (
+                    <button type="button" onClick={handleConnect} disabled={connecting} style={{ fontSize: 12, padding: '6px 12px', background: 'var(--accent)', border: 'none', borderRadius: 6, color: 'var(--accent-text)', cursor: connecting ? 'default' : 'pointer', opacity: connecting ? 0.6 : 1 }}>
+                      {connecting ? t('admin.ai.connecting') : reconnectRequired ? t('admin.ai.reconnect') : t('admin.ai.connect')}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {msgBox}
+
+              {pendingDevice && (
+                <div style={{ paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>{t('admin.ai.deviceInstructions')}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <code style={{ padding: '8px 12px', borderRadius: 6, background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 18, letterSpacing: 1.5, fontWeight: 600 }}>{pendingDevice.userCode}</code>
+                    <button type="button" onClick={handleCopyCode} style={{ fontSize: 12, padding: '6px 10px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', cursor: 'pointer' }}>
+                      {copied ? t('admin.ai.copied') : t('admin.ai.copyCode')}
+                    </button>
+                    <a href={pendingDevice.verificationUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12, padding: '6px 10px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--accent)', textDecoration: 'none' }}>
+                      {t('admin.ai.openAuthorization')}
+                    </a>
+                    <button type="button" onClick={handleCancel} disabled={cancelling} style={{ fontSize: 12, padding: '6px 10px', background: 'transparent', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-secondary)', cursor: cancelling ? 'default' : 'pointer' }}>
+                      {cancelling ? t('admin.ai.cancelling') : t('common.cancel')}
+                    </button>
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 8 }}>{t('admin.ai.deviceExpires', { time: new Date(pendingDevice.expiresAt).toLocaleTimeString() })}</div>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {(apiSelected || chatgptSelected) && (
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>{t('admin.ai.features')}</div>
+            {toggle(t('admin.ai.featureCompose'), form.features.compose, () => setForm(f => ({ ...f, features: { ...f.features, compose: !f.features.compose } })))}
+            {toggle(t('admin.ai.featureSummarize'), form.features.summarize, () => setForm(f => ({ ...f, features: { ...f.features, summarize: !f.features.summarize } })))}
+          </div>
+        )}
+
+        <button type="submit" disabled={saving || !formValid}
+          style={{ padding: '8px 18px', background: 'var(--accent)', color: 'var(--accent-text)', border: 'none', borderRadius: 7, fontSize: 13, fontWeight: 500, cursor: 'pointer', opacity: (saving || !formValid) ? 0.5 : 1 }}>
           {saving ? t('common.saving') : t('common.save')}
         </button>
       </form>

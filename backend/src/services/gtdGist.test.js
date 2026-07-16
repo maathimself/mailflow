@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('./db.js', () => ({ query: vi.fn() }));
-vi.mock('./encryption.js', () => ({ decrypt: vi.fn((v) => v) }));
+vi.mock('./aiProvider.js', () => ({ getAiStatus: vi.fn(), completeText: vi.fn() }));
 
 import { query } from './db.js';
+import { completeText, getAiStatus } from './aiProvider.js';
 import {
   buildGistPrompt,
   sanitizeGist,
@@ -77,50 +78,59 @@ describe('selectGistCandidates', () => {
 });
 
 describe('queueGistGeneration — provider gating', () => {
-  beforeEach(() => { query.mockReset(); });
+  beforeEach(() => {
+    query.mockReset();
+    getAiStatus.mockReset();
+    completeText.mockReset();
+  });
 
   const oneWaiting = { watch: { threads: [{ id: 'w1', account_id: 'a1', gist: null }] } };
 
   it('does no work at all when there are no candidates', async () => {
     await queueGistGeneration({ sections: { watch: { threads: [] } }, userId: 'u1', broadcast: vi.fn() });
+    expect(getAiStatus).not.toHaveBeenCalled();
+    expect(completeText).not.toHaveBeenCalled();
     expect(query).not.toHaveBeenCalled();
   });
 
-  it('reads the provider config once and issues zero generation queries when no AI is configured', async () => {
-    query.mockResolvedValueOnce({ rows: [] }); // ai_config missing
+  it('issues zero generation queries when the selected AI provider is unavailable', async () => {
+    getAiStatus.mockResolvedValue({ enabled: false, features: { summarize: true } });
     const broadcast = vi.fn();
 
     await queueGistGeneration({ sections: oneWaiting, userId: 'u1', broadcast });
 
-    // Only the provider-config gate ran; no body fetch, no UPDATE, no broadcast.
-    expect(query).toHaveBeenCalledTimes(1);
-    expect(query.mock.calls[0][0]).toMatch(/ai_config/);
-    const wroteGist = query.mock.calls.some(c => /UPDATE messages SET gtd_gist/i.test(c[0]));
-    expect(wroteGist).toBe(false);
+    expect(getAiStatus).toHaveBeenCalledTimes(1);
+    expect(completeText).not.toHaveBeenCalled();
+    expect(query).not.toHaveBeenCalled();
     expect(broadcast).not.toHaveBeenCalled();
   });
 
   it('does not run generation when the provider is present but summarize is disabled', async () => {
-    query.mockResolvedValueOnce({ rows: [{ value: JSON.stringify({ enabled: true, baseUrl: 'http://ai', model: 'm', features: { summarize: false } }) }] });
+    getAiStatus.mockResolvedValue({ enabled: true, features: { summarize: false } });
     await queueGistGeneration({ sections: oneWaiting, userId: 'u1', broadcast: vi.fn() });
-    expect(query).toHaveBeenCalledTimes(1); // gate only
+    expect(getAiStatus).toHaveBeenCalledTimes(1);
+    expect(completeText).not.toHaveBeenCalled();
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('treats provider status failures as unavailable', async () => {
+    getAiStatus.mockRejectedValue(new Error('status unavailable'));
+    await expect(queueGistGeneration({ sections: oneWaiting, userId: 'u1', broadcast: vi.fn() }))
+      .resolves.toBeUndefined();
+    expect(completeText).not.toHaveBeenCalled();
+    expect(query).not.toHaveBeenCalled();
   });
 });
 
 describe('queueGistGeneration — write path', () => {
-  const providerCfg = { enabled: true, baseUrl: 'http://ai', model: 'm' };
-  const isConfigSql = (sql) => /system_settings/.test(sql);
   const isBodySelect = (sql) => /FROM messages/i.test(sql) && /SELECT id, subject/i.test(sql);
   const isGistUpdate = (sql) => /UPDATE messages SET gtd_gist/i.test(sql);
 
   // Route query() by SQL rather than by call order: GIST_CONCURRENCY runs UPDATEs from
   // the pool concurrently, so their relative ordering isn't deterministic. The body
   // SELECT echoes one row per requested id so the pool has real work to do.
-  function mockDb({ config = providerCfg, updateRowCount = 1 } = {}) {
+  function mockDb({ updateRowCount = 1 } = {}) {
     query.mockImplementation((sql, params) => {
-      if (isConfigSql(sql)) {
-        return Promise.resolve({ rows: config == null ? [] : [{ value: JSON.stringify(config) }] });
-      }
       if (isBodySelect(sql)) {
         const ids = params[0];
         return Promise.resolve({
@@ -138,12 +148,13 @@ describe('queueGistGeneration — write path', () => {
 
   beforeEach(() => {
     query.mockReset();
+    getAiStatus.mockReset();
+    completeText.mockReset();
+    getAiStatus.mockResolvedValue({ enabled: true, features: { summarize: true } });
     // Model reply arrives wrapped in quotes and carrying an emoji so the write-path
     // assertion also proves we persist the sanitised gist, not the raw provider output.
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ choices: [{ message: { content: '"waiting on their reply 🎉"' } }] }),
-    }));
+    completeText.mockResolvedValue('"waiting on their reply 🎉"');
+    vi.stubGlobal('fetch', vi.fn());
   });
 
   afterEach(() => { vi.unstubAllGlobals(); });
@@ -154,7 +165,10 @@ describe('queueGistGeneration — write path', () => {
 
     await queueGistGeneration({ sections: waitingHeads(['w1']), userId: 'u1', broadcast });
 
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(completeText).toHaveBeenCalledWith([
+      { role: 'user', content: expect.stringContaining('Subject: S w1') },
+    ], { maxTokens: 120 });
+    expect(fetch).not.toHaveBeenCalled();
 
     const selectCall = query.mock.calls.find((c) => isBodySelect(c[0]));
     // FIX 2: the body SELECT is scoped to the account, not just the id list.
@@ -175,7 +189,8 @@ describe('queueGistGeneration — write path', () => {
 
     await queueGistGeneration({ sections: waitingHeads(['w1']), userId: 'u1', broadcast });
 
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(completeText).toHaveBeenCalledTimes(1);
+    expect(fetch).not.toHaveBeenCalled();
     expect(query.mock.calls.some((c) => isGistUpdate(c[0]))).toBe(true); // UPDATE still attempted
     expect(broadcast).not.toHaveBeenCalled();
   });
@@ -189,17 +204,18 @@ describe('queueGistGeneration — write path', () => {
 
     const selectCall = query.mock.calls.find((c) => isBodySelect(c[0]));
     expect(selectCall[1][0]).toHaveLength(20); // only the cap's worth reaches the DB
-    expect(fetch).toHaveBeenCalledTimes(20); // and only that many are generated
+    expect(completeText).toHaveBeenCalledTimes(20); // and only that many are generated
+    expect(fetch).not.toHaveBeenCalled();
     expect(broadcast).toHaveBeenCalledTimes(1);
   });
 
   it('dedupes an overlapping queue for the same head so it is generated only once (FIX 1)', async () => {
-    // Hold the first call inside loadGistProvider so a second call overlaps it while the
+    // Hold the first call inside the provider-status gate so a second call overlaps it while the
     // first sits between reserving its ids and generating — the exact TOCTOU window.
     let releaseConfig;
     const configGate = new Promise((resolve) => { releaseConfig = resolve; });
+    getAiStatus.mockImplementation(() => configGate.then(() => ({ enabled: true, features: { summarize: true } })));
     query.mockImplementation((sql, params) => {
-      if (isConfigSql(sql)) return configGate.then(() => ({ rows: [{ value: JSON.stringify(providerCfg) }] }));
       if (isBodySelect(sql)) {
         const ids = params[0];
         return Promise.resolve({ rows: ids.map((id) => ({ id, subject: 'S', from_name: 'A', from_email: 'a@x', content: 'b' })) });
@@ -220,10 +236,11 @@ describe('queueGistGeneration — write path', () => {
     releaseConfig();
     await Promise.all([first, second]);
 
-    expect(query.mock.calls.filter((c) => isConfigSql(c[0]))).toHaveLength(1); // second never reached the gate
+    expect(getAiStatus).toHaveBeenCalledTimes(1); // second never reached the gate
     expect(query.mock.calls.filter((c) => isBodySelect(c[0]))).toHaveLength(1);
     expect(query.mock.calls.filter((c) => isGistUpdate(c[0]))).toHaveLength(1);
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(completeText).toHaveBeenCalledTimes(1);
+    expect(fetch).not.toHaveBeenCalled();
     expect(broadcast).toHaveBeenCalledTimes(1);
   });
 });

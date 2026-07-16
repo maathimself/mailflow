@@ -1,5 +1,5 @@
 import { query } from './db.js';
-import { decrypt } from './encryption.js';
+import { completeText, getAiStatus } from './aiProvider.js';
 
 // AI-condensed one-line gist for GTD "waiting" entries. The client shows the raw
 // message snippet by default; when a gist has been generated for a waiting thread's
@@ -13,7 +13,7 @@ import { decrypt } from './encryption.js';
 //
 // The pure pieces (prompt building, output sanitising, candidate selection) are
 // exported and unit-tested; the DB/AI/broadcast orchestration reuses the same
-// OpenAI-compatible provider plumbing as categorizer.aiClassifyMessage.
+// shared provider adapter as categorizer.aiClassifyMessage.
 
 const GIST_CONCURRENCY = 2;
 // Per-account, per-invocation cap. Concurrency already rate-limits load; this bounds
@@ -85,42 +85,21 @@ export function selectGistCandidates(sections) {
   return out;
 }
 
-// Load the OpenAI-compatible provider config, gated on the summarize feature.
-// Returns { baseUrl, model, apiKey } or null when the provider is unavailable —
-// the seam that guarantees zero generation work when no provider is configured.
-async function loadGistProvider() {
-  const cfgResult = await query("SELECT value FROM system_settings WHERE key = 'ai_config'").catch(() => null);
-  if (!cfgResult?.rows?.length) return null;
-  let cfg;
-  try { cfg = JSON.parse(cfgResult.rows[0].value); } catch { return null; }
-  if (!cfg.enabled || !cfg.baseUrl || !cfg.model) return null;
-  // The gist is a summarisation feature; respect the admin toggle if present.
-  if (cfg.features && cfg.features.summarize === false) return null;
-  return { baseUrl: cfg.baseUrl, model: cfg.model, apiKey: cfg.apiKey ? decrypt(cfg.apiKey) : null };
+// Check provider availability through the shared adapter and respect the summarize
+// feature gate. Fail closed so a sections fetch never fails just because AI is down.
+async function gistProviderAvailable() {
+  try {
+    const status = await getAiStatus();
+    return status.enabled === true && status.features?.summarize !== false;
+  } catch {
+    return false;
+  }
 }
 
-async function callGistProvider(provider, prompt) {
-  const headers = { 'Content-Type': 'application/json' };
-  if (provider.apiKey) headers['Authorization'] = `Bearer ${provider.apiKey}`;
+async function callGistProvider(prompt) {
   try {
-    // Trust boundary: intentionally plain fetch, NOT safeFetch — the AI base URL is
-    // admin-configured and legitimately internal (e.g. a LAN/Tailscale Ollama), which
-    // the private-host guard would block. Validated when saved via the admin AI routes.
-    const res = await fetch(`${provider.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model: provider.model,
-        messages: [{ role: 'user', content: prompt }],
-        max_tokens: 120,
-        stream: false,
-        think: false,
-      }),
-      signal: AbortSignal.timeout(30000),
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return sanitizeGist(data.choices?.[0]?.message?.content || '');
+    const response = await completeText([{ role: 'user', content: prompt }], { maxTokens: 120 });
+    return sanitizeGist(response);
   } catch {
     return null;
   }
@@ -141,7 +120,7 @@ async function runPool(items, limit, worker) {
 // Guards against two overlapping sections fetches queueing the same message twice.
 const _inFlight = new Set();
 
-async function generateForAccount(accountId, ids, provider) {
+async function generateForAccount(accountId, ids) {
   const { rows } = await query(
     `SELECT id, subject, from_name, from_email,
             COALESCE(NULLIF(body_text, ''), snippet) AS content
@@ -151,7 +130,7 @@ async function generateForAccount(accountId, ids, provider) {
   );
   let wrote = 0;
   await runPool(rows, GIST_CONCURRENCY, async (row) => {
-    const gist = await callGistProvider(provider, buildGistPrompt({
+    const gist = await callGistProvider(buildGistPrompt({
       subject: row.subject,
       from: row.from_name || row.from_email,
       content: row.content,
@@ -184,8 +163,7 @@ export async function queueGistGeneration({ sections, userId, broadcast } = {}) 
   const reserved = new Set(candidates.map(c => c.id));
 
   try {
-    const provider = await loadGistProvider();
-    if (!provider) return;
+    if (!await gistProviderAvailable()) return;
 
     const byAccount = new Map();
     for (const c of candidates) {
@@ -197,7 +175,7 @@ export async function queueGistGeneration({ sections, userId, broadcast } = {}) 
     for (const [accountId, ids] of byAccount) {
       let wrote = 0;
       try {
-        wrote = await generateForAccount(accountId, ids, provider);
+        wrote = await generateForAccount(accountId, ids);
       } catch (err) {
         console.warn(`GTD gist generation failed for account ${accountId}:`, err.message);
       } finally {
