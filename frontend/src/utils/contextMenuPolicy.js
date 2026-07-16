@@ -16,5 +16,5 @@ export function getContextMenuPolicy(variant = 'inbox') {
 
 export function resolveContextMenuMessage(message, variant, resolveMessage) {
   if (variant !== 'gtdSidebar') return Promise.resolve(message);
-  return resolveMessage(message.message_id || message.id);
+  return resolveMessage(message.message_id || message.id, message.account_id);
 }
