@@ -393,10 +393,10 @@ function GtdSection({ section, collapsed, onToggle, onOpenRow, rowActions, selec
               style={{
                 width: '100%', padding: '5px 24px 9px', border: 0,
                 background: 'transparent', textAlign: 'left',
-                fontSize: 11, color: 'var(--text-tertiary)', cursor: 'pointer',
+                fontSize: 11, color: 'var(--text-secondary)', cursor: 'pointer',
               }}
-              onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-secondary)'; }}
-              onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-tertiary)'; }}
+              onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-primary)'; }}
+              onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-secondary)'; }}
             >
               {expanded
                 ? `${t('gtd.showLess')} ↑`
