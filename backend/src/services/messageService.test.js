@@ -150,3 +150,28 @@ describe('listMessages — threaded mode', () => {
     expect(cteSql).toContain("AND folder = 'INBOX'");
   });
 });
+
+describe('listMessages — message shape', () => {
+  it('selects delivery_addresses in the flat query', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
+      .mockResolvedValueOnce({ rows: [{ total_count: 1, unread_count: 0 }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await listMessages({ userId: 'user-1', accountId: 'acc-1' });
+
+    expect(query.mock.calls[2][0]).toContain('delivery_addresses');
+  });
+
+  it('selects delivery_addresses in the threaded query', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
+      .mockResolvedValueOnce({ rows: [{ total_count: 1, unread_count: 0 }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ total: 0 }] });
+
+    await listMessages({ userId: 'user-1', accountId: 'acc-1', threaded: 'true' });
+
+    expect(query.mock.calls[2][0]).toContain('delivery_addresses');
+  });
+});

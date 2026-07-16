@@ -15,6 +15,7 @@ import { resolveForConnection } from '../services/hostValidation.js';
 import { getConnectionPolicy } from '../services/connectionPolicy.js';
 import { imapManager } from '../index.js';
 import { runTransitionsForSentMessage } from '../services/gtdTransitions.js';
+import { authorizeSendableAddress } from '../services/senderAuthorization.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -130,10 +131,11 @@ router.use(requireAuth);
 
 
 router.post('/send', async (req, res) => {
-  const { accountId, aliasId, to, cc = [], bcc = [], subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, inReplyTo, references, attachments, editedSignature, forwardedAttachments, priority } = req.body;
+  const { accountId, aliasId, fromEmail: requestedFromEmail, to, cc = [], bcc = [], subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, inReplyTo, references, attachments, editedSignature, forwardedAttachments, priority } = req.body;
   const VALID_PRIORITIES = new Set(['high', 'normal', 'low']);
   const emailPriority = VALID_PRIORITIES.has(priority) ? priority : 'normal';
   if (!accountId || !to?.length) return res.status(400).json({ error: 'accountId and to required' });
+  if (aliasId && requestedFromEmail) return res.status(400).json({ error: 'aliasId and fromEmail are mutually exclusive' });
 
   // Idempotency guard. The client sends a stable X-Idempotency-Key per logical send: a
   // sequential retry after a lost success response returns the cached result, and a
@@ -204,6 +206,20 @@ router.post('/send', async (req, res) => {
       fromReplyTo = alias.reply_to || null;
       // null (DB default) means inherit from account; only override when alias has an explicit signature set
       if (alias.signature !== null) fromSignature = alias.signature;
+    }
+  } else if (requestedFromEmail) {
+    // A transient From (e.g. the reply-time delivered-to match) — authorized against
+    // the account's private sendable_addresses set, never saved as an alias.
+    try {
+      const authorized = await authorizeSendableAddress({ accountId, fromEmail: requestedFromEmail });
+      fromName = authorized.fromName || fromName;
+      fromEmail = authorized.fromEmail;
+      fromReplyTo = authorized.replyTo;
+    } catch (err) {
+      if (err.code === 'SENDER_UNAVAILABLE') {
+        return res.status(422).json({ error: err.message, code: 'SENDER_UNAVAILABLE' });
+      }
+      throw err;
     }
   }
 
