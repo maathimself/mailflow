@@ -9,6 +9,7 @@ import {
   openDeepLinkMessage, isSelectedRow, collectThreadReadIds, openGtdThreadWithAutoRead,
   classifyThread, unclassifyThread,
 } from '../utils/gtd.js';
+import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
 import GtdEntryRow from './GtdEntryRow.jsx';
 import GtdZeroPet from './GtdZeroPet.jsx';
 import RowHoverActions from './RowHoverActions.jsx';
@@ -32,6 +33,8 @@ export default function GtdSidebarContent({ onCollapse, toggleHint }) {
   const markGtdThreadRead = useStore(s => s.markGtdThreadRead);
   const markGtdThreadStarred = useStore(s => s.markGtdThreadStarred);
   const addNotification = useStore(s => s.addNotification);
+  const accounts = useStore(s => s.accounts);
+  const openCompose = useStore(s => s.openCompose);
   const selectedMessageId = useStore(s => s.selectedMessageId);
   const selectedMid = useStore(selectSelectedMessageMid);
 
@@ -207,9 +210,9 @@ export default function GtdSidebarContent({ onCollapse, toggleHint }) {
     gtdUnclassify: api.gtdUnclassify, addNotification, scheduleGtdSectionsFetch, t,
   });
 
-  // ContextMenu's onAction, routed to the primitives above. `menu` is the open
-  // contextMenu (its .message is the row, .doneStates its section-scoped states).
-  const handleGtdAction = (action, menu, data) => {
+  // ContextMenu's onAction, routed to the primitives above. GTD section heads are
+  // intentionally compact, so compose actions hydrate the full message first.
+  const handleGtdAction = async (action, menu, data) => {
     const thread = menu.message;
     switch (action) {
       case 'open': openRow(thread); break;
@@ -221,6 +224,44 @@ export default function GtdSidebarContent({ onCollapse, toggleHint }) {
       case 'gtdRemove': removeStateRow(thread, data); break;
       case 'gtdDone': doneRow(thread, menu.doneStates); break;
       case 'delete': deleteRow(thread, menu.doneStates); break;
+      case 'reply':
+      case 'replyAll':
+      case 'forward': {
+        try {
+          const message = await api.getMessage(thread.id);
+          if (action === 'forward') {
+            await openForwardFromMessage(message, {
+              openCompose,
+              getMessageBody: api.getMessageBody,
+            });
+          } else {
+            await openReplyFromMessage(message, {
+              accounts,
+              openCompose,
+              getMessageBody: api.getMessageBody,
+              replyAll: action === 'replyAll',
+            });
+          }
+        } catch (err) {
+          console.error('GTD sidebar compose prefill failed:', err.message);
+          scheduleGtdSectionsFetch();
+        }
+        break;
+      }
+      case 'createRuleFromMessage': {
+        const store = useStore.getState();
+        store.setRulesPreFill({ fromEmail: thread.from_email, fromName: thread.from_name });
+        store.setAdminTab('rules');
+        store.setShowAdmin(true);
+        break;
+      }
+      case 'addToBlockList':
+        if (thread.from_email) {
+          api.addToBlockList(thread.from_email)
+            .then(() => addNotification({ title: t('blockList.blocked'), body: thread.from_email }))
+            .catch(() => addNotification({ title: t('blockList.errorAdd'), body: thread.from_email }));
+        }
+        break;
       default: break;
     }
   };
