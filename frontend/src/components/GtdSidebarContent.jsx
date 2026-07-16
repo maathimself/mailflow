@@ -10,6 +10,7 @@ import {
   classifyThread, unclassifyThread,
 } from '../utils/gtd.js';
 import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
+import { getGtdSidebarPreview } from '../utils/gtdSidebar.js';
 import GtdEntryRow from './GtdEntryRow.jsx';
 import GtdZeroPet from './GtdZeroPet.jsx';
 import RowHoverActions from './RowHoverActions.jsx';
@@ -25,7 +26,6 @@ export default function GtdSidebarContent({ onCollapse, toggleHint }) {
   const gtdSections = useStore(s => s.gtdSections);
   const gtdCollapsedSections = useStore(s => s.gtdCollapsedSections);
   const toggleGtdSection = useStore(s => s.toggleGtdSection);
-  const setActiveGtdTab = useStore(s => s.setActiveGtdTab);
   const setThreadMessages = useStore(s => s.setThreadMessages);
   const setSelectedMessage = useStore(s => s.setSelectedMessage);
   const scheduleGtdSectionsFetch = useStore(s => s.scheduleGtdSectionsFetch);
@@ -301,7 +301,6 @@ export default function GtdSidebarContent({ onCollapse, toggleHint }) {
             section={section}
             collapsed={!!gtdCollapsedSections[section.key]}
             onToggle={() => toggleGtdSection(section.key)}
-            onOpenTab={() => setActiveGtdTab(section.key)}
             onOpenRow={openRow}
             rowActions={rowActions}
             selectedMessageId={selectedMessageId}
@@ -329,15 +328,13 @@ export default function GtdSidebarContent({ onCollapse, toggleHint }) {
   );
 }
 
-function GtdSection({ section, collapsed, onToggle, onOpenTab, onOpenRow, rowActions, selectedMessageId, selectedMid, t }) {
+function GtdSection({ section, collapsed, onToggle, onOpenRow, rowActions, selectedMessageId, selectedMid, t }) {
   const state = SECTION_STATE[section.key];
   const color = GTD_COLORS[state];
   const label = section.key === 'waiting' ? t('gtd.waiting') : t(`gtd.state.${section.key}`);
+  const [expanded, setExpanded] = useState(false);
+  const preview = getGtdSidebarPreview(section, expanded);
 
-  // Only Reference is trimmed to a preview (up to 2) in the sidebar; every section
-  // shows a "View all N" affordance when its total exceeds the rows on hand.
-  const shown = section.key === 'reference' ? section.threads.slice(0, 2) : section.threads;
-  const showViewAll = section.total > shown.length;
 
   return (
     <div style={{ borderBottom: '1px solid var(--border-subtle)' }}>
@@ -352,6 +349,7 @@ function GtdSection({ section, collapsed, onToggle, onOpenTab, onOpenRow, rowAct
         <button
           onClick={onToggle}
           aria-label={t('gtd.toggleSection', { section: label })}
+          aria-expanded={!collapsed}
           style={{
             display: 'flex', alignItems: 'center', gap: 7, width: '100%', padding: '8px 14px',
             background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', color: 'inherit',
@@ -360,11 +358,13 @@ function GtdSection({ section, collapsed, onToggle, onOpenTab, onOpenRow, rowAct
           onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
           onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}
         >
-          <span style={{
-            display: 'flex', color: 'var(--text-tertiary)', fontSize: 9, width: 10,
-            transform: collapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 0.12s',
-          }}>
-            ▼
+          <span style={{ display: 'flex', width: 11, color: 'var(--text-tertiary)', flexShrink: 0 }}>
+            <svg
+              width="12" height="12" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"
+            >
+              <polyline points={collapsed ? '9 18 15 12 9 6' : '6 9 12 15 18 9'} />
+            </svg>
           </span>
           <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.09em', color, textTransform: 'uppercase' }}>
             {label}
@@ -374,7 +374,7 @@ function GtdSection({ section, collapsed, onToggle, onOpenTab, onOpenRow, rowAct
 
       {!collapsed && (
         <div>
-          {shown.map(thread => (
+          {preview.threads.map(thread => (
             <GtdThreadRow
               key={thread.id ?? thread.message_id}
               thread={thread}
@@ -385,15 +385,27 @@ function GtdSection({ section, collapsed, onToggle, onOpenTab, onOpenRow, rowAct
               t={t}
             />
           ))}
-          {showViewAll && (
-            <div
-              onClick={onOpenTab}
-              style={{ padding: '5px 24px 9px', fontSize: 11, color: 'var(--text-tertiary)', cursor: 'pointer' }}
+          {preview.expandable && (
+            <button
+              type="button"
+              aria-expanded={expanded}
+              onClick={() => setExpanded(value => !value)}
+              style={{
+                width: '100%', padding: '5px 24px 9px', border: 0,
+                background: 'transparent', textAlign: 'left',
+                fontSize: 11, color: 'var(--text-tertiary)', cursor: 'pointer',
+              }}
               onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-secondary)'; }}
               onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-tertiary)'; }}
             >
-              {t('gtd.viewAll', { count: section.total })} →
-            </div>
+              {expanded
+                ? `${t('gtd.showLess')} ↑`
+                : `${t(preview.bounded ? 'gtd.showSome' : 'gtd.showAll', {
+                    available: preview.available,
+                    total: preview.total,
+                    count: preview.total,
+                  })} →`}
+            </button>
           )}
         </div>
       )}
