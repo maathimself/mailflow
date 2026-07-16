@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { query } from '../services/db.js';
+import { query, withTransaction } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { imapManager } from '../index.js';
 import { encrypt } from '../services/encryption.js';
@@ -8,6 +8,9 @@ import { validateHost } from '../services/hostValidation.js';
 import { getConnectionPolicy } from '../services/connectionPolicy.js';
 import { invalidateGtdConfigCache, sanitizeGtdFoldersDetailed, findGtdFolderCollisions, DEFAULT_GTD_FOLDERS } from '../services/gtdConfig.js';
 import { createKeyedSerializer } from '../utils/keyedSerializer.js';
+import { loadJmapSession } from '../services/jmapClient.js';
+import { syncAccountIdentities } from '../services/identitySync.js';
+import { consume as rlConsume } from '../services/rateLimiter.js';
 
 // Serialize an account's reconnect triggers so a rapid settings change (e.g. a
 // gtd_enabled double-toggle) can't fire two overlapping disconnect→connect chains —
@@ -37,6 +40,33 @@ function hasHeaderInjectionChars(str) {
   return typeof str === 'string' && /[\r\n\0]/.test(str);
 }
 
+// Save-time SSRF guard for the user-configured JMAP session URL — the Bearer token
+// travels to whatever host this points at, so it gets the same host policy as the
+// imap_host/smtp_host fields above, plus the scheme rule carddavAccount.js uses for its
+// own user-configured server URL: HTTPS is required unless the host is genuinely
+// private/local AND the admin policy allows private hosts (never plaintext to a public
+// host). jmapClient.js enforces this same rule again at request time; this is the
+// friendlier save-time 400 in front of it.
+async function validateJmapSessionUrl(rawUrl, policy) {
+  let parsed;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return 'Invalid JMAP session URL';
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    return 'JMAP session URL must be http(s)';
+  }
+  if (parsed.protocol === 'http:') {
+    if (!policy.allowPrivateHosts) return 'JMAP session URL must use HTTPS';
+    const publicErr = await validateHost(parsed.hostname, { allowPrivate: false });
+    if (!publicErr) { // resolves to a public address
+      return 'HTTPS is required for a public host; plaintext HTTP is only allowed for a private/local address';
+    }
+  }
+  return validateHost(parsed.hostname, { allowPrivate: policy.allowPrivateHosts });
+}
+
 const router = Router();
 router.use(requireAuth);
 
@@ -49,12 +79,24 @@ const SAFE_FIELDS = [
   'last_sync', 'sync_error', 'sort_order', 'folder_mappings',
   'signature', 'created_at', 'categorization_enabled',
   'gtd_enabled', 'gtd_folders',
+  'jmap_session_url', 'jmap_identity_sync_at', 'jmap_identity_sync_error',
 ];
 function safeAccount(row) {
   const obj = Object.fromEntries(SAFE_FIELDS.map(k => [k, row[k]]));
   // Sanitize on read so legacy values stored before the write-time sanitizer are safe
   if (obj.signature) obj.signature = sanitizeSignature(obj.signature);
+  // Never the token itself, never the synced address list (sendable_addresses stays
+  // private) — just a boolean the settings UI can render a "configured" state
+  // from. row.jmap_identity_sync_configured is set when the caller's SELECT already
+  // computed it (e.g. the GET / list query); otherwise fall back to the raw token column,
+  // which is present when row comes from an INSERT/UPDATE RETURNING *.
+  obj.jmap_identity_sync_configured = row.jmap_identity_sync_configured ?? Boolean(row.jmap_api_token);
   return obj;
+}
+
+async function loadOwnedAccount(id, userId) {
+  const result = await query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [id, userId]);
+  return result.rows[0] || null;
 }
 
 router.get('/', async (req, res) => {
@@ -62,7 +104,9 @@ router.get('/', async (req, res) => {
     `SELECT id, name, sender_name, email_address, color, protocol, imap_host, imap_port, imap_tls, imap_skip_tls_verify,
             smtp_host, smtp_port, smtp_tls, auth_user, oauth_provider, enabled,
             last_sync, sync_error, sort_order, folder_mappings, signature, created_at,
-            categorization_enabled, gtd_enabled, gtd_folders
+            categorization_enabled, gtd_enabled, gtd_folders,
+            jmap_session_url, jmap_identity_sync_at, jmap_identity_sync_error,
+            (jmap_api_token IS NOT NULL) AS jmap_identity_sync_configured
      FROM email_accounts WHERE user_id = $1 ORDER BY sort_order, created_at`,
     [req.session.userId]
   );
@@ -99,7 +143,8 @@ router.post('/', async (req, res) => {
     smtp_host, smtp_port = 587, smtp_tls = 'STARTTLS',
     auth_user, auth_pass,
     oauth_provider, oauth_access_token, oauth_refresh_token,
-    signature = null
+    signature = null,
+    jmap_session_url = null, jmap_api_token = null,
   } = req.body;
 
   if (!name || !email_address) return res.status(400).json({ error: 'Name and email required' });
@@ -108,6 +153,9 @@ router.post('/', async (req, res) => {
   }
   if (sender_name && hasHeaderInjectionChars(sender_name)) {
     return res.status(400).json({ error: 'Sender name cannot contain control characters' });
+  }
+  if (jmap_api_token && !jmap_session_url) {
+    return res.status(400).json({ error: 'JMAP session URL is required to set an API token' });
   }
 
   const policy = await getConnectionPolicy();
@@ -122,6 +170,22 @@ router.post('/', async (req, res) => {
       || (!policy.allowNonstandardPorts && validatePort(smtp_port, ALLOWED_SMTP_PORTS));
     if (err) return res.status(400).json({ error: `SMTP: ${err}` });
   }
+  if (jmap_session_url) {
+    const err = await validateJmapSessionUrl(jmap_session_url, policy);
+    if (err) return res.status(400).json({ error: `JMAP: ${err}` });
+  }
+
+  // Validate the token/session URL before writing anything — a config fault (bad token,
+  // wrong URL, missing capability) rejects the save with 422; a transient reach failure is
+  // tolerated here and instead recorded by the post-insert syncAccountIdentities call below.
+  if (jmap_api_token) {
+    try {
+      await loadJmapSession(jmap_session_url, jmap_api_token, { allowPrivate: policy.allowPrivateHosts });
+    } catch (error) {
+      if (error.code === 'JMAP_CONFIG') return res.status(error.status).json({ error: error.message });
+      if (error.code !== 'JMAP_SYNC') throw error;
+    }
+  }
 
   try {
     const result = await query(`
@@ -129,14 +193,14 @@ router.post('/', async (req, res) => {
         user_id, name, sender_name, email_address, color, protocol,
         imap_host, imap_port, imap_tls, imap_skip_tls_verify, smtp_host, smtp_port, smtp_tls,
         auth_user, auth_pass, oauth_provider, oauth_access_token, oauth_refresh_token,
-        signature
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+        signature, jmap_session_url, jmap_api_token
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
       RETURNING *
     `, [
       req.session.userId, name, sender_name || null, email_address, color, protocol,
       imap_host, imap_port, Number(imap_port) % 1000 === 993, !!imap_skip_tls_verify, smtp_host, smtp_port, smtp_tls,
       auth_user, encrypt(auth_pass), oauth_provider, encrypt(oauth_access_token), encrypt(oauth_refresh_token),
-      sanitizeSignature(signature) || null
+      sanitizeSignature(signature) || null, jmap_session_url, encrypt(jmap_api_token)
     ]);
 
     const account = result.rows[0];
@@ -144,6 +208,13 @@ router.post('/', async (req, res) => {
     // Immediately try to connect — needs full credentials from DB row
     if (protocol === 'imap') {
       imapManager.connectAccount(account).catch(console.error);
+    }
+
+    if (jmap_api_token) {
+      try {
+        await syncAccountIdentities(account.id);
+      } catch { /* recorded on the row by syncAccountIdentities; reported below */ }
+      return res.json(safeAccount(await loadOwnedAccount(account.id, req.session.userId)));
     }
 
     res.json(safeAccount(account));
@@ -157,10 +228,35 @@ router.put('/:id', async (req, res) => {
   const { id } = req.params;
   const updates = req.body;
 
-  // Verify ownership. gtd_folders comes back too so a folder remap can be compared
-  // against the stored value below (a change must reconnect to backfill the new folder).
-  const check = await query('SELECT id, gtd_folders FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
+  // Verify ownership. gtd_folders/jmap_session_url come back too: a folder remap is
+  // compared against the stored value below (a change must reconnect to backfill the new
+  // folder), and jmap_session_url is the fallback validation target when a token is set
+  // without also setting a new session URL in the same request.
+  const check = await query('SELECT id, gtd_folders, jmap_session_url FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
+
+  const policy = await getConnectionPolicy();
+
+  // Clearing the token (explicit empty/null) wipes the token, sync status, and every
+  // synced identity. This is not an early return: the settings form's single Save button
+  // bundles every edited field into one PUT, so a request can clear the token alongside a
+  // name/host/signature change in the same call — the clear folds into the general field
+  // loop below and the sendable_addresses wipe happens in the same transaction as that
+  // UPDATE (see the `clearingToken` branch there).
+  const clearingToken = 'jmap_api_token' in updates && !updates.jmap_api_token;
+
+  if (updates.jmap_api_token) {
+    const effectiveSessionUrl = 'jmap_session_url' in updates ? updates.jmap_session_url : check.rows[0].jmap_session_url;
+    if (!effectiveSessionUrl) {
+      return res.status(400).json({ error: 'JMAP session URL is required to set an API token' });
+    }
+    try {
+      await loadJmapSession(effectiveSessionUrl, updates.jmap_api_token, { allowPrivate: policy.allowPrivateHosts });
+    } catch (error) {
+      if (error.code === 'JMAP_CONFIG') return res.status(error.status).json({ error: error.message });
+      if (error.code !== 'JMAP_SYNC') throw error;
+    }
+  }
 
   if ('name' in updates && hasHeaderInjectionChars(updates.name)) {
     return res.status(400).json({ error: 'Name cannot contain control characters' });
@@ -168,7 +264,6 @@ router.put('/:id', async (req, res) => {
   if ('sender_name' in updates && updates.sender_name && hasHeaderInjectionChars(updates.sender_name)) {
     return res.status(400).json({ error: 'Sender name cannot contain control characters' });
   }
-  const policy = await getConnectionPolicy();
 
   if ('imap_host' in updates && updates.imap_host) {
     const err = await validateHost(updates.imap_host, { allowPrivate: policy.allowPrivateHosts });
@@ -189,6 +284,10 @@ router.put('/:id', async (req, res) => {
       const err = validatePort(updates.smtp_port, ALLOWED_SMTP_PORTS);
       if (err) return res.status(400).json({ error: `SMTP: ${err}` });
     }
+  }
+  if ('jmap_session_url' in updates && updates.jmap_session_url) {
+    const err = await validateJmapSessionUrl(updates.jmap_session_url, policy);
+    if (err) return res.status(400).json({ error: `JMAP: ${err}` });
   }
 
   if ('imap_port' in updates) updates.imap_tls = Number(updates.imap_port) % 1000 === 993;
@@ -219,14 +318,15 @@ router.put('/:id', async (req, res) => {
     gtdFoldersChanged = JSON.stringify(before) !== JSON.stringify(folders);
   }
 
-  const allowed = ['name', 'sender_name', 'color', 'enabled', 'auth_user', 'auth_pass', 'sort_order', 'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify', 'smtp_host', 'smtp_port', 'smtp_tls', 'folder_mappings', 'signature', 'categorization_enabled', 'gtd_enabled', 'gtd_folders'];
+  const allowed = ['name', 'sender_name', 'color', 'enabled', 'auth_user', 'auth_pass', 'sort_order', 'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify', 'smtp_host', 'smtp_port', 'smtp_tls', 'folder_mappings', 'signature', 'categorization_enabled', 'gtd_enabled', 'gtd_folders', 'jmap_session_url', 'jmap_api_token'];
   const sets = [];
   const values = [];
   let i = 1;
   for (const key of allowed) {
+    if (key === 'jmap_api_token' && clearingToken) continue; // NULLed as a literal below, alongside the sync-status columns
     if (key in updates) {
       sets.push(`${key} = $${i++}`);
-      const value = (key === 'auth_pass' && updates[key]) ? encrypt(updates[key])
+      const value = ((key === 'auth_pass' || key === 'jmap_api_token') && updates[key]) ? encrypt(updates[key])
         : (key === 'signature') ? sanitizeSignature(updates[key]) || null
         : (key === 'gtd_enabled') ? !!updates[key]
         : (key === 'gtd_folders') ? gtdFoldersValue
@@ -234,18 +334,32 @@ router.put('/:id', async (req, res) => {
       values.push(value);
     }
   }
+  // Clearing the token also wipes sync status; the synced sendable_addresses rows are
+  // deleted in the same transaction as this UPDATE below.
+  if (clearingToken) sets.push('jmap_api_token = NULL', 'jmap_identity_sync_at = NULL', 'jmap_identity_sync_error = NULL');
   if (!sets.length) return res.status(400).json({ error: 'No valid fields to update' });
 
   values.push(id);
-  const result = await query(
-    `UPDATE email_accounts SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`,
-    values
-  );
-  const updated = result.rows[0];
-  const payload = safeAccount(updated);
+  const updateSql = `UPDATE email_accounts SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`;
+  const updated = clearingToken
+    ? await withTransaction(async (client) => {
+        const result = await client.query(updateSql, values);
+        await client.query('DELETE FROM sendable_addresses WHERE account_id = $1', [id]);
+        return result.rows[0];
+      })
+    : (await query(updateSql, values)).rows[0];
+  let payload = safeAccount(updated);
   // Tell the client which submitted folder values were rejected (over-long /
   // traversal) and reset to defaults, so the settings form can surface it.
   if ('gtd_folders' in updates) payload.gtd_folders_rejected = gtdRejected;
+
+  if (updates.jmap_api_token) {
+    try {
+      await syncAccountIdentities(updated.id);
+    } catch { /* recorded on the row by syncAccountIdentities; reported below */ }
+    payload = safeAccount(await loadOwnedAccount(updated.id, req.session.userId));
+    if ('gtd_folders' in updates) payload.gtd_folders_rejected = gtdRejected;
+  }
   res.json(payload);
 
   // A GTD config change must drop the cached { enabled, folders } so the tick,
@@ -315,6 +429,37 @@ router.post('/:id/reconnect', async (req, res) => {
 
   imapManager.connectAccount(result.rows[0]).catch(console.error);
   res.json({ ok: true });
+});
+
+// A manual refresh reaches out to the user-configured JMAP server, so it gets its own
+// per-user limit (mirrors auth.js's rateLimit wrapper) rather than running unbounded.
+function identitiesRefreshRateLimit(req, res, next) {
+  rlConsume(`jmap-refresh:${req.session.userId}`, 10, 60000).then(({ limited, resetMs }) => {
+    if (limited) {
+      res.setHeader('Retry-After', Math.ceil(resetMs / 1000));
+      return res.status(429).json({ error: 'Too many requests. Please try again shortly.' });
+    }
+    next();
+  }).catch(next);
+}
+
+// Manually re-sync an account's JMAP identities. Returns only a sync-status shape
+// ({ synced_at, error }) — never the synced address list, which stays private.
+router.post('/:id/identities/refresh', identitiesRefreshRateLimit, async (req, res) => {
+  const account = await loadOwnedAccount(req.params.id, req.session.userId);
+  if (!account) return res.status(404).json({ error: 'Account not found' });
+  if (!account.jmap_api_token) {
+    return res.status(409).json({ error: 'JMAP identity sync is not configured for this account' });
+  }
+
+  try {
+    await syncAccountIdentities(account.id);
+  } catch { /* recorded on the row; reported below */ }
+  const refreshed = await loadOwnedAccount(account.id, req.session.userId);
+  res.json({
+    synced_at: refreshed?.jmap_identity_sync_at || null,
+    error: refreshed?.jmap_identity_sync_error || null,
+  });
 });
 
 // ── Alias CRUD ─────────────────────────────────────────────────────────────

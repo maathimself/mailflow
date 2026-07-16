@@ -12,6 +12,7 @@ import DOMPurify from 'dompurify';
 import { BUILTIN_SUMMARIZE } from '../aiActions.js';
 import { getResults, saveResult, removeResult } from '../aiResults.js';
 import { renderMarkdown } from '../utils/renderMarkdown.js';
+import { pickReplyAlias } from '../utils/replyAlias.js';
 const USE_DIV_RENDER = import.meta.env.VITE_EMAIL_DIV_RENDER === 'true';
 const MESSAGE_OPENING_EVENT = 'mailflow:message-opening';
 
@@ -864,7 +865,7 @@ export default function MessagePane() {
     };
   }, [isMobile, setSelectedMessage, resetPaneSwipeStyles]);
 
-  const handleReply = (replyAll = false) => {
+  const handleReply = async (replyAll = false) => {
     if (!message) return;
     const date = message.date ? new Date(message.date).toLocaleString() : '';
     const safeName = (message.from_name || '').replace(/[\r\n]+/g, ' ');
@@ -889,25 +890,13 @@ export default function MessagePane() {
     const myAccount = accounts.find(a => a.id === message.account_id);
     const myEmail = myAccount?.email_address || '';
 
-    const replyAliasId = (() => {
-      const aliases = myAccount?.aliases || [];
-      if (!aliases.length) return null;
-      try {
-        const toArr = Array.isArray(message.to_addresses)
-          ? message.to_addresses
-          : JSON.parse(message.to_addresses || '[]');
-        const ccArr = Array.isArray(message.cc_addresses)
-          ? message.cc_addresses
-          : JSON.parse(message.cc_addresses || '[]');
-        const allEmails = [...toArr, ...ccArr].map(t => t.email?.toLowerCase()).filter(Boolean);
-        const fromEmail = (message.from_email || '').toLowerCase();
-        const match = aliases.find(al => {
-          const aliasEmail = al.email.toLowerCase();
-          return allEmails.includes(aliasEmail) || fromEmail === aliasEmail;
-        });
-        return match ? match.id : null;
-      } catch { return null; }
-    })();
+    const replyAliasId = pickReplyAlias({
+      aliases: myAccount?.aliases || [],
+      deliveryAddresses: message.delivery_addresses,
+      toAddresses: message.to_addresses,
+      ccAddresses: message.cc_addresses,
+      fromEmail: message.from_email,
+    });
 
     const myAddresses = new Set([
       myEmail.toLowerCase(),
@@ -933,6 +922,22 @@ export default function MessagePane() {
     const rawSubject = (message.subject || '').trim();
     const reSubject = rawSubject.startsWith('Re:') ? rawSubject : rawSubject ? `Re: ${rawSubject}` : 'Re:';
 
+    // No trusted (primary/alias) match — ask whether a synced JMAP identity authorizes a
+    // transient From for this reply. Bounded so a slow/unreachable JMAP server can never
+    // hang the reply action; any failure just falls back to today's behavior (primary).
+    let sendAs = null;
+    if (!replyAliasId && myAccount?.jmap_identity_sync_configured) {
+      try {
+        const result = await Promise.race([
+          api.getReplySender(message.id),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('reply-sender timeout')), 2500)),
+        ]);
+        if (result?.sender?.fromEmail) {
+          sendAs = { accountId: message.account_id, fromEmail: result.sender.fromEmail, name: result.sender.name };
+        }
+      } catch { /* quiet fallback — never block reply on a network error */ }
+    }
+
     setShowReplyMenu(false);
     openCompose({
       to: sender,
@@ -945,6 +950,7 @@ export default function MessagePane() {
       references: referencesChain,
       accountId: message.account_id,
       aliasId: replyAliasId,
+      ...(sendAs ? { sendAs } : {}),
       isReply: true,
       isReplyAll: replyAll,
       originalFrom: sender,

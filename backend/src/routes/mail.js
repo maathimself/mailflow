@@ -12,6 +12,8 @@ import { emitGtdIfRelevant } from '../services/gtdSections.js';
 import { listMessages } from '../services/messageService.js';
 import { validateHost } from '../services/hostValidation.js';
 import { safeFetch } from '../services/safeFetch.js';
+import { resolveReplySender } from '../services/replySender.js';
+import { consume as rlConsume } from '../services/rateLimiter.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -100,6 +102,18 @@ function emitGtdSectionsRefresh(rows, userId) {
   }
 }
 
+// Reply-sender resolution can trigger a JMAP round trip on a stale-sync miss, so it gets
+// its own per-user limit (mirrors auth.js's rateLimit wrapper) rather than running unbounded.
+function replySenderRateLimit(req, res, next) {
+  rlConsume(`reply-sender:${req.session.userId}`, 30, 60000).then(({ limited, resetMs }) => {
+    if (limited) {
+      res.setHeader('Retry-After', Math.ceil(resetMs / 1000));
+      return res.status(429).json({ error: 'Too many requests. Please try again shortly.' });
+    }
+    next();
+  }).catch(next);
+}
+
 // Get messages (unified or per-account/folder)
 router.get('/messages', async (req, res) => {
   const { accountId, folder = 'INBOX', limit = 50, offset = 0, unreadOnly, threaded, category } = req.query;
@@ -140,7 +154,7 @@ router.get('/messages/:id', async (req, res) => {
              m.reply_to, m.in_reply_to,
              m.date, m.snippet, m.is_read, m.is_starred,
              m.has_attachments, m.account_id, m.category,
-             m.list_unsubscribe, m.list_unsubscribe_post, m.unsubscribed_at,
+             m.list_unsubscribe, m.list_unsubscribe_post, m.unsubscribed_at, m.delivery_addresses,
              a.name AS account_name, a.email_address AS account_email,
              a.color AS account_color
       FROM messages m
@@ -172,7 +186,7 @@ router.get('/resolve-message', async (req, res) => {
              m.reply_to, m.in_reply_to,
              m.date, m.snippet, m.is_read, m.is_starred,
              m.has_attachments, m.account_id, m.category,
-             m.list_unsubscribe, m.list_unsubscribe_post, m.unsubscribed_at,
+             m.list_unsubscribe, m.list_unsubscribe_post, m.unsubscribed_at, m.delivery_addresses,
              a.name AS account_name, a.email_address AS account_email,
              a.color AS account_color`;
   try {
@@ -247,7 +261,7 @@ router.get('/thread/:threadId', async (req, res) => {
                m.reply_to, m.in_reply_to,
                m.date, m.snippet, m.is_read, m.is_starred,
                m.has_attachments, m.account_id, m.category,
-               m.list_unsubscribe, m.list_unsubscribe_post, m.unsubscribed_at,
+               m.list_unsubscribe, m.list_unsubscribe_post, m.unsubscribed_at, m.delivery_addresses,
                a.name AS account_name, a.email_address AS account_email, a.color AS account_color
         FROM messages m
         JOIN email_accounts a ON m.account_id = a.id
@@ -496,6 +510,24 @@ router.get('/messages/:id/headers', async (req, res) => {
   } catch (err) {
     console.error('Headers fetch error:', err);
     res.status(500).json({ error: 'Failed to fetch message headers' });
+  }
+});
+
+// Resolve the transient reply From for a message: an address the message was
+// delivered/addressed to that the account's synced JMAP identities authorize, but that
+// isn't already an address MailFlow trusts today (account primary / a saved alias — those
+// are matched client-side). Never returns more than the single matched sender — no
+// address enumeration; the sendable set stays private.
+router.get('/messages/:id/reply-sender', replySenderRateLimit, async (req, res) => {
+  const { id } = req.params;
+  if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
+  try {
+    const result = await resolveReplySender({ messageId: id, userId: req.session.userId });
+    res.json(result);
+  } catch (err) {
+    if (err.status === 404) return res.status(404).json({ error: 'Message not found' });
+    console.error('Reply sender resolution error:', err.message);
+    res.status(500).json({ error: 'Failed to resolve reply sender' });
   }
 });
 

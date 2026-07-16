@@ -96,6 +96,7 @@
     "replyAll": "Rispondi a tutti",
     "forward": "Inoltra",
     "from": "Da",
+    "fromDeliveredTo": "consegnato a",
     "to": "A",
     "cc": "Cc",
     "bcc": "Bcc",
@@ -140,6 +141,9 @@
       "title": "Messaggio inviato",
       "noCopy": "Inviato, ma non salvato in Inviati",
       "action": "Visualizza"
+    },
+    "errors": {
+      "senderUnavailable": "Questo indirizzo di invio non è più disponibile. Scegli un altro mittente e riprova."
     },
     "toolbar": {
       "removeTable": "Rimuovi tabella",
@@ -716,6 +720,7 @@
       "presetGmail": "Gmail",
       "presetYahoo": "Yahoo Mail",
       "presetIcloud": "iCloud",
+      "presetFastmail": "Fastmail",
       "presetCustom": "Personalizzato",
       "errorRequired": "Email, nome utente e host IMAP sono obbligatori",
       "errorPasswordRequired": "La password è richiesta per i nuovi account",
@@ -730,7 +735,18 @@
       "categorizationSection": "Categorizzazione email",
       "categorizationEnabled": "Abilita categorizzazione",
       "categorizationEnabledDesc": "Ordina le email in arrivo in schede di categoria. Disabilitato per impostazione predefinita.",
-      "enabledGlobally": "Abilitato globalmente"
+      "enabledGlobally": "Abilitato globalmente",
+      "jmapSection": "Sincronizzazione identità (JMAP)",
+      "jmapSessionUrl": "URL sessione JMAP",
+      "jmapSessionUrlPh": "https://mail.example.com/.well-known/jmap",
+      "jmapApiToken": "Token API",
+      "jmapApiTokenPh": "Incolla il tuo token API JMAP",
+      "jmapApiTokenHelp": "Serve a sapere da quali indirizzi puoi inviare (es. alias Fastmail e domini personalizzati). Sola lettura: MailFlow non modifica mai nulla sul server.",
+      "jmapConfigured": "Configurato",
+      "jmapClear": "Cancella",
+      "jmapRefresh": "Aggiorna ora",
+      "jmapRefreshing": "Aggiornamento…",
+      "jmapLastSynced": "Ultima sincronizzazione: {{when}}"
     },
     "folderMappings": {
       "title": "Mappatura cartelle",

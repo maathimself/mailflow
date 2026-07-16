@@ -96,6 +96,7 @@
     "replyAll": "Allen antworten",
     "forward": "Weiterleiten",
     "from": "Von",
+    "fromDeliveredTo": "zugestellt an",
     "to": "An",
     "cc": "Cc",
     "bcc": "Bcc",
@@ -140,6 +141,9 @@
       "title": "Nachricht gesendet",
       "noCopy": "Gesendet, aber nicht im Ordner Gesendet gespeichert",
       "action": "Anzeigen"
+    },
+    "errors": {
+      "senderUnavailable": "Diese Absenderadresse ist nicht mehr verfügbar. Wähle einen anderen Absender und versuche es erneut."
     },
     "toolbar": {
       "removeTable": "Tabelle entfernen",
@@ -651,6 +655,7 @@
       "presetGmail": "Gmail",
       "presetYahoo": "Yahoo Mail",
       "presetIcloud": "iCloud",
+      "presetFastmail": "Fastmail",
       "presetCustom": "Benutzerdefiniert",
       "errorRequired": "E-Mail, Benutzername und IMAP-Host sind erforderlich",
       "errorPasswordRequired": "Für neue Konten ist ein Passwort erforderlich",
@@ -663,7 +668,18 @@
       "categorizationSection": "E-Mail-Kategorisierung",
       "categorizationEnabled": "Posteingang-Kategorisierung aktivieren",
       "categorizationEnabledDesc": "Eingehende E-Mails in Kategorie-Tabs einteilen. Standardmäßig deaktiviert.",
-      "enabledGlobally": "Global aktiviert"
+      "enabledGlobally": "Global aktiviert",
+      "jmapSection": "Identitätssynchronisierung (JMAP)",
+      "jmapSessionUrl": "JMAP-Sitzungs-URL",
+      "jmapSessionUrlPh": "https://mail.example.com/.well-known/jmap",
+      "jmapApiToken": "API-Token",
+      "jmapApiTokenPh": "JMAP-API-Token einfügen",
+      "jmapApiTokenHelp": "Wird verwendet, um zu ermitteln, von welchen Adressen aus du senden darfst (z. B. Fastmail-Aliase und eigene Domains). Nur lesend — MailFlow ändert nie etwas auf dem Server.",
+      "jmapConfigured": "Konfiguriert",
+      "jmapClear": "Entfernen",
+      "jmapRefresh": "Jetzt aktualisieren",
+      "jmapRefreshing": "Wird aktualisiert…",
+      "jmapLastSynced": "Zuletzt synchronisiert: {{when}}"
     },
     "folderMappings": {
       "title": "Ordnerzuordnungen",
