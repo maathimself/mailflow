@@ -5,7 +5,9 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "test": "vitest run",
+    "test": "npm run test:unit && npm run test:db",
+    "test:unit": "vitest run --exclude='**/*.db.test.js' --exclude='**/*.integration.test.js'",
+    "test:db": "vitest run src/**/*.db.test.js src/**/*.integration.test.js",
     "test:watch": "vitest",
     "lint": "eslint src --max-warnings 0"
   },

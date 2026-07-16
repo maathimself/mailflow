@@ -34,6 +34,12 @@ function insecure() {
     { code: 'ERR_INSECURE_TRANSPORT' },
   );
 }
+function redirectError(message, code) {
+  return Object.assign(new Error(message), { code });
+}
+
+const MAX_CREDENTIALED_REDIRECTS = 5;
+const FOLLOWED_REDIRECT_STATUSES = new Set([301, 302, 307, 308]);
 
 // A connector that refuses plaintext (when required) and private/reserved addresses,
 // pinning the socket to a validated IP (with the original hostname kept for TLS SNI).
@@ -64,15 +70,103 @@ function agentFor(allowPrivate, requireHttps) {
   return agents.get(key);
 }
 
-export function safeFetch(url, options = {}, { allowPrivate = false, requireHttps = !allowPrivate } = {}) {
+export function safeFetch(url, options = {}, {
+  allowPrivate = false,
+  requireHttps = !allowPrivate,
+  credentialOrigin,
+  validateRedirect,
+} = {}) {
   let parsed;
   try { parsed = new URL(url); }
   catch { return Promise.reject(new Error('Invalid URL')); }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    return Promise.reject(Object.assign(new Error('Only http(s) URLs are allowed'), { code: 'ERR_UNSUPPORTED_SCHEME' }));
+  const validationError = validateUrl(parsed, requireHttps);
+  if (validationError) return Promise.reject(validationError);
+
+  if (credentialOrigin == null) {
+    return fetch(url, { ...options, dispatcher: agentFor(allowPrivate, requireHttps) });
   }
-  if (requireHttps && parsed.protocol !== 'https:') {
-    return Promise.reject(insecure());
+
+  let trustedOrigin;
+  try { trustedOrigin = new URL(credentialOrigin).origin; }
+  catch { return Promise.reject(new Error('Invalid credential origin')); }
+  if (parsed.origin !== trustedOrigin) {
+    return Promise.reject(redirectError(
+      'Credentials cannot be sent to a different origin',
+      'ERR_CROSS_ORIGIN_REDIRECT',
+    ));
   }
-  return fetch(url, { ...options, dispatcher: agentFor(allowPrivate, requireHttps) });
+
+  return fetchWithCredentialFence(parsed, options, {
+    allowPrivate,
+    requireHttps,
+    trustedOrigin,
+    validateRedirect,
+  });
+}
+
+function validateUrl(url, requireHttps) {
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    return Object.assign(new Error('Only http(s) URLs are allowed'), { code: 'ERR_UNSUPPORTED_SCHEME' });
+  }
+  if (requireHttps && url.protocol !== 'https:') return insecure();
+  return null;
+}
+
+async function fetchWithCredentialFence(initialUrl, options, {
+  allowPrivate,
+  requireHttps,
+  trustedOrigin,
+  validateRedirect,
+}) {
+  let currentUrl = initialUrl;
+  let redirectCount = 0;
+
+  while (true) {
+    const response = await fetch(currentUrl, {
+      ...options,
+      redirect: 'manual',
+      dispatcher: agentFor(allowPrivate, requireHttps),
+    });
+    const location = response.headers.get('location');
+    if (!location || (!FOLLOWED_REDIRECT_STATUSES.has(response.status) && response.status !== 303)) {
+      return response;
+    }
+
+    await cancelResponseBody(response);
+    if (response.status === 303) {
+      throw redirectError(
+        '303 redirects are not supported for credentialed requests',
+        'ERR_UNSUPPORTED_REDIRECT',
+      );
+    }
+
+    let nextUrl;
+    try { nextUrl = new URL(location, currentUrl); }
+    catch {
+      throw redirectError('Redirect location is not a valid URL', 'ERR_INVALID_REDIRECT');
+    }
+    const validationError = validateUrl(nextUrl, requireHttps);
+    if (validationError) throw validationError;
+    if (nextUrl.origin !== trustedOrigin) {
+      throw redirectError(
+        'Credentialed redirects must stay on the configured origin',
+        'ERR_CROSS_ORIGIN_REDIRECT',
+      );
+    }
+    if (redirectCount >= MAX_CREDENTIALED_REDIRECTS) {
+      throw redirectError('Too many credentialed redirects', 'ERR_TOO_MANY_REDIRECTS');
+    }
+    await validateRedirect?.(nextUrl.href);
+
+    redirectCount += 1;
+    currentUrl = nextUrl;
+  }
+}
+
+async function cancelResponseBody(response) {
+  try {
+    await response.body?.cancel();
+  } catch {
+    // The response is being discarded regardless; cancellation is best-effort.
+  }
 }

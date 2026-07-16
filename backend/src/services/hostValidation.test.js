@@ -12,6 +12,23 @@ vi.mock('dns', () => ({
 // Pull the mocked fns for per-test control.
 const { promises: dns } = await import('dns');
 
+const publicIPv6 = '2600::1';
+const blockedIPv6 = [
+  ['unspecified', '::'],
+  ['loopback', '::1'],
+  ['IPv4-mapped loopback in hexadecimal form', '::ffff:7f00:1'],
+  ['IPv4-mapped loopback in dotted form', '::ffff:127.0.0.1'],
+  ['local-use translation prefix', '64:ff9b:1::1'],
+  ['discard-only prefix', '100::1'],
+  ['documentation prefix', '2001:db8::1'],
+  ['ORCHID prefix', '2001:10::1'],
+  ['6to4-wrapped private IPv4', '2002:7f00:1::'],
+  ['unique-local', 'fc00::1'],
+  ['link-local', 'fe90::1'],
+  ['multicast', 'ff02::1'],
+  ['Teredo', '2001:0:4136:e378:8000:63bf:3fff:fdd2'],
+];
+
 beforeEach(() => {
   dns.resolve4.mockClear();
   dns.resolve6.mockClear();
@@ -31,7 +48,7 @@ describe('validateHostLiteral', () => {
   });
 
   it('passes a valid public IPv6', () => {
-    expect(validateHostLiteral('2001:db8::1')).toBeNull();
+    expect(validateHostLiteral(publicIPv6)).toBeNull();
   });
 
   it('returns null for null/undefined/empty', () => {
@@ -69,17 +86,15 @@ describe('validateHostLiteral', () => {
     expect(validateHostLiteral(ip)).toMatch(/private|reserved/i);
   });
 
-  // Private IPv6
-  it.each([
-    ['::1'],              // loopback
-    ['fc00::1'],          // ULA
-    ['fd12:3456::1'],     // ULA
-    ['fe80::1'],          // link-local
-    ['::ffff:127.0.0.1'], // IPv4-mapped loopback
-    ['::ffff:192.168.1.1'], // IPv4-mapped private
-    ['::ffff:10.0.0.1'],  // IPv4-mapped private
-  ])('blocks private IPv6 %s', ip => {
+  it.each(blockedIPv6)('blocks reserved IPv6 %s (%s)', (_name, ip) => {
     expect(validateHostLiteral(ip)).toMatch(/private|reserved/i);
+  });
+
+  it.each([
+    ['::ffff:808:808'],
+    ['::ffff:8.8.8.8'],
+  ])('passes public IPv4-mapped IPv6 %s', ip => {
+    expect(validateHostLiteral(ip)).toBeNull();
   });
 
   // Bracket-wrapped IPv6
@@ -88,7 +103,7 @@ describe('validateHostLiteral', () => {
   });
 
   it('passes public IPv6 in bracket notation', () => {
-    expect(validateHostLiteral('[2001:db8::1]')).toBeNull();
+    expect(validateHostLiteral(`[${publicIPv6}]`)).toBeNull();
   });
 
   it('trims whitespace before checking', () => {
@@ -113,6 +128,16 @@ describe('validateHost', () => {
   it('blocks a hostname whose AAAA record resolves to a private IP', async () => {
     dns.resolve6.mockResolvedValue(['fd00::1']);
     expect(await validateHost('evil.attacker.com')).toMatch(/private|reserved/i);
+  });
+
+  it.each(blockedIPv6)('blocks a hostname resolving to reserved IPv6 %s (%s)', async (_name, ip) => {
+    dns.resolve6.mockResolvedValue([ip]);
+    expect(await validateHost('evil.attacker.com')).toMatch(/private|reserved/i);
+  });
+
+  it('passes a hostname resolving to a public IPv6 address', async () => {
+    dns.resolve6.mockResolvedValue([publicIPv6]);
+    expect(await validateHost('imap.example.com')).toBeNull();
   });
 
   it('passes when DNS resolution fails (connection will fail naturally)', async () => {
@@ -148,8 +173,8 @@ describe('resolveForConnection', () => {
   });
 
   it('returns the literal IP with no servername for a public IPv6', async () => {
-    const result = await resolveForConnection('2001:db8::1');
-    expect(result.host).toBe('2001:db8::1');
+    const result = await resolveForConnection(publicIPv6);
+    expect(result.host).toBe(publicIPv6);
     expect(result.servername).toBeNull();
   });
 
