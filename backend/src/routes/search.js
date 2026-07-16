@@ -101,6 +101,26 @@ export function trashFolderExclusionCondition() {
       )`;
 }
 
+// Postgres refuses to build a tsvector larger than ~1MB of packed lexemes
+// (SQLSTATE 54000), so an oversized body would 500 the whole search. Cap the
+// text fed to to_tsvector at 600k chars — matching msgvault's maxFTSBodyChars
+// (internal/store/dialect_pg.go) — so one huge email can't crash the query.
+// Exported because slice 02's search_fts trigger caps the same way.
+export const FTS_BODY_CHAR_CAP = 600000;
+
+// Builds the per-term free-text OR-condition: a term matches if it appears in
+// the sender, the subject, the stored search_vector, or the length-capped body.
+// Extracted so the body cap is a single, testable source of truth.
+export function freeTextTermCondition(likeIdx, ftsIdx) {
+  return `(
+        m.from_name ILIKE $${likeIdx}
+        OR m.from_email ILIKE $${likeIdx}
+        OR m.subject ILIKE $${likeIdx}
+        OR m.search_vector @@ plainto_tsquery('english', $${ftsIdx})
+        OR to_tsvector('english', LEFT(coalesce(m.body_text,''), ${FTS_BODY_CHAR_CAP})) @@ plainto_tsquery('english', $${ftsIdx})
+      )`;
+}
+
 router.get('/', searchLimiter, async (req, res) => {
   const { q, accountId, limit = 50, offset = 0 } = req.query;
   const trimmed = (q || '').trim();
@@ -184,13 +204,7 @@ router.get('/', searchLimiter, async (req, res) => {
     params.push(term.value); // raw term for plainto_tsquery
     const ftsIdx = p++;
 
-    const cond = `(
-        m.from_name ILIKE $${likeIdx}
-        OR m.from_email ILIKE $${likeIdx}
-        OR m.subject ILIKE $${likeIdx}
-        OR m.search_vector @@ plainto_tsquery('english', $${ftsIdx})
-        OR to_tsvector('english', coalesce(m.body_text,'')) @@ plainto_tsquery('english', $${ftsIdx})
-      )`;
+    const cond = freeTextTermCondition(likeIdx, ftsIdx);
     conditions.push(term.negate ? negateCond(cond) : cond);
   }
 
