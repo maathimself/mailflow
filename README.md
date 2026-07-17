@@ -252,7 +252,7 @@ No container runtime required. The steps below use Ubuntu/Debian; adapt package 
 
 ### Prerequisites
 
-- **Node.js 20+** — [nodejs.org](https://nodejs.org) or via your package manager
+- **Node.js 22 (LTS)** — [nodejs.org](https://nodejs.org) or via your package manager. Newer majors break the backend: Node's built-in `fetch` conflicts with the pinned `undici` dispatcher.
 - **PostgreSQL 16+**
 - **Redis 7+**
 - **nginx** — serves the built frontend and proxies API/WebSocket requests to the backend
@@ -261,8 +261,8 @@ No container runtime required. The steps below use Ubuntu/Debian; adapt package 
 
 **Ubuntu / Debian:**
 ```bash
-# Node.js 20 via NodeSource
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+# Node.js 22 via NodeSource
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
 sudo apt-get install -y nodejs postgresql redis-server nginx
 ```
 
