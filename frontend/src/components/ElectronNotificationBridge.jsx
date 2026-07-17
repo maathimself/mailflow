@@ -4,8 +4,6 @@ import { api } from '../utils/api.js';
 import { installCapacitorNativeBridge } from '../utils/capacitorNativeBridge.js';
 
 export default function ElectronNotificationBridge() {
-  installCapacitorNativeBridge();
-
   const addNotification = useStore(state => state.addNotification);
   const openCompose = useStore(state => state.openCompose);
   const setSelectedAccount = useStore(state => state.setSelectedAccount);
@@ -14,6 +12,10 @@ export default function ElectronNotificationBridge() {
   const totalUnread = useStore(state => state.unreadCounts.total);
   const lastActionRef = useRef({ action: null, time: 0 });
   const processedActionIdsRef = useRef(new Set());
+
+  useEffect(() => {
+    installCapacitorNativeBridge();
+  }, []);
 
   useEffect(() => {
     window.__mailflowNativeBridgeReady = true;
