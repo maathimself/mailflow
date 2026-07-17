@@ -96,6 +96,7 @@
     "replyAll": "Reply All",
     "forward": "Forward",
     "from": "From",
+    "fromDeliveredTo": "delivered to",
     "to": "To",
     "cc": "Cc",
     "bcc": "Bcc",
@@ -140,6 +141,9 @@
       "title": "Message sent",
       "noCopy": "Sent, but not saved to your Sent folder",
       "action": "View"
+    },
+    "errors": {
+      "senderUnavailable": "This sending address is no longer available. Choose a different sender and try again."
     },
     "toolbar": {
       "removeTable": "Remove table",
@@ -718,6 +722,7 @@
       "presetGmail": "Gmail",
       "presetYahoo": "Yahoo Mail",
       "presetIcloud": "iCloud",
+      "presetFastmail": "Fastmail",
       "presetCustom": "Custom",
       "errorRequired": "Email, username, and IMAP host are required",
       "errorPasswordRequired": "Password is required for new accounts",
@@ -730,7 +735,18 @@
       "categorizationSection": "Email Categorization",
       "categorizationEnabled": "Enable inbox categorization",
       "categorizationEnabledDesc": "Sort incoming emails into category tabs. Disabled by default.",
-      "enabledGlobally": "Enabled globally"
+      "enabledGlobally": "Enabled globally",
+      "jmapSection": "Identity sync (JMAP)",
+      "jmapSessionUrl": "JMAP session URL",
+      "jmapSessionUrlPh": "https://mail.example.com/.well-known/jmap",
+      "jmapApiToken": "API token",
+      "jmapApiTokenPh": "Paste your JMAP API token",
+      "jmapApiTokenHelp": "Used to read which addresses you're allowed to send as (e.g. Fastmail aliases and custom domains). Read-only — MailFlow never changes anything on the server.",
+      "jmapConfigured": "Configured",
+      "jmapClear": "Clear",
+      "jmapRefresh": "Refresh now",
+      "jmapRefreshing": "Refreshing…",
+      "jmapLastSynced": "Last synced: {{when}}"
     },
     "folderMappings": {
       "title": "Folder mappings",

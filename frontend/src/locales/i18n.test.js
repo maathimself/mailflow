@@ -122,6 +122,8 @@ const SAME_VALUE_ALLOWED = {
   'admin.accounts.presetGmail':             'any', // Gmail
   'admin.accounts.presetIcloud':            'any', // iCloud
   'admin.accounts.presetYahoo':             'any', // Yahoo Mail
+  'admin.accounts.presetFastmail':          'any', // Fastmail — brand name, same everywhere
+  'admin.accounts.jmapSessionUrlPh':        'any', // https://mail.example.com/.well-known/jmap
   'admin.accounts.smtpHostPh':              'any', // smtp.gmail.com
   'admin.ai.baseUrlPh':                      'any', // http://localhost:11434/v1
   'admin.appearance.customCssPlaceholder':   'any', // CSS code snippet, same in all locales

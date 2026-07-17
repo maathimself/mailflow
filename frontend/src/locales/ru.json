@@ -96,6 +96,7 @@
     "replyAll": "Ответить всем",
     "forward": "Переслать",
     "from": "От",
+    "fromDeliveredTo": "доставлено на",
     "to": "Кому",
     "cc": "Копия",
     "bcc": "Скрытая копия",
@@ -140,6 +141,9 @@
       "title": "Сообщение отправлено",
       "noCopy": "Отправлено, но не сохранено в папке Отправленные",
       "action": "Просмотреть"
+    },
+    "errors": {
+      "senderUnavailable": "Этот адрес отправителя больше недоступен. Выберите другого отправителя и повторите попытку."
     },
     "toolbar": {
       "removeTable": "Удалить таблицу",
@@ -716,6 +720,7 @@
       "presetGmail": "Gmail",
       "presetYahoo": "Yahoo Mail",
       "presetIcloud": "iCloud",
+      "presetFastmail": "Fastmail",
       "presetCustom": "Другое",
       "errorRequired": "Требуются адрес электронной почты, имя пользователя и IMAP-сервер",
       "errorPasswordRequired": "Для новых аккаунтов требуется пароль",
@@ -730,7 +735,18 @@
       "categorizationSection": "Категоризация почты",
       "categorizationEnabled": "Включить категоризацию входящих",
       "categorizationEnabledDesc": "Сортирует входящие письма по вкладкам категорий. По умолчанию отключено.",
-      "enabledGlobally": "Включено глобально"
+      "enabledGlobally": "Включено глобально",
+      "jmapSection": "Синхронизация идентификаторов (JMAP)",
+      "jmapSessionUrl": "URL сессии JMAP",
+      "jmapSessionUrlPh": "https://mail.example.com/.well-known/jmap",
+      "jmapApiToken": "API-токен",
+      "jmapApiTokenPh": "Вставьте свой JMAP API-токен",
+      "jmapApiTokenHelp": "Используется, чтобы узнать, с каких адресов вам разрешено отправлять письма (например, псевдонимы Fastmail и собственные домены). Только чтение — MailFlow никогда не изменяет ничего на сервере.",
+      "jmapConfigured": "Настроено",
+      "jmapClear": "Очистить",
+      "jmapRefresh": "Обновить сейчас",
+      "jmapRefreshing": "Обновление…",
+      "jmapLastSynced": "Последняя синхронизация: {{when}}"
     },
     "folderMappings": {
       "title": "Сопоставление папок",

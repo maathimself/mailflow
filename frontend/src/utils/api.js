@@ -28,7 +28,11 @@ async function request(method, path, body, extraHeaders) {
       window.dispatchEvent(new CustomEvent('mailflow:session_expired'));
     }
     const err = await res.json().catch(() => ({ error: 'Request failed' }));
-    throw new Error(err.error || 'Request failed');
+    const thrown = new Error(err.error || 'Request failed');
+    // Machine-readable error codes (e.g. SENDER_UNAVAILABLE) let callers branch on the
+    // failure reason without string-matching the message.
+    if (err.code) thrown.code = err.code;
+    throw thrown;
   }
   return res.json();
 }
@@ -140,6 +144,7 @@ export const api = {
   deleteAccount: (id) => request('DELETE', `/accounts/${id}`),
   reconnectAccount: (id) => request('POST', `/accounts/${id}/reconnect`),
   reindexAccount: (id) => request('POST', `/accounts/${id}/reindex`),
+  refreshAccountIdentities: (id) => request('POST', `/accounts/${id}/identities/refresh`),
   getFolders: (accountId) => request('GET', `/accounts/${accountId}/folders`),
   getAliases: (accountId) => request('GET', `/accounts/${accountId}/aliases`),
   addAlias: (accountId, data) => request('POST', `/accounts/${accountId}/aliases`, data),
@@ -182,6 +187,9 @@ export const api = {
 
   getMessageHeaders: (id) => request('GET', `/mail/messages/${id}/headers`),
   snoozeMessage: (id, until) => request('POST', `/mail/messages/${id}/snooze`, { until }),
+  // Transient reply-From resolution (JMAP identity sync) — never returns an address list,
+  // only the single best match (or null).
+  getReplySender: (id) => request('GET', `/mail/messages/${id}/reply-sender`),
 
   // Integrations
   getIntegrations: () => request('GET', '/integrations'),
