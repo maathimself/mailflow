@@ -209,6 +209,8 @@
     "aiRegenerate": "Regenerate",
     "aiExpand": "Expand",
     "aiCollapse": "Collapse",
+    "aiCopy": "Copy",
+    "aiCopied": "Copied",
     "previousMessage": "Previous message",
     "nextMessage": "Next message",
     "archived": {
@@ -851,7 +853,17 @@
       "hoverQuickActionsOff": "Off",
       "hoverQuickActionsOffDesc": "Keep Quick Actions hidden until you use the context menu or shortcuts.",
       "hoverQuickActionsOn": "On",
-      "hoverQuickActionsOnDesc": "Show Quick Action icons in message rows when the pointer is over them."
+      "hoverQuickActionsOnDesc": "Show Quick Action icons in message rows when the pointer is over them.",
+      "mobileAvatarsMode": "Sender avatars (mobile)",
+      "mobileAvatarsOff": "Off",
+      "mobileAvatarsOffDesc": "No avatar — maximum room for sender and subject.",
+      "mobileAvatarsOn": "On",
+      "mobileAvatarsOnDesc": "Show a sender avatar in each row (uses a little width).",
+      "gravatarMode": "Gravatar avatars",
+      "gravatarOff": "Off",
+      "gravatarOffDesc": "Private — never contacts a third party.",
+      "gravatarOn": "On",
+      "gravatarOnDesc": "Fetch sender photos from Gravatar — shares hashed sender addresses with a third party."
     },
     "notifications": {
       "title": "Notifications",

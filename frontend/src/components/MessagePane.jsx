@@ -11,6 +11,7 @@ import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/p
 import DOMPurify from 'dompurify';
 import { BUILTIN_SUMMARIZE } from '../aiActions.js';
 import { getResults, saveResult, removeResult } from '../aiResults.js';
+import { renderMarkdown } from '../utils/renderMarkdown.js';
 const USE_DIV_RENDER = import.meta.env.VITE_EMAIL_DIV_RENDER === 'true';
 const MESSAGE_OPENING_EVENT = 'mailflow:message-opening';
 
@@ -2792,6 +2793,37 @@ function AiResultBox({ result, canRegen, onRegen, onDismiss }) {
   const [expanded, setExpanded] = useState(false);
   const loading = result.status === 'loading';
   const error = result.status === 'error';
+  // Render the (markdown) AI output to sanitized HTML. Memoized on the text so toggling
+  // expand/collapse doesn't re-parse; re-runs as text streams in during generation (#215).
+  const html = useMemo(() => renderMarkdown(result.text || ''), [result.text]);
+  const [copied, setCopied] = useState(false);
+  const copyTimerRef = useRef(null);
+  useEffect(() => () => clearTimeout(copyTimerRef.current), []);
+  // Copy the output to the clipboard as BOTH rich text (the rendered HTML) and source
+  // (the raw markdown), so pasting into a rich editor gives formatting and pasting into a
+  // plain field gives the markdown source (#215). Falls back to plain text where the async
+  // clipboard / ClipboardItem isn't available (e.g. non-secure context).
+  const handleCopy = async () => {
+    const source = result.text || '';
+    const flash = () => {
+      setCopied(true);
+      clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(() => setCopied(false), 1500);
+    };
+    try {
+      if (navigator.clipboard?.write && window.ClipboardItem) {
+        await navigator.clipboard.write([new window.ClipboardItem({
+          'text/html': new Blob([html], { type: 'text/html' }),
+          'text/plain': new Blob([source], { type: 'text/plain' }),
+        })]);
+      } else {
+        await navigator.clipboard.writeText(source);
+      }
+      flash();
+    } catch {
+      try { await navigator.clipboard.writeText(source); flash(); } catch { /* clipboard unavailable */ }
+    }
+  };
   const iconBtn = {
     background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)',
     padding: '2px 4px', display: 'flex', alignItems: 'center', lineHeight: 1,
@@ -2823,6 +2855,20 @@ function AiResultBox({ result, canRegen, onRegen, onDismiss }) {
               </svg>
             </button>
           )}
+          {!error && !loading && result.text && (
+            <button onClick={handleCopy} title={copied ? t('message.aiCopied') : t('message.aiCopy')} aria-label={copied ? t('message.aiCopied') : t('message.aiCopy')} style={iconBtn}>
+              {copied ? (
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+              ) : (
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                </svg>
+              )}
+            </button>
+          )}
           {!error && !loading && (
             <button onClick={() => setExpanded(v => !v)} title={expanded ? t('message.aiCollapse') : t('message.aiExpand')} aria-label={expanded ? t('message.aiCollapse') : t('message.aiExpand')} style={iconBtn}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
@@ -2839,9 +2885,11 @@ function AiResultBox({ result, canRegen, onRegen, onDismiss }) {
       ) : error ? (
         <span style={{ color: 'var(--red)' }}>{t('compose.toolbar.aiError', { message: result.text })}</span>
       ) : (
-        <div style={{ maxHeight: expanded ? 'none' : 220, overflowY: expanded ? 'visible' : 'auto', whiteSpace: 'pre-wrap' }}>
-          {result.text}
-        </div>
+        <div
+          className="ai-markdown"
+          style={{ maxHeight: expanded ? 'none' : 220, overflowY: expanded ? 'visible' : 'auto' }}
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
       )}
     </div>
   );

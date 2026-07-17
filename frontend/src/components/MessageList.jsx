@@ -109,7 +109,7 @@ export default function MessageList() {
     setMobileSidebarOpen, unreadCounts, showContacts, setShowContacts,
     threadedView, expandedThreadId, setExpandedThreadId,
     threadMessages, setThreadMessages, loadingThread, setLoadingThread,
-    hoverQuickActions,
+    hoverQuickActions, showMobileAvatars, gravatarAvatars,
     swipeActions,
     folders, favoriteFolders, addFavoriteFolder, removeFavoriteFolder, setSelectedAccount,
     categorizationEnabled, categoryCounts, setCategoryCounts, adjustCategoryCount,
@@ -3351,6 +3351,8 @@ export default function MessageList() {
                 showAccount={false} /* No per-account dot on unified rows: it added noise beside the unread indicator; the account is visible in the message pane header. */
                 isNarrow={isNarrow}
                 onThreadClick={() => handleThreadClick(message)}
+                showMobileAvatars={showMobileAvatars}
+                gravatarAvatars={gravatarAvatars}
                 onSelect={handleSelect}
                 onMarkRead={handleThreadMarkRead}
                 onStar={handleStar}
@@ -3393,6 +3395,8 @@ export default function MessageList() {
                 onToggleSelect={handleRowToggleSelect}
                 onRangeSelect={handleRangeSelect}
                 onAvatarClick={!isMobile ? handleAvatarClick : undefined}
+                showMobileAvatars={showMobileAvatars}
+                gravatarAvatars={gravatarAvatars}
                 onMarkRead={handleMarkRead}
                 onStar={handleStar}
                 onDelete={handleDelete}
@@ -3826,7 +3830,7 @@ function EmptyState({ folderSyncing, searchQuery, unreadOnly, selectedFolder, ac
   );
 }
 
-function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, lastViewedMessageId, showAccount, isNarrow, onThreadClick, onSelect, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onGtdDone, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress }) {
+function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, lastViewedMessageId, showAccount, isNarrow, onThreadClick, showMobileAvatars, gravatarAvatars, onSelect, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onGtdDone, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const messageCount = message.message_count || 1;
@@ -3838,6 +3842,10 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
   });
 
   const hasAvatar = !isNarrow && !isMobile;
+  // Avatars render on desktop always, and on mobile when the user opts in (#213). Selection/
+  // checkbox behaviour stays tied to hasAvatar (desktop only) — showAvatar only controls display,
+  // so the mobile row keeps its own unread-dot/checkbox layout and the avatar is non-interactive.
+  const showAvatar = hasAvatar || (isMobile && showMobileAvatars && !selectionMode);
   const avatarAsCheckbox = hasAvatar && selectionMode;
   // Identity-matched selection (parity with the flat MessageRow's isSelectedRow): a GTD sidebar
   // deep-link opens a different DB copy of the same mail, so match the head or any cached
@@ -3912,8 +3920,8 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
           )
         )}
 
-        {/* Avatar — morphs into a checkbox when in selection mode */}
-        {!isNarrow && !isMobile && (
+        {/* Avatar — morphs into a checkbox when in selection mode (desktop); display-only on mobile */}
+        {showAvatar && (
           <div
             onClick={selectionMode ? e => { e.stopPropagation(); onToggleSelect(message.id); } : undefined}
             style={{
@@ -3950,6 +3958,15 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                   <img
                     src={`/api/contacts/photo?email=${encodeURIComponent(message.from_email)}`}
                     alt=""
+                    style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+                    onError={e => { e.currentTarget.style.display = 'none'; }}
+                  />
+                )}
+                {!message.has_contact_photo && gravatarAvatars && message.from_email && (
+                  <img
+                    src={`/api/contacts/gravatar?email=${encodeURIComponent(message.from_email)}`}
+                    alt=""
+                    loading="lazy"
                     style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
                     onError={e => { e.currentTarget.style.display = 'none'; }}
                   />
@@ -4103,7 +4120,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
   );
 }
 
-function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, showAccount, isNarrow, onSelect, onToggleSelect, onRangeSelect, onAvatarClick, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onGtdDone, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, onLongPress }) {
+function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, showAccount, isNarrow, onSelect, onToggleSelect, onRangeSelect, onAvatarClick, showMobileAvatars, gravatarAvatars, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onGtdDone, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, onLongPress }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const [avatarHovered, setAvatarHovered] = useState(false);
@@ -4122,6 +4139,11 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
 
   // Avatar is interactive (wide layouts, desktop only) — it handles selection entry
   const hasInteractiveAvatar = !isNarrow && !isMobile && !!onAvatarClick;
+  // Display the avatar on desktop, and on mobile when opted in (#213). Interactivity
+  // (click-to-select, hover-to-checkbox) stays tied to hasInteractiveAvatar — desktop only —
+  // so on mobile the avatar is a plain, non-interactive sender avatar and the row keeps its
+  // own unread-dot / checkbox layout.
+  const showAvatar = (!isNarrow && !isMobile) || (isMobile && showMobileAvatars && !selectionMode);
   // Show avatar as checkbox when: in selection mode, or hovering over the avatar
   const avatarAsCheckbox = hasInteractiveAvatar && (selectionMode || avatarHovered);
 
@@ -4230,12 +4252,13 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
       )}
 
       <div style={{ paddingLeft: (!hasInteractiveAvatar && selectionMode) ? 22 : 0, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-        {/* Sender avatar — wide layouts only. Morphs into a checkbox on hover or in selection mode. */}
-        {!isNarrow && !isMobile && (
+        {/* Sender avatar — desktop always, or opted-in on mobile (#213). Interactive (click-to-select,
+            hover-to-checkbox) on desktop only; a plain display avatar on mobile. */}
+        {showAvatar && (
           <div
-            onClick={handleAvatarAreaClick}
-            onMouseEnter={() => setAvatarHovered(true)}
-            onMouseLeave={() => setAvatarHovered(false)}
+            onClick={hasInteractiveAvatar ? handleAvatarAreaClick : undefined}
+            onMouseEnter={hasInteractiveAvatar ? () => setAvatarHovered(true) : undefined}
+            onMouseLeave={hasInteractiveAvatar ? () => setAvatarHovered(false) : undefined}
             style={{
               width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
               position: 'relative', overflow: 'hidden',
@@ -4246,7 +4269,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               fontSize: 13, fontWeight: 600, color: avatarAsCheckbox ? (isChecked ? 'white' : 'var(--text-tertiary)') : 'white',
               marginTop: 1,
-              cursor: 'pointer',
+              cursor: hasInteractiveAvatar ? 'pointer' : 'default',
               transition: 'background 0.12s, border 0.12s',
               userSelect: 'none',
               boxSizing: 'border-box',
@@ -4269,6 +4292,15 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
                   <img
                     src={`/api/contacts/photo?email=${encodeURIComponent(message.from_email)}`}
                     alt=""
+                    style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+                    onError={e => { e.currentTarget.style.display = 'none'; }}
+                  />
+                )}
+                {!message.has_contact_photo && gravatarAvatars && message.from_email && (
+                  <img
+                    src={`/api/contacts/gravatar?email=${encodeURIComponent(message.from_email)}`}
+                    alt=""
+                    loading="lazy"
                     style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
                     onError={e => { e.currentTarget.style.display = 'none'; }}
                   />
