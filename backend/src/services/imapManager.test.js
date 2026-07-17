@@ -282,6 +282,8 @@ describe('insertCopiedSibling', () => {
     // Idempotent against the next destination-folder sync.
     expect(ins[0]).toContain('ON CONFLICT (account_id, uid, folder) DO NOTHING');
     expect(ins[1]).toEqual(['acct-1', 'INBOX', 100, 5001, 'Todo']);
+    // delivery_addresses is copied verbatim from the source row, same as list_unsubscribe.
+    expect(ins[0]).toContain('delivery_addresses');
   });
 
   it('increments destination unread only when the copied message is unread', async () => {

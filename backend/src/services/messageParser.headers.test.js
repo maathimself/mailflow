@@ -5,6 +5,7 @@ import {
   buildHeadersFromMessage,
   enrichParsedMetadata,
   parseMailboxList,
+  parseDeliveryAddresses,
   snippetFromBody,
   parseMessage,
 } from './messageParser.js';
@@ -136,6 +137,50 @@ describe('parseMailboxList', () => {
       { name: 'Bob', email: 'bob@example.com' },
       { name: '', email: 'cc@example.com' },
     ]);
+  });
+});
+
+describe('parseDeliveryAddresses', () => {
+  it('parses a single Delivered-To header', () => {
+    expect(parseDeliveryAddresses({ 'delivered-to': 'alice+work@example.com' }))
+      .toEqual(['alice+work@example.com']);
+  });
+
+  it('parses multiple values folded onto separate lines', () => {
+    expect(parseDeliveryAddresses({ 'delivered-to': 'a@example.com\nb@example.com' }))
+      .toEqual(['a@example.com', 'b@example.com']);
+  });
+
+  it('parses X-Original-To', () => {
+    expect(parseDeliveryAddresses({ 'x-original-to': 'catchall@example.com' }))
+      .toEqual(['catchall@example.com']);
+  });
+
+  it('dedupes the same address across headers, case-insensitively', () => {
+    expect(parseDeliveryAddresses({
+      'delivered-to': 'Alice@Example.com',
+      'x-original-to': 'alice@example.com',
+    })).toEqual(['alice@example.com']);
+  });
+
+  it('extracts the email from angle-bracket forms', () => {
+    expect(parseDeliveryAddresses({ 'delivered-to': 'Alice Smith <alice@example.com>' }))
+      .toEqual(['alice@example.com']);
+  });
+
+  it('returns [] when no delivery headers are present', () => {
+    expect(parseDeliveryAddresses({})).toEqual([]);
+    expect(parseDeliveryAddresses(undefined)).toEqual([]);
+  });
+
+  it('ignores junk lines that do not parse as an address', () => {
+    expect(parseDeliveryAddresses({ 'delivered-to': 'not-an-email\nbob@example.com' }))
+      .toEqual(['bob@example.com']);
+  });
+
+  it('caps the number of captured addresses', () => {
+    const flood = Array.from({ length: 80 }, (_, i) => `user${i}@example.com`).join(', ');
+    expect(parseDeliveryAddresses({ 'delivered-to': flood })).toHaveLength(50);
   });
 });
 

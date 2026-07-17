@@ -368,6 +368,28 @@ export function parseMailboxList(headerValue) {
   return results.filter(r => r.email);
 }
 
+// Headers an MTA/mailbox uses to record the address a message was actually delivered
+// to (BCC, catch-all, forwarded alias) — may be absent from To/Cc entirely.
+const DELIVERY_HEADERS = ['delivered-to', 'x-delivered-to', 'x-original-to', 'envelope-to'];
+// Sender-controlled input persisted per message; capped like subject/snippet.
+const MAX_DELIVERY_ADDRESSES = 50;
+
+export function parseDeliveryAddresses(parsedHeaders) {
+  const emails = new Set();
+  for (const header of DELIVERY_HEADERS) {
+    const value = parsedHeaders?.[header];
+    if (!value) continue;
+    for (const line of value.split(/\r?\n/)) {
+      for (const { email } of parseMailboxList(line)) {
+        const normalized = email.trim().toLowerCase();
+        if (normalized) emails.add(normalized);
+        if (emails.size >= MAX_DELIVERY_ADDRESSES) return [...emails];
+      }
+    }
+  }
+  return [...emails];
+}
+
 // Fill gaps when IMAP ENVELOPE is incomplete — common for multipart/related Sent copies.
 export function enrichParsedMetadata(parsed, {
   accountEmail,
@@ -537,6 +559,7 @@ export async function parseMessage(msg) {
     inReplyTo: envelope.inReplyTo || null,
     references,
     parsedHeaders,
+    deliveryAddresses: parseDeliveryAddresses(parsedHeaders),
     date: msg.internalDate || envelope.date || new Date(),
     snippet,
     isRead,
