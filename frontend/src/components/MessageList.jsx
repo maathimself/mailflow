@@ -14,6 +14,7 @@ import {
   classifyThread, unclassifyThread,
 } from '../utils/gtd.js';
 import { formatDate } from '../utils/formatDate.js';
+import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { createLatestRequest } from '../utils/latestRequest.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
@@ -29,12 +30,6 @@ function FolderIcon({ specialUse, size = 13 }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>;
 }
 
-function parseAddressField(raw) {
-  try {
-    const arr = Array.isArray(raw) ? raw : JSON.parse(raw || '[]');
-    return arr.map(a => a.name ? `${a.name} <${a.email}>` : a.email).filter(Boolean).join(', ');
-  } catch { return ''; }
-}
 
 // Auto-advance the reading pane when the open message leaves the list: select the
 // row that takes its place (next in display order, or previous if it was the last,
@@ -115,7 +110,7 @@ export default function MessageList() {
     setMobileSidebarOpen, unreadCounts, showContacts, setShowContacts,
     threadedView, expandedThreadId, setExpandedThreadId,
     threadMessages, setThreadMessages, loadingThread, setLoadingThread,
-    hoverQuickActions,
+    hoverQuickActions, showMobileAvatars, gravatarAvatars,
     swipeActions,
     folders, favoriteFolders, addFavoriteFolder, removeFavoriteFolder, setSelectedAccount,
     categorizationEnabled, categoryCounts, setCategoryCounts, adjustCategoryCount,
@@ -1840,126 +1835,20 @@ export default function MessageList() {
         break;
       }
       case 'reply':
-      case 'replyAll': {
-        const replyAll = action === 'replyAll';
-
-        const replyToArr = Array.isArray(message.reply_to)
-          ? message.reply_to
-          : (() => { try { return JSON.parse(message.reply_to || '[]'); } catch { return []; } })();
-        const replyTarget = (replyToArr.length && replyToArr[0].email)
-          ? replyToArr[0]
-          : { name: message.from_name || '', email: message.from_email || '' };
-        const sender = replyTarget.email ? [replyTarget] : [];
-
-        const myAccount = accounts.find(a => a.id === message.account_id);
-        const myEmail = myAccount?.email_address || '';
-        const myAddresses = new Set([
-          myEmail.toLowerCase(),
-          ...(myAccount?.aliases || []).map(al => al.email.toLowerCase()),
-        ]);
-
-        const replyAliasId = (() => {
-          const aliases = myAccount?.aliases || [];
-          if (!aliases.length) return null;
-          try {
-            const toArr = Array.isArray(message.to_addresses)
-              ? message.to_addresses
-              : JSON.parse(message.to_addresses || '[]');
-            const ccArr = Array.isArray(message.cc_addresses)
-              ? message.cc_addresses
-              : JSON.parse(message.cc_addresses || '[]');
-            const allEmails = [...toArr, ...ccArr].map(t => t.email?.toLowerCase()).filter(Boolean);
-            const fromEmail = (message.from_email || '').toLowerCase();
-            const match = aliases.find(al => {
-              const aliasEmail = al.email.toLowerCase();
-              return allEmails.includes(aliasEmail) || fromEmail === aliasEmail;
-            });
-            return match ? match.id : null;
-          } catch { return null; }
-        })();
-
-        const allRecipients = (() => {
-          try {
-            const toArr = Array.isArray(message.to_addresses)
-              ? message.to_addresses
-              : JSON.parse(message.to_addresses || '[]');
-            const ccArr = Array.isArray(message.cc_addresses)
-              ? message.cc_addresses
-              : JSON.parse(message.cc_addresses || '[]');
-            return [...toArr, ...ccArr].filter(
-              t => t.email && !myAddresses.has(t.email.toLowerCase()) && t.email !== replyTarget.email
-            );
-          } catch { return []; }
-        })();
-
-        const referencesChain = [message.in_reply_to, message.message_id]
-          .filter(Boolean).join(' ').trim() || null;
-        const rawSubject = (message.subject || '').trim();
-
-        const replyBody = await api.getMessageBody(message.id).catch(() => null);
-        const replyDate = message.date ? new Date(message.date).toLocaleString() : '';
-        const replySafeName = (message.from_name || '').replace(/[\r\n]+/g, ' ');
-        const replyFromStr = replySafeName
-          ? `${replySafeName} <${message.from_email}>`
-          : message.from_email || '';
-        const quotedText = replyBody?.text
-          ? `\n\n---\nOn ${replyDate}, ${replyFromStr} wrote:\n${replyBody.text.split('\n').map(l => '> ' + l).join('\n')}`
-          : '';
-        const quotedBodyHtml = replyBody?.html
-          ? `<div style="border-left:3px solid var(--border,#ccc);padding-left:12px;margin-top:12px;color:var(--text-secondary,#666)"><p style="margin:0 0 6px;font-size:12px">On ${replyDate}, ${replyFromStr} wrote:</p>${replyBody.html}</div>`
-          : null;
-
-        openCompose({
-          to: sender,
-          cc: replyAll ? allRecipients : [],
-          subject: rawSubject.startsWith('Re:') ? rawSubject : rawSubject ? `Re: ${rawSubject}` : 'Re:',
-          body: '',
-          quotedBody: quotedText,
-          quotedBodyHtml,
-          inReplyTo: message.message_id,
-          references: referencesChain,
-          accountId: message.account_id,
-          aliasId: replyAliasId,
-          isReply: true,
-          isReplyAll: replyAll,
-          originalFrom: sender,
-          allRecipients,
+      case 'replyAll':
+        await openReplyFromMessage(message, {
+          accounts,
+          openCompose,
+          getMessageBody: api.getMessageBody,
+          replyAll: action === 'replyAll',
         });
         break;
-      }
-      case 'forward': {
-        const fwdBody = await api.getMessageBody(message.id).catch(() => null);
-        const fwdDate = message.date ? new Date(message.date).toLocaleString() : '';
-        const fwdSafeName = (message.from_name || '').replace(/[\r\n]+/g, ' ');
-        const fwdFromStr = fwdSafeName
-          ? `${fwdSafeName} <${message.from_email}>`
-          : message.from_email || '';
-        const safeSubject = (message.subject || '').replace(/[\r\n]+/g, ' ');
-        const toStr = parseAddressField(message.to_addresses);
-        const ccStr = parseAddressField(message.cc_addresses);
-
-        const fwdText = `\n\n---------- Forwarded message ----------\nFrom: ${fwdFromStr}\nDate: ${fwdDate}\nSubject: ${safeSubject}${toStr ? `\nTo: ${toStr}` : ''}${ccStr ? `\nCc: ${ccStr}` : ''}\n\n${fwdBody?.text || ''}`;
-        const fwdHtml = fwdBody?.html
-          ? `<div style="border-left:3px solid var(--border,#ccc);padding-left:12px;margin-top:12px;color:var(--text-secondary,#666)"><p style="margin:0 0 6px;font-size:12px">---------- Forwarded message ----------<br>From: ${fwdFromStr}<br>Date: ${fwdDate}<br>Subject: ${safeSubject}${toStr ? `<br>To: ${toStr}` : ''}${ccStr ? `<br>Cc: ${ccStr}` : ''}</p>${fwdBody.html}</div>`
-          : null;
-
-        openCompose({
-          subject: message.subject?.startsWith('Fwd:') ? message.subject : `Fwd: ${message.subject}`,
-          body: '',
-          quotedBody: fwdText,
-          quotedBodyHtml: fwdHtml,
-          accountId: message.account_id,
-          isForward: true,
-          forwardedAttachments: (fwdBody?.attachments || []).map(att => ({
-            messageId: message.id,
-            part: att.part,
-            filename: att.filename || 'attachment',
-            type: att.type || 'application/octet-stream',
-            size: att.size || 0,
-          })),
+      case 'forward':
+        await openForwardFromMessage(message, {
+          openCompose,
+          getMessageBody: api.getMessageBody,
         });
         break;
-      }
       case 'bulkSelect':
         setSelectedIds(new Set([message.id]));
         break;
@@ -3481,6 +3370,8 @@ export default function MessageList() {
                 showAccount={false} /* No per-account dot on unified rows: it added noise beside the unread indicator; the account is visible in the message pane header. */
                 isNarrow={isNarrow}
                 onThreadClick={() => handleThreadClick(message)}
+                showMobileAvatars={showMobileAvatars}
+                gravatarAvatars={gravatarAvatars}
                 onSelect={handleSelect}
                 onMarkRead={handleThreadMarkRead}
                 onStar={handleStar}
@@ -3523,6 +3414,8 @@ export default function MessageList() {
                 onToggleSelect={handleRowToggleSelect}
                 onRangeSelect={handleRangeSelect}
                 onAvatarClick={!isMobile ? handleAvatarClick : undefined}
+                showMobileAvatars={showMobileAvatars}
+                gravatarAvatars={gravatarAvatars}
                 onMarkRead={handleMarkRead}
                 onStar={handleStar}
                 onDelete={handleDelete}
@@ -3956,7 +3849,7 @@ function EmptyState({ folderSyncing, searchQuery, unreadOnly, selectedFolder, ac
   );
 }
 
-function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, lastViewedMessageId, showAccount, isNarrow, onThreadClick, onSelect, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onGtdDone, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress }) {
+function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, lastViewedMessageId, showAccount, isNarrow, onThreadClick, showMobileAvatars, gravatarAvatars, onSelect, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onGtdDone, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const messageCount = message.message_count || 1;
@@ -3968,6 +3861,10 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
   });
 
   const hasAvatar = !isNarrow && !isMobile;
+  // Avatars render on desktop always, and on mobile when the user opts in (#213). Selection/
+  // checkbox behaviour stays tied to hasAvatar (desktop only) — showAvatar only controls display,
+  // so the mobile row keeps its own unread-dot/checkbox layout and the avatar is non-interactive.
+  const showAvatar = hasAvatar || (isMobile && showMobileAvatars && !selectionMode);
   const avatarAsCheckbox = hasAvatar && selectionMode;
   // Identity-matched selection (parity with the flat MessageRow's isSelectedRow): a GTD sidebar
   // deep-link opens a different DB copy of the same mail, so match the head or any cached
@@ -4042,8 +3939,8 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
           )
         )}
 
-        {/* Avatar — morphs into a checkbox when in selection mode */}
-        {!isNarrow && !isMobile && (
+        {/* Avatar — morphs into a checkbox when in selection mode (desktop); display-only on mobile */}
+        {showAvatar && (
           <div
             onClick={selectionMode ? e => { e.stopPropagation(); onToggleSelect(message.id); } : undefined}
             style={{
@@ -4080,6 +3977,15 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                   <img
                     src={`/api/contacts/photo?email=${encodeURIComponent(message.from_email)}`}
                     alt=""
+                    style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+                    onError={e => { e.currentTarget.style.display = 'none'; }}
+                  />
+                )}
+                {!message.has_contact_photo && gravatarAvatars && message.from_email && (
+                  <img
+                    src={`/api/contacts/gravatar?email=${encodeURIComponent(message.from_email)}`}
+                    alt=""
+                    loading="lazy"
                     style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
                     onError={e => { e.currentTarget.style.display = 'none'; }}
                   />
@@ -4233,7 +4139,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
   );
 }
 
-function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, showAccount, isNarrow, onSelect, onToggleSelect, onRangeSelect, onAvatarClick, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onGtdDone, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, onLongPress }) {
+function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, showAccount, isNarrow, onSelect, onToggleSelect, onRangeSelect, onAvatarClick, showMobileAvatars, gravatarAvatars, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onGtdDone, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, onLongPress }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const [avatarHovered, setAvatarHovered] = useState(false);
@@ -4252,6 +4158,11 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
 
   // Avatar is interactive (wide layouts, desktop only) — it handles selection entry
   const hasInteractiveAvatar = !isNarrow && !isMobile && !!onAvatarClick;
+  // Display the avatar on desktop, and on mobile when opted in (#213). Interactivity
+  // (click-to-select, hover-to-checkbox) stays tied to hasInteractiveAvatar — desktop only —
+  // so on mobile the avatar is a plain, non-interactive sender avatar and the row keeps its
+  // own unread-dot / checkbox layout.
+  const showAvatar = (!isNarrow && !isMobile) || (isMobile && showMobileAvatars && !selectionMode);
   // Show avatar as checkbox when: in selection mode, or hovering over the avatar
   const avatarAsCheckbox = hasInteractiveAvatar && (selectionMode || avatarHovered);
 
@@ -4360,12 +4271,13 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
       )}
 
       <div style={{ paddingLeft: (!hasInteractiveAvatar && selectionMode) ? 22 : 0, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-        {/* Sender avatar — wide layouts only. Morphs into a checkbox on hover or in selection mode. */}
-        {!isNarrow && !isMobile && (
+        {/* Sender avatar — desktop always, or opted-in on mobile (#213). Interactive (click-to-select,
+            hover-to-checkbox) on desktop only; a plain display avatar on mobile. */}
+        {showAvatar && (
           <div
-            onClick={handleAvatarAreaClick}
-            onMouseEnter={() => setAvatarHovered(true)}
-            onMouseLeave={() => setAvatarHovered(false)}
+            onClick={hasInteractiveAvatar ? handleAvatarAreaClick : undefined}
+            onMouseEnter={hasInteractiveAvatar ? () => setAvatarHovered(true) : undefined}
+            onMouseLeave={hasInteractiveAvatar ? () => setAvatarHovered(false) : undefined}
             style={{
               width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
               position: 'relative', overflow: 'hidden',
@@ -4376,7 +4288,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               fontSize: 13, fontWeight: 600, color: avatarAsCheckbox ? (isChecked ? 'white' : 'var(--text-tertiary)') : 'white',
               marginTop: 1,
-              cursor: 'pointer',
+              cursor: hasInteractiveAvatar ? 'pointer' : 'default',
               transition: 'background 0.12s, border 0.12s',
               userSelect: 'none',
               boxSizing: 'border-box',
@@ -4399,6 +4311,15 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
                   <img
                     src={`/api/contacts/photo?email=${encodeURIComponent(message.from_email)}`}
                     alt=""
+                    style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+                    onError={e => { e.currentTarget.style.display = 'none'; }}
+                  />
+                )}
+                {!message.has_contact_photo && gravatarAvatars && message.from_email && (
+                  <img
+                    src={`/api/contacts/gravatar?email=${encodeURIComponent(message.from_email)}`}
+                    alt=""
+                    loading="lazy"
                     style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
                     onError={e => { e.currentTarget.style.display = 'none'; }}
                   />

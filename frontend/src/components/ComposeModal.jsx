@@ -2363,6 +2363,22 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
   const linkInputRef = useRef(null);
   const [showMobileMore, setShowMobileMore] = useState(false);
 
+  // Refs on the toolbar rows so we can keep their controls out of the Tab order (#266).
+  const desktopBarRef = useRef(null);
+  const mobileBarRef = useRef(null);
+  const mobileMoreRef = useRef(null);
+
+  // Keep every formatting-toolbar control out of the Tab sequence so Tab from the
+  // Subject field lands directly in the editor body (#266). Formatting stays reachable
+  // by mouse and the standard editor shortcuts (Ctrl/Cmd+B, +I, etc.). Re-applied after
+  // each render so conditionally-mounted controls (AI, HTML source, mobile "more") are
+  // covered too. The popovers render outside these rows, so their inputs stay focusable.
+  useEffect(() => {
+    [desktopBarRef, mobileBarRef, mobileMoreRef].forEach(r =>
+      r.current?.querySelectorAll('button, select').forEach(el => { el.tabIndex = -1; })
+    );
+  });
+
   // Focus the link URL input without triggering a browser scroll — autoFocus
   // causes Chromium/Linux to scroll the viewport when the input is near the
   // right edge, making the compose window appear to shift left.
@@ -2498,7 +2514,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
     <>
       {isMobile ? (
         <>
-          <div style={{ borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', padding: '2px 0' }}>
+          <div ref={mobileBarRef} style={{ borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', padding: '2px 0' }}>
             {mtb(es.bold, 'Bold', e => { e.preventDefault(); editor.chain().focus().toggleBold().run(); }, <b>B</b>)}
             {mtb(es.italic, 'Italic', e => { e.preventDefault(); editor.chain().focus().toggleItalic().run(); }, <i>I</i>)}
             {mtb(es.underline, 'Underline', e => { e.preventDefault(); editor.chain().focus().toggleUnderline().run(); }, <u>U</u>)}
@@ -2537,7 +2553,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
               style={{ background: showMobileMore ? 'var(--bg-hover)' : 'none', border: 'none', borderRadius: 4, padding: '6px 4px', color: showMobileMore ? 'var(--accent)' : 'var(--text-secondary)', cursor: 'pointer', fontSize: 18, fontWeight: 300, lineHeight: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 1, WebkitTapHighlightColor: 'transparent' }}>+</button>
           </div>
           {showMobileMore && (
-            <div style={{ borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', padding: '2px 0', flexWrap: 'wrap' }}>
+            <div ref={mobileMoreRef} style={{ borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', padding: '2px 0', flexWrap: 'wrap' }}>
               <button ref={colorBtnRef} title={t('compose.toolbar.textColor')} onMouseDown={openColor}
                 style={{ background: 'none', border: 'none', borderRadius: 4, padding: '6px 10px', cursor: 'pointer', display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 1, WebkitTapHighlightColor: 'transparent' }}>
                 <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-secondary)', lineHeight: 1 }}>A</span>
@@ -2565,7 +2581,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
           )}
         </>
       ) : (
-      <div style={{ borderBottom: '1px solid var(--border-subtle)', display: 'flex', gap: 2, padding: '4px 10px', flexWrap: 'wrap', alignItems: 'center' }}>
+      <div ref={desktopBarRef} style={{ borderBottom: '1px solid var(--border-subtle)', display: 'flex', gap: 2, padding: '4px 10px', flexWrap: 'wrap', alignItems: 'center' }}>
         {/* Font picker */}
         <select
           value={es.fontFamily || localStorage.getItem('mailflow_compose_font_family') || ''}

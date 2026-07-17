@@ -1403,7 +1403,7 @@ function SwipeActionIcon({ action, size = 17 }) {
 function LayoutsTab() {
   const { t } = useTranslation();
   const isMobile = useMobile();
-  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay } = useStore();
+  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay } = useStore();
 
   // "Set MailFlow as your default email app": registerProtocolHandler is the
   // cross-browser path (works in Firefox and non-installed Chromium) and must be
@@ -1624,6 +1624,70 @@ function LayoutsTab() {
             })}
           </div>
         </div>
+
+        <div style={{ marginTop: 22, paddingTop: 18, borderTop: '1px solid var(--border-subtle)' }}>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
+            {t('admin.messageList.gravatarMode')}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {[
+              { id: false, label: t('admin.messageList.gravatarOff'), desc: t('admin.messageList.gravatarOffDesc') },
+              { id: true, label: t('admin.messageList.gravatarOn'), desc: t('admin.messageList.gravatarOnDesc') },
+            ].map(({ id, label, desc }) => {
+              const active = gravatarAvatars === id;
+              return (
+                <button
+                  key={String(id)}
+                  onClick={() => setGravatarAvatars(id)}
+                  style={{
+                    flex: 1, padding: '10px 12px', textAlign: 'left',
+                    background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
+                    border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
+                    borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s', outline: 'none',
+                  }}
+                  onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; }}
+                  onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
+                >
+                  <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{label}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{desc}</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {isMobile && (
+          <div style={{ marginTop: 22, paddingTop: 18, borderTop: '1px solid var(--border-subtle)' }}>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
+              {t('admin.messageList.mobileAvatarsMode')}
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {[
+                { id: false, label: t('admin.messageList.mobileAvatarsOff'), desc: t('admin.messageList.mobileAvatarsOffDesc') },
+                { id: true, label: t('admin.messageList.mobileAvatarsOn'), desc: t('admin.messageList.mobileAvatarsOnDesc') },
+              ].map(({ id, label, desc }) => {
+                const active = showMobileAvatars === id;
+                return (
+                  <button
+                    key={String(id)}
+                    onClick={() => setShowMobileAvatars(id)}
+                    style={{
+                      flex: 1, padding: '10px 12px', textAlign: 'left',
+                      background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
+                      border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
+                      borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s', outline: 'none',
+                    }}
+                    onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; }}
+                    onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
+                  >
+                    <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{label}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{desc}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {isMobile && (
           <div style={{ marginTop: 22, paddingTop: 18, borderTop: '1px solid var(--border-subtle)' }}>
@@ -5370,6 +5434,12 @@ function RulesTab() {
   const [runResult, setRunResult] = useState(null);
   const [runError, setRunError] = useState('');
 
+  // Drag-and-drop state for rules reorder
+  const [ruleDragIdx, setRuleDragIdx] = useState(null);
+  const [ruleDropIdx, setRuleDropIdx] = useState(null);
+
+  const isMobile = useMobile();
+
   async function handleRunRules() {
     setRunningRules(true);
     setRunResult(null);
@@ -5525,6 +5595,17 @@ function RulesTab() {
     } finally {
       setFormSaving(false);
     }
+  }
+
+  async function handleReorderRules(from, to) {
+    const copy = [...rules];
+    const reordered = [...rules];
+    const [moved] = reordered.splice(from, 1);
+    reordered.splice(to, 0, moved);
+
+    setRules(reordered);
+
+    api.reorderRules(reordered.map(r => r.id)).catch(() => { setRules(copy); })
   }
 
   function setCondition(idx, key, val) {
@@ -5884,53 +5965,99 @@ function RulesTab() {
         <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{t('admin.rules.empty')}</div>
       )}
 
-      {rules.map(rule => (
-        <div key={rule.id} style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 8, padding: '12px 14px', marginBottom: 8 }}>
-          {confirmDelete === rule.id ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 13, color: 'var(--text-primary)', flex: 1 }}>{t('admin.rules.deleteConfirm')}</span>
-              <button
-                onClick={() => handleDelete(rule.id)}
-                style={{ padding: '5px 12px', background: 'var(--red)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}
-              >
-                {t('admin.rules.deleteButton')}
-              </button>
-              <button
-                onClick={() => setConfirmDelete(null)}
-                style={{ padding: '5px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 6, fontSize: 12, cursor: 'pointer', color: 'var(--text-primary)' }}
-              >
-                {t('common.cancel')}
-              </button>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 0, cursor: 'pointer', marginTop: 2, flexShrink: 0 }}>
-                <input type="checkbox" checked={rule.enabled} onChange={() => handleToggle(rule)} />
-              </label>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 2 }}>{rule.name || '(unnamed)'}</div>
-                <div style={{ fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {conditionSummary(rule)} → {actionSummary(rule)}
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+      {rules.map((rule, idx) => {
+        const isDragging = ruleDragIdx === idx;
+        const isDropTarget = ruleDropIdx === idx && ruleDragIdx !== null && ruleDragIdx !== idx;
+        const canDrag = rules.length > 1;
+
+        return (
+          <div
+            key={rule.id}
+            className="no-callout"
+            onDragOver={e => {
+              e.preventDefault();
+              setRuleDropIdx(idx);
+            }}
+            onDrop={e => {
+              e.preventDefault();
+              if (canDrag && ruleDragIdx !== null && ruleDragIdx !== idx) {
+                handleReorderRules(ruleDragIdx, idx)
+              }
+
+              setRuleDragIdx(null);
+              setRuleDropIdx(null);
+            }}
+            onDragEnd={canDrag ? () => { setRuleDragIdx(null); setRuleDropIdx(null); } : undefined}
+            style={{
+              padding: '12px 14px',
+              marginBottom: 8,
+              borderRadius: 8,
+              touchAction: 'pan-y',
+              background: 'var(--bg-tertiary)',
+              opacity: isDragging ? 0.4 : 1,
+              border: '1px solid var(--border)',
+              borderTop: isDropTarget ? '1px solid var(--accent)' : '1px solid var(--border)'
+            }}
+          >
+            {confirmDelete === rule.id ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 13, color: 'var(--text-primary)', flex: 1 }}>{t('admin.rules.deleteConfirm')}</span>
                 <button
-                  onClick={() => openEdit(rule)}
-                  style={{ padding: '4px 10px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 6, fontSize: 12, cursor: 'pointer', color: 'var(--text-primary)' }}
-                >
-                  {t('admin.rules.editButton')}
-                </button>
-                <button
-                  onClick={() => setConfirmDelete(rule.id)}
-                  style={{ padding: '4px 10px', background: 'none', border: '1px solid var(--red)', borderRadius: 6, fontSize: 12, cursor: 'pointer', color: 'var(--red)' }}
+                  onClick={() => handleDelete(rule.id)}
+                  style={{ padding: '5px 12px', background: 'var(--red)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}
                 >
                   {t('admin.rules.deleteButton')}
                 </button>
+                <button
+                  onClick={() => setConfirmDelete(null)}
+                  style={{ padding: '5px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 6, fontSize: 12, cursor: 'pointer', color: 'var(--text-primary)' }}
+                >
+                  {t('common.cancel')}
+                </button>
               </div>
-            </div>
-          )}
-        </div>
-      ))}
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                {canDrag && (
+                  <span
+                    draggable={!isMobile}
+                    onDragStart={!isMobile ? () => { setRuleDragIdx(idx); setRuleDropIdx(null); } : undefined}
+                    style={{ color: 'var(--text-primary)', flexShrink: 0, display: 'flex', opacity: 0.4, cursor: isMobile ? 'default' : 'grab' }}
+                  >
+                    <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor">
+                      <circle cx="2" cy="2" r="1.5"/><circle cx="8" cy="2" r="1.5"/>
+                      <circle cx="2" cy="7" r="1.5"/><circle cx="8" cy="7" r="1.5"/>
+                      <circle cx="2" cy="12" r="1.5"/><circle cx="8" cy="12" r="1.5"/>
+                    </svg>
+                  </span>
+                )}
+                <label style={{ display: 'flex', alignItems: 'center', gap: 0, cursor: 'pointer', marginTop: 2, flexShrink: 0 }}>
+                  <input type="checkbox" checked={rule.enabled} onChange={() => handleToggle(rule)} />
+                </label>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 2 }}>{rule.name || '(unnamed)'}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {conditionSummary(rule)} → {actionSummary(rule)}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                  <button
+                    onClick={() => openEdit(rule)}
+                    style={{ padding: '4px 10px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 6, fontSize: 12, cursor: 'pointer', color: 'var(--text-primary)' }}
+                  >
+                    {t('admin.rules.editButton')}
+                  </button>
+                  <button
+                    onClick={() => setConfirmDelete(rule.id)}
+                    style={{ padding: '4px 10px', background: 'none', border: '1px solid var(--red)', borderRadius: 6, fontSize: 12, cursor: 'pointer', color: 'var(--red)' }}
+                  >
+                    {t('admin.rules.deleteButton')}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      })}
     </div>
   );
 }

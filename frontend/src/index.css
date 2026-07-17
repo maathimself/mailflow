@@ -335,6 +335,41 @@ body, #root {
   z-index: 2;
 }
 
+/* Rendered markdown in AI operation output cards (#215). Scoped to .ai-markdown so it
+   never affects other content. Spacing is tight to sit inside the compact result card. */
+.ai-markdown > *:first-child { margin-top: 0; }
+.ai-markdown > *:last-child { margin-bottom: 0; }
+.ai-markdown p { margin: 0 0 8px; }
+.ai-markdown h1, .ai-markdown h2, .ai-markdown h3,
+.ai-markdown h4, .ai-markdown h5, .ai-markdown h6 {
+  margin: 12px 0 6px; font-weight: 600; line-height: 1.3;
+}
+.ai-markdown h1 { font-size: 1.25em; }
+.ai-markdown h2 { font-size: 1.15em; }
+.ai-markdown h3 { font-size: 1.05em; }
+.ai-markdown h4, .ai-markdown h5, .ai-markdown h6 { font-size: 1em; }
+.ai-markdown ul, .ai-markdown ol { margin: 4px 0 8px; padding-left: 20px; }
+.ai-markdown li { margin: 2px 0; }
+.ai-markdown li > ul, .ai-markdown li > ol { margin: 2px 0; }
+.ai-markdown a { color: var(--accent); text-decoration: underline; }
+.ai-markdown code {
+  background: var(--bg-tertiary); padding: 1px 4px; border-radius: 4px;
+  font-family: monospace; font-size: 0.9em;
+}
+.ai-markdown pre {
+  background: var(--bg-tertiary); padding: 8px 10px; border-radius: 6px;
+  overflow-x: auto; margin: 6px 0;
+}
+.ai-markdown pre code { background: none; padding: 0; }
+.ai-markdown blockquote {
+  border-left: 3px solid var(--border); margin: 6px 0; padding-left: 10px;
+  color: var(--text-secondary);
+}
+.ai-markdown hr { border: none; border-top: 1px solid var(--border-subtle); margin: 10px 0; }
+.ai-markdown table { border-collapse: collapse; margin: 6px 0; font-size: 0.95em; }
+.ai-markdown th, .ai-markdown td { border: 1px solid var(--border); padding: 3px 8px; }
+.ai-markdown th { background: var(--bg-tertiary); }
+
 /* Email div renderer — resets MailFlow styles from the inner email root so email
    CSS starts from browser defaults. contain:layout style scopes position:fixed/
    absolute descendants and CSS counters. Paint containment is intentionally

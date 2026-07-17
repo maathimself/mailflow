@@ -157,6 +157,63 @@ router.get('/messages/:id', async (req, res) => {
   }
 });
 
+// Resolve a message by a DURABLE reference, for deep links (#270). The row's UUID PK is
+// regenerated when an email is moved/resynced (rows are purged + re-inserted), so a deep
+// link keyed on the UUID dies once the email changes folder. We instead match the stable
+// RFC Message-ID header first, then fall back to the UUID for legacy links and push
+// notifications (which still embed the UUID and are short-lived anyway). Columns and the
+// user-scoping (a.user_id, is_deleted) mirror GET /messages/:id. Distinct path so it never
+// collides with the greedy /messages/:id route.
+router.get('/resolve-message', async (req, res) => {
+  const ref = typeof req.query.ref === 'string' ? req.query.ref : '';
+  if (!ref) return res.status(400).json({ error: 'Missing ref' });
+  const rawAccountId = typeof req.query.accountId === 'string' ? req.query.accountId : '';
+  if (rawAccountId && !UUID_RE.test(rawAccountId)) {
+    return res.status(400).json({ error: 'Invalid accountId' });
+  }
+  const accountId = rawAccountId || null;
+  const COLS = `m.id, m.uid, m.folder, m.message_id, m.subject,
+             m.from_name, m.from_email, m.to_addresses, m.cc_addresses,
+             m.reply_to, m.in_reply_to,
+             m.date, m.snippet, m.is_read, m.is_starred,
+             m.has_attachments, m.account_id, m.category,
+             m.list_unsubscribe, m.list_unsubscribe_post, m.unsubscribed_at,
+             a.name AS account_name, a.email_address AS account_email,
+             a.color AS account_color`;
+  try {
+    // Durable match on the stable Message-ID header. When the same email exists in more
+    // than one folder (e.g. INBOX + Archive), prefer the INBOX copy, then the most recent.
+    let result = await query(`
+      SELECT ${COLS}
+      FROM messages m
+      JOIN email_accounts a ON m.account_id = a.id
+      WHERE m.message_id = $1
+        AND a.user_id = $2
+        AND m.is_deleted = false
+        AND ($3::uuid IS NULL OR m.account_id = $3)
+      ORDER BY (m.folder = 'INBOX') DESC, m.date DESC NULLS LAST
+      LIMIT 1
+    `, [ref, req.session.userId, accountId]);
+    // Legacy links / push notifications carry the UUID primary key.
+    if (result.rows.length === 0 && UUID_RE.test(ref)) {
+      result = await query(`
+        SELECT ${COLS}
+        FROM messages m
+        JOIN email_accounts a ON m.account_id = a.id
+        WHERE m.id = $1
+          AND a.user_id = $2
+          AND m.is_deleted = false
+          AND ($3::uuid IS NULL OR m.account_id = $3)
+      `, [ref, req.session.userId, accountId]);
+    }
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Message not found' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('GET /resolve-message error:', err.message);
+    res.status(500).json({ error: 'Failed to resolve message' });
+  }
+});
+
 // Returns true if remote images should be blocked for this message given the user's preferences.
 // Default behaviour (no preference set) is to block.
 function shouldBlockImages(prefs, message) {

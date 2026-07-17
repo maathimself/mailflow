@@ -49,7 +49,11 @@ export default function TodoistTaskModal({ message, onClose }) {
     setCreating(true);
     setError('');
     try {
-      const mailflowLink = message?.id ? `[View in MailFlow](${window.location.origin}/?m=${message.id})` : '';
+      // Key the deep link on the stable Message-ID header so it survives the email being
+      // moved to another folder (the row's UUID is regenerated on move/resync). Fall back to
+      // the UUID for messages with no Message-ID. Both resolve via /resolve-message (#270).
+      const linkRef = message?.message_id || message?.id;
+      const mailflowLink = linkRef ? `[View in MailFlow](${window.location.origin}/?m=${encodeURIComponent(linkRef)})` : '';
       const fullDescription = [description.trim(), mailflowLink].filter(Boolean).join('\n\n');
       const task = await api.todoist.createTask({
         content: title.trim(),
