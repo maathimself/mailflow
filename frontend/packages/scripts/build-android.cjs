@@ -5,8 +5,8 @@ const root = path.join(__dirname, '..', '..');
 const androidDir = path.join(root, 'packages', 'android');
 const gradle = process.platform === 'win32' ? 'gradlew.bat' : 'sh';
 const args = process.platform === 'win32'
-  ? [':app:assembleRelease']
-  : ['gradlew', ':app:assembleRelease'];
+  ? [':app:assembleRelease', ':app:bundleRelease']
+  : ['gradlew', ':app:assembleRelease', ':app:bundleRelease'];
 
 const result = spawnSync(gradle, args, {
   cwd: androidDir,

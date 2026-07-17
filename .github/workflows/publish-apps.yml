@@ -155,7 +155,9 @@ jobs:
         with:
           name: mailflow-android
           if-no-files-found: error
-          path: frontend/packages/release/*.apk
+          path: |
+            frontend/packages/release/*.aab
+            frontend/packages/release/*.apk
 
   release:
     name: Attach to GitHub Release
@@ -187,6 +189,7 @@ jobs:
         with:
           tag_name: ${{ steps.app-version.outputs.version }}
           files: |
+            artifacts/**/*.aab
             artifacts/**/*.apk
             artifacts/**/*.deb
             artifacts/**/*.dmg

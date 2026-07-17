@@ -15,6 +15,10 @@ const apks = outputFiles.filter((file) => {
   const normalized = file.replace(/\\/g, '/').toLowerCase();
   return normalized.endsWith('.apk') && normalized.includes('/release/') && !normalized.endsWith('-unsigned.apk');
 });
+const bundles = outputFiles.filter((file) => {
+  const normalized = file.replace(/\\/g, '/').toLowerCase();
+  return normalized.endsWith('.aab') && normalized.includes('/release/');
+});
 
 if (apks.length === 0) {
   const unsignedApks = outputFiles.filter((file) => {
@@ -30,6 +34,13 @@ if (apks.length === 0) {
   throw new Error(`No signed Android release APK files found under ${outputsDir}.${unsignedHint}${found ? ` Found:\n  ${found}` : ''}`);
 }
 
+if (bundles.length === 0) {
+  const found = outputFiles
+    .map((file) => path.relative(root, file))
+    .join('\n  ');
+  throw new Error(`No signed Android release AAB files found under ${outputsDir}.${found ? ` Found:\n  ${found}` : ''}`);
+}
+
 fs.mkdirSync(releaseDir, { recursive: true });
 
 for (const apk of apks) {
@@ -37,6 +48,13 @@ for (const apk of apks) {
   const target = path.join(releaseDir, `MailFlow-${packageJson.version}${suffix}.apk`);
   fs.copyFileSync(apk, target);
   console.log(`Copied ${path.relative(root, apk)} -> ${path.relative(root, target)}`);
+}
+
+for (const bundle of bundles) {
+  const suffix = bundles.length === 1 ? '' : `-${path.basename(bundle, '.aab')}`;
+  const target = path.join(releaseDir, `MailFlow-${packageJson.version}${suffix}.aab`);
+  fs.copyFileSync(bundle, target);
+  console.log(`Copied ${path.relative(root, bundle)} -> ${path.relative(root, target)}`);
 }
 
 function listFiles(dir) {

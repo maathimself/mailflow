@@ -71,8 +71,12 @@ public class MailFlowNativePlugin extends Plugin {
     private static final String PREF_UPDATE_VERSION = "update_version";
     private static final String PREF_UPDATE_RELEASE_NAME = "update_release_name";
     private static final String SETUP_URL = "file:///android_asset/public/index.html";
-    // private static final String UPDATE_RELEASE_URL = "https://api.github.com/repos/maathimself/mailflow/releases/latest";
+    private static final String UPDATE_RELEASE_URL = "https://api.github.com/repos/maathimself/mailflow/releases/latest";
+    
+    /* Old dev fork url
     private static final String UPDATE_RELEASE_URL = "https://api.github.com/repos/dcoffin88/mailflow/releases/latest";
+    */
+    
     private static final String UPDATE_ERROR_MESSAGE = "Could not check for MailFlow updates. Please visit the website instead.";
     private static final Pattern VERSION_PATTERN = Pattern.compile("\\d+(?:\\.\\d+){0,2}");
 
