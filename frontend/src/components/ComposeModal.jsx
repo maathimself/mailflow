@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import DOMPurify from 'dompurify';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
+import { accountFromValue, aliasFromValue, sendAsFromValue, resolveFromValue } from '../utils/fromValue.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { useEditor, EditorContent, useEditorState, NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react';
 import { Extension } from '@tiptap/core';
@@ -235,7 +236,10 @@ export default function ComposeModal() {
 
   const initialFromValue = () => {
     if (composeData?.aliasId && composeData?.accountId) {
-      return `alias:${composeData.aliasId}:${composeData.accountId}`;
+      return aliasFromValue(composeData.aliasId, composeData.accountId);
+    }
+    if (composeData?.sendAs?.accountId && composeData?.sendAs?.fromEmail) {
+      return sendAsFromValue(composeData.sendAs.accountId, composeData.sendAs.fromEmail);
     }
     const lastUsedId = localStorage.getItem('mailflow_last_from_account');
     const acctId = composeData?.accountId
@@ -243,20 +247,11 @@ export default function ComposeModal() {
       || (lastUsedId && accounts.find(a => a.id === lastUsedId) ? lastUsedId : null)
       || accounts[0]?.id
       || '';
-    return acctId ? `account:${acctId}` : '';
+    return acctId ? accountFromValue(acctId) : '';
   };
   const [fromValue, setFromValue] = useState(initialFromValue);
 
-  const resolveFrom = (val) => {
-    if (!val) return { accountId: '', aliasId: null };
-    if (val.startsWith('alias:')) {
-      const parts = val.split(':');
-      return { aliasId: parts[1], accountId: parts[2] };
-    }
-    return { accountId: val.replace('account:', ''), aliasId: null };
-  };
-
-  const fromResolved = resolveFrom(fromValue);
+  const fromResolved = resolveFromValue(fromValue);
   const fromAccount = accounts.find(a => a.id === fromResolved.accountId);
   const fromAlias = fromResolved.aliasId
     ? fromAccount?.aliases?.find(al => al.id === fromResolved.aliasId)
@@ -740,7 +735,7 @@ export default function ComposeModal() {
 
   const handleSend = async ({ skipSubjectWarn = false, skipAttachWarn = false } = {}) => {
     if (sending) return; // guard against a rapid double-submit (e.g. double Ctrl/Cmd+Enter)
-    const { accountId, aliasId } = resolveFrom(fromValue);
+    const { accountId, aliasId, fromEmail } = resolveFromValue(fromValue);
     const toFinal = [...toChips, ...(toInput.trim() ? [toInput.trim()] : [])];
     if (!toFinal.length || !accountId) return;
 
@@ -775,6 +770,7 @@ export default function ComposeModal() {
       const sendResult = await api.post('/mail/send', {
         accountId,
         ...(aliasId ? { aliasId } : {}),
+        ...(fromEmail ? { fromEmail } : {}),
         to: toFinal,
         cc: [...ccChips, ...(ccInput.trim() ? [ccInput.trim()] : [])],
         bcc: [...bccChips, ...(bccInput.trim() ? [bccInput.trim()] : [])],
@@ -835,6 +831,15 @@ export default function ComposeModal() {
         setTimeout(refreshThread, 10000);
       }
     } catch (err) {
+      if (err.code === 'SENDER_UNAVAILABLE') {
+        // The transient sender is no longer authorized (e.g. the identity was removed from
+        // the provider between reply and send) — quiet toast, not an inline form error, and
+        // fall back to the account's default From rather than leaving an unsendable value selected.
+        addNotification({ type: 'error', title: t('compose.errors.senderUnavailable') });
+        setFromValue(accountFromValue(accountId));
+        setSending(false);
+        return;
+      }
       setError(err.message);
       setSending(false);
     }
@@ -856,7 +861,10 @@ export default function ComposeModal() {
   };
 
   const doSaveDraft = async ({ closeAfter = false } = {}) => {
-    const { accountId, aliasId } = resolveFrom(fromValue);
+    // Drafts keep today's shape (accountId/aliasId only) — a sendas selection isn't
+    // persisted here; saving a draft with a transient sender falls back to the account
+    // default, same as before this feature existed.
+    const { accountId, aliasId } = resolveFromValue(fromValue);
     if (!accountId) return;
     setSavingDraft(true);
     try {
@@ -1139,20 +1147,28 @@ export default function ComposeModal() {
               {accounts.map(a => {
                 const aliases = a.aliases || [];
                 const displayName = a.sender_name || a.name;
-                if (!aliases.length) {
+                // Pin the transient reply-time sender at the top of this account's group,
+                // for this draft only — never saved as an alias, never listed anywhere else.
+                const sendAsHere = composeData?.sendAs?.accountId === a.id ? composeData.sendAs : null;
+                if (!aliases.length && !sendAsHere) {
                   return (
-                    <option key={a.id} value={`account:${a.id}`} style={{ background: 'var(--bg-tertiary)' }}>
+                    <option key={a.id} value={accountFromValue(a.id)} style={{ background: 'var(--bg-tertiary)' }}>
                       {displayName} &lt;{a.email_address}&gt;
                     </option>
                   );
                 }
                 return (
                   <optgroup key={a.id} label={a.name} style={{ background: 'var(--bg-tertiary)' }}>
-                    <option value={`account:${a.id}`} style={{ background: 'var(--bg-tertiary)' }}>
+                    {sendAsHere && (
+                      <option value={sendAsFromValue(a.id, sendAsHere.fromEmail)} style={{ background: 'var(--bg-tertiary)' }}>
+                        {sendAsHere.name || sendAsHere.fromEmail} &lt;{sendAsHere.fromEmail}&gt; ({t('compose.fromDeliveredTo')})
+                      </option>
+                    )}
+                    <option value={accountFromValue(a.id)} style={{ background: 'var(--bg-tertiary)' }}>
                       {displayName} &lt;{a.email_address}&gt;
                     </option>
                     {aliases.map(alias => (
-                      <option key={alias.id} value={`alias:${alias.id}:${a.id}`} style={{ background: 'var(--bg-tertiary)' }}>
+                      <option key={alias.id} value={aliasFromValue(alias.id, a.id)} style={{ background: 'var(--bg-tertiary)' }}>
                         {alias.name} &lt;{alias.email}&gt;
                       </option>
                     ))}
@@ -1787,20 +1803,28 @@ export default function ComposeModal() {
             {accounts.map(a => {
               const aliases = a.aliases || [];
               const displayName = a.sender_name || a.name;
-              if (!aliases.length) {
+              // Pin the transient reply-time sender at the top of this account's group,
+              // for this draft only — never saved as an alias, never listed anywhere else.
+              const sendAsHere = composeData?.sendAs?.accountId === a.id ? composeData.sendAs : null;
+              if (!aliases.length && !sendAsHere) {
                 return (
-                  <option key={a.id} value={`account:${a.id}`} style={{ background: 'var(--bg-tertiary)' }}>
+                  <option key={a.id} value={accountFromValue(a.id)} style={{ background: 'var(--bg-tertiary)' }}>
                     {displayName} &lt;{a.email_address}&gt;
                   </option>
                 );
               }
               return (
                 <optgroup key={a.id} label={a.name} style={{ background: 'var(--bg-tertiary)' }}>
-                  <option value={`account:${a.id}`} style={{ background: 'var(--bg-tertiary)' }}>
+                  {sendAsHere && (
+                    <option value={sendAsFromValue(a.id, sendAsHere.fromEmail)} style={{ background: 'var(--bg-tertiary)' }}>
+                      {sendAsHere.name || sendAsHere.fromEmail} &lt;{sendAsHere.fromEmail}&gt; ({t('compose.fromDeliveredTo')})
+                    </option>
+                  )}
+                  <option value={accountFromValue(a.id)} style={{ background: 'var(--bg-tertiary)' }}>
                     {displayName} &lt;{a.email_address}&gt;
                   </option>
                   {aliases.map(alias => (
-                    <option key={alias.id} value={`alias:${alias.id}:${a.id}`} style={{ background: 'var(--bg-tertiary)' }}>
+                    <option key={alias.id} value={aliasFromValue(alias.id, a.id)} style={{ background: 'var(--bg-tertiary)' }}>
                       {alias.name} &lt;{alias.email}&gt;
                     </option>
                   ))}

@@ -85,6 +85,15 @@ describe('providerProfile — host detection', () => {
 
   it.each([
     ['imap.fastmail.com'],
+    ['smtp.fastmail.com'],
+    ['imap.messagingengine.com'], // Fastmail's underlying infra host (imap.fastmail.com CNAMEs here)
+  ])('detects fastmail for %s (own profile, not the generic fallback)', host => {
+    const p = providerProfile(account(host));
+    expect(p).toBe(providerProfile({ imap_host: 'imap.fastmail.com' }));
+    expect(p).not.toBe(providerProfile(account('unknown-provider.example.com')));
+  });
+
+  it.each([
     ['imap.protonmail.com'],
   ])('falls back to generic for unknown host %s', host => {
     const p = providerProfile(account(host));
@@ -282,6 +291,8 @@ describe('insertCopiedSibling', () => {
     // Idempotent against the next destination-folder sync.
     expect(ins[0]).toContain('ON CONFLICT (account_id, uid, folder) DO NOTHING');
     expect(ins[1]).toEqual(['acct-1', 'INBOX', 100, 5001, 'Todo']);
+    // delivery_addresses is copied verbatim from the source row, same as list_unsubscribe.
+    expect(ins[0]).toContain('delivery_addresses');
   });
 
   it('increments destination unread only when the copied message is unread', async () => {

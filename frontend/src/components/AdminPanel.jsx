@@ -41,10 +41,17 @@ const COLORS = [
 
 // ─── IMAP presets ─────────────────────────────────────────────────────────────
 const PRESETS = {
-  gmail:   { label: 'Gmail',   imap_host: 'imap.gmail.com',        imap_port: 993, smtp_host: 'smtp.gmail.com',        smtp_port: 587 },
-  yahoo:   { label: 'Yahoo',   imap_host: 'imap.mail.yahoo.com',   imap_port: 993, smtp_host: 'smtp.mail.yahoo.com',   smtp_port: 587 },
-  icloud:  { label: 'iCloud',  imap_host: 'imap.mail.me.com',      imap_port: 993, smtp_host: 'smtp.mail.me.com',      smtp_port: 587 },
-  custom:  { label: 'Custom' },
+  gmail:    { label: 'Gmail',    imap_host: 'imap.gmail.com',        imap_port: 993, smtp_host: 'smtp.gmail.com',        smtp_port: 587 },
+  yahoo:    { label: 'Yahoo',    imap_host: 'imap.mail.yahoo.com',   imap_port: 993, smtp_host: 'smtp.mail.yahoo.com',   smtp_port: 587 },
+  icloud:   { label: 'iCloud',   imap_host: 'imap.mail.me.com',      imap_port: 993, smtp_host: 'smtp.mail.me.com',      smtp_port: 587 },
+  fastmail: {
+    label: 'Fastmail', imap_host: 'imap.fastmail.com', imap_port: 993,
+    smtp_host: 'smtp.fastmail.com', smtp_port: 465, smtp_tls: 'SSL',
+    // Prefilled, not hardcoded server-side — JMAP identity sync reads this from the
+    // account row, same as any other host-configurable JMAP server.
+    jmap_session_url: 'https://api.fastmail.com/jmap/session',
+  },
+  custom:   { label: 'Custom' },
 };
 
 // ─── Account Form (Add or Edit) ───────────────────────────────────────────────
@@ -69,6 +76,10 @@ function AccountForm({ initial, onSave, onCancel }) {
   const [showPass, setShowPass] = useState(false);
   const [selectedPreset, setSelectedPreset] = useState(null);
   const [mailPolicy, setMailPolicy] = useState({ allowPrivateHosts: false, allowInsecureTls: false, allowNonstandardPorts: false });
+  const [refreshingIdentities, setRefreshingIdentities] = useState(false);
+  // Overrides the (possibly stale) synced-at/error shown from `initial` once a manual
+  // refresh has actually run in this session — null until then.
+  const [refreshResult, setRefreshResult] = useState(null);
 
   useEffect(() => {
     api.admin.getSettings()
@@ -87,6 +98,25 @@ function AccountForm({ initial, onSave, onCancel }) {
     if (p.imap_host) setForm(f => ({ ...f, ...p, label: undefined }));
     setSelectedPreset(key);
   };
+
+  // JMAP identity sync is host-configurable, so it's offered for any account, not just
+  // Fastmail — hidden only for the presets that don't support it (Gmail/Yahoo/iCloud have
+  // no user-facing JMAP endpoint here). Always shown once an account already exists.
+  const jmapSectionVisible = isEdit || !['gmail', 'yahoo', 'icloud'].includes(selectedPreset);
+
+  const handleRefreshIdentities = async () => {
+    if (!initial?.id) return;
+    setRefreshingIdentities(true);
+    try {
+      setRefreshResult(await api.refreshAccountIdentities(initial.id));
+    } catch (err) {
+      setRefreshResult({ synced_at: null, error: err.message });
+    } finally {
+      setRefreshingIdentities(false);
+    }
+  };
+  const effectiveSyncedAt = refreshResult ? refreshResult.synced_at : initial?.jmap_identity_sync_at;
+  const effectiveSyncError = refreshResult ? refreshResult.error : initial?.jmap_identity_sync_error;
 
   const handleSubmit = async () => {
     if (!form.email_address || !form.auth_user || !form.imap_host) {
@@ -114,7 +144,7 @@ function AccountForm({ initial, onSave, onCancel }) {
         <div style={{ display: 'flex', gap: 6, marginBottom: 18, flexWrap: 'wrap' }}>
           {Object.entries(PRESETS).map(([key]) => {
             const active = selectedPreset === key;
-            const presetLabel = key === 'gmail' ? t('admin.accounts.presetGmail') : key === 'yahoo' ? t('admin.accounts.presetYahoo') : key === 'icloud' ? t('admin.accounts.presetIcloud') : t('admin.accounts.presetCustom');
+            const presetLabel = key === 'gmail' ? t('admin.accounts.presetGmail') : key === 'yahoo' ? t('admin.accounts.presetYahoo') : key === 'icloud' ? t('admin.accounts.presetIcloud') : key === 'fastmail' ? t('admin.accounts.presetFastmail') : t('admin.accounts.presetCustom');
             return (
               <button key={key} onClick={() => handlePreset(key)} style={{
                 padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 500,
@@ -328,6 +358,58 @@ function AccountForm({ initial, onSave, onCancel }) {
         </>
       )}
 
+      {jmapSectionVisible && (
+        <>
+          <div style={{ height: 1, background: 'var(--border-subtle)', margin: '16px 0' }} />
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 10, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+            {t('admin.accounts.jmapSection')}
+          </div>
+          <Field label={t('admin.accounts.jmapSessionUrl')}>
+            <input value={form.jmap_session_url || ''} onChange={e => set('jmap_session_url', e.target.value)}
+              placeholder={t('admin.accounts.jmapSessionUrlPh')} style={inputStyle}
+              onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+              onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+          </Field>
+          <Field label={t('admin.accounts.jmapApiToken')}>
+            {isEdit && initial?.jmap_identity_sync_configured && form.jmap_api_token === undefined ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{t('admin.accounts.jmapConfigured')}</span>
+                <button type="button" onClick={() => set('jmap_api_token', '')} style={{
+                  background: 'none', border: '1px solid var(--border)', borderRadius: 6,
+                  padding: '4px 10px', color: 'var(--text-secondary)', fontSize: 12, cursor: 'pointer',
+                }}>
+                  {t('admin.accounts.jmapClear')}
+                </button>
+              </div>
+            ) : (
+              <input type="password" value={form.jmap_api_token || ''} onChange={e => set('jmap_api_token', e.target.value)}
+                placeholder={t('admin.accounts.jmapApiTokenPh')} style={inputStyle}
+                onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+                onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+            )}
+          </Field>
+          <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: -6, marginBottom: 10 }}>
+            {t('admin.accounts.jmapApiTokenHelp')}
+          </div>
+          {isEdit && initial?.jmap_identity_sync_configured && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4 }}>
+              <button type="button" onClick={handleRefreshIdentities} disabled={refreshingIdentities} style={{
+                padding: '6px 12px', background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+                borderRadius: 6, color: 'var(--text-secondary)', fontSize: 12,
+                cursor: refreshingIdentities ? 'not-allowed' : 'pointer', opacity: refreshingIdentities ? 0.6 : 1,
+              }}>
+                {refreshingIdentities ? t('admin.accounts.jmapRefreshing') : t('admin.accounts.jmapRefresh')}
+              </button>
+              <div style={{ fontSize: 11, color: effectiveSyncError ? 'var(--red)' : 'var(--text-tertiary)' }}>
+                {effectiveSyncError || t('admin.accounts.jmapLastSynced', {
+                  when: effectiveSyncedAt ? new Date(effectiveSyncedAt).toLocaleString() : t('common.never'),
+                })}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
       {error && (
         <div style={{
           padding: '10px 14px', background: 'rgba(248,113,113,0.1)',
@@ -389,8 +471,14 @@ function AccountsTab() {
     const updates = { name: form.name, sender_name: form.sender_name || null, color: form.color, imap_host: form.imap_host, imap_port: form.imap_port, imap_skip_tls_verify: !!form.imap_skip_tls_verify, smtp_host: form.smtp_host, smtp_port: form.smtp_port, smtp_tls: form.smtp_tls, signature: form.signature || null, categorization_enabled: !!form.categorization_enabled };
     if (form.auth_pass) updates.auth_pass = form.auth_pass;
     if (form.auth_user) updates.auth_user = form.auth_user;
-    await api.updateAccount(editTarget.id, updates);
-    updateAccount(editTarget.id, updates);
+    if ('jmap_session_url' in form) updates.jmap_session_url = form.jmap_session_url || null;
+    // undefined = untouched (leave as-is); '' = explicit clear; anything else = set/replace.
+    if (form.jmap_api_token !== undefined) updates.jmap_api_token = form.jmap_api_token;
+    // Use the server's response, not the locally-built updates object: a JMAP token change
+    // triggers a best-effort sync, and jmap_identity_sync_configured/at/error are computed
+    // server-side, not values this form ever holds.
+    const updated = await api.updateAccount(editTarget.id, updates);
+    updateAccount(editTarget.id, updated);
     setSubview('list');
     setEditTarget(null);
   };

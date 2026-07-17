@@ -96,6 +96,7 @@
     "replyAll": "Répondre à tous",
     "forward": "Transférer",
     "from": "De",
+    "fromDeliveredTo": "remis à",
     "to": "À",
     "cc": "Cc",
     "bcc": "Cci",
@@ -140,6 +141,9 @@
       "title": "Message envoyé",
       "noCopy": "Envoyé, mais non enregistré dans Envoyés",
       "action": "Voir"
+    },
+    "errors": {
+      "senderUnavailable": "Cette adresse d'expédition n'est plus disponible. Choisissez un autre expéditeur et réessayez."
     },
     "toolbar": {
       "removeTable": "Supprimer le tableau",
@@ -716,6 +720,7 @@
       "presetGmail": "Gmail",
       "presetYahoo": "Yahoo Mail",
       "presetIcloud": "iCloud",
+      "presetFastmail": "Fastmail",
       "presetCustom": "Personnalisé",
       "errorRequired": "L'e-mail, le nom d'utilisateur et le serveur IMAP sont requis",
       "errorPasswordRequired": "Le mot de passe est requis pour les nouveaux comptes",
@@ -730,7 +735,18 @@
       "categorizationSection": "Catégorisation des e-mails",
       "categorizationEnabled": "Activer la catégorisation",
       "categorizationEnabledDesc": "Classe les e-mails entrants dans des onglets de catégories. Désactivé par défaut.",
-      "enabledGlobally": "Activé globalement"
+      "enabledGlobally": "Activé globalement",
+      "jmapSection": "Synchronisation d'identité (JMAP)",
+      "jmapSessionUrl": "URL de session JMAP",
+      "jmapSessionUrlPh": "https://mail.example.com/.well-known/jmap",
+      "jmapApiToken": "Jeton API",
+      "jmapApiTokenPh": "Collez votre jeton API JMAP",
+      "jmapApiTokenHelp": "Sert à déterminer les adresses depuis lesquelles vous pouvez envoyer (ex. alias Fastmail et domaines personnalisés). Lecture seule : MailFlow ne modifie jamais rien sur le serveur.",
+      "jmapConfigured": "Configuré",
+      "jmapClear": "Effacer",
+      "jmapRefresh": "Actualiser maintenant",
+      "jmapRefreshing": "Actualisation…",
+      "jmapLastSynced": "Dernière synchronisation : {{when}}"
     },
     "folderMappings": {
       "title": "Mappage des dossiers",
