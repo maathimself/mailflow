@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('imapflow', () => ({ ImapFlow: vi.fn() }));
 vi.mock('./db.js', () => ({ query: vi.fn() }));
-vi.mock('./messageParser.js', () => ({ parseMessage: vi.fn(), buildSnippetFromHtml: vi.fn(), snippetFromBody: vi.fn(), decodeMimeWords: vi.fn(), detectBulkFromParsedHeaders: vi.fn(), parseRawHeaders: vi.fn() }));
+vi.mock('./messageParser.js', () => ({ parseMessage: vi.fn(), buildSnippetFromHtml: vi.fn(), snippetFromBody: vi.fn(), decodeMimeWords: vi.fn(), detectBulkFromParsedHeaders: vi.fn(), parseRawHeaders: vi.fn(), enrichParsedMetadata: vi.fn((parsed) => parsed) }));
 vi.mock('../routes/oauth.js', () => ({ refreshMicrosoftToken: vi.fn() }));
 vi.mock('./emailSanitizer.js', () => ({ sanitizeEmail: vi.fn() }));
 vi.mock('./encryption.js', () => ({ decrypt: vi.fn() }));
@@ -11,10 +11,11 @@ vi.mock('../utils/redact.js', () => ({ redactEmail: vi.fn() }));
 vi.mock('./hostValidation.js', () => ({ resolveForConnection: vi.fn() }));
 vi.mock('./gtdTransitions.js', () => ({ runGtdTransitions: vi.fn(), threadKeysForMessageIds: vi.fn(), threadKeysInFolders: vi.fn() }));
 
-import { providerProfile, makeClientCfg, gtdRelocateGuard, insertCopiedSibling, deleteMessageCopyRow, emitAfterDeferredCopySync, emitGtdSectionsRefreshOnDelete, emitGtdSectionsRefreshIfEnabled, selectGtdReevalIds, ensureMailbox, runGtdSyncTick, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, planModseqSync, connectStaggerFor } from './imapManager.js';
+import { ImapManager, providerProfile, makeClientCfg, gtdRelocateGuard, insertCopiedSibling, deleteMessageCopyRow, emitAfterDeferredCopySync, emitGtdSectionsRefreshOnDelete, emitGtdSectionsRefreshIfEnabled, selectGtdReevalIds, ensureMailbox, runGtdSyncTick, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, planModseqSync, connectStaggerFor } from './imapManager.js';
 import { query } from './db.js';
 import { invalidateGtdConfigCache } from './gtdConfig.js';
 import { runGtdTransitions, threadKeysInFolders } from './gtdTransitions.js';
+import { parseMessage } from './messageParser.js';
 
 const account = (imap_host, oauth_provider = null) => ({ imap_host, oauth_provider });
 
@@ -703,7 +704,7 @@ describe('runGtdSyncTick', () => {
     threadKeysInFolders.mockReset();
     [
       'acct-tick-noconn', 'acct-tick-err', 'acct-tick-off',
-      'acct-tick-same', 'acct-tick-changed', 'acct-tick-partial',
+      'acct-tick-same', 'acct-tick-changed', 'acct-tick-first', 'acct-tick-partial',
     ].forEach(invalidateGtdConfigCache);
   });
 
@@ -763,6 +764,21 @@ describe('runGtdSyncTick', () => {
     expect(runGtdTransitions).toHaveBeenCalledWith(mgr, account, ['thr-1', 'thr-2']);
     expect(mgr.broadcast).toHaveBeenCalledTimes(1);
     expect(mgr.broadcast).toHaveBeenCalledWith({ type: 'gtd_sections_updated', accountId: 'acct-tick-changed' }, 'user-1');
+  });
+
+  it('broadcasts gtd_sections_updated when an empty folder gains its first message', async () => {
+    const allWatch = { todo: 'Watch', watch: 'Watch', delegated: 'Watch', someday: 'Watch', reference: 'Watch' };
+    query.mockResolvedValueOnce({ rows: [{ gtd_enabled: true, gtd_folders: allWatch }] });
+    threadKeysInFolders.mockResolvedValueOnce(['thr-first']);
+    const mgr = mgrWithConnection('acct-tick-first', {
+      _gtdFolderFingerprint: vi.fn()
+        .mockResolvedValueOnce('0:0:0:0')
+        .mockResolvedValueOnce('1:1:5:5'),
+    });
+    const account = { id: 'acct-tick-first', user_id: 'user-1' };
+    await runGtdSyncTick(mgr, account);
+    expect(runGtdTransitions).toHaveBeenCalledWith(mgr, account, ['thr-first']);
+    expect(mgr.broadcast).toHaveBeenCalledWith({ type: 'gtd_sections_updated', accountId: 'acct-tick-first' }, 'user-1');
   });
 
   it('keeps processing remaining folders when one folder sync throws', async () => {
@@ -939,6 +955,45 @@ describe('connectStaggerFor', () => {
 // ── planModseqSync — CONDSTORE delta-sync strategy decision ────────────────────
 
 describe('planModseqSync', () => {
+  it('forces a full sync when the local cache is empty but a nonempty server has an equal modseq', () => {
+    expect(planModseqSync({
+      storedModseq: '100',
+      serverModseq: '100',
+      uidValidityChanged: false,
+      maxKnownUid: 0,
+      serverExists: 1,
+    })).toBe('full');
+  });
+
+  it('forces a full sync when the local cache is empty and the server modseq advanced', () => {
+    expect(planModseqSync({
+      storedModseq: '100',
+      serverModseq: '101',
+      uidValidityChanged: false,
+      maxKnownUid: 0,
+      serverExists: 1,
+    })).toBe('full');
+  });
+
+  it('leaves an empty local cache and empty server unchanged when the modseqs match', () => {
+    expect(planModseqSync({
+      storedModseq: '100',
+      serverModseq: '100',
+      uidValidityChanged: false,
+      maxKnownUid: 0,
+      serverExists: 0,
+    })).toBe('unchanged');
+  });
+
+  it('retains the existing CONDSTORE plans when the local cache has a UID watermark', () => {
+    const localState = { maxKnownUid: 50, serverExists: 50 };
+    expect(planModseqSync({ ...localState, storedModseq: '100', serverModseq: '100', uidValidityChanged: false })).toBe('unchanged');
+    expect(planModseqSync({ ...localState, storedModseq: '100', serverModseq: '101', uidValidityChanged: false })).toBe('delta');
+    expect(planModseqSync({ ...localState, storedModseq: '100', serverModseq: '100', uidValidityChanged: true })).toBe('full');
+    expect(planModseqSync({ ...localState, storedModseq: null, serverModseq: '100', uidValidityChanged: false })).toBe('full');
+    expect(planModseqSync({ ...localState, storedModseq: '100', serverModseq: null, uidValidityChanged: false })).toBe('full');
+  });
+
   it('falls back to full sync when there is no stored baseline (first sync / seed)', () => {
     expect(planModseqSync({ storedModseq: null, serverModseq: '42', uidValidityChanged: false })).toBe('full');
   });
@@ -975,5 +1030,123 @@ describe('planModseqSync', () => {
     expect(Number(a) === Number(b)).toBe(true);            // the trap we must avoid
     expect(planModseqSync({ storedModseq: a, serverModseq: b, uidValidityChanged: false })).toBe('delta');
     expect(planModseqSync({ storedModseq: b, serverModseq: b, uidValidityChanged: false })).toBe('unchanged');
+  });
+});
+
+// ── syncMessages — empty-cache/modseq wiring ─────────────────────────────────
+
+describe('syncMessages — empty local cache vs nonempty server (wiring)', () => {
+  beforeEach(() => {
+    query.mockReset();
+    parseMessage.mockReset();
+    ['acct-sync-empty-cache', 'acct-sync-watermark'].forEach(invalidateGtdConfigCache);
+  });
+
+  it('empty cache forces the full metadata scan', async () => {
+    const account = {
+      id: 'acct-sync-empty-cache',
+      user_id: 'user-1',
+      email_address: 'me@example.com',
+      gtd_enabled: false,
+      categorization_enabled: false,
+      imap_host: 'imap.example.com',
+    };
+    const client = {
+      getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
+      mailbox: { exists: 1, uidValidity: 100, highestModseq: 500n },
+      fetch: vi.fn(async function* () { yield { uid: 501 }; }),
+    };
+    query.mockImplementation((sql) => {
+      if (sql.includes('SELECT uid_validity, highest_modseq FROM folders')) {
+        return Promise.resolve({ rows: [{ uid_validity: 100, highest_modseq: '500' }] });
+      }
+      if (sql.includes('COUNT(*) FILTER (WHERE is_read = false)')) return Promise.resolve({ rows: [{ n: 0 }] });
+      if (sql.includes('INSERT INTO folders')) return Promise.resolve({ rows: [] });
+      if (sql.includes('COALESCE(MAX(uid), 0)')) return Promise.resolve({ rows: [{ max_uid: 0 }] });
+      if (sql.includes('SELECT gtd_enabled, gtd_folders FROM email_accounts')) {
+        return Promise.resolve({ rows: [{ gtd_enabled: false, gtd_folders: {} }] });
+      }
+      if (sql.includes("preferences->>'categorizationEnabled'")) return Promise.resolve({ rows: [{ val: false }] });
+      if (sql.includes('INSERT INTO messages')) return Promise.resolve({ rows: [{ id: 'msg-1', is_new: true }] });
+      if (sql.includes('UPDATE folders SET highest_modseq')) return Promise.resolve({ rows: [] });
+      if (sql.includes('UPDATE email_accounts SET last_sync')) return Promise.resolve({ rows: [] });
+      return Promise.resolve({ rows: [] });
+    });
+    parseMessage.mockResolvedValue({
+      uid: 501,
+      messageId: null,
+      subject: 'Watch first message',
+      fromName: 'External',
+      fromEmail: 'them@example.com',
+      to: [],
+      cc: [],
+      replyTo: [],
+      inReplyTo: null,
+      references: null,
+      date: new Date('2026-07-17T10:00:00Z'),
+      snippet: 'hi',
+      isRead: true,
+      isStarred: false,
+      hasAttachments: false,
+      flags: ['\\Seen'],
+      isBulk: false,
+      parsedHeaders: {},
+    });
+
+    const result = await ImapManager.prototype.syncMessages.call({}, account, client, 'Watch', 50, false, true);
+
+    expect(client.fetch).toHaveBeenCalledTimes(1);
+    expect(client.fetch.mock.calls[0][0]).toBe('1:*');
+    expect(client.fetch.mock.calls[0][1]).toEqual(expect.objectContaining({
+      envelope: true,
+      bodyStructure: true,
+      flags: true,
+      uid: true,
+    }));
+    expect(client.fetch.mock.calls[0][2]).toBeUndefined();
+    const insertIndex = query.mock.calls.findIndex(([sql]) => sql.includes('INSERT INTO messages'));
+    const modseqUpdateIndex = query.mock.calls.findIndex(([sql]) => sql.includes('UPDATE folders SET highest_modseq'));
+    expect(insertIndex).toBeGreaterThanOrEqual(0);
+    expect(modseqUpdateIndex).toBeGreaterThan(insertIndex);
+    expect(result).toEqual(expect.objectContaining({ insertedCount: 1 }));
+  });
+
+  it('populated cache keeps the old UID-watermark behavior', async () => {
+    const account = {
+      id: 'acct-sync-watermark',
+      user_id: 'user-1',
+      email_address: 'me@example.com',
+      gtd_enabled: false,
+      categorization_enabled: false,
+      imap_host: 'imap.example.com',
+    };
+    const client = {
+      getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
+      mailbox: { exists: 50, uidValidity: 100, highestModseq: 500n },
+      fetch: vi.fn(async function* () {}),
+    };
+    query.mockImplementation((sql) => {
+      if (sql.includes('SELECT uid_validity, highest_modseq FROM folders')) {
+        return Promise.resolve({ rows: [{ uid_validity: 100, highest_modseq: '500' }] });
+      }
+      if (sql.includes('COUNT(*) FILTER (WHERE is_read = false)')) return Promise.resolve({ rows: [{ n: 0 }] });
+      if (sql.includes('INSERT INTO folders')) return Promise.resolve({ rows: [] });
+      if (sql.includes('COALESCE(MAX(uid), 0)')) return Promise.resolve({ rows: [{ max_uid: 50 }] });
+      if (sql.includes('SELECT gtd_enabled, gtd_folders FROM email_accounts')) {
+        return Promise.resolve({ rows: [{ gtd_enabled: false, gtd_folders: {} }] });
+      }
+      if (sql.includes('UPDATE email_accounts SET last_sync')) return Promise.resolve({ rows: [] });
+      return Promise.resolve({ rows: [] });
+    });
+
+    await ImapManager.prototype.syncMessages.call({}, account, client, 'Watch', 50, false, true);
+
+    expect(client.fetch).toHaveBeenCalledTimes(1);
+    expect(client.fetch).toHaveBeenCalledWith(
+      '51:*',
+      expect.objectContaining({ envelope: true, bodyStructure: true }),
+      { uid: true }
+    );
+    expect(query.mock.calls.some(([sql]) => sql.includes('UPDATE folders SET highest_modseq'))).toBe(false);
   });
 });

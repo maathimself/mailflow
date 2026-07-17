@@ -23,15 +23,16 @@ const STRIP_RULE = {
 // ── Owner-address resolver ───────────────────────────────────────────────────
 // The addresses that count as "me" for an account: its login address plus every
 // configured alias. Aliases are unvalidated free text, so each is reduced to a bare
-// lowercase addr-spec. Cached with the same short TTL as gtdConfig, so an alias added
-// or removed via the account settings routes is picked up within CACHE_TTL_MS even
-// though nothing currently calls invalidateOwnerAddressesCache proactively.
+// lowercase addr-spec. Account-alias routes invalidate the short-lived cache after every
+// successful create/update/delete so a newly configured Fastmail masked sender is recognized
+// before the next GTD transition tick evaluates a just-ingested message; a stale owner set
+// would misclassify that self-sent message and strip its Watch copy for up to the full TTL.
 const ownerCache = new Map(); // accountId -> { value: Set<string>, expiry: number }
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
-// Exported for tests, which reuse one accountId across cases and need a clean cache
-// between them; nothing else calls this today, so an alias change surfaces only once
-// the TTL above lapses.
+// Exported for tests, which reuse one accountId across cases and need a clean cache, and for
+// the account-alias routes, which call it only after a mutation succeeds. The next resolver
+// read must observe the committed owner identities before a GTD transition can classify mail.
 export function invalidateOwnerAddressesCache(accountId) {
   ownerCache.delete(accountId);
 }
