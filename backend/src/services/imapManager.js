@@ -400,6 +400,10 @@ function safeDate(d) {
 // flagPollEveryTicks:  for non-push flag providers, poll flags every N successful sync ticks.
 // snippetIndex:        run the background snippet indexer after backfill.
 //                      Disabled for providers that throttle body fetches too aggressively.
+// bodyBackfill:        run the background body-materialization drainer
+//                      (services/bodyBackfill.js) for this provider. Enabled only for
+//                      providers that tolerate sustained background BODY[] fetches;
+//                      Gmail/PurelyMail/Microsoft stay off in v1 (unproven / throttle-hostile).
 // skipFolderPatterns:  folder path substrings to skip during backfill (label-view dedup).
 // skipFolderNames:     exact folder paths to skip (non-selectable namespace containers).
 // batchSize/Delay/errorDelay/batchesPerConn: backfill rate-limit tuning.
@@ -414,6 +418,7 @@ const PROVIDERS = {
     fetchBody: false,
     pushesFlags: false,
     snippetIndex: false,
+    bodyBackfill: false,
     speculativeFetch: false,
     skipFolderPatterns: ['all mail', '[gmail]/starred', '[gmail]/important'],
     // [Gmail] is a namespace container — not a selectable mailbox. It must be
@@ -425,6 +430,7 @@ const PROVIDERS = {
     fetchBody: false,
     pushesFlags: true,
     snippetIndex: true,
+    bodyBackfill: true,
     speculativeFetch: false,
     skipFolderPatterns: [],
     skipFolderNames: [],
@@ -435,6 +441,7 @@ const PROVIDERS = {
     fetchBody: false,
     pushesFlags: true,
     snippetIndex: true,
+    bodyBackfill: true,
     speculativeFetch: true,
     skipFolderPatterns: [],
     skipFolderNames: [],
@@ -444,6 +451,7 @@ const PROVIDERS = {
     fetchBody: false,
     pushesFlags: true,
     snippetIndex: true,
+    bodyBackfill: false,
     speculativeFetch: true,
     skipFolderPatterns: [],
     skipFolderNames: [],
@@ -471,6 +479,7 @@ const PROVIDERS = {
     usesIdle: false,
     pushesFlags: false,
     snippetIndex: false,
+    bodyBackfill: false,
     speculativeFetch: false,
     preferFreshBodyFetch: true,
     freshInboxSync: true,
@@ -489,6 +498,7 @@ const PROVIDERS = {
     fetchBody: false,
     pushesFlags: true,
     snippetIndex: true,
+    bodyBackfill: true,
     speculativeFetch: true,
     skipFolderPatterns: [],
     skipFolderNames: [],
@@ -3637,6 +3647,30 @@ export class ImapManager {
   // Called in the background (via setImmediate) so it doesn't block the sync path.
   // By the time the user clicks the email (typically 2–10s later), the body is already
   // in the DB and the click returns instantly without a live IMAP round-trip.
+  // Shared fetch+sanitize+snippet+UPDATE step behind every body-materialization path
+  // (opportunistic new-mail prefetch, on-view folder prefetch, and the body-backfill
+  // drainer). Kept as one helper so the UPDATE shape that fires the search_fts/last_modified
+  // triggers never drifts between callers. Returns true if a body was actually written.
+  // Private (underscore-prefixed, matching this file's convention for internal helpers like
+  // _enqueueFlagPush) — not new public surface, so it doesn't count against the
+  // one-narrow-method invariant that governs fetchBodiesForMessages.
+  async _fetchAndStoreBody(account, msg) {
+    const { html, text, attachments } = await this.fetchMessageBody(
+      account, msg.uid, msg.folder || 'INBOX'
+    );
+    const safeHtml = html ? sanitizeEmail(html) : null;
+    if (!safeHtml && !text) return false;
+    const snip = snippetFromBody(text, safeHtml || html);
+    await query(
+      `UPDATE messages
+       SET body_html = $1, body_text = $2, attachments = $3,
+           snippet = CASE WHEN $5 != '' THEN $5 ELSE snippet END
+       WHERE id = $4`,
+      [sanitizeStr(safeHtml), sanitizeStr(text), JSON.stringify(attachments || []), msg.id, sanitizeStr(snip)]
+    );
+    return true;
+  }
+
   async prefetchNewMessageBodies(account, messages) {
     for (const msg of messages) {
       try {
@@ -3647,24 +3681,56 @@ export class ImapManager {
         );
         if (existing.rows.length) continue;
 
-        const { html, text, attachments } = await this.fetchMessageBody(
-          account, msg.uid, msg.folder || 'INBOX'
-        );
-        const safeHtml = html ? sanitizeEmail(html) : null;
-        if (safeHtml || text) {
-          const snip = snippetFromBody(text, safeHtml || html);
-          await query(
-            `UPDATE messages
-             SET body_html = $1, body_text = $2, attachments = $3,
-                 snippet = CASE WHEN $5 != '' THEN $5 ELSE snippet END
-             WHERE id = $4`,
-            [sanitizeStr(safeHtml), sanitizeStr(text), JSON.stringify(attachments || []), msg.id, sanitizeStr(snip)]
-          );
-        }
+        await this._fetchAndStoreBody(account, msg);
       } catch (err) {
         console.warn(`Body prefetch failed for uid ${msg.uid}:`, err.message);
       }
     }
+  }
+
+  // Narrow entry point for the body-materialization drainer (services/bodyBackfill.js).
+  // Given a set of message IDs, fetch each body over IMAP and persist it with the same
+  // UPDATE the prefetch path uses. This is the ONLY method the drainer calls into the
+  // singleton — all batching, pacing, provider gating, and progress live in bodyBackfill.js
+  // (imapManager invariant, specs/search-overhaul/README.md). Returns the number of bodies
+  // actually written.
+  //
+  // A single poison message (deleted/renamed folder, a per-message server-side rejection)
+  // must not wedge the whole batch — bodyBackfill.js's keyset cursor only advances past ids
+  // this method actually processed, and its circuit breaker only trips on a batch that made
+  // zero progress. So each message's fetch+store is individually caught and skipped here;
+  // only when the WHOLE batch fails (zero successes and at least one error — almost always a
+  // dead connection, not a bad message) do we rethrow, so the drainer's breaker can still back
+  // a genuinely broken account off.
+  async fetchBodiesForMessages(accountId, messageIds) {
+    if (!messageIds.length) return { fetched: 0 };
+
+    const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
+    if (!accountResult.rows.length) return { fetched: 0 };
+    const account = accountResult.rows[0];
+
+    // Only touch rows that still lack a body — a concurrent open/prefetch may have filled
+    // some since the drainer selected them.
+    const rowsResult = await query(
+      `SELECT id, uid, folder FROM messages
+       WHERE id = ANY($1::uuid[]) AND body_html IS NULL AND body_text IS NULL`,
+      [messageIds]
+    );
+
+    let fetched = 0;
+    let errors = 0;
+    let lastError = null;
+    for (const msg of rowsResult.rows) {
+      try {
+        if (await this._fetchAndStoreBody(account, msg)) fetched++;
+      } catch (err) {
+        errors++;
+        lastError = err;
+        console.warn(`Body backfill: skipped message ${msg.id} (uid ${msg.uid}):`, err.message);
+      }
+    }
+    if (fetched === 0 && errors > 0) throw lastError;
+    return { fetched };
   }
 
   // Background body prefetch for messages currently visible in a folder.
@@ -3700,18 +3766,7 @@ export class ImapManager {
         );
         if (existing.rows.length) continue;
 
-        const { html, text, attachments } = await this.fetchMessageBody(account, msg.uid, msg.folder);
-        const safeHtml = html ? sanitizeEmail(html) : null;
-        if (safeHtml || text) {
-          const snip = snippetFromBody(text, safeHtml || html);
-          await query(
-            `UPDATE messages
-             SET body_html = $1, body_text = $2, attachments = $3,
-                 snippet = CASE WHEN $5 != '' THEN $5 ELSE snippet END
-             WHERE id = $4`,
-            [sanitizeStr(safeHtml), sanitizeStr(text), JSON.stringify(attachments || []), msg.id, sanitizeStr(snip)]
-          );
-        }
+        await this._fetchAndStoreBody(account, msg);
       } catch (err) {
         console.warn(`Folder body prefetch failed for uid ${msg.uid}:`, err.message);
       }

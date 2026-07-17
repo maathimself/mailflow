@@ -209,12 +209,13 @@ export const api = {
   emptyFolder: (accountId, path) => request('POST', '/mail/folders/empty', { accountId, path }),
 
   // Search
-  search: (q, accountId, { offset = 0, limit, folder } = {}) => {
+  search: (q, accountId, { offset = 0, limit, folder, mode } = {}) => {
     const params = new URLSearchParams({ q });
     if (accountId) params.set('accountId', accountId);
     if (limit) params.set('limit', limit);
     if (folder) params.set('folder', folder);
     if (offset) params.set('offset', offset);
+    if (mode && mode !== 'lexical') params.set('mode', mode);
     return request('GET', `/search?${params}`);
   },
   suggestContacts: (q) => request('GET', `/search/contacts?q=${encodeURIComponent(q)}`),
@@ -276,6 +277,10 @@ export const api = {
     deleteConfig: () => request('DELETE', '/admin/ai'),
     test: () => request('POST', '/admin/ai/test'),
     status: () => request('GET', '/ai/status'),
+    // Embeddings (semantic search) — probe the saved config and kick a build.
+    testEmbeddings: () => request('POST', '/admin/ai/embeddings/test-embeddings'),
+    buildEmbeddings: () => request('POST', '/admin/ai/embeddings/build'),
+    indexingStatus: () => request('GET', '/admin/indexing/status'),
   },
 
   // Category counts for inbox tab badges
@@ -332,5 +337,20 @@ export const api = {
     getProjects:  ()       => request('GET',    '/todoist/projects'),
     getLabels:    ()       => request('GET',    '/todoist/labels'),
     createTask:   (data)   => request('POST',   '/todoist/tasks', data),
+  },
+
+  // MCP API tokens — per-user bearer tokens for the Streamable-HTTP /mcp endpoint.
+  // create() returns the plaintext token exactly once; only its hash is stored.
+  tokens: {
+    list:   ()     => request('GET',  '/tokens'),
+    create: (name) => request('POST', '/tokens', { name }),
+    revoke: async (id) => {
+      // DELETE responds 204 with no body — don't run it through request()/res.json().
+      const res = await fetch(`${BASE}/tokens/${id}`, {
+        method: 'DELETE', credentials: 'include',
+        headers: { [CSRF_HEADER]: CSRF_VALUE },
+      });
+      if (!res.ok) throw new Error('Failed to revoke token');
+    },
   },
 };
