@@ -48,8 +48,8 @@ function _applyServerCounts(counts) {
   }
 }
 
-function _forwardNativeNewMailNotification(notification) {
-  installCapacitorNativeBridge();
+async function _forwardNativeNewMailNotification(notification) {
+  await installCapacitorNativeBridge();
   window.mailflowNative?.notifications?.showNewMail?.({
     title: notification.title,
     body: notification.body,

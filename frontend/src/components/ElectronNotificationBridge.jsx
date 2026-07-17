@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { installCapacitorNativeBridge } from '../utils/capacitorNativeBridge.js';
@@ -12,24 +12,34 @@ export default function ElectronNotificationBridge() {
   const totalUnread = useStore(state => state.unreadCounts.total);
   const lastActionRef = useRef({ action: null, time: 0 });
   const processedActionIdsRef = useRef(new Set());
+  const [nativeBridgeReady, setNativeBridgeReady] = useState(() => Boolean(window.mailflowNative));
 
   useEffect(() => {
-    installCapacitorNativeBridge();
+    let cancelled = false;
+    installCapacitorNativeBridge().then(() => {
+      if (!cancelled) setNativeBridgeReady(Boolean(window.mailflowNative));
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
+    if (!nativeBridgeReady) return undefined;
     window.__mailflowNativeBridgeReady = true;
 
     return () => {
       window.__mailflowNativeBridgeReady = false;
     };
-  }, []);
+  }, [nativeBridgeReady]);
 
   useEffect(() => {
+    if (!nativeBridgeReady) return;
     window.mailflowNative?.badges?.setUnreadCount?.(totalUnread || 0);
-  }, [totalUnread]);
+  }, [nativeBridgeReady, totalUnread]);
 
   useEffect(() => {
+    if (!nativeBridgeReady) return undefined;
     const unsubscribe = window.mailflowNative?.notifications?.onPush?.((notification) => {
       addNotification({
         type: notification.type === 'negative' ? 'error' : notification.type,
@@ -41,9 +51,10 @@ export default function ElectronNotificationBridge() {
     return () => {
       if (typeof unsubscribe === 'function') unsubscribe();
     };
-  }, [addNotification]);
+  }, [addNotification, nativeBridgeReady]);
 
   useEffect(() => {
+    if (!nativeBridgeReady) return undefined;
     const unsubscribe = window.mailflowNative?.updates?.onStatus?.((status) => {
       if (status?.type !== 'downloaded') return;
 
@@ -70,14 +81,16 @@ export default function ElectronNotificationBridge() {
     return () => {
       if (typeof unsubscribe === 'function') unsubscribe();
     };
-  }, [addNotification]);
+  }, [addNotification, nativeBridgeReady]);
 
   useEffect(() => {
+    if (!nativeBridgeReady) return;
     if (window.mailflowNative?.platform !== 'android') return;
     window.mailflowNative?.updates?.check?.(false)?.catch?.(() => {});
-  }, []);
+  }, [nativeBridgeReady]);
 
   useEffect(() => {
+    if (!nativeBridgeReady) return undefined;
     const getPayloadMessage = (payload) => {
       const state = useStore.getState();
       return payload?.message || state.messages.find((item) => item.id === payload?.messageId) || null;
@@ -260,7 +273,7 @@ export default function ElectronNotificationBridge() {
       window.removeEventListener('message', handleNativeMessage);
       if (typeof unsubscribe === 'function') unsubscribe();
     };
-  }, [addNotification, openCompose, setSearchQuery, setSelectedAccount, setSelectedMessage]);
+  }, [addNotification, nativeBridgeReady, openCompose, setSearchQuery, setSelectedAccount, setSelectedMessage]);
 
   return null;
 }
