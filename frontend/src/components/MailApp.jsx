@@ -484,7 +484,7 @@ export default function MailApp() {
       if (showAppBadge && total > 0) navigator.setAppBadge(total).catch(() => {});
       else navigator.clearAppBadge().catch(() => {});
     }
-    window.mailflowNative?.setUnreadCount?.(total).catch(() => {});
+    window.mailflowNative?.badges?.setUnreadCount?.(total).catch(() => {});
   }, [unreadCounts, selectedAccountId, showAppBadge, showFaviconBadge]);
 
   // ── Global keyboard shortcut listener ──────────────────────────────────────
