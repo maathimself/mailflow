@@ -54,9 +54,11 @@ export default function GtdEntryRow({
   const isWaiting = sectionKey === 'waiting';
   const { rowState, unread, days, stale, sender } = resolveRowDisplay(thread, sectionKey);
 
-  // Only the sidebar surface passes a hover cluster. Tracking `hovered` at all is
-  // gated on that so the list rows keep mutating their background imperatively
-  // without a re-render on every mouse enter/leave (their prior behavior).
+  // The hover cluster renders only when the caller passes renderHoverActions — both
+  // surfaces do, except the list surface omits it when the hoverQuickActions preference
+  // is off. Tracking `hovered` at all is gated on that same prop, so a row without a
+  // cluster keeps mutating its background imperatively without a re-render on every
+  // mouse enter/leave.
   const [hovered, setHovered] = useState(false);
   const trackHover = !!renderHoverActions;
 
@@ -65,8 +67,8 @@ export default function GtdEntryRow({
       onClick={onClick}
       onContextMenu={onContextMenu}
       style={{
-        // Relative only when there's a hover cluster to anchor; the list surface
-        // never sets position (its overlay-free rows render byte-identically static).
+        // Relative only when there's a hover cluster to anchor; a row without one
+        // (hoverQuickActions off, on the list surface) renders byte-identically static.
         ...(trackHover ? { position: 'relative' } : {}),
         padding: v.padding, borderBottom: v.borderBottom,
         cursor: 'pointer', borderLeft: `2px solid ${GTD_COLORS[rowState] || 'transparent'}`,
@@ -102,9 +104,11 @@ export default function GtdEntryRow({
         </span>
       </div>
 
-      {/* Shared hover cluster (sidebar only) — same buttons the inbox rows get, overlaid
-          (absolute) so it never shifts the row. Rendered here, after the header, only while
-          hovered; the caller wires the section-scoped actions. */}
+      {/* Shared hover cluster — same buttons the inbox rows get, overlaid (absolute) so it
+          never shifts the row. Rendered here, after the header, only while hovered and only
+          when the caller passed renderHoverActions (both surfaces do; the list surface
+          omits it when the hoverQuickActions preference is off). The caller wires the
+          section-scoped actions. */}
       {trackHover && hovered && renderHoverActions()}
 
       <div style={{

@@ -167,6 +167,11 @@ router.get('/messages/:id', async (req, res) => {
 router.get('/resolve-message', async (req, res) => {
   const ref = typeof req.query.ref === 'string' ? req.query.ref : '';
   if (!ref) return res.status(400).json({ error: 'Missing ref' });
+  const rawAccountId = typeof req.query.accountId === 'string' ? req.query.accountId : '';
+  if (rawAccountId && !UUID_RE.test(rawAccountId)) {
+    return res.status(400).json({ error: 'Invalid accountId' });
+  }
+  const accountId = rawAccountId || null;
   const COLS = `m.id, m.uid, m.folder, m.message_id, m.subject,
              m.from_name, m.from_email, m.to_addresses, m.cc_addresses,
              m.reply_to, m.in_reply_to,
@@ -185,9 +190,10 @@ router.get('/resolve-message', async (req, res) => {
       WHERE m.message_id = $1
         AND a.user_id = $2
         AND m.is_deleted = false
+        AND ($3::uuid IS NULL OR m.account_id = $3)
       ORDER BY (m.folder = 'INBOX') DESC, m.date DESC NULLS LAST
       LIMIT 1
-    `, [ref, req.session.userId]);
+    `, [ref, req.session.userId, accountId]);
     // Legacy links / push notifications carry the UUID primary key.
     if (result.rows.length === 0 && UUID_RE.test(ref)) {
       result = await query(`
@@ -197,7 +203,8 @@ router.get('/resolve-message', async (req, res) => {
         WHERE m.id = $1
           AND a.user_id = $2
           AND m.is_deleted = false
-      `, [ref, req.session.userId]);
+          AND ($3::uuid IS NULL OR m.account_id = $3)
+      `, [ref, req.session.userId, accountId]);
     }
     if (result.rows.length === 0) return res.status(404).json({ error: 'Message not found' });
     res.json(result.rows[0]);

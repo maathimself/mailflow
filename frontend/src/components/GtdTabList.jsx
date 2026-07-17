@@ -1,35 +1,29 @@
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useStore, selectSelectedMessageMid } from '../store/index.js';
-import { api } from '../utils/api.js';
-import {
-  buildGtdDisplaySections, openDeepLinkMessage, isSelectedRow,
-} from '../utils/gtd.js';
-import GtdEntryRow from './GtdEntryRow.jsx';
+import { buildGtdDisplaySections, isSelectedRow } from '../utils/gtd.js';
+import { useGtdTriage } from '../hooks/useGtdTriage.js';
+import GtdTriageRow from './GtdTriageRow.jsx';
+import ContextMenu from './ContextMenu.jsx';
 
-// The browse list that replaces the normal message list while a GTD tab is
-// active. Backed by the same sections store as the GTD sidebar (one source of truth,
-// live via gtd_sections_updated) so Waiting (watch+delegated) and unified both
-// work without driving selectedFolder into a label folder.
+// The list that replaces the normal message list while a GTD tab is active. Backed by
+// the same sections store as the GTD sidebar (one source of truth, live via
+// gtd_sections_updated) so Waiting (watch+delegated) and unified both work without
+// driving selectedFolder into a label folder. Its rows carry the same triage
+// affordances as the inbox and sidebar rows — hover quick actions and a right-click
+// menu — via the shared useGtdTriage hook, so this surface is full triage, not browse-only.
 export default function GtdTabList() {
   const { t } = useTranslation();
   const activeGtdTab = useStore(s => s.activeGtdTab);
   const gtdSections = useStore(s => s.gtdSections);
-  const setThreadMessages = useStore(s => s.setThreadMessages);
-  const setSelectedMessage = useStore(s => s.setSelectedMessage);
   const selectedMessageId = useStore(s => s.selectedMessageId);
   const selectedMid = useStore(selectSelectedMessageMid);
-  const scheduleGtdSectionsFetch = useStore(s => s.scheduleGtdSectionsFetch);
+  const hoverQuickActions = useStore(s => s.hoverQuickActions);
+
+  const { contextMenu, setContextMenu, handleGtdAction, openRow, rowActions } = useGtdTriage();
 
   const section = buildGtdDisplaySections(gtdSections).find(s => s.key === activeGtdTab);
   const threads = section?.threads || [];
-
-  const openRow = (thread) => {
-    openDeepLinkMessage(thread.id, {
-      getMessage: api.getMessage, getThread: api.getThread,
-      setThreadMessages, setSelectedMessage,
-      thread, onMiss: scheduleGtdSectionsFetch,
-    });
-  };
 
   if (threads.length === 0) {
     return (
@@ -39,21 +33,39 @@ export default function GtdTabList() {
     );
   }
 
-  // Roomy `list` variant of the shared GTD row — no hover cluster or context menu here
-  // (this surface is browse-only; triage lives in the sidebar rows).
+  // Roomy `list` variant of the shared GTD row, with the hover cluster gated on the
+  // same preference that gates it on the inbox rows this surface replaces.
   return (
     <div>
       {threads.map(thread => (
-        <GtdEntryRow
+        <GtdTriageRow
           key={thread.id ?? thread.message_id}
           thread={thread}
           sectionKey={activeGtdTab}
           variant="list"
           selected={isSelectedRow(thread, selectedMessageId, selectedMid)}
-          onClick={() => openRow(thread)}
+          onOpen={() => openRow(thread)}
+          rowActions={rowActions}
+          hoverQuickActions={hoverQuickActions}
           t={t}
         />
       ))}
+
+      {/* Portal to body, mirroring GtdSidebarContent's menu: this list has no transform
+          of its own, but the portal keeps the menu's position:fixed math consistent
+          across both GTD row surfaces. */}
+      {contextMenu && createPortal(
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          message={contextMenu.message}
+          defaultMoveView={contextMenu.defaultMoveView}
+          variant="gtdSidebar"
+          onClose={() => setContextMenu(null)}
+          onAction={(action, data) => handleGtdAction(action, contextMenu, data)}
+        />,
+        document.body,
+      )}
     </div>
   );
 }
