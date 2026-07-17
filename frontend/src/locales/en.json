@@ -858,7 +858,12 @@
       "mobileAvatarsOff": "Off",
       "mobileAvatarsOffDesc": "No avatar — maximum room for sender and subject.",
       "mobileAvatarsOn": "On",
-      "mobileAvatarsOnDesc": "Show a sender avatar in each row (uses a little width)."
+      "mobileAvatarsOnDesc": "Show a sender avatar in each row (uses a little width).",
+      "gravatarMode": "Gravatar avatars",
+      "gravatarOff": "Off",
+      "gravatarOffDesc": "Private — never contacts a third party.",
+      "gravatarOn": "On",
+      "gravatarOnDesc": "Fetch sender photos from Gravatar — shares hashed sender addresses with a third party."
     },
     "notifications": {
       "title": "Notifications",

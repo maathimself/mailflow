@@ -759,7 +759,7 @@ router.patch('/preferences', async (req, res) => {
           expandedAccounts, collapsedFolders, favoriteFolders, recentFolders, fontSize,
           showAppBadge, showFaviconBadge, replyDefault, sidebarWidth,
           categorizationEnabled, markReadBehavior, markReadDelay, aiActions,
-          autoLockMinutes, showMobileAvatars } = req.body;
+          autoLockMinutes, showMobileAvatars, gravatarAvatars } = req.body;
   // GTD content and generic right-sidebar layout preferences are independent flat
   // top-level keys with separate allow-lists. gtdEnabled is intentionally NOT a user
   // preference — it lives per-account in email_accounts.gtd_enabled.
@@ -829,6 +829,7 @@ router.patch('/preferences', async (req, res) => {
       || CASE WHEN $34::text IS NOT NULL THEN jsonb_build_object('gtdPetSlug', $34::text) ELSE '{}'::jsonb END
       || CASE WHEN $35::text IS NOT NULL THEN jsonb_build_object('autoLockMinutes', $35::text) ELSE '{}'::jsonb END
       || CASE WHEN $36::boolean IS NOT NULL THEN jsonb_build_object('showMobileAvatars', $36::boolean) ELSE '{}'::jsonb END
+      || CASE WHEN $37::boolean IS NOT NULL THEN jsonb_build_object('gravatarAvatars', $37::boolean) ELSE '{}'::jsonb END
     WHERE id = $1
   `, [req.session.userId, theme ?? null, font ?? null, layout ?? null, notificationSound ?? null,
       pageSize ?? null, scrollMode ?? null, syncInterval ?? null,
@@ -838,7 +839,7 @@ router.patch('/preferences', async (req, res) => {
       showAppBadge ?? null, showFaviconBadge ?? null, replyDefaultVal, sidebarWidthVal,
       categorizationEnabled ?? null, markReadBehaviorVal, markReadDelayVal, aiActionsJson,
       rightSidebarWidth, rightSidebarHidden, gtdCollapsedSectionsJson, gtdPetSlug, autoLockMinutesVal,
-      showMobileAvatars ?? null]);
+      showMobileAvatars ?? null, gravatarAvatars ?? null]);
 
   if (syncInterval != null) {
     const ms = parseInt(syncInterval) * 1000;

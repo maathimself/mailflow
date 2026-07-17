@@ -2,10 +2,26 @@ import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { generateVCard } from '../utils/vcard.js';
+import { safeFetch } from '../services/safeFetch.js';
 import crypto from 'crypto';
 
 const router = Router();
 router.use(requireAuth);
+
+// In-memory cache for Gravatar lookups (hash -> { buf, type } hit or { miss:true }).
+// Bounded + TTL'd so we don't re-hit Gravatar for every list render and so the number of
+// third-party requests stays minimal (a privacy consideration — see the /gravatar route).
+const gravatarCache = new Map();
+const GRAVATAR_TTL_MS      = 24 * 60 * 60 * 1000; // hits: 24h
+const GRAVATAR_MISS_TTL_MS =  6 * 60 * 60 * 1000; // 404s: 6h
+const GRAVATAR_MAX_ENTRIES = 2000;
+function gravatarCacheSet(hash, entry) {
+  if (gravatarCache.size >= GRAVATAR_MAX_ENTRIES) {
+    const oldest = gravatarCache.keys().next().value;
+    if (oldest !== undefined) gravatarCache.delete(oldest);
+  }
+  gravatarCache.set(hash, entry);
+}
 
 // Resolve the user's default address book id, creating it if needed.
 async function defaultAddressBook(userId) {
@@ -125,6 +141,57 @@ router.get('/photo', async (req, res) => {
   } catch (err) {
     console.error('Contact photo error:', err);
     res.status(500).end();
+  }
+});
+
+// GET /api/contacts/gravatar?email=:email
+// Server-side proxy for Gravatar sender avatars (#213). OPT-IN only — the frontend never
+// calls this unless the user turns on the "Gravatar avatars" preference. Proxied (rather
+// than hit directly from the browser) so the user's IP is never exposed to Gravatar, and
+// cached so repeated list renders don't fan out third-party requests. Privacy note: even so,
+// this server reveals the hashed sender address to Gravatar (Automattic) for each miss —
+// that is inherent to the feature and disclosed in the settings toggle.
+// Must remain ABOVE /:id (like /photo) so Express doesn't match "gravatar" as an id.
+router.get('/gravatar', async (req, res) => {
+  const email = typeof req.query.email === 'string' ? req.query.email.trim().toLowerCase() : '';
+  // Basic RFC-ish shape check; also bounds the input before hashing / logging.
+  if (!email || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).end();
+  }
+  const hash = crypto.createHash('sha256').update(email).digest('hex');
+  const now = Date.now();
+
+  const cached = gravatarCache.get(hash);
+  if (cached && cached.expires > now) {
+    if (cached.miss) return res.status(404).end();
+    res.set('Cache-Control', 'private, max-age=86400');
+    res.set('Content-Type', cached.type);
+    return res.send(cached.buf);
+  }
+
+  try {
+    // Host is fixed (only the hex hash varies) so there is no SSRF surface; safeFetch still
+    // pins to the resolved public IP and blocks private ranges. d=404 → Gravatar returns 404
+    // when the address has no avatar, so the client falls back to initials.
+    const url = `https://www.gravatar.com/avatar/${hash}?d=404&s=80&r=g`;
+    const resp = await safeFetch(url, {
+      signal: AbortSignal.timeout(6000),
+      headers: { 'User-Agent': 'Mailflow/1.0' },
+    });
+    if (resp.status === 404) {
+      gravatarCacheSet(hash, { miss: true, expires: now + GRAVATAR_MISS_TTL_MS });
+      return res.status(404).end();
+    }
+    const type = resp.headers.get('content-type') || '';
+    if (!resp.ok || !type.startsWith('image/')) return res.status(502).end();
+    const buf = Buffer.from(await resp.arrayBuffer());
+    if (buf.length === 0 || buf.length > 512 * 1024) return res.status(502).end();
+    gravatarCacheSet(hash, { buf, type, expires: now + GRAVATAR_TTL_MS });
+    res.set('Cache-Control', 'private, max-age=86400');
+    res.set('Content-Type', type);
+    return res.send(buf);
+  } catch (err) {
+    return res.status(502).end();
   }
 });
 

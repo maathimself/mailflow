@@ -1403,7 +1403,7 @@ function SwipeActionIcon({ action, size = 17 }) {
 function LayoutsTab() {
   const { t } = useTranslation();
   const isMobile = useMobile();
-  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, showMobileAvatars, setShowMobileAvatars, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay } = useStore();
+  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay } = useStore();
 
   // "Set MailFlow as your default email app": registerProtocolHandler is the
   // cross-browser path (works in Firefox and non-installed Chromium) and must be
@@ -1608,6 +1608,37 @@ function LayoutsTab() {
                 <button
                   key={String(id)}
                   onClick={() => setHoverQuickActions(id)}
+                  style={{
+                    flex: 1, padding: '10px 12px', textAlign: 'left',
+                    background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
+                    border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
+                    borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s', outline: 'none',
+                  }}
+                  onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; }}
+                  onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
+                >
+                  <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{label}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{desc}</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div style={{ marginTop: 22, paddingTop: 18, borderTop: '1px solid var(--border-subtle)' }}>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
+            {t('admin.messageList.gravatarMode')}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {[
+              { id: false, label: t('admin.messageList.gravatarOff'), desc: t('admin.messageList.gravatarOffDesc') },
+              { id: true, label: t('admin.messageList.gravatarOn'), desc: t('admin.messageList.gravatarOnDesc') },
+            ].map(({ id, label, desc }) => {
+              const active = gravatarAvatars === id;
+              return (
+                <button
+                  key={String(id)}
+                  onClick={() => setGravatarAvatars(id)}
                   style={{
                     flex: 1, padding: '10px 12px', textAlign: 'left',
                     background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',

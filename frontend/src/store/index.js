@@ -398,6 +398,15 @@ export const useStore = create((set, get) => ({
     schedulePrefSave({ showMobileAvatars: val });
   },
 
+  // Fetch sender avatars from Gravatar (off by default — opt-in third-party lookup, proxied
+  // through the backend so the user's IP is never exposed). Falls back to initials on a miss.
+  gravatarAvatars: localStorage.getItem('mailflow_gravatar_avatars') === 'true',
+  setGravatarAvatars: (val) => {
+    localStorage.setItem('mailflow_gravatar_avatars', String(val));
+    set({ gravatarAvatars: val });
+    schedulePrefSave({ gravatarAvatars: val });
+  },
+
   replyDefault: localStorage.getItem('mailflow_reply_default') || 'reply',
   setReplyDefault: (val) => {
     localStorage.setItem('mailflow_reply_default', val);
@@ -849,6 +858,10 @@ export const useStore = create((set, get) => ({
       if (typeof prefs.showMobileAvatars === 'boolean') {
         localStorage.setItem('mailflow_show_mobile_avatars', String(prefs.showMobileAvatars));
         set({ showMobileAvatars: prefs.showMobileAvatars });
+      }
+      if (typeof prefs.gravatarAvatars === 'boolean') {
+        localStorage.setItem('mailflow_gravatar_avatars', String(prefs.gravatarAvatars));
+        set({ gravatarAvatars: prefs.gravatarAvatars });
       }
       if (prefs.replyDefault === 'reply' || prefs.replyDefault === 'replyAll') {
         localStorage.setItem('mailflow_reply_default', prefs.replyDefault);
