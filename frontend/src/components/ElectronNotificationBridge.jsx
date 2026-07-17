@@ -125,7 +125,7 @@ export default function ElectronNotificationBridge() {
       try {
         const parsed = JSON.parse(value || '[]');
         return Array.isArray(parsed) ? parsed : [];
-      } catch (_) {
+      } catch {
         return [];
       }
     };
