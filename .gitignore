@@ -31,3 +31,5 @@ Thumbs.db
 
 .superpowers/
 output/
+
+# Search-eval query cache — paraphrases of real mail; the harness regenerates it

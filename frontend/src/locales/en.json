@@ -251,6 +251,8 @@
   },
   "messageList": {
     "search": "Search…",
+    "semanticToggle": "Semantic search",
+    "semanticBuildingHint": "Semantic index building — showing keyword results",
     "unread": "Unread",
     "showAll": "Show all",
     "unreadOnly": "Unread only",
@@ -585,7 +587,18 @@
     "uploadPhoto": "Upload photo",
     "removePhoto": "Remove photo",
     "errorNotImage": "Please select an image file.",
-    "errorProcess": "Could not process image."
+    "errorProcess": "Could not process image.",
+    "tokens": {
+      "label": "API tokens (MCP)",
+      "namePlaceholder": "Token name (e.g. laptop)",
+      "create": "Create",
+      "revoke": "Revoke",
+      "usedOn": "used {{date}}",
+      "neverUsed": "never used",
+      "copyOnce": "Copy this now — you won't see it again.",
+      "createFailed": "Failed to create token",
+      "revokeFailed": "Failed to revoke token"
+    }
   },
   "admin": {
     "title": "Settings",
@@ -1060,7 +1073,38 @@
       "test": "Test connection",
       "testing": "Testing…",
       "notConfigured": "No AI provider configured yet.",
-      "remove": "Remove configuration"
+      "remove": "Remove configuration",
+      "emb": {
+        "title": "Embeddings (semantic search)",
+        "benefit": "Embeddings make search faster and more accurate — for you, or for an agent connected over MCP.",
+        "defaultOff": "Disabled by default. Nothing is sent anywhere until you enable embeddings and start a build.",
+        "enable": "Enable embeddings",
+        "privacyWarning": "With a hosted endpoint configured, the embeddings provider (e.g. OpenAI) receives your email content — subject and body text. At that point this data path is no longer self-hosted.",
+        "vectorUnavailable": "The pgvector extension is not available on this database, so semantic search cannot run. Keyword search still works.",
+        "endpoint": "Endpoint URL",
+        "endpointPh": "https://api.openai.com/v1",
+        "endpointHint": "The client appends /embeddings to this URL.",
+        "sameAsChat": "Same as chat provider",
+        "sameAsChatActive": "Using the chat provider endpoint",
+        "model": "Model",
+        "modelPh": "text-embedding-3-small",
+        "dimension": "Dimension",
+        "dimensionPh": "1536",
+        "dimensionHint": "Vector size the model returns. Run Test to confirm it from the endpoint.",
+        "apiKey": "Embeddings API key",
+        "test": "Test endpoint",
+        "testOk": "Endpoint reachable — dimension {{dimension}}.",
+        "build": "Build index",
+        "rebuild": "Rebuild index",
+        "building": "Building…",
+        "buildStarted": "Build started — indexing runs in the background.",
+        "saveHint": "Save your changes before testing or building.",
+        "progressLabel": "Indexing {{processed}} / {{total}} messages",
+        "progressDone": "Embeddings up to date ({{total}} messages indexed).",
+        "progressError": "Build error: {{error}}",
+        "localTitle": "Running embeddings locally",
+        "localHelp": "Mailflow can generate embeddings entirely on your own hardware, so no message content leaves your network. On a Raspberry Pi, run Ollama with a small model such as all-minilm (384) or nomic-embed-text (768) — both expose an OpenAI-compatible endpoint Mailflow talks to directly. Pi-class CPUs are slow: the first index build for a large mailbox can take hours to days, but it runs once in the background and resumes safely, and embedding new mail afterwards is instant. For a faster first build, point the endpoint at a hosted API or a more powerful always-on machine on your LAN."
+      }
     },
     "aiActions": {
       "description": "Create your own AI actions. They appear in the AI menu when reading a message, alongside Summarize. Each action's prompt is applied to the message content.",

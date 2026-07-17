@@ -6,6 +6,7 @@ import { applyLayout, normalizeLayout } from '../layouts.js';
 import { DEFAULT_AI_ACTIONS } from '../aiActions.js';
 import { removeGtdThreadFromSections, setGtdThreadReadInSections } from '../utils/gtd.js';
 import { clampRightSidebarWidth } from '../utils/rightSidebar.js';
+import { readStoredSearchMode, writeStoredSearchMode } from '../utils/searchMode.js';
 import i18n from '../i18n.js';
 
 // Accumulate rapid preference changes and flush at most once per second.
@@ -277,6 +278,10 @@ export const useStore = create((set, get) => ({
     else localStorage.removeItem('mailflow_search_all_folders');
     set({ searchAllFolders: v });
   },
+  // Search mode: 'lexical' (default) | 'hybrid' | 'vector'. Persisted per device,
+  // like searchAllFolders. Only meaningful when /api/ai/status reports vector available.
+  searchMode: readStoredSearchMode(localStorage),
+  setSearchMode: (mode) => set({ searchMode: writeStoredSearchMode(localStorage, mode) }),
   swipeActions: (() => {
     try {
       return JSON.parse(localStorage.getItem('mailflow_swipe_actions') || 'null') || { left: 'archive', right: 'markRead' };

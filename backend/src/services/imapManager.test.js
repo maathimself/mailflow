@@ -11,10 +11,12 @@ vi.mock('../utils/redact.js', () => ({ redactEmail: vi.fn() }));
 vi.mock('./hostValidation.js', () => ({ resolveForConnection: vi.fn() }));
 vi.mock('./gtdTransitions.js', () => ({ runGtdTransitions: vi.fn(), threadKeysForMessageIds: vi.fn(), threadKeysInFolders: vi.fn() }));
 
-import { providerProfile, makeClientCfg, gtdRelocateGuard, insertCopiedSibling, deleteMessageCopyRow, emitAfterDeferredCopySync, emitGtdSectionsRefreshOnDelete, emitGtdSectionsRefreshIfEnabled, selectGtdReevalIds, ensureMailbox, runGtdSyncTick, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, planModseqSync, connectStaggerFor } from './imapManager.js';
+import { providerProfile, makeClientCfg, gtdRelocateGuard, insertCopiedSibling, deleteMessageCopyRow, emitAfterDeferredCopySync, emitGtdSectionsRefreshOnDelete, emitGtdSectionsRefreshIfEnabled, selectGtdReevalIds, ensureMailbox, runGtdSyncTick, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, planModseqSync, connectStaggerFor, ImapManager } from './imapManager.js';
 import { query } from './db.js';
 import { invalidateGtdConfigCache } from './gtdConfig.js';
 import { runGtdTransitions, threadKeysInFolders } from './gtdTransitions.js';
+import { sanitizeEmail } from './emailSanitizer.js';
+import { snippetFromBody } from './messageParser.js';
 
 const account = (imap_host, oauth_provider = null) => ({ imap_host, oauth_provider });
 
@@ -100,6 +102,22 @@ describe('providerProfile — host detection', () => {
     ['webgmail.ru'],
   ])('does not false-positive on %s', host => {
     expect(providerProfile(account(host))).toBe(providerProfile(account('generic.example.com')));
+  });
+});
+
+// ── providerProfile — bodyBackfill allowlist ─────────────────────────────────
+
+describe('providerProfile — bodyBackfill allowlist', () => {
+  it('enables body backfill for well-behaved providers (apple, yahoo, generic)', () => {
+    expect(providerProfile(account('imap.icloud.com')).bodyBackfill).toBe(true);
+    expect(providerProfile(account('imap.mail.yahoo.com')).bodyBackfill).toBe(true);
+    expect(providerProfile(account('imap.fastmail.com')).bodyBackfill).toBe(true);
+  });
+
+  it('excludes throttle-hostile / unproven providers (google, purelymail, microsoft)', () => {
+    expect(providerProfile(account('imap.gmail.com')).bodyBackfill).toBe(false);
+    expect(providerProfile(account('imap.purelymail.com')).bodyBackfill).toBe(false);
+    expect(providerProfile(account('outlook.office365.com')).bodyBackfill).toBe(false);
   });
 });
 
@@ -975,5 +993,119 @@ describe('planModseqSync', () => {
     expect(Number(a) === Number(b)).toBe(true);            // the trap we must avoid
     expect(planModseqSync({ storedModseq: a, serverModseq: b, uidValidityChanged: false })).toBe('delta');
     expect(planModseqSync({ storedModseq: b, serverModseq: b, uidValidityChanged: false })).toBe('unchanged');
+  });
+});
+
+describe('ImapManager.fetchBodiesForMessages', () => {
+  // The constructor starts four setInterval timers; clear them so tests leave no open handles.
+  function makeManager() {
+    const mgr = new ImapManager({});
+    clearInterval(mgr._healthCheckTimer);
+    clearInterval(mgr._snippetSchedulerTimer);
+    clearInterval(mgr._stalenessCheckTimer);
+    clearInterval(mgr._flagPushReconcilerTimer);
+    return mgr;
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns {fetched:0} without touching IMAP when given no ids', async () => {
+    const mgr = makeManager();
+    mgr.fetchMessageBody = vi.fn();
+    const result = await mgr.fetchBodiesForMessages('acct-1', []);
+    expect(result).toEqual({ fetched: 0 });
+    expect(mgr.fetchMessageBody).not.toHaveBeenCalled();
+  });
+
+  it('fetches each still-empty message and writes its body via UPDATE', async () => {
+    const mgr = makeManager();
+    mgr.fetchMessageBody = vi.fn().mockResolvedValue({ html: '<p>hi</p>', text: 'hi', attachments: [] });
+    sanitizeEmail.mockReturnValue('<p>hi</p>');
+    snippetFromBody.mockReturnValue('hi');
+    query.mockImplementation((sql) => {
+      if (/FROM email_accounts/.test(sql)) return Promise.resolve({ rows: [{ id: 'acct-1', email_address: 'x@y' }] });
+      if (/SELECT id, uid, folder FROM messages/.test(sql)) {
+        return Promise.resolve({ rows: [{ id: 'm1', uid: 5, folder: 'INBOX' }, { id: 'm2', uid: 6, folder: 'Sent' }] });
+      }
+      return Promise.resolve({ rows: [] }); // UPDATE
+    });
+
+    const result = await mgr.fetchBodiesForMessages('acct-1', ['m1', 'm2']);
+
+    expect(result).toEqual({ fetched: 2 });
+    expect(mgr.fetchMessageBody).toHaveBeenCalledWith(expect.objectContaining({ id: 'acct-1' }), 5, 'INBOX');
+    expect(mgr.fetchMessageBody).toHaveBeenCalledWith(expect.objectContaining({ id: 'acct-1' }), 6, 'Sent');
+    const updateCalls = query.mock.calls.filter(([sql]) => /UPDATE messages/.test(sql));
+    expect(updateCalls).toHaveLength(2);
+  });
+
+  it('skips a message whose body comes back empty (no html and no text)', async () => {
+    const mgr = makeManager();
+    mgr.fetchMessageBody = vi.fn().mockResolvedValue({ html: null, text: null, attachments: [] });
+    query.mockImplementation((sql) => {
+      if (/FROM email_accounts/.test(sql)) return Promise.resolve({ rows: [{ id: 'acct-1' }] });
+      if (/SELECT id, uid, folder FROM messages/.test(sql)) return Promise.resolve({ rows: [{ id: 'm1', uid: 5, folder: 'INBOX' }] });
+      return Promise.resolve({ rows: [] });
+    });
+
+    const result = await mgr.fetchBodiesForMessages('acct-1', ['m1']);
+
+    expect(result).toEqual({ fetched: 0 });
+    const updateCalls = query.mock.calls.filter(([sql]) => /UPDATE messages/.test(sql));
+    expect(updateCalls).toHaveLength(0);
+  });
+
+  it('propagates a fetchMessageBody failure so the drainer can back off', async () => {
+    const mgr = makeManager();
+    mgr.fetchMessageBody = vi.fn().mockRejectedValue(new Error('Command failed'));
+    query.mockImplementation((sql) => {
+      if (/FROM email_accounts/.test(sql)) return Promise.resolve({ rows: [{ id: 'acct-1' }] });
+      if (/SELECT id, uid, folder FROM messages/.test(sql)) return Promise.resolve({ rows: [{ id: 'm1', uid: 5, folder: 'INBOX' }] });
+      return Promise.resolve({ rows: [] });
+    });
+
+    await expect(mgr.fetchBodiesForMessages('acct-1', ['m1'])).rejects.toThrow('Command failed');
+  });
+
+  it('skips a poison message that throws mid-batch and still fetches the rest (no wedge)', async () => {
+    const mgr = makeManager();
+    mgr.fetchMessageBody = vi.fn()
+      .mockRejectedValueOnce(new Error("Mailbox doesn't exist"))
+      .mockResolvedValueOnce({ html: '<p>hi</p>', text: 'hi', attachments: [] });
+    sanitizeEmail.mockReturnValue('<p>hi</p>');
+    snippetFromBody.mockReturnValue('hi');
+    query.mockImplementation((sql) => {
+      if (/FROM email_accounts/.test(sql)) return Promise.resolve({ rows: [{ id: 'acct-1' }] });
+      if (/SELECT id, uid, folder FROM messages/.test(sql)) {
+        return Promise.resolve({ rows: [{ id: 'm1', uid: 5, folder: 'Stale' }, { id: 'm2', uid: 6, folder: 'INBOX' }] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+
+    const result = await mgr.fetchBodiesForMessages('acct-1', ['m1', 'm2']);
+
+    // The poison message (m1) is skipped, not thrown — the loop keeps going so a batch
+    // containing it still makes forward progress instead of wedging the account forever.
+    expect(result).toEqual({ fetched: 1 });
+    expect(mgr.fetchMessageBody).toHaveBeenCalledTimes(2);
+    const updateCalls = query.mock.calls.filter(([sql]) => /UPDATE messages/.test(sql));
+    expect(updateCalls).toHaveLength(1);
+  });
+
+  it('rethrows when every message in the batch fails (genuine outage, not one bad message)', async () => {
+    const mgr = makeManager();
+    mgr.fetchMessageBody = vi.fn().mockRejectedValue(new Error('Connection closed'));
+    query.mockImplementation((sql) => {
+      if (/FROM email_accounts/.test(sql)) return Promise.resolve({ rows: [{ id: 'acct-1' }] });
+      if (/SELECT id, uid, folder FROM messages/.test(sql)) {
+        return Promise.resolve({ rows: [{ id: 'm1', uid: 5, folder: 'INBOX' }, { id: 'm2', uid: 6, folder: 'INBOX' }] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+
+    await expect(mgr.fetchBodiesForMessages('acct-1', ['m1', 'm2'])).rejects.toThrow('Connection closed');
+    expect(mgr.fetchMessageBody).toHaveBeenCalledTimes(2); // both attempted, neither skipped silently
   });
 });

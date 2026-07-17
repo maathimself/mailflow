@@ -251,6 +251,8 @@
   },
   "messageList": {
     "search": "Cerca…",
+    "semanticToggle": "Ricerca semantica",
+    "semanticBuildingHint": "Creazione dell'indice semantico — risultati per parola chiave",
     "unread": "Non letti",
     "showAll": "Mostra tutto",
     "unreadOnly": "Solo non letti",
@@ -585,7 +587,18 @@
     "uploadPhoto": "Carica foto",
     "removePhoto": "Rimuovi foto",
     "errorNotImage": "Seleziona un file immagine.",
-    "errorProcess": "Impossibile elaborare l'immagine."
+    "errorProcess": "Impossibile elaborare l'immagine.",
+    "tokens": {
+      "label": "Token API (MCP)",
+      "namePlaceholder": "Nome del token (es. laptop)",
+      "create": "Crea",
+      "revoke": "Revoca",
+      "usedOn": "usato {{date}}",
+      "neverUsed": "mai usato",
+      "copyOnce": "Copialo ora: non lo vedrai più.",
+      "createFailed": "Impossibile creare il token",
+      "revokeFailed": "Impossibile revocare il token"
+    }
   },
   "admin": {
     "title": "Impostazioni",
@@ -1060,7 +1073,38 @@
       "test": "Testa connessione",
       "testing": "Test in corso…",
       "notConfigured": "Nessun provider IA configurato.",
-      "remove": "Rimuovi configurazione"
+      "remove": "Rimuovi configurazione",
+      "emb": {
+        "title": "Embeddings (ricerca semantica)",
+        "benefit": "Gli embeddings rendono la ricerca più veloce e precisa — per te o per un agente connesso tramite MCP.",
+        "defaultOff": "Disattivato per impostazione predefinita. Non viene inviato nulla finché non attivi gli embeddings e avvii una creazione.",
+        "enable": "Attiva gli embeddings",
+        "privacyWarning": "Con un endpoint ospitato configurato, il fornitore di embeddings (ad es. OpenAI) riceve il contenuto delle tue email — oggetto e corpo del testo. A quel punto questo percorso dei dati non è più self-hosted.",
+        "vectorUnavailable": "L'estensione pgvector non è disponibile su questo database, quindi la ricerca semantica non può funzionare. La ricerca per parole chiave funziona ancora.",
+        "endpoint": "URL dell'endpoint",
+        "endpointPh": "https://api.openai.com/v1",
+        "endpointHint": "Il client aggiunge /embeddings a questo URL.",
+        "sameAsChat": "Come il fornitore di chat",
+        "sameAsChatActive": "Utilizza l'endpoint del fornitore di chat",
+        "model": "Modello",
+        "modelPh": "text-embedding-3-small",
+        "dimension": "Dimensione",
+        "dimensionPh": "1536",
+        "dimensionHint": "Dimensione del vettore restituita dal modello. Esegui «Prova» per confermarla dall'endpoint.",
+        "apiKey": "Chiave API degli embeddings",
+        "test": "Prova endpoint",
+        "testOk": "Endpoint raggiungibile — dimensione {{dimension}}.",
+        "build": "Crea indice",
+        "rebuild": "Ricrea indice",
+        "building": "Creazione…",
+        "buildStarted": "Creazione avviata — l'indicizzazione viene eseguita in background.",
+        "saveHint": "Salva le modifiche prima di provare o creare.",
+        "progressLabel": "Indicizzazione di {{processed}} / {{total}} messaggi",
+        "progressDone": "Embeddings aggiornati ({{total}} messaggi indicizzati).",
+        "progressError": "Errore di creazione: {{error}}",
+        "localTitle": "Eseguire gli embeddings in locale",
+        "localHelp": "Mailflow può generare gli embeddings interamente sul tuo hardware, così nessun contenuto dei messaggi lascia la tua rete. Su un Raspberry Pi, esegui Ollama con un modello piccolo come all-minilm (384) o nomic-embed-text (768) — entrambi espongono un endpoint compatibile con OpenAI con cui Mailflow comunica direttamente. Le CPU di classe Pi sono lente: la prima creazione dell'indice per una casella grande può richiedere da ore a giorni, ma viene eseguita una sola volta in background e riprende in sicurezza; in seguito, l'incorporamento della nuova posta è istantaneo. Per una prima creazione più veloce, punta l'endpoint verso un'API ospitata o una macchina più potente e sempre accesa nella tua LAN."
+      }
     },
     "aiActions": {
       "description": "Crea le tue azioni IA. Appaiono nel menu IA durante la lettura di un messaggio, accanto a Riassumi. Il prompt di ogni azione viene applicato al contenuto del messaggio.",
