@@ -14,7 +14,6 @@ import MessageList from './MessageList.jsx';
 import MessagePane from './MessagePane.jsx';
 import GtdSidebarContent from './GtdSidebarContent.jsx';
 import NotificationToasts from './NotificationToasts.jsx';
-import ElectronNotificationBridge from './ElectronNotificationBridge.jsx';
 import CommandPalette from './CommandPalette.jsx';
 import { gtdActiveForContext } from '../utils/gtd.js';
 
@@ -22,6 +21,7 @@ const ContactsPage = lazy(() => import('./ContactsPage.jsx'));
 
 const ComposeModal = lazy(() => import('./ComposeModal.jsx'));
 const AdminPanel   = lazy(() => import('./AdminPanel.jsx'));
+const ElectronNotificationBridge = lazy(() => import('./ElectronNotificationBridge.jsx'));
 
 // Read + atomically clear the deep-link the service worker persisted on a
 // notification tap (shared IndexedDB store 'mailflow-nav'). Fully guarded so any
@@ -111,6 +111,7 @@ export default function MailApp() {
   }, [gtdActive, selectedAccountId, gtdEnabledKey, fetchGtdSections]);
 
   const scale = fontSize / 100;
+  const hasNativeBridge = Boolean(window.mailflowNative || window.Capacitor?.isNativePlatform?.());
   const [vpSize, setVpSize] = useState({ w: window.innerWidth, h: window.innerHeight });
   useEffect(() => {
     const update = () => setVpSize({ w: window.innerWidth, h: window.innerHeight });
@@ -870,7 +871,7 @@ export default function MailApp() {
 
       <Suspense fallback={lazyFallback}>{composing && <ComposeModal />}</Suspense>
       <Suspense fallback={lazyFallback}>{showAdmin && <AdminPanel />}</Suspense>
-      <ElectronNotificationBridge />
+      <Suspense fallback={null}>{hasNativeBridge && <ElectronNotificationBridge />}</Suspense>
       <NotificationToasts />
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
 
