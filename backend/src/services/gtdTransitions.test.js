@@ -67,6 +67,19 @@ describe('getOwnerAddresses', () => {
     await getOwnerAddresses('acct-1');
     expect(query).toHaveBeenCalledTimes(2);
   });
+
+  it('picks up changed aliases immediately after cache invalidation', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ addr: 'me@example.com' }, { addr: 'old@example.com' }] })
+      .mockResolvedValueOnce({ rows: [{ addr: 'me@example.com' }, { addr: 'masked@user.masked.fastmail.com' }] });
+    const cached = await getOwnerAddresses('acct-1');
+    expect(cached.has('old@example.com')).toBe(true);
+
+    invalidateOwnerAddressesCache('acct-1');
+    const refreshed = await getOwnerAddresses('acct-1');
+    expect(refreshed.has('old@example.com')).toBe(false);
+    expect(refreshed.has('masked@user.masked.fastmail.com')).toBe(true);
+  });
 });
 
 // ── runGtdTransitions ────────────────────────────────────────────────────────
@@ -119,6 +132,32 @@ describe('runGtdTransitions', () => {
     const mgr = fakeManager();
     await runGtdTransitions(mgr, account, ['t1']);
     expect(mgr.removeMessageCopy).toHaveBeenCalledWith('acct-1', 31, 'Todo');
+  });
+
+  it('keeps Watch when the newest message is from a configured Fastmail masked alias', async () => {
+    mockQuery({
+      owner: [{ addr: 'me@example.com' }, { addr: 'masked@user.masked.fastmail.com' }],
+      rows: [
+        { thread_key: 't1', uid: 32, folder: 'INBOX', from_email: 'masked@user.masked.fastmail.com', date: '2026-07-09T10:00:00Z', id: 'r1' },
+        { thread_key: 't1', uid: 33, folder: 'Watch', from_email: 'masked@user.masked.fastmail.com', date: '2026-07-09T10:00:00Z', id: 'r2' },
+      ],
+    });
+    const mgr = fakeManager();
+    await runGtdTransitions(mgr, account, ['t1']);
+    expect(mgr.removeMessageCopy).not.toHaveBeenCalledWith('acct-1', 33, 'Watch');
+  });
+
+  it('strips Watch when the newest message is from an external address instead', async () => {
+    mockQuery({
+      owner: [{ addr: 'me@example.com' }, { addr: 'masked@user.masked.fastmail.com' }],
+      rows: [
+        { thread_key: 't1', uid: 34, folder: 'INBOX', from_email: 'them@other.com', date: '2026-07-09T10:00:00Z', id: 'r1' },
+        { thread_key: 't1', uid: 35, folder: 'Watch', from_email: 'them@other.com', date: '2026-07-09T10:00:00Z', id: 'r2' },
+      ],
+    });
+    const mgr = fakeManager();
+    await runGtdTransitions(mgr, account, ['t1']);
+    expect(mgr.removeMessageCopy).toHaveBeenCalledWith('acct-1', 35, 'Watch');
   });
 
   it('never strips Reference, whoever sent last', async () => {

@@ -7,6 +7,7 @@ import { sanitizeSignature } from '../services/emailSanitizer.js';
 import { validateHost } from '../services/hostValidation.js';
 import { getConnectionPolicy } from '../services/connectionPolicy.js';
 import { invalidateGtdConfigCache, sanitizeGtdFoldersDetailed, findGtdFolderCollisions, DEFAULT_GTD_FOLDERS } from '../services/gtdConfig.js';
+import { invalidateOwnerAddressesCache } from '../services/gtdTransitions.js';
 import { createKeyedSerializer } from '../utils/keyedSerializer.js';
 
 // Serialize an account's reconnect triggers so a rapid settings change (e.g. a
@@ -349,6 +350,7 @@ router.post('/:id/aliases', async (req, res) => {
     'INSERT INTO account_aliases (account_id, name, email, reply_to, signature) VALUES ($1, $2, $3, $4, $5) RETURNING *',
     [id, name, email, reply_to || null, sanitizeSignature(signature) || null]
   );
+  invalidateOwnerAddressesCache(id);
   res.json(result.rows[0]);
 });
 
@@ -361,7 +363,7 @@ router.put('/:id/aliases/:aliasId', async (req, res) => {
   }
 
   const check = await query(
-    `SELECT a.id FROM account_aliases a
+    `SELECT a.id, a.account_id FROM account_aliases a
      JOIN email_accounts e ON a.account_id = e.id
      WHERE a.id = $1 AND e.user_id = $2 AND e.id = $3`,
     [aliasId, req.session.userId, id]
@@ -372,6 +374,7 @@ router.put('/:id/aliases/:aliasId', async (req, res) => {
     'UPDATE account_aliases SET name = $1, email = $2, reply_to = $3, signature = $4 WHERE id = $5 RETURNING *',
     [name, email, reply_to || null, sanitizeSignature(signature) || null, aliasId]
   );
+  invalidateOwnerAddressesCache(check.rows[0].account_id);
   res.json(result.rows[0]);
 });
 
@@ -379,7 +382,7 @@ router.delete('/:id/aliases/:aliasId', async (req, res) => {
   const { id, aliasId } = req.params;
 
   const check = await query(
-    `SELECT a.id FROM account_aliases a
+    `SELECT a.id, a.account_id FROM account_aliases a
      JOIN email_accounts e ON a.account_id = e.id
      WHERE a.id = $1 AND e.user_id = $2 AND e.id = $3`,
     [aliasId, req.session.userId, id]
@@ -387,6 +390,7 @@ router.delete('/:id/aliases/:aliasId', async (req, res) => {
   if (!check.rows.length) return res.status(404).json({ error: 'Alias not found' });
 
   await query('DELETE FROM account_aliases WHERE id = $1', [aliasId]);
+  invalidateOwnerAddressesCache(check.rows[0].account_id);
   res.json({ ok: true });
 });
 

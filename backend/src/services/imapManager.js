@@ -109,16 +109,22 @@ export function connectCooldownMs(failures) {
 
 // Decide a folder's sync fetch strategy from its CONDSTORE modseq state. Pure and total so
 // it can be exhaustively unit-tested — it is the load-bearing correctness decision for delta
-// sync. Returns one of:
+// sync. A nonempty server mailbox with no local UID is an incomplete cache whose modseq
+// watermark must never be trusted: the delta path only applies flag updates and cannot insert
+// missing rows. A delta may then advance the watermark without inserting them, and a later
+// unchanged plan skips every fetch, leaving the message stranded. That state must take the
+// metadata-capable full path. Returns one of:
 //   'unchanged' — server HIGHESTMODSEQ equals our stored watermark: nothing changed, skip fetch.
-//   'delta'     — modseq advanced: one CHANGEDSINCE fetch returns every new message AND flag
-//                 change since the watermark (strictly more complete than the UID/seq phases).
+//   'delta'     — modseq advanced with a populated local cache: apply changed flags since the
+//                 watermark while the separate UID phase inserts new messages.
 //   'full'      — no usable baseline (first sync, UIDVALIDITY reset, or a server without
-//                 CONDSTORE): run the legacy UID-watermark + sequence phases and re-seed.
+//                 CONDSTORE), or an incomplete cache: run the metadata-capable sequence phase
+//                 and re-seed.
 // modseq values are 64-bit unsigned and only comparable within one UIDVALIDITY epoch — inputs
 // may be BigInt, decimal string, or null; comparison is done in BigInt to avoid Number()
 // precision loss above 2^53. NEVER compare these as JS Numbers.
-export function planModseqSync({ storedModseq, serverModseq, uidValidityChanged }) {
+export function planModseqSync({ storedModseq, serverModseq, uidValidityChanged, maxKnownUid, serverExists }) {
+  if (maxKnownUid === 0 && serverExists > 0) return 'full';
   if (uidValidityChanged) return 'full';    // epoch reset — the stored modseq is meaningless now
   if (serverModseq == null) return 'full';  // server didn't advertise CONDSTORE HIGHESTMODSEQ
   if (storedModseq == null) return 'full';  // no baseline yet — full sync seeds the watermark
@@ -130,11 +136,15 @@ const BODY_PREFETCH_PARTS = ['1', '1.1', '1.2', '2', '2.1', '2.2', '1.1.1', '1.2
 
 // The flag-change scan in syncMessages gets its OWN budget, shorter than the whole-sync
 // wall-clock. When a provider throttles the connection (iCloud right after a startup backfill
-// burst), the flag scan crawls — but new mail was already caught by the UID phase, so a slow
-// flag scan must not burn the full sync budget and force a reconnect (which piles another
-// connection onto the throttled account and feeds the churn). Instead it defers to the next
-// tick WITHOUT advancing the modseq watermark, so no flag change is lost. The sentinel is
-// resolved (not thrown) by the race so it's never confused with a real fetch error.
+// burst), the flag scan crawls. A deferred delta scan simply retries next tick because its
+// watermark was withheld and still lags the server's. A deferred full scan retries because
+// planModseqSync's empty-cache guard depends only on maxKnownUid, not the watermark — but any
+// rows the deferred scan did manage to insert before timing out raise maxKnownUid above zero,
+// so the next tick already falls through to delta plus the UID phase's own catch-up rather than
+// repeating the full scan. Either way the scan defers instead of burning the full sync budget
+// and forcing a reconnect (which piles another connection onto the throttled account and feeds
+// the churn), without losing mail or flag changes. The sentinel is resolved (not thrown) by the
+// race so it is never confused with a real fetch error.
 const FLAG_SCAN_TIMEOUT_MS = 20000;
 const FLAG_SCAN_TIMED_OUT = Symbol('flagScanTimedOut');
 
@@ -2486,16 +2496,21 @@ export class ImapManager {
           }
         };
 
-        // Fetch strategy. CRITICAL: new-mail detection is the UID-watermark phase below, which
-        // ALWAYS runs and never depends on the CONDSTORE modseq. The modseq only gates the more
-        // expensive flag-change scan. This is deliberate — a modseq that is stale or has wrongly
-        // advanced must NEVER cause missed mail. New mail always carries a UID above everything
-        // we already hold, so the UID watermark catches it regardless of what the modseq says.
-        const plan = planModseqSync({ storedModseq, serverModseq, uidValidityChanged });
+        // Fetch strategy. The UID-watermark phase below catches new mail only when the local
+        // cache already has a UID; maxKnownUid=0 skips it entirely. In a nonempty server mailbox,
+        // planModseqSync therefore treats that empty cache as incomplete and forces the bounded
+        // metadata-capable full scan through fetchQuery/processMsg, regardless of the modseq.
+        const plan = planModseqSync({
+          storedModseq,
+          serverModseq,
+          uidValidityChanged,
+          maxKnownUid,
+          serverExists: mailbox.exists,
+        });
 
-        // ── New-mail phase — ALWAYS runs (modseq-independent safety net). Fetches only UIDs
-        // above the highest we already have — usually just the newest message, then a no-op
-        // upsert. Skipped only on first sync (maxKnownUid=0), where backfill owns population.
+        // ── New-mail phase — UID-watermark safety net for a populated local cache. Fetches only
+        // UIDs above the highest we already have — usually just the newest message, then a no-op
+        // upsert. When no local UID exists, the full plan above owns metadata ingestion instead.
         if (maxKnownUid > 0) {
           try {
             for await (const msg of client.fetch(`${maxKnownUid + 1}:*`, fetchQuery, { uid: true })) {
@@ -2566,11 +2581,13 @@ export class ImapManager {
             }
           }
         } else if (plan === 'full') {
-          // No usable modseq baseline (first sync, UIDVALIDITY reset, or a server without
-          // CONDSTORE): scan recent messages by sequence for flag changes. Re-read exists from
-          // the live connection — ImapFlow may have decremented it if an EXPUNGE arrived during
-          // the UID phase, making a range captured at SELECT time stale. The watermark is seeded
-          // below so subsequent syncs can go delta.
+          // A missing/invalid modseq baseline or an incomplete local cache requires a recent
+          // sequence scan with full metadata. Re-read exists from the live connection — ImapFlow
+          // may have decremented it if an EXPUNGE arrived during the UID phase, making a range
+          // captured at SELECT time stale. The watermark is seeded below so subsequent syncs can
+          // go delta once the local cache has a UID. Bounded to the most recent `limit` messages —
+          // older un-cached messages in a large folder are backfill's job, not this scan's; backfill
+          // runs on connect/reconnect/reindex and its dbCount-vs-serverTotal check re-detects the gap.
           const liveExists = client.mailbox?.exists ?? 0;
           const phase2Range = liveExists > limit
             ? `${liveExists - limit + 1}:${liveExists}` : '1:*';
