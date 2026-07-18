@@ -1,6 +1,19 @@
 import { describe, it, expect } from 'vitest';
 import { buildSnippetFromHtml, parseMessage, snippetFromBody } from './messageParser.js';
 
+// Timing assertions use the fastest of a few runs so GC pauses and cold-JIT
+// noise cannot flake CI; an accidental return to quadratic scanning is
+// orders of magnitude over these thresholds (minutes, not milliseconds).
+function fastestRunMs(fn, runs) {
+  let fastest = Infinity;
+  for (let i = 0; i < runs; i++) {
+    const start = performance.now();
+    fn();
+    fastest = Math.min(fastest, performance.now() - start);
+  }
+  return fastest;
+}
+
 describe('buildSnippetFromHtml', () => {
   it('drops CSS from an unclosed style block inside the document head', () => {
     const html = '<html><head><style>body{max-width:740px}h1{font-size:30px;color:#000}<title>Newsletter</head><body><p>Hello</p></body></html>';
@@ -45,6 +58,30 @@ describe('buildSnippetFromHtml', () => {
   it('drops a decorative divider run from visible HTML text', () => {
     const html = '<p>========================================</p><p>Visible content</p>';
     expect(buildSnippetFromHtml(html)).toBe('Visible content');
+  });
+
+  it('keeps a bare less-than sign in prose that never closes as a tag', () => {
+    const html = 'checking that 5 < 10 still reads as prose';
+    expect(buildSnippetFromHtml(html)).toBe(html);
+  });
+
+  it('finishes a ~300KB body full of bare less-than signs well under 50ms', () => {
+    const html = 'a < b and c '.repeat(25000);
+    expect(buildSnippetFromHtml(html)).toContain('a < b and c');
+    expect(fastestRunMs(() => buildSnippetFromHtml(html), 3)).toBeLessThan(50);
+  });
+
+  it('stays linear on crafted ~300KB tag-heavy bodies', () => {
+    // Dangling opens, unpaired quotes, and quoted '>' runs are the shapes
+    // that force a backtracking tag matcher to rescan the whole tail.
+    const danglingOpens = '<a '.repeat(100000);
+    const unpairedQuotes = ('<a"x ').repeat(60000);
+    const quotedGtRuns = ('<"' + '>'.repeat(10) + '"').repeat(23000);
+    expect(fastestRunMs(() => {
+      buildSnippetFromHtml(danglingOpens);
+      buildSnippetFromHtml(unpairedQuotes);
+      buildSnippetFromHtml(quotedGtRuns);
+    }, 2)).toBeLessThan(500);
   });
 });
 
@@ -103,19 +140,6 @@ describe('snippetFromBody', () => {
     const text = 'Trouble viewing this email? .preheader { display: none; } Read the highlights below.';
     expect(snippetFromBody(text)).toBe('Read the highlights below.');
   });
-
-  // Timing assertions use the fastest of a few runs so GC pauses and cold-JIT
-  // noise cannot flake CI; an accidental return to quadratic scanning is
-  // orders of magnitude over these thresholds (minutes, not milliseconds).
-  function fastestRunMs(fn, runs) {
-    let fastest = Infinity;
-    for (let i = 0; i < runs; i++) {
-      const start = performance.now();
-      fn();
-      fastest = Math.min(fastest, performance.now() - start);
-    }
-    return fastest;
-  }
 
   it('finishes a ~200KB brace-free body well under 50ms', () => {
     const text = 'newsletter content with plenty of ordinary prose words here '.repeat(3400);

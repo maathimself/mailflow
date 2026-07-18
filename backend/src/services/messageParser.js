@@ -141,11 +141,55 @@ export function snippetFromBody(text, html) {
   return '';
 }
 
+// Remove tags the way /<(?:[^>"']|"[^"]*"|'[^']*')+>/g did, but in linear
+// time. That regex admits exactly one parse at every character — a quote can
+// only open a quoted attribute value, whose contents run to the next same
+// quote, and any other character is a single content unit — so a tag's
+// closing '>' depends only on the position the scan is at, never on how it
+// got there. close[q] memoizes that walk right-to-left; the regex's repeated
+// left-to-right rescans made bodies full of bare '<' with no '>' quadratic
+// (minutes of ingest stall on crafted or merely unlucky large messages).
+function stripTags(html) {
+  let lt = html.indexOf('<');
+  if (lt === -1) return html;
+  const n = html.length;
+  // close[q]: index of the '>' that ends a tag whose content scan reached q,
+  // or -1 when the scan would run off the end of the string.
+  const close = new Int32Array(n + 1);
+  close[n] = -1;
+  let nextDouble = -1;
+  let nextSingle = -1;
+  for (let q = n - 1; q >= 0; q--) {
+    const c = html.charCodeAt(q);
+    if (c === 62 /* > */) close[q] = q;
+    else if (c === 34 /* " */) close[q] = nextDouble === -1 ? -1 : close[nextDouble + 1];
+    else if (c === 39 /* ' */) close[q] = nextSingle === -1 ? -1 : close[nextSingle + 1];
+    else close[q] = close[q + 1];
+    if (c === 34) nextDouble = q;
+    else if (c === 39) nextSingle = q;
+  }
+  let out = '';
+  let copied = 0;
+  while (lt !== -1) {
+    const end = close[lt + 1];
+    // end === lt + 1 is '<>', which the regex left alone (it required at
+    // least one content character); the bracket collapse sweeps those up.
+    if (end !== -1 && end > lt + 1) {
+      out += html.slice(copied, lt) + ' ';
+      copied = end + 1;
+      lt = html.indexOf('<', copied);
+    } else {
+      lt = html.indexOf('<', lt + 1);
+    }
+  }
+  return out + html.slice(copied);
+}
+
 // Strip HTML markup and decode all entities to produce a plain-text snippet.
 // Exported so imapManager can use the same logic when building snippets from
 // pre-fetched raw HTML bodies (avoiding duplicated, inconsistent entity handling).
 export function buildSnippetFromHtml(html) {
-  return html
+  const untagged = stripTags(html
     // Strip the enclosing head first so an unclosed nested style cannot consume
     // visible body content while falling back to the end of the document.
     .replace(/<head\b[^>]*>[\s\S]*?(?:<\/head\s*>|$)/gi, '')
@@ -158,8 +202,8 @@ export function buildSnippetFromHtml(html) {
     .replace(/<!--[\s\S]*?(?:-->|$)/gi, '')
     // Strip ##marker## template placeholders emitted by some marketing tools
     // (UPS, Epsilon) that don't fully render before sending.
-    .replace(/##[^#]*##/g, '')
-    .replace(/<(?:[^>"']|"[^"]*"|'[^']*')+>/g, ' ')
+    .replace(/##[^#]*##/g, ''));
+  return untagged
     // A tag with no closing angle bracket bypasses the tag matcher and would
     // otherwise become literal preview text through the end of the body.
     .replace(/<\/?[a-z][a-z0-9:-]*(?:\s+[\s\S]*)?$/gi, ' ')
