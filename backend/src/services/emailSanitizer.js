@@ -24,6 +24,33 @@ export function stripEmailHead(html) {
   });
 }
 
+
+// Best-effort repair for bodies that were cached/fetched with leftover
+// quoted-printable fragments inside otherwise valid HTML. This happens with
+// malformed multipart messages where an IMAP BODY part contains an embedded
+// MIME subpart. Decode only explicit uppercase =HH runs so normal text like
+// "name=value" or email domains such as "example.=com" are not damaged.
+export function repairResidualQuotedPrintableHtml(html) {
+  if (!html || !/(?:=[0-9A-F]{2}|==[0-9A-F]{2}|Content-Transfer-Encoding|@[^\s<]+\.=[A-Za-z]{2,}|src=["']data:image\/[^"']*&lt;)/.test(html)) return html;
+  let out = String(html)
+    .replace(/^--[^\r\n]+\r?\nContent-Type:[\s\S]*?\r?\n\r?\n/i, '')
+    .replace(/=(?==[0-9A-F]{2})/g, '');
+
+  out = out.replace(/(?:=[0-9A-F]{2})+/g, (run) => {
+    const bytes = [];
+    for (let i = 0; i < run.length; i += 3) bytes.push(parseInt(run.slice(i + 1, i + 3), 16));
+    try { return new TextDecoder('utf-8', { fatal: false }).decode(Uint8Array.from(bytes)); }
+    catch { return run; }
+  });
+
+  return out
+    .replace(/<img\b[^>]*src=["']data:image\/[^"']*&lt;[^"']*["'][^>]*>/gi, '')
+    .replace(/&lt;=([A-Za-z/])/g, '&lt;$1')
+    .replace(/\bp=adding\b/g, 'padding')
+    .replace(/@([A-Za-z0-9.-]+)\.=([A-Za-z]{2,})\b/g, '@$1.$2')
+    .replace(/@([A-Za-z0-9.-]+)\.com\b/g, '@$1.com');
+}
+
 function upgradeUrl(url) {
   return typeof url === 'string' && url.startsWith('http://') ? 'https://' + url.slice(7) : url;
 }

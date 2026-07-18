@@ -263,48 +263,119 @@ function extractBodyFromMsg(msg) {
 // Key invariant: we work with Buffers of raw bytes until the very last step so
 // that multi-byte sequences (e.g. =E2=80=94 → em-dash in UTF-8) are reassembled
 // correctly before being interpreted as any character set.
-function decodeBody(buf, encoding, charset) {
-  const enc = (encoding || '').toLowerCase();
-  // Normalise charset — TextDecoder knows aliases like 'latin-1', but strip quotes
-  // that some mailers wrap around the value (charset="utf-8").
+function decodeQuotedPrintableToBuffer(input) {
+  const qpStr = Buffer.isBuffer(input) ? input.toString('ascii') : String(input || '');
+  const cleaned = qpStr.replace(/=\r\n/g, '').replace(/=\n/g, '');
+  const bytes = [];
+  let i = 0;
+  while (i < cleaned.length) {
+    if (cleaned[i] === '=' && i + 2 < cleaned.length) {
+      const hex = cleaned.slice(i + 1, i + 3);
+      if (/^[0-9A-Fa-f]{2}$/.test(hex)) {
+        bytes.push(parseInt(hex, 16));
+        i += 3;
+        continue;
+      }
+    }
+    bytes.push(cleaned.charCodeAt(i) & 0xFF);
+    i++;
+  }
+  return Buffer.from(bytes);
+}
+
+function decodeBytes(rawBytes, charset) {
   let cs = (charset || 'utf-8').toLowerCase().trim().replace(/^['"]|['"]$/g, '');
   if (!cs || cs === 'us-ascii' || cs === 'ascii') cs = 'utf-8'; // ASCII ⊂ UTF-8
-
-  let rawBytes;
-  if (enc === 'base64') {
-    // base64 payload is 7-bit ASCII so toString('ascii') is safe here
-    const b64 = (Buffer.isBuffer(buf) ? buf : Buffer.from(buf)).toString('ascii').replace(/\s/g, '');
-    try { rawBytes = Buffer.from(b64, 'base64'); } catch { rawBytes = buf; }
-  } else if (enc === 'quoted-printable') {
-    const qpStr = (Buffer.isBuffer(buf) ? buf : Buffer.from(buf)).toString('ascii');
-    const cleaned = qpStr.replace(/=\r\n/g, '').replace(/=\n/g, '');
-    const bytes = [];
-    let i = 0;
-    while (i < cleaned.length) {
-      if (cleaned[i] === '=' && i + 2 < cleaned.length) {
-        const hex = cleaned.slice(i + 1, i + 3);
-        if (/^[0-9A-Fa-f]{2}$/.test(hex)) {
-          bytes.push(parseInt(hex, 16));
-          i += 3;
-          continue;
-        }
-      }
-      bytes.push(cleaned.charCodeAt(i) & 0xFF);
-      i++;
-    }
-    rawBytes = Buffer.from(bytes);
-  } else {
-    // 7bit / 8bit / binary — the buffer already holds the raw content bytes
-    rawBytes = Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
-  }
-
-  // TextDecoder handles utf-8, iso-8859-*, windows-125*, koi8-r, big5, etc.
-  // fatal:false replaces unrecognised bytes with U+FFFD rather than throwing.
   try {
     return new TextDecoder(cs, { fatal: false }).decode(rawBytes);
   } catch {
     return rawBytes.toString('utf8'); // unknown charset — best effort
   }
+}
+
+function decodeTransferPayload(payload, encoding, charset) {
+  const enc = (encoding || '').toLowerCase();
+  if (enc === 'base64') {
+    const b64 = String(payload || '').replace(/\s/g, '');
+    try { return decodeBytes(Buffer.from(b64, 'base64'), charset); } catch { /* fall through */ }
+  }
+  if (enc === 'quoted-printable') {
+    return decodeBytes(decodeQuotedPrintableToBuffer(payload), charset);
+  }
+  return decodeBytes(Buffer.isBuffer(payload) ? payload : Buffer.from(String(payload || ''), 'utf8'), charset);
+}
+
+function parseMimeHeaders(headerBlock) {
+  const headers = {};
+  for (const line of headerBlock.replace(/\r?\n[ \t]+/g, ' ').split(/\r?\n/)) {
+    const m = line.match(/^([^:]+):\s*([\s\S]*)$/);
+    if (m) headers[m[1].toLowerCase()] = m[2].trim();
+  }
+  return headers;
+}
+
+// Some broken IMAP servers/messages return a whole multipart fragment when a text
+// part is requested: the payload starts with a MIME boundary and embedded
+// Content-Type/Content-Transfer-Encoding headers. If passed to the sanitizer as
+// HTML, users see boundary lines and quoted-printable garbage (=D0=..., =3D).
+function unwrapEmbeddedMimeText(decoded) {
+  const start = String(decoded || '').trimStart();
+  if (!/^--[^\r\n]+\r?\nContent-/i.test(start)) return decoded;
+
+  const firstLineEnd = start.search(/\r?\n/);
+  if (firstLineEnd < 0) return decoded;
+  const marker = start.slice(0, firstLineEnd).trim();
+  const boundary = marker.replace(/^--/, '');
+  if (!boundary) return decoded;
+
+  const escapedBoundary = boundary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const partRe = new RegExp(`(?:^|\\r?\\n)--${escapedBoundary}(?:--)?\\r?\\n?`, 'g');
+  const candidates = [];
+
+  for (const part of start.split(partRe)) {
+    const trimmed = part.replace(/^\r?\n/, '');
+    const sep = trimmed.search(/\r?\n\r?\n/);
+    if (sep < 0) continue;
+    const headerBlock = trimmed.slice(0, sep);
+    const payload = trimmed.slice(sep + (trimmed.slice(sep).startsWith('\r\n\r\n') ? 4 : 2));
+    const headers = parseMimeHeaders(headerBlock);
+    const ct = headers['content-type']?.match(/^([^;]+)([\s\S]*)$/);
+    if (!ct) continue;
+    const type = ct[1].toLowerCase().trim();
+    if (type !== 'text/html' && type !== 'text/plain') continue;
+    const charset = ct[2].match(/charset=(?:"([^"]+)"|([^;\s]+))/i)?.[1]
+      || ct[2].match(/charset=(?:"([^"]+)"|([^;\s]+))/i)?.[2]
+      || 'utf-8';
+    candidates.push({
+      type,
+      text: decodeTransferPayload(payload, headers['content-transfer-encoding'] || '', charset),
+    });
+  }
+  const best = candidates.find(p => p.type === 'text/html') || candidates.find(p => p.type === 'text/plain');
+  return best ? unwrapEmbeddedMimeText(best.text) : decoded;
+}
+
+// Decode a MIME body part from its raw Buffer.
+//
+// encoding: transfer encoding (quoted-printable, base64, 7bit, 8bit, binary)
+// charset:  character set from Content-Type (utf-8, windows-1252, iso-8859-1, …)
+//
+// Key invariant: we work with Buffers of raw bytes until the very last step so
+// that multi-byte sequences (e.g. =E2=80=94 → em-dash in UTF-8) are reassembled
+// correctly before being interpreted as any character set.
+function decodeBody(buf, encoding, charset) {
+  const enc = (encoding || '').toLowerCase();
+  let rawBytes;
+  if (enc === 'base64') {
+    const b64 = (Buffer.isBuffer(buf) ? buf : Buffer.from(buf)).toString('ascii').replace(/\s/g, '');
+    try { rawBytes = Buffer.from(b64, 'base64'); } catch { rawBytes = buf; }
+  } else if (enc === 'quoted-printable') {
+    rawBytes = decodeQuotedPrintableToBuffer(buf);
+  } else {
+    rawBytes = Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
+  }
+
+  return unwrapEmbeddedMimeText(decodeBytes(rawBytes, charset));
 }
 
 function decodeAttachmentBuffer(buf, encoding) {
@@ -3900,23 +3971,35 @@ export class ImapManager {
               }
             }
           }
+        }
 
-          // Per-part individual retry for any text/image part that came back missing or
-          // zero-length from the batched fetch.  Some IMAP servers (confirmed on
-          // purelymail.com) return a 0-byte literal for non-empty parts when one sibling
-          // part in the same FETCH command happens to be empty — the batched
-          // BODY[1] BODY[2] response is malformed, but BODY[2] alone works correctly.
-          const individualParts = [...results.textParts, ...(results.inlineImages || [])];
-          for (const part of individualParts) {
-            const existing = prefetched.get(part.part);
-            if (existing && existing.length > 0) continue; // already have content
-            try {
-              for await (const msg of client.fetch(uidStr, { uid: true, bodyParts: [part.part] }, { uid: true })) {
-                const v = msg.bodyParts?.get(part.part);
-                if (v && v.length > 0) prefetched.set(part.part, v);
-              }
-            } catch { /* don't let a single part failure block others */ }
-          }
+        // Per-part individual fetch for text parts. Some IMAP servers return a
+        // whole multipart wrapper for speculative/batched sibling requests while
+        // BODY[2.1] alone is correct; accepting the batched value leaks MIME
+        // boundaries and quoted-printable fragments into the UI. Do this even
+        // when speculative fetch already returned the part, so the direct result
+        // overwrites any malformed batched value. Inline images keep the batched
+        // value because they are binary and are not parsed as HTML.
+        for (const part of results.textParts) {
+          try {
+            for await (const msg of client.fetch(uidStr, { uid: true, bodyParts: [part.part] }, { uid: true })) {
+              const v = msg.bodyParts?.get(part.part);
+              if (v && v.length > 0) prefetched.set(part.part, v);
+            }
+          } catch { /* don't let a single part failure block others */ }
+        }
+
+        // Per-part individual fetch for inline images too. Some servers can also
+        // return the wrong sibling payload for BODY[2.2] in a multi-part batch;
+        // if that HTML fragment is used as the CID image, it becomes a broken
+        // data:image URL and leaks escaped HTML into the rendered message.
+        for (const part of inlineImages) {
+          try {
+            for await (const msg of client.fetch(uidStr, { uid: true, bodyParts: [part.part] }, { uid: true })) {
+              const v = msg.bodyParts?.get(part.part);
+              if (v && v.length > 0) prefetched.set(part.part, v);
+            }
+          } catch { /* don't let a single part failure block others */ }
         }
 
         for (const part of results.textParts) {
