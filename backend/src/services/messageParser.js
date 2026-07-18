@@ -44,15 +44,26 @@ export function decodeNamedEntity(_, name) {
 }
 
 // Detect a text/plain part that is actually a raw HTML document — some senders
-// put the full HTML body in the text/plain alternative. A document-level opener
-// is definitive; otherwise require several closing tags near the start so prose
-// that merely mentions a tag ("use the <b> element") is not misrouted. Only the
-// head of the body is scanned to keep this cheap on large messages.
+// put the full HTML body in the text/plain alternative. A document-level opener,
+// attribute-bearing tag, or style/script block is definitive; otherwise require
+// several closing tags near the start so prose that merely mentions an
+// attribute-less tag ("use the <b> element") is not misrouted. Only the head is
+// scanned to keep this cheap on large messages.
 function looksLikeHtml(text) {
   const head = text.slice(0, 2048);
   if (/^\s*<(?:!doctype|html|head|body)[\s>]/i.test(head)) return true;
+  if (/<[a-z][a-z0-9]*\s[^>]*=[^>]*>/i.test(head)) return true;
+  if (/<(?:style|script)[\s>]/i.test(head)) return true;
   const closingTags = head.match(/<\/[a-z][a-z0-9]*\s*>/gi);
   return closingTags !== null && closingTags.length >= 3;
+}
+
+// Lossy text/plain conversions can retain markup while omitting text that is
+// still present in the sibling HTML part.
+function isDegenerateText(text) {
+  return /<!--/.test(text)
+    || /<\/[a-z][a-z0-9:-]*\s*>/i.test(text)
+    || /^\s*(?:\(\s*\)|\[\s*\]|<\s*>)/.test(text);
 }
 
 // Build a plain-text snippet from either a decoded text/plain or text/html body.
@@ -66,12 +77,32 @@ export function snippetFromBody(text, html) {
     if (stripped) return stripped;
     text = '';
   }
+  if (html && text && isDegenerateText(text)) {
+    const stripped = buildSnippetFromHtml(html);
+    if (stripped) return stripped;
+  }
   if (text) {
-    const cleaned = text
+    let cleaned = text
       // Strip [image: alt text] placeholders produced by Google's HTML-to-text converter
       // and some ESPs. These appear at the top of text/plain alternatives for image-heavy
       // marketing emails and produce useless "[image: Banner]" previews.
-      .replace(/\[image:[^\]]*\]/gi, '')
+      .replace(/\[image:[^\]]*\]/gi, '');
+    // A declaration separator distinguishes CSS blocks from prose braces. Body
+    // text is attacker-controlled and this runs synchronously at ingest, so the
+    // pattern must stay linear: the includes() gate skips brace-free bodies
+    // outright; the lookbehind only attempts runs from their first character
+    // (where the leftmost match always starts, so behavior is unchanged)
+    // instead of re-scanning from every position; the selector scan is capped
+    // at 160 characters; and the lookahead finds the separator in one forward
+    // pass rather than a backtracking [^{}]*[:;][^{}]* split.
+    if (cleaned.includes('{')) {
+      cleaned = cleaned.replace(/(?<=^|[\s{}<>])[^\s{}<>][^{}<>]{0,160}\{(?=[^{}]*[:;])[^{}]*\}/g, ' ');
+    }
+    cleaned = cleaned
+      // Converted plain-text parts can retain comments or closing markup even
+      // when no HTML sibling is available for a cleaner fallback.
+      .replace(/<!--[\s\S]*?(?:-->|$)/gi, ' ')
+      .replace(/<\/[a-z][a-z0-9:-]*\s*>/gi, ' ')
       // Strip Markdown-style [label](url) links — ESPs like Klaviyo generate text/plain
       // by converting HTML anchors to Markdown, so the entire body can be link syntax.
       // Must run before the bare-URL pass below: stripping the URL first would leave
@@ -96,6 +127,10 @@ export function snippetFromBody(text, html) {
       .replace(/\(\s*\)|\[\s*\]|<\s*>/g, ' ')
       // Drop standalone runs of Markdown emphasis/divider chars ("**", "____").
       .replace(/(?<=^|\s)[*_]{2,}(?=\s|$)/g, '')
+      .replace(/\s+/g, ' ').trim()
+      // Whitespace boundaries keep short or inline Markdown and signature
+      // syntax intact while removing long runs used only as decoration.
+      .replace(/(?<=^|\s)([=_*#~-])\1{3,}(?=\s|$)/g, '')
       .replace(/\s+/g, ' ').trim();
     if (cleaned) return cleaned.substring(0, 200);
     // Text body was entirely image placeholders — fall through to HTML.
@@ -111,17 +146,23 @@ export function snippetFromBody(text, html) {
 // pre-fetched raw HTML bodies (avoiding duplicated, inconsistent entity handling).
 export function buildSnippetFromHtml(html) {
   return html
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    // Strip the enclosing head first so an unclosed nested style cannot consume
+    // visible body content while falling back to the end of the document.
+    .replace(/<head\b[^>]*>[\s\S]*?(?:<\/head\s*>|$)/gi, '')
+    .replace(/<style\b[^>]*>[\s\S]*?(?:<\/style\s*>|$)/gi, '')
+    .replace(/<script\b[^>]*>[\s\S]*?(?:<\/script\s*>|$)/gi, '')
     // Strip HTML comments (including MSO conditional comments) before tag
     // stripping — otherwise dangling --> fragments and comment content leak
     // into the snippet text (e.g. UPS ##varLangText1## template markers sit
     // inside comments and survive tag-only regex stripping).
-    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<!--[\s\S]*?(?:-->|$)/gi, '')
     // Strip ##marker## template placeholders emitted by some marketing tools
     // (UPS, Epsilon) that don't fully render before sending.
     .replace(/##[^#]*##/g, '')
-    .replace(/<[^>]+>/g, ' ')
+    .replace(/<(?:[^>"']|"[^"]*"|'[^']*')+>/g, ' ')
+    // A tag with no closing angle bracket bypasses the tag matcher and would
+    // otherwise become literal preview text through the end of the body.
+    .replace(/<\/?[a-z][a-z0-9:-]*(?:\s+[\s\S]*)?$/gi, ' ')
     .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/gi, '&')
     .replace(/&lt;/gi, '<')
@@ -132,6 +173,7 @@ export function buildSnippetFromHtml(html) {
     .replace(/&#([0-9]+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
     .replace(/&([a-z][a-z0-9]*);/gi, decodeNamedEntity)
     .replace(INVISIBLE_CHARS_RE, '')
+    .replace(/(?<=^|\s)([=_*#~-])\1{3,}(?=\s|$)/g, '')
     .replace(/\s+/g, ' ').trim().substring(0, 200);
 }
 
@@ -142,14 +184,26 @@ function findSnippetPart(structure) {
   const type = (structure.type || '').toLowerCase();
 
   if (structure.childNodes?.length) {
-    let htmlFallback = null;
+    let plainPart = null;
+    let htmlPart = null;
     for (const child of structure.childNodes) {
       const found = findSnippetPart(child);
       if (!found) continue;
-      if (found.type === 'text/plain') return found;
-      if (!htmlFallback) htmlFallback = found;
+      if (found.type === 'text/plain') {
+        if (!plainPart) plainPart = found;
+      } else if (!htmlPart) {
+        htmlPart = found;
+      }
     }
-    return htmlFallback;
+    if (plainPart) {
+      return {
+        ...plainPart,
+        // A nested multipart/alternative owns the most relevant fallback;
+        // otherwise use the HTML sibling discovered at this level.
+        htmlFallback: plainPart.htmlFallback || htmlPart || undefined,
+      };
+    }
+    return htmlPart;
   }
 
   const disposition = (structure.disposition || '').toLowerCase();
@@ -161,6 +215,7 @@ function findSnippetPart(structure) {
       type,
       encoding: (structure.encoding || '').toLowerCase(),
       charset: structure.parameters?.charset || 'utf-8',
+      htmlFallback: undefined,
     };
   }
   return null;
@@ -506,9 +561,18 @@ export async function parseMessage(msg) {
     if (rawBuf) {
       try {
         const text = decodeBodyPart(rawBuf, encoding, charset);
+        let htmlFallbackText;
+        if (!isHtml && partInfo?.htmlFallback && msg.bodyParts.has(partInfo.htmlFallback.part)) {
+          const fallback = partInfo.htmlFallback;
+          htmlFallbackText = decodeBodyPart(
+            msg.bodyParts.get(fallback.part),
+            fallback.encoding,
+            fallback.charset || 'utf-8'
+          );
+        }
         // Route through the canonical snippet builders so sync-time snippets get
         // the same link/markup/entity cleanup as body prefetch and backfill.
-        snippet = isHtml ? buildSnippetFromHtml(text) : snippetFromBody(text);
+        snippet = isHtml ? buildSnippetFromHtml(text) : snippetFromBody(text, htmlFallbackText);
       } catch { /* leave snippet empty on parse failure */ }
     }
   }

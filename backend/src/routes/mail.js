@@ -73,6 +73,10 @@ function snippetIsGarbled(s) {
     /&[a-z][a-z0-9]*;/i.test(s) ||   // undecoded HTML entity
     /##[^#]*##/.test(s) ||             // unexpanded template placeholder
     /-->/.test(s) ||                   // dangling HTML comment fragment
+    /\{[^}]*[:;][^}]*\}/.test(s) ||   // stored CSS rule block
+    /<[a-z][^>]*>/i.test(s) ||         // raw HTML tag
+    /<\/[a-z][a-z0-9:-]*\s*>/i.test(s) || // stray closing HTML tag
+    /([=_*#~-])\1{3,}/.test(s) ||      // decorative divider run
     /\[[^\]]+\]\(https?:\/\//.test(s)  // Markdown link syntax from ESP text/plain generators
   );
 }
