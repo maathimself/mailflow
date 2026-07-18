@@ -7,6 +7,21 @@ import { getConnectionPolicy } from '../services/connectionPolicy.js';
 
 const router = Router();
 
+const AI_LANGUAGE_NAMES = {
+  en: 'English',
+  ru: 'Russian',
+  de: 'German',
+  es: 'Spanish',
+  fr: 'French',
+  it: 'Italian',
+  zhCN: 'Simplified Chinese',
+};
+
+function aiLanguageInstruction(language) {
+  const name = AI_LANGUAGE_NAMES[language] || 'the user interface language';
+  return `Always respond in ${name}, unless the user explicitly asks for another language. For email drafting and rewriting, preserve the original email language when it differs from ${name}.`;
+}
+
 // ── Admin: AI provider configuration ──────────────────────────────────────────
 
 router.get('/admin/ai', requireAdmin, async (req, res) => {
@@ -163,6 +178,13 @@ router.post('/ai/chat', requireAuth, async (req, res) => {
     }
   }
 
+  const prefResult = await query('SELECT preferences FROM users WHERE id = $1', [req.session.userId]);
+  const language = prefResult.rows[0]?.preferences?.language || 'en';
+  const providerMessages = [
+    { role: 'system', content: aiLanguageInstruction(language) },
+    ...messages,
+  ];
+
   const apiKey = cfg.apiKey ? decrypt(cfg.apiKey) : null;
   const headers = { 'Content-Type': 'application/json' };
   if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
@@ -173,7 +195,7 @@ router.post('/ai/chat', requireAuth, async (req, res) => {
     const aiRes = await fetch(`${cfg.baseUrl}/chat/completions`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ model: cfg.model, messages, stream: true }),
+      body: JSON.stringify({ model: cfg.model, messages: providerMessages, stream: true }),
       signal: AbortSignal.timeout(120000),
     });
 
