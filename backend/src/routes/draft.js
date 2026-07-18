@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer';
+import { randomBytes } from 'crypto';
 import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -13,6 +14,20 @@ router.use(requireAuth);
 function sanitizeHeaderValue(value) {
   if (typeof value !== 'string') return '';
   return value.replace(/[\r\n\0]/g, '').trim();
+}
+
+// Extract { name, email } from an RFC 5322 address string ("Name <email>",
+// "<email>", or bare "email") for persisting to_addresses/cc_addresses.
+function parseAddress(str) {
+  if (typeof str !== 'string') return { name: '', email: '' };
+  const m = str.match(/^(.+?)\s*<([^>]+)>\s*$/);
+  if (m) return { name: m[1].trim().replace(/^"|"$/g, '').trim(), email: m[2].trim().toLowerCase() };
+  const bare = str.match(/^\s*<([^>]+)>\s*$/);
+  if (bare) return { name: '', email: bare[1].trim().toLowerCase() };
+  return { name: '', email: str.trim().toLowerCase() };
+}
+function mapRecipientList(list) {
+  return (Array.isArray(list) ? list : []).filter(Boolean).map(addr => parseAddress(addr));
 }
 
 function textToHtml(text) {
@@ -66,13 +81,19 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
     (quotedBodyHtml || (quotedBody ? textToHtml(quotedBody) : ''));
   const { html: draftHtml, attachments: inlineImageAttachments } = embedInlineDataImages(rawHtml);
 
+  // Stable Message-ID so the appended MIME and the local DB row reference the same
+  // message (and a later sync reconciles cleanly).
+  const messageId = `<${randomBytes(16).toString('hex')}@${(fromEmail.split('@')[1] || 'mailflow.local')}>`;
+  const textBody = sigText ? `${bodyText}\n\n-- \n${sigText}${quotedBody || ''}` : `${bodyText}${quotedBody || ''}`;
+
   const mailOptions = {
+    messageId,
     from: `${fromName} <${fromEmail}>`,
     to: (Array.isArray(to) ? to : [to]).filter(Boolean).join(', ') || undefined,
     cc: (Array.isArray(cc) ? cc : []).filter(Boolean).join(', ') || undefined,
     bcc: (Array.isArray(bcc) ? bcc : []).filter(Boolean).join(', ') || undefined,
     subject: sanitizeHeaderValue(subject || ''),
-    text: sigText ? `${bodyText}\n\n-- \n${sigText}${quotedBody || ''}` : `${bodyText}${quotedBody || ''}`,
+    text: textBody,
     html: draftHtml,
     ...(inlineImageAttachments.length ? { attachments: inlineImageAttachments } : {}),
   };
@@ -85,7 +106,14 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
     streamInfo.message.on('end', resolve);
     streamInfo.message.on('error', reject);
   });
-  return { rawMessage: Buffer.concat(chunks), account };
+  // rawHtml (pre inline-image embedding) is what the composer should reopen with —
+  // inline data: URIs stay editable and getMessageBody serves body_html from the DB.
+  const snippet = textBody.replace(/\s+/g, ' ').trim().slice(0, 200);
+  return {
+    rawMessage: Buffer.concat(chunks),
+    account,
+    meta: { messageId, fromName, fromEmail, bodyHtml: rawHtml, bodyText: textBody, snippet },
+  };
 }
 
 async function resolveDraftsFolder(account) {
@@ -109,13 +137,34 @@ router.post('/draft', async (req, res) => {
   if (!ownerCheck.rows.length) return res.status(404).json({ error: 'Account not found' });
 
   try {
-    const { rawMessage, account } = await buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature });
+    const { rawMessage, account, meta } = await buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature });
 
     const draftsFolder = await resolveDraftsFolder(account);
     if (!draftsFolder) return res.status(422).json({ error: 'No Drafts folder found for this account' });
 
     // APPEND the new draft first so we never lose the message
     const { uid } = await imapManager.appendToFolder(account, draftsFolder, rawMessage, ['\\Draft', '\\Seen']);
+
+    // Persist a local Drafts row immediately so the composer can reopen this draft
+    // (recipient/subject/body) even if the folder re-sync is delayed or fails on a
+    // flaky connection. Non-fatal — the append already stored the message on IMAP.
+    if (uid != null) {
+      try {
+        await imapManager.upsertDraftMessageRecord(account, draftsFolder, uid, {
+          messageId: meta.messageId,
+          subject,
+          fromName: meta.fromName,
+          fromEmail: meta.fromEmail,
+          to: mapRecipientList(to),
+          cc: mapRecipientList(cc),
+          snippet: meta.snippet,
+          bodyHtml: meta.bodyHtml,
+          bodyText: meta.bodyText,
+        });
+      } catch (rowErr) {
+        console.error(`Draft: failed to persist local row uid=${uid}: ${rowErr.message}`);
+      }
+    }
 
     // Delete the old draft only after the new one is safely stored
     if (existingUid && existingFolder) {

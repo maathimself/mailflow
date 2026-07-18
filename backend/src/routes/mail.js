@@ -1574,6 +1574,90 @@ router.post('/messages/bulk-archive', async (req, res) => {
   }
 });
 
+// Gather the reply-chain conversation that should be snoozed alongside `msg`.
+//
+// Snoozing a single message doesn't work on Gmail: Gmail groups the inbox by
+// conversation, so moving one message to Snoozed only strips \Inbox from that
+// message — its thread siblings keep \Inbox and the whole conversation stays in
+// the inbox (#271). MailFlow's own inbox is thread-grouped too. So we snooze the
+// entire conversation, but bounded to the RFC 5322 reply chain (Message-ID /
+// In-Reply-To / References links) rather than thread_id: thread_id falls back to
+// subject grouping and can lump hundreds of unrelated messages together (e.g.
+// identical automated-notification emails), which must never be swept into Snoozed.
+//
+// Returns the messages in `msg`'s source folder reachable from `msg` through
+// header links (always including `msg` itself); excludes already-snoozed messages.
+export async function gatherSnoozeConversation(msg) {
+  if (!msg.thread_id) return [msg];
+
+  // Load the whole thread across ALL folders. thread_id is a superset of the true
+  // conversation, and the messages that hold a real conversation together — the
+  // other party's replies, your own Sent messages, the thread root — frequently
+  // live in Sent / All Mail rather than the inbox. They must be present as graph
+  // connectors or a genuine thread fragments and only part of it snoozes. The
+  // reply-chain walk below filters out the subject-only collisions that thread_id
+  // also collects (e.g. identical automated-notification emails).
+  const pool = (await query(
+    `SELECT id, uid, account_id, folder, message_id, in_reply_to, thread_references, is_read
+     FROM messages
+     WHERE account_id = $1 AND thread_id = $2 AND message_id IS NOT NULL`,
+    [msg.account_id, msg.thread_id]
+  )).rows;
+
+  // Ensure the triggering message is present (the query above could miss it on a
+  // transient read skew).
+  if (!pool.some(r => r.message_id === msg.message_id)) pool.push(msg);
+
+  const refsOf = (r) => {
+    const ids = (r.thread_references || '').match(/<[^>]+>/g) || [];
+    if (r.in_reply_to) ids.push(r.in_reply_to);
+    return ids;
+  };
+
+  // Undirected reply-chain graph over the whole thread; take the connected
+  // component containing `msg`. Messages with no header link into that component
+  // (subject-only collisions) are left out.
+  const adj = new Map();
+  const node = (m) => { let s = adj.get(m); if (!s) { s = new Set(); adj.set(m, s); } return s; };
+  for (const r of pool) node(r.message_id);
+  for (const r of pool) {
+    for (const ref of refsOf(r)) {
+      if (adj.has(ref)) { node(r.message_id).add(ref); node(ref).add(r.message_id); }
+    }
+  }
+  const seen = new Set([msg.message_id]);
+  const queue = [msg.message_id];
+  while (queue.length) {
+    const cur = queue.shift();
+    for (const nb of (adj.get(cur) || [])) if (!seen.has(nb)) { seen.add(nb); queue.push(nb); }
+  }
+
+  // Snooze only the conversation members in the acted-on message's source folder
+  // (the inbox copies — Sent copies carry no \Inbox and shouldn't move), skipping
+  // any already snoozed. Already-snoozed messages stay valid graph connectors above.
+  const already = new Set(
+    (await query(
+      'SELECT message_id_header FROM snoozed_messages WHERE account_id = $1 AND message_id_header = ANY($2)',
+      [msg.account_id, [...seen]]
+    )).rows.map(r => r.message_id_header)
+  );
+  // Dedupe by Message-ID so a message that somehow has two rows in the source
+  // folder isn't moved (and recorded) twice.
+  const picked = new Map();
+  for (const r of pool) {
+    if (seen.has(r.message_id) && r.folder === msg.folder && !already.has(r.message_id) && !picked.has(r.message_id)) {
+      picked.set(r.message_id, r);
+    }
+  }
+  // Return the acted-on message first so the caller can treat a failure moving it
+  // as fatal before any sibling has been touched (no partial snooze on error).
+  const rest = [...picked.values()].filter(r => r.message_id !== msg.message_id);
+  // msg always qualifies (it's the acted-on, not-yet-snoozed message in its own
+  // folder); fall back to it directly if the pool row for it was missed.
+  const self = picked.get(msg.message_id) || msg;
+  return [self, ...rest];
+}
+
 // Snooze a message: move it to a Snoozed IMAP folder and record when to restore it
 router.post('/messages/:id/snooze', async (req, res) => {
   const { id } = req.params;
@@ -1617,38 +1701,54 @@ router.post('/messages/:id/snooze', async (req, res) => {
   const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [msg.account_id]);
   const account = accountResult.rows[0];
 
-  let snoozedUid;
-  imapManager._guardMoveUid(msg.account_id, msg.folder, msg.uid);
+  // Snooze the whole reply-chain conversation, not just this message (see
+  // gatherSnoozeConversation for why Gmail requires this and why it's bounded
+  // to the header reply chain rather than thread_id).
+  const convo = await gatherSnoozeConversation(msg);
+
   try {
-    try {
-      await imapManager.ensureFolder(account, snoozedFolder);
-      snoozedUid = await imapManager.moveMessage(account, msg.uid, msg.folder, snoozedFolder);
-    } catch (err) {
-      console.error(`Snooze IMAP move failed for message ${id}:`, err.message);
-      return res.status(500).json({ error: 'Failed to move message to Snoozed folder' });
-    }
-    if (snoozedUid != null) {
-      await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3', [snoozedFolder, snoozedUid, id]);
-    } else {
-      imapManager._guardMoveUid(msg.account_id, snoozedFolder, msg.uid);
-      await query('UPDATE messages SET folder = $1 WHERE id = $2', [snoozedFolder, id]);
-      setTimeout(() => imapManager._unguardMoveUid(msg.account_id, snoozedFolder, msg.uid), 10_000);
-    }
-  } finally {
-    imapManager._unguardMoveUid(msg.account_id, msg.folder, msg.uid);
+    await imapManager.ensureFolder(account, snoozedFolder);
+  } catch (err) {
+    console.error(`Snooze ensureFolder failed for message ${id}:`, err.message);
+    return res.status(500).json({ error: 'Failed to move message to Snoozed folder' });
   }
 
-  await query(
-    `INSERT INTO snoozed_messages (user_id, account_id, message_id_header, original_folder, snooze_until, snoozed_folder)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
-    [req.session.userId, msg.account_id, msg.message_id, msg.folder, untilDate.toISOString(), snoozedFolder]
-  );
+  for (const tm of convo) {
+    imapManager._guardMoveUid(tm.account_id, tm.folder, tm.uid);
+    try {
+      let snoozedUid;
+      try {
+        snoozedUid = await imapManager.moveMessage(account, tm.uid, tm.folder, snoozedFolder);
+      } catch (err) {
+        console.error(`Snooze IMAP move failed for message ${tm.id}:`, err.message);
+        // The message the user acted on must succeed; a failed sibling is logged
+        // and skipped so the rest of the conversation still snoozes.
+        if (tm.id === msg.id) return res.status(500).json({ error: 'Failed to move message to Snoozed folder' });
+        continue;
+      }
+      if (snoozedUid != null) {
+        await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3', [snoozedFolder, snoozedUid, tm.id]);
+      } else {
+        imapManager._guardMoveUid(tm.account_id, snoozedFolder, tm.uid);
+        await query('UPDATE messages SET folder = $1 WHERE id = $2', [snoozedFolder, tm.id]);
+        setTimeout(() => imapManager._unguardMoveUid(tm.account_id, snoozedFolder, tm.uid), 10_000);
+      }
 
-  adjustFolderCounts(msg.account_id, msg.folder, -1, msg.is_read ? 0 : -1);
-  adjustFolderCounts(msg.account_id, snoozedFolder, 1, msg.is_read ? 0 : 1);
+      await query(
+        `INSERT INTO snoozed_messages (user_id, account_id, message_id_header, original_folder, snooze_until, snoozed_folder)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [req.session.userId, tm.account_id, tm.message_id, tm.folder, untilDate.toISOString(), snoozedFolder]
+      );
 
-  // Refresh GTD section data if the snoozed message's thread carries a GTD label (its in_inbox flips).
-  emitGtdSectionsRefresh([msg], req.session.userId);
+      adjustFolderCounts(tm.account_id, tm.folder, -1, tm.is_read ? 0 : -1);
+      adjustFolderCounts(tm.account_id, snoozedFolder, 1, tm.is_read ? 0 : 1);
+    } finally {
+      imapManager._unguardMoveUid(tm.account_id, tm.folder, tm.uid);
+    }
+  }
+
+  // Refresh GTD section data if the snoozed conversation carries a GTD label (its in_inbox flips).
+  emitGtdSectionsRefresh(convo, req.session.userId);
 
   res.json({ ok: true });
 });
