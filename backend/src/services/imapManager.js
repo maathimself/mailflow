@@ -88,8 +88,16 @@ const CONNECT_COOLDOWN_MAX_MS = 15 * 60 * 1000;  // capped at 15 min
 // True when an IMAP error looks like a connection-limit / throttle / temporary refusal —
 // the class of failure that should back off rather than retry hard. Deliberately broad on
 // the safe side: a false positive only means a ~30s backoff, never data loss.
+//
+// Includes connect-establishment timeouts ("… connect timeout (30000ms)"): a login that
+// can't even open a socket in 30s is the silent shape a connection-limited provider takes
+// (e.g. two PurelyMail accounts on one IP whose 10s fresh-login polls saturate its per-IP
+// limit). Without this, those bare timeouts skip the backoff and the poll keeps hammering.
+// A mid-operation "Socket timeout" is deliberately NOT matched — it isn't specific to a
+// connection limit and can fire on ordinary slow responses, where a backoff would only
+// delay recovery.
 export function isConnectionRefusal(detail) {
-  return /connection not available|too many|maximum number|number of connections|rate.?limit|temporarily|try again|connection limit|over quota|throttl/i.test(String(detail || ''));
+  return /connection not available|too many|maximum number|number of connections|rate.?limit|temporarily|try again|connection limit|over quota|throttl|connect timeout/i.test(String(detail || ''));
 }
 
 // Exponential backoff for consecutive connection refusals: 30s, 60s, 120s, 240s, 480s, …
@@ -3606,6 +3614,67 @@ export class ImapManager {
       sanitizeStr(fromName || ''), sanitizeStr(fromEmail || ''),
       JSON.stringify(to), JSON.stringify(cc),
       safeDate(date), sanitizeStr(snippet || ''), threadId,
+    ]);
+  }
+
+  // Persist a local Drafts row immediately after appending a draft to IMAP, so the
+  // composer can reopen it (recipient / subject / body) without waiting for a folder
+  // re-sync. On a flaky connection that re-sync can be delayed or fail, which used to
+  // leave the reopened draft blank because the row it reads from didn't exist yet.
+  // Mirrors upsertSentMessageRecord but also stores the body and the \Draft flag.
+  // A later real sync of the same (account, uid, folder) keeps these local values
+  // (its own upsert COALESCEs the existing body/subject/recipients).
+  async upsertDraftMessageRecord(account, folder, uid, {
+    messageId,
+    subject,
+    fromName,
+    fromEmail,
+    to = [],
+    cc = [],
+    inReplyTo = null,
+    snippet = '',
+    bodyHtml = null,
+    bodyText = null,
+    date = new Date(),
+  }) {
+    if (!uid || !folder) return;
+    const msgId = sanitizeStr(messageId);
+    await query(`
+      INSERT INTO messages (
+        account_id, uid, folder, message_id, subject,
+        from_name, from_email, to_addresses, cc_addresses,
+        in_reply_to, date, snippet, is_read, is_starred, has_attachments,
+        flags, body_html, body_text, thread_id
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,$12,true,false,false,$13::jsonb,$14,$15,$16)
+      ON CONFLICT (account_id, uid, folder) DO UPDATE SET
+        message_id = COALESCE(EXCLUDED.message_id, messages.message_id),
+        subject = CASE
+          WHEN EXCLUDED.subject IS NOT NULL AND EXCLUDED.subject <> '' AND EXCLUDED.subject <> '(no subject)'
+          THEN EXCLUDED.subject ELSE messages.subject END,
+        from_name = COALESCE(NULLIF(EXCLUDED.from_name, ''), messages.from_name),
+        from_email = COALESCE(NULLIF(EXCLUDED.from_email, ''), messages.from_email),
+        to_addresses = CASE
+          WHEN EXCLUDED.to_addresses::text IS NOT NULL AND EXCLUDED.to_addresses::text <> '[]'
+          THEN EXCLUDED.to_addresses ELSE messages.to_addresses END,
+        cc_addresses = CASE
+          WHEN EXCLUDED.cc_addresses::text IS NOT NULL AND EXCLUDED.cc_addresses::text <> '[]'
+          THEN EXCLUDED.cc_addresses ELSE messages.cc_addresses END,
+        in_reply_to = COALESCE(EXCLUDED.in_reply_to, messages.in_reply_to),
+        date = EXCLUDED.date,
+        snippet = CASE WHEN EXCLUDED.snippet <> '' THEN EXCLUDED.snippet ELSE messages.snippet END,
+        flags = EXCLUDED.flags,
+        body_html = COALESCE(EXCLUDED.body_html, messages.body_html),
+        body_text = COALESCE(EXCLUDED.body_text, messages.body_text)
+    `, [
+      account.id, uid, folder, msgId,
+      sanitizeStr(subject || '(no subject)'),
+      sanitizeStr(fromName || ''), sanitizeStr(fromEmail || ''),
+      JSON.stringify(Array.isArray(to) ? to : []), JSON.stringify(Array.isArray(cc) ? cc : []),
+      inReplyTo || null, safeDate(date), sanitizeStr(snippet || ''),
+      JSON.stringify(['\\Draft', '\\Seen']),
+      bodyHtml != null ? sanitizeStr(bodyHtml) : null,
+      bodyText != null ? sanitizeStr(bodyText) : null,
+      msgId || null,
     ]);
   }
 

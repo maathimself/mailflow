@@ -875,6 +875,7 @@ describe('isConnectionRefusal', () => {
     'Account temporarily locked',
     'THROTTLED: too many requests',
     'rate limit exceeded',
+    'Fresh sync connect timeout (30000ms)',
   ])('flags a refusal: %s', (msg) => {
     expect(isConnectionRefusal(msg)).toBe(true);
   });
@@ -883,6 +884,9 @@ describe('isConnectionRefusal', () => {
     ['Invalid credentials'],
     ['Mailbox does not exist'],
     ['ECONNRESET'],
+    // Mid-operation timeouts are NOT connection-limit signals — must stay retry-normal.
+    ['Socket timeout'],
+    ['Fresh sync wall-clock timeout (55000ms)'],
     [''],
     [null],
     [undefined],
