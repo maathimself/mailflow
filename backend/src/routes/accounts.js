@@ -9,6 +9,9 @@ import { getConnectionPolicy } from '../services/connectionPolicy.js';
 import { invalidateGtdConfigCache, sanitizeGtdFoldersDetailed, findGtdFolderCollisions, DEFAULT_GTD_FOLDERS } from '../services/gtdConfig.js';
 import { invalidateOwnerAddressesCache } from '../services/gtdTransitions.js';
 import { createKeyedSerializer } from '../utils/keyedSerializer.js';
+import { startAccountBodyBackfill } from '../services/bodyBackfill.js';
+import { providerProfile } from '../services/imapManager.js';
+import { upsertJob } from '../services/backgroundJobs.js';
 
 // Serialize an account's reconnect triggers so a rapid settings change (e.g. a
 // gtd_enabled double-toggle) can't fire two overlapping disconnect→connect chains —
@@ -421,7 +424,18 @@ router.post('/:id/reindex', async (req, res) => {
         console.error(`Manual reindex error for ${account.email_address}:`, err.message)
       );
     }
-    res.json({ ok: true, alreadyRunning });
+
+    // Also kick a body-materialization pass for allowlisted providers. Fire-and-forget: the
+    // drainer self-guards against concurrent runs and caps each session, and Gmail/PurelyMail/
+    // Microsoft are gated off inside startBodyBackfill. Progress lands in background_jobs.
+    const bodyBackfillEnabled = providerProfile(account).bodyBackfill;
+    if (bodyBackfillEnabled) {
+      startAccountBodyBackfill(account, imapManager, upsertJob).catch(err =>
+        console.error(`Body backfill error for ${account.email_address}:`, err.message)
+      );
+    }
+
+    res.json({ ok: true, alreadyRunning, bodyBackfillEnabled });
   } catch (err) {
     console.error('POST /accounts/:id/reindex error:', err.message);
     res.status(500).json({ error: 'Failed to start reindex' });

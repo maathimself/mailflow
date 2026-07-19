@@ -186,6 +186,14 @@ docker compose up -d
 
 To pin to a specific version instead of `latest`, add `MAILFLOW_VERSION=1.9.0` to your `.env`.
 
+> **Upgrading an existing install across the Postgres image change** (`postgres:16-alpine` → `pgvector/pgvector:pg16`): the new image uses a different C library (musl → glibc), which changes text collation order. Reindex once after the switch or text indexes can silently return wrong results — the backend also prints this warning at startup when it detects the mismatch:
+>
+> ```bash
+> docker compose exec postgres psql -U mailflow -d mailflow \
+>   -c 'REINDEX DATABASE "mailflow";' \
+>   -c 'ALTER DATABASE "mailflow" REFRESH COLLATION VERSION;'
+> ```
+
 ---
 
 ## Option B — Build from source

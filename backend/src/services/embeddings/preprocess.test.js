@@ -1,0 +1,87 @@
+import { describe, it, expect } from 'vitest';
+import { preprocess } from './preprocess.js';
+
+const cases = [
+  { name: 'PlainBody', subject: 'Hello', body: "Hi there,\n\nLet's chat tomorrow.", maxChars: 1000,
+    cfg: { stripQuotes: true, stripSignatures: true }, want: "Subject: Hello\n\nHi there,\n\nLet's chat tomorrow.", wantTrunc: false },
+  { name: 'StripsQuotedPreamble', subject: 'Re: plan', body: 'My reply.\n\nOn 2026-01-01, alice wrote:\n> previous message\n> more quote', maxChars: 1000,
+    cfg: { stripQuotes: true, stripSignatures: true }, want: 'Subject: Re: plan\n\nMy reply.', wantTrunc: false },
+  { name: 'StripsStandaloneQuoteLines', subject: '', body: '> nested quote 1\n> nested quote 2\nActual content.', maxChars: 1000,
+    cfg: { stripQuotes: true, stripSignatures: false }, want: 'Actual content.', wantTrunc: false },
+  { name: 'StripsSignature', subject: 'Hi', body: 'Body here.\n-- \nBob\nPhone: ...', maxChars: 1000,
+    cfg: { stripQuotes: true, stripSignatures: true }, want: 'Subject: Hi\n\nBody here.', wantTrunc: false },
+  { name: 'SignatureWithoutTrailingSpace', subject: 'Hi', body: 'Body.\n--\nBob', maxChars: 1000,
+    cfg: { stripQuotes: false, stripSignatures: true }, want: 'Subject: Hi\n\nBody.', wantTrunc: false },
+  { name: 'Truncates', subject: 'S', body: 'x'.repeat(2000), maxChars: 100, cfg: {}, lenLE: 100, wantTrunc: true },
+  { name: 'TruncateAtRuneBoundary', subject: '', body: '☃'.repeat(50), maxChars: 10, cfg: {}, lenLE: 30, wantTrunc: true },
+  { name: 'EmptySubjectAndBody', subject: '', body: '', maxChars: 1000, cfg: {}, want: '', wantTrunc: false },
+  { name: 'NoConfigPreservesEverything', subject: 'Hi', body: 'Hello\n> not stripped\n-- \nsig kept', maxChars: 1000,
+    cfg: { stripQuotes: false, stripSignatures: false }, want: 'Subject: Hi\n\nHello\n> not stripped\n-- \nsig kept', wantTrunc: false },
+  { name: 'MaxCharsZeroIsUnlimited', subject: 'S', body: 'x'.repeat(100), maxChars: 0, cfg: {}, want: 'Subject: S\n\n' + 'x'.repeat(100), wantTrunc: false },
+  { name: 'MultiByteRunesUnderCap', subject: '', body: '☃'.repeat(33), maxChars: 100, cfg: {}, lenLE: 100, wantTrunc: false },
+  { name: 'StripsNestedQuotes', subject: '', body: '>> deep quote\n>>> deeper quote\nReal content.', maxChars: 1000,
+    cfg: { stripQuotes: true }, want: 'Real content.', wantTrunc: false },
+  { name: 'StripsQuoteWithoutSpace', subject: '', body: '>no space after caret\n>another\nKept content.', maxChars: 1000,
+    cfg: { stripQuotes: true }, want: 'Kept content.', wantTrunc: false },
+  { name: 'StripsPreambleWithNestedQuotes', subject: 'Re: topic', body: 'My reply.\n\nOn 2026-04-18, bob wrote:\n>> prior reply\n> and response\n>> more', maxChars: 1000,
+    cfg: { stripQuotes: true }, want: 'Subject: Re: topic\n\nMy reply.', wantTrunc: false },
+  { name: 'StripHTMLDropsTagsAndDecodesEntities', subject: '', body: '<p style="color:red">Hello &amp; goodbye</p><br/>End.', maxChars: 1000,
+    cfg: { stripHTML: true }, want: 'Hello & goodbye  End.', wantTrunc: false },
+  { name: 'StripHTMLPreservesAngleBracketEmailAddress', subject: '', body: 'Please CC John <john@example.com> on the next reply.', maxChars: 1000,
+    cfg: { stripHTML: true }, want: 'Please CC John <john@example.com> on the next reply.', wantTrunc: false },
+  { name: 'StripHTMLPreservesAngleBracketURL', subject: '', body: 'See <https://example.com/page>.', maxChars: 1000,
+    cfg: { stripHTML: true }, want: 'See <https://example.com/page>.', wantTrunc: false },
+  { name: 'StripHTMLPreservesMathPunctuation', subject: '', body: 'Show me rows where x < 3 and y > 4 but z != 0.', maxChars: 1000,
+    cfg: { stripHTML: true }, want: 'Show me rows where x < 3 and y > 4 but z != 0.', wantTrunc: false },
+  { name: 'StripHTMLPreservesAngleBracketDatePlaceholder', subject: '', body: 'Schedule for <Aug 6, 2026> still good?', maxChars: 1000,
+    cfg: { stripHTML: true }, want: 'Schedule for <Aug 6, 2026> still good?', wantTrunc: false },
+  { name: 'StripHTMLPreservesMailMergePlaceholder', subject: '', body: 'Hi <First Name>, welcome to <Company>.', maxChars: 1000,
+    cfg: { stripHTML: true }, want: 'Hi <First Name>, welcome to <Company>.', wantTrunc: false },
+  { name: 'StripHTMLDropsSingleQuotedAttrValue', subject: '', body: "Click <a href='https://campaign.example.com'>here</a> now.", maxChars: 1000,
+    cfg: { stripHTML: true }, want: 'Click  here  now.', wantTrunc: false },
+  { name: 'StripHTMLDropsUnquotedAttrValues', subject: '', body: 'Pixel <img src=cid:abc width=1 height=1> end.', maxChars: 1000,
+    cfg: { stripHTML: true }, want: 'Pixel   end.', wantTrunc: false },
+  { name: 'StripHTMLDropsStyleBlock', subject: '', body: 'Hello\n<style type="text/css">body{margin:0;color:#000}</style>\nWorld', maxChars: 1000,
+    cfg: { stripHTML: true, collapseWhitespace: true }, want: 'Hello\n\nWorld', wantTrunc: false },
+  { name: 'StripHTMLDropsScriptBlock', subject: '', body: 'Pre\n<script>var x = 1; alert(x);</script>\nPost', maxChars: 1000,
+    cfg: { stripHTML: true, collapseWhitespace: true }, want: 'Pre\n\nPost', wantTrunc: false },
+  { name: 'StripBase64DropsDataURI', subject: '', body: 'Before image data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg== After image', maxChars: 1000,
+    cfg: { stripBase64: true, collapseWhitespace: true }, want: 'Before image After image', wantTrunc: false },
+  { name: 'StripBase64DropsBareBlob', subject: '', body: 'Hello ' + 'A'.repeat(250) + ' world', maxChars: 1000,
+    cfg: { stripBase64: true, collapseWhitespace: true }, want: 'Hello world', wantTrunc: false },
+  { name: 'StripBase64DropsBareBlobWithSlashes', subject: '', body: 'Before ' + 'abcdefghij/'.repeat(30) + ' After', maxChars: 1000,
+    cfg: { stripBase64: true, collapseWhitespace: true }, want: 'Before After', wantTrunc: false },
+  { name: 'StripBase64KeepsShortAlphanumeric', subject: '', body: 'Token=abc123XYZ check this hash 0123456789abcdef0123456789abcdef.', maxChars: 1000,
+    cfg: { stripBase64: true }, want: 'Token=abc123XYZ check this hash 0123456789abcdef0123456789abcdef.', wantTrunc: false },
+  { name: 'StripURLTrackingDropsKnownParams', subject: '', body: 'Visit https://example.com/page?utm_source=newsletter&utm_medium=email&fbclid=xyz&id=42 today', maxChars: 1000,
+    cfg: { stripURLTracking: true }, want: 'Visit https://example.com/page?id=42 today', wantTrunc: false },
+  { name: 'StripURLTrackingHandlesHubSpotMixedCase', subject: '', body: 'Click https://hub.example.com/cta?hsCtaTracking=abc&id=7 now', maxChars: 1000,
+    cfg: { stripURLTracking: true }, want: 'Click https://hub.example.com/cta?id=7 now', wantTrunc: false },
+  { name: 'StripURLTrackingPreservesTrailingPunctuation', subject: '', body: 'See https://example.com/x?utm_source=foo&keep=1.', maxChars: 1000,
+    cfg: { stripURLTracking: true }, want: 'See https://example.com/x?keep=1.', wantTrunc: false },
+  { name: 'StripURLTrackingLeavesCleanURLAlone', subject: '', body: 'See https://example.com/page?id=42 and ftp://elsewhere/path', maxChars: 1000,
+    cfg: { stripURLTracking: true }, want: 'See https://example.com/page?id=42 and ftp://elsewhere/path', wantTrunc: false },
+  { name: 'CollapseWhitespaceShrinksRuns', subject: '', body: 'Line one\n\n\n\nLine two with    big    gaps', maxChars: 1000,
+    cfg: { collapseWhitespace: true }, want: 'Line one\n\nLine two with big gaps', wantTrunc: false },
+  { name: 'StripBase64KeepsLongURLPath', subject: '', body: 'https://example.com/' + 'a/b'.repeat(80) + '/end', maxChars: 2000,
+    cfg: { stripBase64: true }, want: 'https://example.com/' + 'a/b'.repeat(80) + '/end', wantTrunc: false },
+  { name: 'StripPipelineSweepsOversizedImgTag', subject: '', body: 'Before ' + '<img alt="x" src="data:image/png;base64,' + 'AAAA'.repeat(600) + '">' + ' After', maxChars: 5000,
+    cfg: { stripHTML: true, stripBase64: true, collapseWhitespace: true }, want: 'Before After', wantTrunc: false },
+  { name: 'CollapseWhitespaceNormalizesCRLF', subject: '', body: 'Line one   \r\n\r\n\r\n\r\nLine two', maxChars: 1000,
+    cfg: { collapseWhitespace: true }, want: 'Line one\n\nLine two', wantTrunc: false },
+  { name: 'PipelineRemovesPollutionEndToEnd', subject: 'Newsletter',
+    body: '<p>Hello</p>\n\n\n' + 'data:image/gif;base64,R0lGODlhAQABAAAAACw= ' + '\n\n\nClick ' + 'https://example.com/?utm_source=x&keep=y' + '\n\n-- \nSig',
+    maxChars: 1000, cfg: { stripQuotes: true, stripSignatures: true, stripHTML: true, stripBase64: true, stripURLTracking: true, collapseWhitespace: true },
+    want: 'Subject: Newsletter\n\nHello\n\nClick https://example.com/?keep=y', wantTrunc: false },
+];
+
+describe('preprocess (msgvault fixture parity)', () => {
+  for (const tt of cases) {
+    it(tt.name, () => {
+      const { text, truncated } = preprocess(tt.subject, tt.body, tt.maxChars, tt.cfg);
+      if (tt.want !== undefined) expect(text).toBe(tt.want);
+      if (tt.lenLE) expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(tt.lenLE);
+      expect(truncated).toBe(tt.wantTrunc);
+    });
+  }
+});
