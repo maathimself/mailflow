@@ -11,7 +11,7 @@ vi.mock('../utils/redact.js', () => ({ redactEmail: vi.fn() }));
 vi.mock('./hostValidation.js', () => ({ resolveForConnection: vi.fn() }));
 vi.mock('./gtdTransitions.js', () => ({ runGtdTransitions: vi.fn(), threadKeysForMessageIds: vi.fn(), threadKeysInFolders: vi.fn() }));
 
-import { ImapManager, providerProfile, makeClientCfg, gtdRelocateGuard, insertCopiedSibling, deleteMessageCopyRow, emitAfterDeferredCopySync, emitGtdSectionsRefreshOnDelete, emitGtdSectionsRefreshIfEnabled, selectGtdReevalIds, ensureMailbox, runGtdSyncTick, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, planModseqSync, connectStaggerFor } from './imapManager.js';
+import { ImapManager, providerProfile, makeClientCfg, gtdRelocateGuard, insertCopiedSibling, deleteMessageCopyRow, emitAfterDeferredCopySync, emitGtdSectionsRefreshOnDelete, emitGtdSectionsRefreshIfEnabled, selectGtdReevalIds, ensureMailbox, runGtdSyncTick, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, planModseqSync, connectStaggerFor, walkStructure } from './imapManager.js';
 import { query } from './db.js';
 import { invalidateGtdConfigCache } from './gtdConfig.js';
 import { runGtdTransitions, threadKeysInFolders } from './gtdTransitions.js';
@@ -1152,5 +1152,84 @@ describe('syncMessages — empty local cache vs nonempty server (wiring)', () =>
       { uid: true }
     );
     expect(query.mock.calls.some(([sql]) => sql.includes('UPDATE folders SET highest_modseq'))).toBe(false);
+  });
+});
+
+describe('walkStructure attachment classification', () => {
+  const walk = (node) => {
+    const results = { textParts: [], attachments: [] };
+    walkStructure(node, results);
+    return results;
+  };
+
+  it('treats an attached HTML file as an attachment, not body text', () => {
+    const results = walk({
+      type: 'multipart/mixed',
+      childNodes: [
+        { part: '1', type: 'text/plain', encoding: 'quoted-printable', parameters: { charset: 'utf-8' } },
+        {
+          part: '2', type: 'text/html', encoding: 'base64',
+          disposition: 'attachment',
+          dispositionParameters: { filename: 'report.html' },
+          size: 2048,
+        },
+      ],
+    });
+    expect(results.textParts).toHaveLength(1);
+    expect(results.textParts[0].type).toBe('text/plain');
+    expect(results.attachments).toHaveLength(1);
+    expect(results.attachments[0]).toMatchObject({
+      part: '2', filename: 'report.html', type: 'text/html', encoding: 'base64',
+    });
+  });
+
+  it('treats an attached text file as an attachment', () => {
+    const results = walk({
+      part: '2', type: 'text/plain', encoding: 'base64',
+      disposition: 'attachment',
+      dispositionParameters: { filename: 'server.log' },
+    });
+    expect(results.textParts).toHaveLength(0);
+    expect(results.attachments).toHaveLength(1);
+    expect(results.attachments[0].filename).toBe('server.log');
+  });
+
+  it('still treats undisposed HTML parts as the message body', () => {
+    const results = walk({
+      type: 'multipart/alternative',
+      childNodes: [
+        { part: '1', type: 'text/plain', encoding: '7bit' },
+        { part: '2', type: 'text/html', encoding: 'quoted-printable' },
+      ],
+    });
+    expect(results.textParts.map(p => p.type)).toEqual(['text/plain', 'text/html']);
+    expect(results.attachments).toHaveLength(0);
+  });
+
+  it('attachment-disposed images are attachments; cid images stay inline', () => {
+    const results = walk({
+      type: 'multipart/related',
+      childNodes: [
+        { part: '1', type: 'text/html', encoding: '7bit' },
+        { part: '2', type: 'image/png', encoding: 'base64', id: '<logo@x>' },
+        {
+          part: '3', type: 'image/jpeg', encoding: 'base64',
+          disposition: 'attachment', dispositionParameters: { filename: 'photo.jpg' },
+        },
+      ],
+    });
+    expect(results.inlineImages).toHaveLength(1);
+    expect(results.inlineImages[0].cid).toBe('logo@x');
+    expect(results.attachments).toHaveLength(1);
+    expect(results.attachments[0].filename).toBe('photo.jpg');
+  });
+
+  it('named non-text parts without a disposition are still attachments', () => {
+    const results = walk({
+      part: '2', type: 'application/pdf', encoding: 'base64',
+      parameters: { name: 'invoice.pdf' },
+    });
+    expect(results.attachments).toHaveLength(1);
+    expect(results.attachments[0].filename).toBe('invoice.pdf');
   });
 });

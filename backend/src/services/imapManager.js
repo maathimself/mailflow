@@ -335,7 +335,7 @@ function decodeAttachmentBuffer(buf, encoding) {
   return Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
 }
 
-function walkStructure(node, results) {
+export function walkStructure(node, results) {
   if (!node) return;
   const type = (node.type || '').toLowerCase();
   if (node.childNodes && node.childNodes.length > 0) {
@@ -345,7 +345,22 @@ function walkStructure(node, results) {
   const disposition = (node.disposition || '').toLowerCase();
   const rawFilename = node.dispositionParameters?.filename || node.parameters?.name || null;
   const filename = rawFilename ? rawFilename.replace(BIDI_OVERRIDE_RE, '').trim() || 'attachment' : null;
-  if (type === 'text/html') {
+  // A part explicitly marked Content-Disposition: attachment is an attachment
+  // no matter its MIME type. Checking the text/* types first used to absorb
+  // attached .html/.txt files into the message body: the paperclip showed
+  // (detectAttachments keys on disposition) but the file never appeared in
+  // the attachment list — and an attached HTML file could even replace the
+  // real message body.
+  if (disposition === 'attachment') {
+    results.attachments.push({
+      part: node.part || '1',
+      filename: filename || 'attachment',
+      type: node.type || 'application/octet-stream',
+      encoding: node.encoding || 'base64',
+      size: node.dispositionParameters?.size ? parseInt(node.dispositionParameters.size) : node.size || 0,
+      disposition,
+    });
+  } else if (type === 'text/html') {
     results.textParts.push({
       part: node.part || '1', type,
       encoding: node.encoding || '',
@@ -373,10 +388,11 @@ function walkStructure(node, results) {
       // Content-ID header value is wrapped in angle brackets — strip them
       cid: (node.id || '').replace(/^<|>$/g, ''),
     });
-  } else if (disposition === 'attachment' || filename) {
+  } else if (filename) {
+    // Named non-text part without an explicit disposition — still an attachment.
     results.attachments.push({
       part: node.part || '1',
-      filename: filename || 'attachment',
+      filename,
       type: node.type || 'application/octet-stream',
       encoding: node.encoding || 'base64',
       size: node.dispositionParameters?.size ? parseInt(node.dispositionParameters.size) : node.size || 0,
