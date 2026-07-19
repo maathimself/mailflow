@@ -1,157 +1,61 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import express from 'express';
 
-// search.js opens a DB handle and registers auth middleware at import time;
-// neither is exercised by the pure parser under test, so stub them out.
+// The route must not hold SQL: it parses, calls the service, and JSON-frames.
+// Mock inline + import the mocked binding (avoids the vi.mock hoisting TDZ trap).
+vi.mock('../services/search/searchService.js', () => ({ search: vi.fn() }));
+vi.mock('../middleware/auth.js', () => ({ requireAuth: (req, _res, next) => { req.session = { userId: 'u1' }; next(); } }));
 vi.mock('../services/db.js', () => ({ query: vi.fn() }));
-vi.mock('../middleware/auth.js', () => ({ requireAuth: vi.fn() }));
 
-import {
-  parseSearchQuery,
-  resolveSearchFolderScope,
-  shouldExcludeTrashFromSearch,
-  trashFolderExclusionCondition,
-  freeTextTermCondition,
-  FTS_BODY_CHAR_CAP,
-} from './search.js';
+import { search } from '../services/search/searchService.js';
+import searchRouter from './search.js';
 
-describe('parseSearchQuery', () => {
-  it('treats bare words as free-text terms', () => {
-    const { filters, terms } = parseSearchQuery('hello world');
-    expect(filters).toEqual([]);
-    expect(terms).toEqual([
-      { value: 'hello', negate: false },
-      { value: 'world', negate: false },
-    ]);
-  });
+function makeApp() {
+  const app = express();
+  app.use((req, _res, next) => { req.session = { userId: 'u1' }; next(); });
+  app.use('/api/search', searchRouter);
+  return app;
+}
 
-  it('extracts positive operators and lowercases their values', () => {
-    const { filters, terms } = parseSearchQuery('from:Amazon subject:Invoice hello');
-    expect(filters).toEqual([
-      { key: 'from', value: 'amazon', negate: false },
-      { key: 'subject', value: 'invoice', negate: false },
-    ]);
-    expect(terms).toEqual([{ value: 'hello', negate: false }]);
-  });
-
-  it('supports quoted operator values with spaces', () => {
-    const { filters, terms } = parseSearchQuery('from:"John Smith" report');
-    expect(filters).toEqual([{ key: 'from', value: 'john smith', negate: false }]);
-    expect(terms).toEqual([{ value: 'report', negate: false }]);
-  });
-
-  it('negates an operator when prefixed with -', () => {
-    const { filters, terms } = parseSearchQuery('-from:Smith report');
-    expect(filters).toEqual([{ key: 'from', value: 'smith', negate: true }]);
-    expect(terms).toEqual([{ value: 'report', negate: false }]);
-  });
-
-  it('negates a free-text term when prefixed with -', () => {
-    const { filters, terms } = parseSearchQuery('report -invoice');
-    expect(filters).toEqual([]);
-    expect(terms).toEqual([
-      { value: 'report', negate: false },
-      { value: 'invoice', negate: true },
-    ]);
-  });
-
-  it('parses the in: scope operator (in:all and named folders)', () => {
-    expect(parseSearchQuery('in:all invoice').filters).toEqual([
-      { key: 'in', value: 'all', negate: false },
-    ]);
-    expect(parseSearchQuery('in:Sent proposal').filters).toEqual([
-      { key: 'in', value: 'sent', negate: false },
-    ]);
-  });
-
-  it('preserves repeated and mixed positive/negative operators', () => {
-    const { filters } = parseSearchQuery('from:alice -from:bob is:unread');
-    expect(filters).toEqual([
-      { key: 'from', value: 'alice', negate: false },
-      { key: 'from', value: 'bob', negate: true },
-      { key: 'is', value: 'unread', negate: false },
-    ]);
-  });
-
-  it('ignores a lone - so it is not treated as a negated empty term', () => {
-    const { filters, terms } = parseSearchQuery('report - draft');
-    expect(filters).toEqual([]);
-    expect(terms).toEqual([
-      { value: 'report', negate: false },
-      { value: 'draft', negate: false },
-    ]);
-  });
-
-  it('returns empty structures for blank input', () => {
-    expect(parseSearchQuery('')).toEqual({ filters: [], terms: [] });
-    expect(parseSearchQuery('    ')).toEqual({ filters: [], terms: [] });
-  });
-
-  it('does not treat unknown prefixes as operators', () => {
-    const { filters, terms } = parseSearchQuery('label:work');
-    expect(filters).toEqual([]);
-    expect(terms).toEqual([{ value: 'label:work', negate: false }]);
-  });
-
-  it('handles all supported operator keys', () => {
-    const raw = 'from:a to:b subject:c has:attachment is:starred after:2024-01-01 before:2024-12-31 in:archive';
-    const keys = parseSearchQuery(raw).filters.map(f => f.key);
-    expect(keys).toEqual(['from', 'to', 'subject', 'has', 'is', 'after', 'before', 'in']);
-  });
-
-  it('scopes search to the client folder param when no in: operator is present', () => {
-    const { filters } = parseSearchQuery('subject:newsletter');
-    expect(resolveSearchFolderScope(filters, 'INBOX')).toEqual({
-      folderScope: 'INBOX',
-      folderFuzzy: false,
+async function get(app, path) {
+  const { default: request } = await import('node:http');
+  return new Promise((resolve) => {
+    const server = app.listen(0, () => {
+      const port = server.address().port;
+      request.get(`http://127.0.0.1:${port}${path}`, (res) => {
+        let body = '';
+        res.on('data', c => (body += c));
+        res.on('end', () => { server.close(); resolve({ status: res.statusCode, json: JSON.parse(body || '{}') }); });
+      });
     });
   });
+}
 
-  it('lets in: override the client folder param', () => {
-    const { filters } = parseSearchQuery('in:trash subject:newsletter');
-    expect(resolveSearchFolderScope(filters, 'INBOX')).toEqual({
-      folderScope: 'trash',
-      folderFuzzy: true,
-    });
+beforeEach(() => search.mockReset());
+
+describe('GET /api/search', () => {
+  it('short-circuits a blank query with { messages: [] } and never calls the service', async () => {
+    const res = await get(makeApp(), '/api/search?q=');
+    expect(res.status).toBe(200);
+    expect(res.json).toEqual({ messages: [] });
+    expect(search).not.toHaveBeenCalled();
   });
 
-  it('excludes trash-like folders from ordinary all-folder searches', () => {
-    const { filters } = parseSearchQuery('subject:newsletter');
-    const { folderScope } = resolveSearchFolderScope(filters);
-    expect(folderScope).toBeNull();
-    expect(shouldExcludeTrashFromSearch(folderScope)).toBe(true);
-    expect(trashFolderExclusionCondition()).toContain('NOT EXISTS');
-    expect(trashFolderExclusionCondition()).toContain('%trash%');
-    expect(trashFolderExclusionCondition()).toContain('%deleted%');
+  it('rejects an over-500-char query with 400', async () => {
+    const res = await get(makeApp(), `/api/search?q=${'a'.repeat(501)}`);
+    expect(res.status).toBe(400);
   });
 
-  it('keeps explicit folder searches eligible to find trash messages', () => {
-    const { filters } = parseSearchQuery('in:trash subject:newsletter');
-    const { folderScope } = resolveSearchFolderScope(filters);
-    expect(shouldExcludeTrashFromSearch(folderScope)).toBe(false);
-  });
-});
-
-describe('freeTextTermCondition (oversized-body crash hotfix)', () => {
-  it('caps the body tsvector so a multi-megabyte email cannot exceed the 1MB tsvector limit', () => {
-    const cond = freeTextTermCondition(3, 4);
-    // The body text is fed to to_tsvector through LEFT(..., FTS_BODY_CHAR_CAP).
-    // Without this cap a single oversized body raises SQLSTATE 54000 and 500s search.
-    expect(cond).toContain(
-      `to_tsvector('english', LEFT(coalesce(m.body_text,''), ${FTS_BODY_CHAR_CAP}))`
-    );
-    // Guard against a regression back to the uncapped expression.
-    expect(cond).not.toContain("to_tsvector('english', coalesce(m.body_text,'')) @@");
-  });
-
-  it('pins the cap at 600000 chars (msgvault maxFTSBodyChars parity)', () => {
-    expect(FTS_BODY_CHAR_CAP).toBe(600000);
-  });
-
-  it('still matches sender, subject, and the stored search_vector at the given param positions', () => {
-    const cond = freeTextTermCondition(3, 4);
-    expect(cond).toContain('m.from_name ILIKE $3');
-    expect(cond).toContain('m.from_email ILIKE $3');
-    expect(cond).toContain('m.subject ILIKE $3');
-    expect(cond).toContain("m.search_vector @@ plainto_tsquery('english', $4)");
+  it('returns a superset response: messages + query + mode + page + unsupported + errors', async () => {
+    search.mockResolvedValue({ messages: [{ id: 'm1' }], mode: 'lexical', page: { offset: 0, limit: 50, hasMore: false } });
+    const res = await get(makeApp(), '/api/search?q=larger:5M%20invoice');
+    expect(res.status).toBe(200);
+    expect(res.json.messages).toEqual([{ id: 'm1' }]);
+    expect(res.json.query).toBe('larger:5M invoice');
+    expect(res.json.mode).toBe('lexical');
+    expect(res.json.page).toEqual({ offset: 0, limit: 50, hasMore: false });
+    // larger: is recognized but unserviceable — surfaced, not silently dropped.
+    expect(res.json.unsupported).toEqual([{ key: 'larger', token: 'larger:5m' }]);
+    expect(res.json.errors).toEqual([]);
   });
 });

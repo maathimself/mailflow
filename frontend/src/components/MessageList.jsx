@@ -2171,7 +2171,9 @@ export default function MessageList() {
   const showInboxIcon = !isUnified && selectedFolder === 'INBOX' && !searchQuery.trim();
 
   const label = searchQuery.trim()
-    ? `Search: "${searchQuery}"`
+    // No quotes around the query: when the header truncates with a CSS ellipsis
+    // the closing quote would be lost, stranding an unbalanced opening one.
+    ? `Search: ${searchQuery}`
     : isUnified ? t('sidebar.allInboxes') : selectedFolder;
 
   // Non-INBOX folders omitted: byAccount is account-total, not folder-specific, so it would mislead.
@@ -2246,7 +2248,7 @@ export default function MessageList() {
                   <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/>
                   <path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/>
                 </svg>
-              ) : label}
+              ) : <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{label}</span>}
             </h2>
             {headerUnread > 0 && !searchQuery.trim() && (
               <span style={{
@@ -2378,7 +2380,7 @@ export default function MessageList() {
                 <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/>
                 <path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/>
               </svg>
-            ) : label}
+            ) : <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{label}</span>}
           </h2>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginLeft: 6 }}>
             {messagesTotal > 0 && !searchQuery && (
