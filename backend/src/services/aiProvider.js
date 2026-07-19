@@ -5,6 +5,7 @@ import { validateHost } from './hostValidation.js';
 import { createRequestSignal, parseJson, readLimited, readSseData, sanitizeText } from './aiHttp.js';
 import { completeCodexText, streamCodexResponses } from './openaiCodexResponses.js';
 import { getCodexAccess, getCodexStatus } from './openaiCodexAuth.js';
+import { applyEmbedDefaults } from './embeddings/config.js';
 
 export const AI_PROVIDER_API_KEY = 'api-key';
 export const AI_PROVIDER_CHATGPT = 'chatgpt';
@@ -26,6 +27,14 @@ export class AiProviderError extends Error {
   }
 }
 
+export function buildEmbeddingsConfig(body = {}, existing = null, encryptFn = encrypt) {
+  const resolved = applyEmbedDefaults(body);
+  resolved.apiKey = body.apiKey && body.apiKey !== MASKED_API_KEY
+    ? encryptFn(body.apiKey)
+    : (existing?.apiKey || null);
+  return resolved;
+}
+
 function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
@@ -41,6 +50,9 @@ export function normalizeAiConfig(raw = {}) {
     ? raw.chatgptConfig
     : {};
   const provider = PROVIDERS.has(raw.provider) ? raw.provider : AI_PROVIDER_API_KEY;
+  const embeddings = raw.embeddings && typeof raw.embeddings === 'object'
+    ? applyEmbedDefaults(raw.embeddings)
+    : null;
   return {
     enabled: raw.enabled !== false,
     provider,
@@ -56,6 +68,7 @@ export function normalizeAiConfig(raw = {}) {
       compose: raw.features?.compose !== false,
       summarize: raw.features?.summarize !== false,
     },
+    ...(embeddings ? { embeddings } : {}),
   };
 }
 
@@ -67,6 +80,12 @@ function publicConfig(config) {
       ...config.apiKeyConfig,
       apiKey: config.apiKeyConfig.apiKey ? MASKED_API_KEY : '',
     },
+    ...(config.embeddings ? {
+      embeddings: {
+        ...config.embeddings,
+        apiKey: config.embeddings.apiKey ? MASKED_API_KEY : '',
+      },
+    } : {}),
   };
 }
 
@@ -166,9 +185,13 @@ export function createAiProvider({
     const storedKey = typeof incomingKey === 'string' && incomingKey && incomingKey !== MASKED_API_KEY
       ? encryptFn(incomingKey)
       : (existing?.apiKeyConfig.apiKey || null);
+    const embeddings = input.embeddings
+      ? buildEmbeddingsConfig(input.embeddings, existing?.embeddings, encryptFn)
+      : existing?.embeddings;
     const config = normalizeAiConfig({
       ...input,
       apiKeyConfig: { ...incomingApi, apiKey: storedKey },
+      ...(embeddings ? { embeddings } : {}),
     });
 
     if (config.enabled && config.provider === AI_PROVIDER_API_KEY
@@ -185,6 +208,17 @@ export function createAiProvider({
       const policy = await getConnectionPolicyFn();
       const hostError = await validateHostFn(hostname, { allowPrivate: policy.allowPrivateHosts });
       if (hostError) throw new AiProviderError(`API base URL: ${hostError}`, { status: 400 });
+    }
+    if (config.embeddings?.endpoint) {
+      let hostname;
+      try {
+        hostname = new URL(config.embeddings.endpoint).hostname;
+      } catch {
+        throw new AiProviderError('Invalid embeddings endpoint URL', { status: 400 });
+      }
+      const policy = await getConnectionPolicyFn();
+      const hostError = await validateHostFn(hostname, { allowPrivate: policy.allowPrivateHosts });
+      if (hostError) throw new AiProviderError(`Embeddings endpoint: ${hostError}`, { status: 400 });
     }
 
     await queryFn(

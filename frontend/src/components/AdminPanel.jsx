@@ -31,6 +31,7 @@ import { isValidForwardAddress } from '../utils/ruleActions.js';
 import { useCommandRuntimeContext } from '../commands/CommandRuntimeContext.jsx';
 import { formatCommandKey, getEffectiveCommandBindings } from '../commands/shortcuts.js';
 import { shortcutEventChord } from '../commands/shortcutDispatcher.js';
+import { emptyEmbeddingsForm, embeddingsFormFromConfig, buildEmbeddingsPayload, embeddingsDirty, isSameAsChatProvider, reconcileDimension, embeddingsJob, canSaveAiConfig, EMBEDDING_MODEL_HINTS } from '../utils/embeddingsSettings.js';
 
 // ─── Shared field component ───────────────────────────────────────────────────
 function Field({ label, required, children }) {
@@ -3577,6 +3578,7 @@ function AISection() {
   const [config, setConfig] = useState(null);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState(() => normalizeAiForm());
+  const [emb, setEmb] = useState(emptyEmbeddingsForm);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [connecting, setConnecting] = useState(false);
@@ -3586,21 +3588,40 @@ function AISection() {
   const [deviceState, setDeviceState] = useState(null);
   const [copied, setCopied] = useState(false);
   const [msg, setMsg] = useState(null);
+  const [job, setJob] = useState(null);
+  const [vectorAvailable, setVectorAvailable] = useState(true);
+  const [testingEmb, setTestingEmb] = useState(false);
+  const [building, setBuilding] = useState(false);
   const pollerRef = useRef(null);
   const formRef = useRef(form);
+  const embRef = useRef(emb);
   const tRef = useRef(t);
 
+  const refreshJob = useCallback(async () => {
+    try {
+      const { jobs } = await api.ai.indexingStatus();
+      setJob(embeddingsJob(jobs));
+    } catch { /* status is best-effort; leave the last known job in place */ }
+  }, []);
+
   const persistForm = useCallback(async (nextForm) => {
-    const payload = buildAiSavePayload(nextForm);
+    const payload = {
+      ...buildAiSavePayload(nextForm),
+      embeddings: buildEmbeddingsPayload(embRef.current),
+    };
     const result = await api.ai.saveConfig(payload);
     const saved = result.config || payload;
     const normalized = normalizeAiForm(saved);
     setConfig(saved);
     formRef.current = normalized;
     setForm(normalized);
+    const nextEmb = embeddingsFormFromConfig(saved);
+    embRef.current = nextEmb;
+    setEmb(nextEmb);
   }, []);
 
   formRef.current = form;
+  embRef.current = emb;
   tRef.current = t;
 
   useEffect(() => {
@@ -3651,8 +3672,15 @@ function AISection() {
         setConfig(cfg);
         formRef.current = normalized;
         setForm(normalized);
+        const nextEmb = embeddingsFormFromConfig(cfg || {});
+        embRef.current = nextEmb;
+        setEmb(nextEmb);
       }),
       refreshCodexStatus(),
+      refreshJob(),
+      api.ai.status().then(s => {
+        if (active) setVectorAvailable(s?.vectorAvailable !== false);
+      }),
     ])
       .catch((error) => {
         if (active) setMsg({ type: 'error', text: error.message });
@@ -3664,7 +3692,14 @@ function AISection() {
       pollerRef.current?.dispose();
       pollerRef.current = null;
     };
-  }, [persistForm]);
+  }, [persistForm, refreshJob]);
+
+  // Poll the indexing status while a build is running so progress ticks live.
+  useEffect(() => {
+    if (!job?.active) return;
+    const id = setInterval(refreshJob, 2000);
+    return () => clearInterval(id);
+  }, [job?.active, refreshJob]);
 
   const handleSave = async (e) => {
     e.preventDefault();
@@ -3685,6 +3720,18 @@ function AISection() {
     } catch (err) {
       setMsg({ type: 'error', text: `${t('admin.ai.testFail')}: ${err.message}` });
     } finally { setTesting(false); }
+  };
+
+  const handleRemove = async () => {
+    await api.ai.deleteConfig();
+    setConfig(null);
+    const nextForm = normalizeAiForm();
+    formRef.current = nextForm;
+    setForm(nextForm);
+    const nextEmb = emptyEmbeddingsForm();
+    embRef.current = nextEmb;
+    setEmb(nextEmb);
+    setMsg(null);
   };
 
   const handleConnect = async () => {
@@ -3733,6 +3780,30 @@ function AISection() {
     }
   };
 
+  const handleTestEmbeddings = async () => {
+    setTestingEmb(true); setMsg(null);
+    try {
+      const { dimension } = await api.ai.testEmbeddings();
+      const { dimension: next, changed } = reconcileDimension(emb.dimension, dimension);
+      if (changed) setEmb(e => ({ ...e, dimension: String(next) }));
+      setMsg({ type: 'ok', text: t('admin.ai.emb.testOk', { dimension }) });
+    } catch (err) {
+      setMsg({ type: 'error', text: `${t('admin.ai.testFail')}: ${err.message}` });
+    } finally { setTestingEmb(false); }
+  };
+
+  const handleBuild = async () => {
+    setBuilding(true); setMsg(null);
+    try {
+      await api.ai.buildEmbeddings();
+      setMsg({ type: 'ok', text: t('admin.ai.emb.buildStarted') });
+      await refreshJob();
+    } catch (err) {
+      setMsg({ type: 'error', text: err.message });
+      await refreshJob();
+    } finally { setBuilding(false); }
+  };
+
   const field = (label, value, onChange, type = 'text', placeholder = '', help = null) => (
     <div style={{ marginBottom: 14 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', marginBottom: 5 }}>
@@ -3747,6 +3818,22 @@ function AISection() {
         autoComplete={type === 'password' ? 'new-password' : 'off'}
         style={{ width: '100%', background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 6, padding: '7px 10px', color: 'var(--text-primary)', fontSize: 13 }}
       />
+    </div>
+  );
+
+  // Embeddings-form counterpart of `field` — reads/writes the `emb` state.
+  const embField = (label, key, type = 'text', placeholder = '', hint = '') => (
+    <div style={{ marginBottom: 14 }}>
+      <label style={{ display: 'block', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 5 }}>{label}</label>
+      <input
+        type={type}
+        value={emb[key]}
+        onChange={e => setEmb(f => ({ ...f, [key]: e.target.value }))}
+        placeholder={placeholder}
+        autoComplete={type === 'password' ? 'new-password' : 'off'}
+        style={{ width: '100%', background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 6, padding: '7px 10px', color: 'var(--text-primary)', fontSize: 13 }}
+      />
+      {hint && <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4 }}>{hint}</div>}
     </div>
   );
 
@@ -3775,6 +3862,13 @@ function AISection() {
       border: `1px solid ${msg.type === 'ok' ? 'rgba(74,222,128,0.2)' : 'rgba(248,113,113,0.2)'}`,
     }}>{msg.text}</div>
   );
+
+  // Test/Build probe the SAVED config, so gate them until the embeddings form is
+  // persisted. `embComplete` also requires the four fields the backend needs.
+  const embDirty = embeddingsDirty(emb, config);
+  const embComplete = !!(emb.enabled && emb.endpoint.trim() && emb.model.trim() && Number(emb.dimension) > 0);
+  const embActionsBlocked = embDirty || !embComplete;
+  const modelHint = EMBEDDING_MODEL_HINTS.map(m => `${m.model} (${m.dimension})`).join(', ');
 
   if (loading) return <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>{t('common.loading')}</div>;
 
@@ -3807,6 +3901,12 @@ function AISection() {
         <div style={{ padding: '10px 14px', borderRadius: 8, background: 'var(--bg-secondary)', border: '1px solid var(--border)', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 20 }}>
           {t('admin.ai.notConfigured')}
         </div>
+      )}
+
+      {config && (
+        <button type="button" onClick={handleRemove} style={{ fontSize: 12, padding: '5px 12px', marginBottom: 14, background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', borderRadius: 6, color: 'var(--red)', cursor: 'pointer' }}>
+          {t('admin.ai.remove')}
+        </button>
       )}
 
       <form onSubmit={handleSave}>
@@ -3930,8 +4030,98 @@ function AISection() {
           </div>
         )}
 
-        <button type="submit" disabled={saving || !formValid}
-          style={{ padding: '8px 18px', background: 'var(--accent)', color: 'var(--accent-text)', border: 'none', borderRadius: 7, fontSize: 13, fontWeight: 500, cursor: 'pointer', opacity: (saving || !formValid) ? 0.5 : 1 }}>
+        {/* ── Embeddings (semantic search) ─────────────────────────────────── */}
+        <div style={{ height: 1, background: 'var(--border-subtle)', margin: '24px 0 18px' }} />
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>{t('admin.ai.emb.title')}</div>
+        <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '0 0 6px', lineHeight: 1.5 }}>{t('admin.ai.emb.benefit')}</p>
+        <p style={{ fontSize: 12, color: 'var(--text-tertiary)', margin: '0 0 14px', lineHeight: 1.5 }}>{t('admin.ai.emb.defaultOff')}</p>
+
+        {toggle(t('admin.ai.emb.enable'), emb.enabled, () => setEmb(f => ({ ...f, enabled: !f.enabled })))}
+
+        {emb.enabled && (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ padding: '10px 12px', borderRadius: 8, background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.28)', fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 14 }}>
+              {t('admin.ai.emb.privacyWarning')}
+            </div>
+
+            {!vectorAvailable && (
+              <div style={{ padding: '8px 12px', borderRadius: 6, background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.2)', color: 'var(--red)', fontSize: 12, marginBottom: 14 }}>
+                {t('admin.ai.emb.vectorUnavailable')}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
+              <label style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{t('admin.ai.emb.endpoint')}</label>
+              {form.apiKeyConfig.baseUrl && (isSameAsChatProvider(emb.endpoint, form.apiKeyConfig.baseUrl)
+                ? <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{t('admin.ai.emb.sameAsChatActive')}</span>
+                : <button type="button" onClick={() => setEmb(f => ({ ...f, endpoint: form.apiKeyConfig.baseUrl }))}
+                    style={{ fontSize: 11, background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', padding: 0 }}>
+                    {t('admin.ai.emb.sameAsChat')}
+                  </button>)}
+            </div>
+            <input
+              type="text"
+              value={emb.endpoint}
+              onChange={e => setEmb(f => ({ ...f, endpoint: e.target.value }))}
+              placeholder={t('admin.ai.emb.endpointPh')}
+              autoComplete="off"
+              style={{ width: '100%', background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 6, padding: '7px 10px', color: 'var(--text-primary)', fontSize: 13 }}
+            />
+            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4, marginBottom: 14 }}>{t('admin.ai.emb.endpointHint')}</div>
+
+            {embField(t('admin.ai.emb.model'), 'model', 'text', t('admin.ai.emb.modelPh'), modelHint)}
+            {embField(t('admin.ai.emb.dimension'), 'dimension', 'number', t('admin.ai.emb.dimensionPh'), t('admin.ai.emb.dimensionHint'))}
+            {embField(t('admin.ai.emb.apiKey'), 'apiKey', 'password', t('admin.ai.apiKeyPh'))}
+
+            <details style={{ marginBottom: 14 }}>
+              <summary style={{ fontSize: 12, color: 'var(--text-secondary)', cursor: 'pointer' }}>{t('admin.ai.emb.localTitle')}</summary>
+              <p style={{ fontSize: 12, color: 'var(--text-tertiary)', lineHeight: 1.6, margin: '8px 0 0' }}>{t('admin.ai.emb.localHelp')}</p>
+            </details>
+
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button type="button" onClick={handleTestEmbeddings} disabled={testingEmb || embActionsBlocked}
+                style={{ fontSize: 12, padding: '6px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', cursor: (testingEmb || embActionsBlocked) ? 'default' : 'pointer', opacity: (testingEmb || embActionsBlocked) ? 0.5 : 1 }}>
+                {testingEmb ? t('admin.ai.testing') : t('admin.ai.emb.test')}
+              </button>
+              <button type="button" onClick={handleBuild} disabled={building || embActionsBlocked || !vectorAvailable}
+                style={{ fontSize: 12, padding: '6px 14px', background: 'var(--accent)', color: 'var(--accent-text)', border: 'none', borderRadius: 6, cursor: (building || embActionsBlocked || !vectorAvailable) ? 'default' : 'pointer', opacity: (building || embActionsBlocked || !vectorAvailable) ? 0.5 : 1 }}>
+                {building ? t('admin.ai.emb.building') : (job?.state === 'done' ? t('admin.ai.emb.rebuild') : t('admin.ai.emb.build'))}
+              </button>
+            </div>
+
+            {embDirty && (
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 8 }}>{t('admin.ai.emb.saveHint')}</div>
+            )}
+
+            {job && (
+              <div style={{ marginTop: 14 }}>
+                {job.state === 'running' && (
+                  <>
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                      {t('admin.ai.emb.progressLabel', { processed: job.processed, total: job.total })}
+                    </div>
+                    <div style={{ height: 6, background: 'var(--bg-tertiary)', borderRadius: 3, overflow: 'hidden' }}>
+                      <div style={{ width: `${job.percent}%`, height: '100%', background: 'var(--accent)', transition: 'width 0.3s' }} />
+                    </div>
+                  </>
+                )}
+                {job.state === 'done' && (
+                  <div style={{ fontSize: 12, color: 'var(--green)' }}>{t('admin.ai.emb.progressDone', { total: job.total })}</div>
+                )}
+                {job.state === 'error' && (
+                  <div style={{ fontSize: 12, color: 'var(--red)' }}>{t('admin.ai.emb.progressError', { error: job.lastError || '' })}</div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div style={{ height: 1, background: 'var(--border-subtle)', margin: '24px 0 18px' }} />
+
+        {msgBox}
+
+        <button type="submit" disabled={saving || (!formValid && !canSaveAiConfig(form, emb, config))}
+          style={{ padding: '8px 18px', background: 'var(--accent)', color: 'var(--accent-text)', border: 'none', borderRadius: 7, fontSize: 13, fontWeight: 500, cursor: 'pointer', opacity: (saving || (!formValid && !canSaveAiConfig(form, emb, config))) ? 0.5 : 1 }}>
           {saving ? t('common.saving') : t('common.save')}
         </button>
       </form>

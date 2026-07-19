@@ -282,12 +282,13 @@ export const api = {
   emptyFolder: (accountId, path) => request('POST', '/mail/folders/empty', { accountId, path }),
 
   // Search
-  search: (q, accountId, { offset = 0, limit, folder } = {}) => {
+  search: (q, accountId, { offset = 0, limit, folder, mode } = {}) => {
     const params = new URLSearchParams({ q });
     if (accountId) params.set('accountId', accountId);
     if (limit) params.set('limit', limit);
     if (folder) params.set('folder', folder);
     if (offset) params.set('offset', offset);
+    if (mode && mode !== 'lexical') params.set('mode', mode);
     return request('GET', `/search?${params}`);
   },
   suggestContacts: (q) => request('GET', `/search/contacts?q=${encodeURIComponent(q)}`),
@@ -357,6 +358,10 @@ export const api = {
       cancel: (flowId) => request('DELETE', '/admin/ai/codex/device', { flowId }),
       disconnect: () => request('DELETE', '/admin/ai/codex'),
     },
+    // Embeddings (semantic search) — probe the saved config and kick a build.
+    testEmbeddings: () => request('POST', '/admin/ai/embeddings/test-embeddings'),
+    buildEmbeddings: () => request('POST', '/admin/ai/embeddings/build'),
+    indexingStatus: () => request('GET', '/admin/indexing/status'),
   },
 
   // Category counts for inbox tab badges
@@ -420,4 +425,5 @@ export const api = {
     getLabels:    ()       => request('GET',    '/todoist/labels'),
     createTask:   (data)   => request('POST',   '/todoist/tasks', data),
   },
+
 };

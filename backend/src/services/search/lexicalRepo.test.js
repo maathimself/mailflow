@@ -10,6 +10,7 @@ import {
   LEXICAL_RANK_SQL,
   freeTextTermConditionRanked,
   freeTextTermClause,
+  negatedFreeTextClause,
   stopwordSafeCondition,
   buildOperatorClauses,
   buildFolderScopeClauses,
@@ -239,7 +240,7 @@ describe('ranked lexical query (slice 02)', () => {
 });
 
 describe('stopword-safe free-text predicates (Wave D Fix 1)', () => {
-  // Root cause:
+  // Root cause (verified against pgvector/pg16, 2026-07-17):
   //   to_tsquery('english', quote_literal('for') || ':*') normalizes to an
   //   EMPTY tsquery (numnode = 0), and `tsvector @@ <empty>` is FALSE for
   //   every row — so once rows were backfilled onto search_fts, one english
@@ -294,7 +295,7 @@ describe('stopword-safe free-text predicates (Wave D Fix 1)', () => {
     expect(text).toContain("(numnode(to_tsquery('english', quote_literal($3) || ':*')) = 0 OR NOT COALESCE(");
   });
 
-  it('freeTextTermClause owns the complete ranked lexical predicate', () => {
+  it('freeTextTermClause is the one owner searchLexical and the staging path share', () => {
     const params = [];
     let p = 2;
     const bind = (v) => { params.push(v); return `$${p++}`; };
@@ -305,6 +306,13 @@ describe('stopword-safe free-text predicates (Wave D Fix 1)', () => {
     expect(clause).toContain('m.search_fts IS NULL AND');
   });
 
+  it('negatedFreeTextClause carries the guard outside the NOT (fused NOT-conditions)', () => {
+    const params = [];
+    let p = 2;
+    const bind = (v) => { params.push(v); return `$${p++}`; };
+    const clause = negatedFreeTextClause('the', bind);
+    expect(clause.startsWith("(numnode(to_tsquery('english', quote_literal($3) || ':*')) = 0 OR NOT COALESCE(")).toBe(true);
+  });
 });
 
 describe('buildOperatorClauses (Phase 4 Task 2a — extracted from searchLexical)', () => {
@@ -352,7 +360,7 @@ describe('buildOperatorClauses (Phase 4 Task 2a — extracted from searchLexical
   });
 });
 
-describe('buildFolderScopeClauses', () => {
+describe('buildFolderScopeClauses (folder scope — shared by lexical + fused)', () => {
   function bindHarness(start = 2) {
     const params = [];
     let p = start;

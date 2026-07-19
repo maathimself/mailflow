@@ -7,6 +7,8 @@ import { search } from '../services/search/searchService.js';
 const router = Router();
 router.use(requireAuth);
 
+const ALLOWED_MODES = new Set(['lexical', 'vector', 'hybrid']);
+
 // Simple in-memory rate limiter: 20 searches per minute per user.
 const searchBuckets = new Map();
 setInterval(() => {
@@ -39,6 +41,8 @@ router.get('/', searchLimiter, async (req, res) => {
   if (trimmed.length > 500) return res.status(400).json({ error: 'Search query too long' });
 
   const parsed = parseQuery(trimmed);
+  const mode = ALLOWED_MODES.has(req.query.mode) ? req.query.mode : 'lexical';
+
   try {
     const result = await search({
       userId: req.session.userId,
@@ -47,6 +51,7 @@ router.get('/', searchLimiter, async (req, res) => {
       folderParam: req.query.folder || '',
       limit,
       offset,
+      mode,
     });
     // Response is a strict superset of the historical { messages, query }.
     res.json({ ...result, query: q, unsupported: parsed.unsupported, errors: parsed.errors });

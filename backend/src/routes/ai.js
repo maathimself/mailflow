@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { query } from '../services/db.js';
+export { buildEmbeddingsConfig } from '../services/aiProvider.js';
+import { isVectorAvailable } from '../services/embeddings/vectorStore.js';
 import {
   deleteAiConfig,
   getAdminAiConfig,
@@ -149,7 +151,13 @@ router.delete('/admin/ai/codex', requireAdmin, async (_req, res) => {
 
 router.get('/ai/status', requireAuth, async (_req, res) => {
   try {
-    res.json(await getAiStatus());
+    const [status, config] = await Promise.all([getAiStatus(), getAdminAiConfig()]);
+    res.json({
+      ...status,
+      vectorAvailable: isVectorAvailable(),
+      embeddingsEnabled: config?.embeddings?.enabled === true
+        && Boolean(config.embeddings.endpoint && config.embeddings.model),
+    });
   } catch (error) {
     serviceError(res, error, 'Failed to load AI status');
   }

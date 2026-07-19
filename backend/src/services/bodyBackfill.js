@@ -2,7 +2,7 @@ import { query } from './db.js';
 import { providerProfile } from './imapManager.js';
 
 // Body-materialization drainer. Fills messages.body_text/body_html over IMAP so weight-D
-// lexical search has material to work with, WITHOUT growing the imapManager
+// lexical search and embeddings have material to work with, WITHOUT growing the imapManager
 // singleton (README invariant) and WITHOUT touching throttle-hostile providers. ALL policy —
 // the scan predicate, batching, pacing, provider gating, session cap, quiet-window
 // backpressure, and the per-account circuit breaker — lives here. The singleton exposes only
@@ -88,7 +88,8 @@ export async function startBodyBackfill(account, deps) {
     // Keyset by id ascending: id is a non-null, unique UUID, so the cursor advances past every
     // row exactly once per run — including rows whose body cannot be fetched (they stay NULL but
     // are not re-selected this run, so the run always terminates). Recency ordering is
-    // intentionally not used: body coverage is a background quality lever.
+    // intentionally not used: body coverage is a background quality lever, and the embedding
+    // backstop picks up late arrivals regardless (README D4).
     let cursorId = null;
     let consecutiveErrors = 0;
 
