@@ -3,6 +3,8 @@ import { preprocess } from './preprocess.js';
 import { chunkText, chunkOverlapFor, MAX_SPANS } from './chunk.js';
 import { isPermanent4xx } from './client.js';
 
+// worker.go rawBodyMultiplier. Exported for chunkmatch.js, whose read-path re-preprocess
+// must derive the identical maxBodyRunes cap or chunk offsets misalign on huge bodies.
 export const RAW_BODY_MULT = 16;
 
 export class EmbeddingWorker {

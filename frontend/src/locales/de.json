@@ -587,7 +587,18 @@
     "uploadPhoto": "Foto hochladen",
     "removePhoto": "Foto entfernen",
     "errorNotImage": "Bitte eine Bilddatei auswählen.",
-    "errorProcess": "Bild konnte nicht verarbeitet werden."
+    "errorProcess": "Bild konnte nicht verarbeitet werden.",
+    "tokens": {
+      "label": "API-Tokens (MCP)",
+      "namePlaceholder": "Token-Name (z. B. Laptop)",
+      "create": "Erstellen",
+      "revoke": "Widerrufen",
+      "usedOn": "verwendet {{date}}",
+      "neverUsed": "nie verwendet",
+      "copyOnce": "Jetzt kopieren — du siehst ihn nicht noch einmal.",
+      "createFailed": "Token konnte nicht erstellt werden",
+      "revokeFailed": "Token konnte nicht widerrufen werden"
+    }
   },
   "admin": {
     "title": "Einstellungen",
@@ -998,7 +1009,7 @@
       "remove": "Konfiguration entfernen",
       "emb": {
         "title": "Embeddings (semantische Suche)",
-        "benefit": "Embeddings machen die Suche schneller und genauer.",
+        "benefit": "Embeddings machen die Suche schneller und genauer — für dich oder für einen über MCP verbundenen Agenten.",
         "defaultOff": "Standardmäßig deaktiviert. Es wird nichts gesendet, bis du Embeddings aktivierst und einen Aufbau startest.",
         "enable": "Embeddings aktivieren",
         "privacyWarning": "Mit einem gehosteten Endpunkt erhält der Embeddings-Anbieter (z. B. OpenAI) deine E-Mail-Inhalte — Betreff und Textkörper. Ab diesem Punkt ist dieser Datenpfad nicht mehr selbst gehostet.",

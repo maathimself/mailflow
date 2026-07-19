@@ -587,7 +587,18 @@
     "uploadPhoto": "上传头像",
     "removePhoto": "移除头像",
     "errorNotImage": "请选择一个图片文件。",
-    "errorProcess": "无法处理该图片。"
+    "errorProcess": "无法处理该图片。",
+    "tokens": {
+      "label": "API 令牌 (MCP)",
+      "namePlaceholder": "令牌名称（例如 笔记本）",
+      "create": "创建",
+      "revoke": "撤销",
+      "usedOn": "使用于 {{date}}",
+      "neverUsed": "从未使用",
+      "copyOnce": "立即复制 — 你将无法再次看到它。",
+      "createFailed": "创建令牌失败",
+      "revokeFailed": "撤销令牌失败"
+    }
   },
   "admin": {
     "title": "设置",
@@ -1065,7 +1076,7 @@
       "remove": "删除配置",
       "emb": {
         "title": "嵌入（语义搜索）",
-        "benefit": "嵌入让搜索更快、更准确。",
+        "benefit": "嵌入让搜索更快、更准确——无论是为你自己，还是为通过 MCP 连接的智能体。",
         "defaultOff": "默认关闭。在你启用嵌入并开始构建之前，不会向任何地方发送数据。",
         "enable": "启用嵌入",
         "privacyWarning": "配置托管端点后，嵌入提供方（例如 OpenAI）会收到你的邮件内容——主题和正文文本。此时该数据路径不再是自托管的。",

@@ -587,7 +587,18 @@
     "uploadPhoto": "Upload photo",
     "removePhoto": "Remove photo",
     "errorNotImage": "Please select an image file.",
-    "errorProcess": "Could not process image."
+    "errorProcess": "Could not process image.",
+    "tokens": {
+      "label": "API tokens (MCP)",
+      "namePlaceholder": "Token name (e.g. laptop)",
+      "create": "Create",
+      "revoke": "Revoke",
+      "usedOn": "used {{date}}",
+      "neverUsed": "never used",
+      "copyOnce": "Copy this now — you won't see it again.",
+      "createFailed": "Failed to create token",
+      "revokeFailed": "Failed to revoke token"
+    }
   },
   "admin": {
     "title": "Settings",
@@ -1065,7 +1076,7 @@
       "remove": "Remove configuration",
       "emb": {
         "title": "Embeddings (semantic search)",
-        "benefit": "Embeddings make search faster and more accurate.",
+        "benefit": "Embeddings make search faster and more accurate — for you, or for an agent connected over MCP.",
         "defaultOff": "Disabled by default. Nothing is sent anywhere until you enable embeddings and start a build.",
         "enable": "Enable embeddings",
         "privacyWarning": "With a hosted endpoint configured, the embeddings provider (e.g. OpenAI) receives your email content — subject and body text. At that point this data path is no longer self-hosted.",

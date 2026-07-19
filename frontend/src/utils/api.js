@@ -339,4 +339,18 @@ export const api = {
     createTask:   (data)   => request('POST',   '/todoist/tasks', data),
   },
 
+  // MCP API tokens — per-user bearer tokens for the Streamable-HTTP /mcp endpoint.
+  // create() returns the plaintext token exactly once; only its hash is stored.
+  tokens: {
+    list:   ()     => request('GET',  '/tokens'),
+    create: (name) => request('POST', '/tokens', { name }),
+    revoke: async (id) => {
+      // DELETE responds 204 with no body — don't run it through request()/res.json().
+      const res = await fetch(`${BASE}/tokens/${id}`, {
+        method: 'DELETE', credentials: 'include',
+        headers: { [CSRF_HEADER]: CSRF_VALUE },
+      });
+      if (!res.ok) throw new Error('Failed to revoke token');
+    },
+  },
 };

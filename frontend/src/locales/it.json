@@ -587,7 +587,18 @@
     "uploadPhoto": "Carica foto",
     "removePhoto": "Rimuovi foto",
     "errorNotImage": "Seleziona un file immagine.",
-    "errorProcess": "Impossibile elaborare l'immagine."
+    "errorProcess": "Impossibile elaborare l'immagine.",
+    "tokens": {
+      "label": "Token API (MCP)",
+      "namePlaceholder": "Nome del token (es. laptop)",
+      "create": "Crea",
+      "revoke": "Revoca",
+      "usedOn": "usato {{date}}",
+      "neverUsed": "mai usato",
+      "copyOnce": "Copialo ora: non lo vedrai più.",
+      "createFailed": "Impossibile creare il token",
+      "revokeFailed": "Impossibile revocare il token"
+    }
   },
   "admin": {
     "title": "Impostazioni",
@@ -1065,7 +1076,7 @@
       "remove": "Rimuovi configurazione",
       "emb": {
         "title": "Embeddings (ricerca semantica)",
-        "benefit": "Gli embeddings rendono la ricerca più veloce e precisa.",
+        "benefit": "Gli embeddings rendono la ricerca più veloce e precisa — per te o per un agente connesso tramite MCP.",
         "defaultOff": "Disattivato per impostazione predefinita. Non viene inviato nulla finché non attivi gli embeddings e avvii una creazione.",
         "enable": "Attiva gli embeddings",
         "privacyWarning": "Con un endpoint ospitato configurato, il fornitore di embeddings (ad es. OpenAI) riceve il contenuto delle tue email — oggetto e corpo del testo. A quel punto questo percorso dei dati non è più self-hosted.",

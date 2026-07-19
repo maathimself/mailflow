@@ -587,7 +587,18 @@
     "uploadPhoto": "Subir foto",
     "removePhoto": "Eliminar foto",
     "errorNotImage": "Por favor selecciona un archivo de imagen.",
-    "errorProcess": "No se pudo procesar la imagen."
+    "errorProcess": "No se pudo procesar la imagen.",
+    "tokens": {
+      "label": "Tokens de API (MCP)",
+      "namePlaceholder": "Nombre del token (p. ej. portátil)",
+      "create": "Crear",
+      "revoke": "Revocar",
+      "usedOn": "usado {{date}}",
+      "neverUsed": "nunca usado",
+      "copyOnce": "Cópialo ahora: no volverás a verlo.",
+      "createFailed": "No se pudo crear el token",
+      "revokeFailed": "No se pudo revocar el token"
+    }
   },
   "admin": {
     "title": "Ajustes",
@@ -1065,7 +1076,7 @@
       "remove": "Eliminar configuración",
       "emb": {
         "title": "Embeddings (búsqueda semántica)",
-        "benefit": "Los embeddings hacen que la búsqueda sea más rápida y precisa.",
+        "benefit": "Los embeddings hacen que la búsqueda sea más rápida y precisa, para ti o para un agente conectado por MCP.",
         "defaultOff": "Desactivado de forma predeterminada. No se envía nada hasta que actives los embeddings e inicies una compilación.",
         "enable": "Activar embeddings",
         "privacyWarning": "Con un endpoint alojado configurado, el proveedor de embeddings (p. ej. OpenAI) recibe el contenido de tu correo: el asunto y el cuerpo del texto. En ese momento esta ruta de datos deja de ser autoalojada.",

@@ -328,6 +328,18 @@ export async function annSearch(gen, queryVec, k, { efSearch = 100, filter = nul
   }
 }
 
+// Return the chunk_index=0 vector for messageId in the active generation.
+export async function loadVector(messageId) {
+  const active = await pool.query("SELECT id, dimension FROM index_generations WHERE state = 'active'");
+  if (!active.rows.length) throw new Error('no active generation');
+  const r = await pool.query(
+    'SELECT embedding::text lit FROM embeddings WHERE generation_id = $1 AND message_id = $2 AND chunk_index = 0',
+    [active.rows[0].id, messageId],
+  );
+  if (!r.rows.length) throw new Error(`no embedding for message ${messageId}`);
+  return r.rows[0].lit.slice(1, -1).split(',').map(Number);
+}
+
 // Forward scan by UUID for live messages needing work, resuming above afterId. The
 // predicate is `embed_gen IS NULL` (NOT the OR with `embed_gen <> target`) so the
 // partial index idx_messages_embed_pending (migration 0039) drives an O(pending) scan
@@ -501,6 +513,11 @@ async function filteredChunkMessageCount(db, { generation, accountIds, buildFilt
 // for lexical-only or vector-only pools. `buildFilters(bind) → string[]`
 // applies the SAME structured operator predicates to both legs (README "one
 // search seam" — lexicalRepo remains the single owner of those predicates).
+// Each hit also carries best_chunk_index/best_char_start/best_char_end —
+// the ANN leg's winning (min-distance) chunk's offsets, null on an
+// FTS-only hit. These are CODE POINTS into the PREPROCESSED text (README
+// Unicode contract), not raw body_text byte offsets — chunkmatch.js owns
+// turning them into a raw-body byte snippet.
 export async function fusedSearch(req, { client } = {}) {
   const db = client || pool;
   const { generation, accountIds, rrfK, kPerSignal, limit } = req;
@@ -586,6 +603,12 @@ export async function fusedSearch(req, { client } = {}) {
       const innerArg = bind(innerChunks);
       const kp1 = bind(kPlus1);
       const k = bind(kPerSignal);
+      // DISTINCT ON (message_id), ordered by distance, picks the SAME min-distance
+      // chunk per message as the MIN(distance)/GROUP BY form — but also
+      // keeps that winning chunk's offsets, which the excerpt seam
+      // needs. Offsets are code points into the PREPROCESSED text, not raw
+      // body_text (README Unicode contract) — phase 5's chunkmatch.js owns
+      // turning them into a raw-body byte snippet.
       ctes.push(`ann_pool AS (
     SELECT d.message_id, d.distance, d.chunk_index, d.chunk_char_start, d.chunk_char_end
       FROM (

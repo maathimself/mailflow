@@ -37,31 +37,44 @@ function aliasIdFromMessageId(hits) {
   for (const h of hits) h.id = h.message_id;
 }
 
+// A caller that already resolved its scope (e.g. the MCP handler, from the
+// bearer-token owner's enabled accounts) passes accountIds directly and it is
+// trusted as-is; otherwise derive it from the session userId. The REST route
+// never forwards a raw accountIds, so a browser client cannot widen its scope.
+// Shared by both the lexical and semantic branches.
 async function resolveAccountIds(request) {
-  const { userId, accountId } = request;
-  const accountsResult = await query(
-    'SELECT id FROM email_accounts WHERE user_id = $1 AND enabled = true',
-    [userId]
-  );
-  let accountIds = accountsResult.rows.map(r => r.id);
-  if (!accountIds.length) return [];
-  // Optional single-account narrowing, only within the authenticated user's scope.
-  if (accountId && accountIds.includes(accountId)) accountIds = [accountId];
-  return accountIds;
+  const { userId, accountIds: providedScope, accountId } = request;
+  let scopeIds;
+  if (providedScope) {
+    scopeIds = providedScope;
+  } else {
+    const accountsResult = await query(
+      'SELECT id FROM email_accounts WHERE user_id = $1 AND enabled = true',
+      [userId]
+    );
+    scopeIds = accountsResult.rows.map(r => r.id);
+  }
+  if (!scopeIds.length) return [];
+  // Optional single-account narrowing (REST ?accountId=), only within scope.
+  return accountId && scopeIds.includes(accountId) ? [accountId] : scopeIds;
 }
 
 // Phase 1's original lexical search, extracted verbatim so the mode dispatch
 // below can reuse it both as the default path and as the fallback target when
 // a semantic search degrades. Returns the pre-Phase-4 shape (no `mode` field —
 // the caller adds that uniformly).
-async function runLexical(request, resolvedAccountIds) {
-  const { parsed, folderParam = '', limit = 50, offset = 0 } = request;
+async function runLexical(request) {
+  const { parsed, folderParam = '', limit = 50, offset = 0, scope } = request;
+
+  // Frozen contract: scope ∈ 'metadata' | 'body' (default metadata). Anything
+  // else coerces to metadata (today's behavior); phase 5's body tool passes 'body'.
+  const searchScope = scope === 'body' ? 'body' : 'metadata';
 
   const cap = clampLimit(limit);
   const off = Math.max(0, parseInt(offset) || 0);
   const emptyPage = { offset: off, limit: cap, hasMore: false };
 
-  const accountIds = resolvedAccountIds || await resolveAccountIds(request);
+  const accountIds = await resolveAccountIds(request);
   if (!accountIds.length) return { messages: [], page: emptyPage };
 
   const { folderScope, folderFuzzy } = resolveSearchFolderScope(parsed.filters, folderParam);
@@ -72,7 +85,7 @@ async function runLexical(request, resolvedAccountIds) {
   const ordering = hasPositiveText ? 'relevance' : 'date';
 
   const { rows, total, hasCondition } = await searchLexical(query, {
-    parsed, accountIds, folderScope, folderFuzzy, ordering, limit: cap, offset: off,
+    parsed, accountIds, folderScope, folderFuzzy, ordering, scope: searchScope, limit: cap, offset: off,
   });
   if (!hasCondition) return { messages: [], page: emptyPage };
 
@@ -97,6 +110,7 @@ export async function search(request) {
   // Resolve once, up front, and thread it into a lexical fallback below — a
   // fallback must not re-resolve accounts via a second DB round-trip.
   const accountIds = await resolveAccountIds(request);
+  const scopedRequest = { ...request, accountIds };
   try {
     if (accountIds.length === 0) {
       return { messages: [], mode, pool_saturated: false, generation: null,
@@ -144,7 +158,11 @@ export async function search(request) {
     };
   } catch (err) {
     if (isLexicalFallback(err)) {
-      const lexical = { ...(await runLexical(request, accountIds)), mode: 'lexical' };
+      if (request.strictVector) {
+        if (err instanceof MissingFreeTextError) throw err;   // invalid input, not unavailability
+        throw err;                                            // VectorUnavailableError already carries .reason
+      }
+      const lexical = { ...(await runLexical(scopedRequest)), mode: 'lexical' };
       // A filter-only query in semantic mode (MissingFreeTextError) is not a
       // degradation — there is nothing to embed and the lexical result IS the
       // answer, so no fellBack (the UI keys its amber "index building" hint on

@@ -587,7 +587,18 @@
     "uploadPhoto": "Téléverser une photo",
     "removePhoto": "Supprimer la photo",
     "errorNotImage": "Veuillez sélectionner un fichier image.",
-    "errorProcess": "Impossible de traiter l'image."
+    "errorProcess": "Impossible de traiter l'image.",
+    "tokens": {
+      "label": "Jetons API (MCP)",
+      "namePlaceholder": "Nom du jeton (p. ex. ordinateur)",
+      "create": "Créer",
+      "revoke": "Révoquer",
+      "usedOn": "utilisé {{date}}",
+      "neverUsed": "jamais utilisé",
+      "copyOnce": "Copiez-le maintenant — vous ne le reverrez plus.",
+      "createFailed": "Échec de la création du jeton",
+      "revokeFailed": "Échec de la révocation du jeton"
+    }
   },
   "admin": {
     "title": "Paramètres",
@@ -1065,7 +1076,7 @@
       "remove": "Supprimer la configuration",
       "emb": {
         "title": "Embeddings (recherche sémantique)",
-        "benefit": "Les embeddings rendent la recherche plus rapide et plus précise.",
+        "benefit": "Les embeddings rendent la recherche plus rapide et plus précise — pour vous ou pour un agent connecté via MCP.",
         "defaultOff": "Désactivé par défaut. Rien n'est envoyé tant que vous n'activez pas les embeddings et ne lancez pas une génération.",
         "enable": "Activer les embeddings",
         "privacyWarning": "Avec un point de terminaison hébergé configuré, le fournisseur d'embeddings (p. ex. OpenAI) reçoit le contenu de vos e-mails — objet et corps du texte. À ce moment-là, ce chemin de données n'est plus auto-hébergé.",

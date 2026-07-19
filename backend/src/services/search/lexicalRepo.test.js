@@ -5,6 +5,7 @@ import {
   negateCond,
   trashFolderExclusionCondition,
   freeTextTermCondition,
+  bodyTermCondition,
   searchFtsExpr,
   searchLexical,
   LEXICAL_RANK_SQL,
@@ -30,6 +31,24 @@ describe('SQL fragment builders', () => {
     expect(cond).toContain('m.from_name ILIKE $3');
     expect(cond).toContain("m.search_vector @@ plainto_tsquery('english', $4)");
     expect(cond).not.toContain("to_tsvector('english', coalesce(m.body_text,'')) @@");
+  });
+
+  it('bodyTermCondition prefix-matches a single-word term (msgvault BuildFTSArg parity)', () => {
+    const cond = bodyTermCondition(4, 'invoice');
+    expect(cond).toBe(
+      "to_tsvector('english', LEFT(coalesce(m.body_text,''), 600000)) @@ to_tsquery('english', quote_literal($4) || ':*')"
+    );
+    expect(cond).not.toContain('ILIKE');
+    expect(cond).not.toContain('search_vector');
+    expect(cond).not.toContain('plainto_tsquery');
+  });
+
+  it('bodyTermCondition keeps non-prefix phrase matching for a quoted multi-word term', () => {
+    const cond = bodyTermCondition(4, 'weekly report');
+    expect(cond).toBe(
+      "to_tsvector('english', LEFT(coalesce(m.body_text,''), 600000)) @@ plainto_tsquery('english', $4)"
+    );
+    expect(cond).not.toContain('quote_literal');
   });
 
   it('negateCond wraps a positive condition to also match NULL columns', () => {
@@ -103,6 +122,22 @@ describe('searchLexical', () => {
     expect(calls[0].params).toEqual([['a1'], '%boss%', 'INBOX', 50, 0]);
   });
 
+  it('scope:body matches only the capped body branch and returns body_text at the SAME cap', async () => {
+    const { fn, calls } = mockClient();
+    await searchLexical(fn, {
+      parsed: { filters: [], terms: [{ value: 'invoice', negate: false }] },
+      accountIds: ['a1'], folderScope: 'INBOX', folderFuzzy: false, ordering: 'date', scope: 'body', limit: 50, offset: 0,
+    });
+    const { text, params } = calls[0];
+    // Body-only free-text leg (no sender/subject ILIKE, no search_vector),
+    // prefix-matched (msgvault BuildFTSArg parity — "invoic" still finds "invoice").
+    expect(text).toContain("to_tsvector('english', LEFT(coalesce(m.body_text,''), 600000)) @@ to_tsquery('english', quote_literal($2) || ':*')");
+    expect(text).not.toContain('ILIKE $2');
+    // body_text returned at FTS_BODY_CHAR_CAP (600000) — same cap as the FTS body match (frozen contract).
+    expect(text).toContain("LEFT(coalesce(m.body_text,''), 600000) AS body_text");
+    // Body scope pushes only the fts param per term (no %like%): [accountIds, term, folder, limit, offset].
+    expect(params).toEqual([['a1'], 'invoice', 'INBOX', 50, 0]);
+  });
 });
 
 describe('ranked lexical query (slice 02)', () => {
@@ -293,6 +328,17 @@ describe('stopword-safe free-text predicates (Wave D Fix 1)', () => {
     // polarities; a plain NOT-wrap of the guarded condition would instead be
     // FALSE and exclude everything.
     expect(text).toContain("(numnode(to_tsquery('english', quote_literal($3) || ':*')) = 0 OR NOT COALESCE(");
+  });
+
+  it('guards the body-scope term condition with the same construction', async () => {
+    const { fn, calls } = mockClient();
+    await searchLexical(fn, {
+      parsed: { filters: [], terms: [{ value: 'invoice', negate: false }] },
+      accountIds: ['a1'], folderScope: 'INBOX', folderFuzzy: false, ordering: 'date', scope: 'body', limit: 50, offset: 0,
+    });
+    expect(calls[0].text).toContain(
+      "(numnode(to_tsquery('english', quote_literal($2) || ':*')) = 0 OR to_tsvector('english', LEFT(coalesce(m.body_text,''), 600000)) @@"
+    );
   });
 
   it('freeTextTermClause is the one owner searchLexical and the staging path share', () => {

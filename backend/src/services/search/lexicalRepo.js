@@ -146,6 +146,15 @@ export function negatedFreeTextClause(term, bind) {
   return freeTextTermClause(term, true, bind);
 }
 
+// Body-only free-text match for scope:'body' (MCP search_message_bodies leg):
+// matches ONLY the message body, length-capped at the SAME FTS_BODY_CHAR_CAP as
+// the stored FTS body cap and the body_text return cap (frozen contract — never
+// a second cap, so every FTS body match is locatable in the returned text).
+// Query-time (not GIN-served); bodies are sparse and this pool is bounded (D3).
+export function bodyTermCondition(ftsIdx, term) {
+  return ftsMatchExpr(`to_tsvector('english', LEFT(coalesce(m.body_text,''), ${FTS_BODY_CHAR_CAP}))`, ftsIdx, term);
+}
+
 // The weighted tsvector written into messages.search_fts. `ref` is the row
 // reference: 'm' for the backfill UPDATE, 'NEW' for the BEFORE trigger. The
 // class weights map to ts_rank_cd's D,C,B,A array (10:4:1 subject:from:rest).
@@ -225,7 +234,7 @@ export function buildFolderScopeClauses(folderScope, folderFuzzy, bind) {
   return conditions;
 }
 
-export async function searchLexical(client, { parsed, accountIds, folderScope, folderFuzzy, ordering, limit, offset }) {
+export async function searchLexical(client, { parsed, accountIds, folderScope, folderFuzzy, ordering, scope = 'metadata', limit, offset }) {
   const { filters, terms } = parsed;
   const params = [accountIds];
   let p = 2;
@@ -238,7 +247,14 @@ export async function searchLexical(client, { parsed, accountIds, folderScope, f
     // hasFTSToken drops it the same way rather than handing Postgres a
     // token that would normalize to zero lexemes.
     if (term.value.length < 2 || !hasSearchableToken(term.value)) continue;
-    conditions.push(freeTextTermClause(term.value, term.negate, bind));
+    if (scope === 'body') {
+      params.push(term.value);
+      const ftsIdx = p++;
+      const cond = bodyTermCondition(ftsIdx, term.value);
+      conditions.push(stopwordSafeCondition(ftsIdx, term.value, term.negate ? negateCond(cond) : cond));
+    } else {
+      conditions.push(freeTextTermClause(term.value, term.negate, bind));
+    }
   }
 
   // A bare in:inbox (or lone folder param) must never dump a whole folder. (No total
@@ -280,6 +296,15 @@ export async function searchLexical(client, { parsed, accountIds, folderScope, f
     orderBy = `ORDER BY COALESCE(${rankExpr}, 0) DESC, m.date DESC, m.id DESC`;
   }
 
+  // scope:'body' returns the body so MCP can compute keyword excerpts without a
+  // second query. The return cap is FTS_BODY_CHAR_CAP — the SAME constant as the
+  // FTS body cap (frozen contract: never a second cap), so every FTS body match
+  // is locatable in the returned text. Metadata scope keeps the historical
+  // column list (REST response byte-identical).
+  const bodyCol = scope === 'body'
+    ? `,\n        LEFT(coalesce(m.body_text,''), ${FTS_BODY_CHAR_CAP}) AS body_text`
+    : '';
+
   params.push(limit);
   params.push(offset);
 
@@ -287,7 +312,7 @@ export async function searchLexical(client, { parsed, accountIds, folderScope, f
       SELECT
         m.id, m.uid, m.folder, m.subject, m.from_name, m.from_email,
         m.date, m.snippet, m.is_read, m.is_starred, m.has_attachments, m.account_id,
-        a.name as account_name, a.email_address as account_email, a.color as account_color
+        a.name as account_name, a.email_address as account_email, a.color as account_color${bodyCol}
       FROM messages m
       JOIN email_accounts a ON m.account_id = a.id
       WHERE m.account_id = ANY($1)
@@ -297,8 +322,11 @@ export async function searchLexical(client, { parsed, accountIds, folderScope, f
       LIMIT $${p} OFFSET $${p + 1}
     `, params);
 
-  // Bounded metadata total: a COUNT(*) over the SAME predicate (no LIMIT/OFFSET).
-  const countResult = await client(`
+  // Bounded metadata total: a COUNT(*) over the SAME predicate (no LIMIT/OFFSET), for
+  // scope:'metadata' only. body/semantic stay total:-1 upstream.
+  let total;
+  if (scope === 'metadata') {
+    const countResult = await client(`
       SELECT COUNT(*) AS total
       FROM messages m
       JOIN email_accounts a ON m.account_id = a.id
@@ -306,7 +334,8 @@ export async function searchLexical(client, { parsed, accountIds, folderScope, f
         AND m.is_deleted = false
         AND ${conditions.join('\n        AND ')}
     `, countParams);
-  const total = Number(countResult.rows[0]?.total ?? 0); // COUNT(*) always returns one row in prod
+    total = Number(countResult.rows[0]?.total ?? 0); // COUNT(*) always returns one row in prod
+  }
 
   return { rows: result.rows, hasCondition: true, ...(total !== undefined ? { total } : {}) };
 }

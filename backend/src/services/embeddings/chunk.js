@@ -3,6 +3,10 @@
 
 const SENTENCE_TERMS = [['.', ' '], ['?', ' '], ['!', ' '], ['.', '\n'], ['?', '\n'], ['!', '\n']];
 
+// Chunking policy shared by the embed worker (write path) and chunkmatch (read path):
+// the per-message span cap and the maxRunes→overlap rule. This module owns them so the
+// two paths cannot drift — a mismatch would silently misalign re-chunked read offsets
+// from the stored write offsets. Changing either MUST bump EMBED_POLICY_VERSION.
 export const MAX_SPANS = 64; // worker.go maxSpansPerMessage
 
 export function chunkOverlapFor(maxRunes) {
