@@ -50,12 +50,47 @@ jobs:
         working-directory: frontend
         run: npm run app:version -- "${{ steps.app-version.outputs.version }}" "${{ github.run_number }}"
 
-      - name: Build Electron package
-        if: matrix.os != 'ubuntu-latest'
+      - name: Validate desktop release signing
+        if: matrix.os == 'windows-latest' || matrix.os == 'macos-latest'
+        shell: bash
+        env:
+          MAILFLOW_WINDOWS_CSC_LINK: ${{ secrets.MAILFLOW_WINDOWS_CSC_LINK }}
+          MAILFLOW_WINDOWS_CSC_KEY_PASSWORD: ${{ secrets.MAILFLOW_WINDOWS_CSC_KEY_PASSWORD }}
+          MAILFLOW_MAC_CSC_LINK: ${{ secrets.MAILFLOW_MAC_CSC_LINK }}
+          MAILFLOW_MAC_CSC_KEY_PASSWORD: ${{ secrets.MAILFLOW_MAC_CSC_KEY_PASSWORD }}
+        run: |
+          missing=()
+
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            [ -n "$MAILFLOW_WINDOWS_CSC_LINK" ] || missing+=("MAILFLOW_WINDOWS_CSC_LINK")
+            [ -n "$MAILFLOW_WINDOWS_CSC_KEY_PASSWORD" ] || missing+=("MAILFLOW_WINDOWS_CSC_KEY_PASSWORD")
+          fi
+
+          if [ "${{ matrix.os }}" = "macos-latest" ]; then
+            [ -n "$MAILFLOW_MAC_CSC_LINK" ] || missing+=("MAILFLOW_MAC_CSC_LINK")
+            [ -n "$MAILFLOW_MAC_CSC_KEY_PASSWORD" ] || missing+=("MAILFLOW_MAC_CSC_KEY_PASSWORD")
+          fi
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Desktop release signing secrets are required for %s. Missing: %s\n' "${{ matrix.os }}" "${missing[*]}" >&2
+            exit 1
+          fi
+
+      - name: Build signed Windows Electron package
+        if: matrix.os == 'windows-latest'
         working-directory: frontend
         run: npm run electron:dist
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          CSC_LINK: ${{ secrets.MAILFLOW_WINDOWS_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAILFLOW_WINDOWS_CSC_KEY_PASSWORD }}
+
+      - name: Build signed macOS Electron package
+        if: matrix.os == 'macos-latest'
+        working-directory: frontend
+        run: npm run electron:dist
+        env:
+          CSC_LINK: ${{ secrets.MAILFLOW_MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAILFLOW_MAC_CSC_KEY_PASSWORD }}
 
       - name: Build Linux x64 Electron packages
         if: matrix.os == 'ubuntu-latest'
