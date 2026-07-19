@@ -11,6 +11,7 @@
     "audit:redos": "npm i --no-save --silent eslint-plugin-redos && eslint -c eslint.redos.config.mjs src"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "archiver": "^7.0.1",
     "bcryptjs": "^2.4.3",
     "connect-redis": "^7.1.0",

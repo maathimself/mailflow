@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
@@ -36,6 +36,45 @@ export default function ProfileModal({ onClose }) {
   const [pendingAvatar, setPendingAvatar] = useState(null); // base64 to upload, or false = delete
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  // MCP API tokens (per-user bearer tokens for the /mcp endpoint).
+  const [tokens, setTokens] = useState([]);
+  const [tokenName, setTokenName] = useState('');
+  const [mintedToken, setMintedToken] = useState('');
+  const [tokenBusy, setTokenBusy] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    api.tokens.list().then((r) => { if (alive) setTokens(r.tokens || []); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  async function handleCreateToken() {
+    const name = tokenName.trim();
+    if (!name || tokenBusy) return;
+    setTokenBusy(true);
+    setError('');
+    try {
+      const { token } = await api.tokens.create(name);
+      setMintedToken(token); // shown once — never retrievable again
+      setTokenName('');
+      const r = await api.tokens.list();
+      setTokens(r.tokens || []);
+    } catch (e) {
+      setError(e.message || t('profile.tokens.createFailed'));
+    } finally {
+      setTokenBusy(false);
+    }
+  }
+
+  async function handleRevokeToken(id) {
+    try {
+      await api.tokens.revoke(id);
+      setTokens((prev) => prev.filter((tok) => tok.id !== id));
+    } catch (e) {
+      setError(e.message || t('profile.tokens.revokeFailed'));
+    }
+  }
 
   async function handleFileChange(e) {
     const file = e.target.files[0];
@@ -191,6 +230,61 @@ export default function ProfileModal({ onClose }) {
             <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
               {t('profile.displayNameHint')}
             </span>
+          </div>
+
+          {/* API tokens (MCP) — bearer tokens for the Streamable-HTTP /mcp endpoint */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, borderTop: '1px solid var(--border-subtle)', paddingTop: 16 }}>
+            <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)' }}>
+              {t('profile.tokens.label')}
+            </label>
+            {tokens.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {tokens.map((tok) => (
+                  <div key={tok.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontSize: 12, color: 'var(--text-primary)' }}>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {tok.name}
+                      <span style={{ color: 'var(--text-tertiary)', marginLeft: 6 }}>
+                        {tok.last_used_at
+                          ? t('profile.tokens.usedOn', { date: new Date(tok.last_used_at).toLocaleDateString() })
+                          : t('profile.tokens.neverUsed')}
+                      </span>
+                    </span>
+                    <button
+                      onClick={() => handleRevokeToken(tok.id)}
+                      style={{ fontSize: 11, padding: '3px 9px', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: 'var(--red, #f87171)', cursor: 'pointer', flexShrink: 0 }}
+                    >
+                      {t('profile.tokens.revoke')}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 6 }}>
+              <input
+                type="text"
+                value={tokenName}
+                onChange={e => setTokenName(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleCreateToken()}
+                placeholder={t('profile.tokens.namePlaceholder')}
+                maxLength={80}
+                style={{ flex: 1, padding: '7px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
+              />
+              <button
+                onClick={handleCreateToken}
+                disabled={tokenBusy || !tokenName.trim()}
+                style={{ fontSize: 12, padding: '7px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', cursor: tokenBusy ? 'default' : 'pointer', flexShrink: 0, opacity: tokenBusy || !tokenName.trim() ? 0.6 : 1 }}
+              >
+                {t('profile.tokens.create')}
+              </button>
+            </div>
+            {mintedToken && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '8px 10px', borderRadius: 8, background: 'rgba(52,211,153,0.08)', border: '1px solid var(--border)' }}>
+                <code style={{ fontSize: 12, wordBreak: 'break-all', color: 'var(--text-primary)' }}>{mintedToken}</code>
+                <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
+                  {t('profile.tokens.copyOnce')}
+                </span>
+              </div>
+            )}
           </div>
 
           {error && (
