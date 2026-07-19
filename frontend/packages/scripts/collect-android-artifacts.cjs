@@ -29,7 +29,7 @@ if (apks.length === 0) {
     .map((file) => path.relative(root, file))
     .join('\n  ');
   const unsignedHint = unsignedApks.length > 0
-    ? '\nUnsigned release APKs were found, but Android cannot install them. Configure release signing or rebuild with the updated Gradle fallback.'
+    ? '\nUnsigned release APKs were found, but Android cannot install them. Configure release signing before building release artifacts.'
     : '';
   throw new Error(`No signed Android release APK files found under ${outputsDir}.${unsignedHint}${found ? ` Found:\n  ${found}` : ''}`);
 }

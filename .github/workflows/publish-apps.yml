@@ -130,7 +130,21 @@ jobs:
         shell: bash
         env:
           MAILFLOW_ANDROID_KEYSTORE_BASE64: ${{ secrets.MAILFLOW_ANDROID_KEYSTORE_BASE64 }}
+          MAILFLOW_ANDROID_STORE_PASSWORD: ${{ secrets.MAILFLOW_ANDROID_STORE_PASSWORD }}
+          MAILFLOW_ANDROID_KEY_ALIAS: ${{ secrets.MAILFLOW_ANDROID_KEY_ALIAS }}
+          MAILFLOW_ANDROID_KEY_PASSWORD: ${{ secrets.MAILFLOW_ANDROID_KEY_PASSWORD }}
         run: |
+          missing=()
+          [ -n "$MAILFLOW_ANDROID_KEYSTORE_BASE64" ] || missing+=("MAILFLOW_ANDROID_KEYSTORE_BASE64")
+          [ -n "$MAILFLOW_ANDROID_STORE_PASSWORD" ] || missing+=("MAILFLOW_ANDROID_STORE_PASSWORD")
+          [ -n "$MAILFLOW_ANDROID_KEY_ALIAS" ] || missing+=("MAILFLOW_ANDROID_KEY_ALIAS")
+          [ -n "$MAILFLOW_ANDROID_KEY_PASSWORD" ] || missing+=("MAILFLOW_ANDROID_KEY_PASSWORD")
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Android release signing secrets are required. Missing: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
           if [ -n "$MAILFLOW_ANDROID_KEYSTORE_BASE64" ]; then
             mkdir -p "$RUNNER_TEMP/mailflow-signing"
             echo "$MAILFLOW_ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/mailflow-signing/release.keystore"

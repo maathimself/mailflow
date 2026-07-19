@@ -1,14 +1,21 @@
 apply plugin: 'com.android.application'
 
+def releaseSigningEnv = [
+    "MAILFLOW_ANDROID_STORE_FILE",
+    "MAILFLOW_ANDROID_STORE_PASSWORD",
+    "MAILFLOW_ANDROID_KEY_ALIAS",
+    "MAILFLOW_ANDROID_KEY_PASSWORD"
+]
+def missingReleaseSigningEnv = releaseSigningEnv.findAll { !System.getenv(it) }
+def hasReleaseSigning = missingReleaseSigningEnv.isEmpty()
+def releaseStoreFile = System.getenv("MAILFLOW_ANDROID_STORE_FILE")
+def releaseStorePassword = System.getenv("MAILFLOW_ANDROID_STORE_PASSWORD")
+def releaseKeyAlias = System.getenv("MAILFLOW_ANDROID_KEY_ALIAS")
+def releaseKeyPassword = System.getenv("MAILFLOW_ANDROID_KEY_PASSWORD")
+
 android {
     namespace = "sh.mailflow.app"
     compileSdk = rootProject.ext.compileSdkVersion
-
-    def releaseStoreFile = System.getenv("MAILFLOW_ANDROID_STORE_FILE")
-    def releaseStorePassword = System.getenv("MAILFLOW_ANDROID_STORE_PASSWORD")
-    def releaseKeyAlias = System.getenv("MAILFLOW_ANDROID_KEY_ALIAS")
-    def releaseKeyPassword = System.getenv("MAILFLOW_ANDROID_KEY_PASSWORD")
-    def hasReleaseSigning = releaseStoreFile && releaseStorePassword && releaseKeyAlias && releaseKeyPassword
 
     defaultConfig {
         applicationId "sh.mailflow.app"
@@ -35,10 +42,22 @@ android {
     }
     buildTypes {
         release {
-            signingConfig hasReleaseSigning ? signingConfigs.release : signingConfigs.debug
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
+    }
+}
+
+gradle.taskGraph.whenReady { taskGraph ->
+    def releaseBuildRequested = taskGraph.allTasks.any { task ->
+        task.project == project && ['assembleRelease', 'bundleRelease'].contains(task.name)
+    }
+
+    if (releaseBuildRequested && !hasReleaseSigning) {
+        throw new GradleException("Android release signing is required for release builds. Missing environment variables: ${missingReleaseSigningEnv.join(', ')}")
     }
 }
 
