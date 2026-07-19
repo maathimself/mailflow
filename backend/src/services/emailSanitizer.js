@@ -13,14 +13,73 @@ import sanitizeHtml from 'sanitize-html';
 // extracting <style> blocks so that Outlook-only CSS rules (e.g. mso-* properties,
 // table layout overrides) are not applied in browser rendering, where they can break
 // font sizes, spacing, and colors that the email author tuned for non-Outlook clients.
+// Replace every `<tag …>content</tag>` span in linear time. A lazy
+// `<tag\b[^>]*>[\s\S]*?</tag>` /g regex is O(n²) on hostile email HTML on TWO axes:
+// the `[^>]*>` opener backtracks futilely when a tag has no `>`, and the lazy
+// `[\s\S]*?` re-scans to end-of-string from every unmatched opener when a close is
+// missing. A crafted body of many bare `<head>`/`<style>` froze the render path
+// (found by eslint-plugin-redos). Node lacks possessive/atomic quantifiers, so we
+// scan by hand: `openNameRe` is a fixed tag-name literal (e.g. /<style\b/gi, linear),
+// the opening tag ends at the first `>` (indexOf — same as the quote-unaware `[^>]*>`),
+// and content ends at the nearest close (indexOf — same as lazy `[\s\S]*?`). When no
+// `>` or close exists at/after an opener, none exists for any later opener either
+// (positions only advance), so we stop — exactly what the regex would leave unmatched.
+function scanPaired(str, openNameRe, closeLiteral, transform) {
+  const lower = str.toLowerCase();
+  const close = closeLiteral.toLowerCase();
+  let out = '';
+  let pos = 0;
+  let m;
+  openNameRe.lastIndex = 0;
+  while ((m = openNameRe.exec(str)) !== null) {
+    const gt = str.indexOf('>', m.index);
+    if (gt === -1) break; // unterminated opening tag — no match, like [^>]*> would fail
+    const contentStart = gt + 1;
+    const closeIdx = lower.indexOf(close, contentStart);
+    if (closeIdx === -1) break;
+    const spanEnd = closeIdx + closeLiteral.length;
+    out += str.slice(pos, m.index) + transform(str.slice(m.index, contentStart), str.slice(contentStart, closeIdx), str.slice(closeIdx, spanEnd));
+    pos = spanEnd;
+    openNameRe.lastIndex = spanEnd;
+  }
+  return out + str.slice(pos);
+}
+
+// Strip MSO-positive conditional comments (<!--[if mso]>…<![endif]-->) linearly,
+// preserving <!--[if !mso]> blocks (browser-targeted CSS). Mirrors the old regex
+// /<!--\[if(?!\s*!)[^\]]*\]>[\s\S]*?<!\[endif\]-->/gi without its backtracking.
+function stripMsoConditionals(hc) {
+  const END = '<![endif]-->';
+  const lower = hc.toLowerCase();
+  const openRe = /<!--\[if/gi;
+  let out = '';
+  let pos = 0;
+  let m;
+  while ((m = openRe.exec(hc)) !== null) {
+    const after = m.index + m[0].length;
+    let k = after;
+    while (k < hc.length && /\s/.test(hc[k])) k++;
+    if (hc[k] === '!') { openRe.lastIndex = after; continue; } // <!--[if !mso]> — keep
+    const rb = hc.indexOf(']', after);
+    if (rb === -1) break;
+    if (hc[rb + 1] !== '>') { openRe.lastIndex = after; continue; } // ']' not immediately '>' — no match
+    const endIdx = lower.indexOf(END.toLowerCase(), rb + 2);
+    if (endIdx === -1) break;
+    out += hc.slice(pos, m.index);
+    pos = endIdx + END.length;
+    openRe.lastIndex = pos;
+  }
+  return out + hc.slice(pos);
+}
+
 export function stripEmailHead(html) {
   if (!html) return html;
-  return html.replace(/<head\b[^>]*>([\s\S]*?)<\/head>/gi, (_, headContent) => {
-    // Only strip MSO-positive conditional comments (<!--[if mso]>, <!--[if gte mso 9]>, etc.)
-    // Preserve <!--[if !mso]> blocks which contain browser-targeted CSS that must be kept.
-    const noMso = headContent.replace(/<!--\[if(?!\s*!)[^\]]*\]>[\s\S]*?<!\[endif\]-->/gi, '');
-    const styles = noMso.match(/<style\b[^>]*>[\s\S]*?<\/style>/gi) || [];
-    return styles.join('');
+  return scanPaired(html, /<head\b/gi, '</head>', (_open, headContent) => {
+    const noMso = stripMsoConditionals(headContent);
+    // Rescue <style> blocks (layout CSS) from the head; drop everything else.
+    let styles = '';
+    scanPaired(noMso, /<style\b/gi, '</style>', (open, content, close) => { styles += open + content + close; return ''; });
+    return styles;
   });
 }
 
@@ -115,10 +174,8 @@ function upgradeStyleUrls(style) {
 // the user's remote image blocking preference.  data: and cid: URIs are left intact.
 function stripExternalStyleBlockUrls(html) {
   if (!html) return html;
-  return html.replace(
-    /(<style\b[^>]*>)([\s\S]*?)(<\/style>)/gi,
-    (_, open, content, close) =>
-      open + content.replace(/url\s*\(\s*(['"]?)https?:\/\/[^)]*\1\s*\)/gi, 'url()') + close
+  return scanPaired(html, /<style\b/gi, '</style>', (open, content, close) =>
+    open + content.replace(/url\s*\(\s*(['"]?)https?:\/\/[^)]*\1\s*\)/gi, 'url()') + close
   );
 }
 
@@ -127,9 +184,9 @@ function stripExternalStyleBlockUrls(html) {
 // block CSS must be handled separately after sanitization.
 function upgradeStyleBlocks(html) {
   if (!html) return html;
-  return html.replace(/(<style\b[^>]*>)([\s\S]*?)(<\/style>)/gi, (_, open, content, close) => {
-    return open + content.replace(/url\(\s*(['"]?)http:\/\//gi, (_, q) => `url(${q}https://`) + close;
-  });
+  return scanPaired(html, /<style\b/gi, '</style>', (open, content, close) =>
+    open + content.replace(/url\(\s*(['"]?)http:\/\//gi, (_, q) => `url(${q}https://`) + close
+  );
 }
 
 // Strip dark-mode CSS from a <style> block's text content.
@@ -155,9 +212,8 @@ function stripDarkModeCss(css) {
 
 function stripDarkModeStyleBlocks(html) {
   if (!html) return html;
-  return html.replace(
-    /(<style\b[^>]*>)([\s\S]*?)(<\/style>)/gi,
-    (_, open, content, close) => open + stripDarkModeCss(content) + close
+  return scanPaired(html, /<style\b/gi, '</style>', (open, content, close) =>
+    open + stripDarkModeCss(content) + close
   );
 }
 
@@ -393,16 +449,13 @@ export function blockRemoteImages(html) {
   // 1. Strip @import "https://..." (bare quoted form — not caught by url() pattern).
   // 2. Strip @import url(https://...) (url() form).
   // 3. Replace remaining url(https://...) CSS property values with data:,.
-  out = out.replace(
-    /(<style\b[^>]*>)([\s\S]*?)(<\/style>)/gi,
-    (_, open, content, close) => {
-      const blocked = content
-        .replace(/@import\s+["']https?:\/\/[^"']*["']\s*;?/gi, '')
-        .replace(/@import\s+url\(\s*["']?https?:\/\/[^"')]*["']?\s*\)\s*;?/gi, '')
-        .replace(/url\(\s*(['"]?)https?:\/\/[^'")]+\1\s*\)/gi, 'url("data:,")');
-      return open + blocked + close;
-    }
-  );
+  out = scanPaired(out, /<style\b/gi, '</style>', (open, content, close) => {
+    const blocked = content
+      .replace(/@import\s+["']https?:\/\/[^"']*["']\s*;?/gi, '')
+      .replace(/@import\s+url\(\s*["']?https?:\/\/[^"')]*["']?\s*\)\s*;?/gi, '')
+      .replace(/url\(\s*(['"]?)https?:\/\/[^'")]+\1\s*\)/gi, 'url("data:,")');
+    return open + blocked + close;
+  });
 
   return out;
 }
