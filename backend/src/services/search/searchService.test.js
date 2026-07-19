@@ -17,6 +17,7 @@ import { query } from '../db.js';
 import { searchLexical } from './lexicalRepo.js';
 import * as hybrid from '../embeddings/hybrid.js';
 import { search } from './searchService.js';
+import { VectorUnavailableError } from '../embeddings/vectorErrors.js';
 
 beforeEach(() => {
   query.mockReset(); searchLexical.mockReset();
@@ -44,11 +45,37 @@ describe('searchService.search', () => {
     expect(searchLexical.mock.calls[0][1].accountIds).toEqual(['a2']);
   });
 
+  it('trusts a caller-provided accountIds scope and skips the DB account lookup (MCP path)', async () => {
+    searchLexical.mockResolvedValue({ rows: [], hasCondition: true });
+    await search({ accountIds: ['a1', 'a2'], parsed: { filters: [], terms: [{ value: 'hi', negate: false }] } });
+    expect(query).not.toHaveBeenCalled(); // no user_id → email_accounts lookup
+    expect(searchLexical.mock.calls[0][1].accountIds).toEqual(['a1', 'a2']);
+  });
+
   it('passes through an optional total when searchLexical returns one', async () => {
     withAccounts(['a1']);
     searchLexical.mockResolvedValue({ rows: [{ id: 'm' }], total: 137, hasCondition: true });
     const res = await search({ userId: 'u1', parsed: { filters: [], terms: [{ value: 'x', negate: false }] } });
     expect(res.total).toBe(137);
+  });
+
+  it('passes scope through to searchLexical, defaulting to metadata and coercing unknown values', async () => {
+    withAccounts(['a1']);
+    searchLexical.mockResolvedValue({ rows: [], hasCondition: true });
+    await search({ userId: 'u1', parsed: { filters: [], terms: [{ value: 'x', negate: false }] } });
+    expect(searchLexical.mock.calls[0][1].scope).toBe('metadata');
+
+    query.mockReset(); searchLexical.mockReset();
+    withAccounts(['a1']);
+    searchLexical.mockResolvedValue({ rows: [], hasCondition: true });
+    await search({ userId: 'u1', scope: 'body', parsed: { filters: [], terms: [{ value: 'x', negate: false }] } });
+    expect(searchLexical.mock.calls[0][1].scope).toBe('body');
+
+    query.mockReset(); searchLexical.mockReset();
+    withAccounts(['a1']);
+    searchLexical.mockResolvedValue({ rows: [], hasCondition: true });
+    await search({ userId: 'u1', scope: 'nonsense', parsed: { filters: [], terms: [{ value: 'x', negate: false }] } });
+    expect(searchLexical.mock.calls[0][1].scope).toBe('metadata');
   });
 
   it('chooses relevance ordering for free text and date ordering for filter-only queries', async () => {
@@ -298,11 +325,20 @@ describe('searchService semantic pagination hasMore (Fix 3)', () => {
   });
 });
 
-describe('searchService envelope (Task 5b)', () => {
+describe('searchService strictVector + envelope (Task 5b)', () => {
   const hybridReq2 = (extra = {}) => ({
     userId: 'u1', mode: 'hybrid', limit: 50, offset: 0,
     parsed: { filters: [], terms: [{ value: 'q', negate: false }] },
     ...extra,
+  });
+
+  it('rethrows the VectorUnavailableError (no fallback) under strictVector', async () => {
+    withAccounts(['a1']);
+    const unavail = new VectorUnavailableError('index_building');
+    hybrid.hybridSearch.mockRejectedValue(unavail);
+    const err = await search(hybridReq2({ strictVector: true })).catch(e => e);
+    expect(err).toBe(unavail);
+    expect(err.reason).toBe('index_building');
   });
 
   it('returns the rich generation object and per-hit score under explain', async () => {

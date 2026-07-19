@@ -32,6 +32,9 @@ import gtdRoutes from './routes/gtd.js';
 import senderFaviconsRoutes from './routes/senderFavicons.js';
 import carddavRouter from './routes/carddav.js';
 import carddavAccountRouter from './routes/carddavAccount.js';
+import { mountMcp } from './mcp/server.js';
+import apiTokensRoutes from './routes/apiTokens.js';
+import mcpDeletionsRoutes from './routes/mcpDeletions.js';
 import { startCardavScheduler } from './services/carddavSync.js';
 import { scheduleFtsBackfill } from './services/search/ftsBackfill.js';
 import { encryptExistingCredentials, query } from './services/db.js';
@@ -182,6 +185,8 @@ app.use('/api/todoist', todoistRoutes);
 app.use('/api/carddav', carddavAccountRouter);
 app.use('/api', aiRoutes);
 app.use('/api', aiEmbeddingsRoutes);
+app.use('/api/tokens', apiTokensRoutes);
+app.use('/api/mcp-deletions', mcpDeletionsRoutes);
 app.use('/api', categoriesRoutes);
 // Mounted at the /api/gtd subtree (not bare /api) so gtd.js's router-level
 // requireAuth cannot intercept the unauthenticated /api/health and /api/version
@@ -193,6 +198,10 @@ app.use('/api/sender-favicons', senderFaviconsRoutes);
 app.use('/carddav', carddavRouter);
 // RFC 6764 well-known redirect — handle all methods so PROPFIND probes also redirect
 app.all('/.well-known/carddav', (req, res) => res.redirect(308, '/carddav/'));
+
+// MCP Streamable-HTTP endpoint. Bearer-authenticated (mcp/auth.js), intentionally
+// outside the /api CSRF gate and session middleware — auth is a token, not a cookie.
+mountMcp(app);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 app.get('/api/version', (_req, res) => res.json({ version: APP_VERSION, sha: process.env.BUILD_SHA || 'dev' }));

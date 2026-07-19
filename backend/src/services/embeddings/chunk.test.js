@@ -3,6 +3,9 @@ import { chunkText, chunkOverlapFor, MAX_SPANS } from './chunk.js';
 
 const cp = (s) => Array.from(s).length;
 
+// Pin the shared chunking policy chunk.js owns. worker.js (write path) and chunkmatch.js
+// (read path) both import MAX_SPANS + chunkOverlapFor from here, so they cannot drift —
+// a mismatch would silently misalign re-chunked read offsets from stored write offsets.
 describe('shared chunking policy (one owner)', () => {
   it('exports MAX_SPANS = 64 (worker.go maxSpansPerMessage)', () => {
     expect(MAX_SPANS).toBe(64);

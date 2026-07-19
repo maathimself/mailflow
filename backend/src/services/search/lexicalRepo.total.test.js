@@ -12,11 +12,18 @@ describe('searchLexical metadata total', () => {
     const client = vi.fn()
       .mockResolvedValueOnce({ rows: [{ id: 'm1' }] })      // page query
       .mockResolvedValueOnce({ rows: [{ total: '42' }] });  // count query
-    const out = await searchLexical(client, { parsed, accountIds: ['acc-1'], limit: 20, offset: 0 });
+    const out = await searchLexical(client, { parsed, accountIds: ['acc-1'], scope: 'metadata', limit: 20, offset: 0 });
     expect(out.total).toBe(42);
     const countSql = client.mock.calls[1][0];
     expect(countSql).toMatch(/COUNT\(\*\)/i);
     expect(countSql).not.toMatch(/\bLIMIT\b/i);
     expect(countSql).not.toMatch(/\bOFFSET\b/i);
+  });
+
+  it("does not COUNT for scope:'body' (no total)", async () => {
+    const client = vi.fn().mockResolvedValueOnce({ rows: [] }); // page query only
+    const out = await searchLexical(client, { parsed, accountIds: ['acc-1'], scope: 'body', limit: 20, offset: 0 });
+    expect(out.total).toBeUndefined();
+    expect(client.mock.calls.every((c) => !/COUNT\(\*\)/i.test(c[0]))).toBe(true);
   });
 });
