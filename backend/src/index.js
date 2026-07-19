@@ -18,6 +18,7 @@ import accountRoutes from './routes/accounts.js';
 import mailRoutes from './routes/mail.js';
 import searchRoutes from './routes/search.js';
 import adminRoutes from './routes/admin.js';
+import indexingRoutes from './routes/indexing.js';
 import totpRoutes from './routes/totp.js';
 import oidcApiRouter, { oidcBrowserRouter } from './routes/oidc.js';
 import rulesRoutes from './routes/rules.js';
@@ -31,6 +32,7 @@ import senderFaviconsRoutes from './routes/senderFavicons.js';
 import carddavRouter from './routes/carddav.js';
 import carddavAccountRouter from './routes/carddavAccount.js';
 import { startCardavScheduler } from './services/carddavSync.js';
+import { scheduleFtsBackfill } from './services/search/ftsBackfill.js';
 import { encryptExistingCredentials, query } from './services/db.js';
 import { runMigrations } from './services/migrations.js';
 import { parseVCard } from './utils/vcard.js';
@@ -168,6 +170,7 @@ app.use('/api/mail', sendRoutes);
 app.use('/api/mail', draftRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/admin/indexing', indexingRoutes);
 app.use('/api/totp', totpRoutes);
 app.use('/api/rules', rulesRoutes);
 app.use('/api/block-list', blockListRoutes);
@@ -245,6 +248,9 @@ imapManager.startSnoozeWatcher();
 
 // Schedule periodic CardDAV contact sync for any connected accounts.
 startCardavScheduler();
+
+// Postgres-only drainer: populate search_fts for pre-existing rows (no IMAP).
+scheduleFtsBackfill();
 
 // Re-connect all enabled IMAP accounts on startup with bounded concurrency so a
 // large user base doesn't hammer IMAP servers and the DB connection pool at once.
