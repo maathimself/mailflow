@@ -3,6 +3,10 @@ FROM --platform=$BUILDPLATFORM node:22-alpine AS builder
 WORKDIR /app
 
 COPY frontend/package*.json ./
+# electron is a devDependency used only for desktop packaging (electron-builder),
+# never by the web/vite build. Skip its ~100MB binary download so the multi-arch
+# image build (incl. arm64 under QEMU) stays fast and can't fail on a flaky fetch.
+ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1
 RUN npm ci
 
 COPY . /repo
