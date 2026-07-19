@@ -1,6 +1,9 @@
 package sh.mailflow.app;
 
+import android.content.ActivityNotFoundException;
 import android.content.Context;
+import android.content.Intent;
+import android.net.Uri;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
@@ -16,6 +19,25 @@ public class MailFlowWebViewClient extends BridgeWebViewClient {
     public MailFlowWebViewClient(Bridge bridge, Context context) {
         super(bridge);
         this.context = context.getApplicationContext();
+    }
+
+    @Override
+    public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+        Uri uri = request == null ? null : request.getUrl();
+        if (request != null && request.isForMainFrame() && uri != null && openExternallyIfNeeded(uri.toString())) {
+            return true;
+        }
+
+        return super.shouldOverrideUrlLoading(view, request);
+    }
+
+    @Override
+    public boolean shouldOverrideUrlLoading(WebView view, String url) {
+        if (openExternallyIfNeeded(url)) {
+            return true;
+        }
+
+        return super.shouldOverrideUrlLoading(view, url);
     }
 
     @Override
@@ -61,6 +83,29 @@ public class MailFlowWebViewClient extends BridgeWebViewClient {
     private boolean isConfiguredHost(String url) {
         String host = MailFlowNativePlugin.getSavedHost(context);
         return host != null && url != null && url.startsWith(host);
+    }
+
+    private boolean openExternallyIfNeeded(String url) {
+        if (url == null || url.trim().isEmpty() || isConfiguredHost(url) || FALLBACK_URL.equals(url)) {
+            return false;
+        }
+
+        Uri uri = Uri.parse(url);
+        String scheme = uri.getScheme();
+        if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme) && !"mailto".equalsIgnoreCase(scheme)) {
+            return false;
+        }
+
+        Intent intent = new Intent(Intent.ACTION_VIEW, uri);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+
+        try {
+            context.startActivity(intent);
+        } catch (ActivityNotFoundException error) {
+            return true;
+        }
+
+        return true;
     }
 
     private void loadFallback(WebView view) {
