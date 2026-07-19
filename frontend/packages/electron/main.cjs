@@ -18,6 +18,7 @@ const NATIVE_ACTION_CHANNEL = 'mailflow:native-action';
 const NATIVE_ACTION_ARG = '--mailflow-action=';
 const NEW_MAIL_NOTIFICATION_MAX_LENGTH = 240;
 const MAILTO_PROTOCOL = 'mailto';
+const EXTERNAL_LINK_PROTOCOLS = new Set(['http:', 'https:', `${MAILTO_PROTOCOL}:`]);
 const REWRITE_ERROR_PATTERNS = [
   /Rewrite\s+502\s+Bad\s+Gateway\s+Page/i,
   /Rewrite\s+404\s+Error\s+Page/i,
@@ -38,6 +39,14 @@ let downloadedUpdate = null;
 let pendingUpdateDownloadUrl = null;
 let updateDownloadsInitialized = false;
 let nextNativeActionId = 1;
+
+function isAllowedExternalUrl(url) {
+  try {
+    return EXTERNAL_LINK_PROTOCOLS.has(new URL(url).protocol);
+  } catch {
+    return false;
+  }
+}
 const pendingNativeActions = new Map();
 const pendingProtocolUrls = [];
 
@@ -1418,7 +1427,10 @@ function createWindow() {
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    if (isAllowedExternalUrl(url)) {
+      shell.openExternal(url);
+    }
+
     return { action: 'deny' };
   });
 
