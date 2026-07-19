@@ -318,7 +318,8 @@ function parseMimeHeaders(headerBlock) {
 // part is requested: the payload starts with a MIME boundary and embedded
 // Content-Type/Content-Transfer-Encoding headers. If passed to the sanitizer as
 // HTML, users see boundary lines and quoted-printable garbage (=D0=..., =3D).
-function unwrapEmbeddedMimeText(decoded) {
+function unwrapEmbeddedMimeText(decoded, depth = 0) {
+  if (depth >= 5) return decoded;
   const start = String(decoded || '').trimStart();
   if (!/^--[^\r\n]+\r?\nContent-/i.test(start)) return decoded;
 
@@ -352,7 +353,7 @@ function unwrapEmbeddedMimeText(decoded) {
     });
   }
   const best = candidates.find(p => p.type === 'text/html') || candidates.find(p => p.type === 'text/plain');
-  return best ? unwrapEmbeddedMimeText(best.text) : decoded;
+  return best ? unwrapEmbeddedMimeText(best.text, depth + 1) : decoded;
 }
 
 // Decode a MIME body part from its raw Buffer.
@@ -376,6 +377,12 @@ function decodeBody(buf, encoding, charset) {
   }
 
   return unwrapEmbeddedMimeText(decodeBytes(rawBytes, charset));
+}
+
+function looksLikeTextPayload(buf) {
+  if (!buf || buf.length === 0) return false;
+  const sample = Buffer.isBuffer(buf) ? buf.subarray(0, 512).toString('ascii') : String(buf).slice(0, 512);
+  return /(?:<html|<!doctype|<style|Content-Type:|Content-Transfer-Encoding:|=D0|=D1|=3D|&lt;html|&lt;style)/i.test(sample);
 }
 
 function decodeAttachmentBuffer(buf, encoding) {
@@ -3974,12 +3981,13 @@ export class ImapManager {
         }
 
         // Per-part individual fetch for text parts. Some IMAP servers return a
-        // whole multipart wrapper for speculative/batched sibling requests while
-        // BODY[2.1] alone is correct; accepting the batched value leaks MIME
-        // boundaries and quoted-printable fragments into the UI. Do this even
-        // when speculative fetch already returned the part, so the direct result
-        // overwrites any malformed batched value. Inline images keep the batched
-        // value because they are binary and are not parsed as HTML.
+        // non-empty but malformed text payload for speculative/batched sibling
+        // requests while BODY[2.1] alone is correct; accepting the batched value
+        // leaks MIME boundaries and quoted-printable fragments into the UI. Do
+        // this even when speculative fetch already returned the part, so the
+        // direct text result overwrites any malformed batched value. Inline
+        // images keep the batched value because they are binary and are not
+        // parsed as HTML.
         for (const part of results.textParts) {
           try {
             for await (const msg of client.fetch(uidStr, { uid: true, bodyParts: [part.part] }, { uid: true })) {
@@ -3989,17 +3997,19 @@ export class ImapManager {
           } catch { /* don't let a single part failure block others */ }
         }
 
-        // Per-part individual fetch for inline images too. Some servers can also
-        // return the wrong sibling payload for BODY[2.2] in a multi-part batch;
-        // if that HTML fragment is used as the CID image, it becomes a broken
-        // data:image URL and leaks escaped HTML into the rendered message.
+        // Inline images normally keep the batched value for performance. Retry
+        // only the suspicious ones: some servers return a text/html sibling for
+        // an image part in a multi-part batch, producing data:image URLs that
+        // contain escaped HTML/QP text and leak quoted-message garbage.
         for (const part of inlineImages) {
+          const existing = prefetched.get(part.part);
+          if (!looksLikeTextPayload(existing)) continue;
           try {
             for await (const msg of client.fetch(uidStr, { uid: true, bodyParts: [part.part] }, { uid: true })) {
               const v = msg.bodyParts?.get(part.part);
               if (v && v.length > 0) prefetched.set(part.part, v);
             }
-          } catch { /* don't let a single part failure block others */ }
+          } catch { /* keep the batched value if the direct retry fails */ }
         }
 
         for (const part of results.textParts) {
@@ -4016,7 +4026,7 @@ export class ImapManager {
           for (const img of inlineImages) {
             if (!img.cid) continue;
             const buf = prefetched.get(img.part);
-            if (!buf) continue;
+            if (!buf || looksLikeTextPayload(buf)) continue;
             const enc = (img.encoding || '').toLowerCase();
             const b64 = enc === 'base64'
               ? buf.toString('ascii').replace(/\s/g, '')

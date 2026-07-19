@@ -5,7 +5,7 @@ const archiver = require('archiver');
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { imapManager } from '../index.js';
-import { sanitizeEmail, stripEmailHead, hasRemoteImages, blockRemoteImages, rewriteEbayImageserUrls, rewriteAnchorHrefs, repairResidualQuotedPrintableHtml } from '../services/emailSanitizer.js';
+import { sanitizeEmail, stripEmailHead, hasRemoteImages, blockRemoteImages, rewriteEbayImageserUrls, rewriteAnchorHrefs } from '../services/emailSanitizer.js';
 import { snippetFromBody, decodeMimeWords, parseRawHeaders, buildHeadersFromMessage } from '../services/messageParser.js';
 import { resolveTrashFolder, resolveAllTrashPaths, resolveAllDraftsPaths, resolveArchiveFolder, isAllMailFolder, resolveSpamFolder, resolveAllSpamPaths, getDeleteStrategy, adjustFolderCounts, fanOutReadToSiblings, fanOutStarToSiblings, fanOutBulkReadToSiblings } from '../utils/mailUtils.js';
 import { emitGtdIfRelevant } from '../services/gtdSections.js';
@@ -353,7 +353,7 @@ router.get('/messages/:id/body', async (req, res) => {
       : [];
     // Apply head-stripping to already-cached HTML so emails stored before this
     // fix was deployed are cleaned up immediately on first view.
-    let html = message.body_html ? repairResidualQuotedPrintableHtml(stripEmailHead(message.body_html)) : null;
+    let html = message.body_html ? stripEmailHead(message.body_html) : null;
     if (html !== message.body_html) {
       // Update cache so subsequent views don't need to re-strip
       query('UPDATE messages SET body_html = $1 WHERE id = $2', [sanitizeDbText(html), id]).catch(() => {});
@@ -411,7 +411,7 @@ router.get('/messages/:id/body', async (req, res) => {
       BODY_FETCH_TIMEOUT_MS
     );
 
-    const safeHtml = html ? sanitizeDbText(sanitizeEmail(repairResidualQuotedPrintableHtml(html))) : null;
+    const safeHtml = html ? sanitizeDbText(sanitizeEmail(html)) : null;
     const safeText = sanitizeDbText(text);
     const snip = sanitizeDbText(snippetFromBody(safeText, safeHtml || html));
 
