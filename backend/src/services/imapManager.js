@@ -171,6 +171,20 @@ const QUIET_WINDOW_MS = 8000;
 // background. Slower than the INBOX interval on purpose — label folders change far less.
 const GTD_SYNC_INTERVAL_MS = 120000;
 
+// Default folder-structure sync cadence (LIST + folders-table upsert). Folders
+// created/renamed in other clients otherwise only appear when a connection is
+// re-established. User-configurable via the folderSyncInterval preference
+// (seconds; 0 = never).
+const DEFAULT_FOLDER_SYNC_INTERVAL_MS = 30 * 60 * 1000;
+
+// Whether a periodic folder-structure sync is due. Time-based rather than
+// tick-based because the sync-tick cadence is itself user-configurable.
+// intervalMs 0 = never; a missing lastAt means the account has never synced
+// its folder list on this timer, so it is due immediately.
+export function folderSyncDue(intervalMs, lastAt, now = Date.now()) {
+  return intervalMs > 0 && now - (lastAt || 0) >= intervalMs;
+}
+
 // Circuit-breaker backoff for the snippet indexer. When a run indexes nothing because
 // the provider keeps refusing the extra connection (e.g. iCloud's cap on simultaneous
 // IMAP connections per account), skip that account for an exponentially growing window
@@ -1195,6 +1209,8 @@ export class ImapManager {
     this.syncThrottleSkips = new Map(); // accountId -> remaining ticks to skip when throttled
     this.connectingAccounts = new Set(); // prevent concurrent connectAccount calls for same account
     this.userSyncIntervalMs = new Map(); // userId -> interval ms (user-configurable)
+    this.userFolderSyncIntervalMs = new Map(); // userId -> folder-structure sync ms (0 = never)
+    this.lastFolderSyncAt = new Map(); // accountId -> last folder-structure sync timestamp
     this.snippetIndexerRunning = new Set(); // accountId — prevent duplicate snippet-index runs
     this.snippetBackoff = new Map();        // accountId -> { failures, until } circuit breaker
     this.lastUserActivity = new Map();      // accountId -> ms timestamp of last live body fetch
@@ -1699,6 +1715,7 @@ export class ImapManager {
       // will retry the sync on the next tick.
       try {
         await raceTimeout(this.syncFolders(account, client), 20000, 'Initial folder sync');
+        this.lastFolderSyncAt.set(account.id, Date.now());
         // noBodyParts=true: consistent with the periodic sync — envelope/flags/uid only.
         // Fetching body parts on initial connect stalls on slow servers (purelymail et al).
         if (providerProfile(account).freshInboxSync) {
@@ -1965,6 +1982,24 @@ export class ImapManager {
       const ticks = (this.syncTickCount.get(account.id) || 0) + 1;
       this.syncTickCount.set(account.id, ticks);
 
+      // Periodic folder-structure refresh (LIST + upsert). Without this, folders
+      // created/renamed in other clients only appear on reconnect.
+      const folderMs = this.userFolderSyncIntervalMs.has(syncAccount.user_id)
+        ? this.userFolderSyncIntervalMs.get(syncAccount.user_id)
+        : DEFAULT_FOLDER_SYNC_INTERVAL_MS;
+      if (folderSyncDue(folderMs, this.lastFolderSyncAt.get(account.id))) {
+        this.lastFolderSyncAt.set(account.id, Date.now());
+        try {
+          // Timeboxed like the initial connect sync — a hung LIST on a flaky
+          // connection must not stall the sync tick. Isolated so a timeout logs
+          // and the rest of the tick (flag poll, reconcile) still runs.
+          await raceTimeout(this.syncFolders(syncAccount, activeClient), 20000, 'Periodic folder sync');
+          this.broadcast({ type: 'folders_synced', accountId: account.id }, syncAccount.user_id);
+        } catch (err) {
+          console.warn(`Periodic folder sync failed for ${logAccount(syncAccount)}:`, err.message);
+        }
+      }
+
       // Some providers (e.g. Google) don't push flag changes via IDLE — poll on the
       // provider's configured cadence. Others (Dovecot, iCloud) push via `flags`,
       // but if a flag event fired while this sync was running it was deferred into
@@ -2194,6 +2229,13 @@ export class ImapManager {
         this._startSyncInterval(acc, newMs);
       }
     }
+  }
+
+  // Called when a user changes their folder-structure sync preference. Purely a
+  // map update — the folder sync piggybacks on _syncTick behind a time gate, so
+  // there are no timers to re-arm. 0 disables the periodic folder sync.
+  updateFolderSyncIntervalForUser(userId, newMs) {
+    this.userFolderSyncIntervalMs.set(userId, newMs);
   }
 
   async syncFolders(account, client) {
@@ -4585,6 +4627,38 @@ export class ImapManager {
     this.broadcast({ type: 'sync_complete', accountId: accountId || null }, userId);
   }
 
+  // Manual folder-structure resync (sidebar "Sync folders now" / accounts page).
+  // Metadata-only LIST + upsert, so it skips the syncingAccounts lock — safe to
+  // run alongside a message sync. Disconnected accounts reconnect instead, which
+  // runs syncFolders as part of connectAccount's startup sequence.
+  async syncFoldersNow(userId, accountId = null) {
+    const result = await query(
+      'SELECT * FROM email_accounts WHERE user_id = $1 AND enabled = true AND protocol = $2',
+      [userId, 'imap']
+    );
+    const accounts = accountId
+      ? result.rows.filter(a => a.id === accountId)
+      : result.rows;
+
+    await Promise.all(accounts.map(async (account) => {
+      try {
+        const client = this.connections.get(account.id);
+        if (!client) {
+          console.log(`syncFoldersNow: ${logAccount(account)} not connected, reconnecting`);
+          await this.connectAccount(account);
+        } else {
+          // Timeboxed like the initial connect sync (see connectAccount) so a
+          // hung LIST can't wedge the manual-resync request.
+          await raceTimeout(this.syncFolders(account, client), 20000, 'Manual folder sync');
+        }
+        this.lastFolderSyncAt.set(account.id, Date.now());
+        this.broadcast({ type: 'folders_synced', accountId: account.id }, account.user_id);
+      } catch (err) {
+        console.error(`syncFoldersNow error for ${logAccount(account)}:`, err.message);
+      }
+    }));
+  }
+
   startSnoozeWatcher() {
     this._snoozeWakeupRunning = false;
     this._snoozeWatcherTimer = setInterval(() => {
@@ -4836,6 +4910,10 @@ export class ImapManager {
       const sec = parseInt(prefs.syncInterval);
       if (sec >= 15 && sec <= 120) {
         this.userSyncIntervalMs.set(userId, sec * 1000);
+      }
+      const folderSec = parseInt(prefs.folderSyncInterval);
+      if ([0, 900, 1800, 3600].includes(folderSec)) {
+        this.userFolderSyncIntervalMs.set(userId, folderSec * 1000);
       }
     } catch (err) {
       console.warn(`Failed to load sync preference for user ${userId}:`, err.message);

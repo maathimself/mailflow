@@ -296,6 +296,17 @@ export const useStore = create((set, get) => ({
     set({ syncInterval: seconds });
     schedulePrefSave({ syncInterval: String(seconds) });
   },
+  // Folder-structure sync cadence in seconds; 0 = never. Explicit Number.isFinite
+  // check because 0 is a valid stored value that `|| default` would clobber.
+  folderSyncInterval: (() => {
+    const v = parseInt(localStorage.getItem('mailflow_folder_sync_interval'));
+    return Number.isFinite(v) ? v : 1800;
+  })(),
+  setFolderSyncInterval: (seconds) => {
+    localStorage.setItem('mailflow_folder_sync_interval', String(seconds));
+    set({ folderSyncInterval: seconds });
+    schedulePrefSave({ folderSyncInterval: String(seconds) });
+  },
   notificationSound: localStorage.getItem('mailflow_notification_sound') || 'tritone',
   setNotificationSound: (sound) => {
     localStorage.setItem('mailflow_notification_sound', sound);
@@ -803,6 +814,13 @@ export const useStore = create((set, get) => ({
         const n = parseInt(prefs.syncInterval) || 60;
         localStorage.setItem('mailflow_sync_interval', String(n));
         set({ syncInterval: n });
+      }
+      if (prefs.folderSyncInterval != null) {
+        const n = parseInt(prefs.folderSyncInterval);
+        if ([0, 900, 1800, 3600].includes(n)) {
+          localStorage.setItem('mailflow_folder_sync_interval', String(n));
+          set({ folderSyncInterval: n });
+        }
       }
       // blockRemoteImages: explicit false disables blocking; anything else keeps the default (true)
       if (prefs.blockRemoteImages === false) set({ blockRemoteImages: false });
