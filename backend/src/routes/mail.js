@@ -781,6 +781,26 @@ router.post('/sync', async (req, res) => {
   res.json({ ok: true });
 });
 
+// Manual folder-structure resync ("Sync folders now" in the sidebar account menu
+// and on the accounts settings page). Refreshes the folder LIST so folders
+// created or renamed in other clients appear without waiting for a reconnect.
+router.post('/sync-folders', async (req, res) => {
+  const { accountId } = req.body; // optional — omit for all accounts
+  if (accountId) {
+    if (!UUID_RE.test(accountId)) return res.status(400).json({ error: 'Invalid account id' });
+    const check = await query(
+      'SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2',
+      [accountId, req.session.userId]
+    );
+    if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
+  }
+  // Run in background so the response returns immediately; the folders_synced
+  // broadcast tells clients when to refetch the folder list.
+  imapManager.syncFoldersNow(req.session.userId, accountId || null)
+    .catch(err => console.error('syncFoldersNow error:', err.message));
+  res.json({ ok: true });
+});
+
 // On-demand folder sync — called when the user navigates to a folder with no local messages
 router.post('/sync-folder', async (req, res) => {
   const { accountId, folder } = req.body;

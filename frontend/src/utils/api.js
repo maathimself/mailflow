@@ -201,6 +201,7 @@ export const api = {
   // Sync
   syncNow: (accountId) => request('POST', '/mail/sync', accountId ? { accountId } : {}),
   syncFolder: (accountId, folder) => request('POST', '/mail/sync-folder', { accountId, folder }),
+  syncFoldersNow: (accountId) => request('POST', '/mail/sync-folders', accountId ? { accountId } : {}),
 
   // Folder management
   createFolder: (accountId, name, parentPath) => request('POST', '/mail/folders', { accountId, name, parentPath }),

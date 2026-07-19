@@ -11,7 +11,7 @@ vi.mock('../utils/redact.js', () => ({ redactEmail: vi.fn() }));
 vi.mock('./hostValidation.js', () => ({ resolveForConnection: vi.fn() }));
 vi.mock('./gtdTransitions.js', () => ({ runGtdTransitions: vi.fn(), threadKeysForMessageIds: vi.fn(), threadKeysInFolders: vi.fn() }));
 
-import { ImapManager, providerProfile, makeClientCfg, gtdRelocateGuard, insertCopiedSibling, deleteMessageCopyRow, emitAfterDeferredCopySync, emitGtdSectionsRefreshOnDelete, emitGtdSectionsRefreshIfEnabled, selectGtdReevalIds, ensureMailbox, runGtdSyncTick, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, planModseqSync, connectStaggerFor } from './imapManager.js';
+import { ImapManager, providerProfile, makeClientCfg, gtdRelocateGuard, insertCopiedSibling, deleteMessageCopyRow, emitAfterDeferredCopySync, emitGtdSectionsRefreshOnDelete, emitGtdSectionsRefreshIfEnabled, selectGtdReevalIds, ensureMailbox, runGtdSyncTick, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor } from './imapManager.js';
 import { query } from './db.js';
 import { invalidateGtdConfigCache } from './gtdConfig.js';
 import { runGtdTransitions, threadKeysInFolders } from './gtdTransitions.js';
@@ -927,6 +927,26 @@ describe('effectiveSyncIntervalMs', () => {
   it('passes the requested interval through for providers without a cap', () => {
     expect(effectiveSyncIntervalMs(account('imap.fastmail.com'), 60000)).toBe(60000);
     expect(effectiveSyncIntervalMs(account('imap.gmail.com'), 120000)).toBe(120000);
+  });
+});
+
+// ── folderSyncDue — periodic folder-structure sync gate ──────────────────────
+
+describe('folderSyncDue', () => {
+  it('is due immediately when the account has never folder-synced', () => {
+    expect(folderSyncDue(1800000, undefined, 5000000)).toBe(true);
+  });
+
+  it('is not due again within the interval', () => {
+    expect(folderSyncDue(1800000, 5000000, 5000000 + 1799999)).toBe(false);
+  });
+
+  it('is due once the interval has elapsed', () => {
+    expect(folderSyncDue(1800000, 5000000, 5000000 + 1800000)).toBe(true);
+  });
+
+  it('never fires when disabled (0 = never)', () => {
+    expect(folderSyncDue(0, undefined, Number.MAX_SAFE_INTEGER)).toBe(false);
   });
 });
 

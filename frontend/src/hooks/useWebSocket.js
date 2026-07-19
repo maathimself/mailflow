@@ -205,6 +205,15 @@ export function useWebSocket() {
         break;
       }
 
+      case 'folders_synced': {
+        // The folder structure was re-listed (periodic folder sync or a manual
+        // "Sync folders now") — refetch so new/renamed folders appear in the sidebar.
+        api.getFolders(data.accountId)
+          .then(f => useStore.getState().setFolders(data.accountId, f))
+          .catch(() => {});
+        break;
+      }
+
       case 'account_error': {
         updateAccount(data.accountId, { sync_error: data.error });
         break;

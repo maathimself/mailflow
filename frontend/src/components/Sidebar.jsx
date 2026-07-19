@@ -765,6 +765,11 @@ export default function Sidebar() {
         icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>,
         action: () => api.syncNow(account.id).catch(console.error),
       },
+      {
+        label: t('sidebar.accountMenu.syncFoldersNow'),
+        icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/><path d="M14.5 10.5a3 3 0 00-5 1.2M9.5 15.5a3 3 0 005-1.2"/><polyline points="9 10.7 9.5 11.7 10.5 11.2"/><polyline points="15 15.3 14.5 14.3 13.5 14.8"/></svg>,
+        action: () => api.syncFoldersNow(account.id).catch(console.error),
+      },
       { separator: true },
     ];
     if (accounts.length > 1) {

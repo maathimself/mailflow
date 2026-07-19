@@ -420,6 +420,14 @@ function AccountsTab() {
     }
   };
 
+  const handleSyncFolders = async (id) => {
+    try {
+      await api.syncFoldersNow(id);
+    } catch (err) {
+      addNotification({ type: 'error', title: t('admin.accounts.syncFoldersError'), body: err.message });
+    }
+  };
+
   const handleFolderMappingOpen = async (account) => {
     setEditTarget(account);
     setFolderMappings(account.folder_mappings || {});
@@ -913,6 +921,12 @@ function AccountsTab() {
                   <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
                 </svg>
               </IconBtn>
+              <IconBtn onClick={() => handleSyncFolders(account.id)} title={t('admin.accounts.syncFolders')}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+                  <path d="M9 13a3 3 0 015.4-1.5M15 15a3 3 0 01-5.4 1.5"/>
+                </svg>
+              </IconBtn>
               <IconBtn onClick={() => handleReindex(account.id)} title={t('admin.accounts.reindex')} disabled={!!backfillProgress[account.id]}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
@@ -1403,7 +1417,7 @@ function SwipeActionIcon({ action, size = 17 }) {
 function LayoutsTab() {
   const { t } = useTranslation();
   const isMobile = useMobile();
-  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay } = useStore();
+  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay } = useStore();
 
   // "Set MailFlow as your default email app": registerProtocolHandler is the
   // cross-browser path (works in Firefox and non-installed Chromium) and must be
@@ -1722,6 +1736,43 @@ function LayoutsTab() {
               <button
                 key={value}
                 onClick={() => setSyncInterval(value)}
+                style={{
+                  flex: 1, padding: '7px 4px', fontSize: 13, fontWeight: 500,
+                  background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
+                  border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
+                  borderRadius: 7, cursor: 'pointer', transition: 'all 0.15s', outline: 'none',
+                  color: active ? 'var(--accent)' : 'var(--text-secondary)',
+                }}
+                onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; }}
+                onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Folder-structure sync interval */}
+      <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+          {t('admin.messageList.folderSyncFrequency')}
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12 }}>
+          {t('admin.messageList.folderSyncFrequencyDesc')}
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {[
+            { value: 900,  label: '15 min' },
+            { value: 1800, label: '30 min' },
+            { value: 3600, label: '1 hour' },
+            { value: 0,    label: t('common.never') },
+          ].map(({ value, label }) => {
+            const active = folderSyncInterval === value;
+            return (
+              <button
+                key={value}
+                onClick={() => setFolderSyncInterval(value)}
                 style={{
                   flex: 1, padding: '7px 4px', fontSize: 13, fontWeight: 500,
                   background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
@@ -7666,6 +7717,7 @@ function makeSearchIndex(t) {
     { label: t('admin.messageList.hoverQuickActionsMode'), keywords: ['hover', 'quick actions', 'hover buttons', 'row actions'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.swipeActions'), keywords: ['swipe', 'gesture', 'mobile', 'swipe left', 'swipe right', 'touch'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.syncFrequency'), keywords: ['sync', 'interval', 'frequency', 'refresh', 'poll', 'check mail', '15s', '30s', '60s'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
+    { label: t('admin.messageList.folderSyncFrequency'), keywords: ['folder', 'sync', 'structure', 'list', 'refresh', 'mailbox', '15 min', '30 min', '1 hour', 'never'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.threadingMode'), keywords: ['thread', 'conversation', 'grouping', 'threading', 'group'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.composeFormat'), keywords: ['compose', 'format', 'rich text', 'plain text', 'html', 'editor'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.defaultReplyAction'), keywords: ['reply', 'reply all', 'default reply'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
