@@ -3735,7 +3735,7 @@ export class ImapManager {
   // in the DB and the click returns instantly without a live IMAP round-trip.
   // Shared fetch+sanitize+snippet+UPDATE step behind every body-materialization path
   // (opportunistic new-mail prefetch, on-view folder prefetch, and the body-backfill
-  // drainer). Kept as one helper so the UPDATE shape that fires the search_fts
+  // drainer). Kept as one helper so the UPDATE shape that fires the search_fts/last_modified
   // triggers never drifts between callers. Returns true if a body was actually written.
   // Private (underscore-prefixed, matching this file's convention for internal helpers like
   // _enqueueFlagPush) — not new public surface, so it doesn't count against the

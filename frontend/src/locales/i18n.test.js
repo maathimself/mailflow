@@ -124,6 +124,9 @@ const SAME_VALUE_ALLOWED = {
   'admin.accounts.presetYahoo':             'any', // Yahoo Mail
   'admin.accounts.smtpHostPh':              'any', // smtp.gmail.com
   'admin.ai.baseUrlPh':                      'any', // http://localhost:11434/v1
+  'admin.ai.emb.endpointPh':                 'any', // https://api.openai.com/v1
+  'admin.ai.emb.modelPh':                    'any', // text-embedding-3-small — model id
+  'admin.ai.emb.dimensionPh':                'any', // 1536 — numeric placeholder
   'admin.appearance.customCssPlaceholder':   'any', // CSS code snippet, same in all locales
   'admin.integrations.microsoft.clientIdPh':'any', // xxxxxxxx-xxxx-…
   'admin.integrations.microsoft.title':     'any', // Microsoft 365 / Outlook.com
@@ -137,6 +140,8 @@ const SAME_VALUE_ALLOWED = {
   // ── Specific language groups ───────────────────────────────────────────────
   // "Version" — same spelling in de, en, fr
   'admin.about.version': [['de', 'en', 'fr']],
+  // "Dimension" — international technical term, same spelling in de, en, fr
+  'admin.ai.emb.dimension': [['de', 'en', 'fr']],
   // "{{n}} min" — the "min" abbreviation is shared in en, es, fr, it
   'admin.lock.autoLockMin': [['en', 'es', 'fr', 'it']],
 

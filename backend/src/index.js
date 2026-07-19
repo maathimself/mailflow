@@ -26,6 +26,7 @@ import blockListRoutes from './routes/blockList.js';
 import contactsRoutes from './routes/contacts.js';
 import todoistRoutes from './routes/todoist.js';
 import aiRoutes from './routes/ai.js';
+import aiEmbeddingsRoutes from './routes/aiEmbeddings.js';
 import categoriesRoutes from './routes/categories.js';
 import gtdRoutes from './routes/gtd.js';
 import carddavRouter from './routes/carddav.js';
@@ -33,7 +34,9 @@ import carddavAccountRouter from './routes/carddavAccount.js';
 import { startCardavScheduler } from './services/carddavSync.js';
 import { scheduleFtsBackfill } from './services/search/ftsBackfill.js';
 import { encryptExistingCredentials, query } from './services/db.js';
-import { runMigrations } from './services/migrations.js';
+import { runMigrations, warnOnCollationMismatch } from './services/migrations.js';
+import { ensureVectorSchema } from './services/embeddings/vectorStore.js';
+import { startEmbeddingScheduler } from './services/embeddings/scheduler.js';
 import { parseVCard } from './utils/vcard.js';
 import { reloadAuthSettings } from './services/authLimiter.js';
 import { setupWebSocket } from './services/websocket.js';
@@ -177,6 +180,7 @@ app.use('/api/contacts', contactsRoutes);
 app.use('/api/todoist', todoistRoutes);
 app.use('/api/carddav', carddavAccountRouter);
 app.use('/api', aiRoutes);
+app.use('/api', aiEmbeddingsRoutes);
 app.use('/api', categoriesRoutes);
 // Mounted at the /api/gtd subtree (not bare /api) so gtd.js's router-level
 // requireAuth cannot intercept the unauthenticated /api/health and /api/version
@@ -213,6 +217,11 @@ setupWebSocket(wss, sessionMiddleware, imapManager);
 // Run pending schema migrations then start
 await runMigrations();
 
+// Loud, best-effort drift check: a Postgres image swap (e.g. postgres:16-alpine →
+// pgvector/pgvector:pg16) changes the libc collation and silently corrupts text-index
+// ordering until a REINDEX. Logs the remedy; never blocks the boot.
+await warnOnCollationMismatch();
+
 // One-time backfill: populate photo_data from existing vcard column for contacts
 // that were synced before CardDAV PUT started persisting photo_data.
 async function backfillContactPhotos() {
@@ -240,6 +249,13 @@ await encryptExistingCredentials();
 
 // Load OAuth integration configs from DB into process.env
 await loadIntegrationConfigs();
+
+// Best-effort vector schema bring-up. On stock postgres:16-alpine this logs
+// "Vector disabled" and semantic search stays off; lexical is unaffected.
+await ensureVectorSchema();
+
+// Periodic embedding nudge — drives any building/active generation toward coverage.
+startEmbeddingScheduler();
 
 // Start background snooze watcher — polls every 60 seconds to restore snoozed messages
 imapManager.startSnoozeWatcher();

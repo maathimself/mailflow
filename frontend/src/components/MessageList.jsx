@@ -19,6 +19,18 @@ import { shortcutBus } from '../utils/shortcutBus.js';
 import { createLatestRequest } from '../utils/latestRequest.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
 import { applyDeleteGuard, clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.js';
+import { semanticSearchAvailable, semanticToggleState, searchInputRightPad, isCurrentSearchGeneration, LEXICAL_MODE, SEMANTIC_MODE } from '../utils/searchMode.js';
+
+// Sparkle-toggle tone → resting/hover glyph colour + background chip. Kept next
+// to the presentation (searchMode.js stays framework-free); the tone strings
+// come from semanticToggleState(). The chip is what sets ON (faint purple) and
+// the amber fallback apart from the greyed OFF state beyond glyph colour alone,
+// and the hover variants give the icon a clickable affordance.
+const SEMANTIC_TONE = {
+  off:      { color: 'var(--text-secondary)', hoverColor: 'var(--text-primary)', chip: 'transparent',              hoverChip: 'var(--bg-hover)' },
+  on:       { color: 'var(--accent)',         hoverColor: 'var(--accent)',       chip: 'var(--accent-glow)',       hoverChip: 'rgba(124, 106, 247, 0.28)' },
+  fallback: { color: 'var(--amber)',          hoverColor: 'var(--amber)',        chip: 'rgba(251, 191, 36, 0.15)', hoverChip: 'rgba(251, 191, 36, 0.28)' },
+};
 
 // Folder icon for move picker
 function FolderIcon({ specialUse, size = 13 }) {
@@ -116,6 +128,7 @@ export default function MessageList() {
     categorizationEnabled, categoryCounts, setCategoryCounts, adjustCategoryCount,
     markReadBehavior, markReadDelay,
     searchAllFolders,
+    searchMode, setSearchMode,
     activeGtdTab, setActiveGtdTab, gtdSections,
   } = useStore();
   // RFC message_id of the open message, so a row highlights when it is a different DB copy
@@ -173,6 +186,73 @@ export default function MessageList() {
   const [searchHasMore, setSearchHasMore] = useState(false);
   const [searchLoadingMore, setSearchLoadingMore] = useState(false);
   const searchFetchedOffsetRef = useRef(0);
+  const [semanticAvailable, setSemanticAvailable] = useState(false);
+  const [searchFellBack, setSearchFellBack] = useState(false);
+  // The active mode is searchMode only when the vector-availability probe says
+  // semantic search is usable; otherwise force lexical regardless of the
+  // persisted preference (e.g. this Postgres has no pgvector schema).
+  const effectiveMode = semanticAvailable ? searchMode : LEXICAL_MODE;
+
+  // Right-side control cluster that lives INSIDE the search input, shared by the
+  // desktop and mobile search boxes. Holds the semantic-search toggle (sparkle
+  // icon, gated on vector availability) and the clear-query button, in that
+  // order. The toggle is greyed when off, purple when on, and amber when the
+  // backend silently fell back to lexical — the fallback hint rides the icon's
+  // colour + tooltip so no extra row appears below the input.
+  const renderSearchControls = () => {
+    const on = searchMode !== LEXICAL_MODE;
+    const toggle = semanticToggleState({ on, fellBack: searchFellBack, hasQuery: Boolean(searchQuery.trim()) });
+    const toggleLabel = t(toggle.titleKey);
+    const tone = SEMANTIC_TONE[toggle.tone];
+    // Shared icon-button shape so the sparkle and clear × read as one cluster
+    // and their hover chips are the same size.
+    const iconBtn = {
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      padding: 4, borderRadius: 6, border: 'none', cursor: 'pointer',
+      WebkitTapHighlightColor: 'transparent',
+      transition: 'background 0.15s, color 0.15s',
+    };
+    return (
+      <div style={{
+        position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)',
+        display: 'flex', alignItems: 'center', gap: 2,
+      }}>
+        {semanticAvailable && (
+          <button
+            type="button"
+            aria-pressed={on}
+            aria-label={toggleLabel}
+            title={toggleLabel}
+            onClick={() => { setSearchFellBack(false); setSearchMode(on ? LEXICAL_MODE : SEMANTIC_MODE); }}
+            onMouseEnter={e => { e.currentTarget.style.background = tone.hoverChip; e.currentTarget.style.color = tone.hoverColor; }}
+            onMouseLeave={e => { e.currentTarget.style.background = tone.chip; e.currentTarget.style.color = tone.color; }}
+            style={{ ...iconBtn, background: tone.chip, color: tone.color }}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              {/* Two-star "sparkles" AI glyph: a large 4-point star with a smaller
+                  offset one, so it reads as ✨ rather than a "+" at small sizes. */}
+              <path d="M10 6 L12 10.5 L16.5 12.5 L12 14.5 L10 19 L8 14.5 L3.5 12.5 L8 10.5 Z" />
+              <path d="M18 3.3 L19 5.5 L21.2 6.5 L19 7.5 L18 9.7 L17 7.5 L14.8 6.5 L17 5.5 Z" />
+            </svg>
+          </button>
+        )}
+        {searchQuery && (
+          <button
+            onClick={() => setSearchQuery('')}
+            aria-label={t('messageList.clearSearch')}
+            title={t('messageList.clearSearch')}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-tertiary)'; }}
+            style={{ ...iconBtn, background: 'transparent', color: 'var(--text-tertiary)' }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        )}
+      </div>
+    );
+  };
   const listRef = useRef(null);
   const searchInputRef = useRef(null); // for focusSearch shortcut
   const pendingDeleteTimers = useRef(new Map()); // id/thread key -> pending delete metadata
@@ -203,6 +283,16 @@ export default function MessageList() {
     };
     window.addEventListener('mailflow:message-opening', markOpening);
     return () => window.removeEventListener('mailflow:message-opening', markOpening);
+  }, []);
+
+  // Probe vector availability once on mount — gates whether the semantic
+  // toggle renders at all (Task 10).
+  useEffect(() => {
+    let alive = true;
+    api.ai.status()
+      .then(s => { if (alive) setSemanticAvailable(semanticSearchAvailable(s)); })
+      .catch(() => { if (alive) setSemanticAvailable(false); });
+    return () => { alive = false; };
   }, []);
   const searchTimer = useRef(null);
 
@@ -452,23 +542,30 @@ export default function MessageList() {
   // Search
   useEffect(() => {
     clearTimeout(searchTimer.current);
+    // Bump the request generation on EVERY context change (query, mode, folder,
+    // account, page size — the dep set below — and clearing the query). Async
+    // appends (load-more, post-delete prefetch) capture this before their await
+    // and discard themselves if it moves on, so a stale page can't append onto a
+    // fresh, different-context list.
+    const seq = ++searchSeq.current;
     if (!searchQuery.trim()) {
       setIsSearching(false);
       setSearchResults([]);
       setSearchHasMore(false);
+      setSearchFellBack(false);
       searchFetchedOffsetRef.current = 0;
       return;
     }
     setIsSearching(true);
     setSearchHasMore(false);
-    const seq = ++searchSeq.current;
     searchTimer.current = setTimeout(async () => {
       try {
-        const data = await api.search(searchQuery, selectedAccountId || undefined, { offset: 0, limit: searchPageSize, folder: searchFolder });
+        const data = await api.search(searchQuery, selectedAccountId || undefined, { offset: 0, limit: searchPageSize, folder: searchFolder, mode: effectiveMode });
         if (searchSeq.current !== seq) return;
         searchFetchedOffsetRef.current = data.messages.length;
         setSearchResults(applyReadGuard(data.messages));
         setSearchHasMore(data.messages.length === searchPageSize);
+        setSearchFellBack(Boolean(data.fellBack));
       } catch (err) {
         if (searchSeq.current === seq) console.error('Search failed:', err);
       } finally {
@@ -476,7 +573,7 @@ export default function MessageList() {
       }
     }, 300);
     return () => clearTimeout(searchTimer.current);
-  }, [searchQuery, selectedAccountId, searchFolder, searchPageSize, searchReloadToken, applyReadGuard, setIsSearching, setSearchResults]);
+  }, [searchQuery, selectedAccountId, searchFolder, searchPageSize, searchReloadToken, effectiveMode, applyReadGuard, setIsSearching, setSearchResults]);
 
   // Re-run an active search (and refresh the folder view) after inbox rules run, since
   // rules can move messages out of the searched folder and a search snapshot would
@@ -497,12 +594,14 @@ export default function MessageList() {
   const loadMoreSearch = useCallback(async () => {
     if (searchLoadingMore) return;
     const qSnapshot = searchQuery; // capture before async gap
+    const seq = searchSeq.current; // request generation at dispatch time
     setSearchLoadingMore(true);
     try {
       const offset = searchFetchedOffsetRef.current;
-      const data = await api.search(qSnapshot, selectedAccountId || undefined, { offset, limit: searchPageSize, folder: searchFolder });
-      // Discard results if the query changed while we were fetching
-      if (useStore.getState().searchQuery !== qSnapshot) return;
+      const data = await api.search(qSnapshot, selectedAccountId || undefined, { offset, limit: searchPageSize, folder: searchFolder, mode: effectiveMode });
+      // Discard if ANY search context (query, mode, folder, account) changed
+      // while we were fetching — otherwise a stale page appends onto a fresh list.
+      if (!isCurrentSearchGeneration(seq, searchSeq.current)) return;
       searchFetchedOffsetRef.current = offset + data.messages.length;
       const current = useStore.getState().searchResults;
       useStore.setState({ searchResults: [...current, ...applyReadGuard(data.messages)] });
@@ -512,14 +611,16 @@ export default function MessageList() {
     } finally {
       setSearchLoadingMore(false);
     }
-  }, [searchQuery, selectedAccountId, searchFolder, searchPageSize, searchLoadingMore, applyReadGuard]);
+  }, [searchQuery, selectedAccountId, searchFolder, searchPageSize, searchLoadingMore, effectiveMode, applyReadGuard]);
 
   const prefetchSearchAfterRemoval = useCallback(async (offset) => {
     const qSnapshot = useStore.getState().searchQuery;
     if (!qSnapshot.trim()) return;
+    const seq = searchSeq.current; // request generation at dispatch time
     try {
-      const data = await api.search(qSnapshot, selectedAccountId || undefined, { offset, limit: searchPageSize, folder: searchFolder });
-      if (useStore.getState().searchQuery !== qSnapshot) return;
+      const data = await api.search(qSnapshot, selectedAccountId || undefined, { offset, limit: searchPageSize, folder: searchFolder, mode: effectiveMode });
+      // Discard if the search context changed during the fetch (see loadMoreSearch).
+      if (!isCurrentSearchGeneration(seq, searchSeq.current)) return;
       searchFetchedOffsetRef.current = Math.max(searchFetchedOffsetRef.current, offset + data.messages.length);
       const additions = applyReadGuard(data.messages);
       if (!additions.length) {
@@ -535,7 +636,7 @@ export default function MessageList() {
     } catch (err) {
       console.error('Search prefetch after delete failed:', err);
     }
-  }, [selectedAccountId, searchFolder, searchPageSize, applyReadGuard]);
+  }, [selectedAccountId, searchFolder, searchPageSize, effectiveMode, applyReadGuard]);
 
   // Infinite scroll + scroll-to-top visibility
   const handleScroll = useCallback(() => {
@@ -2672,7 +2773,7 @@ export default function MessageList() {
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             style={{
-              width: '100%', padding: '8px 10px 8px 32px',
+              width: '100%', padding: `8px ${searchInputRightPad(semanticAvailable)}px 8px 32px`,
               background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
               borderRadius: 8, color: 'var(--text-primary)', fontSize: 13,
               outline: 'none', boxSizing: 'border-box',
@@ -2680,20 +2781,7 @@ export default function MessageList() {
             onFocus={e => { e.target.style.borderColor = 'var(--accent)'; setSearchFocused(true); }}
             onBlur={e => { e.target.style.borderColor = 'var(--border)'; setSearchFocused(false); }}
           />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery('')}
-              style={{
-                position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
-                background: 'none', border: 'none', color: 'var(--text-tertiary)',
-                cursor: 'pointer', padding: 2, display: 'flex',
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-              </svg>
-            </button>
-          )}
+          {renderSearchControls()}
 
           {/* Operator hints — shown when focused with an empty query */}
           {searchFocused && !searchQuery && (
@@ -2760,7 +2848,7 @@ export default function MessageList() {
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               style={{
-                width: '100%', padding: '8px 10px 8px 32px',
+                width: '100%', padding: `8px ${searchInputRightPad(semanticAvailable)}px 8px 32px`,
                 background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
                 borderRadius: 8, color: 'var(--text-primary)', fontSize: 13,
                 outline: 'none', boxSizing: 'border-box',
@@ -2768,20 +2856,7 @@ export default function MessageList() {
               onFocus={e => e.target.style.borderColor = 'var(--accent)'}
               onBlur={e => e.target.style.borderColor = 'var(--border)'}
             />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                style={{
-                  position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
-                  background: 'none', border: 'none', color: 'var(--text-tertiary)',
-                  cursor: 'pointer', padding: 2, display: 'flex',
-                }}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-                </svg>
-              </button>
-            )}
+            {renderSearchControls()}
           </div>
         </div>
       )}

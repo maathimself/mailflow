@@ -94,3 +94,70 @@ export async function runMigrations() {
     client.release();
   }
 }
+
+// --- Collation-version drift check (best-effort, never aborts boot) ---------------
+// The compose move from postgres:16-alpine (musl libc) to pgvector/pgvector:pg16
+// (Debian, glibc) silently changes how the OS collates text. Postgres records the
+// collation version a database was created under (pg_database.datcollversion, PG15+);
+// pg_database_collation_actual_version(oid) reports what the running server's libc/ICU
+// provides NOW. Two shapes of drift matter here (field-verified on both images):
+//   - recorded != actual: a versioned libc changed underneath (e.g. a glibc bump).
+//     Postgres emits its own per-connection WARNING for this, easily lost in logs.
+//   - recorded IS NULL while actual is not: the database was created under a libc
+//     that reports NO collation version — exactly what musl/alpine does — and now
+//     runs under glibc. This is the actual alpine → pgvector upgrade signature, and
+//     Postgres itself stays completely SILENT about it.
+// (actual is NULL for versionless locales like C/POSIX — byte-order collation is
+// immune to libc swaps, so there is nothing to warn about.)
+// Either way, text indexes built under the old ordering may silently return wrong or
+// missing rows until reindexed, so surface it loudly at boot with the remedy. The
+// REFRESH COLLATION VERSION step records the current version and silences this
+// warning on subsequent boots. Returns whether a mismatch was reported
+// (observability only; never throws).
+export async function warnOnCollationMismatch(deps = {}) {
+  const q = deps.query || ((text) => pool.query(text));
+  const warn = deps.warn || console.warn;
+  try {
+    const { rows } = await q(`
+      SELECT current_database() AS db,
+             datcollversion AS recorded,
+             pg_database_collation_actual_version(oid) AS actual
+      FROM pg_database
+      WHERE datname = current_database()
+    `);
+    const r = rows[0];
+    if (!r || !r.actual || r.recorded === r.actual) return false;
+    const origin = r.recorded
+      ? [
+        `  Database "${r.db}" was created under collation version ${r.recorded}, but`,
+        `  the operating system now provides ${r.actual}.`,
+      ]
+      : [
+        `  Database "${r.db}" was created under a C library that reported no collation`,
+        `  version (e.g. postgres:16-alpine/musl); the current one provides ${r.actual}.`,
+      ];
+    warn([
+      '='.repeat(76),
+      'WARNING: database collation version mismatch detected',
+      '',
+      ...origin,
+      '  This happens when the Postgres image\'s C library changes — e.g. the',
+      '  docker-compose switch from postgres:16-alpine (musl) to',
+      '  pgvector/pgvector:pg16 (glibc).',
+      '',
+      '  Text indexes built under the old collation can silently return wrong or',
+      '  missing rows. Reindex once, then record the new version:',
+      '',
+      `      docker compose exec postgres psql -U mailflow -d ${r.db} \\`,
+      `        -c 'REINDEX DATABASE "${r.db}";' \\`,
+      `        -c 'ALTER DATABASE "${r.db}" REFRESH COLLATION VERSION;'`,
+      '='.repeat(76),
+    ].join('\n'));
+    return true;
+  } catch (err) {
+    // Postgres < 15 has no datcollversion; a restricted role may not read pg_database.
+    // The check is observability only — never block or fail the boot on it.
+    console.log(`Collation version check skipped: ${err.message}`);
+    return false;
+  }
+}

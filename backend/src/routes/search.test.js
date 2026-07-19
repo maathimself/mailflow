@@ -59,3 +59,38 @@ describe('GET /api/search', () => {
     expect(res.json.errors).toEqual([]);
   });
 });
+
+describe('GET /api/search mode passthrough (Phase 4 Task 7)', () => {
+  beforeEach(() => search.mockReset());
+
+  it('defaults mode to lexical when absent', async () => {
+    search.mockResolvedValue({ messages: [], mode: 'lexical', page: { offset: 0, limit: 50, hasMore: false } });
+    await get(makeApp(), '/api/search?q=hello');
+    expect(search.mock.calls[0][0].mode).toBe('lexical');
+  });
+
+  it('passes mode=hybrid straight through', async () => {
+    search.mockResolvedValue({ messages: [], mode: 'hybrid', pool_saturated: false, generation: null, page: { offset: 0, limit: 50, hasMore: false } });
+    await get(makeApp(), '/api/search?q=hello&mode=hybrid');
+    expect(search.mock.calls[0][0].mode).toBe('hybrid');
+  });
+
+  it('passes mode=vector straight through', async () => {
+    search.mockResolvedValue({ messages: [], mode: 'vector', pool_saturated: false, generation: null, page: { offset: 0, limit: 50, hasMore: false } });
+    await get(makeApp(), '/api/search?q=hello&mode=vector');
+    expect(search.mock.calls[0][0].mode).toBe('vector');
+  });
+
+  it('coerces an unknown mode to lexical', async () => {
+    search.mockResolvedValue({ messages: [], mode: 'lexical', page: { offset: 0, limit: 50, hasMore: false } });
+    await get(makeApp(), '/api/search?q=hello&mode=bogus');
+    expect(search.mock.calls[0][0].mode).toBe('lexical');
+  });
+
+  it('returns the service response including fellBack (superset)', async () => {
+    search.mockResolvedValue({ messages: [], mode: 'lexical', fellBack: true, page: { offset: 0, limit: 50, hasMore: false } });
+    const res = await get(makeApp(), '/api/search?q=hello&mode=hybrid');
+    expect(res.json.mode).toBe('lexical');
+    expect(res.json.fellBack).toBe(true);
+  });
+});

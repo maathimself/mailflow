@@ -70,3 +70,20 @@ describe('0037_search_fts_index.sql', () => {
     }
   });
 });
+
+describe('0039_embed_pending_index.sql', () => {
+  const sql = read('0039_embed_pending_index.sql');
+
+  it('runs outside a transaction and builds the partial index CONCURRENTLY', () => {
+    expect(/^--\s*no-transaction/im.test(sql)).toBe(true);
+    expect(sql).toContain('CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_messages_embed_pending');
+    expect(sql).toContain('WHERE embed_gen IS NULL');
+    expect(sql).not.toContain('$$'); // no function bodies — safe for the ; splitter
+  });
+
+  it('drops the index CONCURRENTLY before creating it (invalid-index retry hazard)', () => {
+    expect(sql).toContain('DROP INDEX CONCURRENTLY IF EXISTS idx_messages_embed_pending');
+    expect(sql.indexOf('DROP INDEX CONCURRENTLY IF EXISTS idx_messages_embed_pending'))
+      .toBeLessThan(sql.indexOf('CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_messages_embed_pending'));
+  });
+});

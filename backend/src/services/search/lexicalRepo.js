@@ -44,14 +44,17 @@ export function freeTextTermCondition(likeIdx, ftsIdx) {
 }
 
 // BM25-style lexical rank (ts_rank_cd; class weights D,C,B,A → 10:4:1
-// subject:from:rest; length normalization 32).
+// subject:from:rest; length normalization 32). Port of pgvector/fused.go:31-36.
+// Exported so the fused query reuses it as the lexical leg.
 export const LEXICAL_RANK_SQL = (vectorExpr, queryExpr) =>
   `ts_rank_cd(ARRAY[0.1, 0.1, 0.4, 1.0]::real[], ${vectorExpr}, ${queryExpr}, 32)`;
 
 // A term counts as searchable text only if it has at least one letter or
 // digit; msgvault's hasFTSToken drops punctuation-only tokens ("!!!", "***")
 // the same way, since they'd normalize to zero lexemes and can't usefully
-// match or rank anything.
+// match or rank anything. Exported so every caller building a free-text
+// query (searchLexical, searchService's semantic branch, vectorStore's fused
+// BM25 leg) applies the identical hygiene rather than re-deriving it.
 export function hasSearchableToken(term) {
   return /[\p{L}\p{N}]/u.test(term);
 }
@@ -73,6 +76,13 @@ function isPhraseTerm(term) {
 // an ordinary parameter; quote_literal() at query time safely wraps it as a
 // single tsquery lexeme literal — neutralizing any &, |, !, (, ), ', or :
 // the term might contain — before ':*' marks it for prefix matching.
+//
+// Exported (as the raw tsquery expression, not the whole `vectorExpr @@ ...`
+// predicate) so `vectorStore.fusedSearch`'s BM25 leg builds its `@@` match
+// AND its ts_rank_cd query-arg from this SAME per-term construction, rather
+// than forking a second, non-prefix `plainto_tsquery` builder — a review
+// caught exactly that fork (msgvault's fused.go reuses BuildFTSTerm for the
+// identical reason: one construction, every caller).
 export function ftsTermQueryArg(ftsIdx, term) {
   return isPhraseTerm(term)
     ? `plainto_tsquery('english', $${ftsIdx})`
@@ -108,20 +118,32 @@ export function freeTextTermConditionRanked(likeIdx, ftsIdx, term) {
 // uses, so guard and match can never disagree; a query of ONLY stopwords
 // degrades to a filter-only, date-ordered search. The relevance rank needs
 // no guard: `&&` drops an empty tsquery operand and ts_rank_cd over a fully
-// empty tsquery is 0.
+// empty tsquery is 0 — both verified against pgvector/pg16 (2026-07-17).
 export function stopwordSafeCondition(ftsIdx, term, condition) {
   return `(numnode(${ftsTermQueryArg(ftsIdx, term)}) = 0 OR ${condition})`;
 }
 
-// The one owner of a free-text term's full predicate: ranked FTS match,
-// un-backfilled ILIKE fallback, polarity, and stopword vacuity. `bind(value) →
-// '$n'` pushes onto the caller's params; the raw ordinals expected by
-// freeTextTermConditionRanked are recovered from the placeholders.
+// The one owner of a free-text term's FULL metadata-scope predicate — ranked
+// FTS match, un-backfilled ILIKE fallback, polarity, stopword vacuity — shared
+// by searchLexical, the fused query's NOT-conditions (negatedFreeTextClause),
+// and MCP stage_deletion (engineAdapter), so a search preview and a staged
+// deletion set can never disagree on what a term matches. `bind(value) → '$n'`
+// pushes onto the caller's params; the raw ordinals freeTextTermConditionRanked
+// expects are recovered from the placeholders so callers don't juggle them.
 export function freeTextTermClause(term, negate, bind) {
   const likeIdx = Number(bind(`%${term}%`).slice(1));
   const ftsIdx = Number(bind(term).slice(1));
   const cond = freeTextTermConditionRanked(likeIdx, ftsIdx, term);
   return stopwordSafeCondition(ftsIdx, term, negate ? negateCond(cond) : cond);
+}
+
+// Negated free-text NOT-condition for the fused (vector/hybrid) path, built from
+// the SAME per-term construction (prefix/phrase match + the un-backfilled ILIKE
+// fallback + stopword vacuity) that searchLexical applies, so `invoice -draft`
+// excludes drafts identically in every mode. Prefix-vs-phrase semantics follow
+// the term, via ftsTermQueryArg, exactly as the positive lexical predicate does.
+export function negatedFreeTextClause(term, bind) {
+  return freeTextTermClause(term, true, bind);
 }
 
 // The weighted tsvector written into messages.search_fts. `ref` is the row
@@ -138,7 +160,9 @@ export function searchFtsExpr(ref) {
 // Structured operator predicates (from/to/cc/subject/has/is/after/before),
 // negation-aware. `bind(value) → '$n'` pushes value onto the caller's param
 // list and returns its placeholder — the caller owns `params`/the running
-// index, so searchLexical remains the single owner of these predicates.
+// index, so this stays reusable for both searchLexical (one shared params
+// array) and the fused query (its own per-leg bind closure, README "one
+// search seam" — lexicalRepo remains the single owner of these predicates).
 // Excludes free-text terms and folder scope (`in:`), which are not
 // structured row predicates. Extracted from searchLexical byte-identically —
 // same branches, same ILIKE-arm reuse, same skip rules.
@@ -177,7 +201,10 @@ export function buildOperatorClauses(filters, bind) {
   return conditions;
 }
 
-// Folder-scope predicate(s) for the messages table. `folderScope`/`folderFuzzy` come from
+// Folder-scope predicate(s) for the messages table, shared by the lexical path
+// and the fused (vector/hybrid) path so every mode scopes to the SAME folder —
+// semantic search must not leak Sent/Archive/Trash into an Inbox search, and an
+// explicit in:sent must apply. `folderScope`/`folderFuzzy` come from
 // resolveSearchFolderScope: a truthy fuzzy scope (in:<name>) matches the bare
 // name OR any .../<name> path; an exact scope (REST ?folder=) matches the full
 // path; a null scope carries no explicit folder and excludes trash-like folders
@@ -214,10 +241,17 @@ export async function searchLexical(client, { parsed, accountIds, folderScope, f
     conditions.push(freeTextTermClause(term.value, term.negate, bind));
   }
 
-  // A bare in:inbox (or lone folder param) must never dump a whole folder.
+  // A bare in:inbox (or lone folder param) must never dump a whole folder. (No total
+  // here: MCP search_metadata pre-checks free text, so a no-condition search — a
+  // filter-only/empty query — only reaches this path via REST, which ignores total.)
   if (!conditions.length) return { rows: [], hasCondition: false };
 
   for (const cond of buildFolderScopeClauses(folderScope, folderFuzzy, bind)) conditions.push(cond);
+
+  // Snapshot the predicate binds (accountIds + operator/term/folder) BEFORE the
+  // rank/LIMIT/OFFSET binds are appended, so the metadata COUNT reuses the exact same
+  // WHERE with the exact same param ordinals (MCP search_metadata needs a real total).
+  const countParams = params.slice();
 
   // D5: rank a free-text search by ts_rank_cd over the combined positive terms
   // (date/id tiebreak); a filter-only search stays date-ordered. The rank arg
@@ -229,8 +263,8 @@ export async function searchLexical(client, { parsed, accountIds, folderScope, f
   if (ordering === 'relevance' && positiveTerms.length) {
     // Rank with the SAME prefix-aware tsquery the MATCH predicate uses
     // (freeTextTermConditionRanked → ftsTermQueryArg): one bind per term,
-    // combined with && (ts_rank_cd takes a single tsquery). Reusing the one
-    // term→tsquery-arg builder is what makes
+    // combined with && (ts_rank_cd takes a single tsquery), mirroring the fused
+    // query's BM25 leg. Reusing the one term→tsquery-arg builder is what makes
     // predicate and rank impossible to diverge — a prefix-only hit ("invo"
     // matching "invoice") then ranks by ts_rank_cd instead of getting rank 0
     // (which COALESCE(...,0) would collapse to date order). Phrases keep
@@ -263,5 +297,16 @@ export async function searchLexical(client, { parsed, accountIds, folderScope, f
       LIMIT $${p} OFFSET $${p + 1}
     `, params);
 
-  return { rows: result.rows, hasCondition: true };
+  // Bounded metadata total: a COUNT(*) over the SAME predicate (no LIMIT/OFFSET).
+  const countResult = await client(`
+      SELECT COUNT(*) AS total
+      FROM messages m
+      JOIN email_accounts a ON m.account_id = a.id
+      WHERE m.account_id = ANY($1)
+        AND m.is_deleted = false
+        AND ${conditions.join('\n        AND ')}
+    `, countParams);
+  const total = Number(countResult.rows[0]?.total ?? 0); // COUNT(*) always returns one row in prod
+
+  return { rows: result.rows, hasCondition: true, ...(total !== undefined ? { total } : {}) };
 }

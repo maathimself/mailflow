@@ -4,8 +4,23 @@ import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { encrypt, decrypt } from '../services/encryption.js';
 import { validateHost } from '../services/hostValidation.js';
 import { getConnectionPolicy } from '../services/connectionPolicy.js';
+import { isVectorAvailable } from '../services/embeddings/vectorStore.js';
+import { applyEmbedDefaults } from '../services/embeddings/config.js';
 
 const router = Router();
+
+// Merge an embeddings sub-config from a PATCH body with the existing stored block.
+// config.js owns every field default (including endpoint trim + trailing-slash strip)
+// via applyEmbedDefaults, so the read and write paths normalize identically; here we
+// layer only the write-path apiKey concern: a fresh key is encrypted, the masked
+// sentinel keeps the stored key.
+export function buildEmbeddingsConfig(body = {}, existing = null) {
+  const resolved = applyEmbedDefaults(body);
+  resolved.apiKey = body.apiKey && body.apiKey !== '••••••••'
+    ? encrypt(body.apiKey)
+    : (existing?.apiKey || null);
+  return resolved;
+}
 
 // ── Admin: AI provider configuration ──────────────────────────────────────────
 
@@ -14,7 +29,11 @@ router.get('/admin/ai', requireAdmin, async (req, res) => {
   if (!result.rows.length) return res.json({ config: null });
   try {
     const cfg = JSON.parse(result.rows[0].value);
-    res.json({ config: { ...cfg, apiKey: cfg.apiKey ? '••••••••' : '' } });
+    const masked = { ...cfg, apiKey: cfg.apiKey ? '••••••••' : '' };
+    if (cfg.embeddings) {
+      masked.embeddings = { ...cfg.embeddings, apiKey: cfg.embeddings.apiKey ? '••••••••' : '' };
+    }
+    res.json({ config: masked });
   } catch {
     res.json({ config: null });
   }
@@ -49,6 +68,30 @@ router.patch('/admin/ai', requireAdmin, async (req, res) => {
     }
   }
 
+  let existingEmbeddings = null;
+  if (existing.rows.length) {
+    try { existingEmbeddings = JSON.parse(existing.rows[0].value).embeddings || null; } catch { /* keep null */ }
+  }
+  const embeddings = req.body.embeddings
+    ? buildEmbeddingsConfig(req.body.embeddings, existingEmbeddings)
+    : existingEmbeddings;
+
+  // Host-validate the embeddings endpoint the same way baseUrl is validated.
+  if (embeddings?.endpoint) {
+    let embHost;
+    try { embHost = new URL(embeddings.endpoint).hostname; } catch {
+      return res.status(400).json({ error: 'Invalid embeddings endpoint URL' });
+    }
+    const policy = await getConnectionPolicy();
+    const embErr = await validateHost(embHost, { allowPrivate: policy.allowPrivateHosts });
+    if (embErr) {
+      const hint = embErr.includes('private or reserved')
+        ? ' To use a local network address, enable "Allow private hosts" in Settings → Security.'
+        : '';
+      return res.status(400).json({ error: `Embeddings endpoint: ${embErr}.${hint}` });
+    }
+  }
+
   const cfg = {
     enabled: enabled !== false,
     baseUrl: trimmedBaseUrl,
@@ -58,6 +101,7 @@ router.patch('/admin/ai', requireAdmin, async (req, res) => {
       compose: features?.compose !== false,
       summarize: features?.summarize !== false,
     },
+    ...(embeddings ? { embeddings } : {}),
   };
 
   await query(
@@ -121,15 +165,17 @@ router.post('/admin/ai/test', requireAdmin, async (req, res) => {
 
 router.get('/ai/status', requireAuth, async (req, res) => {
   const result = await query("SELECT value FROM system_settings WHERE key = 'ai_config'");
-  if (!result.rows.length) return res.json({ enabled: false, features: {} });
+  if (!result.rows.length) return res.json({ enabled: false, features: {}, vectorAvailable: isVectorAvailable() });
   try {
     const cfg = JSON.parse(result.rows[0].value);
     res.json({
       enabled: cfg.enabled === true && !!cfg.baseUrl && !!cfg.model,
       features: cfg.features || {},
+      vectorAvailable: isVectorAvailable(),
+      embeddingsEnabled: cfg.embeddings?.enabled === true && !!cfg.embeddings?.endpoint && !!cfg.embeddings?.model,
     });
   } catch {
-    res.json({ enabled: false, features: {} });
+    res.json({ enabled: false, features: {}, vectorAvailable: isVectorAvailable() });
   }
 });
 
