@@ -2260,6 +2260,21 @@ export class ImapManager {
           ON CONFLICT (account_id, path) DO NOTHING
         `, [account.id, delimiter]);
       }
+      // Prune rows for folders that no longer exist on the server (renamed or
+      // deleted by another client, or left behind by a pre-fix subtree rename).
+      // Without this, ghost folders duplicate the sidebar tree and every sync
+      // tick keeps trying — and failing — to open their stale paths. Message
+      // rows are left alone: in-app folder deletion already removes them
+      // explicitly, and orphans stop syncing once their folder row is gone.
+      // Guarded on a non-empty LIST so a pathological empty response can't
+      // wipe the account's folder tree.
+      if (mailboxes.length > 0) {
+        await query(
+          `DELETE FROM folders
+           WHERE account_id = $1 AND path != 'INBOX' AND NOT (path = ANY($2))`,
+          [account.id, mailboxes.map(mb => mb.path)]
+        );
+      }
     } catch (err) {
       console.error(`Folder sync error for ${logAccount(account)}:`, err.message);
     }
