@@ -44,6 +44,7 @@ If you contribute code, please read the [Contributor License Agreement](CLA.md).
 - **Smart contact autocomplete** — learns from sent mail to rank suggestions
 - **Reply / Forward / Compose** — correct per-account SMTP routing; font family groups, email priority
 - **Folder navigation** — expand any account to browse folders
+- **Folder-structure sync** — folders created or renamed in other clients appear automatically, on a configurable interval or on demand
 - **Star, archive, delete, mark read/unread** — synced back to IMAP
 - **Mark-as-read behavior** — choose immediate (on open), after a configurable delay in seconds, or manual (button only) per-user preference
 - **Inbox rules** — automate actions (move, archive, delete, mark read, star) based on sender, subject, recipient, headers, body, or attachments
@@ -184,7 +185,7 @@ docker compose pull
 docker compose up -d
 ```
 
-To pin to a specific version instead of `latest`, add `MAILFLOW_VERSION=1.9.0` to your `.env`.
+To pin to a specific version instead of `latest`, add `MAILFLOW_VERSION=2.7.0` to your `.env`.
 
 ---
 
@@ -252,7 +253,7 @@ No container runtime required. The steps below use Ubuntu/Debian; adapt package 
 
 ### Prerequisites
 
-- **Node.js 20+** — [nodejs.org](https://nodejs.org) or via your package manager
+- **Node.js 22+** — [nodejs.org](https://nodejs.org) or via your package manager
 - **PostgreSQL 16+**
 - **Redis 7+**
 - **nginx** — serves the built frontend and proxies API/WebSocket requests to the backend
@@ -261,14 +262,14 @@ No container runtime required. The steps below use Ubuntu/Debian; adapt package 
 
 **Ubuntu / Debian:**
 ```bash
-# Node.js 20 via NodeSource
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+# Node.js 22 via NodeSource
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
 sudo apt-get install -y nodejs postgresql redis-server nginx
 ```
 
 **macOS (Homebrew):**
 ```bash
-brew install node@20 postgresql@16 redis nginx
+brew install node@22 postgresql@16 redis nginx
 brew services start postgresql@16
 brew services start redis
 ```
@@ -547,62 +548,20 @@ nginx  (frontend container — internal only)
 
 ## Desktop and Android apps
 
-MailFlow remains a self-hosted web app, but release builds also publish native wrappers for users who prefer an installed desktop or mobile application.
+MailFlow remains a self-hosted web app, but the repository includes native wrappers for users who prefer an installed desktop or mobile application:
 
 - Windows, macOS, and Linux use Electron-based packages.
 - Android uses a Capacitor WebView wrapper.
 - On first launch, the native wrapper prompts for the MailFlow server URL, such as `https://mail.your-domain.com`, stores it locally, and connects to that server.
 - Native package sources live under `frontend/packages`.
 
-Install release builds from the latest MailFlow release:
-
-- **Windows**: 
-  - Download the latest `.exe` installer and run it.
-- **macOS**: 
-  - Download the latest `Universal.dmg` release and install the app.
-    - On first launch, macOS may display:
-      - `"MailFlow" can't be opened because Apple cannot check it for malicious software`.
-    - Click OK, then open:
-      - Settings -> Privacy & Security.
-    - Click Open Anyway beside:
-      - `"MailFlow" was blocked from use because it is not from an identified developer`.
-    - Click Open on the second confirmation dialog.
-    - MailFlow will run normally afterward, including future updates.
-- **Ubuntu / Debian**
-  - Download the latest `.deb` release and install it:
-
-    ```bash
-    sudo dpkg -i MailFlow-<version>-amd64.deb
-    ```
-    or
-    ```bash
-    sudo dpkg -i MailFlow-<version>-arm64.deb
-    ```
-  - If dependencies are missing:
-      ```bash
-      sudo apt-get install -f
-      ```
-- **Fedora / Red Hat**
-  - Download the latest `.rpm` release and install it:
-
-    ```bash
-    sudo dnf install MailFlow-<version>-x86_64.rpm
-    ```
-    or
-    ```bash
-    sudo dnf install MailFlow-<version>-aarch64.rpm
-    ```
-
-- **Android**
-  - Download the latest Android `.apk` release and install it manually.
-
-Local Development Builds:
+> **Note:** Prebuilt, signed native apps are not published yet — they are in development and will be attached to a future MailFlow release. For now you can build them locally from source:
 
 ```bash
 cd frontend
 npm ci
-npm run electron:dist
-npm run android:dist
+npm run electron:dist   # desktop installers (.exe / .dmg / .deb / .rpm)
+npm run android:dist    # Android package (.apk / .aab)
 ```
 
 ## Supporters
@@ -633,6 +592,10 @@ MailFlow is free and open source. If it's useful to you, consider supporting dev
 ### GTD
 
 GTD is opt-in per account (**Settings → Categories → GTD**). Migrations for the new schema are additive and apply automatically on first startup. No operator action needed.
+
+### v2.5.0 – v2.7.0
+
+No manual migration steps required. All schema changes apply automatically on first startup.
 
 ### v2.2.0 – v2.4.1
 
@@ -676,5 +639,5 @@ If any accounts were configured with **Skip TLS verification** (e.g. for a self-
 - Password reset tokens are consumed atomically — concurrent reset requests cannot both succeed
 - Database and Redis are not exposed outside the Docker network
 - IMAP/SMTP credentials are stored at rest in the database (standard for webmail clients — protect access to your server and database volume accordingly)
-- All responses include `X-Frame-Options: DENY` and `Referrer-Policy: same-origin` security headers
+- Responses set a strict `Content-Security-Policy`, clickjacking protection via `X-Frame-Options`, and a restrictive `Referrer-Policy`
 - Email HTML is sanitized before rendering, including stripping external `url()` references from CSS style blocks to prevent tracking
