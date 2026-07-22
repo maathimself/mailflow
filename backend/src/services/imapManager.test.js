@@ -1176,3 +1176,48 @@ describe('syncMessages — empty local cache vs nonempty server (wiring)', () =>
     expect(query.mock.calls.some(([sql]) => sql.includes('UPDATE folders SET highest_modseq'))).toBe(false);
   });
 });
+
+describe('syncFolders pruning', () => {
+  beforeEach(() => {
+    query.mockReset();
+    query.mockResolvedValue({ rows: [] });
+  });
+
+  const account = { id: 'acct-1', email_address: 'a@example.com' };
+
+  it('deletes DB rows for folders missing from LIST (ghosts after external rename)', async () => {
+    const client = {
+      list: vi.fn().mockResolvedValue([
+        { path: 'INBOX', name: 'INBOX', delimiter: '/' },
+        { path: 'Projects-Renamed', name: 'Projects-Renamed', delimiter: '/' },
+        { path: 'Projects-Renamed/Sub', name: 'Sub', delimiter: '/' },
+      ]),
+    };
+    await ImapManager.prototype.syncFolders.call({}, account, client);
+
+    const del = query.mock.calls.find(([sql]) => sql.includes('DELETE FROM folders'));
+    expect(del).toBeTruthy();
+    expect(del[0]).toContain("path != 'INBOX'");
+    expect(del[1]).toEqual(['acct-1', ['INBOX', 'Projects-Renamed', 'Projects-Renamed/Sub']]);
+  });
+
+  it('never prunes on an empty LIST response', async () => {
+    const client = { list: vi.fn().mockResolvedValue([]) };
+    await ImapManager.prototype.syncFolders.call({}, account, client);
+    expect(query.mock.calls.some(([sql]) => sql.includes('DELETE FROM folders'))).toBe(false);
+  });
+
+  it('still upserts every listed folder before pruning', async () => {
+    const client = {
+      list: vi.fn().mockResolvedValue([
+        { path: 'Archive', name: 'Archive', delimiter: '/', specialUse: '\\Archive' },
+      ]),
+    };
+    await ImapManager.prototype.syncFolders.call({}, account, client);
+    const inserts = query.mock.calls.filter(([sql]) => sql.includes('INSERT INTO folders'));
+    // The listed folder + the implicit INBOX row.
+    expect(inserts.length).toBe(2);
+    const del = query.mock.calls.find(([sql]) => sql.includes('DELETE FROM folders'));
+    expect(del[1][1]).toEqual(['Archive']);
+  });
+});

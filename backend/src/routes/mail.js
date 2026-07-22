@@ -910,11 +910,48 @@ router.post('/folders/rename', async (req, res) => {
 
   try {
     await imapManager.renameFolder(check.rows[0], oldPath, newPath);
+    // IMAP RENAME moves the entire subtree server-side — mirror that in the DB.
+    // Updating only the exact path left every child folder (and its messages)
+    // under the old path: the next folder sync then upserted the renamed tree
+    // from LIST (a visible duplicate), while the per-folder message sync kept
+    // trying to open the stale old child paths forever.
+    const childPrefix = oldPath + delim;
+    // If a sync raced us and already inserted rows at the new paths, drop the
+    // stale old rows instead of colliding with the unique (account_id, path) /
+    // (account_id, uid, folder) constraints.
+    await query(`
+      DELETE FROM folders old
+      WHERE old.account_id = $1
+        AND (old.path = $2 OR substr(old.path, 1, length($3)) = $3)
+        AND EXISTS (
+          SELECT 1 FROM folders n
+          WHERE n.account_id = $1
+            AND n.path = $4 || substr(old.path, length($2) + 1)
+        )`, [accountId, oldPath, childPrefix, newPath]);
+    await query(`
+      UPDATE folders SET path = $4 || substr(path, length($2) + 1), updated_at = NOW()
+      WHERE account_id = $1
+        AND (path = $2 OR substr(path, 1, length($3)) = $3)`,
+      [accountId, oldPath, childPrefix, newPath]);
     await query(
-      'UPDATE folders SET path = $1, name = $2, updated_at = NOW() WHERE account_id = $3 AND path = $4',
-      [newPath, newName.trim(), accountId, oldPath]
+      'UPDATE folders SET name = $1, updated_at = NOW() WHERE account_id = $2 AND path = $3',
+      [newName.trim(), accountId, newPath]
     );
-    await query('UPDATE messages SET folder = $1 WHERE account_id = $2 AND folder = $3', [newPath, accountId, oldPath]);
+    await query(`
+      DELETE FROM messages old
+      WHERE old.account_id = $1
+        AND (old.folder = $2 OR substr(old.folder, 1, length($3)) = $3)
+        AND EXISTS (
+          SELECT 1 FROM messages n
+          WHERE n.account_id = $1
+            AND n.folder = $4 || substr(old.folder, length($2) + 1)
+            AND n.uid = old.uid
+        )`, [accountId, oldPath, childPrefix, newPath]);
+    await query(`
+      UPDATE messages SET folder = $4 || substr(folder, length($2) + 1)
+      WHERE account_id = $1
+        AND (folder = $2 OR substr(folder, 1, length($3)) = $3)`,
+      [accountId, oldPath, childPrefix, newPath]);
     res.json({ ok: true, newPath });
   } catch (err) {
     console.error('Rename folder error:', err);
