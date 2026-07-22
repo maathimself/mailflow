@@ -481,11 +481,14 @@ const PROVIDERS = {
     skipFolderNames: [],
   },
   purelymail: {
-    // PurelyMail (Dovecot-based) is connection-sensitive and shows three failure modes on
-    // large, mostly-uncached mailboxes: (1) long-lived IDLE sessions go "deaf"/half-open,
-    // (2) IDLE EXISTS can simply not arrive, so new mail is only discovered by polling, and
-    // (3) heavy background BODY[] work saturates the small body-fetch pool, timing out live
-    // opens. So it gets a deliberately conservative, poll-first profile:
+    // PurelyMail (Dovecot-based) is connection-sensitive, but it runs IMAP IDLE reliably —
+    // the same way Apple Mail and Thunderbird do on these accounts — provided the IDLE
+    // connection is kept alive. The earlier "IDLE goes deaf / EXISTS never arrives" symptoms
+    // were a too-infrequent re-IDLE (25 min) letting the socket half-open, not a server limit;
+    // the previous workaround (usesIdle:false + a fresh login every 10s) is what saturated the
+    // per-IP connection limit and produced the socket-timeout churn. So: one long-lived IDLE
+    // connection for instant push, re-issued on a short idleKeepaliveMs so it never goes deaf,
+    // plus a light periodic backstop poll on that same connection.
     //   snippetIndex:false      — disables BOTH the background snippet indexer AND the
     //                             on-view folder body prefetch (both gate on this flag), the
     //                             bulk of the BODY[] load on a 50k-message uncached mailbox.
@@ -495,19 +498,20 @@ const PROVIDERS = {
     //   preferFreshBodyFetch    — user/new-mail body fetches use a brand-new login instead of
     //                             the shared pool, so they neither contend with flag writes on
     //                             the size-2 pool nor inherit a frozen pooled session view.
-    //   usesIdle:false          — new mail IDLE is unreliable on the observed account; fresh
-    //                             poll sync is the source of truth for notifications.
+    //   usesIdle + idleKeepaliveMs — one IDLE connection pushes new mail; re-issued every 4 min
+    //                             so the socket stays alive. maxSyncIntervalMs is now a backstop.
     batchSize: 100, batchDelay: 1500, errorDelay: 15000, batchesPerConn: 15,
     connectStaggerMs: 1200, // connection-sensitive — space initial connects wide (#218)
     fetchBody: false,
-    usesIdle: false,
-    pushesFlags: false,
+    usesIdle: true,
+    idleKeepaliveMs: 4 * 60 * 1000, // re-issue IDLE every 4 min (Apple Mail-style) so the connection never goes deaf
+    pushesFlags: false,             // IDLE 'flags' handles most changes; keep the periodic flag poll as a backstop
     snippetIndex: false,
     speculativeFetch: false,
     preferFreshBodyFetch: true,
-    freshInboxSync: true,
+    freshInboxSync: false,          // IDLE push + backstop poll on the persistent connection replaces fresh-login-per-tick
     autoBackfillExistingOnConnect: false,
-    maxSyncIntervalMs: 10000,
+    maxSyncIntervalMs: 120000,      // IDLE pushes new mail instantly; the periodic tick is now a light ~2-min backstop
     flagPollEveryTicks: 6,
     prefetchNewBodies: true,
     prefetchNewBodiesLimit: 1, // warm only the newest arrival; avoids BODY[] bursts while
@@ -930,7 +934,7 @@ async function ensureFreshToken(account) {
 // resolved: { host, servername } from resolveForConnection() — pins the IP so the
 // actual TCP connection uses the address we validated, not a later DNS lookup.
 // policy: result of getConnectionPolicy() — gates TLS verification override.
-export function makeClientCfg(account, resolved, { enableIdle = false, policy = {} } = {}) {
+export function makeClientCfg(account, resolved, { enableIdle = false, policy = {}, idleKeepaliveMs } = {}) {
   if (!policy.allowInsecureTls && !account.imap_tls) {
     throw new Error('Plain-text IMAP is not allowed: admin must enable "Allow insecure TLS"');
   }
@@ -955,7 +959,9 @@ export function makeClientCfg(account, resolved, { enableIdle = false, policy = 
   // server can push EXISTS notifications immediately when new mail arrives.
   // Only enable on sync connections (not pool/backfill/snippet clients) to
   // avoid interfering with body-fetch pipelines.
-  if (enableIdle) cfg.maxIdleTime = 25 * 60 * 1000;
+  // Connection-sensitive providers (e.g. PurelyMail) need IDLE re-issued more often than the
+  // 25-min default or the socket goes half-open ("deaf"); idleKeepaliveMs overrides it.
+  if (enableIdle) cfg.maxIdleTime = idleKeepaliveMs || 25 * 60 * 1000;
   // OAuth2 XOAUTH2 for Gmail and Microsoft
   if ((account.oauth_provider === 'google' || account.oauth_provider === 'microsoft')
       && account.oauth_access_token) {
@@ -1679,7 +1685,7 @@ export class ImapManager {
     const { resolved, policy } = await resolveAccountHost(account);
     let client;
     try {
-      client = new ImapFlow(makeClientCfg(account, resolved, { enableIdle: providerProfile(account).usesIdle !== false, policy }));
+      client = new ImapFlow(makeClientCfg(account, resolved, { enableIdle: providerProfile(account).usesIdle !== false, policy, idleKeepaliveMs: providerProfile(account).idleKeepaliveMs }));
       // Race the connect against a 30-second timeout.
       // client.connect() has no built-in connection timeout — on slow or unresponsive
       // IMAP servers (e.g. purelymail.com during cold starts) it can hang indefinitely,
@@ -1907,7 +1913,7 @@ export class ImapManager {
               if (!accountResult.rows.length || !accountResult.rows[0].enabled) return null;
               const freshAccount = await ensureFreshToken(accountResult.rows[0]);
               const { resolved, policy } = await resolveAccountHost(freshAccount);
-              pendingClient = new ImapFlow(makeClientCfg(freshAccount, resolved, { enableIdle: providerProfile(freshAccount).usesIdle !== false, policy }));
+              pendingClient = new ImapFlow(makeClientCfg(freshAccount, resolved, { enableIdle: providerProfile(freshAccount).usesIdle !== false, policy, idleKeepaliveMs: providerProfile(freshAccount).idleKeepaliveMs }));
               await pendingClient.connect();
               return { client: pendingClient, account: freshAccount };
             })(),

@@ -66,19 +66,21 @@ describe('providerProfile — host detection', () => {
   it.each([
     ['imap.purelymail.com'],
     ['mail.purelymail.com'],
-  ])('detects purelymail (conservative profile) for %s', host => {
+  ])('detects purelymail (IDLE-based profile) for %s', host => {
     const p = providerProfile(account(host));
-    // Conservative and poll-first: no broad background body prefetch/snippet indexing,
-    // no speculative BODY[] fetch, and user body fetches bypass the pool — see
-    // PROVIDERS.purelymail.
+    // IDLE-first with an aggressive keepalive: one long-lived IDLE connection pushes new
+    // mail, re-issued every 4 min so it never goes deaf; the periodic tick is a light
+    // backstop. Body work stays conservative (no snippet indexing / speculative fetch,
+    // user body fetches bypass the pool) — see PROVIDERS.purelymail.
     expect(p.snippetIndex).toBe(false);
     expect(p.speculativeFetch).toBe(false);
     expect(p.preferFreshBodyFetch).toBe(true);
-    expect(p.freshInboxSync).toBe(true);
+    expect(p.freshInboxSync).toBe(false);
     expect(p.autoBackfillExistingOnConnect).toBe(false);
-    expect(p.usesIdle).toBe(false);
+    expect(p.usesIdle).toBe(true);
+    expect(p.idleKeepaliveMs).toBe(4 * 60 * 1000);
     expect(p.pushesFlags).toBe(false);
-    expect(p.maxSyncIntervalMs).toBe(10000);
+    expect(p.maxSyncIntervalMs).toBe(120000);
     expect(p.flagPollEveryTicks).toBe(6);
     expect(p.prefetchNewBodies).toBe(true);
     expect(p.prefetchNewBodiesLimit).toBe(1);
@@ -916,8 +918,8 @@ describe('connectCooldownMs', () => {
 
 describe('effectiveSyncIntervalMs', () => {
   it('clamps to the provider cap when the requested interval is longer', () => {
-    // PurelyMail polls via fresh login (IDLE is unreliable) and caps at 10s.
-    expect(effectiveSyncIntervalMs(account('imap.purelymail.com'), 60000)).toBe(10000);
+    // PurelyMail uses IDLE for instant push; the periodic tick is only a ~2-min backstop cap.
+    expect(effectiveSyncIntervalMs(account('imap.purelymail.com'), 300000)).toBe(120000);
   });
 
   it('leaves a faster-than-cap request untouched', () => {
