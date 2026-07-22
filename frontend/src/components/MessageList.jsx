@@ -1387,11 +1387,21 @@ export default function MessageList() {
     lastSelectIdxRef.current = clickedIdx;
   }, [displayMessages]);
 
-  const handleBulkDelete = useCallback((ids, msgs) => {
+  const handleBulkDelete = useCallback(async (ids, msgs) => {
     const key = `bulk:${ids[0]}`;
+    // Selected thread rows delete the whole conversation, matching the
+    // single-row delete path — without this only each thread's visible
+    // (newest) message was deleted and the rest of the thread survived.
+    let deleteIds = ids;
+    try {
+      const resolved = await Promise.all(msgs.map(m => resolveMessagesForThreadAction(m)));
+      deleteIds = [...new Set([...ids, ...resolved.flat().map(m => m?.id).filter(Boolean)])];
+    } catch (err) {
+      console.error('Failed to load thread for bulk delete:', err.message);
+    }
     const searchOffsetBeforeRemoval = searchFetchedOffsetRef.current;
     const shouldPrefetchSearch = Boolean(useStore.getState().searchQuery.trim() && searchHasMore);
-    ids.forEach(id => setPendingDelete(id));
+    deleteIds.forEach(id => setPendingDelete(id));
     ids.forEach(id => removeMessage(id));
     if (shouldPrefetchSearch) {
       prefetchSearchAfterRemoval(searchOffsetBeforeRemoval);
@@ -1408,7 +1418,7 @@ export default function MessageList() {
       pendingDeleteTimers.current.delete(key);
       if (undone) return;
       const chunks = [];
-      for (let i = 0; i < ids.length; i += 500) chunks.push(ids.slice(i, i + 500));
+      for (let i = 0; i < deleteIds.length; i += 500) chunks.push(deleteIds.slice(i, i + 500));
       const results = await Promise.allSettled(chunks.map(chunk => api.bulkDelete(chunk)));
       results
         .filter(r => r.status === 'rejected')
@@ -1417,8 +1427,8 @@ export default function MessageList() {
         .filter(r => r.status === 'fulfilled')
         .flatMap(r => r.value.deleted ?? []);
       const deletedSet = new Set(deleted);
-      ids.forEach(id => (deletedSet.has(id) ? setCompletedDelete(id) : clearDeleteGuard(id)));
-      const failedIds = ids.filter(id => !deletedSet.has(id));
+      deleteIds.forEach(id => (deletedSet.has(id) ? setCompletedDelete(id) : clearDeleteGuard(id)));
+      const failedIds = deleteIds.filter(id => !deletedSet.has(id));
       if (failedIds.length > 0) {
         const failedSet = new Set(failedIds);
         const failedMsgs = msgs.filter(msg => failedSet.has(msg.id));
@@ -1433,15 +1443,15 @@ export default function MessageList() {
         setSearchReloadToken(token => token + 1);
       }
     }, 4500);
-    pendingDeleteTimers.current.set(key, { timer, message: msgs[0], ids });
+    pendingDeleteTimers.current.set(key, { timer, message: msgs[0], ids: deleteIds });
     addNotification({
-      title: t('messageList.bulkDeleted.title', { count: ids.length }),
+      title: t('messageList.bulkDeleted.title', { count: deleteIds.length }),
       body: t('messageList.bulkDeleted.body'),
       onUndo: () => {
         undone = true;
         clearTimeout(timer);
         pendingDeleteTimers.current.delete(key);
-        ids.forEach(id => clearPendingDelete(id));
+        deleteIds.forEach(id => clearPendingDelete(id));
         useStore.getState().restoreMessages(msgs);
         msgs.forEach(msg => {
           const delta = parseInt(msg.unread_count) || (msg.is_read ? 0 : 1);
@@ -1449,9 +1459,23 @@ export default function MessageList() {
         });
       },
     });
-  }, [searchHasMore, removeMessage, prefetchSearchAfterRemoval, decrementUnread, incrementUnread, addNotification, t]);
+  }, [searchHasMore, removeMessage, prefetchSearchAfterRemoval, resolveMessagesForThreadAction, decrementUnread, incrementUnread, addNotification, t]);
 
-  const handleBulkMove = useCallback((ids, msgs, folder) => {
+  const handleBulkMove = useCallback(async (ids, msgs, folder) => {
+    // Selected thread rows move the whole conversation. A folder path is
+    // account-specific, so scope each thread's expansion to its row's own
+    // account — the server would just skip (and previously silently drop)
+    // another account's copies from a folder that doesn't exist there.
+    let moveIds = ids;
+    try {
+      const resolved = await Promise.all(msgs.map(async (m) => {
+        const thread = await resolveMessagesForThreadAction(m);
+        return thread.filter(tm => tm?.account_id === m.account_id);
+      }));
+      moveIds = [...new Set([...ids, ...resolved.flat().map(m => m?.id).filter(Boolean)])];
+    } catch (err) {
+      console.error('Failed to load thread for bulk move:', err.message);
+    }
     ids.forEach(id => removeMessage(id));
     msgs.forEach(msg => { if (!msg.is_read) decrementUnread(msg.account_id); });
     setSelectedIds(new Set());
@@ -1461,23 +1485,24 @@ export default function MessageList() {
     const timer = setTimeout(async () => {
       if (undone) return;
       try {
-        const result = await api.bulkMove(ids, folder);
+        const result = await api.bulkMove(moveIds, folder);
         const movedSet = new Set(result.moved ?? []);
-        const failedMsgs = msgs.filter(msg => !movedSet.has(msg.id));
-        if (failedMsgs.length > 0) {
-          useStore.getState().restoreMessages(failedMsgs);
-          addNotification({ title: t('messageList.bulkMoved.failTitle'), body: t('messageList.bulkMoved.failBody', { count: failedMsgs.length }) });
+        const failedCount = moveIds.filter(id => !movedSet.has(id)).length;
+        if (failedCount > 0) {
+          const failedMsgs = msgs.filter(msg => !movedSet.has(msg.id));
+          if (failedMsgs.length > 0) useStore.getState().restoreMessages(failedMsgs);
+          addNotification({ title: t('messageList.bulkMoved.failTitle'), body: t('messageList.bulkMoved.failBody', { count: failedCount }) });
         } else if (msgs[0]?.account_id) {
           useStore.getState().recordRecentFolder({ accountId: msgs[0].account_id, path: folder });
         }
       } catch (err) {
         console.error('Bulk move failed:', err);
         useStore.getState().restoreMessages(msgs);
-        addNotification({ title: t('messageList.bulkMoved.failTitle'), body: t('messageList.bulkMoved.failBody', { count: ids.length }) });
+        addNotification({ title: t('messageList.bulkMoved.failTitle'), body: t('messageList.bulkMoved.failBody', { count: moveIds.length }) });
       }
     }, 4500);
     addNotification({
-      title: t('messageList.bulkMoved.title', { count: ids.length }),
+      title: t('messageList.bulkMoved.title', { count: moveIds.length }),
       body: folder,
       onUndo: () => {
         undone = true;
@@ -1486,7 +1511,7 @@ export default function MessageList() {
         msgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
       },
     });
-  }, [removeMessage, decrementUnread, incrementUnread, addNotification, t]);
+  }, [removeMessage, decrementUnread, incrementUnread, resolveMessagesForThreadAction, addNotification, t]);
 
   const handleRowMove = useCallback((e, msg) => {
     e.stopPropagation();
@@ -1903,7 +1928,13 @@ export default function MessageList() {
           addNotification({ title: t('message.moved.failTitle'), body: t('message.moved.failBody') });
           break;
         }
+        // A folder path is account-specific: a thread can span accounts (and
+        // always includes Sent copies), and the server skips messages whose
+        // account lacks the destination folder. Scope the move to the
+        // right-clicked message's account so nothing is silently dropped.
+        moveMessages = moveMessages.filter(msg => msg?.account_id === moved.account_id);
         const moveIds = [...new Set(moveMessages.map(msg => msg.id).filter(Boolean))];
+        if (!moveIds.length) moveIds.push(moved.id);
         removeMessage(moved.id);
         if (!moved.is_read) decrementUnread(moved.account_id);
         // Remove the moved message from the selection so the action bar doesn't
@@ -1918,10 +1949,25 @@ export default function MessageList() {
         const moveTimer = setTimeout(async () => {
           if (moveUndone) return;
           try {
-            await api.bulkMove(moveIds, folder);
-            useStore.getState().recordRecentFolder({ accountId: moved.account_id, path: folder });
+            const result = await api.bulkMove(moveIds, folder);
+            // The server reports per-message success (200 even when some IMAP
+            // moves fail or are skipped) — surface partial failures instead of
+            // letting the thread silently reappear on the next sync.
+            const movedSet = new Set(result.moved ?? []);
+            const failedCount = moveIds.filter(id => !movedSet.has(id)).length;
+            if (failedCount > 0) {
+              if (!movedSet.has(moved.id)) {
+                useStore.getState().restoreMessages([moved]);
+                if (!moved.is_read) incrementUnread(moved.account_id);
+              }
+              addNotification({ type: 'error', title: t('message.moved.failTitle'), body: t('messageList.bulkMoved.failBody', { count: failedCount }) });
+            } else {
+              useStore.getState().recordRecentFolder({ accountId: moved.account_id, path: folder });
+            }
           } catch (err) {
             console.error('Move failed:', err.message);
+            useStore.getState().restoreMessages([moved]);
+            if (!moved.is_read) incrementUnread(moved.account_id);
             addNotification({ title: t('message.moved.failTitle'), body: t('message.moved.failBody') });
           }
         }, 4500);
