@@ -33,6 +33,8 @@ const inputStyle = {
   outline: 'none', transition: 'border-color 0.15s', boxSizing: 'border-box',
 };
 
+const TOGGLE_OFF_BACKGROUND = 'var(--border)';
+
 // ─── Color picker ─────────────────────────────────────────────────────────────
 const COLORS = [
   '#6366f1','#8b5cf6','#ec4899','#ef4444',
@@ -227,7 +229,7 @@ function AccountForm({ initial, onSave, onCancel }) {
             onClick={() => set('imap_skip_tls_verify', !form.imap_skip_tls_verify)}
             style={{
               width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer', padding: 0,
-              background: form.imap_skip_tls_verify ? 'var(--amber)' : 'var(--bg-elevated)',
+              background: form.imap_skip_tls_verify ? 'var(--amber)' : TOGGLE_OFF_BACKGROUND,
               position: 'relative', transition: 'background 0.2s', flexShrink: 0, marginTop: 1,
             }}
           >
@@ -307,7 +309,7 @@ function AccountForm({ initial, onSave, onCancel }) {
               style={{
                 width: 36, height: 20, borderRadius: 10, border: 'none',
                 cursor: categorizationEnabled ? 'not-allowed' : 'pointer', padding: 0,
-                background: (categorizationEnabled || form.categorization_enabled) ? 'var(--accent)' : 'var(--bg-elevated)',
+                background: (categorizationEnabled || form.categorization_enabled) ? 'var(--accent)' : TOGGLE_OFF_BACKGROUND,
                 position: 'relative', transition: 'background 0.2s', flexShrink: 0, marginTop: 1,
               }}
             >
@@ -3058,7 +3060,7 @@ function SSOTab() {
             disabled={internalAuthSaving}
             style={{
               width: 44, height: 24, borderRadius: 12,
-              background: internalAuthDisabled ? 'var(--bg-elevated)' : 'var(--accent)',
+              background: internalAuthDisabled ? TOGGLE_OFF_BACKGROUND : 'var(--accent)',
               border: `1px solid ${internalAuthDisabled ? 'var(--border)' : 'var(--accent)'}`,
               cursor: internalAuthSaving ? 'not-allowed' : 'pointer',
               position: 'relative', transition: 'all 0.2s', flexShrink: 0,
@@ -3307,7 +3309,7 @@ function SSOTab() {
               onClick={() => setForm(f => ({ ...f, enabled: !f.enabled }))}
               style={{
                 width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer', padding: 0,
-                background: form.enabled ? 'var(--accent)' : 'var(--bg-elevated)',
+                background: form.enabled ? 'var(--accent)' : TOGGLE_OFF_BACKGROUND,
                 position: 'relative', transition: 'background 0.2s',
               }}
             >
@@ -3325,7 +3327,7 @@ function SSOTab() {
               onClick={() => setForm(f => ({ ...f, require_email_verified: !f.require_email_verified }))}
               style={{
                 width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer', padding: 0,
-                background: form.require_email_verified ? 'var(--accent)' : 'var(--bg-elevated)',
+                background: form.require_email_verified ? 'var(--accent)' : TOGGLE_OFF_BACKGROUND,
                 position: 'relative', transition: 'background 0.2s', flexShrink: 0, marginTop: 1,
               }}
             >
@@ -3346,7 +3348,7 @@ function SSOTab() {
               onClick={() => setForm(f => ({ ...f, allow_insecure: !f.allow_insecure }))}
               style={{
                 width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer', padding: 0,
-                background: form.allow_insecure ? 'var(--amber)' : 'var(--bg-elevated)',
+                background: form.allow_insecure ? 'var(--amber)' : TOGGLE_OFF_BACKGROUND,
                 position: 'relative', transition: 'background 0.2s', flexShrink: 0, marginTop: 1,
               }}
             >
@@ -3787,7 +3789,7 @@ function CategoriesSection({ initialSubTab }) {
           onClick={() => setCategorizationEnabled(!categorizationEnabled)}
           style={{
             width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer', padding: 0,
-            background: categorizationEnabled ? 'var(--accent)' : 'var(--bg-elevated)',
+            background: categorizationEnabled ? 'var(--accent)' : TOGGLE_OFF_BACKGROUND,
             position: 'relative', transition: 'background 0.2s', flexShrink: 0, marginTop: 1,
           }}
         >
@@ -3833,7 +3835,7 @@ function CategoriesSection({ initialSubTab }) {
               )}
               <button onClick={() => handleToggle(s.id, !s.enabled)} style={{
                 width: 32, height: 18, borderRadius: 9, border: 'none', cursor: 'pointer', padding: 0, flexShrink: 0,
-                background: s.enabled ? 'var(--accent)' : 'var(--bg-elevated)', position: 'relative', transition: 'background 0.2s',
+                background: s.enabled ? 'var(--accent)' : TOGGLE_OFF_BACKGROUND, position: 'relative', transition: 'background 0.2s',
               }}>
                 <span style={{ position: 'absolute', top: 1, left: s.enabled ? 15 : 1, width: 16, height: 16, borderRadius: '50%', background: 'white', transition: 'left 0.2s' }} />
               </button>
@@ -3930,7 +3932,7 @@ function CategoriesSection({ initialSubTab }) {
           onClick={handleToggleGtd}
           style={{
             width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer', padding: 0,
-            background: gtdRevealed ? 'var(--accent)' : 'var(--bg-elevated)',
+            background: gtdRevealed ? 'var(--accent)' : TOGGLE_OFF_BACKGROUND,
             position: 'relative', transition: 'background 0.2s', flexShrink: 0, marginTop: 1,
           }}
         >
@@ -4199,7 +4201,7 @@ function GtdAccountBlock({ account }) {
           onClick={handleToggle}
           style={{
             width: 36, height: 20, borderRadius: 10, border: 'none', cursor: toggling ? 'default' : 'pointer', padding: 0,
-            background: enabled ? 'var(--accent)' : 'var(--bg-elevated)',
+            background: enabled ? 'var(--accent)' : TOGGLE_OFF_BACKGROUND,
             position: 'relative', transition: 'background 0.2s', flexShrink: 0,
           }}
         >
@@ -4684,7 +4686,7 @@ function UsersAndInvitesPanel() {
           onClick={handleToggleReg}
           style={{
             width: 44, height: 24, borderRadius: 12,
-            background: regOpen ? 'var(--accent)' : 'var(--bg-elevated)',
+            background: regOpen ? 'var(--accent)' : TOGGLE_OFF_BACKGROUND,
             border: `1px solid ${regOpen ? 'var(--accent)' : 'var(--border)'}`,
             cursor: 'pointer', position: 'relative', transition: 'all 0.2s',
             flexShrink: 0,
@@ -6613,7 +6615,7 @@ function PrivacyTab() {
           }}
           style={{
             width: 42, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer',
-            background: blockRemoteImages ? 'var(--accent)' : 'var(--bg-tertiary)',
+            background: blockRemoteImages ? 'var(--accent)' : TOGGLE_OFF_BACKGROUND,
             position: 'relative', transition: 'background 0.2s', flexShrink: 0,
           }}
         >
@@ -7123,7 +7125,7 @@ function SecurityTab() {
                 onClick={() => { const newVal = !val; set(newVal); toggleMailPolicy(key, newVal); }}
                 style={{
                   width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer', padding: 0,
-                  background: val ? 'var(--amber)' : 'var(--bg-elevated)',
+                  background: val ? 'var(--amber)' : TOGGLE_OFF_BACKGROUND,
                   position: 'relative', transition: 'background 0.2s', flexShrink: 0, marginTop: 1,
                 }}
               >
