@@ -83,6 +83,7 @@ export function stripEmailHead(html) {
   });
 }
 
+
 function upgradeUrl(url) {
   return typeof url === 'string' && url.startsWith('http://') ? 'https://' + url.slice(7) : url;
 }
