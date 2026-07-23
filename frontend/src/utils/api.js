@@ -33,6 +33,74 @@ async function request(method, path, body, extraHeaders) {
   return res.json();
 }
 
+export async function streamAiChat(messages, { signal, onDelta } = {}) {
+  const response = await fetch(`${BASE}/ai/chat`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', [CSRF_HEADER]: CSRF_VALUE },
+    body: JSON.stringify({ messages }),
+    signal,
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'AI request failed' }));
+    throw new Error(error.error || 'AI request failed');
+  }
+  if (!response.body) throw new Error('AI response body is unavailable');
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let fullText = '';
+  let completed = false;
+
+  function consumeLine(line) {
+    if (!line.startsWith('data:')) return;
+    const data = line.slice(5).trim();
+    if (!data) return;
+    if (data === '[DONE]') {
+      completed = true;
+      return;
+    }
+    try {
+      const parsed = JSON.parse(data);
+      if (parsed?.error) {
+        const message = typeof parsed.error === 'string' ? parsed.error : parsed.error.message;
+        throw new Error(message || 'AI request failed');
+      }
+      const delta = parsed?.choices?.[0]?.delta?.content;
+      if (typeof delta === 'string' && delta) {
+        fullText += delta;
+        onDelta?.(fullText, delta);
+      }
+    } catch (error) {
+      if (error instanceof SyntaxError) return;
+      throw error;
+    }
+  }
+
+  try {
+    while (!completed) {
+      const { done, value } = await reader.read();
+      if (done) {
+        buffer += decoder.decode();
+        break;
+      }
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        consumeLine(line);
+        if (completed) break;
+      }
+    }
+    if (!completed && buffer) consumeLine(buffer);
+    if (!completed) throw new Error('AI response ended before completion');
+    return fullText;
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
+}
+
 function getMessageBody(id, remoteImages = false) {
   const key = `${id}:${remoteImages ? 'remote' : 'blocked'}`;
   const existing = messageBodyRequests.get(key);
@@ -277,6 +345,14 @@ export const api = {
     deleteConfig: () => request('DELETE', '/admin/ai'),
     test: () => request('POST', '/admin/ai/test'),
     status: () => request('GET', '/ai/status'),
+    chat: streamAiChat,
+    codex: {
+      start: () => request('POST', '/admin/ai/codex/device'),
+      poll: (flowId) => request('POST', '/admin/ai/codex/device/poll', { flowId }),
+      status: () => request('GET', '/admin/ai/codex/status'),
+      cancel: (flowId) => request('DELETE', '/admin/ai/codex/device', { flowId }),
+      disconnect: () => request('DELETE', '/admin/ai/codex'),
+    },
   },
 
   // Category counts for inbox tab badges

@@ -1,5 +1,5 @@
 import { query } from './db.js';
-import { decrypt } from './encryption.js';
+import { completeText } from './aiProvider.js';
 import { detectCategoryFromHeaders } from './messageParser.js';
 
 // In-memory cache of social domains per user. Populated on first use,
@@ -129,16 +129,6 @@ export function classifyMessage(parsedHeaders, fromEmail, socialDomains) {
 // the response is unusable. Errors are swallowed — the caller treats null as
 // 'keep primary'.
 export async function aiClassifyMessage(subject, fromEmail, snippet) {
-  const cfgResult = await query("SELECT value FROM system_settings WHERE key = 'ai_config'").catch(() => null);
-  if (!cfgResult?.rows?.length) return null;
-  let cfg;
-  try { cfg = JSON.parse(cfgResult.rows[0].value); } catch { return null; }
-  if (!cfg.enabled || !cfg.baseUrl || !cfg.model) return null;
-
-  const apiKey = cfg.apiKey ? decrypt(cfg.apiKey) : null;
-  const headers = { 'Content-Type': 'application/json' };
-  if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
-
   const prompt = `Classify this email into exactly one category. Reply with only the category name, nothing else.
 
 Categories:
@@ -155,29 +145,12 @@ ${snippet ? `Preview: ${snippet.slice(0, 300)}` : ''}
 Category:`;
 
   try {
-    // Trust boundary: intentionally plain fetch, NOT safeFetch. The AI base URL is
-    // admin-configured and legitimately internal (e.g. a LAN/Tailscale Ollama), which
-    // the private-host guard would block. Validated when saved via the admin AI routes.
-    const res = await fetch(`${cfg.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model: cfg.model,
-        messages: [{ role: 'user', content: prompt }],
-        max_tokens: 1024,
-        stream: false,
-        think: false,
-      }),
-      signal: AbortSignal.timeout(60000),
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const raw = (data.choices?.[0]?.message?.content || '').toLowerCase().trim();
-    const VALID = ['primary', 'newsletter', 'promotion', 'automated', 'social'];
-    for (const cat of VALID) {
-      if (raw.includes(cat)) return cat;
-    }
-    return null;
+    const response = await completeText([{ role: 'user', content: prompt }], { maxTokens: 1024 });
+    if (typeof response !== 'string') return null;
+    const category = response.toLowerCase().trim();
+    return ['primary', 'newsletter', 'promotion', 'automated', 'social'].includes(category)
+      ? category
+      : null;
   } catch {
     return null;
   }

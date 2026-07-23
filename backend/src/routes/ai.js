@@ -1,210 +1,202 @@
 import { Router } from 'express';
-import { query } from '../services/db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
-import { encrypt, decrypt } from '../services/encryption.js';
-import { validateHost } from '../services/hostValidation.js';
-import { getConnectionPolicy } from '../services/connectionPolicy.js';
+import {
+  deleteAiConfig,
+  getAdminAiConfig,
+  getAiStatus,
+  saveAiConfig,
+  streamChat,
+  testAiProvider,
+} from '../services/aiProvider.js';
+import {
+  cancelDeviceFlow,
+  disconnectCodex,
+  getCodexStatus,
+  pollDeviceFlow,
+  startDeviceFlow,
+} from '../services/openaiCodexAuth.js';
 
 const router = Router();
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function serviceError(res, error, fallback = 'Request failed') {
+  const status = Number.isInteger(error?.status) && error.status >= 400 && error.status < 600
+    ? error.status
+    : 500;
+  const message = status >= 500 ? fallback : error.message;
+  return res.status(status).json({ error: message });
+}
+
+function owner(req) {
+  return { userId: req.session.userId, sessionId: req.sessionID };
+}
+
+function flowInput(req, res) {
+  const flowId = typeof req.body?.flowId === 'string' ? req.body.flowId.trim() : '';
+  if (!flowId) {
+    res.status(400).json({ error: 'flowId is required' });
+    return null;
+  }
+  if (!UUID_RE.test(flowId)) {
+    res.status(400).json({ error: 'Invalid flowId' });
+    return null;
+  }
+  return { flowId, ...owner(req) };
+}
 
 // ── Admin: AI provider configuration ──────────────────────────────────────────
 
-router.get('/admin/ai', requireAdmin, async (req, res) => {
-  const result = await query("SELECT value FROM system_settings WHERE key = 'ai_config'");
-  if (!result.rows.length) return res.json({ config: null });
+router.get('/admin/ai', requireAdmin, async (_req, res) => {
   try {
-    const cfg = JSON.parse(result.rows[0].value);
-    res.json({ config: { ...cfg, apiKey: cfg.apiKey ? '••••••••' : '' } });
-  } catch {
-    res.json({ config: null });
+    res.json({ config: await getAdminAiConfig() });
+  } catch (error) {
+    serviceError(res, error, 'Failed to load AI configuration');
   }
 });
 
 router.patch('/admin/ai', requireAdmin, async (req, res) => {
-  const { enabled, baseUrl, apiKey, model, features } = req.body;
-
-  let existingKey = null;
-  const existing = await query("SELECT value FROM system_settings WHERE key = 'ai_config'");
-  if (existing.rows.length) {
-    try { existingKey = JSON.parse(existing.rows[0].value).apiKey; } catch { /* keep null */ }
-  }
-
-  const encryptedKey = apiKey && apiKey !== '••••••••'
-    ? encrypt(apiKey)
-    : (existingKey || null);
-
-  const trimmedBaseUrl = (baseUrl || '').trim().replace(/\/+$/, '');
-  if (trimmedBaseUrl) {
-    let urlHost;
-    try { urlHost = new URL(trimmedBaseUrl).hostname; } catch {
-      return res.status(400).json({ error: 'Invalid base URL' });
-    }
-    const policy = await getConnectionPolicy();
-    const hostErr = await validateHost(urlHost, { allowPrivate: policy.allowPrivateHosts });
-    if (hostErr) {
-      const hint = hostErr.includes('private or reserved')
-        ? ' To use a local network address, enable "Allow private hosts" in Settings → Security.'
-        : '';
-      return res.status(400).json({ error: `Base URL: ${hostErr}.${hint}` });
-    }
-  }
-
-  const cfg = {
-    enabled: enabled !== false,
-    baseUrl: trimmedBaseUrl,
-    apiKey: encryptedKey,
-    model: (model || '').trim(),
-    features: {
-      compose: features?.compose !== false,
-      summarize: features?.summarize !== false,
-    },
-  };
-
-  await query(
-    `INSERT INTO system_settings (key, value, updated_at) VALUES ('ai_config', $1, NOW())
-     ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
-    [JSON.stringify(cfg)]
-  );
-  console.log(`[admin] ${req.session.username} updated AI config`);
-  res.json({ ok: true });
-});
-
-router.delete('/admin/ai', requireAdmin, async (req, res) => {
-  await query("DELETE FROM system_settings WHERE key = 'ai_config'");
-  res.json({ ok: true });
-});
-
-router.post('/admin/ai/test', requireAdmin, async (req, res) => {
-  const result = await query("SELECT value FROM system_settings WHERE key = 'ai_config'");
-  if (!result.rows.length) return res.status(400).json({ error: 'No AI provider configured' });
-
-  let cfg;
-  try { cfg = JSON.parse(result.rows[0].value); } catch {
-    return res.status(500).json({ error: 'Corrupted AI config' });
-  }
-
-  if (!cfg.baseUrl || !cfg.model) {
-    return res.status(400).json({ error: 'Base URL and model name are required' });
-  }
-
-  const apiKey = cfg.apiKey ? decrypt(cfg.apiKey) : null;
-  const headers = { 'Content-Type': 'application/json' };
-  if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
-
   try {
-    // Trust boundary: intentionally plain fetch, NOT safeFetch. The AI base URL is
-    // admin-configured and legitimately points at an internal/self-hosted provider
-    // (e.g. a LAN or Tailscale Ollama), which the private-host guard would block.
-    // The host is validated when saved (PATCH /admin/ai); the admin owns this URL.
-    const testRes = await fetch(`${cfg.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model: cfg.model,
-        messages: [{ role: 'user', content: 'Reply with only the word "ok".' }],
-        max_tokens: 5,
-        stream: false,
-      }),
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!testRes.ok) {
-      const errText = await testRes.text();
-      return res.status(400).json({ error: `Provider returned ${testRes.status}: ${errText.slice(0, 300)}` });
-    }
+    const config = await saveAiConfig(req.body);
+    console.log(`[admin] ${req.session.username} updated AI config`);
+    res.json({ ok: true, config });
+  } catch (error) {
+    serviceError(res, error, 'Failed to save AI configuration');
+  }
+});
+
+router.delete('/admin/ai', requireAdmin, async (_req, res) => {
+  try {
+    await deleteAiConfig();
     res.json({ ok: true });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
+  } catch (error) {
+    serviceError(res, error, 'Failed to delete AI configuration');
+  }
+});
+
+router.post('/admin/ai/test', requireAdmin, async (_req, res) => {
+  try {
+    res.json(await testAiProvider());
+  } catch (error) {
+    serviceError(res, error, 'AI provider test failed');
+  }
+});
+
+// ── Admin: ChatGPT device authorization ──────────────────────────────────────
+
+router.post('/admin/ai/codex/device', requireAdmin, async (req, res) => {
+  try {
+    res.json(await startDeviceFlow(owner(req)));
+  } catch (error) {
+    serviceError(res, error, 'Failed to start ChatGPT authorization');
+  }
+});
+
+router.post('/admin/ai/codex/device/poll', requireAdmin, async (req, res) => {
+  const input = flowInput(req, res);
+  if (!input) return;
+  try {
+    res.json(await pollDeviceFlow(input));
+  } catch (error) {
+    serviceError(res, error, 'Failed to poll ChatGPT authorization');
+  }
+});
+
+router.delete('/admin/ai/codex/device', requireAdmin, async (req, res) => {
+  const input = flowInput(req, res);
+  if (!input) return;
+  try {
+    res.json(await cancelDeviceFlow(input));
+  } catch (error) {
+    serviceError(res, error, 'Failed to cancel ChatGPT authorization');
+  }
+});
+
+router.get('/admin/ai/codex/status', requireAdmin, async (req, res) => {
+  try {
+    res.json(await getCodexStatus(owner(req)));
+  } catch (error) {
+    serviceError(res, error, 'Failed to load ChatGPT status');
+  }
+});
+
+router.delete('/admin/ai/codex', requireAdmin, async (_req, res) => {
+  try {
+    res.json(await disconnectCodex());
+  } catch (error) {
+    serviceError(res, error, 'Failed to disconnect ChatGPT');
   }
 });
 
 // ── Authenticated: AI status (used by compose & message pane) ─────────────────
 
-router.get('/ai/status', requireAuth, async (req, res) => {
-  const result = await query("SELECT value FROM system_settings WHERE key = 'ai_config'");
-  if (!result.rows.length) return res.json({ enabled: false, features: {} });
+router.get('/ai/status', requireAuth, async (_req, res) => {
   try {
-    const cfg = JSON.parse(result.rows[0].value);
-    res.json({
-      enabled: cfg.enabled === true && !!cfg.baseUrl && !!cfg.model,
-      features: cfg.features || {},
-    });
-  } catch {
-    res.json({ enabled: false, features: {} });
+    res.json(await getAiStatus());
+  } catch (error) {
+    serviceError(res, error, 'Failed to load AI status');
   }
 });
+
+function validateMessages(messages) {
+  if (!Array.isArray(messages) || messages.length === 0) return 'messages array is required';
+  for (const message of messages) {
+    if (!message?.role || typeof message.content !== 'string') return 'Each message must have role and content';
+    if (!['system', 'user', 'assistant'].includes(message.role)) return 'Invalid message role';
+    if (message.content.length > 32_000) return 'Message content exceeds maximum length';
+  }
+  return null;
+}
 
 // ── Authenticated: streaming chat proxy ───────────────────────────────────────
 
 router.post('/ai/chat', requireAuth, async (req, res) => {
-  const cfgResult = await query("SELECT value FROM system_settings WHERE key = 'ai_config'");
-  if (!cfgResult.rows.length) return res.status(503).json({ error: 'AI provider not configured' });
+  const messages = req.body?.messages;
+  const validationError = validateMessages(messages);
+  if (validationError) return res.status(400).json({ error: validationError });
 
-  let cfg;
-  try { cfg = JSON.parse(cfgResult.rows[0].value); } catch {
-    return res.status(500).json({ error: 'Corrupted AI config' });
+  let status;
+  try {
+    status = await getAiStatus();
+  } catch (error) {
+    return serviceError(res, error, 'Failed to load AI status');
+  }
+  if (!status.enabled) {
+    const error = status.reconnectRequired
+      ? 'AI provider requires reconnection'
+      : 'AI provider is disabled or unavailable';
+    return res.status(503).json({ error });
   }
 
-  if (!cfg.enabled) return res.status(503).json({ error: 'AI features are disabled' });
-  if (!cfg.baseUrl || !cfg.model) return res.status(503).json({ error: 'AI provider not fully configured' });
+  const controller = new AbortController();
+  const abort = () => {
+    if (!res.writableEnded && !controller.signal.aborted) controller.abort();
+  };
+  req.once('aborted', abort);
+  res.once('close', abort);
 
-  const { messages } = req.body;
-  if (!Array.isArray(messages) || messages.length === 0) {
-    return res.status(400).json({ error: 'messages array is required' });
-  }
-  for (const msg of messages) {
-    if (!msg.role || typeof msg.content !== 'string') {
-      return res.status(400).json({ error: 'Each message must have role and content' });
-    }
-    if (!['system', 'user', 'assistant'].includes(msg.role)) {
-      return res.status(400).json({ error: 'Invalid message role' });
-    }
-    if (msg.content.length > 32000) {
-      return res.status(400).json({ error: 'Message content exceeds maximum length' });
-    }
-  }
-
-  const apiKey = cfg.apiKey ? decrypt(cfg.apiKey) : null;
-  const headers = { 'Content-Type': 'application/json' };
-  if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
 
   try {
-    // Trust boundary: intentionally plain fetch, NOT safeFetch — see the note on the
-    // config-test call above. The admin-configured AI base URL is legitimately internal.
-    const aiRes = await fetch(`${cfg.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ model: cfg.model, messages, stream: true }),
-      signal: AbortSignal.timeout(120000),
-    });
-
-    if (!aiRes.ok) {
-      const errText = await aiRes.text();
-      return res.status(502).json({ error: `AI provider error (${aiRes.status}): ${errText.slice(0, 300)}` });
+    for await (const delta of streamChat(messages, { signal: controller.signal })) {
+      if (controller.signal.aborted || res.destroyed) break;
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: delta } }] })}\n\n`);
     }
-
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('X-Accel-Buffering', 'no');
-    res.flushHeaders();
-
-    const reader = aiRes.body.getReader();
-    const decoder = new TextDecoder();
-
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (res.destroyed) { reader.cancel(); break; }
-        res.write(decoder.decode(value, { stream: true }));
-      }
-    } finally {
-      reader.cancel().catch(() => {});
+    if (!controller.signal.aborted && !res.destroyed) {
+      res.write('data: [DONE]\n\n');
+      res.end();
     }
-    res.end();
-  } catch (err) {
-    if (!res.headersSent) {
-      res.status(502).json({ error: `AI request failed: ${err.message}` });
+  } catch {
+    if (!controller.signal.aborted && !res.destroyed) {
+      res.write(`data: ${JSON.stringify({ error: 'AI request failed' })}\n\n`);
+      res.write('data: [DONE]\n\n');
+      res.end();
     }
+  } finally {
+    req.removeListener('aborted', abort);
+    res.removeListener('close', abort);
   }
 });
 

@@ -1081,44 +1081,16 @@ ${bodyContent}
     const msgId = selectedMessageId;
     setAiResults(r => ({ ...r, [key]: { status: 'loading', text: '', label } }));
     try {
-      const res = await fetch('/api/ai/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'MailFlow' },
-        credentials: 'include',
+      const fullText = await api.ai.chat([{
+        role: 'user',
+        content: `${action.prompt}\n\n${textContent.slice(0, 6000)}`,
+      }], {
         signal: ctrl.signal,
-        body: JSON.stringify({
-          messages: [{
-            role: 'user',
-            content: `${action.prompt}\n\n${textContent.slice(0, 6000)}`,
-          }],
-        }),
+        onDelta: (text) => {
+          setAiResults(r => ({ ...r, [key]: { status: 'loading', text, label } }));
+        },
       });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: res.statusText }));
-        setAiResults(r => ({ ...r, [key]: { status: 'error', text: err.error || res.statusText, label } }));
-        return;
-      }
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let lineBuf = '';
-      let fullText = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        lineBuf += decoder.decode(value, { stream: true });
-        const lines = lineBuf.split('\n');
-        lineBuf = lines.pop();
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          const chunk = line.slice(6).trim();
-          if (chunk === '[DONE]') break;
-          try {
-            const delta = JSON.parse(chunk)?.choices?.[0]?.delta?.content;
-            if (delta) { fullText += delta; setAiResults(r => ({ ...r, [key]: { status: 'loading', text: fullText, label } })); }
-          } catch { /* skip */ }
-        }
-      }
-      setAiResults(r => ({ ...r, [key]: { status: 'done', text: fullText || '', label } }));
+      setAiResults(r => ({ ...r, [key]: { status: 'done', text: fullText, label } }));
       // Persist only completed results, keyed to the message it ran against.
       if (fullText) saveResult(msgId, key, fullText, label);
     } catch (err) {

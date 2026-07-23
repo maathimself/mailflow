@@ -51,7 +51,7 @@ If you contribute code, please read the [Contributor License Agreement](CLA.md).
 - **Block list** — automatically move mail from blocked senders to trash before inbox rules run
 - **Spam reporting** — mark messages as spam or not spam from the context menu, toolbar, or bulk actions; feedback will feed into automated filtering in a future release
 - **Snooze** — snooze messages until a chosen time; they reappear at the top of the inbox
-- **AI assistant** — connect any OpenAI-compatible provider (local models or cloud); summarise threads, draft replies, ask questions about a message
+- **AI assistant** — use an OpenAI-compatible API provider or a ChatGPT Codex subscription; summarise threads, draft replies, ask questions about a message
 - **Password recovery** — recover your account via a recovery email address configured in profile settings
 - **User management** — admin panel, invite-only registration, invite emails
 - **Two-factor authentication** — TOTP (any authenticator app), email OTP fallback, persistent device trust; admin-configurable enforcement policy
