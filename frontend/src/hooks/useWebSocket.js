@@ -77,6 +77,13 @@ export function useWebSocket() {
   const reconnectTimer = useRef(null);
   const mountedRef = useRef(true);
   const reconnectAttempt = useRef(0);
+  // True once the socket has connected at least once. Distinguishes the initial
+  // page-load connect (message list is freshly fetched anyway) from any later
+  // reconnect — backoff OR a wake/visibility revive — which must run the catch-up
+  // so mail that arrived while the socket was down shows without a manual refresh.
+  // reconnectAttempt can't be used for this: revive() resets it to 0 before
+  // reconnecting, which made a wake-triggered reconnect look like a first connect.
+  const hasConnectedBefore = useRef(false);
   const { addNotification, updateAccount, setFolders, setBackfillProgress } = useStore();
 
   const connect = useCallback(() => {
@@ -91,7 +98,8 @@ export function useWebSocket() {
     const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
 
     ws.onopen = () => {
-      const wasReconnect = reconnectAttempt.current > 0;
+      const wasReconnect = hasConnectedBefore.current;
+      hasConnectedBefore.current = true;
       reconnectAttempt.current = 0;
       ws._lastActivity = Date.now();
       // Ping every 30s. If no message (including the server's pong) has arrived in ~2.5 intervals,
