@@ -114,7 +114,7 @@ export default function MessageList() {
     setMobileSidebarOpen, unreadCounts, showContacts, setShowContacts,
     threadedView, expandedThreadId, setExpandedThreadId,
     threadMessages, setThreadMessages, loadingThread, setLoadingThread,
-    hoverQuickActions, showMobileAvatars,
+    hoverQuickActions, showMobileAvatars, showMessagePreviews,
     swipeActions,
     folders, favoriteFolders, addFavoriteFolder, removeFavoriteFolder, setSelectedAccount,
     categorizationEnabled, categoryCounts, setCategoryCounts, adjustCategoryCount,
@@ -3436,6 +3436,7 @@ export default function MessageList() {
                 isNarrow={isNarrow}
                 onThreadClick={() => handleThreadClick(message)}
                 showMobileAvatars={showMobileAvatars}
+                showMessagePreviews={showMessagePreviews}
                 onSelect={handleSelect}
                 onMarkRead={handleThreadMarkRead}
                 onStar={handleStar}
@@ -3479,6 +3480,7 @@ export default function MessageList() {
                 onRangeSelect={handleRangeSelect}
                 onAvatarClick={!isMobile ? handleAvatarClick : undefined}
                 showMobileAvatars={showMobileAvatars}
+                showMessagePreviews={showMessagePreviews}
                 onMarkRead={handleMarkRead}
                 onStar={handleStar}
                 onDelete={handleDelete}
@@ -3912,7 +3914,7 @@ function EmptyState({ folderSyncing, searchQuery, unreadOnly, selectedFolder, ac
   );
 }
 
-function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, lastViewedMessageId, showAccount, isNarrow, onThreadClick, showMobileAvatars, onSelect, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onGtdDone, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress }) {
+function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, lastViewedMessageId, showAccount, isNarrow, onThreadClick, showMobileAvatars, showMessagePreviews, onSelect, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onGtdDone, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const messageCount = message.message_count || 1;
@@ -4105,12 +4107,14 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
             {message.subject || t('common.noSubject')}
           </div>
           {/* Row 3: snippet */}
-          <div style={{
-            fontSize: 12, color: 'var(--text-tertiary)',
-            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          }}>
-            {message.snippet || ''}
-          </div>
+          {showMessagePreviews && (
+            <div style={{
+              fontSize: 12, color: 'var(--text-tertiary)',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              {message.snippet || ''}
+            </div>
+          )}
         </div>
         {hovered && hoverQuickActions && (
           <RowHoverActions
@@ -4174,12 +4178,13 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                     {formatDate(msg.date)}
                   </span>
                 </div>
+                {showMessagePreviews && (
                 <div style={{
                   fontSize: 11, color: 'var(--text-tertiary)',
                   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1,
                 }}>
                   {msg.snippet || ''}
-                </div>
+                </div>)}
               </div>
             </div>
           ))}
@@ -4189,7 +4194,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
   );
 }
 
-function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, showAccount, isNarrow, onSelect, onToggleSelect, onRangeSelect, onAvatarClick, showMobileAvatars, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onGtdDone, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, onLongPress }) {
+function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, showAccount, isNarrow, onSelect, onToggleSelect, onRangeSelect, onAvatarClick, showMobileAvatars, showMessagePreviews, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onGtdDone, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, onLongPress }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const [avatarHovered, setAvatarHovered] = useState(false);
@@ -4417,15 +4422,17 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
         </div>
 
         {/* Row 3: Snippet */}
-        <div style={{ display: 'flex', alignItems: 'center' }}>
-          <span style={{
-            fontSize: 12, color: 'var(--text-tertiary)',
-            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-            flex: 1,
-          }}>
-            {message.snippet || '\u00a0'}
-          </span>
-        </div>
+        {showMessagePreviews && (
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            <span style={{
+              fontSize: 12, color: 'var(--text-tertiary)',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              flex: 1,
+            }}>
+              {message.snippet || '\u00a0'}
+            </span>
+          </div>
+        )}
         </div>
       </div>
 

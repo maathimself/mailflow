@@ -455,6 +455,14 @@ export const useStore = create((set, get) => ({
     schedulePrefSave({ gravatarAvatars: val });
   },
 
+  // Show message preview snippets in the message list (on by default).
+  showMessagePreviews: localStorage.getItem('mailflow_show_message_previews') !== 'false',
+  setShowMessagePreviews: (val) => {
+    localStorage.setItem('mailflow_show_message_previews', String(val));
+    set({ showMessagePreviews: val });
+    schedulePrefSave({ showMessagePreviews: val });
+  },
+
   replyDefault: localStorage.getItem('mailflow_reply_default') || 'reply',
   setReplyDefault: (val) => {
     localStorage.setItem('mailflow_reply_default', val);
@@ -974,6 +982,10 @@ export const useStore = create((set, get) => ({
       if (typeof prefs.gravatarAvatars === 'boolean') {
         localStorage.setItem('mailflow_gravatar_avatars', String(prefs.gravatarAvatars));
         set({ gravatarAvatars: prefs.gravatarAvatars });
+      }
+      if (typeof prefs.showMessagePreviews === 'boolean') {
+        localStorage.setItem('mailflow_show_message_previews', String(prefs.showMessagePreviews));
+        set({ showMessagePreviews: prefs.showMessagePreviews });
       }
       if (prefs.replyDefault === 'reply' || prefs.replyDefault === 'replyAll') {
         localStorage.setItem('mailflow_reply_default', prefs.replyDefault);
