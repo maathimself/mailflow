@@ -20,7 +20,7 @@ import { shortcutBus } from '../utils/shortcutBus.js';
 import { createLatestRequest } from '../utils/latestRequest.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
 import { applyDeleteGuard, clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.js';
-import { conversationListParams, groupsMessageList } from '../utils/conversationMode.js';
+import { conversationListParams, expandsThreadsInline, groupsMessageList } from '../utils/conversationMode.js';
 
 // Folder icon for move picker
 function FolderIcon({ specialUse, size = 13 }) {
@@ -125,6 +125,7 @@ export default function MessageList() {
   // of the selected message (multi-folder model) — e.g. the inbox copy of a GTD sidebar click.
   const selectedMid = useStore(selectSelectedMessageMid);
   const threadedView = groupsMessageList(conversationMode);
+  const inlineThreadExpansion = expandsThreadsInline(conversationMode);
 
   const isMobile = useMobile();
   const isUnified = selectedAccountId === null;
@@ -2158,6 +2159,13 @@ export default function MessageList() {
       handleSelect(message);
       return;
     }
+    if (!inlineThreadExpansion) {
+      clearTimeout(autoMarkReadTimerRef.current);
+      autoMarkReadTimerRef.current = null;
+      setSelectedMessage(message.id);
+      listRef.current?.focus({ preventScroll: true });
+      return;
+    }
     if (expandedThreadId === tid) {
       setExpandedThreadId(null);
       return;
@@ -3376,7 +3384,8 @@ export default function MessageList() {
               <ThreadRow
                 key={tid}
                 message={message}
-                isExpanded={expandedThreadId === tid}
+                isExpanded={inlineThreadExpansion && expandedThreadId === tid}
+                inlineExpansion={inlineThreadExpansion}
                 threadMsgs={threadMessages[tid] || null}
                 isLoadingThread={loadingThread === tid}
                 selectedMessageId={selectedMessageId}
@@ -3864,7 +3873,7 @@ function EmptyState({ folderSyncing, searchQuery, unreadOnly, selectedFolder, ac
   );
 }
 
-function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, lastViewedMessageId, showAccount, isNarrow, onThreadClick, showMobileAvatars, gravatarAvatars, onSelect, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onGtdDone, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress }) {
+function ThreadRow({ message, isExpanded, inlineExpansion, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, lastViewedMessageId, showAccount, isNarrow, onThreadClick, showMobileAvatars, gravatarAvatars, onSelect, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onGtdDone, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const messageCount = message.message_count || 1;
@@ -4031,11 +4040,11 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                   background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)',
                   borderRadius: 10, padding: '1px 6px', flexShrink: 0,
                 }}>
-                  <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  {inlineExpansion && <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                     {isExpanded
                       ? <polyline points="18 15 12 9 6 15" />
                       : <polyline points="6 9 12 15 18 9" />}
-                  </svg>
+                  </svg>}
                   {messageCount}
                 </span>
               )}
@@ -4094,7 +4103,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
       </div>{/* end swipe container */}
 
       {/* Expanded sub-rows */}
-      {isExpanded && (
+      {inlineExpansion && isExpanded && (
         <div style={{ background: 'var(--bg-secondary)', borderTop: '1px solid var(--border-subtle)' }}>
           {isLoadingThread ? (
             <div style={{ padding: '14px 16px', display: 'flex', justifyContent: 'center' }}>

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   conversationMembershipKey,
   conversationReadTargets,
+  conversationUnreadCount,
   inboxConversationReadTargets,
   initialExpandedMessageIds,
   newestConversationMessage,
@@ -64,6 +65,15 @@ describe('conversation selection helpers', () => {
   it('targets only messages whose read state must change', () => {
     assert.deepEqual(conversationReadTargets(messages, true).map(item => item.id), ['oldest', 'newest']);
     assert.deepEqual(conversationReadTargets(messages, false).map(item => item.id), ['middle']);
+  });
+
+  it('counts unread messages after normalization', () => {
+    const duplicateUnread = message('duplicate', '2026-07-26T13:00:00Z', {
+      message_id: messages[0].message_id,
+      is_read: false,
+    });
+
+    assert.equal(conversationUnreadCount([...messages, duplicateUnread]), 2);
   });
 
   it('keeps the membership key stable when only read state changes', () => {

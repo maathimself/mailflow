@@ -16,6 +16,10 @@ export const unreadConversationIds = messages => normalizeConversation(messages)
   .filter(message => !message.is_read)
   .map(message => message.id);
 
+export const conversationUnreadCount = messages => normalizeConversation(messages)
+  .filter(message => !message.is_read)
+  .length;
+
 export const conversationReadTargets = (messages, read) => normalizeConversation(messages)
   .filter(message => message.is_read !== read);
 
