@@ -11,7 +11,7 @@ import { setPending, pendingMarkReadMap, completedMarkReadMap } from '../utils/p
 import { buildKeyMap, buildModKeyMap, getEffectiveShortcuts, getGroupedActions, parseModKey, modLabel, SPECIAL_KEYS, SPECIAL_KEY_LABELS } from '../utils/defaultShortcuts.js';
 import Sidebar from './Sidebar.jsx';
 import MessageList from './MessageList.jsx';
-import MessagePane from './MessagePane.jsx';
+import ReadingPane from './ReadingPane.jsx';
 import GtdSidebarContent from './GtdSidebarContent.jsx';
 import NotificationToasts from './NotificationToasts.jsx';
 import CommandPalette from './CommandPalette.jsx';
@@ -763,7 +763,7 @@ export default function MailApp() {
             <MessageList />
           </div>
           <div style={{ flex: 1, display: !showContacts && selectedMessageId ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
-            <MessagePane />
+            <ReadingPane />
           </div>
         </>
       ) : (
@@ -805,7 +805,7 @@ export default function MailApp() {
                   onMouseLeave={e => { e.currentTarget.style.background = 'var(--border-subtle)'; }}
                 />
               )}
-              <MessagePane />
+              <ReadingPane />
               {/* Generic right-sidebar column, populated from the content seam above. */}
               {currentLayout.direction === 'row' && rightSidebarContent != null && (
                 <>

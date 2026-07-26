@@ -249,6 +249,11 @@
       "error": "La clasificación con IA falló."
     }
   },
+  "conversation": {
+    "messages_one": "{{count}} mensaje",
+    "messages_other": "{{count}} mensajes",
+    "replyLatest": "Responder al mensaje más reciente"
+  },
   "messageList": {
     "search": "Buscar…",
     "unread": "No leídos",

@@ -249,6 +249,11 @@
       "error": "KI-Klassifizierung fehlgeschlagen."
     }
   },
+  "conversation": {
+    "messages_one": "{{count}} Nachricht",
+    "messages_other": "{{count}} Nachrichten",
+    "replyLatest": "Auf neueste Nachricht antworten"
+  },
   "messageList": {
     "search": "Suchen…",
     "unread": "Ungelesen",

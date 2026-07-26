@@ -249,6 +249,11 @@
       "error": "AI classification failed."
     }
   },
+  "conversation": {
+    "messages_one": "{{count}} message",
+    "messages_other": "{{count}} messages",
+    "replyLatest": "Reply to latest"
+  },
   "messageList": {
     "search": "Search…",
     "unread": "Unread",

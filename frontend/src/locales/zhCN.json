@@ -249,6 +249,11 @@
       "error": "AI 分类失败。"
     }
   },
+  "conversation": {
+    "messages_one": "{{count}} 封邮件",
+    "messages_other": "共 {{count}} 封邮件",
+    "replyLatest": "回复最新邮件"
+  },
   "messageList": {
     "search": "搜索…",
     "unread": "未读",

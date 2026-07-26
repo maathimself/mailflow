@@ -249,6 +249,11 @@
       "error": "Ошибка классификации ИИ."
     }
   },
+  "conversation": {
+    "messages_one": "{{count}} сообщение",
+    "messages_other": "{{count}} сообщений",
+    "replyLatest": "Ответить на последнее сообщение"
+  },
   "messageList": {
     "search": "Поиск…",
     "unread": "Непрочитанные",

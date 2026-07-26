@@ -249,6 +249,11 @@
       "error": "La classification par IA a échoué."
     }
   },
+  "conversation": {
+    "messages_one": "{{count}} message dans la conversation",
+    "messages_other": "{{count}} messages dans la conversation",
+    "replyLatest": "Répondre au dernier message"
+  },
   "messageList": {
     "search": "Rechercher…",
     "unread": "Non lus",
