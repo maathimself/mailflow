@@ -12,29 +12,14 @@ import DOMPurify from 'dompurify';
 import { BUILTIN_SUMMARIZE } from '../aiActions.js';
 import { getResults, saveResult, removeResult } from '../aiResults.js';
 import { renderMarkdown } from '../utils/renderMarkdown.js';
-const USE_DIV_RENDER = import.meta.env.VITE_EMAIL_DIV_RENDER === 'true';
-const MESSAGE_OPENING_EVENT = 'mailflow:message-opening';
-
-// Module-level regex so the spam-name heuristic isn't recompiled on every
-// render — same heuristic as ContextMenu.jsx, both files read this constant.
-const SPAM_NAME_RE = /(spam|junk|bulk|indesiderata|spamverdacht|courrier\s*ind|posta\s*indesiderata)/i;
-
-// Lazy-load the div-renderer utilities so PostCSS is excluded from the flag-off
-// bundle. Rollup treats the import() calls inside this block as dead code when
-// USE_DIV_RENDER compiles to false, stripping PostCSS and both utility modules.
-// In the flag-on build they live in the same chunk, so the dynamic imports
-// resolve synchronously — no perceptible delay before first render.
-let prepareEmailHtml  = null;
-let injectEmailStyles = null;
-let removeEmailStyles = null;
-if (USE_DIV_RENDER) {
-  ({ prepareEmailHtml }                    = await import('../utils/scopeEmailCss.js'));
-  ({ injectEmailStyles, removeEmailStyles } = await import('../utils/emailStyleRegistry.js'));
-}
 import { senderColor } from '../themes.js';
 import MessageHeaderModal from './MessageHeaderModal.jsx';
 import FolderIcon from './FolderIcon.jsx';
 import TodoistTaskModal from './TodoistTaskModal.jsx';
+import MessageBodyView from './MessageBodyView.jsx';
+
+const MESSAGE_OPENING_EVENT = 'mailflow:message-opening';
+const SPAM_NAME_RE = /(spam|junk|bulk|indesiderata|spamverdacht|courrier\s*ind|posta\s*indesiderata)/i;
 
 function parseAddressField(raw) {
   try {
@@ -43,56 +28,12 @@ function parseAddressField(raw) {
   } catch { return ''; }
 }
 
-function linkifyText(text) {
-  const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  return escaped.replace(
-    /https?:\/\/[^\s<>"']+/g,
-    url => `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:inherit">${url}</a>`
-  );
-}
-
-function formatBytes(bytes) {
-  if (!bytes) return '';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function fileIcon(type) {
-  const t = (type || '').toLowerCase();
-  const p = { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.75 };
-  if (t.startsWith('image/')) return (
-    <svg {...p}><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-  );
-  if (t === 'application/pdf') return (
-    <svg {...p}><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-  );
-  if (t.includes('word') || t.includes('document')) return (
-    <svg {...p}><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-  );
-  if (t.includes('sheet') || t.includes('excel') || t.includes('csv')) return (
-    <svg {...p}><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="10" y1="13" x2="10" y2="17"/><line x1="8" y1="15" x2="12" y2="15"/></svg>
-  );
-  if (t.includes('zip') || t.includes('compressed') || t.includes('archive')) return (
-    <svg {...p}><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="11" x2="16" y2="11"/></svg>
-  );
-  if (t.startsWith('video/')) return (
-    <svg {...p}><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
-  );
-  if (t.startsWith('audio/')) return (
-    <svg {...p}><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
-  );
-  return (
-    <svg {...p}><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
-  );
-}
-
 export default function MessagePane() {
   const { t } = useTranslation();
   const {
     messages, searchResults, searchQuery, selectedMessageId, setSelectedMessage,
     updateMessage, removeMessage, decrementUnread, incrementUnread, openCompose, accounts, addNotification,
-    imageWhitelist, addToImageWhitelist, blockRemoteImages, threadMessages,
+    threadMessages,
     replyDefault, shortcuts, recentFolders, favoriteFolders, todoistConnected,
     categorizationEnabled, setCategoryCounts, adjustCategoryCount,
     aiActions, setShowAdmin, setAdminTab,
@@ -183,7 +124,6 @@ export default function MessagePane() {
   // previous (possibly taller) email.
   useLayoutEffect(() => {
     if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
-    if (iframeRef.current) iframeRef.current.style.height = '300px';
   }, [selectedMessageId]);
 
   useEffect(() => {
@@ -263,12 +203,7 @@ export default function MessagePane() {
   const hasNext = currentIdx >= 0 && currentIdx < allMessages.length - 1;
 
   const [body, setBody] = useState(null);
-  const [bodyError, setBodyError] = useState(null);
-  const [retryKey, setRetryKey] = useState(0);
-  const [loadingBody, setLoadingBody] = useState(false);
-  const [downloadingPart, setDownloadingPart] = useState(null);
   const [showReplyMenu, setShowReplyMenu] = useState(false);
-  const [savingAllow, setSavingAllow] = useState(false);
   const [paneScrolled, setPaneScrolled] = useState(false);
   const [showHeaderModal, setShowHeaderModal] = useState(false);
   const [resolvedSubject, setResolvedSubject] = useState(null);
@@ -291,450 +226,8 @@ export default function MessagePane() {
   // One AbortController per in-flight action, keyed by action key.
   const aiAbortRefs = useRef({});
   const scrollContainerRef = useRef(null);
-  const iframeRef = useRef(null);
-  const roRef = useRef(null);
-  // useMemo so prepared is available in the same render as body.html — no extra frame,
-  // no flash of empty content between skeleton-gone and email-shown.
-  const prepared = useMemo(() => {
-    if (!USE_DIV_RENDER || !body?.html) return null;
-    return prepareEmailHtml(body.html, String(message?.id ?? 'preview'));
-  }, [body?.html, message?.id]);
-  const outerRef = useRef(null);
-  const scaleRef = useRef(null);
-  const innerRef = useRef(null);
-  const bodyCache = useRef({}); // messageId -> body, so revisiting is instant (capped at 50)
-  const bodyCacheOrder = useRef([]); // insertion-order keys for LRU eviction
-  // Session-scoped set of message IDs where the user has clicked "Load images once"
-  const imagesRequestedRef = useRef(new Set());
   // Ref holding the latest pane action handlers so shortcut subscriptions ([] deps) never go stale
   const paneActionsRef = useRef({});
-  const emailScaleRef = useRef(1); // scale applied to wide emails that resist CSS reflow
-
-  // Track previous blocking policy so we can detect tightening vs loosening.
-  const prevBlockingPolicyRef = useRef(null);
-
-  // Flush body cache when the image-blocking policy changes:
-  // - Tightening (blocking ON, or whitelist entry removed): evict unblocked entries so they
-  //   re-fetch with blocking applied. Also clear imagesRequestedRef for evicted IDs so a
-  //   prior "load images once" click doesn't silently bypass the re-tightened policy.
-  // - Loosening globally (blocking turned OFF): evict blocked entries so the current email
-  //   immediately shows images without requiring navigation. Whitelist additions are handled
-  //   directly in handleAllowSender/Domain to avoid triggering a double-eviction here.
-  useEffect(() => {
-    const prev = prevBlockingPolicyRef.current;
-    const curr = {
-      blockRemoteImages,
-      addrCount: (imageWhitelist?.addresses || []).length,
-      domainCount: (imageWhitelist?.domains || []).length,
-    };
-    prevBlockingPolicyRef.current = curr;
-    if (!prev) return; // skip initial mount
-
-    const tightened =
-      (!prev.blockRemoteImages && curr.blockRemoteImages) ||
-      prev.addrCount > curr.addrCount ||
-      prev.domainCount > curr.domainCount;
-    const loosenedGlobally = prev.blockRemoteImages && !curr.blockRemoteImages;
-    // Whitelist additions from any source (email banner or Admin Privacy tab) need
-    // blocked cache entries evicted. The email banner handlers also do this directly
-    // but a second eviction pass on an already-empty slot is harmless.
-    const loosenedViaWhitelist = !tightened && (
-      curr.addrCount > prev.addrCount || curr.domainCount > prev.domainCount
-    );
-
-    let evicted = false;
-    if (tightened) {
-      for (const id of Object.keys(bodyCache.current)) {
-        if (!bodyCache.current[id]?.hasBlockedRemoteImages) {
-          delete bodyCache.current[id];
-          imagesRequestedRef.current.delete(id); // clear "load once" so policy is respected
-          evicted = true;
-        }
-      }
-    }
-    if (loosenedGlobally || loosenedViaWhitelist) {
-      for (const id of Object.keys(bodyCache.current)) {
-        if (bodyCache.current[id]?.hasBlockedRemoteImages) {
-          delete bodyCache.current[id];
-          evicted = true;
-        }
-      }
-    }
-    if (evicted) {
-      bodyCacheOrder.current = bodyCacheOrder.current.filter(id => bodyCache.current[id]);
-      setRetryKey(k => k + 1);
-    }
-  }, [blockRemoteImages, imageWhitelist]);
-
-  useLayoutEffect(() => {
-    if (!selectedMessageId) {
-      setBody(null);
-      setBodyError(null);
-      setLoadingBody(false);
-      return;
-    }
-
-    // Serve from cache when available — avoids re-fetching on revisit.
-    // Skip the cache (or clear a stale blocked entry) when the user has explicitly
-    // requested images for this message so we re-fetch with ?remoteImages=1.
-    const wantsImages = imagesRequestedRef.current.has(selectedMessageId);
-    const cached = bodyCache.current[selectedMessageId];
-    if (cached && (cached.html || cached.text)) {
-      if (!wantsImages || !cached.hasBlockedRemoteImages) {
-        setBody(cached);
-        setBodyError(null);
-        setLoadingBody(false);
-        return;
-      }
-      // Cache has the blocked version but user wants images — evict and re-fetch
-      delete bodyCache.current[selectedMessageId];
-    }
-
-    // Clear previous content immediately so stale body never shows for a new message
-    setBody(null);
-    setBodyError(null);
-    setLoadingBody(true);
-
-    // Cancellation flag — prevents a slow in-flight fetch for a previous message
-    // from overwriting state after the user has already moved to a different message.
-    let cancelled = false;
-
-    // Auto-retry helper: retries on transient errors (not-found race, dead IMAP
-    // connection, etc.) with exponential backoff before surfacing a permanent error.
-    const fetchWithRetry = async (id, attemptsLeft = 2, delay = 500) => {
-      try {
-        return await api.getMessageBody(id, imagesRequestedRef.current.has(id));
-      } catch (err) {
-        const isNotFound = /not found/i.test(err.message);
-        const isTransient = /Command failed|Command canceled|timed out|ECONNRESET|socket hang up|EPIPE/i.test(err.message);
-        if ((isNotFound || isTransient) && attemptsLeft > 0 && !cancelled) {
-          await new Promise(r => setTimeout(r, delay));
-          if (cancelled) throw err; // user navigated away during wait
-          return fetchWithRetry(id, attemptsLeft - 1, delay * 2);
-        }
-        throw err;
-      }
-    };
-
-    fetchWithRetry(selectedMessageId)
-      .then(data => {
-        if (cancelled) return;
-        // Only cache if there's real content — empty results can be retried
-        if (data.html || data.text) {
-          bodyCache.current[selectedMessageId] = data;
-          bodyCacheOrder.current.push(selectedMessageId);
-          // Evict oldest entry when cache exceeds 50 messages
-          if (bodyCacheOrder.current.length > 50) {
-            const evicted = bodyCacheOrder.current.shift();
-            delete bodyCache.current[evicted];
-          }
-        }
-        setBody(data);
-      })
-      .catch(err => {
-        if (cancelled) return;
-        setBodyError(err.message);
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingBody(false);
-      });
-
-    return () => { cancelled = true; };
-  }, [selectedMessageId, retryKey]);
-
-  // Size the iframe to its full content height so no internal scrollbar appears.
-  // The outer overflow:auto container is the only scrollbar the user sees.
-  //
-  // Key design: overflow:hidden is injected via the srcDoc <style> (with !important)
-  // so email CSS can never make html/body fill the iframe height.  We never toggle
-  // overflow here, which eliminates the feedback loop where clearing overflow lets
-  // percentage-height elements expand → body grows → observer fires → repeat.
-  useEffect(() => {
-    const iframe = iframeRef.current;
-    if (!iframe || !body?.html) return;
-
-    let rafId;
-    let lastH = 0;
-
-    const setHeight = () => {
-      const doc = iframe.contentDocument;
-      if (!doc) return;
-      const el = doc.documentElement;
-      const b  = doc.body;
-      const h  = Math.max(
-        el ? el.scrollHeight : 0,
-        el ? el.offsetHeight : 0,
-        b  ? b.scrollHeight  : 0,
-        b  ? b.offsetHeight  : 0,
-      );
-      // Scale visual height to match the proportional scale applied to the
-      // email wrapper (1 for normal emails, <1 for wide fixed-layout emails).
-      const scaled = Math.round(h * emailScaleRef.current);
-      if (scaled > lastH) {
-        lastH = scaled;
-        iframe.style.height = scaled + 'px';
-      }
-    };
-
-    const onLoaded = () => {
-      emailScaleRef.current = 1; // reset for each new email
-
-      const doc = iframe.contentDocument;
-      if (!doc) return;
-
-      // Some marketing emails have inline styles on their <body> tag (e.g. overflow:auto,
-      // height:100%) that the HTML parser merges into the iframe's outer <body>.  Our
-      // injected <style> with !important can't win against inline !important rules.
-      // Setting the properties via JS style.setProperty(...,'important') writes them as
-      // inline !important, which always beats any same-property inline value from the email.
-      const b = doc.body;
-      const h = doc.documentElement;
-      if (b) {
-        b.style.setProperty('height', 'auto', 'important');
-        b.style.setProperty('min-height', '0', 'important');
-        b.style.setProperty('overflow-y', 'hidden', 'important');
-      }
-      if (h) {
-        h.style.setProperty('height', 'auto', 'important');
-        h.style.setProperty('min-height', '0', 'important');
-        h.style.setProperty('overflow-y', 'hidden', 'important');
-      }
-
-      // Some marketing emails (e.g. Avis) use class-based !important rules that
-      // lock layout to a fixed pixel width and cannot be overridden by our injected
-      // CSS. Measure the rendered content width and, if it exceeds the iframe,
-      // scale the entire wrapper div down proportionally so all content is visible.
-      const iframeW = iframe.offsetWidth;
-      if (iframeW > 0) {
-        // iOS Safari clamps scrollWidth to the iframe viewport when overflow:hidden
-        // is set on html/body, so wide fixed-layout emails are never detected.
-        // Temporarily expose overflow-x inline (beating the !important stylesheet
-        // rule) to let scrollWidth reflect the true content width, then restore.
-        // Note: overflow-x:visible is coerced to auto when overflow-y is non-visible —
-        // that's fine; auto still returns the real scrollable content width.
-        if (b) b.style.setProperty('overflow-x', 'visible', 'important');
-        if (h) h.style.setProperty('overflow-x', 'visible', 'important');
-        const contentW = Math.max(
-          h ? h.scrollWidth : 0,
-          b ? b.scrollWidth : 0,
-        );
-        if (b) b.style.removeProperty('overflow-x');
-        if (h) h.style.removeProperty('overflow-x');
-
-        const wrapper = doc.getElementById('mf-scale-wrapper');
-        if (contentW > iframeW + 2) { // +2 absorbs sub-pixel rounding
-          const scale = iframeW / contentW;
-          emailScaleRef.current = scale;
-          if (wrapper) {
-            wrapper.style.transform       = `scale(${scale})`;
-            wrapper.style.transformOrigin = 'top left';
-            // Lock the wrapper at its natural content width so the scale
-            // maps exactly contentW → iframeW with no clipping.
-            wrapper.style.width           = `${contentW}px`;
-          }
-        }
-      }
-
-      // Expand any nested scroll containers so their full content is visible
-      // without internal scrolling. Marketing emails sometimes apply overflow:auto
-      // plus a fixed height to inner divs/tds, which makes iOS scroll that element
-      // instead of the outer pane container — leaving the sender card pinned like a
-      // sticky header.
-      //
-      // Process in REVERSE document order (deepest elements first) so that when we
-      // expand an inner scroll container, the outer container's scrollHeight already
-      // reflects the expanded child when we evaluate it — preventing missed outer
-      // containers in a single pass.
-      //
-      // expandedEls tracks which elements we've already expanded so that subsequent
-      // calls from image load handlers can re-check and grow them as lazy images add
-      // height (an element that was 1 000 px after the first pass may be 3 000 px
-      // once all images are loaded).
-      const expandedEls = new Set();
-      const dv = doc.defaultView;
-      const expandScrollContainers = () => {
-        if (!dv) return;
-        Array.from(doc.querySelectorAll('*')).reverse().forEach(el => {
-          const cs = dv.getComputedStyle(el);
-          const oy = cs.overflowY;
-          const isScrollContainer = (oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 2;
-          const grewAfterExpansion = expandedEls.has(el) && el.scrollHeight > el.clientHeight + 2;
-          if (isScrollContainer || grewAfterExpansion) {
-            expandedEls.add(el);
-            el.style.setProperty('overflow-y', 'hidden', 'important');
-            el.style.setProperty('max-height', 'none', 'important');
-            el.style.setProperty('height', el.scrollHeight + 'px', 'important');
-          }
-        });
-      };
-      expandScrollContainers();
-
-      lastH = 0; // recalculate from scratch with the new scale
-      setHeight();
-      rafId = requestAnimationFrame(setHeight);
-
-      // Intercept all link clicks so they always open in a real browser tab.
-      // Without this, relative hrefs (e.g. href="/") resolve to the mailflow
-      // origin via allow-same-origin and open a new mailflow tab instead of
-      // the intended destination.  We read the raw attribute to bypass
-      // browser resolution and only forward absolute http(s)/mailto links.
-      doc.addEventListener('click', (ev) => {
-        const anchor = ev.target.closest('a[href]');
-        if (!anchor) return;
-        ev.preventDefault();
-        let raw = anchor.getAttribute('href') || '';
-        if (raw.startsWith('//')) raw = 'https:' + raw;
-        if (/^https?:\/\//i.test(raw)) {
-          window.open(raw, '_blank', 'noopener,noreferrer');
-        } else if (/^mailto:/i.test(raw)) {
-          window.open(raw, '_blank', 'noopener,noreferrer');
-        }
-      });
-
-      // Re-measure after each lazy-loaded image settles; also re-expand any
-      // scroll containers whose content has grown due to the newly loaded image.
-      doc.querySelectorAll('img').forEach(img => {
-        if (!img.complete) {
-          img.addEventListener('load', () => { expandScrollContainers(); requestAnimationFrame(setHeight); }, { once: true });
-          img.addEventListener('error', () => requestAnimationFrame(setHeight), { once: true });
-        }
-      });
-
-      // Watch for content that reflows after load (web fonts, dynamic content).
-      // Guard: only grow — never shrink on observer fires — so any residual loop
-      // stalls immediately once height stabilises.
-      const root = doc.body || doc.documentElement;
-      if (window.ResizeObserver && root) {
-        roRef.current = new ResizeObserver(() => requestAnimationFrame(setHeight));
-        roRef.current.observe(root);
-      }
-    };
-
-    iframe.addEventListener('load', onLoaded, { once: true });
-    if (iframe.contentDocument?.readyState === 'complete') {
-      onLoaded();
-    }
-
-    return () => {
-      cancelAnimationFrame(rafId);
-      if (roRef.current) { roRef.current.disconnect(); roRef.current = null; }
-      iframe.removeEventListener('load', onLoaded);
-      emailScaleRef.current = 1;
-    };
-  }, [body?.html, selectedMessageId]);
-
-  // Inject scoped email styles before paint so there is no flash of unstyled content.
-  // useLayoutEffect runs synchronously after DOM mutations and before the browser paints,
-  // so the <style> tag is in <head> before the email div becomes visible.
-  useLayoutEffect(() => {
-    if (!prepared) return;
-    injectEmailStyles(prepared.prefix, prepared.styleBlocks);
-    return () => removeEmailStyles(prepared.prefix);
-  }, [prepared]);
-
-  // Div render path — scale-to-fit for wide fixed-layout emails.
-  // Uses outer/inner refs: measures inner (natural dimensions, unaffected by transform),
-  // sets height/overflow on outer (not observed by the ResizeObserver, preventing loops).
-  useEffect(() => {
-    if (!USE_DIV_RENDER || !prepared) return;
-
-    let rafId = null;
-    const expandedEls = new Set();
-
-    // Neutralize nested sender-created scroll containers (overflow:auto/scroll +
-    // fixed height) so iOS scrolls the message pane instead of an inner block —
-    // the same fix the iframe renderer applies. Runs on the unscaled content and
-    // re-grows previously-expanded elements as lazy images add height.
-    const expandScrollContainers = (root) => {
-      if (!root) return;
-      Array.from(root.querySelectorAll('*')).reverse().forEach(el => {
-        const oy = window.getComputedStyle(el).overflowY;
-        const isScroll = (oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 2;
-        const grew = expandedEls.has(el) && el.scrollHeight > el.clientHeight + 2;
-        if (isScroll || grew) {
-          expandedEls.add(el);
-          el.style.setProperty('overflow-y', 'hidden', 'important');
-          el.style.setProperty('max-height', 'none', 'important');
-          el.style.setProperty('height', el.scrollHeight + 'px', 'important');
-        }
-      });
-    };
-
-    const applyScale = () => {
-      const inner  = innerRef.current;
-      const outer  = outerRef.current;
-      const scaler = scaleRef.current;
-      if (!inner || !outer || !scaler) return;
-
-      // Reset first so we measure natural/unscaled dimensions.
-      // Transform goes on scaleRef (not innerRef) so the base normalize's
-      // transform:none!important on .email-* never cancels the scale.
-      scaler.style.transform       = '';
-      scaler.style.transformOrigin = '';
-      scaler.style.width           = '';
-      outer.style.height    = '';
-      outer.style.overflowX = '';
-      outer.style.overflowY = '';
-
-      // Expand nested scroll containers before measuring so the outer height and
-      // scale account for their full (un-scrolled) content.
-      expandScrollContainers(inner);
-
-      const containerW = outer.clientWidth;
-      const contentW   = inner.scrollWidth; // unaffected by ancestor transforms
-
-      if (containerW > 0 && contentW > containerW + 2) {
-        const scale = containerW / contentW;
-        // Lock scaler to the email's natural content width before applying the
-        // transform so scale(containerW/contentW) maps contentW → containerW
-        // exactly. Without this, scaler inherits innerRef's max-width:100% (=
-        // containerW) and the transform scales the wrong box entirely.
-        scaler.style.width           = `${contentW}px`;
-        scaler.style.transform       = `scale(${scale})`;
-        scaler.style.transformOrigin = 'top left';
-        outer.style.height           = Math.round(inner.scrollHeight * scale) + 'px';
-        // Transform does not change layout dimensions; hide both axes so the
-        // scaled outer wrapper is never treated as a scroll container.  Setting
-        // only overflowX would coerce overflowY from visible to auto (CSS
-        // overflow invariant), creating an accidental vertical scroll container
-        // that iOS scrolls before the outer pane's scrollContainerRef.
-        outer.style.overflowX        = 'hidden';
-        outer.style.overflowY        = 'hidden';
-      }
-    };
-
-    const scheduleScale = () => {
-      if (rafId) cancelAnimationFrame(rafId);
-      rafId = requestAnimationFrame(() => { rafId = null; applyScale(); });
-    };
-
-    // Store image listeners so we can remove them if the message changes mid-load.
-    const imageListeners = [];
-    innerRef.current?.querySelectorAll('img').forEach(img => {
-      if (!img.complete) {
-        const handler = () => scheduleScale();
-        img.addEventListener('load', handler, { once: true });
-        imageListeners.push({ img, handler });
-      }
-    });
-
-    // Watch inner for content reflow (web fonts, dynamic content).
-    // Do NOT observe outer — we set outer.style.height ourselves, which would
-    // immediately re-fire the observer and produce a measurement loop.
-    let ro;
-    if (window.ResizeObserver && innerRef.current) {
-      ro = new ResizeObserver(scheduleScale);
-      ro.observe(innerRef.current);
-    }
-
-    scheduleScale();
-
-    return () => {
-      if (rafId) cancelAnimationFrame(rafId);
-      if (ro) ro.disconnect();
-      imageListeners.forEach(({ img, handler }) => img.removeEventListener('load', handler));
-    };
-  }, [prepared]);
 
   // Fade in pane content when switching messages on desktop
   useEffect(() => {
@@ -1191,29 +684,6 @@ ${bodyContent}
     return () => { Object.values(aiAbortRefs.current).forEach(c => c?.abort()); };
   }, []);
 
-  const handleDownload = async (messageId, part, filename) => {
-    setDownloadingPart(part);
-    try {
-      const res = await fetch(`/api/mail/messages/${messageId}/attachments/${encodeURIComponent(part)}`, {
-        credentials: 'include'
-      });
-      if (!res.ok) throw new Error('Download failed');
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('Download error:', err);
-    } finally {
-      setDownloadingPart(null);
-    }
-  };
-
   const handleOpenMovePicker = useCallback(async () => {
     if (!message) return;
     if (showMovePicker) { setShowMovePicker(false); return; }
@@ -1245,19 +715,6 @@ ${bodyContent}
     });
     if (isMobile) setSelectedMessage(null);
   }, [message, updateMessage, incrementUnread, decrementUnread, adjustCategoryCount, isMobile, setSelectedMessage]);
-
-  const handleEmailClick = useCallback((ev) => {
-    const anchor = ev.target.closest('a[href]');
-    if (!anchor) return;
-    ev.preventDefault();
-    let raw = anchor.getAttribute('href') || '';
-    if (raw.startsWith('//')) raw = 'https:' + raw;
-    if (/^https?:\/\//i.test(raw)) {
-      window.open(raw, '_blank', 'noopener,noreferrer');
-    } else if (/^mailto:/i.test(raw)) {
-      window.open(raw, '_blank', 'noopener,noreferrer');
-    }
-  }, []);
 
   const handleMoveToFolder = useCallback((folder) => {
     if (!message) return;
@@ -1434,31 +891,6 @@ ${bodyContent}
     });
   };
 
-  const handleLoadImages = () => {
-    imagesRequestedRef.current.add(selectedMessageId);
-    delete bodyCache.current[selectedMessageId];
-    setRetryKey(k => k + 1);
-  };
-
-  const handleAllowSender = async () => {
-    const senderEmail = message.from_email?.toLowerCase();
-    if (!senderEmail) return;
-    setSavingAllow(true);
-    try {
-      await addToImageWhitelist({ type: 'address', value: senderEmail });
-      // Evict all blocked cache entries so they re-fetch with images unblocked
-      for (const id of Object.keys(bodyCache.current)) {
-        if (bodyCache.current[id]?.hasBlockedRemoteImages) delete bodyCache.current[id];
-      }
-      bodyCacheOrder.current = bodyCacheOrder.current.filter(id => bodyCache.current[id]);
-      setRetryKey(k => k + 1);
-    } catch {
-      addNotification({ title: t('message.whitelistFail.title'), body: t('message.whitelistFail.body') });
-    } finally {
-      setSavingAllow(false);
-    }
-  };
-
   const handleUnsubscribe = async () => {
     if (!message) return;
     setUnsubscribeStatus('loading');
@@ -1511,26 +943,6 @@ ${bodyContent}
     }
   };
 
-  const handleAllowDomain = async () => {
-    const senderEmail = message.from_email?.toLowerCase() || '';
-    const senderDomain = senderEmail.includes('@') ? senderEmail.split('@')[1] : '';
-    if (!senderDomain) return;
-    setSavingAllow(true);
-    try {
-      await addToImageWhitelist({ type: 'domain', value: senderDomain });
-      // Evict all blocked cache entries so they re-fetch with images unblocked
-      for (const id of Object.keys(bodyCache.current)) {
-        if (bodyCache.current[id]?.hasBlockedRemoteImages) delete bodyCache.current[id];
-      }
-      bodyCacheOrder.current = bodyCacheOrder.current.filter(id => bodyCache.current[id]);
-      setRetryKey(k => k + 1);
-    } catch {
-      addNotification({ title: t('message.whitelistFail.title'), body: t('message.whitelistFail.body') });
-    } finally {
-      setSavingAllow(false);
-    }
-  };
-
   const toList = (() => {
     try {
       return Array.isArray(message.to_addresses)
@@ -1547,7 +959,77 @@ ${bodyContent}
     } catch { return []; }
   })();
 
-  const attachments = body?.attachments || [];
+  const messageBodyBanner = (
+    <>
+      {message.list_unsubscribe && !message.unsubscribed_at && unsubscribeStatus !== 'done' && (
+        <div style={{
+          marginBottom: 10, padding: '9px 14px', background: 'var(--bg-secondary)',
+          border: '1px solid var(--border)', borderLeft: '3px solid var(--text-tertiary)',
+          borderRadius: 8, display: 'flex', alignItems: 'center', gap: 10,
+          flexWrap: 'wrap', fontSize: 12, color: 'var(--text-secondary)',
+        }}>
+          <span style={{ flex: 1 }}>{t('message.unsubscribe.info')}</span>
+          <button
+            onClick={handleUnsubscribe}
+            disabled={unsubscribeStatus === 'loading'}
+            style={{
+              background: 'none', border: '1px solid var(--border)', borderRadius: 5,
+              padding: '3px 9px', cursor: unsubscribeStatus === 'loading' ? 'default' : 'pointer',
+              color: unsubscribeStatus === 'error' ? 'var(--red, #e53e3e)' : 'var(--text-primary)',
+              fontSize: 11, fontWeight: 500, opacity: unsubscribeStatus === 'loading' ? 0.5 : 1,
+            }}
+          >
+            {unsubscribeStatus === 'loading' ? t('common.loading')
+              : unsubscribeStatus === 'error' ? t('message.unsubscribe.error')
+                : t('message.unsubscribe.button')}
+          </button>
+        </div>
+      )}
+      {!message.category
+        && (categorizationEnabled || accounts.find(account => account.id === message.account_id)?.categorization_enabled)
+        && aiStatus?.enabled && (
+          <div style={{
+            marginBottom: 10, padding: '9px 14px', background: 'var(--bg-secondary)',
+            border: '1px solid var(--border)', borderLeft: '3px solid var(--text-tertiary)',
+            borderRadius: 8, display: 'flex', alignItems: 'center', gap: 10,
+            flexWrap: 'wrap', fontSize: 12, color: 'var(--text-secondary)',
+          }}>
+            <span style={{ flex: 1 }}>{t('message.aiClassify.info')}</span>
+            <button
+              onClick={handleAiClassify}
+              disabled={aiClassifying}
+              style={{
+                background: 'none', border: '1px solid var(--border)', borderRadius: 5,
+                padding: '3px 9px', cursor: aiClassifying ? 'default' : 'pointer',
+                color: 'var(--text-primary)', fontSize: 11, fontWeight: 500,
+                opacity: aiClassifying ? 0.5 : 1,
+              }}
+            >
+              {aiClassifying ? t('common.loading') : t('message.aiClassify.button')}
+            </button>
+          </div>
+        )}
+    </>
+  );
+
+  const messageAiResults = Object.keys(aiResults).length > 0 ? (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+      {Object.entries(aiResults).map(([key, result]) => {
+        const action = key === BUILTIN_SUMMARIZE.id
+          ? BUILTIN_SUMMARIZE
+          : (aiActions || []).find(item => item.id === key);
+        return (
+          <AiResultBox
+            key={key}
+            result={result}
+            canRegen={Boolean(action)}
+            onRegen={() => action && runAiAction(action, { force: true })}
+            onDismiss={() => dismissAiResult(key)}
+          />
+        );
+      })}
+    </div>
+  ) : null;
 
   return (
     <div
@@ -2205,410 +1687,17 @@ ${bodyContent}
 
         </div>
 
-        {/* Attachments */}
-        {attachments.length > 0 && (
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 500 }}>
-                {t('message.attachment', { count: attachments.length })}
-              </div>
-              {attachments.length > 1 && (
-                <a
-                  href={`/api/mail/messages/${message.id}/attachments.zip`}
-                  download
-                  style={{
-                    fontSize: 12, color: 'var(--accent)', textDecoration: 'none',
-                    display: 'flex', alignItems: 'center', gap: 4,
-                  }}
-                >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-                    <polyline points="7 10 12 15 17 10"/>
-                    <line x1="12" y1="15" x2="12" y2="3"/>
-                  </svg>
-                  {t('message.downloadAll')}
-                </a>
-              )}
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {attachments.map((att, i) => (
-                <button
-                  key={i}
-                  onClick={() => handleDownload(message.id, att.part, att.filename)}
-                  disabled={downloadingPart === att.part}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 8,
-                    padding: '8px 12px', borderRadius: 8,
-                    background: 'var(--bg-secondary)',
-                    border: '1px solid var(--border)',
-                    cursor: downloadingPart === att.part ? 'wait' : 'pointer',
-                    color: 'var(--text-primary)',
-                    transition: 'background 0.1s',
-                    maxWidth: 240,
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-                  onMouseLeave={e => e.currentTarget.style.background = 'var(--bg-secondary)'}
-                >
-                  <span style={{ display: 'flex', flexShrink: 0, color: 'var(--text-secondary)' }}>{fileIcon(att.type)}</span>
-                  <div style={{ minWidth: 0, textAlign: 'left' }}>
-                    <div style={{
-                      fontSize: 12, fontWeight: 500,
-                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                    }}>
-                      {att.filename}
-                    </div>
-                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
-                      {downloadingPart === att.part ? t('message.downloading') : formatBytes(att.size)}
-                    </div>
-                  </div>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-                    stroke="var(--text-tertiary)" strokeWidth="2" style={{ flexShrink: 0 }}>
-                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-                    <polyline points="7 10 12 15 17 10"/>
-                    <line x1="12" y1="15" x2="12" y2="3"/>
-                  </svg>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
+        <MessageBodyView
+          message={message}
+          eager
+          onBodyLoaded={setBody}
+          onOpenHeaders={() => setShowHeaderModal(true)}
+          beforeContent={messageAiResults}
+          banner={messageBodyBanner}
+          inset={false}
+        />
 
-        {/* AI action results — pinned boxes above the message (#204) */}
-        {Object.keys(aiResults).length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
-            {Object.entries(aiResults).map(([key, result]) => {
-              const action = key === BUILTIN_SUMMARIZE.id
-                ? BUILTIN_SUMMARIZE
-                : (aiActions || []).find(a => a.id === key);
-              return (
-                <AiResultBox
-                  key={key}
-                  result={result}
-                  canRegen={!!action}
-                  onRegen={() => action && runAiAction(action, { force: true })}
-                  onDismiss={() => dismissAiResult(key)}
-                />
-              );
-            })}
-          </div>
-        )}
-
-        {/* Loading — skeleton body lines */}
-        {loadingBody && (
-          <div style={{ padding: '20px 0', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div className="skeleton-line" style={{ height: 13, width: '62%', borderRadius: 4 }} />
-            <div className="skeleton-line" style={{ height: 13, width: '88%', borderRadius: 4 }} />
-            <div className="skeleton-line" style={{ height: 13, width: '75%', borderRadius: 4 }} />
-            <div className="skeleton-line" style={{ height: 13, width: '50%', borderRadius: 4, marginBottom: 8 }} />
-            <div className="skeleton-line" style={{ height: 13, width: '82%', borderRadius: 4 }} />
-            <div className="skeleton-line" style={{ height: 13, width: '68%', borderRadius: 4 }} />
-            <div className="skeleton-line" style={{ height: 13, width: '90%', borderRadius: 4 }} />
-            <div className="skeleton-line" style={{ height: 13, width: '58%', borderRadius: 4 }} />
-          </div>
-        )}
-
-        {/* Error */}
-        {!loadingBody && bodyError && (
-          <div style={{
-            display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
-            gap: 12, padding: '20px 0',
-          }}>
-            <div style={{
-              background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-              borderRadius: 10, padding: '16px 20px', maxWidth: 480,
-            }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>
-                {t('message.loadingError')}
-              </div>
-              <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                {bodyError}
-              </div>
-            </div>
-            <button
-              onClick={() => { delete bodyCache.current[selectedMessageId]; setRetryKey(k => k + 1); }}
-              style={{
-                background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-                borderRadius: 6, padding: '6px 14px', cursor: 'pointer',
-                color: 'var(--text-secondary)', fontSize: 13,
-              }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-tertiary)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg-secondary)'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
-            >
-              {t('common.retry')}
-            </button>
-          </div>
-        )}
-
-        {/* No content */}
-        {!loadingBody && !bodyError && body && !body.html && !body.text && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 12, padding: '20px 0' }}>
-            <div style={{ fontSize: 14, color: 'var(--text-tertiary)' }}>
-              {t('message.noContent')}
-            </div>
-            <button
-              onClick={() => { delete bodyCache.current[selectedMessageId]; setRetryKey(k => k + 1); }}
-              style={{
-                background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-                borderRadius: 6, padding: '6px 14px', cursor: 'pointer',
-                color: 'var(--text-secondary)', fontSize: 13,
-              }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-tertiary)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg-secondary)'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
-            >
-              {t('common.retry')}
-            </button>
-          </div>
-        )}
       </div>
-
-      {/* HTML email — iframe sized to full content height; outer container scrolls */}
-      {!loadingBody && !bodyError && body?.html && (
-        <div style={{ padding: isMobile ? '0 0 16px' : '0 28px 24px' }}>
-          {/* Unsubscribe banner — shown for newsletter messages that have a List-Unsubscribe header */}
-          {message.list_unsubscribe && !message.unsubscribed_at && unsubscribeStatus !== 'done' && (
-            <div style={{
-              marginBottom: 10, padding: '9px 14px',
-              background: 'var(--bg-secondary)',
-              border: '1px solid var(--border)',
-              borderLeft: '3px solid var(--text-tertiary)',
-              borderRadius: 8,
-              display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-              fontSize: 12, color: 'var(--text-secondary)',
-            }}>
-              <span style={{ flex: 1 }}>{t('message.unsubscribe.info')}</span>
-              <button
-                onClick={handleUnsubscribe}
-                disabled={unsubscribeStatus === 'loading'}
-                style={{
-                  background: 'none', border: '1px solid var(--border)',
-                  borderRadius: 5, padding: '3px 9px',
-                  cursor: unsubscribeStatus === 'loading' ? 'default' : 'pointer',
-                  color: unsubscribeStatus === 'error' ? 'var(--red, #e53e3e)' : 'var(--text-primary)',
-                  fontSize: 11, fontWeight: 500,
-                  opacity: unsubscribeStatus === 'loading' ? 0.5 : 1,
-                }}
-              >
-                {unsubscribeStatus === 'loading' ? t('common.loading') :
-                 unsubscribeStatus === 'error' ? t('message.unsubscribe.error') :
-                 t('message.unsubscribe.button')}
-              </button>
-            </div>
-          )}
-
-          {/* AI classify banner — shown for messages with no category signal when AI is available */}
-          {!message.category && (categorizationEnabled || accounts.find(a => a.id === message.account_id)?.categorization_enabled) && aiStatus?.enabled && (
-            <div style={{
-              marginBottom: 10, padding: '9px 14px',
-              background: 'var(--bg-secondary)',
-              border: '1px solid var(--border)',
-              borderLeft: '3px solid var(--text-tertiary)',
-              borderRadius: 8,
-              display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-              fontSize: 12, color: 'var(--text-secondary)',
-            }}>
-              <span style={{ flex: 1 }}>{t('message.aiClassify.info')}</span>
-              <button
-                onClick={handleAiClassify}
-                disabled={aiClassifying}
-                style={{
-                  background: 'none', border: '1px solid var(--border)',
-                  borderRadius: 5, padding: '3px 9px',
-                  cursor: aiClassifying ? 'default' : 'pointer',
-                  color: 'var(--text-primary)',
-                  fontSize: 11, fontWeight: 500,
-                  opacity: aiClassifying ? 0.5 : 1,
-                }}
-              >
-                {aiClassifying ? t('common.loading') : t('message.aiClassify.button')}
-              </button>
-            </div>
-          )}
-
-          {body.hasBlockedRemoteImages && (
-            <div style={{
-              marginBottom: 10, padding: '9px 14px',
-              background: 'var(--bg-secondary)',
-              border: '1px solid var(--border)',
-              borderLeft: '3px solid var(--accent)',
-              borderRadius: 8,
-              display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-              fontSize: 12, color: 'var(--text-secondary)',
-            }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-                stroke="var(--accent)" strokeWidth="2" style={{ flexShrink: 0 }}>
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-              </svg>
-              <span>{t('message.remoteImagesBlocked')}</span>
-              <div style={{ display: 'flex', gap: 6, marginLeft: 'auto', flexWrap: 'wrap' }}>
-                {[
-                  { label: t('message.loadImages'), handler: handleLoadImages, disabled: false },
-                  message.from_email && {
-                    label: t('message.allowSender', { email: message.from_email }),
-                    handler: handleAllowSender, disabled: savingAllow,
-                  },
-                  (message.from_email?.includes('@')) && {
-                    label: t('message.allowDomain', { domain: message.from_email.split('@')[1] }),
-                    handler: handleAllowDomain, disabled: savingAllow,
-                  },
-                ].filter(Boolean).map(({ label, handler, disabled }) => (
-                  <button key={label} onClick={handler} disabled={disabled}
-                    style={{
-                      background: 'none', border: '1px solid var(--border)',
-                      borderRadius: 5, padding: '3px 9px', cursor: disabled ? 'default' : 'pointer',
-                      color: 'var(--accent)', fontSize: 11, fontWeight: 500,
-                      opacity: disabled ? 0.5 : 1,
-                    }}
-                    onMouseEnter={e => { if (!disabled) e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}
-                  >{label}</button>
-                ))}
-              </div>
-            </div>
-          )}
-          <div style={{
-            position: 'relative',
-            padding: '14px 16px 12px',
-            background: 'white',
-            borderRadius: isMobile ? 0 : 10,
-            border: isMobile ? 'none' : '1px solid var(--border-subtle)',
-            overflow: 'hidden',
-            // contain:layout establishes a containing block for any position:fixed
-            // descendants (including the inner email div if email CSS repositions it).
-            contain: 'layout',
-          }}>
-            {USE_DIV_RENDER ? (
-              // Three-layer structure keeps concerns separate:
-              // Outer  — click interception, height/overflow for scale-to-fit,
-              //          position:relative + parent contain:layout contain hostile CSS.
-              // Scale  — receives the CSS transform for scale-to-fit; carries no
-              //          email CSS class so transform:none!important on .email-*
-              //          never cancels the scale.
-              // Inner  — scoped email CSS root (.email-* class + data attribute);
-              //          transform:none!important here neutralises hostile body CSS
-              //          without touching the scale wrapper above it.
-              <div
-                ref={outerRef}
-                style={{ position: 'relative', width: '100%' }}
-                onClick={handleEmailClick}
-              >
-                <div ref={scaleRef}>
-                  <div
-                    ref={innerRef}
-                    data-mailflow-email={prepared?.prefix}
-                    className={prepared?.prefix ?? ''}
-                    dangerouslySetInnerHTML={prepared ? { __html: prepared.html } : undefined}
-                  />
-                </div>
-              </div>
-            ) : (
-              <iframe
-                ref={iframeRef}
-                srcDoc={`<!DOCTYPE html><html><head><meta charset="utf-8">
-                <meta name="viewport" content="width=device-width,initial-scale=1">
-                <meta name="color-scheme" content="only light">
-                <meta http-equiv="Content-Security-Policy" content="script-src 'none'; object-src 'none'; frame-src 'none'; form-action 'none'; style-src 'unsafe-inline';">
-                <base target="_blank">
-              </head><body><div id="mf-scale-wrapper">${
-                body.html.replace(/<a(\s)/gi, '<a rel="noopener noreferrer"$1')
-              }</div><style>
-                  /* Injected AFTER email HTML so our rules win the source-order tiebreak
-                     for same-specificity !important declarations inside the email's own
-                     <style> blocks (which land in <body> after the email HTML). */
-                  html, body { height: auto !important; min-height: 0 !important; overflow: hidden !important; }
-                  body { margin: 0 !important; padding: 0 !important;
-                         background-color: #ffffff !important; color-scheme: light;
-                         font-family: -apple-system, Arial, sans-serif;
-                         font-size: 14px; line-height: 1.6; color: #1a1a1a;
-                         word-wrap: break-word; overflow-wrap: break-word; }
-                  img { max-width: 100% !important; height: auto !important; }
-                  /* Force top-level wrapper tables to fill the viewport. Selectors cover
-                     both the legacy body > table pattern and the mf-scale-wrapper layer. */
-                  body > table, body > center > table,
-                  body > div > table, body > center > div > table,
-                  #mf-scale-wrapper > table, #mf-scale-wrapper > center > table,
-                  #mf-scale-wrapper > div > table, #mf-scale-wrapper > center > div > table {
-                    width: 100% !important;
-                  }
-                  /* Reset min-width on cells only — not on table elements, because fluid
-                     grid systems (e.g. Oracle Eloqua "tolkien") set min-width on inline-table
-                     column elements as a layout fallback when their calc() width resolves to 0. */
-                  td, th { min-width: 0 !important; }
-                  td { word-break: break-word; }
-                  th { overflow-wrap: normal; word-break: normal; }
-                  a { color: #6366f1; }
-                  pre, code { overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
-                  blockquote { border-left: 3px solid #ddd; margin: 0; padding-left: 12px; color: #555; }
-                </style></body></html>`}
-                scrolling="no"
-                style={{ width: '1px', minWidth: '100%', border: 'none', display: 'block', height: '300px' }}
-                sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-                title={t('message.emailFrameTitle')}
-              />
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Plain-text email — no internal scroll, outer container handles it */}
-      {!loadingBody && !bodyError && body?.text && !body?.html && (
-        <div style={{
-          padding: isMobile ? '0 0px 16px' : '0 28px 24px',
-        }}>
-          {message.list_unsubscribe && !message.unsubscribed_at && unsubscribeStatus !== 'done' && (
-            <div style={{
-              marginBottom: 10, padding: '9px 14px',
-              background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-              borderLeft: '3px solid var(--text-tertiary)', borderRadius: 8,
-              display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-              fontSize: 12, color: 'var(--text-secondary)',
-            }}>
-              <span style={{ flex: 1 }}>{t('message.unsubscribe.info')}</span>
-              <button onClick={handleUnsubscribe} disabled={unsubscribeStatus === 'loading'}
-                style={{
-                  background: 'none', border: '1px solid var(--border)', borderRadius: 5,
-                  padding: '3px 9px', cursor: unsubscribeStatus === 'loading' ? 'default' : 'pointer',
-                  color: unsubscribeStatus === 'error' ? 'var(--red, #e53e3e)' : 'var(--text-primary)',
-                  fontSize: 11, fontWeight: 500, opacity: unsubscribeStatus === 'loading' ? 0.5 : 1,
-                }}>
-                {unsubscribeStatus === 'loading' ? t('common.loading') :
-                 unsubscribeStatus === 'error' ? t('message.unsubscribe.error') :
-                 t('message.unsubscribe.button')}
-              </button>
-            </div>
-          )}
-          {!message.category && (categorizationEnabled || accounts.find(a => a.id === message.account_id)?.categorization_enabled) && aiStatus?.enabled && (
-            <div style={{
-              marginBottom: 10, padding: '9px 14px',
-              background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-              borderLeft: '3px solid var(--text-tertiary)', borderRadius: 8,
-              display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-              fontSize: 12, color: 'var(--text-secondary)',
-            }}>
-              <span style={{ flex: 1 }}>{t('message.aiClassify.info')}</span>
-              <button onClick={handleAiClassify} disabled={aiClassifying}
-                style={{
-                  background: 'none', border: '1px solid var(--border)', borderRadius: 5,
-                  padding: '3px 9px', cursor: aiClassifying ? 'default' : 'pointer',
-                  color: 'var(--text-primary)', fontSize: 11, fontWeight: 500,
-                  opacity: aiClassifying ? 0.5 : 1,
-                }}>
-                {aiClassifying ? t('common.loading') : t('message.aiClassify.button')}
-              </button>
-            </div>
-          )}
-          <div style={{
-            margin: 0, padding: '14px 16px 12px',
-            whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-            fontSize: 14, color: '#1a1a1a', lineHeight: 1.7,
-            fontFamily: 'DM Sans, sans-serif', background: 'white',
-            borderRadius: isMobile ? 0 : 10,
-            border: isMobile ? 'none' : '1px solid var(--border-subtle)',
-            overflow: 'hidden',
-          }}
-            dangerouslySetInnerHTML={{ __html: linkifyText(body.text) }}
-          />
-        </div>
-      )}
       </div>{/* end single scroll container */}
 
       {/* Mobile move-to-folder bottom sheet */}
