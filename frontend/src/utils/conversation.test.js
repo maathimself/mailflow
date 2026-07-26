@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import * as conversationModule from './conversation.js';
 import {
   conversationMembershipKey,
   conversationReadTargets,
@@ -137,5 +138,30 @@ describe('reconcileExpandedMessageIds', () => {
 
     assert.deepEqual([...result.expandedIds], ['old']);
     assert.equal(result.automaticExpandedId, 'old');
+  });
+});
+
+describe('resolveConversationMessageDisclosure', () => {
+  it('keeps a never-opened collapsed message body unmounted', () => {
+    assert.equal(typeof conversationModule.resolveConversationMessageDisclosure, 'function');
+
+    assert.deepEqual(
+      conversationModule.resolveConversationMessageDisclosure({ expanded: false, hasBeenExpanded: false }),
+      { renderShell: true, renderContent: false },
+    );
+  });
+
+  it('makes expanded message content visible and interactive', () => {
+    assert.deepEqual(
+      conversationModule.resolveConversationMessageDisclosure({ expanded: true, hasBeenExpanded: false }),
+      { renderShell: true, renderContent: true, ariaHidden: false, inert: undefined },
+    );
+  });
+
+  it('keeps previously opened collapsed content mounted but inert', () => {
+    assert.deepEqual(
+      conversationModule.resolveConversationMessageDisclosure({ expanded: false, hasBeenExpanded: true }),
+      { renderShell: true, renderContent: true, ariaHidden: true, inert: '' },
+    );
   });
 });

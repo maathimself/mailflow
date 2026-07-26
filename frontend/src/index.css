@@ -253,6 +253,64 @@ body, #root {
   }
 }
 
+/* Conversation messages use a restrained disclosure transition so dynamic email
+   bodies can expand without measuring or fixing their height. */
+.conversation-message-card {
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-secondary);
+  transition: background-color 180ms ease-out;
+}
+
+.conversation-message-card--expanded {
+  background: var(--bg-primary);
+}
+
+.conversation-message-card__chevron {
+  color: var(--text-tertiary);
+  display: flex;
+  transform: rotate(0deg);
+  transition: transform 180ms ease-out;
+}
+
+.conversation-message-card--expanded .conversation-message-card__chevron {
+  transform: rotate(180deg);
+}
+
+.conversation-message-card__disclosure {
+  display: grid;
+  grid-template-rows: 0fr;
+  pointer-events: none;
+  transition: grid-template-rows 180ms ease-out;
+}
+
+.conversation-message-card--expanded .conversation-message-card__disclosure {
+  grid-template-rows: 1fr;
+  pointer-events: auto;
+}
+
+.conversation-message-card__clip {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.conversation-message-card__body {
+  padding: 0 14px 16px 56px;
+  opacity: 0;
+  transform: translateY(-4px);
+  visibility: hidden;
+  transition:
+    opacity 140ms ease-out,
+    transform 180ms ease-out,
+    visibility 0s linear 180ms;
+}
+
+.conversation-message-card--expanded .conversation-message-card__body {
+  opacity: 1;
+  transform: translateY(0);
+  visibility: visible;
+  transition-delay: 30ms, 0ms, 0s;
+}
+
 /* TipTap rich-text compose editor */
 .tiptap-compose .ProseMirror {
   outline: none;

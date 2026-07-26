@@ -55,3 +55,9 @@ export const shouldUseConversationPane = ({ mode, searchQuery, message }) =>
   && !searchQuery?.trim()
   && Boolean(message?.thread_id)
   && Number(message?.message_count) > 1;
+
+export function resolveConversationMessageDisclosure({ expanded, hasBeenExpanded }) {
+  if (!expanded && !hasBeenExpanded) return { renderShell: true, renderContent: false };
+  if (expanded) return { renderShell: true, renderContent: true, ariaHidden: false, inert: undefined };
+  return { renderShell: true, renderContent: true, ariaHidden: true, inert: '' };
+}
