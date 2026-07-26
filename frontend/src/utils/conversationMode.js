@@ -10,3 +10,10 @@ export function resolveConversationMode(prefs = {}) {
 
 export const groupsMessageList = mode => mode === 'list' || mode === 'pane';
 export const expandsThreadsInline = mode => mode === 'list';
+
+export function conversationListParams(mode) {
+  if (!groupsMessageList(mode)) return {};
+  return mode === 'pane'
+    ? { threaded: 'true', threadScope: 'all' }
+    : { threaded: 'true' };
+}

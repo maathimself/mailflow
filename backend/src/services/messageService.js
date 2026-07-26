@@ -1,6 +1,6 @@
 import { query } from './db.js';
 
-export async function listMessages({ userId, accountId, folder = 'INBOX', limit = 50, offset = 0, unreadOnly, threaded, category }) {
+export async function listMessages({ userId, accountId, folder = 'INBOX', limit = 50, offset = 0, unreadOnly, threaded, threadScope = 'folder', category }) {
   const accountsResult = await query(
     'SELECT id FROM email_accounts WHERE user_id = $1 AND enabled = true',
     [userId]
@@ -74,9 +74,11 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
     // For INBOX-specific views the thread badge must match the expansion, so scope
     // thread_totals to that folder. For other folders (All Mail, Sent, etc.) count
     // across all folders so the badge reflects the true thread size.
-    const threadFolderFilter = isSpecificAccount
-      ? (folder === 'INBOX' ? `AND folder = $2` : '')
-      : `AND folder = 'INBOX'`;
+    const threadFolderFilter = threadScope === 'all'
+      ? ''
+      : isSpecificAccount
+        ? (folder === 'INBOX' ? `AND folder = $2` : '')
+        : `AND folder = 'INBOX'`;
 
     const threadResult = await query(`
       WITH paged_threads AS (

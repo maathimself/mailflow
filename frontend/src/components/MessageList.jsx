@@ -20,6 +20,7 @@ import { shortcutBus } from '../utils/shortcutBus.js';
 import { createLatestRequest } from '../utils/latestRequest.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
 import { applyDeleteGuard, clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.js';
+import { conversationListParams, groupsMessageList } from '../utils/conversationMode.js';
 
 // Folder icon for move picker
 function FolderIcon({ specialUse, size = 13 }) {
@@ -110,7 +111,7 @@ export default function MessageList() {
     searchResults, setSearchResults, openCompose, accountsReady, accounts,
     messagesRefreshToken, layout, setLayout, pageSize, setPageSize, scrollMode,
     setMobileSidebarOpen, unreadCounts, showContacts, setShowContacts,
-    threadedView, expandedThreadId, setExpandedThreadId,
+    conversationMode, expandedThreadId, setExpandedThreadId,
     threadMessages, setThreadMessages, loadingThread, setLoadingThread,
     hoverQuickActions, showMobileAvatars, gravatarAvatars,
     swipeActions,
@@ -123,6 +124,7 @@ export default function MessageList() {
   // RFC message_id of the open message, so a row highlights when it is a different DB copy
   // of the selected message (multi-folder model) — e.g. the inbox copy of a GTD sidebar click.
   const selectedMid = useStore(selectSelectedMessageMid);
+  const threadedView = groupsMessageList(conversationMode);
 
   const isMobile = useMobile();
   const isUnified = selectedAccountId === null;
@@ -328,7 +330,7 @@ export default function MessageList() {
           params.folder = selectedFolder;
         }
         if (unreadOnly) params.unreadOnly = 'true';
-        if (threadedView) params.threaded = 'true';
+        Object.assign(params, conversationListParams(conversationMode));
         if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
         await refreshRequestRef.current.run(
           () => api.getMessages(params),
@@ -360,7 +362,7 @@ export default function MessageList() {
     };
     run();
     return () => { cancelled = true; };
-  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, scrollMode, accountsReady, accounts.length, messagesRefreshToken, threadedView, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setHasMoreMessages, setLoadingMessages, setMessages, setMessagesOffset, setMessagesTotal]);
+  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, scrollMode, accountsReady, accounts.length, messagesRefreshToken, conversationMode, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setHasMoreMessages, setLoadingMessages, setMessages, setMessagesOffset, setMessagesTotal]);
 
   // Load next page (called by scroll or button)
   const loadMore = useCallback(async () => {
@@ -375,7 +377,7 @@ export default function MessageList() {
         params.folder = selectedFolder;
       }
       if (unreadOnly) params.unreadOnly = 'true';
-      if (useStore.getState().threadedView) params.threaded = 'true';
+      Object.assign(params, conversationListParams(useStore.getState().conversationMode));
       if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
       const data = await api.getMessages(params);
       appendMessages(applyReadGuard(data.messages));
@@ -407,7 +409,7 @@ export default function MessageList() {
         }
         if (selectedAccountId) { params.accountId = selectedAccountId; params.folder = selectedFolder; }
         if (unreadOnly) params.unreadOnly = 'true';
-        if (state.threadedView) params.threaded = 'true';
+        Object.assign(params, conversationListParams(state.conversationMode));
         if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
         await refreshRequestRef.current.run(
           () => api.getMessages(params),
@@ -564,7 +566,7 @@ export default function MessageList() {
       const params = { limit: pageSize, offset: (pageNum - 1) * pageSize };
       if (selectedAccountId) { params.accountId = selectedAccountId; params.folder = selectedFolder; }
       if (unreadOnly) params.unreadOnly = 'true';
-      if (threadedView) params.threaded = 'true';
+      Object.assign(params, conversationListParams(conversationMode));
       if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
       await refreshRequestRef.current.run(
         () => api.getMessages(params),
@@ -582,7 +584,7 @@ export default function MessageList() {
     } finally {
       setLoadingMessages(false);
     }
-  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, loadingMessages, threadedView, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setExpandedThreadId, setHasMoreMessages, setLoadingMessages, setMessages, setMessagesOffset, setMessagesTotal]);
+  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, loadingMessages, conversationMode, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setExpandedThreadId, setHasMoreMessages, setLoadingMessages, setMessages, setMessagesOffset, setMessagesTotal]);
 
   const handleSync = async () => {
     if (syncing) return;

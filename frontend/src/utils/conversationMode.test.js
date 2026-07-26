@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveConversationMode } from './conversationMode.js';
+import { conversationListParams, resolveConversationMode } from './conversationMode.js';
 
 describe('resolveConversationMode', () => {
   it('prefers a valid conversationMode', () => {
@@ -14,5 +14,19 @@ describe('resolveConversationMode', () => {
 
   it('falls back to off', () => {
     assert.equal(resolveConversationMode({ conversationMode: 'invalid' }), 'off');
+  });
+});
+
+describe('conversationListParams', () => {
+  it('does not group messages in off mode', () => {
+    assert.deepEqual(conversationListParams('off'), {});
+  });
+
+  it('uses folder-scoped grouping in list mode', () => {
+    assert.deepEqual(conversationListParams('list'), { threaded: 'true' });
+  });
+
+  it('uses all-folder grouping in pane mode', () => {
+    assert.deepEqual(conversationListParams('pane'), { threaded: 'true', threadScope: 'all' });
   });
 });

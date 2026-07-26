@@ -106,7 +106,7 @@ function emitGtdSectionsRefresh(rows, userId) {
 
 // Get messages (unified or per-account/folder)
 router.get('/messages', async (req, res) => {
-  const { accountId, folder = 'INBOX', limit = 50, offset = 0, unreadOnly, threaded, category } = req.query;
+  const { accountId, folder = 'INBOX', limit = 50, offset = 0, unreadOnly, threaded, threadScope, category } = req.query;
 
   if (!isValidFolderName(folder)) return res.status(400).json({ error: 'Invalid folder name' });
 
@@ -114,6 +114,7 @@ router.get('/messages', async (req, res) => {
   // WHERE clause in listMessages (even though it uses parameterised queries, belt-and-suspenders).
   const VALID_CATEGORIES = new Set(['primary', 'newsletter', 'promotion', 'automated', 'social']);
   const safeCategory = VALID_CATEGORIES.has(category) ? category : undefined;
+  const safeThreadScope = threadScope === 'all' ? 'all' : 'folder';
 
   const { messages, total, threaded: isThreaded, resolvedAccountId } = await listMessages({
     userId: req.session.userId,
@@ -123,6 +124,7 @@ router.get('/messages', async (req, res) => {
     offset,
     unreadOnly,
     threaded,
+    threadScope: safeThreadScope,
     category: safeCategory,
   });
 
