@@ -16,6 +16,7 @@ import { sendSystemEmail } from '../services/mailer.js';
 import { invalidateGlobalCategorizationCache } from '../services/categorizer.js';
 import { sanitizeGtdPrefs } from '../utils/gtdPrefs.js';
 import { sanitizeRightSidebarPrefs } from '../utils/rightSidebarPrefs.js';
+import { sanitizeConversationMode } from '../utils/conversationMode.js';
 import { redisClient } from '../services/redis.js';
 import { consume as rlConsume, reset as rlReset } from '../services/rateLimiter.js';
 
@@ -755,7 +756,7 @@ router.patch('/preferences', async (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
   const { theme, font, layout, notificationSound, pageSize, scrollMode, syncInterval,
           blockRemoteImages, imageWhitelist, shortcuts, hiddenFolders, language,
-          threadedView, plaintextEmail, hoverQuickActions, swipeActions,
+          threadedView, conversationMode, plaintextEmail, hoverQuickActions, swipeActions,
           expandedAccounts, collapsedFolders, favoriteFolders, recentFolders, fontSize,
           showAppBadge, showFaviconBadge, replyDefault, sidebarWidth,
           categorizationEnabled, markReadBehavior, markReadDelay, aiActions,
@@ -781,6 +782,7 @@ router.patch('/preferences', async (req, res) => {
   const markReadBehaviorVal   = ['immediate', 'delay', 'manual'].includes(markReadBehavior) ? markReadBehavior : null;
   const markReadDelayVal      = (() => { const n = parseInt(markReadDelay); return (n >= 1 && n <= 10) ? String(n) : null; })();
   const autoLockMinutesVal    = [0, 1, 5, 15, 30].includes(Number(autoLockMinutes)) ? String(Number(autoLockMinutes)) : null;
+  const conversationModeVal   = sanitizeConversationMode(conversationMode);
   // Folder-structure sync cadence in seconds; 0 = never.
   const folderSyncIntervalVal = folderSyncInterval != null && [0, 900, 1800, 3600].includes(Number(folderSyncInterval)) ? String(Number(folderSyncInterval)) : null;
   // User-defined AI actions: bound the array and each field so the JSONB can't grow unbounded.
@@ -833,6 +835,7 @@ router.patch('/preferences', async (req, res) => {
       || CASE WHEN $36::boolean IS NOT NULL THEN jsonb_build_object('showMobileAvatars', $36::boolean) ELSE '{}'::jsonb END
       || CASE WHEN $37::boolean IS NOT NULL THEN jsonb_build_object('gravatarAvatars', $37::boolean) ELSE '{}'::jsonb END
       || CASE WHEN $38::text IS NOT NULL THEN jsonb_build_object('folderSyncInterval', $38::text) ELSE '{}'::jsonb END
+      || CASE WHEN $39::text IS NOT NULL THEN jsonb_build_object('conversationMode', $39::text) ELSE '{}'::jsonb END
     WHERE id = $1
   `, [req.session.userId, theme ?? null, font ?? null, layout ?? null, notificationSound ?? null,
       pageSize ?? null, scrollMode ?? null, syncInterval ?? null,
@@ -842,7 +845,7 @@ router.patch('/preferences', async (req, res) => {
       showAppBadge ?? null, showFaviconBadge ?? null, replyDefaultVal, sidebarWidthVal,
       categorizationEnabled ?? null, markReadBehaviorVal, markReadDelayVal, aiActionsJson,
       rightSidebarWidth, rightSidebarHidden, gtdCollapsedSectionsJson, gtdPetSlug, autoLockMinutesVal,
-      showMobileAvatars ?? null, gravatarAvatars ?? null, folderSyncIntervalVal]);
+      showMobileAvatars ?? null, gravatarAvatars ?? null, folderSyncIntervalVal, conversationModeVal]);
 
   if (syncInterval != null) {
     const ms = parseInt(syncInterval) * 1000;

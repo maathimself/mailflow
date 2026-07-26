@@ -6,6 +6,7 @@ import { applyLayout, normalizeLayout } from '../layouts.js';
 import { DEFAULT_AI_ACTIONS } from '../aiActions.js';
 import { removeGtdThreadFromSections, setGtdThreadReadInSections } from '../utils/gtd.js';
 import { clampRightSidebarWidth } from '../utils/rightSidebar.js';
+import { resolveConversationMode } from '../utils/conversationMode.js';
 import i18n from '../i18n.js';
 
 // Accumulate rapid preference changes and flush at most once per second.
@@ -389,12 +390,18 @@ export const useStore = create((set, get) => ({
     schedulePrefSave({ language: lng });
   },
 
-  // Threaded view
-  threadedView: localStorage.getItem('mailflow_threaded_view') === 'true',
-  setThreadedView: (val) => {
-    localStorage.setItem('mailflow_threaded_view', String(val));
-    set({ threadedView: val, expandedThreadId: null, threadMessages: {} });
-    schedulePrefSave({ threadedView: val });
+  // Conversation display
+  conversationMode: resolveConversationMode({
+    conversationMode: localStorage.getItem('mailflow_conversation_mode'),
+    threadedView: localStorage.getItem('mailflow_threaded_view') == null
+      ? undefined
+      : localStorage.getItem('mailflow_threaded_view') === 'true',
+  }),
+  setConversationMode: (mode) => {
+    const resolvedMode = resolveConversationMode({ conversationMode: mode });
+    localStorage.setItem('mailflow_conversation_mode', resolvedMode);
+    set({ conversationMode: resolvedMode, expandedThreadId: null, threadMessages: {} });
+    schedulePrefSave({ conversationMode: resolvedMode });
   },
 
   // Compose format
@@ -874,10 +881,9 @@ export const useStore = create((set, get) => ({
         set({ language: prefs.language });
         i18n.changeLanguage(prefs.language);
       }
-      if (typeof prefs.threadedView === 'boolean') {
-        localStorage.setItem('mailflow_threaded_view', String(prefs.threadedView));
-        set({ threadedView: prefs.threadedView });
-      }
+      const conversationMode = resolveConversationMode(prefs);
+      localStorage.setItem('mailflow_conversation_mode', conversationMode);
+      set({ conversationMode, expandedThreadId: null, threadMessages: {} });
       if (typeof prefs.plaintextEmail === 'boolean') {
         localStorage.setItem('mailflow_plaintext_email', String(prefs.plaintextEmail));
         set({ plaintextEmail: prefs.plaintextEmail });
