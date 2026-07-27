@@ -15,5 +15,6 @@ describe('conversation mode layout', () => {
     assert.match(block, /<div style=\{\{ display: 'flex', gap: 8 \}\}>/);
     assert.doesNotMatch(block, /flexWrap/);
     assert.match(block, /flex: 1, minWidth: 0, padding: '10px 12px'/);
+    assert.equal((block.match(/overflowWrap: 'anywhere'/g) || []).length, 2);
   });
 });

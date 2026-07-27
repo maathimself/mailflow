@@ -363,6 +363,17 @@ describe('openDeepLinkMessage', () => {
     ]);
   });
 
+  it('forwards the selection source to the reading pane state', async () => {
+    const calls = [];
+    await openDeepLinkMessage('m1', {
+      getMessage: async () => ({ id: 'm1' }),
+      setThreadMessages: () => {},
+      setSelectedMessage: (id, source) => calls.push(['select', id, source]),
+      selectionSource: 'gtd',
+    });
+    assert.deepEqual(calls, [['select', 'm1', 'gtd']]);
+  });
+
   it('does not select when the fetch fails and no recovery deps are supplied', async () => {
     const calls = [];
     const deps = {

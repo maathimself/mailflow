@@ -18,11 +18,14 @@ export function conversationListParams(mode) {
     : { threaded: 'true' };
 }
 
-export function conversationModeTransition(mode) {
+export function conversationModeTransition(mode, activeMode = null) {
+  const conversationMode = resolveConversationMode({ conversationMode: mode });
+  if (conversationMode === activeMode) return null;
   return {
-    conversationMode: resolveConversationMode({ conversationMode: mode }),
+    conversationMode,
     expandedThreadId: null,
     threadMessages: {},
     selectedMessageId: null,
+    selectedMessageSource: null,
   };
 }

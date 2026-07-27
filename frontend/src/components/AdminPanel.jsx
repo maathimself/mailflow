@@ -1817,8 +1817,8 @@ function LayoutsTab() {
                 onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; }}
                 onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
               >
-                <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{label}</div>
-                <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{desc}</div>
+                <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2, overflowWrap: 'anywhere' }}>{label}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', overflowWrap: 'anywhere' }}>{desc}</div>
               </button>
             );
           })}

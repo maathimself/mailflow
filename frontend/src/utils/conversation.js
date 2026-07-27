@@ -78,6 +78,12 @@ export function resolveConversationSelection({ selectedMessageId, pool = [], thr
 export const shouldFallbackToSingleMessagePane = ({ loading, error, messages = [] }) =>
   !loading && !error && messages.length <= 1;
 
+export const conversationPaneOwnsAutoRead = selectionSource => selectionSource !== 'gtd';
+
+export const selectedMessageTransition = (id, source = null) => id
+  ? { selectedMessageId: id, lastViewedMessageId: id, selectedMessageSource: source }
+  : { selectedMessageId: null, selectedMessageSource: null };
+
 export function conversationListScopeMessages(messages, { selectedAccountId, selectedFolder = 'INBOX' }) {
   const folder = selectedAccountId ? selectedFolder : 'INBOX';
   return normalizeConversation(messages).filter(message =>

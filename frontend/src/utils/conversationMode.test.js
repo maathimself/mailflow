@@ -33,6 +33,10 @@ describe('conversationListParams', () => {
 });
 
 describe('conversationModeTransition', () => {
+  it('does nothing when the requested mode is already active', () => {
+    assert.equal(conversationModeModule.conversationModeTransition('pane', 'pane'), null);
+  });
+
   it('closes a selection that may only exist in the discarded thread cache', () => {
     assert.equal(typeof conversationModeModule.conversationModeTransition, 'function');
     assert.deepEqual(conversationModeModule.conversationModeTransition('pane'), {
@@ -40,6 +44,7 @@ describe('conversationModeTransition', () => {
       expandedThreadId: null,
       threadMessages: {},
       selectedMessageId: null,
+      selectedMessageSource: null,
     });
   });
 });

@@ -451,7 +451,7 @@ let _deepLinkSeq = 0;
 // are optional so a bare (id, {getMessage,...}) call still degrades gracefully.
 export async function openDeepLinkMessage(id, {
   getMessage, setThreadMessages, setSelectedMessage,
-  thread, getThread, onMiss,
+  thread, getThread, onMiss, selectionSource,
 } = {}) {
   const seq = ++_deepLinkSeq;
   const open = (msg) => {
@@ -460,7 +460,7 @@ export async function openDeepLinkMessage(id, {
     // including the recovery path below.
     if (seq !== _deepLinkSeq) return null;
     setThreadMessages(`__dl_${msg.id}`, [msg]);
-    setSelectedMessage(msg.id);
+    setSelectedMessage(msg.id, selectionSource);
     return msg;
   };
 

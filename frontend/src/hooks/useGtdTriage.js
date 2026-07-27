@@ -129,6 +129,7 @@ export function useGtdTriage() {
         getThread: api.getThread,
         setThreadMessages,
         setSelectedMessage,
+        selectionSource: 'gtd',
         thread,
         onMiss: scheduleGtdSectionsFetch,
       }),

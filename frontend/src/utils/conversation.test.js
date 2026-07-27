@@ -157,6 +157,30 @@ describe('conversation pane selection', () => {
     assert.equal(conversationModule.shouldFallbackToSingleMessagePane({ loading: false, error: null, messages: [message('only', '2026-07-26T12:00:00Z')] }), true);
     assert.equal(conversationModule.shouldFallbackToSingleMessagePane({ loading: false, error: null, messages: [message('one', '2026-07-26T12:00:00Z'), message('two', '2026-07-26T13:00:00Z')] }), false);
   });
+
+  it('leaves GTD-owned automatic read scheduling to the GTD triage flow', () => {
+    assert.equal(typeof conversationModule.conversationPaneOwnsAutoRead, 'function');
+    assert.equal(conversationModule.conversationPaneOwnsAutoRead('gtd'), false);
+    assert.equal(conversationModule.conversationPaneOwnsAutoRead(null), true);
+  });
+
+  it('tracks the current selection source and clears it for ordinary or closed selections', () => {
+    assert.equal(typeof conversationModule.selectedMessageTransition, 'function');
+    assert.deepEqual(conversationModule.selectedMessageTransition('message-1', 'gtd'), {
+      selectedMessageId: 'message-1',
+      lastViewedMessageId: 'message-1',
+      selectedMessageSource: 'gtd',
+    });
+    assert.deepEqual(conversationModule.selectedMessageTransition('message-2'), {
+      selectedMessageId: 'message-2',
+      lastViewedMessageId: 'message-2',
+      selectedMessageSource: null,
+    });
+    assert.deepEqual(conversationModule.selectedMessageTransition(null), {
+      selectedMessageId: null,
+      selectedMessageSource: null,
+    });
+  });
 });
 
 describe('conversation list scope', () => {

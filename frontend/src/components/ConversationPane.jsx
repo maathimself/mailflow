@@ -7,6 +7,7 @@ import { openForwardFromMessage, openReplyFromMessage } from '../utils/composeFr
 import {
   conversationMembershipKey,
   conversationListScopeMessages,
+  conversationPaneOwnsAutoRead,
   conversationReadTargets,
   inboxConversationReadTargets,
   initialExpandedMessageIds,
@@ -47,6 +48,7 @@ export default function ConversationPane({ message, threadId, refreshKey }) {
     accounts, openCompose, setSelectedMessage, updateMessage,
     decrementUnread, incrementUnread, adjustCategoryCount,
     markReadBehavior, markReadDelay, replyDefault, addNotification,
+    selectedMessageSource,
     selectedAccountId, selectedFolder, setSelectedAccount,
     setUnreadCounts, setCategoryCounts,
   } = useStore();
@@ -139,6 +141,10 @@ export default function ConversationPane({ message, threadId, refreshKey }) {
 
   useEffect(() => {
     const currentMessages = messagesRef.current;
+    if (!conversationPaneOwnsAutoRead(selectedMessageSource)) {
+      autoReadRunRef.current = null;
+      return undefined;
+    }
     if (markReadBehavior === 'manual') {
       autoReadRunRef.current = null;
       return undefined;
@@ -159,7 +165,7 @@ export default function ConversationPane({ message, threadId, refreshKey }) {
       setConversationRead(true);
     }, (markReadDelay || 1) * 1000);
     return () => clearTimeout(timer);
-  }, [markReadBehavior, markReadDelay, membershipKey, setConversationRead, threadId]);
+  }, [markReadBehavior, markReadDelay, membershipKey, selectedMessageSource, setConversationRead, threadId]);
 
   const toggleExpanded = useCallback(id => {
     setExpandedIds(current => {
