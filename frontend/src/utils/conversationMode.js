@@ -17,3 +17,12 @@ export function conversationListParams(mode) {
     ? { threaded: 'true', threadScope: 'all' }
     : { threaded: 'true' };
 }
+
+export function conversationModeTransition(mode) {
+  return {
+    conversationMode: resolveConversationMode({ conversationMode: mode }),
+    expandedThreadId: null,
+    threadMessages: {},
+    selectedMessageId: null,
+  };
+}

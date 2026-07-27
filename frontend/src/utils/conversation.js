@@ -54,7 +54,36 @@ export const shouldUseConversationPane = ({ mode, searchQuery, message }) =>
   mode === 'pane'
   && !searchQuery?.trim()
   && Boolean(message?.thread_id)
-  && Number(message?.message_count) > 1;
+  && (message.message_count == null || Number(message.message_count) > 1);
+
+export const conversationRefreshKey = message => message?.thread_id
+  ? `${message.thread_id}:${message.id || ''}:${message.message_count ?? 'unknown'}`
+  : null;
+
+export function resolveConversationSelection({ selectedMessageId, pool = [], threadMessages = {} }) {
+  const selectedMessage = pool.find(message => message.id === selectedMessageId)
+    || Object.values(threadMessages).flat().find(message => message.id === selectedMessageId)
+    || null;
+  const conversationMessage = selectedMessage?.thread_id
+    ? pool.find(message => message.thread_id === selectedMessage.thread_id) || selectedMessage
+    : selectedMessage;
+
+  return {
+    selectedMessage,
+    conversationMessage,
+    refreshKey: conversationRefreshKey(conversationMessage),
+  };
+}
+
+export const shouldFallbackToSingleMessagePane = ({ loading, error, messages = [] }) =>
+  !loading && !error && messages.length <= 1;
+
+export function conversationListScopeMessages(messages, { selectedAccountId, selectedFolder = 'INBOX' }) {
+  const folder = selectedAccountId ? selectedFolder : 'INBOX';
+  return normalizeConversation(messages).filter(message =>
+    message.folder === folder
+    && (!selectedAccountId || message.account_id === selectedAccountId));
+}
 
 export function resolveConversationMessageDisclosure({ expanded, hasBeenExpanded }) {
   if (!expanded && !hasBeenExpanded) return { renderShell: true, renderContent: false };

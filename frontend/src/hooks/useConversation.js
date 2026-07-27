@@ -3,7 +3,7 @@ import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { normalizeConversation } from '../utils/conversation.js';
 
-export function useConversation(threadId) {
+export function useConversation(threadId, refreshKey = null) {
   const cachedMessages = useStore(state => (threadId ? state.threadMessages[threadId] : null));
   const setThreadMessages = useStore(state => state.setThreadMessages);
   const [loading, setLoading] = useState(Boolean(threadId && !cachedMessages));
@@ -15,14 +15,15 @@ export function useConversation(threadId) {
 
   useEffect(() => {
     const sequence = ++requestSequence.current;
-    if (!threadId || Array.isArray(cachedMessages)) {
+    if (!threadId) {
       setLoading(false);
       setError(null);
       return undefined;
     }
 
     let cancelled = false;
-    setLoading(true);
+    const hasCachedMessages = Array.isArray(useStore.getState().threadMessages[threadId]);
+    setLoading(!hasCachedMessages);
     setError(null);
     api.getThread(threadId)
       .then(data => {
@@ -39,7 +40,7 @@ export function useConversation(threadId) {
       });
 
     return () => { cancelled = true; };
-  }, [cachedMessages, retryKey, setThreadMessages, threadId]);
+  }, [refreshKey, retryKey, setThreadMessages, threadId]);
 
   const messages = useMemo(() => normalizeConversation(cachedMessages || []), [cachedMessages]);
   return { messages, loading, error, retry };

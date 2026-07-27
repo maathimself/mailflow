@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import * as conversationModeModule from './conversationMode.js';
 import { conversationListParams, resolveConversationMode } from './conversationMode.js';
 
 describe('resolveConversationMode', () => {
@@ -28,5 +29,17 @@ describe('conversationListParams', () => {
 
   it('uses all-folder grouping in pane mode', () => {
     assert.deepEqual(conversationListParams('pane'), { threaded: 'true', threadScope: 'all' });
+  });
+});
+
+describe('conversationModeTransition', () => {
+  it('closes a selection that may only exist in the discarded thread cache', () => {
+    assert.equal(typeof conversationModeModule.conversationModeTransition, 'function');
+    assert.deepEqual(conversationModeModule.conversationModeTransition('pane'), {
+      conversationMode: 'pane',
+      expandedThreadId: null,
+      threadMessages: {},
+      selectedMessageId: null,
+    });
   });
 });

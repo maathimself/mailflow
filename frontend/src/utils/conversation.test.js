@@ -102,6 +102,14 @@ describe('shouldUseConversationPane', () => {
     assert.equal(shouldUseConversationPane({ mode: 'pane', searchQuery: '', message: threadedMessage }), true);
   });
 
+  it('routes threaded messages with an unknown aggregate count through conversation resolution', () => {
+    assert.equal(shouldUseConversationPane({
+      mode: 'pane',
+      searchQuery: '',
+      message: { thread_id: 'thread-1' },
+    }), true);
+  });
+
   it('keeps search results and single messages in the single-message pane', () => {
     assert.equal(shouldUseConversationPane({ mode: 'pane', searchQuery: 'invoice', message: threadedMessage }), false);
     assert.equal(shouldUseConversationPane({ mode: 'pane', searchQuery: '', message: { ...threadedMessage, message_count: 1 } }), false);
@@ -110,6 +118,67 @@ describe('shouldUseConversationPane', () => {
   it('keeps off and list modes in the single-message pane', () => {
     assert.equal(shouldUseConversationPane({ mode: 'off', searchQuery: '', message: threadedMessage }), false);
     assert.equal(shouldUseConversationPane({ mode: 'list', searchQuery: '', message: threadedMessage }), false);
+  });
+});
+
+describe('conversation pane selection', () => {
+  it('uses refreshed list metadata while preserving a cached selected message', () => {
+    assert.equal(typeof conversationModule.resolveConversationSelection, 'function');
+
+    const cachedSelected = message('old-reply', '2026-07-26T12:00:00Z', {
+      thread_id: 'thread-1',
+    });
+    const refreshedHead = message('new-reply', '2026-07-26T13:00:00Z', {
+      thread_id: 'thread-1',
+      message_count: 3,
+    });
+    const result = conversationModule.resolveConversationSelection({
+      selectedMessageId: cachedSelected.id,
+      pool: [refreshedHead],
+      threadMessages: { 'thread-1': [cachedSelected] },
+    });
+
+    assert.equal(result.selectedMessage, cachedSelected);
+    assert.equal(result.conversationMessage, refreshedHead);
+    assert.equal(result.refreshKey, 'thread-1:new-reply:3');
+  });
+
+  it('changes the refresh key when the grouped head changes', () => {
+    assert.equal(typeof conversationModule.conversationRefreshKey, 'function');
+    assert.notEqual(
+      conversationModule.conversationRefreshKey({ thread_id: 'thread-1', id: 'old', message_count: 2 }),
+      conversationModule.conversationRefreshKey({ thread_id: 'thread-1', id: 'new', message_count: 3 }),
+    );
+  });
+
+  it('falls back to the single-message pane after resolving a singleton thread', () => {
+    assert.equal(typeof conversationModule.shouldFallbackToSingleMessagePane, 'function');
+    assert.equal(conversationModule.shouldFallbackToSingleMessagePane({ loading: true, error: null, messages: [] }), false);
+    assert.equal(conversationModule.shouldFallbackToSingleMessagePane({ loading: false, error: null, messages: [message('only', '2026-07-26T12:00:00Z')] }), true);
+    assert.equal(conversationModule.shouldFallbackToSingleMessagePane({ loading: false, error: null, messages: [message('one', '2026-07-26T12:00:00Z'), message('two', '2026-07-26T13:00:00Z')] }), false);
+  });
+});
+
+describe('conversation list scope', () => {
+  const mixedFolders = [
+    message('inbox-read', '2026-07-26T10:00:00Z', { account_id: 'account-1', folder: 'INBOX', is_read: true }),
+    message('sent-unread', '2026-07-26T11:00:00Z', { account_id: 'account-1', folder: 'Sent', is_read: false }),
+    message('other-inbox-unread', '2026-07-26T12:00:00Z', { account_id: 'account-2', folder: 'INBOX', is_read: false }),
+  ];
+
+  it('matches the unified inbox aggregate instead of all thread members', () => {
+    assert.equal(typeof conversationModule.conversationListScopeMessages, 'function');
+    assert.deepEqual(
+      conversationModule.conversationListScopeMessages(mixedFolders, { selectedAccountId: null, selectedFolder: 'INBOX' }).map(item => item.id),
+      ['inbox-read', 'other-inbox-unread'],
+    );
+  });
+
+  it('matches the selected account and folder aggregate', () => {
+    assert.deepEqual(
+      conversationModule.conversationListScopeMessages(mixedFolders, { selectedAccountId: 'account-1', selectedFolder: 'Sent' }).map(item => item.id),
+      ['sent-unread'],
+    );
   });
 });
 

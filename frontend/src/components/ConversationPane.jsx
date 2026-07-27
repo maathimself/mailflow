@@ -6,13 +6,14 @@ import { useMobile } from '../hooks/useMobile.js';
 import { openForwardFromMessage, openReplyFromMessage } from '../utils/composeFromMessage.js';
 import {
   conversationMembershipKey,
+  conversationListScopeMessages,
   conversationReadTargets,
-  conversationUnreadCount,
   inboxConversationReadTargets,
   initialExpandedMessageIds,
   newestConversationMessage,
   unreadConversationIds,
   reconcileExpandedMessageIds,
+  shouldFallbackToSingleMessagePane,
 } from '../utils/conversation.js';
 import { useConversation } from '../hooks/useConversation.js';
 import {
@@ -22,6 +23,7 @@ import {
   newestSnoozeTarget,
 } from '../utils/conversationActions.js';
 import ConversationMessageCard from './ConversationMessageCard.jsx';
+import MessagePane from './MessagePane.jsx';
 
 function ConversationIcon({ type }) {
   if (type === 'read') return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 12l5 5L20 6"/></svg>;
@@ -38,7 +40,7 @@ function ToolbarButton({ title, onClick, disabled, danger = false, children }) {
   return <button type="button" onClick={onClick} disabled={disabled} title={title} aria-label={title} style={{ border: '1px solid var(--border)', borderRadius: 6, background: 'transparent', color: danger ? 'var(--red, #e53e3e)' : 'var(--text-secondary)', cursor: disabled ? 'wait' : 'pointer', padding: 6, opacity: disabled ? 0.55 : 1, display: 'flex', alignItems: 'center' }}>{children}</button>;
 }
 
-export default function ConversationPane({ message, threadId }) {
+export default function ConversationPane({ message, threadId, refreshKey }) {
   const { t } = useTranslation();
   const isMobile = useMobile();
   const {
@@ -48,7 +50,7 @@ export default function ConversationPane({ message, threadId }) {
     selectedAccountId, selectedFolder, setSelectedAccount,
     setUnreadCounts, setCategoryCounts,
   } = useStore();
-  const { messages, loading, error, retry } = useConversation(threadId);
+  const { messages, loading, error, retry } = useConversation(threadId, refreshKey);
   const [expandedIds, setExpandedIds] = useState(() => initialExpandedMessageIds([]));
   const previousMessagesRef = useRef([]);
   const automaticExpandedIdRef = useRef(null);
@@ -91,7 +93,11 @@ export default function ConversationPane({ message, threadId }) {
     const targets = conversationReadTargets(currentMessages, read);
     const ids = targets.map(item => item.id);
     if (ids.length === 0) return;
-    const previousUnreadCount = conversationUnreadCount(currentMessages);
+    const scopedMessages = conversationListScopeMessages(currentMessages, { selectedAccountId, selectedFolder });
+    const previousParentReadState = {
+      is_read: message?.is_read,
+      unread_count: message?.unread_count,
+    };
     const counterTargetIds = new Set(inboxConversationReadTargets(currentMessages, read).map(item => item.id));
 
     targets.forEach(item => {
@@ -107,7 +113,7 @@ export default function ConversationPane({ message, threadId }) {
     });
     updateMessage(message?.id, {
       is_read: read,
-      unread_count: read ? 0 : currentMessages.length,
+      unread_count: read ? 0 : scopedMessages.length,
     });
 
     try {
@@ -124,13 +130,10 @@ export default function ConversationPane({ message, threadId }) {
           adjustCategoryCount(item.category, -1);
         }
       });
-      updateMessage(message?.id, {
-        is_read: previousUnreadCount === 0,
-        unread_count: previousUnreadCount,
-      });
+      updateMessage(message?.id, previousParentReadState);
       addNotification({ type: 'error', title: t('common.error', { message: requestError.message || t('message.loadingError') }) });
     }
-  }, [addNotification, adjustCategoryCount, decrementUnread, incrementUnread, message?.id, t, updateMessage]);
+  }, [addNotification, adjustCategoryCount, decrementUnread, incrementUnread, message?.id, message?.is_read, message?.unread_count, selectedAccountId, selectedFolder, t, updateMessage]);
 
   const membershipKey = useMemo(() => conversationMembershipKey(messages), [messages]);
 
@@ -321,6 +324,7 @@ export default function ConversationPane({ message, threadId }) {
   }, [actionBusy, addNotification, messages, refreshAndClose, subject, t]);
 
   if (!message) return null;
+  if (shouldFallbackToSingleMessagePane({ loading, error, messages })) return <MessagePane />;
 
   return (
     <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg-primary)' }}>

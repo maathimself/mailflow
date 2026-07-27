@@ -6,7 +6,7 @@ import { applyLayout, normalizeLayout } from '../layouts.js';
 import { DEFAULT_AI_ACTIONS } from '../aiActions.js';
 import { removeGtdThreadFromSections, setGtdThreadReadInSections } from '../utils/gtd.js';
 import { clampRightSidebarWidth } from '../utils/rightSidebar.js';
-import { resolveConversationMode } from '../utils/conversationMode.js';
+import { conversationModeTransition, resolveConversationMode } from '../utils/conversationMode.js';
 import i18n from '../i18n.js';
 
 // Accumulate rapid preference changes and flush at most once per second.
@@ -400,7 +400,7 @@ export const useStore = create((set, get) => ({
   setConversationMode: (mode) => {
     const resolvedMode = resolveConversationMode({ conversationMode: mode });
     localStorage.setItem('mailflow_conversation_mode', resolvedMode);
-    set({ conversationMode: resolvedMode, expandedThreadId: null, threadMessages: {} });
+    set(conversationModeTransition(resolvedMode));
     schedulePrefSave({ conversationMode: resolvedMode });
   },
 
