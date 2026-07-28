@@ -107,7 +107,12 @@
     "bodyPh": "Écrivez votre message…",
     "send": "Envoyer",
     "sendTooltip": "Envoyer (Ctrl+Entrée)",
-    "sending": "Envoi…",
+    "sending": {
+      "label": "Envoi…",
+      "title": "Envoi du message",
+      "countdown": "Envoi dans {{seconds}} s",
+      "tooLate": "Trop tard pour annuler"
+    },
     "discard": "Supprimer",
     "saveDraft": "Enregistrer le brouillon",
     "savingDraft": "Enregistrement…",
@@ -585,7 +590,14 @@
       "neverUsed": "jamais utilisé",
       "copyOnce": "Copiez-le maintenant — vous ne le reverrez plus.",
       "createFailed": "Échec de la création du jeton",
-      "revokeFailed": "Échec de la révocation du jeton"
+      "revokeFailed": "Échec de la révocation du jeton",
+      "scopes": {
+        "read": "Lire les e-mails",
+        "write": "Modifier les e-mails",
+        "send": "Envoyer des e-mails",
+        "settings": "Gérer les paramètres",
+        "sendRisk": "Ce jeton peut envoyer des e-mails en votre nom sans confirmation supplémentaire."
+      }
     }
   },
   "admin": {
@@ -863,6 +875,12 @@
       "defaultReplyAction": "Action de réponse par défaut",
       "defaultReply": "Répondre",
       "defaultReplyAllDesc": "Le bouton Répondre envoie à tous les destinataires",
+      "undoSend": "Annuler l’envoi",
+      "undoSendOff": "Désactivé",
+      "undoSend10": "10 secondes",
+      "undoSend30": "30 secondes",
+      "undoSend60": "60 secondes",
+      "undoSend120": "2 minutes",
       "markReadBehavior": "Marquer comme lu",
       "markReadImmediate": "Immédiatement",
       "markReadImmediateDesc": "Marquer les e-mails comme lus dès que vous les ouvrez.",

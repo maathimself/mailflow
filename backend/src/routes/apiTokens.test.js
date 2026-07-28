@@ -30,16 +30,77 @@ async function call(app, method, path, body) {
   return { status: res.status, body: text ? JSON.parse(text) : null };
 }
 
+function mockRes() {
+  return {
+    statusCode: 200,
+    body: null,
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; },
+    end() { return this; },
+  };
+}
+
+async function callRoute(method, { body = {}, params = {} } = {}) {
+  const layer = router.stack.find((entry) => entry.route?.path === '/' && entry.route.methods[method]);
+  const req = { body, params, session: { userId: 'user-1' } };
+  const res = mockRes();
+  await layer.route.stack[0].handle(req, res);
+  return { status: res.statusCode, body: res.body };
+}
+
 beforeEach(() => query.mockReset());
 
 describe('POST /api/tokens', () => {
+  it('defaults a token with no requested scopes to read', async () => {
+    for (const scopes of [undefined, []]) {
+      query.mockResolvedValueOnce({
+        rows: [{ id: 'tok-1', name: 'laptop', scopes: ['read'] }],
+      });
+      const { status, body } = await callRoute('post', { body: { name: 'laptop', scopes } });
+      expect(status).toBe(201);
+      expect(body.scopes).toEqual(['read']);
+      expect(query.mock.calls.at(-1)[0]).toMatch(/api_tokens \(user_id, token_hash, name, scopes\)/);
+      expect(query.mock.calls.at(-1)[1][3]).toEqual(['read']);
+    }
+  });
+
+  it('rejects unknown requested scopes', async () => {
+    query.mockResolvedValueOnce({
+      rows: [{ id: 'tok-1', name: 'laptop', scopes: ['read', 'admin'] }],
+    });
+    const { status, body } = await callRoute('post', {
+      body: { name: 'laptop', scopes: ['read', 'admin'] },
+    });
+    expect(status).toBe(400);
+    expect(body).toEqual({ error: 'unknown scope(s): admin' });
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('mints a token with expanded requested scopes', async () => {
+    query.mockResolvedValueOnce({
+      rows: [{ id: 'tok-2', name: 'sender', scopes: ['send', 'read'] }],
+    });
+    const { status, body } = await callRoute('post', {
+      body: { name: 'sender', scopes: ['send'] },
+    });
+    expect(status).toBe(201);
+    expect(body).toMatchObject({
+      id: 'tok-2',
+      name: 'sender',
+      scopes: ['send', 'read'],
+    });
+    expect(body.token).toMatch(/^mcp_/);
+    expect(query.mock.calls[0][1][3]).toEqual(['send', 'read']);
+    expect(query.mock.calls[0][1]).not.toContain(body.token);
+  });
+
   it('mints a token, returns the plaintext once, and stores only the hash', async () => {
-    query.mockResolvedValueOnce({ rows: [{ id: 'tok-1', name: 'laptop' }] });
+    query.mockResolvedValueOnce({ rows: [{ id: 'tok-1', name: 'laptop', scopes: ['read'] }] });
     const { status, body } = await call(appWith(), 'POST', '/api/tokens', { name: 'laptop' });
     expect(status).toBe(201);
     expect(body.token).toMatch(/^mcp_/);
     expect(body).toMatchObject({ id: 'tok-1', name: 'laptop' });
-    // INSERT bound values: [user_id, token_hash, name] — never the plaintext.
+    // INSERT bound values: [user_id, token_hash, name, scopes] — never the plaintext.
     const params = query.mock.calls[0][1];
     expect(params[0]).toBe('user-1');
     expect(params[1]).toMatch(/^[0-9a-f]{64}$/);
@@ -53,11 +114,27 @@ describe('POST /api/tokens', () => {
 });
 
 describe('GET /api/tokens', () => {
+  it('selects and returns each token scopes', async () => {
+    query.mockResolvedValueOnce({
+      rows: [{
+        id: 'tok-1',
+        name: 'laptop',
+        scopes: ['read', 'write'],
+        created_at: 't',
+        last_used_at: null,
+      }],
+    });
+    const { status, body } = await callRoute('get');
+    expect(status).toBe(200);
+    expect(body.tokens[0].scopes).toEqual(['read', 'write']);
+    expect(query.mock.calls[0][0]).toMatch(/SELECT id, name, scopes, created_at, last_used_at/);
+  });
+
   it('lists tokens without hashes or plaintext', async () => {
-    query.mockResolvedValueOnce({ rows: [{ id: 'tok-1', name: 'laptop', created_at: 't', last_used_at: null }] });
+    query.mockResolvedValueOnce({ rows: [{ id: 'tok-1', name: 'laptop', scopes: ['read'], created_at: 't', last_used_at: null }] });
     const { status, body } = await call(appWith(), 'GET', '/api/tokens');
     expect(status).toBe(200);
-    expect(body.tokens[0]).toEqual({ id: 'tok-1', name: 'laptop', created_at: 't', last_used_at: null });
+    expect(body.tokens[0]).toEqual({ id: 'tok-1', name: 'laptop', scopes: ['read'], created_at: 't', last_used_at: null });
     expect(JSON.stringify(body)).not.toContain('token_hash');
   });
 });

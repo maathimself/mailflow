@@ -28,7 +28,10 @@ async function request(method, path, body, extraHeaders) {
       window.dispatchEvent(new CustomEvent('mailflow:session_expired'));
     }
     const err = await res.json().catch(() => ({ error: 'Request failed' }));
-    throw new Error(err.error || 'Request failed');
+    const requestError = new Error(err.error || 'Request failed');
+    requestError.status = res.status;
+    requestError.body = err;
+    throw requestError;
   }
   return res.json();
 }
@@ -337,6 +340,9 @@ export const api = {
   saveDraft:   (data)              => request('POST',   '/mail/draft', data),
   deleteDraft: (accountId, uid, folder) =>
     request('DELETE', `/mail/draft/${uid}?accountId=${encodeURIComponent(accountId)}&folder=${encodeURIComponent(folder)}`),
+  cancelOutbox: (id) => request('POST', `/mail/outbox/${encodeURIComponent(id)}/cancel`),
+  getOutbox: () => request('GET', '/mail/outbox'),
+  listOutbox: () => request('GET', '/mail/outbox'),
 
   // Block List
   getBlockList:          ()      => request('GET',    '/block-list'),
@@ -429,8 +435,8 @@ export const api = {
   // MCP API tokens — per-user bearer tokens for the Streamable-HTTP /mcp endpoint.
   // create() returns the plaintext token exactly once; only its hash is stored.
   tokens: {
-    list:   ()     => request('GET',  '/tokens'),
-    create: (name) => request('POST', '/tokens', { name }),
+    list:   ()             => request('GET',  '/tokens'),
+    create: (name, scopes) => request('POST', '/tokens', { name, scopes }),
     revoke: async (id) => {
       // DELETE responds 204 with no body — don't run it through request()/res.json().
       const res = await fetch(`${BASE}/tokens/${id}`, {

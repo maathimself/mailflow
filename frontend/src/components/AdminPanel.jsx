@@ -1477,7 +1477,7 @@ function SwipeActionIcon({ action, size = 17 }) {
 function LayoutsTab() {
   const { t } = useTranslation();
   const isMobile = useMobile();
-  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, senderFavicons, senderFaviconsSaving, setSenderFavicons } = useStore();
+  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, undoSendSeconds, setUndoSendSeconds, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, senderFavicons, senderFaviconsSaving, setSenderFavicons } = useStore();
   const [senderFaviconsError, setSenderFaviconsError] = useState('');
 
   // "Set MailFlow as your default email app": registerProtocolHandler is the
@@ -1989,6 +1989,41 @@ function LayoutsTab() {
               >
                 <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{label}</div>
                 <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{desc}</div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Undo send */}
+      <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>
+          {t('admin.messageList.undoSend')}
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {[
+            { id: 0, label: t('admin.messageList.undoSendOff') },
+            { id: 10, label: t('admin.messageList.undoSend10') },
+            { id: 30, label: t('admin.messageList.undoSend30') },
+            { id: 60, label: t('admin.messageList.undoSend60') },
+            { id: 120, label: t('admin.messageList.undoSend120') },
+          ].map(({ id, label }) => {
+            const active = undoSendSeconds === id;
+            return (
+              <button
+                key={id}
+                onClick={() => setUndoSendSeconds(id)}
+                style={{
+                  flex: '1 1 84px', padding: '8px 10px',
+                  background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
+                  border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
+                  borderRadius: 8, color: 'var(--text-primary)', fontSize: 12,
+                  cursor: 'pointer', transition: 'all 0.15s', outline: 'none',
+                }}
+                onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; }}
+                onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
+              >
+                {label}
               </button>
             );
           })}

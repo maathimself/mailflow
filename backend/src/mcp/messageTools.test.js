@@ -18,6 +18,7 @@ import { collectStats } from './vectorStats.js';
 import { resolveActiveGenerationFromConfig } from '../services/embeddings/hybrid.js';
 import { loadVector, annSearch } from '../services/embeddings/vectorStore.js';
 import { matchesInMessage } from '../services/embeddings/chunkmatch.js';
+import { ALL_SCOPES } from './auth.js';
 
 // The one vector-availability gate returns { cfg, generation }; a VectorUnavailableError
 // (name + reason) thrown from it is what every degraded/disabled path surfaces.
@@ -27,7 +28,7 @@ import {
   handleSearchByDomains, handleFindSimilarMessages, handleSearchInMessage, handleStageDeletion,
 } from './messageTools.js';
 
-const scope = { userId: 'u', accountIds: ['acc-1'] };
+const scope = { userId: 'u', accountIds: ['acc-1'], scopes: ALL_SCOPES };
 const detailRow = {
   id: 'm1', account_id: 'acc-1', message_id: '<x>', thread_id: 't', subject: 'S', snippet: '',
   from_email: 'a@b.com', from_name: 'A', to_addresses: [], cc_addresses: [], date: new Date('2024-01-01T00:00:00Z'),

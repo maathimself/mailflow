@@ -8,7 +8,24 @@ import {
   blockRemoteImages,
   rewriteEbayImageserUrls,
   rewriteAnchorHrefs,
+  hasHeaderInjectionChars,
 } from './emailSanitizer.js';
+
+describe('hasHeaderInjectionChars', () => {
+  it.each(['line\rbreak', 'line\nbreak', 'null\0byte'])(
+    'rejects control characters in %j',
+    value => {
+      expect(hasHeaderInjectionChars(value)).toBe(true);
+    }
+  );
+
+  it.each(['Normal Name', '', null, undefined, 123])(
+    'allows values without header injection characters: %j',
+    value => {
+      expect(hasHeaderInjectionChars(value)).toBe(false);
+    }
+  );
+});
 
 // ── stripEmailHead ─────────────────────────────────────────────────────────
 

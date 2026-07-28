@@ -23,6 +23,30 @@ vi.mock('../services/embeddings/generations.js', () => ({ activeGeneration: vi.f
 vi.mock('../services/embeddings/hybrid.js', () => ({ resolveActiveGenerationFromConfig: vi.fn() }));
 vi.mock('../services/embeddings/vectorStore.js', () => ({ loadVector: vi.fn(), annSearch: vi.fn() }));
 vi.mock('../services/embeddings/config.js', () => ({ generationFingerprint: vi.fn(() => 'fp'), resolveEmbedConfig: vi.fn(async () => ({ enabled: true, model: 'm', dimension: 2, preprocess: {}, maxInputChars: 100 })) }));
+vi.mock('../services/mailbox/move.js', async (orig) => {
+  const actual = await orig();
+  return {
+    ...actual,
+    bulkMoveToFolder: vi.fn(),
+    resolveMovedIds: vi.fn(),
+  };
+});
+vi.mock('../services/mailbox/archive.js', async (orig) => {
+  const actual = await orig();
+  return { ...actual, bulkArchive: vi.fn() };
+});
+vi.mock('../services/mailbox/trash.js', async (orig) => {
+  const actual = await orig();
+  return { ...actual, bulkTrash: vi.fn() };
+});
+vi.mock('../services/mailbox/snooze.js', async (orig) => {
+  const actual = await orig();
+  return { ...actual, snoozeConversation: vi.fn() };
+});
+vi.mock('../services/gtd/actions.js', async (orig) => {
+  const actual = await orig();
+  return { ...actual, gtdDone: vi.fn() };
+});
 
 import { query, withTransaction } from '../services/db.js';
 import { search } from '../services/search/searchService.js';
@@ -30,12 +54,38 @@ import * as generations from '../services/embeddings/generations.js';
 import { resolveActiveGenerationFromConfig } from '../services/embeddings/hybrid.js';
 import { loadVector, annSearch } from '../services/embeddings/vectorStore.js';
 import { matchFromChunk } from '../services/embeddings/chunkmatch.js';
+import { ALL_SCOPES } from './auth.js';
 import { rowToMessageSummary, rowToMessageDetail } from './engineAdapter.js';
 import { handleSearchMetadata, handleSearchMessageBodies, handleSemanticSearchMessages } from './searchTools.js';
 import {
   handleGetMessage, handleListMessages, handleGetStats, handleAggregate,
   handleFindSimilarMessages, handleSearchInMessage, handleStageDeletion, handleSearchByDomains,
 } from './messageTools.js';
+import {
+  handleCreateDraft, handleDeleteDraft, handleUpdateDraft,
+} from './draftTools.js';
+import {
+  handleListOutbox, handleRecallEmail, handleSendDraft, handleSendEmail,
+  handleUnsendEmail,
+} from './sendTools.js';
+import {
+  handleForwardEmail, handleReplyAllEmail, handleReplyEmail,
+} from './composeTools.js';
+import {
+  handleArchiveMessages,
+  handleGtdDone,
+  handleMoveMessages,
+  handleSnoozeMessage,
+  handleTrashMessages,
+} from './mailboxTools.js';
+import {
+  bulkMoveToFolder,
+  resolveMovedIds,
+} from '../services/mailbox/move.js';
+import { bulkArchive } from '../services/mailbox/archive.js';
+import { bulkTrash } from '../services/mailbox/trash.js';
+import { snoozeConversation } from '../services/mailbox/snooze.js';
+import { gtdDone } from '../services/gtd/actions.js';
 import { HANDLERS } from './tools.js';
 import { mockSurfaceDrift } from '../testSupport/mockSurface.js';
 
@@ -63,6 +113,40 @@ const SearchBodiesEnvelope = {
   data: [SearchMessageItem], total: 'int', returned: 'int', offset: 'int', has_more: 'bool',
   mode: 'string', pool_saturated: 'bool', generation: Generation,
 };
+const WriteAddress = { name: 'string', email: 'string' };
+const WriteAttachment = { filename: 'string', size: 'int', 'source?': 'string' };
+const WriteReceipt = {
+  from: WriteAddress,
+  to: [WriteAddress],
+  cc: [WriteAddress],
+  bcc: [WriteAddress],
+  subject: 'string',
+  attachments: [WriteAttachment],
+};
+const ImmediateSend = {
+  sent: 'bool',
+  message_id: 'string',
+  ...WriteReceipt,
+  sent_copy_saved: 'bool',
+  folder: 'string',
+};
+const QueuedSend = {
+  queued: 'bool',
+  outbox_id: 'string',
+  send_at: 'string',
+  undo_seconds: 'int',
+  from: {},
+  to: [WriteAddress],
+  cc: [WriteAddress],
+  bcc: [WriteAddress],
+  subject: 'string',
+  attachments: [WriteAttachment],
+  note: 'string',
+};
+const RecipientsComputed = {
+  reply_target: 'string',
+  excluded_self: ['string'],
+};
 const SHAPES = {
   message_summary: MessageSummary,
   message_detail: { ...MessageSummary, from: [Address], to: [Address], cc: [Address], bcc: [Address], body_text: 'string', body_html: 'string', attachments: [AttachmentInfo] },
@@ -88,6 +172,60 @@ const SHAPES = {
   semantic_search_messages: SearchBodiesEnvelope,
   search_by_domains: [MessageSummary], // raw array, no envelope (handlers.go:1984-1989)
   ping: { pong: 'bool' }, // Mailflow-specific health tool — no msgvault counterpart (documented divergence)
+  write_receipt: WriteReceipt,
+  create_or_update_draft: {
+    draft_uid: 'int',
+    folder: 'string',
+    message_id: 'string',
+    receipt: { message_id: 'string', ...WriteReceipt },
+  },
+  delete_draft: { deleted: 'bool', draft_uid: 'int', folder: 'string' },
+  immediate_send: ImmediateSend,
+  queued_send: QueuedSend,
+  reply_send: {
+    sent: 'bool',
+    recipients_computed: RecipientsComputed,
+    message_id: 'string',
+    in_reply_to: 'string',
+    references: 'string',
+    ...WriteReceipt,
+    sent_copy_saved: 'bool',
+    folder: 'string',
+  },
+  forward_send: {
+    ...ImmediateSend,
+    attachments: [{ filename: 'string', size: 'int', source: 'string' }],
+  },
+  unsend_email: {
+    cancelled: 'bool',
+    outbox_id: 'string',
+    subject: 'string',
+    to: ['string'],
+  },
+  list_outbox: {
+    data: [{
+      id: 'string',
+      subject: 'string',
+      to_preview: ['string'],
+      send_at: 'string',
+    }],
+    total: 'int',
+    returned: 'int',
+    offset: 'int',
+    has_more: 'bool',
+  },
+  recall_cancelled_before_send: {
+    recalled: 'string',
+    outbox_id: 'string',
+    subject: 'string',
+    to: ['string'],
+  },
+  recall_not_possible: {
+    recalled: 'string',
+    note: 'string',
+    sent_copy_deleted: 'bool',
+    followup_draft: { draft_uid: 'int', folder: 'string' },
+  },
 };
 
 // ---- diffKeys: [] on parity, else a list of divergence paths -------------------
@@ -133,13 +271,88 @@ const realRow = {
   attachments: [{ part: '2', filename: 'f.pdf', type: 'application/pdf', size: 10 }],
   flags: ['\\Seen'], folder: 'INBOX', body_text: 'hello world', body_html: '<p>hello world</p>',
 };
+const writeAccount = {
+  id: 'acc-1',
+  user_id: 'u',
+  email_address: 'sender@example.com',
+  sender_name: 'Sender',
+  signature: null,
+  folder_mappings: { drafts: 'Drafts' },
+};
+const composeSource = {
+  id: '22222222-2222-4222-8222-222222222222',
+  account_id: 'acc-1',
+  uid: 42,
+  folder: 'Sent',
+  message_id: '<original@example.com>',
+  thread_references: '<root@example.com>',
+  subject: 'Topic',
+  from_name: 'Original Sender',
+  from_email: 'original@example.com',
+  reply_to: [{ name: 'Reply Desk', email: 'reply@example.com' }],
+  to_addresses: [{ name: 'Sender', email: 'sender@example.com' }],
+  cc_addresses: [{ name: 'Colleague', email: 'colleague@example.com' }],
+  body_text: 'Original body',
+  body_html: '<p>Original body</p>',
+  attachments: [{ part: '2', filename: 'deck.pdf', size: 2_144_000 }],
+  date: new Date('2026-07-28T09:00:00Z'),
+};
+const immediateReceipt = {
+  from: { name: 'Sender', email: 'sender@example.com' },
+  to: [{ name: 'Recipient', email: 'recipient@example.com' }],
+  cc: [],
+  bcc: [],
+  subject: 'Subject',
+  attachments: [{ filename: 'note.txt', size: 5 }],
+  messageId: '<sent@example.com>',
+  sentCopySaved: true,
+  folder: 'Sent',
+};
 const jsonOf = (r) => JSON.parse(r.content[0].text);
-const scope = { userId: 'u', accountIds: ['acc-1'] };
+const scope = { userId: 'u', accountIds: ['acc-1'], scopes: ALL_SCOPES };
+
+function writeDeps(overrides = {}) {
+  return {
+    draftService: {
+      saveDraft: vi.fn().mockResolvedValue({
+        uid: 42,
+        folder: 'Drafts',
+        messageId: '<draft@example.com>',
+      }),
+      deleteDraft: vi.fn().mockResolvedValue({ ok: true }),
+    },
+    sendService: {
+      sendOrEnqueue: vi.fn().mockResolvedValue({
+        ok: true,
+        messageId: '<sent@example.com>',
+        sentCopySaved: true,
+        receipt: immediateReceipt,
+      }),
+    },
+    outboxService: {
+      normalizeUndoWindow: vi.fn((requested, preference) => requested ?? preference ?? 0),
+      cancel: vi.fn().mockResolvedValue({ cancelled: true }),
+      listPending: vi.fn().mockResolvedValue([]),
+    },
+    imapManager: {
+      permanentDeleteMessage: vi.fn().mockResolvedValue(undefined),
+    },
+    ...overrides,
+  };
+}
+
+function mockQueryRows(...rowSets) {
+  for (const rows of rowSets) {
+    query.mockResolvedValueOnce({ rows, rowCount: rows.length });
+  }
+}
 
 beforeEach(() => {
   query.mockReset(); withTransaction.mockReset(); search.mockReset(); matchFromChunk.mockReset();
   generations.activeGeneration.mockReset(); generations.buildingGeneration.mockReset(); generations.chunkCount.mockReset();
   resolveActiveGenerationFromConfig.mockReset(); loadVector.mockReset(); annSearch.mockReset();
+  bulkMoveToFolder.mockReset(); resolveMovedIds.mockReset(); bulkArchive.mockReset();
+  bulkTrash.mockReset(); snoozeConversation.mockReset(); gtdDone.mockReset();
 });
 
 // Every function this suite vi.mock()s must actually exist on its real module —
@@ -172,6 +385,8 @@ describe('golden parity: structural mappers', () => {
 });
 
 describe('golden parity: message tool envelopes', () => {
+  // These unchanged get/list cases are the read-wire regression guard for the
+  // write-handler `(args, scope, deps)` stack.
   it('get_message → getMessageResponse', async () => {
     query.mockResolvedValueOnce({ rows: [realRow] });
     const b = jsonOf(await handleGetMessage({ id: realRow.id }, scope));
@@ -305,10 +520,444 @@ describe('golden parity: search tool envelopes', () => {
   });
 });
 
-describe('no SQL in MCP handler modules (one-seam invariant)', () => {
+describe('golden parity: write tool envelopes', () => {
+  it('create_draft → draft identifier plus nested write receipt', async () => {
+    const deps = writeDeps();
+    mockQueryRows([writeAccount]);
+
+    const b = jsonOf(await handleCreateDraft({
+      account: 'sender@example.com',
+      to: ['Recipient <recipient@example.com>'],
+      subject: 'Subject',
+      attachments: [{
+        filename: 'note.txt',
+        content: 'aGVsbG8=',
+        content_type: 'text/plain',
+      }],
+    }, scope, deps));
+
+    expect(diffKeys(b, SHAPES.create_or_update_draft)).toEqual([]);
+  });
+
+  it('update_draft → replacement identifier plus nested write receipt', async () => {
+    const deps = writeDeps();
+    deps.draftService.saveDraft.mockResolvedValue({
+      uid: 43,
+      folder: 'Drafts',
+      messageId: '<updated-draft@example.com>',
+    });
+    mockQueryRows(
+      [writeAccount],
+      [{
+        uid: 42,
+        folder: 'Drafts',
+        from_email: 'sender@example.com',
+        to_addresses: [{ name: 'Recipient', email: 'recipient@example.com' }],
+        cc_addresses: [],
+        bcc_addresses: [],
+        subject: 'Subject',
+        body_text: 'Original body',
+        body_html: null,
+        attachments: [],
+      }],
+    );
+
+    const b = jsonOf(await handleUpdateDraft({
+      account: 'sender@example.com',
+      draft_uid: 42,
+      body: 'Updated body',
+    }, scope, deps));
+
+    expect(diffKeys(b, SHAPES.create_or_update_draft)).toEqual([]);
+    expect(b.draft_uid).toBe(43);
+  });
+
+  it('delete_draft → permanent-deletion identifier envelope', async () => {
+    const deps = writeDeps();
+    mockQueryRows(
+      [writeAccount],
+      [{ uid: 42, folder: 'Drafts' }],
+    );
+
+    const b = jsonOf(await handleDeleteDraft({
+      account: 'sender@example.com',
+      draft_uid: 42,
+    }, scope, deps));
+
+    expect(diffKeys(b, SHAPES.delete_draft)).toEqual([]);
+  });
+
+  it('send_email immediate → full write receipt', async () => {
+    const deps = writeDeps();
+    mockQueryRows([writeAccount], [{ preferences: { undoSendSeconds: 0 } }]);
+
+    const b = jsonOf(await handleSendEmail({
+      account: 'sender@example.com',
+      to: ['Recipient <recipient@example.com>'],
+      subject: 'Subject',
+      undo_send_seconds: 0,
+    }, scope, deps));
+
+    expect(diffKeys(b, SHAPES.immediate_send)).toEqual([]);
+  });
+
+  it('send_email queued → placeholder receipt with undo metadata', async () => {
+    const deps = writeDeps();
+    deps.outboxService.normalizeUndoWindow.mockReturnValue(30);
+    deps.sendService.sendOrEnqueue.mockResolvedValue({
+      queued: true,
+      outboxId: 'outbox-1',
+      sendAt: new Date('2026-07-28T10:00:30.000Z'),
+      undoSeconds: 30,
+    });
+    mockQueryRows([writeAccount], [{ preferences: { undoSendSeconds: 30 } }]);
+
+    const b = jsonOf(await handleSendEmail({
+      account: 'sender@example.com',
+      to: ['recipient@example.com'],
+      subject: 'Queued subject',
+    }, scope, deps));
+
+    expect(diffKeys(b, SHAPES.queued_send)).toEqual([]);
+    expect(b.from).toEqual({});
+    expect(b.to).toEqual([]);
+  });
+
+  it('send_draft immediate → same full write receipt as send_email', async () => {
+    const deps = writeDeps();
+    mockQueryRows(
+      [writeAccount],
+      [{
+        uid: 42,
+        folder: 'Drafts',
+        from_email: 'sender@example.com',
+        to_addresses: [{ name: 'Recipient', email: 'recipient@example.com' }],
+        cc_addresses: [],
+        bcc_addresses: [],
+        subject: 'Subject',
+        body_text: 'Draft body',
+        body_html: '',
+      }],
+      [{ preferences: { undoSendSeconds: 0 } }],
+    );
+
+    const b = jsonOf(await handleSendDraft({
+      account: 'sender@example.com',
+      draft_uid: 42,
+      undo_send_seconds: 0,
+    }, scope, deps));
+
+    expect(diffKeys(b, SHAPES.immediate_send)).toEqual([]);
+  });
+
+  it.each([
+    ['reply_email', handleReplyEmail],
+    ['reply_all_email', handleReplyAllEmail],
+  ])('%s → threading plus recipients_computed receipt', async (_name, handler) => {
+    const deps = writeDeps();
+    deps.sendService.sendOrEnqueue.mockResolvedValue({
+      ok: true,
+      receipt: {
+        ...immediateReceipt,
+        to: [{ name: 'Reply Desk', email: 'reply@example.com' }],
+        subject: 'Re: Topic',
+        attachments: [],
+        messageId: '<reply@example.com>',
+      },
+    });
+    mockQueryRows(
+      [composeSource],
+      [writeAccount],
+      [],
+      [{ preferences: { undoSendSeconds: 0 } }],
+    );
+
+    const b = jsonOf(await handler({
+      message_id: composeSource.id,
+      body: 'Thanks',
+      no_quote: true,
+      undo_send_seconds: 0,
+    }, scope, deps));
+
+    expect(diffKeys(b, SHAPES.reply_send)).toEqual([]);
+    expect(b.recipients_computed.reply_target).toBe('reply@example.com');
+  });
+
+  it('forward_email → immediate receipt with forwarded attachment source', async () => {
+    const deps = writeDeps();
+    deps.sendService.sendOrEnqueue.mockResolvedValue({
+      ok: true,
+      receipt: {
+        ...immediateReceipt,
+        subject: 'Fwd: Topic',
+        attachments: [{ filename: 'deck.pdf', size: 2_144_000 }],
+        messageId: '<forward@example.com>',
+      },
+    });
+    mockQueryRows(
+      [composeSource],
+      [writeAccount],
+      [],
+      [{ preferences: { undoSendSeconds: 0 } }],
+    );
+
+    const b = jsonOf(await handleForwardEmail({
+      message_id: composeSource.id,
+      to: ['Recipient <recipient@example.com>'],
+      undo_send_seconds: 0,
+    }, scope, deps));
+
+    expect(diffKeys(b, SHAPES.forward_send)).toEqual([]);
+    expect(b.attachments[0].source).toBe('forwarded');
+  });
+
+  it('unsend_email → cancelled outbox receipt', async () => {
+    const deps = writeDeps();
+    deps.outboxService.listPending.mockResolvedValue([{
+      id: 'outbox-1',
+      subject: 'Queued subject',
+      to_preview: ['recipient@example.com'],
+      send_at: new Date('2026-07-28T10:00:30.000Z'),
+    }]);
+
+    const b = jsonOf(await handleUnsendEmail({
+      outbox_id: 'outbox-1',
+    }, scope, deps));
+
+    expect(diffKeys(b, SHAPES.unsend_email)).toEqual([]);
+  });
+
+  it('list_outbox → no-total pagination envelope', async () => {
+    const deps = writeDeps();
+    deps.outboxService.listPending.mockResolvedValue([{
+      id: 'outbox-1',
+      subject: 'Queued subject',
+      to_preview: ['recipient@example.com'],
+      send_at: new Date('2026-07-28T10:00:30.000Z'),
+    }]);
+
+    const b = jsonOf(await handleListOutbox({}, scope, deps));
+
+    expect(diffKeys(b, SHAPES.list_outbox)).toEqual([]);
+    expect(b.total).toBe(-1);
+  });
+
+  it('recall_email pending → cancelled_before_send envelope', async () => {
+    const deps = writeDeps();
+    deps.outboxService.listPending.mockResolvedValue([{
+      id: 'outbox-1',
+      subject: 'Queued subject',
+      to_preview: ['recipient@example.com'],
+    }]);
+
+    const b = jsonOf(await handleRecallEmail({
+      outbox_id: 'outbox-1',
+    }, scope, deps));
+
+    expect(diffKeys(b, SHAPES.recall_cancelled_before_send)).toEqual([]);
+    expect(b.recalled).toBe('cancelled_before_send');
+  });
+
+  it('recall_email delivered → not_possible envelope with follow-up draft', async () => {
+    const deps = writeDeps();
+    deps.draftService.saveDraft.mockResolvedValue({
+      uid: 57,
+      folder: 'Drafts',
+      messageId: '<followup@example.com>',
+    });
+    mockQueryRows(
+      [],
+      [composeSource],
+      [writeAccount],
+    );
+    query.mockResolvedValueOnce({ rows: [], rowCount: 1 });
+
+    const b = jsonOf(await handleRecallEmail({
+      message_id: composeSource.id,
+    }, scope, deps));
+
+    expect(diffKeys(b, SHAPES.recall_not_possible)).toEqual([]);
+    expect(b.recalled).toBe('not_possible');
+    expect(deps.sendService.sendOrEnqueue).not.toHaveBeenCalled();
+  });
+});
+
+describe('golden parity: mailbox tool envelopes', () => {
+  const id = '33333333-3333-4333-8333-333333333333';
+  const secondId = '44444444-4444-4444-8444-444444444444';
+  const newId = '55555555-5555-4555-8555-555555555555';
+  const deps = { imapManager: {} };
+
+  it('pins move_messages receipt keys', async () => {
+    bulkMoveToFolder.mockResolvedValue({
+      ok: true,
+      movedDetails: [{ id, accountId: 'acc-1', uid: 110 }],
+      failed: [],
+      skippedAccounts: [],
+    });
+    resolveMovedIds.mockResolvedValue([{ id: newId, uid: 110 }]);
+
+    expect(jsonOf(await handleMoveMessages({
+      message_ids: [id],
+      folder: 'Projects',
+    }, scope, deps))).toEqual({
+      ok: true,
+      moved: [{ id, new_id: newId, uid: 110, folder: 'Projects' }],
+      failed: [],
+      skipped_accounts: [],
+      resync_pending: false,
+      note: 'message ids change on move; use new_id for follow-up calls',
+    });
+  });
+
+  it('pins archive_messages receipt keys including destination_untracked', async () => {
+    bulkArchive.mockResolvedValue({
+      ok: true,
+      archivedDetails: [
+        {
+          id,
+          accountId: 'acc-1',
+          folder: 'Archive',
+          uid: 110,
+          destinationUntracked: false,
+        },
+        {
+          id: secondId,
+          accountId: 'acc-1',
+          folder: '[Gmail]/All Mail',
+          uid: 111,
+          destinationUntracked: true,
+        },
+      ],
+      failed: [],
+      noArchiveFolder: [],
+    });
+    resolveMovedIds.mockResolvedValue([{ id: newId, uid: 110 }]);
+
+    expect(jsonOf(await handleArchiveMessages({
+      message_ids: [id, secondId],
+    }, scope, deps))).toEqual({
+      ok: true,
+      archived: [
+        {
+          id,
+          new_id: newId,
+          uid: 110,
+          folder: 'Archive',
+          destination_untracked: false,
+        },
+        {
+          id: secondId,
+          new_id: null,
+          uid: 111,
+          folder: '[Gmail]/All Mail',
+          destination_untracked: true,
+        },
+      ],
+      failed: [],
+      no_archive_folder: [],
+      resync_pending: false,
+      note: 'message ids change on archive; use new_id for follow-up calls',
+    });
+  });
+
+  it('pins trash_messages receipt keys including the refusal partition', async () => {
+    bulkTrash.mockResolvedValue({
+      ok: true,
+      trashedDetails: [{
+        id,
+        accountId: 'acc-1',
+        folder: 'Trash',
+        uid: 110,
+      }],
+      failed: [],
+      refused: [{
+        id: secondId,
+        folder: 'Trash',
+        reason: 'already_in_trash_permanent_delete_required',
+      }],
+    });
+    resolveMovedIds.mockResolvedValue([{ id: newId, uid: 110 }]);
+
+    expect(jsonOf(await handleTrashMessages({
+      message_ids: [id, secondId],
+    }, scope, deps))).toEqual({
+      ok: true,
+      trashed: [{ id, new_id: newId, folder: 'Trash' }],
+      failed: [],
+      refused: [{
+        id: secondId,
+        folder: 'Trash',
+        reason: 'already_in_trash_permanent_delete_required',
+      }],
+      resync_pending: false,
+      next_step: 'use stage_deletion for permanent removal',
+    });
+  });
+
+  it('pins snooze_message receipt keys', async () => {
+    snoozeConversation.mockResolvedValue({
+      ok: true,
+      movedCount: 2,
+      movedIds: [id, secondId],
+      folder: 'Snoozed',
+    });
+
+    expect(jsonOf(await handleSnoozeMessage({
+      message_id: id,
+      until: new Date(Date.now() + 60_000).toISOString(),
+    }, scope, deps))).toEqual({
+      ok: true,
+      moved_count: 2,
+      sibling_ids: [secondId],
+      folder: 'Snoozed',
+    });
+  });
+
+  it('pins gtd_done partial-success receipt keys', async () => {
+    gtdDone.mockResolvedValue({
+      ok: true,
+      removed: ['Watch'],
+      archived: false,
+      noArchiveFolder: false,
+      archiveFailed: true,
+    });
+
+    const result = await handleGtdDone({
+      message_id: id,
+      states: ['watch'],
+    }, scope, deps);
+
+    expect(result.isError).toBeUndefined();
+    expect(jsonOf(result)).toEqual({
+      ok: true,
+      removed: ['Watch'],
+      archived: false,
+      no_archive_folder: false,
+      archive_failed: true,
+    });
+  });
+});
+
+describe('SQL is confined to MCP adapter seams', () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const read = (n) => readFileSync(join(here, n), 'utf8');
-  for (const file of ['searchTools.js', 'messageTools.js']) {
+  for (const file of ['engineAdapter.js', 'accountAdapter.js']) {
+    it(`${file} is an explicitly allowed SQL seam`, () => {
+      expect(read(file)).toMatch(/from '\.\.\/services\/db\.js'/);
+    });
+  }
+  for (const file of [
+    'searchTools.js',
+    'messageTools.js',
+    'mailboxTools.js',
+    'triageTools.js',
+    'composeTools.js',
+    'draftTools.js',
+    'sendTools.js',
+    'writeResult.js',
+    'accountTools.js',
+  ]) {
     it(`${file} contains no raw SQL or db.js import`, () => {
       const src = read(file);
       expect(src).not.toMatch(/\bSELECT\b|\bINSERT\b|\bUPDATE\b|\bDELETE FROM\b/);

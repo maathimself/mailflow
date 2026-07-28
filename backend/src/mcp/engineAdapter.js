@@ -7,12 +7,12 @@
 import { query, withTransaction } from '../services/db.js';
 import { buildOperatorClauses, freeTextTermClause, hasSearchableToken } from '../services/search/lexicalRepo.js';
 
-const SUMMARY_COLUMNS = `
+export const SUMMARY_COLUMNS = `
   m.id, m.account_id, m.message_id, m.thread_id, m.subject, m.snippet,
   m.from_email, m.from_name, m.to_addresses, m.cc_addresses, m.date,
   m.has_attachments, m.attachments, m.flags, m.folder`;
 
-const DETAIL_COLUMNS = SUMMARY_COLUMNS + `, m.body_text, m.body_html`;
+export const DETAIL_COLUMNS = SUMMARY_COLUMNS + `, m.body_text, m.body_html`;
 
 export function mapAddrs(jsonb) {
   return (jsonb || []).map((a) => ({ Email: a.email || '', Name: a.name || '' }));

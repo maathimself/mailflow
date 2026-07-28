@@ -107,7 +107,12 @@
     "bodyPh": "Nachricht schreiben…",
     "send": "Senden",
     "sendTooltip": "Senden (Ctrl+Eingabe)",
-    "sending": "Wird gesendet…",
+    "sending": {
+      "label": "Wird gesendet…",
+      "title": "Nachricht wird gesendet",
+      "countdown": "Wird in {{seconds}} s gesendet",
+      "tooLate": "Zum Rückgängigmachen zu spät"
+    },
     "discard": "Verwerfen",
     "saveDraft": "Entwurf speichern",
     "savingDraft": "Wird gespeichert…",
@@ -585,7 +590,14 @@
       "neverUsed": "nie verwendet",
       "copyOnce": "Jetzt kopieren — du siehst ihn nicht noch einmal.",
       "createFailed": "Token konnte nicht erstellt werden",
-      "revokeFailed": "Token konnte nicht widerrufen werden"
+      "revokeFailed": "Token konnte nicht widerrufen werden",
+      "scopes": {
+        "read": "E-Mails lesen",
+        "write": "E-Mails ändern",
+        "send": "E-Mails senden",
+        "settings": "Einstellungen verwalten",
+        "sendRisk": "Dieses Token kann ohne weitere Bestätigung E-Mails in deinem Namen senden."
+      }
     }
   },
   "admin": {
@@ -793,6 +805,12 @@
       "defaultReplyAction": "Standard-Antwortoption",
       "defaultReply": "Antworten",
       "defaultReplyAllDesc": "Die Schaltfläche Antworten sendet an alle Empfänger",
+      "undoSend": "Senden rückgängig machen",
+      "undoSendOff": "Aus",
+      "undoSend10": "10 Sekunden",
+      "undoSend30": "30 Sekunden",
+      "undoSend60": "60 Sekunden",
+      "undoSend120": "2 Minuten",
       "markReadBehavior": "Als gelesen markieren",
       "markReadImmediate": "Sofort",
       "markReadImmediateDesc": "E-Mails sofort als gelesen markieren, sobald sie geöffnet werden.",

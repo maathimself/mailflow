@@ -107,7 +107,12 @@
     "bodyPh": "请输入正文…",
     "send": "发送",
     "sendTooltip": "发送（Ctrl+Enter）",
-    "sending": "发送中…",
+    "sending": {
+      "label": "发送中…",
+      "title": "正在发送邮件",
+      "countdown": "将在 {{seconds}} 秒后发送",
+      "tooLate": "已来不及撤销"
+    },
     "discard": "丢弃",
     "saveDraft": "保存草稿",
     "savingDraft": "保存中…",
@@ -585,7 +590,14 @@
       "neverUsed": "从未使用",
       "copyOnce": "立即复制 — 你将无法再次看到它。",
       "createFailed": "创建令牌失败",
-      "revokeFailed": "撤销令牌失败"
+      "revokeFailed": "撤销令牌失败",
+      "scopes": {
+        "read": "读取邮件",
+        "write": "修改邮件",
+        "send": "发送邮件",
+        "settings": "管理设置",
+        "sendRisk": "此令牌无需进一步确认即可代表你发送邮件。"
+      }
     }
   },
   "admin": {
@@ -863,6 +875,12 @@
       "defaultReplyAction": "默认回复方式",
       "defaultReply": "回复",
       "defaultReplyAllDesc": "回复按钮将发送给所有收件人",
+      "undoSend": "撤销发送",
+      "undoSendOff": "关闭",
+      "undoSend10": "10 秒",
+      "undoSend30": "30 秒",
+      "undoSend60": "60 秒",
+      "undoSend120": "2 分钟",
       "markReadBehavior": "标为已读",
       "markReadImmediate": "立即",
       "markReadImmediateDesc": "打开邮件后立即标为已读。",

@@ -475,6 +475,35 @@ export default function MailApp() {
     return () => clearInterval(interval);
   }, [setAccounts, setUnreadCounts, setTodoistConnected]);
 
+  useEffect(() => {
+    api.getOutbox()
+      .then(({ pending = [] }) => {
+        for (const row of pending) {
+          const countdownUntil = new Date(row.sendAt ?? row.send_at).getTime();
+          if (!Number.isFinite(countdownUntil)) continue;
+          addNotification({
+            persistent: true,
+            durationMs: Math.max(0, countdownUntil - Date.now()),
+            title: t('compose.sending.title'),
+            body: row.subject || t('common.noSubject'),
+            countdownUntil,
+            onUndo: async () => {
+              try {
+                await api.cancelOutbox(row.id);
+              } catch {
+                addNotification({
+                  type: 'error',
+                  title: t('compose.sending.tooLate'),
+                  body: row.subject || t('common.noSubject'),
+                });
+              }
+            },
+          });
+        }
+      })
+      .catch(err => console.error('Failed to restore outbox:', err));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- restore pending sends once per app mount
+
   // WebSocket-independent periodic refresh of the open message list, at the user's chosen sync
   // interval. Only fires when the tab is visible AND the socket is not OPEN — a true fallback so
   // read state and new mail still converge if the WebSocket is down, without redundant refetching
