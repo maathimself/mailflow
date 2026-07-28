@@ -19,6 +19,25 @@ import { resolveActiveGenerationFromConfig } from '../services/embeddings/hybrid
 import { loadVector, annSearch } from '../services/embeddings/vectorStore.js'; // phase 3
 import { matchesInMessage } from '../services/embeddings/chunkmatch.js'; // phase-5-owned
 
+function annotations({
+  readOnlyHint = false,
+  destructiveHint = false,
+  idempotentHint = false,
+} = {}) {
+  return Object.freeze({
+    readOnlyHint,
+    destructiveHint,
+    idempotentHint,
+    openWorldHint: false,
+  });
+}
+
+const READ_ONLY_ANNOTATIONS = annotations({
+  readOnlyHint: true,
+  idempotentHint: true,
+});
+const NON_IDEMPOTENT_WRITE_ANNOTATIONS = annotations();
+
 const DEFAULT_BODY_CHARS = 2000;
 const MAX_BODY_CHARS = 4000;
 const MAX_LIMIT = 1000;
@@ -59,6 +78,7 @@ export const getMessageDef = {
     'To read sequentially: call again with offset += body_returned. ' +
     'To jump to a known match location: use center_at=<byte offset> to center the window on that location. ' +
     'Note: snippet is pre-stored source metadata (may be empty for non-Gmail sources).',
+  annotations: READ_ONLY_ANNOTATIONS,
   inputSchema: {
     type: 'object',
     properties: {
@@ -146,6 +166,7 @@ export const listMessagesDef = {
     'there is deliberately no bulk body fetch, to avoid loading huge threads into the context window. ' +
     'Paginate with offset/limit (default limit 20, max 50). Response: data, total, returned, offset, has_more. ' +
     'total=-1 because the full count is not computed; use has_more for paging.',
+  annotations: READ_ONLY_ANNOTATIONS,
   inputSchema: {
     type: 'object',
     properties: {
@@ -189,6 +210,7 @@ export async function handleListMessages(args, scope) {
 export const getStatsDef = {
   name: 'get_stats',
   description: 'Get archive overview: total messages, size, attachment count, and accounts.',
+  annotations: READ_ONLY_ANNOTATIONS,
   inputSchema: { type: 'object', properties: {} },
 };
 
@@ -214,6 +236,7 @@ export const aggregateDef = {
   description:
     'Get grouped statistics (top senders, recipients, domains, labels, or message volume by calendar year). ' +
     'Returns a JSON array of objects with fields Key, Count, TotalSize, AttachmentSize, AttachmentCount, and TotalUnique.',
+  annotations: READ_ONLY_ANNOTATIONS,
   inputSchema: {
     type: 'object',
     properties: {
@@ -248,6 +271,7 @@ export async function handleAggregate(args, scope) {
 export const searchByDomainsDef = {
   name: 'search_by_domains',
   description: 'Find emails where any participant (from, to, or cc) belongs to one of the given domains. Useful for finding all communication with a company regardless of direction.',
+  annotations: READ_ONLY_ANNOTATIONS,
   inputSchema: {
     type: 'object',
     properties: {
@@ -279,6 +303,7 @@ export async function handleSearchByDomains(args, scope) {
 export const findSimilarMessagesDef = {
   name: 'find_similar_messages',
   description: 'Find messages whose embeddings are closest to the given message. Requires vector search to be configured and an active index generation.',
+  annotations: READ_ONLY_ANNOTATIONS,
   inputSchema: {
     type: 'object',
     properties: {
@@ -293,6 +318,53 @@ export const findSimilarMessagesDef = {
     required: ['message_id'],
   },
 };
+
+function findSimilarError(message) {
+  const error = new Error(message);
+  error.name = 'FindSimilarError';
+  return error;
+}
+
+export async function findSimilarSummaries(seedId, {
+  accountIds,
+  limit = 20,
+  after,
+  before,
+  hasAttachment = false,
+} = {}) {
+  const { generation } = await resolveActiveGenerationFromConfig();
+
+  // loadVector is not account-aware, so scope membership must be established
+  // before the vector is loaded (and before its existence can be observed).
+  if (!(await messageInScope(seedId, accountIds))) {
+    throw findSimilarError('message not found');
+  }
+
+  let seed;
+  try {
+    seed = await loadVector(seedId);
+  } catch (error) {
+    throw findSimilarError(`load seed vector: ${error.message}`);
+  }
+
+  const filter = { accountIds };
+  if (after) filter.after = after;
+  if (before) filter.before = before;
+  if (hasAttachment) filter.hasAttachment = true;
+
+  // annSearch is generation-specific and rank-ordered. Over-fetch one so the
+  // seed can be removed without shortening the requested result set.
+  const hits = await annSearch(generation.id, seed, limit + 1, { filter });
+  const ids = [];
+  for (const hit of hits) {
+    if (hit.messageId === seedId) continue;
+    if (ids.length >= limit) break;
+    ids.push(hit.messageId);
+  }
+
+  const messages = await getMessageSummariesByIDs(ids, accountIds);
+  return { generation, messages };
+}
 
 export async function handleFindSimilarMessages(args, scope) {
   const seedId = args.message_id;
@@ -311,32 +383,14 @@ export async function handleFindSimilarMessages(args, scope) {
   const messageType = typeof args.message_type === 'string' ? args.message_type.trim().toLowerCase() : '';
 
   try {
-    const { generation: gen } = await resolveActiveGenerationFromConfig();
-
-    // Owner-scope the seed: loadVector is not account-aware, so a foreign/unknown
-    // seed id must behave like get_message on a foreign id (contract: every tool
-    // call is owner-scoped; also closes an embedding-existence oracle).
-    if (!(await messageInScope(seedId, acc.accountIds))) return errorResult('message not found');
-
-    let seed;
-    try { seed = await loadVector(seedId); }
-    catch (e) { return errorResult(`load seed vector: ${e.message}`); }
-
-    const filter = { accountIds: acc.accountIds };
-    if (after.value) filter.after = after.value;
-    if (before.value) filter.before = before.value;
-    if (args.has_attachment === true) filter.hasAttachment = true;
-    // phase-3 annSearch takes the generation ID (not the object) and returns
-    // [{messageId, score, rank}] rank-ordered. +1 to drop the seed without coming up short.
-    const hits = await annSearch(gen.id, seed, limit + 1, { filter });
-
-    const ids = [];
-    for (const h of hits) {
-      if (h.messageId === seedId) continue;
-      if (ids.length >= limit) break;
-      ids.push(h.messageId);
-    }
-    let messages = await getMessageSummariesByIDs(ids, acc.accountIds);
+    const result = await findSimilarSummaries(seedId, {
+      accountIds: acc.accountIds,
+      limit,
+      after: after.value,
+      before: before.value,
+      hasAttachment: args.has_attachment === true,
+    });
+    let messages = result.messages;
     // msgvault applies message_type inside the vector backend filter
     // (handlers.go:1042-1044); Mailflow's annSearch filter has no such leg, so
     // the advertised filter is applied on the hydrated summaries (every
@@ -345,11 +399,18 @@ export async function handleFindSimilarMessages(args, scope) {
     return jsonResult({
       seed_message_id: seedId,
       returned: messages.length,
-      generation: { id: gen.id, model: gen.model, dimension: gen.dimension, fingerprint: gen.fingerprint, state: gen.state },
+      generation: {
+        id: result.generation.id,
+        model: result.generation.model,
+        dimension: result.generation.dimension,
+        fingerprint: result.generation.fingerprint,
+        state: result.generation.state,
+      },
       messages: messages.map(wireSummary),
     });
   } catch (err) {
     if (err.name === 'VectorUnavailableError') return errorResult(translateVectorError(err.reason));
+    if (err.name === 'FindSimilarError') return errorResult(err.message);
     throw err;
   }
 }
@@ -361,6 +422,7 @@ export const searchInMessageDef = {
     'mode=vector scores each embedded chunk by semantic similarity to the query (best first, with score on each match). ' +
     'Keyword matches include raw-body char_offset and line. Vector matches always include snippet and score; char_offset and line may be omitted after preprocessing. ' +
     'Use a present char_offset with get_message center_at to read a larger window around the match.',
+  annotations: READ_ONLY_ANNOTATIONS,
   inputSchema: {
     type: 'object',
     properties: {
@@ -409,6 +471,7 @@ export async function handleSearchInMessage(args, scope) {
 export const stageDeletionDef = {
   name: 'stage_deletion',
   description: "Stage messages for deletion. Use EITHER 'query' (Gmail-style search) OR structured filters (from, domain, label, etc.), not both. Does NOT delete immediately - execution is a separate, explicitly-authorized step.",
+  annotations: NON_IDEMPOTENT_WRITE_ANNOTATIONS,
   inputSchema: {
     type: 'object',
     properties: {

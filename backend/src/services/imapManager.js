@@ -16,6 +16,7 @@ import { getConnectionPolicy } from './connectionPolicy.js';
 import { applyInboxRules, applyBlockList } from './inboxRules.js';
 import { generateVCard } from '../utils/vcard.js';
 import { randomUUID } from 'crypto';
+import { restoreSnoozedRow } from './mailbox/snooze.js';
 
 
 // Shorthand for log lines — keeps domain visible while masking the local part.
@@ -3642,6 +3643,7 @@ export class ImapManager {
     to = [],
     cc = [],
     inReplyTo = null,
+    references = null,
     snippet = '',
     bodyHtml = null,
     bodyText = null,
@@ -3653,9 +3655,9 @@ export class ImapManager {
       INSERT INTO messages (
         account_id, uid, folder, message_id, subject,
         from_name, from_email, to_addresses, cc_addresses,
-        in_reply_to, date, snippet, is_read, is_starred, has_attachments,
+        in_reply_to, thread_references, date, snippet, is_read, is_starred, has_attachments,
         flags, body_html, body_text, thread_id
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,$12,true,false,false,$13::jsonb,$14,$15,$16)
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,$12,$13,true,false,false,$14::jsonb,$15,$16,$17)
       ON CONFLICT (account_id, uid, folder) DO UPDATE SET
         message_id = COALESCE(EXCLUDED.message_id, messages.message_id),
         subject = CASE
@@ -3670,6 +3672,7 @@ export class ImapManager {
           WHEN EXCLUDED.cc_addresses::text IS NOT NULL AND EXCLUDED.cc_addresses::text <> '[]'
           THEN EXCLUDED.cc_addresses ELSE messages.cc_addresses END,
         in_reply_to = COALESCE(EXCLUDED.in_reply_to, messages.in_reply_to),
+        thread_references = COALESCE(EXCLUDED.thread_references, messages.thread_references),
         date = EXCLUDED.date,
         snippet = CASE WHEN EXCLUDED.snippet <> '' THEN EXCLUDED.snippet ELSE messages.snippet END,
         flags = EXCLUDED.flags,
@@ -3680,7 +3683,7 @@ export class ImapManager {
       sanitizeStr(subject || '(no subject)'),
       sanitizeStr(fromName || ''), sanitizeStr(fromEmail || ''),
       JSON.stringify(Array.isArray(to) ? to : []), JSON.stringify(Array.isArray(cc) ? cc : []),
-      inReplyTo || null, safeDate(date), sanitizeStr(snippet || ''),
+      inReplyTo || null, references || null, safeDate(date), sanitizeStr(snippet || ''),
       JSON.stringify(['\\Draft', '\\Seen']),
       bodyHtml != null ? sanitizeStr(bodyHtml) : null,
       bodyText != null ? sanitizeStr(bodyText) : null,
@@ -4665,69 +4668,16 @@ export class ImapManager {
       WHERE sm.snooze_until <= NOW()
     `);
 
+    const restoreImapManager = Object.assign(Object.create(this), {
+      _withFreshClient: withFreshClient,
+    });
+
     for (const row of due.rows) {
       try {
-        const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [row.account_id]);
-        if (!accountResult.rows.length) continue;
-        const account = accountResult.rows[0];
-
-        // Guard source UID before the IMAP move so reconcileDeletes cannot delete
-        // the DB row if an EXPUNGE arrives from the Snoozed folder while the move
-        // is in flight.
-        this._guardMoveUid(row.account_id, row.snoozed_folder, row.uid);
-        let newUid;
-        try {
-          // Move back to original folder
-          newUid = await this.moveMessageGetNewUid(
-            account, row.uid, row.snoozed_folder, row.original_folder
-          );
-
-          // Mark as unread so the user notices it
-          if (newUid) {
-            await this.setFlag(account, newUid, row.original_folder, '\\Seen', false);
-          } else if (row.message_id_header) {
-            // No UIDPLUS — server moved the message but returned no UID map.
-            // Search the destination folder by Message-ID to locate and unflag \Seen.
-            try {
-              await withFreshClient(account, async (client) => {
-                const lock = await client.getMailboxLock(row.original_folder);
-                try {
-                  const uids = await client.search({ header: ['Message-ID', row.message_id_header] }, { uid: true });
-                  if (uids.length > 0) {
-                    const r = await client.messageFlagsRemove(String(uids[0]), ['\\Seen'], { uid: true });
-                    if (r === false) console.warn(`Snooze wakeup: messageFlagsRemove returned false for ${row.original_folder}`);
-                  } else {
-                    console.warn(`Snooze wakeup: could not find message in ${row.original_folder} to mark unread (Message-ID: ${row.message_id_header})`);
-                  }
-                } finally {
-                  lock.release();
-                }
-              });
-            } catch (err) {
-              console.warn(`Snooze wakeup: could not mark message unread on server (no UIDPLUS): ${err.message}`);
-            }
-          }
-
-          // Update DB: change folder, mark unread, and update UID if the move returned one.
-          if (newUid != null) {
-            await query(
-              'UPDATE messages SET folder = $1, is_read = false, read_changed_at = NOW(), uid = $4 WHERE account_id = $2 AND message_id = $3 AND folder = $5',
-              [row.original_folder, row.account_id, row.message_id_header, newUid, row.snoozed_folder]
-            );
-          } else {
-            // Non-UIDPLUS: DB holds the stale source UID at the destination. Guard it so
-            // reconcileDeletes does not treat it as an orphan before the next sync corrects it.
-            this._guardMoveUid(row.account_id, row.original_folder, row.uid);
-            await query(
-              'UPDATE messages SET folder = $1, is_read = false, read_changed_at = NOW() WHERE account_id = $2 AND message_id = $3 AND folder = $4',
-              [row.original_folder, row.account_id, row.message_id_header, row.snoozed_folder]
-            );
-            setTimeout(() => this._unguardMoveUid(row.account_id, row.original_folder, row.uid), 10_000);
-          }
-        } finally {
-          this._unguardMoveUid(row.account_id, row.snoozed_folder, row.uid);
-        }
-
+        const restored = await restoreSnoozedRow(restoreImapManager, row, {
+          markUnread: true,
+        });
+        if (!restored.restored) continue;
         // Remove snooze record
         await query('DELETE FROM snoozed_messages WHERE id = $1', [row.snooze_id]);
 

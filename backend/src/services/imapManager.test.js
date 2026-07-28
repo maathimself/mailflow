@@ -1285,3 +1285,52 @@ describe('ImapManager.fetchBodiesForMessages', () => {
     expect(mgr.fetchMessageBody).toHaveBeenCalledTimes(2); // both attempted, neither skipped silently
   });
 });
+
+describe('ImapManager.upsertDraftMessageRecord', () => {
+  function makeManager() {
+    const mgr = new ImapManager({});
+    clearInterval(mgr._healthCheckTimer);
+    clearInterval(mgr._snippetSchedulerTimer);
+    clearInterval(mgr._stalenessCheckTimer);
+    clearInterval(mgr._flagPushReconcilerTimer);
+    return mgr;
+  }
+
+  it('stores reply references without shifting later positional binds', async () => {
+    const mgr = makeManager();
+    const date = new Date('2026-07-28T12:00:00.000Z');
+    query.mockReset();
+    query.mockResolvedValue({ rows: [] });
+
+    await mgr.upsertDraftMessageRecord(
+      { id: 'account-1' },
+      'Drafts',
+      42,
+      {
+        messageId: '<draft@example.com>',
+        subject: 'Re: Thread',
+        fromName: 'Sender',
+        fromEmail: 'sender@example.com',
+        to: [{ name: 'Recipient', email: 'recipient@example.com' }],
+        cc: [],
+        inReplyTo: '<parent@example.com>',
+        references: '<root@example.com> <parent@example.com>',
+        snippet: 'Draft body',
+        bodyHtml: '<p>Draft body</p>',
+        bodyText: 'Draft body',
+        date,
+      },
+    );
+
+    const [sql, binds] = query.mock.calls[0];
+    expect(sql).toContain('in_reply_to, thread_references, date');
+    expect(sql).toContain(
+      'thread_references = COALESCE(EXCLUDED.thread_references, messages.thread_references)',
+    );
+    expect(binds).toHaveLength(17);
+    expect(binds[9]).toBe('<parent@example.com>');
+    expect(binds[10]).toBe('<root@example.com> <parent@example.com>');
+    expect(binds[11]).toEqual(date);
+    expect(binds[16]).toBe('<draft@example.com>');
+  });
+});

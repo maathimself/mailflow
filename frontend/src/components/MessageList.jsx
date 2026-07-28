@@ -14,7 +14,11 @@ import {
   classifyThread, unclassifyThread,
 } from '../utils/gtd.js';
 import { formatDate } from '../utils/formatDate.js';
-import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
+import {
+  openDraftFromMessage,
+  openForwardFromMessage,
+  openReplyFromMessage,
+} from '../utils/composeFromMessage.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { createLatestRequest } from '../utils/latestRequest.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
@@ -143,7 +147,7 @@ export default function MessageList() {
   // server-side. undefined = search all folders.
   const searchFolder = (!isUnified && !searchAllFolders) ? selectedFolder : undefined;
   const searchPageSize = Math.max(1, Math.min(Number(pageSize) || 50, 200));
-  const undoableNotifications = notifications.filter(n => n.onUndo);
+  const undoableNotifications = notifications.filter(n => n.onUndo && !n.countdownUntil);
 
   const currentLayout = LAYOUTS[layout] || LAYOUTS.comfortable;
   const isColumn = currentLayout.direction === 'column';
@@ -2173,28 +2177,12 @@ export default function MessageList() {
     return folderInfo?.special_use === '\\Drafts';
   })();
 
-  const formatAddressArray = (arr) => {
-    if (!Array.isArray(arr)) return [];
-    return arr.map(a => {
-      if (typeof a === 'string') return a;
-      const addr = a.address || a.email || '';
-      return (a.name && addr) ? `${a.name} <${addr}>` : (addr || a.name || '');
-    }).filter(Boolean);
-  };
-
   const handleSelect = async (message) => {
     if (isDraftsFolder) {
       try {
-        const bodyData = await api.getMessageBody(message.id);
-        openCompose({
-          accountId: message.account_id,
-          draftUid: message.uid,
-          draftFolder: message.folder,
-          to: formatAddressArray(message.to_addresses),
-          cc: formatAddressArray(message.cc_addresses),
-          subject: message.subject || '',
-          body: bodyData.html || bodyData.text || '',
-          bodyIsHtml: !!bodyData.html,
+        await openDraftFromMessage(message, {
+          openCompose,
+          getMessageBody: api.getMessageBody,
         });
       } catch (err) {
         console.error('Failed to open draft:', err.message);

@@ -132,13 +132,55 @@ function evaluateCondition(cond, msg) {
   }
 }
 
-function evaluateRule(rule, msg) {
+export function evaluateRule(rule, msg) {
   const conditions = Array.isArray(rule.conditions) ? rule.conditions : [];
   if (conditions.length === 0) return false;
   if (rule.condition_logic === 'OR') {
     return conditions.some(c => evaluateCondition(c, msg));
   }
   return conditions.every(c => evaluateCondition(c, msg));
+}
+
+export function matchingRules(rules, msg) {
+  return (Array.isArray(rules) ? rules : [])
+    .filter(rule => evaluateRule(rule, msg))
+    .map(rule => ({
+      id: rule.id,
+      name: rule.name,
+      would_match: true,
+      actions: Array.isArray(rule.actions) ? rule.actions : [],
+    }));
+}
+
+export function toRuleMessage(row) {
+  let to = [];
+  try {
+    const raw = typeof row.to_addresses === 'string'
+      ? JSON.parse(row.to_addresses)
+      : row.to_addresses;
+    if (Array.isArray(raw)) {
+      to = raw.map(address => ({
+        email: address.address || address.email || '',
+        name: address.name || '',
+      }));
+    }
+  } catch {
+    // Malformed to_addresses matches the previous /rules/run behavior: no recipients.
+  }
+
+  return {
+    id: row.id,
+    uid: row.uid,
+    folder: row.folder,
+    fromEmail: row.from_email || '',
+    fromName: row.from_name || '',
+    to,
+    subject: row.subject || '',
+    hasAttachments: !!row.has_attachments,
+    isRead: !!row.is_read,
+    is_read: !!row.is_read,
+    parsedHeaders: {},
+  };
 }
 
 // Applies inbox rules to a batch of new INBOX messages. Returns { remaining, mutedIds }:

@@ -9,13 +9,14 @@ import { parseQuery } from '../services/search/queryParser.js';
 import { search } from '../services/search/searchService.js';
 import { matchFromChunk } from '../services/embeddings/chunkmatch.js';
 import { getMessageSummariesByIDs, resolveAccountScope } from './engineAdapter.js';
+import { ALL_SCOPES } from './auth.js';
 import { handleSearchMetadata, handleSearchMessageBodies, handleSemanticSearchMessages } from './searchTools.js';
 
 class VectorUnavailableError extends Error {
   constructor(reason) { super(reason); this.name = 'VectorUnavailableError'; this.reason = reason; }
 }
 
-const scope = { userId: 'u1', accountIds: ['acc-1'] };
+const scope = { userId: 'u1', accountIds: ['acc-1'], scopes: ALL_SCOPES };
 function payload(r) { return JSON.parse(r.content[0].text); }
 // Hydration echoes each requested id as a minimal summary unless a test overrides it.
 function echoSummaries(rows) {

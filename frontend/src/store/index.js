@@ -419,6 +419,13 @@ export const useStore = create((set, get) => ({
     schedulePrefSave({ replyDefault: val });
   },
 
+  undoSendSeconds: parseInt(localStorage.getItem('mailflow_undo_send_seconds') || '0', 10) || 0,
+  setUndoSendSeconds: (val) => {
+    localStorage.setItem('mailflow_undo_send_seconds', String(val));
+    set({ undoSendSeconds: val });
+    schedulePrefSave({ undoSendSeconds: val });
+  },
+
   markReadBehavior: localStorage.getItem('mailflow_mark_read_behavior') || 'immediate',
   setMarkReadBehavior: (val) => {
     localStorage.setItem('mailflow_mark_read_behavior', val);
@@ -871,6 +878,11 @@ export const useStore = create((set, get) => ({
       if (prefs.replyDefault === 'reply' || prefs.replyDefault === 'replyAll') {
         localStorage.setItem('mailflow_reply_default', prefs.replyDefault);
         set({ replyDefault: prefs.replyDefault });
+      }
+      if ([0, 10, 30, 60, 120].includes(Number(prefs.undoSendSeconds))) {
+        const n = Number(prefs.undoSendSeconds);
+        localStorage.setItem('mailflow_undo_send_seconds', String(n));
+        set({ undoSendSeconds: n });
       }
       if (prefs.markReadBehavior === 'immediate' || prefs.markReadBehavior === 'delay' || prefs.markReadBehavior === 'manual') {
         localStorage.setItem('mailflow_mark_read_behavior', prefs.markReadBehavior);

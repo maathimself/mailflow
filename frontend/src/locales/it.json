@@ -107,7 +107,12 @@
     "bodyPh": "Scrivi il tuo messaggio…",
     "send": "Invia",
     "sendTooltip": "Invia (Ctrl+Invio)",
-    "sending": "Invio…",
+    "sending": {
+      "label": "Invio…",
+      "title": "Invio del messaggio",
+      "countdown": "Invio tra {{seconds}} s",
+      "tooLate": "Troppo tardi per annullare"
+    },
     "discard": "Scarta",
     "saveDraft": "Salva bozza",
     "savingDraft": "Salvataggio…",
@@ -597,7 +602,14 @@
       "neverUsed": "mai usato",
       "copyOnce": "Copialo ora: non lo vedrai più.",
       "createFailed": "Impossibile creare il token",
-      "revokeFailed": "Impossibile revocare il token"
+      "revokeFailed": "Impossibile revocare il token",
+      "scopes": {
+        "read": "Leggere le email",
+        "write": "Modificare le email",
+        "send": "Inviare email",
+        "settings": "Gestire le impostazioni",
+        "sendRisk": "Questo token può inviare email a tuo nome senza ulteriore conferma."
+      }
     }
   },
   "admin": {
@@ -862,6 +874,12 @@
       "defaultReplyAction": "Azione di risposta predefinita",
       "defaultReply": "Rispondi",
       "defaultReplyAllDesc": "Il pulsante Rispondi invia a tutti i destinatari",
+      "undoSend": "Annulla invio",
+      "undoSendOff": "Disattivato",
+      "undoSend10": "10 secondi",
+      "undoSend30": "30 secondi",
+      "undoSend60": "60 secondi",
+      "undoSend120": "2 minuti",
       "markReadBehavior": "Segna come letto",
       "markReadImmediate": "Immediatamente",
       "markReadImmediateDesc": "Segna le email come lette non appena le apri.",

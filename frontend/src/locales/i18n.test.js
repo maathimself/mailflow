@@ -144,6 +144,8 @@ const SAME_VALUE_ALLOWED = {
   'admin.ai.emb.dimension': [['de', 'en', 'fr']],
   // "{{n}} min" — the "min" abbreviation is shared in en, es, fr, it
   'admin.lock.autoLockMin': [['en', 'es', 'fr', 'it']],
+  // "2 minutes" — identical spelling in English and French
+  'admin.messageList.undoSend120': [['en', 'fr']],
 
   // "Website" — international term, same in de and en
   'admin.about.website': [['de', 'en']],
@@ -532,6 +534,29 @@ describe('i18n locale files', () => {
         const missing = allKeys.filter(k => !present.has(k));
         assert.equal(missing.length, 0,
           `Missing keys:\n${missing.map(k => `  - ${k}`).join('\n')}`);
+      });
+    }
+  });
+
+  describe('undo-send feature contract', () => {
+    const requiredKeys = [
+      'admin.messageList.undoSend',
+      'admin.messageList.undoSendOff',
+      'admin.messageList.undoSend10',
+      'admin.messageList.undoSend30',
+      'admin.messageList.undoSend60',
+      'admin.messageList.undoSend120',
+      'compose.sending.label',
+      'compose.sending.title',
+      'compose.sending.countdown',
+      'compose.sending.tooLate',
+    ];
+
+    for (const lang of langs) {
+      it(`${lang} includes every undo-send preference and countdown label`, () => {
+        const missing = requiredKeys.filter(key => locales[lang][key] === undefined);
+        assert.deepEqual(missing, []);
+        assert.match(locales[lang]['compose.sending.countdown'], /\{\{seconds\}\}/);
       });
     }
   });

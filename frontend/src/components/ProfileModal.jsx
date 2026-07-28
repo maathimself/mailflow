@@ -3,6 +3,13 @@ import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 
+const TOKEN_SCOPE_OPTIONS = [
+  { name: 'read', labelKey: 'profile.tokens.scopes.read' },
+  { name: 'write', labelKey: 'profile.tokens.scopes.write' },
+  { name: 'send', labelKey: 'profile.tokens.scopes.send' },
+  { name: 'settings', labelKey: 'profile.tokens.scopes.settings' },
+];
+
 function resizeImage(file, maxPx = 256) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -40,6 +47,7 @@ export default function ProfileModal({ onClose }) {
   // MCP API tokens (per-user bearer tokens for the /mcp endpoint).
   const [tokens, setTokens] = useState([]);
   const [tokenName, setTokenName] = useState('');
+  const [tokenScopes, setTokenScopes] = useState(['read']);
   const [mintedToken, setMintedToken] = useState('');
   const [tokenBusy, setTokenBusy] = useState(false);
 
@@ -55,9 +63,10 @@ export default function ProfileModal({ onClose }) {
     setTokenBusy(true);
     setError('');
     try {
-      const { token } = await api.tokens.create(name);
+      const { token } = await api.tokens.create(name, tokenScopes);
       setMintedToken(token); // shown once — never retrievable again
       setTokenName('');
+      setTokenScopes(['read']);
       const r = await api.tokens.list();
       setTokens(r.tokens || []);
     } catch (e) {
@@ -74,6 +83,14 @@ export default function ProfileModal({ onClose }) {
     } catch (e) {
       setError(e.message || t('profile.tokens.revokeFailed'));
     }
+  }
+
+  function toggleTokenScope(scope) {
+    setTokenScopes((current) => (
+      current.includes(scope)
+        ? current.filter((candidate) => candidate !== scope)
+        : [...current, scope]
+    ));
   }
 
   async function handleFileChange(e) {
@@ -241,14 +258,26 @@ export default function ProfileModal({ onClose }) {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 {tokens.map((tok) => (
                   <div key={tok.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontSize: 12, color: 'var(--text-primary)' }}>
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {tok.name}
-                      <span style={{ color: 'var(--text-tertiary)', marginLeft: 6 }}>
-                        {tok.last_used_at
-                          ? t('profile.tokens.usedOn', { date: new Date(tok.last_used_at).toLocaleDateString() })
-                          : t('profile.tokens.neverUsed')}
+                    <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {tok.name}
+                        <span style={{ color: 'var(--text-tertiary)', marginLeft: 6 }}>
+                          {tok.last_used_at
+                            ? t('profile.tokens.usedOn', { date: new Date(tok.last_used_at).toLocaleDateString() })
+                            : t('profile.tokens.neverUsed')}
+                        </span>
                       </span>
-                    </span>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                        {(tok.scopes || ['read']).map((scope) => (
+                          <span
+                            key={scope}
+                            style={{ fontSize: 10, lineHeight: 1, padding: '3px 5px', borderRadius: 999, background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', border: '1px solid var(--border-subtle)' }}
+                          >
+                            {t(`profile.tokens.scopes.${scope}`)}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
                     <button
                       onClick={() => handleRevokeToken(tok.id)}
                       style={{ fontSize: 11, padding: '3px 9px', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: 'var(--red, #f87171)', cursor: 'pointer', flexShrink: 0 }}
@@ -258,6 +287,24 @@ export default function ProfileModal({ onClose }) {
                   </div>
                 ))}
               </div>
+            )}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 12px' }}>
+              {TOKEN_SCOPE_OPTIONS.map(({ name, labelKey }) => (
+                <label key={name} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--text-secondary)', cursor: name === 'read' ? 'default' : 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={tokenScopes.includes(name)}
+                    disabled={name === 'read' || tokenBusy}
+                    onChange={() => toggleTokenScope(name)}
+                  />
+                  {t(labelKey)}
+                </label>
+              ))}
+            </div>
+            {tokenScopes.includes('send') && (
+              <span style={{ fontSize: 11, lineHeight: 1.35, color: 'var(--red, #f87171)' }}>
+                {t('profile.tokens.scopes.sendRisk')}
+              </span>
             )}
             <div style={{ display: 'flex', gap: 6 }}>
               <input

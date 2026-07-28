@@ -7,6 +7,24 @@ import { translateVectorError } from './vectorErrors.js';
 import { matchFromChunk } from '../services/embeddings/chunkmatch.js';
 import { getMessageSummariesByIDs, resolveAccountScope } from './engineAdapter.js';
 
+function annotations({
+  readOnlyHint = false,
+  destructiveHint = false,
+  idempotentHint = false,
+} = {}) {
+  return Object.freeze({
+    readOnlyHint,
+    destructiveHint,
+    idempotentHint,
+    openWorldHint: false,
+  });
+}
+
+const READ_ONLY_ANNOTATIONS = annotations({
+  readOnlyHint: true,
+  idempotentHint: true,
+});
+
 // The search seam returns raw REST-shaped rows (subject/from/date/snippet/… under a
 // column set REST froze); MCP must emit msgvault MessageSummary. We hydrate the hit
 // ids through engineAdapter (recipients, thread_id, attachments — data the ranked row
@@ -118,6 +136,7 @@ export const searchMetadataDef = {
     SEARCH_METADATA_OPERATOR_DOC + ' ' + SEARCH_METADATA_FREETEXT_DOC + ' ' +
     SEARCH_METADATA_PAGINATION_DOC +
     'For body keywords use search_message_bodies; for vector/hybrid search use semantic_search_messages.',
+  annotations: READ_ONLY_ANNOTATIONS,
   inputSchema: {
     type: 'object',
     properties: {
@@ -193,6 +212,7 @@ export const searchMessageBodiesDef = {
     'Results are relevance-ranked, best lexical match first (divergence from msgvault, which orders newest-first). ' +
     'Paginate with offset/limit (default limit 20, max 50). Response: data, returned, offset, has_more. ' +
     'Body search does not return a total; use has_more to detect more pages.',
+  annotations: READ_ONLY_ANNOTATIONS,
   inputSchema: {
     type: 'object',
     properties: {
@@ -308,6 +328,7 @@ export const semanticSearchMessagesDef = {
     'mode=vector for pure semantic search or mode=hybrid to fuse BM25 and vector ranking via RRF. ' +
     'Paginate with offset/limit (default limit 20, max 50). Response: data, returned, offset, has_more, mode, pool_saturated, generation. ' +
     'total is not available; use has_more to page.',
+  annotations: READ_ONLY_ANNOTATIONS,
   inputSchema: {
     type: 'object',
     properties: {

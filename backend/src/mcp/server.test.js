@@ -4,7 +4,7 @@ import { createServer } from 'http';
 
 vi.mock('../services/db.js', () => ({ query: vi.fn() }));
 import { query } from '../services/db.js';
-import { hashToken } from './auth.js';
+import { ALL_SCOPES, hashToken } from './auth.js';
 import { mountMcp } from './server.js';
 
 let server, base;
@@ -20,9 +20,9 @@ beforeAll(async () => {
 afterAll(() => new Promise((r) => server.close(r)));
 
 // Every authed request: token lookup -> last_used_at update -> resolveScope.
-function primeAuth(userId = 'user-1', accountIds = ['acc-1']) {
+function primeAuth(userId = 'user-1', accountIds = ['acc-1'], scopes = ALL_SCOPES) {
   query
-    .mockResolvedValueOnce({ rows: [{ id: 'tok', user_id: userId }] })
+    .mockResolvedValueOnce({ rows: [{ id: 'tok', user_id: userId, scopes }] })
     .mockResolvedValueOnce({ rows: [] })
     .mockResolvedValueOnce({ rows: accountIds.map((id) => ({ id })) });
 }

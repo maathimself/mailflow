@@ -7,8 +7,8 @@ export default function NotificationToasts() {
   const { notifications, removeNotification } = useStore();
   const isMobile = useMobile();
 
-  const undoable = notifications.filter(n => n.onUndo);
-  const regular  = notifications.filter(n => !n.onUndo);
+  const undoable = notifications.filter(n => n.onUndo && (isMobile || !n.countdownUntil));
+  const regular  = notifications.filter(n => !n.onUndo || (!isMobile && n.countdownUntil));
 
   if (isMobile) {
     return (
@@ -49,6 +49,12 @@ export default function NotificationToasts() {
 function ActionBar({ notification, onDismiss, isMobile }) {
   const { t } = useTranslation();
   const [exiting, setExiting] = useState(false);
+  const configuredDurationMs = notification.durationMs ??
+    (notification.countdownUntil
+      ? Math.max(0, notification.countdownUntil - Date.now())
+      : null);
+  const dismissDurationMs = configuredDurationMs ?? 6000;
+  const progressDurationMs = configuredDurationMs ?? 4500;
 
   const dismiss = () => {
     setExiting(true);
@@ -61,7 +67,7 @@ function ActionBar({ notification, onDismiss, isMobile }) {
   };
 
   useEffect(() => {
-    const timer = setTimeout(dismiss, 6000);
+    const timer = setTimeout(dismiss, dismissDurationMs);
     return () => clearTimeout(timer);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -82,13 +88,14 @@ function ActionBar({ notification, onDismiss, isMobile }) {
         overflow: 'hidden',
       }}
     >
-      {/* Progress bar — empties over 4.5s (the undo window) */}
+      {/* Progress bar — empties over the undo window */}
       <div style={{
         position: 'absolute',
         bottom: 0, left: 0,
         height: 2,
         background: 'var(--accent)',
-        animation: 'action-bar-progress 4.5s linear forwards',
+        animation: 'action-bar-progress linear forwards',
+        animationDuration: `${progressDurationMs}ms`,
       }} />
 
       <span style={{
@@ -142,6 +149,11 @@ function ActionBar({ notification, onDismiss, isMobile }) {
 function Toast({ notification, onDismiss, isMobile }) {
   const { t } = useTranslation();
   const [exiting, setExiting] = useState(false);
+  const [remainingSeconds, setRemainingSeconds] = useState(() => (
+    notification.countdownUntil
+      ? Math.max(0, Math.ceil((notification.countdownUntil - Date.now()) / 1000))
+      : null
+  ));
 
   const dismiss = () => {
     setExiting(true);
@@ -149,9 +161,26 @@ function Toast({ notification, onDismiss, isMobile }) {
   };
 
   useEffect(() => {
+    if (notification.persistent) return undefined;
     const duration = notification.onUndo ? 6000 : 5000;
     const timer = setTimeout(dismiss, duration);
     return () => clearTimeout(timer);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!notification.countdownUntil) return undefined;
+    let interval;
+    const tick = () => {
+      const seconds = Math.max(0, Math.ceil((notification.countdownUntil - Date.now()) / 1000));
+      setRemainingSeconds(seconds);
+      if (seconds === 0) {
+        clearInterval(interval);
+        dismiss();
+      }
+    };
+    tick();
+    interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleUndo = () => {
@@ -200,7 +229,9 @@ function Toast({ notification, onDismiss, isMobile }) {
           fontSize: 12, color: 'var(--text-tertiary)',
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
         }}>
-          {notification.body}
+          {notification.countdownUntil
+            ? t('compose.sending.countdown', { seconds: remainingSeconds })
+            : notification.body}
         </div>
       </div>
       {notification.onAction && (

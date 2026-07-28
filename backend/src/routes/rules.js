@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
-import { applyInboxRules, isDangerousRegex } from '../services/inboxRules.js';
+import { applyInboxRules, isDangerousRegex, toRuleMessage } from '../services/inboxRules.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -123,30 +123,7 @@ router.post('/run', async (req, res) => {
 
         lastId = msgResult.rows[msgResult.rows.length - 1].id;
 
-        const messages = msgResult.rows.map(row => {
-          let toArr = [];
-          try {
-            const raw = typeof row.to_addresses === 'string'
-              ? JSON.parse(row.to_addresses)
-              : row.to_addresses;
-            if (Array.isArray(raw)) {
-              toArr = raw.map(a => ({ email: a.address || a.email || '', name: a.name || '' }));
-            }
-          } catch { /* malformed to_addresses — leave toArr empty */ }
-          return {
-            id: row.id,
-            uid: row.uid,
-            folder: row.folder,
-            fromEmail: row.from_email || '',
-            fromName: row.from_name || '',
-            to: toArr,
-            subject: row.subject || '',
-            hasAttachments: !!row.has_attachments,
-            isRead: !!row.is_read,
-            is_read: !!row.is_read,
-            parsedHeaders: {},
-          };
-        });
+        const messages = msgResult.rows.map(toRuleMessage);
 
         const before = messages.length;
         const { remaining } = await applyInboxRules(messages, account, imapMgr);

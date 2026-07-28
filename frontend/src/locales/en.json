@@ -107,7 +107,12 @@
     "bodyPh": "Write your message…",
     "send": "Send",
     "sendTooltip": "Send (Ctrl+Enter)",
-    "sending": "Sending…",
+    "sending": {
+      "label": "Sending…",
+      "title": "Sending message",
+      "countdown": "Sending in {{seconds}}s",
+      "tooLate": "Too late to undo"
+    },
     "discard": "Discard",
     "saveDraft": "Save draft",
     "savingDraft": "Saving…",
@@ -597,7 +602,14 @@
       "neverUsed": "never used",
       "copyOnce": "Copy this now — you won't see it again.",
       "createFailed": "Failed to create token",
-      "revokeFailed": "Failed to revoke token"
+      "revokeFailed": "Failed to revoke token",
+      "scopes": {
+        "read": "Read mail",
+        "write": "Modify mail",
+        "send": "Send mail",
+        "settings": "Manage settings",
+        "sendRisk": "This token can send mail as you without further confirmation."
+      }
     }
   },
   "admin": {
@@ -847,6 +859,12 @@
       "defaultReplyDesc": "The Reply button sends only to the sender",
       "defaultReplyAll": "Reply All",
       "defaultReplyAllDesc": "The Reply button sends to all recipients",
+      "undoSend": "Undo send",
+      "undoSendOff": "Off",
+      "undoSend10": "10 seconds",
+      "undoSend30": "30 seconds",
+      "undoSend60": "60 seconds",
+      "undoSend120": "2 minutes",
       "markReadBehavior": "Mark as read",
       "markReadImmediate": "Immediately",
       "markReadImmediateDesc": "Mark emails as read as soon as you open them.",
