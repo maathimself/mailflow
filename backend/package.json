@@ -1,6 +1,6 @@
 {
   "name": "mailflow-backend",
-  "version": "2.7.1",
+  "version": "2.8.0",
   "type": "module",
   "scripts": {
     "start": "node src/index.js",

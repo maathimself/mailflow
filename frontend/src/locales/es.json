@@ -1203,6 +1203,8 @@
       "errorSecretRequired": "El secreto de cliente es obligatorio.",
       "allowInsecure": "Permitir conexiones locales / autofirmadas",
       "allowInsecureDesc": "Omite la validación del host y las verificaciones de certificados TLS. Usar solo para proveedores de solo LAN (p. ej., pocketid.internal). No recomendado para despliegues expuestos a internet.",
+      "rpLogout": "Cierre de sesión SSO (RP-initiated)",
+      "rpLogoutDesc": "Al cerrar sesión, también finaliza la sesión en este proveedor redirigiendo a su end-session endpoint, no solo la cookie de MailFlow. Requiere que el proveedor exponga un end_session_endpoint y que la URL de inicio de sesión de MailFlow (…/login) esté registrada como post-logout redirect URI.",
       "adminGroupClaim": "Claim de grupo de administrador",
       "adminGroupClaimPh": "groups",
       "adminGroupClaimDesc": "Nombre del claim JWT que contiene los grupos del usuario (p. ej., groups). Dejar en blanco para desactivar la asignación de administrador basada en grupos.",

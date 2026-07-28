@@ -1145,6 +1145,8 @@
       "errorSecretRequired": "Client-Secret ist erforderlich.",
       "allowInsecure": "Lokale / selbstsignierte Verbindungen erlauben",
       "allowInsecureDesc": "Umgeht die Host-Validierung und TLS-Zertifikatsprüfungen. Nur für LAN-seitige Anbieter (z. B. pocketid.internal) verwenden. Nicht empfohlen für internetfähige Deployments.",
+      "rpLogout": "SSO-Abmeldung (RP-initiated)",
+      "rpLogoutDesc": "Beim Abmelden wird die Sitzung auch bei diesem Anbieter beendet, indem zu dessen end-session endpoint weitergeleitet wird, nicht nur das MailFlow-Cookie. Erfordert, dass der Anbieter einen end_session_endpoint bereitstellt und dass die MailFlow-Anmelde-URL (…/login) als post-logout redirect URI registriert ist.",
       "adminGroupClaim": "Admin-Gruppenanspruch",
       "adminGroupClaimPh": "groups",
       "adminGroupClaimDesc": "Name des JWT-Claims, der die Gruppen des Benutzers enthält (z. B. groups). Leer lassen, um gruppenbasierte Admin-Zuweisung zu deaktivieren.",

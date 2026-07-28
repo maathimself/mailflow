@@ -487,7 +487,10 @@ export default function Sidebar() {
   }, []);
 
   const handleLogout = async () => {
-    await api.logout();
+    // The logout response may carry an OIDC end-session URL when the account signed in
+    // through a provider with RP-initiated logout enabled; navigating there also clears
+    // the upstream SSO session. Falls back to /login otherwise. (#310)
+    const res = await api.logout().catch(() => ({}));
     // Appearance/localization prefs (theme, font, layout, language) are deliberately
     // NOT cleared: keeping them means the login screen and the next visit retain the
     // last-used look instead of snapping back to the default dark theme (issue #208).
@@ -502,7 +505,7 @@ export default function Sidebar() {
       'mailflow_expanded_accounts', 'mailflow_collapsed_folders',
     ].forEach(k => localStorage.removeItem(k));
     setUser(null);
-    window.location.href = '/login';
+    window.location.href = res?.endSessionUrl || '/login';
   };
 
   const isUnified = selectedAccountId === null;

@@ -1203,6 +1203,8 @@
       "errorSecretRequired": "Требуется Client secret.",
       "allowInsecure": "Разрешить локальные / самоподписанные соединения",
       "allowInsecureDesc": "Обходит проверку хоста и TLS-сертификата. Используйте только для LAN-провайдеров (например, pocketid.internal). Не рекомендуется для интернет-развёртываний.",
+      "rpLogout": "Выход из SSO (RP-initiated)",
+      "rpLogoutDesc": "При выходе также завершает сеанс у этого провайдера, перенаправляя на его end-session endpoint, а не только удаляет cookie MailFlow. Требует, чтобы провайдер предоставлял end_session_endpoint и чтобы URL входа MailFlow (…/login) был зарегистрирован как post-logout redirect URI.",
       "adminGroupClaim": "Клейм группы администратора",
       "adminGroupClaimPh": "groups",
       "adminGroupClaimDesc": "Имя JWT-клейма, содержащего группы пользователя (например, groups). Оставьте пустым, чтобы отключить назначение администратора по группам.",

@@ -55,7 +55,7 @@ If you contribute code, please read the [Contributor License Agreement](CLA.md).
 - **Password recovery** — recover your account via a recovery email address configured in profile settings
 - **User management** — admin panel, invite-only registration, invite emails
 - **Two-factor authentication** — TOTP (any authenticator app), email OTP fallback, persistent device trust; admin-configurable enforcement policy
-- **SSO / OIDC** — single sign-on via any OpenID Connect provider; group claims from the IdP can be mapped to the MailFlow admin role
+- **SSO / OIDC** — single sign-on via any OpenID Connect provider; group claims from the IdP can be mapped to the MailFlow admin role, with optional RP-initiated (end-session) logout to sign out of the provider too
 - **Microsoft 365 / OAuth2** — work accounts via Azure App Registration; personal Outlook.com via device code flow
 - **Todoist integration** — create tasks directly from emails; tasks include a deep link back to the original message
 - **CardDAV** — expose your MailFlow contacts as a CardDAV address book for sync with phone and desktop contact apps; contact photos sync and appear as sender avatars in the message list
@@ -442,26 +442,52 @@ Gmail requires an **App Password** (not your normal password):
 
 Microsoft has disabled basic (password) auth for Outlook.com, Hotmail, and most
 Microsoft 365 accounts, so they connect via OAuth2 under **Settings → Integrations →
-Microsoft 365** (not the normal Add Account form). Both paths need a free
-[Microsoft Entra app registration](https://portal.azure.com) for a **Client ID**.
-When registering, choose "Accounts in any organizational directory and personal
-Microsoft accounts" so it covers both.
+Microsoft 365** (not the normal Add Account form). This is a one-time setup: you
+create a free [Microsoft Entra app registration](https://portal.azure.com) once, and
+the same app then serves every account and user on your instance.
 
-**Work / school accounts (Microsoft 365)** (confidential client):
+**1. Register the app.** In the Azure portal, go to **Microsoft Entra ID → App
+registrations → New registration**. Under **Supported account types**, choose
+**"Accounts in any organizational directory and personal Microsoft accounts"** so it
+covers both Outlook.com/Hotmail and work/school accounts. After creating it, copy the
+**Application (Client) ID**.
 
-1. In the Azure app, add a **client secret** and a redirect URI of
-   `https://<your-mailflow-host>/oauth/microsoft/callback` (the exact value is shown
-   on the Integrations screen).
-2. In Integrations → Microsoft 365, enter the Client ID, Tenant ID, Client Secret,
-   and Redirect URI, then save and click **Connect Microsoft account**.
+**2. Grant the mail permissions.** Open the app's **API permissions** page and add
+both of these, then follow the consent note:
+
+- **Add a permission → APIs my organization uses → Office 365 Exchange Online →
+  Delegated permissions**, and add **`IMAP.AccessAsUser.All`** and **`SMTP.Send`**
+  (if Exchange Online is not listed, type "Exchange" in the search box).
+- **Add a permission → Microsoft Graph → Delegated permissions**, and add
+  **`offline_access`**, **`openid`**, **`email`**, and **`profile`**.
+- For **work / school** accounts, click **Grant admin consent for your
+  organization**. Personal accounts consent at sign-in and can skip this.
+
+> This step is required. Without these permissions the account still "connects" and
+> is added, but no mail loads and sending fails with a credentials error, because
+> Outlook's IMAP and SMTP servers reject a token that lacks the mail scopes.
+
+Then follow the steps for your account type:
 
 **Personal accounts (Outlook.com / Hotmail)** (public client, device code):
 
-1. In Integrations → Microsoft 365, enter just the **Client ID** and **Tenant ID**
-   (`common`), leaving Client Secret and Redirect URI blank, then save.
-2. Start the device-code flow shown there. MailFlow displays a short code; visit
+1. In the Azure app, open **Authentication** and set **"Allow public client flows"**
+   to **Yes**. No client secret or redirect URI is needed.
+2. In Integrations → Microsoft 365, enter the **Client ID** and **Tenant ID**
+   (`common`), leave Client Secret and Redirect URI blank, then save.
+3. Start the device-code flow shown there. MailFlow displays a short code; visit
    [microsoft.com/devicelogin](https://microsoft.com/devicelogin) and enter it to
    authorise.
+
+**Work / school accounts (Microsoft 365)** (confidential client):
+
+1. In the Azure app, open **Authentication → Add a platform → Web**, and set the
+   redirect URI to `https://<your-mailflow-host>/oauth/microsoft/callback` (the exact
+   value is shown on the Integrations screen).
+2. Under **Certificates & secrets → New client secret**, create a secret and copy its
+   **Value** (not the Secret ID).
+3. In Integrations → Microsoft 365, enter the Client ID, Tenant ID, Client Secret,
+   and Redirect URI, then save and click **Connect Microsoft account**.
 
 ### Custom IMAP
 

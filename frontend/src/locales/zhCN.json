@@ -1203,6 +1203,8 @@
       "errorSecretRequired": "客户端密钥为必填项。",
       "allowInsecure": "允许本地/自签名连接",
       "allowInsecureDesc": "绕过主机验证和 TLS 证书检查。仅用于局域网专用提供商（例如 pocketid.internal）。不建议用于面向互联网的部署。",
+      "rpLogout": "SSO 注销（RP-initiated）",
+      "rpLogoutDesc": "注销时，除了清除 MailFlow 的 cookie，还会重定向到该提供商的 end-session endpoint 以结束其会话。要求提供商公布 end_session_endpoint，并将 MailFlow 的登录 URL（…/login）注册为 post-logout redirect URI。",
       "adminGroupClaim": "管理员组声明",
       "adminGroupClaimPh": "groups",
       "adminGroupClaimDesc": "包含用户组的 JWT 声明名称（例如 groups）。留空可禁用基于组的管理员分配。",

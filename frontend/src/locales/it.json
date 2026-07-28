@@ -1203,6 +1203,8 @@
       "errorSecretRequired": "Il segreto client è obbligatorio.",
       "allowInsecure": "Consenti connessioni locali / autofirmate",
       "allowInsecureDesc": "Aggira la validazione dell'host e i controlli del certificato TLS. Da usare solo per provider LAN-only (es. pocketid.internal). Non consigliato per distribuzioni esposte a Internet.",
+      "rpLogout": "Logout SSO (RP-initiated)",
+      "rpLogoutDesc": "Alla disconnessione, termina anche la sessione presso questo provider reindirizzando al suo end-session endpoint, non solo il cookie di MailFlow. Richiede che il provider esponga un end_session_endpoint e che l’URL di accesso di MailFlow (…/login) sia registrato come post-logout redirect URI.",
       "adminGroupClaim": "Claim gruppo amministratore",
       "adminGroupClaimPh": "groups",
       "adminGroupClaimDesc": "Nome del claim JWT contenente i gruppi dell'utente (es. groups). Lasciare vuoto per disabilitare l'assegnazione admin basata sui gruppi.",

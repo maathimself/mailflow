@@ -1200,6 +1200,8 @@
       "requireEmailVerifiedDesc": "Disable for self-hosted providers (PocketID, Kanidm, etc.) that do not issue email_verified: true in their tokens.",
       "allowInsecure": "Allow local / self-signed connections",
       "allowInsecureDesc": "Bypasses host validation and TLS certificate checks. Use only for LAN-only providers (e.g. pocketid.internal). Not recommended for internet-facing deployments.",
+      "rpLogout": "SSO logout (RP-initiated)",
+      "rpLogoutDesc": "On sign-out, also end the session at this provider by redirecting to its end-session endpoint, not just clearing MailFlow’s cookie. Requires the provider to advertise an end_session_endpoint and to have your MailFlow login URL (…/login) registered as a post-logout redirect URI.",
       "adminGroupClaim": "Admin group claim",
       "adminGroupClaimPh": "groups",
       "adminGroupClaimDesc": "JWT claim name that contains the user's groups (e.g. groups). Leave blank to disable group-based admin assignment.",

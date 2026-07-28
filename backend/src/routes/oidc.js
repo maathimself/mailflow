@@ -120,6 +120,46 @@ function resolveAdminFromClaim(payload, provider) {
   return false;
 }
 
+// Record how the user signed in so logout can offer RP-initiated (end-session) logout.
+// The raw id_token is kept for use as id_token_hint; the provider id lets logout look up
+// its issuer and the rp_initiated_logout toggle. Both are cleared when the session is
+// destroyed at logout.
+function rememberOidcSession(req, providerId, idToken) {
+  req.session.oidcProviderId = providerId;
+  if (idToken) req.session.oidcIdToken = idToken;
+}
+
+// Build the OIDC RP-initiated logout (end-session) URL for a session that signed in via
+// a provider with rp_initiated_logout enabled. Returns null when it does not apply — no
+// provider on the session, the toggle is off, the provider is gone, discovery fails, or
+// the issuer advertises no end_session_endpoint — so logout falls back to local-only.
+// Never throws: logging out must always succeed locally regardless of the IdP.
+export async function buildEndSessionUrl({ providerId, idToken } = {}) {
+  if (!providerId) return null;
+  try {
+    const { rows } = await query(
+      'SELECT issuer_url, client_id, allow_insecure, rp_initiated_logout FROM oidc_providers WHERE id = $1',
+      [providerId]
+    );
+    const provider = rows[0];
+    if (!provider || !provider.rp_initiated_logout) return null;
+
+    const { doc } = await getDiscovery(provider.issuer_url, provider.allow_insecure);
+    if (!doc.end_session_endpoint) return null;
+
+    const params = new URLSearchParams({ client_id: provider.client_id });
+    if (idToken) params.set('id_token_hint', idToken);
+    // post_logout_redirect_uri must be registered with the IdP; omit it when APP_URL is
+    // unset (dev) so the request stays valid and the IdP shows its own logged-out page.
+    if (process.env.APP_URL) params.set('post_logout_redirect_uri', `${process.env.APP_URL}/login`);
+
+    return `${doc.end_session_endpoint}?${params}`;
+  } catch (err) {
+    console.error('buildEndSessionUrl failed:', err.message);
+    return null;
+  }
+}
+
 // ── Public API router (mounted at /api/auth/oidc) ─────────────────────────────
 
 const oidcApiRouter = Router();
@@ -411,6 +451,7 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
       req.session.userId = user.id;
       req.session.username = user.username;
       req.session.isAdmin = user.is_admin;
+      rememberOidcSession(req, provider.id, tokenData.id_token);
       await new Promise((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
       imapManager.connectAllForUser(user.id);
       logAuthEvent('sso_login', { username: user.username, userId: user.id, ip: req.ip, success: true });
@@ -458,6 +499,7 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
       req.session.userId = user.id;
       req.session.username = user.username;
       req.session.isAdmin = user.is_admin;
+      rememberOidcSession(req, provider.id, tokenData.id_token);
       await new Promise((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
       imapManager.connectAllForUser(user.id);
       logAuthEvent('sso_login', { username: user.username, userId: user.id, ip: req.ip, success: true });
@@ -520,6 +562,7 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
         req.session.userId = user.id;
         req.session.username = user.username;
         req.session.isAdmin = user.is_admin;
+        rememberOidcSession(req, provider.id, tokenData.id_token);
         await new Promise((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
         imapManager.connectAllForUser(user.id);
         logAuthEvent('sso_login', { username: user.username, userId: user.id, ip: req.ip, success: true });

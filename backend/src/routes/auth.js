@@ -13,6 +13,7 @@ import { getConnectionPolicy } from '../services/connectionPolicy.js';
 import { authLimiterConfig } from '../services/authLimiter.js';
 import { logAuthEvent } from '../services/authEvents.js';
 import { sendSystemEmail } from '../services/mailer.js';
+import { buildEndSessionUrl } from './oidc.js';
 import { invalidateGlobalCategorizationCache } from '../services/categorizer.js';
 import { sanitizeGtdPrefs } from '../utils/gtdPrefs.js';
 import { sanitizeRightSidebarPrefs } from '../utils/rightSidebarPrefs.js';
@@ -585,6 +586,8 @@ router.post('/2fa/enrollment/enable', authLimiter, async (req, res) => {
 
 router.post('/logout', async (req, res) => {
   const userId = req.session.userId;
+  const oidcProviderId = req.session.oidcProviderId;
+  const oidcIdToken = req.session.oidcIdToken;
   const rawCookies = req.headers.cookie || '';
   const deviceToken = rawCookies.split(';').map(c => c.trim()).find(c => c.startsWith('mf_td='))?.slice(6);
 
@@ -595,12 +598,18 @@ router.post('/logout', async (req, res) => {
       .catch(err => console.error('logout: failed to delete trusted device:', err.message));
   }
 
+  // If this session signed in via an OIDC provider with RP-initiated logout enabled,
+  // build the end-session URL (using the still-present id_token) before destroying the
+  // session. buildEndSessionUrl never throws and returns null when it does not apply, so
+  // local logout always proceeds. The frontend redirects to this URL if present.
+  const endSessionUrl = await buildEndSessionUrl({ providerId: oidcProviderId, idToken: oidcIdToken });
+
   req.session.destroy((err) => {
     if (err) console.error('Session destroy error:', err.message);
     const cookieOpts = { path: '/', sameSite: 'lax', secure: req.secure };
     res.clearCookie('connect.sid', cookieOpts);
     res.clearCookie('mf_td', { ...cookieOpts, httpOnly: true });
-    res.json({ ok: true });
+    res.json({ ok: true, endSessionUrl });
   });
   if (userId) imapManager.disconnectUser(userId);
 });
