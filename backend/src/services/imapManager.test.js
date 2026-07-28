@@ -258,6 +258,20 @@ describe('makeClientCfg — rejectUnauthorized', () => {
     const cfg = makeClientCfg(baseAccount, resolved);
     expect(cfg.tls.servername).toBeUndefined();
   });
+
+  it('uses the original hostname with a pinned multi-address lookup', () => {
+    const lookup = vi.fn();
+    const cfg = makeClientCfg(baseAccount, {
+      host: '203.0.113.1',
+      servername: 'imap.example.com',
+      addresses: ['203.0.113.1', '203.0.113.2'],
+      lookup,
+    });
+    expect(cfg.host).toBe('imap.example.com');
+    expect(cfg.tls.lookup).toBe(lookup);
+    expect(cfg.tls.autoSelectFamily).toBe(true);
+    expect(cfg.tls.autoSelectFamilyAttemptTimeout).toBe(1000);
+  });
 });
 
 // ── copyMessage DB side — insertCopiedSibling ────────────────────────────────

@@ -1,7 +1,7 @@
-import nodemailer from 'nodemailer';
 import { query } from './db.js';
 import { decrypt } from './encryption.js';
 import { resolveForConnection } from './hostValidation.js';
+import { createSmtpTransport } from './smtpTransport.js';
 
 export async function sendSystemEmail({ to, subject, text, html }) {
   const sysResult = await query(
@@ -14,8 +14,7 @@ export async function sendSystemEmail({ to, subject, text, html }) {
   const resolved = await resolveForConnection(cfg.host);
   const tls = { rejectUnauthorized: true };
   if (resolved.servername) tls.servername = resolved.servername;
-  const transport = nodemailer.createTransport({
-    host: resolved.host,
+  const transport = createSmtpTransport(resolved, {
     port: cfg.port || 587,
     secure: (cfg.port || 587) === 465,
     auth: { user: cfg.user, pass },

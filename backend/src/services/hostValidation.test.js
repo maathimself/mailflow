@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { validateHostLiteral, validateHost, resolveForConnection } from './hostValidation.js';
+import { connect, createServer } from 'net';
+import { createPinnedLookup, validateHostLiteral, validateHost, resolveForConnection } from './hostValidation.js';
 
 // Mock the dns module so tests never make real network calls.
 vi.mock('dns', () => ({
@@ -154,10 +155,17 @@ describe('resolveForConnection', () => {
   });
 
   it('pins the resolved IP and sets servername for a public hostname', async () => {
-    dns.resolve4.mockResolvedValue(['142.250.80.46']);
+    dns.resolve4.mockResolvedValue(['142.250.80.46', '142.250.80.47']);
     const result = await resolveForConnection('imap.gmail.com');
     expect(result.host).toBe('142.250.80.46');
     expect(result.servername).toBe('imap.gmail.com');
+    expect(result.addresses).toEqual(['142.250.80.46', '142.250.80.47']);
+  });
+
+  it('deduplicates resolved addresses before exposing connection candidates', async () => {
+    dns.resolve4.mockResolvedValue(['142.250.80.46', '142.250.80.46']);
+    const result = await resolveForConnection('imap.gmail.com');
+    expect(result.addresses).toEqual(['142.250.80.46']);
   });
 
   it('throws for a hostname that resolves to a private IP', async () => {
@@ -192,6 +200,54 @@ describe('resolveForConnection', () => {
     dns.resolve4.mockResolvedValue(['142.250.80.46']);
     const result = await resolveForConnection('  imap.gmail.com  ');
     expect(result.servername).toBe('imap.gmail.com');
+  });
+});
+
+describe('createPinnedLookup', () => {
+  it('returns every prevalidated address when Node requests all candidates', async () => {
+    const lookup = createPinnedLookup(['203.0.113.1', '2001:db8::1']);
+    const result = await new Promise((resolve, reject) => {
+      lookup('mail.example.com', { all: true }, (err, addresses) => err ? reject(err) : resolve(addresses));
+    });
+    expect(result).toEqual([
+      { address: '203.0.113.1', family: 4 },
+      { address: '2001:db8::1', family: 6 },
+    ]);
+  });
+
+  it('never performs another DNS lookup and respects a requested family', async () => {
+    const lookup = createPinnedLookup(['203.0.113.1', '2001:db8::1']);
+    const result = await new Promise((resolve, reject) => {
+      lookup('changed.example.com', { family: 6 }, (err, address, family) => {
+        if (err) reject(err); else resolve({ address, family });
+      });
+    });
+    expect(result).toEqual({ address: '2001:db8::1', family: 6 });
+  });
+
+  it('lets Node connect to the next same-family candidate', async () => {
+    const server = createServer(socket => socket.end());
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const socket = await new Promise((resolve, reject) => {
+        const candidate = connect({
+          host: 'mail.example.com',
+          port: server.address().port,
+          lookup: createPinnedLookup(['127.0.0.2', '127.0.0.1']),
+          autoSelectFamily: true,
+          autoSelectFamilyAttemptTimeout: 10,
+        }, () => resolve(candidate));
+        candidate.setTimeout(2000, () => {
+          candidate.destroy();
+          reject(new Error('Multi-address connection timed out'));
+        });
+        candidate.once('error', reject);
+      });
+      expect(socket.remoteAddress).toBe('127.0.0.1');
+      socket.destroy();
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+    }
   });
 });
 

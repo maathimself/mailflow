@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import crypto from 'crypto';
-import nodemailer from 'nodemailer';
 import { query } from '../services/db.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { decrypt, encrypt } from '../services/encryption.js';
 import { validateHost, resolveForConnection } from '../services/hostValidation.js';
+import { createSmtpTransport } from '../services/smtpTransport.js';
 import { getConnectionPolicy, invalidateConnectionPolicyCache } from '../services/connectionPolicy.js';
 import { reloadAuthSettings } from '../services/authLimiter.js';
 import { imapManager } from '../index.js';
@@ -291,8 +291,7 @@ router.post('/invites', async (req, res) => {
           const sysResolved = await resolveForConnection(cfg.host);
           const sysTls = { rejectUnauthorized: true };
           if (sysResolved.servername) sysTls.servername = sysResolved.servername;
-          transport = nodemailer.createTransport({
-            host: sysResolved.host,
+          transport = createSmtpTransport(sysResolved, {
             port: cfg.port || 587,
             secure: (cfg.port || 587) === 465,
             auth: { user: cfg.user, pass },
@@ -328,8 +327,7 @@ router.post('/invites', async (req, res) => {
         const acctResolved = await resolveForConnection(account.smtp_host, { allowPrivate: policy.allowPrivateHosts });
         const acctTls = { rejectUnauthorized: policy.allowInsecureTls ? !account.imap_skip_tls_verify : true };
         if (acctResolved.servername) acctTls.servername = acctResolved.servername;
-        transport = nodemailer.createTransport({
-          host: acctResolved.host,
+        transport = createSmtpTransport(acctResolved, {
           port: account.smtp_port,
           secure: account.smtp_port === 465,
           auth: smtpAuth,
@@ -463,8 +461,7 @@ router.post('/system-email/test', async (req, res) => {
     const testResolved = await resolveForConnection(cfg.host);
     const testTls = { rejectUnauthorized: true };
     if (testResolved.servername) testTls.servername = testResolved.servername;
-    const transport = nodemailer.createTransport({
-      host: testResolved.host,
+    const transport = createSmtpTransport(testResolved, {
       port: cfg.port,
       secure: cfg.port === 465,
       auth: { user: cfg.user, pass },

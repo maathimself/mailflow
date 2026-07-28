@@ -947,8 +947,8 @@ async function ensureFreshToken(account) {
   return account;
 }
 
-// resolved: { host, servername } from resolveForConnection() — pins the IP so the
-// actual TCP connection uses the address we validated, not a later DNS lookup.
+// resolved comes from resolveForConnection(), which limits sockets to the validated
+// address set so DNS rebinding cannot change the target between validation and connect.
 // policy: result of getConnectionPolicy() — gates TLS verification override.
 export function makeClientCfg(account, resolved, { enableIdle = false, policy = {}, idleKeepaliveMs } = {}) {
   if (!policy.allowInsecureTls && !account.imap_tls) {
@@ -956,11 +956,16 @@ export function makeClientCfg(account, resolved, { enableIdle = false, policy = 
   }
   const skipTls = policy.allowInsecureTls && !!account.imap_skip_tls_verify;
   const tlsOpts = { rejectUnauthorized: !skipTls };
-  // Set servername so TLS SNI and cert verification use the original hostname even
-  // though the socket connects directly to the pinned IP address.
+  // Keep the original hostname for TLS authentication while Node connects only to the
+  // prevalidated addresses and moves to the next candidate when one is unreachable.
   if (resolved.servername) tlsOpts.servername = resolved.servername;
+  if (resolved.lookup && resolved.servername) {
+    tlsOpts.lookup = resolved.lookup;
+    tlsOpts.autoSelectFamily = true;
+    tlsOpts.autoSelectFamilyAttemptTimeout = 1000;
+  }
   const cfg = {
-    host: resolved.host,
+    host: resolved.lookup && resolved.servername ? resolved.servername : resolved.host,
     port: account.imap_port,
     secure: account.imap_tls,
     auth: { user: account.auth_user, pass: decrypt(account.auth_pass) },

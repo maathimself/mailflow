@@ -95,13 +95,35 @@ export async function validateHost(host, { allowPrivate = false } = {}) {
   return null;
 }
 
-// Resolves a hostname to a specific public IP for use as the actual connection target,
-// closing the DNS rebinding TOCTOU window between validateHost() and the real connect.
+export function createPinnedLookup(addresses) {
+  const candidates = addresses.map(address => ({
+    address,
+    family: isIPv4(address) ? 4 : 6,
+  }));
+
+  return (_hostname, options, callback) => {
+    if (typeof options === 'function') {
+      callback = options;
+      options = {};
+    }
+    const family = Number(options?.family) || 0;
+    const eligible = family ? candidates.filter(candidate => candidate.family === family) : candidates;
+    if (!eligible.length) {
+      const err = new Error('No validated address matches the requested family');
+      err.code = 'ENOTFOUND';
+      return callback(err);
+    }
+    if (options?.all) return callback(null, eligible.map(candidate => ({ ...candidate })));
+    callback(null, eligible[0].address, eligible[0].family);
+  };
+}
+
+// Resolves a hostname to public IPs for use as the only permitted connection targets,
+// closing the DNS rebinding TOCTOU window between validation and the real connect.
 //
-// Returns { host, servername } where:
-//   host       — the IP to connect to (or original value if already literal / unresolvable)
-//   servername — original hostname for TLS SNI and cert verification (null if host was
-//                already a literal IP, since SNI override is not needed in that case)
+// `host` remains the first IP for callers that cannot use multi-address fallback. `lookup`
+// exposes the complete validated set without performing DNS again, while `servername`
+// preserves the original hostname for TLS SNI and certificate verification.
 //
 // Throws if the host is a reserved/private literal or if DNS resolves to a private range.
 // Pass { allowPrivate: true } to skip all private/local checks (for self-hosted servers).
@@ -127,11 +149,16 @@ export async function resolveForConnection(hostname, { allowPrivate = false } = 
     }
   }
 
-  const all = [...v4, ...v6];
+  const all = [...new Set([...v4, ...v6])];
   // DNS failed — let the connection attempt fail naturally (NXDOMAIN etc.).
   if (!all.length) return { host: h, servername: null };
 
-  // Pin to first validated IP. Pass servername so TLS SNI and cert verification
-  // still use the hostname even though the socket connects directly to the IP.
-  return { host: all[0], servername: h };
+  // Expose only prevalidated addresses to the connection layer. No later DNS query can
+  // substitute an unvalidated target, and TLS still authenticates the original hostname.
+  return {
+    host: all[0],
+    servername: h,
+    addresses: all,
+    lookup: createPinnedLookup(all),
+  };
 }

@@ -15,6 +15,7 @@ import { resolveForConnection } from '../services/hostValidation.js';
 import { getConnectionPolicy } from '../services/connectionPolicy.js';
 import { imapManager } from '../index.js';
 import { runTransitionsForSentMessage } from '../services/gtdTransitions.js';
+import { createSmtpTransport } from '../services/smtpTransport.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -304,8 +305,7 @@ router.post('/send', async (req, res) => {
     // For 'STARTTLS' (or any other/legacy value): fall back to port-based detection
     // so existing accounts stored with the default 'STARTTLS' on port 465 keep working.
     const smtpSecure = account.smtp_tls === 'SSL' || (account.smtp_tls !== 'none' && account.smtp_port === 465);
-    const transport = nodemailer.createTransport({
-      host: smtpResolved.host,
+    const transport = createSmtpTransport(smtpResolved, {
       port: account.smtp_port,
       secure: smtpSecure,
       ...(account.smtp_tls === 'none' ? { ignoreTLS: true } : {}),
