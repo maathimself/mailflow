@@ -6,6 +6,11 @@ import { applyLayout, normalizeLayout } from '../layouts.js';
 import { DEFAULT_AI_ACTIONS } from '../aiActions.js';
 import { removeGtdThreadFromSections, setGtdThreadReadInSections } from '../utils/gtd.js';
 import { clampRightSidebarWidth } from '../utils/rightSidebar.js';
+import {
+  cacheFolderOrder,
+  mergeFolderOrder,
+  readFolderOrder,
+} from './folderOrder.js';
 import i18n from '../i18n.js';
 
 // Accumulate rapid preference changes and flush at most once per second.
@@ -694,6 +699,14 @@ export const useStore = create((set, get) => ({
     return api.savePreferences({ hiddenFolders: hf }).catch(() => {});
   },
 
+  // Custom per-account folder display order — { [accountId]: [path, ...] }
+  folderOrder: readFolderOrder(),
+  setFolderOrder: (accountId, paths) => {
+    const next = mergeFolderOrder(get().folderOrder, accountId, paths);
+    set({ folderOrder: next });
+    schedulePrefSave({ folderOrder: next });
+  },
+
   // Sidebar tree state — persisted so the tree looks the same after reload/re-login
   expandedAccounts: (() => {
     try { return JSON.parse(localStorage.getItem('mailflow_expanded_accounts') || '{}'); }
@@ -853,6 +866,9 @@ export const useStore = create((set, get) => ({
         api.savePreferences({ aiActions: DEFAULT_AI_ACTIONS }).catch(() => {});
       }
       if (prefs.hiddenFolders) set({ hiddenFolders: prefs.hiddenFolders });
+      if (prefs.folderOrder != null) {
+        set({ folderOrder: cacheFolderOrder(prefs.folderOrder) });
+      }
       if (prefs.expandedAccounts && typeof prefs.expandedAccounts === 'object' && !Array.isArray(prefs.expandedAccounts)) {
         localStorage.setItem('mailflow_expanded_accounts', JSON.stringify(prefs.expandedAccounts));
         set({ expandedAccounts: prefs.expandedAccounts });

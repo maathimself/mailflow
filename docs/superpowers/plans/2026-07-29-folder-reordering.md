@@ -392,6 +392,7 @@ the duplicate local tree builder.
 **Files:**
 
 - Modify: `frontend/src/store/index.js:690-771,855-870`
+- Create: `frontend/src/store/folderOrder.js`
 - Create: `frontend/src/store/folderOrder.test.js`
 - Modify: `backend/src/routes/auth.js:763-854`
 - Create: `backend/src/routes/auth.preferences.test.js`
@@ -401,12 +402,20 @@ the duplicate local tree builder.
 - Consumes: `sanitizeFolderOrder()` from Task 1 and `folderOrder:
   Record<string, string[]>` from `GET /auth/preferences`.
 - Produces:
+  - `readFolderOrder(storage): Record<string, string[]>`
+  - `mergeFolderOrder(current, accountId, paths, storage): Record<string, string[]>`
+  - `cacheFolderOrder(value, storage): Record<string, string[]>`
   - Zustand state `folderOrder: Record<string, string[]>`
   - `setFolderOrder(accountId: string | number, paths: string[]): void`
   - exported Express handler `patchPreferences(req, res): Promise<void>`
   - JSONB preference key `folderOrder`
 
-- [ ] **Step 1: Write the failing Zustand persistence test**
+- [x] **Step 1: Write the failing Zustand persistence test**
+
+Execution note: importing the entire Zustand store under Node 26 failed before
+the intended RED because `i18n.js` imports JSON without Node import attributes.
+The test boundary was corrected to exercise the real cache/merge module consumed
+by the store, without mocking the application bootstrap.
 
 Create `frontend/src/store/folderOrder.test.js`:
 
@@ -456,7 +465,7 @@ describe('folderOrder store preference', () => {
 });
 ```
 
-- [ ] **Step 2: Run the store test and verify the RED state**
+- [x] **Step 2: Run the store test and verify the RED state**
 
 Run:
 
@@ -467,7 +476,7 @@ node --test src/store/folderOrder.test.js
 
 Expected: FAIL because `setFolderOrder` is undefined.
 
-- [ ] **Step 3: Implement local state and login-time preference loading**
+- [x] **Step 3: Implement local state and login-time preference loading**
 
 Import `sanitizeFolderOrder` in `frontend/src/store/index.js`, then add:
 
@@ -503,7 +512,7 @@ if (prefs.folderOrder && typeof prefs.folderOrder === 'object') {
 }
 ```
 
-- [ ] **Step 4: Verify the frontend preference test passes**
+- [x] **Step 4: Verify the frontend preference test passes**
 
 Run:
 
@@ -514,7 +523,7 @@ node --test src/store/folderOrder.test.js src/utils/sidebar.test.js
 
 Expected: both files PASS.
 
-- [ ] **Step 5: Write the failing backend route-handler test**
+- [x] **Step 5: Write the failing backend route-handler test**
 
 Create `backend/src/routes/auth.preferences.test.js` with dependency mocks, import
 the exported handler, and assert the additive JSONB merge:
@@ -586,7 +595,7 @@ describe('PATCH /auth/preferences folderOrder', () => {
 });
 ```
 
-- [ ] **Step 6: Run the backend test and verify the RED state**
+- [x] **Step 6: Run the backend test and verify the RED state**
 
 Run:
 
@@ -598,7 +607,7 @@ npx vitest run src/routes/auth.preferences.test.js
 Expected: FAIL because `patchPreferences` is not exported and `folderOrder` is
 not part of the SQL merge.
 
-- [ ] **Step 7: Export the handler and add the additive JSONB preference**
+- [x] **Step 7: Export the handler and add the additive JSONB preference**
 
 Replace the handler's opening line:
 
@@ -643,7 +652,7 @@ Append the final SQL merge before `WHERE id = $1`:
 
 Append `folderOrderJson` as parameter 39 after `folderSyncIntervalVal`.
 
-- [ ] **Step 8: Run focused persistence tests and commit**
+- [x] **Step 8: Run focused persistence tests and commit**
 
 Run:
 

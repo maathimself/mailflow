@@ -760,7 +760,7 @@ router.get('/preferences', async (req, res) => {
   res.json(prefs);
 });
 
-router.patch('/preferences', async (req, res) => {
+export async function patchPreferences(req, res) {
   if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
   const { theme, font, layout, notificationSound, pageSize, scrollMode, syncInterval,
           blockRemoteImages, imageWhitelist, shortcuts, hiddenFolders, language,
@@ -768,7 +768,8 @@ router.patch('/preferences', async (req, res) => {
           expandedAccounts, collapsedFolders, favoriteFolders, recentFolders, fontSize,
           showAppBadge, showFaviconBadge, replyDefault, sidebarWidth,
           categorizationEnabled, markReadBehavior, markReadDelay, aiActions,
-          autoLockMinutes, showMobileAvatars, gravatarAvatars, folderSyncInterval } = req.body;
+          autoLockMinutes, showMobileAvatars, gravatarAvatars, folderSyncInterval,
+          folderOrder } = req.body;
   // GTD content and generic right-sidebar layout preferences are independent flat
   // top-level keys with separate allow-lists. gtdEnabled is intentionally NOT a user
   // preference — it lives per-account in email_accounts.gtd_enabled.
@@ -784,6 +785,7 @@ router.patch('/preferences', async (req, res) => {
   const collapsedFoldersJson  = collapsedFolders  != null ? JSON.stringify(collapsedFolders)  : null;
   const favoriteFoldersJson   = favoriteFolders   != null ? JSON.stringify(favoriteFolders)   : null;
   const recentFoldersJson     = recentFolders     != null ? JSON.stringify(recentFolders)     : null;
+  const folderOrderJson       = folderOrder       != null ? JSON.stringify(folderOrder)       : null;
   const fontSizeVal           = fontSize          != null ? String(fontSize)                  : null;
   const replyDefaultVal       = (replyDefault === 'reply' || replyDefault === 'replyAll') ? replyDefault : null;
   const sidebarWidthVal       = (() => { const n = parseInt(sidebarWidth); return (n >= 160 && n <= 400) ? String(n) : null; })();
@@ -842,6 +844,7 @@ router.patch('/preferences', async (req, res) => {
       || CASE WHEN $36::boolean IS NOT NULL THEN jsonb_build_object('showMobileAvatars', $36::boolean) ELSE '{}'::jsonb END
       || CASE WHEN $37::boolean IS NOT NULL THEN jsonb_build_object('gravatarAvatars', $37::boolean) ELSE '{}'::jsonb END
       || CASE WHEN $38::text IS NOT NULL THEN jsonb_build_object('folderSyncInterval', $38::text) ELSE '{}'::jsonb END
+      || CASE WHEN $39::jsonb IS NOT NULL THEN jsonb_build_object('folderOrder', $39::jsonb) ELSE '{}'::jsonb END
     WHERE id = $1
   `, [req.session.userId, theme ?? null, font ?? null, layout ?? null, notificationSound ?? null,
       pageSize ?? null, scrollMode ?? null, syncInterval ?? null,
@@ -851,7 +854,7 @@ router.patch('/preferences', async (req, res) => {
       showAppBadge ?? null, showFaviconBadge ?? null, replyDefaultVal, sidebarWidthVal,
       categorizationEnabled ?? null, markReadBehaviorVal, markReadDelayVal, aiActionsJson,
       rightSidebarWidth, rightSidebarHidden, gtdCollapsedSectionsJson, gtdPetSlug, autoLockMinutesVal,
-      showMobileAvatars ?? null, gravatarAvatars ?? null, folderSyncIntervalVal]);
+      showMobileAvatars ?? null, gravatarAvatars ?? null, folderSyncIntervalVal, folderOrderJson]);
 
   if (syncInterval != null) {
     const ms = parseInt(syncInterval) * 1000;
@@ -867,7 +870,9 @@ router.patch('/preferences', async (req, res) => {
   }
 
   res.json({ ok: true });
-});
+}
+
+router.patch('/preferences', patchPreferences);
 
 // Atomically appends a single address or domain to the image whitelist.
 // Using a single UPDATE with a subquery avoids the read-modify-write race
