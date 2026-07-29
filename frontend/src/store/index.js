@@ -7,6 +7,7 @@ import { DEFAULT_AI_ACTIONS } from '../aiActions.js';
 import { removeGtdThreadFromSections, setGtdThreadReadInSections } from '../utils/gtd.js';
 import { clampRightSidebarWidth } from '../utils/rightSidebar.js';
 import i18n from '../i18n.js';
+import { normalizeDirectionPreference, syncDocumentDirection } from '../direction.js';
 
 // Accumulate rapid preference changes and flush at most once per second.
 let _prefFlushTimer = null;
@@ -387,6 +388,14 @@ export const useStore = create((set, get) => ({
     set({ language: lng });
     i18n.changeLanguage(lng);
     schedulePrefSave({ language: lng });
+  },
+  interfaceDirection: normalizeDirectionPreference(localStorage.getItem('mailflow_interface_direction')),
+  setInterfaceDirection: (value) => {
+    const direction = normalizeDirectionPreference(value);
+    localStorage.setItem('mailflow_interface_direction', direction);
+    set({ interfaceDirection: direction });
+    syncDocumentDirection(i18n, direction);
+    schedulePrefSave({ interfaceDirection: direction });
   },
 
   // Threaded view
@@ -873,6 +882,12 @@ export const useStore = create((set, get) => ({
         localStorage.setItem('mailflow_language', prefs.language);
         set({ language: prefs.language });
         i18n.changeLanguage(prefs.language);
+      }
+      if (prefs.interfaceDirection) {
+        const direction = normalizeDirectionPreference(prefs.interfaceDirection);
+        localStorage.setItem('mailflow_interface_direction', direction);
+        set({ interfaceDirection: direction });
+        syncDocumentDirection(i18n, direction);
       }
       if (typeof prefs.threadedView === 'boolean') {
         localStorage.setItem('mailflow_threaded_view', String(prefs.threadedView));

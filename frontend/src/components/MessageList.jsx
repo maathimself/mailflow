@@ -2207,7 +2207,7 @@ export default function MessageList() {
       minWidth: isMobile ? undefined : (isColumn ? undefined : 180),
       flex: isMobile ? 1 : (isColumn ? '0 0 42%' : undefined),
       minHeight: isColumn && !isMobile ? 0 : undefined,
-      borderRight: (isMobile || isColumn) ? 'none' : '1px solid var(--border-subtle)',
+      borderInlineEnd: (isMobile || isColumn) ? 'none' : '1px solid var(--border-subtle)',
       borderBottom: (!isMobile && isColumn) ? '1px solid var(--border-subtle)' : 'none',
       display: 'flex', flexDirection: 'column',
       height: (isMobile || isColumn) ? undefined : '100%',
@@ -2592,7 +2592,7 @@ export default function MessageList() {
               <option value={100}>100</option>
               <option value={200}>200</option>
             </select>
-            <div style={{ position: 'relative', marginLeft: 'auto' }} ref={layoutPickerRef}>
+            <div style={{ position: 'relative', marginInlineStart: 'auto' }} ref={layoutPickerRef}>
               <button
                 onClick={() => {
                   if (!showLayoutPicker) {
@@ -2668,7 +2668,7 @@ export default function MessageList() {
         {/* Search */}
         <div style={{ position: 'relative' }}>
           <div style={{
-            position: 'absolute', left: 10, top: '50%',
+            position: 'absolute', insetInlineStart: 10, top: '50%',
             transform: 'translateY(-50%)', color: 'var(--text-tertiary)',
             pointerEvents: 'none',
           }}>
@@ -2683,7 +2683,7 @@ export default function MessageList() {
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             style={{
-              width: '100%', padding: '8px 10px 8px 32px',
+              width: '100%', paddingBlock: 8, paddingInlineStart: 32, paddingInlineEnd: 10,
               background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
               borderRadius: 8, color: 'var(--text-primary)', fontSize: 13,
               outline: 'none', boxSizing: 'border-box',
@@ -2695,7 +2695,7 @@ export default function MessageList() {
             <button
               onClick={() => setSearchQuery('')}
               style={{
-                position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+                position: 'absolute', insetInlineEnd: 8, top: '50%', transform: 'translateY(-50%)',
                 background: 'none', border: 'none', color: 'var(--text-tertiary)',
                 cursor: 'pointer', padding: 2, display: 'flex',
               }}
@@ -2756,7 +2756,7 @@ export default function MessageList() {
         <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border-subtle)', flexShrink: 0 }}>
           <div style={{ position: 'relative' }}>
             <div style={{
-              position: 'absolute', left: 10, top: '50%',
+              position: 'absolute', insetInlineStart: 10, top: '50%',
               transform: 'translateY(-50%)', color: 'var(--text-tertiary)',
               pointerEvents: 'none',
             }}>
@@ -2771,7 +2771,7 @@ export default function MessageList() {
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               style={{
-                width: '100%', padding: '8px 10px 8px 32px',
+                width: '100%', paddingBlock: 8, paddingInlineStart: 32, paddingInlineEnd: 10,
                 background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
                 borderRadius: 8, color: 'var(--text-primary)', fontSize: 13,
                 outline: 'none', boxSizing: 'border-box',
@@ -2783,7 +2783,7 @@ export default function MessageList() {
               <button
                 onClick={() => setSearchQuery('')}
                 style={{
-                  position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+                  position: 'absolute', insetInlineEnd: 8, top: '50%', transform: 'translateY(-50%)',
                   background: 'none', border: 'none', color: 'var(--text-tertiary)',
                   cursor: 'pointer', padding: 2, display: 'flex',
                 }}
@@ -3580,7 +3580,7 @@ export default function MessageList() {
             onClick={() => { if (listRef.current) listRef.current.scrollTo({ top: 0, behavior: 'smooth' }); }}
             title={t('messageList.backToTop')}
             style={{
-              position: 'absolute', bottom: 20, right: 16, zIndex: 20,
+              position: 'absolute', bottom: 20, insetInlineEnd: 16, zIndex: 20,
               width: 36, height: 36, borderRadius: '50%',
               background: 'var(--bg-elevated)', border: '1px solid var(--border)',
               color: 'var(--text-secondary)', cursor: 'pointer',
@@ -3924,7 +3924,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
         {!hasAvatar ? (
           selectionMode ? (
             <div style={{
-              position: 'absolute', left: 4, top: '50%', transform: 'translateY(-50%)',
+              position: 'absolute', insetInlineStart: 4, top: '50%', transform: 'translateY(-50%)',
               display: 'flex', alignItems: 'center',
             }}>
               <input
@@ -3938,7 +3938,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
           ) : (
             unreadCount > 0 && (
               <div className="unread-dot" style={{
-                position: 'absolute', left: 3, top: '50%', transform: 'translateY(-50%)',
+                position: 'absolute', insetInlineStart: 3, top: '50%', transform: 'translateY(-50%)',
                 width: 7, height: 7, borderRadius: '50%', background: 'var(--accent)',
               }} />
             )
@@ -3946,7 +3946,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
         ) : (
           !selectionMode && unreadCount > 0 && (
             <div className="unread-dot" style={{
-              position: 'absolute', left: 3, top: '50%', transform: 'translateY(-50%)',
+              position: 'absolute', insetInlineStart: 3, top: '50%', transform: 'translateY(-50%)',
               width: 7, height: 7, borderRadius: '50%', background: 'var(--accent)',
             }} />
           )
@@ -4008,14 +4008,14 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
           </div>
         )}
 
-        <div style={{ paddingLeft: (!hasAvatar && selectionMode) ? 22 : 0, flex: 1, minWidth: 0 }}>
+        <div style={{ paddingInlineStart: (!hasAvatar && selectionMode) ? 22 : 0, flex: 1, minWidth: 0 }}>
           {/* Row 1: sender + badge + date */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
               {showAccount && (
                 <div style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: message.account_color || '#6366f1' }} />
               )}
-              <span style={{
+              <span dir="auto" className="bidi-auto" style={{
                 fontSize: 13, fontWeight: unreadCount > 0 ? 600 : 400,
                 color: unreadCount > 0 ? 'var(--text-primary)' : 'var(--text-secondary)',
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
@@ -4039,7 +4039,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
               )}
             </div>
             <div style={{
-              display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginLeft: 8,
+              display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginInlineStart: 8,
             }}>
               {message.has_attachments && (
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="2">
@@ -4060,7 +4060,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
             </div>
           </div>
           {/* Row 2: subject */}
-          <div style={{
+          <div dir="auto" className="bidi-auto" style={{
             fontSize: 12, fontWeight: unreadCount > 0 ? 500 : 400,
             color: unreadCount > 0 ? 'var(--text-primary)' : 'var(--text-secondary)',
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 2,
@@ -4068,7 +4068,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
             {message.subject || t('common.noSubject')}
           </div>
           {/* Row 3: snippet */}
-          <div style={{
+          <div dir="auto" className="bidi-auto" style={{
             fontSize: 12, color: 'var(--text-tertiary)',
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           }}>
@@ -4109,7 +4109,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
               onContextMenu={!isMobile ? (e => { e.preventDefault(); onContextMenu(e, msg); }) : undefined}
               style={{
                 display: 'flex', alignItems: 'flex-start', gap: 8,
-                padding: '9px 14px 9px 44px',
+                paddingBlock: 9, paddingInlineEnd: 14, paddingInlineStart: 44,
                 cursor: 'pointer', position: 'relative',
                 background: selectedMessageId === msg.id || lastViewedMessageId === msg.id ? 'var(--accent-glow)' : 'transparent',
                 borderTop: idx > 0 ? '1px solid var(--border-subtle)' : 'none',
@@ -4120,24 +4120,24 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
             >
               {!msg.is_read && (
                 <div style={{
-                  position: 'absolute', left: 28, top: '50%', transform: 'translateY(-50%)',
+                  position: 'absolute', insetInlineStart: 28, top: '50%', transform: 'translateY(-50%)',
                   width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)',
                 }} />
               )}
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span style={{
+                  <span dir="auto" className="bidi-auto" style={{
                     fontSize: 12, fontWeight: msg.is_read ? 400 : 600,
                     color: msg.is_read ? 'var(--text-secondary)' : 'var(--text-primary)',
                     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
                   }}>
                     {msg.from_name || msg.from_email || t('common.unknown', 'Unknown')}
                   </span>
-                  <span style={{ fontSize: 11, color: 'var(--text-tertiary)', flexShrink: 0, marginLeft: 8 }}>
+                  <span style={{ fontSize: 11, color: 'var(--text-tertiary)', flexShrink: 0, marginInlineStart: 8 }}>
                     {formatDate(msg.date)}
                   </span>
                 </div>
-                <div style={{
+                <div dir="auto" className="bidi-auto" style={{
                   fontSize: 11, color: 'var(--text-tertiary)',
                   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1,
                 }}>
@@ -4243,9 +4243,9 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
       {/* Selected row left accent rail */}
       {selected && !selectionMode && (
         <div style={{
-          position: 'absolute', left: 0, top: 0, bottom: 0, width: 3,
+          position: 'absolute', insetInlineStart: 0, top: 0, bottom: 0, width: 3,
           background: message.account_color || 'var(--accent)',
-          borderRadius: '0 2px 2px 0',
+          borderStartEndRadius: 2, borderEndEndRadius: 2,
         }} />
       )}
       {/* Left indicator: for narrow/mobile layouts show checkbox or unread dot.
@@ -4253,7 +4253,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
       {(!hasInteractiveAvatar) && (
         selectionMode ? (
           <div style={{
-            position: 'absolute', left: 4, top: '50%', transform: 'translateY(-50%)',
+            position: 'absolute', insetInlineStart: 4, top: '50%', transform: 'translateY(-50%)',
             display: 'flex', alignItems: 'center',
           }}>
             <input
@@ -4267,7 +4267,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
         ) : (
           !message.is_read && (
             <div className="unread-dot" style={{
-              position: 'absolute', left: 3, top: '50%', transform: 'translateY(-50%)',
+              position: 'absolute', insetInlineStart: 3, top: '50%', transform: 'translateY(-50%)',
               width: 7, height: 7, borderRadius: '50%',
               background: 'var(--accent)',
             }} />
@@ -4277,13 +4277,13 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
       {/* Unread dot for wide layouts — always shown (avatar is separate, doesn't conflict) */}
       {hasInteractiveAvatar && !selectionMode && !message.is_read && (
         <div style={{
-          position: 'absolute', left: 3, top: '50%', transform: 'translateY(-50%)',
+          position: 'absolute', insetInlineStart: 3, top: '50%', transform: 'translateY(-50%)',
           width: 7, height: 7, borderRadius: '50%',
           background: 'var(--accent)',
         }} />
       )}
 
-      <div style={{ paddingLeft: (!hasInteractiveAvatar && selectionMode) ? 22 : 0, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+      <div style={{ paddingInlineStart: (!hasInteractiveAvatar && selectionMode) ? 22 : 0, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
         {/* Sender avatar — desktop always, or opted-in on mobile (#213). Interactive (click-to-select,
             hover-to-checkbox) on desktop only; a plain display avatar on mobile. */}
         {showAvatar && (
@@ -4351,7 +4351,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
                 background: message.account_color || '#6366f1',
               }} />
             )}
-            <span style={{
+            <span dir="auto" className="bidi-auto" style={{
               fontSize: 13, fontWeight: message.is_read ? 400 : 600,
               color: message.is_read ? 'var(--text-secondary)' : 'var(--text-primary)',
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -4360,7 +4360,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
               {message.from_name || message.from_email || t('common.unknown')}
             </span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginLeft: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginInlineStart: 8 }}>
             {message.has_attachments && (
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="2">
                 <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
@@ -4383,7 +4383,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
         </div>
 
         {/* Row 2: Subject */}
-        <div style={{
+        <div dir="auto" className="bidi-auto" style={{
           fontSize: 13, fontWeight: message.is_read ? 400 : 500,
           color: message.is_read ? 'var(--text-secondary)' : 'var(--text-primary)',
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -4394,7 +4394,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
 
         {/* Row 3: Snippet */}
         <div style={{ display: 'flex', alignItems: 'center' }}>
-          <span style={{
+          <span dir="auto" className="bidi-auto" style={{
             fontSize: 12, color: 'var(--text-tertiary)',
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             flex: 1,

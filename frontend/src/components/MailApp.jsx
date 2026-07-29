@@ -712,7 +712,7 @@ export default function MailApp() {
       height: scale !== 1 ? `${(vpSize.h / scale).toFixed(2)}px` : '100%',
       ...(scale !== 1 && {
         transform: `scale(${scale})`,
-        transformOrigin: 'top left',
+        transformOrigin: 'top var(--inline-start-origin)',
         '--app-height': `${(vpSize.h / scale).toFixed(2)}px`,
       }),
       overflow: 'hidden',
@@ -734,10 +734,11 @@ export default function MailApp() {
           )}
           {/* Slide-in sidebar drawer */}
           <div
+            className="mobile-sidebar-drawer"
+            data-open={mobileSidebarOpen}
             style={{
-              position: 'fixed', left: 0, top: 0, bottom: 0,
+              position: 'fixed', insetInlineStart: 0, top: 0, bottom: 0,
               zIndex: 901, display: 'flex',
-              transform: mobileSidebarOpen ? 'translateX(0)' : 'translateX(-100%)',
               transition: 'transform 0.25s cubic-bezier(0.25,0.46,0.45,0.94)',
               boxShadow: mobileSidebarOpen ? 'var(--shadow-drawer)' : 'none',
             }}
@@ -750,7 +751,8 @@ export default function MailApp() {
               if (!start) return;
               const dx = e.changedTouches[0].clientX - start.startX;
               const dy = e.changedTouches[0].clientY - start.startY;
-              if (dx < -60 && Math.abs(dy) < Math.abs(dx)) setMobileSidebarOpen(false);
+              const closesDrawer = document.documentElement.dir === 'rtl' ? dx > 60 : dx < -60;
+              if (closesDrawer && Math.abs(dy) < Math.abs(dx)) setMobileSidebarOpen(false);
             }}
           >
             <Sidebar />
@@ -836,7 +838,7 @@ export default function MailApp() {
                   }}>
                     <div style={{
                       width: 'var(--right-sidebar-width, 296px)', height: '100%',
-                      transform: rightSidebarHidden ? 'translateX(100%)' : 'translateX(0)',
+                      transform: rightSidebarHidden ? 'translateX(var(--inline-end-translate))' : 'translateX(0)',
                       transition: 'transform 0.2s ease',
                     }}>
                       {rightSidebarContent}
@@ -850,14 +852,14 @@ export default function MailApp() {
                       title={rightSidebarToggleHint ? `${t('rightSidebar.show')} (${rightSidebarToggleHint})` : t('rightSidebar.show')}
                       style={{
                         width: 18, flexShrink: 0, cursor: 'pointer', padding: 0,
-                        border: 'none', borderLeft: '1px solid var(--border)',
+                        border: 'none', borderInlineStart: '1px solid var(--border)',
                         background: 'var(--bg-secondary)', color: 'var(--text-tertiary)',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                       }}
                       onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.background = 'var(--bg-hover)'; }}
                       onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.background = 'var(--bg-secondary)'; }}
                     >
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <svg className="rtl-flip" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                         <polyline points="15 18 9 12 15 6" />
                       </svg>
                     </button>

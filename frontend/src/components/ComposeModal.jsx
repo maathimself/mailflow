@@ -1611,7 +1611,7 @@ export default function ComposeModal() {
       <div
         onClick={() => setMinimized(false)}
         style={{
-          position: 'fixed', bottom: 0, right: 24,
+          position: 'fixed', bottom: 0, insetInlineEnd: 24,
           background: 'var(--bg-elevated)', border: '1px solid var(--border)',
           borderBottom: 'none', borderRadius: '8px 8px 0 0',
           padding: '10px 16px', cursor: 'pointer',
@@ -1658,7 +1658,7 @@ export default function ComposeModal() {
         borderRadius: 10, boxShadow: 'var(--shadow-modal)',
         zIndex: 1000, display: 'flex', flexDirection: 'column',
       } : {
-        position: 'fixed', bottom: 0, right: 24,
+        position: 'fixed', bottom: 0, insetInlineEnd: 24,
         width: customSize?.width || 540, maxWidth: 'calc(100vw - 48px)',
         ...(customSize?.height ? { height: customSize.height } : { maxHeight: '75vh' }),
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
@@ -2060,7 +2060,7 @@ export default function ComposeModal() {
           onChange={e => setPriority(e.target.value)}
           title={t('compose.priority')}
           style={{
-            marginLeft: 'auto',
+            marginInlineStart: 'auto',
             background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
             borderRadius: 4, fontSize: 11, padding: '2px 4px',
             cursor: 'pointer', outline: 'none',
@@ -3187,4 +3187,3 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
     </div>
   );
 }
-

@@ -541,7 +541,7 @@ function AccountsTab() {
           background: 'none', border: 'none', color: 'var(--text-secondary)',
           cursor: 'pointer', fontSize: 13, padding: '0 0 16px 0',
         }}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg className="rtl-flip" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <polyline points="15 18 9 12 15 6"/>
           </svg>
           {t('sidebar.backToAccounts')}
@@ -562,7 +562,7 @@ function AccountsTab() {
           background: 'none', border: 'none', color: 'var(--text-secondary)',
           cursor: 'pointer', fontSize: 13, padding: '0 0 16px 0',
         }}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg className="rtl-flip" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <polyline points="15 18 9 12 15 6"/>
           </svg>
           {t('sidebar.backToAccounts')}
@@ -585,7 +585,7 @@ function AccountsTab() {
         background: 'none', border: 'none', color: 'var(--text-secondary)',
         cursor: 'pointer', fontSize: 13, padding: '0 0 16px 0',
       }}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <svg className="rtl-flip" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <polyline points="15 18 9 12 15 6"/>
         </svg>
         {t('sidebar.backToAccounts')}
@@ -775,7 +775,7 @@ function AccountsTab() {
           background: 'none', border: 'none', color: 'var(--text-secondary)',
           cursor: 'pointer', fontSize: 13, padding: '0 0 16px 0',
         }}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg className="rtl-flip" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <polyline points="15 18 9 12 15 6"/>
           </svg>
           {t('sidebar.backToAccounts')}
@@ -5005,7 +5005,7 @@ function PushNotificationsSection() {
         <div style={{
           padding: '12px 16px', borderRadius: 8,
           background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-          borderLeft: '3px solid var(--accent)',
+          borderInlineStart: '3px solid var(--accent)',
           fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16,
         }}>
           {t('admin.push.iosHint')}
@@ -5339,7 +5339,12 @@ const LANGUAGES = [
 
 function LanguageTab() {
   const { t } = useTranslation();
-  const { language, setLanguage } = useStore();
+  const { language, setLanguage, interfaceDirection, setInterfaceDirection } = useStore();
+  const directions = [
+    { value: 'auto', label: t('admin.appearance.directionAuto') },
+    { value: 'ltr', label: t('admin.appearance.directionLtr') },
+    { value: 'rtl', label: t('admin.appearance.directionRtl') },
+  ];
 
   return (
     <div>
@@ -5349,7 +5354,7 @@ function LanguageTab() {
       <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 20 }}>
         {t('admin.appearance.languageDescription')}
       </div>
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 28 }}>
         {LANGUAGES.map(({ code, nativeName }) => {
           const isActive = language === code;
           return (
@@ -5366,7 +5371,7 @@ function LanguageTab() {
               onMouseEnter={e => { if (!isActive) e.currentTarget.style.borderColor = 'var(--border)'; }}
               onMouseLeave={e => { if (!isActive) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
             >
-              <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{nativeName}</span>
+              <span dir="auto" style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{nativeName}</span>
               {isActive && (
                 <div style={{
                   width: 16, height: 16, borderRadius: '50%', flexShrink: 0,
@@ -5378,6 +5383,34 @@ function LanguageTab() {
                   </svg>
                 </div>
               )}
+            </button>
+          );
+        })}
+      </div>
+      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+        {t('admin.appearance.interfaceDirection')}
+      </div>
+      <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 16 }}>
+        {t('admin.appearance.interfaceDirectionDescription')}
+      </div>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        {directions.map(({ value, label }) => {
+          const isActive = interfaceDirection === value;
+          return (
+            <button
+              key={value}
+              onClick={() => setInterfaceDirection(value)}
+              style={{
+                background: isActive ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
+                border: `2px solid ${isActive ? 'var(--accent)' : 'var(--border-subtle)'}`,
+                borderRadius: 10, padding: '10px 18px', cursor: 'pointer',
+                transition: 'all 0.15s', outline: 'none', color: 'var(--text-primary)',
+                fontSize: 13, fontWeight: 500,
+              }}
+              onMouseEnter={e => { if (!isActive) e.currentTarget.style.borderColor = 'var(--border)'; }}
+              onMouseLeave={e => { if (!isActive) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
+            >
+              {label}
             </button>
           );
         })}
@@ -8044,7 +8077,7 @@ export default function AdminPanel() {
       }}>
         {/* Left sidebar */}
         <div style={{
-          width: 180, borderRight: '1px solid var(--border-subtle)',
+          width: 180, borderInlineEnd: '1px solid var(--border-subtle)',
           background: 'var(--bg-primary)', padding: '20px 10px',
           display: 'flex', flexDirection: 'column', flexShrink: 0,
         }}>
@@ -8087,7 +8120,7 @@ export default function AdminPanel() {
                         {tab.icon}
                       </span>
                       {t(tab.labelKey)}
-                      {tab.beta && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', padding: '1px 4px', borderRadius: 3, background: 'color-mix(in srgb, var(--accent) 15%, transparent)', color: 'var(--accent)', marginLeft: 'auto' }}>BETA</span>}
+                      {tab.beta && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', padding: '1px 4px', borderRadius: 3, background: 'color-mix(in srgb, var(--accent) 15%, transparent)', color: 'var(--accent)', marginInlineStart: 'auto' }}>BETA</span>}
                     </button>
                   );
                 })}
@@ -8117,7 +8150,7 @@ export default function AdminPanel() {
                   {tab.icon}
                 </span>
                 {t(tab.labelKey)}
-                {tab.beta && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', padding: '1px 4px', borderRadius: 3, background: 'color-mix(in srgb, var(--accent) 15%, transparent)', color: 'var(--accent)', marginLeft: 'auto' }}>BETA</span>}
+                {tab.beta && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', padding: '1px 4px', borderRadius: 3, background: 'color-mix(in srgb, var(--accent) 15%, transparent)', color: 'var(--accent)', marginInlineStart: 'auto' }}>BETA</span>}
               </button>
             );
           })}

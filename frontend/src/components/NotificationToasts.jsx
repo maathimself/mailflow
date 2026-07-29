@@ -15,8 +15,8 @@ export default function NotificationToasts() {
       <div style={{
         position: 'fixed',
         bottom: 'calc(var(--sab) + 20px)',
-        left: 16,
-        right: 92,
+        insetInlineStart: 16,
+        insetInlineEnd: 92,
         display: 'flex', flexDirection: 'column-reverse', gap: 8,
         zIndex: 3000, pointerEvents: 'none',
       }}>
@@ -34,7 +34,7 @@ export default function NotificationToasts() {
   return (
     <div style={{
       position: 'fixed',
-      bottom: 24, right: 24,
+      bottom: 24, insetInlineEnd: 24,
       display: 'flex', flexDirection: 'column-reverse', gap: 8,
       zIndex: 3000, pointerEvents: 'none',
       alignItems: 'flex-end',
@@ -85,7 +85,7 @@ function ActionBar({ notification, onDismiss, isMobile }) {
       {/* Progress bar — empties over 4.5s (the undo window) */}
       <div style={{
         position: 'absolute',
-        bottom: 0, left: 0,
+        bottom: 0, insetInlineStart: 0,
         height: 2,
         background: 'var(--accent)',
         animation: 'action-bar-progress 4.5s linear forwards',

@@ -10,7 +10,7 @@ export default function RightSidebar({ title, headerAccessory, onCollapse, toggl
   return (
     <div style={{
       width: 'var(--right-sidebar-width, 296px)', flexShrink: 0,
-      borderLeft: '1px solid var(--border)', background: 'var(--bg-secondary)',
+      borderInlineStart: '1px solid var(--border)', background: 'var(--bg-secondary)',
       display: 'flex', flexDirection: 'column', overflowY: 'auto', height: '100%',
       scrollbarGutter: 'stable',
       // Rendered height of the sticky header below (10+10 padding + 29px button +
@@ -36,7 +36,7 @@ export default function RightSidebar({ title, headerAccessory, onCollapse, toggl
           onMouseEnter={() => setCollapseHover(true)}
           onMouseLeave={() => setCollapseHover(false)}
           style={{
-            marginLeft: headerAccessory ? undefined : 'auto',
+            marginInlineStart: headerAccessory ? undefined : 'auto',
             background: collapseHover ? 'var(--bg-tertiary)' : 'transparent',
             border: '1px solid ' + (collapseHover ? 'var(--border)' : 'transparent'),
             borderRadius: 6, padding: '6px 8px',
@@ -44,7 +44,7 @@ export default function RightSidebar({ title, headerAccessory, onCollapse, toggl
             display: 'flex', alignItems: 'center', gap: 5, transition: 'all 0.1s',
           }}
         >
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+          <svg className="rtl-flip" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
             <polyline points="9 18 15 12 9 6" />
           </svg>
         </button>

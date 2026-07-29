@@ -1344,7 +1344,7 @@ ${bodyContent}
                 gap: 2, padding: '4px 0', fontSize: 15, fontWeight: 500,
               }}
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <svg className="rtl-flip" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                 <polyline points="15 18 9 12 15 6"/>
               </svg>
               {t('common.back')}
@@ -1558,7 +1558,7 @@ ${bodyContent}
         animation: isMobile ? 'mobileSlideIn 0.22s ease' : 'none',
       }}
     >
-      {isMobile && <style>{`@keyframes mobileSlideIn { from { transform: translateX(100%) } to { transform: translateX(0) } }`}</style>}
+      {isMobile && <style>{`@keyframes mobileSlideIn { from { transform: translateX(var(--inline-end-translate)) } to { transform: translateX(0) } }`}</style>}
 
       {/* Mobile back bar */}
       {isMobile && (
@@ -1579,7 +1579,7 @@ ${bodyContent}
               gap: 2, padding: '4px 0', fontSize: 15, fontWeight: 500,
             }}
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+            <svg className="rtl-flip" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <polyline points="15 18 9 12 15 6"/>
             </svg>
             {t('common.back')}
@@ -1633,7 +1633,7 @@ ${bodyContent}
       }}>
         {/* Split Reply button */}
         <div style={{ position: 'relative', display: 'flex' }}>
-          <PaneBtn onClick={() => handleReply(defaultReplyAll)} style={{ borderRadius: '6px 0 0 6px' }} title={isMobile ? (defaultReplyAll ? t('message.replyAll') : t('message.reply')) : `${defaultReplyAll ? t('message.replyAll') : t('message.reply')}${shortcutLabel(defaultReplyAll ? 'replyAll' : 'reply') ? ` (${shortcutLabel(defaultReplyAll ? 'replyAll' : 'reply')})` : ''}`}>
+          <PaneBtn onClick={() => handleReply(defaultReplyAll)} style={{ borderStartStartRadius: 6, borderEndStartRadius: 6, borderStartEndRadius: 0, borderEndEndRadius: 0 }} title={isMobile ? (defaultReplyAll ? t('message.replyAll') : t('message.reply')) : `${defaultReplyAll ? t('message.replyAll') : t('message.reply')}${shortcutLabel(defaultReplyAll ? 'replyAll' : 'reply') ? ` (${shortcutLabel(defaultReplyAll ? 'replyAll' : 'reply')})` : ''}`}>
             {defaultReplyAll ? (
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
                 <polyline points="7 17 2 12 7 7"/><polyline points="13 17 8 12 13 7"/><path d="M20 18v-2a4 4 0 00-4-4H2"/>
@@ -1649,8 +1649,9 @@ ${bodyContent}
             title={t('message.replyOptions')}
             style={{
               background: 'transparent', border: '1px solid transparent',
-              borderLeft: '1px solid var(--border-subtle)',
-              borderRadius: '0 6px 6px 0', padding: '5px 6px',
+              borderInlineStart: '1px solid var(--border-subtle)',
+              borderStartStartRadius: 0, borderEndStartRadius: 0,
+              borderStartEndRadius: 6, borderEndEndRadius: 6, padding: '5px 6px',
               color: 'var(--text-secondary)', cursor: 'pointer',
               display: 'flex', alignItems: 'center',
             }}
@@ -1665,7 +1666,7 @@ ${bodyContent}
             <div onClick={() => setShowReplyMenu(false)} aria-hidden style={{ position: 'fixed', inset: 0, zIndex: 99 }} />
             <div
               style={{
-                position: 'absolute', top: '100%', left: 0, marginTop: 4,
+                position: 'absolute', top: '100%', insetInlineStart: 0, marginTop: 4,
                 background: 'var(--bg-elevated)', border: '1px solid var(--border)',
                 borderRadius: 8, overflow: 'hidden', zIndex: 100,
                 boxShadow: '0 4px 20px rgba(0,0,0,0.4)', minWidth: 150,
@@ -2079,12 +2080,12 @@ ${bodyContent}
           borderRadius: isMobile ? 0 : 10,
           border: isMobile ? 'none' : '1px solid var(--border-subtle)',
           borderBottom: '1px solid var(--border-subtle)',
-          borderLeft: message?.account_color ? `3px solid ${message.account_color}` : undefined,
+          borderInlineStart: message?.account_color ? `3px solid ${message.account_color}` : undefined,
           overflow: 'hidden',
           boxShadow: isMobile ? 'none' : 'var(--shadow-soft), inset 0 1px 0 rgba(255,255,255,0.04)',
         }}>
           {/* Subject */}
-          <div style={{
+          <div dir="auto" className="bidi-auto" style={{
             padding: '14px 16px 12px',
             borderBottom: '1px solid var(--border-subtle)',
             fontSize: 17, fontWeight: 600,
@@ -2114,11 +2115,11 @@ ${bodyContent}
             <div style={{ flex: 1, minWidth: 0 }}>
               {isMobile ? (
                 <>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div dir="auto" className="bidi-auto" style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {message.from_name || message.from_email}
                   </div>
                   {message.from_name && (
-                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <div className="bidi-ltr" style={{ fontSize: 12, color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {message.from_email}
                     </div>
                   )}
@@ -2127,7 +2128,7 @@ ${bodyContent}
                     <span style={{ color: 'var(--text-secondary)' }}>
                       {toList.length > 0
                         ? toList.map((r, i) => (
-                            <span key={i}>{r.name || r.email}{i < toList.length - 1 ? ', ' : ''}</span>
+                            <bdi key={i}>{r.name || r.email}{i < toList.length - 1 ? ', ' : ''}</bdi>
                           ))
                         : (message.account_email || message.account_name || '')}
                     </span>
@@ -2137,7 +2138,7 @@ ${bodyContent}
                       <span>Cc </span>
                       <span style={{ color: 'var(--text-secondary)' }}>
                         {ccList.map((r, i) => (
-                          <span key={i}>{r.name || r.email}{i < ccList.length - 1 ? ', ' : ''}</span>
+                          <bdi key={i}>{r.name || r.email}{i < ccList.length - 1 ? ', ' : ''}</bdi>
                         ))}
                       </span>
                     </div>
@@ -2146,11 +2147,11 @@ ${bodyContent}
               ) : (
                 <>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
+                    <span dir="auto" className="bidi-auto" style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
                       {message.from_name || message.from_email}
                     </span>
                     {message.from_name && (
-                      <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
+                      <span className="bidi-ltr" style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
                         &lt;{message.from_email}&gt;
                       </span>
                     )}
@@ -2160,10 +2161,10 @@ ${bodyContent}
                     <span style={{ color: 'var(--text-secondary)' }}>
                       {toList.length > 0
                         ? toList.map((r, i) => (
-                            <span key={i}>
+                            <bdi key={i}>
                               {r.name ? `${r.name} <${r.email}>` : r.email}
                               {i < toList.length - 1 ? ', ' : ''}
-                            </span>
+                            </bdi>
                           ))
                         : (message.account_email || message.account_name || '')}
                     </span>
@@ -2173,10 +2174,10 @@ ${bodyContent}
                       <span>Cc </span>
                       <span style={{ color: 'var(--text-secondary)' }}>
                         {ccList.map((r, i) => (
-                          <span key={i}>
+                          <bdi key={i}>
                             {r.name ? `${r.name} <${r.email}>` : r.email}
                             {i < ccList.length - 1 ? ', ' : ''}
-                          </span>
+                          </bdi>
                         ))}
                       </span>
                     </div>
@@ -2370,7 +2371,7 @@ ${bodyContent}
               marginBottom: 10, padding: '9px 14px',
               background: 'var(--bg-secondary)',
               border: '1px solid var(--border)',
-              borderLeft: '3px solid var(--text-tertiary)',
+              borderInlineStart: '3px solid var(--text-tertiary)',
               borderRadius: 8,
               display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
               fontSize: 12, color: 'var(--text-secondary)',
@@ -2401,7 +2402,7 @@ ${bodyContent}
               marginBottom: 10, padding: '9px 14px',
               background: 'var(--bg-secondary)',
               border: '1px solid var(--border)',
-              borderLeft: '3px solid var(--text-tertiary)',
+              borderInlineStart: '3px solid var(--text-tertiary)',
               borderRadius: 8,
               display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
               fontSize: 12, color: 'var(--text-secondary)',
@@ -2429,7 +2430,7 @@ ${bodyContent}
               marginBottom: 10, padding: '9px 14px',
               background: 'var(--bg-secondary)',
               border: '1px solid var(--border)',
-              borderLeft: '3px solid var(--accent)',
+              borderInlineStart: '3px solid var(--accent)',
               borderRadius: 8,
               display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
               fontSize: 12, color: 'var(--text-secondary)',
@@ -2439,7 +2440,7 @@ ${bodyContent}
                 <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
               </svg>
               <span>{t('message.remoteImagesBlocked')}</span>
-              <div style={{ display: 'flex', gap: 6, marginLeft: 'auto', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: 6, marginInlineStart: 'auto', flexWrap: 'wrap' }}>
                 {[
                   { label: t('message.loadImages'), handler: handleLoadImages, disabled: false },
                   message.from_email && {
@@ -2558,7 +2559,7 @@ ${bodyContent}
             <div style={{
               marginBottom: 10, padding: '9px 14px',
               background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-              borderLeft: '3px solid var(--text-tertiary)', borderRadius: 8,
+              borderInlineStart: '3px solid var(--text-tertiary)', borderRadius: 8,
               display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
               fontSize: 12, color: 'var(--text-secondary)',
             }}>
@@ -2580,7 +2581,7 @@ ${bodyContent}
             <div style={{
               marginBottom: 10, padding: '9px 14px',
               background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-              borderLeft: '3px solid var(--text-tertiary)', borderRadius: 8,
+              borderInlineStart: '3px solid var(--text-tertiary)', borderRadius: 8,
               display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
               fontSize: 12, color: 'var(--text-secondary)',
             }}>
@@ -2831,7 +2832,7 @@ function AiResultBox({ result, canRegen, onRegen, onDismiss }) {
   return (
     <div style={{
       padding: '12px 16px', background: 'var(--bg-secondary)',
-      border: '1px solid var(--border)', borderLeft: '3px solid var(--accent)',
+      border: '1px solid var(--border)', borderInlineStart: '3px solid var(--accent)',
       borderRadius: 8, fontSize: 13, lineHeight: 1.55, color: 'var(--text-primary)',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>

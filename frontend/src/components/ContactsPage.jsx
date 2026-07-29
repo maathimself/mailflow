@@ -420,7 +420,7 @@ export default function ContactsPage() {
               minWidth: 44, minHeight: 44,
             }}
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg className="rtl-flip" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <polyline points="15 18 9 12 15 6"/>
             </svg>
           </button>
@@ -489,7 +489,7 @@ export default function ContactsPage() {
       {/* Contact list panel */}
       <div style={{
         width: 280, flexShrink: 0, display: 'flex', flexDirection: 'column',
-        borderRight: '1px solid var(--border)',
+        borderInlineEnd: '1px solid var(--border)',
         background: 'var(--bg-secondary)',
         overflow: 'hidden',
       }}>

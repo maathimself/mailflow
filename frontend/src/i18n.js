@@ -7,6 +7,7 @@ import es from './locales/es.json';
 import it from './locales/it.json';
 import ru from './locales/ru.json';
 import zhCN from './locales/zhCN.json';
+import { bindDocumentDirection } from './direction.js';
 
 const savedLng = localStorage.getItem('mailflow_language') || 'en';
 
@@ -26,5 +27,10 @@ i18n
     fallbackLng: 'en',
     interpolation: { escapeValue: false },
   });
+
+bindDocumentDirection(
+  i18n,
+  () => localStorage.getItem('mailflow_interface_direction') || 'auto',
+);
 
 export default i18n;

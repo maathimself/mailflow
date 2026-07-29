@@ -32,8 +32,22 @@
   --shadow-popover: 0 4px 20px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.04), inset 0 1px 0 rgba(255,255,255,0.05);
   --shadow-modal: 0 8px 48px rgba(0,0,0,0.65), 0 0 0 1px rgba(255,255,255,0.06), inset 0 1px 0 rgba(255,255,255,0.07);
   --shadow-drawer: 4px 0 32px rgba(0,0,0,0.6), 1px 0 0 rgba(255,255,255,0.04);
+  --inline-start-translate: -100%;
+  --inline-end-translate: 100%;
+  --inline-start-offset: -20px;
+  --inline-end-offset: 20px;
+  --inline-start-origin: left;
   --highlight-top: inset 0 1px 0 rgba(255,255,255,0.06);
   --overlay-scrim: rgba(0,0,0,0.5);
+}
+
+[dir="rtl"] {
+  --shadow-drawer: -4px 0 32px rgba(0,0,0,0.6), -1px 0 0 rgba(255,255,255,0.04);
+  --inline-start-translate: 100%;
+  --inline-end-translate: -100%;
+  --inline-start-offset: 20px;
+  --inline-end-offset: -20px;
+  --inline-start-origin: right;
 }
 
 * {
@@ -121,13 +135,13 @@ body, #root {
 
 /* Notification toast */
 @keyframes toast-in {
-  from { opacity: 0; transform: translateX(100%); }
+  from { opacity: 0; transform: translateX(var(--inline-end-translate)); }
   to { opacity: 1; transform: translateX(0); }
 }
 
 @keyframes toast-out {
   from { opacity: 1; transform: translateX(0); }
-  to { opacity: 0; transform: translateX(100%); }
+  to { opacity: 0; transform: translateX(var(--inline-end-translate)); }
 }
 
 .toast-enter { animation: toast-in 0.2s ease forwards; }
@@ -236,11 +250,11 @@ body, #root {
 
 /* Panel slide transitions (mobile list ↔ detail, contact detail enter) */
 @keyframes slide-in-right {
-  from { opacity: 0; transform: translateX(20px); }
+  from { opacity: 0; transform: translateX(var(--inline-end-offset)); }
   to   { opacity: 1; transform: translateX(0); }
 }
 @keyframes slide-in-left {
-  from { opacity: 0; transform: translateX(-20px); }
+  from { opacity: 0; transform: translateX(var(--inline-start-offset)); }
   to   { opacity: 1; transform: translateX(0); }
 }
 
@@ -251,6 +265,33 @@ body, #root {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+.mobile-sidebar-drawer {
+  transform: translateX(var(--inline-start-translate));
+}
+.mobile-sidebar-drawer[data-open="true"] {
+  transform: translateX(0);
+}
+
+.rtl-flip {
+  transform-origin: center;
+}
+[dir="rtl"] .rtl-flip {
+  transform: scaleX(-1);
+}
+
+.bidi-auto {
+  unicode-bidi: plaintext;
+  text-align: start;
+}
+
+.bidi-ltr,
+input[type="email"],
+input[type="url"] {
+  direction: ltr;
+  unicode-bidi: isolate;
+  text-align: start;
 }
 
 /* TipTap rich-text compose editor */
@@ -266,13 +307,13 @@ body, #root {
 }
 .tiptap-compose .ProseMirror p { margin: 0 0 0.25em; }
 .tiptap-compose .ProseMirror p:last-child { margin-bottom: 0; }
-.tiptap-compose .ProseMirror ul { padding-left: 1.4em; margin: 0.25em 0; list-style-type: disc; }
-.tiptap-compose .ProseMirror ol { padding-left: 1.4em; margin: 0.25em 0; list-style-type: decimal; }
+.tiptap-compose .ProseMirror ul { padding-inline-start: 1.4em; margin: 0.25em 0; list-style-type: disc; }
+.tiptap-compose .ProseMirror ol { padding-inline-start: 1.4em; margin: 0.25em 0; list-style-type: decimal; }
 .tiptap-compose .ProseMirror li { display: list-item; }
 .tiptap-compose .ProseMirror blockquote {
-  border-left: 3px solid var(--border);
+  border-inline-start: 3px solid var(--border);
   margin: 0.25em 0;
-  padding-left: 0.75em;
+  padding-inline-start: 0.75em;
   color: var(--text-secondary);
 }
 .tiptap-compose .ProseMirror a { color: var(--accent); text-decoration: underline; }
@@ -280,7 +321,7 @@ body, #root {
   content: attr(data-placeholder);
   color: var(--text-tertiary);
   pointer-events: none;
-  float: left;
+  float: inline-start;
   height: 0;
 }
 
@@ -348,7 +389,7 @@ body, #root {
 .ai-markdown h2 { font-size: 1.15em; }
 .ai-markdown h3 { font-size: 1.05em; }
 .ai-markdown h4, .ai-markdown h5, .ai-markdown h6 { font-size: 1em; }
-.ai-markdown ul, .ai-markdown ol { margin: 4px 0 8px; padding-left: 20px; }
+.ai-markdown ul, .ai-markdown ol { margin: 4px 0 8px; padding-inline-start: 20px; }
 .ai-markdown li { margin: 2px 0; }
 .ai-markdown li > ul, .ai-markdown li > ol { margin: 2px 0; }
 .ai-markdown a { color: var(--accent); text-decoration: underline; }
@@ -362,7 +403,7 @@ body, #root {
 }
 .ai-markdown pre code { background: none; padding: 0; }
 .ai-markdown blockquote {
-  border-left: 3px solid var(--border); margin: 6px 0; padding-left: 10px;
+  border-inline-start: 3px solid var(--border); margin: 6px 0; padding-inline-start: 10px;
   color: var(--text-secondary);
 }
 .ai-markdown hr { border: none; border-top: 1px solid var(--border-subtle); margin: 10px 0; }
@@ -383,4 +424,5 @@ body, #root {
   overflow-x: auto;
   max-width: 100%;
   color-scheme: light;
+  unicode-bidi: plaintext;
 }

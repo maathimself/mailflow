@@ -816,7 +816,7 @@ export default function Sidebar() {
       minWidth: sidebarCollapsed ? 60 : sidebarWidth,
       height: isMobile ? '100%' : '100%',
       background: 'var(--bg-secondary)',
-      borderRight: '1px solid var(--border-subtle)',
+      borderInlineEnd: '1px solid var(--border-subtle)',
       display: 'flex',
       flexDirection: 'column',
       transition: isSidebarResizing ? 'none' : 'width 0.2s ease, min-width 0.2s ease',
@@ -1228,7 +1228,7 @@ export default function Sidebar() {
                           transition: 'transform 0.15s',
                         }}
                       >
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <svg className="rtl-flip" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                           <polyline points="9 18 15 12 9 6"/>
                         </svg>
                       </button>
@@ -1317,7 +1317,7 @@ export default function Sidebar() {
                               transition: 'transform 0.15s',
                             }}
                           >
-                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                            <svg className="rtl-flip" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                               <polyline points="9 18 15 12 9 6"/>
                             </svg>
                           </button>
@@ -1592,7 +1592,7 @@ export default function Sidebar() {
               </svg>
             </span>
             <span style={{ flex: 1, fontSize: 13, color: 'var(--text-primary)' }}>{t('sidebar.settings')}</span>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="2" style={{ flexShrink: 0 }}>
+            <svg className="rtl-flip" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="2" style={{ flexShrink: 0 }}>
               <polyline points="9 18 15 12 9 6"/>
             </svg>
           </div>
