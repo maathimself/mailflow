@@ -313,6 +313,13 @@ it('selects a before or after drop edge from the row midpoint', () => {
   assert.equal(folderDropPosition(110, { top: 100, height: 40 }), 'before');
   assert.equal(folderDropPosition(130, { top: 100, height: 40 }), 'after');
 });
+
+it('does not persist a drop that leaves the normalized order unchanged', () => {
+  assert.equal(
+    reorderFolderPaths(folders, [], 'Archive', 'INBOX', 'before'),
+    null,
+  );
+});
 ```
 
 - [ ] **Step 6: Run the move tests and verify the RED state**
@@ -676,32 +683,7 @@ an additive merge instead of replacing unrelated preference keys.
   - transient drag state `{ accountId, path }`
   - transient drop state `{ accountId, path, position }`
 
-- [ ] **Step 1: Add a failing regression test for unchanged-order drops**
-
-Append to `frontend/src/utils/sidebar.test.js`:
-
-```js
-it('does not persist a drop that leaves the normalized order unchanged', () => {
-  assert.equal(
-    reorderFolderPaths(folders, [], 'Archive', 'INBOX', 'before'),
-    null,
-  );
-});
-```
-
-- [ ] **Step 2: Run the focused test and verify the RED state**
-
-Run:
-
-```bash
-cd frontend
-node --test src/utils/sidebar.test.js
-```
-
-Expected: FAIL if `reorderFolderPaths` returns a new array for the no-op; update
-the equality check in Task 1's helper until it returns `null`.
-
-- [ ] **Step 3: Import ordering helpers and wire store state**
+- [ ] **Step 1: Import ordering helpers and wire store state**
 
 In `frontend/src/components/Sidebar.jsx`, replace the sidebar utility import with:
 
@@ -727,7 +709,7 @@ Define the MIME type outside the component:
 const FOLDER_ORDER_DRAG_TYPE = 'application/x-mailflow-folder-order';
 ```
 
-- [ ] **Step 4: Add drag state, cleanup, and typed event handlers**
+- [ ] **Step 2: Add drag state, cleanup, and typed event handlers**
 
 Add beside the existing favorite drag state:
 
@@ -803,7 +785,7 @@ const handleFolderOrderDrop = (event, path) => {
 };
 ```
 
-- [ ] **Step 5: Render sibling-aware handles and before/after indicators**
+- [ ] **Step 3: Render sibling-aware handles and before/after indicators**
 
 Change the function signature and add the sibling/drop calculations after the
 current `indent` declaration:
@@ -897,7 +879,7 @@ Do not remove the selection, rename, collapse, context-menu, message-drop,
 unread-count, hidden-folder, or create-folder branches surrounding these exact
 edits.
 
-- [ ] **Step 6: Run focused tests, lint, and production build**
+- [ ] **Step 4: Run focused tests, lint, and production build**
 
 Run:
 
@@ -911,7 +893,7 @@ npm run build
 Expected: tests PASS, ESLint reports zero warnings, and Vite completes a
 production build.
 
-- [ ] **Step 7: Commit the sidebar interaction**
+- [ ] **Step 5: Commit the sidebar interaction**
 
 Run:
 
