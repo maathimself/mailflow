@@ -940,10 +940,11 @@ npm run build
 
 Expected: all frontend tests PASS, ESLint has zero warnings, and Vite builds.
 
-Observed: `npm test` passed all 1,415 tests in 50 suites. `npm run lint`
-completed with no errors or warnings, and `npm run build` completed successfully
-after transforming 477 modules. Vite emitted only its existing chunk-size
-advisory.
+Observed: the initial run passed all 1,415 tests in 50 suites. After independent
+review fixes, a fresh `npm test` run passed all 1,419 tests in 50 suites.
+`npm run lint` completed with no errors or warnings, and `npm run build`
+completed successfully after transforming 477 modules. Vite emitted only its
+existing chunk-size advisory.
 
 - [x] **Step 2: Run clean local backend gates**
 
@@ -1004,24 +1005,38 @@ lint/build, backend tests, and backend lint all passing. If no provider is
 available, record the exact doctor/provider failure in Kata and do not claim
 remote verification.
 
-- [ ] **Step 5: Review the implementation against the approved design**
+Observed: Vladimir confirmed `exe.dev` is the required provider. Crabbox's
+`exe-dev` adapter is available, and direct SSH reaches the service, but the
+current machine's key is unregistered. `ssh exe.dev` requires an email address
+and account verification before Crabbox can allocate a VM. The flow was
+cancelled before sending personal data; remote verification remains open.
+
+- [x] **Step 5: Review the implementation against the approved design**
 
 Check each invariant explicitly:
 
 ```text
-[ ] per-account custom order works with no favorites
-[ ] hierarchy cannot change
-[ ] root and nested sibling ordering both work
-[ ] hidden/favorite state remains independent
-[ ] new folders remain visible after ranked folders
-[ ] stale/malformed paths cannot break rendering
-[ ] order survives local reload and server preference round-trip
-[ ] message dragging still moves messages rather than folders
-[ ] desktop-only scope matches the approved design
+[x] per-account custom order works with no favorites
+[x] hierarchy cannot change
+[x] root and nested sibling ordering both work
+[x] hidden/favorite state remains independent
+[x] new folders remain visible after ranked folders
+[x] stale/malformed paths cannot break rendering
+[x] order survives local reload and server preference round-trip
+[x] message dragging still moves messages rather than folders
+[x] desktop-only scope matches the approved design
 ```
 
 Expected: every item is supported by a focused test, code inspection, build, or
 crabbox run.
+
+Observed: independent review found no critical issues and two important issues.
+Commit `e763898` fixes both: an absent server preference now clears a previous
+user's cached order, and a drop derives its authoritative payload and edge from
+the drop event instead of asynchronously committed React state. New regressions
+cover empty server state, immediate typed drops, cross-parent rejection,
+message-transfer routing, and synthesized ancestors. The complete post-review
+frontend and Node 22 backend suites pass.
 
 - [ ] **Step 6: Record evidence and close the Kata issue**
 
