@@ -1419,7 +1419,7 @@ function SwipeActionIcon({ action, size = 17 }) {
 function LayoutsTab() {
   const { t } = useTranslation();
   const isMobile = useMobile();
-  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay } = useStore();
+  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, conversationMode, setConversationMode, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay } = useStore();
 
   // "Set MailFlow as your default email app": registerProtocolHandler is the
   // cross-browser path (works in Firefox and non-installed Chromium) and must be
@@ -1799,16 +1799,17 @@ function LayoutsTab() {
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           {[
-            { id: false, label: t('admin.messageList.threadingOff'), desc: t('admin.messageList.threadingOffDesc') },
-            { id: true,  label: t('admin.messageList.threadingOn'),  desc: t('admin.messageList.threadingOnDesc') },
+            { id: 'off', label: t('admin.messageList.threadingOff'), desc: t('admin.messageList.threadingOffDesc') },
+            { id: 'list', label: t('admin.messageList.threadingList'), desc: t('admin.messageList.threadingListDesc') },
+            { id: 'pane', label: t('admin.messageList.threadingPane'), desc: t('admin.messageList.threadingPaneDesc') },
           ].map(({ id, label, desc }) => {
-            const active = threadedView === id;
+            const active = conversationMode === id;
             return (
               <button
                 key={String(id)}
-                onClick={() => setThreadedView(id)}
+                onClick={() => setConversationMode(id)}
                 style={{
-                  flex: 1, padding: '10px 12px', textAlign: 'left',
+                  flex: 1, minWidth: 0, padding: '10px 12px', textAlign: 'left',
                   background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
                   border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
                   borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s', outline: 'none',
@@ -1816,8 +1817,8 @@ function LayoutsTab() {
                 onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; }}
                 onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
               >
-                <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{label}</div>
-                <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{desc}</div>
+                <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2, overflowWrap: 'anywhere' }}>{label}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', overflowWrap: 'anywhere' }}>{desc}</div>
               </button>
             );
           })}

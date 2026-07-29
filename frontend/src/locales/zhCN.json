@@ -249,6 +249,11 @@
       "error": "AI 分类失败。"
     }
   },
+  "conversation": {
+    "messages_one": "{{count}} 封邮件",
+    "messages_other": "共 {{count}} 封邮件",
+    "replyLatest": "回复最新邮件"
+  },
   "messageList": {
     "search": "搜索…",
     "unread": "未读",
@@ -827,8 +832,10 @@
       "threadingMode": "会话归并",
       "threadingOff": "关闭",
       "threadingOffDesc": "每封邮件单独显示",
-      "threadingOn": "开启",
-      "threadingOnDesc": "将回复归并为同一会话",
+      "threadingList": "会话列表",
+      "threadingListDesc": "将回复归并，并在邮件列表中展开",
+      "threadingPane": "会话阅读窗格",
+      "threadingPaneDesc": "将回复归并，并在阅读窗格中显示完整会话",
       "composeFormat": "撰写格式",
       "composeRichText": "富文本",
       "composeRichTextDesc": "以 HTML 形式发送 — 支持格式化与带样式的签名",

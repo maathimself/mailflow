@@ -249,6 +249,11 @@
       "error": "AI classification failed."
     }
   },
+  "conversation": {
+    "messages_one": "{{count}} message",
+    "messages_other": "{{count}} messages",
+    "replyLatest": "Reply to latest"
+  },
   "messageList": {
     "search": "Search…",
     "unread": "Unread",
@@ -827,8 +832,10 @@
       "threadingMode": "Conversation threading",
       "threadingOff": "Off",
       "threadingOffDesc": "Each message shown individually",
-      "threadingOn": "On",
-      "threadingOnDesc": "Replies grouped into conversations",
+      "threadingList": "Threaded list",
+      "threadingListDesc": "Group replies and expand them in the message list",
+      "threadingPane": "Conversation pane",
+      "threadingPaneDesc": "Group replies and read the full conversation in the reading pane",
       "composeFormat": "Compose format",
       "composeRichText": "Rich text",
       "composeRichTextDesc": "Sends HTML — supports formatting and styled signatures",

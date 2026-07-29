@@ -249,6 +249,11 @@
       "error": "La clasificación con IA falló."
     }
   },
+  "conversation": {
+    "messages_one": "{{count}} mensaje",
+    "messages_other": "{{count}} mensajes",
+    "replyLatest": "Responder al mensaje más reciente"
+  },
   "messageList": {
     "search": "Buscar…",
     "unread": "No leídos",
@@ -827,8 +832,10 @@
       "threadingMode": "Agrupación por conversación",
       "threadingOff": "Desactivado",
       "threadingOffDesc": "Cada mensaje se muestra individualmente",
-      "threadingOn": "Activado",
-      "threadingOnDesc": "Las respuestas se agrupan en conversaciones",
+      "threadingList": "Lista agrupada",
+      "threadingListDesc": "Agrupa las respuestas y las despliega en la lista de mensajes",
+      "threadingPane": "Panel de conversación",
+      "threadingPaneDesc": "Agrupa las respuestas y muestra la conversación completa en el panel de lectura",
       "composeFormat": "Formato de redacción",
       "composeRichText": "Texto enriquecido",
       "composeRichTextDesc": "Envía HTML — admite formato y firmas con estilo",

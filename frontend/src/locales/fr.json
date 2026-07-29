@@ -249,6 +249,11 @@
       "error": "La classification par IA a échoué."
     }
   },
+  "conversation": {
+    "messages_one": "{{count}} message dans la conversation",
+    "messages_other": "{{count}} messages dans la conversation",
+    "replyLatest": "Répondre au dernier message"
+  },
   "messageList": {
     "search": "Rechercher…",
     "unread": "Non lus",
@@ -827,8 +832,10 @@
       "threadingMode": "Regroupement par conversation",
       "threadingOff": "Désactivé",
       "threadingOffDesc": "Chaque message affiché individuellement",
-      "threadingOn": "Activé",
-      "threadingOnDesc": "Les réponses sont regroupées en conversations",
+      "threadingList": "Liste groupée",
+      "threadingListDesc": "Regroupe les réponses et les déplie dans la liste des messages",
+      "threadingPane": "Volet de conversation",
+      "threadingPaneDesc": "Regroupe les réponses et affiche toute la conversation dans le volet de lecture",
       "composeFormat": "Format de rédaction",
       "composeRichText": "Texte enrichi",
       "composeRichTextDesc": "Envoie du HTML — prend en charge la mise en forme et les signatures stylisées",

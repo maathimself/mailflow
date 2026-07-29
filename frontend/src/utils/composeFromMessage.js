@@ -81,6 +81,7 @@ export async function openReplyFromMessage(message, { accounts, openCompose, get
     quotedBodyHtml,
     inReplyTo: message.message_id,
     references: referencesChain,
+    threadId: message.thread_id || null,
     accountId: message.account_id,
     aliasId: replyAliasId,
     isReply: true,

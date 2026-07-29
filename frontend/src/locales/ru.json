@@ -249,6 +249,11 @@
       "error": "Ошибка классификации ИИ."
     }
   },
+  "conversation": {
+    "messages_one": "{{count}} сообщение",
+    "messages_other": "{{count}} сообщений",
+    "replyLatest": "Ответить на последнее сообщение"
+  },
   "messageList": {
     "search": "Поиск…",
     "unread": "Непрочитанные",
@@ -827,8 +832,10 @@
       "threadingMode": "Группировка переписки",
       "threadingOff": "Выключена",
       "threadingOffDesc": "Каждое сообщение показывается отдельно",
-      "threadingOn": "Включена",
-      "threadingOnDesc": "Ответы группируются в цепочки переписки",
+      "threadingList": "Список цепочек",
+      "threadingListDesc": "Группировать ответы и раскрывать их в списке сообщений",
+      "threadingPane": "Панель переписки",
+      "threadingPaneDesc": "Группировать ответы и показывать всю переписку в области чтения",
       "composeFormat": "Формат создания письма",
       "composeRichText": "Форматированный текст",
       "composeRichTextDesc": "Отправляет HTML — поддерживает форматирование и стилизованные подписи",

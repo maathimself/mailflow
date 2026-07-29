@@ -249,6 +249,11 @@
       "error": "Classificazione IA fallita."
     }
   },
+  "conversation": {
+    "messages_one": "{{count}} messaggio",
+    "messages_other": "{{count}} messaggi",
+    "replyLatest": "Rispondi al messaggio più recente"
+  },
   "messageList": {
     "search": "Cerca…",
     "unread": "Non letti",
@@ -827,8 +832,10 @@
       "threadingMode": "Raggruppamento conversazioni",
       "threadingOff": "Disattivato",
       "threadingOffDesc": "Ogni messaggio mostrato singolarmente",
-      "threadingOn": "Attivato",
-      "threadingOnDesc": "Le risposte sono raggruppate in conversazioni",
+      "threadingList": "Elenco raggruppato",
+      "threadingListDesc": "Raggruppa le risposte e le espande nell'elenco dei messaggi",
+      "threadingPane": "Riquadro conversazione",
+      "threadingPaneDesc": "Raggruppa le risposte e mostra l'intera conversazione nel riquadro di lettura",
       "composeFormat": "Formato di composizione",
       "composeRichText": "Testo formattato",
       "composeRichTextDesc": "Invia HTML — supporta formattazione e firme stilizzate",

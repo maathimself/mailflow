@@ -30,7 +30,7 @@ If you contribute code, please read the [Contributor License Agreement](CLA.md).
 - **Unified inbox** — all accounts merged in one view, sorted by date
 - **Email categorization** — automatic inbox tabs (Primary, Newsletters, Social, Notifications, Other) sort incoming mail by type using header detection and sender heuristics; AI reclassify button for misclassifications
 - **Unsubscribe** — one-click unsubscribe button appears in the message pane for detected newsletters; sends the request or opens the unsubscribe URL automatically
-- **Conversation threads** — messages grouped into reply chains with inline sent replies
+- **Conversation threads** — choose flat messages, expandable thread rows, or a Gmail-style full conversation reading pane; the full pane includes sent replies, keeps older messages collapsed, and loads historical message bodies on demand
 - **Rich text compose** — WYSIWYG editor with font family, size, color, highlight, tables, emoji, links, attachments, image resize handles, and Excel table paste
 - **Attachments** — send and receive file attachments across all accounts
 - **Multiple layouts** — classic, compact, wide reader, vertical split, and more

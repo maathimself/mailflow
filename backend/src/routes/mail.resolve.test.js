@@ -71,4 +71,16 @@ describe('GET /api/mail/resolve-message account scope', () => {
     expect(response.status).toBe(400);
     expect(query).not.toHaveBeenCalled();
   });
+
+  it('keeps messages without an RFC Message-ID distinct in thread results', async () => {
+    query.mockResolvedValueOnce({ rows: [{ id: ACCOUNT_ID }] });
+    query.mockResolvedValueOnce({ rows: [] });
+
+    const response = await fetch(`${base}/api/mail/thread/thread-1`);
+
+    expect(response.status).toBe(200);
+    const [sql] = query.mock.calls[1];
+    expect(sql).toContain("DISTINCT ON (COALESCE(NULLIF(m.message_id, ''), m.id::text))");
+    expect(sql).toContain("ORDER BY COALESCE(NULLIF(m.message_id, ''), m.id::text)");
+  });
 });

@@ -6,6 +6,8 @@ import { applyLayout, normalizeLayout } from '../layouts.js';
 import { DEFAULT_AI_ACTIONS } from '../aiActions.js';
 import { removeGtdThreadFromSections, setGtdThreadReadInSections } from '../utils/gtd.js';
 import { clampRightSidebarWidth } from '../utils/rightSidebar.js';
+import { conversationModeTransition, resolveConversationMode } from '../utils/conversationMode.js';
+import { selectedMessageTransition } from '../utils/conversation.js';
 import i18n from '../i18n.js';
 
 // Accumulate rapid preference changes and flush at most once per second.
@@ -62,7 +64,7 @@ export const useStore = create((set, get) => ({
         isLocked: true,
         messages: [], searchResults: [], searchQuery: '',
         accounts: [], accountsReady: false,
-        folders: {}, selectedMessageId: null,
+        folders: {}, selectedMessageId: null, selectedMessageSource: null,
         unreadCounts: { total: 0, byAccount: {} },
         notifications: [], threadMessages: {}, expandedThreadId: null,
         backfillProgress: {},
@@ -72,7 +74,7 @@ export const useStore = create((set, get) => ({
       const restoredMessageId = localStorage.getItem('mailflow_locked_message') || null;
       localStorage.removeItem('mailflow_locked_message');
       localStorage.removeItem('mailflow_locked');
-      set({ isLocked: false, selectedMessageId: restoredMessageId });
+      set({ isLocked: false, selectedMessageId: restoredMessageId, selectedMessageSource: null });
     }
   },
   // Lock now: tell the server (it then 423s the API until unlocked), then drop into
@@ -117,6 +119,7 @@ export const useStore = create((set, get) => ({
         selectedAccountId: accountId,
         selectedFolder: folder,
         selectedMessageId: null,
+        selectedMessageSource: null,
         messages: [],
         messagesOffset: 0,
         hasMoreMessages: true,
@@ -169,6 +172,7 @@ export const useStore = create((set, get) => ({
     messages: state.messages.filter(m => m.id !== id),
     searchResults: state.searchResults.filter(m => m.id !== id),
     selectedMessageId: state.selectedMessageId === id ? null : state.selectedMessageId,
+    selectedMessageSource: state.selectedMessageId === id ? null : state.selectedMessageSource,
   })),
   // Remove many messages in a single state update. Bulk triage (e.g. archiving ~40 rows)
   // otherwise calls removeMessage once per id, firing one store update — and, in a
@@ -181,6 +185,7 @@ export const useStore = create((set, get) => ({
       messages: state.messages.filter(m => !idSet.has(m.id)),
       searchResults: state.searchResults.filter(m => !idSet.has(m.id)),
       selectedMessageId: idSet.has(state.selectedMessageId) ? null : state.selectedMessageId,
+      selectedMessageSource: idSet.has(state.selectedMessageId) ? null : state.selectedMessageSource,
     };
   }),
   restoreMessages: (msgs) => set(state => {
@@ -211,8 +216,9 @@ export const useStore = create((set, get) => ({
 
   // Selected message
   selectedMessageId: null,
+  selectedMessageSource: null,
   lastViewedMessageId: null,
-  setSelectedMessage: (id) => set(id ? { selectedMessageId: id, lastViewedMessageId: id } : { selectedMessageId: null }),
+  setSelectedMessage: (id, source = null) => set(selectedMessageTransition(id, source)),
 
   // Unread counts
   unreadCounts: { total: 0, byAccount: {} },
@@ -389,12 +395,20 @@ export const useStore = create((set, get) => ({
     schedulePrefSave({ language: lng });
   },
 
-  // Threaded view
-  threadedView: localStorage.getItem('mailflow_threaded_view') === 'true',
-  setThreadedView: (val) => {
-    localStorage.setItem('mailflow_threaded_view', String(val));
-    set({ threadedView: val, expandedThreadId: null, threadMessages: {} });
-    schedulePrefSave({ threadedView: val });
+  // Conversation display
+  conversationMode: resolveConversationMode({
+    conversationMode: localStorage.getItem('mailflow_conversation_mode'),
+    threadedView: localStorage.getItem('mailflow_threaded_view') == null
+      ? undefined
+      : localStorage.getItem('mailflow_threaded_view') === 'true',
+  }),
+  setConversationMode: (mode) => {
+    const resolvedMode = resolveConversationMode({ conversationMode: mode });
+    const transition = conversationModeTransition(resolvedMode, get().conversationMode);
+    if (!transition) return;
+    localStorage.setItem('mailflow_conversation_mode', resolvedMode);
+    set(transition);
+    schedulePrefSave({ conversationMode: resolvedMode });
   },
 
   // Compose format
@@ -874,10 +888,9 @@ export const useStore = create((set, get) => ({
         set({ language: prefs.language });
         i18n.changeLanguage(prefs.language);
       }
-      if (typeof prefs.threadedView === 'boolean') {
-        localStorage.setItem('mailflow_threaded_view', String(prefs.threadedView));
-        set({ threadedView: prefs.threadedView });
-      }
+      const conversationMode = resolveConversationMode(prefs);
+      localStorage.setItem('mailflow_conversation_mode', conversationMode);
+      set({ conversationMode, expandedThreadId: null, threadMessages: {} });
       if (typeof prefs.plaintextEmail === 'boolean') {
         localStorage.setItem('mailflow_plaintext_email', String(prefs.plaintextEmail));
         set({ plaintextEmail: prefs.plaintextEmail });

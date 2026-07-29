@@ -132,6 +132,16 @@ describe('subject prefixing', () => {
 });
 
 describe('references chain', () => {
+  it('preserves the thread ID so sent replies refresh the open conversation', async () => {
+    const h = harness();
+    await openReplyFromMessage(
+      { account_id: 'a', thread_id: 'thread-1', reply_to: [], from_email: 'f@example.com' },
+      { accounts: [], openCompose: h.openCompose, getMessageBody: h.getMessageBody },
+    );
+
+    assert.equal(h.payload().threadId, 'thread-1');
+  });
+
   it('joins in_reply_to and message_id', async () => {
     const h = harness();
     await openReplyFromMessage(

@@ -122,6 +122,47 @@ describe('listMessages — threaded mode', () => {
     expect(cteSql).toContain('AND folder = $2');
   });
 
+  it('keeps INBOX-scoped thread totals when threadScope is folder', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
+      .mockResolvedValueOnce({ rows: [{ total_count: 10, unread_count: 0 }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ total: 0 }] });
+
+    await listMessages({
+      userId: 'user-1',
+      accountId: 'acc-1',
+      folder: 'INBOX',
+      threaded: 'true',
+      threadScope: 'folder',
+    });
+
+    const cteSql = query.mock.calls[2][0];
+    const threadTotalsSql = cteSql.split('thread_totals AS (')[1];
+    expect(threadTotalsSql).toContain('AND folder = $2');
+  });
+
+  it('counts thread totals across folders without widening the selected folder query', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
+      .mockResolvedValueOnce({ rows: [{ total_count: 10, unread_count: 0 }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ total: 0 }] });
+
+    await listMessages({
+      userId: 'user-1',
+      accountId: 'acc-1',
+      folder: 'INBOX',
+      threaded: 'true',
+      threadScope: 'all',
+    });
+
+    const cteSql = query.mock.calls[2][0];
+    const [selectedFolderSql, threadTotalsSql] = cteSql.split('thread_totals AS (');
+    expect(selectedFolderSql).toContain('m.folder = $2');
+    expect(threadTotalsSql).not.toContain('AND folder = $2');
+  });
+
   it('counts thread messages across all folders when viewing a non-INBOX folder', async () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })

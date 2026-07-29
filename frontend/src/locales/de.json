@@ -249,6 +249,11 @@
       "error": "KI-Klassifizierung fehlgeschlagen."
     }
   },
+  "conversation": {
+    "messages_one": "{{count}} Nachricht",
+    "messages_other": "{{count}} Nachrichten",
+    "replyLatest": "Auf neueste Nachricht antworten"
+  },
   "messageList": {
     "search": "Suchen…",
     "unread": "Ungelesen",
@@ -760,8 +765,10 @@
       "threadingMode": "Gesprächs-Threading",
       "threadingOff": "Aus",
       "threadingOffDesc": "Jede Nachricht einzeln angezeigt",
-      "threadingOn": "An",
-      "threadingOnDesc": "Antworten in Gesprächen gruppiert",
+      "threadingList": "Gruppierte Liste",
+      "threadingListDesc": "Antworten gruppieren und in der Nachrichtenliste aufklappen",
+      "threadingPane": "Gesprächsansicht",
+      "threadingPaneDesc": "Antworten gruppieren und das gesamte Gespräch im Lesebereich anzeigen",
       "composeFormat": "Verfassungsformat",
       "composeRichText": "Rich Text",
       "composeRichTextDesc": "Sendet HTML — unterstützt Formatierung und gestaltete Signaturen",
