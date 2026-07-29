@@ -9,9 +9,18 @@ vi.mock('../utils/mailUtils.js', () => ({
   getDeleteStrategy: vi.fn(),
   adjustFolderCounts: vi.fn(),
 }));
+vi.mock('./ruleForwarder.js', () => ({ forwardRuleMessage: vi.fn() }));
 
 const { query } = await import('./db.js');
-const { resolveArchiveFolder, isAllMailFolder, adjustFolderCounts } = await import('../utils/mailUtils.js');
+const {
+  resolveArchiveFolder,
+  isAllMailFolder,
+  resolveTrashFolder,
+  resolveAllTrashPaths,
+  getDeleteStrategy,
+  adjustFolderCounts,
+} = await import('../utils/mailUtils.js');
+const { forwardRuleMessage } = await import('./ruleForwarder.js');
 import { applyInboxRules } from './inboxRules.js';
 
 const account = { id: 'acc-1', user_id: 'user-1', folder_mappings: {} };
@@ -41,6 +50,271 @@ const mockImap = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+});
+
+describe('applyInboxRules — forwarding', () => {
+  it('forwards before moving and still removes the moved source from remaining', async () => {
+    const rule = mkRule([
+      { type: 'move', value: 'INBOX/Processed' },
+      { type: 'forward', value: 'recipient@example.com' },
+    ]);
+    query
+      .mockResolvedValueOnce({ rows: [rule] })
+      .mockResolvedValueOnce({ rows: [] });
+    forwardRuleMessage.mockResolvedValue('sent');
+    mockImap.bulkMoveMessages.mockResolvedValue({
+      failed: [],
+      uidMap: new Map([[100, 200]]),
+    });
+
+    const message = mkMsg();
+    const result = await applyInboxRules([message], account, mockImap);
+
+    expect(forwardRuleMessage).toHaveBeenCalledWith({
+      ruleId: rule.id,
+      message,
+      account,
+      imapManager: mockImap,
+      recipient: 'recipient@example.com',
+    });
+    expect(forwardRuleMessage.mock.invocationCallOrder[0])
+      .toBeLessThan(mockImap.bulkMoveMessages.mock.invocationCallOrder[0]);
+    expect(result.remaining).toHaveLength(0);
+  });
+
+  it('suppresses destination actions across rules after forwarding fails', async () => {
+    const rules = [
+      mkRule([
+        { type: 'forward', value: 'recipient@example.com' },
+        { type: 'delete', value: '' },
+      ], { id: 'rule-1' }),
+      mkRule([
+        { type: 'move', value: 'INBOX/Processed' },
+        { type: 'mark_read', value: '' },
+      ], { id: 'rule-2' }),
+    ];
+    query
+      .mockResolvedValueOnce({ rows: rules })
+      .mockResolvedValueOnce({ rows: [] });
+    forwardRuleMessage.mockRejectedValue(
+      new Error('SMTP rejected recipient@example.com with original body')
+    );
+    mockImap.setFlag.mockResolvedValue(undefined);
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      const result = await applyInboxRules([mkMsg()], account, mockImap);
+
+      expect(mockImap.bulkMoveMessages).not.toHaveBeenCalled();
+      expect(result.remaining).toHaveLength(1);
+      expect(mockImap.setFlag).toHaveBeenCalledWith(
+        account,
+        100,
+        'INBOX',
+        '\\Seen',
+        true
+      );
+      expect(consoleError).toHaveBeenCalledWith(
+        'inboxRules: forward action failed; destination actions suppressed'
+      );
+      const consoleOutput = consoleError.mock.calls
+        .flat()
+        .map(value => String(value))
+        .join(' ');
+      expect(consoleOutput).not.toContain('recipient@example.com');
+      expect(consoleOutput).not.toContain('original body');
+      expect(consoleOutput).not.toContain('SMTP rejected');
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it('preserves the source when another run still owns the pending forward', async () => {
+    const rule = mkRule([
+      { type: 'move', value: 'INBOX/Processed' },
+      { type: 'forward', value: 'recipient@example.com' },
+    ]);
+    query.mockResolvedValueOnce({ rows: [rule] });
+    forwardRuleMessage.mockRejectedValue(new Error('Forward delivery pending'));
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      const result = await applyInboxRules([mkMsg()], account, mockImap);
+
+      expect(forwardRuleMessage).toHaveBeenCalledTimes(1);
+      expect(mockImap.bulkMoveMessages).not.toHaveBeenCalled();
+      expect(result.remaining).toHaveLength(1);
+      expect(consoleError).toHaveBeenCalledWith(
+        'inboxRules: forward action failed; destination actions suppressed'
+      );
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it.each([
+    ['move', { type: 'move', value: 'INBOX/Processed' }],
+    ['archive', { type: 'archive', value: '' }],
+    ['delete', { type: 'delete', value: '' }],
+  ])(
+    'runs a later failing forward before an earlier %s rule',
+    async (_destinationType, destinationAction) => {
+      const rules = [
+        mkRule([destinationAction], { id: 'rule-destination' }),
+        mkRule([
+          { type: 'forward', value: 'recipient@example.com' },
+        ], { id: 'rule-forward' }),
+      ];
+      query
+        .mockResolvedValueOnce({ rows: rules })
+        .mockResolvedValue({ rows: [] });
+      forwardRuleMessage.mockRejectedValue(new Error('Forward delivery failed'));
+      resolveArchiveFolder.mockResolvedValue('Archive');
+      isAllMailFolder.mockResolvedValue(false);
+      resolveTrashFolder.mockResolvedValue('Trash');
+      resolveAllTrashPaths.mockResolvedValue(['Trash']);
+      getDeleteStrategy.mockReturnValue({
+        action: 'move',
+        destination: 'Trash',
+      });
+      mockImap.bulkMoveMessages.mockResolvedValue({
+        failed: [],
+        uidMap: new Map([[100, 200]]),
+      });
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      try {
+        const result = await applyInboxRules([mkMsg()], account, mockImap);
+
+        expect(forwardRuleMessage).toHaveBeenCalledTimes(1);
+        expect(mockImap.bulkMoveMessages).not.toHaveBeenCalled();
+        expect(resolveArchiveFolder).not.toHaveBeenCalled();
+        expect(resolveTrashFolder).not.toHaveBeenCalled();
+        expect(getDeleteStrategy).not.toHaveBeenCalled();
+        expect(result.remaining).toHaveLength(1);
+        expect(consoleError).toHaveBeenCalledWith(
+          'inboxRules: forward action failed; destination actions suppressed'
+        );
+      } finally {
+        consoleError.mockRestore();
+      }
+    }
+  );
+
+  it('runs a later successful forward before an earlier destination rule', async () => {
+    const rules = [
+      mkRule([
+        { type: 'move', value: 'INBOX/Processed' },
+      ], { id: 'rule-destination' }),
+      mkRule([
+        { type: 'forward', value: 'recipient@example.com' },
+      ], { id: 'rule-forward' }),
+    ];
+    query
+      .mockResolvedValueOnce({ rows: rules })
+      .mockResolvedValueOnce({ rows: [] });
+    forwardRuleMessage.mockResolvedValue('sent');
+    mockImap.bulkMoveMessages.mockResolvedValue({
+      failed: [],
+      uidMap: new Map([[100, 200]]),
+    });
+
+    const result = await applyInboxRules([mkMsg()], account, mockImap);
+
+    expect(forwardRuleMessage.mock.invocationCallOrder[0])
+      .toBeLessThan(mockImap.bulkMoveMessages.mock.invocationCallOrder[0]);
+    expect(result.remaining).toHaveLength(0);
+  });
+
+  it('attempts all matching forwards before suppressing destinations', async () => {
+    const rules = [
+      mkRule([
+        { type: 'move', value: 'INBOX/Processed' },
+      ], { id: 'rule-destination' }),
+      mkRule([
+        { type: 'forward', value: 'first@example.com' },
+      ], { id: 'rule-forward-1' }),
+      mkRule([
+        { type: 'forward', value: 'second@example.com' },
+      ], { id: 'rule-forward-2' }),
+    ];
+    query.mockResolvedValueOnce({ rows: rules });
+    forwardRuleMessage
+      .mockRejectedValueOnce(new Error('Forward delivery failed'))
+      .mockResolvedValueOnce('sent');
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      const result = await applyInboxRules([mkMsg()], account, mockImap);
+
+      expect(forwardRuleMessage).toHaveBeenCalledTimes(2);
+      expect(forwardRuleMessage.mock.calls.map(([input]) => input.ruleId))
+        .toEqual(['rule-forward-1', 'rule-forward-2']);
+      expect(mockImap.bulkMoveMessages).not.toHaveBeenCalled();
+      expect(result.remaining).toHaveLength(1);
+      expect(consoleError).toHaveBeenCalledTimes(1);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it('does not forward an unread rule after an earlier rule marks the message read', async () => {
+    const rules = [
+      mkRule([
+        { type: 'mark_read', value: '' },
+      ], { id: 'rule-mark-read' }),
+      mkRule([
+        { type: 'forward', value: 'recipient@example.com' },
+      ], {
+        id: 'rule-forward-unread',
+        conditions: [{ field: 'read_status', value: 'unread' }],
+      }),
+    ];
+    query
+      .mockResolvedValueOnce({ rows: rules })
+      .mockResolvedValueOnce({ rows: [] });
+    mockImap.setFlag.mockResolvedValue(undefined);
+
+    const result = await applyInboxRules(
+      [mkMsg({ is_read: false })],
+      account,
+      mockImap
+    );
+
+    expect(forwardRuleMessage).not.toHaveBeenCalled();
+    expect(result.mutedIds.has('msg-1')).toBe(true);
+  });
+
+  it('forwards a read rule after an earlier rule marks the message read', async () => {
+    const rules = [
+      mkRule([
+        { type: 'mark_read', value: '' },
+      ], { id: 'rule-mark-read' }),
+      mkRule([
+        { type: 'forward', value: 'recipient@example.com' },
+      ], {
+        id: 'rule-forward-read',
+        conditions: [{ field: 'read_status', value: 'read' }],
+      }),
+    ];
+    query
+      .mockResolvedValueOnce({ rows: rules })
+      .mockResolvedValueOnce({ rows: [] });
+    forwardRuleMessage.mockResolvedValue('sent');
+    mockImap.setFlag.mockResolvedValue(undefined);
+
+    const result = await applyInboxRules(
+      [mkMsg({ is_read: false })],
+      account,
+      mockImap
+    );
+
+    expect(forwardRuleMessage).toHaveBeenCalledWith(expect.objectContaining({
+      ruleId: 'rule-forward-read',
+      recipient: 'recipient@example.com',
+    }));
+    expect(result.mutedIds.has('msg-1')).toBe(true);
+  });
 });
 
 describe('applyInboxRules — blank condition value never matches', () => {

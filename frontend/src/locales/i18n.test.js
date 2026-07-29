@@ -153,6 +153,7 @@ const SAME_VALUE_ALLOWED = {
   'admin.aliases.emailPh':     [['de', 'en', 'ru', 'zhCN']],
   'admin.privacy.addDomainPh': [['de', 'en', 'ru', 'zhCN']],
   'admin.privacy.addSenderPh': [['en', 'ru', 'zhCN']],
+  'admin.rules.actionForwardPlaceholder': [['es', 'it']],
   'admin.sso.domainsPh':       [['de', 'en', 'ru', 'zhCN']],
   'admin.users.invitePh':      [['de', 'en', 'ru', 'zhCN']],
   'compose.bccPh':             [['de', 'en', 'ru', 'zhCN']],

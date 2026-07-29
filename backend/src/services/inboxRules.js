@@ -193,24 +193,108 @@ export async function applyInboxRules(messages, account, imapManager) {
 
   const remaining = [...messages];
   const removedIds = new Set();
+  // A failed forward leaves the source in place for an intentional retry or
+  // manual recovery. Keep every destination action blocked so nothing moves,
+  // archives, or deletes that source out from under recovery.
+  const destinationBlockedIds = new Set();
   // IDs of remaining-in-INBOX messages that had mark_read applied by a rule.
   // Used by the caller to skip sound/toast/push for mail the user chose to silence.
   const mutedIds = new Set();
+  const lastForwardRuleIndex = rules.reduce(
+    (lastIndex, rule, index) =>
+      Array.isArray(rule.actions) &&
+      rule.actions.some(action => action?.type === 'forward')
+        ? index
+        : lastIndex,
+    -1
+  );
 
   for (const msg of messages) {
-    for (const rule of rules) {
+    const deferredDestinations = [];
+    let forwardBarrierPassed = lastForwardRuleIndex === -1;
+
+    const executeNonForwardAction = async (action, ruleId, isDest) => {
+      try {
+        const acted = await applyAction(
+          action,
+          msg,
+          account,
+          imapManager,
+          ruleId,
+          resolverCache
+        );
+        if (isDest && acted) removedIds.add(msg.id);
+        // mark_read: add to mutedIds so caller suppresses sound/push.
+        // star: intentionally NOT muted — a star-only rule should still alert.
+        if (action.type === 'mark_read') mutedIds.add(msg.id);
+      } catch (err) {
+        console.error(`inboxRules: action ${action.type} failed for msg ${msg.id}:`, err.message);
+      }
+    };
+
+    const flushDeferredDestinations = async () => {
+      while (deferredDestinations.length) {
+        const { action, ruleId } = deferredDestinations.shift();
+        if (removedIds.has(msg.id) || destinationBlockedIds.has(msg.id)) continue;
+        await executeNonForwardAction(action, ruleId, true);
+      }
+    };
+
+    for (let ruleIndex = 0; ruleIndex < rules.length; ruleIndex++) {
+      const rule = rules[ruleIndex];
       let matches;
       try {
         matches = evaluateRule(rule, msg);
       } catch (err) {
         console.error(`inboxRules: rule ${rule.id} evaluation error for msg ${msg.id}:`, err.message);
+        if (!forwardBarrierPassed && ruleIndex === lastForwardRuleIndex) {
+          forwardBarrierPassed = true;
+          await flushDeferredDestinations();
+        }
         continue;
       }
-      if (!matches) continue;
+      if (!matches) {
+        if (!forwardBarrierPassed && ruleIndex === lastForwardRuleIndex) {
+          forwardBarrierPassed = true;
+          await flushDeferredDestinations();
+        }
+        continue;
+      }
 
       const actions = Array.isArray(rule.actions) ? rule.actions : [];
+
+      // Forward first within the matching rule. A failed attempt does not stop
+      // independent forwards or non-destination actions, but it permanently
+      // blocks relocation of this source for the remainder of the batch.
+      for (const action of actions.filter(action => action.type === 'forward')) {
+        try {
+          await applyAction(
+            action,
+            msg,
+            account,
+            imapManager,
+            rule.id,
+            resolverCache
+          );
+        } catch {
+          destinationBlockedIds.add(msg.id);
+          console.error('inboxRules: forward action failed; destination actions suppressed');
+        }
+      }
+
+      // Once no later rule can run a forward, release destinations queued by
+      // higher-priority rules before continuing this rule's ordinary actions.
+      // A matching stop_processing rule also makes all later rules unreachable.
+      if (
+        !forwardBarrierPassed &&
+        (ruleIndex === lastForwardRuleIndex || rule.stop_processing)
+      ) {
+        forwardBarrierPassed = true;
+        await flushDeferredDestinations();
+      }
+
       let destSeen = false;
-      for (const action of actions) {
+      for (const action of actions.filter(action => action.type !== 'forward')) {
         const isDest = action.type === 'move' || action.type === 'archive' || action.type === 'delete';
         if (isDest && destSeen) continue;
         // Skip destination actions for already-relocated messages — the source UID no
@@ -219,20 +303,19 @@ export async function applyInboxRules(messages, account, imapManager) {
         // is kept current after each move so setFlag and adjustFolderCounts target the
         // correct destination folder.
         if (isDest && removedIds.has(msg.id)) continue;
+        if (isDest && destinationBlockedIds.has(msg.id)) continue;
         if (isDest) destSeen = true;
-        try {
-          const acted = await applyAction(action, msg, account, imapManager, resolverCache);
-          if (isDest && acted) removedIds.add(msg.id);
-          // mark_read: add to mutedIds so caller suppresses sound/push.
-          // star: intentionally NOT muted — a star-only rule should still alert.
-          if (action.type === 'mark_read') mutedIds.add(msg.id);
-        } catch (err) {
-          console.error(`inboxRules: action ${action.type} failed for msg ${msg.id}:`, err.message);
+        if (isDest && !forwardBarrierPassed) {
+          deferredDestinations.push({ action, ruleId: rule.id });
+          continue;
         }
+        await executeNonForwardAction(action, rule.id, isDest);
       }
 
       if (rule.stop_processing) break;
     }
+
+    await flushDeferredDestinations();
   }
 
   return {
@@ -319,8 +402,22 @@ export async function applyBlockList(messages, account, imapManager) {
   return remaining;
 }
 
-async function applyAction(action, msg, account, imapManager, resolverCache = {}) {
+async function applyAction(action, msg, account, imapManager, ruleId, resolverCache = {}) {
   switch (action.type) {
+    case 'forward': {
+      // Load this path only when a forward action actually runs. ruleForwarder
+      // reaches SMTP/OAuth setup, which should not initialize for ordinary rule
+      // evaluation or route validation.
+      const { forwardRuleMessage } = await import('./ruleForwarder.js');
+      return forwardRuleMessage({
+        ruleId,
+        message: msg,
+        account,
+        imapManager,
+        recipient: action.value,
+      });
+    }
+
     case 'mark_read': {
       await query(
         'UPDATE messages SET is_read = true, read_changed_at = NOW() WHERE id = $1',

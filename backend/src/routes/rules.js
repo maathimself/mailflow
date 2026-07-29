@@ -7,6 +7,7 @@ const router = Router();
 router.use(requireAuth);
 
 const DESTINATION_ACTIONS = new Set(['move', 'archive', 'delete']);
+const FORWARD_EMAIL_RE = /^[^\s@<>(),;:]+@[^\s@<>(),;:]+\.[^\s@<>(),;:]+$/;
 
 // Fields where the condition value must be a non-empty string.
 // has_attachment has no value; all others are string-match conditions.
@@ -35,10 +36,23 @@ export function validateConditions(conditions) {
   return null;
 }
 
-// Strip duplicate destination actions (keeping the first) and trim move values.
+export function validateActions(actions) {
+  for (const action of actions) {
+    if (action.type !== 'forward') continue;
+    const value = typeof action.value === 'string' ? action.value.trim() : '';
+    if (!FORWARD_EMAIL_RE.test(value) || /[\r\n\0]/.test(value)) {
+      return 'Forward action requires one valid email address';
+    }
+  }
+  return null;
+}
+
+// Strip duplicate destination and forward actions (keeping the first) and trim
+// move and forward values.
 // Silently drops malformed entries (null, non-object, missing/non-string type).
 export function normalizeActions(actions) {
   let destSeen = false;
+  let forwardSeen = false;
   return actions
     .filter(a => {
       if (!a || typeof a.type !== 'string') return false;
@@ -46,9 +60,17 @@ export function normalizeActions(actions) {
         if (destSeen) return false;
         destSeen = true;
       }
+      if (a.type === 'forward') {
+        if (forwardSeen) return false;
+        forwardSeen = true;
+      }
       return true;
     })
-    .map(a => (a.type === 'move' && typeof a.value === 'string' ? { ...a, value: a.value.trim() } : a));
+    .map(a => (
+      ['move', 'forward'].includes(a.type) && typeof a.value === 'string'
+        ? { ...a, value: a.value.trim() }
+        : a
+    ));
 }
 
 router.get('/', async (req, res) => {
@@ -170,6 +192,11 @@ router.post('/', async (req, res) => {
   }
   const conditionError = validateConditions(conditions);
   if (conditionError) return res.status(400).json({ error: conditionError });
+  let normalizedActions = normalizeActions(actions);
+  const actionError = validateActions(normalizedActions);
+  if (actionError) return res.status(400).json({ error: actionError });
+  normalizedActions = normalizedActions
+    .filter(a => accountId || a.type !== 'move');
   try {
     if (accountId) {
       const owned = await query(
@@ -180,8 +207,6 @@ router.post('/', async (req, res) => {
     }
     // Strip move actions for all-account rules — a move needs a known account to
     // resolve folder paths. The UI enforces this but a direct API call could bypass it.
-    const normalizedActions = normalizeActions(actions)
-      .filter(a => accountId || a.type !== 'move');
     const moveAction = normalizedActions.find(a => a.type === 'move' && a.value?.trim());
     if (moveAction && accountId) {
       const folderResult = await query(
@@ -230,6 +255,11 @@ router.put('/:id', async (req, res) => {
   }
   const conditionError = validateConditions(conditions);
   if (conditionError) return res.status(400).json({ error: conditionError });
+  let normalizedActions = normalizeActions(actions);
+  const actionError = validateActions(normalizedActions);
+  if (actionError) return res.status(400).json({ error: actionError });
+  normalizedActions = normalizedActions
+    .filter(a => accountId || a.type !== 'move');
   try {
     if (accountId) {
       const owned = await query(
@@ -238,8 +268,6 @@ router.put('/:id', async (req, res) => {
       );
       if (!owned.rows.length) return res.status(403).json({ error: 'Account not found' });
     }
-    const normalizedActions = normalizeActions(actions)
-      .filter(a => accountId || a.type !== 'move');
     const moveAction = normalizedActions.find(a => a.type === 'move' && a.value?.trim());
     if (moveAction && accountId) {
       const folderResult = await query(

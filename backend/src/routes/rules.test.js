@@ -3,7 +3,11 @@ import { describe, it, expect, vi } from 'vitest';
 vi.mock('../services/db.js', () => ({ query: vi.fn() }));
 vi.mock('../middleware/auth.js', () => ({ requireAuth: vi.fn() }));
 
-import { normalizeActions, validateConditions } from './rules.js';
+import {
+  normalizeActions,
+  validateActions,
+  validateConditions,
+} from './rules.js';
 
 describe('validateConditions', () => {
   it('returns null for a well-formed condition', () => {
@@ -118,5 +122,37 @@ describe('normalizeActions', () => {
   it('handles a non-string move value without throwing', () => {
     const actions = [{ type: 'move', value: 123 }];
     expect(normalizeActions(actions)).toEqual([{ type: 'move', value: 123 }]);
+  });
+});
+
+describe('forward actions', () => {
+  it('trims one valid forwarding recipient', () => {
+    expect(normalizeActions([
+      { type: 'forward', value: '  recipient@example.com  ' },
+    ])).toEqual([
+      { type: 'forward', value: 'recipient@example.com' },
+    ]);
+    expect(validateActions(normalizeActions([
+      { type: 'forward', value: 'recipient@example.com' },
+    ]))).toBeNull();
+  });
+
+  it.each([
+    '',
+    'not-an-address',
+    'first@example.com,second@example.com',
+    'recipient@example.com\r\nBcc: hidden@example.com',
+  ])('rejects invalid forward recipient %j', value => {
+    expect(validateActions([{ type: 'forward', value }]))
+      .toBe('Forward action requires one valid email address');
+  });
+
+  it('keeps only the first forward action from a direct API payload', () => {
+    expect(normalizeActions([
+      { type: 'forward', value: 'first@example.com' },
+      { type: 'forward', value: 'second@example.com' },
+    ])).toEqual([
+      { type: 'forward', value: 'first@example.com' },
+    ]);
   });
 });

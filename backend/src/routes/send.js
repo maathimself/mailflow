@@ -3,19 +3,15 @@ import { randomBytes, createHash, randomUUID } from 'crypto';
 import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
-import { refreshMicrosoftToken } from './oauth.js';
-import { decrypt } from '../services/encryption.js';
 import sanitizeHtml from 'sanitize-html';
 import { sanitizeSignature, sanitizeComposeBody } from '../services/emailSanitizer.js';
 import { embedInlineDataImages } from '../utils/inlineImages.js';
 import { redisClient } from '../services/redis.js';
 import { redactEmail } from '../utils/redact.js';
 import { generateVCard } from '../utils/vcard.js';
-import { resolveForConnection } from '../services/hostValidation.js';
-import { getConnectionPolicy } from '../services/connectionPolicy.js';
+import { createAccountSmtpTransport } from '../services/smtpTransport.js';
 import { imapManager } from '../index.js';
 import { runTransitionsForSentMessage } from '../services/gtdTransitions.js';
-import { createSmtpTransport } from '../services/smtpTransport.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -263,55 +259,10 @@ router.post('/send', async (req, res) => {
 
   let delivered = false; // true once transport.sendMail has actually handed off the message
   try {
-    if (account.oauth_provider === 'microsoft') {
-      // Only refresh when the token is near/at expiry (mirrors imapManager's
-      // ensureFreshToken). Refreshing on every send needlessly rotates the AAD
-      // refresh token and can invalidate it under concurrent sends.
-      const expiryMs = account.oauth_token_expiry ? new Date(account.oauth_token_expiry).getTime() : 0;
-      if (expiryMs - Date.now() < 5 * 60 * 1000) {
-        account = await refreshMicrosoftToken(account);
-      }
-    }
-
-    let smtpAuth;
-    if ((account.oauth_provider === 'microsoft' || account.oauth_provider === 'google')
-        && account.oauth_access_token) {
-      const accessToken = decrypt(account.oauth_access_token);
-      if (!accessToken) {
-        return res.status(502).json({ error: 'OAuth access token is corrupted — please reconnect your account.' });
-      }
-      smtpAuth = {
-        type: 'OAuth2',
-        user: account.auth_user || account.email_address,
-        accessToken,
-      };
-    } else {
-      const pass = decrypt(account.auth_pass);
-      if (!pass) {
-        return res.status(502).json({ error: 'SMTP password is corrupted or missing — please re-enter your account password in Settings.' });
-      }
-      smtpAuth = { user: account.auth_user, pass };
-    }
-
-    const policy = await getConnectionPolicy();
-    const smtpResolved = await resolveForConnection(account.smtp_host, { allowPrivate: policy.allowPrivateHosts });
-    const smtpPlain = account.smtp_tls !== 'STARTTLS' && account.smtp_tls !== 'SSL';
-    if (!policy.allowInsecureTls && smtpPlain) {
-      return res.status(403).json({ error: 'Plain-text SMTP is not allowed: admin must enable "Allow insecure TLS"' });
-    }
-    const smtpTls = { rejectUnauthorized: !(policy.allowInsecureTls && account.imap_skip_tls_verify) };
-    if (smtpResolved.servername) smtpTls.servername = smtpResolved.servername;
-    // For 'SSL': force direct TLS. For 'none': plain with no upgrade.
-    // For 'STARTTLS' (or any other/legacy value): fall back to port-based detection
-    // so existing accounts stored with the default 'STARTTLS' on port 465 keep working.
-    const smtpSecure = account.smtp_tls === 'SSL' || (account.smtp_tls !== 'none' && account.smtp_port === 465);
-    const transport = createSmtpTransport(smtpResolved, {
-      port: account.smtp_port,
-      secure: smtpSecure,
-      ...(account.smtp_tls === 'none' ? { ignoreTLS: true } : {}),
-      auth: smtpAuth,
-      tls: smtpTls,
-    });
+    const smtp = await createAccountSmtpTransport(account);
+    if (smtp.error) return res.status(smtp.status).json({ error: smtp.error });
+    account = smtp.account;
+    const transport = smtp.transport;
 
     // Use a stable Message-ID so the SMTP copy and any IMAP APPEND reference the same message.
     const domain = fromEmail.split('@')[1] || 'mailflow.local';
