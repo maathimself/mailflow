@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
-import { activateOnKey, collapsedTooltip } from '../utils/sidebar.js';
+import { activateOnKey, buildFolderTree, collapsedTooltip } from '../utils/sidebar.js';
 import { useMobile } from '../hooks/useMobile.js';
 import LogoMark from './LogoMark.jsx';
 import ProfileModal from './ProfileModal.jsx';
@@ -103,49 +103,6 @@ function isProtectedFolder(folder, folderMappings) {
     p.includes('trash') || p.includes('deleted') ||
     p.startsWith('[gmail]/')
   );
-}
-
-// Build a nested tree from a flat sorted folder list using the IMAP delimiter.
-// Folders whose parent path isn't in the list are attached to the root.
-function buildFolderTree(folders) {
-  const delimiter = folders.find(f => f.delimiter)?.delimiter || '/';
-  const map = {};
-  for (const f of folders) map[f.path] = { ...f, children: [] };
-
-  // Synthesize placeholder nodes for any intermediate paths missing from the DB
-  // (e.g. INBOX when the server omits it from LIST, or any deeper gap). This is a
-  // safety net; the backend also ensures INBOX always has a row after syncFolders.
-  for (const f of folders) {
-    const parts = f.path.split(delimiter);
-    for (let depth = 1; depth < parts.length; depth++) {
-      const ancestorPath = parts.slice(0, depth).join(delimiter);
-      if (!map[ancestorPath]) {
-        map[ancestorPath] = {
-          path: ancestorPath,
-          name: parts[depth - 1],
-          delimiter,
-          special_use: null,
-          account_id: f.account_id,
-          children: [],
-        };
-      }
-    }
-  }
-
-  const roots = [];
-  // Sort all nodes (real + synthesized) by path so parents are always processed
-  // before their children and the sidebar order stays alphabetical.
-  const allNodes = Object.values(map).sort((a, b) => a.path.localeCompare(b.path));
-  for (const node of allNodes) {
-    const parts = node.path.split(delimiter);
-    const parentPath = parts.length > 1 ? parts.slice(0, -1).join(delimiter) : null;
-    if (parentPath && map[parentPath] && parentPath !== node.path) {
-      map[parentPath].children.push(node);
-    } else {
-      roots.push(node);
-    }
-  }
-  return roots;
 }
 
 // ─── Sidebar context menu (folders + accounts) ────────────────────────────────

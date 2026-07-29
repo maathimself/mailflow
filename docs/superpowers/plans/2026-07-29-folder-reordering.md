@@ -61,7 +61,7 @@ PostgreSQL JSONB, Vitest 4, ESLint 10, Vite 8.
   - `folderDropPosition(clientY: number, rect: { top: number, height: number }):
     'before' | 'after'`
 
-- [ ] **Step 1: Add failing tests for sanitization and ordered tree rendering**
+- [x] **Step 1: Add failing tests for sanitization and ordered tree rendering**
 
 Update the import and append these cases to
 `frontend/src/utils/sidebar.test.js`:
@@ -127,7 +127,7 @@ describe('folder ordering', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tree tests and verify the RED state**
+- [x] **Step 2: Run the tree tests and verify the RED state**
 
 Run:
 
@@ -138,7 +138,7 @@ node --test src/utils/sidebar.test.js
 
 Expected: FAIL because the five new exports do not exist.
 
-- [ ] **Step 3: Implement sanitization, path normalization, and ordered tree building**
+- [x] **Step 3: Implement sanitization, path normalization, and ordered tree building**
 
 Add these helpers to `frontend/src/utils/sidebar.js`:
 
@@ -265,7 +265,7 @@ import {
 } from '../utils/sidebar.js';
 ```
 
-- [ ] **Step 4: Verify the ordered-tree tests pass**
+- [x] **Step 4: Verify the ordered-tree tests pass**
 
 Run:
 
@@ -276,7 +276,7 @@ node --test src/utils/sidebar.test.js
 
 Expected: the existing tooltip/keyboard tests and the new tree tests PASS.
 
-- [ ] **Step 5: Add failing tests for sibling-only before/after moves**
+- [x] **Step 5: Add failing tests for sibling-only before/after moves**
 
 Append to the `folder ordering` suite:
 
@@ -322,7 +322,7 @@ it('does not persist a drop that leaves the normalized order unchanged', () => {
 });
 ```
 
-- [ ] **Step 6: Run the move tests and verify the RED state**
+- [x] **Step 6: Run the move tests and verify the RED state**
 
 Run:
 
@@ -334,7 +334,7 @@ node --test src/utils/sidebar.test.js
 Expected: FAIL because `reorderFolderPaths` and `folderDropPosition` are not
 implemented.
 
-- [ ] **Step 7: Implement sibling validation and before/after insertion**
+- [x] **Step 7: Implement sibling validation and before/after insertion**
 
 Add to `frontend/src/utils/sidebar.js`:
 
@@ -369,7 +369,7 @@ export function folderDropPosition(clientY, rect) {
 }
 ```
 
-- [ ] **Step 8: Run the complete utility test file and commit**
+- [x] **Step 8: Run the complete utility test file and commit**
 
 Run:
 
