@@ -18,6 +18,13 @@ export function readFolderOrder(storage = localStorage) {
   }
 }
 
+export function cacheFolderOrderFromPreferences(
+  preferences,
+  storage = localStorage,
+) {
+  return cacheFolderOrder(preferences?.folderOrder ?? {}, storage);
+}
+
 export function mergeFolderOrder(
   current,
   accountId,

@@ -12,6 +12,8 @@ export function activateOnKey(activate) {
   };
 }
 
+export const FOLDER_ORDER_DRAG_TYPE = 'application/x-mailflow-folder-order';
+
 function delimiterFor(folders) {
   return folders.find(folder => (
     typeof folder?.delimiter === 'string' && folder.delimiter
@@ -157,4 +159,39 @@ export function reorderFolderPaths(
 
 export function folderDropPosition(clientY, rect) {
   return clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+}
+
+export function resolveFolderOrderDrop(
+  folders,
+  savedOrder,
+  dataTransfer,
+  targetAccountId,
+  targetPath,
+  clientY,
+  rect,
+) {
+  if (
+    !Array.from(dataTransfer?.types || []).includes(FOLDER_ORDER_DRAG_TYPE)
+    || typeof dataTransfer?.getData !== 'function'
+  ) return null;
+
+  let drag;
+  try {
+    drag = JSON.parse(dataTransfer.getData(FOLDER_ORDER_DRAG_TYPE));
+  } catch {
+    return null;
+  }
+  if (
+    !drag
+    || drag.accountId !== targetAccountId
+    || typeof drag.path !== 'string'
+  ) return null;
+
+  return reorderFolderPaths(
+    folders,
+    savedOrder,
+    drag.path,
+    targetPath,
+    folderDropPosition(clientY, rect),
+  );
 }

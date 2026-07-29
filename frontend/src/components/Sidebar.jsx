@@ -6,15 +6,14 @@ import {
   activateOnKey,
   buildFolderTree,
   collapsedTooltip,
+  FOLDER_ORDER_DRAG_TYPE,
   folderDropPosition,
-  reorderFolderPaths,
+  resolveFolderOrderDrop,
 } from '../utils/sidebar.js';
 import { useMobile } from '../hooks/useMobile.js';
 import LogoMark from './LogoMark.jsx';
 import ProfileModal from './ProfileModal.jsx';
 import { useUiScale, descale } from '../hooks/useUiScale.js';
-
-const FOLDER_ORDER_DRAG_TYPE = 'application/x-mailflow-folder-order';
 
 const ICONS = {
   inbox: (
@@ -1291,20 +1290,16 @@ export default function Sidebar() {
                   if (!event.dataTransfer.types.includes(FOLDER_ORDER_DRAG_TYPE)) return false;
                   event.preventDefault();
                   event.stopPropagation();
-                  if (
-                    folderDrag?.accountId === account.id
-                    && folderDropTarget?.accountId === account.id
-                    && folderDropTarget.path === path
-                  ) {
-                    const next = reorderFolderPaths(
-                      accountFolders,
-                      folderOrder[account.id],
-                      folderDrag.path,
-                      path,
-                      folderDropTarget.position,
-                    );
-                    if (next) setFolderOrder(account.id, next);
-                  }
+                  const next = resolveFolderOrderDrop(
+                    accountFolders,
+                    folderOrder[account.id],
+                    event.dataTransfer,
+                    account.id,
+                    path,
+                    event.clientY,
+                    event.currentTarget.getBoundingClientRect(),
+                  );
+                  if (next) setFolderOrder(account.id, next);
                   clearFolderDrag();
                   return true;
                 };

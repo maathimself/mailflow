@@ -5,9 +5,11 @@ import {
   activateOnKey,
   buildFolderTree,
   collapsedTooltip,
+  FOLDER_ORDER_DRAG_TYPE,
   folderDropPosition,
   normalizeFolderOrder,
   reorderFolderPaths,
+  resolveFolderOrderDrop,
   sanitizeFolderOrder,
 } from './sidebar.js';
 
@@ -102,6 +104,19 @@ describe('folder ordering', () => {
     ]);
   });
 
+  it('synthesizes and orders a missing ancestor without changing its hierarchy', () => {
+    const tree = buildFolderTree([
+      { path: 'Projects/Beta', name: 'Beta', delimiter: '/' },
+      { path: 'Projects/Alpha', name: 'Alpha', delimiter: '/' },
+    ], ['Projects/Beta', 'Projects/Alpha']);
+
+    assert.deepEqual(tree.map(node => node.path), ['Projects']);
+    assert.deepEqual(tree[0].children.map(node => node.path), [
+      'Projects/Beta',
+      'Projects/Alpha',
+    ]);
+  });
+
   it('puts new folders after ranked folders and ignores stale paths', () => {
     assert.deepEqual(
       normalizeFolderOrder(folders, ['Gone', 'INBOX', 'Archive', 'INBOX']),
@@ -145,6 +160,67 @@ describe('folder ordering', () => {
   it('does not persist a drop that leaves the normalized order unchanged', () => {
     assert.equal(
       reorderFolderPaths(folders, [], 'Archive', 'INBOX', 'before'),
+      null,
+    );
+  });
+
+  it('resolves an immediate typed drop from transfer data and the drop event edge', () => {
+    const dataTransfer = {
+      types: [FOLDER_ORDER_DRAG_TYPE],
+      getData: type => type === FOLDER_ORDER_DRAG_TYPE
+        ? JSON.stringify({ accountId: 42, path: 'Archive' })
+        : '',
+    };
+
+    assert.deepEqual(
+      resolveFolderOrderDrop(
+        folders,
+        [],
+        dataTransfer,
+        42,
+        'Projects',
+        130,
+        { top: 100, height: 40 },
+      ),
+      ['INBOX', 'Projects', 'Archive', 'Projects/Alpha', 'Projects/Beta'],
+    );
+  });
+
+  it('rejects cross-parent folder drops and routes message transfers elsewhere', () => {
+    const folderTransfer = {
+      types: [FOLDER_ORDER_DRAG_TYPE],
+      getData: () => JSON.stringify({
+        accountId: 42,
+        path: 'Projects/Alpha',
+      }),
+    };
+    const messageTransfer = {
+      types: ['application/x-mailflow-message'],
+      getData: () => JSON.stringify({ messageId: 'message-1' }),
+    };
+
+    assert.equal(
+      resolveFolderOrderDrop(
+        folders,
+        [],
+        folderTransfer,
+        42,
+        'Archive',
+        110,
+        { top: 100, height: 40 },
+      ),
+      null,
+    );
+    assert.equal(
+      resolveFolderOrderDrop(
+        folders,
+        [],
+        messageTransfer,
+        42,
+        'INBOX',
+        110,
+        { top: 100, height: 40 },
+      ),
       null,
     );
   });

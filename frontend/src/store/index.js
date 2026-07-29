@@ -7,7 +7,7 @@ import { DEFAULT_AI_ACTIONS } from '../aiActions.js';
 import { removeGtdThreadFromSections, setGtdThreadReadInSections } from '../utils/gtd.js';
 import { clampRightSidebarWidth } from '../utils/rightSidebar.js';
 import {
-  cacheFolderOrder,
+  cacheFolderOrderFromPreferences,
   mergeFolderOrder,
   readFolderOrder,
 } from './folderOrder.js';
@@ -866,9 +866,7 @@ export const useStore = create((set, get) => ({
         api.savePreferences({ aiActions: DEFAULT_AI_ACTIONS }).catch(() => {});
       }
       if (prefs.hiddenFolders) set({ hiddenFolders: prefs.hiddenFolders });
-      if (prefs.folderOrder != null) {
-        set({ folderOrder: cacheFolderOrder(prefs.folderOrder) });
-      }
+      set({ folderOrder: cacheFolderOrderFromPreferences(prefs) });
       if (prefs.expandedAccounts && typeof prefs.expandedAccounts === 'object' && !Array.isArray(prefs.expandedAccounts)) {
         localStorage.setItem('mailflow_expanded_accounts', JSON.stringify(prefs.expandedAccounts));
         set({ expandedAccounts: prefs.expandedAccounts });

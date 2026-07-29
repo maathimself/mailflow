@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   cacheFolderOrder,
+  cacheFolderOrderFromPreferences,
   mergeFolderOrder,
   readFolderOrder,
 } from './folderOrder.js';
@@ -63,6 +64,22 @@ describe('folderOrder store preference', () => {
     assert.deepEqual(
       JSON.parse(storage.value('mailflow_folder_order')),
       expected,
+    );
+  });
+
+  it('clears a previous user order when the server has no folderOrder preference', () => {
+    const storage = memoryStorage({
+      mailflow_folder_order: JSON.stringify({
+        'previous-user-account': ['Archive', 'INBOX'],
+      }),
+    });
+
+    const next = cacheFolderOrderFromPreferences({}, storage);
+
+    assert.deepEqual(next, {});
+    assert.deepEqual(
+      JSON.parse(storage.value('mailflow_folder_order')),
+      {},
     );
   });
 });
