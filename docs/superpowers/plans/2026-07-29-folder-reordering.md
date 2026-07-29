@@ -927,7 +927,7 @@ Expected: the commit contains the UI integration and its final regression test.
 - Produces: local and remote verification evidence sufficient to close
   `mailflow#tebq`.
 
-- [ ] **Step 1: Run clean local frontend gates**
+- [x] **Step 1: Run clean local frontend gates**
 
 Run:
 
@@ -940,7 +940,12 @@ npm run build
 
 Expected: all frontend tests PASS, ESLint has zero warnings, and Vite builds.
 
-- [ ] **Step 2: Run clean local backend gates**
+Observed: `npm test` passed all 1,415 tests in 50 suites. `npm run lint`
+completed with no errors or warnings, and `npm run build` completed successfully
+after transforming 477 modules. Vite emitted only its existing chunk-size
+advisory.
+
+- [x] **Step 2: Run clean local backend gates**
 
 Run:
 
@@ -954,7 +959,13 @@ Expected: the new preferences test and all unrelated backend tests pass. If the
 four known `safeFetch` tests still fail locally with `UND_ERR_INVALID_ARG`, record
 them verbatim and require crabbox to establish the clean full-suite result.
 
-- [ ] **Step 3: Inspect the final diff and history**
+Observed: the host Node 26.5 run passed 703 of 707 tests and reproduced exactly
+the four baseline `safeFetch` failures with Undici `UND_ERR_INVALID_ARG:
+invalid onError method`; the feature's new route test passed. A clean rerun
+under Node 22.23.1 passed all 707 tests in 36 files. `npm run lint` completed
+successfully.
+
+- [x] **Step 3: Inspect the final diff and history**
 
 Run:
 
@@ -966,6 +977,10 @@ git log --oneline origin/main..HEAD
 
 Expected: no whitespace errors, no uncommitted files, and the design plus three
 feature commits are present.
+
+Observed: `git diff --check origin/main...HEAD` produced no errors, the worktree
+was clean, and the branch contained the approved design, corrected plan, and
+three implementation commits.
 
 - [ ] **Step 4: Run the complete project gates through crabbox**
 
