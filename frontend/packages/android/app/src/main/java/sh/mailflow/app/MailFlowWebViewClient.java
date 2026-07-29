@@ -24,15 +24,19 @@ public class MailFlowWebViewClient extends BridgeWebViewClient {
     @Override
     public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
         Uri uri = request == null ? null : request.getUrl();
-        if (request != null && request.isForMainFrame() && uri != null && openExternallyIfNeeded(uri.toString())) {
-            return true;
-        }
+        if (request == null || uri == null) return super.shouldOverrideUrlLoading(view, request);
+
+        String url = uri.toString();
+        if (isConfiguredHost(url) || FALLBACK_URL.equals(url)) return false;
+        if (!request.isForMainFrame()) return isWebUrl(uri);
+        if (openExternallyIfNeeded(url)) return true;
 
         return super.shouldOverrideUrlLoading(view, request);
     }
 
     @Override
     public boolean shouldOverrideUrlLoading(WebView view, String url) {
+        if (isConfiguredHost(url) || FALLBACK_URL.equals(url)) return false;
         if (openExternallyIfNeeded(url)) {
             return true;
         }
@@ -82,7 +86,12 @@ public class MailFlowWebViewClient extends BridgeWebViewClient {
 
     private boolean isConfiguredHost(String url) {
         String host = MailFlowNativePlugin.getSavedHost(context);
-        return host != null && url != null && url.startsWith(host);
+        return host != null && NativeSecurity.isSameOrigin(host, url);
+    }
+
+    private boolean isWebUrl(Uri uri) {
+        String scheme = uri == null ? null : uri.getScheme();
+        return "http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme);
     }
 
     private boolean openExternallyIfNeeded(String url) {

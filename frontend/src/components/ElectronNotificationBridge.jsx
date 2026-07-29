@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { installCapacitorNativeBridge } from '../utils/capacitorNativeBridge.js';
+import { createBoundedActionIdTracker, isTrustedNativeMessage } from '../utils/nativeActionSecurity.js';
 
 export default function ElectronNotificationBridge() {
   const addNotification = useStore(state => state.addNotification);
@@ -11,7 +12,7 @@ export default function ElectronNotificationBridge() {
   const setSearchQuery = useStore(state => state.setSearchQuery);
   const totalUnread = useStore(state => state.unreadCounts.total);
   const lastActionRef = useRef({ action: null, time: 0 });
-  const processedActionIdsRef = useRef(new Set());
+  const processedActionIdsRef = useRef(createBoundedActionIdTracker());
   const [nativeBridgeReady, setNativeBridgeReady] = useState(() => Boolean(window.mailflowNative));
 
   useEffect(() => {
@@ -166,8 +167,7 @@ export default function ElectronNotificationBridge() {
       const id = typeof payload === 'object' ? payload?.id : null;
 
       if (!action) return;
-      if (id && processedActionIdsRef.current.has(id)) return;
-      if (id) processedActionIdsRef.current.add(id);
+      if (id && !processedActionIdsRef.current.remember(id)) return;
 
       const now = Date.now();
       const last = lastActionRef.current;
@@ -238,7 +238,7 @@ export default function ElectronNotificationBridge() {
     };
 
     const handleNativeMessage = (event) => {
-      if (event.source !== window) return;
+      if (!isTrustedNativeMessage(event)) return;
       if (event.data?.type === 'mailflow:native-action') {
         runNativeAction(event.data.payload);
       } else if (event.data?.type === 'mailflow:native-actions-ready') {

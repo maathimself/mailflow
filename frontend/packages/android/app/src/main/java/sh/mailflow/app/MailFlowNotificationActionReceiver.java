@@ -18,6 +18,7 @@ public class MailFlowNotificationActionReceiver extends BroadcastReceiver {
         String action = intent.getAction();
         String messageId = intent.getStringExtra("messageId");
         if (messageId == null || messageId.isEmpty()) return;
+        if (!MailFlowNativePlugin.isTrustedNativeIntent(context, intent)) return;
         if (!MailFlowNativePlugin.ACTION_DELETE_MESSAGE.equals(action)
             && !MailFlowNativePlugin.ACTION_STAR_MESSAGE.equals(action)) return;
 

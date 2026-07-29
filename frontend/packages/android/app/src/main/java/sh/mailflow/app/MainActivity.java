@@ -25,9 +25,9 @@ public class MainActivity extends BridgeActivity {
 
         if (bridge != null) {
             configureCookies();
-            bridge.getWebView().addJavascriptInterface(new MailFlowNativePlugin.NotificationBridge(this), "MailFlowAndroid");
             bridge.setWebViewClient(new MailFlowWebViewClient(bridge, this));
             String savedHost = MailFlowNativePlugin.getSavedHost(this);
+            configureNativeMessageBridge(savedHost);
             if (savedHost != null) {
                 MailFlowBackgroundSync.schedule(this);
                 bridge.getWebView().post(() -> bridge.getWebView().loadUrl(savedHost));
@@ -92,10 +92,12 @@ public class MainActivity extends BridgeActivity {
 
     private void handleNativeIntent(Intent intent) {
         if (intent == null) return;
-        if (!markIntentHandled(intent)) return;
 
         String action = intent.getAction();
         Uri data = intent.getData();
+        if (MailFlowNativePlugin.isPrivilegedNativeAction(action)
+            && !MailFlowNativePlugin.isTrustedNativeIntent(this, intent)) return;
+        if (!markIntentHandled(intent)) return;
 
         if (MailFlowNativePlugin.ACTION_OPEN_MESSAGE.equals(action)) {
             MailFlowNativePlugin.sendOpenMessageAction(intent);
@@ -169,8 +171,13 @@ public class MainActivity extends BridgeActivity {
         CookieManager cookieManager = CookieManager.getInstance();
         cookieManager.setAcceptCookie(true);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && bridge != null && bridge.getWebView() != null) {
-            cookieManager.setAcceptThirdPartyCookies(bridge.getWebView(), true);
+            cookieManager.setAcceptThirdPartyCookies(bridge.getWebView(), false);
         }
+    }
+
+    void configureNativeMessageBridge(String configuredHost) {
+        if (bridge == null || bridge.getWebView() == null) return;
+        MailFlowNativeMessageBridge.configure(bridge.getWebView(), this, configuredHost);
     }
 
     private void flushCookies() {

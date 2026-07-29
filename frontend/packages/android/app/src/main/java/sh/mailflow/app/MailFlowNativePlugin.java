@@ -15,7 +15,6 @@ import android.os.Build;
 import android.os.Environment;
 import android.provider.Settings;
 import android.util.Log;
-import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
@@ -32,12 +31,13 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import java.io.BufferedInputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
-import java.net.URI;
 import java.net.URLDecoder;
 import java.net.URL;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -62,14 +62,17 @@ public class MailFlowNativePlugin extends Plugin {
     static final String ACTION_COMPOSE = "sh.mailflow.app.COMPOSE";
     static final String ACTION_SYNC = "sh.mailflow.app.SYNC";
     static final String ACTION_INSTALL_UPDATE = "sh.mailflow.app.INSTALL_UPDATE";
+    private static final String EXTRA_INTENT_SECRET = "sh.mailflow.app.INTENT_SECRET";
     private static final String TAG = "MailFlowUpdater";
     private static final String CHANNEL_NEW_MAIL = "mailflow_new_mail";
     private static final String CHANNEL_UPDATES = "mailflow_updates";
     private static final String PREFS_NAME = "mailflow-native";
     private static final String PREF_HOST = "host";
+    private static final String PREF_INTENT_SECRET = "intent_secret";
     private static final String PREF_UPDATE_APK_PATH = "update_apk_path";
     private static final String PREF_UPDATE_VERSION = "update_version";
     private static final String PREF_UPDATE_RELEASE_NAME = "update_release_name";
+    private static final String PREF_UPDATE_DIGEST = "update_digest";
     private static final String SETUP_URL = "file:///android_asset/public/index.html";
     private static final String UPDATE_RELEASE_URL = "https://api.github.com/repos/maathimself/mailflow/releases/latest";
     
@@ -108,11 +111,33 @@ public class MailFlowNativePlugin extends Plugin {
         String normalizedHost = normalizeHost(host);
 
         if (normalizedHost == null) {
-            call.reject("Host must start with https:// or http://");
+            call.reject("Public MailFlow hosts must use https://. HTTP is allowed only for localhost and private IP addresses.");
             return;
         }
 
+        if (normalizedHost.startsWith("http://")) {
+            if (getActivity() == null || getActivity().isFinishing()) {
+                call.reject("The unencrypted MailFlow host could not be confirmed.");
+                return;
+            }
+            getActivity().runOnUiThread(() -> new AlertDialog.Builder(getActivity())
+                .setTitle("Unencrypted MailFlow connection")
+                .setMessage("Traffic to this MailFlow server is not encrypted. Your session cookie and email data can be read or changed by anyone who can observe this network. Continue only on a private network you trust.")
+                .setPositiveButton("Use unencrypted connection", (dialog, which) -> persistHost(call, normalizedHost))
+                .setNegativeButton("Cancel", (dialog, which) -> call.reject("The unencrypted MailFlow host was not saved."))
+                .setOnCancelListener((dialog) -> call.reject("The unencrypted MailFlow host was not saved."))
+                .show());
+            return;
+        }
+
+        persistHost(call, normalizedHost);
+    }
+
+    private void persistHost(PluginCall call, String normalizedHost) {
         getPrefs(getContext()).edit().putString(PREF_HOST, normalizedHost).apply();
+        if (getActivity() instanceof MainActivity) {
+            ((MainActivity) getActivity()).configureNativeMessageBridge(normalizedHost);
+        }
         MailFlowBackgroundSync.schedule(getContext());
 
         JSObject result = new JSObject();
@@ -123,6 +148,9 @@ public class MailFlowNativePlugin extends Plugin {
     @PluginMethod
     public void resetHost(PluginCall call) {
         getPrefs(getContext()).edit().remove(PREF_HOST).apply();
+        if (getActivity() instanceof MainActivity) {
+            ((MainActivity) getActivity()).configureNativeMessageBridge(null);
+        }
         getActivity().runOnUiThread(() -> getBridge().getWebView().loadUrl(SETUP_URL));
         call.resolve();
     }
@@ -281,6 +309,7 @@ public class MailFlowNativePlugin extends Plugin {
 
         Intent intent = new Intent(context, MainActivity.class);
         intent.setAction(ACTION_OPEN_MESSAGE);
+        authenticateIntent(context, intent);
         intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         putExtra(intent, "messageId", messageId);
         putExtra(intent, "accountId", accountId);
@@ -334,7 +363,9 @@ public class MailFlowNativePlugin extends Plugin {
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT);
 
-        NotificationManagerCompat.from(context).notify(notificationId, builder.build());
+        try {
+            NotificationManagerCompat.from(context).notify(notificationId, builder.build());
+        } catch (SecurityException ignored) {}
     }
 
     private static PendingIntent messageActionPendingIntent(Context context, int notificationId, String action, String messageId, String accountId, String folder, JSObject message) {
@@ -344,6 +375,7 @@ public class MailFlowNativePlugin extends Plugin {
             backgroundAction ? MailFlowNotificationActionReceiver.class : MainActivity.class
         );
         intent.setAction(action);
+        authenticateIntent(context, intent);
         if (!backgroundAction) {
             intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         }
@@ -381,7 +413,41 @@ public class MailFlowNativePlugin extends Plugin {
     }
 
     static String getSavedHost(Context context) {
-        return getPrefs(context).getString(PREF_HOST, null);
+        return normalizeHost(getPrefs(context).getString(PREF_HOST, null));
+    }
+
+    static boolean isPrivilegedNativeAction(String action) {
+        return ACTION_OPEN_MESSAGE.equals(action)
+            || ACTION_REPLY_MESSAGE.equals(action)
+            || ACTION_DELETE_MESSAGE.equals(action)
+            || ACTION_STAR_MESSAGE.equals(action)
+            || ACTION_COMPOSE.equals(action)
+            || ACTION_SYNC.equals(action)
+            || ACTION_INSTALL_UPDATE.equals(action);
+    }
+
+    static boolean isTrustedNativeIntent(Context context, Intent intent) {
+        if (context == null || intent == null || !isPrivilegedNativeAction(intent.getAction())) {
+            return false;
+        }
+        return NativeSecurity.secretsMatch(
+            getIntentSecret(context),
+            intent.getStringExtra(EXTRA_INTENT_SECRET)
+        );
+    }
+
+    private static void authenticateIntent(Context context, Intent intent) {
+        intent.putExtra(EXTRA_INTENT_SECRET, getIntentSecret(context));
+    }
+
+    private static String getIntentSecret(Context context) {
+        SharedPreferences prefs = getPrefs(context);
+        String existing = prefs.getString(PREF_INTENT_SECRET, null);
+        if (existing != null && !existing.isEmpty()) return existing;
+
+        String generated = UUID.randomUUID().toString();
+        prefs.edit().putString(PREF_INTENT_SECRET, generated).apply();
+        return generated;
     }
 
     static void injectPendingActions(WebView webView, Context context) {
@@ -406,10 +472,8 @@ public class MailFlowNativePlugin extends Plugin {
             + "delivered=true;"
             + "actions.forEach(function(payload){"
             + "window.dispatchEvent(new CustomEvent('mailflow:native-action',{detail:payload}));"
-            + "window.postMessage({type:'mailflow:native-action',payload:payload},'*');"
             + "});"
             + "window.dispatchEvent(new CustomEvent('mailflow:native-actions-ready'));"
-            + "window.postMessage({type:'mailflow:native-actions-ready'},'*');"
             + "return true;"
             + "};"
             + "if(!deliver(false)){"
@@ -436,19 +500,22 @@ public class MailFlowNativePlugin extends Plugin {
             + "return true;"
             + "};"
             + "}"
-            + "var androidNotifications=window.MailFlowAndroid;"
+            + "var androidBridge=window.MailFlowAndroid;"
+            + "var nativeRequests=window.__mailflowAndroidRequests=window.__mailflowAndroidRequests||{};"
+            + "if(androidBridge&&typeof androidBridge.postMessage==='function'){androidBridge.onmessage=function(event){try{var response=JSON.parse(event.data||'{}');var resolve=nativeRequests[response.id];if(!resolve)return;delete nativeRequests[response.id];resolve(response.result||null);}catch(e){}};}"
+            + "var nativeCall=function(method,args,fallback){if(!androidBridge||typeof androidBridge.postMessage!=='function')return Promise.resolve(fallback||null);return new Promise(function(resolve){var id=String(Date.now())+Math.random();nativeRequests[id]=resolve;androidBridge.postMessage(JSON.stringify({id:id,method:method,args:args||{}}));});};"
             + "var plugin=function(){return window.Capacitor&&window.Capacitor.Plugins&&window.Capacitor.Plugins.MailFlowNative;};"
             + "var call=function(method,args,fallback){var p=plugin();if(!p||typeof p[method]!=='function')return Promise.resolve(fallback||null);return p[method](args||{}).catch(function(){return fallback||null;});};"
             + "window.mailflowNative=window.mailflowNative||{};"
             + "window.mailflowNative.platform='android';"
             + "window.mailflowNative.updates=window.mailflowNative.updates||{};"
             + "window.mailflowNative.updates.check=function(verbose){return call('checkForUpdates',{verbose:!!verbose});};"
-            + "window.mailflowNative.updates.installDownloaded=function(){if(androidNotifications&&typeof androidNotifications.installDownloadedUpdate==='function'){try{return Promise.resolve(JSON.parse(androidNotifications.installDownloadedUpdate()||'{}'));}catch(e){return Promise.resolve({installed:false,reason:'unavailable'});}}return call('installDownloadedUpdate',{}, {installed:false,reason:'unavailable'});};"
+            + "window.mailflowNative.updates.installDownloaded=function(){return nativeCall('installDownloadedUpdate',{},null).then(function(result){return result||call('installDownloadedUpdate',{}, {installed:false,reason:'unavailable'});});};"
             + "window.mailflowNative.updates.installAuto=window.mailflowNative.updates.installDownloaded;"
             + "window.mailflowNative.updates.openDownload=function(){return call('openDownloadedUpdate',{});};"
             + "window.mailflowNative.updates.onStatus=function(callback){if(typeof callback!=='function')return function(){};var handler=function(event){callback(event.detail);};window.addEventListener('mailflow:update-status',handler);return function(){window.removeEventListener('mailflow:update-status',handler);};};"
             + "window.mailflowNative.notifications=window.mailflowNative.notifications||{};"
-            + "window.mailflowNative.notifications.showNewMail=function(notification){if(androidNotifications&&typeof androidNotifications.showNewMail==='function'){androidNotifications.showNewMail(JSON.stringify(notification||{}));return Promise.resolve(null);}return call('showNewMail',notification||{});};"
+            + "window.mailflowNative.notifications.showNewMail=function(notification){return nativeCall('showNewMail',notification||{},null).then(function(result){return result||call('showNewMail',notification||{});});};"
             + "window.mailflowNative.notifications.checkPermission=function(){return call('checkNotificationPermission',{},{}).then(function(result){return result&&result.permission||'default';});};"
             + "window.mailflowNative.notifications.requestPermission=function(){return call('requestNotificationPermission',{},{}).then(function(result){return result&&result.permission||'default';});};"
             + "window.mailflowNative.notifications.openSettings=function(){return call('openNotificationSettings',{});};"
@@ -641,16 +708,7 @@ public class MailFlowNativePlugin extends Plugin {
     }
 
     private static String normalizeHost(String host) {
-        try {
-            URI uri = new URI(host.trim());
-            String scheme = uri.getScheme();
-            if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) return null;
-            if (uri.getHost() == null) return null;
-
-            return new URI(scheme.toLowerCase(), null, uri.getHost(), uri.getPort(), null, null, null).toString();
-        } catch (Exception ignored) {
-            return null;
-        }
+        return NativeSecurity.normalizeHost(host);
     }
 
     private static SharedPreferences getPrefs(Context context) {
@@ -685,19 +743,15 @@ public class MailFlowNativePlugin extends Plugin {
         if (apkAsset != null) {
             info.assetName = apkAsset.optString("name", "MailFlow.apk");
             info.downloadUrl = apkAsset.optString("browser_download_url", null);
+            info.digest = apkAsset.optString("digest", null);
         }
 
         return info;
     }
 
     private JSONObject requestJson(String url) throws Exception {
-        HttpURLConnection connection = openConnection(url);
+        HttpURLConnection connection = openFollowingHttpsRedirects(url);
         int status = connection.getResponseCode();
-        if (status >= 300 && status < 400) {
-            String location = connection.getHeaderField("Location");
-            connection.disconnect();
-            if (location != null) return requestJson(location);
-        }
 
         if (status < 200 || status >= 300) {
             connection.disconnect();
@@ -719,17 +773,12 @@ public class MailFlowNativePlugin extends Plugin {
                 Log.i(TAG, "Downloading update APK from " + release.downloadUrl);
                 File directory = getContext().getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
                 if (directory == null) directory = getContext().getCacheDir();
+                directory = new File(directory, "updates");
                 if (!directory.exists()) directory.mkdirs();
 
                 File output = uniqueFile(directory, sanitizeApkName(release.assetName));
-                HttpURLConnection connection = openConnection(release.downloadUrl);
+                HttpURLConnection connection = openFollowingHttpsRedirects(release.downloadUrl);
                 int status = connection.getResponseCode();
-                if (status >= 300 && status < 400 && connection.getHeaderField("Location") != null) {
-                    release.downloadUrl = connection.getHeaderField("Location");
-                    connection.disconnect();
-                    downloadUpdate(release);
-                    return;
-                }
                 if (status < 200 || status >= 300) {
                     connection.disconnect();
                     throw new Exception("APK download failed with status " + status);
@@ -748,6 +797,7 @@ public class MailFlowNativePlugin extends Plugin {
                     connection.disconnect();
                 }
 
+                verifyReleaseDigest(release, output);
                 downloadedUpdate = output;
                 persistDownloadedUpdateState(release, output);
                 Log.i(TAG, "Downloaded update APK to " + output.getAbsolutePath());
@@ -761,12 +811,33 @@ public class MailFlowNativePlugin extends Plugin {
     }
 
     private HttpURLConnection openConnection(String url) throws Exception {
+        if (!NativeSecurity.isHttpsUrl(url)) {
+            throw new Exception("Update URLs must use HTTPS.");
+        }
         HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
+        connection.setInstanceFollowRedirects(false);
         connection.setConnectTimeout(15000);
         connection.setReadTimeout(30000);
         connection.setRequestProperty("Accept", "application/vnd.github+json");
         connection.setRequestProperty("User-Agent", "MailFlow/" + getInstalledVersion());
         return connection;
+    }
+
+    private HttpURLConnection openFollowingHttpsRedirects(String initialUrl) throws Exception {
+        String url = initialUrl;
+        for (int redirects = 0; redirects <= 5; redirects++) {
+            HttpURLConnection connection = openConnection(url);
+            int status = connection.getResponseCode();
+            if (status < 300 || status >= 400) return connection;
+
+            String location = connection.getHeaderField("Location");
+            connection.disconnect();
+            if (location == null || redirects == 5) {
+                throw new Exception("Update redirect could not be followed safely.");
+            }
+            url = new URL(new URL(url), location).toString();
+        }
+        throw new Exception("Too many update redirects.");
     }
 
     private String getInstalledVersion() {
@@ -801,6 +872,7 @@ public class MailFlowNativePlugin extends Plugin {
         }
 
         try {
+            verifyReleaseDigest(updateInfo, downloadedUpdate);
             installPendingPermission = false;
             Uri uri = FileProvider.getUriForFile(
                 getContext(),
@@ -879,6 +951,7 @@ public class MailFlowNativePlugin extends Plugin {
             .putString(PREF_UPDATE_APK_PATH, file.getAbsolutePath())
             .putString(PREF_UPDATE_VERSION, release.version == null ? "" : release.version)
             .putString(PREF_UPDATE_RELEASE_NAME, release.releaseName == null ? "" : release.releaseName)
+            .putString(PREF_UPDATE_DIGEST, release.digest == null ? "" : release.digest)
             .apply();
     }
 
@@ -901,6 +974,7 @@ public class MailFlowNativePlugin extends Plugin {
             restored.version = prefs.getString(PREF_UPDATE_VERSION, "");
             restored.releaseName = prefs.getString(PREF_UPDATE_RELEASE_NAME, restored.version);
             restored.assetName = file.getName();
+            restored.digest = prefs.getString(PREF_UPDATE_DIGEST, "");
             updateInfo = restored;
         }
     }
@@ -913,6 +987,7 @@ public class MailFlowNativePlugin extends Plugin {
             .remove(PREF_UPDATE_APK_PATH)
             .remove(PREF_UPDATE_VERSION)
             .remove(PREF_UPDATE_RELEASE_NAME)
+            .remove(PREF_UPDATE_DIGEST)
             .apply();
     }
 
@@ -942,6 +1017,7 @@ public class MailFlowNativePlugin extends Plugin {
 
         Intent installIntent = new Intent(getContext(), MainActivity.class);
         installIntent.setAction(ACTION_INSTALL_UPDATE);
+        authenticateIntent(getContext(), installIntent);
         installIntent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
 
         PendingIntent installPendingIntent = PendingIntent.getActivity(
@@ -963,7 +1039,9 @@ public class MailFlowNativePlugin extends Plugin {
             .setPriority(NotificationCompat.PRIORITY_DEFAULT);
 
         if (hasNotificationPermission(getContext())) {
-            NotificationManagerCompat.from(getContext()).notify(1002, builder.build());
+            try {
+                NotificationManagerCompat.from(getContext()).notify(1002, builder.build());
+            } catch (SecurityException ignored) {}
         }
     }
 
@@ -973,7 +1051,6 @@ public class MailFlowNativePlugin extends Plugin {
         if (getBridge() == null || getBridge().getWebView() == null) return;
         String script = "(function(status){"
             + "window.dispatchEvent(new CustomEvent('mailflow:update-status',{detail:status}));"
-            + "window.postMessage({type:'mailflow:update-status',payload:status},'*');"
             + "})(" + status.toString() + ");";
         getBridge().getWebView().post(() -> getBridge().getWebView().evaluateJavascript(script, null));
     }
@@ -1047,9 +1124,34 @@ public class MailFlowNativePlugin extends Plugin {
         return name;
     }
 
+    private static void verifyReleaseDigest(ReleaseInfo release, File file) throws Exception {
+        String digest = release == null || release.digest == null ? "" : release.digest.trim();
+        if (digest.isEmpty()) return;
+        if (!digest.matches("(?i)^sha256:[a-f0-9]{64}$")) {
+            throw new Exception("The release asset has an unsupported digest.");
+        }
+
+        MessageDigest hasher = MessageDigest.getInstance("SHA-256");
+        try (FileInputStream input = new FileInputStream(file)) {
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = input.read(buffer)) != -1) {
+                hasher.update(buffer, 0, read);
+            }
+        }
+
+        StringBuilder actual = new StringBuilder();
+        for (byte value : hasher.digest()) {
+            actual.append(String.format("%02x", value & 0xff));
+        }
+        if (!NativeSecurity.secretsMatch(digest.substring("sha256:".length()).toLowerCase(java.util.Locale.ROOT), actual.toString())) {
+            throw new Exception("The update digest does not match the release asset.");
+        }
+    }
+
     private static boolean isConfiguredHost(Context context, String url) {
         String host = getSavedHost(context);
-        return host != null && url != null && url.startsWith(host);
+        return host != null && NativeSecurity.isSameOrigin(host, url);
     }
 
     private static class ReleaseInfo {
@@ -1059,6 +1161,7 @@ public class MailFlowNativePlugin extends Plugin {
         String releaseDate;
         String assetName;
         String downloadUrl;
+        String digest;
 
         JSObject toStatusData() {
             return toStatusData(null);
@@ -1137,44 +1240,33 @@ public class MailFlowNativePlugin extends Plugin {
         return result;
     }
 
-    public static class NotificationBridge {
-        private final Context context;
-
-        NotificationBridge(Context context) {
-            this.context = context.getApplicationContext();
-            createNotificationChannel(this.context);
+    static JSObject handleNativeBridgeRequest(Context context, String method, JSONObject args) throws JSONException {
+        if ("showNewMail".equals(method)) {
+            JSONObject notification = args == null ? new JSONObject() : args;
+            JSONObject messageObject = notification.optJSONObject("message");
+            JSObject message = messageObject == null ? null : JSObject.fromJSONObject(messageObject);
+            postNewMailNotification(
+                context,
+                notification.optString("title", "New mail"),
+                notification.optString("body", "You have new mail."),
+                notification.optString("messageId", null),
+                notification.optString("accountId", null),
+                notification.optString("folder", "INBOX"),
+                message
+            );
+            JSObject result = new JSObject();
+            result.put("shown", true);
+            return result;
         }
 
-        @JavascriptInterface
-        public void showNewMail(String notificationJson) {
-            try {
-                JSONObject notification = new JSONObject(notificationJson == null ? "{}" : notificationJson);
-                JSONObject messageObject = notification.optJSONObject("message");
-                JSObject message = messageObject == null ? null : JSObject.fromJSONObject(messageObject);
-
-                postNewMailNotification(
-                    context,
-                    notification.optString("title", "New mail"),
-                    notification.optString("body", "You have new mail."),
-                    notification.optString("messageId", null),
-                    notification.optString("accountId", null),
-                    notification.optString("folder", "INBOX"),
-                    message
-                );
-            } catch (JSONException ignored) {}
+        if ("installDownloadedUpdate".equals(method) && instance != null) {
+            return instance.showUpdateReadyDialog();
         }
 
-        @JavascriptInterface
-        public String installDownloadedUpdate() {
-            if (instance == null) {
-                JSObject result = new JSObject();
-                result.put("installed", false);
-                result.put("reason", "unavailable");
-                return result.toString();
-            }
-
-            return instance.showUpdateReadyDialog().toString();
-        }
+        JSObject result = new JSObject();
+        result.put("installed", false);
+        result.put("reason", "unavailable");
+        return result;
     }
 
     private static void putExtra(Intent intent, String key, String value) {
