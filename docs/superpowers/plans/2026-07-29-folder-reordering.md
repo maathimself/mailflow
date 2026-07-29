@@ -692,7 +692,7 @@ an additive merge instead of replacing unrelated preference keys.
   - transient drag state `{ accountId, path }`
   - transient drop state `{ accountId, path, position }`
 
-- [ ] **Step 1: Import ordering helpers and wire store state**
+- [x] **Step 1: Import ordering helpers and wire store state**
 
 In `frontend/src/components/Sidebar.jsx`, replace the sidebar utility import with:
 
@@ -718,7 +718,7 @@ Define the MIME type outside the component:
 const FOLDER_ORDER_DRAG_TYPE = 'application/x-mailflow-folder-order';
 ```
 
-- [ ] **Step 2: Add drag state, cleanup, and typed event handlers**
+- [x] **Step 2: Add drag state, cleanup, and typed event handlers**
 
 Add beside the existing favorite drag state:
 
@@ -794,7 +794,7 @@ const handleFolderOrderDrop = (event, path) => {
 };
 ```
 
-- [ ] **Step 3: Render sibling-aware handles and before/after indicators**
+- [x] **Step 3: Render sibling-aware handles and before/after indicators**
 
 Change the function signature and add the sibling/drop calculations after the
 current `indent` declaration:
@@ -826,15 +826,14 @@ onDrop={event => {
 }}
 ```
 
-Add these two declarations to the row's style object after `transition`:
+Add this declaration to the row's style object after `transition`:
 
 ```js
-borderTop: dropPosition === 'before'
-  ? '2px solid var(--accent)'
-  : '2px solid transparent',
-borderBottom: dropPosition === 'after'
-  ? '2px solid var(--accent)'
-  : '2px solid transparent',
+boxShadow: dropPosition === 'before'
+  ? 'inset 0 2px var(--accent)'
+  : dropPosition === 'after'
+    ? 'inset 0 -2px var(--accent)'
+    : 'none',
 ```
 
 Insert this handle immediately before the current chevron toggle:
@@ -888,7 +887,7 @@ Do not remove the selection, rename, collapse, context-menu, message-drop,
 unread-count, hidden-folder, or create-folder branches surrounding these exact
 edits.
 
-- [ ] **Step 4: Run focused tests, lint, and production build**
+- [x] **Step 4: Run focused tests, lint, and production build**
 
 Run:
 
@@ -902,7 +901,7 @@ npm run build
 Expected: tests PASS, ESLint reports zero warnings, and Vite completes a
 production build.
 
-- [ ] **Step 5: Commit the sidebar interaction**
+- [x] **Step 5: Commit the sidebar interaction**
 
 Run:
 
