@@ -4,7 +4,13 @@ import { applyTheme, applyCustomCss, getInitialTheme } from '../themes.js';
 import { applyFontSet, applyFontSize } from '../fonts.js';
 import { applyLayout, normalizeLayout } from '../layouts.js';
 import { DEFAULT_AI_ACTIONS } from '../aiActions.js';
-import { removeGtdThreadFromSections, setGtdThreadReadInSections } from '../utils/gtd.js';
+import {
+  removeGtdThreadFromSections,
+  restoreGtdThreadRemoval,
+  setGtdThreadReadInSections,
+  snapshotGtdThreadRemoval,
+} from '../utils/gtd.js';
+import { applyGtdRemovalGuard } from '../utils/pendingGtdRemovals.js';
 import { clampRightSidebarWidth } from '../utils/rightSidebar.js';
 import i18n from '../i18n.js';
 
@@ -559,7 +565,7 @@ export const useStore = create((set, get) => ({
     try {
       const data = await api.getGtdSections({ accountId, limit: 50 });
       if (seq !== _gtdSectionsSeq) return; // superseded by a newer fetch
-      set({ gtdSections: data.sections || {} });
+      set({ gtdSections: applyGtdRemovalGuard(data.sections || {}) });
     } catch {
       // Best-effort; scheduleGtdSectionsFetch/the next context change will retry.
     }
@@ -576,8 +582,17 @@ export const useStore = create((set, get) => ({
   // are the backend section keys whose labels were removed (todo/watch/delegated/…).
   // Delegates to a pure helper (unit-tested in gtd.test.js) that also keeps the deduped
   // Waiting rollup in step so the Waiting badge is correct instantly.
-  removeGtdThread: (identity, states) => set(state => {
-    const next = removeGtdThreadFromSections(state.gtdSections, identity, states);
+  removeGtdThread: (identity, states) => {
+    let snapshot = null;
+    set(state => {
+      snapshot = snapshotGtdThreadRemoval(state.gtdSections, identity, states);
+      const next = removeGtdThreadFromSections(state.gtdSections, identity, states);
+      return next === state.gtdSections ? {} : { gtdSections: next };
+    });
+    return snapshot;
+  },
+  restoreGtdThread: (snapshot) => set(state => {
+    const next = restoreGtdThreadRemoval(state.gtdSections, snapshot);
     return next === state.gtdSections ? {} : { gtdSections: next };
   }),
   // Optimistically flip a section thread's read flag so a rail row's bold/normal styling

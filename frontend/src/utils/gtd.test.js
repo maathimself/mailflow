@@ -11,7 +11,9 @@ import {
   mergeWaiting,
   buildGtdDisplaySections,
   removeGtdThreadFromSections,
+  restoreGtdThreadRemoval,
   setGtdThreadReadInSections,
+  snapshotGtdThreadRemoval,
   collectThreadReadIds,
   scheduleGtdThreadAutoRead,
   openGtdThreadWithAutoRead,
@@ -697,6 +699,65 @@ describe('removeGtdThreadFromSections', () => {
     const before = JSON.stringify(sections);
     removeGtdThreadFromSections(sections, 'x', ['watch', 'delegated']);
     assert.equal(JSON.stringify(sections), before);
+  });
+});
+
+describe('GTD row removal rollback', () => {
+  const make = () => ({
+    todo: {
+      total: 3,
+      unread: 2,
+      threads: [
+        { message_id: 'a', is_read: false },
+        { message_id: 'b', is_read: false },
+        { message_id: 'c', is_read: true },
+      ],
+    },
+    watch: {
+      total: 1,
+      unread: 1,
+      threads: [{ message_id: 'b', is_read: false }],
+    },
+    delegated: {
+      total: 1,
+      unread: 1,
+      threads: [{ message_id: 'b', is_read: false }],
+    },
+    waiting: { total: 1, unread: 1 },
+  });
+
+  it('restores the failed row at its original position and restores counts', () => {
+    const sections = make();
+    const snapshot = snapshotGtdThreadRemoval(sections, 'b', ['todo']);
+    const removed = removeGtdThreadFromSections(sections, 'b', ['todo']);
+    const restored = restoreGtdThreadRemoval(removed, snapshot);
+
+    assert.deepEqual(restored.todo.threads.map(row => row.message_id), ['a', 'b', 'c']);
+    assert.equal(restored.todo.total, 3);
+    assert.equal(restored.todo.unread, 2);
+  });
+
+  it('does not resurrect a different row removed by a concurrent action', () => {
+    const sections = make();
+    const failedSnapshot = snapshotGtdThreadRemoval(sections, 'a', ['todo']);
+    const withoutA = removeGtdThreadFromSections(sections, 'a', ['todo']);
+    const withoutAOrB = removeGtdThreadFromSections(withoutA, 'b', ['todo']);
+    const restored = restoreGtdThreadRemoval(withoutAOrB, failedSnapshot);
+
+    assert.deepEqual(restored.todo.threads.map(row => row.message_id), ['a', 'c']);
+    assert.equal(restored.todo.total, 2);
+    assert.equal(restored.todo.unread, 1);
+  });
+
+  it('restores a merged Waiting row and adjusts the deduped rollup once', () => {
+    const sections = make();
+    const snapshot = snapshotGtdThreadRemoval(sections, 'b', ['watch', 'delegated']);
+    const removed = removeGtdThreadFromSections(sections, 'b', ['watch', 'delegated']);
+    const restored = restoreGtdThreadRemoval(removed, snapshot);
+
+    assert.equal(restored.watch.total, 1);
+    assert.equal(restored.delegated.total, 1);
+    assert.deepEqual(restored.waiting, { total: 1, unread: 1 });
   });
 });
 

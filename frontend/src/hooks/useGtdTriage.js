@@ -8,6 +8,7 @@ import {
 } from '../utils/gtd.js';
 import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
 import { resolveContextMenuMessage } from '../utils/contextMenuPolicy.js';
+import { doneGtdRow } from '../utils/gtdDone.js';
 
 // One pending delayed auto-read across ALL GTD surfaces (module scope, not per hook
 // instance): the sidebar and the tab browse list are mounted together in desktop row
@@ -55,6 +56,7 @@ export function useGtdTriage() {
   const setSelectedMessage = useStore(s => s.setSelectedMessage);
   const scheduleGtdSectionsFetch = useStore(s => s.scheduleGtdSectionsFetch);
   const removeGtdThread = useStore(s => s.removeGtdThread);
+  const restoreGtdThread = useStore(s => s.restoreGtdThread);
   const markGtdThreadRead = useStore(s => s.markGtdThreadRead);
   const markGtdThreadStarred = useStore(s => s.markGtdThreadStarred);
   const addNotification = useStore(s => s.addNotification);
@@ -77,25 +79,18 @@ export function useGtdTriage() {
   }, []);
 
   // The GTD "done" action: strip this row's label(s) (`states`), mark read, archive.
-  // Optimistically drop the row so it feels instant; the WS refetch reconciles. On
-  // failure, restore via a refetch and surface a notification (no undo toast).
-  const doneRow = async (thread, states) => {
+  // Optimistically drop and guard the row so stale refetches cannot resurrect it. On
+  // failure, restore its local snapshot and refetch for authoritative reconciliation.
+  const doneRow = (thread, states) => {
     cancelAutoMarkReadFor(thread);
-    removeGtdThread(thread.message_id || thread.id, states);
-    try {
-      const res = await api.gtdDone(thread.id, states);
-      // Labels stripped but the archive step failed: the optimistic removal is still
-      // correct (the row left its GTD sections), yet the email remains in the inbox —
-      // tell the user so the missing archive isn't a silent surprise.
-      if (res?.archiveFailed) {
-        addNotification({ title: t('gtd.doneArchiveFailed'), body: thread.subject || t('common.noSubject') });
-      }
-      scheduleGtdSectionsFetch();
-    } catch (err) {
-      console.error('GTD done failed:', err.message);
-      addNotification({ title: t('gtd.doneFailed'), body: thread.subject || t('common.noSubject') });
-      scheduleGtdSectionsFetch();
-    }
+    return doneGtdRow(thread, states, {
+      gtdDone: api.gtdDone,
+      removeGtdThread,
+      restoreGtdThread,
+      addNotification,
+      scheduleGtdSectionsFetch,
+      t,
+    });
   };
 
   // Read: flip is_read on the section thread instantly. Section rows carry thread-level
