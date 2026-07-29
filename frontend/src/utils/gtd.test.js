@@ -138,7 +138,16 @@ describe('gtdActiveForContext', () => {
     assert.equal(gtdActiveForContext(accounts, null), true);
     assert.equal(gtdActiveForContext([{ id: 'b', gtd_enabled: false }], null), false);
   });
+  it('unified: ignores GTD accounts excluded from the unified inbox', () => {
+    assert.equal(gtdActiveForContext([
+      { id: 'a', gtd_enabled: true, include_in_unified_inbox: false },
+      { id: 'b', gtd_enabled: false, include_in_unified_inbox: true },
+    ], null), false);
+  });
   it('per-account: gates on that account flag only', () => {
+    assert.equal(gtdActiveForContext([
+      { id: 'a', gtd_enabled: true, include_in_unified_inbox: false },
+    ], 'a'), true);
     assert.equal(gtdActiveForContext(accounts, 'a'), true);
     assert.equal(gtdActiveForContext(accounts, 'b'), false);
     assert.equal(gtdActiveForContext(accounts, 'missing'), false);

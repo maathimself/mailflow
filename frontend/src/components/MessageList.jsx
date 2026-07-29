@@ -5,6 +5,7 @@ import { api } from '../utils/api.js';
 import { LAYOUTS } from '../layouts.js';
 import { senderColor } from '../themes.js';
 import { useMobile } from '../hooks/useMobile.js';
+import { isAccountInUnifiedInbox } from '../utils/unifiedInbox.js';
 import { useSwipeRow } from '../hooks/useSwipeRow.js';
 import ContextMenu from './ContextMenu.jsx';
 import RowHoverActions from './RowHoverActions.jsx';
@@ -127,6 +128,10 @@ export default function MessageList() {
   const isMobile = useMobile();
   const isUnified = selectedAccountId === null;
   const selectedAccount = accounts.find(a => a.id === selectedAccountId);
+  const unifiedInboxAccountKey = accounts
+    .filter(isAccountInUnifiedInbox)
+    .map(account => account.id)
+    .join(',');
   // Search is scoped to the current folder unless we're in the unified view or the
   // user toggled "search all folders". An in: operator in the query overrides this
   // server-side. undefined = search all folders.
@@ -249,7 +254,7 @@ export default function MessageList() {
       .then(data => { if (!cancelled) setCategoryCounts(data.counts || {}); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [categorizationActive, selectedAccountId, selectedFolder, messagesRefreshToken, setCategoryCounts]);
+  }, [categorizationActive, selectedAccountId, selectedFolder, messagesRefreshToken, unifiedInboxAccountKey, setCategoryCounts]);
 
   const searchSeq = useRef(0);
   const refreshRequestRef = useRef(null);
@@ -360,7 +365,7 @@ export default function MessageList() {
     };
     run();
     return () => { cancelled = true; };
-  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, scrollMode, accountsReady, accounts.length, messagesRefreshToken, threadedView, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setHasMoreMessages, setLoadingMessages, setMessages, setMessagesOffset, setMessagesTotal]);
+  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, scrollMode, accountsReady, unifiedInboxAccountKey, messagesRefreshToken, threadedView, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setHasMoreMessages, setLoadingMessages, setMessages, setMessagesOffset, setMessagesTotal]);
 
   // Load next page (called by scroll or button)
   const loadMore = useCallback(async () => {
@@ -478,7 +483,7 @@ export default function MessageList() {
       }
     }, 300);
     return () => clearTimeout(searchTimer.current);
-  }, [searchQuery, selectedAccountId, searchFolder, searchPageSize, searchReloadToken, applyReadGuard, setIsSearching, setSearchResults]);
+  }, [searchQuery, selectedAccountId, searchFolder, searchPageSize, searchReloadToken, unifiedInboxAccountKey, applyReadGuard, setIsSearching, setSearchResults]);
 
   // Re-run an active search (and refresh the folder view) after inbox rules run, since
   // rules can move messages out of the searched folder and a search snapshot would
@@ -689,9 +694,9 @@ export default function MessageList() {
       return threadMessages[tid];
     }
     const effectiveFolder = selectedAccountId ? selectedFolder : 'INBOX';
-    const data = await api.getThread(tid, effectiveFolder);
+    const data = await api.getThread(tid, effectiveFolder, isUnified);
     return data.messages?.length ? data.messages : [message];
-  }, [isThreadListRow, threadMessages, selectedAccountId, selectedFolder]);
+  }, [isThreadListRow, threadMessages, selectedAccountId, selectedFolder, isUnified]);
 
   const setCachedThreadRead = useCallback((message, read) => {
     const tid = message.thread_id || message.id;
@@ -2165,7 +2170,7 @@ export default function MessageList() {
       setLoadingThread(tid);
       try {
         const effectiveFolder = selectedAccountId ? selectedFolder : 'INBOX';
-        const data = await api.getThread(tid, effectiveFolder);
+        const data = await api.getThread(tid, effectiveFolder, isUnified);
         const msgs = data.messages || [];
         setThreadMessages(tid, msgs);
         if (!isMobile && msgs.length > 0) handleSelect(msgs[msgs.length - 1]);

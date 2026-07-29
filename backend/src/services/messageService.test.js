@@ -36,6 +36,40 @@ describe('listMessages — account scope', () => {
     expect(countSql).toContain('total_count');
     expect(countSql).not.toContain('unread_count');
   });
+
+  it('uses only opted-in accounts for the unified inbox', async () => {
+    query
+      .mockResolvedValueOnce({
+        rows: [
+          { id: 'acc-included', include_in_unified_inbox: true },
+          { id: 'acc-excluded', include_in_unified_inbox: false },
+        ],
+      })
+      .mockResolvedValueOnce({ rows: [{ n: 1 }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await listMessages({ userId: 'user-1' });
+
+    expect(query.mock.calls[1][1]).toEqual([['acc-included']]);
+    expect(query.mock.calls[2][1][0]).toEqual(['acc-included']);
+  });
+
+  it('keeps an opted-out account available in its direct account view', async () => {
+    query
+      .mockResolvedValueOnce({
+        rows: [{ id: 'acc-excluded', include_in_unified_inbox: false }],
+      })
+      .mockResolvedValueOnce({ rows: [{ total_count: 2, unread_count: 1 }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'msg-1' }] });
+
+    const result = await listMessages({
+      userId: 'user-1',
+      accountId: 'acc-excluded',
+    });
+
+    expect(result.resolvedAccountId).toBe('acc-excluded');
+    expect(query.mock.calls[1][1]).toEqual(['acc-excluded', 'INBOX']);
+  });
 });
 
 describe('listMessages — total count selection', () => {

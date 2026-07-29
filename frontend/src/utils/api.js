@@ -160,9 +160,12 @@ export const api = {
     return request('GET', `/mail/resolve-message?${qs}`);
   },
   getMessageBody,
-  getThread: (threadId, folder) => {
-    const qs = folder ? `?folder=${encodeURIComponent(folder)}` : '';
-    return request('GET', `/mail/thread/${encodeURIComponent(threadId)}${qs}`);
+  getThread: (threadId, folder, unified = false) => {
+    const qs = new URLSearchParams();
+    if (folder) qs.set('folder', folder);
+    if (unified) qs.set('unified', 'true');
+    const query = qs.size ? `?${qs}` : '';
+    return request('GET', `/mail/thread/${encodeURIComponent(threadId)}${query}`);
   },
   bulkRead: (ids, read) => request('POST', '/mail/messages/bulk-read', { ids, read }),
   markStarred: (id, starred) => request('PATCH', `/mail/messages/${id}/star`, { starred }),

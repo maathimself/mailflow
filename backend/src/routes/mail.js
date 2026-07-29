@@ -10,6 +10,7 @@ import { snippetFromBody, decodeMimeWords, parseRawHeaders, buildHeadersFromMess
 import { resolveTrashFolder, resolveAllTrashPaths, resolveAllDraftsPaths, resolveArchiveFolder, isAllMailFolder, resolveSpamFolder, resolveAllSpamPaths, getDeleteStrategy, adjustFolderCounts, fanOutReadToSiblings, fanOutStarToSiblings, fanOutBulkReadToSiblings } from '../utils/mailUtils.js';
 import { emitGtdIfRelevant } from '../services/gtdSections.js';
 import { listMessages } from '../services/messageService.js';
+import { resolveAccountScope } from '../services/unifiedInbox.js';
 import { validateHost } from '../services/hostValidation.js';
 import { safeFetch } from '../services/safeFetch.js';
 
@@ -240,11 +241,13 @@ router.get('/thread/:threadId', async (req, res) => {
 
   try {
     const accountsResult = await query(
-      'SELECT id FROM email_accounts WHERE user_id = $1 AND enabled = true',
+      'SELECT id, include_in_unified_inbox FROM email_accounts WHERE user_id = $1 AND enabled = true',
       [req.session.userId]
     );
-    const userAccountIds = accountsResult.rows.map(r => r.id);
-    if (!userAccountIds.length) return res.json({ messages: [] });
+    const accountIds = req.query.unified === 'true'
+      ? resolveAccountScope(accountsResult.rows).accountIds
+      : accountsResult.rows.map(row => row.id);
+    if (!accountIds.length) return res.json({ messages: [] });
 
     // Show all non-deleted messages in the thread regardless of folder. This includes
     // Sent replies (which have distinct message_ids) alongside received messages.
@@ -270,7 +273,7 @@ router.get('/thread/:threadId', async (req, res) => {
                  m.date ASC
       )
       SELECT * FROM deduped ORDER BY date ASC
-    `, [userAccountIds, threadId]);
+    `, [accountIds, threadId]);
 
     res.json({ messages: result.rows });
   } catch (err) {
@@ -287,19 +290,19 @@ router.get('/thread/:threadId', async (req, res) => {
 // returned immediately after the new_messages WS event is always authoritative.
 router.get('/unread-counts', async (req, res) => {
   const result = await query(`
-    SELECT m.account_id, COUNT(*) AS count
+    SELECT m.account_id, a.include_in_unified_inbox, COUNT(*) AS count
     FROM messages m
     JOIN email_accounts a ON a.id = m.account_id
     WHERE a.user_id = $1 AND a.enabled = true
       AND m.folder = 'INBOX' AND m.is_read = false AND m.is_deleted = false
-    GROUP BY m.account_id
+    GROUP BY m.account_id, a.include_in_unified_inbox
   `, [req.session.userId]);
 
   const byAccount = {};
   let total = 0;
   for (const row of result.rows) {
     byAccount[row.account_id] = parseInt(row.count);
-    total += parseInt(row.count);
+    if (row.include_in_unified_inbox !== false) total += parseInt(row.count);
   }
   res.set('Cache-Control', 'no-store');
   res.json({ total, byAccount });
@@ -2007,15 +2010,11 @@ router.get('/category-counts', async (req, res) => {
   }
 
   const accountsResult = await query(
-    'SELECT id FROM email_accounts WHERE user_id = $1 AND enabled = true',
+    'SELECT id, include_in_unified_inbox FROM email_accounts WHERE user_id = $1 AND enabled = true',
     [req.session.userId]
   );
-  const userAccountIds = accountsResult.rows.map(r => r.id);
-  if (!userAccountIds.length) return res.json({ counts: {} });
-
-  const scopedIds = accountId && userAccountIds.includes(accountId)
-    ? [accountId]
-    : userAccountIds;
+  const { accountIds: scopedIds } = resolveAccountScope(accountsResult.rows, accountId);
+  if (!scopedIds.length) return res.json({ counts: {} });
 
   const result = await query(`
     SELECT COALESCE(m.category, 'primary') AS category,

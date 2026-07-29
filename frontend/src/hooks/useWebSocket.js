@@ -7,6 +7,7 @@ import { playNotificationSound } from '../utils/notificationSounds.js';
 import { pendingMarkReadMap } from '../utils/pendingReads.js';
 import { gtdActiveForContext } from '../utils/gtd.js';
 import { updateFaviconBadge } from '../themes.js';
+import { accountAffectsUnifiedInbox } from '../utils/unifiedInbox.js';
 
 // Compute the correct favicon count given unread counts and the currently
 // selected account. Reads selectedAccountId from the store directly so this
@@ -30,14 +31,18 @@ function _faviconCount(counts) {
 // the DB has applied those reads and subtracting again would double-count.
 function _applyServerCounts(counts) {
   if (pendingMarkReadMap.size > 0) {
-    const current = useStore.getState().unreadCounts;
-    if (counts.total >= current.total + pendingMarkReadMap.size) {
+    const state = useStore.getState();
+    const current = state.unreadCounts;
+    const pendingUnifiedCount = [...pendingMarkReadMap.values()]
+      .filter(accountId => accountAffectsUnifiedInbox(state.accounts, accountId))
+      .length;
+    if (counts.total >= current.total + pendingUnifiedCount) {
       // Server hasn't incorporated in-flight reads yet — subtract them.
       const byAccount = { ...counts.byAccount };
       for (const accountId of pendingMarkReadMap.values()) {
         if (byAccount[accountId] > 0) byAccount[accountId]--;
       }
-      const total = Math.max(0, counts.total - pendingMarkReadMap.size);
+      const total = Math.max(0, counts.total - pendingUnifiedCount);
       useStore.setState({ unreadCounts: { total, byAccount } });
     } else {
       // DB already applied the reads — use the authoritative count directly.
@@ -195,7 +200,7 @@ export function useWebSocket() {
           // Refresh the message list when the affected folder is visible
           const store = useStore.getState();
           const isRelevant =
-            store.selectedAccountId === null ||
+            (store.selectedAccountId === null && accountAffectsUnifiedInbox(store.accounts, accountId)) ||
             store.selectedAccountId === accountId;
           const folderVisible = store.selectedFolder === (folder || 'INBOX');
 
@@ -223,7 +228,10 @@ export function useWebSocket() {
         const counts = useStore.getState().unreadCounts;
         const byAccount = { ...counts.byAccount };
         byAccount[accountId] = (byAccount[accountId] || 0) + delta;
-        const newCounts = { total: counts.total + delta, byAccount };
+        const total = accountAffectsUnifiedInbox(useStore.getState().accounts, accountId)
+          ? counts.total + delta
+          : counts.total;
+        const newCounts = { total, byAccount };
         useStore.setState({ unreadCounts: newCounts });
         // Update favicon immediately — do not wait for React's render cycle.
         // With a pre-cached base this is synchronous (no image load round-trip).
@@ -290,7 +298,9 @@ export function useWebSocket() {
         // visible, refresh counts for sidebar badges, but no sounds/notifications.
         const { accountId: fuAccountId } = data;
         const fuStore = useStore.getState();
-        const fuRelevant = fuStore.selectedAccountId === null || fuStore.selectedAccountId === fuAccountId;
+        const fuRelevant =
+          (fuStore.selectedAccountId === null && accountAffectsUnifiedInbox(fuStore.accounts, fuAccountId)) ||
+          fuStore.selectedAccountId === fuAccountId;
         if (fuRelevant) {
           window.dispatchEvent(new CustomEvent('mailflow:refresh'));
           window.dispatchEvent(new CustomEvent('mailflow:sync_done'));
@@ -337,9 +347,12 @@ export function useWebSocket() {
         // strip). Refetch the rail/tab sections — NOT gated on selectedFolder
         // (label folders never become the selected folder), debounced in the
         // store since this can fire several times per tick. Only refetch when the
-        // event's account is in the current rail scope (unified sees every account).
+        // event's account is in the current rail scope.
         const store = useStore.getState();
-        if (store.selectedAccountId === null || store.selectedAccountId === data.accountId) {
+        if (
+          (store.selectedAccountId === null && accountAffectsUnifiedInbox(store.accounts, data.accountId)) ||
+          store.selectedAccountId === data.accountId
+        ) {
           store.scheduleGtdSectionsFetch();
         }
         break;

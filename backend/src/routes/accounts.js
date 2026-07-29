@@ -47,6 +47,7 @@ const SAFE_FIELDS = [
   'imap_host', 'imap_port', 'imap_skip_tls_verify',
   'smtp_host', 'smtp_port', 'smtp_tls',
   'auth_user', 'oauth_provider', 'enabled',
+  'include_in_unified_inbox',
   'last_sync', 'sync_error', 'sort_order', 'folder_mappings',
   'signature', 'created_at', 'categorization_enabled',
   'gtd_enabled', 'gtd_folders',
@@ -62,6 +63,7 @@ router.get('/', async (req, res) => {
   const result = await query(
     `SELECT id, name, sender_name, email_address, color, protocol, imap_host, imap_port, imap_tls, imap_skip_tls_verify,
             smtp_host, smtp_port, smtp_tls, auth_user, oauth_provider, enabled,
+            include_in_unified_inbox,
             last_sync, sync_error, sort_order, folder_mappings, signature, created_at,
             categorization_enabled, gtd_enabled, gtd_folders
      FROM email_accounts WHERE user_id = $1 ORDER BY sort_order, created_at`,
@@ -220,7 +222,7 @@ router.put('/:id', async (req, res) => {
     gtdFoldersChanged = JSON.stringify(before) !== JSON.stringify(folders);
   }
 
-  const allowed = ['name', 'sender_name', 'color', 'enabled', 'auth_user', 'auth_pass', 'sort_order', 'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify', 'smtp_host', 'smtp_port', 'smtp_tls', 'folder_mappings', 'signature', 'categorization_enabled', 'gtd_enabled', 'gtd_folders'];
+  const allowed = ['name', 'sender_name', 'color', 'enabled', 'include_in_unified_inbox', 'auth_user', 'auth_pass', 'sort_order', 'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify', 'smtp_host', 'smtp_port', 'smtp_tls', 'folder_mappings', 'signature', 'categorization_enabled', 'gtd_enabled', 'gtd_folders'];
   const sets = [];
   const values = [];
   let i = 1;
@@ -230,6 +232,7 @@ router.put('/:id', async (req, res) => {
       const value = (key === 'auth_pass' && updates[key]) ? encrypt(updates[key])
         : (key === 'signature') ? sanitizeSignature(updates[key]) || null
         : (key === 'gtd_enabled') ? !!updates[key]
+        : (key === 'include_in_unified_inbox') ? !!updates[key]
         : (key === 'gtd_folders') ? gtdFoldersValue
         : updates[key];
       values.push(value);

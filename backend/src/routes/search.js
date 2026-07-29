@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { resolveAccountScope } from '../services/unifiedInbox.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -128,14 +129,11 @@ router.get('/', searchLimiter, async (req, res) => {
   if (trimmed.length > 500) return res.status(400).json({ error: 'Search query too long' });
 
   const accountsResult = await query(
-    'SELECT id FROM email_accounts WHERE user_id = $1 AND enabled = true',
+    'SELECT id, include_in_unified_inbox FROM email_accounts WHERE user_id = $1 AND enabled = true',
     [req.session.userId]
   );
-  const userAccountIds = accountsResult.rows.map(r => r.id);
-  if (!userAccountIds.length) return res.json({ messages: [] });
-
-  const targetIds = accountId && userAccountIds.includes(accountId)
-    ? [accountId] : userAccountIds;
+  const { accountIds: targetIds } = resolveAccountScope(accountsResult.rows, accountId);
+  if (!targetIds.length) return res.json({ messages: [] });
 
   const cap = Math.max(1, Math.min(parseInt(limit) || 50, 200));
   const { filters, terms } = parseSearchQuery(trimmed);

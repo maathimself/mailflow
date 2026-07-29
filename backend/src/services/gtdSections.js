@@ -144,11 +144,12 @@ export async function getGtdSections({ userId, accountId = null, limit } = {}) {
   const safeLimit = Math.min(Math.max(parseInt(limit) || DEFAULT_LIMIT, 1), MAX_LIMIT);
 
   const accountsResult = await query(
-    'SELECT id, folder_mappings FROM email_accounts WHERE user_id = $1 AND enabled = true AND gtd_enabled = true',
+    'SELECT id, folder_mappings, include_in_unified_inbox FROM email_accounts WHERE user_id = $1 AND enabled = true AND gtd_enabled = true',
     [userId]
   );
   let targets = accountsResult.rows;
   if (accountId) targets = targets.filter(a => a.id === accountId);
+  else targets = targets.filter(a => a.include_in_unified_inbox !== false);
   if (!targets.length) return { sections: { ...emptySections(), waiting: { total: 0, unread: 0 } } };
 
   const sections = emptySections();

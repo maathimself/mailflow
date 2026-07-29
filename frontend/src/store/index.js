@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { api } from '../utils/api.js';
+import { accountAffectsUnifiedInbox } from '../utils/unifiedInbox.js';
 import { applyTheme, applyCustomCss, getInitialTheme } from '../themes.js';
 import { applyFontSet, applyFontSize } from '../fonts.js';
 import { applyLayout, normalizeLayout } from '../layouts.js';
@@ -220,13 +221,18 @@ export const useStore = create((set, get) => ({
   decrementUnread: (accountId, count = 1) => set(state => {
     const byAccount = { ...state.unreadCounts.byAccount };
     byAccount[accountId] = Math.max(0, (byAccount[accountId] || 0) - count);
-    const total = Math.max(0, state.unreadCounts.total - count);
+    const total = accountAffectsUnifiedInbox(state.accounts, accountId)
+      ? Math.max(0, state.unreadCounts.total - count)
+      : state.unreadCounts.total;
     return { unreadCounts: { total, byAccount } };
   }),
   incrementUnread: (accountId, count = 1) => set(state => {
     const byAccount = { ...state.unreadCounts.byAccount };
     byAccount[accountId] = (byAccount[accountId] || 0) + count;
-    return { unreadCounts: { total: state.unreadCounts.total + count, byAccount } };
+    const total = accountAffectsUnifiedInbox(state.accounts, accountId)
+      ? state.unreadCounts.total + count
+      : state.unreadCounts.total;
+    return { unreadCounts: { total, byAccount } };
   }),
 
   // Folders

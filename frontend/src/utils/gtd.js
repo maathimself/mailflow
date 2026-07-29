@@ -128,7 +128,9 @@ export function resolveRowDisplay(thread, sectionKey) {
 // that account's flag only.
 export function gtdActiveForContext(accounts, selectedAccountId) {
   if (!Array.isArray(accounts) || accounts.length === 0) return false;
-  if (selectedAccountId == null) return accounts.some(a => a?.gtd_enabled);
+  if (selectedAccountId == null) {
+    return accounts.some(a => a?.gtd_enabled && a?.include_in_unified_inbox !== false);
+  }
   const acct = accounts.find(a => a?.id === selectedAccountId);
   return !!acct?.gtd_enabled;
 }

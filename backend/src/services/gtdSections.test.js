@@ -178,6 +178,22 @@ describe('getGtdSections — thread-level unread', () => {
 });
 
 describe('getGtdSections — unified merge', () => {
+  it('omits opted-out accounts from the unified GTD rail', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [
+        { id: 'acc-1', folder_mappings: null, include_in_unified_inbox: true },
+        { id: 'acc-2', folder_mappings: null, include_in_unified_inbox: false },
+      ] })
+      .mockResolvedValueOnce({ rows: [
+        headRow({ account_id: 'acc-1', id: 'a', message_id: '<a>', thread_key: 'ta' }),
+      ] });
+
+    const { sections } = await getGtdSections({ userId: 'u1' });
+
+    expect(sections.todo.threads.map(thread => thread.id)).toEqual(['a']);
+    expect(query).toHaveBeenCalledTimes(2);
+  });
+
   it('sums counts and merges heads newest-first across accounts', async () => {
     query
       .mockResolvedValueOnce({ rows: [
