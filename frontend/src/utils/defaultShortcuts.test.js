@@ -63,4 +63,11 @@ describe('buildModKeyMap', () => {
     assert.equal(keyMap['/'], 'focusSearch', 'bare / stays the search key (separate map)');
     assert.equal(warn.mock.callCount(), 0);
   });
+
+  it('binds toggleLeftSidebar to ctrl+backslash without colliding with defaults', (t) => {
+    const warn = t.mock.method(console, 'warn', () => {});
+    const modMap = buildModKeyMap();
+    assert.equal(modMap['\\'], 'toggleLeftSidebar');
+    assert.equal(warn.mock.callCount(), 0);
+  });
 });
