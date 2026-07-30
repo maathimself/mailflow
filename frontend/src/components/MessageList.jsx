@@ -10,10 +10,11 @@ import { useSwipeRow } from '../hooks/useSwipeRow.js';
 import ContextMenu from './ContextMenu.jsx';
 import RowHoverActions from './RowHoverActions.jsx';
 import GtdTabList from './GtdTabList.jsx';
+import GtdInboxIndicators from './GtdInboxIndicators.jsx';
 import { useUiScale, descale } from '../hooks/useUiScale.js';
 import {
   gtdActiveForContext, buildGtdDisplaySections, GTD_COLORS, GTD_CHIP_BG, sectionBadge, isSelectedRow,
-  classifyThread, unclassifyThread,
+  buildGtdMetadataPatch, classifyThread, unclassifyThread,
 } from '../utils/gtd.js';
 import { formatDate } from '../utils/formatDate.js';
 import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
@@ -2025,12 +2026,14 @@ export default function MessageList() {
       }
       case 'gtdClassify': {
         // Classify = COPY into the state's label folder. The message stays put
-        // (no optimistic removal / undo — it does not leave INBOX), so we just
-        // fire the copy and poke the GTD sections store instead of waiting on the WS event.
+        // (no optimistic removal / undo — it does not leave INBOX). Patch only
+        // its display metadata after success; the next normal refresh reconverges
+        // from the server without adding a classify-time list fetch.
         await classifyThread(message.id, data, {
           gtdClassify: api.gtdClassify,
           addNotification,
           scheduleGtdSectionsFetch: useStore.getState().scheduleGtdSectionsFetch,
+          onClassified: state => updateMessage(message.id, buildGtdMetadataPatch(message, state)),
           t,
         });
         break;
@@ -3457,6 +3460,7 @@ export default function MessageList() {
                 onToggleSelect={handleRowToggleSelect}
                 onRangeSelect={handleRangeSelect}
                 onLongPress={isMobile ? (id) => { setSelectionModeActive(true); toggleSelect(id); } : undefined}
+                showGtdIndicators={selectedFolder === 'INBOX' && !searchQuery.trim()}
               />
             );
           })
@@ -3496,6 +3500,7 @@ export default function MessageList() {
                 onSwipeLeft={selectionMode || swipeLeftAction === 'disabled' ? undefined : (msg) => runSwipeAction(swipeLeftAction, msg)}
                 onSwipeRight={selectionMode || swipeRightAction === 'disabled' ? undefined : (msg) => runSwipeAction(swipeRightAction, msg)}
                 onLongPress={isMobile ? (id) => { setSelectionModeActive(true); toggleSelect(id); } : undefined}
+                showGtdIndicators={selectedFolder === 'INBOX' && !searchQuery.trim()}
               />
             );
           })
@@ -3912,7 +3917,7 @@ function EmptyState({ folderSyncing, searchQuery, unreadOnly, selectedFolder, ac
   );
 }
 
-function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, lastViewedMessageId, showAccount, isNarrow, onThreadClick, showMobileAvatars, onSelect, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onGtdDone, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress }) {
+function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, lastViewedMessageId, showAccount, isNarrow, onThreadClick, showMobileAvatars, onSelect, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onGtdDone, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress, showGtdIndicators }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const messageCount = message.message_count || 1;
@@ -4093,6 +4098,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                   </svg>
                 </button>
               )}
+              {showGtdIndicators && <GtdInboxIndicators message={message} />}
               <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{formatDate(message.date)}</span>
             </div>
           </div>
@@ -4189,7 +4195,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
   );
 }
 
-function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, showAccount, isNarrow, onSelect, onToggleSelect, onRangeSelect, onAvatarClick, showMobileAvatars, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onGtdDone, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, onLongPress }) {
+function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, showAccount, isNarrow, onSelect, onToggleSelect, onRangeSelect, onAvatarClick, showMobileAvatars, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onGtdDone, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, onLongPress, showGtdIndicators }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const [avatarHovered, setAvatarHovered] = useState(false);
@@ -4400,6 +4406,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
                 </svg>
               </button>
             )}
+            {showGtdIndicators && <GtdInboxIndicators message={message} />}
             <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
               {formatDate(message.date)}
             </span>

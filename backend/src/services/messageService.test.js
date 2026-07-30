@@ -208,4 +208,90 @@ describe('listMessages — message shape', () => {
 
     expect(query.mock.calls[2][0]).toContain('delivery_addresses');
   });
+
+  it('enriches the flat INBOX page with configured GTD metadata in the existing list query', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', include_in_unified_inbox: true }] })
+      .mockResolvedValueOnce({ rows: [{ total_count: 1, unread_count: 0 }] })
+      .mockResolvedValueOnce({
+        rows: [{
+          id: 'msg-1',
+          account_id: 'acc-1',
+          thread_key: 'thread-1',
+          gtd_states: ['todo', 'watch', 'reference'],
+          gtd_dates: {
+            todo: '2026-07-27T12:00:00Z',
+            watch: '2026-07-20T12:00:00Z',
+            reference: '2026-07-26T12:00:00Z',
+          },
+          gtd_date: '2026-07-27T12:00:00Z',
+        }],
+      });
+
+    const result = await listMessages({
+      userId: 'user-1',
+      accountId: 'acc-1',
+      folder: 'INBOX',
+    });
+
+    expect(result.messages[0]).toMatchObject({
+      gtd_states: ['todo', 'watch', 'reference'],
+      gtd_dates: {
+        todo: '2026-07-27T12:00:00Z',
+        watch: '2026-07-20T12:00:00Z',
+        reference: '2026-07-26T12:00:00Z',
+      },
+      gtd_date: '2026-07-27T12:00:00Z',
+    });
+    expect(query).toHaveBeenCalledTimes(3);
+
+    const listSql = query.mock.calls[2][0];
+    expect(listSql).toContain('page_threads');
+    expect(listSql).toContain('gtd_matches');
+    expect(listSql).toContain('gtd_metadata');
+    expect(listSql).toContain('ARRAY_AGG(state ORDER BY sort_order) AS gtd_states');
+    expect(listSql).toContain('JSONB_OBJECT_AGG(state, state_date) AS gtd_dates');
+    expect(listSql).toContain('MAX(state_date) AS gtd_date');
+    expect(listSql).toMatch(/COALESCE\(NULLIF\(a\.gtd_folders->>'todo', ''\),\s*'Todo'\)/);
+    expect(listSql).toMatch(/COALESCE\(NULLIF\(a\.gtd_folders->>'someday', ''\),\s*'Someday'\)/);
+    expect(listSql).toContain('a.gtd_enabled = true');
+    expect(listSql.indexOf('LIMIT')).toBeLessThan(listSql.indexOf('gtd_matches AS'));
+  });
+
+  it('enriches the threaded INBOX page with account-scoped GTD metadata in the existing list query', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', include_in_unified_inbox: true }] })
+      .mockResolvedValueOnce({ rows: [{ total_count: 1, unread_count: 0 }] })
+      .mockResolvedValueOnce({
+        rows: [{
+          id: 'msg-1',
+          account_id: 'acc-1',
+          thread_id: 'thread-1',
+          gtd_states: ['delegated', 'someday'],
+          gtd_date: '2026-07-25T12:00:00Z',
+        }],
+      })
+      .mockResolvedValueOnce({ rows: [{ total: 1 }] });
+
+    const result = await listMessages({
+      userId: 'user-1',
+      accountId: 'acc-1',
+      folder: 'INBOX',
+      threaded: 'true',
+    });
+
+    expect(result.messages[0]).toMatchObject({
+      gtd_states: ['delegated', 'someday'],
+      gtd_date: '2026-07-25T12:00:00Z',
+    });
+    expect(query).toHaveBeenCalledTimes(4);
+
+    const listSql = query.mock.calls[2][0];
+    expect(listSql).toContain('gtd_matches');
+    expect(listSql).toContain('gtd_metadata');
+    expect(listSql).toContain('gm.account_id = pt.account_id');
+    expect(listSql).toContain('gm.thread_key = pt.thread_key');
+    expect(listSql).toContain('gtd_metadata.account_id = page.account_id');
+    expect(listSql).toContain('gtd_metadata.thread_key = page.thread_id');
+  });
 });

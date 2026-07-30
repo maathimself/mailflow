@@ -6,6 +6,8 @@ import {
   agingDays,
   isStale,
   agingLabel,
+  buildInboxGtdIndicators,
+  buildGtdMetadataPatch,
   resolveRowDisplay,
   gtdActiveForContext,
   mergeWaiting,
@@ -73,6 +75,81 @@ describe('agingLabel', () => {
     assert.equal(agingLabel(3), '⏱ 3d');
     assert.equal(agingLabel(0), '⏱ 0d');
     assert.equal(agingLabel(null), '');
+  });
+});
+
+describe('buildInboxGtdIndicators', () => {
+  const t = key => key.replace('gtd.state.', '').replace(/^./, c => c.toUpperCase());
+  const now = Date.parse('2026-07-30T12:00:00Z');
+
+  it('dedupes labels and returns every supported state in canonical indicator order', () => {
+    const indicators = buildInboxGtdIndicators({
+      gtd_states: ['someday', 'watch', 'todo', 'reference', 'watch', 'delegated'],
+      gtd_dates: {
+        watch: '2026-07-20T12:00:00Z',
+        delegated: '2026-07-28T12:00:00Z',
+      },
+      gtd_date: '2026-07-28T12:00:00Z',
+    }, t, now);
+
+    assert.deepEqual(indicators.map(indicator => indicator.state), [
+      'todo', 'watch', 'delegated', 'reference', 'someday',
+    ]);
+    assert.deepEqual(indicators.map(indicator => indicator.label), [
+      'Todo', '⏱ 10d', '⏱ 2d', 'Reference', 'Someday',
+    ]);
+  });
+
+  it('uses the existing stale treatment for old waiting labels', () => {
+    const [watch] = buildInboxGtdIndicators({
+      gtd_states: ['watch'],
+      gtd_date: '2026-07-10T12:00:00Z',
+    }, t, now);
+
+    assert.equal(watch.color, '#ff9b9b');
+    assert.equal(watch.background, 'rgba(248,113,113,.16)');
+  });
+
+  it('falls back to the translated state name when a waiting date is unavailable', () => {
+    const [delegated] = buildInboxGtdIndicators({ gtd_states: ['delegated'] }, t, now);
+    assert.equal(delegated.label, 'Delegated');
+  });
+
+  it('ignores malformed metadata and unsupported state keys', () => {
+    assert.deepEqual(buildInboxGtdIndicators({ gtd_states: 'watch' }, t, now), []);
+    assert.deepEqual(buildInboxGtdIndicators({ gtd_states: ['unknown'] }, t, now), []);
+  });
+});
+
+describe('buildGtdMetadataPatch', () => {
+  it('adds the classified state in canonical order and keeps the newest aging date', () => {
+    assert.deepEqual(buildGtdMetadataPatch({
+      date: '2026-07-30T12:00:00Z',
+      gtd_states: ['someday', 'watch'],
+      gtd_dates: { watch: '2026-07-20T12:00:00Z' },
+      gtd_date: '2026-07-28T12:00:00Z',
+    }, 'todo'), {
+      gtd_states: ['todo', 'watch', 'someday'],
+      gtd_dates: {
+        todo: '2026-07-30T12:00:00Z',
+        watch: '2026-07-20T12:00:00Z',
+      },
+      gtd_date: '2026-07-30T12:00:00Z',
+    });
+  });
+
+  it('preserves metadata when the state is unsupported', () => {
+    const message = {
+      date: '2026-07-30T12:00:00Z',
+      gtd_states: ['reference'],
+      gtd_dates: { reference: '2026-07-28T12:00:00Z' },
+      gtd_date: '2026-07-28T12:00:00Z',
+    };
+    assert.deepEqual(buildGtdMetadataPatch(message, 'unknown'), {
+      gtd_states: ['reference'],
+      gtd_dates: { reference: '2026-07-28T12:00:00Z' },
+      gtd_date: '2026-07-28T12:00:00Z',
+    });
   });
 });
 
@@ -1045,6 +1122,52 @@ describe('classifyThread', () => {
     };
     await classifyThread('m1', 'todo', deps);
     assert.deepEqual(calls, [['notify', 'gtd.classifyFailed', 'gtd.state.todo']]);
+  });
+
+  it('tags only a successful classification notification with the applied GTD state', async () => {
+    const success = [];
+    await classifyThread('m1', 'reference', {
+      gtdClassify: async () => {},
+      addNotification: notification => success.push(notification),
+      scheduleGtdSectionsFetch: () => {},
+      t,
+    });
+    assert.deepEqual(success, [{
+      title: 'gtd.classified',
+      body: 'gtd.state.reference',
+      gtdState: 'reference',
+    }]);
+
+    const failure = [];
+    await classifyThread('m1', 'reference', {
+      gtdClassify: async () => { throw new Error('no'); },
+      addNotification: notification => failure.push(notification),
+      scheduleGtdSectionsFetch: () => {},
+      t,
+    });
+    assert.equal(failure[0].gtdState, undefined);
+  });
+
+  it('updates visible inbox metadata only after a successful classification', async () => {
+    const successfulUpdates = [];
+    await classifyThread('m1', 'watch', {
+      gtdClassify: async () => {},
+      addNotification: () => {},
+      scheduleGtdSectionsFetch: () => {},
+      onClassified: state => successfulUpdates.push(state),
+      t,
+    });
+    assert.deepEqual(successfulUpdates, ['watch']);
+
+    const failedUpdates = [];
+    await classifyThread('m1', 'watch', {
+      gtdClassify: async () => { throw new Error('no'); },
+      addNotification: () => {},
+      scheduleGtdSectionsFetch: () => {},
+      onClassified: state => failedUpdates.push(state),
+      t,
+    });
+    assert.deepEqual(failedUpdates, []);
   });
 });
 

@@ -36,6 +36,7 @@ export const GTD_DISPLAY_SECTION_ORDER = ['todo', 'waiting', 'reference', 'somed
 // The five GTD states and their default state→folder map (mirrors the backend
 // gtdConfig defaults). Classify actions COPY into the resolved folder.
 export const GTD_STATES = ['todo', 'watch', 'delegated', 'someday', 'reference'];
+export const GTD_INDICATOR_ORDER = ['todo', 'watch', 'delegated', 'reference', 'someday'];
 export const DEFAULT_GTD_FOLDERS = {
   todo: 'Todo', watch: 'Watch', delegated: 'Delegated', someday: 'Someday', reference: 'Reference',
 };
@@ -104,6 +105,55 @@ export function isStale(days) {
 export function agingLabel(days) {
   if (days == null) return '';
   return `⏱ ${days}d`;
+}
+
+export function buildInboxGtdIndicators(message, t, now = Date.now()) {
+  if (!Array.isArray(message?.gtd_states)) return [];
+  const states = new Set(message.gtd_states.filter(state => GTD_INDICATOR_ORDER.includes(state)));
+  return GTD_INDICATOR_ORDER
+    .filter(state => states.has(state))
+    .map(state => {
+      const waiting = state === 'watch' || state === 'delegated';
+      const stateDate = message?.gtd_dates?.[state] || message?.gtd_date;
+      const days = agingDays(stateDate, now);
+      const stale = waiting && isStale(days);
+      return {
+        state,
+        label: waiting && days != null ? agingLabel(days) : t(`gtd.state.${state}`),
+        color: stale ? '#ff9b9b' : GTD_COLORS[state],
+        background: stale ? 'rgba(248,113,113,.16)' : GTD_CHIP_BG[state],
+      };
+    });
+}
+
+// Build the small store patch applied after a successful classify request so a
+// visible inbox row reflects its new label immediately. The server remains the
+// source of truth on the next refresh; this avoids adding a second network call.
+export function buildGtdMetadataPatch(message, state) {
+  const currentStates = Array.isArray(message?.gtd_states)
+    ? message.gtd_states.filter(value => GTD_INDICATOR_ORDER.includes(value))
+    : [];
+  const currentDates = message?.gtd_dates && typeof message.gtd_dates === 'object' && !Array.isArray(message.gtd_dates)
+    ? message.gtd_dates : {};
+  if (!GTD_INDICATOR_ORDER.includes(state)) {
+    return { gtd_states: currentStates, gtd_dates: currentDates, gtd_date: message?.gtd_date };
+  }
+  const states = new Set(currentStates);
+  states.add(state);
+
+  const existingDate = message?.gtd_date;
+  const classifiedDate = message?.date;
+  const existingTime = new Date(existingDate || 0).getTime();
+  const classifiedTime = new Date(classifiedDate || 0).getTime();
+  const gtdDate = Number.isFinite(classifiedTime) && (
+    !Number.isFinite(existingTime) || classifiedTime > existingTime
+  ) ? classifiedDate : existingDate;
+
+  return {
+    gtd_states: GTD_INDICATOR_ORDER.filter(value => states.has(value)),
+    gtd_dates: classifiedDate ? { ...currentDates, [state]: classifiedDate } : currentDates,
+    gtd_date: gtdDate,
+  };
 }
 
 // Derive a GTD entry's display fields from its thread + section key. A merged-Waiting
@@ -469,11 +519,18 @@ export function pickThreadMessage(messages, messageId) {
 // not leave INBOX), so both just fire the API call and poke the GTD sections store to reconverge
 // instead of waiting on the WS event. Deps injected (like openDeepLinkMessage) so the call
 // is unit-testable; mirrors the GTD display callers' classify/remove handlers.
-export async function classifyThread(id, state, { gtdClassify, addNotification, scheduleGtdSectionsFetch, t }) {
+export async function classifyThread(id, state, {
+  gtdClassify,
+  addNotification,
+  scheduleGtdSectionsFetch,
+  onClassified,
+  t,
+}) {
   try {
     await gtdClassify(id, state);
     scheduleGtdSectionsFetch();
-    addNotification({ title: t('gtd.classified'), body: t(`gtd.state.${state}`) });
+    onClassified?.(state);
+    addNotification({ title: t('gtd.classified'), body: t(`gtd.state.${state}`), gtdState: state });
   } catch (err) {
     console.error('GTD classify failed:', err.message);
     addNotification({ title: t('gtd.classifyFailed'), body: t(`gtd.state.${state}`) });

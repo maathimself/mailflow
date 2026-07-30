@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { useMobile } from '../hooks/useMobile.js';
+import { resolveToastAppearance } from '../utils/notificationAppearance.js';
 
 export default function NotificationToasts() {
   const { notifications, removeNotification } = useStore();
@@ -163,6 +164,7 @@ function Toast({ notification, onDismiss, isMobile }) {
 
   const enterClass = isMobile ? 'toast-enter-mobile' : 'toast-enter';
   const exitClass  = isMobile ? 'toast-exit-mobile'  : 'toast-exit';
+  const appearance = resolveToastAppearance(notification);
 
   return (
     <div
@@ -179,9 +181,9 @@ function Toast({ notification, onDismiss, isMobile }) {
     >
       <div style={{
         width: 32, height: 32, borderRadius: 8, flexShrink: 0,
-        background: notification.type === 'error' ? 'rgba(248,113,113,0.15)' : 'var(--accent-dim)',
+        background: appearance.iconBackground,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        color: notification.type === 'error' ? 'var(--red)' : 'var(--accent)',
+        color: appearance.iconColor,
       }}>
         {notification.type === 'error' ? (
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -200,7 +202,7 @@ function Toast({ notification, onDismiss, isMobile }) {
           {notification.title}
         </div>
         <div style={{
-          fontSize: 12, color: 'var(--text-tertiary)',
+          fontSize: 12, color: appearance.bodyColor,
           overflow: notification.allowWrap ? 'visible' : 'hidden',
           textOverflow: notification.allowWrap ? 'clip' : 'ellipsis',
           whiteSpace: notification.allowWrap ? 'normal' : 'nowrap',
