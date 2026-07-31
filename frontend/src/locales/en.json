@@ -235,6 +235,8 @@
       "body": "Failed to update image whitelist."
     },
     "emailFrameTitle": "Email content",
+    "showOriginalColors": "Show original colors",
+    "matchThemeColors": "Match theme colors",
     "unsubscribe": {
       "info": "You can unsubscribe from this mailing list.",
       "button": "Unsubscribe",
@@ -798,7 +800,13 @@
       "customCssDescription": "Inject additional CSS after the active theme. Use CSS custom properties (e.g. --accent, --bg-primary) to override theme values, or add your own rules. Applied to all users.",
       "customCssPlaceholder": ":root {\n  --accent: #e74c3c;\n}",
       "customCssSave": "Save",
-      "customCssSaved": "Saved"
+      "customCssSaved": "Saved",
+      "emailContent": "Email content",
+      "emailContentDescription": "Choose whether HTML email colors follow MailFlow or keep the sender's original light appearance.",
+      "emailContentMatchTheme": "Match theme",
+      "emailContentMatchThemeDescription": "Adapt email colors to the active theme. Recommended.",
+      "emailContentOriginal": "Original colors",
+      "emailContentOriginalDescription": "Always show the sender's sanitized light appearance."
     },
     "messageList": {
       "title": "Message List",

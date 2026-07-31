@@ -235,6 +235,8 @@
       "body": "更新图片白名单失败。"
     },
     "emailFrameTitle": "邮件内容",
+    "showOriginalColors": "显示原始颜色",
+    "matchThemeColors": "匹配主题颜色",
     "unsubscribe": {
       "info": "您可以取消订阅此邮件列表。",
       "button": "取消订阅",
@@ -798,7 +800,13 @@
       "customCssDescription": "在当前主题之后注入额外的 CSS。使用 CSS 自定义属性（如 --accent、--bg-primary）覆盖主题值或添加自定义规则。对所有用户生效。",
       "customCssPlaceholder": ":root {\n  --accent: #e74c3c;\n}",
       "customCssSave": "保存",
-      "customCssSaved": "已保存"
+      "customCssSaved": "已保存",
+      "emailContent": "邮件内容",
+      "emailContentDescription": "选择 HTML 邮件颜色是跟随 MailFlow，还是保留发件人的原始浅色外观。",
+      "emailContentMatchTheme": "匹配主题",
+      "emailContentMatchThemeDescription": "使邮件颜色适配当前主题。推荐。",
+      "emailContentOriginal": "原始颜色",
+      "emailContentOriginalDescription": "始终显示发件人经清理的浅色外观。"
     },
     "messageList": {
       "title": "邮件列表",

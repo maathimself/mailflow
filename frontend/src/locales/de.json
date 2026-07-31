@@ -235,6 +235,8 @@
       "body": "Bild-Whitelist konnte nicht aktualisiert werden."
     },
     "emailFrameTitle": "E-Mail-Inhalt",
+    "showOriginalColors": "Originalfarben anzeigen",
+    "matchThemeColors": "An Theme-Farben anpassen",
     "unsubscribe": {
       "info": "Sie können sich von dieser Mailingliste abmelden.",
       "button": "Abmelden",
@@ -728,7 +730,13 @@
       "customCssDescription": "Fügt CSS nach dem aktiven Theme ein. Verwenden Sie CSS-Custom-Properties (z. B. --accent, --bg-primary), um Theme-Werte zu überschreiben oder eigene Regeln hinzuzufügen. Gilt für alle Benutzer.",
       "customCssPlaceholder": ":root {\n  --accent: #e74c3c;\n}",
       "customCssSave": "Speichern",
-      "customCssSaved": "Gespeichert"
+      "customCssSaved": "Gespeichert",
+      "emailContent": "E-Mail-Inhalt",
+      "emailContentDescription": "Lege fest, ob Farben in HTML-E-Mails MailFlow folgen oder die ursprüngliche helle Darstellung des Absenders beibehalten.",
+      "emailContentMatchTheme": "An Theme anpassen",
+      "emailContentMatchThemeDescription": "Passt E-Mail-Farben an das aktive Theme an. Empfohlen.",
+      "emailContentOriginal": "Originalfarben",
+      "emailContentOriginalDescription": "Zeigt immer die bereinigte helle Darstellung des Absenders."
     },
     "messageList": {
       "title": "Nachrichtenliste",

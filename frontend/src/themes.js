@@ -626,12 +626,27 @@ export function senderColor(email) {
 // ── Custom CSS injection ───────────────────────────────────────────────────────
 
 const CUSTOM_CSS_ID = 'mailflow-custom-css';
+const _appearanceListeners = new Set();
+let _activeThemeName = 'dark';
+
+export function subscribeAppearanceChanges(listener) {
+  _appearanceListeners.add(listener);
+  return () => { _appearanceListeners.delete(listener); };
+}
+
+function notifyAppearanceChanged() {
+  _appearanceListeners.forEach(listener => {
+    try { listener({ themeName: _activeThemeName }); }
+    catch { /* one listener cannot break theme application */ }
+  });
+}
 
 export function applyCustomCss(css) {
   let el = document.getElementById(CUSTOM_CSS_ID);
   if (!css) {
     if (el) el.remove();
     refreshAccentDerived(); // revert favicon/logo if the removed CSS was overriding --accent
+    notifyAppearanceChanged();
     return;
   }
   if (!el) {
@@ -641,6 +656,7 @@ export function applyCustomCss(css) {
   }
   el.textContent = css;
   refreshAccentDerived(); // flow a custom --accent override through to favicon/logo
+  notifyAppearanceChanged();
 }
 
 // ── Theme application ─────────────────────────────────────────────────────────
@@ -696,7 +712,9 @@ function refreshAccentDerived() {
 }
 
 export function applyTheme(themeName) {
-  const theme = THEMES[themeName] || THEMES.dark;
+  const selectedThemeName = Object.hasOwn(THEMES, themeName) ? themeName : 'dark';
+  const theme = THEMES[selectedThemeName];
+  _activeThemeName = selectedThemeName;
 
   // Inject vars via a <style> element rather than root.style.setProperty so
   // that <style id="mailflow-custom-css"> (appended afterward) can override
@@ -715,6 +733,7 @@ export function applyTheme(themeName) {
   // custom-CSS override of --accent is present, getComputedStyle picks it up here;
   // applyCustomCss also re-runs this so an override applied afterwards is reflected.
   refreshAccentDerived();
+  notifyAppearanceChanged();
 }
 
 // ── Favicon badge ─────────────────────────────────────────────────────────────

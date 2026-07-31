@@ -235,6 +235,8 @@
       "body": "Error al actualizar la lista blanca de imágenes."
     },
     "emailFrameTitle": "Contenido del correo",
+    "showOriginalColors": "Mostrar colores originales",
+    "matchThemeColors": "Adaptar colores al tema",
     "unsubscribe": {
       "info": "Puedes darte de baja de esta lista de correo.",
       "button": "Darse de baja",
@@ -798,7 +800,13 @@
       "customCssDescription": "Inyecta CSS adicional después del tema activo. Usa propiedades CSS personalizadas (p. ej. --accent, --bg-primary) para anular los valores del tema o añadir tus propias reglas. Se aplica a todos los usuarios.",
       "customCssPlaceholder": ":root {\n  --accent: #e74c3c;\n}",
       "customCssSave": "Guardar",
-      "customCssSaved": "Guardado"
+      "customCssSaved": "Guardado",
+      "emailContent": "Contenido del correo",
+      "emailContentDescription": "Elige si los colores de los correos HTML siguen a MailFlow o conservan la apariencia clara original del remitente.",
+      "emailContentMatchTheme": "Adaptar al tema",
+      "emailContentMatchThemeDescription": "Adapta los colores del correo al tema activo. Recomendado.",
+      "emailContentOriginal": "Colores originales",
+      "emailContentOriginalDescription": "Muestra siempre la apariencia clara y saneada del remitente."
     },
     "messageList": {
       "title": "Lista de mensajes",

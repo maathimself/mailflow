@@ -30,6 +30,10 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "node --test",
+    "test:browser": "playwright test --grep-invert @visual",
+    "test:visual": "playwright test --grep @visual",
+    "test:visual:update": "playwright test --grep @visual --update-snapshots=all",
+    "test:bundle": "node packages/scripts/check-email-appearance-chunk.cjs",
     "lint": "eslint src --max-warnings 0",
     "electron:dev": "electron .",
     "preelectron:dist": "node packages/scripts/prepare-electron-icons.cjs && node packages/scripts/prepare-linux-metainfo.cjs",
@@ -164,6 +168,7 @@
   "devDependencies": {
     "@capacitor/cli": "^8.3.4",
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.62.1",
     "@vitejs/plugin-react": "^6.0.2",
     "autoprefixer": "^10.4.18",
     "electron": "^42.1.0",

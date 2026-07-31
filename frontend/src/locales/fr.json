@@ -235,6 +235,8 @@
       "body": "Échec de la mise à jour de la liste blanche des images."
     },
     "emailFrameTitle": "Contenu de l'e-mail",
+    "showOriginalColors": "Afficher les couleurs d'origine",
+    "matchThemeColors": "Adapter les couleurs au thème",
     "unsubscribe": {
       "info": "Vous pouvez vous désabonner de cette liste de diffusion.",
       "button": "Se désabonner",
@@ -798,7 +800,13 @@
       "customCssDescription": "Injecte du CSS supplémentaire après le thème actif. Utilisez des propriétés CSS personnalisées (ex. --accent, --bg-primary) pour remplacer les valeurs du thème ou ajouter vos propres règles. Appliqué à tous les utilisateurs.",
       "customCssPlaceholder": ":root {\n  --accent: #e74c3c;\n}",
       "customCssSave": "Enregistrer",
-      "customCssSaved": "Enregistré"
+      "customCssSaved": "Enregistré",
+      "emailContent": "Contenu des e-mails",
+      "emailContentDescription": "Choisissez si les couleurs des e-mails HTML suivent MailFlow ou conservent l'apparence claire d'origine de l'expéditeur.",
+      "emailContentMatchTheme": "Adapter au thème",
+      "emailContentMatchThemeDescription": "Adapte les couleurs de l'e-mail au thème actif. Recommandé.",
+      "emailContentOriginal": "Couleurs d'origine",
+      "emailContentOriginalDescription": "Affiche toujours l'apparence claire et assainie de l'expéditeur."
     },
     "messageList": {
       "title": "Liste des messages",
