@@ -39,9 +39,9 @@ const inboxMsg = { id: MSG_ID, account_id: ACCT_ID, uid: 10, folder: 'INBOX', me
 const account = { id: ACCT_ID, user_id: 'u1', folder_mappings: {} };
 
 // Route every query classify issues: the ownership-scoped message load, the account fetch
-// (POST copy path), and resolveCopyUid's sibling lookup (DELETE). Each is individually swappable
+// (POST copy path), and resolveCopyUid's sibling lookup. Each is individually swappable
 // so a test can drive the not-owned (msg:null) / no-sibling (sibling:null) branches.
-function stubQueries({ msg = inboxMsg, acct = account, sibling = { uid: 42 } } = {}) {
+function stubQueries({ msg = inboxMsg, acct = account, sibling = null } = {}) {
   query.mockImplementation(async (sql) => {
     if (sql.includes('FROM messages m') && sql.includes('JOIN email_accounts')) return { rows: msg ? [msg] : [] };
     if (sql.startsWith('SELECT * FROM email_accounts')) return { rows: acct ? [acct] : [] };
@@ -81,6 +81,7 @@ beforeEach(() => {
   Object.values(imapManager).forEach(fn => fn.mockReset());
   getGtdConfig.mockReset();
   getGtdConfig.mockResolvedValue({ enabled: true, folders: DEFAULT_GTD_FOLDERS });
+  imapManager.copyMessage.mockResolvedValue(42);
   stubQueries();
 });
 
@@ -101,22 +102,59 @@ describe('POST /api/gtd/classify — request validation', () => {
 });
 
 describe('POST /api/gtd/classify — apply a GTD label (COPY)', () => {
-  it('copies an INBOX message into the state folder and echoes { ok, folder }', async () => {
+  it('copies an INBOX message into the state folder and reports an undoable apply', async () => {
     const res = await classify({ messageId: MSG_ID, state: 'todo' });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, folder: 'Todo' });
+    expect(await res.json()).toEqual({ ok: true, folder: 'Todo', applied: true, undoable: true });
     // Callers own folder existence, so classify ensures then copies — the message stays in INBOX.
     expect(imapManager.ensureFolder).toHaveBeenCalledWith(account, 'Todo');
     expect(imapManager.copyMessage).toHaveBeenCalledWith(ACCT_ID, 10, 'INBOX', 'Todo');
   });
 
-  it('short-circuits when the message already lives in the state folder (no IMAP work)', async () => {
+  it('short-circuits when a sibling already lives in the state folder (no IMAP work)', async () => {
+    stubQueries({ sibling: { uid: 42 } });
+    const res = await classify({ messageId: MSG_ID, state: 'todo' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, folder: 'Todo', applied: false });
+    expect(imapManager.ensureFolder).not.toHaveBeenCalled();
+    expect(imapManager.copyMessage).not.toHaveBeenCalled();
+  });
+
+  it('short-circuits when the acted row already lives in the state folder (no IMAP work)', async () => {
     stubQueries({ msg: { ...inboxMsg, folder: 'Todo' } });
     const res = await classify({ messageId: MSG_ID, state: 'todo' });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, folder: 'Todo' });
+    expect(await res.json()).toEqual({ ok: true, folder: 'Todo', applied: false });
     expect(imapManager.ensureFolder).not.toHaveBeenCalled();
     expect(imapManager.copyMessage).not.toHaveBeenCalled();
+  });
+
+  it('copies a message without a Message-ID but does not offer undo', async () => {
+    stubQueries({ msg: { ...inboxMsg, message_id: null } });
+    const res = await classify({ messageId: MSG_ID, state: 'todo' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, folder: 'Todo', applied: true, undoable: false });
+    expect(imapManager.copyMessage).toHaveBeenCalledWith(ACCT_ID, 10, 'INBOX', 'Todo');
+  });
+
+  it('does not offer immediate undo when a non-UIDPLUS copy has no confirmed destination identity', async () => {
+    imapManager.copyMessage.mockResolvedValue(null);
+
+    const applyRes = await classify({ messageId: MSG_ID, state: 'todo' });
+    expect(applyRes.status).toBe(200);
+    expect(await applyRes.json()).toEqual({
+      ok: true,
+      folder: 'Todo',
+      applied: true,
+      undoable: false,
+    });
+
+    // The deferred destination sync has not populated a sibling yet. This is
+    // exactly why classify must not advertise an immediately runnable inverse.
+    const undoRes = await unclassify({ messageId: MSG_ID, state: 'todo' });
+    expect(undoRes.status).toBe(200);
+    expect(await undoRes.json()).toEqual({ ok: true, removed: false });
+    expect(imapManager.removeMessageCopy).not.toHaveBeenCalled();
   });
 
   it("404s a message the caller doesn't own (the email_accounts join returns nothing)", async () => {
@@ -137,6 +175,7 @@ describe('POST /api/gtd/classify — apply a GTD label (COPY)', () => {
 
 describe('DELETE /api/gtd/classify — remove a GTD label', () => {
   it('removes the sibling copy in the state folder and returns removed:true', async () => {
+    stubQueries({ sibling: { uid: 42 } });
     const res = await unclassify({ messageId: MSG_ID, state: 'todo' });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, removed: true, folder: 'Todo' });
@@ -179,6 +218,7 @@ describe('DELETE /api/gtd/classify — remove a GTD label', () => {
   });
 
   it('maps an IMAP delete failure to 500', async () => {
+    stubQueries({ sibling: { uid: 42 } });
     imapManager.removeMessageCopy.mockRejectedValue(new Error('IMAP delete failed'));
     const res = await unclassify({ messageId: MSG_ID, state: 'todo' });
     expect(res.status).toBe(500);

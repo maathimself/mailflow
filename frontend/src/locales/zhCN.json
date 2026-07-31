@@ -539,6 +539,9 @@
         "label": "打印",
         "description": "打印当前邮件"
       },
+      "undo": {
+        "description": "撤销最近的收件箱操作"
+      },
       "gtdTodo": {
         "label": "标记为待办",
         "description": "将所选邮件归类为待办"

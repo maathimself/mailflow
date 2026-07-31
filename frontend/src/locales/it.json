@@ -539,6 +539,9 @@
         "label": "Stampa",
         "description": "Stampa il messaggio corrente"
       },
+      "undo": {
+        "description": "Annulla l'ultima azione nella posta in arrivo"
+      },
       "gtdTodo": {
         "label": "Segna Da fare",
         "description": "Classifica il messaggio selezionato come Da fare"

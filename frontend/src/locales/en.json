@@ -539,6 +539,9 @@
         "label": "Print",
         "description": "Print the current message"
       },
+      "undo": {
+        "description": "Undo the latest Inbox triage action"
+      },
       "gtdTodo": {
         "label": "Mark Todo",
         "description": "Classify the selected message as Todo"

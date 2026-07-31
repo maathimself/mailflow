@@ -19,6 +19,7 @@ import {
   readFolderOrder,
 } from './folderOrder.js';
 import i18n from '../i18n.js';
+import { UNDO_WINDOW_MS } from '../utils/inboxTriageUndo.js';
 
 // Accumulate rapid preference changes and flush at most once per second.
 let _prefFlushTimer = null;
@@ -376,12 +377,34 @@ export const useStore = create((set, get) => ({
 
   // Notifications
   notifications: [],
-  addNotification: (n) => set(state => ({
-    notifications: [{ ...n, id: crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}` }, ...state.notifications].slice(0, 5)
-  })),
+  addNotification: (n) => {
+    const id = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const undoExpiresAt = n.onUndo && n.undoExpiresAt === undefined
+      ? Date.now() + UNDO_WINDOW_MS
+      : n.undoExpiresAt;
+    set(state => ({
+      notifications: [{ ...n, id, ...(undoExpiresAt === undefined ? {} : { undoExpiresAt }) }, ...state.notifications].slice(0, 5)
+    }));
+  },
   removeNotification: (id) => set(state => ({
     notifications: state.notifications.filter(n => n.id !== id)
   })),
+  runNotificationUndo: (id, now = Date.now()) => {
+    let callback = null;
+    set(state => {
+      const notification = state.notifications.find(item => item.id === id);
+      if (!notification) return {};
+      if (typeof notification.onUndo === 'function'
+          && Number.isFinite(notification.undoExpiresAt)
+          && notification.undoExpiresAt > now) {
+        callback = notification.onUndo;
+      }
+      return { notifications: state.notifications.filter(item => item.id !== id) };
+    });
+    if (!callback) return false;
+    callback();
+    return true;
+  },
 
   // Admin panel
   showAdmin: false,

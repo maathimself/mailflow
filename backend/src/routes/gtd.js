@@ -170,21 +170,33 @@ router.post('/classify', async (req, res) => {
   if (target.error) return res.status(target.status).json({ error: target.error });
   const toFolder = target.folder;
 
-  // Already labelled with this state — nothing to copy.
-  if (msg.folder === toFolder) return res.json({ ok: true, folder: toFolder });
+  // Already labelled with this state — either the acted row is in the target
+  // folder or a COPY sibling shares its Message-ID. Never make a duplicate copy.
+  const existingUid = msg.folder === toFolder
+    ? msg.uid
+    : (msg.message_id ? await resolveCopyUid(msg, toFolder) : null);
+  if (existingUid != null) return res.json({ ok: true, folder: toFolder, applied: false });
 
   const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [msg.account_id]);
   const account = accountResult.rows[0];
 
   try {
     await imapManager.ensureFolder(account, toFolder);
-    await imapManager.copyMessage(msg.account_id, msg.uid, msg.folder, toFolder);
+    const copiedUid = await imapManager.copyMessage(msg.account_id, msg.uid, msg.folder, toFolder);
+    // UIDPLUS gives us the exact destination identity and copyMessage inserts
+    // that sibling before returning. Without it, destination ingestion is
+    // deferred; advertising an immediate inverse would race that sync and can
+    // falsely report removed:false.
+    return res.json({
+      ok: true,
+      folder: toFolder,
+      applied: true,
+      undoable: Boolean(msg.message_id && copiedUid != null),
+    });
   } catch (err) {
     console.error(`GTD classify failed for message ${messageId} -> ${toFolder}:`, err.message);
     return res.status(500).json({ error: 'Failed to apply GTD label' });
   }
-
-  res.json({ ok: true, folder: toFolder });
 });
 
 // Resolve the folder-copy uid a message has in `folder` for this account, or null. The
