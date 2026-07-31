@@ -1,0 +1,10 @@
+<style>
+  :root { --brand: #b4238d; }
+  .panel { color:#111; background:#fff; border:1px solid #bbb; }
+  .important { color:#222 !important; background-color:#fafafa !important; }
+</style>
+<main class="panel" data-case="panel">
+  Direct neutral text
+  <p style="color:var(--brand)" data-case="brand">Chromatic inherited text</p>
+  <p class="important" data-case="important"><span data-case="transparent-child">Nested transparent background</span></p>
+</main>

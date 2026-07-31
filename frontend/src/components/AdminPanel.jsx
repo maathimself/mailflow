@@ -1092,7 +1092,7 @@ function AccountsTab() {
 // ─── Themes Tab ───────────────────────────────────────────────────────────────
 function ThemesTab() {
   const { t } = useTranslation();
-  const { theme, setTheme } = useStore();
+  const { theme, setTheme, emailBodyAppearance, setEmailBodyAppearance } = useStore();
   const [customCss, setCustomCss] = useState('');
   const [cssSaving, setCssSaving] = useState(false);
   const [cssSaved, setCssSaved] = useState(false);
@@ -1106,8 +1106,20 @@ function ThemesTab() {
 
   const handleSelect = (key) => {
     setTheme(key);
-    applyTheme(key);
   };
+
+  const emailContentOptions = [
+    {
+      value: 'auto',
+      label: t('admin.appearance.emailContentMatchTheme'),
+      description: t('admin.appearance.emailContentMatchThemeDescription'),
+    },
+    {
+      value: 'original',
+      label: t('admin.appearance.emailContentOriginal'),
+      description: t('admin.appearance.emailContentOriginalDescription'),
+    },
+  ];
 
   const handleSaveCustomCss = async () => {
     setCssSaving(true);
@@ -1133,6 +1145,42 @@ function ThemesTab() {
       <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 20 }}>
         {t('admin.appearance.description')}
       </div>
+
+      <fieldset aria-describedby="email-content-description"
+        style={{ border: 0, padding: 0, margin: '0 0 28px', minWidth: 0 }}>
+        <legend style={{ padding: 0, fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+          {t('admin.appearance.emailContent')}
+        </legend>
+        <div id="email-content-description"
+          style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 12 }}>
+          {t('admin.appearance.emailContentDescription')}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
+          {emailContentOptions.map(option => {
+            const selected = emailBodyAppearance === option.value;
+            return (
+              <label key={option.value}
+                style={{
+                  display: 'grid', gridTemplateColumns: 'auto 1fr', alignItems: 'start', gap: 10,
+                  padding: '12px 14px', cursor: 'pointer', borderRadius: 10,
+                  background: selected ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
+                  border: `2px solid ${selected ? 'var(--accent)' : 'var(--border-subtle)'}`,
+                  color: 'var(--text-primary)',
+                }}>
+                <input type="radio" name="email-body-appearance" value={option.value}
+                  checked={selected} onChange={() => setEmailBodyAppearance(option.value)}
+                  style={{ marginTop: 2, accentColor: 'var(--accent)' }} />
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{option.label}</div>
+                  <div style={{ marginTop: 3, fontSize: 12, color: 'var(--text-tertiary)' }}>
+                    {option.description}
+                  </div>
+                </div>
+              </label>
+            );
+          })}
+        </div>
+      </fieldset>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}>
         {Object.entries(THEMES).map(([key, themeObj]) => (
@@ -8132,6 +8180,7 @@ function makeSearchIndex(t) {
     { label: t('admin.rules.subTabBlockList'), keywords: ['block', 'blocked', 'sender', 'blacklist', 'spam', 'domain'], tab: 'rules', subtab: 'block-list', breadcrumb: `${tabLabel('rules')} › ${t('admin.rules.subTabBlockList')}` },
     // Appearance > Theme
     { label: tabLabel('theme'), keywords: ['theme', 'dark', 'light', 'color', 'colour', 'dark mode', 'light mode'], tab: 'appearance', subtab: 'theme', breadcrumb: `${tabLabel('appearance')} › ${tabLabel('theme')}` },
+    { label: t('admin.appearance.emailContent'), keywords: ['email body', 'message colors', 'original colors', 'dark email', 'match theme'], tab: 'appearance', subtab: 'theme', breadcrumb: `${tabLabel('appearance')} › ${tabLabel('theme')}` },
     // Appearance > Layout
     { label: t('admin.appearance.layout'), keywords: ['layout', 'pane', 'split', 'preview', 'reading pane', 'side by side', 'stacked'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.scrollingMode'), keywords: ['scroll', 'infinite', 'paginated', 'pagination', 'pages'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },

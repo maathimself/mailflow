@@ -76,3 +76,42 @@ jobs:
       - name: Audit
         working-directory: frontend
         run: npm audit --omit=dev --audit-level=high
+
+  frontend-browser:
+    name: Frontend browser
+    runs-on: ubuntu-latest
+    needs: frontend
+    container: mcr.microsoft.com/playwright:v1.62.1-noble
+    env:
+      HOME: /root
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            backend/package-lock.json
+      - name: Install backend sanitizer dependencies
+        working-directory: backend
+        run: npm ci --omit=dev
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Browser behavior tests
+        working-directory: frontend
+        run: npm run test:browser
+      - name: Browser visual tests
+        working-directory: frontend
+        run: npm run test:visual
+      - name: Email appearance bundle budget
+        working-directory: frontend
+        run: npm run build && npm run test:bundle
+      - name: Upload browser report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report
+          if-no-files-found: ignore

@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { api } from '../utils/api.js';
 import { accountAffectsUnifiedInbox } from '../utils/unifiedInbox.js';
 import { applyTheme, applyCustomCss, getInitialTheme } from '../themes.js';
+import { normalizeEmailBodyAppearance } from '../utils/emailBodyAppearance.js';
 import { applyFontSet, applyFontSize, effectiveFontSet, isRetroFont, THEME_FONT } from '../fonts.js';
 import { applyLayout, normalizeLayout } from '../layouts.js';
 import { DEFAULT_AI_ACTIONS } from '../aiActions.js';
@@ -599,6 +600,15 @@ export const useStore = create((set, get) => ({
     applyFontSet(effectiveFontSet(theme, get().fontSet));
     schedulePrefSave({ theme });
   },
+  emailBodyAppearance: normalizeEmailBodyAppearance(
+    localStorage.getItem('mailflow_email_body_appearance'),
+  ),
+  setEmailBodyAppearance: (value) => {
+    const clean = normalizeEmailBodyAppearance(value);
+    localStorage.setItem('mailflow_email_body_appearance', clean);
+    set({ emailBodyAppearance: clean });
+    schedulePrefSave({ emailBodyAppearance: clean });
+  },
 
   // Font
   fontSet: localStorage.getItem('mailflow_font') || 'default',
@@ -962,6 +972,9 @@ export const useStore = create((set, get) => ({
         set({ theme: prefs.theme });
         applyTheme(prefs.theme);
       }
+      const emailBodyAppearance = normalizeEmailBodyAppearance(prefs.emailBodyAppearance);
+      localStorage.setItem('mailflow_email_body_appearance', emailBodyAppearance);
+      set({ emailBodyAppearance });
       if (prefs.font) {
         localStorage.setItem('mailflow_font', prefs.font);
         set({ fontSet: prefs.font });

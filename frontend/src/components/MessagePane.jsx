@@ -13,6 +13,26 @@ import { BUILTIN_SUMMARIZE, summarizePromptForLocale } from '../aiActions.js';
 import { getResults, saveResult, removeResult } from '../aiResults.js';
 import { renderMarkdown } from '../utils/renderMarkdown.js';
 import { pickReplyAlias } from '../utils/replyAlias.js';
+import {
+  buildEmailFrameDocument,
+  createEmailFrameSourceToken,
+  emailFrameDocumentMatchesSource,
+} from '../utils/emailFrameDocument.js';
+import { emailBodyAppearanceToggleLabel } from '../utils/emailBodyAppearance.js';
+import {
+  buildForwardBodyContent,
+  buildReplyBodyContent,
+  cacheCanonicalEmailBody,
+  emailBodyTextForAi,
+} from '../utils/emailBodyContent.js';
+import {
+  applyEmailDivGeometry,
+  applyEmailIframeGeometry,
+  attachEmailBodyLinkHandler,
+  createEmailScrollExpander,
+  handleEmailBodyLinkClick,
+} from '../utils/emailRenderRuntime.js';
+import { useEmailAppearance } from '../hooks/useEmailAppearance.js';
 const USE_DIV_RENDER = import.meta.env.VITE_EMAIL_DIV_RENDER === 'true';
 const MESSAGE_OPENING_EVENT = 'mailflow:message-opening';
 
@@ -28,9 +48,10 @@ const SPAM_NAME_RE = /(spam|junk|bulk|indesiderata|spamverdacht|courrier\s*ind|p
 let prepareEmailHtml  = null;
 let injectEmailStyles = null;
 let removeEmailStyles = null;
+let getEmailStyleSheets = null;
 if (USE_DIV_RENDER) {
   ({ prepareEmailHtml }                    = await import('../utils/scopeEmailCss.js'));
-  ({ injectEmailStyles, removeEmailStyles } = await import('../utils/emailStyleRegistry.js'));
+  ({ injectEmailStyles, removeEmailStyles, getEmailStyleSheets } = await import('../utils/emailStyleRegistry.js'));
 }
 import { senderColor } from '../themes.js';
 import MessageHeaderModal from './MessageHeaderModal.jsx';
@@ -98,7 +119,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     imageWhitelist, addToImageWhitelist, blockRemoteImages, threadMessages,
     replyDefault, shortcuts, recentFolders, favoriteFolders, todoistConnected,
     categorizationEnabled, setCategoryCounts, adjustCategoryCount,
-    aiActions, setShowAdmin, setAdminTab,
+    aiActions, setShowAdmin, setAdminTab, emailBodyAppearance, theme,
   } = useStore();
 
   // Detached-window mode (#219): when a message id is passed in, this pane renders that
@@ -326,12 +347,39 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const scrollContainerRef = useRef(null);
   const iframeRef = useRef(null);
   const roRef = useRef(null);
+  const appearance = useEmailAppearance({
+    messageId: message?.id,
+    html: body?.html,
+    preference: emailBodyAppearance,
+    themeName: theme,
+  });
+  const {
+    processDraft: processEmailDraft,
+    status: appearanceStatus,
+    readyToken: appearanceReadyToken,
+  } = appearance;
+  const iframeSourceToken = useMemo(createEmailFrameSourceToken, [body?.html]);
+  const iframeDocumentHtml = useMemo(() => (
+    body?.html
+      ? buildEmailFrameDocument(body.html, {
+        recovery: appearance.recovery,
+        sourceToken: iframeSourceToken,
+      })
+      : ''
+  ), [appearance.recovery, body?.html, iframeSourceToken]);
   // useMemo so prepared is available in the same render as body.html — no extra frame,
   // no flash of empty content between skeleton-gone and email-shown.
   const prepared = useMemo(() => {
     if (!USE_DIV_RENDER || !body?.html) return null;
-    return prepareEmailHtml(body.html, windowMode ? `w${message?.id ?? 'preview'}` : String(message?.id ?? 'preview'));
-  }, [body?.html, message?.id, windowMode]);
+    const paneRootKey = windowMode
+      ? `w${message?.id ?? 'preview'}`
+      : String(message?.id ?? 'preview');
+    return prepareEmailHtml(
+      body.html,
+      `${paneRootKey}-${appearance.renderMode}-${appearance.rootKey}`,
+      { recovery: appearance.recovery },
+    );
+  }, [appearance.recovery, appearance.renderMode, appearance.rootKey, body?.html, message?.id, windowMode]);
   const outerRef = useRef(null);
   const scaleRef = useRef(null);
   const innerRef = useRef(null);
@@ -505,13 +553,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         if (cancelled) return;
         // Only cache if there's real content — empty results can be retried
         if (data.html || data.text) {
-          bodyCache.current[selectedMessageId] = data;
-          bodyCacheOrder.current.push(selectedMessageId);
-          // Evict oldest entry when cache exceeds 50 messages
-          if (bodyCacheOrder.current.length > 50) {
-            const evicted = bodyCacheOrder.current.shift();
-            delete bodyCache.current[evicted];
-          }
+          cacheCanonicalEmailBody(bodyCache.current, bodyCacheOrder.current, selectedMessageId, data);
         }
         setBody(data);
       })
@@ -541,8 +583,13 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     let lastH = 0;
     let contextMenuDoc = null;
     let iframeContextMenuHandler = null;
-    let clickDoc = null;
-    let iframeClickHandler = null;
+    let detachIframeLinkHandler = null;
+    let processedDocument = null;
+    let cancelled = false;
+
+    const afterNextPaint = () => new Promise(resolve => {
+      requestAnimationFrame(() => requestAnimationFrame(resolve));
+    });
 
     const setHeight = () => {
       const doc = iframe.contentDocument;
@@ -564,98 +611,43 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       }
     };
 
-    const onLoaded = () => {
+    const onLoaded = async () => {
       emailScaleRef.current = 1; // reset for each new email
 
       const doc = iframe.contentDocument;
-      if (!doc) return;
+      if (!doc
+        || processedDocument === doc
+        || !emailFrameDocumentMatchesSource(doc, iframeSourceToken)) return;
+      processedDocument = doc;
+      const ready = await processEmailDraft({
+        root: doc,
+        styleSheets: [...doc.styleSheets],
+        recoverySafe: appearance.recovery,
+        rootKey: appearance.rootKey,
+      });
+      if (!ready
+        || iframe.contentDocument !== doc
+        || !emailFrameDocumentMatchesSource(doc, iframeSourceToken)) return;
+      // Readiness changes the iframe wrapper from hidden to visible. Yield two
+      // frames so that terminal state is committed and painted before the
+      // potentially expensive synchronous geometry pass.
+      await afterNextPaint();
+      if (cancelled
+        || iframe.contentDocument !== doc
+        || !emailFrameDocumentMatchesSource(doc, iframeSourceToken)) return;
 
       // Some marketing emails have inline styles on their <body> tag (e.g. overflow:auto,
       // height:100%) that the HTML parser merges into the iframe's outer <body>.  Our
       // injected <style> with !important can't win against inline !important rules.
       // Setting the properties via JS style.setProperty(...,'important') writes them as
       // inline !important, which always beats any same-property inline value from the email.
-      const b = doc.body;
-      const h = doc.documentElement;
-      if (b) {
-        b.style.setProperty('height', 'auto', 'important');
-        b.style.setProperty('min-height', '0', 'important');
-        b.style.setProperty('overflow-y', 'hidden', 'important');
-      }
-      if (h) {
-        h.style.setProperty('height', 'auto', 'important');
-        h.style.setProperty('min-height', '0', 'important');
-        h.style.setProperty('overflow-y', 'hidden', 'important');
-      }
-
-      // Some marketing emails (e.g. Avis) use class-based !important rules that
-      // lock layout to a fixed pixel width and cannot be overridden by our injected
-      // CSS. Measure the rendered content width and, if it exceeds the iframe,
-      // scale the entire wrapper div down proportionally so all content is visible.
-      const iframeW = iframe.offsetWidth;
-      if (iframeW > 0) {
-        // iOS Safari clamps scrollWidth to the iframe viewport when overflow:hidden
-        // is set on html/body, so wide fixed-layout emails are never detected.
-        // Temporarily expose overflow-x inline (beating the !important stylesheet
-        // rule) to let scrollWidth reflect the true content width, then restore.
-        // Note: overflow-x:visible is coerced to auto when overflow-y is non-visible —
-        // that's fine; auto still returns the real scrollable content width.
-        if (b) b.style.setProperty('overflow-x', 'visible', 'important');
-        if (h) h.style.setProperty('overflow-x', 'visible', 'important');
-        const contentW = Math.max(
-          h ? h.scrollWidth : 0,
-          b ? b.scrollWidth : 0,
-        );
-        if (b) b.style.removeProperty('overflow-x');
-        if (h) h.style.removeProperty('overflow-x');
-
-        const wrapper = doc.getElementById('mf-scale-wrapper');
-        if (contentW > iframeW + 2) { // +2 absorbs sub-pixel rounding
-          const scale = iframeW / contentW;
-          emailScaleRef.current = scale;
-          if (wrapper) {
-            wrapper.style.transform       = `scale(${scale})`;
-            wrapper.style.transformOrigin = 'top left';
-            // Lock the wrapper at its natural content width so the scale
-            // maps exactly contentW → iframeW with no clipping.
-            wrapper.style.width           = `${contentW}px`;
-          }
-        }
-      }
-
-      // Expand any nested scroll containers so their full content is visible
-      // without internal scrolling. Marketing emails sometimes apply overflow:auto
-      // plus a fixed height to inner divs/tds, which makes iOS scroll that element
-      // instead of the outer pane container — leaving the sender card pinned like a
-      // sticky header.
-      //
-      // Process in REVERSE document order (deepest elements first) so that when we
-      // expand an inner scroll container, the outer container's scrollHeight already
-      // reflects the expanded child when we evaluate it — preventing missed outer
-      // containers in a single pass.
-      //
-      // expandedEls tracks which elements we've already expanded so that subsequent
-      // calls from image load handlers can re-check and grow them as lazy images add
-      // height (an element that was 1 000 px after the first pass may be 3 000 px
-      // once all images are loaded).
-      const expandedEls = new Set();
-      const dv = doc.defaultView;
-      const expandScrollContainers = () => {
-        if (!dv) return;
-        Array.from(doc.querySelectorAll('*')).reverse().forEach(el => {
-          const cs = dv.getComputedStyle(el);
-          const oy = cs.overflowY;
-          const isScrollContainer = (oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 2;
-          const grewAfterExpansion = expandedEls.has(el) && el.scrollHeight > el.clientHeight + 2;
-          if (isScrollContainer || grewAfterExpansion) {
-            expandedEls.add(el);
-            el.style.setProperty('overflow-y', 'hidden', 'important');
-            el.style.setProperty('max-height', 'none', 'important');
-            el.style.setProperty('height', el.scrollHeight + 'px', 'important');
-          }
-        });
-      };
-      expandScrollContainers();
+      const expandScrollContainers = createEmailScrollExpander(doc);
+      const geometry = applyEmailIframeGeometry({
+        document: doc,
+        iframe,
+        expandScrollContainers,
+      });
+      emailScaleRef.current = geometry?.scale || 1;
 
       lastH = 0; // recalculate from scratch with the new scale
       setHeight();
@@ -666,26 +658,8 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       // origin via allow-same-origin and open a new mailflow tab instead of
       // the intended destination.  We read the raw attribute to bypass
       // browser resolution and only forward absolute http(s)/mailto links.
-      // Tracked and removed like the contextmenu handler below — onLoaded can
-      // re-run on the same document when the effect's callback deps change,
-      // and an untracked listener stacks up, opening N duplicate tabs per click.
-      if (clickDoc && iframeClickHandler) {
-        clickDoc.removeEventListener('click', iframeClickHandler);
-      }
-      iframeClickHandler = (ev) => {
-        const anchor = ev.target.closest('a[href]');
-        if (!anchor) return;
-        ev.preventDefault();
-        let raw = anchor.getAttribute('href') || '';
-        if (raw.startsWith('//')) raw = 'https:' + raw;
-        if (/^https?:\/\//i.test(raw)) {
-          window.open(raw, '_blank', 'noopener,noreferrer');
-        } else if (/^mailto:/i.test(raw)) {
-          window.open(raw, '_blank', 'noopener,noreferrer');
-        }
-      };
-      clickDoc = doc;
-      doc.addEventListener('click', iframeClickHandler);
+      detachIframeLinkHandler?.();
+      detachIframeLinkHandler = attachEmailBodyLinkHandler(doc);
 
       if (contextMenuDoc && iframeContextMenuHandler) {
         contextMenuDoc.removeEventListener('contextmenu', iframeContextMenuHandler);
@@ -727,18 +701,17 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     }
 
     return () => {
+      cancelled = true;
       cancelAnimationFrame(rafId);
       if (roRef.current) { roRef.current.disconnect(); roRef.current = null; }
       if (contextMenuDoc && iframeContextMenuHandler) {
         contextMenuDoc.removeEventListener('contextmenu', iframeContextMenuHandler);
       }
-      if (clickDoc && iframeClickHandler) {
-        clickDoc.removeEventListener('click', iframeClickHandler);
-      }
+      detachIframeLinkHandler?.();
       iframe.removeEventListener('load', onLoaded);
       emailScaleRef.current = 1;
     };
-  }, [body?.html, selectedMessageId, hasNativeContextTarget, openPaneContextMenu]);
+  }, [appearance.recovery, appearance.rootKey, body?.html, hasNativeContextTarget, iframeSourceToken, openPaneContextMenu, processEmailDraft, selectedMessageId]);
 
   // Inject scoped email styles before paint so there is no flash of unstyled content.
   // useLayoutEffect runs synchronously after DOM mutations and before the browser paints,
@@ -749,33 +722,24 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     return () => removeEmailStyles(prepared.prefix);
   }, [prepared]);
 
+  useEffect(() => {
+    if (!USE_DIV_RENDER || !prepared || !innerRef.current) return;
+    processEmailDraft({
+      root: innerRef.current,
+      styleSheets: getEmailStyleSheets(prepared.prefix),
+      recoverySafe: appearance.recovery,
+      rootKey: appearance.rootKey,
+    });
+  }, [appearance.recovery, appearance.rootKey, prepared, processEmailDraft]);
+
   // Div render path — scale-to-fit for wide fixed-layout emails.
   // Uses outer/inner refs: measures inner (natural dimensions, unaffected by transform),
   // sets height/overflow on outer (not observed by the ResizeObserver, preventing loops).
   useEffect(() => {
-    if (!USE_DIV_RENDER || !prepared) return;
+    if (!USE_DIV_RENDER || !prepared || appearanceStatus === 'pending') return;
 
     let rafId = null;
-    const expandedEls = new Set();
-
-    // Neutralize nested sender-created scroll containers (overflow:auto/scroll +
-    // fixed height) so iOS scrolls the message pane instead of an inner block —
-    // the same fix the iframe renderer applies. Runs on the unscaled content and
-    // re-grows previously-expanded elements as lazy images add height.
-    const expandScrollContainers = (root) => {
-      if (!root) return;
-      Array.from(root.querySelectorAll('*')).reverse().forEach(el => {
-        const oy = window.getComputedStyle(el).overflowY;
-        const isScroll = (oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 2;
-        const grew = expandedEls.has(el) && el.scrollHeight > el.clientHeight + 2;
-        if (isScroll || grew) {
-          expandedEls.add(el);
-          el.style.setProperty('overflow-y', 'hidden', 'important');
-          el.style.setProperty('max-height', 'none', 'important');
-          el.style.setProperty('height', el.scrollHeight + 'px', 'important');
-        }
-      });
-    };
+    const expandScrollContainers = createEmailScrollExpander(innerRef.current);
 
     const applyScale = () => {
       const inner  = innerRef.current;
@@ -783,41 +747,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       const scaler = scaleRef.current;
       if (!inner || !outer || !scaler) return;
 
-      // Reset first so we measure natural/unscaled dimensions.
-      // Transform goes on scaleRef (not innerRef) so the base normalize's
-      // transform:none!important on .email-* never cancels the scale.
-      scaler.style.transform       = '';
-      scaler.style.transformOrigin = '';
-      scaler.style.width           = '';
-      outer.style.height    = '';
-      outer.style.overflowX = '';
-      outer.style.overflowY = '';
-
-      // Expand nested scroll containers before measuring so the outer height and
-      // scale account for their full (un-scrolled) content.
-      expandScrollContainers(inner);
-
-      const containerW = outer.clientWidth;
-      const contentW   = inner.scrollWidth; // unaffected by ancestor transforms
-
-      if (containerW > 0 && contentW > containerW + 2) {
-        const scale = containerW / contentW;
-        // Lock scaler to the email's natural content width before applying the
-        // transform so scale(containerW/contentW) maps contentW → containerW
-        // exactly. Without this, scaler inherits innerRef's max-width:100% (=
-        // containerW) and the transform scales the wrong box entirely.
-        scaler.style.width           = `${contentW}px`;
-        scaler.style.transform       = `scale(${scale})`;
-        scaler.style.transformOrigin = 'top left';
-        outer.style.height           = Math.round(inner.scrollHeight * scale) + 'px';
-        // Transform does not change layout dimensions; hide both axes so the
-        // scaled outer wrapper is never treated as a scroll container.  Setting
-        // only overflowX would coerce overflowY from visible to auto (CSS
-        // overflow invariant), creating an accidental vertical scroll container
-        // that iOS scrolls before the outer pane's scrollContainerRef.
-        outer.style.overflowX        = 'hidden';
-        outer.style.overflowY        = 'hidden';
-      }
+      applyEmailDivGeometry({ inner, outer, scaler, expandScrollContainers });
     };
 
     const scheduleScale = () => {
@@ -851,7 +781,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       if (ro) ro.disconnect();
       imageListeners.forEach(({ img, handler }) => img.removeEventListener('load', handler));
     };
-  }, [prepared]);
+  }, [appearanceReadyToken, appearance.rootKey, appearanceStatus, prepared]);
 
   // Fade in pane content when switching messages on desktop
   useEffect(() => {
@@ -988,12 +918,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     const fromStr = safeName
       ? `${safeName} <${message.from_email}>`
       : message.from_email || '';
-    const quotedText = body?.text
-      ? `\n\n---\nOn ${date}, ${fromStr} wrote:\n${body.text.split('\n').map(l => '> ' + l).join('\n')}`
-      : '';
-    const quotedBodyHtml = body?.html
-      ? `<div style="border-left:3px solid var(--border,#ccc);padding-left:12px;margin-top:12px;color:var(--text-secondary,#666)"><p style="margin:0 0 6px;font-size:12px">On ${date}, ${fromStr} wrote:</p>${body.html}</div>`
-      : null;
+    const replyContent = buildReplyBodyContent({ body, date, from: fromStr });
 
     const replyToArr = Array.isArray(message.reply_to)
       ? message.reply_to
@@ -1044,8 +969,8 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       cc: replyAll ? allRecipients : [],
       subject: reSubject,
       body: '',
-      quotedBody: quotedText,
-      quotedBodyHtml,
+      quotedBody: replyContent.text,
+      quotedBodyHtml: replyContent.html,
       inReplyTo: message.message_id,
       references: referencesChain,
       accountId: message.account_id,
@@ -1070,15 +995,14 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     const toStr = parseAddressField(message.to_addresses);
     const ccStr = parseAddressField(message.cc_addresses);
 
-    const fwdText = `\n\n---------- Forwarded message ----------\nFrom: ${fromStr}\nDate: ${date}\nSubject: ${safeSubject}${toStr ? `\nTo: ${toStr}` : ''}${ccStr ? `\nCc: ${ccStr}` : ''}\n\n${body?.text || ''}`;
-    const fwdHtml = body?.html
-      ? `<div style="border-left:3px solid var(--border,#ccc);padding-left:12px;margin-top:12px;color:var(--text-secondary,#666)"><p style="margin:0 0 6px;font-size:12px">---------- Forwarded message ----------<br>From: ${fromStr}<br>Date: ${date}<br>Subject: ${safeSubject}${toStr ? `<br>To: ${toStr}` : ''}${ccStr ? `<br>Cc: ${ccStr}` : ''}</p>${body.html}</div>`
-      : null;
+    const forwardContent = buildForwardBodyContent({
+      body, date, from: fromStr, subject: safeSubject, to: toStr, cc: ccStr,
+    });
     openCompose({
       subject: message.subject?.startsWith('Fwd:') ? message.subject : `Fwd: ${message.subject}`,
       body: '',
-      quotedBody: fwdText,
-      quotedBodyHtml: fwdHtml,
+      quotedBody: forwardContent.text,
+      quotedBodyHtml: forwardContent.html,
       accountId: message.account_id,
       isForward: true,
       forwardedAttachments: (body?.attachments || []).map(att => ({
@@ -1100,52 +1024,19 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
 
   const handlePrint = () => {
     if (!message) return;
-    const esc = (s) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const date = message.date ? new Date(message.date).toLocaleString() : '';
-    const fromStr = message.from_name
-      ? `${esc(message.from_name)} &lt;${esc(message.from_email)}&gt;`
-      : esc(message.from_email);
-
-    const parseList = (raw) => {
-      try { return Array.isArray(raw) ? raw : JSON.parse(raw || '[]'); } catch { return []; }
-    };
-    const fmtAddr = (r) => r.name ? `${esc(r.name)} &lt;${esc(r.email)}&gt;` : esc(r.email);
-    const toStr = parseList(message.to_addresses).map(fmtAddr).join(', ');
-    const ccStr = parseList(message.cc_addresses).map(fmtAddr).join(', ');
-
-    const bodyContent = body?.html
-      ? DOMPurify.sanitize(body.html, { ADD_ATTR: ['target'] })
-      : body?.text
-        ? `<pre style="white-space:pre-wrap;font-family:sans-serif;font-size:14px">${esc(body.text)}</pre>`
-        : '';
-
     const win = window.open('', '_blank');
     if (!win) return;
-    // CSP blocks any script execution in this same-origin print window (it has no
-    // sandbox); combined with the DOMPurify pass above this neutralizes email HTML.
-    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="script-src 'none'; object-src 'none'; base-uri 'none'"><title>${esc(message.subject)}</title>
-<style>
-  body { font-family: Arial, sans-serif; font-size: 14px; color: #111; margin: 32px; }
-  .header { border-bottom: 1px solid #ccc; padding-bottom: 16px; margin-bottom: 24px; }
-  .header h1 { font-size: 18px; margin: 0 0 12px; }
-  .meta { font-size: 13px; color: #444; line-height: 1.8; }
-  .meta span { font-weight: 600; color: #111; }
-  @media print { body { margin: 16px; } }
-</style></head><body>
-<div class="header">
-  <h1>${esc(message.subject) || '(no subject)'}</h1>
-  <div class="meta">
-    <div><span>From:</span> ${fromStr}</div>
-    <div><span>To:</span> ${toStr}</div>
-    ${ccStr ? `<div><span>Cc:</span> ${ccStr}</div>` : ''}
-    <div><span>Date:</span> ${date}</div>
-  </div>
-</div>
-${bodyContent}
-</body></html>`);
-    win.document.close();
-    win.focus();
-    win.print();
+    // Keep the sanitizer/CSS scoper (and PostCSS) out of the flag-off main bundle.
+    // Opening synchronously preserves the user gesture while the print code loads.
+    void import('../utils/emailPrintRuntime.js')
+      .then(({ printEmailWindow }) => {
+        if (win.closed) return;
+        printEmailWindow(win, { message, body });
+      })
+      .catch(error => {
+        console.error('Failed to prepare print view:', error);
+        win.close();
+      });
   };
 
   // Label shown on a result box for a given action key. The built-in summarize
@@ -1174,9 +1065,7 @@ ${bodyContent}
       }
     }
 
-    const textContent = body?.text
-      || body?.html?.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
-      || '';
+    const textContent = emailBodyTextForAi(body);
     if (!textContent) return;
 
     const label = aiActionLabel(key, action.label);
@@ -1326,18 +1215,7 @@ ${bodyContent}
     if (isMobile) setSelectedMessage(null);
   }, [message, updateMessage, incrementUnread, decrementUnread, adjustCategoryCount, isMobile, setSelectedMessage]);
 
-  const handleEmailClick = useCallback((ev) => {
-    const anchor = ev.target.closest('a[href]');
-    if (!anchor) return;
-    ev.preventDefault();
-    let raw = anchor.getAttribute('href') || '';
-    if (raw.startsWith('//')) raw = 'https:' + raw;
-    if (/^https?:\/\//i.test(raw)) {
-      window.open(raw, '_blank', 'noopener,noreferrer');
-    } else if (/^mailto:/i.test(raw)) {
-      window.open(raw, '_blank', 'noopener,noreferrer');
-    }
-  }, []);
+  const handleEmailClick = useCallback(handleEmailBodyLinkClick, []);
 
   const getFindRoot = useCallback(() => {
     if (!USE_DIV_RENDER && body?.html && iframeRef.current?.contentDocument?.body) {
@@ -2220,6 +2098,14 @@ ${bodyContent}
                     {t('todoist.title')}
                   </div>
                 )}
+                {body?.html && (
+                  <div
+                    onClick={() => { appearance.toggleViewMode(); setShowMoreMenu(false); }}
+                    style={{ padding: '10px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)' }}
+                  >
+                    {t(emailBodyAppearanceToggleLabel(appearance.desiredMode))}
+                  </div>
+                )}
                 <div
                   onClick={() => { setShowHeaderModal(true); setShowMoreMenu(false); }}
                   style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}
@@ -2792,7 +2678,7 @@ ${bodyContent}
           <div className="msg-card" style={{
             position: 'relative',
             padding: '14px 16px 12px',
-            background: 'white',
+            background: appearance.status === 'themed' ? 'var(--bg-secondary)' : 'white',
             borderRadius: isMobile ? 0 : 10,
             border: isMobile ? 'none' : '1px solid var(--border-subtle)',
             overflow: 'hidden',
@@ -2812,12 +2698,13 @@ ${bodyContent}
               //          without touching the scale wrapper above it.
               <div
                 ref={outerRef}
-                style={{ position: 'relative', width: '100%' }}
+                style={{ position: 'relative', width: '100%', visibility: appearance.visibility }}
                 onClick={handleEmailClick}
                 onContextMenu={handlePaneContextMenu}
               >
                 <div ref={scaleRef}>
                   <div
+                    key={appearance.rootKey}
                     ref={innerRef}
                     data-mailflow-email={prepared?.prefix}
                     className={prepared?.prefix ?? ''}
@@ -2827,45 +2714,11 @@ ${bodyContent}
               </div>
             ) : (
               <iframe
+                key={`${message?.id ?? 'preview'}:${appearance.renderMode}:${appearance.renderKey}`}
                 ref={iframeRef}
-                srcDoc={`<!DOCTYPE html><html><head><meta charset="utf-8">
-                <meta name="viewport" content="width=device-width,initial-scale=1">
-                <meta name="color-scheme" content="only light">
-                <meta http-equiv="Content-Security-Policy" content="script-src 'none'; object-src 'none'; frame-src 'none'; form-action 'none'; style-src 'unsafe-inline';">
-                <base target="_blank">
-              </head><body><div id="mf-scale-wrapper">${
-                body.html.replace(/<a(\s)/gi, '<a rel="noopener noreferrer"$1')
-              }</div><style>
-                  /* Injected AFTER email HTML so our rules win the source-order tiebreak
-                     for same-specificity !important declarations inside the email's own
-                     <style> blocks (which land in <body> after the email HTML). */
-                  html, body { height: auto !important; min-height: 0 !important; overflow: hidden !important; }
-                  body { margin: 0 !important; padding: 0 !important;
-                         background-color: #ffffff !important; color-scheme: light;
-                         font-family: -apple-system, Arial, sans-serif;
-                         font-size: 14px; line-height: 1.6; color: #1a1a1a;
-                         word-wrap: break-word; overflow-wrap: break-word; }
-                  img { max-width: 100% !important; height: auto !important; }
-                  /* Force top-level wrapper tables to fill the viewport. Selectors cover
-                     both the legacy body > table pattern and the mf-scale-wrapper layer. */
-                  body > table, body > center > table,
-                  body > div > table, body > center > div > table,
-                  #mf-scale-wrapper > table, #mf-scale-wrapper > center > table,
-                  #mf-scale-wrapper > div > table, #mf-scale-wrapper > center > div > table {
-                    width: 100% !important;
-                  }
-                  /* Reset min-width on cells only — not on table elements, because fluid
-                     grid systems (e.g. Oracle Eloqua "tolkien") set min-width on inline-table
-                     column elements as a layout fallback when their calc() width resolves to 0. */
-                  td, th { min-width: 0 !important; }
-                  td { word-break: break-word; }
-                  th { overflow-wrap: normal; word-break: normal; }
-                  a { color: #6366f1; }
-                  pre, code { overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
-                  blockquote { border-left: 3px solid #ddd; margin: 0; padding-left: 12px; color: #555; }
-                </style></body></html>`}
+                srcDoc={iframeDocumentHtml}
                 scrolling="no"
-                style={{ width: '1px', minWidth: '100%', border: 'none', display: 'block', height: '300px' }}
+                style={{ width: '1px', minWidth: '100%', border: 'none', display: 'block', height: '300px', visibility: appearance.visibility }}
                 sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
                 title={t('message.emailFrameTitle')}
               />

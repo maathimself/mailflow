@@ -247,6 +247,8 @@
       "body": "Nie udało się zaktualizować listy dozwolonych obrazów."
     },
     "emailFrameTitle": "Treść wiadomości e-mail",
+    "showOriginalColors": "Pokaż oryginalne kolory",
+    "matchThemeColors": "Dopasuj kolory do motywu",
     "unsubscribe": {
       "info": "Możesz wypisać się z tej listy mailingowej.",
       "button": "Wypisz się",
@@ -854,6 +856,12 @@
       "fontSize": "Rozmiar czcionki",
       "fontSizeDescription": "Dostosuj rozmiar tekstu interfejsu. Wartość domyślna to 100%.",
       "fontSizeReset": "Przywróć 100%",
+      "emailContent": "Treść wiadomości",
+      "emailContentDescription": "Wybierz, czy kolory wiadomości HTML mają podążać za MailFlow, czy zachować oryginalny jasny wygląd nadawcy.",
+      "emailContentMatchTheme": "Dopasuj do motywu",
+      "emailContentMatchThemeDescription": "Dostosowuje kolory wiadomości do aktywnego motywu. Zalecane.",
+      "emailContentOriginal": "Oryginalne kolory",
+      "emailContentOriginalDescription": "Zawsze pokazuje oczyszczony jasny wygląd nadawcy.",
       "customCss": "Niestandardowe CSS",
       "customCssDescription": "Wstrzyknij dodatkowy CSS po aktywnym motywie. Użyj własnych właściwości CSS (np. --accent, --bg-primary), aby nadpisać wartości motywu, lub dodaj własne reguły. Zostaną zastosowane do wszystkich użytkowników.",
       "customCssPlaceholder": ":root {\n  --accent: #e74c3c;\n}",
