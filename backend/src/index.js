@@ -40,9 +40,10 @@ import {
 import apiTokensRoutes from './routes/apiTokens.js';
 import mcpDeletionsRoutes from './routes/mcpDeletions.js';
 import mcpAccountStagesRoutes from './routes/mcpAccountStages.js';
+import { createComposeSessionsRouter } from './routes/composeSessions.js';
 import { startCardavScheduler } from './services/carddavSync.js';
 import { scheduleFtsBackfill } from './services/search/ftsBackfill.js';
-import { encryptExistingCredentials, query } from './services/db.js';
+import { encryptExistingCredentials, query, withTransaction } from './services/db.js';
 import { runMigrations, warnOnCollationMismatch } from './services/migrations.js';
 import { ensureVectorSchema } from './services/embeddings/vectorStore.js';
 import { startEmbeddingScheduler } from './services/embeddings/scheduler.js';
@@ -129,6 +130,11 @@ app.use((req, res, next) => {
 // 25 MB attachment limit → ~34 MB base64 on the wire; add headroom for the rest of the payload.
 app.use('/api/mail/send', express.json({ limit: '35mb' }));
 app.use('/api/mail/draft', express.json({ limit: '35mb' }));
+app.use(
+  '/api/compose-sessions/:id/attachments',
+  express.raw({ type: 'application/octet-stream', limit: '25mb' }),
+);
+app.use('/api/compose-sessions', express.json({ limit: '35mb' }));
 app.use('/mcp', mcpBodyLimit());
 // A pet-import body carries a base64 spritesheet (~33% larger than the 5 MB sheet cap
 // enforced after decode in gtdPet.importPet), so it needs more than the global 1 MB.
@@ -196,6 +202,11 @@ app.use('/api', aiEmbeddingsRoutes);
 app.use('/api/tokens', apiTokensRoutes);
 app.use('/api/mcp-deletions', mcpDeletionsRoutes);
 app.use('/api/mcp-account-stages', mcpAccountStagesRoutes);
+app.use('/api/compose-sessions', createComposeSessionsRouter({
+  query,
+  withTransaction,
+  broadcast: (event, userId) => imapManager.broadcast(event, userId),
+}));
 app.use('/api', categoriesRoutes);
 // Mounted at the /api/gtd subtree (not bare /api) so gtd.js's router-level
 // requireAuth cannot intercept the unauthenticated /api/health and /api/version
