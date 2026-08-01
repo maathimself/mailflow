@@ -25,10 +25,12 @@ import { NOTIFICATION_SOUNDS, playNotificationSound, playCustomSound, warmUpAudi
 import { usePushNotifications } from '../hooks/usePushNotifications.js';
 import SignatureEditor from './SignatureEditor.jsx';
 import GtdZeroPet from './GtdZeroPet.jsx';
-import { getEffectiveShortcuts, getGroupedActions, ACTION_DEFS, SPECIAL_KEY_LABELS, parseModKey, modLabel } from '../utils/defaultShortcuts.js';
 import { DEFAULT_GTD_FOLDERS, GTD_STATES, resolveAccountGtdFolders, diffGtdFolders, findGtdFolderCollisions } from '../utils/gtd.js';
 import { unifiedUnreadTotal } from '../utils/unifiedInbox.js';
 import { isValidForwardAddress } from '../utils/ruleActions.js';
+import { useCommandRuntimeContext } from '../commands/CommandRuntimeContext.jsx';
+import { formatCommandKey, getEffectiveCommandBindings } from '../commands/shortcuts.js';
+import { shortcutEventChord } from '../commands/shortcutDispatcher.js';
 
 // ─── Shared field component ───────────────────────────────────────────────────
 function Field({ label, required, children }) {
@@ -6681,11 +6683,31 @@ const TABS = [
 function ShortcutsTab() {
   const { t } = useTranslation();
   const { shortcuts, setShortcuts } = useStore();
+  const { commandDefinitions, getContext } = useCommandRuntimeContext();
   const [recording, setRecording] = useState(null); // action name currently being recorded
-  const [pendingConflict, setPendingConflict] = useState(null); // { action: conflictingAction, key }
+  const [pendingConflict, setPendingConflict] = useState(null); // { actions: conflictingCommandIds, key }
 
-  const effective = getEffectiveShortcuts(shortcuts);
-  const groups = getGroupedActions();
+  const context = getContext();
+  const effectiveRows = getEffectiveCommandBindings(commandDefinitions, context);
+  const bindingsById = Object.fromEntries(effectiveRows.map(item => [item.commandId, item.bindings]));
+  const effective = Object.fromEntries(effectiveRows.map(item => [item.commandId, item.bindings[0]?.keys || null]));
+  const sources = Object.fromEntries(effectiveRows.map(item => [item.commandId, item.bindings[0]?.source]));
+  const definitionById = new Map(commandDefinitions.map(definition => [definition.id, definition]));
+  const groupKeys = {
+    compose: 'shortcuts.groups.composeSearch', help: 'shortcuts.groups.composeSearch',
+    navigation: 'shortcuts.groups.navigation', selection: 'shortcuts.groups.navigation',
+    layout: 'shortcuts.groups.navigation', mail: 'shortcuts.groups.messageActions',
+    respond: 'shortcuts.groups.messageActions', gtd: 'shortcuts.groups.gtd', app: 'shortcuts.groups.navigation',
+  };
+  const groups = commandDefinitions.filter(definition => effective[definition.id]
+    || definition.id === 'gtd.someday' || definition.id === 'gtd.reference').reduce((result, definition) => {
+    const groupKey = groupKeys[definition.group] || 'shortcuts.groups.navigation';
+    (result[groupKey] ||= []).push({
+      action: definition.id,
+      descriptionKey: definition.titleKey,
+    });
+    return result;
+  }, {});
 
   // Listen for key presses while recording
   useEffect(() => {
@@ -6701,12 +6723,13 @@ function ShortcutsTab() {
         return;
       }
 
-      const key = (e.ctrlKey || e.metaKey) ? `ctrl+${e.key.toLowerCase()}` : e.key;
+      const key = shortcutEventChord(e);
 
       // Detect conflicts with other actions (excluding the one being edited)
-      const conflictEntry = Object.entries(effective).find(([a, k]) => k === key && a !== recording);
-      if (conflictEntry) {
-        setPendingConflict({ action: conflictEntry[0], key });
+      const conflicts = effectiveRows
+        .filter(item => item.commandId !== recording && item.bindings.some(binding => binding.keys === key));
+      if (conflicts.length) {
+        setPendingConflict({ actions: conflicts.map(item => item.commandId), key });
       } else {
         setPendingConflict(null);
       }
@@ -6717,7 +6740,7 @@ function ShortcutsTab() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [recording, effective, shortcuts]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [recording, effective, shortcuts, context.platform]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const clearShortcut = (action) => {
     const updated = { ...shortcuts, [action]: null };
@@ -6764,35 +6787,7 @@ function ShortcutsTab() {
     if (!key) {
       return <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>—</span>;
     }
-    // Modifier combos like 'ctrl+p'
-    const mod = parseModKey(key);
-    if (mod) {
-      return (
-        <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-          <kbd style={kbdStyle}>{modLabel(mod.mod)}</kbd>
-          <span style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>+</span>
-          <kbd style={kbdStyle}>{mod.bare.toUpperCase()}</kbd>
-        </span>
-      );
-    }
-    // Special key names like 'Delete', 'ArrowUp' — single keypress, render as one badge
-    if (SPECIAL_KEY_LABELS[key]) {
-      return <kbd style={kbdStyle}>{SPECIAL_KEY_LABELS[key]}</kbd>;
-    }
-    // Multi-char keys like 'gi': render each character as separate kbd with "then"
-    if (key.length > 1) {
-      return (
-        <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-          {[...key].map((c, i) => (
-            <span key={i} style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-              <kbd style={kbdStyle}>{c}</kbd>
-              {i < key.length - 1 && <span style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>{t('shortcuts.then')}</span>}
-            </span>
-          ))}
-        </span>
-      );
-    }
-    return <kbd style={kbdStyle}>{key}</kbd>;
+    return <kbd style={kbdStyle}>{formatCommandKey(key, context.platform)}</kbd>;
   };
 
   return (
@@ -6824,7 +6819,11 @@ function ShortcutsTab() {
           background: 'rgba(234, 179, 8, 0.1)', border: '1px solid rgba(234, 179, 8, 0.4)',
           borderRadius: 7, fontSize: 12, color: 'var(--text-secondary)',
         }}>
-          {t('admin.shortcuts.conflict', { key: pendingConflict.key, action: t(ACTION_DEFS[pendingConflict.action]?.labelKey) })}
+          {t('admin.shortcuts.conflict', {
+            key: pendingConflict.key,
+            action: pendingConflict.actions
+              .map(action => t(definitionById.get(action)?.titleKey)).join(', '),
+          })}
         </div>
       )}
 
@@ -6839,6 +6838,7 @@ function ShortcutsTab() {
           <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
             {actions.map(({ action, descriptionKey }, i) => {
               const key = effective[action];
+              const bindings = bindingsById[action] || [];
               const isDefault = !(action in shortcuts);
               const isRec = recording === action;
               return (
@@ -6857,6 +6857,7 @@ function ShortcutsTab() {
                   </span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
                     <button
+                      data-shortcut-recorder={isRec ? 'true' : undefined}
                       onClick={() => setRecording(isRec ? null : action)}
                       title={isRec ? t('common.cancel') : t('admin.shortcuts.description')}
                       style={{
@@ -6866,6 +6867,19 @@ function ShortcutsTab() {
                     >
                       {renderKey(action, key)}
                     </button>
+                    {!isRec && sources[action] && (
+                      <small style={{ color: 'var(--text-tertiary)', fontSize: 9 }}>
+                        {t(`admin.shortcuts.sources.${sources[action]}`)}
+                      </small>
+                    )}
+                    {!isRec && bindings.slice(1).map(binding => (
+                      <span key={binding.keys} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        <kbd style={kbdStyle}>{formatCommandKey(binding.keys, context.platform)}</kbd>
+                        <small style={{ color: 'var(--text-tertiary)', fontSize: 9 }}>
+                          {t(`admin.shortcuts.sources.${binding.source}`)}
+                        </small>
+                      </span>
+                    ))}
                     {!isDefault && (
                       <button
                         onClick={() => resetAction(action)}

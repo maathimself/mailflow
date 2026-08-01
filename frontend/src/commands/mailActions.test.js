@@ -33,6 +33,7 @@ function harness(apiPatch = {}) {
     api,
     accounts: () => [{ id: 'account-1', email_address: 'me@example.test', gtd_enabled: true }],
     openCompose: payload => events.push(['compose', payload]),
+    openExternal: value => events.push(['external', value]),
     patchMessages: (targets, patch) => events.push(['patch', targets.map(item => item.id), patch]),
     restoreMessages: targets => events.push(['restore', targets.map(item => item.id)]),
     adjustUnread: (targets, read) => events.push(['unread', targets.map(item => item.id), read]),
@@ -65,10 +66,29 @@ describe('mailCommandDefinitions', () => {
     assert.equal(byId.get('mail.move').executorId, 'mail.move');
     assert.deepEqual(byId.get('mail.archive').aliasKeys, ['commands.mail.archive.aliasDone']);
     assert.equal(byId.get('mail.snooze').titleKey, 'contextMenu.snooze.label');
+    assert.deepEqual(byId.get('mail.toggleRead').defaultKeys, { primary: 'u', secondary: ['m'] });
+    assert.deepEqual(byId.get('mail.replyAll').defaultKeys, { primary: 'enter', secondary: ['a'] });
+  });
+
+  it('offers Unsubscribe only for one usable active message', () => {
+    const command = mailCommandDefinitions.find(item => item.id === 'mail.unsubscribe');
+    assert.equal(command.targetMode, 'single_conversation');
+    assert.equal(command.isAvailable({ surface: 'conversation', activeMessage: { list_unsubscribe: '<https://example.test/u>' } }), true);
+    assert.equal(command.isAvailable({ surface: 'list', activeMessage: { list_unsubscribe: '<https://example.test/u>' } }), false);
+    assert.equal(command.isAvailable({ surface: 'conversation', activeMessage: { list_unsubscribe: null } }), false);
   });
 });
 
 describe('non-destructive mail executors', () => {
+  it('accepts the backend one-click unsubscribe result and patches the message', async () => {
+    const h = harness({ unsubscribeMessage: async () => ({ ok: true, type: 'one-click' }) });
+    const message = target('a', { list_unsubscribe: '<https://example.test/u>' });
+    const result = await h.invoke('mail.unsubscribe', [message]);
+    assert.equal(result.status, 'success');
+    assert.ok(h.events.find(event => event[0] === 'patch'));
+    assert.equal(h.events.some(event => event[0] === 'external'), false);
+  });
+
   it('marks the complete resolved target set read with one optimistic patch', async () => {
     const h = harness();
     const result = await h.invoke('mail.read', [target('a'), target('b')], { source: 'toolbar' });

@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { effectiveCommandKeys, findBindingConflicts, formatCommandKey } from './shortcuts.js';
+import { effectiveCommandKeys, findBindingConflicts, formatCommandKey, getEffectiveCommandBindings } from './shortcuts.js';
+import { normalizeLegacyShortcutOverrides } from '../utils/defaultShortcuts.js';
 
 const command = {
   id: 'palette.toggle',
@@ -13,7 +14,7 @@ const command = {
 describe('command shortcut metadata', () => {
   it('selects the platform primary and retains secondary bindings', () => {
     assert.deepEqual(effectiveCommandKeys(command, { platform: 'mac', shortcutOverrides: {} }).bindings, [
-      { key: 'meta+k', kind: 'primary' }, { key: 'alt+k', kind: 'secondary' },
+      { key: 'meta+k', kind: 'platform' }, { key: 'alt+k', kind: 'secondary' },
     ]);
     assert.equal(effectiveCommandKeys(command, { platform: 'linux', shortcutOverrides: {} }).bindings[0].key, 'ctrl+k');
   });
@@ -40,4 +41,20 @@ describe('command shortcut metadata', () => {
       { key: 'alt+k', commandIds: ['palette.toggle', 'navigation.search'] },
     ]);
   });
+});
+
+it('aggregates sequences, platform keys, secondary keys, and legacy overrides', () => {
+  const definitions = [
+    { ...command, id: 'mail.toggleRead', defaultKeys: { primary: 'u', secondary: ['m'] } },
+    { ...command, id: 'navigation.inbox', defaultKeys: { primary: 'g i', secondary: [] } },
+  ];
+  const context = {
+    platform: 'mac',
+    shortcutOverrides: normalizeLegacyShortcutOverrides({ toggleRead: 'q' }),
+  };
+  assert.deepEqual(getEffectiveCommandBindings(definitions, context)[0].bindings, [
+    { keys: 'q', source: 'user' },
+    { keys: 'm', source: 'secondary' },
+  ]);
+  assert.equal(formatCommandKey('g i', 'linux'), 'G then I');
 });

@@ -1,4 +1,5 @@
 import { mailCommandDefinitions } from './mailActions.js';
+import { shortcutCommandDefinitions } from './shortcutCommands.js';
 
 const globalCommand = (id, titleKey, icon, group, executorId, params = {}, overrides = {}) => ({
   id, titleKey, aliasKeys: [], icon, group,
@@ -23,7 +24,6 @@ export function createAppCommandDefinitions({ accounts = [], folders = {}, theme
       defaultKeys: { primary: '/', secondary: [] }, rank: { base: 90 },
       isAvailable: context => context.surface !== 'compose' && context.surface !== 'settings',
     }),
-    globalCommand('navigation.contacts', 'commands.navigation.contacts.title', 'contacts', 'navigation', 'navigation.contacts'),
     globalCommand('navigation.unified-inbox', 'commands.navigation.unifiedInbox.title', 'inbox', 'navigation', 'navigation.inbox', {
       accountId: null, folder: 'INBOX',
     }),
@@ -70,6 +70,7 @@ export function createAppCommandDefinitions({ accounts = [], folders = {}, theme
     ));
   }
   definitions.push(...mailCommandDefinitions);
+  definitions.push(...shortcutCommandDefinitions);
   return definitions;
 }
 
@@ -85,7 +86,10 @@ export function createAppCommandExecutors({ getState, emitShortcut }) {
       return { status: 'success' };
     },
     'navigation.contacts': () => {
-      getState().setShowContacts(true);
+      const state = getState();
+      state.setSelectedMessage(null);
+      state.clearSelectedMessageIds();
+      state.setShowContacts(true);
       return { status: 'success' };
     },
     'navigation.inbox': ({ command }) => {

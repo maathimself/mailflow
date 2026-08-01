@@ -148,6 +148,7 @@ const SAME_VALUE_ALLOWED = {
   // "Alias" — Latin origin, same spelling in es, fr, it
   'admin.accounts.aliases': [['es', 'fr', 'it']],
   'admin.aliases.title':     [['es', 'fr', 'it']],
+  'admin.shortcuts.sources.primary': [['es', 'fr']],
 
 
   // email placeholder — example.com address looks the same in en, ru, zhCN
@@ -387,6 +388,10 @@ const DYNAMIC_KEYS = new Set([
   'commands.settings.users.title',
   'commands.settings.sso.title',
   'commands.settings.ai.title',
+  'admin.shortcuts.sources.primary',
+  'admin.shortcuts.sources.secondary',
+  'admin.shortcuts.sources.platform',
+  'admin.shortcuts.sources.user',
 ]);
 
 // JSX attribute names whose values must never be plain strings — always t().
@@ -574,6 +579,24 @@ const REQUIRED_KEYS = [
   'commands.mail.trash.aliasDelete',
   'commands.mail.spam.aliasJunk',
   'commands.mail.partial',
+  'commands.shortcuts.undo',
+  'commands.shortcuts.nextThreadMessage',
+  'commands.shortcuts.previousThreadMessage',
+  'commands.shortcuts.scrollDown',
+  'commands.shortcuts.scrollUp',
+  'commands.shortcuts.openConversation',
+  'commands.shortcuts.extendNext',
+  'commands.shortcuts.extendPrevious',
+  'commands.shortcuts.selectOlder',
+  'commands.shortcuts.selectAll',
+  'commands.shortcuts.clearSelection',
+  'commands.shortcuts.sent',
+  'commands.shortcuts.drafts',
+  'commands.shortcuts.contacts',
+  'admin.shortcuts.sources.primary',
+  'admin.shortcuts.sources.secondary',
+  'admin.shortcuts.sources.platform',
+  'admin.shortcuts.sources.user',
 ];
 
 describe('i18n locale files', () => {

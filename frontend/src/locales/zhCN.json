@@ -230,8 +230,7 @@
       "info": "您可以取消订阅此邮件列表。",
       "button": "取消订阅",
       "done": "取消订阅成功。",
-      "error": "取消订阅失败。",
-      "moveToTrash": "移至垃圾箱"
+      "error": "取消订阅失败。"
     },
     "aiClassify": {
       "info": "此邮件没有分类。使用 AI 进行分类？",
@@ -452,10 +451,16 @@
       "spam": { "aliasJunk": "垃圾邮件" },
       "partial": "成功 {{succeeded}} 个；失败 {{failed}} 个"
     },
+    "shortcuts": {
+      "undo": "撤销", "nextThreadMessage": "会话中的下一封邮件", "previousThreadMessage": "会话中的上一封邮件",
+      "scrollDown": "向下滚动", "scrollUp": "向上滚动", "openConversation": "打开会话",
+      "extendNext": "向下扩展选择", "extendPrevious": "向上扩展选择",
+      "selectOlder": "选择当前及更早的会话", "selectAll": "选择所有会话",
+      "clearSelection": "清除选择", "sent": "前往已发送", "drafts": "前往草稿", "contacts": "前往联系人"
+    },
     "compose": { "new": { "title": "撰写", "alias": { "write": "写邮件" } } },
     "navigation": {
       "search": { "title": "搜索邮件" },
-      "contacts": { "title": "打开联系人" },
       "unifiedInbox": { "title": "前往统一收件箱" },
       "accountInbox": { "title": "{{name}} — 收件箱" },
       "folder": { "title": "{{name}}" },
@@ -488,7 +493,6 @@
     "title": "键盘快捷键",
     "customizeHint": "可在「设置 → 快捷键」中自定义快捷键",
     "closeHint": "按 ? 或 Esc 关闭",
-    "then": "然后",
     "groups": {
       "composeSearch": "撰写与搜索",
       "navigation": "导航",
@@ -496,85 +500,50 @@
       "gtd": "GTD"
     },
     "actions": {
-      "compose": {
-        "label": "撰写",
-        "description": "打开新的撰写窗口"
-      },
-      "focusSearch": {
-        "label": "搜索",
-        "description": "聚焦搜索框"
-      },
-      "showHelp": {
-        "label": "显示快捷键",
-        "description": "显示此键盘快捷键参考"
-      },
       "nextMessage": {
-        "label": "下一封邮件",
-        "description": "移动到下一封邮件"
+        "label": "下一封邮件"
       },
       "prevMessage": {
-        "label": "上一封邮件",
-        "description": "移动到上一封邮件"
-      },
-      "openMessage": {
-        "label": "打开第一封邮件",
-        "description": "若未选中任何邮件则打开第一封"
-      },
-      "goInbox": {
-        "label": "前往收件箱",
-        "description": "跳转到统一收件箱"
+        "label": "上一封邮件"
       },
       "reply": {
-        "label": "回复",
-        "description": "回复当前邮件"
+        "label": "回复"
       },
       "replyAll": {
-        "label": "回复全部",
-        "description": "回复当前邮件的所有收件人"
+        "label": "回复全部"
       },
       "forward": {
-        "label": "转发",
-        "description": "转发当前邮件"
+        "label": "转发"
       },
       "archive": {
-        "label": "归档",
-        "description": "归档邮件 / 所选项"
+        "label": "归档"
       },
       "delete": {
-        "label": "删除",
-        "description": "删除邮件 / 所选项"
+        "label": "删除"
       },
       "toggleStar": {
-        "label": "加星标",
-        "description": "切换当前邮件的星标"
+        "label": "加星标"
       },
       "toggleRead": {
-        "label": "切换已读状态",
-        "description": "将当前邮件标记为已读或未读"
+        "label": "切换已读状态"
       },
       "selectMessage": {
-        "label": "选择邮件",
-        "description": "勾选或取消勾选当前邮件"
+        "label": "选择邮件"
       },
       "printMessage": {
-        "label": "打印",
-        "description": "打印当前邮件"
+        "label": "打印"
       },
       "gtdTodo": {
-        "label": "标记为待办",
-        "description": "将所选邮件归类为待办"
+        "label": "标记为待办"
       },
       "gtdWatch": {
-        "label": "标记为关注",
-        "description": "将所选邮件归类为关注"
+        "label": "标记为关注"
       },
       "gtdDelegated": {
-        "label": "标记为已委派",
-        "description": "将所选邮件归类为已委派"
+        "label": "标记为已委派"
       },
       "toggleRightSidebar": {
-        "label": "切换右侧边栏",
-        "description": "隐藏或显示右侧边栏"
+        "label": "切换右侧边栏"
       }
     }
   },
@@ -1034,7 +1003,8 @@
       "conflict": "按键 {{key}} 原已分配给「{{action}}」，现已重新分配。",
       "resetDefault": "恢复默认",
       "remove": "移除快捷键",
-      "footer": "在应用任意位置按 ? 即可查看当前快捷键参考。"
+      "footer": "在应用任意位置按 ? 即可查看当前快捷键参考。",
+      "sources": { "primary": "主要", "secondary": "备用", "platform": "平台", "user": "自定义" }
     },
     "users": {
       "title": "用户",

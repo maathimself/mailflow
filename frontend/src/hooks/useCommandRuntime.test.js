@@ -29,13 +29,11 @@ describe('useCommandRuntime composition boundary', () => {
     assert.match(source, /\.\.\.createMailActionExecutors/);
   });
 
-  it('owns migrated mail shortcut-bus compatibility until shortcut parity lands', () => {
+  it('owns one document dispatcher after shortcut parity replaces mail bus listeners', () => {
     const source = fs.readFileSync(new URL('./useCommandRuntime.js', import.meta.url), 'utf8');
-    for (const action of [
-      'archive', 'delete', 'toggleRead', 'toggleStar', 'reply', 'replyAll', 'forward',
-      'gtdTodo', 'gtdWatch', 'gtdDelegated',
-    ]) assert.ok(source.includes(`shortcutBus.on('${action}'`), `missing ${action}`);
-    assert.match(source, /source: 'shortcut'/);
+    assert.match(source, /document\.addEventListener\('keydown', dispatcher\.handleKeyDown\)/);
+    assert.match(source, /document\.removeEventListener\('keydown', dispatcher\.handleKeyDown\)/);
+    assert.doesNotMatch(source, /shortcutBus\.on\(/);
   });
 
 });

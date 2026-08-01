@@ -9,7 +9,10 @@ export function effectiveCommandKeys(command, context) {
   const override = hasOverride ? context.shortcutOverrides[command.id] : undefined;
   const bindings = [];
   const primary = hasOverride ? override : selectKey(command.defaultKeys.primary, context.platform);
-  if (primary) bindings.push({ key: primary, kind: hasOverride ? 'user' : 'primary' });
+  if (primary) bindings.push({
+    key: primary,
+    kind: hasOverride ? 'user' : typeof command.defaultKeys.primary === 'object' ? 'platform' : 'primary',
+  });
   for (const spec of command.defaultKeys.secondary) {
     const key = selectKey(spec, context.platform);
     if (key && !bindings.some(binding => binding.key === key)) bindings.push({ key, kind: 'secondary' });
@@ -17,7 +20,7 @@ export function effectiveCommandKeys(command, context) {
   return { bindings, conflicts: [] };
 }
 
-export function formatCommandKey(key, platform) {
+function formatChord(key, platform) {
   const mac = platform === 'mac';
   const labels = mac
     ? { meta: '⌘', ctrl: '⌃', alt: '⌥', shift: '⇧', enter: '↵' }
@@ -27,6 +30,20 @@ export function formatCommandKey(key, platform) {
     const label = labels[normalized] || (part.length === 1 ? part.toUpperCase() : part);
     return mac || index === all.length - 1 ? label : label;
   }).join(mac ? '' : '');
+}
+
+export function formatCommandKey(key, platform) {
+  return key.split(' ').map(chord => formatChord(chord, platform)).join(' then ');
+}
+
+export function getEffectiveCommandBindings(definitions, context) {
+  return definitions.map(command => ({
+    commandId: command.id,
+    bindings: effectiveCommandKeys(command, context).bindings.map(binding => ({
+      keys: binding.key,
+      source: binding.kind,
+    })),
+  }));
 }
 
 export function findBindingConflicts(commands, context) {

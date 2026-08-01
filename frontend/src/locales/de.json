@@ -230,8 +230,7 @@
       "info": "Sie können sich von dieser Mailingliste abmelden.",
       "button": "Abmelden",
       "done": "Erfolgreich abgemeldet.",
-      "error": "Abmeldung fehlgeschlagen.",
-      "moveToTrash": "In den Papierkorb verschieben"
+      "error": "Abmeldung fehlgeschlagen."
     },
     "aiClassify": {
       "info": "Diese E-Mail hat keine Kategorie. Mit KI klassifizieren?",
@@ -452,10 +451,16 @@
       "spam": { "aliasJunk": "Junk" },
       "partial": "{{succeeded}} erfolgreich; {{failed}} fehlgeschlagen"
     },
+    "shortcuts": {
+      "undo": "Rückgängig", "nextThreadMessage": "Nächste Nachricht im Thread", "previousThreadMessage": "Vorherige Nachricht im Thread",
+      "scrollDown": "Nach unten scrollen", "scrollUp": "Nach oben scrollen", "openConversation": "Konversation öffnen",
+      "extendNext": "Auswahl nach unten erweitern", "extendPrevious": "Auswahl nach oben erweitern",
+      "selectOlder": "Fokussierte und ältere Konversationen auswählen", "selectAll": "Alle Konversationen auswählen",
+      "clearSelection": "Auswahl löschen", "sent": "Zu Gesendet", "drafts": "Zu Entwürfe", "contacts": "Zu Kontakte"
+    },
     "compose": { "new": { "title": "Verfassen", "alias": { "write": "Schreiben" } } },
     "navigation": {
       "search": { "title": "E-Mails durchsuchen" },
-      "contacts": { "title": "Kontakte öffnen" },
       "unifiedInbox": { "title": "Zum vereinheitlichten Posteingang" },
       "accountInbox": { "title": "{{name}} — Posteingang" },
       "folder": { "title": "{{name}}" },
@@ -488,7 +493,6 @@
     "title": "Tastaturkürzel",
     "customizeHint": "Kürzel anpassen unter Einstellungen → Tastaturkürzel",
     "closeHint": "? oder Esc zum Schließen drücken",
-    "then": "dann",
     "groups": {
       "composeSearch": "Verfassen & Suche",
       "navigation": "Navigation",
@@ -496,85 +500,50 @@
       "gtd": "GTD"
     },
     "actions": {
-      "compose": {
-        "label": "Verfassen",
-        "description": "Neues Fenster zum Verfassen öffnen"
-      },
-      "focusSearch": {
-        "label": "Suchen",
-        "description": "Suchfeld fokussieren"
-      },
-      "showHelp": {
-        "label": "Kürzel anzeigen",
-        "description": "Diese Tastenkürzel-Übersicht anzeigen"
-      },
       "nextMessage": {
-        "label": "Nächste Nachricht",
-        "description": "Zur nächsten Nachricht wechseln"
+        "label": "Nächste Nachricht"
       },
       "prevMessage": {
-        "label": "Vorherige Nachricht",
-        "description": "Zur vorherigen Nachricht wechseln"
-      },
-      "openMessage": {
-        "label": "Erste Nachricht öffnen",
-        "description": "Erste Nachricht öffnen, wenn keine ausgewählt ist"
-      },
-      "goInbox": {
-        "label": "Zum Posteingang",
-        "description": "Zum vereinheitlichten Posteingang wechseln"
+        "label": "Vorherige Nachricht"
       },
       "reply": {
-        "label": "Antworten",
-        "description": "Auf die aktuelle Nachricht antworten"
+        "label": "Antworten"
       },
       "replyAll": {
-        "label": "Allen antworten",
-        "description": "Allen auf die aktuelle Nachricht antworten"
+        "label": "Allen antworten"
       },
       "forward": {
-        "label": "Weiterleiten",
-        "description": "Die aktuelle Nachricht weiterleiten"
+        "label": "Weiterleiten"
       },
       "archive": {
-        "label": "Archivieren",
-        "description": "Nachricht / Auswahl archivieren"
+        "label": "Archivieren"
       },
       "delete": {
-        "label": "Löschen",
-        "description": "Nachricht / Auswahl löschen"
+        "label": "Löschen"
       },
       "toggleStar": {
-        "label": "Markieren",
-        "description": "Stern für die aktuelle Nachricht umschalten"
+        "label": "Markieren"
       },
       "toggleRead": {
-        "label": "Gelesen umschalten",
-        "description": "Aktuelle Nachricht als gelesen oder ungelesen markieren"
+        "label": "Gelesen umschalten"
       },
       "selectMessage": {
-        "label": "Nachricht auswählen",
-        "description": "Aktuelle Nachricht an- oder abwählen"
+        "label": "Nachricht auswählen"
       },
       "printMessage": {
-        "label": "Drucken",
-        "description": "Die aktuelle Nachricht drucken"
+        "label": "Drucken"
       },
       "gtdTodo": {
-        "label": "Als Aufgabe markieren",
-        "description": "Die ausgewählte Nachricht als Aufgabe einordnen"
+        "label": "Als Aufgabe markieren"
       },
       "gtdWatch": {
-        "label": "Als Beobachten markieren",
-        "description": "Die ausgewählte Nachricht als Beobachten einordnen"
+        "label": "Als Beobachten markieren"
       },
       "gtdDelegated": {
-        "label": "Als Delegiert markieren",
-        "description": "Die ausgewählte Nachricht als Delegiert einordnen"
+        "label": "Als Delegiert markieren"
       },
       "toggleRightSidebar": {
-        "label": "Rechte Seitenleiste umschalten",
-        "description": "Rechte Seitenleiste aus- oder einblenden"
+        "label": "Rechte Seitenleiste umschalten"
       }
     }
   },
@@ -964,7 +933,8 @@
       "conflict": "Taste {{key}} war bereits {{action}} zugewiesen — neu zugewiesen.",
       "resetDefault": "Auf Standard zurücksetzen",
       "remove": "Kürzel entfernen",
-      "footer": "Überall in der App ? drücken, um die aktuelle Kürzelbeschreibung zu sehen."
+      "footer": "Überall in der App ? drücken, um die aktuelle Kürzelbeschreibung zu sehen.",
+      "sources": { "primary": "Primär", "secondary": "Sekundär", "platform": "Plattform", "user": "Benutzerdefiniert" }
     },
     "users": {
       "title": "Benutzer",

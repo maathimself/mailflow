@@ -8,6 +8,11 @@ describe('commandPaletteShortcut', () => {
     assert.equal(commandPaletteShortcut({ key: 'k', metaKey: true, isMobile: true }, null, 1).handled, false);
   });
 
+  it('ignores Cmd/Ctrl+K while an IME is composing', () => {
+    assert.equal(commandPaletteShortcut({ key: 'k', metaKey: true, isComposing: true }, null, 1).handled, false);
+    assert.equal(commandPaletteShortcut({ key: 'k', ctrlKey: true, keyCode: 229 }, null, 1).handled, false);
+  });
+
   it('toggles ordinary Cmd/Ctrl+K immediately', () => {
     assert.deepEqual(commandPaletteShortcut({ key: 'k', metaKey: true, target: {} }, null, 1), {
       handled: true, toggle: true, nextEditorPress: null,

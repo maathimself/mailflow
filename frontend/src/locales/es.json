@@ -230,8 +230,7 @@
       "info": "Puedes darte de baja de esta lista de correo.",
       "button": "Darse de baja",
       "done": "Dado de baja correctamente.",
-      "error": "Error al darse de baja.",
-      "moveToTrash": "Mover a la papelera"
+      "error": "Error al darse de baja."
     },
     "aiClassify": {
       "info": "Este correo no tiene categoría. ¿Clasificar con IA?",
@@ -452,10 +451,16 @@
       "spam": { "aliasJunk": "Correo no deseado" },
       "partial": "{{succeeded}} correctos; {{failed}} fallidos"
     },
+    "shortcuts": {
+      "undo": "Deshacer", "nextThreadMessage": "Siguiente mensaje del hilo", "previousThreadMessage": "Mensaje anterior del hilo",
+      "scrollDown": "Desplazarse hacia abajo", "scrollUp": "Desplazarse hacia arriba", "openConversation": "Abrir conversación",
+      "extendNext": "Ampliar selección hacia abajo", "extendPrevious": "Ampliar selección hacia arriba",
+      "selectOlder": "Seleccionar conversación enfocada y anteriores", "selectAll": "Seleccionar todas las conversaciones",
+      "clearSelection": "Borrar selección", "sent": "Ir a Enviados", "drafts": "Ir a Borradores", "contacts": "Ir a Contactos"
+    },
     "compose": { "new": { "title": "Redactar", "alias": { "write": "Escribir" } } },
     "navigation": {
       "search": { "title": "Buscar correo" },
-      "contacts": { "title": "Abrir Contactos" },
       "unifiedInbox": { "title": "Ir a la bandeja de entrada unificada" },
       "accountInbox": { "title": "{{name}} — Bandeja de entrada" },
       "folder": { "title": "{{name}}" },
@@ -488,7 +493,6 @@
     "title": "Atajos de teclado",
     "customizeHint": "Personaliza los atajos en Ajustes → Atajos",
     "closeHint": "Pulsa ? o Esc para cerrar",
-    "then": "luego",
     "groups": {
       "composeSearch": "Redacción y búsqueda",
       "navigation": "Navegación",
@@ -496,85 +500,50 @@
       "gtd": "GTD"
     },
     "actions": {
-      "compose": {
-        "label": "Redactar",
-        "description": "Abrir una nueva ventana de redacción"
-      },
-      "focusSearch": {
-        "label": "Buscar",
-        "description": "Enfocar el cuadro de búsqueda"
-      },
-      "showHelp": {
-        "label": "Mostrar atajos",
-        "description": "Mostrar esta referencia de atajos de teclado"
-      },
       "nextMessage": {
-        "label": "Mensaje siguiente",
-        "description": "Ir al mensaje siguiente"
+        "label": "Mensaje siguiente"
       },
       "prevMessage": {
-        "label": "Mensaje anterior",
-        "description": "Ir al mensaje anterior"
-      },
-      "openMessage": {
-        "label": "Abrir el primer mensaje",
-        "description": "Abrir el primer mensaje si no hay ninguno seleccionado"
-      },
-      "goInbox": {
-        "label": "Ir a la bandeja de entrada",
-        "description": "Ir a la bandeja de entrada unificada"
+        "label": "Mensaje anterior"
       },
       "reply": {
-        "label": "Responder",
-        "description": "Responder al mensaje actual"
+        "label": "Responder"
       },
       "replyAll": {
-        "label": "Responder a todos",
-        "description": "Responder a todos en el mensaje actual"
+        "label": "Responder a todos"
       },
       "forward": {
-        "label": "Reenviar",
-        "description": "Reenviar el mensaje actual"
+        "label": "Reenviar"
       },
       "archive": {
-        "label": "Archivar",
-        "description": "Archivar mensaje / selección"
+        "label": "Archivar"
       },
       "delete": {
-        "label": "Eliminar",
-        "description": "Eliminar mensaje / selección"
+        "label": "Eliminar"
       },
       "toggleStar": {
-        "label": "Destacar",
-        "description": "Activar o quitar el destacado del mensaje actual"
+        "label": "Destacar"
       },
       "toggleRead": {
-        "label": "Marcar leído / no leído",
-        "description": "Marcar el mensaje actual como leído o no leído"
+        "label": "Marcar leído / no leído"
       },
       "selectMessage": {
-        "label": "Seleccionar mensaje",
-        "description": "Marcar o desmarcar el mensaje actual"
+        "label": "Seleccionar mensaje"
       },
       "printMessage": {
-        "label": "Imprimir",
-        "description": "Imprimir el mensaje actual"
+        "label": "Imprimir"
       },
       "gtdTodo": {
-        "label": "Marcar Por hacer",
-        "description": "Clasificar el mensaje seleccionado como Por hacer"
+        "label": "Marcar Por hacer"
       },
       "gtdWatch": {
-        "label": "Marcar Vigilar",
-        "description": "Clasificar el mensaje seleccionado como Vigilar"
+        "label": "Marcar Vigilar"
       },
       "gtdDelegated": {
-        "label": "Marcar Delegado",
-        "description": "Clasificar el mensaje seleccionado como Delegado"
+        "label": "Marcar Delegado"
       },
       "toggleRightSidebar": {
-        "label": "Alternar la barra lateral derecha",
-        "description": "Ocultar o mostrar la barra lateral derecha"
+        "label": "Alternar la barra lateral derecha"
       }
     }
   },
@@ -1034,7 +1003,8 @@
       "conflict": "La tecla {{key}} ya estaba asignada a {{action}} — ha sido reasignada.",
       "resetDefault": "Restablecer predeterminado",
       "remove": "Eliminar atajo",
-      "footer": "Pulsa ? en cualquier lugar de la aplicación para ver la referencia de atajos."
+      "footer": "Pulsa ? en cualquier lugar de la aplicación para ver la referencia de atajos.",
+      "sources": { "primary": "Principal", "secondary": "Secundario", "platform": "Plataforma", "user": "Personalizado" }
     },
     "users": {
       "title": "Usuarios",

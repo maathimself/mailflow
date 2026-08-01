@@ -1,19 +1,35 @@
 import { openForwardFromMessage, openReplyFromMessage } from '../utils/composeFromMessage.js';
 
+const DEFAULT_KEYS = Object.freeze({
+  'mail.archive': { primary: 'e', secondary: [] },
+  'mail.snooze': { primary: 'h', secondary: [] },
+  'mail.move': { primary: 'v', secondary: [] },
+  'mail.toggleRead': { primary: 'u', secondary: ['m'] },
+  'mail.toggleStar': { primary: 's', secondary: [] },
+  'mail.trash': { primary: '#', secondary: [] },
+  'mail.spam': { primary: '!', secondary: [] },
+  'mail.reply': { primary: 'r', secondary: [] },
+  'mail.replyAll': { primary: 'enter', secondary: ['a'] },
+  'mail.forward': { primary: 'f', secondary: [] },
+  'gtd.todo': { primary: 't', secondary: [] },
+  'gtd.watch': { primary: 'w', secondary: [] },
+  'gtd.delegate': { primary: 'd', secondary: [] },
+});
+
 const definition = (id, titleKey, aliasKeys, icon, group, targetMode, executorId, rank = 50) => ({
   id,
   titleKey,
   aliasKeys,
   icon,
   group,
-  defaultKeys: { primary: null, secondary: [] },
+  defaultKeys: DEFAULT_KEYS[id] || { primary: null, secondary: [] },
   rank: { base: rank },
   targetMode,
   executorId,
   isAvailable: () => true,
 });
 
-export const mailCommandDefinitions = [
+const baseMailCommandDefinitions = [
   definition('mail.archive', 'shortcuts.actions.archive.label', ['commands.mail.archive.aliasDone'], 'archive', 'mail', 'bulk_safe', 'mail.archive', 90),
   definition('mail.snooze', 'contextMenu.snooze.label', ['commands.mail.snooze.aliasRemind'], 'clock', 'mail', 'bulk_safe', 'mail.snooze', 85),
   definition('mail.move', 'contextMenu.moveToFolder', [], 'folder', 'mail', 'bulk_safe', 'mail.move', 75),
@@ -34,10 +50,28 @@ export const mailCommandDefinitions = [
   definition('gtd.delegate', 'shortcuts.actions.gtdDelegated.label', [], 'user-check', 'gtd', 'bulk_safe', 'gtd.delegate'),
   definition('gtd.someday', 'gtd.states.someday', [], 'calendar', 'gtd', 'bulk_safe', 'gtd.someday'),
   definition('gtd.reference', 'gtd.states.reference', [], 'bookmark', 'gtd', 'bulk_safe', 'gtd.reference'),
-].map(command => ({
+].map(command => Object.freeze({
   ...command,
   isAvailable: context => command.id.startsWith('gtd.') ? context.gtdAvailable === true : true,
 }));
+
+export const mailCommandDefinitions = Object.freeze([...baseMailCommandDefinitions, Object.freeze({
+  id: 'mail.unsubscribe',
+  titleKey: 'message.unsubscribe.button',
+  aliasKeys: [],
+  icon: 'mail',
+  group: 'mail',
+  defaultKeys: {
+    primary: { mac: 'meta+u', windows: 'ctrl+u', linux: 'ctrl+u', default: 'ctrl+u' },
+    secondary: [],
+  },
+  rank: { base: 60 },
+  targetMode: 'single_conversation',
+  executorId: 'mail.unsubscribe',
+  isAvailable: context => context.surface === 'conversation'
+    && !!context.activeMessage?.list_unsubscribe
+    && !context.activeMessage?.unsubscribed_at,
+})]);
 
 const idOf = target => target.id;
 const idsOf = targets => targets.map(idOf);
@@ -313,6 +347,23 @@ export function createMailActionExecutors(deps) {
         getMessageBody: deps.api.getMessageBody,
       });
       return { status: 'success', succeededIds: idsOf(targets), failed: [] };
+    },
+    'mail.unsubscribe': async ({ targets }) => {
+      try {
+        const result = await deps.api.unsubscribeMessage(targets[0].message.id);
+        const isHandled = result?.type === 'one-click'
+          || (result?.type === 'url' && result.url)
+          || (result?.type === 'mailto' && result.mailto);
+        if (!isHandled) throw new Error('Unsupported unsubscribe response');
+        if (result.type === 'url' && result.url) deps.openExternal(result.url);
+        if (result.type === 'mailto' && result.mailto) deps.openExternal(result.mailto);
+        deps.patchMessages(targets, { unsubscribed_at: new Date().toISOString() });
+        deps.notify({ titleKey: 'message.unsubscribe.done' });
+        return { status: 'success', succeededIds: idsOf(targets), failed: [] };
+      } catch (error) {
+        deps.notify({ type: 'error', titleKey: 'message.unsubscribe.error' });
+        return failedOutcome(targets, error);
+      }
     },
     'gtd.todo': classify('todo'),
     'gtd.watch': classify('watch'),

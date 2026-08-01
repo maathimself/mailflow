@@ -1,4 +1,5 @@
 import { createCommandContext, stableConversationId } from './contracts.js';
+import { normalizeLegacyShortcutOverrides } from '../utils/defaultShortcuts.js';
 
 export function detectCommandPlatform(navigatorLike = {}) {
   const value = navigatorLike.userAgentData?.platform || navigatorLike.platform || '';
@@ -36,7 +37,9 @@ export function buildAppCommandContext(state, {
   const selectedConversationIds = conversations
     .filter(message => selectedRows.has(message.id))
     .map(stableConversationId);
-  const active = conversations.find(message => message.id === state.selectedMessageId);
+  const selected = conversations.find(message => message.id === state.selectedMessageId);
+  const listCursor = visibleMessages.find(message => message.id === state.lastViewedMessageId);
+  const active = state.showContacts ? null : (selected || listCursor);
   const targetedMessages = selectedConversationIds.length
     ? conversations.filter(message => selectedConversationIds.includes(stableConversationId(message)))
     : active ? [active] : [];
@@ -48,24 +51,17 @@ export function buildAppCommandContext(state, {
       ? Boolean(accounts.find(account => account.id === state.selectedAccountId)?.gtd_enabled)
       : accounts.some(account => account.gtd_enabled);
   const surface = modal ? 'picker'
-    : state.showAdmin ? 'settings'
+    : state.showAdmin || state.showContacts ? 'settings'
       : state.composing ? 'compose'
         : state.selectedMessageId ? 'conversation' : 'list';
-  const legacyShortcutIds = {
-    compose: 'compose.new',
-    focusSearch: 'navigation.search',
-    goInbox: 'navigation.unified-inbox',
-  };
-  const shortcutOverrides = Object.fromEntries(Object.entries(state.shortcuts || {})
-    .filter(([legacyId]) => legacyShortcutIds[legacyId])
-    .map(([legacyId, key]) => [legacyShortcutIds[legacyId], key]));
+  const shortcutOverrides = normalizeLegacyShortcutOverrides(state.shortcuts || {});
 
   return createCommandContext({
     surface,
     activeConversationId: stableConversationId(active),
     activeMessage: active || null,
     selectedConversationIds,
-    visibleConversationIds: visibleMessages.map(stableConversationId).filter(Boolean),
+    visibleConversationIds: state.showContacts ? [] : visibleMessages.map(stableConversationId).filter(Boolean),
     conversations,
     accountId: state.selectedAccountId,
     folder: state.selectedFolder,
@@ -73,7 +69,7 @@ export function buildAppCommandContext(state, {
     gtdAvailable,
     cardDavConnected: Boolean(state.carddavStatus?.connected),
     modal,
-    editing,
+    editing: editing || Boolean(state.composing) || Boolean(state.showAdmin) || Boolean(state.showContacts),
     undoAvailable: (state.notifications || []).some(notification => typeof notification.onUndo === 'function'),
     platform,
     shortcutOverrides,

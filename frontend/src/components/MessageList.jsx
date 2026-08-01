@@ -811,9 +811,14 @@ export default function MessageList() {
   })();
   // Arrow-key navigation: intercepts ArrowDown/ArrowUp when the list container has focus.
   const handleListKeyDown = useCallback((e) => {
-    if (e.key === 'ArrowDown') { e.preventDefault(); shortcutBus.emit('nextMessage'); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); shortcutBus.emit('prevMessage'); }
-  }, []);
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      commandController.execute('navigation.nextConversation', { source: 'list-keydown' });
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      commandController.execute('navigation.previousConversation', { source: 'list-keydown' });
+    }
+  }, [commandController]);
 
   // Called when the avatar is clicked: enters selection mode and selects that message
   const handleAvatarClick = useCallback((id) => {
@@ -898,78 +903,17 @@ export default function MessageList() {
 
   // Subscribe to keyboard shortcut actions that belong to the message list.
   useEffect(() => {
-    const getState = () => useStore.getState();
-
-    const markRead = (msg) => {
-      if (msg.is_read) return;
-      const { markReadBehavior, markReadDelay } = getState();
-      if (markReadBehavior === 'manual') return;
-      clearTimeout(autoMarkReadTimerRef.current);
-      autoMarkReadTimerRef.current = null;
-      const doMarkRead = () => executeForMessages('mail.read', 'auto-read', [msg]);
-      if (markReadBehavior === 'delay') {
-        autoMarkReadTimerRef.current = setTimeout(doMarkRead, (markReadDelay || 1) * 1000);
-      } else {
-        doMarkRead();
-      }
-    };
-
-    const onNext = () => {
-      const { messages, searchResults, searchQuery, selectedMessageId, setSelectedMessage } = getState();
-      const pool = searchQuery.trim() ? searchResults : messages;
-      if (!pool.length) return;
-      const idx = pool.findIndex(m => m.id === selectedMessageId);
-      const next = pool[idx + 1] ?? pool[0];
-      setSelectedMessage(next.id);
-      markRead(next);
-    };
-
-    const onPrev = () => {
-      const { messages, searchResults, searchQuery, selectedMessageId, setSelectedMessage } = getState();
-      const pool = searchQuery.trim() ? searchResults : messages;
-      if (!pool.length) return;
-      const idx = pool.findIndex(m => m.id === selectedMessageId);
-      const prev = idx <= 0 ? pool[pool.length - 1] : pool[idx - 1];
-      setSelectedMessage(prev.id);
-      markRead(prev);
-    };
-
-    const onOpen = () => {
-      const { messages, selectedMessageId, setSelectedMessage } = getState();
-      if (selectedMessageId || !messages.length) return;
-      setSelectedMessage(messages[0].id);
-    };
-
-    const onSelect = () => {
-      const { selectedMessageId } = getState();
-      if (!selectedMessageId) return;
-      scRef.current.setSelectedIds(prev => {
-        const next = new Set(prev);
-        if (next.has(selectedMessageId)) next.delete(selectedMessageId);
-        else next.add(selectedMessageId);
-        return next;
-      });
-    };
-
     const onFocusSearch = () => {
       searchInputRef.current?.focus();
       searchInputRef.current?.select();
     };
 
-    shortcutBus.on('nextMessage',   onNext);
-    shortcutBus.on('prevMessage',   onPrev);
-    shortcutBus.on('openMessage',   onOpen);
-    shortcutBus.on('selectMessage', onSelect);
     shortcutBus.on('focusSearch',   onFocusSearch);
 
     return () => {
-      shortcutBus.off('nextMessage',   onNext);
-      shortcutBus.off('prevMessage',   onPrev);
-      shortcutBus.off('openMessage',   onOpen);
-      shortcutBus.off('selectMessage', onSelect);
       shortcutBus.off('focusSearch',   onFocusSearch);
     };
-  }, [executeForMessages]);
+  }, []);
 
   // Scroll the selected message row into view whenever selection changes.
   // block:'nearest' is a no-op when the row is already visible, so mouse clicks don't cause jumps.

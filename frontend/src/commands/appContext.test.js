@@ -79,7 +79,8 @@ describe('buildAppCommandContext', () => {
     const shortcuts = { compose: 'q', focusSearch: 'ctrl+f', goInbox: 'g u' };
     const context = buildAppCommandContext(state({ shortcuts }), { translate, platform: 'linux' });
     assert.deepEqual(context.shortcutOverrides, {
-      'compose.new': 'q', 'navigation.search': 'ctrl+f', 'navigation.unified-inbox': 'g u',
+      compose: 'q', focusSearch: 'ctrl+f', goInbox: 'g u',
+      'compose.new': 'q', 'navigation.search': 'ctrl+f', 'navigation.inbox': 'g u',
     });
     assert.deepEqual(shortcuts, { compose: 'q', focusSearch: 'ctrl+f', goInbox: 'g u' });
   });

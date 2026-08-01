@@ -4,7 +4,7 @@ import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { format } from 'date-fns';
 import { shortcutBus } from '../utils/shortcutBus.js';
-import { getEffectiveShortcuts, parseModKey, modCompactLabel } from '../utils/defaultShortcuts.js';
+import { formatCommandKey, getEffectiveCommandBindings } from '../commands/shortcuts.js';
 import { useMobile } from '../hooks/useMobile.js';
 import DOMPurify from 'dompurify';
 import { BUILTIN_SUMMARIZE } from '../aiActions.js';
@@ -83,12 +83,12 @@ function fileIcon(type) {
 
 export default function MessagePane() {
   const { t } = useTranslation();
-  const { controller: commandController } = useCommandRuntimeContext();
+  const { controller: commandController, commandDefinitions, getContext } = useCommandRuntimeContext();
   const {
     messages, searchResults, searchQuery, selectedMessageId, setSelectedMessage,
     updateMessage, accounts, addNotification,
     imageWhitelist, addToImageWhitelist, blockRemoteImages, threadMessages,
-    replyDefault, shortcuts, recentFolders, favoriteFolders, todoistConnected,
+    replyDefault, recentFolders, favoriteFolders, todoistConnected,
     categorizationEnabled, setCategoryCounts,
     aiActions, setShowAdmin, setAdminTab,
   } = useStore();
@@ -106,12 +106,17 @@ export default function MessagePane() {
     });
   }, [commandController]);
 
-  const effectiveShortcuts = getEffectiveShortcuts(shortcuts);
+  const commandBindings = new Map(getEffectiveCommandBindings(commandDefinitions, getContext())
+    .map(item => [item.commandId, item.bindings[0]?.keys]));
+  const shortcutIds = {
+    reply: 'mail.reply', replyAll: 'mail.replyAll', forward: 'mail.forward',
+    archive: 'mail.archive', delete: 'mail.trash', toggleStar: 'mail.toggleStar',
+    toggleRead: 'mail.toggleRead', printMessage: 'mail.print',
+  };
   const shortcutLabel = (action) => {
-    const k = effectiveShortcuts[action];
+    const k = commandBindings.get(shortcutIds[action]);
     if (!k) return null;
-    const mod = parseModKey(k);
-    return mod ? `${modCompactLabel(mod.mod)}${mod.bare.toUpperCase()}` : k.toUpperCase();
+    return formatCommandKey(k, getContext().platform);
   };
   // Navigate to a message and mark it as read in one shot.
   // Arrow buttons and swipe gestures bypass handleSelect in MessageList, so they
@@ -254,6 +259,18 @@ export default function MessagePane() {
   const scrollContainerRef = useRef(null);
   const iframeRef = useRef(null);
   const roRef = useRef(null);
+  useEffect(() => {
+    const onScrollCommand = event => {
+      const element = scrollContainerRef.current;
+      if (!element) return;
+      element.scrollBy({
+        top: (event.detail?.direction || 0) * element.clientHeight,
+        behavior: 'smooth',
+      });
+    };
+    window.addEventListener('mailflow:scroll-conversation', onScrollCommand);
+    return () => window.removeEventListener('mailflow:scroll-conversation', onScrollCommand);
+  }, []);
   // useMemo so prepared is available in the same render as body.html — no extra frame,
   // no flash of empty content between skeleton-gone and email-shown.
   const prepared = useMemo(() => {
@@ -1108,23 +1125,8 @@ ${bodyContent}
   const handleUnsubscribe = async () => {
     if (!message) return;
     setUnsubscribeStatus('loading');
-    const msg = message;
-    try {
-      const result = await api.unsubscribeMessage(msg.id);
-      const succeeded = result.type === 'one-click' || result.type === 'url' || result.type === 'mailto';
-      if (!succeeded) { setUnsubscribeStatus('error'); return; }
-      if (result.type === 'url' && result.url) window.open(result.url, '_blank', 'noopener,noreferrer');
-      else if (result.type === 'mailto' && result.mailto) window.open(result.mailto, '_blank', 'noopener,noreferrer');
-      setUnsubscribeStatus('done');
-      addNotification({
-        title: t('message.unsubscribe.done'),
-        actionLabel: t('message.unsubscribe.moveToTrash'),
-        onAction: () => executeForTarget('mail.trash', 'unsubscribe-notification', msg),
-      });
-    } catch {
-      setUnsubscribeStatus('error');
-      addNotification({ type: 'error', title: t('message.unsubscribe.error') });
-    }
+    const outcome = await executeForTarget('mail.unsubscribe', 'pane', message);
+    setUnsubscribeStatus(outcome.status === 'success' ? 'done' : 'error');
   };
 
   const handleAiClassify = async () => {
