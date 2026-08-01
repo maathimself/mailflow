@@ -28,7 +28,9 @@ export function createCommandController({
       onOutcome(outcome);
       return Promise.resolve(outcome);
     }
-    if (!command.isAvailable(initialContext) || (!frozenTargetIds && !hasTargets(command, initialContext))) {
+    const resumingFrozenTargets = frozenTargetIds != null && input !== undefined;
+    if ((!resumingFrozenTargets && !command.isAvailable(initialContext))
+      || (!frozenTargetIds && !hasTargets(command, initialContext))) {
       const outcome = failed(commandId, new Error(`Command "${commandId}" is not available`));
       onOutcome(outcome);
       return Promise.resolve(outcome);

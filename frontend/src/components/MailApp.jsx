@@ -16,6 +16,7 @@ import MessagePane from './MessagePane.jsx';
 import GtdSidebarContent from './GtdSidebarContent.jsx';
 import NotificationToasts from './NotificationToasts.jsx';
 import CommandPalette from './CommandPalette.jsx';
+import { DelegateContactContinuationHost } from './DelegateContactPicker.jsx';
 import { gtdActiveForContext } from '../utils/gtd.js';
 import { CommandRuntimeProvider } from '../commands/CommandRuntimeContext.jsx';
 import { commandPaletteShortcut } from '../commands/paletteShortcut.js';
@@ -74,10 +75,13 @@ export default function MailApp() {
     showContacts, setTodoistConnected,
     accounts, rightSidebarWidth, setRightSidebarWidth, isRightSidebarResizing, setIsRightSidebarResizing,
     fetchGtdSections, rightSidebarHidden, toggleRightSidebarHidden,
+    refreshCarddavStatus,
   } = useStore();
   const syncInterval = useStore(s => s.syncInterval);
   const autoLockMinutes = useStore(s => s.autoLockMinutes);
   const lockScreen = useStore(s => s.lockScreen);
+
+  useEffect(() => { void refreshCarddavStatus(); }, [refreshCarddavStatus]);
 
   // Auto-lock after inactivity (#235). MailApp only mounts while unlocked, so this
   // timer runs only when unlocked; hitting the timeout locks and unmounts this tree.
@@ -137,7 +141,8 @@ export default function MailApp() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const commandRuntime = useCommandRuntime({ t, shortcutHelpOpen: showShortcutHelp, paletteOpen });
   useEffect(() => {
-    if (commandRuntime.continuation) setPaletteOpen(true);
+    if (!commandRuntime.continuation) return;
+    setPaletteOpen(commandRuntime.continuation.kind !== 'contact');
   }, [commandRuntime.continuation]);
   const isMobile = useMobile();
   const sidebarDragRef = useRef(null);
@@ -827,6 +832,7 @@ export default function MailApp() {
         commandRuntime.clearContinuation();
         setPaletteOpen(false);
       }} />
+      <DelegateContactContinuationHost onOpen={() => setPaletteOpen(false)} />
 
       {/* Keyboard shortcut help overlay — toggled by the '?' key */}
       {showShortcutHelp && (

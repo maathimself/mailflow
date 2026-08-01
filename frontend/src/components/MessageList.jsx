@@ -23,6 +23,7 @@ import { pendingMarkReadMap, completedMarkReadMap } from '../utils/pendingReads.
 import { applyDeleteGuard } from '../utils/pendingDeletes.js';
 import { stableConversationId } from '../commands/contracts.js';
 import { contextMenuTargetMessages } from '../commands/contextMenuCommands.js';
+import DelegatePill from './DelegatePill.jsx';
 import { useCommandRuntimeContext } from '../commands/CommandRuntimeContext.jsx';
 
 // Folder icon for move picker
@@ -73,6 +74,7 @@ const SWIPE_COMMANDS = Object.freeze({
 const THREAD_EXPANDING_COMMANDS = new Set([
   'mail.archive', 'mail.snooze', 'mail.move', 'mail.read', 'mail.unread', 'mail.toggleRead',
   'mail.star', 'mail.unstar', 'mail.toggleStar', 'mail.trash', 'mail.spam', 'mail.notSpam',
+  'gtd.delegate',
 ]);
 
 function getSwipeActionView(action, message, t, unreadCount = null) {
@@ -2976,10 +2978,15 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
           </div>
           {/* Row 3: snippet */}
           <div style={{
-            fontSize: 12, color: 'var(--text-tertiary)',
-            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            display: 'flex', alignItems: 'center', gap: 6, minWidth: 0,
           }}>
-            {message.snippet || ''}
+            <DelegatePill delegation={message.delegation} compact />
+            <span style={{
+              minWidth: 0, flex: 1, fontSize: 12, color: 'var(--text-tertiary)',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              {message.snippet || ''}
+            </span>
           </div>
         </div>
         {hovered && hoverQuickActions && (
@@ -3287,7 +3294,8 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
         </div>
 
         {/* Row 3: Snippet */}
-        <div style={{ display: 'flex', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+          <DelegatePill delegation={message.delegation} compact />
           <span style={{
             fontSize: 12, color: 'var(--text-tertiary)',
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',

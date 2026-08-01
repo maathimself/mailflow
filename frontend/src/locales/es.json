@@ -539,9 +539,6 @@
       "gtdWatch": {
         "label": "Marcar Vigilar"
       },
-      "gtdDelegated": {
-        "label": "Marcar Delegado"
-      },
       "toggleRightSidebar": {
         "label": "Alternar la barra lateral derecha"
       }
@@ -1458,6 +1455,21 @@
   },
   "gtd": {
     "title": "GTD",
+    "delegate": {
+      "command": "Delegar",
+      "pickerTitle": "Delegar {{count}} mensaje(s)",
+      "pickerHint": "Elige un contacto sincronizado o continúa sin asignar a nadie",
+      "search": "Buscar contactos",
+      "contacts": "Contactos",
+      "withoutPerson": "Delegar sin persona",
+      "empty": "No se encontraron contactos",
+      "retry": "Reintentar",
+      "loadFailed": "No se pudieron cargar los contactos",
+      "assignedTo": "Delegado a {{name}}",
+      "success": "Se delegaron {{count}} mensaje(s)",
+      "partial": "Se delegaron {{succeeded}} mensaje(s); {{failed}} fallaron",
+      "failed": "No se pudieron delegar los mensajes seleccionados"
+    },
     "inbox": "Bandeja de entrada",
     "waiting": "En espera",
     "inboxZero": "Bandeja vacía ✓",

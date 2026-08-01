@@ -539,9 +539,6 @@
       "gtdWatch": {
         "label": "Mark Watch"
       },
-      "gtdDelegated": {
-        "label": "Mark Delegated"
-      },
       "toggleRightSidebar": {
         "label": "Toggle right sidebar"
       }
@@ -1458,6 +1455,21 @@
   },
   "gtd": {
     "title": "GTD",
+    "delegate": {
+      "command": "Delegate",
+      "pickerTitle": "Delegate {{count}} message(s)",
+      "pickerHint": "Choose a synced contact or continue without one",
+      "search": "Search contacts",
+      "contacts": "Contacts",
+      "withoutPerson": "Delegate without a person",
+      "empty": "No contacts found",
+      "retry": "Try again",
+      "loadFailed": "Could not load contacts",
+      "assignedTo": "Delegated to {{name}}",
+      "success": "Delegated {{count}} message(s)",
+      "partial": "Delegated {{succeeded}} message(s); {{failed}} failed",
+      "failed": "Could not delegate the selected message(s)"
+    },
     "inbox": "Inbox",
     "waiting": "Waiting",
     "inboxZero": "Inbox Zero ✓",

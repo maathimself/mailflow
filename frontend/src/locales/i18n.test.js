@@ -114,6 +114,7 @@ const dir = dirname(fileURLToPath(import.meta.url));
 // Two locales sharing a value is only allowed if both appear in the same group.
 // Any unlisted pair will still fail.
 const SAME_VALUE_ALLOWED = {
+  'gtd.delegate.contacts':                  [['en', 'fr']], // Same word in both languages
   // ── Universal placeholders / brand names (all locales share) ───────────────
   'admin.about.kofi':                       'any', // Ko-fi — brand name, same everywhere
   'admin.about.githubSponsors':             'any', // GitHub Sponsors — product name, same everywhere
@@ -652,6 +653,18 @@ describe('i18n locale files', () => {
   });
 
   describe('key coverage — every key must appear in every locale', () => {
+    it('includes the complete delegated-contact workflow in every locale', () => {
+      const required = [
+        'gtd.delegate.command', 'gtd.delegate.pickerTitle', 'gtd.delegate.pickerHint',
+        'gtd.delegate.search', 'gtd.delegate.contacts', 'gtd.delegate.withoutPerson',
+        'gtd.delegate.empty', 'gtd.delegate.retry', 'gtd.delegate.loadFailed',
+        'gtd.delegate.assignedTo', 'gtd.delegate.success', 'gtd.delegate.partial',
+        'gtd.delegate.failed',
+      ];
+      for (const [lang, locale] of Object.entries(locales)) {
+        for (const key of required) assert.equal(typeof locale[key], 'string', `${lang}: ${key}`);
+      }
+    });
     for (const lang of langs) {
       it(`${lang} has no missing keys`, () => {
         const present = new Set(Object.keys(locales[lang]));

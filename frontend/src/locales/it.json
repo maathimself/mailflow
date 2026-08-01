@@ -539,9 +539,6 @@
       "gtdWatch": {
         "label": "Segna Osservare"
       },
-      "gtdDelegated": {
-        "label": "Segna Delegato"
-      },
       "toggleRightSidebar": {
         "label": "Mostra o nascondi la barra laterale destra"
       }
@@ -1458,6 +1455,21 @@
   },
   "gtd": {
     "title": "GTD",
+    "delegate": {
+      "command": "Delega",
+      "pickerTitle": "Delega {{count}} messaggio/i",
+      "pickerHint": "Scegli un contatto sincronizzato o continua senza una persona",
+      "search": "Cerca contatti",
+      "contacts": "Contatti",
+      "withoutPerson": "Delega senza una persona",
+      "empty": "Nessun contatto trovato",
+      "retry": "Riprova",
+      "loadFailed": "Impossibile caricare i contatti",
+      "assignedTo": "Delegato a {{name}}",
+      "success": "{{count}} messaggio/i delegato/i",
+      "partial": "{{succeeded}} messaggio/i delegato/i; {{failed}} non riuscito/i",
+      "failed": "Impossibile delegare i messaggi selezionati"
+    },
     "inbox": "Posta in arrivo",
     "waiting": "In attesa",
     "inboxZero": "Posta a zero ✓",

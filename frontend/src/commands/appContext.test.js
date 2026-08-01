@@ -11,7 +11,8 @@ const state = overrides => ({
   selectedMessageId: null, selectedMessageIds: new Set(), selectedAccountId: 'acct-1',
   selectedFolder: 'INBOX', composing: false, composeData: null, showAdmin: false,
   accounts: [{ id: 'acct-1', gtd_enabled: true }],
-  carddavStatus: { connected: true }, notifications: [], activeGtdTab: null,
+  carddavStatus: { connected: true }, carddavStatusLoaded: true,
+  notifications: [], activeGtdTab: null,
   shortcuts: {}, ...overrides,
 });
 const translate = (key, values) => values?.count == null ? key : `${key}:${values.count}`;
@@ -32,6 +33,8 @@ describe('buildAppCommandContext', () => {
     assert.deepEqual(context.visibleConversationIds, ['acct-1:<a>', 'acct-1:<b>']);
     assert.equal(context.gtdAvailable, true);
     assert.equal(context.cardDavConnected, true);
+    assert.deepEqual(context.carddavStatus, { connected: true });
+    assert.equal(context.carddavStatusLoaded, true);
   });
 
   it('requires every targeted account to support GTD and never reads CardDAV from accounts', () => {
@@ -47,6 +50,7 @@ describe('buildAppCommandContext', () => {
     }), { translate, platform: 'linux' });
     assert.equal(context.gtdAvailable, false);
     assert.equal(context.cardDavConnected, false);
+    assert.equal(context.carddavStatusLoaded, true);
   });
 
   it('exposes active message and current undo availability', () => {

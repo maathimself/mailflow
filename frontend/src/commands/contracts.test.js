@@ -92,4 +92,14 @@ describe('command contracts', () => {
     assert.ok(Object.isFrozen(context));
     assert.ok(Object.isFrozen(context.selectedConversationIds));
   });
+
+  it('preserves the legacy CardDAV boolean while exposing a frozen status snapshot', () => {
+    const context = createCommandContext({
+      surface: 'list', platform: 'linux', translate: key => key,
+      cardDavConnected: true,
+    });
+    assert.equal(context.cardDavConnected, true);
+    assert.deepEqual(context.carddavStatus, { connected: true });
+    assert.ok(Object.isFrozen(context.carddavStatus));
+  });
 });

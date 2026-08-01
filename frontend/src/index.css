@@ -407,3 +407,198 @@ body, #root {
 .command-palette__hints > span { display: flex; align-items: center; gap: 5px; }
 @media (max-width: 560px) { .command-palette__target { display: none; } .command-palette__footer { justify-content: center; } }
 @media (prefers-reduced-motion: reduce) { .command-palette, .command-palette__backdrop { animation: none; } }
+/* Delegated-contact continuation — shares the palette's compact, native theme language. */
+.delegate-picker__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: start center;
+  padding: min(14vh, 120px) 12px 24px;
+  background: color-mix(in srgb, var(--bg-primary) 64%, transparent);
+  backdrop-filter: blur(4px);
+}
+
+.delegate-picker {
+  width: min(440px, calc(100vw - 24px));
+  overflow: hidden;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .32);
+}
+
+.delegate-picker__header,
+.delegate-picker__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+}
+
+.delegate-picker__header h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.delegate-picker__header p {
+  margin: 3px 0 0;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.delegate-picker__close {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--text-secondary);
+  background: transparent;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.delegate-picker__close:hover,
+.delegate-picker__close:focus-visible { background: var(--bg-hover); }
+
+.delegate-picker__search {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0 12px 10px;
+  padding: 9px 11px;
+  color: var(--text-tertiary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+
+.delegate-picker__search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.delegate-picker__search input {
+  min-width: 0;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  color: var(--text-primary);
+  background: transparent;
+  font: inherit;
+}
+
+.delegate-picker__results {
+  max-height: min(330px, 45vh);
+  min-height: 88px;
+  overflow-y: auto;
+  padding: 4px 8px;
+  border-block: 1px solid var(--border);
+}
+
+.delegate-picker__option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 8px;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.delegate-picker__option[aria-selected="true"] { background: var(--bg-hover); }
+
+.delegate-picker__avatar {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  border-radius: 50%;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-primary));
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.delegate-picker__identity { min-width: 0; }
+.delegate-picker__identity strong,
+.delegate-picker__identity small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.delegate-picker__identity strong { font-size: 13px; font-weight: 600; }
+.delegate-picker__identity small { margin-top: 2px; color: var(--text-tertiary); font-size: 11px; }
+
+.delegate-picker__state {
+  display: flex;
+  min-height: 80px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+.delegate-picker__state button,
+.delegate-picker__without {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 7px 10px;
+  color: var(--text-secondary);
+  background: var(--bg-primary);
+  cursor: pointer;
+}
+
+.delegate-picker__footer { color: var(--text-tertiary); font-size: 11px; }
+.delegate-picker__footer kbd { font: inherit; }
+
+.delegate-picker :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.delegate-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 180px;
+  flex: 0 1 auto;
+  border-radius: 999px;
+  padding: 2px 7px;
+  color: #E08B3D;
+  background: rgba(224, 139, 61, .15);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.delegate-pill--compact {
+  max-width: 112px;
+  padding: 1px 6px;
+  font-size: 10px;
+}
+
+.delegate-pill svg { flex: 0 0 auto; }
+
+.delegate-pill__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

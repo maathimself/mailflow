@@ -2082,6 +2082,7 @@ function LayoutsTab() {
 // CardDAV contact sync (e.g. Nextcloud). One-way, read-only pull.
 function CardDavCard() {
   const { t } = useTranslation();
+  const setCarddavStatus = useStore(state => state.setCarddavStatus);
   const [status, setStatus] = useState(null); // null while loading
   const [expanded, setExpanded] = useState(false);
   const [form, setForm] = useState({ serverUrl: '', username: '', password: '', dupMode: 'separate', intervalMin: 60 });
@@ -2090,7 +2091,14 @@ function CardDavCard() {
   const [disconnecting, setDisconnecting] = useState(false);
   const [error, setError] = useState('');
 
-  useEffect(() => { api.carddav.status().then(setStatus).catch(() => setStatus({ connected: false })); }, []);
+  const applyStatus = useCallback((next) => {
+    setStatus(next);
+    setCarddavStatus(next);
+  }, [setCarddavStatus]);
+
+  useEffect(() => {
+    api.carddav.status().then(applyStatus).catch(() => applyStatus({ connected: false }));
+  }, [applyStatus]);
 
   const connected = status?.connected;
   const loading = status === null;
@@ -2102,24 +2110,24 @@ function CardDavCard() {
         serverUrl: form.serverUrl.trim(), username: form.username.trim(),
         password: form.password, dupMode: form.dupMode, intervalMin: Number(form.intervalMin),
       });
-      setStatus(s); setForm(f => ({ ...f, password: '' }));
+      applyStatus(s); setForm(f => ({ ...f, password: '' }));
     } catch (e) { setError(e.message || t('admin.integrations.carddav.connectFailed')); }
     finally { setConnecting(false); }
   };
   const handleSync = async () => {
     setSyncing(true); setError('');
-    try { const r = await api.carddav.sync(); setStatus(r.status); if (!r.ok && r.error) setError(r.error); }
+    try { const r = await api.carddav.sync(); applyStatus(r.status); if (!r.ok && r.error) setError(r.error); }
     catch (e) { setError(e.message); }
     finally { setSyncing(false); }
   };
   const handleDisconnect = async () => {
     setDisconnecting(true); setError('');
-    try { await api.carddav.disconnect(); setStatus({ connected: false }); }
+    try { await api.carddav.disconnect(); applyStatus({ connected: false }); }
     catch (e) { setError(e.message); }
     finally { setDisconnecting(false); }
   };
   const updateSetting = async (patch) => {
-    setStatus(s => ({ ...s, ...patch }));
+    applyStatus({ ...status, ...patch });
     try { await api.carddav.update(patch); } catch (e) { setError(e.message); }
   };
 

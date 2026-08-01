@@ -390,6 +390,12 @@ export const api = {
     const qs = p.toString();
     return request('GET', `/gtd/sections${qs ? '?' + qs : ''}`);
   },
+  gtd: {
+    delegate: (messageIds, contactId) => request('POST', '/gtd/delegations', {
+      messageIds,
+      contactId,
+    }),
+  },
   gtdClassify: (messageId, state) => request('POST', '/gtd/classify', { messageId, state }),
   gtdUnclassify: (messageId, state) => request('DELETE', '/gtd/classify', { messageId, state }),
   // GTD "done": strip the row's label(s) for these states, mark read, archive the INBOX

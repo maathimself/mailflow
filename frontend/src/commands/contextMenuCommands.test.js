@@ -16,6 +16,7 @@ test('maps migrated context actions to command IDs and typed input', () => {
     commandId: 'mail.snooze', input: { until: '2026-08-01T09:00:00.000Z' },
   });
   assert.deepEqual(toContextMenuCommand('gtdClassify', 'todo'), { commandId: 'gtd.todo' });
+  assert.deepEqual(toContextMenuCommand('gtdClassify', 'delegated'), { commandId: 'gtd.delegate' });
 });
 
 test('returns null for intentionally unmigrated utilities', () => {
@@ -59,9 +60,16 @@ test('routes pane toolbar and menu mail actions through the shared controller', 
   assert.match(pane, /useCommandRuntimeContext\(\)/);
   assert.match(pane, /stableConversationId\(message\)/);
   assert.match(pane, /source,\s*input,\s*frozenTargetIds/);
+  assert.match(pane, /executeForMessage\('gtd\.delegate', 'visible-message-menu'\)/);
+  assert.match(pane, /account\?\.gtd_enabled && \(\s*<button[\s\S]*?executeForMessage\('gtd\.delegate', 'visible-message-menu'\)/);
   assert.doesNotMatch(
     pane,
     /api\.(bulkArchive|bulkDelete|bulkMove|bulkRead|deleteMessage|markStarred|markSpam|markHam|snoozeMessage)/,
   );
   assert.doesNotMatch(pane, /shortcutBus\.on\('(reply|replyAll|forward|toggleStar)'/);
+});
+
+test('expands thread summaries before delegating from list entry points', () => {
+  const list = fs.readFileSync(new URL('../components/MessageList.jsx', import.meta.url), 'utf8');
+  assert.match(list, /THREAD_EXPANDING_COMMANDS = new Set\(\[[\s\S]*'gtd\.delegate'/);
 });

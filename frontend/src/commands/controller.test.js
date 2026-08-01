@@ -64,6 +64,26 @@ describe('createCommandController', () => {
     assert.deepEqual(calls[1].targetIds, ['acct:<a>']);
   });
 
+  it('resumes frozen targets after the current selection becomes unavailable', async () => {
+    let context = makeContext(['acct:<a>']);
+    const registry = createCommandRegistry([definition({
+      isAvailable: current => current.gtdAvailable,
+    })]);
+    context = Object.freeze({ ...context, gtdAvailable: true });
+    const controller = createCommandController({
+      registry,
+      getContext: () => context,
+      executors: { 'mail.move': () => ({ status: 'success' }) },
+    });
+    const frozenTargetIds = ['acct:<a>'];
+    context = Object.freeze({ ...context, gtdAvailable: false });
+    const outcome = await controller.execute('mail.move', {
+      source: 'continuation', input: { contactId: 'contact-1' }, frozenTargetIds,
+    });
+    assert.equal(outcome.status, 'success');
+    assert.deepEqual(outcome.targetIds, frozenTargetIds);
+  });
+
   it('deduplicates only concurrent execution of the same command and target set', async () => {
     let release;
     let callCount = 0;

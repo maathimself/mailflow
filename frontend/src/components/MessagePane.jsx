@@ -36,6 +36,7 @@ import MessageHeaderModal from './MessageHeaderModal.jsx';
 import FolderIcon from './FolderIcon.jsx';
 import TodoistTaskModal from './TodoistTaskModal.jsx';
 import SenderAvatarImage from './SenderAvatarImage.jsx';
+import DelegatePill from './DelegatePill.jsx';
 
 function linkifyText(text) {
   const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -1513,6 +1514,21 @@ ${bodyContent}
                     {t('contextMenu.markUnread')}
                   </div>
                 )}
+                {account?.gtd_enabled && (
+                  <button
+                    type="button"
+                    onClick={() => { setShowMoreMenu(false); executeForMessage('gtd.delegate', 'visible-message-menu'); }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '11px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)', background: 'transparent', border: 0, borderBottom: '1px solid var(--border-subtle)', textAlign: 'left' }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+                      <circle cx="9" cy="7" r="4"/><polyline points="16 11 18 13 22 9"/>
+                    </svg>
+                    {t('gtd.delegate.command')}
+                  </button>
+                )}
                 {hasSpamFolder && !inSpamFolder && message && (
                   <div
                     onClick={() => { setShowMoreMenu(false); executeForMessage('mail.spam', 'pane-more-menu'); }}
@@ -1613,6 +1629,14 @@ ${bodyContent}
           </div>
         ) : (
           <>
+            {account?.gtd_enabled && (
+              <PaneBtn onClick={() => executeForMessage('gtd.delegate', 'visible-message-menu')} title={t('gtd.delegate.command')}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+                  <circle cx="9" cy="7" r="4"/><polyline points="16 11 18 13 22 9"/>
+                </svg>
+              </PaneBtn>
+            )}
             {hasSpamFolder && !inSpamFolder && message && (
               <PaneBtn onClick={() => executeForMessage('mail.spam', 'pane-toolbar')} title={t('contextMenu.markAsSpam')}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
@@ -1730,13 +1754,17 @@ ${bodyContent}
             fontSize: 17, fontWeight: 600,
             color: 'var(--text-primary)', lineHeight: 1.3,
             fontFamily: 'var(--font-display)',
+            display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8,
           }}>
-            {(() => {
-              const paneSubject = resolvedSubject || message.subject;
-              return (paneSubject && paneSubject !== '(no subject)')
-                ? paneSubject
-                : t('message.noSubject');
-            })()}
+            <span style={{ flex: '1 1 220px', minWidth: 0 }}>
+              {(() => {
+                const paneSubject = resolvedSubject || message.subject;
+                return (paneSubject && paneSubject !== '(no subject)')
+                  ? paneSubject
+                  : t('message.noSubject');
+              })()}
+            </span>
+            <DelegatePill delegation={message.delegation} />
           </div>
 
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 16px' }}>

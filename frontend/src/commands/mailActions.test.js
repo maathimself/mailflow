@@ -20,12 +20,18 @@ const target = (rowId, patch = {}) => {
   };
 };
 
-function harness(apiPatch = {}) {
+function harness(apiPatch = {}, depsPatch = {}) {
   const events = [];
   const api = {
     bulkRead: async (ids, read) => ({ ok: true, ids, read }),
     markStarred: async (id, starred) => ({ ok: true, id, starred }),
     gtdClassify: async (id, state) => ({ ok: true, id, state }),
+    gtd: {
+      delegate: async (ids, contactId) => ({
+        status: 'success', successCount: ids.length, failureCount: 0,
+        results: ids.map(messageId => ({ messageId, ok: true, delegation: contactId })),
+      }),
+    },
     getMessageBody: async () => ({ text: 'body', html: '<p>body</p>', attachments: [] }),
     ...apiPatch,
   };
@@ -41,9 +47,13 @@ function harness(apiPatch = {}) {
     guardReadCompleted: targets => events.push(['read-complete', targets.map(item => item.id)]),
     clearReadGuards: targets => events.push(['read-clear', targets.map(item => item.id)]),
     scheduleGtdRefresh: () => events.push(['gtd-refresh']),
+    refreshCarddavStatus: async () => ({ connected: false }),
+    refreshMessages: async () => events.push(['messages-refresh']),
+    refreshGtdSections: async () => events.push(['gtd-refresh']),
     notify: notification => events.push(['notify', notification]),
     moveOptions: () => [{ id: 'Archive', label: 'Archive' }],
     snoozeOptions: () => [{ id: '2026-08-01T09:00:00.000Z', label: 'Tomorrow morning' }],
+    ...depsPatch,
   };
   const executors = createMailActionExecutors(deps);
   const invoke = (executorId, targets, rest = {}) => executors[executorId]({
@@ -184,6 +194,118 @@ describe('non-destructive mail executors', () => {
     assert.equal(result.status, 'partial');
     assert.deepEqual(result.failed, [{ id: 'account-1:<b@example.test>', error: 'copy failed' }]);
     assert.equal(h.events.filter(event => event[0] === 'gtd-refresh').length, 1);
+  });
+
+  it('requests contact input with exact frozen targets when CardDAV is connected', async () => {
+    const h = harness();
+    const targets = [target('a'), target('b')];
+    const context = {
+      conversationsById: Object.fromEntries(targets.map(item => [item.id, item])),
+      carddavStatus: { connected: true },
+      carddavStatusLoaded: true,
+    };
+    const result = await h.invoke('gtd.delegate', targets, { context, source: 'shortcut' });
+    assert.deepEqual(result, {
+      status: 'needs_input',
+      continuation: {
+        commandId: 'gtd.delegate', kind: 'contact', targetIds: targets.map(item => item.id),
+        props: { targetCount: 2 },
+      },
+    });
+    assert.equal(h.events.length, 0);
+  });
+
+  it('refreshes an unknown CardDAV status before choosing the delegation workflow', async () => {
+    const calls = [];
+    const h = harness({}, {
+      refreshCarddavStatus: async () => {
+        calls.push('status');
+        return { connected: true };
+      },
+    });
+    const current = target('a');
+    const context = {
+      conversationsById: { [current.id]: current },
+      carddavStatus: { connected: false },
+      carddavStatusLoaded: false,
+    };
+    const result = await h.invoke('gtd.delegate', [current], { context });
+    assert.deepEqual(calls, ['status']);
+    assert.equal(result.status, 'needs_input');
+    assert.equal(result.continuation.kind, 'contact');
+  });
+
+  it('delegates immediately without a person when CardDAV is disconnected', async () => {
+    const calls = [];
+    const h = harness({
+      gtd: { delegate: async (...args) => {
+        calls.push(args);
+        return {
+          status: 'success', successCount: 1, failureCount: 0,
+          results: [{ messageId: 'a', ok: true }],
+        };
+      } },
+    });
+    const current = target('a');
+    const context = {
+      conversationsById: { [current.id]: current },
+      carddavStatus: { connected: false },
+      carddavStatusLoaded: true,
+    };
+    const result = await h.invoke('gtd.delegate', [current], { context });
+    assert.deepEqual(calls, [[['a'], null]]);
+    assert.equal(result.status, 'success');
+  });
+
+  it('resumes with a stable contact ID and sends only database message UUIDs', async () => {
+    const calls = [];
+    const h = harness({
+      gtd: { delegate: async (...args) => {
+        calls.push(args);
+        return {
+          status: 'success', successCount: 2, failureCount: 0,
+          results: ['a', 'b'].map(messageId => ({ messageId, ok: true })),
+        };
+      } },
+    });
+    const targets = [target('a'), target('b')];
+    const context = {
+      conversationsById: Object.fromEntries(targets.map(item => [item.id, item])),
+      carddavStatus: { connected: true },
+      carddavStatusLoaded: true,
+    };
+    const result = await h.invoke('gtd.delegate', targets, {
+      context, source: 'continuation', input: { contactId: 'contact-1' },
+    });
+    assert.deepEqual(calls, [[['a', 'b'], 'contact-1']]);
+    assert.deepEqual(result.succeededIds, targets.map(item => item.id));
+  });
+
+  it('patches successful delegation metadata into every cached message surface', async () => {
+    const delegation = {
+      contact_id: 'contact-1', display_name: 'Casey Rivera',
+      primary_email: 'casey@example.test',
+    };
+    const h = harness({
+      gtd: { delegate: async () => ({
+        status: 'partial', successCount: 1, failureCount: 1,
+        results: [
+          { messageId: 'a', ok: true, delegation },
+          { messageId: 'b', ok: false, error: { code: 'operation_failed' } },
+        ],
+      }) },
+    });
+    const targets = [target('a'), target('b')];
+    const context = {
+      conversationsById: Object.fromEntries(targets.map(item => [item.id, item])),
+      carddavStatus: { connected: true }, carddavStatusLoaded: true,
+    };
+    await h.invoke('gtd.delegate', targets, {
+      context, input: { contactId: 'contact-1' }, source: 'continuation',
+    });
+    assert.deepEqual(h.events.filter(event => event[0] === 'patch'), [
+      ['patch', [targets[0].id], { delegation }],
+    ]);
   });
 });
 
@@ -345,6 +467,7 @@ it('constructs every executor with the documented dependency adapter', () => {
     'restoreMessages', 'adjustUnread', 'guardPending', 'guardCompleted',
     'clearGuards', 'recordRecentFolder', 'scheduleGtdRefresh', 'notify', 'timers',
     'moveOptions', 'snoozeOptions',
+    'refreshCarddavStatus', 'refreshMessages', 'refreshGtdSections',
     'guardReadPending', 'guardReadCompleted', 'clearReadGuards',
     'registerPendingRemoval', 'keepaliveDelete',
   ];

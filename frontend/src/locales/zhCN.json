@@ -539,9 +539,6 @@
       "gtdWatch": {
         "label": "标记为关注"
       },
-      "gtdDelegated": {
-        "label": "标记为已委派"
-      },
       "toggleRightSidebar": {
         "label": "切换右侧边栏"
       }
@@ -1458,6 +1455,21 @@
   },
   "gtd": {
     "title": "GTD",
+    "delegate": {
+      "command": "委派",
+      "pickerTitle": "委派 {{count}} 封邮件",
+      "pickerHint": "选择已同步的联系人，或不指定联系人继续",
+      "search": "搜索联系人",
+      "contacts": "联系人",
+      "withoutPerson": "不指定联系人直接委派",
+      "empty": "未找到联系人",
+      "retry": "重试",
+      "loadFailed": "无法加载联系人",
+      "assignedTo": "已委派给 {{name}}",
+      "success": "已委派 {{count}} 封邮件",
+      "partial": "已委派 {{succeeded}} 封；{{failed}} 封失败",
+      "failed": "无法委派所选邮件"
+    },
     "inbox": "收件箱",
     "waiting": "等待中",
     "inboxZero": "收件箱清零 ✓",

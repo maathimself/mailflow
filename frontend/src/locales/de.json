@@ -539,9 +539,6 @@
       "gtdWatch": {
         "label": "Als Beobachten markieren"
       },
-      "gtdDelegated": {
-        "label": "Als Delegiert markieren"
-      },
       "toggleRightSidebar": {
         "label": "Rechte Seitenleiste umschalten"
       }
@@ -1458,6 +1455,21 @@
   },
   "gtd": {
     "title": "GTD",
+    "delegate": {
+      "command": "Delegieren",
+      "pickerTitle": "{{count}} Nachricht(en) delegieren",
+      "pickerHint": "Synchronisierten Kontakt wählen oder ohne Person fortfahren",
+      "search": "Kontakte suchen",
+      "contacts": "Kontakte",
+      "withoutPerson": "Ohne Person delegieren",
+      "empty": "Keine Kontakte gefunden",
+      "retry": "Erneut versuchen",
+      "loadFailed": "Kontakte konnten nicht geladen werden",
+      "assignedTo": "Delegiert an {{name}}",
+      "success": "{{count}} Nachricht(en) delegiert",
+      "partial": "{{succeeded}} Nachricht(en) delegiert; {{failed}} fehlgeschlagen",
+      "failed": "Die ausgewählte(n) Nachricht(en) konnten nicht delegiert werden"
+    },
     "inbox": "Posteingang",
     "waiting": "Wartet",
     "inboxZero": "Posteingang leer ✓",

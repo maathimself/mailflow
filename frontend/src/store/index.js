@@ -20,6 +20,7 @@ import {
   readFolderOrder,
 } from './folderOrder.js';
 import i18n from '../i18n.js';
+import { normalizeCarddavStatus } from '../utils/delegation.js';
 
 // Accumulate rapid preference changes and flush at most once per second.
 let _prefFlushTimer = null;
@@ -59,6 +60,8 @@ export const useStore = create((set, get) => ({
       senderFaviconsLoaded: false,
       senderFavicons: false,
       senderFaviconsSaving: false,
+      carddavStatus: { connected: false },
+      carddavStatusLoaded: false,
     } : {}),
   })),
   updateUser: (updates) => set(state => ({ user: state.user ? { ...state.user, ...updates } : state.user })),
@@ -69,6 +72,25 @@ export const useStore = create((set, get) => ({
     if (connected) localStorage.setItem('mailflow_todoist_connected', '1');
     else localStorage.removeItem('mailflow_todoist_connected');
     set({ todoistConnected: connected });
+  },
+
+  // Shared CardDAV status drives the Delegate command's continuation decision.
+  carddavStatus: { connected: false },
+  carddavStatusLoaded: false,
+  setCarddavStatus: (status) => set({
+    carddavStatus: normalizeCarddavStatus(status),
+    carddavStatusLoaded: true,
+  }),
+  refreshCarddavStatus: async () => {
+    try {
+      const status = await api.carddav.status();
+      get().setCarddavStatus(status);
+      return normalizeCarddavStatus(status);
+    } catch {
+      const status = { connected: false };
+      get().setCarddavStatus(status);
+      return status;
+    }
   },
 
   // Lock screen

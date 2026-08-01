@@ -11,6 +11,7 @@ import { createCommandRegistry } from '../commands/registry.js';
 import { createCommandController } from '../commands/controller.js';
 import { createMailActionExecutors } from '../commands/mailActions.js';
 import { commandOutcomeNotification } from '../commands/outcomeNotification.js';
+import { delegationCacheIds } from '../utils/delegation.js';
 import { createPendingOperationManager } from '../commands/pendingOperationManager.js';
 import { createShortcutDispatcher } from '../commands/shortcutDispatcher.js';
 import { createShortcutCommandExecutors } from '../commands/shortcutCommands.js';
@@ -41,7 +42,12 @@ export function useCommandRuntime({ t, shortcutHelpOpen = false, paletteOpen = f
       openExternal: url => window.open(url, '_blank', 'noopener,noreferrer'),
       patchMessages: (targets, patch) => {
         const state = useStore.getState();
-        targets.forEach(target => state.updateMessage(target.message.id, patch));
+        targets.forEach(target => {
+          const ids = Object.hasOwn(patch, 'delegation')
+            ? delegationCacheIds(state, target.message)
+            : [target.message.id];
+          ids.forEach(id => state.updateMessage(id, patch));
+        });
       },
       removeMessages: targets => {
         const state = useStore.getState();
@@ -93,6 +99,9 @@ export function useCommandRuntime({ t, shortcutHelpOpen = false, paletteOpen = f
         path: folder,
       }),
       scheduleGtdRefresh: () => useStore.getState().scheduleGtdSectionsFetch(),
+      refreshCarddavStatus: () => useStore.getState().refreshCarddavStatus(),
+      refreshMessages: () => window.dispatchEvent(new Event('mailflow:refresh')),
+      refreshGtdSections: () => useStore.getState().fetchGtdSections(),
       moveOptions: (accountId, targets) => {
         const currentFolders = new Set(targets.map(target => target.message.folder).filter(Boolean));
         return (useStore.getState().folders[accountId] || [])

@@ -1,4 +1,5 @@
 import { openForwardFromMessage, openReplyFromMessage } from '../utils/composeFromMessage.js';
+import { delegateNeedsContact, normalizeDelegateOutcome } from '../utils/delegation.js';
 
 const DEFAULT_KEYS = Object.freeze({
   'mail.archive': { primary: 'e', secondary: [] },
@@ -47,7 +48,7 @@ const baseMailCommandDefinitions = [
   definition('mail.forward', 'shortcuts.actions.forward.label', [], 'forward', 'respond', 'single_conversation', 'mail.forward', 70),
   definition('gtd.todo', 'shortcuts.actions.gtdTodo.label', [], 'check-square', 'gtd', 'bulk_safe', 'gtd.todo'),
   definition('gtd.watch', 'shortcuts.actions.gtdWatch.label', [], 'eye', 'gtd', 'bulk_safe', 'gtd.watch'),
-  definition('gtd.delegate', 'shortcuts.actions.gtdDelegated.label', [], 'user-check', 'gtd', 'bulk_safe', 'gtd.delegate'),
+  definition('gtd.delegate', 'gtd.delegate.command', [], 'user-check', 'gtd', 'bulk_safe', 'gtd.delegate'),
   definition('gtd.someday', 'gtd.states.someday', [], 'calendar', 'gtd', 'bulk_safe', 'gtd.someday'),
   definition('gtd.reference', 'gtd.states.reference', [], 'bookmark', 'gtd', 'bulk_safe', 'gtd.reference'),
 ].map(command => Object.freeze({
@@ -217,6 +218,29 @@ export function createMailActionExecutors(deps) {
     deps.scheduleGtdRefresh();
     return settledOutcome(targets, results);
   };
+  const delegate = async ({ context, input, targets }) => {
+    const carddavStatus = context.carddavStatusLoaded
+      ? context.carddavStatus
+      : await deps.refreshCarddavStatus();
+    if (input === undefined && delegateNeedsContact(carddavStatus)) {
+      return continuation('gtd.delegate', 'contact', targets, { targetCount: targets.length });
+    }
+
+    const contactId = input?.contactId ?? null;
+    const result = await deps.api.gtd.delegate(
+      targets.map(target => target.message.id),
+      contactId,
+    );
+    const resultsByMessageId = new Map(
+      (result?.results || []).map(item => [item.messageId, item]),
+    );
+    targets.forEach(target => {
+      const item = resultsByMessageId.get(target.message.id);
+      if (item?.ok) deps.patchMessages([target], { delegation: item.delegation ?? null });
+    });
+    await Promise.all([deps.refreshMessages(), deps.refreshGtdSections()]);
+    return normalizeDelegateOutcome(result, targets);
+  };
 
   const handlers = {
     'mail.archive': ({ targets }) => scheduleOptimisticRemoval(deps, {
@@ -367,7 +391,7 @@ export function createMailActionExecutors(deps) {
     },
     'gtd.todo': classify('todo'),
     'gtd.watch': classify('watch'),
-    'gtd.delegate': classify('delegated'),
+    'gtd.delegate': delegate,
     'gtd.someday': classify('someday'),
     'gtd.reference': classify('reference'),
   };

@@ -39,6 +39,8 @@ export const PLATFORMS = Object.freeze(['mac', 'windows', 'linux']);
  * @property {object | null} draft
  * @property {boolean} gtdAvailable
  * @property {boolean} cardDavConnected
+ * @property {Readonly<object>} carddavStatus
+ * @property {boolean} carddavStatusLoaded
  * @property {object | null} modal
  * @property {boolean} editing
  * @property {boolean} undoAvailable
@@ -104,6 +106,10 @@ export function createCommandContext(input) {
     });
   }
   const selectedConversationIds = [...new Set(input.selectedConversationIds || [])];
+  const carddavStatus = Object.freeze({
+    ...(input.carddavStatus || {}),
+    connected: input.carddavStatus?.connected === true || input.cardDavConnected === true,
+  });
   return Object.freeze({
     surface: input.surface,
     activeConversationId: input.activeConversationId || null,
@@ -115,7 +121,9 @@ export function createCommandContext(input) {
     folder: input.folder || null,
     draft: input.draft || null,
     gtdAvailable: Boolean(input.gtdAvailable),
-    cardDavConnected: Boolean(input.cardDavConnected),
+    cardDavConnected: carddavStatus.connected,
+    carddavStatus,
+    carddavStatusLoaded: Boolean(input.carddavStatusLoaded),
     modal: input.modal || null,
     editing: Boolean(input.editing),
     undoAvailable: Boolean(input.undoAvailable),

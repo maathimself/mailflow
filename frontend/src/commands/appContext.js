@@ -68,6 +68,8 @@ export function buildAppCommandContext(state, {
     draft: state.composing ? (state.composeData || { id: 'active-compose' }) : null,
     gtdAvailable,
     cardDavConnected: Boolean(state.carddavStatus?.connected),
+    carddavStatus: state.carddavStatus,
+    carddavStatusLoaded: state.carddavStatusLoaded,
     modal,
     editing: editing || Boolean(state.composing) || Boolean(state.showAdmin) || Boolean(state.showContacts),
     undoAvailable: (state.notifications || []).some(notification => typeof notification.onUndo === 'function'),
