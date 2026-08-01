@@ -92,6 +92,7 @@
   },
   "compose": {
     "newMessage": "Neue Nachricht",
+    "requestFailed": "Der Entwurf konnte nicht geöffnet werden.",
     "reply": "Antworten",
     "replyAll": "Allen antworten",
     "forward": "Weiterleiten",
@@ -116,7 +117,39 @@
     "discard": "Verwerfen",
     "saveDraft": "Entwurf speichern",
     "savingDraft": "Wird gespeichert…",
-    "draftSaved": "Entwurf gespeichert",
+    "dirty": "Nicht gespeicherte Änderungen",
+    "saving": "Änderungen werden gespeichert",
+    "saved": "Änderungen gespeichert",
+    "offline": "Offline – Änderungen noch nicht gespeichert",
+    "error": "Der Entwurf konnte nicht gespeichert werden",
+    "conflict": "Der Entwurf enthält widersprüchliche Änderungen",
+    "sessions": {
+      "limit": "Es sind bereits neun Entwürfe geöffnet. Schließen oder verwerfen Sie einen, um einen neuen zu beginnen.",
+      "saving": "Wird gespeichert",
+      "saved": "Gespeichert",
+      "offline": "Offline – Änderungen noch nicht gespeichert",
+      "error": "Entwurf konnte nicht gespeichert werden",
+      "conflict": "Serveränderungen stehen im Konflikt mit Ihren Bearbeitungen",
+      "recoveryConflict": "Wiederhergestellte Änderungen unterscheiden sich von den Bearbeitungen in diesem Tab",
+      "useRemote": "Serverversion verwenden",
+      "keepMine": "Meine Version behalten",
+      "useRecovered": "Wiederhergestellte Änderungen verwenden",
+      "slotLabel": "Entwurf {{slot}}",
+      "minimized": "Minimiert",
+      "terminalPending": "Entwurf wird abgeschlossen…",
+      "conflictingFields": "Betroffene Felder: {{fields}}",
+      "recoveredFields": "Wiederhergestellte Felder: {{fields}}",
+      "fields": {
+        "mode": "Nachrichtentyp",
+        "body": "Nachrichtentext",
+        "bodyFormat": "Nachrichtenformat",
+        "quoted": "Zitierte Nachricht",
+        "signature": "Signatur",
+        "attachments": "Weitergeleitete Anhänge",
+        "replyContext": "Antwortkontext",
+        "senderChanged": "Absenderauswahl"
+      }
+    },
     "closeDraft": {
       "title": "Diesen Entwurf speichern?",
       "save": "Entwurf speichern",
@@ -128,7 +161,6 @@
       "discard": "Verwerfen",
       "keepEditing": "Weiter bearbeiten"
     },
-    "draftHasAttachments": "Anhänge werden nicht mit Entwürfen gespeichert. Sie müssen beim erneuten Öffnen neu hinzugefügt werden.",
     "emptySubject": {
       "title": "Ohne Betreff senden?",
       "sendAnyway": "Trotzdem senden",
@@ -465,7 +497,13 @@
       "selectOlder": "Fokussierte und ältere Konversationen auswählen", "selectAll": "Alle Konversationen auswählen",
       "clearSelection": "Auswahl löschen", "sent": "Zu Gesendet", "drafts": "Zu Entwürfe", "contacts": "Zu Kontakte"
     },
-    "compose": { "new": { "title": "Verfassen", "alias": { "write": "Schreiben" } } },
+    "compose": {
+      "new": { "title": "Verfassen", "alias": { "write": "Schreiben" } },
+      "minimize": "Entwurf minimieren",
+      "close": "Entwurf speichern und schließen",
+      "discard": "Entwurf verwerfen",
+      "activateSlot": "Entwurf {{slot}} aktivieren"
+    },
     "navigation": {
       "search": { "title": "E-Mails durchsuchen" },
       "unifiedInbox": { "title": "Zum vereinheitlichten Posteingang" },

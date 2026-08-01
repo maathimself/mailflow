@@ -92,6 +92,7 @@
   },
   "compose": {
     "newMessage": "Nuevo mensaje",
+    "requestFailed": "No se pudo abrir el borrador.",
     "reply": "Responder",
     "replyAll": "Responder a todos",
     "forward": "Reenviar",
@@ -116,7 +117,39 @@
     "discard": "Descartar",
     "saveDraft": "Guardar borrador",
     "savingDraft": "Guardando…",
-    "draftSaved": "Borrador guardado",
+    "dirty": "Cambios sin guardar",
+    "saving": "Guardando cambios",
+    "saved": "Cambios guardados",
+    "offline": "Sin conexión: cambios aún no guardados",
+    "error": "No se pudo guardar el borrador",
+    "conflict": "El borrador tiene cambios incompatibles",
+    "sessions": {
+      "limit": "Ya hay nueve borradores abiertos. Cierra o descarta uno para iniciar otro.",
+      "saving": "Guardando",
+      "saved": "Guardado",
+      "offline": "Sin conexión: cambios aún no guardados",
+      "error": "No se pudo guardar el borrador",
+      "conflict": "Los cambios del servidor entran en conflicto con tus ediciones",
+      "recoveryConflict": "Los cambios recuperados difieren de las ediciones de esta pestaña",
+      "useRemote": "Usar versión remota",
+      "keepMine": "Conservar mi versión",
+      "useRecovered": "Usar cambios recuperados",
+      "slotLabel": "Borrador {{slot}}",
+      "minimized": "Minimizado",
+      "terminalPending": "Finalizando borrador…",
+      "conflictingFields": "Campos en conflicto: {{fields}}",
+      "recoveredFields": "Campos recuperados: {{fields}}",
+      "fields": {
+        "mode": "Tipo de mensaje",
+        "body": "Cuerpo del mensaje",
+        "bodyFormat": "Formato del mensaje",
+        "quoted": "Mensaje citado",
+        "signature": "Firma del remitente",
+        "attachments": "Adjuntos reenviados",
+        "replyContext": "Contexto de respuesta",
+        "senderChanged": "Selección de remitente"
+      }
+    },
     "closeDraft": {
       "title": "¿Guardar este borrador?",
       "save": "Guardar borrador",
@@ -128,7 +161,6 @@
       "discard": "Descartar",
       "keepEditing": "Seguir editando"
     },
-    "draftHasAttachments": "Los archivos adjuntos no se guardan con los borradores. Deberás volver a adjuntarlos al reabrir.",
     "emptySubject": {
       "title": "¿Enviar sin asunto?",
       "sendAnyway": "Enviar de todas formas",
@@ -465,7 +497,13 @@
       "selectOlder": "Seleccionar conversación enfocada y anteriores", "selectAll": "Seleccionar todas las conversaciones",
       "clearSelection": "Borrar selección", "sent": "Ir a Enviados", "drafts": "Ir a Borradores", "contacts": "Ir a Contactos"
     },
-    "compose": { "new": { "title": "Redactar", "alias": { "write": "Escribir" } } },
+    "compose": {
+      "new": { "title": "Redactar", "alias": { "write": "Escribir" } },
+      "minimize": "Minimizar borrador",
+      "close": "Guardar y cerrar borrador",
+      "discard": "Descartar borrador",
+      "activateSlot": "Activar borrador {{slot}}"
+    },
     "navigation": {
       "search": { "title": "Buscar correo" },
       "unifiedInbox": { "title": "Ir a la bandeja de entrada unificada" },

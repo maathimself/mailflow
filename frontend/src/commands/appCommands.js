@@ -1,5 +1,9 @@
 import { mailCommandDefinitions } from './mailActions.js';
 import { shortcutCommandDefinitions } from './shortcutCommands.js';
+import {
+  composeSessionCommandDefinitions,
+  createComposeSessionCommandExecutors,
+} from './composeSessionCommands.js';
 
 const globalCommand = (id, titleKey, icon, group, executorId, params = {}, overrides = {}) => ({
   id, titleKey, aliasKeys: [], icon, group,
@@ -15,11 +19,6 @@ const gtdSections = ['todo', 'watch', 'delegated', 'reference', 'someday'];
 
 export function createAppCommandDefinitions({ accounts = [], folders = {}, themes = {}, user = {} }) {
   const definitions = [
-    globalCommand('compose.new', 'commands.compose.new.title', 'compose', 'compose', 'app.compose', {}, {
-      aliasKeys: ['commands.compose.new.alias.write'],
-      defaultKeys: { primary: 'c', secondary: [] }, rank: { base: 100 },
-      isAvailable: context => context.surface !== 'compose' && context.surface !== 'settings',
-    }),
     globalCommand('navigation.search', 'commands.navigation.search.title', 'search', 'navigation', 'navigation.search', {}, {
       defaultKeys: { primary: '/', secondary: [] }, rank: { base: 90 },
       isAvailable: context => context.surface !== 'compose' && context.surface !== 'settings',
@@ -69,18 +68,18 @@ export function createAppCommandDefinitions({ accounts = [], folders = {}, theme
       'settings', 'settings', 'settings.open', { tab },
     ));
   }
+  definitions.push(...composeSessionCommandDefinitions);
   definitions.push(...mailCommandDefinitions);
-  definitions.push(...shortcutCommandDefinitions);
+  definitions.push(...shortcutCommandDefinitions.filter(command => command.id !== 'compose.send'));
   return definitions;
 }
 
 export function createAppCommandExecutors({ getState, emitShortcut }) {
   return Object.freeze({
-    'app.compose': () => {
-      const state = getState();
-      state.openCompose({ accountId: state.selectedAccountId || undefined });
-      return { status: 'success' };
-    },
+    ...createComposeSessionCommandExecutors({
+      getController: () => getState().composeWorkspaceController,
+      openCompose: changes => getState().openCompose(changes),
+    }),
     'navigation.search': () => {
       emitShortcut('focusSearch');
       return { status: 'success' };

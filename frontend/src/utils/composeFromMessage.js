@@ -22,7 +22,7 @@ function formatAddressArray(raw) {
 
 export async function openDraftFromMessage(message, { openCompose, getMessageBody }) {
   const bodyData = await getMessageBody(message.id);
-  openCompose({
+  return await openCompose({
     accountId: message.account_id,
     draftUid: message.uid,
     draftFolder: message.folder,
@@ -103,7 +103,7 @@ export async function openReplyFromMessage(message, { accounts, openCompose, get
     ? `<div style="border-left:3px solid var(--border,#ccc);padding-left:12px;margin-top:12px;color:var(--text-secondary,#666)"><p style="margin:0 0 6px;font-size:12px">On ${replyDate}, ${replyFromStr} wrote:</p>${replyBody.html}</div>`
     : null;
 
-  openCompose({
+  return await openCompose({
     to: sender,
     cc: replyAll ? allRecipients : [],
     subject: rawSubject.startsWith('Re:') ? rawSubject : rawSubject ? `Re: ${rawSubject}` : 'Re:',
@@ -118,6 +118,7 @@ export async function openReplyFromMessage(message, { accounts, openCompose, get
     isReplyAll: replyAll,
     originalFrom: sender,
     allRecipients,
+    replyAllRecipients: allRecipients,
     threadId: message.thread_id,
   });
 }
@@ -138,7 +139,7 @@ export async function openForwardFromMessage(message, { openCompose, getMessageB
     ? `<div style="border-left:3px solid var(--border,#ccc);padding-left:12px;margin-top:12px;color:var(--text-secondary,#666)"><p style="margin:0 0 6px;font-size:12px">---------- Forwarded message ----------<br>From: ${fwdFromStr}<br>Date: ${fwdDate}<br>Subject: ${safeSubject}${toStr ? `<br>To: ${toStr}` : ''}${ccStr ? `<br>Cc: ${ccStr}` : ''}</p>${fwdBody.html}</div>`
     : null;
 
-  openCompose({
+  return await openCompose({
     subject: message.subject?.startsWith('Fwd:') ? message.subject : `Fwd: ${message.subject}`,
     body: '',
     quotedBody: fwdText,

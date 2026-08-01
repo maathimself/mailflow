@@ -8,17 +8,7 @@ export const CSRF_HEADER = 'X-Requested-With';
 export const CSRF_VALUE = 'MailFlow';
 const messageBodyRequests = new Map();
 
-async function request(method, path, body, extraHeaders) {
-  const opts = {
-    method,
-    credentials: 'include',
-    headers: { [CSRF_HEADER]: CSRF_VALUE, ...(extraHeaders || {}) },
-  };
-  if (body) {
-    opts.headers['Content-Type'] = 'application/json';
-    opts.body = JSON.stringify(body);
-  }
-  const res = await fetch(BASE + path, opts);
+async function readJsonResponse(res, path) {
   if (!res.ok) {
     if (res.status === 423) {
       // Server-enforced screen lock (#235) — surface the lock overlay from any call.
@@ -30,10 +20,46 @@ async function request(method, path, body, extraHeaders) {
     const err = await res.json().catch(() => ({ error: 'Request failed' }));
     const requestError = new Error(err.error || 'Request failed');
     requestError.status = res.status;
+    requestError.code = err.code;
+    requestError.details = err;
     requestError.body = err;
     throw requestError;
   }
   return res.json();
+}
+
+async function request(method, path, body, extraHeaders) {
+  const opts = {
+    method,
+    credentials: 'include',
+    headers: { [CSRF_HEADER]: CSRF_VALUE, ...(extraHeaders || {}) },
+  };
+  if (body) {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  }
+  const res = await fetch(BASE + path, opts);
+  return readJsonResponse(res, path);
+}
+
+async function uploadAttachment(id, expectedRevision, file, clientId) {
+  const headers = {
+    [CSRF_HEADER]: CSRF_VALUE,
+    'Content-Type': 'application/octet-stream',
+    'X-Mailflow-Filename': encodeURIComponent(file.name),
+    'X-Mailflow-Content-Type': file.type || 'application/octet-stream',
+    'X-Mailflow-Expected-Revision': String(expectedRevision),
+  };
+  if (clientId) headers['X-Mailflow-Client-Id'] = clientId;
+
+  const path = `/compose-sessions/${encodeURIComponent(id)}/attachments`;
+  const res = await fetch(BASE + path, {
+    method: 'POST',
+    credentials: 'include',
+    headers,
+    body: file,
+  });
+  return readJsonResponse(res, path);
 }
 
 export async function streamAiChat(messages, { signal, onDelta } = {}) {
@@ -414,6 +440,44 @@ export const api = {
   // INBOX copy from the shared Message-ID.
   gtdDone: (id, states) => request('POST', '/gtd/done', { id, states }),
   gtdEnsureFolders: (accountId, folders) => request('POST', '/gtd/folders/ensure', { accountId, folders }),
+
+  // Server-owned compose sessions
+  composeSessions: {
+    list: () => request('GET', '/compose-sessions'),
+    create: data => request('POST', '/compose-sessions', data),
+    claimDraft: data => request('POST', '/compose-sessions/claim-draft', data),
+    get: id => request('GET', `/compose-sessions/${encodeURIComponent(id)}`),
+    patch: (id, expectedRevision, changes, clientId) => request(
+      'PATCH', `/compose-sessions/${encodeURIComponent(id)}`,
+      { expectedRevision, changes, clientId },
+    ),
+    presentation: (id, expectedRevision, state, clientId) => request(
+      'PUT', `/compose-sessions/${encodeURIComponent(id)}/presentation`,
+      { expectedRevision, state, clientId },
+    ),
+    close: (id, expectedRevision, changes = {}) => request(
+      'POST', `/compose-sessions/${encodeURIComponent(id)}/close`,
+      { expectedRevision, changes },
+    ),
+    discard: (id, expectedRevision) => request(
+      'POST', `/compose-sessions/${encodeURIComponent(id)}/discard`, { expectedRevision },
+    ),
+    send: (id, expectedRevision, data = {}, headers = {}) => request(
+      'POST', `/compose-sessions/${encodeURIComponent(id)}/send`,
+      { expectedRevision, ...data }, headers,
+    ),
+    restoreQueuedSend: outboxId => request(
+      'POST',
+      `/compose-sessions/outbox/${encodeURIComponent(outboxId)}/restore`,
+      {},
+    ),
+    uploadAttachment,
+    removeAttachment: (id, attachmentId, expectedRevision) => request(
+      'DELETE',
+      `/compose-sessions/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}`,
+      { expectedRevision },
+    ),
+  },
 
   // GTD — Inbox-Zero pet. Import uploads your own pet (pet.json text + a base64 spritesheet)
   // and caches it server-side; meta returns the animation descriptor; the sheet URL is used

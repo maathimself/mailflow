@@ -14,6 +14,7 @@ import { useMobile } from '../hooks/useMobile.js';
 import LogoMark from './LogoMark.jsx';
 import ProfileModal from './ProfileModal.jsx';
 import { useUiScale, descale } from '../hooks/useUiScale.js';
+import { handleComposeRequest } from '../utils/composeRequest.js';
 
 const ICONS = {
   inbox: (
@@ -266,6 +267,10 @@ export default function Sidebar() {
   } = useStore();
 
   const isMobile = useMobile();
+  const requestCompose = useCallback(changes => handleComposeRequest(
+    () => openCompose(changes),
+    { addNotification, t },
+  ), [addNotification, openCompose, t]);
   // On mobile the sidebar is always expanded (shown as an overlay drawer)
   const sidebarCollapsed = isMobile ? false : sidebarCollapsedPref;
 
@@ -856,7 +861,7 @@ export default function Sidebar() {
       {/* Compose button */}
       <div style={{ padding: '12px 10px' }}>
         <button
-          onClick={() => openCompose({ accountId: selectedAccountId || undefined })}
+          onClick={() => { void requestCompose({ accountId: selectedAccountId || undefined }); }}
           className="btn-press"
           style={{
             width: '100%', padding: sidebarCollapsed ? '10px' : '10px 14px',

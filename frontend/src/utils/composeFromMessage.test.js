@@ -49,6 +49,24 @@ describe('openDraftFromMessage', () => {
       references: '<root@example.com> <parent@example.com>',
     });
   });
+
+  it('returns the compose controller result and propagates its failure', async () => {
+    const message = {
+      id: 'draft-row', account_id: 'account-1', uid: 42, folder: 'Drafts',
+      to_addresses: [], cc_addresses: [], subject: 'Synthetic draft',
+    };
+    const result = await composeFromMessage.openDraftFromMessage(message, {
+      openCompose: async () => 'claimed',
+      getMessageBody: async () => ({ text: 'Saved body' }),
+    });
+    assert.equal(result, 'claimed');
+
+    const failure = new Error('synthetic claim failure');
+    await assert.rejects(composeFromMessage.openDraftFromMessage(message, {
+      openCompose: async () => { throw failure; },
+      getMessageBody: async () => ({ text: 'Saved body' }),
+    }), error => error === failure);
+  });
 });
 
 describe('openReplyFromMessage reply target', () => {
@@ -144,6 +162,7 @@ describe('openReplyFromMessage reply-all recipients', () => {
     });
     assert.deepEqual(h.payload().cc, [{ email: 'keep@example.com' }, { email: 'cckeep@example.com' }]);
     assert.deepEqual(h.payload().allRecipients, [{ email: 'keep@example.com' }, { email: 'cckeep@example.com' }]);
+    assert.deepEqual(h.payload().replyAllRecipients, h.payload().allRecipients);
   });
 
   it('leaves cc empty for a plain reply but still computes allRecipients', async () => {
@@ -153,6 +172,7 @@ describe('openReplyFromMessage reply-all recipients', () => {
     });
     assert.deepEqual(h.payload().cc, []);
     assert.deepEqual(h.payload().allRecipients, [{ email: 'keep@example.com' }, { email: 'cckeep@example.com' }]);
+    assert.deepEqual(h.payload().replyAllRecipients, h.payload().allRecipients);
   });
 });
 
@@ -243,6 +263,26 @@ describe('openForwardFromMessage', () => {
     assert.deepEqual(h.payload().forwardedAttachments, [
       { messageId: 'm1', part: '2', filename: 'a.pdf', type: 'application/pdf', size: 10 },
     ]);
+  });
+});
+
+describe('compose controller outcomes', () => {
+  it('returns and propagates reply and forward controller outcomes', async () => {
+    const message = { id: 'message-1', account_id: 'account-1', from_email: 'sender@example.com' };
+    assert.equal(await openReplyFromMessage(message, {
+      accounts: [], openCompose: async () => 'replied', getMessageBody: async () => null,
+    }), 'replied');
+    assert.equal(await openForwardFromMessage(message, {
+      openCompose: async () => 'forwarded', getMessageBody: async () => null,
+    }), 'forwarded');
+
+    const failure = new Error('synthetic compose failure');
+    await assert.rejects(openReplyFromMessage(message, {
+      accounts: [], openCompose: async () => { throw failure; }, getMessageBody: async () => null,
+    }), error => error === failure);
+    await assert.rejects(openForwardFromMessage(message, {
+      openCompose: async () => { throw failure; }, getMessageBody: async () => null,
+    }), error => error === failure);
   });
 });
 

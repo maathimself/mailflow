@@ -20,10 +20,11 @@ import { DelegateContactContinuationHost } from './DelegateContactPicker.jsx';
 import { gtdActiveForContext } from '../utils/gtd.js';
 import { CommandRuntimeProvider } from '../commands/CommandRuntimeContext.jsx';
 import { commandPaletteShortcut } from '../commands/paletteShortcut.js';
+import { handleComposeRequest } from '../utils/composeRequest.js';
 
 const ContactsPage = lazy(() => import('./ContactsPage.jsx'));
 
-const ComposeModal = lazy(() => import('./ComposeModal.jsx'));
+const ComposeWorkspace = lazy(() => import('./ComposeWorkspace.jsx'));
 const AdminPanel   = lazy(() => import('./AdminPanel.jsx'));
 const ElectronNotificationBridge = lazy(() => import('./ElectronNotificationBridge.jsx'));
 
@@ -66,7 +67,7 @@ export default function MailApp() {
   const editorPalettePressRef = useRef(null);
   const {
     setAccounts, setUnreadCounts, showAdmin,
-    setShowAdmin, setAdminTab, composing, sidebarCollapsed, layout,
+    setShowAdmin, setAdminTab, sidebarCollapsed, layout,
     unreadCounts, selectedAccountId, openCompose,
     selectedMessageId, setSelectedMessage,
     mobileSidebarOpen, setMobileSidebarOpen, addNotification,
@@ -76,6 +77,7 @@ export default function MailApp() {
     accounts, rightSidebarWidth, setRightSidebarWidth, isRightSidebarResizing, setIsRightSidebarResizing,
     fetchGtdSections, rightSidebarHidden, toggleRightSidebarHidden,
     refreshCarddavStatus,
+    focusedComposeSessionId, composeWorkspaceController,
   } = useStore();
   const syncInterval = useStore(s => s.syncInterval);
   const autoLockMinutes = useStore(s => s.autoLockMinutes);
@@ -431,18 +433,18 @@ export default function MailApp() {
       // A mailto body is plain text (RFC 6068); escape it so it renders literally in
       // the HTML editor and can't inject markup.
       const bodyText = mt.searchParams.get('body') || '';
-      openCompose({
+      void handleComposeRequest(() => openCompose({
         accountId: useStore.getState().selectedAccountId || undefined,
         to: [...splitAddrs(mt.pathname, true), ...splitAddrs(mt.searchParams.get('to'), false)],
         cc: splitAddrs(mt.searchParams.get('cc'), false),
         bcc: splitAddrs(mt.searchParams.get('bcc'), false),
         subject: mt.searchParams.get('subject') || '',
         body: bodyText ? esc(bodyText).replace(/\r?\n/g, '<br>') : '',
-      });
+      }), { addNotification, t });
     } catch (err) {
       console.warn('Invalid mailto link:', err.message);
     }
-  }, [openCompose]);
+  }, [addNotification, openCompose, t]);
 
   useEffect(() => {
     // Load accounts
@@ -459,8 +461,8 @@ export default function MailApp() {
     // Sync Todoist connection state — localStorage alone isn't enough across devices/sessions
     api.todoist.status().then(({ connected }) => setTodoistConnected(connected)).catch(() => {});
 
-    // Preload ComposeModal chunk so first open is instant
-    import('./ComposeModal.jsx');
+    // Preload the workspace (and its editor chunk) so first open is instant.
+    import('./ComposeWorkspace.jsx');
 
     // Load unread counts
     const refreshCounts = () => {
@@ -536,12 +538,14 @@ export default function MailApp() {
   }, [unreadCounts, selectedAccountId, showAppBadge, showFaviconBadge]);
 
   // ── Global keyboard shortcut listener ──────────────────────────────────────
-  // Uses refs for composing/showAdmin so the listener doesn't need to
+  // Uses refs for focused compose/showAdmin so the listener doesn't need to
   // re-register every time those values change — only re-registers when the
   // user's custom shortcut map changes.
-  const composingRef  = useRef(composing);
+  const focusedComposeSessionIdRef = useRef(focusedComposeSessionId);
+  const composeWorkspaceControllerRef = useRef(composeWorkspaceController);
   const showAdminRef  = useRef(showAdmin);
-  useEffect(() => { composingRef.current  = composing;  }, [composing]);
+  useEffect(() => { focusedComposeSessionIdRef.current = focusedComposeSessionId; }, [focusedComposeSessionId]);
+  useEffect(() => { composeWorkspaceControllerRef.current = composeWorkspaceController; }, [composeWorkspaceController]);
   useEffect(() => { showAdminRef.current  = showAdmin;  }, [showAdmin]);
 
   const mobileSidebarOpenRef = useRef(mobileSidebarOpen);
@@ -553,8 +557,14 @@ export default function MailApp() {
 
   useEffect(() => {
     window.__mailflowHandleAndroidBack = () => {
-      if (composingRef.current) {
-        useStore.getState().closeCompose();
+      const sessionId = focusedComposeSessionIdRef.current;
+      if (sessionId && composeWorkspaceControllerRef.current) {
+        // Safe close is atomic: the controller sends the local final patch at
+        // its base revision and retains the editor if the server rejects it.
+        void handleComposeRequest(
+          () => composeWorkspaceControllerRef.current.closeSession(sessionId),
+          { addNotification, t },
+        );
         return true;
       }
 
@@ -590,7 +600,7 @@ export default function MailApp() {
     return () => {
       if (window.__mailflowHandleAndroidBack) delete window.__mailflowHandleAndroidBack;
     };
-  }, [commandRuntime, setMobileSidebarOpen, setSelectedMessage, setShowAdmin]);
+  }, [addNotification, commandRuntime, setMobileSidebarOpen, setSelectedMessage, setShowAdmin, t]);
 
   // Subscribe to global actions that MailApp owns
   useEffect(() => {
@@ -766,7 +776,7 @@ export default function MailApp() {
               onMouseLeave={e => { e.currentTarget.style.background = 'var(--border-subtle)'; }}
             />
           )}
-          <div style={{
+          <div data-mail-workspace style={{
             flex: 1, display: 'flex', overflow: 'hidden',
             minWidth: 0, flexDirection: currentLayout.direction,
             height: '100%',
@@ -853,7 +863,7 @@ export default function MailApp() {
         </>
       )}
 
-      <Suspense fallback={lazyFallback}>{composing && <ComposeModal />}</Suspense>
+      <Suspense fallback={null}><ComposeWorkspace uiScale={scale} /></Suspense>
       <Suspense fallback={lazyFallback}>{showAdmin && <AdminPanel />}</Suspense>
       <Suspense fallback={null}>{hasNativeBridge && <ElectronNotificationBridge />}</Suspense>
       <NotificationToasts />

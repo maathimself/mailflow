@@ -172,6 +172,21 @@ describe('non-destructive mail executors', () => {
     assert.equal(h.events[0][1].isReplyAll, true);
   });
 
+  it('does not report a mail compose action successful before creation acknowledges', async () => {
+    let rejectCompose;
+    const compose = new Promise((_resolve, reject) => { rejectCompose = reject; });
+    const failure = new Error('synthetic create failure');
+    const h = harness({}, { openCompose: () => compose });
+    const pending = h.invoke('mail.reply', [target('a')], { source: 'shortcut' });
+    let settled = false;
+    pending.finally(() => { settled = true; }).catch(() => {});
+    await Promise.resolve();
+    assert.equal(settled, false);
+
+    rejectCompose(failure);
+    await assert.rejects(pending, error => error === failure);
+  });
+
   it('does not depend on a pane-cached body when replying or forwarding', async () => {
     const h = harness();
     const current = target('a', { thread_id: 'thread-a' });

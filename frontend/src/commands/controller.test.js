@@ -102,6 +102,44 @@ describe('createCommandController', () => {
     assert.equal(callCount, 2);
   });
 
+  it('deduplicates draft commands per focused compose session', async () => {
+    const releases = new Map();
+    const calls = [];
+    let draftId = 'draft-a';
+    const draftDefinition = definition({
+      id: 'compose.close', targetMode: 'draft', executorId: 'compose.close',
+    });
+    const draftContext = () => createCommandContext({
+      surface: 'compose', activeConversationId: null, selectedConversationIds: [],
+      conversations: [], accountId: null, folder: null,
+      draft: { id: draftId, subject: 'must-not-enter-dedupe-key' },
+      composeSlots: [{ id: draftId, slot: draftId === 'draft-a' ? 1 : 2 }],
+      gtdAvailable: false, cardDavConnected: false, modal: null, editing: true,
+      platform: 'mac', shortcutOverrides: {}, translate: key => key,
+    });
+    const controller = createCommandController({
+      registry: createCommandRegistry([draftDefinition]),
+      getContext: draftContext,
+      executors: {
+        'compose.close': ({ context }) => new Promise(resolve => {
+          calls.push(context.draft.id);
+          releases.set(context.draft.id, resolve);
+        }).then(() => ({ status: 'success' })),
+      },
+    });
+
+    const a1 = controller.execute('compose.close');
+    const a2 = controller.execute('compose.close');
+    assert.strictEqual(a1, a2);
+    draftId = 'draft-b';
+    const b = controller.execute('compose.close');
+    assert.notStrictEqual(a1, b);
+    assert.deepEqual(calls, ['draft-a', 'draft-b']);
+    releases.get('draft-a')();
+    releases.get('draft-b')();
+    await Promise.all([a1, b]);
+  });
+
   it('rejects a frozen multi-selection for single-conversation commands', async () => {
     let callCount = 0;
     const registry = createCommandRegistry([definition({

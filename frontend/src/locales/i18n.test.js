@@ -400,6 +400,13 @@ const DYNAMIC_KEYS = new Set([
   'admin.shortcuts.sources.secondary',
   'admin.shortcuts.sources.platform',
   'admin.shortcuts.sources.user',
+  // ComposeChip resolves controller persistence codes through this fixed template.
+  'compose.dirty',
+  'compose.saving',
+  'compose.saved',
+  'compose.offline',
+  'compose.error',
+  'compose.conflict',
 ]);
 
 // JSX attribute names whose values must never be plain strings — always t().
@@ -660,6 +667,36 @@ describe('i18n locale files', () => {
   });
 
   describe('key coverage — every key must appear in every locale', () => {
+    it('includes every durable compose-session label with consistent slot interpolation', () => {
+      const required = [
+        'compose.requestFailed',
+        'compose.sessions.limit',
+        'compose.sessions.saving',
+        'compose.sessions.saved',
+        'compose.sessions.offline',
+        'compose.sessions.error',
+        'compose.sessions.conflict',
+        'compose.sessions.useRemote',
+        'compose.sessions.keepMine',
+        'compose.sessions.slotLabel',
+        'compose.sessions.minimized',
+        'commands.compose.minimize',
+        'commands.compose.close',
+        'commands.compose.discard',
+        'commands.compose.activateSlot',
+      ];
+      for (const [lang, locale] of Object.entries(locales)) {
+        const missing = required.filter(key => typeof locale[key] !== 'string');
+        assert.deepEqual(missing, [], `${lang} is missing durable compose-session labels`);
+        for (const key of ['compose.sessions.slotLabel', 'commands.compose.activateSlot']) {
+          assert.equal((locale[key].match(/\{\{slot\}\}/g) || []).length, 1,
+            `${lang} ${key} must contain exactly one {{slot}} token`);
+          assert.doesNotMatch(locale[key], /<slot>/,
+            `${lang} ${key} must use i18next interpolation`);
+        }
+      }
+    });
+
     it('includes the complete delegated-contact workflow in every locale', () => {
       const required = [
         'gtd.delegate.command', 'gtd.delegate.pickerTitle', 'gtd.delegate.pickerHint',
@@ -703,6 +740,52 @@ describe('i18n locale files', () => {
         assert.match(locales[lang]['compose.sending.countdown'], /\{\{seconds\}\}/);
       });
     }
+  });
+
+  describe('durable compose-session accessibility contract', () => {
+    const workspaceSource = readFileSync(resolve(dir, '../components/ComposeWorkspace.jsx'), 'utf8');
+    const modalSource = readFileSync(resolve(dir, '../components/ComposeModal.jsx'), 'utf8');
+    const presentationSource = readFileSync(
+      resolve(dir, '../components/composePresentationModel.js'), 'utf8',
+    );
+
+    it('labels every expanded composer as a stable, uniquely named region', () => {
+      assert.match(workspaceSource, /role="region"/);
+      assert.match(workspaceSource, /aria-labelledby=\{titleId\}/);
+      assert.match(workspaceSource, /compose-session-title-\$\{session\.id\}/);
+    });
+
+    it('uses one polite workspace status for localized slot and persistence announcements', () => {
+      assert.equal((workspaceSource.match(/role="status"/g) || []).length, 1);
+      assert.equal((workspaceSource.match(/aria-live="polite"/g) || []).length, 1);
+      assert.match(presentationSource, /compose\.sessions\.slotLabel/);
+      assert.match(presentationSource, /compose\.sessions\.minimized/);
+      assert.match(workspaceSource, /compose\.sessions\.limit/);
+    });
+
+    it('keeps server and local-recovery conflict choices distinct', () => {
+      assert.match(workspaceSource, /session\.recoveryConflict/);
+      assert.match(workspaceSource, /compose\.sessions\.recoveryConflict/);
+      assert.match(workspaceSource, /strategy: 'recovered'/);
+      assert.match(workspaceSource, /strategy: 'remote'/);
+      assert.match(workspaceSource, /compose\.sessions\.useRecovered/);
+      assert.match(workspaceSource, /compose\.sessions\.useRemote/);
+      assert.match(workspaceSource, /compose\.sessions\.keepMine/);
+      assert.match(workspaceSource, /catch \{[\s\S]*controller preserves the conflict/i,
+        'a rejected durable resolution must not escape the click handler');
+    });
+
+    it('disables unsafe composer actions while a terminal mutation is pending', () => {
+      assert.match(modalSource, /const terminalPending = Boolean\(session\.terminalPending\)/);
+      assert.match(modalSource, /disabled=\{terminalPending\}/);
+      assert.match(modalSource, /disabled=\{terminalPending \|\| sending/);
+    });
+
+    it('removes the obsolete attachment-loss warning from every locale', () => {
+      for (const lang of langs) {
+        assert.equal(locales[lang]['compose.draftHasAttachments'], undefined, lang);
+      }
+    });
   });
 
   describe('value uniqueness — no unlisted locale pair should share a value for the same key', () => {

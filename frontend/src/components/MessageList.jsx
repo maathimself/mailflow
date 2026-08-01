@@ -29,6 +29,7 @@ import { contextMenuTargetMessages } from '../commands/contextMenuCommands.js';
 import DelegatePill from './DelegatePill.jsx';
 import { useCommandRuntimeContext } from '../commands/CommandRuntimeContext.jsx';
 import { semanticSearchAvailable, semanticToggleState, searchInputRightPad, isCurrentSearchGeneration, LEXICAL_MODE, SEMANTIC_MODE } from '../utils/searchMode.js';
+import { handleComposeRequest } from '../utils/composeRequest.js';
 
 // Sparkle-toggle tone → resting/hover glyph colour + background chip. Kept next
 // to the presentation (searchMode.js stays framework-free); the tone strings
@@ -162,6 +163,10 @@ export default function MessageList() {
   const selectedMid = useStore(selectSelectedMessageMid);
   const selectedIds = useStore(state => state.selectedMessageIds);
   const setSelectedIds = useStore(state => state.setSelectedMessageIds);
+  const requestCompose = useCallback(request => handleComposeRequest(request, {
+    addNotification,
+    t,
+  }), [addNotification, t]);
 
   const isMobile = useMobile();
   const isUnified = selectedAccountId === null;
@@ -1121,12 +1126,14 @@ export default function MessageList() {
   const handleSelect = async (message) => {
     if (isDraftsFolder) {
       try {
-        await openDraftFromMessage(message, {
+        const opened = await requestCompose(() => openDraftFromMessage(message, {
           openCompose,
           getMessageBody: api.getMessageBody,
-        });
+        }));
+        if (opened === null) setSelectedMessage(message.id);
       } catch (err) {
-        console.error('Failed to open draft:', err.message);
+        console.error('Failed to load draft:', err.message);
+        addNotification({ type: 'error', title: t('common.error', { message: err.message }) });
         setSelectedMessage(message.id);
       }
       return;
@@ -2065,7 +2072,7 @@ export default function MessageList() {
             accounts={accounts}
             onClearSearch={() => { setSearchQuery(''); }}
             onShowAll={() => setUnreadOnly(false)}
-            onCompose={() => openCompose({ accountId: selectedAccountId || undefined })}
+            onCompose={() => { void requestCompose(() => openCompose({ accountId: selectedAccountId || undefined })); }}
           />
         )}
 
@@ -2626,7 +2633,7 @@ export default function MessageList() {
             </button>
           )}
           <button
-            onClick={() => openCompose({ accountId: selectedAccountId || undefined })}
+            onClick={() => { void requestCompose(() => openCompose({ accountId: selectedAccountId || undefined })); }}
             aria-label={t('messageList.composeAriaLabel')}
             style={{
               pointerEvents: fabVisible ? 'auto' : 'none',

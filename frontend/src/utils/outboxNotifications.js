@@ -1,3 +1,5 @@
+import { handleComposeRequest } from './composeRequest.js';
+
 function timestamp(value) {
   if (typeof value === 'number') return value;
   return new Date(value).getTime();
@@ -42,7 +44,9 @@ export function createOutboxNotification({
     onUndo: async () => {
       try {
         await cancelOutbox(outboxId);
-        if (capturedPayload) openCompose(capturedPayload);
+        if (capturedPayload) {
+          await handleComposeRequest(() => openCompose(capturedPayload), { addNotification, t });
+        }
       } catch (error) {
         if (error?.status !== 409) throw error;
         addNotification({

@@ -92,6 +92,7 @@
   },
   "compose": {
     "newMessage": "New Message",
+    "requestFailed": "Could not open the draft.",
     "reply": "Reply",
     "replyAll": "Reply All",
     "forward": "Forward",
@@ -116,7 +117,39 @@
     "discard": "Discard",
     "saveDraft": "Save draft",
     "savingDraft": "Saving…",
-    "draftSaved": "Draft saved",
+    "dirty": "Unsaved changes",
+    "saving": "Saving changes",
+    "saved": "Changes saved",
+    "offline": "Offline — changes not saved",
+    "error": "Draft could not be saved",
+    "conflict": "Draft has conflicting changes",
+    "sessions": {
+      "limit": "Nine drafts are already open. Close or discard one to start another.",
+      "saving": "Saving",
+      "saved": "Saved",
+      "offline": "Offline — changes not saved",
+      "error": "Draft could not be saved",
+      "conflict": "Server changes conflict with your edits",
+      "recoveryConflict": "Recovered changes conflict with edits from this tab",
+      "useRemote": "Use remote",
+      "keepMine": "Keep mine",
+      "useRecovered": "Use recovered changes",
+      "slotLabel": "Draft {{slot}}",
+      "minimized": "Minimized",
+      "terminalPending": "Finishing draft…",
+      "conflictingFields": "Conflicting fields: {{fields}}",
+      "recoveredFields": "Recovered fields: {{fields}}",
+      "fields": {
+        "mode": "Message type",
+        "body": "Message body",
+        "bodyFormat": "Message format",
+        "quoted": "Quoted message",
+        "signature": "Signature",
+        "attachments": "Forwarded attachments",
+        "replyContext": "Reply context",
+        "senderChanged": "Sender selection"
+      }
+    },
     "closeDraft": {
       "title": "Save this draft?",
       "save": "Save draft",
@@ -128,7 +161,6 @@
       "discard": "Discard",
       "keepEditing": "Keep editing"
     },
-    "draftHasAttachments": "Attachments are not saved with drafts. They will need to be re-attached when you reopen this draft.",
     "emptySubject": {
       "title": "Send without a subject?",
       "sendAnyway": "Send anyway",
@@ -465,7 +497,13 @@
       "selectOlder": "Select focused and older conversations", "selectAll": "Select all conversations",
       "clearSelection": "Clear selection", "sent": "Go to Sent", "drafts": "Go to Drafts", "contacts": "Go to Contacts"
     },
-    "compose": { "new": { "title": "Compose", "alias": { "write": "Write" } } },
+    "compose": {
+      "new": { "title": "Compose", "alias": { "write": "Write" } },
+      "minimize": "Minimize draft",
+      "close": "Save and close draft",
+      "discard": "Discard draft",
+      "activateSlot": "Activate draft {{slot}}"
+    },
     "navigation": {
       "search": { "title": "Search mail" },
       "unifiedInbox": { "title": "Go to Unified Inbox" },

@@ -9,7 +9,8 @@ const state = overrides => ({
   ],
   searchResults: [], searchQuery: '', threadMessages: {}, gtdSections: null,
   selectedMessageId: null, selectedMessageIds: new Set(), selectedAccountId: 'acct-1',
-  selectedFolder: 'INBOX', composing: false, composeData: null, showAdmin: false,
+  selectedFolder: 'INBOX', composeWorkspaceController: null,
+  focusedComposeSessionId: null, showAdmin: false,
   accounts: [{ id: 'acct-1', gtd_enabled: true }],
   carddavStatus: { connected: true }, carddavStatusLoaded: true,
   notifications: [], activeGtdTab: null,
@@ -21,8 +22,40 @@ describe('buildAppCommandContext', () => {
   it('maps list, conversation, compose, and settings surfaces', () => {
     assert.equal(buildAppCommandContext(state(), { translate, platform: 'mac' }).surface, 'list');
     assert.equal(buildAppCommandContext(state({ selectedMessageId: 'row-a' }), { translate, platform: 'mac' }).surface, 'conversation');
-    assert.equal(buildAppCommandContext(state({ composing: true, composeData: { id: 'draft-1' } }), { translate, platform: 'mac' }).surface, 'compose');
+    const composeWorkspaceController = {
+      sessions: [{ id: 'draft-1', slot: 2, revision: 7 }],
+    };
+    const composeContext = buildAppCommandContext(state({
+      composeWorkspaceController,
+      focusedComposeSessionId: 'draft-1',
+    }), { translate, platform: 'mac' });
+    assert.equal(composeContext.surface, 'compose');
+    assert.deepEqual(composeContext.draft, { id: 'draft-1', slot: 2, revision: 7 });
+    assert.deepEqual(composeContext.composeSlots, [{
+      id: 'draft-1', slot: 2, presentationState: undefined,
+      createdAt: undefined, lastFocusedAt: undefined, status: undefined,
+      terminalPending: null, visible: true,
+    }]);
     assert.equal(buildAppCommandContext(state({ showAdmin: true }), { translate, platform: 'mac' }).surface, 'settings');
+  });
+
+  it('requires the focused compose ID to resolve to an actual controller session', () => {
+    const composeWorkspaceController = {
+      sessions: [{ id: 'draft-1', slot: 2, revision: 7 }],
+    };
+    const listContext = buildAppCommandContext(state({
+      composeWorkspaceController,
+      focusedComposeSessionId: 'missing-draft',
+    }), { translate, platform: 'mac' });
+    assert.equal(listContext.surface, 'list');
+    assert.equal(listContext.draft, null);
+
+    const unfocusedContext = buildAppCommandContext(state({
+      composeWorkspaceController,
+      focusedComposeSessionId: null,
+    }), { translate, platform: 'mac' });
+    assert.equal(unfocusedContext.surface, 'list');
+    assert.equal(unfocusedContext.draft, null);
   });
 
   it('converts selected row IDs to account-scoped RFC identities and exposes integrations', () => {

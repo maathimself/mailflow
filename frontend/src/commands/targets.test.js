@@ -52,4 +52,14 @@ describe('command targets', () => {
     assert.equal(hasTargets(command('draft'), context({ draft: null })), false);
     assert.equal(hasTargets(command('draft'), context({ draft: { id: 'draft-1' } })), true);
   });
+
+  it('targets draft commands by session id without editor content', () => {
+    const ctx = context({ draft: { id: 'draft-1', subject: 'private editor content' } });
+    assert.deepEqual(resolveTargetIds(command('draft'), ctx), {
+      targetIds: ['draft-1'], missingTargetIds: [],
+    });
+    assert.deepEqual(resolveTargetIds(command('draft'), ctx, ['draft-2']), {
+      targetIds: [], missingTargetIds: ['draft-2'],
+    });
+  });
 });

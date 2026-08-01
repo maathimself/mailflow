@@ -92,6 +92,7 @@
   },
   "compose": {
     "newMessage": "Nuovo messaggio",
+    "requestFailed": "Impossibile aprire la bozza.",
     "reply": "Rispondi",
     "replyAll": "Rispondi a tutti",
     "forward": "Inoltra",
@@ -116,7 +117,39 @@
     "discard": "Scarta",
     "saveDraft": "Salva bozza",
     "savingDraft": "Salvataggio…",
-    "draftSaved": "Bozza salvata",
+    "dirty": "Modifiche non salvate",
+    "saving": "Salvataggio delle modifiche",
+    "saved": "Modifiche salvate",
+    "offline": "Non in linea: modifiche non salvate",
+    "error": "Impossibile salvare la bozza",
+    "conflict": "La bozza contiene modifiche incompatibili",
+    "sessions": {
+      "limit": "Sono già aperte nove bozze. Chiudine o scartane una per iniziarne un’altra.",
+      "saving": "Salvataggio",
+      "saved": "Salvata",
+      "offline": "Non in linea: modifiche non salvate",
+      "error": "Impossibile salvare la bozza",
+      "conflict": "Le modifiche del server sono in conflitto con le tue",
+      "recoveryConflict": "Le modifiche recuperate differiscono da quelle di questa scheda",
+      "useRemote": "Usa versione remota",
+      "keepMine": "Mantieni la mia versione",
+      "useRecovered": "Usa modifiche recuperate",
+      "slotLabel": "Bozza {{slot}}",
+      "minimized": "Ridotta",
+      "terminalPending": "Chiusura della bozza…",
+      "conflictingFields": "Campi in conflitto: {{fields}}",
+      "recoveredFields": "Campi recuperati: {{fields}}",
+      "fields": {
+        "mode": "Tipo di messaggio",
+        "body": "Corpo del messaggio",
+        "bodyFormat": "Formato del messaggio",
+        "quoted": "Messaggio citato",
+        "signature": "Firma del mittente",
+        "attachments": "Allegati inoltrati",
+        "replyContext": "Contesto della risposta",
+        "senderChanged": "Scelta del mittente"
+      }
+    },
     "closeDraft": {
       "title": "Salvare questa bozza?",
       "save": "Salva bozza",
@@ -128,7 +161,6 @@
       "discard": "Scarta",
       "keepEditing": "Continua a modificare"
     },
-    "draftHasAttachments": "Gli allegati non vengono salvati con le bozze. Dovranno essere ricollegati alla riapertura.",
     "emptySubject": {
       "title": "Inviare senza oggetto?",
       "sendAnyway": "Invia comunque",
@@ -465,7 +497,13 @@
       "selectOlder": "Seleziona conversazione attiva e precedenti", "selectAll": "Seleziona tutte le conversazioni",
       "clearSelection": "Cancella selezione", "sent": "Vai a Inviati", "drafts": "Vai a Bozze", "contacts": "Vai a Contatti"
     },
-    "compose": { "new": { "title": "Scrivi", "alias": { "write": "Componi" } } },
+    "compose": {
+      "new": { "title": "Scrivi", "alias": { "write": "Componi" } },
+      "minimize": "Riduci bozza",
+      "close": "Salva e chiudi bozza",
+      "discard": "Scarta bozza",
+      "activateSlot": "Attiva bozza {{slot}}"
+    },
     "navigation": {
       "search": { "title": "Cerca nella posta" },
       "unifiedInbox": { "title": "Vai alla posta in arrivo unificata" },

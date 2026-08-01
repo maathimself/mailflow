@@ -37,6 +37,7 @@ export const PLATFORMS = Object.freeze(['mac', 'windows', 'linux']);
  * @property {string | null} accountId
  * @property {string | null} folder
  * @property {object | null} draft
+ * @property {readonly object[]} composeSlots
  * @property {boolean} gtdAvailable
  * @property {boolean} cardDavConnected
  * @property {Readonly<object>} carddavStatus
@@ -120,6 +121,7 @@ export function createCommandContext(input) {
     accountId: input.accountId || null,
     folder: input.folder || null,
     draft: input.draft || null,
+    composeSlots: Object.freeze((input.composeSlots || []).map(session => Object.freeze({ ...session }))),
     gtdAvailable: Boolean(input.gtdAvailable),
     cardDavConnected: carddavStatus.connected,
     carddavStatus,

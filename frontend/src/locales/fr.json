@@ -92,6 +92,7 @@
   },
   "compose": {
     "newMessage": "Nouveau message",
+    "requestFailed": "Impossible d’ouvrir le brouillon.",
     "reply": "Répondre",
     "replyAll": "Répondre à tous",
     "forward": "Transférer",
@@ -116,7 +117,39 @@
     "discard": "Supprimer",
     "saveDraft": "Enregistrer le brouillon",
     "savingDraft": "Enregistrement…",
-    "draftSaved": "Brouillon enregistré",
+    "dirty": "Modifications non enregistrées",
+    "saving": "Enregistrement des modifications",
+    "saved": "Modifications enregistrées",
+    "offline": "Hors connexion — modifications non enregistrées",
+    "error": "Impossible d’enregistrer le brouillon",
+    "conflict": "Le brouillon contient des modifications incompatibles",
+    "sessions": {
+      "limit": "Neuf brouillons sont déjà ouverts. Fermez-en ou supprimez-en un pour en commencer un autre.",
+      "saving": "Enregistrement",
+      "saved": "Enregistré",
+      "offline": "Hors connexion — modifications non enregistrées",
+      "error": "Impossible d’enregistrer le brouillon",
+      "conflict": "Les modifications du serveur sont incompatibles avec vos changements",
+      "recoveryConflict": "Les changements récupérés diffèrent des modifications de cet onglet",
+      "useRemote": "Utiliser la version distante",
+      "keepMine": "Conserver ma version",
+      "useRecovered": "Utiliser les changements récupérés",
+      "slotLabel": "Brouillon {{slot}}",
+      "minimized": "Réduit",
+      "terminalPending": "Finalisation du brouillon…",
+      "conflictingFields": "Champs en conflit : {{fields}}",
+      "recoveredFields": "Champs récupérés : {{fields}}",
+      "fields": {
+        "mode": "Type de message",
+        "body": "Corps du message",
+        "bodyFormat": "Format du message",
+        "quoted": "Message cité",
+        "signature": "Signature de l’expéditeur",
+        "attachments": "Pièces jointes transférées",
+        "replyContext": "Contexte de réponse",
+        "senderChanged": "Choix de l’expéditeur"
+      }
+    },
     "closeDraft": {
       "title": "Enregistrer ce brouillon ?",
       "save": "Enregistrer le brouillon",
@@ -128,7 +161,6 @@
       "discard": "Supprimer",
       "keepEditing": "Continuer à éditer"
     },
-    "draftHasAttachments": "Les pièces jointes ne sont pas sauvegardées avec les brouillons. Vous devrez les rattacher à la réouverture.",
     "emptySubject": {
       "title": "Envoyer sans objet ?",
       "sendAnyway": "Envoyer quand même",
@@ -465,7 +497,13 @@
       "selectOlder": "Sélectionner la conversation active et les précédentes", "selectAll": "Sélectionner toutes les conversations",
       "clearSelection": "Effacer la sélection", "sent": "Aller aux messages envoyés", "drafts": "Aller aux brouillons", "contacts": "Aller aux contacts"
     },
-    "compose": { "new": { "title": "Composer", "alias": { "write": "Écrire" } } },
+    "compose": {
+      "new": { "title": "Composer", "alias": { "write": "Écrire" } },
+      "minimize": "Réduire le brouillon",
+      "close": "Enregistrer et fermer le brouillon",
+      "discard": "Supprimer le brouillon",
+      "activateSlot": "Activer le brouillon {{slot}}"
+    },
     "navigation": {
       "search": { "title": "Rechercher dans les e-mails" },
       "unifiedInbox": { "title": "Accéder à la boîte de réception unifiée" },

@@ -50,9 +50,22 @@ export function buildAppCommandContext(state, {
     : state.selectedAccountId
       ? Boolean(accounts.find(account => account.id === state.selectedAccountId)?.gtd_enabled)
       : accounts.some(account => account.gtd_enabled);
+  const composeSessions = Array.isArray(state.composeWorkspaceController?.sessions)
+    ? state.composeWorkspaceController.sessions
+    : state.composeWorkspaceController?.getSnapshot?.()?.sessions || [];
+  const controllerFocus = state.composeWorkspaceController?.focusedSessionId;
+  const focusedComposeSessionId = controllerFocus === undefined
+    ? state.focusedComposeSessionId
+    : controllerFocus;
+  const focusedComposeSession = focusedComposeSessionId
+    ? composeSessions.find(session => session.id === focusedComposeSessionId)
+    : null;
+  const visibleComposeSessionIds = new Set(
+    state.composeWorkspaceController?.getSnapshot?.()?.visibleSessions?.map(session => session.id) || [],
+  );
   const surface = modal ? 'picker'
     : state.showAdmin || state.showContacts ? 'settings'
-      : state.composing ? 'compose'
+      : focusedComposeSession ? 'compose'
         : state.selectedMessageId ? 'conversation' : 'list';
   const shortcutOverrides = normalizeLegacyShortcutOverrides(state.shortcuts || {});
 
@@ -65,13 +78,29 @@ export function buildAppCommandContext(state, {
     conversations,
     accountId: state.selectedAccountId,
     folder: state.selectedFolder,
-    draft: state.composing ? (state.composeData || { id: 'active-compose' }) : null,
+    draft: focusedComposeSession ? {
+      id: focusedComposeSession.id,
+      slot: focusedComposeSession.slot,
+      revision: focusedComposeSession.baseRevision ?? focusedComposeSession.revision,
+    } : null,
+    composeSlots: composeSessions.map(session => ({
+      id: session.id,
+      slot: session.slot,
+      presentationState: session.presentationState,
+      createdAt: session.createdAt,
+      lastFocusedAt: session.lastFocusedAt,
+      status: session.status,
+      terminalPending: session.terminalPending || null,
+      visible: visibleComposeSessionIds.size
+        ? visibleComposeSessionIds.has(session.id)
+        : session.presentationState !== 'minimized',
+    })),
     gtdAvailable,
     cardDavConnected: Boolean(state.carddavStatus?.connected),
     carddavStatus: state.carddavStatus,
     carddavStatusLoaded: state.carddavStatusLoaded,
     modal,
-    editing: editing || Boolean(state.composing) || Boolean(state.showAdmin) || Boolean(state.showContacts),
+    editing: editing || Boolean(focusedComposeSession) || Boolean(state.showAdmin) || Boolean(state.showContacts),
     undoAvailable: (state.notifications || []).some(notification => typeof notification.onUndo === 'function'),
     platform,
     shortcutOverrides,

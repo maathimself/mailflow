@@ -105,3 +105,21 @@ test('restored outbox entries cancel without trying to reopen unavailable compos
   await notification.onUndo();
   assert.deepEqual(calls, [['cancel', 'outbox-restored']]);
 });
+
+test('undo reports a compose reopen failure without leaking a rejected event promise', async () => {
+  const failure = new Error('PRIVATE_REOPEN_DETAIL_SENTINEL');
+  const notifications = [];
+  const notification = createOutboxNotification({
+    entry: { id: 'outbox-reopen-failure', subject: 'Synthetic subject' },
+    capturedPayload: { subject: 'Synthetic subject' },
+    cancelOutbox: async () => {},
+    openCompose: async () => { throw failure; },
+    addNotification: value => notifications.push(value),
+    t: (key, values) => values?.message ? `${key}:${values.message}` : key,
+  });
+
+  await notification.onUndo();
+  assert.deepEqual(notifications, [{
+    type: 'error', title: 'compose.requestFailed',
+  }]);
+});

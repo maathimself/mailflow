@@ -18,6 +18,16 @@ export function hasTargets(command, context) {
 }
 
 export function resolveTargetIds(command, context, frozenTargetIds) {
+  if (command.targetMode === TARGET_MODES.DRAFT) {
+    const currentId = context.draft?.id || null;
+    const requested = frozenTargetIds == null
+      ? (currentId ? [currentId] : [])
+      : [...new Set(frozenTargetIds)];
+    return {
+      targetIds: requested.filter(id => id === currentId),
+      missingTargetIds: requested.filter(id => id !== currentId),
+    };
+  }
   if (![TARGET_MODES.SINGLE_CONVERSATION, TARGET_MODES.BULK_SAFE].includes(command.targetMode)) {
     return { targetIds: [], missingTargetIds: [] };
   }
