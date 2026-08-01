@@ -306,6 +306,8 @@ const SAME_VALUE_ALLOWED = {
   // These labels are spelled identically in English and French.
   'commandPalette.target.application': [['en', 'fr']],
   'commandPalette.target.conversation': [['en', 'fr']],
+  // "Junk" is the conventional mailbox label in both German and English.
+  'commands.mail.spam.aliasJunk': [['de', 'en']],
   // Folder names come from the account, so every locale intentionally renders
   // the same interpolation token without adding surrounding copy.
   'commands.navigation.folder.title': 'any',
@@ -566,8 +568,25 @@ function isAllowedPair(key, lang1, lang2) {
 const locales = loadLocales();
 const langs = Object.keys(locales).sort();
 const allKeys = [...new Set(langs.flatMap(l => Object.keys(locales[l])))].sort();
+const REQUIRED_KEYS = [
+  'commands.mail.archive.aliasDone',
+  'commands.mail.snooze.aliasRemind',
+  'commands.mail.trash.aliasDelete',
+  'commands.mail.spam.aliasJunk',
+  'commands.mail.partial',
+];
 
 describe('i18n locale files', () => {
+
+  it('provides localized mail command aliases and partial outcomes', () => {
+    const missing = [];
+    for (const lang of langs) {
+      for (const key of REQUIRED_KEYS) {
+        if (typeof locales[lang][key] !== 'string') missing.push(`${lang}: ${key}`);
+      }
+    }
+    assert.deepEqual(missing, []);
+  });
 
   it('places sender favicon setting copy under the admin message-list namespace', () => {
     const keys = [

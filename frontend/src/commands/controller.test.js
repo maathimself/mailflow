@@ -82,6 +82,34 @@ describe('createCommandController', () => {
     assert.equal(callCount, 2);
   });
 
+  it('rejects a frozen multi-selection for single-conversation commands', async () => {
+    let callCount = 0;
+    const registry = createCommandRegistry([definition({
+      id: 'mail.reply',
+      targetMode: 'single_conversation',
+      executorId: 'mail.reply',
+    })]);
+    const controller = createCommandController({
+      registry,
+      getContext: () => makeContext(),
+      executors: {
+        'mail.reply': () => {
+          callCount += 1;
+          return { status: 'success' };
+        },
+      },
+    });
+
+    const outcome = await controller.execute('mail.reply', {
+      source: 'context-menu',
+      frozenTargetIds: ['acct:<a>', 'acct:<b>'],
+    });
+
+    assert.equal(outcome.status, 'failed');
+    assert.match(outcome.error.message, /exactly one conversation/);
+    assert.equal(callCount, 0);
+  });
+
   it('normalizes success, cancelled, partial, thrown failures, and callback delivery', async () => {
     const terminal = [];
     const outcomes = ['success', 'cancelled', 'partial'];

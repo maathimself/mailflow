@@ -213,22 +213,13 @@
     "aiCopied": "已复制",
     "previousMessage": "上一封邮件",
     "nextMessage": "下一封邮件",
-    "archived": {
-      "title": "邮件已归档",
-      "failTitle": "归档失败",
-      "failBody": "无法归档此邮件。",
-      "noFolderTitle": "未设置归档文件夹",
-      "noFolderBody": "此账户未配置归档文件夹。请前往「设置 → 账户 → 文件夹映射」中设置。"
-    },
     "moved": {
-      "title": "邮件已移动",
       "failTitle": "移动失败",
       "failBody": "无法移动此邮件。"
     },
     "snoozed": {
       "title": "邮件已稍后提醒",
-      "failTitle": "稍后提醒失败",
-      "failBody": "无法对此邮件设置稍后提醒。"
+      "failTitle": "稍后提醒失败"
     },
     "whitelistFail": {
       "title": "无法保存偏好设置",
@@ -277,18 +268,12 @@
     "loadMore": "加载更多",
     "noMoreMessages": "没有更多邮件了",
     "deleted": {
-      "title": "邮件已删除",
-      "body": "已移至废件箱。",
-      "failTitle": "删除失败",
-      "failBody": "无法删除此邮件。"
+      "failTitle": "删除失败"
     },
     "bulkDeleted": {
       "title_one": "已删除 {{count}} 封邮件",
       "title_other": "已删除 {{count}} 封邮件",
-      "body": "已移至废件箱。",
-      "failTitle": "删除失败",
-      "failBody_one": "无法删除 {{count}} 封邮件。",
-      "failBody_other": "无法删除 {{count}} 封邮件。"
+      "failTitle": "删除失败"
     },
     "bulkMoved": {
       "title_one": "已移动 {{count}} 封邮件",
@@ -300,16 +285,7 @@
     "bulkArchived": {
       "title_one": "已归档 {{count}} 封邮件",
       "title_other": "已归档 {{count}} 封邮件",
-      "body": "已移至归档。",
-      "failTitle": "归档失败",
-      "failBody_one": "无法归档 {{count}} 封邮件。",
-      "failBody_other": "无法归档 {{count}} 封邮件。",
-      "noFolderTitle": "未设置归档文件夹",
-      "noFolderBody": "一个或多个账户未配置归档文件夹。请前往「设置 → 账户 → 文件夹映射」中设置。"
-    },
-    "noArchiveFolder": {
-      "title": "未设置归档文件夹",
-      "body": "未配置归档文件夹。请前往「设置 → 账户 → 文件夹映射」中设置。"
+      "failTitle": "归档失败"
     },
     "selectMessages": "选择邮件",
     "selectedCount": "已选 {{count}} 封",
@@ -469,6 +445,13 @@
     }
   },
   "commands": {
+    "mail": {
+      "archive": { "aliasDone": "完成" },
+      "snooze": { "aliasRemind": "提醒我" },
+      "trash": { "aliasDelete": "删除" },
+      "spam": { "aliasJunk": "垃圾邮件" },
+      "partial": "成功 {{succeeded}} 个；失败 {{failed}} 个"
+    },
     "compose": { "new": { "title": "撰写", "alias": { "write": "写邮件" } } },
     "navigation": {
       "search": { "title": "搜索邮件" },
@@ -1437,10 +1420,7 @@
     "movedToInbox": "已移至收件箱",
     "movedToInboxBulk": "已移至收件箱 {{count}} 封",
     "failTitle": "标记为垃圾邮件失败",
-    "failHamTitle": "标记为非垃圾邮件失败",
-    "failBody": "邮件服务器拒绝了移动操作。",
-    "failHamBody": "邮件服务器拒绝了移动操作。",
-    "failBodyBulk": "{{count}} 封邮件无法移动。"
+    "failHamTitle": "标记为非垃圾邮件失败"
   },
   "contacts": {
     "title": "联系人",

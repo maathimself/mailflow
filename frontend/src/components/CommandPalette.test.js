@@ -5,6 +5,8 @@ import fs from 'node:fs';
 describe('CommandPalette source wiring', () => {
   const source = fs.readFileSync(new URL('./CommandPalette.jsx', import.meta.url), 'utf8');
   const continuation = fs.readFileSync(new URL('./CommandContinuation.jsx', import.meta.url), 'utf8');
+  const icons = fs.readFileSync(new URL('./CommandIcon.jsx', import.meta.url), 'utf8');
+  const mailActions = fs.readFileSync(new URL('../commands/mailActions.js', import.meta.url), 'utf8');
   const css = fs.readFileSync(new URL('../index.css', import.meta.url), 'utf8');
 
   it('consumes the shared runtime and required accessible semantics', () => {
@@ -36,6 +38,7 @@ describe('CommandPalette source wiring', () => {
   it('resumes continuations with their frozen account-scoped targets', () => {
     assert.match(continuation, /frozenTargetIds: continuation\.targetIds/);
     assert.match(continuation, /source: 'palette'/);
+    assert.match(continuation, /\[continuation\.props\.inputKey \|\| 'value'\]: item\.id/);
   });
 
   it('localizes and bounds continuation options inside the palette', () => {
@@ -59,5 +62,14 @@ describe('CommandPalette source wiring', () => {
     assert.match(css, /\.command-palette__results\s*\{[^}]*max-height:\s*286px/);
     assert.match(css, /\.command-palette__row\s*\{[^}]*min-height:\s*52px/);
     assert.match(css, /\.command-palette__row\[aria-selected="true"\]\s*\{[^}]*var\(--accent-dim\)/);
+  });
+
+  it('renders the native mail-action icons instead of the settings fallback', () => {
+    const iconNames = [...mailActions.matchAll(/definition\([^\n]+?,\s*'([^']+)',\s*'(?:mail|respond|gtd)'/g)]
+      .map(match => match[1]);
+    assert.ok(iconNames.length > 10);
+    for (const iconName of new Set(iconNames)) {
+      assert.match(icons, new RegExp(`\\b${iconName.replace('-', "['-]")}['"]?:`), `missing ${iconName}`);
+    }
   });
 });

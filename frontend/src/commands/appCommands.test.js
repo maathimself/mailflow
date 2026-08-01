@@ -18,14 +18,14 @@ const context = createCommandContext({
 });
 
 describe('application commands', () => {
-  it('builds Compose, Search, Contacts, unified/account/folder/GTD, theme, and settings commands', () => {
+  it('builds application destinations and the shared mail command set', () => {
     const ids = createAppCommandDefinitions(snapshot).map(command => command.id);
     for (const id of [
       'compose.new', 'navigation.search', 'navigation.contacts', 'navigation.unified-inbox',
       'navigation.account-inbox.acct-1', 'navigation.folder.acct-1.Projects',
       'navigation.gtd.todo', 'appearance.theme.system', 'settings.accounts', 'settings.shortcuts',
+      'mail.archive', 'mail.move', 'mail.replyAll', 'mail.toggleRead', 'gtd.todo',
     ]) assert.ok(ids.includes(id), `missing ${id}`);
-    assert.equal(ids.some(id => id.startsWith('mail.')), false);
   });
 
   it('keeps administrator-only settings absent for non-admin users', () => {

@@ -213,22 +213,13 @@
     "aiCopied": "Kopiert",
     "previousMessage": "Vorherige Nachricht",
     "nextMessage": "Nächste Nachricht",
-    "archived": {
-      "title": "Nachricht archiviert",
-      "failTitle": "Archivierung fehlgeschlagen",
-      "failBody": "Nachricht konnte nicht archiviert werden.",
-      "noFolderTitle": "Kein Archivordner",
-      "noFolderBody": "Kein Archivordner für dieses Konto konfiguriert. In Einstellungen → Konten → Ordnerzuordnungen festlegen."
-    },
     "moved": {
-      "title": "Nachricht verschoben",
       "failTitle": "Verschieben fehlgeschlagen",
       "failBody": "Nachricht konnte nicht verschoben werden."
     },
     "snoozed": {
       "title": "Nachricht zurückgestellt",
-      "failTitle": "Zurückstellen fehlgeschlagen",
-      "failBody": "Diese Nachricht konnte nicht zurückgestellt werden."
+      "failTitle": "Zurückstellen fehlgeschlagen"
     },
     "whitelistFail": {
       "title": "Einstellung konnte nicht gespeichert werden",
@@ -277,18 +268,12 @@
     "loadMore": "Mehr laden",
     "noMoreMessages": "Keine weiteren Nachrichten",
     "deleted": {
-      "title": "Nachricht gelöscht",
-      "body": "In den Papierkorb verschoben.",
-      "failTitle": "Löschen fehlgeschlagen",
-      "failBody": "Nachricht konnte nicht gelöscht werden."
+      "failTitle": "Löschen fehlgeschlagen"
     },
     "bulkDeleted": {
       "title_one": "{{count}} Nachricht gelöscht",
       "title_other": "{{count}} Nachrichten gelöscht",
-      "body": "In den Papierkorb verschoben.",
-      "failTitle": "Löschen fehlgeschlagen",
-      "failBody_one": "{{count}} Nachricht konnte nicht gelöscht werden.",
-      "failBody_other": "{{count}} Nachrichten konnten nicht gelöscht werden."
+      "failTitle": "Löschen fehlgeschlagen"
     },
     "bulkMoved": {
       "title_one": "{{count}} Nachricht verschoben",
@@ -300,16 +285,7 @@
     "bulkArchived": {
       "title_one": "{{count}} Nachricht archiviert",
       "title_other": "{{count}} Nachrichten archiviert",
-      "body": "In das Archiv verschoben.",
-      "failTitle": "Archivierung fehlgeschlagen",
-      "failBody_one": "{{count}} Nachricht konnte nicht archiviert werden.",
-      "failBody_other": "{{count}} Nachrichten konnten nicht archiviert werden.",
-      "noFolderTitle": "Kein Archivordner",
-      "noFolderBody": "Bei einem oder mehreren Konten ist kein Archivordner konfiguriert. In Einstellungen → Konten → Ordnerzuordnungen festlegen."
-    },
-    "noArchiveFolder": {
-      "title": "Kein Archivordner",
-      "body": "Kein Archivordner konfiguriert. In Einstellungen → Konten → Ordnerzuordnungen festlegen."
+      "failTitle": "Archivierung fehlgeschlagen"
     },
     "selectMessages": "Nachrichten auswählen",
     "selectedCount": "{{count}} ausgewählt",
@@ -469,6 +445,13 @@
     }
   },
   "commands": {
+    "mail": {
+      "archive": { "aliasDone": "Erledigt" },
+      "snooze": { "aliasRemind": "Später erinnern" },
+      "trash": { "aliasDelete": "Löschen" },
+      "spam": { "aliasJunk": "Junk" },
+      "partial": "{{succeeded}} erfolgreich; {{failed}} fehlgeschlagen"
+    },
     "compose": { "new": { "title": "Verfassen", "alias": { "write": "Schreiben" } } },
     "navigation": {
       "search": { "title": "E-Mails durchsuchen" },
@@ -1437,10 +1420,7 @@
     "movedToInbox": "In den Posteingang verschoben",
     "movedToInboxBulk": "{{count}} Nachrichten in den Posteingang verschoben",
     "failTitle": "Als Spam markieren fehlgeschlagen",
-    "failHamTitle": "Als kein Spam markieren fehlgeschlagen",
-    "failBody": "Der Mailserver hat die Verschiebung abgelehnt.",
-    "failHamBody": "Der Mailserver hat die Verschiebung abgelehnt.",
-    "failBodyBulk": "{{count}} Nachrichten konnten nicht verschoben werden."
+    "failHamTitle": "Als kein Spam markieren fehlgeschlagen"
   },
   "contacts": {
     "title": "Kontakte",

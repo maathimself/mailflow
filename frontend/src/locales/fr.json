@@ -213,22 +213,13 @@
     "aiCopied": "Copié",
     "previousMessage": "Message précédent",
     "nextMessage": "Message suivant",
-    "archived": {
-      "title": "Message archivé",
-      "failTitle": "Échec de l'archivage",
-      "failBody": "Impossible d'archiver le message.",
-      "noFolderTitle": "Aucun dossier d'archive",
-      "noFolderBody": "Aucun dossier d'archive configuré pour ce compte. Définissez-en un dans Paramètres → Comptes → Mappage des dossiers."
-    },
     "moved": {
-      "title": "Message déplacé",
       "failTitle": "Échec du déplacement",
       "failBody": "Impossible de déplacer le message."
     },
     "snoozed": {
       "title": "Message mis en attente",
-      "failTitle": "Échec de la mise en attente",
-      "failBody": "Impossible de mettre ce message en attente."
+      "failTitle": "Échec de la mise en attente"
     },
     "whitelistFail": {
       "title": "Impossible d'enregistrer la préférence",
@@ -277,18 +268,12 @@
     "loadMore": "Charger plus",
     "noMoreMessages": "Aucun message supplémentaire",
     "deleted": {
-      "title": "Message supprimé",
-      "body": "Déplacé vers la corbeille.",
-      "failTitle": "Échec de la suppression",
-      "failBody": "Impossible de supprimer le message."
+      "failTitle": "Échec de la suppression"
     },
     "bulkDeleted": {
       "title_one": "{{count}} message supprimé",
       "title_other": "{{count}} messages supprimés",
-      "body": "Déplacé vers la corbeille.",
-      "failTitle": "Échec de la suppression",
-      "failBody_one": "Impossible de supprimer {{count}} message.",
-      "failBody_other": "Impossible de supprimer {{count}} messages."
+      "failTitle": "Échec de la suppression"
     },
     "bulkMoved": {
       "title_one": "{{count}} message déplacé",
@@ -300,16 +285,7 @@
     "bulkArchived": {
       "title_one": "{{count}} message archivé",
       "title_other": "{{count}} messages archivés",
-      "body": "Déplacé vers l'archive.",
-      "failTitle": "Échec de l'archivage",
-      "failBody_one": "Impossible d'archiver {{count}} message.",
-      "failBody_other": "Impossible d'archiver {{count}} messages.",
-      "noFolderTitle": "Aucun dossier d'archive",
-      "noFolderBody": "Un ou plusieurs comptes n'ont pas de dossier d'archive configuré. Définissez-en un dans Paramètres → Comptes → Mappage des dossiers."
-    },
-    "noArchiveFolder": {
-      "title": "Aucun dossier d'archive",
-      "body": "Aucun dossier d'archive configuré. Définissez-en un dans Paramètres → Comptes → Mappage des dossiers."
+      "failTitle": "Échec de l'archivage"
     },
     "selectMessages": "Sélectionner des messages",
     "selectedCount": "{{count}} sélectionné(s)",
@@ -469,6 +445,13 @@
     }
   },
   "commands": {
+    "mail": {
+      "archive": { "aliasDone": "Terminé" },
+      "snooze": { "aliasRemind": "Me le rappeler" },
+      "trash": { "aliasDelete": "Supprimer" },
+      "spam": { "aliasJunk": "Indésirable" },
+      "partial": "{{succeeded}} réussies ; {{failed}} échouées"
+    },
     "compose": { "new": { "title": "Composer", "alias": { "write": "Écrire" } } },
     "navigation": {
       "search": { "title": "Rechercher dans les e-mails" },
@@ -1437,10 +1420,7 @@
     "movedToInbox": "Déplacé dans la boîte de réception",
     "movedToInboxBulk": "{{count}} messages déplacés dans la boîte de réception",
     "failTitle": "Impossible de marquer comme spam",
-    "failHamTitle": "Impossible de marquer comme non spam",
-    "failBody": "Le serveur de messagerie a refusé le déplacement.",
-    "failHamBody": "Le serveur de messagerie a refusé le déplacement.",
-    "failBodyBulk": "{{count}} messages n'ont pas pu être déplacés."
+    "failHamTitle": "Impossible de marquer comme non spam"
   },
   "contacts": {
     "title": "Contacts",

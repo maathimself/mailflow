@@ -5,7 +5,9 @@ export default function CommandContinuation({ continuation, controller, onFinish
   const items = continuation.props.items || [];
   const choose = async item => {
     const outcome = await controller.execute(continuation.commandId, {
-      source: 'palette', input: { value: item.id }, frozenTargetIds: continuation.targetIds,
+      source: 'palette',
+      input: { [continuation.props.inputKey || 'value']: item.id },
+      frozenTargetIds: continuation.targetIds,
     });
     if (['success', 'cancelled', 'partial'].includes(outcome.status)) onFinished(outcome);
   };

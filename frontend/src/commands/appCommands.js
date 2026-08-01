@@ -1,3 +1,5 @@
+import { mailCommandDefinitions } from './mailActions.js';
+
 const globalCommand = (id, titleKey, icon, group, executorId, params = {}, overrides = {}) => ({
   id, titleKey, aliasKeys: [], icon, group,
   defaultKeys: { primary: null, secondary: [] },
@@ -67,6 +69,7 @@ export function createAppCommandDefinitions({ accounts = [], folders = {}, theme
       'settings', 'settings', 'settings.open', { tab },
     ));
   }
+  definitions.push(...mailCommandDefinitions);
   return definitions;
 }
 

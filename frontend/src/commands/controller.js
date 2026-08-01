@@ -37,6 +37,15 @@ export function createCommandController({
     const frozen = frozenTargetIds == null
       ? resolveTargetIds(command, initialContext).targetIds
       : [...new Set(frozenTargetIds)];
+    if (command.targetMode === 'single_conversation' && frozen.length !== 1) {
+      const outcome = failed(
+        commandId,
+        new Error(`Command "${commandId}" requires exactly one conversation`),
+        frozen,
+      );
+      onOutcome(outcome);
+      return Promise.resolve(outcome);
+    }
     const dedupeKey = `${commandId}:${[...frozen].sort().join('|')}`;
     if (inFlight.has(dedupeKey)) return inFlight.get(dedupeKey);
 

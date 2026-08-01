@@ -213,22 +213,13 @@
     "aiCopied": "Copied",
     "previousMessage": "Previous message",
     "nextMessage": "Next message",
-    "archived": {
-      "title": "Message archived",
-      "failTitle": "Archive failed",
-      "failBody": "Could not archive message.",
-      "noFolderTitle": "No archive folder",
-      "noFolderBody": "No archive folder configured for this account. Set one in Settings → Accounts → Folder Mappings."
-    },
     "moved": {
-      "title": "Message moved",
       "failTitle": "Move failed",
       "failBody": "Could not move message."
     },
     "snoozed": {
       "title": "Message snoozed",
-      "failTitle": "Snooze failed",
-      "failBody": "Could not snooze this message."
+      "failTitle": "Snooze failed"
     },
     "whitelistFail": {
       "title": "Could not save preference",
@@ -277,18 +268,12 @@
     "loadMore": "Load more",
     "noMoreMessages": "No more messages",
     "deleted": {
-      "title": "Message deleted",
-      "body": "Removed.",
-      "failTitle": "Delete failed",
-      "failBody": "Could not delete message."
+      "failTitle": "Delete failed"
     },
     "bulkDeleted": {
       "title_one": "{{count}} message deleted",
       "title_other": "{{count}} messages deleted",
-      "body": "Removed.",
-      "failTitle": "Delete failed",
-      "failBody_one": "Could not delete {{count}} message.",
-      "failBody_other": "Could not delete {{count}} messages."
+      "failTitle": "Delete failed"
     },
     "bulkMoved": {
       "title_one": "{{count}} message moved",
@@ -300,16 +285,7 @@
     "bulkArchived": {
       "title_one": "{{count}} message archived",
       "title_other": "{{count}} messages archived",
-      "body": "Moved to Archive.",
-      "failTitle": "Archive failed",
-      "failBody_one": "Could not archive {{count}} message.",
-      "failBody_other": "Could not archive {{count}} messages.",
-      "noFolderTitle": "No archive folder",
-      "noFolderBody": "One or more accounts have no archive folder configured. Set one in Settings → Accounts → Folder Mappings."
-    },
-    "noArchiveFolder": {
-      "title": "No archive folder",
-      "body": "No archive folder configured. Set one in Settings → Accounts → Folder Mappings."
+      "failTitle": "Archive failed"
     },
     "selectMessages": "Select messages",
     "selectedCount": "{{count}} selected",
@@ -469,6 +445,13 @@
     }
   },
   "commands": {
+    "mail": {
+      "archive": { "aliasDone": "Done" },
+      "snooze": { "aliasRemind": "Remind me" },
+      "trash": { "aliasDelete": "Delete" },
+      "spam": { "aliasJunk": "Junk" },
+      "partial": "{{succeeded}} succeeded; {{failed}} failed"
+    },
     "compose": { "new": { "title": "Compose", "alias": { "write": "Write" } } },
     "navigation": {
       "search": { "title": "Search mail" },
@@ -1437,10 +1420,7 @@
     "movedToInbox": "Moved to Inbox",
     "movedToInboxBulk": "Moved {{count}} messages to Inbox",
     "failTitle": "Could not mark as spam",
-    "failHamTitle": "Could not mark as not spam",
-    "failBody": "The mail server rejected the move.",
-    "failHamBody": "The mail server rejected the move.",
-    "failBodyBulk": "{{count}} messages could not be moved."
+    "failHamTitle": "Could not mark as not spam"
   },
   "contacts": {
     "title": "Contacts",

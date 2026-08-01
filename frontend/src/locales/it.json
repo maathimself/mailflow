@@ -213,22 +213,13 @@
     "aiCopied": "Copiato",
     "previousMessage": "Messaggio precedente",
     "nextMessage": "Messaggio successivo",
-    "archived": {
-      "title": "Messaggio archiviato",
-      "failTitle": "Archiviazione fallita",
-      "failBody": "Impossibile archiviare il messaggio.",
-      "noFolderTitle": "Nessuna cartella di archivio",
-      "noFolderBody": "Nessuna cartella di archivio configurata per questo account. Impostane una in Impostazioni → Account → Mappatura cartelle."
-    },
     "moved": {
-      "title": "Messaggio spostato",
       "failTitle": "Spostamento fallito",
       "failBody": "Impossibile spostare il messaggio."
     },
     "snoozed": {
       "title": "Messaggio posticipato",
-      "failTitle": "Posticipa fallito",
-      "failBody": "Impossibile posticipare questo messaggio."
+      "failTitle": "Posticipa fallito"
     },
     "whitelistFail": {
       "title": "Impossibile salvare la preferenza",
@@ -277,18 +268,12 @@
     "loadMore": "Carica altro",
     "noMoreMessages": "Nessun altro messaggio",
     "deleted": {
-      "title": "Messaggio eliminato",
-      "body": "Spostato nel Cestino.",
-      "failTitle": "Eliminazione fallita",
-      "failBody": "Impossibile eliminare il messaggio."
+      "failTitle": "Eliminazione fallita"
     },
     "bulkDeleted": {
       "title_one": "{{count}} messaggio eliminato",
       "title_other": "{{count}} messaggi eliminati",
-      "body": "Spostato nel Cestino.",
-      "failTitle": "Eliminazione fallita",
-      "failBody_one": "Impossibile eliminare {{count}} messaggio.",
-      "failBody_other": "Impossibile eliminare {{count}} messaggi."
+      "failTitle": "Eliminazione fallita"
     },
     "bulkMoved": {
       "title_one": "{{count}} messaggio spostato",
@@ -300,16 +285,7 @@
     "bulkArchived": {
       "title_one": "{{count}} messaggio archiviato",
       "title_other": "{{count}} messaggi archiviati",
-      "body": "Spostato nell'Archivio.",
-      "failTitle": "Archiviazione fallita",
-      "failBody_one": "Impossibile archiviare {{count}} messaggio.",
-      "failBody_other": "Impossibile archiviare {{count}} messaggi.",
-      "noFolderTitle": "Nessuna cartella di archivio",
-      "noFolderBody": "Uno o più account non hanno una cartella di archivio configurata. Impostane una in Impostazioni → Account → Mappatura cartelle."
-    },
-    "noArchiveFolder": {
-      "title": "Nessuna cartella di archivio",
-      "body": "Nessuna cartella di archivio configurata. Impostane una in Impostazioni → Account → Mappatura cartelle."
+      "failTitle": "Archiviazione fallita"
     },
     "selectMessages": "Seleziona messaggi",
     "selectedCount": "{{count}} selezionato/i",
@@ -469,6 +445,13 @@
     }
   },
   "commands": {
+    "mail": {
+      "archive": { "aliasDone": "Fatto" },
+      "snooze": { "aliasRemind": "Ricordamelo" },
+      "trash": { "aliasDelete": "Elimina" },
+      "spam": { "aliasJunk": "Posta indesiderata" },
+      "partial": "{{succeeded}} riuscite; {{failed}} non riuscite"
+    },
     "compose": { "new": { "title": "Scrivi", "alias": { "write": "Componi" } } },
     "navigation": {
       "search": { "title": "Cerca nella posta" },
@@ -1437,10 +1420,7 @@
     "movedToInbox": "Spostato in Posta in arrivo",
     "movedToInboxBulk": "{{count}} messaggi spostati in Posta in arrivo",
     "failTitle": "Impossibile segnalare come spam",
-    "failHamTitle": "Impossibile segnalare come non spam",
-    "failBody": "Il server di posta ha rifiutato lo spostamento.",
-    "failHamBody": "Il server di posta ha rifiutato lo spostamento.",
-    "failBodyBulk": "{{count}} messaggi non possono essere spostati."
+    "failHamTitle": "Impossibile segnalare come non spam"
   },
   "contacts": {
     "title": "Contatti",

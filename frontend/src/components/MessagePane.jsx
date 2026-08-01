@@ -6,13 +6,12 @@ import { format } from 'date-fns';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { getEffectiveShortcuts, parseModKey, modCompactLabel } from '../utils/defaultShortcuts.js';
 import { useMobile } from '../hooks/useMobile.js';
-import { clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.js';
-import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
 import DOMPurify from 'dompurify';
 import { BUILTIN_SUMMARIZE } from '../aiActions.js';
 import { getResults, saveResult, removeResult } from '../aiResults.js';
 import { renderMarkdown } from '../utils/renderMarkdown.js';
-import { pickReplyAlias } from '../utils/replyAlias.js';
+import { stableConversationId } from '../commands/contracts.js';
+import { useCommandRuntimeContext } from '../commands/CommandRuntimeContext.jsx';
 const USE_DIV_RENDER = import.meta.env.VITE_EMAIL_DIV_RENDER === 'true';
 const MESSAGE_OPENING_EVENT = 'mailflow:message-opening';
 
@@ -37,13 +36,6 @@ import MessageHeaderModal from './MessageHeaderModal.jsx';
 import FolderIcon from './FolderIcon.jsx';
 import TodoistTaskModal from './TodoistTaskModal.jsx';
 import SenderAvatarImage from './SenderAvatarImage.jsx';
-
-function parseAddressField(raw) {
-  try {
-    const arr = Array.isArray(raw) ? raw : JSON.parse(raw || '[]');
-    return arr.map(a => a.name ? `${a.name} <${a.email}>` : a.email).filter(Boolean).join(', ');
-  } catch { return ''; }
-}
 
 function linkifyText(text) {
   const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -91,17 +83,28 @@ function fileIcon(type) {
 
 export default function MessagePane() {
   const { t } = useTranslation();
+  const { controller: commandController } = useCommandRuntimeContext();
   const {
     messages, searchResults, searchQuery, selectedMessageId, setSelectedMessage,
-    updateMessage, removeMessage, decrementUnread, incrementUnread, openCompose, accounts, addNotification,
+    updateMessage, accounts, addNotification,
     imageWhitelist, addToImageWhitelist, blockRemoteImages, threadMessages,
     replyDefault, shortcuts, recentFolders, favoriteFolders, todoistConnected,
-    categorizationEnabled, setCategoryCounts, adjustCategoryCount,
+    categorizationEnabled, setCategoryCounts,
     aiActions, setShowAdmin, setAdminTab,
   } = useStore();
 
   const isMobile = useMobile();
   const defaultReplyAll = replyDefault === 'replyAll';
+
+  const executeForTarget = useCallback((commandId, source, target, input) => {
+    const targetId = stableConversationId(target);
+    if (!targetId) return Promise.resolve({ status: 'cancelled' });
+    return commandController.execute(commandId, {
+      source,
+      input,
+      frozenTargetIds: [targetId],
+    });
+  }, [commandController]);
 
   const effectiveShortcuts = getEffectiveShortcuts(shortcuts);
   const shortcutLabel = (action) => {
@@ -122,32 +125,14 @@ export default function MessagePane() {
     if (!msg.is_read) {
       const { markReadBehavior, markReadDelay } = useStore.getState();
       if (markReadBehavior === 'manual') return;
-      const doMarkRead = () => {
-        updateMessage(msg.id, { is_read: true });
-        decrementUnread(msg.account_id);
-        adjustCategoryCount(msg.category, -1);
-        setPending(msg.id, msg.account_id);
-        api.bulkRead([msg.id], true)
-          .then(() => {
-            pendingMarkReadMap.delete(msg.id);
-            completedMarkReadMap.set(msg.id, msg.account_id);
-            setTimeout(() => completedMarkReadMap.delete(msg.id), 10000);
-          })
-          .catch(e => {
-            console.error('markRead failed:', e.message);
-            updateMessage(msg.id, { is_read: false });
-            incrementUnread(msg.account_id);
-            adjustCategoryCount(msg.category, 1);
-            pendingMarkReadMap.delete(msg.id);
-          });
-      };
+      const doMarkRead = () => executeForTarget('mail.read', 'pane-navigation', msg);
       if (markReadBehavior === 'delay') {
         autoMarkReadTimerRef.current = setTimeout(doMarkRead, (markReadDelay || 1) * 1000);
       } else {
         doMarkRead();
       }
     }
-  }, [setSelectedMessage, updateMessage, decrementUnread, incrementUnread, adjustCategoryCount]);
+  }, [executeForTarget, setSelectedMessage]);
 
   const paneRef = useRef(null);
   const mountedRef = useRef(true);
@@ -206,6 +191,16 @@ export default function MessagePane() {
   const message = allMessages.find(m => m.id === selectedMessageId)
     ?? Object.values(threadMessages).flat().find(m => m.id === selectedMessageId);
 
+  const executeForMessage = useCallback((commandId, source, input) => {
+    if (!message) return Promise.resolve({ status: 'cancelled' });
+    const frozenTargetIds = [stableConversationId(message)].filter(Boolean);
+    return commandController.execute(commandId, {
+      source,
+      input,
+      frozenTargetIds,
+    });
+  }, [commandController, message]);
+
   useEffect(() => {
     setResolvedSubject(null);
   }, [message?.id]);
@@ -223,42 +218,6 @@ export default function MessagePane() {
   })();
   const inSpamFolder = message ? spamFolderPaths.has(message.folder) : false;
   const hasSpamFolder = spamFolderPaths.size > 0;
-
-  // Mark current message as spam / ham from the MessagePane toolbar.
-  // Mirrors MessageList.performSpamLabel (single-message variant). Kept inline
-  // here so the MessagePane doesn't need to reach into MessageList internals.
-  const performSingleSpamLabel = useCallback(async (label) => {
-    if (!message) return;
-    const wasUnread = !message.is_read;
-    removeMessage(message.id);
-    if (wasUnread) decrementUnread(message.account_id);
-    let settled = false;
-    const undo = () => {
-      settled = true;
-      useStore.getState().restoreMessages([message]);
-      if (wasUnread) incrementUnread(message.account_id);
-    };
-    setTimeout(async () => {
-      if (settled) return;
-      try {
-        const fn = label === 'spam' ? api.markSpam : api.markHam;
-        await fn(message.id);
-      } catch (err) {
-        useStore.getState().restoreMessages([message]);
-        if (wasUnread) incrementUnread(message.account_id);
-        addNotification({
-          type: 'error',
-          title: t(label === 'spam' ? 'spam.failTitle' : 'spam.failHamTitle'),
-          body: err.message || t(label === 'spam' ? 'spam.failBody' : 'spam.failHamBody'),
-        });
-      }
-    }, 4500);
-    addNotification({
-      title: label === 'spam' ? t('spam.movedToSpam') : t('spam.movedToInbox'),
-      body: message.subject || t('common.noSubject'),
-      onUndo: undo,
-    });
-  }, [message, removeMessage, decrementUnread, incrementUnread, addNotification, t]);
 
   const currentIdx = allMessages.findIndex(m => m.id === selectedMessageId);
   const hasPrev = currentIdx > 0;
@@ -308,8 +267,7 @@ export default function MessagePane() {
   const bodyCacheOrder = useRef([]); // insertion-order keys for LRU eviction
   // Session-scoped set of message IDs where the user has clicked "Load images once"
   const imagesRequestedRef = useRef(new Set());
-  // Ref holding the latest pane action handlers so shortcut subscriptions ([] deps) never go stale
-  const paneActionsRef = useRef({});
+  const printActionRef = useRef(null);
   const emailScaleRef = useRef(1); // scale applied to wide emails that resist CSS reflow
 
   // Track previous blocking policy so we can detect tightening vs loosening.
@@ -807,7 +765,7 @@ export default function MessagePane() {
           el.style.transform = 'translateX(0)';
         }
       } else {
-        const { messages: msgs, searchResults: sr, searchQuery: sq, selectedMessageId: selId, setSelectedMessage: setSel, updateMessage: updMsg, decrementUnread: decUnread, incrementUnread: incUnread, adjustCategoryCount: adjCat } = useStore.getState();
+        const { messages: msgs, searchResults: sr, searchQuery: sq, selectedMessageId: selId } = useStore.getState();
         const list = sq.trim() ? sr : msgs;
         const idx = list.findIndex(m => m.id === selId);
         let target = null;
@@ -817,40 +775,7 @@ export default function MessagePane() {
           target = list[idx - 1];
         }
         if (target) {
-          window.dispatchEvent(new CustomEvent(MESSAGE_OPENING_EVENT));
-          api.getMessageBody(target.id).catch(() => {});
-          setSel(target.id);
-          clearTimeout(autoMarkReadTimerRef.current);
-          autoMarkReadTimerRef.current = null;
-          if (!target.is_read) {
-            const { markReadBehavior, markReadDelay } = useStore.getState();
-            if (markReadBehavior !== 'manual') {
-              const doMarkRead = () => {
-                updMsg(target.id, { is_read: true });
-                decUnread(target.account_id);
-                adjCat(target.category, -1);
-                setPending(target.id, target.account_id);
-                api.bulkRead([target.id], true)
-                  .then(() => {
-                    pendingMarkReadMap.delete(target.id);
-                    completedMarkReadMap.set(target.id, target.account_id);
-                    setTimeout(() => completedMarkReadMap.delete(target.id), 10000);
-                  })
-                  .catch(e => {
-                    console.error('markRead failed:', e.message);
-                    updMsg(target.id, { is_read: false });
-                    incUnread(target.account_id);
-                    adjCat(target.category, 1);
-                    pendingMarkReadMap.delete(target.id);
-                  });
-              };
-              if (markReadBehavior === 'delay') {
-                autoMarkReadTimerRef.current = setTimeout(doMarkRead, (markReadDelay || 1) * 1000);
-              } else {
-                doMarkRead();
-              }
-            }
-          }
+          selectAndMarkRead(target);
         }
       }
     };
@@ -864,124 +789,7 @@ export default function MessagePane() {
       el.removeEventListener('touchmove', onMove);
       el.removeEventListener('touchend', onEnd);
     };
-  }, [isMobile, setSelectedMessage, resetPaneSwipeStyles]);
-
-  const handleReply = (replyAll = false) => {
-    if (!message) return;
-    const date = message.date ? new Date(message.date).toLocaleString() : '';
-    const safeName = (message.from_name || '').replace(/[\r\n]+/g, ' ');
-    const fromStr = safeName
-      ? `${safeName} <${message.from_email}>`
-      : message.from_email || '';
-    const quotedText = body?.text
-      ? `\n\n---\nOn ${date}, ${fromStr} wrote:\n${body.text.split('\n').map(l => '> ' + l).join('\n')}`
-      : '';
-    const quotedBodyHtml = body?.html
-      ? `<div style="border-left:3px solid var(--border,#ccc);padding-left:12px;margin-top:12px;color:var(--text-secondary,#666)"><p style="margin:0 0 6px;font-size:12px">On ${date}, ${fromStr} wrote:</p>${body.html}</div>`
-      : null;
-
-    const replyToArr = Array.isArray(message.reply_to)
-      ? message.reply_to
-      : (() => { try { return JSON.parse(message.reply_to || '[]'); } catch { return []; } })();
-    const replyTarget = (replyToArr.length && replyToArr[0].email)
-      ? replyToArr[0]
-      : { name: message.from_name || '', email: message.from_email || '' };
-    const sender = replyTarget.email ? [replyTarget] : [];
-
-    const myAccount = accounts.find(a => a.id === message.account_id);
-    const myEmail = myAccount?.email_address || '';
-
-    const replyAliasId = pickReplyAlias({
-      aliases: myAccount?.aliases || [],
-      deliveryAddresses: message.delivery_addresses,
-      toAddresses: message.to_addresses,
-      ccAddresses: message.cc_addresses,
-      fromEmail: message.from_email,
-    });
-
-    const myAddresses = new Set([
-      myEmail.toLowerCase(),
-      ...(myAccount?.aliases || []).map(al => al.email.toLowerCase()),
-    ]);
-    const allRecipients = (() => {
-      try {
-        const toArr = Array.isArray(message.to_addresses)
-          ? message.to_addresses
-          : JSON.parse(message.to_addresses || '[]');
-        const ccArr = Array.isArray(message.cc_addresses)
-          ? message.cc_addresses
-          : JSON.parse(message.cc_addresses || '[]');
-        return [...toArr, ...ccArr].filter(
-          t => t.email && !myAddresses.has(t.email.toLowerCase()) && t.email !== replyTarget.email
-        );
-      } catch { return []; }
-    })();
-
-    const referencesChain = [message.in_reply_to, message.message_id]
-      .filter(Boolean).join(' ').trim() || null;
-
-    const rawSubject = (message.subject || '').trim();
-    const reSubject = rawSubject.startsWith('Re:') ? rawSubject : rawSubject ? `Re: ${rawSubject}` : 'Re:';
-
-    setShowReplyMenu(false);
-    openCompose({
-      to: sender,
-      cc: replyAll ? allRecipients : [],
-      subject: reSubject,
-      body: '',
-      quotedBody: quotedText,
-      quotedBodyHtml,
-      inReplyTo: message.message_id,
-      references: referencesChain,
-      accountId: message.account_id,
-      aliasId: replyAliasId,
-      isReply: true,
-      isReplyAll: replyAll,
-      originalFrom: sender,
-      allRecipients,
-      threadId: message.thread_id,
-    });
-  };
-
-  const handleForward = () => {
-    if (!message) return;
-    const date = message.date ? new Date(message.date).toLocaleString() : '';
-    const safeName = (message.from_name || '').replace(/[\r\n]+/g, ' ');
-    const fromStr = safeName
-      ? `${safeName} <${message.from_email}>`
-      : message.from_email || '';
-    const safeSubject = (message.subject || '').replace(/[\r\n]+/g, ' ');
-
-    const toStr = parseAddressField(message.to_addresses);
-    const ccStr = parseAddressField(message.cc_addresses);
-
-    const fwdText = `\n\n---------- Forwarded message ----------\nFrom: ${fromStr}\nDate: ${date}\nSubject: ${safeSubject}${toStr ? `\nTo: ${toStr}` : ''}${ccStr ? `\nCc: ${ccStr}` : ''}\n\n${body?.text || ''}`;
-    const fwdHtml = body?.html
-      ? `<div style="border-left:3px solid var(--border,#ccc);padding-left:12px;margin-top:12px;color:var(--text-secondary,#666)"><p style="margin:0 0 6px;font-size:12px">---------- Forwarded message ----------<br>From: ${fromStr}<br>Date: ${date}<br>Subject: ${safeSubject}${toStr ? `<br>To: ${toStr}` : ''}${ccStr ? `<br>Cc: ${ccStr}` : ''}</p>${body.html}</div>`
-      : null;
-    openCompose({
-      subject: message.subject?.startsWith('Fwd:') ? message.subject : `Fwd: ${message.subject}`,
-      body: '',
-      quotedBody: fwdText,
-      quotedBodyHtml: fwdHtml,
-      accountId: message.account_id,
-      isForward: true,
-      forwardedAttachments: (body?.attachments || []).map(att => ({
-        messageId: message.id,
-        part: att.part,
-        filename: att.filename || 'attachment',
-        type: att.type || 'application/octet-stream',
-        size: att.size || 0,
-      })),
-    });
-  };
-
-  const handleStarToggle = async () => {
-    if (!message) return;
-    const newVal = !message.is_starred;
-    await api.markStarred(message.id, newVal);
-    updateMessage(message.id, { is_starred: newVal });
-  };
+  }, [isMobile, resetPaneSwipeStyles, selectAndMarkRead]);
 
   const handlePrint = () => {
     if (!message) return;
@@ -1115,35 +923,14 @@ ${bodyContent}
     </div>
   );
 
-  // Keep pane action refs current every render
-  paneActionsRef.current = {
-    reply:      () => handleReply(defaultReplyAll),
-    replyAll:   () => handleReply(true),
-    forward:    handleForward,
-    toggleStar: handleStarToggle,
-    print:      handlePrint,
-  };
+  printActionRef.current = handlePrint;
 
-  // Subscribe to keyboard shortcut actions that belong to the message pane.
-  // Registered once ([] deps); live state is accessed through paneActionsRef.
+  // Print stays on the compatibility bus until shortcut parity migrates it.
   useEffect(() => {
-    const onReply        = () => paneActionsRef.current.reply();
-    const onReplyAll     = () => paneActionsRef.current.replyAll();
-    const onForward      = () => paneActionsRef.current.forward();
-    const onToggleStar   = () => paneActionsRef.current.toggleStar();
-    const onPrintMessage = () => paneActionsRef.current.print?.();
-
-    shortcutBus.on('reply',         onReply);
-    shortcutBus.on('replyAll',      onReplyAll);
-    shortcutBus.on('forward',       onForward);
-    shortcutBus.on('toggleStar',    onToggleStar);
+    const onPrintMessage = () => printActionRef.current?.();
     shortcutBus.on('printMessage',  onPrintMessage);
 
     return () => {
-      shortcutBus.off('reply',         onReply);
-      shortcutBus.off('replyAll',      onReplyAll);
-      shortcutBus.off('forward',       onForward);
-      shortcutBus.off('toggleStar',    onToggleStar);
       shortcutBus.off('printMessage',  onPrintMessage);
     };
   }, []);
@@ -1192,22 +979,6 @@ ${bodyContent}
     }
   }, [showMovePicker, message?.account_id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleMarkUnread = useCallback(() => {
-    if (!message || !message.is_read) return;
-    updateMessage(message.id, { is_read: false });
-    incrementUnread(message.account_id);
-    adjustCategoryCount(message.category, 1);
-    completedMarkReadMap.delete(message.id);
-    pendingMarkReadMap.delete(message.id);
-    api.bulkRead([message.id], false).catch(e => {
-      console.error('markUnread failed:', e.message);
-      updateMessage(message.id, { is_read: true });
-      decrementUnread(message.account_id);
-      adjustCategoryCount(message.category, -1);
-    });
-    if (isMobile) setSelectedMessage(null);
-  }, [message, updateMessage, incrementUnread, decrementUnread, adjustCategoryCount, isMobile, setSelectedMessage]);
-
   const handleEmailClick = useCallback((ev) => {
     const anchor = ev.target.closest('a[href]');
     if (!anchor) return;
@@ -1221,36 +992,10 @@ ${bodyContent}
     }
   }, []);
 
-  const handleMoveToFolder = useCallback((folder) => {
-    if (!message) return;
+  const moveToFolder = useCallback((folder) => {
     setShowMovePicker(false);
-    const moved = message;
-    removeMessage(moved.id);
-    if (!moved.is_read) decrementUnread(moved.account_id);
-    let undone = false;
-    const timer = setTimeout(async () => {
-      if (undone) return;
-      try {
-        await api.bulkMove([moved.id], folder);
-        useStore.getState().recordRecentFolder({ accountId: moved.account_id, path: folder });
-      } catch (err) {
-        console.error('Move failed:', err);
-        useStore.getState().restoreMessages([moved]);
-        if (!moved.is_read) incrementUnread(moved.account_id);
-        addNotification({ title: t('message.moved.failTitle'), body: t('message.moved.failBody') });
-      }
-    }, 4500);
-    addNotification({
-      title: t('message.moved.title'),
-      body: folder,
-      onUndo: () => {
-        undone = true;
-        clearTimeout(timer);
-        useStore.getState().restoreMessages([moved]);
-        if (!moved.is_read) incrementUnread(moved.account_id);
-      },
-    });
-  }, [message, removeMessage, decrementUnread, incrementUnread, addNotification, t]);
+    return executeForMessage('mail.move', 'pane-move-picker', { folder });
+  }, [executeForMessage]);
 
   // Close move picker when the selected message changes and handle click-outside
   useEffect(() => {
@@ -1335,67 +1080,6 @@ ${bodyContent}
     );
   }
 
-  const handleDelete = () => {
-    const deleted = message;
-    setPendingDelete(deleted.id);
-    removeMessage(deleted.id);
-    if (!deleted.is_read) decrementUnread(deleted.account_id);
-    let undone = false;
-    const timer = setTimeout(async () => {
-      if (undone) return;
-      try {
-        await api.deleteMessage(deleted.id);
-        setCompletedDelete(deleted.id);
-      } catch {
-        clearDeleteGuard(deleted.id);
-        useStore.getState().restoreMessages([deleted]);
-        if (!deleted.is_read) incrementUnread(deleted.account_id);
-        addNotification({ type: 'error', title: t('messageList.deleted.failTitle'), body: t('messageList.deleted.failBody') });
-      }
-    }, 4500);
-    addNotification({
-      title: t('messageList.deleted.title'),
-      body: t('messageList.deleted.body'),
-      onUndo: () => {
-        undone = true;
-        clearTimeout(timer);
-        clearPendingDelete(deleted.id);
-        useStore.getState().restoreMessages([deleted]);
-        if (!deleted.is_read) incrementUnread(deleted.account_id);
-      },
-    });
-  };
-
-  const handleArchive = () => {
-    const archived = message;
-    removeMessage(archived.id);
-    if (!archived.is_read) decrementUnread(archived.account_id);
-    let undone = false;
-    const timer = setTimeout(async () => {
-      if (undone) return;
-      try {
-        const result = await api.bulkArchive([archived.id]);
-        if (result.noArchiveFolder?.length) {
-          addNotification({ title: t('message.archived.noFolderTitle'), body: t('message.archived.noFolderBody') });
-        }
-      } catch (err) {
-        console.error('Archive failed:', err);
-        addNotification({ title: t('message.archived.failTitle'), body: t('message.archived.failBody') });
-      }
-    }, 4500);
-    addNotification({
-      title: t('message.archived.title'),
-      body: archived.subject || t('common.noSubject'),
-      onUndo: () => {
-        undone = true;
-        clearTimeout(timer);
-        const state = useStore.getState();
-        state.setMessages([...state.messages, archived].sort((a, b) => new Date(b.date) - new Date(a.date)));
-        if (!archived.is_read) incrementUnread(archived.account_id);
-      },
-    });
-  };
-
   const handleLoadImages = () => {
     imagesRequestedRef.current.add(selectedMessageId);
     delete bodyCache.current[selectedMessageId];
@@ -1435,15 +1119,7 @@ ${bodyContent}
       addNotification({
         title: t('message.unsubscribe.done'),
         actionLabel: t('message.unsubscribe.moveToTrash'),
-        onAction: () => {
-          const { removeMessage, decrementUnread, restoreMessages, incrementUnread } = useStore.getState();
-          removeMessage(msg.id);
-          if (!msg.is_read) decrementUnread(msg.account_id);
-          api.deleteMessage(msg.id).catch(() => {
-            restoreMessages([msg]);
-            if (!msg.is_read) incrementUnread(msg.account_id);
-          });
-        },
+        onAction: () => executeForTarget('mail.trash', 'unsubscribe-notification', msg),
       });
     } catch {
       setUnsubscribeStatus('error');
@@ -1595,7 +1271,7 @@ ${bodyContent}
       }}>
         {/* Split Reply button */}
         <div style={{ position: 'relative', display: 'flex' }}>
-          <PaneBtn onClick={() => handleReply(defaultReplyAll)} style={{ borderRadius: '6px 0 0 6px' }} title={isMobile ? (defaultReplyAll ? t('message.replyAll') : t('message.reply')) : `${defaultReplyAll ? t('message.replyAll') : t('message.reply')}${shortcutLabel(defaultReplyAll ? 'replyAll' : 'reply') ? ` (${shortcutLabel(defaultReplyAll ? 'replyAll' : 'reply')})` : ''}`}>
+          <PaneBtn onClick={() => executeForMessage(defaultReplyAll ? 'mail.replyAll' : 'mail.reply', 'pane-toolbar')} style={{ borderRadius: '6px 0 0 6px' }} title={isMobile ? (defaultReplyAll ? t('message.replyAll') : t('message.reply')) : `${defaultReplyAll ? t('message.replyAll') : t('message.reply')}${shortcutLabel(defaultReplyAll ? 'replyAll' : 'reply') ? ` (${shortcutLabel(defaultReplyAll ? 'replyAll' : 'reply')})` : ''}`}>
             {defaultReplyAll ? (
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
                 <polyline points="7 17 2 12 7 7"/><polyline points="13 17 8 12 13 7"/><path d="M20 18v-2a4 4 0 00-4-4H2"/>
@@ -1641,7 +1317,7 @@ ${bodyContent}
               ].map(opt => (
                 <div
                   key={opt.label}
-                  onClick={() => handleReply(opt.replyAll)}
+                  onClick={() => { setShowReplyMenu(false); executeForMessage(opt.replyAll ? 'mail.replyAll' : 'mail.reply', 'pane-reply-menu'); }}
                   style={{
                     padding: '9px 14px', cursor: 'pointer', fontSize: 13,
                     color: 'var(--text-primary)',
@@ -1656,13 +1332,13 @@ ${bodyContent}
           </>)}
         </div>
 
-        <PaneBtn onClick={handleForward} title={isMobile ? t('message.forward') : `${t('message.forward')}${shortcutLabel('forward') ? ` (${shortcutLabel('forward')})` : ''}`}>
+        <PaneBtn onClick={() => executeForMessage('mail.forward', 'pane-toolbar')} title={isMobile ? t('message.forward') : `${t('message.forward')}${shortcutLabel('forward') ? ` (${shortcutLabel('forward')})` : ''}`}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
             <polyline points="15 17 20 12 15 7"/><path d="M4 18v-2a4 4 0 014-4h12"/>
           </svg>
         </PaneBtn>
 
-        <PaneBtn onClick={handleArchive} title={isMobile ? t('message.archive') : `${t('message.archive')}${shortcutLabel('archive') ? ` (${shortcutLabel('archive')})` : ''}`}>
+        <PaneBtn onClick={() => executeForMessage('mail.archive', 'pane-toolbar')} title={isMobile ? t('message.archive') : `${t('message.archive')}${shortcutLabel('archive') ? ` (${shortcutLabel('archive')})` : ''}`}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
             <rect x="2" y="3" width="20" height="5" rx="1"/>
             <path d="M4 8v11a1 1 0 001 1h14a1 1 0 001-1V8"/>
@@ -1726,7 +1402,7 @@ ${bodyContent}
                       ) : filtered.map(f => (
                         <button
                           key={f.path}
-                          onClick={() => handleMoveToFolder(f.path)}
+                          onClick={() => moveToFolder(f.path)}
                           style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', background: 'none', border: 'none', color: 'var(--text-primary)', fontSize: 13, cursor: 'pointer', textAlign: 'left', transition: 'background 0.1s' }}
                           onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
                           onMouseLeave={e => e.currentTarget.style.background = 'none'}
@@ -1746,7 +1422,7 @@ ${bodyContent}
                             {recentForMove.map(f => (
                               <button
                                 key={`recent-${f.path}`}
-                                onClick={() => handleMoveToFolder(f.path)}
+                                onClick={() => moveToFolder(f.path)}
                                 style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', background: 'none', border: 'none', color: 'var(--text-primary)', fontSize: 13, cursor: 'pointer', textAlign: 'left', transition: 'background 0.1s' }}
                                 onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
                                 onMouseLeave={e => e.currentTarget.style.background = 'none'}
@@ -1766,7 +1442,7 @@ ${bodyContent}
                             {favoritesForMove.map(f => (
                               <button
                                 key={`fav-${f.path}`}
-                                onClick={() => handleMoveToFolder(f.path)}
+                                onClick={() => moveToFolder(f.path)}
                                 style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', background: 'none', border: 'none', color: 'var(--text-primary)', fontSize: 13, cursor: 'pointer', textAlign: 'left', transition: 'background 0.1s' }}
                                 onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
                                 onMouseLeave={e => e.currentTarget.style.background = 'none'}
@@ -1783,7 +1459,7 @@ ${bodyContent}
                           .map(f => (
                             <button
                               key={f.path}
-                              onClick={() => handleMoveToFolder(f.path)}
+                              onClick={() => moveToFolder(f.path)}
                               style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', background: 'none', border: 'none', color: 'var(--text-primary)', fontSize: 13, cursor: 'pointer', textAlign: 'left', transition: 'background 0.1s' }}
                               onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
                               onMouseLeave={e => e.currentTarget.style.background = 'none'}
@@ -1822,7 +1498,7 @@ ${bodyContent}
               }}>
                 {message.is_read && (
                   <div
-                    onClick={() => { setShowMoreMenu(false); handleMarkUnread(); }}
+                    onClick={() => { setShowMoreMenu(false); executeForMessage('mail.unread', 'pane-more-menu'); }}
                     style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}
                     onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
                     onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
@@ -1837,7 +1513,7 @@ ${bodyContent}
                 )}
                 {hasSpamFolder && !inSpamFolder && message && (
                   <div
-                    onClick={() => { performSingleSpamLabel('spam'); setShowMoreMenu(false); }}
+                    onClick={() => { setShowMoreMenu(false); executeForMessage('mail.spam', 'pane-more-menu'); }}
                     style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}
                     onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
                     onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
@@ -1851,7 +1527,7 @@ ${bodyContent}
                 )}
                 {inSpamFolder && message && (
                   <div
-                    onClick={() => { performSingleSpamLabel('ham'); setShowMoreMenu(false); }}
+                    onClick={() => { setShowMoreMenu(false); executeForMessage('mail.notSpam', 'pane-more-menu'); }}
                     style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}
                     onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
                     onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
@@ -1936,7 +1612,7 @@ ${bodyContent}
         ) : (
           <>
             {hasSpamFolder && !inSpamFolder && message && (
-              <PaneBtn onClick={() => performSingleSpamLabel('spam')} title={t('contextMenu.markAsSpam')}>
+              <PaneBtn onClick={() => executeForMessage('mail.spam', 'pane-toolbar')} title={t('contextMenu.markAsSpam')}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
                   <path d="M12 3L4 7v5c0 5 3.5 9.3 8 10.3C16.5 21.3 20 17 20 12V7L12 3z"/>
                   <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="16" x2="12.01" y2="16"/>
@@ -1944,7 +1620,7 @@ ${bodyContent}
               </PaneBtn>
             )}
             {inSpamFolder && message && (
-              <PaneBtn onClick={() => performSingleSpamLabel('ham')} title={t('contextMenu.markAsHam')}>
+              <PaneBtn onClick={() => executeForMessage('mail.notSpam', 'pane-toolbar')} title={t('contextMenu.markAsHam')}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
                   <path d="M12 3L4 7v5c0 5 3.5 9.3 8 10.3C16.5 21.3 20 17 20 12V7L12 3z"/>
                   <polyline points="9 12 11 14 15 10"/>
@@ -1959,7 +1635,7 @@ ${bodyContent}
               </PaneBtn>
             )}
             {message.is_read && (
-              <PaneBtn onClick={handleMarkUnread} title={t('contextMenu.markUnread')}>
+              <PaneBtn onClick={() => executeForMessage('mail.unread', 'pane-toolbar')} title={t('contextMenu.markUnread')}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round">
                   <path d="M22,9v9c0,1.1-.9,2-2,2H4c-1.1,0-2-.9-2-2V9"/>
                   <polyline points="22 9 12 16 2 9"/>
@@ -2008,7 +1684,7 @@ ${bodyContent}
           </>
         )}
 
-        <PaneBtn onClick={handleStarToggle} title={t('message.star')}>
+        <PaneBtn onClick={() => executeForMessage('mail.toggleStar', 'pane-toolbar')} title={t('message.star')}>
           <svg width="15" height="15" viewBox="0 0 24 24"
             fill={message.is_starred ? 'var(--amber)' : 'none'}
             stroke={message.is_starred ? 'var(--amber)' : 'currentColor'} strokeWidth="1.75">
@@ -2016,7 +1692,7 @@ ${bodyContent}
           </svg>
         </PaneBtn>
 
-        <PaneBtn onClick={handleDelete} title={t('message.delete')} danger>
+        <PaneBtn onClick={() => executeForMessage('mail.trash', 'pane-toolbar')} title={t('message.delete')} danger>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
             <polyline points="3 6 5 6 21 6"/>
             <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
@@ -2639,7 +2315,7 @@ ${bodyContent}
                   ) : filtered.map(f => (
                     <button
                       key={f.path}
-                      onClick={() => handleMoveToFolder(f.path)}
+                      onClick={() => moveToFolder(f.path)}
                       style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', minHeight: 48, padding: '0 20px', background: 'none', border: 'none', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: 15, cursor: 'pointer', textAlign: 'left' }}
                     >
                       <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} size={18} /></span>
@@ -2657,7 +2333,7 @@ ${bodyContent}
                         {recentForMove.map(f => (
                           <button
                             key={`recent-${f.path}`}
-                            onClick={() => handleMoveToFolder(f.path)}
+                            onClick={() => moveToFolder(f.path)}
                             style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', minHeight: 48, padding: '0 20px', background: 'none', border: 'none', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: 15, cursor: 'pointer', textAlign: 'left' }}
                           >
                             <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} size={18} /></span>
@@ -2675,7 +2351,7 @@ ${bodyContent}
                         {favoritesForMove.map(f => (
                           <button
                             key={`fav-${f.path}`}
-                            onClick={() => handleMoveToFolder(f.path)}
+                            onClick={() => moveToFolder(f.path)}
                             style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', minHeight: 48, padding: '0 20px', background: 'none', border: 'none', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: 15, cursor: 'pointer', textAlign: 'left' }}
                           >
                             <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} size={18} /></span>
@@ -2690,7 +2366,7 @@ ${bodyContent}
                       .map(f => (
                         <button
                           key={f.path}
-                          onClick={() => handleMoveToFolder(f.path)}
+                          onClick={() => moveToFolder(f.path)}
                           style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', minHeight: 48, padding: '0 20px', background: 'none', border: 'none', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: 15, cursor: 'pointer', textAlign: 'left' }}
                         >
                           <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} size={18} /></span>
