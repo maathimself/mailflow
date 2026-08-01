@@ -447,20 +447,58 @@
     }
   },
   "commandPalette": {
-    "placeholder": "搜索操作…",
-    "noResults": "未找到任何操作",
+    "title": "命令面板",
+    "placeholder": "搜索命令…",
+    "noResults": "未找到命令",
+    "matchedAlias": "匹配项：{{alias}}",
+    "announcement": "{{count}} 个命令。目标：{{target}}。",
+    "target": {
+      "application": "应用",
+      "conversation": "会话",
+      "selected": "已选择 {{count}} 个会话"
+    },
+    "outcome": {
+      "failedTitle": "命令执行失败",
+      "partialTitle": "命令部分完成",
+      "partialBody": "{{succeeded}} 个成功；{{failed}} 个失败。"
+    },
     "hint": {
       "navigate": "导航",
       "select": "选择",
       "close": "关闭"
+    }
+  },
+  "commands": {
+    "compose": { "new": { "title": "撰写", "alias": { "write": "写邮件" } } },
+    "navigation": {
+      "search": { "title": "搜索邮件" },
+      "contacts": { "title": "打开联系人" },
+      "unifiedInbox": { "title": "前往统一收件箱" },
+      "accountInbox": { "title": "{{name}} — 收件箱" },
+      "folder": { "title": "{{name}}" },
+      "gtd": {
+        "todo": { "title": "前往待办" },
+        "watch": { "title": "前往关注" },
+        "delegated": { "title": "前往已委派" },
+        "reference": { "title": "前往参考" },
+        "someday": { "title": "前往将来" }
+      }
     },
-    "actions": {
-      "compose": "撰写新邮件",
-      "inbox": "前往收件箱",
-      "settings": "打开设置",
-      "themes": "打开主题",
-      "switchTheme": "切换至「{{theme}}」主题",
-      "accountInbox": "{{name}} — 收件箱"
+    "appearance": { "theme": { "title": "切换至「{{name}}」主题" } },
+    "settings": {
+      "accounts": { "title": "打开账户设置" },
+      "notifications": { "title": "打开通知设置" },
+      "rules": { "title": "打开规则" },
+      "categories": { "title": "打开分类" },
+      "appearance": { "title": "打开外观设置" },
+      "shortcuts": { "title": "打开快捷键设置" },
+      "security": { "title": "打开安全设置" },
+      "integrations": { "title": "打开集成" },
+      "ai-actions": { "title": "打开 AI 操作" },
+      "about": { "title": "打开关于" },
+      "users": { "title": "打开用户管理" },
+      "sso": { "title": "打开单点登录设置" },
+      "ai": { "title": "打开 AI 设置" }
     }
   },
   "shortcuts": {

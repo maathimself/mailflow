@@ -447,20 +447,58 @@
     "markAsHam": "Als kein Spam markieren"
   },
   "commandPalette": {
-    "placeholder": "Aktionen suchen…",
-    "noResults": "Keine Aktionen gefunden",
+    "title": "Befehlspalette",
+    "placeholder": "Befehle durchsuchen…",
+    "noResults": "Keine Befehle gefunden",
+    "matchedAlias": "Treffer: {{alias}}",
+    "announcement": "{{count}} Befehle. Ziel: {{target}}.",
+    "target": {
+      "application": "Anwendung",
+      "conversation": "Unterhaltung",
+      "selected": "{{count}} Unterhaltungen ausgewählt"
+    },
+    "outcome": {
+      "failedTitle": "Befehl fehlgeschlagen",
+      "partialTitle": "Befehl teilweise ausgeführt",
+      "partialBody": "{{succeeded}} erfolgreich; {{failed}} fehlgeschlagen."
+    },
     "hint": {
       "navigate": "navigieren",
       "select": "auswählen",
       "close": "schließen"
+    }
+  },
+  "commands": {
+    "compose": { "new": { "title": "Verfassen", "alias": { "write": "Schreiben" } } },
+    "navigation": {
+      "search": { "title": "E-Mails durchsuchen" },
+      "contacts": { "title": "Kontakte öffnen" },
+      "unifiedInbox": { "title": "Zum vereinheitlichten Posteingang" },
+      "accountInbox": { "title": "{{name}} — Posteingang" },
+      "folder": { "title": "{{name}}" },
+      "gtd": {
+        "todo": { "title": "Zu Aufgaben" },
+        "watch": { "title": "Zu Beobachten" },
+        "delegated": { "title": "Zu Delegiert" },
+        "reference": { "title": "Zu Referenz" },
+        "someday": { "title": "Zu Irgendwann" }
+      }
     },
-    "actions": {
-      "compose": "Neue Nachricht verfassen",
-      "inbox": "Zum Posteingang",
-      "settings": "Einstellungen öffnen",
-      "themes": "Designs öffnen",
-      "switchTheme": "Zu {{theme}} wechseln",
-      "accountInbox": "{{name}} — Posteingang"
+    "appearance": { "theme": { "title": "Zum Design {{name}} wechseln" } },
+    "settings": {
+      "accounts": { "title": "Kontoeinstellungen öffnen" },
+      "notifications": { "title": "Benachrichtigungseinstellungen öffnen" },
+      "rules": { "title": "Regeln öffnen" },
+      "categories": { "title": "Kategorien öffnen" },
+      "appearance": { "title": "Darstellungseinstellungen öffnen" },
+      "shortcuts": { "title": "Tastaturkürzel-Einstellungen öffnen" },
+      "security": { "title": "Sicherheitseinstellungen öffnen" },
+      "integrations": { "title": "Integrationen öffnen" },
+      "ai-actions": { "title": "KI-Aktionen öffnen" },
+      "about": { "title": "Über öffnen" },
+      "users": { "title": "Benutzerverwaltung öffnen" },
+      "sso": { "title": "SSO-Einstellungen öffnen" },
+      "ai": { "title": "KI-Einstellungen öffnen" }
     }
   },
   "shortcuts": {

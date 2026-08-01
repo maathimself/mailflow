@@ -125,6 +125,8 @@ export default function MessageList() {
   // RFC message_id of the open message, so a row highlights when it is a different DB copy
   // of the selected message (multi-folder model) — e.g. the inbox copy of a GTD sidebar click.
   const selectedMid = useStore(selectSelectedMessageMid);
+  const selectedIds = useStore(state => state.selectedMessageIds);
+  const setSelectedIds = useStore(state => state.setSelectedMessageIds);
 
   const isMobile = useMobile();
   const isUnified = selectedAccountId === null;
@@ -188,7 +190,6 @@ export default function MessageList() {
   const deferredRefreshTimerRef = useRef(null);
 
   // Bulk selection state
-  const [selectedIds, setSelectedIds] = useState(new Set());
   const [selectionModeActive, setSelectionModeActive] = useState(false);
   const [showFolderPicker, setShowFolderPicker] = useState(false);
   const [pickerFolders, setPickerFolders] = useState([]);
@@ -204,7 +205,7 @@ export default function MessageList() {
   const layoutPickerRef = useRef(null);
 
   useEffect(() => { currentPageRef.current = currentPage; }, [currentPage]);
-  useEffect(() => { setActiveCategory('primary'); setActiveGtdTab(null); }, [selectedAccountId, selectedFolder, setActiveGtdTab]);
+  useEffect(() => { setActiveCategory('primary'); }, [selectedAccountId, selectedFolder]);
   useEffect(() => {
     const markOpening = () => {
       recentMessageOpenUntilRef.current = Date.now() + 1500;
@@ -277,7 +278,7 @@ export default function MessageList() {
     setSelectionModeActive(false);
     setShowFolderPicker(false);
     lastSelectIdxRef.current = -1;
-  }, [messagesRefreshToken]);
+  }, [messagesRefreshToken, setSelectedIds]);
 
   // Escape clears selection; click-outside closes folder picker
   useEffect(() => {
@@ -303,7 +304,7 @@ export default function MessageList() {
       document.removeEventListener('keydown', onKey);
       document.removeEventListener('pointerdown', onPointer);
     };
-  }, []);
+  }, [setSelectedIds]);
 
   useEffect(() => {
     if (!showFolderPicker) setPickerSearch('');
@@ -1311,18 +1312,18 @@ export default function MessageList() {
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
-  }, []);
+  }, [setSelectedIds]);
 
   const selectAll = useCallback((msgs) => {
     setSelectedIds(new Set(msgs.map(m => m.id)));
-  }, []);
+  }, [setSelectedIds]);
 
   const clearSelection = useCallback(() => {
     setSelectedIds(new Set());
     setSelectionModeActive(false);
     setShowFolderPicker(false);
     lastSelectIdxRef.current = -1;
-  }, []);
+  }, [setSelectedIds]);
 
   // Derived from store — must be declared before callbacks that use it in dependency arrays
   const displayMessages = searchQuery.trim() ? searchResults : messages;
@@ -1366,7 +1367,7 @@ export default function MessageList() {
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
-  }, [displayMessages]);
+  }, [displayMessages, setSelectedIds]);
 
   // Called for normal (non-shift) row checkbox toggles — tracks anchor for range select
   const handleRowToggleSelect = useCallback((id) => {
@@ -1377,7 +1378,7 @@ export default function MessageList() {
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
-  }, [displayMessages]);
+  }, [displayMessages, setSelectedIds]);
 
   // Called on shift-click: selects all rows between anchor and current index
   const handleRangeSelect = useCallback((id) => {
@@ -1393,7 +1394,7 @@ export default function MessageList() {
       return next;
     });
     lastSelectIdxRef.current = clickedIdx;
-  }, [displayMessages]);
+  }, [displayMessages, setSelectedIds]);
 
   const handleBulkDelete = useCallback(async (ids, msgs) => {
     const key = `bulk:${ids[0]}`;
@@ -1467,7 +1468,7 @@ export default function MessageList() {
         });
       },
     });
-  }, [searchHasMore, removeMessage, prefetchSearchAfterRemoval, resolveMessagesForThreadAction, decrementUnread, incrementUnread, addNotification, t]);
+  }, [searchHasMore, removeMessage, prefetchSearchAfterRemoval, resolveMessagesForThreadAction, decrementUnread, incrementUnread, addNotification, setSelectedIds, t]);
 
   const handleBulkMove = useCallback(async (ids, msgs, folder) => {
     // Selected thread rows move the whole conversation. A folder path is
@@ -1519,7 +1520,7 @@ export default function MessageList() {
         msgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
       },
     });
-  }, [removeMessage, decrementUnread, incrementUnread, resolveMessagesForThreadAction, addNotification, t]);
+  }, [removeMessage, decrementUnread, incrementUnread, resolveMessagesForThreadAction, addNotification, setSelectedIds, t]);
 
   const handleRowMove = useCallback((e, msg) => {
     e.stopPropagation();
@@ -1586,7 +1587,7 @@ export default function MessageList() {
         msgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
       },
     });
-  }, [removeMessages, decrementUnread, incrementUnread, addNotification, t]);
+  }, [removeMessages, decrementUnread, incrementUnread, addNotification, setSelectedIds, t]);
 
   const handleBulkMarkRead = useCallback(async (ids, msgs) => {
     const markAsRead = msgs.some(m => !m.is_read);
@@ -1622,7 +1623,7 @@ export default function MessageList() {
         if (delta > 0) adjustCategoryCount(cat, markAsRead ? delta : -delta);
       });
     }
-  }, [updateMessage, decrementUnread, incrementUnread, adjustCategoryCount]);
+  }, [updateMessage, decrementUnread, incrementUnread, adjustCategoryCount, setSelectedIds]);
 
   const autoMarkReadTimerRef = useRef(null);
   useEffect(() => () => clearTimeout(autoMarkReadTimerRef.current), []);

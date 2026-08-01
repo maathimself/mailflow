@@ -447,20 +447,58 @@
     }
   },
   "commandPalette": {
-    "placeholder": "Rechercher des actions…",
-    "noResults": "Aucune action trouvée",
+    "title": "Palette de commandes",
+    "placeholder": "Rechercher des commandes…",
+    "noResults": "Aucune commande trouvée",
+    "matchedAlias": "Correspondance : {{alias}}",
+    "announcement": "{{count}} commandes. Cible : {{target}}.",
+    "target": {
+      "application": "Application",
+      "conversation": "Conversation",
+      "selected": "{{count}} conversations sélectionnées"
+    },
+    "outcome": {
+      "failedTitle": "Échec de la commande",
+      "partialTitle": "Commande partiellement exécutée",
+      "partialBody": "{{succeeded}} réussies ; {{failed}} échouées."
+    },
     "hint": {
       "navigate": "naviguer",
       "select": "sélectionner",
       "close": "fermer"
+    }
+  },
+  "commands": {
+    "compose": { "new": { "title": "Composer", "alias": { "write": "Écrire" } } },
+    "navigation": {
+      "search": { "title": "Rechercher dans les e-mails" },
+      "contacts": { "title": "Ouvrir Contacts" },
+      "unifiedInbox": { "title": "Accéder à la boîte de réception unifiée" },
+      "accountInbox": { "title": "{{name}} — Boîte de réception" },
+      "folder": { "title": "{{name}}" },
+      "gtd": {
+        "todo": { "title": "Aller à À faire" },
+        "watch": { "title": "Aller à Surveiller" },
+        "delegated": { "title": "Aller à Délégué" },
+        "reference": { "title": "Aller à Référence" },
+        "someday": { "title": "Aller à Un jour" }
+      }
     },
-    "actions": {
-      "compose": "Composer un nouveau message",
-      "inbox": "Aller à la boîte de réception",
-      "settings": "Ouvrir les paramètres",
-      "themes": "Ouvrir les thèmes",
-      "switchTheme": "Passer au thème {{theme}}",
-      "accountInbox": "{{name}} — Boîte de réception"
+    "appearance": { "theme": { "title": "Passer au thème {{name}}" } },
+    "settings": {
+      "accounts": { "title": "Ouvrir les paramètres des comptes" },
+      "notifications": { "title": "Ouvrir les paramètres de notifications" },
+      "rules": { "title": "Ouvrir Règles" },
+      "categories": { "title": "Ouvrir Catégories" },
+      "appearance": { "title": "Ouvrir les paramètres d’apparence" },
+      "shortcuts": { "title": "Ouvrir les paramètres des raccourcis" },
+      "security": { "title": "Ouvrir les paramètres de sécurité" },
+      "integrations": { "title": "Ouvrir Intégrations" },
+      "ai-actions": { "title": "Ouvrir Actions IA" },
+      "about": { "title": "Ouvrir À propos" },
+      "users": { "title": "Ouvrir l’administration des utilisateurs" },
+      "sso": { "title": "Ouvrir les paramètres SSO" },
+      "ai": { "title": "Ouvrir les paramètres IA" }
     }
   },
   "shortcuts": {

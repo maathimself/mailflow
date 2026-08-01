@@ -447,20 +447,58 @@
     }
   },
   "commandPalette": {
-    "placeholder": "Поиск действий…",
-    "noResults": "Действия не найдены",
+    "title": "Палитра команд",
+    "placeholder": "Поиск команд…",
+    "noResults": "Команды не найдены",
+    "matchedAlias": "Совпадение: {{alias}}",
+    "announcement": "Команд: {{count}}. Цель: {{target}}.",
+    "target": {
+      "application": "Приложение",
+      "conversation": "Переписка",
+      "selected": "Выбрано переписок: {{count}}"
+    },
+    "outcome": {
+      "failedTitle": "Не удалось выполнить команду",
+      "partialTitle": "Команда выполнена частично",
+      "partialBody": "Успешно: {{succeeded}}; с ошибкой: {{failed}}."
+    },
     "hint": {
       "navigate": "навигация",
       "select": "выбор",
       "close": "закрыть"
+    }
+  },
+  "commands": {
+    "compose": { "new": { "title": "Написать", "alias": { "write": "Создать письмо" } } },
+    "navigation": {
+      "search": { "title": "Поиск по почте" },
+      "contacts": { "title": "Открыть Контакты" },
+      "unifiedInbox": { "title": "Перейти в объединённые входящие" },
+      "accountInbox": { "title": "{{name}} — Входящие" },
+      "folder": { "title": "{{name}}" },
+      "gtd": {
+        "todo": { "title": "Перейти в «Задачи»" },
+        "watch": { "title": "Перейти в «Наблюдение»" },
+        "delegated": { "title": "Перейти в «Делегировано»" },
+        "reference": { "title": "Перейти в «Справочные»" },
+        "someday": { "title": "Перейти в «Когда-нибудь»" }
+      }
     },
-    "actions": {
-      "compose": "Написать новое сообщение",
-      "inbox": "Перейти во входящие",
-      "settings": "Открыть настройки",
-      "themes": "Открыть темы",
-      "switchTheme": "Переключиться на тему {{theme}}",
-      "accountInbox": "{{name}} — Входящие"
+    "appearance": { "theme": { "title": "Переключиться на тему {{name}}" } },
+    "settings": {
+      "accounts": { "title": "Открыть настройки аккаунтов" },
+      "notifications": { "title": "Открыть настройки уведомлений" },
+      "rules": { "title": "Открыть Правила" },
+      "categories": { "title": "Открыть Категории" },
+      "appearance": { "title": "Открыть настройки внешнего вида" },
+      "shortcuts": { "title": "Открыть настройки горячих клавиш" },
+      "security": { "title": "Открыть настройки безопасности" },
+      "integrations": { "title": "Открыть Интеграции" },
+      "ai-actions": { "title": "Открыть ИИ-действия" },
+      "about": { "title": "Открыть О приложении" },
+      "users": { "title": "Открыть управление пользователями" },
+      "sso": { "title": "Открыть настройки SSO" },
+      "ai": { "title": "Открыть настройки ИИ" }
     }
   },
   "shortcuts": {

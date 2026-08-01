@@ -447,20 +447,58 @@
     }
   },
   "commandPalette": {
-    "placeholder": "Buscar acciones…",
-    "noResults": "No se encontraron acciones",
+    "title": "Paleta de comandos",
+    "placeholder": "Buscar comandos…",
+    "noResults": "No se encontraron comandos",
+    "matchedAlias": "Coincidencia: {{alias}}",
+    "announcement": "{{count}} comandos. Destino: {{target}}.",
+    "target": {
+      "application": "Aplicación",
+      "conversation": "Conversación",
+      "selected": "{{count}} conversaciones seleccionadas"
+    },
+    "outcome": {
+      "failedTitle": "El comando falló",
+      "partialTitle": "El comando se completó parcialmente",
+      "partialBody": "{{succeeded}} correctos; {{failed}} fallidos."
+    },
     "hint": {
       "navigate": "navegar",
       "select": "seleccionar",
       "close": "cerrar"
+    }
+  },
+  "commands": {
+    "compose": { "new": { "title": "Redactar", "alias": { "write": "Escribir" } } },
+    "navigation": {
+      "search": { "title": "Buscar correo" },
+      "contacts": { "title": "Abrir Contactos" },
+      "unifiedInbox": { "title": "Ir a la bandeja de entrada unificada" },
+      "accountInbox": { "title": "{{name}} — Bandeja de entrada" },
+      "folder": { "title": "{{name}}" },
+      "gtd": {
+        "todo": { "title": "Ir a Por hacer" },
+        "watch": { "title": "Ir a Vigilar" },
+        "delegated": { "title": "Ir a Delegado" },
+        "reference": { "title": "Ir a Referencia" },
+        "someday": { "title": "Ir a Algún día" }
+      }
     },
-    "actions": {
-      "compose": "Redactar nuevo mensaje",
-      "inbox": "Ir a la bandeja de entrada",
-      "settings": "Abrir ajustes",
-      "themes": "Abrir temas",
-      "switchTheme": "Cambiar al tema {{theme}}",
-      "accountInbox": "{{name}} — Bandeja de entrada"
+    "appearance": { "theme": { "title": "Cambiar al tema {{name}}" } },
+    "settings": {
+      "accounts": { "title": "Abrir ajustes de cuentas" },
+      "notifications": { "title": "Abrir ajustes de notificaciones" },
+      "rules": { "title": "Abrir Reglas" },
+      "categories": { "title": "Abrir Categorías" },
+      "appearance": { "title": "Abrir ajustes de apariencia" },
+      "shortcuts": { "title": "Abrir ajustes de atajos" },
+      "security": { "title": "Abrir ajustes de seguridad" },
+      "integrations": { "title": "Abrir Integraciones" },
+      "ai-actions": { "title": "Abrir Acciones de IA" },
+      "about": { "title": "Abrir Acerca de" },
+      "users": { "title": "Abrir administración de usuarios" },
+      "sso": { "title": "Abrir ajustes de SSO" },
+      "ai": { "title": "Abrir ajustes de IA" }
     }
   },
   "shortcuts": {

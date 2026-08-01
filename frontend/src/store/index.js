@@ -13,6 +13,7 @@ import {
 } from '../utils/gtd.js';
 import { applyGtdRemovalGuard } from '../utils/pendingGtdRemovals.js';
 import { clampRightSidebarWidth } from '../utils/rightSidebar.js';
+import { nextSelection } from '../commands/selection.js';
 import {
   cacheFolderOrderFromPreferences,
   mergeFolderOrder,
@@ -81,7 +82,7 @@ export const useStore = create((set, get) => ({
         isLocked: true,
         messages: [], searchResults: [], searchQuery: '',
         accounts: [], accountsReady: false,
-        folders: {}, selectedMessageId: null,
+        folders: {}, selectedMessageIds: new Set(), selectedMessageId: null,
         unreadCounts: { total: 0, byAccount: {} },
         notifications: [], threadMessages: {}, expandedThreadId: null,
         backfillProgress: {},
@@ -135,7 +136,9 @@ export const useStore = create((set, get) => ({
       return {
         selectedAccountId: accountId,
         selectedFolder: folder,
+        selectedMessageIds: new Set(),
         selectedMessageId: null,
+        activeGtdTab: null,
         messages: [],
         messagesOffset: 0,
         hasMoreMessages: true,
@@ -227,6 +230,14 @@ export const useStore = create((set, get) => ({
   setMessagesTotal: (total) => set({ messagesTotal: total }),
   hasMoreMessages: true,
   setHasMoreMessages: (v) => set({ hasMoreMessages: v }),
+
+  // Shared checkbox selection: row UUIDs for existing bulk APIs. Command context
+  // converts these to account-scoped account_id:(message_id || id) identities.
+  selectedMessageIds: new Set(),
+  setSelectedMessageIds: (nextOrUpdater) => set(state => ({
+    selectedMessageIds: nextSelection(state.selectedMessageIds, nextOrUpdater),
+  })),
+  clearSelectedMessageIds: () => set({ selectedMessageIds: new Set() }),
 
   // Selected message
   selectedMessageId: null,

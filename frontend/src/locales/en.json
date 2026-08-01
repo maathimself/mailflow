@@ -447,20 +447,58 @@
     }
   },
   "commandPalette": {
-    "placeholder": "Search actions…",
-    "noResults": "No actions found",
+    "title": "Command palette",
+    "placeholder": "Search commands…",
+    "noResults": "No commands found",
+    "matchedAlias": "Matched: {{alias}}",
+    "announcement": "{{count}} commands. Target: {{target}}.",
+    "target": {
+      "application": "Application",
+      "conversation": "Conversation",
+      "selected": "{{count}} conversations selected"
+    },
+    "outcome": {
+      "failedTitle": "Command failed",
+      "partialTitle": "Command partially completed",
+      "partialBody": "{{succeeded}} succeeded; {{failed}} failed."
+    },
     "hint": {
       "navigate": "navigate",
       "select": "select",
       "close": "close"
+    }
+  },
+  "commands": {
+    "compose": { "new": { "title": "Compose", "alias": { "write": "Write" } } },
+    "navigation": {
+      "search": { "title": "Search mail" },
+      "contacts": { "title": "Open Contacts" },
+      "unifiedInbox": { "title": "Go to Unified Inbox" },
+      "accountInbox": { "title": "{{name}} — Inbox" },
+      "folder": { "title": "{{name}}" },
+      "gtd": {
+        "todo": { "title": "Go to Todo" },
+        "watch": { "title": "Go to Watch" },
+        "delegated": { "title": "Go to Delegated" },
+        "reference": { "title": "Go to Reference" },
+        "someday": { "title": "Go to Someday" }
+      }
     },
-    "actions": {
-      "compose": "Compose new message",
-      "inbox": "Go to Inbox",
-      "settings": "Open Settings",
-      "themes": "Open Themes",
-      "switchTheme": "Switch to {{theme}} theme",
-      "accountInbox": "{{name}} — Inbox"
+    "appearance": { "theme": { "title": "Switch to {{name}} theme" } },
+    "settings": {
+      "accounts": { "title": "Open Account Settings" },
+      "notifications": { "title": "Open Notification Settings" },
+      "rules": { "title": "Open Rules" },
+      "categories": { "title": "Open Categories" },
+      "appearance": { "title": "Open Appearance Settings" },
+      "shortcuts": { "title": "Open Shortcut Settings" },
+      "security": { "title": "Open Security Settings" },
+      "integrations": { "title": "Open Integrations" },
+      "ai-actions": { "title": "Open AI Actions" },
+      "about": { "title": "Open About" },
+      "users": { "title": "Open User Administration" },
+      "sso": { "title": "Open SSO Settings" },
+      "ai": { "title": "Open AI Settings" }
     }
   },
   "shortcuts": {

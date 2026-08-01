@@ -4,6 +4,7 @@ import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { useWebSocket } from '../hooks/useWebSocket.js';
 import { useMobile } from '../hooks/useMobile.js';
+import { useCommandRuntime } from '../hooks/useCommandRuntime.js';
 import { LAYOUTS } from '../layouts.js';
 import { updateFaviconBadge } from '../themes.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
@@ -16,6 +17,8 @@ import GtdSidebarContent from './GtdSidebarContent.jsx';
 import NotificationToasts from './NotificationToasts.jsx';
 import CommandPalette from './CommandPalette.jsx';
 import { gtdActiveForContext } from '../utils/gtd.js';
+import { CommandRuntimeProvider } from '../commands/CommandRuntimeContext.jsx';
+import { commandPaletteShortcut } from '../commands/paletteShortcut.js';
 
 const ContactsPage = lazy(() => import('./ContactsPage.jsx'));
 
@@ -59,6 +62,8 @@ const lazyFallback = (
 
 export default function MailApp() {
   const { t } = useTranslation();
+  const commandRuntime = useCommandRuntime({ t });
+  const editorPalettePressRef = useRef(null);
   const {
     setAccounts, setUnreadCounts, showAdmin,
     setShowAdmin, setAdminTab, composing, sidebarCollapsed, layout,
@@ -517,6 +522,7 @@ export default function MailApp() {
       }
 
       if (paletteOpenRef.current) {
+        commandRuntime.clearContinuation();
         setPaletteOpen(false);
         return true;
       }
@@ -542,7 +548,7 @@ export default function MailApp() {
     return () => {
       if (window.__mailflowHandleAndroidBack) delete window.__mailflowHandleAndroidBack;
     };
-  }, [setMobileSidebarOpen, setSelectedMessage, setShowAdmin]);
+  }, [commandRuntime, setMobileSidebarOpen, setSelectedMessage, setShowAdmin]);
 
   useEffect(() => {
     if (isMobile) return;
@@ -659,17 +665,32 @@ export default function MailApp() {
     return () => document.removeEventListener('keydown', handler);
   }, [showShortcutHelp]);
 
-  // Cmd+K / Ctrl+K opens command palette
+  // Cmd+K / Ctrl+K toggles the command palette. In a rich-text editor, the
+  // first press remains available to the editor and a second press opens it.
   useEffect(() => {
-    const handler = (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        setPaletteOpen(v => !v);
-      }
+    if (isMobile) return undefined;
+    const handler = event => {
+      const decision = commandPaletteShortcut({
+        metaKey: event.metaKey,
+        ctrlKey: event.ctrlKey,
+        altKey: event.altKey,
+        key: event.key,
+        target: event.target,
+        isMobile,
+      }, editorPalettePressRef.current);
+      if (!decision.handled) return;
+      editorPalettePressRef.current = decision.nextEditorPress;
+      if (!decision.toggle) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setPaletteOpen(open => {
+        if (open) commandRuntime.clearContinuation();
+        return !open;
+      });
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, []);
+  }, [commandRuntime, isMobile]);
 
   // Handle same-tab OAuth callback redirects (e.g. /?oauth_success=microsoft).
   // The popup case (window.opener present) is handled earlier in App.jsx before
@@ -702,6 +723,7 @@ export default function MailApp() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
+    <CommandRuntimeProvider runtime={commandRuntime}>
     <div style={{
       width: '100vw', height: 'var(--app-height, 100svh)',
       overflow: 'hidden', background: 'var(--bg-primary)',
@@ -873,7 +895,10 @@ export default function MailApp() {
       <Suspense fallback={lazyFallback}>{showAdmin && <AdminPanel />}</Suspense>
       <Suspense fallback={null}>{hasNativeBridge && <ElectronNotificationBridge />}</Suspense>
       <NotificationToasts />
-      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+      <CommandPalette open={paletteOpen} onClose={() => {
+        commandRuntime.clearContinuation();
+        setPaletteOpen(false);
+      }} />
 
       {/* Keyboard shortcut help overlay — toggled by the '?' key */}
       {showShortcutHelp && (
@@ -884,6 +909,7 @@ export default function MailApp() {
       )}
     </div>
     </div>
+    </CommandRuntimeProvider>
   );
 }
 

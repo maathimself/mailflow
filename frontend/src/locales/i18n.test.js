@@ -302,6 +302,14 @@ const SAME_VALUE_ALLOWED = {
   // "GTD" — acronym (Getting Things Done), same in every locale
   'gtd.title': 'any',
 
+  // ── Command palette ───────────────────────────────────────────────────────
+  // These labels are spelled identically in English and French.
+  'commandPalette.target.application': [['en', 'fr']],
+  'commandPalette.target.conversation': [['en', 'fr']],
+  // Folder names come from the account, so every locale intentionally renders
+  // the same interpolation token without adding surrounding copy.
+  'commands.navigation.folder.title': 'any',
+
   // ── Keyboard shortcuts ─────────────────────────────────────────────────────
   // "GTD" — acronym group heading, same in every locale (like admin.categories.gtdReveal)
   'shortcuts.groups.gtd': 'any',
@@ -357,6 +365,26 @@ const DYNAMIC_KEYS = new Set([
   // appear as literals; the other three do via the tab pills).
   'gtd.state.watch',
   'gtd.state.delegated',
+  // Command definitions generate these keys from the fixed GTD-section and
+  // settings-tab allowlists in appCommands.js.
+  'commands.navigation.gtd.todo.title',
+  'commands.navigation.gtd.watch.title',
+  'commands.navigation.gtd.delegated.title',
+  'commands.navigation.gtd.reference.title',
+  'commands.navigation.gtd.someday.title',
+  'commands.settings.accounts.title',
+  'commands.settings.notifications.title',
+  'commands.settings.rules.title',
+  'commands.settings.categories.title',
+  'commands.settings.appearance.title',
+  'commands.settings.shortcuts.title',
+  'commands.settings.security.title',
+  'commands.settings.integrations.title',
+  'commands.settings.ai-actions.title',
+  'commands.settings.about.title',
+  'commands.settings.users.title',
+  'commands.settings.sso.title',
+  'commands.settings.ai.title',
 ]);
 
 // JSX attribute names whose values must never be plain strings — always t().

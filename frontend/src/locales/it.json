@@ -447,20 +447,58 @@
     }
   },
   "commandPalette": {
-    "placeholder": "Cerca azioni…",
-    "noResults": "Nessuna azione trovata",
+    "title": "Tavolozza dei comandi",
+    "placeholder": "Cerca comandi…",
+    "noResults": "Nessun comando trovato",
+    "matchedAlias": "Corrispondenza: {{alias}}",
+    "announcement": "{{count}} comandi. Destinazione: {{target}}.",
+    "target": {
+      "application": "Applicazione",
+      "conversation": "Conversazione",
+      "selected": "{{count}} conversazioni selezionate"
+    },
+    "outcome": {
+      "failedTitle": "Comando non riuscito",
+      "partialTitle": "Comando completato parzialmente",
+      "partialBody": "{{succeeded}} riusciti; {{failed}} non riusciti."
+    },
     "hint": {
       "navigate": "naviga",
       "select": "seleziona",
       "close": "chiudi"
+    }
+  },
+  "commands": {
+    "compose": { "new": { "title": "Scrivi", "alias": { "write": "Componi" } } },
+    "navigation": {
+      "search": { "title": "Cerca nella posta" },
+      "contacts": { "title": "Apri Contatti" },
+      "unifiedInbox": { "title": "Vai alla posta in arrivo unificata" },
+      "accountInbox": { "title": "{{name}} — Posta in arrivo" },
+      "folder": { "title": "{{name}}" },
+      "gtd": {
+        "todo": { "title": "Vai a Da fare" },
+        "watch": { "title": "Vai a Osservare" },
+        "delegated": { "title": "Vai a Delegato" },
+        "reference": { "title": "Vai a Riferimento" },
+        "someday": { "title": "Vai a Un giorno" }
+      }
     },
-    "actions": {
-      "compose": "Scrivi nuovo messaggio",
-      "inbox": "Vai alla Posta in arrivo",
-      "settings": "Apri Impostazioni",
-      "themes": "Apri Temi",
-      "switchTheme": "Passa al tema {{theme}}",
-      "accountInbox": "{{name}} — Posta in arrivo"
+    "appearance": { "theme": { "title": "Passa al tema {{name}}" } },
+    "settings": {
+      "accounts": { "title": "Apri impostazioni account" },
+      "notifications": { "title": "Apri impostazioni notifiche" },
+      "rules": { "title": "Apri Regole" },
+      "categories": { "title": "Apri Categorie" },
+      "appearance": { "title": "Apri impostazioni aspetto" },
+      "shortcuts": { "title": "Apri impostazioni scorciatoie" },
+      "security": { "title": "Apri impostazioni sicurezza" },
+      "integrations": { "title": "Apri Integrazioni" },
+      "ai-actions": { "title": "Apri Azioni IA" },
+      "about": { "title": "Apri Informazioni" },
+      "users": { "title": "Apri amministrazione utenti" },
+      "sso": { "title": "Apri impostazioni SSO" },
+      "ai": { "title": "Apri impostazioni IA" }
     }
   },
   "shortcuts": {
