@@ -17,7 +17,7 @@ const NULLABLE_TEXT_FIELDS = new Set([
 ]);
 const BOOLEAN_FIELDS = new Set(['bodyIsHtml', 'fromChanged']);
 // Opaque transport correlation only: no whitespace, domains, paths, or free-form content.
-const CLIENT_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+const CLIENT_ID_RE = /^(?:[A-Za-z0-9_-]{1,64}|mcp:[A-Za-z0-9_-]{1,60})$/;
 
 export function composeSessionError(code, message, status = 400, details = {}) {
   return Object.assign(new Error(message), { code, status, details, expose: true });

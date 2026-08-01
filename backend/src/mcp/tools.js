@@ -72,6 +72,19 @@ import {
   deleteRuleDef, handleDeleteRule,
   runRulesDef, handleRunRules,
 } from './accountTools.js';
+import {
+  listComposeSessionsDef, handleListComposeSessions,
+  getComposeSessionDef, handleGetComposeSession,
+  createComposeSessionDef, handleCreateComposeSession,
+  updateComposeSessionDef, handleUpdateComposeSession,
+  minimizeComposeSessionDef, handleMinimizeComposeSession,
+  restoreComposeSessionDef, handleRestoreComposeSession,
+  addComposeAttachmentDef, handleAddComposeAttachment,
+  removeComposeAttachmentDef, handleRemoveComposeAttachment,
+  closeComposeSessionDef, handleCloseComposeSession,
+  discardComposeSessionDef, handleDiscardComposeSession,
+  sendComposeSessionDef, handleSendComposeSession,
+} from './composeSessionTools.js';
 
 // TOOL_DEFS drives tools/list; HANDLERS drives tools/call. Slices 09 and 10
 // append to both. Keep names, descriptions, and inputSchema field names verbatim
@@ -145,6 +158,17 @@ export const TOOL_DEFS = [
   updateRuleDef,
   deleteRuleDef,
   runRulesDef,
+  listComposeSessionsDef,
+  getComposeSessionDef,
+  createComposeSessionDef,
+  updateComposeSessionDef,
+  minimizeComposeSessionDef,
+  restoreComposeSessionDef,
+  addComposeAttachmentDef,
+  removeComposeAttachmentDef,
+  closeComposeSessionDef,
+  discardComposeSessionDef,
+  sendComposeSessionDef,
 ];
 
 // Name → required scope. Keep this map separate from TOOL_DEFS because those
@@ -208,6 +232,17 @@ export const TOOL_SCOPES = {
   update_rule: 'settings',
   delete_rule: 'settings',
   run_rules: ['settings', 'write'],
+  list_compose_sessions: 'read',
+  get_compose_session: 'read',
+  create_compose_session: 'write',
+  update_compose_session: 'write',
+  minimize_compose_session: 'write',
+  restore_compose_session: 'write',
+  add_compose_attachment: 'write',
+  remove_compose_attachment: 'write',
+  close_compose_session: 'write',
+  discard_compose_session: 'write',
+  send_compose_session: 'send',
 };
 
 export const HANDLERS = {
@@ -270,4 +305,15 @@ export const HANDLERS = {
   update_rule: handleUpdateRule,
   delete_rule: handleDeleteRule,
   run_rules: handleRunRules,
+  list_compose_sessions: handleListComposeSessions,
+  get_compose_session: handleGetComposeSession,
+  create_compose_session: handleCreateComposeSession,
+  update_compose_session: handleUpdateComposeSession,
+  minimize_compose_session: handleMinimizeComposeSession,
+  restore_compose_session: handleRestoreComposeSession,
+  add_compose_attachment: handleAddComposeAttachment,
+  remove_compose_attachment: handleRemoveComposeAttachment,
+  close_compose_session: handleCloseComposeSession,
+  discard_compose_session: handleDiscardComposeSession,
+  send_compose_session: handleSendComposeSession,
 };

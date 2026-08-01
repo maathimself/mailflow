@@ -100,6 +100,29 @@ export function countToolCalls(body) {
 
 const RATE_CLASSES = ['read', 'write', 'send', 'settings'];
 
+const MCP_RUNTIME_DEPENDENCY_KEYS = [
+  'imapManager',
+  'refreshMicrosoftToken',
+  'redisClient',
+  'sendService',
+  'outboxService',
+  'draftService',
+  'composeSessionService',
+  'composeSessionLifecycle',
+  'query',
+  'withTransaction',
+  'broadcast',
+];
+
+export function createMcpRuntimeDependencies(deps = {}) {
+  const runtime = {};
+  for (const name of MCP_RUNTIME_DEPENDENCY_KEYS) {
+    if (deps[name] == null) throw new Error(`MCP runtime dependency missing: ${name}`);
+    runtime[name] = deps[name];
+  }
+  return runtime;
+}
+
 export function classifyToolCalls(body) {
   const counts = { read: 0, write: 0, send: 0, settings: 0 };
   const messages = Array.isArray(body) ? body : [body];
@@ -215,10 +238,10 @@ export function buildServer(scope, deps = {}) {
     }
     try {
       return await handler(req.params.arguments || {}, scope, deps);
-    } catch (err) {
+    } catch {
       // Tool-level failures flow as isError results, not JSON-RPC errors,
-      // so the client sees a readable message (msgvault convention).
-      return errorResult(`internal error: ${err.message}`);
+      // so clients get a stable result without private backend details.
+      return errorResult('internal error');
     }
   });
 
@@ -230,7 +253,8 @@ export function mountMcp(app, deps = {}) {
   // the adapter's scoped listRules is the natural default, overridable in tests.
   const resolvedDeps = { loadInboxRules: listRules, ...deps };
   const handle = async (req, res) => {
-    const server = buildServer(req.mcpScope, resolvedDeps);
+    const scope = { ...req.mcpScope, tokenId: req.mcpTokenId };
+    const server = buildServer(scope, resolvedDeps);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     res.on('close', () => { transport.close(); server.close(); });
     await server.connect(transport);

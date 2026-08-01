@@ -109,6 +109,8 @@ describe('composeSessionModel', () => {
   it.each([
     ['browser-a', 'browser-a'],
     ['A_1-opaque', 'A_1-opaque'],
+    ['mcp:token-1', 'mcp:token-1'],
+    [`mcp:${'u'.repeat(60)}`, `mcp:${'u'.repeat(60)}`],
     [undefined, undefined],
     [null, undefined],
     ['', undefined],
@@ -120,6 +122,11 @@ describe('composeSessionModel', () => {
     ['contains spaces'],
     ['person@example.com'],
     ['client.with.content'],
+    ['mcp:'],
+    ['mcp:user id'],
+    ['mcp:user/id'],
+    ['mcp:user\nnext'],
+    [`mcp:${'u'.repeat(61)}`],
     ['x'.repeat(65)],
     [{}],
   ])('rejects malformed or content-bearing client ids %#', (value) => {

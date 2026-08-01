@@ -14,6 +14,13 @@ export const WRITE_ERROR_CODES = [
   'no_sent_folder',
   'smtp_failed',
   'already_sent',
+  'compose_session_not_found',
+  'compose_session_limit',
+  'compose_slot_occupied',
+  'compose_draft_claimed',
+  'compose_conflict',
+  'compose_operation_in_progress',
+  'attachment_limit',
   'invalid_arguments',
   'unsupported',
 ];

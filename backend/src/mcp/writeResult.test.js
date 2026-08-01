@@ -5,6 +5,16 @@ import {
   writeError,
 } from './writeResult.js';
 
+const COMPOSE_WRITE_ERROR_CODES = [
+  'compose_session_not_found',
+  'compose_session_limit',
+  'compose_slot_occupied',
+  'compose_draft_claimed',
+  'compose_conflict',
+  'compose_operation_in_progress',
+  'attachment_limit',
+];
+
 describe('buildWriteReceipt', () => {
   it('matches the documented immediate-send receipt exactly', () => {
     expect(buildWriteReceipt({
@@ -96,6 +106,15 @@ describe('buildWriteReceipt', () => {
 });
 
 describe('writeError', () => {
+  it('registers every stable compose-session write error exactly once in order', () => {
+    const offset = WRITE_ERROR_CODES.indexOf(COMPOSE_WRITE_ERROR_CODES[0]);
+    expect(WRITE_ERROR_CODES.slice(offset, offset + COMPOSE_WRITE_ERROR_CODES.length))
+      .toEqual(COMPOSE_WRITE_ERROR_CODES);
+    for (const code of COMPOSE_WRITE_ERROR_CODES) {
+      expect(WRITE_ERROR_CODES.filter(item => item === code), code).toHaveLength(1);
+    }
+  });
+
   it.each(WRITE_ERROR_CODES)('%s is emitted as a stable isError prefix', (code) => {
     const result = writeError(code, 'detail');
     expect(result).toEqual({

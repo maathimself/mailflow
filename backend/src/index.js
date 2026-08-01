@@ -33,6 +33,7 @@ import senderFaviconsRoutes from './routes/senderFavicons.js';
 import carddavRouter from './routes/carddav.js';
 import carddavAccountRouter from './routes/carddavAccount.js';
 import {
+  createMcpRuntimeDependencies,
   entityTooLargeResponse,
   mcpBodyLimit,
   mountMcp,
@@ -55,6 +56,8 @@ import { getUpdateStatus } from './services/updateCheck.js';
 import * as sendService from './services/sendService.js';
 import * as outboxService from './services/outboxService.js';
 import * as draftService from './services/draftService.js';
+import * as composeSessionService from './services/composeSessionService.js';
+import * as composeSessionLifecycle from './services/composeSessionLifecycle.js';
 
 const packageMeta = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
 let buildMeta = {};
@@ -222,15 +225,19 @@ app.all('/.well-known/carddav', (req, res) => res.redirect(308, '/carddav/'));
 // MCP Streamable-HTTP endpoint. Bearer-authenticated (mcp/auth.js), intentionally
 // outside the /api CSRF gate and session middleware — auth is a token, not a cookie.
 mountMcp(app, {
-  imapManager,
-  refreshMicrosoftToken,
-  redisClient,
-  sendService,
-  outboxService,
-  draftService,
-  // outboxService reads the DB through its deps (query / withTransaction) rather
-  // than importing db.js, so the MCP mount must supply them like the REST routes do.
-  query,
+  ...createMcpRuntimeDependencies({
+    imapManager,
+    refreshMicrosoftToken,
+    redisClient,
+    sendService,
+    outboxService,
+    draftService,
+    composeSessionService,
+    composeSessionLifecycle,
+    query,
+    withTransaction,
+    broadcast: (event, userId) => imapManager.broadcast(event, userId),
+  }),
 });
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));

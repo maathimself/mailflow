@@ -116,6 +116,27 @@ rule actions can move, archive, or delete messages.
 | `find_similar_messages` | `read` | Find messages closest to a seed message in the vector index. |
 | `search_in_message` | `read` | Find keyword or semantic matches inside one message. |
 
+#### Compose sessions
+
+| Tool | Scope | Description |
+|---|---|---|
+| `list_compose_sessions` | `read` | List live compose sessions and available slots. |
+| `get_compose_session` | `read` | Get a complete live compose session by slot. |
+| `create_compose_session` | `write` | Create a live compose session in a requested or available slot. |
+| `update_compose_session` | `write` | Update explicitly provided fields on a live compose session. |
+| `minimize_compose_session` | `write` | Minimize a live compose session. |
+| `restore_compose_session` | `write` | Restore a minimized live compose session. |
+| `add_compose_attachment` | `write` | Add a base64-encoded attachment to a live compose session. |
+| `remove_compose_attachment` | `write` | Remove an attachment from a live compose session. |
+| `close_compose_session` | `write` | Close a compose session, saving meaningful content as an IMAP draft. |
+| `discard_compose_session` | `write` | Permanently discard a compose session and free its slot. |
+| `send_compose_session` | `send` | Send a compose session and free its slot after acceptance. |
+
+Compose-session tools control Mailflow's nine live server-owned slots. Draft
+tools control messages already stored in the account's IMAP Drafts folder.
+Closing a meaningful compose session converts it into an IMAP draft and frees
+the slot.
+
 #### Drafts
 
 | Tool | Scope | Description |

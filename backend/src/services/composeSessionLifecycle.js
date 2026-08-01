@@ -883,6 +883,7 @@ export async function closeComposeSession(input, deps) {
     slot: session.slot,
     draft: saved ? {
       accountId: saveAccount.id,
+      account: saveAccount.email_address,
       uid: saved.uid,
       folder: saved.folder,
       messageId: saved.messageId,

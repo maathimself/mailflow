@@ -916,6 +916,7 @@ describe('closeComposeSession', () => {
       slot: 3,
       draft: {
         accountId: ACCOUNT_ID,
+        account: 'sender@example.com',
         uid: 72,
         folder: '[Synthetic]/Drafts',
         messageId: '<saved-synthetic@example.com>',
