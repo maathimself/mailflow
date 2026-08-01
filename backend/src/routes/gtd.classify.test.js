@@ -22,11 +22,16 @@ vi.mock('../services/gtdConfig.js', async (importOriginal) => {
   const actual = await importOriginal();
   return { ...actual, getGtdConfig: vi.fn() };
 });
+vi.mock('../services/gtdDelegations.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return { ...actual, delegateMessages: vi.fn(), reconcileDelegatedRemovals: vi.fn() };
+});
 
 import express from 'express';
 import { query } from '../services/db.js';
 import { imapManager } from '../index.js';
 import { getGtdConfig, DEFAULT_GTD_FOLDERS } from '../services/gtdConfig.js';
+import { delegateMessages, GtdDelegationError, reconcileDelegatedRemovals } from '../services/gtdDelegations.js';
 import gtdRoutes from './gtd.js';
 
 const MSG_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
@@ -63,6 +68,9 @@ const classify = (body) => fetch(`${base}/api/gtd/classify`, {
 const unclassify = (body) => fetch(`${base}/api/gtd/classify`, {
   method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
 });
+const delegate = (body) => fetch(`${base}/api/gtd/delegations`, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+});
 
 let server;
 let base;
@@ -81,7 +89,42 @@ beforeEach(() => {
   Object.values(imapManager).forEach(fn => fn.mockReset());
   getGtdConfig.mockReset();
   getGtdConfig.mockResolvedValue({ enabled: true, folders: DEFAULT_GTD_FOLDERS });
+  reconcileDelegatedRemovals.mockReset();
+  delegateMessages.mockReset();
   stubQueries();
+});
+
+describe('POST /api/gtd/delegations', () => {
+  it('deduplicates valid IDs and returns the structured bulk result', async () => {
+    delegateMessages.mockResolvedValue({
+      status: 'success', successCount: 1, failureCount: 0,
+      results: [{ messageId: MSG_ID, ok: true }],
+    });
+    const res = await delegate({ messageIds: [MSG_ID, MSG_ID], contactId: null });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ status: 'success', successCount: 1 });
+    expect(delegateMessages).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'u1', messageIds: [MSG_ID], contactId: null, imapManager,
+    }));
+  });
+
+  it('rejects invalid shapes before calling the service', async () => {
+    for (const body of [
+      {}, { messageIds: [], contactId: null }, { messageIds: ['bad'], contactId: null },
+      { messageIds: [MSG_ID], contactId: 'bad' },
+    ]) {
+      const res = await delegate(body);
+      expect(res.status).toBe(400);
+    }
+    expect(delegateMessages).not.toHaveBeenCalled();
+  });
+
+  it('maps an unowned contact to the same 404 as an absent contact', async () => {
+    delegateMessages.mockRejectedValue(new GtdDelegationError('contact_not_found', 404));
+    const res = await delegate({ messageIds: [MSG_ID], contactId: ACCT_ID });
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: 'contact_not_found' });
+  });
 });
 
 describe('POST /api/gtd/classify — request validation', () => {
@@ -136,6 +179,17 @@ describe('POST /api/gtd/classify — apply a GTD label (COPY)', () => {
 });
 
 describe('DELETE /api/gtd/classify — remove a GTD label', () => {
+  it('clears person metadata after removing the Delegated label', async () => {
+    const delegated = { ...inboxMsg, thread_key: 'thread-a' };
+    stubQueries({ msg: delegated });
+    const res = await unclassify({ messageId: MSG_ID, state: 'delegated' });
+    expect(res.status).toBe(200);
+    expect(reconcileDelegatedRemovals).toHaveBeenCalledWith({
+      userId: 'u1', accountId: ACCT_ID,
+      delegatedFolder: 'Delegated', threadKeys: ['thread-a'],
+    });
+  });
+
   it('removes the sibling copy in the state folder and returns removed:true', async () => {
     const res = await unclassify({ messageId: MSG_ID, state: 'todo' });
     expect(res.status).toBe(200);

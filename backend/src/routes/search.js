@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { resolveAccountScope } from '../services/unifiedInbox.js';
+import { DELEGATION_SELECT_SQL, delegationJoinSql, mapDelegationRow } from '../services/gtdDelegations.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -241,9 +242,11 @@ router.get('/', searchLimiter, async (req, res) => {
       SELECT
         m.id, m.uid, m.folder, m.subject, m.from_name, m.from_email,
         m.date, m.snippet, m.is_read, m.is_starred, m.has_attachments, m.account_id,
-        a.name as account_name, a.email_address as account_email, a.color as account_color
+        a.name as account_name, a.email_address as account_email, a.color as account_color,
+        ${DELEGATION_SELECT_SQL}
       FROM messages m
       JOIN email_accounts a ON m.account_id = a.id
+      ${delegationJoinSql('m', 'a')}
       WHERE m.account_id = ANY($1)
         AND m.is_deleted = false
         AND ${conditions.join('\n        AND ')}
@@ -251,7 +254,10 @@ router.get('/', searchLimiter, async (req, res) => {
       LIMIT $${p} OFFSET $${p + 1}
     `, params);
 
-    res.json({ messages: result.rows, query: q });
+    res.json({
+      messages: result.rows.map(row => ({ ...row, delegation: mapDelegationRow(row) })),
+      query: q,
+    });
   } catch (err) {
     console.error('Search error:', err);
     res.status(500).json({ error: 'Search failed' });

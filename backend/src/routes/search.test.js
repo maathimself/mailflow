@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 
 // search.js opens a DB handle and registers auth middleware at import time;
 // neither is exercised by the pure parser under test, so stub them out.
@@ -154,4 +155,10 @@ describe('freeTextTermCondition (oversized-body crash hotfix)', () => {
     expect(cond).toContain('m.subject ILIKE $3');
     expect(cond).toContain("m.search_vector @@ plainto_tsquery('english', $4)");
   });
+});
+
+it('projects delegation metadata in message search without an N+1 lookup', () => {
+  const source = readFileSync(new URL('./search.js', import.meta.url), 'utf8');
+  expect(source).toContain("delegationJoinSql('m', 'a')");
+  expect(source).toContain('mapDelegationRow(row)');
 });

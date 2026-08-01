@@ -13,6 +13,7 @@ import { listMessages } from '../services/messageService.js';
 import { resolveAccountScope } from '../services/unifiedInbox.js';
 import { validateHost } from '../services/hostValidation.js';
 import { safeFetch } from '../services/safeFetch.js';
+import { DELEGATION_SELECT_SQL, delegationJoinSql, mapDelegationRow } from '../services/gtdDelegations.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -147,15 +148,17 @@ router.get('/messages/:id', async (req, res) => {
              m.has_attachments, m.account_id, m.category,
              m.list_unsubscribe, m.list_unsubscribe_post, m.unsubscribed_at, m.delivery_addresses,
              a.name AS account_name, a.email_address AS account_email,
-             a.color AS account_color
+             a.color AS account_color,
+             ${DELEGATION_SELECT_SQL}
       FROM messages m
       JOIN email_accounts a ON m.account_id = a.id
+      ${delegationJoinSql('m', 'a')}
       WHERE m.id = $1
         AND a.user_id = $2
         AND m.is_deleted = false
     `, [id, req.session.userId]);
     if (!result.rows.length) return res.status(404).json({ error: 'Message not found' });
-    res.json(result.rows[0]);
+    res.json({ ...result.rows[0], delegation: mapDelegationRow(result.rows[0]) });
   } catch (err) {
     console.error('GET /messages/:id error:', err.message);
     res.status(500).json({ error: 'Failed to load message' });
@@ -184,7 +187,8 @@ router.get('/resolve-message', async (req, res) => {
              m.has_attachments, m.account_id, m.category,
              m.list_unsubscribe, m.list_unsubscribe_post, m.unsubscribed_at, m.delivery_addresses,
              a.name AS account_name, a.email_address AS account_email,
-             a.color AS account_color`;
+             a.color AS account_color,
+             ${DELEGATION_SELECT_SQL}`;
   try {
     // Durable match on the stable Message-ID header. When the same email exists in more
     // than one folder (e.g. INBOX + Archive), prefer the INBOX copy, then the most recent.
@@ -192,6 +196,7 @@ router.get('/resolve-message', async (req, res) => {
       SELECT ${COLS}
       FROM messages m
       JOIN email_accounts a ON m.account_id = a.id
+      ${delegationJoinSql('m', 'a')}
       WHERE m.message_id = $1
         AND a.user_id = $2
         AND m.is_deleted = false
@@ -205,6 +210,7 @@ router.get('/resolve-message', async (req, res) => {
         SELECT ${COLS}
         FROM messages m
         JOIN email_accounts a ON m.account_id = a.id
+        ${delegationJoinSql('m', 'a')}
         WHERE m.id = $1
           AND a.user_id = $2
           AND m.is_deleted = false
@@ -212,7 +218,7 @@ router.get('/resolve-message', async (req, res) => {
       `, [ref, req.session.userId, accountId]);
     }
     if (result.rows.length === 0) return res.status(404).json({ error: 'Message not found' });
-    res.json(result.rows[0]);
+    res.json({ ...result.rows[0], delegation: mapDelegationRow(result.rows[0]) });
   } catch (err) {
     console.error('GET /resolve-message error:', err.message);
     res.status(500).json({ error: 'Failed to resolve message' });
@@ -262,9 +268,11 @@ router.get('/thread/:threadId', async (req, res) => {
                m.date, m.snippet, m.is_read, m.is_starred,
                m.has_attachments, m.account_id, m.category,
                m.list_unsubscribe, m.list_unsubscribe_post, m.unsubscribed_at, m.delivery_addresses,
-               a.name AS account_name, a.email_address AS account_email, a.color AS account_color
+               a.name AS account_name, a.email_address AS account_email, a.color AS account_color,
+               ${DELEGATION_SELECT_SQL}
         FROM messages m
         JOIN email_accounts a ON m.account_id = a.id
+        ${delegationJoinSql('m', 'a')}
         WHERE m.is_deleted = false
           AND m.account_id = ANY($1)
           AND m.thread_key = $2
@@ -275,7 +283,7 @@ router.get('/thread/:threadId', async (req, res) => {
       SELECT * FROM deduped ORDER BY date ASC
     `, [accountIds, threadId]);
 
-    res.json({ messages: result.rows });
+    res.json({ messages: result.rows.map(row => ({ ...row, delegation: mapDelegationRow(row) })) });
   } catch (err) {
     console.error('Thread fetch error:', err);
     res.status(500).json({ error: 'Failed to load thread' });

@@ -1,5 +1,6 @@
 import { query } from './db.js';
 import { resolveAccountScope } from './unifiedInbox.js';
+import { DELEGATION_SELECT_SQL, delegationJoinSql, mapDelegationRow } from './gtdDelegations.js';
 
 export async function listMessages({ userId, accountId, folder = 'INBOX', limit = 50, offset = 0, unreadOnly, threaded, category }) {
   const accountsResult = await query(
@@ -100,6 +101,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
                m.date, m.snippet, m.is_read, m.is_starred,
                m.has_attachments, m.account_id, m.category,
                m.list_unsubscribe, m.list_unsubscribe_post, m.delivery_addresses,
+               ${DELEGATION_SELECT_SQL},
                a.name  AS account_name,
                a.email_address AS account_email,
                a.color AS account_color,
@@ -109,6 +111,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
         LEFT JOIN contacts co ON co.user_id = a.user_id
                               AND co.primary_email = lower(m.from_email)
                               AND co.photo_data IS NOT NULL
+        ${delegationJoinSql('m', 'a')}
         WHERE ${where}
           AND m.thread_key IN (SELECT thread_id FROM paged_threads)
         ORDER BY m.account_id,
@@ -147,7 +150,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
              account_name, account_email, account_color,
              category, list_unsubscribe, list_unsubscribe_post, delivery_addresses,
              message_count, unread_count,
-             thread_has_contact_photo AS has_contact_photo
+             thread_has_contact_photo AS has_contact_photo, delegation
       FROM ranked
       WHERE rn = 1
       ORDER BY date DESC
@@ -160,7 +163,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
     `, filterValues);
 
     return {
-      messages: threadResult.rows,
+      messages: threadResult.rows.map(row => ({ ...row, delegation: mapDelegationRow(row) })),
       total: threadCountResult.rows[0]?.total ?? 0,
       threaded: true,
       resolvedAccountId,
@@ -178,19 +181,21 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
            m.has_attachments, m.account_id, m.category,
            m.list_unsubscribe, m.list_unsubscribe_post, m.delivery_addresses,
            a.name as account_name, a.email_address as account_email, a.color as account_color,
-           (co.id IS NOT NULL) AS has_contact_photo
+           (co.id IS NOT NULL) AS has_contact_photo,
+           ${DELEGATION_SELECT_SQL}
     FROM messages m
     JOIN email_accounts a ON m.account_id = a.id
     LEFT JOIN contacts co ON co.user_id = a.user_id
                           AND co.primary_email = lower(m.from_email)
                           AND co.photo_data IS NOT NULL
+    ${delegationJoinSql('m', 'a')}
     WHERE ${where}
     ORDER BY m.date DESC
     LIMIT $${limitParam} OFFSET $${offsetParam}
   `, values);
 
   return {
-    messages: result.rows,
+    messages: result.rows.map(row => ({ ...row, delegation: mapDelegationRow(row) })),
     total,
     resolvedAccountId,
   };
