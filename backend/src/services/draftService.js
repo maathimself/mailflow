@@ -147,6 +147,7 @@ export async function saveDraft(input, deps) {
   }
 
   // Delete the old draft only after append and local upsert have completed.
+  let sourceDraftDeleted;
   if (input.existingUid && input.existingFolder) {
     try {
       await deps.imapManager.permanentDeleteMessage(account, input.existingUid, input.existingFolder);
@@ -154,38 +155,67 @@ export async function saveDraft(input, deps) {
         'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3',
         [account.id, input.existingUid, input.existingFolder],
       );
+      sourceDraftDeleted = true;
     } catch (delErr) {
+      sourceDraftDeleted = false;
       console.error(`Draft: failed to delete old uid=${input.existingUid}: ${delErr.message}`);
     }
   }
 
-  return { uid, folder: draftsFolder, messageId: meta.messageId };
+  return {
+    uid,
+    folder: draftsFolder,
+    messageId: meta.messageId,
+    ...(input.reportSourceDraftDeletion === true && sourceDraftDeleted !== undefined
+      ? { sourceDraftDeleted }
+      : {}),
+  };
 }
 
-export async function deleteDraft({ account, uid, folder }, deps) {
+export async function deleteDraft({ account, uid, folder, reportDeletionAcceptance = false }, deps) {
   await deps.imapManager.permanentDeleteMessage(account, uid, folder);
-  await deps.query(
-    'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3',
-    [account.id, uid, folder],
-  );
+  try {
+    await deps.query(
+      'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3',
+      [account.id, uid, folder],
+    );
+  } catch (error) {
+    if (reportDeletionAcceptance) return { ok: true, localCleanupPending: true };
+    throw error;
+  }
   return { ok: true };
 }
 
-export async function listDrafts({ account, limit = 50, offset = 0 }, deps) {
+export async function listDrafts({ userId, account, limit = 50, offset = 0 }, deps) {
   const folder = await resolveDraftsFolder(account, deps);
   if (!folder) return { drafts: [], total: 0 };
   const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 500);
   const safeOffset = Math.max(parseInt(offset, 10) || 0, 0);
   const countResult = await deps.query(
-    'SELECT COUNT(*)::int AS n FROM messages WHERE account_id = $1 AND folder = $2 AND is_deleted = false',
-    [account.id, folder],
+    `SELECT COUNT(*)::int AS n FROM messages m
+     WHERE m.account_id = $1 AND m.folder = $3 AND m.is_deleted = false
+     AND NOT EXISTS (
+       SELECT 1 FROM compose_sessions cs
+       WHERE cs.user_id = $2
+         AND cs.source_draft_account_id = m.account_id
+         AND cs.source_draft_folder = m.folder
+         AND cs.source_draft_uid = m.uid
+     )`,
+    [account.id, userId, folder],
   );
   const result = await deps.query(
-    `SELECT * FROM messages
-     WHERE account_id = $1 AND folder = $2 AND is_deleted = false
-     ORDER BY date DESC
-     LIMIT $3 OFFSET $4`,
-    [account.id, folder, safeLimit, safeOffset],
+    `SELECT m.* FROM messages m
+     WHERE m.account_id = $1 AND m.folder = $3 AND m.is_deleted = false
+     AND NOT EXISTS (
+       SELECT 1 FROM compose_sessions cs
+       WHERE cs.user_id = $2
+         AND cs.source_draft_account_id = m.account_id
+         AND cs.source_draft_folder = m.folder
+         AND cs.source_draft_uid = m.uid
+     )
+     ORDER BY m.date DESC
+     LIMIT $4 OFFSET $5`,
+    [account.id, userId, folder, safeLimit, safeOffset],
   );
   return { drafts: result.rows, total: countResult.rows[0]?.n ?? 0 };
 }

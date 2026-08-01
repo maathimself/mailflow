@@ -109,6 +109,14 @@ export function normalizeComposeChanges(input = {}) {
   return output;
 }
 
+export function normalizeReplyAllRecipients(value = []) {
+  try {
+    return normalizeRecipients(value, 'replyAllRecipients');
+  } catch (error) {
+    invalidChanges(error.message);
+  }
+}
+
 export function normalizeComposeClientId(value) {
   if (value === undefined || value === null || value === '') return undefined;
   if (typeof value !== 'string' || !CLIENT_ID_RE.test(value)) {

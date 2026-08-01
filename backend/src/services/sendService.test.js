@@ -353,6 +353,15 @@ describe('sendOrEnqueue', () => {
       idempotencyKey: 'queued-1',
       priority: 'unexpected',
       auth_pass: 'must-never-be-stored',
+      deleteDraftOnSend: {
+        accountId: 'source-account-1',
+        uid: 7,
+        folder: 'Drafts',
+      },
+      composeSessionRestore: {
+        originalSessionId: '11111111-1111-4111-8111-111111111111',
+        preferredSlot: 2,
+      },
     }), deps);
 
     expect(deps.transport.sendMail).not.toHaveBeenCalled();
@@ -378,6 +387,15 @@ describe('sendOrEnqueue', () => {
       priority: 'normal',
       body: 'Body',
       messageId: '<01010101010101010101010101010101@example.com>',
+      deleteDraftOnSend: {
+        accountId: 'source-account-1',
+        uid: 7,
+        folder: 'Drafts',
+      },
+      composeSessionRestore: {
+        originalSessionId: '11111111-1111-4111-8111-111111111111',
+        preferredSlot: 2,
+      },
     });
     expect(queued.payload).not.toHaveProperty('account');
     expect(queued.payload).not.toHaveProperty('auth_pass');

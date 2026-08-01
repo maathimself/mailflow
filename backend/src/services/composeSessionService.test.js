@@ -1,10 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   addComposeAttachment,
+  claimComposeOperation,
   createComposeSession,
+  deleteClaimedComposeSession,
   getComposeSession,
   listComposeSessions,
   patchComposeSession,
+  releaseComposeOperation,
   removeComposeAttachment,
   setComposePresentation,
 } from './composeSessionService.js';
@@ -69,6 +72,7 @@ function fakeDependencies() {
         userId, slot, accountId, aliasId, mode, to, cc, bcc, subject, body,
         bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, forwardedAttachments,
         priority, inReplyTo, references, fromChanged, fieldRevisions,
+        replyAllRecipients,
       ] = params;
       const id = `00000000-0000-4000-8000-${String(nextSession++).padStart(12, '0')}`;
       const row = {
@@ -97,6 +101,7 @@ function fakeDependencies() {
         operation_token: null,
         revision: 1,
         field_revisions: parseJson(fieldRevisions),
+        reply_all_recipients: parseJson(replyAllRecipients),
         last_focused_at: CREATED_AT,
         created_at: CREATED_AT,
         updated_at: CREATED_AT,
@@ -165,6 +170,23 @@ function fakeDependencies() {
       return { rows: [{ id: deleted.id }] };
     }
 
+    if (normalized.startsWith('DELETE FROM compose_sessions')) {
+      const whereMatch = normalized.match(
+        /WHERE (id|slot)=\$(\d+) AND user_id=\$(\d+) AND operation_token=\$(\d+)/,
+      );
+      const locator = params[Number(whereMatch[2]) - 1];
+      const userId = params[Number(whereMatch[3]) - 1];
+      const token = params[Number(whereMatch[4]) - 1];
+      const row = [...sessions.values()].find(candidate => (
+        candidate.user_id === userId
+        && candidate.operation_token === token
+        && (whereMatch[1] === 'id' ? candidate.id === locator : candidate.slot === locator)
+      ));
+      if (!row) return { rows: [] };
+      sessions.delete(row.id);
+      return { rows: [{ id: row.id }] };
+    }
+
     if (normalized.startsWith('SELECT id FROM compose_session_attachments')) {
       const [attachmentId, sessionId] = params;
       const attachment = attachments.find(item => (
@@ -184,6 +206,7 @@ function fakeDependencies() {
             content_type: item.content_type,
             byte_count: item.byte_count,
             created_at: item.created_at,
+            ...(normalized.includes('content') ? { content: item.content } : {}),
           })),
       };
     }
@@ -207,6 +230,10 @@ function fakeDependencies() {
         && (whereMatch[1] === 'id' ? candidate.id === locator : candidate.slot === locator)
       ));
       if (!row) return { rows: [] };
+      const tokenMatch = normalized.match(/AND operation_token=\$(\d+)/);
+      if (tokenMatch && row.operation_token !== params[Number(tokenMatch[1]) - 1]) {
+        return { rows: [] };
+      }
 
       const setClause = normalized.match(/SET (.+) WHERE/)[1];
       for (const assignment of setClause.split(', ')) {
@@ -221,6 +248,10 @@ function fakeDependencies() {
           row.last_focused_at = new Date('2026-08-01T00:05:00.000Z');
         } else if (assignment === 'updated_at=NOW()') {
           row.updated_at = new Date('2026-08-01T00:05:00.000Z');
+        } else if (assignment === "operation_state='idle'") {
+          row.operation_state = 'idle';
+        } else if (assignment === 'operation_token=NULL') {
+          row.operation_token = null;
         }
       }
       return { rows: [{ ...row }] };
@@ -237,6 +268,7 @@ function fakeDependencies() {
     },
     deleteSession(id) { sessions.delete(id); },
     setOperationState(id, operationState) { sessions.get(id).operation_state = operationState; },
+    getSession(id) { return sessions.get(id); },
     addAttachment(id, metadata) {
       attachments.push({ session_id: id, content: Buffer.from('not returned'), ...metadata });
     },
@@ -397,6 +429,26 @@ describe('compose session persistence', () => {
     }, deps)).rejects.toMatchObject({ code: 'compose_account_not_found', status: 404 });
   });
 
+  it('round-trips non-editable reply-all source recipients across reloads', async () => {
+    const { deps } = fakeDependencies();
+    const created = await createComposeSession({
+      userId: USER_A,
+      changes: { mode: 'reply', to: ['Sender <sender@example.com>'] },
+      replyAllRecipients: ['Copied <copied@example.com>'],
+    }, deps);
+    expect(created.replyAllRecipients).toEqual(['Copied <copied@example.com>']);
+
+    const patched = await patchComposeSession({
+      userId: USER_A,
+      id: created.id,
+      expectedRevision: 1,
+      changes: { subject: 'Synthetic reply', replyAllRecipients: ['ignored@example.com'] },
+    }, deps);
+    expect(patched.replyAllRecipients).toEqual(['Copied <copied@example.com>']);
+    await expect(getComposeSession({ userId: USER_A, id: created.id }, deps))
+      .resolves.toMatchObject({ replyAllRecipients: ['Copied <copied@example.com>'] });
+  });
+
   it('rejects aliases from another account or owner', async () => {
     const { deps } = fakeDependencies();
 
@@ -553,6 +605,7 @@ describe('compose session persistence', () => {
       inReplyTo: null,
       references: [],
       fromChanged: false,
+      replyAllRecipients: [],
       sourceDraftAccountId: undefined,
       sourceDraftFolder: undefined,
       sourceDraftUid: undefined,
@@ -943,5 +996,283 @@ describe('compose session persistence', () => {
       removedAttachmentId: added.attachment.id,
     });
     expect(fake.getAttachment(added.attachment.id)).toBeDefined();
+  });
+
+  it('atomically claims an operation with final changes and complete attachment bytes', async () => {
+    const fake = fakeDependencies();
+    const created = await createComposeSession({
+      userId: USER_A,
+      changes: { accountId: ACCOUNT_A, subject: 'Initial subject' },
+    }, fake.deps);
+    const added = await addComposeAttachment({
+      userId: USER_A,
+      id: created.id,
+      expectedRevision: 1,
+      filename: 'claim.txt',
+      contentType: 'text/plain',
+      content: Buffer.from('synthetic claim bytes'),
+    }, fake.deps);
+
+    const claimed = await claimComposeOperation({
+      userId: USER_A,
+      id: created.id,
+      expectedRevision: 2,
+      operation: 'closing',
+      changes: { subject: 'Final subject' },
+    }, fake.deps);
+
+    expect(claimed).toMatchObject({
+      id: created.id,
+      slot: 1,
+      subject: 'Final subject',
+      revision: 3,
+      fieldRevisions: { accountId: 1, subject: 3, attachments: 2 },
+      operationState: 'closing',
+    });
+    expect(claimed.operationToken).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+    expect(claimed.attachments).toStrictEqual([{
+      id: added.attachment.id,
+      filename: 'claim.txt',
+      contentType: 'text/plain',
+      byteCount: 21,
+      content: Buffer.from('synthetic claim bytes'),
+      createdAt: ATTACHMENT_AT,
+    }]);
+
+    await expect(claimComposeOperation({
+      userId: USER_A,
+      slot: 1,
+      expectedRevision: 3,
+      operation: 'sending',
+    }, fake.deps)).rejects.toMatchObject({
+      code: 'compose_operation_in_progress',
+      status: 409,
+    });
+
+    await expect(patchComposeSession({
+      userId: USER_A,
+      id: created.id,
+      expectedRevision: 3,
+      changes: { body: 'blocked while claimed' },
+    }, fake.deps)).rejects.toMatchObject({
+      code: 'compose_operation_in_progress',
+      status: 409,
+    });
+  });
+
+  it('rejects a stale conflicting operation final patch without claiming the row', async () => {
+    const fake = fakeDependencies();
+    const created = await createComposeSession({
+      userId: USER_A,
+      changes: { subject: 'Base subject' },
+    }, fake.deps);
+    await patchComposeSession({
+      userId: USER_A,
+      id: created.id,
+      expectedRevision: 1,
+      changes: { subject: 'Remote subject' },
+    }, fake.deps);
+
+    await expect(claimComposeOperation({
+      userId: USER_A,
+      id: created.id,
+      expectedRevision: 1,
+      operation: 'closing',
+      changes: { subject: 'Stale final subject' },
+    }, fake.deps)).rejects.toMatchObject({
+      code: 'compose_conflict',
+      status: 409,
+      details: {
+        conflictingFields: ['subject'],
+        currentRevision: 2,
+        remoteValues: { subject: 'Remote subject' },
+      },
+    });
+    expect(fake.getSession(created.id)).toMatchObject({
+      operation_state: 'idle',
+      operation_token: null,
+      revision: 2,
+      subject: 'Remote subject',
+    });
+  });
+
+  it('rejects a stale no-change operation claim without claiming the row', async () => {
+    const fake = fakeDependencies();
+    const stale = await createComposeSession({
+      userId: USER_A,
+      requestedSlot: 1,
+      changes: { subject: 'Base subject' },
+    }, fake.deps);
+    await patchComposeSession({
+      userId: USER_A,
+      id: stale.id,
+      expectedRevision: 1,
+      changes: { subject: 'New server subject' },
+    }, fake.deps);
+
+    await expect(claimComposeOperation({
+      userId: USER_A,
+      id: stale.id,
+      expectedRevision: 1,
+      operation: 'sending',
+    }, fake.deps)).rejects.toMatchObject({
+      code: 'compose_conflict',
+      status: 409,
+      details: {
+        conflictingFields: ['revision'],
+        currentRevision: 2,
+        remoteValues: { revision: 2 },
+      },
+    });
+    expect(fake.getSession(stale.id)).toMatchObject({
+      operation_state: 'idle',
+      operation_token: null,
+      revision: 2,
+    });
+  });
+
+  it('rejects a future no-change operation claim without claiming the row', async () => {
+    const fake = fakeDependencies();
+    const future = await createComposeSession({
+      userId: USER_A,
+      changes: {},
+    }, fake.deps);
+    await expect(claimComposeOperation({
+      userId: USER_A,
+      slot: 1,
+      expectedRevision: 2,
+      operation: 'discarding',
+    }, fake.deps)).rejects.toMatchObject({
+      code: 'compose_conflict',
+      status: 409,
+      details: {
+        conflictingFields: ['revision'],
+        currentRevision: 1,
+        remoteValues: { revision: 1 },
+      },
+    });
+    expect(fake.getSession(future.id)).toMatchObject({
+      operation_state: 'idle',
+      operation_token: null,
+      revision: 1,
+    });
+  });
+
+  it('accepts a stale disjoint operation final patch and advances its field revision', async () => {
+    const fake = fakeDependencies();
+    const created = await createComposeSession({
+      userId: USER_A,
+      changes: { subject: 'Base subject' },
+    }, fake.deps);
+    await patchComposeSession({
+      userId: USER_A,
+      id: created.id,
+      expectedRevision: 1,
+      changes: { subject: 'New server subject' },
+    }, fake.deps);
+
+    const claimed = await claimComposeOperation({
+      userId: USER_A,
+      id: created.id,
+      expectedRevision: 1,
+      operation: 'closing',
+      changes: { body: 'Disjoint final body' },
+    }, fake.deps);
+    expect(claimed).toMatchObject({
+      revision: 3,
+      subject: 'New server subject',
+      body: 'Disjoint final body',
+      operationState: 'closing',
+      fieldRevisions: { subject: 2, body: 3 },
+    });
+  });
+
+  it('validates operation claims before opening a transaction', async () => {
+    const { deps } = fakeDependencies();
+
+    await expect(claimComposeOperation({
+      userId: USER_A,
+      id: '00000000-0000-4000-8000-000000000001',
+      expectedRevision: 1,
+      operation: 'idle',
+    }, deps)).rejects.toMatchObject({ code: 'invalid_compose_operation', status: 400 });
+    await expect(claimComposeOperation({
+      userId: USER_A,
+      id: '00000000-0000-4000-8000-000000000001',
+      expectedRevision: 0,
+      operation: 'closing',
+    }, deps)).rejects.toMatchObject({ code: 'invalid_compose_revision', status: 400 });
+    expect(deps.withTransaction).not.toHaveBeenCalled();
+  });
+
+  it('releases and deletes operations only for the owner locator and matching token', async () => {
+    const fake = fakeDependencies();
+    const created = await createComposeSession({ userId: USER_A, changes: {} }, fake.deps);
+    const firstClaim = await claimComposeOperation({
+      userId: USER_A,
+      id: created.id,
+      expectedRevision: 1,
+      operation: 'closing',
+    }, fake.deps);
+    const wrongToken = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+
+    await expect(releaseComposeOperation({
+      userId: USER_A,
+      id: created.id,
+      token: wrongToken,
+    }, fake.deps)).resolves.toBe(false);
+    expect(fake.getSession(created.id)).toMatchObject({
+      operation_state: 'closing',
+      operation_token: firstClaim.operationToken,
+    });
+    await expect(releaseComposeOperation({
+      userId: USER_B,
+      id: created.id,
+      token: firstClaim.operationToken,
+    }, fake.deps)).resolves.toBe(false);
+    await expect(releaseComposeOperation({
+      userId: USER_A,
+      id: created.id,
+      token: firstClaim.operationToken,
+    }, fake.deps)).resolves.toBe(true);
+    expect(fake.getSession(created.id)).toMatchObject({
+      operation_state: 'idle',
+      operation_token: null,
+    });
+
+    const secondClaim = await claimComposeOperation({
+      userId: USER_A,
+      slot: 1,
+      expectedRevision: 1,
+      operation: 'discarding',
+    }, fake.deps);
+    await expect(deleteClaimedComposeSession({
+      userId: USER_A,
+      slot: 1,
+      token: wrongToken,
+    }, fake.deps)).resolves.toBe(false);
+    expect(fake.getSession(created.id)).toBeDefined();
+    await expect(deleteClaimedComposeSession({
+      userId: USER_B,
+      slot: 1,
+      token: secondClaim.operationToken,
+    }, fake.deps)).resolves.toBe(false);
+    await expect(deleteClaimedComposeSession({
+      userId: USER_A,
+      slot: 1,
+      token: secondClaim.operationToken,
+    }, fake.deps)).resolves.toBe(true);
+    expect(fake.getSession(created.id)).toBeUndefined();
+
+    const releaseSql = fake.deps.query.mock.calls.find(([sql]) => (
+      sql.startsWith('UPDATE compose_sessions') && sql.includes("operation_state='idle'")
+    ))[0].replace(/\s+/g, ' ').trim();
+    expect(releaseSql).toContain('WHERE id=$1 AND user_id=$2 AND operation_token=$3');
+    const deleteSql = fake.deps.query.mock.calls.find(([sql]) => (
+      sql.startsWith('DELETE FROM compose_sessions')
+    ))[0].replace(/\s+/g, ' ').trim();
+    expect(deleteSql).toContain('WHERE slot=$1 AND user_id=$2 AND operation_token=$3');
   });
 });

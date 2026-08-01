@@ -15,6 +15,8 @@ import { createComposeSessionsRouter } from './composeSessions.js';
 const USER_ID = '11111111-1111-4111-8111-111111111111';
 const SESSION_ID = '22222222-2222-4222-8222-222222222222';
 const ATTACHMENT_ID = '33333333-3333-4333-8333-333333333333';
+const ACCOUNT_ID = '44444444-4444-4444-8444-444444444444';
+const APP_IMAP_MANAGER = { fetchMessageBody: vi.fn(), fetchAttachment: vi.fn() };
 
 function exposedError(code, message, status, details = {}) {
   return Object.assign(new Error(message), {
@@ -31,15 +33,25 @@ const deps = {
   broadcast: vi.fn(),
   listComposeSessions: vi.fn(),
   createComposeSession: vi.fn(),
+  claimDraftIntoComposeSession: vi.fn(),
   getComposeSession: vi.fn(),
   patchComposeSession: vi.fn(),
   setComposePresentation: vi.fn(),
   addComposeAttachment: vi.fn(),
   removeComposeAttachment: vi.fn(),
+  closeComposeSession: vi.fn(),
+  discardComposeSession: vi.fn(),
+  sendComposeSession: vi.fn(),
+  restoreQueuedComposeSession: vi.fn(),
+  redisClient: { get: vi.fn(), set: vi.fn(), del: vi.fn() },
+  refreshMicrosoftToken: vi.fn(),
+  outboxService: { enqueue: vi.fn(), normalizeUndoWindow: vi.fn() },
+  draftService: { deleteDraft: vi.fn() },
 };
 
 function buildApp({ useRawParser = true } = {}) {
   const app = express();
+  app.set('imapManager', APP_IMAP_MANAGER);
   if (useRawParser) {
     app.use(
       '/api/compose-sessions/:id/attachments',
@@ -103,6 +115,49 @@ describe('compose session routes', () => {
 
     expect(response).toEqual({ status: 401, body: { error: 'Not authenticated' } });
     expect(deps.listComposeSessions).not.toHaveBeenCalled();
+  });
+
+  it('restores a queued compose through the authenticated owner-scoped route', async () => {
+    const restored = {
+      restored: true,
+      replayed: false,
+      session: { id: SESSION_ID, slot: 2, attachments: [{ id: ATTACHMENT_ID }] },
+    };
+    deps.restoreQueuedComposeSession.mockResolvedValueOnce(restored);
+
+    const response = await request(
+      base,
+      'POST',
+      '/api/compose-sessions/outbox/55555555-5555-4555-8555-555555555555/restore',
+      { body: {} },
+    );
+
+    expect(response).toEqual({ status: 200, body: restored });
+    expect(deps.restoreQueuedComposeSession).toHaveBeenCalledWith({
+      userId: USER_ID,
+      outboxId: '55555555-5555-4555-8555-555555555555',
+    }, expect.objectContaining({ withTransaction: deps.withTransaction }));
+  });
+
+  it('maps explicit queued-restore outcomes without exposing payload bytes', async () => {
+    deps.restoreQueuedComposeSession.mockRejectedValueOnce(exposedError(
+      'compose_outbox_too_late',
+      'Queued message can no longer be restored',
+      409,
+    ));
+    const response = await request(
+      base,
+      'POST',
+      '/api/compose-sessions/outbox/55555555-5555-4555-8555-555555555555/restore',
+      { body: {} },
+    );
+    expect(response).toEqual({
+      status: 409,
+      body: {
+        error: 'Queued message can no longer be restored',
+        code: 'compose_outbox_too_late',
+      },
+    });
   });
 
   it.each([
@@ -169,6 +224,132 @@ describe('compose session routes', () => {
       changes: { subject: 'Synthetic subject' },
       clientId: 'browser-synthetic',
     }, deps);
+  });
+
+  it('accepts sanitized reply-all source recipients only at create', async () => {
+    deps.createComposeSession.mockResolvedValueOnce({ id: SESSION_ID, slot: 1 });
+    await request(base, 'POST', '/api/compose-sessions', {
+      body: {
+        changes: { mode: 'reply' },
+        replyAllRecipients: [' Synthetic Copied <copied@example.com> '],
+      },
+    });
+    expect(deps.createComposeSession).toHaveBeenCalledWith({
+      userId: USER_ID,
+      requestedSlot: undefined,
+      changes: { mode: 'reply' },
+      replyAllRecipients: ['Synthetic Copied <copied@example.com>'],
+      clientId: undefined,
+    }, deps);
+  });
+
+  it('claims an owned draft with strict transport values and production IMAP dependencies', async () => {
+    const session = {
+      id: SESSION_ID,
+      slot: 3,
+      accountId: ACCOUNT_ID,
+      sourceDraftFolder: '[Synthetic]/Drafts',
+      sourceDraftUid: 41,
+      revision: 1,
+    };
+    deps.claimDraftIntoComposeSession.mockResolvedValueOnce(session);
+
+    const response = await request(base, 'POST', '/api/compose-sessions/claim-draft', {
+      body: {
+        accountId: ACCOUNT_ID,
+        folder: '[Synthetic]/Drafts',
+        uid: 41,
+        requestedSlot: 3,
+        replyAllRecipients: [' Synthetic Copied <copied@example.com> '],
+      },
+    });
+
+    expect(response).toEqual({ status: 201, body: session });
+    expect(deps.claimDraftIntoComposeSession).toHaveBeenCalledWith({
+      userId: USER_ID,
+      accountId: ACCOUNT_ID,
+      folder: '[Synthetic]/Drafts',
+      uid: 41,
+      requestedSlot: 3,
+      replyAllRecipients: ['Synthetic Copied <copied@example.com>'],
+    }, expect.objectContaining({
+      query: deps.query,
+      withTransaction: deps.withTransaction,
+      imapManager: APP_IMAP_MANAGER,
+    }));
+  });
+
+  it.each([0, -1, 1.5, '1', '1e2', null])(
+    'rejects a non-positive or non-integer draft uid %#',
+    async (uid) => {
+      const response = await request(base, 'POST', '/api/compose-sessions/claim-draft', {
+        body: { accountId: ACCOUNT_ID, folder: '[Synthetic]/Drafts', uid },
+      });
+
+      expect(response).toEqual({
+        status: 400,
+        body: {
+          error: 'uid must be a positive integer',
+          code: 'invalid_compose_draft_uid',
+        },
+      });
+      expect(deps.claimDraftIntoComposeSession).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([0, 10, 1.5, '1'])(
+    'rejects an invalid requested claim slot %#',
+    async (requestedSlot) => {
+      const response = await request(base, 'POST', '/api/compose-sessions/claim-draft', {
+        body: {
+          accountId: ACCOUNT_ID,
+          folder: '[Synthetic]/Drafts',
+          uid: 41,
+          requestedSlot,
+        },
+      });
+
+      expect(response).toEqual({
+        status: 400,
+        body: {
+          error: 'requestedSlot must be an integer from 1 to 9',
+          code: 'invalid_compose_slot',
+        },
+      });
+      expect(deps.claimDraftIntoComposeSession).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    [{ accountId: 'not-a-uuid', folder: '[Synthetic]/Drafts', uid: 41 },
+      'invalid_compose_account_id', 'accountId must be a UUID'],
+    [{ accountId: ACCOUNT_ID, folder: '', uid: 41 },
+      'invalid_compose_draft_folder', 'folder must be a non-empty folder path'],
+  ])('rejects malformed claim locators %#', async (body, code, error) => {
+    const response = await request(base, 'POST', '/api/compose-sessions/claim-draft', { body });
+
+    expect(response).toEqual({ status: 400, body: { error, code } });
+    expect(deps.claimDraftIntoComposeSession).not.toHaveBeenCalled();
+  });
+
+  it('maps duplicate draft ownership to the stable 409 response', async () => {
+    deps.claimDraftIntoComposeSession.mockRejectedValueOnce(exposedError(
+      'compose_draft_claimed',
+      'Source draft is already open in a compose session',
+      409,
+    ));
+
+    const response = await request(base, 'POST', '/api/compose-sessions/claim-draft', {
+      body: { accountId: ACCOUNT_ID, folder: '[Synthetic]/Drafts', uid: 41 },
+    });
+
+    expect(response).toEqual({
+      status: 409,
+      body: {
+        error: 'Source draft is already open in a compose session',
+        code: 'compose_draft_claimed',
+      },
+    });
   });
 
   it.each([
@@ -256,6 +437,326 @@ describe('compose session routes', () => {
       body: {
         error: 'Compose session not found',
         code: 'compose_session_not_found',
+      },
+    });
+  });
+
+  it('closes with a strict revision and normalized atomic final changes', async () => {
+    const result = {
+      closed: true,
+      slot: 3,
+      draft: {
+        accountId: ACCOUNT_ID,
+        uid: 72,
+        folder: '[Synthetic]/Drafts',
+        messageId: '<saved-synthetic@example.com>',
+      },
+    };
+    deps.closeComposeSession.mockResolvedValueOnce(result);
+
+    const response = await request(
+      base,
+      'POST',
+      `/api/compose-sessions/${SESSION_ID}/close`,
+      { body: { expectedRevision: '7', changes: { subject: 'Final synthetic subject' } } },
+    );
+
+    expect(response).toEqual({ status: 200, body: result });
+    expect(deps.closeComposeSession).toHaveBeenCalledWith({
+      userId: USER_ID,
+      id: SESSION_ID,
+      expectedRevision: 7,
+      changes: { subject: 'Final synthetic subject' },
+    }, expect.objectContaining({
+      query: deps.query,
+      withTransaction: deps.withTransaction,
+      imapManager: APP_IMAP_MANAGER,
+    }));
+  });
+
+  it('discards with a strict revision and returns the terminal receipt', async () => {
+    const result = { discarded: true, slot: 3 };
+    deps.discardComposeSession.mockResolvedValueOnce(result);
+
+    const response = await request(
+      base,
+      'POST',
+      `/api/compose-sessions/${SESSION_ID}/discard`,
+      { body: { expectedRevision: 7 } },
+    );
+
+    expect(response).toEqual({ status: 200, body: result });
+    expect(deps.discardComposeSession).toHaveBeenCalledWith({
+      userId: USER_ID,
+      id: SESSION_ID,
+      expectedRevision: 7,
+    }, expect.objectContaining({
+      query: deps.query,
+      withTransaction: deps.withTransaction,
+      imapManager: APP_IMAP_MANAGER,
+    }));
+  });
+
+  it('sends immediately with strict inputs and preserves the complete shared receipt', async () => {
+    const result = {
+      ok: true,
+      messageId: '<sent-synthetic@example.com>',
+      sentCopySaved: false,
+      receipt: {
+        subject: 'Synthetic send subject',
+        to: [{ name: 'Recipient', email: 'recipient@example.com' }],
+      },
+    };
+    deps.sendComposeSession.mockResolvedValueOnce(result);
+
+    const response = await request(
+      base,
+      'POST',
+      `/api/compose-sessions/${SESSION_ID}/send`,
+      {
+        body: { expectedRevision: '7', undoSendSeconds: 0 },
+        headers: { 'X-Idempotency-Key': 'synthetic-send-key' },
+      },
+    );
+
+    expect(response).toEqual({ status: 200, body: result });
+    expect(deps.sendComposeSession).toHaveBeenCalledWith({
+      userId: USER_ID,
+      id: SESSION_ID,
+      expectedRevision: 7,
+      undoSendSeconds: 0,
+      idempotencyKey: 'synthetic-send-key',
+    }, expect.objectContaining({
+      query: deps.query,
+      withTransaction: deps.withTransaction,
+      imapManager: APP_IMAP_MANAGER,
+      redisClient: deps.redisClient,
+      refreshMicrosoftToken: deps.refreshMicrosoftToken,
+      outboxService: deps.outboxService,
+      draftService: deps.draftService,
+    }));
+  });
+
+  it('returns 202 with the complete durable outbox result', async () => {
+    const result = {
+      queued: true,
+      outboxId: '55555555-5555-4555-8555-555555555555',
+      sendAt: '2026-08-01T12:00:30.000Z',
+      undoSeconds: 30,
+    };
+    deps.sendComposeSession.mockResolvedValueOnce(result);
+
+    const response = await request(
+      base,
+      'POST',
+      `/api/compose-sessions/${SESSION_ID}/send`,
+      { body: { expectedRevision: 7, undoSendSeconds: 30 } },
+    );
+
+    expect(response).toEqual({ status: 202, body: result });
+    expect(deps.sendComposeSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        undoSendSeconds: 30,
+        idempotencyKey: null,
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it.each([
+    ['same-prefix-a', `${'same-prefix-'.padEnd(128, 'x')}a`],
+    ['same-prefix-b', `${'same-prefix-'.padEnd(128, 'x')}b`],
+    ['blank', ''],
+    ['whitespace', 'contains spaces'],
+    ['content-like', 'recipient@example.com'],
+    ['slash', 'key/with/content'],
+  ])('rejects unsafe idempotency header %s before lifecycle send', async (_label, key) => {
+    const response = await request(
+      base,
+      'POST',
+      `/api/compose-sessions/${SESSION_ID}/send`,
+      {
+        body: { expectedRevision: 7 },
+        headers: { 'X-Idempotency-Key': key },
+      },
+    );
+
+    expect(response).toEqual({
+      status: 400,
+      body: {
+        error: 'X-Idempotency-Key must be 1-128 safe opaque characters',
+        code: 'invalid_compose_idempotency_key',
+      },
+    });
+    expect(deps.sendComposeSession).not.toHaveBeenCalled();
+  });
+
+  it.each([-1, 121, 1.5, '30', null, true, [], {}])(
+    'rejects invalid undoSendSeconds %# before send',
+    async (undoSendSeconds) => {
+      const response = await request(
+        base,
+        'POST',
+        `/api/compose-sessions/${SESSION_ID}/send`,
+        { body: { expectedRevision: 7, undoSendSeconds } },
+      );
+
+      expect(response).toEqual({
+        status: 400,
+        body: {
+          error: 'undoSendSeconds must be an integer from 0 to 120',
+          code: 'invalid_compose_undo_seconds',
+        },
+      });
+      expect(deps.sendComposeSession).not.toHaveBeenCalled();
+    },
+  );
+
+  it('maps an exposed pre-acceptance send conflict without a success response', async () => {
+    deps.sendComposeSession.mockRejectedValueOnce(exposedError(
+      'compose_conflict',
+      'Compose session changed',
+      409,
+      { currentRevision: 8 },
+    ));
+
+    const response = await request(
+      base,
+      'POST',
+      `/api/compose-sessions/${SESSION_ID}/send`,
+      { body: { expectedRevision: 7 } },
+    );
+
+    expect(response).toEqual({
+      status: 409,
+      body: {
+        error: 'Compose session changed',
+        code: 'compose_conflict',
+        currentRevision: 8,
+      },
+    });
+  });
+
+  it.each([
+    ['close', 0],
+    ['close', '1e2'],
+    ['close', '0x10'],
+    ['close', '+1'],
+    ['close', '1.0'],
+    ['discard', null],
+    ['discard', 1.5],
+    ['send', undefined],
+  ])('rejects invalid terminal revision %# for %s', async (operation, expectedRevision) => {
+    const response = await request(
+      base,
+      'POST',
+      `/api/compose-sessions/${SESSION_ID}/${operation}`,
+      { body: { expectedRevision, changes: {} } },
+    );
+
+    expect(response).toEqual({
+      status: 400,
+      body: {
+        error: 'expectedRevision must be a positive integer',
+        code: 'invalid_compose_revision',
+      },
+    });
+    expect(deps.closeComposeSession).not.toHaveBeenCalled();
+    expect(deps.discardComposeSession).not.toHaveBeenCalled();
+    expect(deps.sendComposeSession).not.toHaveBeenCalled();
+  });
+
+  it.each(['close', 'discard', 'send'])('rejects malformed terminal UUID for %s', async (operation) => {
+    const response = await request(
+      base,
+      'POST',
+      `/api/compose-sessions/not-a-uuid/${operation}`,
+      { body: { expectedRevision: 7, changes: {} } },
+    );
+
+    expect(response).toEqual({
+      status: 400,
+      body: {
+        error: 'Compose session id must be a UUID',
+        code: 'invalid_compose_session_id',
+      },
+    });
+  });
+
+  it('maps an exposed discard failure without claiming terminal success', async () => {
+    deps.discardComposeSession.mockRejectedValueOnce(exposedError(
+      'compose_conflict',
+      'Compose session changed',
+      409,
+      { currentRevision: 8 },
+    ));
+
+    const response = await request(
+      base,
+      'POST',
+      `/api/compose-sessions/${SESSION_ID}/discard`,
+      { body: { expectedRevision: 7 } },
+    );
+
+    expect(response).toEqual({
+      status: 409,
+      body: {
+        error: 'Compose session changed',
+        code: 'compose_conflict',
+        currentRevision: 8,
+      },
+    });
+  });
+
+  it('returns a stable actionable 422 when the selected account has no Drafts folder', async () => {
+    deps.closeComposeSession.mockRejectedValueOnce(exposedError(
+      'compose_drafts_folder_not_found',
+      'No Drafts folder is available for this account',
+      422,
+    ));
+
+    const response = await request(
+      base,
+      'POST',
+      `/api/compose-sessions/${SESSION_ID}/close`,
+      { body: { expectedRevision: 7 } },
+    );
+
+    expect(response).toEqual({
+      status: 422,
+      body: {
+        error: 'No Drafts folder is available for this account',
+        code: 'compose_drafts_folder_not_found',
+      },
+    });
+  });
+
+  it.each([
+    ['close', 'compose_close_accepted_cleanup_pending', 'Draft was saved'],
+    ['discard', 'compose_discard_accepted_cleanup_pending', 'Draft was deleted'],
+  ])('returns an actionable 409 for accepted %s cleanup pending', async (
+    operation,
+    code,
+    prefix,
+  ) => {
+    deps[`${operation}ComposeSession`].mockRejectedValueOnce(exposedError(
+      code,
+      `${prefix} but compose cleanup is still pending; do not retry`,
+      409,
+    ));
+
+    const response = await request(
+      base,
+      'POST',
+      `/api/compose-sessions/${SESSION_ID}/${operation}`,
+      { body: { expectedRevision: 7, ...(operation === 'close' ? { changes: {} } : {}) } },
+    );
+
+    expect(response).toEqual({
+      status: 409,
+      body: {
+        error: `${prefix} but compose cleanup is still pending; do not retry`,
+        code,
       },
     });
   });

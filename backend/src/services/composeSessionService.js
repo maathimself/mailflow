@@ -1,10 +1,13 @@
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import {
   MAX_COMPOSE_ATTACHMENT_BYTES,
   MAX_COMPOSE_ATTACHMENTS,
+  PATCHABLE_FIELDS,
   composeSessionError,
   findComposeConflicts,
   normalizeComposeChanges,
   normalizeComposeClientId,
+  normalizeReplyAllRecipients,
 } from './composeSessionModel.js';
 import { sanitizeHeaderValue } from './mail/addresses.js';
 import { UUID_RE } from '../utils/validation.js';
@@ -83,6 +86,7 @@ function mapSessionRow(row) {
     inReplyTo: row.in_reply_to,
     references: jsonValue(row.thread_references, []),
     fromChanged: row.from_changed,
+    replyAllRecipients: jsonValue(row.reply_all_recipients, []),
     sourceDraftAccountId: row.source_draft_account_id,
     sourceDraftFolder: row.source_draft_folder,
     sourceDraftUid: row.source_draft_uid,
@@ -125,6 +129,13 @@ function mapAttachmentRow(row) {
     contentType: row.content_type,
     byteCount: Number(row.byte_count),
     createdAt: row.created_at,
+  };
+}
+
+function mapClaimedAttachmentRow(row) {
+  return {
+    ...mapAttachmentRow(row),
+    content: Buffer.from(row.content),
   };
 }
 
@@ -213,6 +224,28 @@ function requireExpectedRevision(expectedRevision) {
   return expectedRevision;
 }
 
+function requireOperation(operation) {
+  if (!['closing', 'discarding', 'sending'].includes(operation)) {
+    throw composeSessionError(
+      'invalid_compose_operation',
+      'operation must be closing, discarding, or sending',
+      400,
+    );
+  }
+  return operation;
+}
+
+function requireOperationToken(token) {
+  if (typeof token !== 'string' || !UUID_RE.test(token)) {
+    throw composeSessionError(
+      'invalid_compose_operation_token',
+      'Compose operation token must be a UUID',
+      400,
+    );
+  }
+  return token;
+}
+
 async function lockOwnedSession(client, input) {
   const locator = requireLocator(input);
   const result = await client.query(
@@ -238,14 +271,18 @@ function remoteValues(row, fields) {
   return Object.fromEntries(fields.map(field => [field, session[field]]));
 }
 
-function ensureNoConflicts(row, expectedRevision, fields) {
+function ensureNoConflicts(row, expectedRevision, fields, requireExactRevision = false) {
   const currentRevision = Number(row.revision);
   let conflictingFields = findComposeConflicts(
     jsonValue(row.field_revisions, {}),
     expectedRevision,
     fields,
   );
-  if (expectedRevision > currentRevision) conflictingFields = [...fields];
+  if (requireExactRevision && expectedRevision !== currentRevision) {
+    conflictingFields = ['revision'];
+  } else if (expectedRevision > currentRevision) {
+    conflictingFields = [...fields];
+  }
   if (!conflictingFields.length) return;
   throw composeSessionError(
     'compose_conflict',
@@ -335,6 +372,7 @@ export async function createComposeSession(input, deps) {
     input.changes === undefined ? {} : input.changes,
   );
   const clientId = normalizeComposeClientId(input.clientId);
+  const replyAllRecipients = normalizeReplyAllRecipients(input.replyAllRecipients ?? []);
   const values = { ...NEW_SESSION_DEFAULTS, ...changes };
   const result = await deps.withTransaction(async (client) => {
     await client.query(
@@ -379,13 +417,13 @@ export async function createComposeSession(input, deps) {
          to_recipients, cc_recipients, bcc_recipients, subject, body,
          body_is_html, quoted_body, quoted_body_html, edited_signature,
          forwarded_attachments, priority, in_reply_to, thread_references,
-         from_changed, field_revisions
+         from_changed, field_revisions, reply_all_recipients
        ) VALUES (
          $1, $2, $3, $4, $5,
          $6::jsonb, $7::jsonb, $8::jsonb, $9, $10,
          $11, $12, $13, $14,
          $15::jsonb, $16, $17, $18::jsonb,
-         $19, $20::jsonb
+         $19, $20::jsonb, $21::jsonb
        )
        RETURNING *`,
       [
@@ -409,6 +447,7 @@ export async function createComposeSession(input, deps) {
         JSON.stringify(values.references),
         values.fromChanged,
         JSON.stringify(fieldRevisions),
+        JSON.stringify(replyAllRecipients),
       ],
     );
     return mapSessionRow(inserted.rows[0]);
@@ -472,6 +511,101 @@ export async function patchComposeSession(input, deps) {
     broadcastInvalidation(deps, input.userId, 'updated', result.session, clientId);
   }
   return result.session;
+}
+
+export async function claimComposeOperation(input, deps) {
+  requireExpectedRevision(input.expectedRevision);
+  const operation = requireOperation(input.operation);
+  const changes = normalizeComposeChanges(
+    input.changes === undefined ? {} : input.changes,
+  );
+
+  return deps.withTransaction(async (client) => {
+    const { locator, row } = await lockOwnedSession(client, input);
+    ensureIdle(row);
+    const fields = Object.keys(changes);
+    ensureNoConflicts(row, input.expectedRevision, fields, fields.length === 0);
+
+    const accountId = Object.hasOwn(changes, 'accountId')
+      ? changes.accountId
+      : row.account_id;
+    const aliasId = Object.hasOwn(changes, 'aliasId')
+      ? changes.aliasId
+      : row.alias_id;
+    if (Object.hasOwn(changes, 'accountId') || Object.hasOwn(changes, 'aliasId')) {
+      await validateIdentity(client, input.userId, accountId, aliasId);
+    }
+
+    const params = [];
+    const assignments = fields.map((field) => {
+      const column = FIELD_COLUMNS[field];
+      const value = JSON_FIELDS.has(field) ? JSON.stringify(changes[field]) : changes[field];
+      params.push(value);
+      return `${column}=$${params.length}${JSON_FIELDS.has(field) ? '::jsonb' : ''}`;
+    });
+    if (fields.length) {
+      const revision = Number(row.revision) + 1;
+      const fieldRevisions = {
+        ...jsonValue(row.field_revisions, {}),
+        ...Object.fromEntries(fields.map(field => [field, revision])),
+      };
+      params.push(JSON.stringify(fieldRevisions));
+      assignments.push(`field_revisions=$${params.length}::jsonb`, 'revision=revision + 1');
+    }
+
+    const token = randomUUID();
+    params.push(operation, token);
+    assignments.push(
+      `operation_state=$${params.length - 1}`,
+      `operation_token=$${params.length}`,
+      'updated_at=NOW()',
+    );
+    params.push(locator.value, input.userId);
+    const updated = await client.query(
+      `UPDATE compose_sessions
+          SET ${assignments.join(', ')}
+        WHERE ${locator.column}=$${params.length - 1} AND user_id=$${params.length}
+      RETURNING *`,
+      params,
+    );
+    const session = mapSessionRow(updated.rows[0]);
+    const attachmentResult = await client.query(
+      `SELECT id, filename, content_type, byte_count, content, created_at
+         FROM compose_session_attachments
+        WHERE session_id=$1
+        ORDER BY created_at, id`,
+      [session.id],
+    );
+    return {
+      ...session,
+      attachments: attachmentResult.rows.map(mapClaimedAttachmentRow),
+    };
+  });
+}
+
+export async function releaseComposeOperation(input, deps) {
+  const locator = requireLocator(input);
+  const token = requireOperationToken(input.token);
+  const result = await deps.query(
+    `UPDATE compose_sessions
+        SET operation_state='idle', operation_token=NULL, updated_at=NOW()
+      WHERE ${locator.column}=$1 AND user_id=$2 AND operation_token=$3
+    RETURNING id`,
+    [locator.value, input.userId, token],
+  );
+  return result.rows.length > 0;
+}
+
+export async function deleteClaimedComposeSession(input, deps) {
+  const locator = requireLocator(input);
+  const token = requireOperationToken(input.token);
+  const result = await deps.query(
+    `DELETE FROM compose_sessions
+      WHERE ${locator.column}=$1 AND user_id=$2 AND operation_token=$3
+    RETURNING id`,
+    [locator.value, input.userId, token],
+  );
+  return result.rows.length > 0;
 }
 
 export async function listComposeSessions({ userId }, deps) {
@@ -651,4 +785,381 @@ export async function removeComposeAttachment(input, deps) {
     revision: result.session.revision,
     removedAttachmentId: input.attachmentId,
   };
+}
+
+function restoreOutboxError(code, message, status) {
+  return composeSessionError(code, message, status);
+}
+
+function invalidRestorePayload() {
+  return restoreOutboxError(
+    'invalid_compose_restore_payload',
+    'Queued compose restore payload is invalid',
+    409,
+  );
+}
+
+function hasExactKeys(value, keys) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const actual = Object.keys(value).sort();
+  const expected = [...keys].sort();
+  return actual.length === expected.length
+    && actual.every((key, index) => key === expected[index]);
+}
+
+function canonicalBase64Bytes(value) {
+  if (typeof value !== 'string'
+      || value.length % 4 !== 0
+      || !/^[A-Za-z0-9+/]*={0,2}$/.test(value)) {
+    throw invalidRestorePayload();
+  }
+  const content = Buffer.from(value, 'base64');
+  if (content.toString('base64') !== value) {
+    throw invalidRestorePayload();
+  }
+  return content;
+}
+
+function normalizeRestoreAttachmentFingerprints(value) {
+  if (!Array.isArray(value) || value.length > MAX_COMPOSE_ATTACHMENTS) {
+    throw invalidRestorePayload();
+  }
+  const ids = new Set();
+  let totalBytes = 0;
+  const attachments = value.map((attachment) => {
+    if (!hasExactKeys(attachment, ['id', 'filename', 'contentType', 'byteCount'])
+        || typeof attachment.id !== 'string' || !UUID_RE.test(attachment.id)
+        || ids.has(attachment.id)
+        || !Number.isSafeInteger(attachment.byteCount) || attachment.byteCount < 0) {
+      throw invalidRestorePayload();
+    }
+    ids.add(attachment.id);
+    totalBytes += attachment.byteCount;
+    let normalized;
+    try {
+      normalized = normalizeAttachmentInput({
+        filename: attachment.filename,
+        contentType: attachment.contentType,
+        content: Buffer.alloc(0),
+      });
+    } catch {
+      throw invalidRestorePayload();
+    }
+    return {
+      id: attachment.id,
+      filename: normalized.filename,
+      contentType: normalized.contentType,
+      byteCount: attachment.byteCount,
+    };
+  });
+  if (totalBytes > MAX_COMPOSE_ATTACHMENT_BYTES) throw invalidRestorePayload();
+  return attachments.sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function normalizeRestoreSource(value) {
+  if (value == null) return {
+    accountId: null, folder: null, uid: null, messageId: null, initialRevision: null,
+  };
+  if (!hasExactKeys(value, [
+    'accountId', 'folder', 'uid', 'messageId', 'initialRevision',
+  ])
+      || typeof value.accountId !== 'string' || !UUID_RE.test(value.accountId)
+      || typeof value.folder !== 'string' || !value.folder.trim()
+      || value.folder.length > 500 || /[\r\n\0]/.test(value.folder)
+      || !Number.isSafeInteger(value.uid) || value.uid < 1
+      || (value.messageId != null && typeof value.messageId !== 'string')
+      || value.initialRevision == null
+      || !hasExactKeys(value.initialRevision, [...PATCHABLE_FIELDS, 'attachments'])) {
+    throw invalidRestorePayload();
+  }
+  let initialChanges;
+  try {
+    initialChanges = normalizeComposeChanges(value.initialRevision);
+  } catch {
+    throw invalidRestorePayload();
+  }
+  if (initialChanges.accountId !== value.accountId) throw invalidRestorePayload();
+  const attachments = normalizeRestoreAttachmentFingerprints(
+    value.initialRevision.attachments,
+  );
+  return {
+    accountId: value.accountId,
+    folder: value.folder,
+    uid: value.uid,
+    messageId: value.messageId == null ? null : sanitizeHeaderValue(value.messageId),
+    initialRevision: { ...initialChanges, attachments },
+  };
+}
+
+function normalizeRestoreCapsule(value, queuedAttachments) {
+  if (!hasExactKeys(value, [
+    'version', 'originalSessionId', 'preferredSlot', 'changes',
+    'replyAllRecipients', 'sourceDraft', 'attachments',
+  ])
+      || value.version !== 1
+      || typeof value.originalSessionId !== 'string' || !UUID_RE.test(value.originalSessionId)
+      || !Number.isInteger(value.preferredSlot)
+      || value.preferredSlot < 1 || value.preferredSlot > 9
+      || !Array.isArray(value.attachments)
+      || !Array.isArray(queuedAttachments)
+      || queuedAttachments.length !== value.attachments.length) {
+    throw invalidRestorePayload();
+  }
+  if (value.attachments.length > MAX_COMPOSE_ATTACHMENTS) {
+    throw invalidRestorePayload();
+  }
+  if (!hasExactKeys(value.changes, PATCHABLE_FIELDS)
+      || typeof value.changes.accountId !== 'string'
+      || !UUID_RE.test(value.changes.accountId)) throw invalidRestorePayload();
+  let changes;
+  let replyAllRecipients;
+  try {
+    changes = normalizeComposeChanges(value.changes);
+    replyAllRecipients = normalizeReplyAllRecipients(value.replyAllRecipients);
+  } catch {
+    throw invalidRestorePayload();
+  }
+  const attachmentIds = new Set();
+  const attachments = value.attachments.map((attachment, index) => {
+    const queued = queuedAttachments[index];
+    if (!hasExactKeys(
+      attachment,
+      ['id', 'filename', 'contentType', 'byteCount', 'contentSha256'],
+    )
+        || typeof attachment.id !== 'string' || !UUID_RE.test(attachment.id)
+        || attachmentIds.has(attachment.id)
+        || !Number.isSafeInteger(attachment.byteCount) || attachment.byteCount < 0
+        || attachment.byteCount > MAX_COMPOSE_ATTACHMENT_BYTES
+        || typeof attachment.contentSha256 !== 'string'
+        || !/^[a-f0-9]{64}$/.test(attachment.contentSha256)
+        || !queued || typeof queued !== 'object' || Array.isArray(queued)
+        || queued.filename !== attachment.filename
+        || (queued.contentType ?? 'application/octet-stream')
+          !== (attachment.contentType ?? 'application/octet-stream')) {
+      throw invalidRestorePayload();
+    }
+    attachmentIds.add(attachment.id);
+    try {
+      const content = canonicalBase64Bytes(queued.content);
+      if (content.length !== attachment.byteCount) throw invalidRestorePayload();
+      const expectedDigest = Buffer.from(attachment.contentSha256, 'hex');
+      const actualDigest = createHash('sha256').update(content).digest();
+      if (!timingSafeEqual(actualDigest, expectedDigest)) throw invalidRestorePayload();
+      return {
+        id: attachment.id,
+        ...normalizeAttachmentInput({
+          filename: attachment.filename,
+          contentType: attachment.contentType,
+          content,
+        }),
+      };
+    } catch {
+      throw invalidRestorePayload();
+    }
+  });
+  const totalBytes = attachments.reduce((total, attachment) => total + attachment.content.length, 0);
+  if (totalBytes > MAX_COMPOSE_ATTACHMENT_BYTES) {
+    throw invalidRestorePayload();
+  }
+  return {
+    originalSessionId: value.originalSessionId,
+    preferredSlot: value.preferredSlot,
+    changes,
+    replyAllRecipients,
+    sourceDraft: normalizeRestoreSource(value.sourceDraft),
+    attachments,
+  };
+}
+
+async function restoredSessionSnapshot(client, id, userId) {
+  const result = await client.query(
+    'SELECT * FROM compose_sessions WHERE id=$1 AND user_id=$2',
+    [id, userId],
+  );
+  if (!result.rows.length) return null;
+  const session = mapSessionRow(result.rows[0]);
+  const attachmentResult = await client.query(
+    `SELECT id, filename, content_type, byte_count, created_at
+       FROM compose_session_attachments
+      WHERE session_id=$1
+      ORDER BY created_at, id`,
+    [id],
+  );
+  return { ...session, attachments: attachmentResult.rows.map(mapAttachmentRow) };
+}
+
+export async function restoreQueuedComposeSession(input, deps) {
+  if (typeof input.outboxId !== 'string' || !UUID_RE.test(input.outboxId)) {
+    throw composeSessionError(
+      'invalid_compose_outbox_id',
+      'Outbox id must be a UUID',
+      400,
+    );
+  }
+
+  const outcome = await deps.withTransaction(async (client) => {
+    const selected = await client.query(
+      `SELECT id, status, payload, restored_compose_session_id
+         FROM outbox_messages
+        WHERE id=$1 AND user_id=$2
+        FOR UPDATE`,
+      [input.outboxId, input.userId],
+    );
+    if (!selected.rows.length) {
+      throw restoreOutboxError(
+        'compose_outbox_not_found',
+        'Queued compose message not found',
+        404,
+      );
+    }
+    const row = selected.rows[0];
+    if (row.status === 'cancelled') {
+      if (row.restored_compose_session_id) {
+        const session = await restoredSessionSnapshot(
+          client,
+          row.restored_compose_session_id,
+          input.userId,
+        );
+        if (session) return { restored: true, replayed: true, session };
+      }
+      throw restoreOutboxError(
+        'compose_outbox_cancelled',
+        'Queued message was already cancelled',
+        409,
+      );
+    }
+    if (row.status !== 'pending') {
+      throw restoreOutboxError(
+        'compose_outbox_too_late',
+        'Queued message can no longer be restored',
+        409,
+      );
+    }
+
+    const payload = jsonValue(row.payload, {});
+    const capsule = normalizeRestoreCapsule(
+      payload?.composeSessionRestore,
+      payload?.attachments,
+    );
+    const values = { ...NEW_SESSION_DEFAULTS, ...capsule.changes };
+    await client.query(
+      'SELECT pg_advisory_xact_lock(hashtext($1))',
+      [`compose-slots:${input.userId}`],
+    );
+    try {
+      await validateIdentity(client, input.userId, values.accountId, values.aliasId);
+      if (capsule.sourceDraft.accountId
+          && capsule.sourceDraft.accountId !== values.accountId) {
+        await validateIdentity(client, input.userId, capsule.sourceDraft.accountId, null);
+      }
+    } catch {
+      throw invalidRestorePayload();
+    }
+
+    const allocated = await client.query(
+      `SELECT candidate.slot
+         FROM generate_series(1, 9) AS candidate(slot)
+        WHERE NOT EXISTS (
+          SELECT 1 FROM compose_sessions existing
+           WHERE existing.user_id=$1 AND existing.slot=candidate.slot
+        )
+        ORDER BY CASE WHEN candidate.slot=$2 THEN 0 ELSE 1 END, candidate.slot
+        LIMIT 1`,
+      [input.userId, capsule.preferredSlot],
+    );
+    const slot = allocated.rows[0]?.slot;
+    if (!slot) {
+      throw composeSessionError(
+        'compose_session_limit',
+        'Nine compose sessions are already open',
+        409,
+      );
+    }
+
+    const inserted = await client.query(
+      `INSERT INTO compose_sessions (
+         id, user_id, slot, account_id, alias_id, mode,
+         to_recipients, cc_recipients, bcc_recipients, subject, body,
+         body_is_html, quoted_body, quoted_body_html, edited_signature,
+         forwarded_attachments, priority, in_reply_to, thread_references,
+         from_changed, reply_all_recipients,
+         source_draft_account_id, source_draft_folder, source_draft_uid,
+         source_draft_message_id, source_initial_revision
+       ) VALUES (
+         $1, $2, $3, $4, $5, $6,
+         $7::jsonb, $8::jsonb, $9::jsonb, $10, $11,
+         $12, $13, $14, $15,
+         $16::jsonb, $17, $18, $19::jsonb,
+         $20, $21::jsonb,
+         $22, $23, $24, $25, $26::jsonb
+       ) RETURNING *`,
+      [
+        capsule.originalSessionId,
+        input.userId,
+        Number(slot),
+        values.accountId,
+        values.aliasId,
+        values.mode,
+        JSON.stringify(values.to),
+        JSON.stringify(values.cc),
+        JSON.stringify(values.bcc),
+        values.subject,
+        values.body,
+        values.bodyIsHtml,
+        values.quotedBody,
+        values.quotedBodyHtml,
+        values.editedSignature,
+        JSON.stringify(values.forwardedAttachments),
+        values.priority,
+        values.inReplyTo,
+        JSON.stringify(values.references),
+        values.fromChanged,
+        JSON.stringify(capsule.replyAllRecipients),
+        capsule.sourceDraft.accountId,
+        capsule.sourceDraft.folder,
+        capsule.sourceDraft.uid,
+        capsule.sourceDraft.messageId,
+        JSON.stringify(capsule.sourceDraft.initialRevision),
+      ],
+    );
+    const attachmentRows = [];
+    for (const attachment of capsule.attachments) {
+      const stored = await client.query(
+        `INSERT INTO compose_session_attachments (
+           id, session_id, filename, content_type, byte_count, content
+         ) VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING id, filename, content_type, byte_count, created_at`,
+        [
+          attachment.id,
+          inserted.rows[0].id,
+          attachment.filename,
+          attachment.contentType,
+          attachment.content.length,
+          attachment.content,
+        ],
+      );
+      attachmentRows.push(stored.rows[0]);
+    }
+    await client.query(
+      `UPDATE outbox_messages
+          SET status='cancelled', payload='{}'::jsonb, idempotency_key=NULL,
+              restored_compose_session_id=$3, updated_at=NOW()
+        WHERE id=$1 AND user_id=$2 AND status='pending'
+      RETURNING id`,
+      [input.outboxId, input.userId, inserted.rows[0].id],
+    );
+    return {
+      restored: true,
+      replayed: false,
+      session: {
+        ...mapSessionRow(inserted.rows[0]),
+        attachments: attachmentRows.map(mapAttachmentRow),
+      },
+    };
+  });
+
+  if (!outcome.replayed) {
+    broadcastInvalidation(deps, input.userId, 'restored', outcome.session);
+  }
+  return outcome;
 }

@@ -6,6 +6,7 @@ import {
   meaningfulComposeSession,
   normalizeComposeChanges,
   normalizeComposeClientId,
+  normalizeReplyAllRecipients,
 } from './composeSessionModel.js';
 
 describe('composeSessionModel', () => {
@@ -16,6 +17,16 @@ describe('composeSessionModel', () => {
     );
     expect(migration).toContain('UNIQUE (user_id, slot)');
     expect(migration).not.toContain('idx_compose_sessions_user');
+  });
+
+  it('adds durable reply-all metadata and idempotent outbox restore linkage in 0054', () => {
+    const migration = readFileSync(
+      new URL('../../migrations/0054_compose_restore_reply_all.sql', import.meta.url),
+      'utf8',
+    );
+    expect(migration).toContain('reply_all_recipients JSONB');
+    expect(migration).toContain('restored_compose_session_id UUID');
+    expect(migration).toContain('ON DELETE SET NULL');
   });
 
   it('pins the workspace to nine slots', () => {
@@ -132,5 +143,15 @@ describe('composeSessionModel', () => {
   it('reports only fields changed after the caller revision', () => {
     expect(findComposeConflicts({ subject: 4, to: 2, body: 7 }, 3, ['subject', 'to']))
       .toEqual(['subject']);
+  });
+
+  it('sanitizes durable reply-all source recipients outside editable changes', () => {
+    expect(normalizeReplyAllRecipients([
+      ' Synthetic Person <person@example.com> ',
+    ])).toEqual(['Synthetic Person <person@example.com>']);
+    expect(normalizeComposeChanges({
+      subject: 'Synthetic',
+      replyAllRecipients: ['ignored@example.com'],
+    })).toEqual({ subject: 'Synthetic' });
   });
 });

@@ -2,9 +2,20 @@ import { query } from './db.js';
 import { resolveAccountScope } from './unifiedInbox.js';
 import { DELEGATION_SELECT_SQL, delegationJoinSql, mapDelegationRow } from './gtdDelegations.js';
 
-export async function listMessages({ userId, accountId, folder = 'INBOX', limit = 50, offset = 0, unreadOnly, threaded, category }) {
+export async function listMessages({
+  userId,
+  accountId,
+  folder = 'INBOX',
+  limit = 50,
+  offset = 0,
+  unreadOnly,
+  threaded,
+  category,
+  excludeClaimedSourceDrafts = false,
+}) {
   const accountsResult = await query(
-    'SELECT id, include_in_unified_inbox FROM email_accounts WHERE user_id = $1 AND enabled = true',
+    `SELECT id, include_in_unified_inbox, folder_mappings
+     FROM email_accounts WHERE user_id = $1 AND enabled = true`,
     [userId]
   );
   const {
@@ -42,20 +53,21 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
     whereConditions.push(`(m.category IS NULL OR m.category = 'primary')`);
   }
 
-  const where = whereConditions.join(' AND ');
-
   const safeLimit  = Math.min(Math.max(parseInt(limit)  || 50, 1), 500);
   const safeOffset = Math.max(parseInt(offset) || 0, 0);
 
   let total = 0;
+  let folderRow = null;
   try {
     if (isSpecificAccount) {
       const r = await query(
-        'SELECT total_count, unread_count FROM folders WHERE account_id = $1 AND path = $2',
+        `SELECT total_count, unread_count, special_use, name
+         FROM folders WHERE account_id = $1 AND path = $2`,
         [accountId, folder]
       );
       if (r.rows.length) {
-        total = isUnreadOnly ? (r.rows[0].unread_count ?? 0) : (r.rows[0].total_count ?? 0);
+        [folderRow] = r.rows;
+        total = isUnreadOnly ? (folderRow.unread_count ?? 0) : (folderRow.total_count ?? 0);
       }
     } else {
       const r = isUnreadOnly
@@ -73,7 +85,41 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
     total = 0;
   }
 
-  if (threaded === 'true' || threaded === true) {
+  const selectedAccount = isSpecificAccount
+    ? accountsResult.rows.find(account => account.id === resolvedAccountId)
+    : null;
+  const mappedDraftsFolder = selectedAccount?.folder_mappings?.drafts;
+  const isDraftsFolder = isSpecificAccount && (
+    mappedDraftsFolder === folder
+    || folderRow?.special_use === '\\Drafts'
+    || folderRow?.name?.toLowerCase().includes('draft')
+  );
+  const filterClaimedSources = excludeClaimedSourceDrafts && isDraftsFolder;
+  if (filterClaimedSources) {
+    whereConditions.push(`NOT EXISTS (
+      SELECT 1 FROM compose_sessions cs
+      WHERE cs.user_id = $${p++}
+        AND cs.source_draft_account_id = m.account_id
+        AND cs.source_draft_folder = m.folder
+        AND cs.source_draft_uid = m.uid
+    )`);
+    values.push(userId);
+  }
+
+  const where = whereConditions.join(' AND ');
+  const isThreaded = threaded === 'true' || threaded === true;
+
+  if (filterClaimedSources && !isThreaded) {
+    const countResult = await query(
+      `SELECT COUNT(*)::int AS total
+       FROM messages m
+       WHERE ${where}`,
+      values,
+    );
+    total = countResult.rows[0]?.total ?? 0;
+  }
+
+  if (isThreaded) {
     const filterValues = [...values];
     const threadAccountParam = isSpecificAccount ? [resolvedAccountId] : scopedAccountIds;
     // For INBOX-specific views the thread badge must match the expansion, so scope

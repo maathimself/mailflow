@@ -186,9 +186,20 @@ export function startOutboxWorker(deps, { tickMs = 5000 } = {}) {
           const draft = row.payload?.deleteDraftOnSend;
           if (draft) {
             try {
+              let draftAccount = account;
+              if (draft.accountId && draft.accountId !== account.id) {
+                const sourceAccountResult = await deps.query(
+                  'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2',
+                  [draft.accountId, row.user_id],
+                );
+                if (!sourceAccountResult.rows.length) {
+                  throw new Error('Source draft account not found');
+                }
+                draftAccount = sourceAccountResult.rows[0];
+              }
               const deleteDraft = deps.draftService?.deleteDraft || defaultDeleteDraft;
               await deleteDraft({
-                account,
+                account: draftAccount,
                 uid: draft.uid,
                 folder: draft.folder,
               }, deps);

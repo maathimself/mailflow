@@ -379,6 +379,9 @@ export async function sendOrEnqueue(input, deps) {
     ...(input.deleteDraftOnSend
       ? { deleteDraftOnSend: input.deleteDraftOnSend }
       : {}),
+    ...(input.composeSessionRestore
+      ? { composeSessionRestore: input.composeSessionRestore }
+      : {}),
     messageId,
   };
 

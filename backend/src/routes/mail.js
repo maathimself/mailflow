@@ -117,6 +117,7 @@ router.get('/messages', async (req, res) => {
     unreadOnly,
     threaded,
     category: safeCategory,
+    excludeClaimedSourceDrafts: true,
   });
 
   if (resolvedAccountId && messages.length) {

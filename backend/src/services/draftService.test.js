@@ -208,6 +208,36 @@ describe('saveDraft', () => {
     expect(result.messageId).toMatch(/^<03030303.+@example\.com>$/);
   });
 
+  it('reports an accepted replacement with failed source cleanup only when opted in', async () => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const makeDeps = () => buildDeps({
+      imapManager: {
+        appendToFolder: vi.fn().mockResolvedValue({ uid: 5 }),
+        upsertDraftMessageRecord: vi.fn().mockResolvedValue(undefined),
+        permanentDeleteMessage: vi.fn().mockRejectedValue(new Error('Synthetic delete failure')),
+      },
+      query: vi.fn().mockResolvedValue({ rows: [{ path: 'Drafts' }] }),
+    });
+    const replacement = draftInput({ existingUid: 4, existingFolder: 'Drafts' });
+
+    const strictDeps = makeDeps();
+    await expect(saveDraft({
+      ...replacement,
+      reportSourceDraftDeletion: true,
+    }, strictDeps)).resolves.toMatchObject({
+      uid: 5,
+      folder: 'Drafts',
+      sourceDraftDeleted: false,
+    });
+    expect(strictDeps.imapManager.appendToFolder).toHaveBeenCalledOnce();
+
+    const legacyDeps = makeDeps();
+    const legacy = await saveDraft(replacement, legacyDeps);
+    expect(legacy).not.toHaveProperty('sourceDraftDeleted');
+    expect(legacyDeps.imapManager.appendToFolder).toHaveBeenCalledOnce();
+    errorLog.mockRestore();
+  });
+
   it('keeps local persistence non-fatal after a successful append', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const imapManager = {
@@ -264,6 +294,31 @@ describe('draft persistence helpers', () => {
     expect(events).toEqual(['imap', 'db']);
   });
 
+  it('reports accepted IMAP deletion with pending local cleanup only when opted in', async () => {
+    const makeDeps = () => ({
+      imapManager: {
+        permanentDeleteMessage: vi.fn().mockResolvedValue(undefined),
+      },
+      query: vi.fn().mockRejectedValue(new Error('Synthetic local cleanup failure')),
+    });
+
+    const strictDeps = makeDeps();
+    await expect(deleteDraft({
+      account,
+      uid: 9,
+      folder: 'Drafts',
+      reportDeletionAcceptance: true,
+    }, strictDeps)).resolves.toEqual({ ok: true, localCleanupPending: true });
+    expect(strictDeps.imapManager.permanentDeleteMessage).toHaveBeenCalledOnce();
+
+    const legacyDeps = makeDeps();
+    await expect(deleteDraft({
+      account,
+      uid: 9,
+      folder: 'Drafts',
+    }, legacyDeps)).rejects.toThrow('Synthetic local cleanup failure');
+  });
+
   it('lists and gets drafts from the already-scoped account', async () => {
     const query = vi.fn()
       .mockResolvedValueOnce({ rows: [{ n: 1 }] })
@@ -271,12 +326,47 @@ describe('draft persistence helpers', () => {
       .mockResolvedValueOnce({ rows: [{ uid: 7, subject: 'Draft' }] });
 
     const mappedAccount = { ...account, folder_mappings: { drafts: 'Drafts' } };
-    await expect(listDrafts({ account: mappedAccount, limit: 10, offset: 0 }, { query }))
+    await expect(listDrafts({
+      userId: 'user-1',
+      account: mappedAccount,
+      limit: 10,
+      offset: 0,
+    }, { query }))
       .resolves.toEqual({ drafts: [{ uid: 7, subject: 'Draft' }], total: 1 });
     await expect(getDraft({ account: mappedAccount, uid: 7, folder: 'Drafts' }, { query }))
       .resolves.toEqual({ uid: 7, subject: 'Draft' });
 
     expect(query.mock.calls[0][1][0]).toBe('account-1');
     expect(query.mock.calls[2][1]).toEqual(['account-1', 7, 'Drafts']);
+  });
+
+  it('owner-scopes claimed source filtering in both draft count and page queries', async () => {
+    const query = vi.fn()
+      .mockResolvedValueOnce({ rows: [{ n: 1 }] })
+      .mockResolvedValueOnce({ rows: [{ uid: 8, subject: 'Unclaimed draft' }] });
+    const mappedAccount = { ...account, folder_mappings: { drafts: 'Drafts' } };
+
+    await expect(listDrafts({
+      userId: 'user-1',
+      account: mappedAccount,
+      limit: 25,
+      offset: 5,
+    }, { query })).resolves.toEqual({
+      drafts: [{ uid: 8, subject: 'Unclaimed draft' }],
+      total: 1,
+    });
+
+    for (const [sql] of query.mock.calls) {
+      expect(sql).toContain('FROM messages m');
+      expect(sql).toContain(`AND NOT EXISTS (
+       SELECT 1 FROM compose_sessions cs
+       WHERE cs.user_id = $2
+         AND cs.source_draft_account_id = m.account_id
+         AND cs.source_draft_folder = m.folder
+         AND cs.source_draft_uid = m.uid
+     )`);
+    }
+    expect(query.mock.calls[0][1]).toEqual(['account-1', 'user-1', 'Drafts']);
+    expect(query.mock.calls[1][1]).toEqual(['account-1', 'user-1', 'Drafts', 25, 5]);
   });
 });

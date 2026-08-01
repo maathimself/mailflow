@@ -9,11 +9,12 @@ function deferred() {
   return { promise, resolve };
 }
 
-function workerDeps({ rows = [], sendMessage } = {}) {
+function workerDeps({ rows = [], sendMessage, missingAccountIds = [] } = {}) {
   const state = rows.map(row => ({ status: 'pending', ...row }));
   let claimQueries = 0;
   const query = vi.fn(async (sql, params = []) => {
     if (sql.includes('SELECT * FROM email_accounts')) {
+      if (missingAccountIds.includes(params[0])) return { rows: [] };
       return {
         rows: [{
           id: params[0],
@@ -152,6 +153,82 @@ describe('startOutboxWorker', () => {
     ));
     expect(markSentCall).toBeLessThan(
       deps.draftService.deleteDraft.mock.invocationCallOrder[0],
+    );
+    worker.stop();
+  });
+
+  it('owner-resolves and deletes a queued source draft through its cross-account source', async () => {
+    const service = await import('./outboxService.js');
+    const row = {
+      id: 'cross-account-draft-send',
+      user_id: 'user-1',
+      account_id: 'destination-account',
+      send_at: NOW,
+      message_id: '<cross-account-draft-send@example.com>',
+      payload: {
+        to: ['recipient@example.com'],
+        body: 'Draft body',
+        deleteDraftOnSend: {
+          accountId: 'source-account',
+          uid: 7,
+          folder: 'Drafts',
+        },
+      },
+    };
+    const { deps, state } = workerDeps({ rows: [row] });
+    deps.draftService = {
+      deleteDraft: vi.fn().mockResolvedValue({ ok: true }),
+    };
+
+    const worker = service.startOutboxWorker(deps, { tickMs: 1_000 });
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(state[0].status).toBe('sent');
+    expect(deps.query).toHaveBeenCalledWith(
+      expect.stringMatching(/FROM email_accounts[\s\S]+id\s*=\s*\$1[\s\S]+user_id\s*=\s*\$2/),
+      ['source-account', 'user-1'],
+    );
+    expect(deps.draftService.deleteDraft).toHaveBeenCalledWith({
+      account: expect.objectContaining({ id: 'source-account', user_id: 'user-1' }),
+      uid: 7,
+      folder: 'Drafts',
+    }, deps);
+    worker.stop();
+  });
+
+  it('never deletes a queued source through the destination when the owned source is missing', async () => {
+    const service = await import('./outboxService.js');
+    const row = {
+      id: 'missing-source-draft-send',
+      user_id: 'user-1',
+      account_id: 'destination-account',
+      send_at: NOW,
+      message_id: '<missing-source-draft-send@example.com>',
+      payload: {
+        to: ['recipient@example.com'],
+        body: 'Draft body',
+        deleteDraftOnSend: {
+          accountId: 'missing-source-account',
+          uid: 7,
+          folder: 'Drafts',
+        },
+      },
+    };
+    const { deps, state } = workerDeps({
+      rows: [row],
+      missingAccountIds: ['missing-source-account'],
+    });
+    deps.draftService = { deleteDraft: vi.fn() };
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const worker = service.startOutboxWorker(deps, { tickMs: 1_000 });
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(state[0].status).toBe('sent');
+    expect(deps.draftService.deleteDraft).not.toHaveBeenCalled();
+    expect(console.error).toHaveBeenCalledWith(
+      'Outbox draft cleanup error:',
+      'Source draft account not found',
     );
     worker.stop();
   });
