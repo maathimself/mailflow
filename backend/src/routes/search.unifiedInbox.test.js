@@ -45,7 +45,7 @@ describe('GET /api/search unified account scope', () => {
           { id: 'excluded', include_in_unified_inbox: false },
         ],
       })
-      .mockResolvedValueOnce({ rows: [] });
+      .mockResolvedValue({ rows: [] });
 
     const response = await fetch(`${base}/api/search?q=invoice`);
 
@@ -58,7 +58,7 @@ describe('GET /api/search unified account scope', () => {
       .mockResolvedValueOnce({
         rows: [{ id: 'excluded', include_in_unified_inbox: false }],
       })
-      .mockResolvedValueOnce({ rows: [] });
+      .mockResolvedValue({ rows: [] });
 
     const response = await fetch(`${base}/api/search?q=invoice&accountId=excluded`);
 

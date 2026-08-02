@@ -4,6 +4,7 @@ vi.mock('./db.js', () => ({ query: vi.fn() }));
 vi.mock('./gtdConfig.js', () => ({ getGtdConfig: vi.fn() }));
 vi.mock('../utils/mailUtils.js', () => ({ resolveAllDraftsPaths: vi.fn() }));
 vi.mock('./logger.js', () => ({ logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+vi.mock('./gtdDelegations.js', () => ({ reconcileDelegatedRemovals: vi.fn() }));
 
 import {
   getOwnerAddresses,
@@ -16,6 +17,7 @@ import {
 import { query } from './db.js';
 import { getGtdConfig } from './gtdConfig.js';
 import { resolveAllDraftsPaths } from '../utils/mailUtils.js';
+import { reconcileDelegatedRemovals } from './gtdDelegations.js';
 
 const DEFAULT_FOLDERS = { todo: 'Todo', watch: 'Watch', delegated: 'Delegated', someday: 'Someday', reference: 'Reference' };
 const account = { id: 'acct-1', user_id: 'user-1', email_address: 'me@example.com', folder_mappings: {} };
@@ -89,6 +91,7 @@ describe('runGtdTransitions', () => {
     query.mockReset();
     getGtdConfig.mockReset();
     resolveAllDraftsPaths.mockReset();
+    reconcileDelegatedRemovals.mockReset();
     invalidateOwnerAddressesCache('acct-1');
     getGtdConfig.mockResolvedValue({ enabled: true, folders: DEFAULT_FOLDERS });
     resolveAllDraftsPaths.mockResolvedValue(new Set(['Drafts']));
@@ -119,6 +122,21 @@ describe('runGtdTransitions', () => {
     expect(mgr.removeMessageCopy).toHaveBeenCalledWith('acct-1', 22, 'Watch');
     expect(mgr.removeMessageCopy).toHaveBeenCalledWith('acct-1', 23, 'Delegated');
     expect(mgr.removeMessageCopy).not.toHaveBeenCalledWith('acct-1', 21, 'Todo');
+    expect(reconcileDelegatedRemovals).toHaveBeenCalledWith({
+      userId: 'user-1', accountId: 'acct-1',
+      delegatedFolder: 'Delegated', threadKeys: ['t1'],
+    });
+  });
+
+  it('retains delegation metadata when the Delegated IMAP removal fails', async () => {
+    mockQuery({ rows: [
+      { thread_key: 't1', uid: 20, folder: 'INBOX', from_email: 'them@other.com', date: '2026-07-09T12:00:00Z', id: 'r1' },
+      { thread_key: 't1', uid: 23, folder: 'Delegated', from_email: 'them@other.com', date: '2026-07-09T12:00:00Z', id: 'r2' },
+    ] });
+    const mgr = fakeManager();
+    mgr.removeMessageCopy.mockRejectedValue(new Error('remove failed'));
+    await runGtdTransitions(mgr, account, ['t1']);
+    expect(reconcileDelegatedRemovals).not.toHaveBeenCalled();
   });
 
   it('treats an alias sender as the owner (self-strips Todo)', async () => {

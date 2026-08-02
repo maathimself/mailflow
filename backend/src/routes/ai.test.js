@@ -263,7 +263,11 @@ describe('authenticated AI status and streaming', () => {
     const authenticated = await request('/api/ai/status', { user: MEMBER });
     expect(authenticated.status).toBe(200);
     expect(await authenticated.json()).toEqual({
-      enabled: true, provider: 'api-key', features: { compose: true },
+      enabled: true,
+      provider: 'api-key',
+      features: { compose: true },
+      vectorAvailable: false,
+      embeddingsEnabled: false,
     });
   });
 

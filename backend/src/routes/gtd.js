@@ -3,61 +3,40 @@ import { requireAuth } from '../middleware/auth.js';
 import { getGtdSections } from '../services/gtdSections.js';
 import { queueGistGeneration } from '../services/gtdGist.js';
 import { importPet, decodeUploadedSheet, getPetMeta, getPetSheet, parsePetSlug, customPetSlug } from '../services/gtdPet.js';
-import { getGtdConfig, resolveGtdStateFolder, sanitizeGtdFolders, sanitizeGtdFoldersDetailed, DEFAULT_GTD_FOLDERS, planGtdFolderPersist, invalidateGtdConfigCache } from '../services/gtdConfig.js';
-import { fanOutReadToSiblings } from '../utils/mailUtils.js';
-import { archiveInboxCopy } from '../services/archiveInbox.js';
+import { sanitizeGtdFolders, sanitizeGtdFoldersDetailed, DEFAULT_GTD_FOLDERS, planGtdFolderPersist, invalidateGtdConfigCache } from '../services/gtdConfig.js';
 import { query } from '../services/db.js';
 import { imapManager } from '../index.js';
+import {
+  classifyTarget,
+  gtdClassify,
+  gtdDone,
+  gtdUnclassify,
+  resolveDoneFolders,
+} from '../services/gtd/actions.js';
+import { delegateMessages, GtdDelegationError } from '../services/gtdDelegations.js';
 
 const router = Router();
 router.use(requireAuth);
+
+export { classifyTarget, resolveDoneFolders };
 
 // Message/account ids are always UUIDs; pre-validate before any DB lookup so a malformed
 // id is a clean 400 rather than a parametrized query that just finds nothing (404) or a
 // driver cast error. Same idiom + regex as mail.js.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// Shared classify precondition: an account must have GTD enabled and the request's
-// state must resolve to a designated folder. Returns { folder } to proceed, or
-// { status, error } to reject. Pure — exported for unit tests.
-export function classifyTarget({ enabled, folders, state }) {
-  if (!enabled) return { status: 400, error: 'GTD is not enabled for this account' };
-  const folder = resolveGtdStateFolder(state, folders);
-  if (!folder) return { status: 400, error: `Unknown GTD state: ${state}` };
-  return { folder };
-}
-
-// The "done" action's precondition, resolving the GTD label folders a done request must
-// strip. Two contracts, per the caller:
-//   • Explicit `states` array (GTD sidebar entry): resolve each state to its designated folder, in
-//     order, deduped — a merged Waiting row carries both watch and delegated. Unknown state
-//     rejects. Mirrors classifyTarget but plural.
-//   • `states === 'all'` (inbox checkmark): strip every designated GTD label the thread
-//     actually carries. `existing` is the set of folder paths a live copy was found in; we
-//     intersect it with the account's designated GTD folders (map order, deduped). Absent
-//     labels are skipped, never an error; a thread with none resolves to { folders: [] } so
-//     the route degrades to mark-read + archive.
-// Returns { folders } to proceed, or { status, error } to reject. Pure — exported for tests.
-export function resolveDoneFolders({ enabled, folders, states, existing }) {
-  if (!enabled) return { status: 400, error: 'GTD is not enabled for this account' };
-  if (states === 'all') {
-    const present = new Set(Array.isArray(existing) ? existing : []);
-    const resolved = [];
-    for (const folder of Object.values(folders || {})) {
-      if (present.has(folder) && !resolved.includes(folder)) resolved.push(folder);
-    }
-    return { folders: resolved };
+export function parseDelegationBody(body) {
+  if (!Array.isArray(body?.messageIds)) {
+    throw new GtdDelegationError('invalid_request', 400, 'messageIds must be an array');
   }
-  if (!Array.isArray(states) || states.length === 0) {
-    return { status: 400, error: 'states must be a non-empty array' };
+  const messageIds = [...new Set(body.messageIds)];
+  if (messageIds.length < 1 || messageIds.length > 100 || messageIds.some(id => !UUID_RE.test(id))) {
+    throw new GtdDelegationError('invalid_request', 400, 'messageIds must contain 1 to 100 UUIDs');
   }
-  const resolved = [];
-  for (const state of states) {
-    const folder = resolveGtdStateFolder(state, folders);
-    if (!folder) return { status: 400, error: `Unknown GTD state: ${state}` };
-    if (!resolved.includes(folder)) resolved.push(folder);
+  if (body.contactId !== null && !UUID_RE.test(body.contactId || '')) {
+    throw new GtdDelegationError('invalid_request', 400, 'contactId must be a UUID or null');
   }
-  return { folders: resolved };
+  return { messageIds, contactId: body.contactId };
 }
 
 // GET /api/gtd/sections — thread heads + counts per GTD state for GTD display surfaces.
@@ -82,6 +61,24 @@ router.get('/sections', async (req, res) => {
     userId: req.session.userId,
     broadcast: (payload, uid) => imapManager.broadcast(payload, uid),
   }).catch(err => console.warn('GTD gist generation error:', err.message));
+});
+
+router.post('/delegations', async (req, res, next) => {
+  try {
+    const { messageIds, contactId } = parseDelegationBody(req.body);
+    const result = await delegateMessages({
+      userId: req.session.userId,
+      messageIds,
+      contactId,
+      imapManager,
+    });
+    res.json(result);
+  } catch (error) {
+    if (error instanceof GtdDelegationError) {
+      return res.status(error.status).json({ error: error.code });
+    }
+    next(error);
+  }
 });
 
 // ── GTD Inbox-Zero pet ────────────────────────────────────────────────────────
@@ -138,221 +135,53 @@ router.get('/pet/:slug/sheet', async (req, res) => {
   res.send(sheet.data);
 });
 
-// Load a message the caller owns, or send a 404. The email_accounts join is the
-// ownership filter (a.user_id = $2); the message row itself carries everything the
-// callers need (account_id, uid, folder, message_id), so no account column is selected.
-async function loadOwnedMessage(userId, messageId) {
-  const result = await query(
-    `SELECT m.*
-     FROM messages m
-     JOIN email_accounts a ON a.id = m.account_id
-     WHERE m.id = $1 AND a.user_id = $2`,
-    [messageId, userId]
-  );
-  return result.rows[0] || null;
-}
-
-// POST /api/gtd/classify { messageId, state } — apply a GTD label by COPYing the
-// message into the state's designated folder (the message stays in its current
-// folder; classify never removes it from the inbox). Thin: resolve the folder,
-// ensure it exists (callers own folder existence), then delegate to
-// imapManager.copyMessage, which also emits gtd_sections_updated.
+// Apply a GTD label by copying the message into the state folder.
 router.post('/classify', async (req, res) => {
   const { messageId, state } = req.body || {};
   if (!messageId || !state) return res.status(400).json({ error: 'messageId and state are required' });
   if (!UUID_RE.test(messageId)) return res.status(400).json({ error: 'Invalid message id' });
 
-  const msg = await loadOwnedMessage(req.session.userId, messageId);
-  if (!msg) return res.status(404).json({ error: 'Message not found' });
-
-  const { enabled, folders } = await getGtdConfig(msg.account_id);
-  const target = classifyTarget({ enabled, folders, state });
-  if (target.error) return res.status(target.status).json({ error: target.error });
-  const toFolder = target.folder;
-
-  // Already labelled with this state — nothing to copy.
-  if (msg.folder === toFolder) return res.json({ ok: true, folder: toFolder });
-
-  const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [msg.account_id]);
-  const account = accountResult.rows[0];
-
-  try {
-    await imapManager.ensureFolder(account, toFolder);
-    await imapManager.copyMessage(msg.account_id, msg.uid, msg.folder, toFolder);
-  } catch (err) {
-    console.error(`GTD classify failed for message ${messageId} -> ${toFolder}:`, err.message);
-    return res.status(500).json({ error: 'Failed to apply GTD label' });
-  }
-
-  res.json({ ok: true, folder: toFolder });
+  const result = await gtdClassify(imapManager, {
+    userId: req.session.userId,
+    accountIds: null,
+    messageId,
+    state,
+  });
+  if (!result.ok) return res.status(result.status).json({ error: result.error });
+  res.json(result);
 });
 
-// Resolve the folder-copy uid a message has in `folder` for this account, or null. The
-// acted row is used directly when it already lives there; otherwise the shared RFC
-// Message-ID (COPY duplicates it verbatim) joins to the sibling copy. Shared by DELETE
-// /classify (below) and POST /done's label strip.
-async function resolveCopyUid(msg, folder) {
-  if (msg.folder === folder) return msg.uid;
-  const sib = await query(
-    'SELECT uid FROM messages WHERE account_id = $1 AND folder = $2 AND message_id = $3 AND is_deleted = false LIMIT 1',
-    [msg.account_id, folder, msg.message_id]
-  );
-  return sib.rows[0]?.uid ?? null;
-}
-
-// DELETE /api/gtd/classify { messageId, state } — remove a GTD label by deleting
-// the message's copy that lives in the state folder, leaving all other copies
-// (INBOX, other labels) intact. The acted message id identifies the thread member
-// by its RFC Message-ID; the copy in the state folder is resolved from that.
+// Remove a GTD label copy while leaving all other message copies intact.
 router.delete('/classify', async (req, res) => {
   const { messageId, state } = req.body || {};
   if (!messageId || !state) return res.status(400).json({ error: 'messageId and state are required' });
   if (!UUID_RE.test(messageId)) return res.status(400).json({ error: 'Invalid message id' });
 
-  const msg = await loadOwnedMessage(req.session.userId, messageId);
-  if (!msg) return res.status(404).json({ error: 'Message not found' });
-
-  const { enabled, folders } = await getGtdConfig(msg.account_id);
-  const target = classifyTarget({ enabled, folders, state });
-  if (target.error) return res.status(target.status).json({ error: target.error });
-  const stateFolder = target.folder;
-
-  // Find the copy that lives in the state folder via resolveCopyUid: the acted row when it
-  // already lives there, else the shared RFC Message-ID (COPY duplicates it verbatim) joins to
-  // the sibling. A missing Message-ID only blocks that sibling lookup — the acted-row case
-  // needs no Message-ID — so guard it there and keep the explicit 400 the client relies on.
-  if (msg.folder !== stateFolder && !msg.message_id) {
-    return res.status(400).json({ error: 'Message has no Message-ID — cannot resolve GTD copy' });
-  }
-  const siblingUid = await resolveCopyUid(msg, stateFolder);
-  if (siblingUid == null) return res.json({ ok: true, removed: false });
-
-  try {
-    await imapManager.removeMessageCopy(msg.account_id, siblingUid, stateFolder);
-  } catch (err) {
-    console.error(`GTD unclassify failed for message ${messageId} in ${stateFolder}:`, err.message);
-    return res.status(500).json({ error: 'Failed to remove GTD label' });
-  }
-
-  res.json({ ok: true, removed: true, folder: stateFolder });
+  const result = await gtdUnclassify(imapManager, {
+    userId: req.session.userId,
+    accountIds: null,
+    messageId,
+    state,
+  });
+  if (!result.ok) return res.status(result.status).json({ error: result.error });
+  res.json(result);
 });
 
-// POST /api/gtd/done { id, states? } — the GTD "done" action. Two callers: the GTD sidebar passes
-// an explicit `states` array (strip that section's labels); the inbox checkmark omits states
-// (or sends 'all') for "done from anywhere" — strip every GTD label the thread carries. The
-// id is its GTD-label-folder copy for the sidebar, or the INBOX copy from the inbox; either way
-// the archive step resolves the INBOX copy from the shared Message-ID rather than acting on
-// `id` directly. In one round trip this: (a) marks the whole thread read (DB fan-out across
-// sibling copies, \Seen on the INBOX copy so it rides the archive move); (b) strips the
-// row's own GTD label copies named in `states` — a merged Waiting row passes both
-// watch+delegated — leaving any GTD labels in OTHER sections intact; (c) archives the INBOX
-// copy if one exists (reusing resolveArchiveFolder + moveMessage, snooze's in-place UPDATE).
-// One terminal gtd_sections_updated broadcast makes the row disappear cleanly on refetch.
+// Mark a GTD message done, strip labels, and archive its INBOX copy when available.
 router.post('/done', async (req, res) => {
   const { id, states } = req.body || {};
   if (!id) return res.status(400).json({ error: 'id is required' });
   if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
 
-  const msg = await loadOwnedMessage(req.session.userId, id);
-  if (!msg) return res.status(404).json({ error: 'Message not found' });
-  if (!msg.message_id) return res.status(400).json({ error: 'Message has no Message-ID — cannot mark done' });
-
-  const { enabled, folders } = await getGtdConfig(msg.account_id);
-
-  // All-states mode (inbox checkmark) resolves against the label copies that actually exist
-  // for this thread; the GTD sidebar's explicit-states path is untouched. Only look copies up when
-  // we'll use them (enabled + all-states); resolveDoneFolders still owns the gtd_enabled gate.
-  const allStates = states == null || states === 'all';
-  let existing;
-  if (allStates && enabled) {
-    const copies = await query(
-      'SELECT DISTINCT folder FROM messages WHERE account_id = $1 AND message_id = $2 AND is_deleted = false',
-      [msg.account_id, msg.message_id]
-    );
-    existing = copies.rows.map(r => r.folder);
-  }
-  const target = allStates
-    ? resolveDoneFolders({ enabled, folders, states: 'all', existing })
-    : resolveDoneFolders({ enabled, folders, states });
-  if (target.error) return res.status(target.status).json({ error: target.error });
-
-  const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [msg.account_id]);
-  const account = accountResult.rows[0];
-
-  // (a) Mark the whole thread read. The DB fan-out (by Message-ID) covers every sibling
-  // copy and adjusts each folder's unread count; \Seen is set on the durable INBOX copy
-  // only (it rides the archive move; Gmail propagates message-wide) — the same per-copy
-  // asymmetry the ordinary read route accepts. A best-effort flag push is never fatal.
-  const inbox = await query(
-    'SELECT id, uid, is_read FROM messages WHERE account_id = $1 AND folder = $2 AND message_id = $3 AND is_deleted = false LIMIT 1',
-    [msg.account_id, 'INBOX', msg.message_id]
-  );
-  const inboxCopy = inbox.rows[0] || null;
-  try {
-    await fanOutReadToSiblings(msg.account_id, msg.message_id, true);
-    if (inboxCopy && !inboxCopy.is_read) {
-      await imapManager.setFlag(account, inboxCopy.uid, 'INBOX', '\\Seen', true);
-    }
-  } catch (err) {
-    console.warn(`GTD done: mark-read for ${id} degraded:`, err.message);
-  }
-
-  // (b) Strip this row's GTD label copies. Each is a distinct folder copy resolved from
-  // the shared Message-ID; removeMessageCopy deletes the IMAP + DB copy and adjusts that
-  // label folder's counts, leaving INBOX and other-section labels untouched.
-  //
-  // Strip the acted row's OWN folder (msg.folder) LAST. A merged Waiting done passes both
-  // watch+delegated, and if an earlier copy's removal throws we 500 — but the same-id retry
-  // must still resolve the acted message via loadOwnedMessage. Deleting the acted row first
-  // would 404 that retry and orphan the copies not yet stripped, so keep it alive until every
-  // other copy is gone. (msg.folder is absent from target.folders in the inbox 'all' case —
-  // the acted INBOX row is never stripped anyway — so the ordering is a no-op there.)
-  const stripOrder = [
-    ...target.folders.filter(f => f !== msg.folder),
-    ...target.folders.filter(f => f === msg.folder),
-  ];
-  const removed = [];
-  try {
-    for (const folder of stripOrder) {
-      const uid = await resolveCopyUid(msg, folder);
-      if (uid == null) continue; // already gone
-      await imapManager.removeMessageCopy(msg.account_id, uid, folder);
-      removed.push(folder);
-    }
-  } catch (err) {
-    console.error(`GTD done: label strip for ${id} failed:`, err.message);
-    return res.status(500).json({ error: 'Failed to mark done' });
-  }
-
-  // (c) Archive the INBOX copy if one is present, via the shared per-copy archive primitive
-  // (resolveArchiveFolder + guarded moveMessage + race-safe DB repoint + count adjust, with
-  // the Gmail All-Mail DELETE branch). No archive folder configured is a soft outcome, not a
-  // failure — the GTD labels are already gone, so the thread has left all GTD sections regardless.
-  let archived = false;
-  let noArchiveFolder = false;
-  let archiveFailed = false;
-  if (inboxCopy) {
-    try {
-      const result = await archiveInboxCopy(imapManager, account, inboxCopy);
-      archived = result.archived;
-      noArchiveFolder = result.noArchiveFolder;
-    } catch (err) {
-      // Step (b) already stripped the labels (or had nothing to strip). A failed archive must
-      // not 500: that misreports a mostly-successful action, and — with the label row now
-      // gone — a retry by the same id would 404. Report a partial success (200, archiveFailed
-      // true, archived false) so the client can surface it and the id stays retryable.
-      console.error(`GTD done: archive of INBOX copy for ${id} failed:`, err.message);
-      archiveFailed = true;
-    }
-  }
-
-  // One terminal refresh so GTD section data converges to the post-done state (removeMessageCopy
-  // also emits mid-op, but this covers the archive that follows it).
-  imapManager.broadcast({ type: 'gtd_sections_updated', accountId: msg.account_id }, account.user_id);
-
-  res.json({ ok: true, removed, archived, noArchiveFolder, archiveFailed });
+  const result = await gtdDone(imapManager, {
+    userId: req.session.userId,
+    accountIds: null,
+    id,
+    states,
+  });
+  if (!result.ok) return res.status(result.status).json({ error: result.error });
+  res.json(result);
 });
-
 // POST /api/gtd/folders/ensure { accountId, folders } — create any of the account's
 // designated GTD label folders that are missing on the IMAP server, reporting per
 // folder whether it was created now or already existed. `folders` is the (possibly

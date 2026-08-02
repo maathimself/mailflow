@@ -96,3 +96,29 @@ describe('PATCH /auth/preferences senderFavicons', () => {
     expect(query).not.toHaveBeenCalled();
   });
 });
+
+describe('PATCH /auth/preferences undoSendSeconds', () => {
+  it('stores an allowed undo window after the existing preference binds', async () => {
+    const req = { session: { userId: 'user-1' }, body: { undoSendSeconds: 60 } };
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+
+    await patchPreferences(req, res);
+
+    const [sql, binds] = query.mock.calls[0];
+    expect(sql).toContain(
+      "CASE WHEN $41::int IS NOT NULL THEN jsonb_build_object('undoSendSeconds', $41::int)",
+    );
+    expect(binds).toHaveLength(41);
+    expect(binds[40]).toBe('60');
+  });
+
+  it('does not store a value outside the supported undo choices', async () => {
+    const req = { session: { userId: 'user-1' }, body: { undoSendSeconds: 45 } };
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+
+    await patchPreferences(req, res);
+
+    const [, binds] = query.mock.calls[0];
+    expect(binds[40]).toBeNull();
+  });
+});

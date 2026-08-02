@@ -28,7 +28,10 @@ async function request(method, path, body, extraHeaders) {
       window.dispatchEvent(new CustomEvent('mailflow:session_expired'));
     }
     const err = await res.json().catch(() => ({ error: 'Request failed' }));
-    throw new Error(err.error || 'Request failed');
+    const requestError = new Error(err.error || 'Request failed');
+    requestError.status = res.status;
+    requestError.body = err;
+    throw requestError;
   }
   return res.json();
 }
@@ -282,12 +285,13 @@ export const api = {
   emptyFolder: (accountId, path) => request('POST', '/mail/folders/empty', { accountId, path }),
 
   // Search
-  search: (q, accountId, { offset = 0, limit, folder } = {}) => {
+  search: (q, accountId, { offset = 0, limit, folder, mode } = {}) => {
     const params = new URLSearchParams({ q });
     if (accountId) params.set('accountId', accountId);
     if (limit) params.set('limit', limit);
     if (folder) params.set('folder', folder);
     if (offset) params.set('offset', offset);
+    if (mode && mode !== 'lexical') params.set('mode', mode);
     return request('GET', `/search?${params}`);
   },
   suggestContacts: (q) => request('GET', `/search/contacts?q=${encodeURIComponent(q)}`),
@@ -336,6 +340,9 @@ export const api = {
   saveDraft:   (data)              => request('POST',   '/mail/draft', data),
   deleteDraft: (accountId, uid, folder) =>
     request('DELETE', `/mail/draft/${uid}?accountId=${encodeURIComponent(accountId)}&folder=${encodeURIComponent(folder)}`),
+  cancelOutbox: (id) => request('POST', `/mail/outbox/${encodeURIComponent(id)}/cancel`),
+  getOutbox: () => request('GET', '/mail/outbox'),
+  listOutbox: () => request('GET', '/mail/outbox'),
 
   // Block List
   getBlockList:          ()      => request('GET',    '/block-list'),
@@ -357,6 +364,10 @@ export const api = {
       cancel: (flowId) => request('DELETE', '/admin/ai/codex/device', { flowId }),
       disconnect: () => request('DELETE', '/admin/ai/codex'),
     },
+    // Embeddings (semantic search) — probe the saved config and kick a build.
+    testEmbeddings: () => request('POST', '/admin/ai/embeddings/test-embeddings'),
+    buildEmbeddings: () => request('POST', '/admin/ai/embeddings/build'),
+    indexingStatus: () => request('GET', '/admin/indexing/status'),
   },
 
   // Category counts for inbox tab badges
@@ -390,6 +401,12 @@ export const api = {
     const qs = p.toString();
     return request('GET', `/gtd/sections${qs ? '?' + qs : ''}`);
   },
+  gtd: {
+    delegate: (messageIds, contactId) => request('POST', '/gtd/delegations', {
+      messageIds,
+      contactId,
+    }),
+  },
   gtdClassify: (messageId, state) => request('POST', '/gtd/classify', { messageId, state }),
   gtdUnclassify: (messageId, state) => request('DELETE', '/gtd/classify', { messageId, state }),
   // GTD "done": strip the row's label(s) for these states, mark read, archive the INBOX
@@ -413,5 +430,20 @@ export const api = {
     getProjects:  ()       => request('GET',    '/todoist/projects'),
     getLabels:    ()       => request('GET',    '/todoist/labels'),
     createTask:   (data)   => request('POST',   '/todoist/tasks', data),
+  },
+
+  // MCP API tokens — per-user bearer tokens for the Streamable-HTTP /mcp endpoint.
+  // create() returns the plaintext token exactly once; only its hash is stored.
+  tokens: {
+    list:   ()             => request('GET',  '/tokens'),
+    create: (name, scopes) => request('POST', '/tokens', { name, scopes }),
+    revoke: async (id) => {
+      // DELETE responds 204 with no body — don't run it through request()/res.json().
+      const res = await fetch(`${BASE}/tokens/${id}`, {
+        method: 'DELETE', credentials: 'include',
+        headers: { [CSRF_HEADER]: CSRF_VALUE },
+      });
+      if (!res.ok) throw new Error('Failed to revoke token');
+    },
   },
 };
