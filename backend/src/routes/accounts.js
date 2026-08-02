@@ -3,61 +3,26 @@ import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { imapManager } from '../index.js';
 import { encrypt } from '../services/encryption.js';
-import { sanitizeSignature } from '../services/emailSanitizer.js';
+import { hasHeaderInjectionChars, sanitizeSignature } from '../services/emailSanitizer.js';
 import { validateHost } from '../services/hostValidation.js';
 import { getConnectionPolicy } from '../services/connectionPolicy.js';
 import { invalidateGtdConfigCache, sanitizeGtdFoldersDetailed, findGtdFolderCollisions, DEFAULT_GTD_FOLDERS } from '../services/gtdConfig.js';
 import { invalidateOwnerAddressesCache } from '../services/gtdTransitions.js';
-import { createKeyedSerializer } from '../utils/keyedSerializer.js';
-
-// Serialize an account's reconnect triggers so a rapid settings change (e.g. a
-// gtd_enabled double-toggle) can't fire two overlapping disconnect→connect chains —
-// connectAccount's in-progress guard would drop the second and leave the GTD sync
-// tick armed inconsistently with the final DB value. Queued per account id.
-const reconnectQueue = createKeyedSerializer();
-
-const ALLOWED_IMAP_PORTS = new Set([143, 993]);
-const ALLOWED_SMTP_PORTS = new Set([465, 587]);
-
-function validatePort(port, allowed) {
-  const n = Number(port);
-  if (!Number.isInteger(n) || n < 1 || n > 65535) {
-    return `Port ${port} is not a valid port number`;
-  }
-  // When private/local hosts are explicitly allowed (e.g. Proton Mail Bridge on 1143/1025),
-  // skip the whitelist — the operator has already opted into unrestricted host access.
-  if (process.env.ALLOW_PRIVATE_IMAP_HOSTS === 'true') return null;
-  if (!allowed.has(n)) {
-    return `Port ${port} is not allowed. Allowed: ${[...allowed].join(', ')}`;
-  }
-  return null;
-}
-
-// Reject strings that contain characters that could inject extra email headers.
-function hasHeaderInjectionChars(str) {
-  return typeof str === 'string' && /[\r\n\0]/.test(str);
-}
+import { startAccountBodyBackfill } from '../services/bodyBackfill.js';
+import { providerProfile } from '../services/imapManager.js';
+import { upsertJob } from '../services/backgroundJobs.js';
+import { safeAccount } from '../services/accountFields.js';
+import {
+  ALLOWED_IMAP_PORTS,
+  ALLOWED_SMTP_PORTS,
+  createAccount,
+  reconcileConnectionState,
+  validatePort,
+} from '../services/accountService.js';
+import { testConnection } from '../services/connectionTest.js';
 
 const router = Router();
 router.use(requireAuth);
-
-// Fields safe to return to the client — matches the GET list, excludes credentials and tokens
-const SAFE_FIELDS = [
-  'id', 'name', 'sender_name', 'email_address', 'color', 'protocol',
-  'imap_host', 'imap_port', 'imap_skip_tls_verify',
-  'smtp_host', 'smtp_port', 'smtp_tls',
-  'auth_user', 'oauth_provider', 'enabled',
-  'include_in_unified_inbox',
-  'last_sync', 'sync_error', 'sort_order', 'folder_mappings',
-  'signature', 'created_at', 'categorization_enabled',
-  'gtd_enabled', 'gtd_folders',
-];
-function safeAccount(row) {
-  const obj = Object.fromEntries(SAFE_FIELDS.map(k => [k, row[k]]));
-  // Sanitize on read so legacy values stored before the write-time sanitizer are safe
-  if (obj.signature) obj.signature = sanitizeSignature(obj.signature);
-  return obj;
-}
 
 router.get('/', async (req, res) => {
   const result = await query(
@@ -96,64 +61,9 @@ router.get('/', async (req, res) => {
 });
 
 router.post('/', async (req, res) => {
-  const {
-    name, sender_name = null, email_address, color = '#6366f1', protocol = 'imap',
-    imap_host, imap_port = 993, imap_skip_tls_verify = false,
-    smtp_host, smtp_port = 587, smtp_tls = 'STARTTLS',
-    auth_user, auth_pass,
-    oauth_provider, oauth_access_token, oauth_refresh_token,
-    signature = null
-  } = req.body;
-
-  if (!name || !email_address) return res.status(400).json({ error: 'Name and email required' });
-  if (hasHeaderInjectionChars(name) || hasHeaderInjectionChars(email_address)) {
-    return res.status(400).json({ error: 'Name and email address cannot contain control characters' });
-  }
-  if (sender_name && hasHeaderInjectionChars(sender_name)) {
-    return res.status(400).json({ error: 'Sender name cannot contain control characters' });
-  }
-
-  const policy = await getConnectionPolicy();
-
-  if (imap_host) {
-    const err = (await validateHost(imap_host, { allowPrivate: policy.allowPrivateHosts }))
-      || (!policy.allowNonstandardPorts && validatePort(imap_port, ALLOWED_IMAP_PORTS));
-    if (err) return res.status(400).json({ error: `IMAP: ${err}` });
-  }
-  if (smtp_host) {
-    const err = (await validateHost(smtp_host, { allowPrivate: policy.allowPrivateHosts }))
-      || (!policy.allowNonstandardPorts && validatePort(smtp_port, ALLOWED_SMTP_PORTS));
-    if (err) return res.status(400).json({ error: `SMTP: ${err}` });
-  }
-
-  try {
-    const result = await query(`
-      INSERT INTO email_accounts (
-        user_id, name, sender_name, email_address, color, protocol,
-        imap_host, imap_port, imap_tls, imap_skip_tls_verify, smtp_host, smtp_port, smtp_tls,
-        auth_user, auth_pass, oauth_provider, oauth_access_token, oauth_refresh_token,
-        signature
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
-      RETURNING *
-    `, [
-      req.session.userId, name, sender_name || null, email_address, color, protocol,
-      imap_host, imap_port, Number(imap_port) % 1000 === 993, !!imap_skip_tls_verify, smtp_host, smtp_port, smtp_tls,
-      auth_user, encrypt(auth_pass), oauth_provider, encrypt(oauth_access_token), encrypt(oauth_refresh_token),
-      sanitizeSignature(signature) || null
-    ]);
-
-    const account = result.rows[0];
-
-    // Immediately try to connect — needs full credentials from DB row
-    if (protocol === 'imap') {
-      imapManager.connectAccount(account).catch(console.error);
-    }
-
-    res.json(safeAccount(account));
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to add account' });
-  }
+  const result = await createAccount({ userId: req.session.userId, fields: req.body });
+  if (result.error) return res.status(result.status).json({ error: result.error });
+  res.json(result.account);
 });
 
 router.put('/:id', async (req, res) => {
@@ -257,39 +167,12 @@ router.put('/:id', async (req, res) => {
   if ('gtd_enabled' in updates || 'gtd_folders' in updates) invalidateGtdConfigCache(id);
 
   // Sync live IMAP state after DB update (fire-and-forget, non-fatal).
-  // Toggling gtd_enabled reconnects so the GTD sync tick is armed/torn down (it is
-  // only decided at connectAccount) and the persistent-connection account object the
-  // INBOX/send transition hooks close over picks up the new flag. Remapping a GTD state
-  // to a different folder reconnects for the same reason: connectAccount's syncFolders +
-  // backfillAllFolders is what pulls the newly-designated folder's existing mail into the
-  // rail (backfillAllFolders backfills every discovered folder except the provider's
-  // skipFolderPatterns, which a GTD label folder never matches).
-  const isDisabling = 'enabled' in updates && !updates.enabled;
-  const needsReconnect = !isDisabling && (
-    'enabled' in updates ||
-    'auth_user' in updates ||
-    'auth_pass' in updates ||
-    'imap_host' in updates ||
-    'imap_port' in updates ||
-    'imap_tls' in updates ||
-    'imap_skip_tls_verify' in updates ||
-    'gtd_enabled' in updates ||
-    gtdFoldersChanged
-  );
-
-  // Both branches queue through the per-account serializer so overlapping settings
-  // changes (e.g. a rapid gtd_enabled double-toggle) apply their connection-state
-  // effects in order, never as two overlapping chains.
-  if (isDisabling) {
-    reconnectQueue(id, () => imapManager.disconnectAccount(id))
-      .catch(err => console.error(`Failed to disconnect account ${id} after disable:`, err.message));
-  } else if (needsReconnect && updated.protocol === 'imap' && updated.enabled) {
-    reconnectQueue(id, () =>
-      imapManager.disconnectAccount(id)
-        .then(() => query('SELECT * FROM email_accounts WHERE id = $1', [id]))
-        .then(r => { if (r.rows.length) return imapManager.connectAccount(r.rows[0]); })
-    ).catch(err => console.error(`Failed to reconnect account ${id} after update:`, err.message));
-  }
+  reconcileConnectionState({
+    id,
+    updates,
+    before: { gtdFoldersChanged },
+    updated,
+  });
 });
 
 router.delete('/:id', async (req, res) => {
@@ -310,6 +193,16 @@ router.delete('/:id', async (req, res) => {
     console.error('Account delete error:', err);
     res.status(500).json({ error: 'Failed to delete account' });
   }
+});
+
+router.post('/:id/test-connection', async (req, res) => {
+  const result = await query(
+    'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2',
+    [req.params.id, req.session.userId]
+  );
+  if (!result.rows.length) return res.status(404).json({ error: 'Account not found' });
+
+  res.json(await testConnection(result.rows[0]));
 });
 
 router.post('/:id/reconnect', async (req, res) => {
@@ -424,7 +317,18 @@ router.post('/:id/reindex', async (req, res) => {
         console.error(`Manual reindex error for ${account.email_address}:`, err.message)
       );
     }
-    res.json({ ok: true, alreadyRunning });
+
+    // Also kick a body-materialization pass for allowlisted providers. Fire-and-forget: the
+    // drainer self-guards against concurrent runs and caps each session, and Gmail/PurelyMail/
+    // Microsoft are gated off inside startBodyBackfill. Progress lands in background_jobs.
+    const bodyBackfillEnabled = providerProfile(account).bodyBackfill;
+    if (bodyBackfillEnabled) {
+      startAccountBodyBackfill(account, imapManager, upsertJob).catch(err =>
+        console.error(`Body backfill error for ${account.email_address}:`, err.message)
+      );
+    }
+
+    res.json({ ok: true, alreadyRunning, bodyBackfillEnabled });
   } catch (err) {
     console.error('POST /accounts/:id/reindex error:', err.message);
     res.status(500).json({ error: 'Failed to start reindex' });

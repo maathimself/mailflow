@@ -3,6 +3,7 @@ import {
   GTD_COLORS, GTD_CHIP_BG, agingLabel, resolveRowDisplay,
 } from '../utils/gtd.js';
 import { formatDate } from '../utils/formatDate.js';
+import DelegatePill from './DelegatePill.jsx';
 
 // One GTD entry row, shared by both display surfaces: the GTD browse list that
 // replaces the message list (GtdTabList, roomier) and the denser right-sidebar
@@ -88,6 +89,7 @@ export default function GtdEntryRow({
         }}>
           {sender}
         </span>
+        <DelegatePill delegation={thread.delegation} compact />
         {/* Aging pill carries the row's kind color (watch yellow / delegated orange),
             except when stale — staleness outranks kind and keeps the red styling. */}
         {isWaiting && days != null && (

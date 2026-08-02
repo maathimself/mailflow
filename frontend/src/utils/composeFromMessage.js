@@ -5,6 +5,37 @@ function parseAddressField(raw) {
   } catch { return ''; }
 }
 
+function formatAddressArray(raw) {
+  try {
+    const addresses = Array.isArray(raw) ? raw : JSON.parse(raw || '[]');
+    return addresses.map(address => {
+      if (typeof address === 'string') return address;
+      const email = address.address || address.email || '';
+      return address.name && email
+        ? `${address.name} <${email}>`
+        : (email || address.name || '');
+    }).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+export async function openDraftFromMessage(message, { openCompose, getMessageBody }) {
+  const bodyData = await getMessageBody(message.id);
+  return await openCompose({
+    accountId: message.account_id,
+    draftUid: message.uid,
+    draftFolder: message.folder,
+    to: formatAddressArray(message.to_addresses),
+    cc: formatAddressArray(message.cc_addresses),
+    subject: message.subject || '',
+    body: bodyData.html || bodyData.text || '',
+    bodyIsHtml: !!bodyData.html,
+    ...(message.in_reply_to ? { inReplyTo: message.in_reply_to } : {}),
+    ...(message.thread_references ? { references: message.thread_references } : {}),
+  });
+}
+
 export async function openReplyFromMessage(message, { accounts, openCompose, getMessageBody, replyAll = false }) {
   const replyToArr = Array.isArray(message.reply_to)
     ? message.reply_to
@@ -72,7 +103,7 @@ export async function openReplyFromMessage(message, { accounts, openCompose, get
     ? `<div style="border-left:3px solid var(--border,#ccc);padding-left:12px;margin-top:12px;color:var(--text-secondary,#666)"><p style="margin:0 0 6px;font-size:12px">On ${replyDate}, ${replyFromStr} wrote:</p>${replyBody.html}</div>`
     : null;
 
-  openCompose({
+  return await openCompose({
     to: sender,
     cc: replyAll ? allRecipients : [],
     subject: rawSubject.startsWith('Re:') ? rawSubject : rawSubject ? `Re: ${rawSubject}` : 'Re:',
@@ -87,6 +118,8 @@ export async function openReplyFromMessage(message, { accounts, openCompose, get
     isReplyAll: replyAll,
     originalFrom: sender,
     allRecipients,
+    replyAllRecipients: allRecipients,
+    threadId: message.thread_id,
   });
 }
 
@@ -106,7 +139,7 @@ export async function openForwardFromMessage(message, { openCompose, getMessageB
     ? `<div style="border-left:3px solid var(--border,#ccc);padding-left:12px;margin-top:12px;color:var(--text-secondary,#666)"><p style="margin:0 0 6px;font-size:12px">---------- Forwarded message ----------<br>From: ${fwdFromStr}<br>Date: ${fwdDate}<br>Subject: ${safeSubject}${toStr ? `<br>To: ${toStr}` : ''}${ccStr ? `<br>Cc: ${ccStr}` : ''}</p>${fwdBody.html}</div>`
     : null;
 
-  openCompose({
+  return await openCompose({
     subject: message.subject?.startsWith('Fwd:') ? message.subject : `Fwd: ${message.subject}`,
     body: '',
     quotedBody: fwdText,

@@ -92,6 +92,7 @@
   },
   "compose": {
     "newMessage": "新邮件",
+    "requestFailed": "无法打开草稿。",
     "reply": "回复",
     "replyAll": "回复全部",
     "forward": "转发",
@@ -107,11 +108,48 @@
     "bodyPh": "请输入正文…",
     "send": "发送",
     "sendTooltip": "发送（Ctrl+Enter）",
-    "sending": "发送中…",
+    "sending": {
+      "label": "发送中…",
+      "title": "正在发送邮件",
+      "countdown": "将在 {{seconds}} 秒后发送",
+      "tooLate": "已来不及撤销"
+    },
     "discard": "丢弃",
     "saveDraft": "保存草稿",
     "savingDraft": "保存中…",
-    "draftSaved": "草稿已保存",
+    "dirty": "有未保存的更改",
+    "saving": "正在保存更改",
+    "saved": "更改已保存",
+    "offline": "离线，更改尚未保存",
+    "error": "无法保存草稿",
+    "conflict": "草稿中有相互冲突的更改",
+    "sessions": {
+      "limit": "已打开九份草稿。请关闭或丢弃一份后再新建。",
+      "saving": "正在保存",
+      "saved": "已保存",
+      "offline": "离线，更改尚未保存",
+      "error": "无法保存草稿",
+      "conflict": "服务器上的更改与您的编辑冲突",
+      "recoveryConflict": "恢复的更改与此标签页中的编辑不一致",
+      "useRemote": "使用服务器版本",
+      "keepMine": "保留我的版本",
+      "useRecovered": "使用恢复的更改",
+      "slotLabel": "草稿 {{slot}}",
+      "minimized": "已最小化",
+      "terminalPending": "正在完成草稿操作…",
+      "conflictingFields": "冲突字段：{{fields}}",
+      "recoveredFields": "恢复字段：{{fields}}",
+      "fields": {
+        "mode": "邮件类型",
+        "body": "邮件正文",
+        "bodyFormat": "邮件格式",
+        "quoted": "引用邮件",
+        "signature": "发件人签名",
+        "attachments": "转发的附件",
+        "replyContext": "回复上下文",
+        "senderChanged": "发件人选择"
+      }
+    },
     "closeDraft": {
       "title": "保存此草稿？",
       "save": "保存草稿",
@@ -123,7 +161,6 @@
       "discard": "丢弃",
       "keepEditing": "继续编辑"
     },
-    "draftHasAttachments": "附件不会随草稿保存，重新打开时需要重新添加。",
     "emptySubject": {
       "title": "没有主题，确定发送？",
       "sendAnyway": "仍然发送",
@@ -213,22 +250,13 @@
     "aiCopied": "已复制",
     "previousMessage": "上一封邮件",
     "nextMessage": "下一封邮件",
-    "archived": {
-      "title": "邮件已归档",
-      "failTitle": "归档失败",
-      "failBody": "无法归档此邮件。",
-      "noFolderTitle": "未设置归档文件夹",
-      "noFolderBody": "此账户未配置归档文件夹。请前往「设置 → 账户 → 文件夹映射」中设置。"
-    },
     "moved": {
-      "title": "邮件已移动",
       "failTitle": "移动失败",
       "failBody": "无法移动此邮件。"
     },
     "snoozed": {
       "title": "邮件已稍后提醒",
-      "failTitle": "稍后提醒失败",
-      "failBody": "无法对此邮件设置稍后提醒。"
+      "failTitle": "稍后提醒失败"
     },
     "whitelistFail": {
       "title": "无法保存偏好设置",
@@ -239,8 +267,7 @@
       "info": "您可以取消订阅此邮件列表。",
       "button": "取消订阅",
       "done": "取消订阅成功。",
-      "error": "取消订阅失败。",
-      "moveToTrash": "移至垃圾箱"
+      "error": "取消订阅失败。"
     },
     "aiClassify": {
       "info": "此邮件没有分类。使用 AI 进行分类？",
@@ -251,6 +278,8 @@
   },
   "messageList": {
     "search": "搜索…",
+    "semanticToggle": "语义搜索",
+    "semanticBuildingHint": "正在构建语义索引 — 显示关键词结果",
     "unread": "未读",
     "showAll": "显示全部",
     "unreadOnly": "仅显示未读",
@@ -277,18 +306,12 @@
     "loadMore": "加载更多",
     "noMoreMessages": "没有更多邮件了",
     "deleted": {
-      "title": "邮件已删除",
-      "body": "已移至废件箱。",
-      "failTitle": "删除失败",
-      "failBody": "无法删除此邮件。"
+      "failTitle": "删除失败"
     },
     "bulkDeleted": {
       "title_one": "已删除 {{count}} 封邮件",
       "title_other": "已删除 {{count}} 封邮件",
-      "body": "已移至废件箱。",
-      "failTitle": "删除失败",
-      "failBody_one": "无法删除 {{count}} 封邮件。",
-      "failBody_other": "无法删除 {{count}} 封邮件。"
+      "failTitle": "删除失败"
     },
     "bulkMoved": {
       "title_one": "已移动 {{count}} 封邮件",
@@ -300,16 +323,7 @@
     "bulkArchived": {
       "title_one": "已归档 {{count}} 封邮件",
       "title_other": "已归档 {{count}} 封邮件",
-      "body": "已移至归档。",
-      "failTitle": "归档失败",
-      "failBody_one": "无法归档 {{count}} 封邮件。",
-      "failBody_other": "无法归档 {{count}} 封邮件。",
-      "noFolderTitle": "未设置归档文件夹",
-      "noFolderBody": "一个或多个账户未配置归档文件夹。请前往「设置 → 账户 → 文件夹映射」中设置。"
-    },
-    "noArchiveFolder": {
-      "title": "未设置归档文件夹",
-      "body": "未配置归档文件夹。请前往「设置 → 账户 → 文件夹映射」中设置。"
+      "failTitle": "归档失败"
     },
     "selectMessages": "选择邮件",
     "selectedCount": "已选 {{count}} 封",
@@ -447,27 +461,83 @@
     }
   },
   "commandPalette": {
-    "placeholder": "搜索操作…",
-    "noResults": "未找到任何操作",
+    "title": "命令面板",
+    "placeholder": "搜索命令…",
+    "noResults": "未找到命令",
+    "matchedAlias": "匹配项：{{alias}}",
+    "announcement": "{{count}} 个命令。目标：{{target}}。",
+    "target": {
+      "application": "应用",
+      "conversation": "会话",
+      "selected": "已选择 {{count}} 个会话"
+    },
+    "outcome": {
+      "failedTitle": "命令执行失败",
+      "partialTitle": "命令部分完成",
+      "partialBody": "{{succeeded}} 个成功；{{failed}} 个失败。"
+    },
     "hint": {
       "navigate": "导航",
       "select": "选择",
       "close": "关闭"
+    }
+  },
+  "commands": {
+    "mail": {
+      "archive": { "aliasDone": "完成" },
+      "snooze": { "aliasRemind": "提醒我" },
+      "trash": { "aliasDelete": "删除" },
+      "spam": { "aliasJunk": "垃圾邮件" },
+      "partial": "成功 {{succeeded}} 个；失败 {{failed}} 个"
     },
-    "actions": {
-      "compose": "撰写新邮件",
-      "inbox": "前往收件箱",
-      "settings": "打开设置",
-      "themes": "打开主题",
-      "switchTheme": "切换至「{{theme}}」主题",
-      "accountInbox": "{{name}} — 收件箱"
+    "shortcuts": {
+      "undo": "撤销", "nextThreadMessage": "会话中的下一封邮件", "previousThreadMessage": "会话中的上一封邮件",
+      "scrollDown": "向下滚动", "scrollUp": "向上滚动", "openConversation": "打开会话",
+      "extendNext": "向下扩展选择", "extendPrevious": "向上扩展选择",
+      "selectOlder": "选择当前及更早的会话", "selectAll": "选择所有会话",
+      "clearSelection": "清除选择", "sent": "前往已发送", "drafts": "前往草稿", "contacts": "前往联系人"
+    },
+    "compose": {
+      "new": { "title": "撰写", "alias": { "write": "写邮件" } },
+      "minimize": "最小化草稿",
+      "close": "保存并关闭草稿",
+      "discard": "丢弃草稿",
+      "activateSlot": "打开草稿 {{slot}}"
+    },
+    "navigation": {
+      "search": { "title": "搜索邮件" },
+      "unifiedInbox": { "title": "前往统一收件箱" },
+      "accountInbox": { "title": "{{name}} — 收件箱" },
+      "folder": { "title": "{{name}}" },
+      "gtd": {
+        "todo": { "title": "前往待办" },
+        "watch": { "title": "前往关注" },
+        "delegated": { "title": "前往已委派" },
+        "reference": { "title": "前往参考" },
+        "someday": { "title": "前往将来" }
+      }
+    },
+    "appearance": { "theme": { "title": "切换至「{{name}}」主题" } },
+    "settings": {
+      "accounts": { "title": "打开账户设置" },
+      "notifications": { "title": "打开通知设置" },
+      "rules": { "title": "打开规则" },
+      "categories": { "title": "打开分类" },
+      "appearance": { "title": "打开外观设置" },
+      "shortcuts": { "title": "打开快捷键设置" },
+      "security": { "title": "打开安全设置" },
+      "integrations": { "title": "打开集成" },
+      "ai-actions": { "title": "打开 AI 操作" },
+      "about": { "title": "打开关于" },
+      "users": { "title": "打开用户管理" },
+      "sso": { "title": "打开单点登录设置" },
+      "ai": { "title": "打开 AI 设置" }
     }
   },
   "shortcuts": {
     "title": "键盘快捷键",
     "customizeHint": "可在「设置 → 快捷键」中自定义快捷键",
     "closeHint": "按 ? 或 Esc 关闭",
-    "then": "然后",
     "groups": {
       "composeSearch": "撰写与搜索",
       "navigation": "导航",
@@ -475,85 +545,47 @@
       "gtd": "GTD"
     },
     "actions": {
-      "compose": {
-        "label": "撰写",
-        "description": "打开新的撰写窗口"
-      },
-      "focusSearch": {
-        "label": "搜索",
-        "description": "聚焦搜索框"
-      },
-      "showHelp": {
-        "label": "显示快捷键",
-        "description": "显示此键盘快捷键参考"
-      },
       "nextMessage": {
-        "label": "下一封邮件",
-        "description": "移动到下一封邮件"
+        "label": "下一封邮件"
       },
       "prevMessage": {
-        "label": "上一封邮件",
-        "description": "移动到上一封邮件"
-      },
-      "openMessage": {
-        "label": "打开第一封邮件",
-        "description": "若未选中任何邮件则打开第一封"
-      },
-      "goInbox": {
-        "label": "前往收件箱",
-        "description": "跳转到统一收件箱"
+        "label": "上一封邮件"
       },
       "reply": {
-        "label": "回复",
-        "description": "回复当前邮件"
+        "label": "回复"
       },
       "replyAll": {
-        "label": "回复全部",
-        "description": "回复当前邮件的所有收件人"
+        "label": "回复全部"
       },
       "forward": {
-        "label": "转发",
-        "description": "转发当前邮件"
+        "label": "转发"
       },
       "archive": {
-        "label": "归档",
-        "description": "归档邮件 / 所选项"
+        "label": "归档"
       },
       "delete": {
-        "label": "删除",
-        "description": "删除邮件 / 所选项"
+        "label": "删除"
       },
       "toggleStar": {
-        "label": "加星标",
-        "description": "切换当前邮件的星标"
+        "label": "加星标"
       },
       "toggleRead": {
-        "label": "切换已读状态",
-        "description": "将当前邮件标记为已读或未读"
+        "label": "切换已读状态"
       },
       "selectMessage": {
-        "label": "选择邮件",
-        "description": "勾选或取消勾选当前邮件"
+        "label": "选择邮件"
       },
       "printMessage": {
-        "label": "打印",
-        "description": "打印当前邮件"
+        "label": "打印"
       },
       "gtdTodo": {
-        "label": "标记为待办",
-        "description": "将所选邮件归类为待办"
+        "label": "标记为待办"
       },
       "gtdWatch": {
-        "label": "标记为关注",
-        "description": "将所选邮件归类为关注"
-      },
-      "gtdDelegated": {
-        "label": "标记为已委派",
-        "description": "将所选邮件归类为已委派"
+        "label": "标记为关注"
       },
       "toggleRightSidebar": {
-        "label": "切换右侧边栏",
-        "description": "隐藏或显示右侧边栏"
+        "label": "切换右侧边栏"
       }
     }
   },
@@ -586,7 +618,25 @@
     "uploadPhoto": "上传头像",
     "removePhoto": "移除头像",
     "errorNotImage": "请选择一个图片文件。",
-    "errorProcess": "无法处理该图片。"
+    "errorProcess": "无法处理该图片。",
+    "tokens": {
+      "label": "API 令牌 (MCP)",
+      "namePlaceholder": "令牌名称（例如 笔记本）",
+      "create": "创建",
+      "revoke": "撤销",
+      "usedOn": "使用于 {{date}}",
+      "neverUsed": "从未使用",
+      "copyOnce": "立即复制 — 你将无法再次看到它。",
+      "createFailed": "创建令牌失败",
+      "revokeFailed": "撤销令牌失败",
+      "scopes": {
+        "read": "读取邮件",
+        "write": "修改邮件",
+        "send": "发送邮件",
+        "settings": "管理设置",
+        "sendRisk": "此令牌无需进一步确认即可代表你发送邮件。"
+      }
+    }
   },
   "admin": {
     "title": "设置",
@@ -863,6 +913,12 @@
       "defaultReplyAction": "默认回复方式",
       "defaultReply": "回复",
       "defaultReplyAllDesc": "回复按钮将发送给所有收件人",
+      "undoSend": "撤销发送",
+      "undoSendOff": "关闭",
+      "undoSend10": "10 秒",
+      "undoSend30": "30 秒",
+      "undoSend60": "60 秒",
+      "undoSend120": "2 分钟",
       "markReadBehavior": "标为已读",
       "markReadImmediate": "立即",
       "markReadImmediateDesc": "打开邮件后立即标为已读。",
@@ -1013,7 +1069,8 @@
       "conflict": "按键 {{key}} 原已分配给「{{action}}」，现已重新分配。",
       "resetDefault": "恢复默认",
       "remove": "移除快捷键",
-      "footer": "在应用任意位置按 ? 即可查看当前快捷键参考。"
+      "footer": "在应用任意位置按 ? 即可查看当前快捷键参考。",
+      "sources": { "primary": "主要", "secondary": "备用", "platform": "平台", "user": "自定义" }
     },
     "users": {
       "title": "用户",
@@ -1101,7 +1158,39 @@
       "copied": "已复制",
       "copyFailed": "无法复制代码。",
       "openAuthorization": "打开授权页面",
-      "deviceExpires": "代码将于 {{time}} 过期。"
+      "deviceExpires": "代码将于 {{time}} 过期。",
+      "remove": "删除配置",
+      "emb": {
+        "title": "嵌入（语义搜索）",
+        "benefit": "嵌入让搜索更快、更准确——无论是为你自己，还是为通过 MCP 连接的智能体。",
+        "defaultOff": "默认关闭。在你启用嵌入并开始构建之前，不会向任何地方发送数据。",
+        "enable": "启用嵌入",
+        "privacyWarning": "配置托管端点后，嵌入提供方（例如 OpenAI）会收到你的邮件内容——主题和正文文本。此时该数据路径不再是自托管的。",
+        "vectorUnavailable": "此数据库上没有可用的 pgvector 扩展，因此无法进行语义搜索。关键词搜索仍然可用。",
+        "endpoint": "端点 URL",
+        "endpointPh": "https://api.openai.com/v1",
+        "endpointHint": "客户端会在该 URL 后追加 /embeddings。",
+        "sameAsChat": "与聊天提供方相同",
+        "sameAsChatActive": "正在使用聊天提供方的端点",
+        "model": "模型",
+        "modelPh": "text-embedding-3-small",
+        "dimension": "维度",
+        "dimensionPh": "1536",
+        "dimensionHint": "模型返回的向量大小。运行“测试”以从端点确认该值。",
+        "apiKey": "嵌入 API 密钥",
+        "test": "测试端点",
+        "testOk": "端点可访问——维度 {{dimension}}。",
+        "build": "构建索引",
+        "rebuild": "重建索引",
+        "building": "构建中…",
+        "buildStarted": "构建已开始——索引在后台运行。",
+        "saveHint": "在测试或构建之前，请先保存更改。",
+        "progressLabel": "正在索引 {{processed}} / {{total}} 封邮件",
+        "progressDone": "嵌入已是最新（已索引 {{total}} 封邮件）。",
+        "progressError": "构建错误：{{error}}",
+        "localTitle": "在本地运行嵌入",
+        "localHelp": "Mailflow 可以完全在你自己的硬件上生成嵌入，因此邮件内容不会离开你的网络。在 Raspberry Pi 上，使用小型模型运行 Ollama，例如 all-minilm（384）或 nomic-embed-text（768）——两者都提供与 OpenAI 兼容的端点，Mailflow 可直接与之通信。Pi 级 CPU 较慢：对于大型邮箱，首次索引构建可能需要数小时到数天，但它只在后台运行一次并能安全恢复；此后，为新邮件生成嵌入几乎是即时的。若想加快首次构建，可将端点指向托管 API，或指向你局域网中一台性能更强、始终在线的机器。"
+      }
     },
     "aiActions": {
       "description": "创建你自己的 AI 操作。它们会在阅读邮件时出现在 AI 菜单中，与“摘要”并列。每个操作的提示词会应用于邮件内容。",
@@ -1399,10 +1488,7 @@
     "movedToInbox": "已移至收件箱",
     "movedToInboxBulk": "已移至收件箱 {{count}} 封",
     "failTitle": "标记为垃圾邮件失败",
-    "failHamTitle": "标记为非垃圾邮件失败",
-    "failBody": "邮件服务器拒绝了移动操作。",
-    "failHamBody": "邮件服务器拒绝了移动操作。",
-    "failBodyBulk": "{{count}} 封邮件无法移动。"
+    "failHamTitle": "标记为非垃圾邮件失败"
   },
   "contacts": {
     "title": "联系人",
@@ -1470,6 +1556,21 @@
   },
   "gtd": {
     "title": "GTD",
+    "delegate": {
+      "command": "委派",
+      "pickerTitle": "委派 {{count}} 封邮件",
+      "pickerHint": "选择已同步的联系人，或不指定联系人继续",
+      "search": "搜索联系人",
+      "contacts": "联系人",
+      "withoutPerson": "不指定联系人直接委派",
+      "empty": "未找到联系人",
+      "retry": "重试",
+      "loadFailed": "无法加载联系人",
+      "assignedTo": "已委派给 {{name}}",
+      "success": "已委派 {{count}} 封邮件",
+      "partial": "已委派 {{succeeded}} 封；{{failed}} 封失败",
+      "failed": "无法委派所选邮件"
+    },
     "inbox": "收件箱",
     "waiting": "等待中",
     "inboxZero": "收件箱清零 ✓",

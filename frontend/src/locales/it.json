@@ -92,6 +92,7 @@
   },
   "compose": {
     "newMessage": "Nuovo messaggio",
+    "requestFailed": "Impossibile aprire la bozza.",
     "reply": "Rispondi",
     "replyAll": "Rispondi a tutti",
     "forward": "Inoltra",
@@ -107,11 +108,48 @@
     "bodyPh": "Scrivi il tuo messaggio…",
     "send": "Invia",
     "sendTooltip": "Invia (Ctrl+Invio)",
-    "sending": "Invio…",
+    "sending": {
+      "label": "Invio…",
+      "title": "Invio del messaggio",
+      "countdown": "Invio tra {{seconds}} s",
+      "tooLate": "Troppo tardi per annullare"
+    },
     "discard": "Scarta",
     "saveDraft": "Salva bozza",
     "savingDraft": "Salvataggio…",
-    "draftSaved": "Bozza salvata",
+    "dirty": "Modifiche non salvate",
+    "saving": "Salvataggio delle modifiche",
+    "saved": "Modifiche salvate",
+    "offline": "Non in linea: modifiche non salvate",
+    "error": "Impossibile salvare la bozza",
+    "conflict": "La bozza contiene modifiche incompatibili",
+    "sessions": {
+      "limit": "Sono già aperte nove bozze. Chiudine o scartane una per iniziarne un’altra.",
+      "saving": "Salvataggio",
+      "saved": "Salvata",
+      "offline": "Non in linea: modifiche non salvate",
+      "error": "Impossibile salvare la bozza",
+      "conflict": "Le modifiche del server sono in conflitto con le tue",
+      "recoveryConflict": "Le modifiche recuperate differiscono da quelle di questa scheda",
+      "useRemote": "Usa versione remota",
+      "keepMine": "Mantieni la mia versione",
+      "useRecovered": "Usa modifiche recuperate",
+      "slotLabel": "Bozza {{slot}}",
+      "minimized": "Ridotta",
+      "terminalPending": "Chiusura della bozza…",
+      "conflictingFields": "Campi in conflitto: {{fields}}",
+      "recoveredFields": "Campi recuperati: {{fields}}",
+      "fields": {
+        "mode": "Tipo di messaggio",
+        "body": "Corpo del messaggio",
+        "bodyFormat": "Formato del messaggio",
+        "quoted": "Messaggio citato",
+        "signature": "Firma del mittente",
+        "attachments": "Allegati inoltrati",
+        "replyContext": "Contesto della risposta",
+        "senderChanged": "Scelta del mittente"
+      }
+    },
     "closeDraft": {
       "title": "Salvare questa bozza?",
       "save": "Salva bozza",
@@ -123,7 +161,6 @@
       "discard": "Scarta",
       "keepEditing": "Continua a modificare"
     },
-    "draftHasAttachments": "Gli allegati non vengono salvati con le bozze. Dovranno essere ricollegati alla riapertura.",
     "emptySubject": {
       "title": "Inviare senza oggetto?",
       "sendAnyway": "Invia comunque",
@@ -213,22 +250,13 @@
     "aiCopied": "Copiato",
     "previousMessage": "Messaggio precedente",
     "nextMessage": "Messaggio successivo",
-    "archived": {
-      "title": "Messaggio archiviato",
-      "failTitle": "Archiviazione fallita",
-      "failBody": "Impossibile archiviare il messaggio.",
-      "noFolderTitle": "Nessuna cartella di archivio",
-      "noFolderBody": "Nessuna cartella di archivio configurata per questo account. Impostane una in Impostazioni → Account → Mappatura cartelle."
-    },
     "moved": {
-      "title": "Messaggio spostato",
       "failTitle": "Spostamento fallito",
       "failBody": "Impossibile spostare il messaggio."
     },
     "snoozed": {
       "title": "Messaggio posticipato",
-      "failTitle": "Posticipa fallito",
-      "failBody": "Impossibile posticipare questo messaggio."
+      "failTitle": "Posticipa fallito"
     },
     "whitelistFail": {
       "title": "Impossibile salvare la preferenza",
@@ -239,8 +267,7 @@
       "info": "Puoi annullare l'iscrizione a questa mailing list.",
       "button": "Annulla iscrizione",
       "done": "Iscrizione annullata con successo.",
-      "error": "Annullamento iscrizione fallito.",
-      "moveToTrash": "Sposta nel cestino"
+      "error": "Annullamento iscrizione fallito."
     },
     "aiClassify": {
       "info": "Questa email non ha una categoria. Classificare con IA?",
@@ -251,6 +278,8 @@
   },
   "messageList": {
     "search": "Cerca…",
+    "semanticToggle": "Ricerca semantica",
+    "semanticBuildingHint": "Creazione dell'indice semantico — risultati per parola chiave",
     "unread": "Non letti",
     "showAll": "Mostra tutto",
     "unreadOnly": "Solo non letti",
@@ -277,18 +306,12 @@
     "loadMore": "Carica altro",
     "noMoreMessages": "Nessun altro messaggio",
     "deleted": {
-      "title": "Messaggio eliminato",
-      "body": "Spostato nel Cestino.",
-      "failTitle": "Eliminazione fallita",
-      "failBody": "Impossibile eliminare il messaggio."
+      "failTitle": "Eliminazione fallita"
     },
     "bulkDeleted": {
       "title_one": "{{count}} messaggio eliminato",
       "title_other": "{{count}} messaggi eliminati",
-      "body": "Spostato nel Cestino.",
-      "failTitle": "Eliminazione fallita",
-      "failBody_one": "Impossibile eliminare {{count}} messaggio.",
-      "failBody_other": "Impossibile eliminare {{count}} messaggi."
+      "failTitle": "Eliminazione fallita"
     },
     "bulkMoved": {
       "title_one": "{{count}} messaggio spostato",
@@ -300,16 +323,7 @@
     "bulkArchived": {
       "title_one": "{{count}} messaggio archiviato",
       "title_other": "{{count}} messaggi archiviati",
-      "body": "Spostato nell'Archivio.",
-      "failTitle": "Archiviazione fallita",
-      "failBody_one": "Impossibile archiviare {{count}} messaggio.",
-      "failBody_other": "Impossibile archiviare {{count}} messaggi.",
-      "noFolderTitle": "Nessuna cartella di archivio",
-      "noFolderBody": "Uno o più account non hanno una cartella di archivio configurata. Impostane una in Impostazioni → Account → Mappatura cartelle."
-    },
-    "noArchiveFolder": {
-      "title": "Nessuna cartella di archivio",
-      "body": "Nessuna cartella di archivio configurata. Impostane una in Impostazioni → Account → Mappatura cartelle."
+      "failTitle": "Archiviazione fallita"
     },
     "selectMessages": "Seleziona messaggi",
     "selectedCount": "{{count}} selezionato/i",
@@ -447,27 +461,83 @@
     }
   },
   "commandPalette": {
-    "placeholder": "Cerca azioni…",
-    "noResults": "Nessuna azione trovata",
+    "title": "Tavolozza dei comandi",
+    "placeholder": "Cerca comandi…",
+    "noResults": "Nessun comando trovato",
+    "matchedAlias": "Corrispondenza: {{alias}}",
+    "announcement": "{{count}} comandi. Destinazione: {{target}}.",
+    "target": {
+      "application": "Applicazione",
+      "conversation": "Conversazione",
+      "selected": "{{count}} conversazioni selezionate"
+    },
+    "outcome": {
+      "failedTitle": "Comando non riuscito",
+      "partialTitle": "Comando completato parzialmente",
+      "partialBody": "{{succeeded}} riusciti; {{failed}} non riusciti."
+    },
     "hint": {
       "navigate": "naviga",
       "select": "seleziona",
       "close": "chiudi"
+    }
+  },
+  "commands": {
+    "mail": {
+      "archive": { "aliasDone": "Fatto" },
+      "snooze": { "aliasRemind": "Ricordamelo" },
+      "trash": { "aliasDelete": "Elimina" },
+      "spam": { "aliasJunk": "Posta indesiderata" },
+      "partial": "{{succeeded}} riuscite; {{failed}} non riuscite"
     },
-    "actions": {
-      "compose": "Scrivi nuovo messaggio",
-      "inbox": "Vai alla Posta in arrivo",
-      "settings": "Apri Impostazioni",
-      "themes": "Apri Temi",
-      "switchTheme": "Passa al tema {{theme}}",
-      "accountInbox": "{{name}} — Posta in arrivo"
+    "shortcuts": {
+      "undo": "Annulla", "nextThreadMessage": "Messaggio successivo nella conversazione", "previousThreadMessage": "Messaggio precedente nella conversazione",
+      "scrollDown": "Scorri in basso", "scrollUp": "Scorri in alto", "openConversation": "Apri conversazione",
+      "extendNext": "Estendi selezione verso il basso", "extendPrevious": "Estendi selezione verso l’alto",
+      "selectOlder": "Seleziona conversazione attiva e precedenti", "selectAll": "Seleziona tutte le conversazioni",
+      "clearSelection": "Cancella selezione", "sent": "Vai a Inviati", "drafts": "Vai a Bozze", "contacts": "Vai a Contatti"
+    },
+    "compose": {
+      "new": { "title": "Scrivi", "alias": { "write": "Componi" } },
+      "minimize": "Riduci bozza",
+      "close": "Salva e chiudi bozza",
+      "discard": "Scarta bozza",
+      "activateSlot": "Attiva bozza {{slot}}"
+    },
+    "navigation": {
+      "search": { "title": "Cerca nella posta" },
+      "unifiedInbox": { "title": "Vai alla posta in arrivo unificata" },
+      "accountInbox": { "title": "{{name}} — Posta in arrivo" },
+      "folder": { "title": "{{name}}" },
+      "gtd": {
+        "todo": { "title": "Vai a Da fare" },
+        "watch": { "title": "Vai a Osservare" },
+        "delegated": { "title": "Vai a Delegato" },
+        "reference": { "title": "Vai a Riferimento" },
+        "someday": { "title": "Vai a Un giorno" }
+      }
+    },
+    "appearance": { "theme": { "title": "Passa al tema {{name}}" } },
+    "settings": {
+      "accounts": { "title": "Apri impostazioni account" },
+      "notifications": { "title": "Apri impostazioni notifiche" },
+      "rules": { "title": "Apri Regole" },
+      "categories": { "title": "Apri Categorie" },
+      "appearance": { "title": "Apri impostazioni aspetto" },
+      "shortcuts": { "title": "Apri impostazioni scorciatoie" },
+      "security": { "title": "Apri impostazioni sicurezza" },
+      "integrations": { "title": "Apri Integrazioni" },
+      "ai-actions": { "title": "Apri Azioni IA" },
+      "about": { "title": "Apri Informazioni" },
+      "users": { "title": "Apri amministrazione utenti" },
+      "sso": { "title": "Apri impostazioni SSO" },
+      "ai": { "title": "Apri impostazioni IA" }
     }
   },
   "shortcuts": {
     "title": "Scorciatoie da tastiera",
     "customizeHint": "Personalizza le scorciatoie in Impostazioni → Scorciatoie",
     "closeHint": "Premi ? o Esc per chiudere",
-    "then": "poi",
     "groups": {
       "composeSearch": "Composizione e ricerca",
       "navigation": "Navigazione",
@@ -475,85 +545,47 @@
       "gtd": "GTD"
     },
     "actions": {
-      "compose": {
-        "label": "Scrivi",
-        "description": "Apri una nuova finestra di composizione"
-      },
-      "focusSearch": {
-        "label": "Cerca",
-        "description": "Attiva il campo di ricerca"
-      },
-      "showHelp": {
-        "label": "Mostra scorciatoie",
-        "description": "Mostra questo elenco di scorciatoie da tastiera"
-      },
       "nextMessage": {
-        "label": "Messaggio successivo",
-        "description": "Passa al messaggio successivo"
+        "label": "Messaggio successivo"
       },
       "prevMessage": {
-        "label": "Messaggio precedente",
-        "description": "Passa al messaggio precedente"
-      },
-      "openMessage": {
-        "label": "Apri il primo messaggio",
-        "description": "Apri il primo messaggio se non ne è selezionato nessuno"
-      },
-      "goInbox": {
-        "label": "Vai alla Posta in arrivo",
-        "description": "Vai alla posta in arrivo unificata"
+        "label": "Messaggio precedente"
       },
       "reply": {
-        "label": "Rispondi",
-        "description": "Rispondi al messaggio corrente"
+        "label": "Rispondi"
       },
       "replyAll": {
-        "label": "Rispondi a tutti",
-        "description": "Rispondi a tutti per il messaggio corrente"
+        "label": "Rispondi a tutti"
       },
       "forward": {
-        "label": "Inoltra",
-        "description": "Inoltra il messaggio corrente"
+        "label": "Inoltra"
       },
       "archive": {
-        "label": "Archivia",
-        "description": "Archivia messaggio / selezione"
+        "label": "Archivia"
       },
       "delete": {
-        "label": "Elimina",
-        "description": "Elimina messaggio / selezione"
+        "label": "Elimina"
       },
       "toggleStar": {
-        "label": "Segna con stella",
-        "description": "Attiva o disattiva la stella sul messaggio corrente"
+        "label": "Segna con stella"
       },
       "toggleRead": {
-        "label": "Segna letto / non letto",
-        "description": "Segna il messaggio corrente come letto o non letto"
+        "label": "Segna letto / non letto"
       },
       "selectMessage": {
-        "label": "Seleziona messaggio",
-        "description": "Seleziona o deseleziona il messaggio corrente"
+        "label": "Seleziona messaggio"
       },
       "printMessage": {
-        "label": "Stampa",
-        "description": "Stampa il messaggio corrente"
+        "label": "Stampa"
       },
       "gtdTodo": {
-        "label": "Segna Da fare",
-        "description": "Classifica il messaggio selezionato come Da fare"
+        "label": "Segna Da fare"
       },
       "gtdWatch": {
-        "label": "Segna Osservare",
-        "description": "Classifica il messaggio selezionato come Osservare"
-      },
-      "gtdDelegated": {
-        "label": "Segna Delegato",
-        "description": "Classifica il messaggio selezionato come Delegato"
+        "label": "Segna Osservare"
       },
       "toggleRightSidebar": {
-        "label": "Mostra o nascondi la barra laterale destra",
-        "description": "Nascondi o mostra la barra laterale destra"
+        "label": "Mostra o nascondi la barra laterale destra"
       }
     }
   },
@@ -586,7 +618,25 @@
     "uploadPhoto": "Carica foto",
     "removePhoto": "Rimuovi foto",
     "errorNotImage": "Seleziona un file immagine.",
-    "errorProcess": "Impossibile elaborare l'immagine."
+    "errorProcess": "Impossibile elaborare l'immagine.",
+    "tokens": {
+      "label": "Token API (MCP)",
+      "namePlaceholder": "Nome del token (es. laptop)",
+      "create": "Crea",
+      "revoke": "Revoca",
+      "usedOn": "usato {{date}}",
+      "neverUsed": "mai usato",
+      "copyOnce": "Copialo ora: non lo vedrai più.",
+      "createFailed": "Impossibile creare il token",
+      "revokeFailed": "Impossibile revocare il token",
+      "scopes": {
+        "read": "Leggere le email",
+        "write": "Modificare le email",
+        "send": "Inviare email",
+        "settings": "Gestire le impostazioni",
+        "sendRisk": "Questo token può inviare email a tuo nome senza ulteriore conferma."
+      }
+    }
   },
   "admin": {
     "title": "Impostazioni",
@@ -863,6 +913,12 @@
       "defaultReplyAction": "Azione di risposta predefinita",
       "defaultReply": "Rispondi",
       "defaultReplyAllDesc": "Il pulsante Rispondi invia a tutti i destinatari",
+      "undoSend": "Annulla invio",
+      "undoSendOff": "Disattivato",
+      "undoSend10": "10 secondi",
+      "undoSend30": "30 secondi",
+      "undoSend60": "60 secondi",
+      "undoSend120": "2 minuti",
       "markReadBehavior": "Segna come letto",
       "markReadImmediate": "Immediatamente",
       "markReadImmediateDesc": "Segna le email come lette non appena le apri.",
@@ -1013,7 +1069,8 @@
       "conflict": "Il tasto {{key}} era già assegnato a {{action}} — è stato riassegnato.",
       "resetDefault": "Ripristina predefinito",
       "remove": "Rimuovi scorciatoia",
-      "footer": "Premi ? ovunque nell'app per vedere le scorciatoie attuali."
+      "footer": "Premi ? ovunque nell'app per vedere le scorciatoie attuali.",
+      "sources": { "primary": "Principale", "secondary": "Secondaria", "platform": "Piattaforma", "user": "Personalizzata" }
     },
     "users": {
       "title": "Utenti",
@@ -1101,7 +1158,39 @@
       "copied": "Copiato",
       "copyFailed": "Impossibile copiare il codice.",
       "openAuthorization": "Apri pagina di autorizzazione",
-      "deviceExpires": "Il codice scade alle {{time}}."
+      "deviceExpires": "Il codice scade alle {{time}}.",
+      "remove": "Rimuovi configurazione",
+      "emb": {
+        "title": "Embeddings (ricerca semantica)",
+        "benefit": "Gli embeddings rendono la ricerca più veloce e precisa — per te o per un agente connesso tramite MCP.",
+        "defaultOff": "Disattivato per impostazione predefinita. Non viene inviato nulla finché non attivi gli embeddings e avvii una creazione.",
+        "enable": "Attiva gli embeddings",
+        "privacyWarning": "Con un endpoint ospitato configurato, il fornitore di embeddings (ad es. OpenAI) riceve il contenuto delle tue email — oggetto e corpo del testo. A quel punto questo percorso dei dati non è più self-hosted.",
+        "vectorUnavailable": "L'estensione pgvector non è disponibile su questo database, quindi la ricerca semantica non può funzionare. La ricerca per parole chiave funziona ancora.",
+        "endpoint": "URL dell'endpoint",
+        "endpointPh": "https://api.openai.com/v1",
+        "endpointHint": "Il client aggiunge /embeddings a questo URL.",
+        "sameAsChat": "Come il fornitore di chat",
+        "sameAsChatActive": "Utilizza l'endpoint del fornitore di chat",
+        "model": "Modello",
+        "modelPh": "text-embedding-3-small",
+        "dimension": "Dimensione",
+        "dimensionPh": "1536",
+        "dimensionHint": "Dimensione del vettore restituita dal modello. Esegui «Prova» per confermarla dall'endpoint.",
+        "apiKey": "Chiave API degli embeddings",
+        "test": "Prova endpoint",
+        "testOk": "Endpoint raggiungibile — dimensione {{dimension}}.",
+        "build": "Crea indice",
+        "rebuild": "Ricrea indice",
+        "building": "Creazione…",
+        "buildStarted": "Creazione avviata — l'indicizzazione viene eseguita in background.",
+        "saveHint": "Salva le modifiche prima di provare o creare.",
+        "progressLabel": "Indicizzazione di {{processed}} / {{total}} messaggi",
+        "progressDone": "Embeddings aggiornati ({{total}} messaggi indicizzati).",
+        "progressError": "Errore di creazione: {{error}}",
+        "localTitle": "Eseguire gli embeddings in locale",
+        "localHelp": "Mailflow può generare gli embeddings interamente sul tuo hardware, così nessun contenuto dei messaggi lascia la tua rete. Su un Raspberry Pi, esegui Ollama con un modello piccolo come all-minilm (384) o nomic-embed-text (768) — entrambi espongono un endpoint compatibile con OpenAI con cui Mailflow comunica direttamente. Le CPU di classe Pi sono lente: la prima creazione dell'indice per una casella grande può richiedere da ore a giorni, ma viene eseguita una sola volta in background e riprende in sicurezza; in seguito, l'incorporamento della nuova posta è istantaneo. Per una prima creazione più veloce, punta l'endpoint verso un'API ospitata o una macchina più potente e sempre accesa nella tua LAN."
+      }
     },
     "aiActions": {
       "description": "Crea le tue azioni IA. Appaiono nel menu IA durante la lettura di un messaggio, accanto a Riassumi. Il prompt di ogni azione viene applicato al contenuto del messaggio.",
@@ -1399,10 +1488,7 @@
     "movedToInbox": "Spostato in Posta in arrivo",
     "movedToInboxBulk": "{{count}} messaggi spostati in Posta in arrivo",
     "failTitle": "Impossibile segnalare come spam",
-    "failHamTitle": "Impossibile segnalare come non spam",
-    "failBody": "Il server di posta ha rifiutato lo spostamento.",
-    "failHamBody": "Il server di posta ha rifiutato lo spostamento.",
-    "failBodyBulk": "{{count}} messaggi non possono essere spostati."
+    "failHamTitle": "Impossibile segnalare come non spam"
   },
   "contacts": {
     "title": "Contatti",
@@ -1470,6 +1556,21 @@
   },
   "gtd": {
     "title": "GTD",
+    "delegate": {
+      "command": "Delega",
+      "pickerTitle": "Delega {{count}} messaggio/i",
+      "pickerHint": "Scegli un contatto sincronizzato o continua senza una persona",
+      "search": "Cerca contatti",
+      "contacts": "Contatti",
+      "withoutPerson": "Delega senza una persona",
+      "empty": "Nessun contatto trovato",
+      "retry": "Riprova",
+      "loadFailed": "Impossibile caricare i contatti",
+      "assignedTo": "Delegato a {{name}}",
+      "success": "{{count}} messaggio/i delegato/i",
+      "partial": "{{succeeded}} messaggio/i delegato/i; {{failed}} non riuscito/i",
+      "failed": "Impossibile delegare i messaggi selezionati"
+    },
     "inbox": "Posta in arrivo",
     "waiting": "In attesa",
     "inboxZero": "Posta a zero ✓",

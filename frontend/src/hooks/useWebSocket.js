@@ -76,6 +76,17 @@ let flagCountRefreshTimer = null;
 const BACKOFF_BASE = 1000;
 const BACKOFF_MAX = 30000;
 
+export function dispatchComposeSessionInvalidation(data, {
+  eventTarget = globalThis.window,
+  CustomEvent: CustomEventConstructor = globalThis.CustomEvent,
+} = {}) {
+  if (!eventTarget?.dispatchEvent || typeof CustomEventConstructor !== 'function') return false;
+  eventTarget.dispatchEvent(new CustomEventConstructor('mailflow:compose-session-updated', {
+    detail: data,
+  }));
+  return true;
+}
+
 export function useWebSocket() {
   const { t } = useTranslation();
   const wsRef = useRef(null);
@@ -377,6 +388,11 @@ export function useWebSocket() {
             api.getUnreadCounts().then(_applyServerCounts).catch(() => {});
           }, 400);
         }
+        break;
+      }
+
+      case 'compose_sessions_updated': {
+        dispatchComposeSessionInvalidation(data);
         break;
       }
     }

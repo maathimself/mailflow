@@ -1,6 +1,7 @@
 import { query } from './db.js';
 import { getGtdConfig, GTD_STATES } from './gtdConfig.js';
 import { resolveAllDraftsPaths } from '../utils/mailUtils.js';
+import { DELEGATION_SELECT_SQL, delegationJoinSql, mapDelegationRow } from './gtdDelegations.js';
 
 // States the frontend merges into the single "Waiting" section (utils/gtd.js). Their
 // counts must dedupe a thread holding BOTH labels; see the waiting_agg CTE below.
@@ -34,8 +35,11 @@ const SECTION_SQL = `
   ),
   msg AS (
     SELECT m.id, m.account_id, m.thread_key, m.message_id, m.folder,
-           m.subject, m.from_name, m.from_email, m.date, m.snippet, m.is_read, m.is_starred, m.uid, m.gtd_gist
+           m.subject, m.from_name, m.from_email, m.date, m.snippet, m.is_read, m.is_starred, m.uid, m.gtd_gist,
+           ${DELEGATION_SELECT_SQL}
     FROM messages m
+    JOIN email_accounts a ON a.id = m.account_id
+    ${delegationJoinSql('m', 'a')}
     WHERE m.account_id = $1
       AND m.is_deleted = false
       AND m.folder <> ALL($4::text[])
@@ -51,7 +55,7 @@ const SECTION_SQL = `
   head AS (
     SELECT DISTINCT ON (account_id, thread_key)
            thread_key, account_id, message_id, folder,
-           subject, from_name, from_email, date, snippet, is_starred, uid, id, gtd_gist
+           subject, from_name, from_email, date, snippet, is_starred, uid, id, gtd_gist, delegation
     FROM msg
     -- Prefer a row that lives in a GTD label folder: that copy's id is stable for as long
     -- as the thread is in a section, whereas a transient INBOX copy (archived/purged out
@@ -85,7 +89,7 @@ const SECTION_SQL = `
   ranked AS (
     SELECT ts.state,
            h.thread_key, h.account_id, h.message_id, h.folder,
-           h.subject, h.from_name, h.from_email, h.date, h.snippet, h.is_starred, h.uid, h.id, h.gtd_gist,
+           h.subject, h.from_name, h.from_email, h.date, h.snippet, h.is_starred, h.uid, h.id, h.gtd_gist, h.delegation,
            fa.folders, fa.in_inbox, fa.thread_unread,
            COUNT(*)                                  OVER (PARTITION BY ts.state) AS total,
            COUNT(*) FILTER (WHERE fa.thread_unread)  OVER (PARTITION BY ts.state) AS unread,
@@ -95,7 +99,7 @@ const SECTION_SQL = `
     JOIN folders_agg fa ON fa.thread_key = ts.thread_key
   )
   SELECT state, thread_key, account_id, message_id, folder,
-         subject, from_name, from_email, date, snippet, is_starred, uid, id, gtd_gist,
+         subject, from_name, from_email, date, snippet, is_starred, uid, id, gtd_gist, delegation,
          folders, in_inbox, thread_unread, total::int AS total, unread::int AS unread,
          waiting_total::int AS waiting_total, waiting_unread::int AS waiting_unread
   FROM ranked
@@ -133,6 +137,7 @@ function mapHead(row) {
     // AI-condensed one-line gist for waiting rows, when cached on this head.
     // Null until lazily generated; the client falls back to the raw snippet.
     gist: row.gtd_gist || null,
+    delegation: mapDelegationRow(row),
   };
 }
 

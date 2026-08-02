@@ -25,10 +25,13 @@ import { NOTIFICATION_SOUNDS, playNotificationSound, playCustomSound, warmUpAudi
 import { usePushNotifications } from '../hooks/usePushNotifications.js';
 import SignatureEditor from './SignatureEditor.jsx';
 import GtdZeroPet from './GtdZeroPet.jsx';
-import { getEffectiveShortcuts, getGroupedActions, ACTION_DEFS, SPECIAL_KEY_LABELS, parseModKey, modLabel } from '../utils/defaultShortcuts.js';
 import { DEFAULT_GTD_FOLDERS, GTD_STATES, resolveAccountGtdFolders, diffGtdFolders, findGtdFolderCollisions } from '../utils/gtd.js';
 import { unifiedUnreadTotal } from '../utils/unifiedInbox.js';
 import { isValidForwardAddress } from '../utils/ruleActions.js';
+import { useCommandRuntimeContext } from '../commands/CommandRuntimeContext.jsx';
+import { formatCommandKey, getEffectiveCommandBindings } from '../commands/shortcuts.js';
+import { shortcutEventChord } from '../commands/shortcutDispatcher.js';
+import { emptyEmbeddingsForm, embeddingsFormFromConfig, buildEmbeddingsPayload, embeddingsDirty, isSameAsChatProvider, reconcileDimension, embeddingsJob, canSaveAiConfig, EMBEDDING_MODEL_HINTS } from '../utils/embeddingsSettings.js';
 
 // ─── Shared field component ───────────────────────────────────────────────────
 function Field({ label, required, children }) {
@@ -1474,7 +1477,7 @@ function SwipeActionIcon({ action, size = 17 }) {
 function LayoutsTab() {
   const { t } = useTranslation();
   const isMobile = useMobile();
-  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, senderFavicons, senderFaviconsSaving, setSenderFavicons } = useStore();
+  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, undoSendSeconds, setUndoSendSeconds, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, senderFavicons, senderFaviconsSaving, setSenderFavicons } = useStore();
   const [senderFaviconsError, setSenderFaviconsError] = useState('');
 
   // "Set MailFlow as your default email app": registerProtocolHandler is the
@@ -1992,6 +1995,41 @@ function LayoutsTab() {
         </div>
       </div>
 
+      {/* Undo send */}
+      <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>
+          {t('admin.messageList.undoSend')}
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {[
+            { id: 0, label: t('admin.messageList.undoSendOff') },
+            { id: 10, label: t('admin.messageList.undoSend10') },
+            { id: 30, label: t('admin.messageList.undoSend30') },
+            { id: 60, label: t('admin.messageList.undoSend60') },
+            { id: 120, label: t('admin.messageList.undoSend120') },
+          ].map(({ id, label }) => {
+            const active = undoSendSeconds === id;
+            return (
+              <button
+                key={id}
+                onClick={() => setUndoSendSeconds(id)}
+                style={{
+                  flex: '1 1 84px', padding: '8px 10px',
+                  background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
+                  border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
+                  borderRadius: 8, color: 'var(--text-primary)', fontSize: 12,
+                  cursor: 'pointer', transition: 'all 0.15s', outline: 'none',
+                }}
+                onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; }}
+                onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Mark as read behaviour */}
       <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
@@ -2080,6 +2118,7 @@ function LayoutsTab() {
 // CardDAV contact sync (e.g. Nextcloud). One-way, read-only pull.
 function CardDavCard() {
   const { t } = useTranslation();
+  const setCarddavStatus = useStore(state => state.setCarddavStatus);
   const [status, setStatus] = useState(null); // null while loading
   const [expanded, setExpanded] = useState(false);
   const [form, setForm] = useState({ serverUrl: '', username: '', password: '', dupMode: 'separate', intervalMin: 60 });
@@ -2088,7 +2127,14 @@ function CardDavCard() {
   const [disconnecting, setDisconnecting] = useState(false);
   const [error, setError] = useState('');
 
-  useEffect(() => { api.carddav.status().then(setStatus).catch(() => setStatus({ connected: false })); }, []);
+  const applyStatus = useCallback((next) => {
+    setStatus(next);
+    setCarddavStatus(next);
+  }, [setCarddavStatus]);
+
+  useEffect(() => {
+    api.carddav.status().then(applyStatus).catch(() => applyStatus({ connected: false }));
+  }, [applyStatus]);
 
   const connected = status?.connected;
   const loading = status === null;
@@ -2100,24 +2146,24 @@ function CardDavCard() {
         serverUrl: form.serverUrl.trim(), username: form.username.trim(),
         password: form.password, dupMode: form.dupMode, intervalMin: Number(form.intervalMin),
       });
-      setStatus(s); setForm(f => ({ ...f, password: '' }));
+      applyStatus(s); setForm(f => ({ ...f, password: '' }));
     } catch (e) { setError(e.message || t('admin.integrations.carddav.connectFailed')); }
     finally { setConnecting(false); }
   };
   const handleSync = async () => {
     setSyncing(true); setError('');
-    try { const r = await api.carddav.sync(); setStatus(r.status); if (!r.ok && r.error) setError(r.error); }
+    try { const r = await api.carddav.sync(); applyStatus(r.status); if (!r.ok && r.error) setError(r.error); }
     catch (e) { setError(e.message); }
     finally { setSyncing(false); }
   };
   const handleDisconnect = async () => {
     setDisconnecting(true); setError('');
-    try { await api.carddav.disconnect(); setStatus({ connected: false }); }
+    try { await api.carddav.disconnect(); applyStatus({ connected: false }); }
     catch (e) { setError(e.message); }
     finally { setDisconnecting(false); }
   };
   const updateSetting = async (patch) => {
-    setStatus(s => ({ ...s, ...patch }));
+    applyStatus({ ...status, ...patch });
     try { await api.carddav.update(patch); } catch (e) { setError(e.message); }
   };
 
@@ -3567,6 +3613,7 @@ function AISection() {
   const [config, setConfig] = useState(null);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState(() => normalizeAiForm());
+  const [emb, setEmb] = useState(emptyEmbeddingsForm);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [connecting, setConnecting] = useState(false);
@@ -3576,21 +3623,40 @@ function AISection() {
   const [deviceState, setDeviceState] = useState(null);
   const [copied, setCopied] = useState(false);
   const [msg, setMsg] = useState(null);
+  const [job, setJob] = useState(null);
+  const [vectorAvailable, setVectorAvailable] = useState(true);
+  const [testingEmb, setTestingEmb] = useState(false);
+  const [building, setBuilding] = useState(false);
   const pollerRef = useRef(null);
   const formRef = useRef(form);
+  const embRef = useRef(emb);
   const tRef = useRef(t);
 
+  const refreshJob = useCallback(async () => {
+    try {
+      const { jobs } = await api.ai.indexingStatus();
+      setJob(embeddingsJob(jobs));
+    } catch { /* status is best-effort; leave the last known job in place */ }
+  }, []);
+
   const persistForm = useCallback(async (nextForm) => {
-    const payload = buildAiSavePayload(nextForm);
+    const payload = {
+      ...buildAiSavePayload(nextForm),
+      embeddings: buildEmbeddingsPayload(embRef.current),
+    };
     const result = await api.ai.saveConfig(payload);
     const saved = result.config || payload;
     const normalized = normalizeAiForm(saved);
     setConfig(saved);
     formRef.current = normalized;
     setForm(normalized);
+    const nextEmb = embeddingsFormFromConfig(saved);
+    embRef.current = nextEmb;
+    setEmb(nextEmb);
   }, []);
 
   formRef.current = form;
+  embRef.current = emb;
   tRef.current = t;
 
   useEffect(() => {
@@ -3641,8 +3707,15 @@ function AISection() {
         setConfig(cfg);
         formRef.current = normalized;
         setForm(normalized);
+        const nextEmb = embeddingsFormFromConfig(cfg || {});
+        embRef.current = nextEmb;
+        setEmb(nextEmb);
       }),
       refreshCodexStatus(),
+      refreshJob(),
+      api.ai.status().then(s => {
+        if (active) setVectorAvailable(s?.vectorAvailable !== false);
+      }),
     ])
       .catch((error) => {
         if (active) setMsg({ type: 'error', text: error.message });
@@ -3654,7 +3727,14 @@ function AISection() {
       pollerRef.current?.dispose();
       pollerRef.current = null;
     };
-  }, [persistForm]);
+  }, [persistForm, refreshJob]);
+
+  // Poll the indexing status while a build is running so progress ticks live.
+  useEffect(() => {
+    if (!job?.active) return;
+    const id = setInterval(refreshJob, 2000);
+    return () => clearInterval(id);
+  }, [job?.active, refreshJob]);
 
   const handleSave = async (e) => {
     e.preventDefault();
@@ -3675,6 +3755,18 @@ function AISection() {
     } catch (err) {
       setMsg({ type: 'error', text: `${t('admin.ai.testFail')}: ${err.message}` });
     } finally { setTesting(false); }
+  };
+
+  const handleRemove = async () => {
+    await api.ai.deleteConfig();
+    setConfig(null);
+    const nextForm = normalizeAiForm();
+    formRef.current = nextForm;
+    setForm(nextForm);
+    const nextEmb = emptyEmbeddingsForm();
+    embRef.current = nextEmb;
+    setEmb(nextEmb);
+    setMsg(null);
   };
 
   const handleConnect = async () => {
@@ -3723,6 +3815,30 @@ function AISection() {
     }
   };
 
+  const handleTestEmbeddings = async () => {
+    setTestingEmb(true); setMsg(null);
+    try {
+      const { dimension } = await api.ai.testEmbeddings();
+      const { dimension: next, changed } = reconcileDimension(emb.dimension, dimension);
+      if (changed) setEmb(e => ({ ...e, dimension: String(next) }));
+      setMsg({ type: 'ok', text: t('admin.ai.emb.testOk', { dimension }) });
+    } catch (err) {
+      setMsg({ type: 'error', text: `${t('admin.ai.testFail')}: ${err.message}` });
+    } finally { setTestingEmb(false); }
+  };
+
+  const handleBuild = async () => {
+    setBuilding(true); setMsg(null);
+    try {
+      await api.ai.buildEmbeddings();
+      setMsg({ type: 'ok', text: t('admin.ai.emb.buildStarted') });
+      await refreshJob();
+    } catch (err) {
+      setMsg({ type: 'error', text: err.message });
+      await refreshJob();
+    } finally { setBuilding(false); }
+  };
+
   const field = (label, value, onChange, type = 'text', placeholder = '', help = null) => (
     <div style={{ marginBottom: 14 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', marginBottom: 5 }}>
@@ -3737,6 +3853,22 @@ function AISection() {
         autoComplete={type === 'password' ? 'new-password' : 'off'}
         style={{ width: '100%', background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 6, padding: '7px 10px', color: 'var(--text-primary)', fontSize: 13 }}
       />
+    </div>
+  );
+
+  // Embeddings-form counterpart of `field` — reads/writes the `emb` state.
+  const embField = (label, key, type = 'text', placeholder = '', hint = '') => (
+    <div style={{ marginBottom: 14 }}>
+      <label style={{ display: 'block', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 5 }}>{label}</label>
+      <input
+        type={type}
+        value={emb[key]}
+        onChange={e => setEmb(f => ({ ...f, [key]: e.target.value }))}
+        placeholder={placeholder}
+        autoComplete={type === 'password' ? 'new-password' : 'off'}
+        style={{ width: '100%', background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 6, padding: '7px 10px', color: 'var(--text-primary)', fontSize: 13 }}
+      />
+      {hint && <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4 }}>{hint}</div>}
     </div>
   );
 
@@ -3765,6 +3897,13 @@ function AISection() {
       border: `1px solid ${msg.type === 'ok' ? 'rgba(74,222,128,0.2)' : 'rgba(248,113,113,0.2)'}`,
     }}>{msg.text}</div>
   );
+
+  // Test/Build probe the SAVED config, so gate them until the embeddings form is
+  // persisted. `embComplete` also requires the four fields the backend needs.
+  const embDirty = embeddingsDirty(emb, config);
+  const embComplete = !!(emb.enabled && emb.endpoint.trim() && emb.model.trim() && Number(emb.dimension) > 0);
+  const embActionsBlocked = embDirty || !embComplete;
+  const modelHint = EMBEDDING_MODEL_HINTS.map(m => `${m.model} (${m.dimension})`).join(', ');
 
   if (loading) return <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>{t('common.loading')}</div>;
 
@@ -3797,6 +3936,12 @@ function AISection() {
         <div style={{ padding: '10px 14px', borderRadius: 8, background: 'var(--bg-secondary)', border: '1px solid var(--border)', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 20 }}>
           {t('admin.ai.notConfigured')}
         </div>
+      )}
+
+      {config && (
+        <button type="button" onClick={handleRemove} style={{ fontSize: 12, padding: '5px 12px', marginBottom: 14, background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', borderRadius: 6, color: 'var(--red)', cursor: 'pointer' }}>
+          {t('admin.ai.remove')}
+        </button>
       )}
 
       <form onSubmit={handleSave}>
@@ -3920,8 +4065,98 @@ function AISection() {
           </div>
         )}
 
-        <button type="submit" disabled={saving || !formValid}
-          style={{ padding: '8px 18px', background: 'var(--accent)', color: 'var(--accent-text)', border: 'none', borderRadius: 7, fontSize: 13, fontWeight: 500, cursor: 'pointer', opacity: (saving || !formValid) ? 0.5 : 1 }}>
+        {/* ── Embeddings (semantic search) ─────────────────────────────────── */}
+        <div style={{ height: 1, background: 'var(--border-subtle)', margin: '24px 0 18px' }} />
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>{t('admin.ai.emb.title')}</div>
+        <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '0 0 6px', lineHeight: 1.5 }}>{t('admin.ai.emb.benefit')}</p>
+        <p style={{ fontSize: 12, color: 'var(--text-tertiary)', margin: '0 0 14px', lineHeight: 1.5 }}>{t('admin.ai.emb.defaultOff')}</p>
+
+        {toggle(t('admin.ai.emb.enable'), emb.enabled, () => setEmb(f => ({ ...f, enabled: !f.enabled })))}
+
+        {emb.enabled && (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ padding: '10px 12px', borderRadius: 8, background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.28)', fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 14 }}>
+              {t('admin.ai.emb.privacyWarning')}
+            </div>
+
+            {!vectorAvailable && (
+              <div style={{ padding: '8px 12px', borderRadius: 6, background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.2)', color: 'var(--red)', fontSize: 12, marginBottom: 14 }}>
+                {t('admin.ai.emb.vectorUnavailable')}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
+              <label style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{t('admin.ai.emb.endpoint')}</label>
+              {form.apiKeyConfig.baseUrl && (isSameAsChatProvider(emb.endpoint, form.apiKeyConfig.baseUrl)
+                ? <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{t('admin.ai.emb.sameAsChatActive')}</span>
+                : <button type="button" onClick={() => setEmb(f => ({ ...f, endpoint: form.apiKeyConfig.baseUrl }))}
+                    style={{ fontSize: 11, background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', padding: 0 }}>
+                    {t('admin.ai.emb.sameAsChat')}
+                  </button>)}
+            </div>
+            <input
+              type="text"
+              value={emb.endpoint}
+              onChange={e => setEmb(f => ({ ...f, endpoint: e.target.value }))}
+              placeholder={t('admin.ai.emb.endpointPh')}
+              autoComplete="off"
+              style={{ width: '100%', background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 6, padding: '7px 10px', color: 'var(--text-primary)', fontSize: 13 }}
+            />
+            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4, marginBottom: 14 }}>{t('admin.ai.emb.endpointHint')}</div>
+
+            {embField(t('admin.ai.emb.model'), 'model', 'text', t('admin.ai.emb.modelPh'), modelHint)}
+            {embField(t('admin.ai.emb.dimension'), 'dimension', 'number', t('admin.ai.emb.dimensionPh'), t('admin.ai.emb.dimensionHint'))}
+            {embField(t('admin.ai.emb.apiKey'), 'apiKey', 'password', t('admin.ai.apiKeyPh'))}
+
+            <details style={{ marginBottom: 14 }}>
+              <summary style={{ fontSize: 12, color: 'var(--text-secondary)', cursor: 'pointer' }}>{t('admin.ai.emb.localTitle')}</summary>
+              <p style={{ fontSize: 12, color: 'var(--text-tertiary)', lineHeight: 1.6, margin: '8px 0 0' }}>{t('admin.ai.emb.localHelp')}</p>
+            </details>
+
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button type="button" onClick={handleTestEmbeddings} disabled={testingEmb || embActionsBlocked}
+                style={{ fontSize: 12, padding: '6px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', cursor: (testingEmb || embActionsBlocked) ? 'default' : 'pointer', opacity: (testingEmb || embActionsBlocked) ? 0.5 : 1 }}>
+                {testingEmb ? t('admin.ai.testing') : t('admin.ai.emb.test')}
+              </button>
+              <button type="button" onClick={handleBuild} disabled={building || embActionsBlocked || !vectorAvailable}
+                style={{ fontSize: 12, padding: '6px 14px', background: 'var(--accent)', color: 'var(--accent-text)', border: 'none', borderRadius: 6, cursor: (building || embActionsBlocked || !vectorAvailable) ? 'default' : 'pointer', opacity: (building || embActionsBlocked || !vectorAvailable) ? 0.5 : 1 }}>
+                {building ? t('admin.ai.emb.building') : (job?.state === 'done' ? t('admin.ai.emb.rebuild') : t('admin.ai.emb.build'))}
+              </button>
+            </div>
+
+            {embDirty && (
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 8 }}>{t('admin.ai.emb.saveHint')}</div>
+            )}
+
+            {job && (
+              <div style={{ marginTop: 14 }}>
+                {job.state === 'running' && (
+                  <>
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                      {t('admin.ai.emb.progressLabel', { processed: job.processed, total: job.total })}
+                    </div>
+                    <div style={{ height: 6, background: 'var(--bg-tertiary)', borderRadius: 3, overflow: 'hidden' }}>
+                      <div style={{ width: `${job.percent}%`, height: '100%', background: 'var(--accent)', transition: 'width 0.3s' }} />
+                    </div>
+                  </>
+                )}
+                {job.state === 'done' && (
+                  <div style={{ fontSize: 12, color: 'var(--green)' }}>{t('admin.ai.emb.progressDone', { total: job.total })}</div>
+                )}
+                {job.state === 'error' && (
+                  <div style={{ fontSize: 12, color: 'var(--red)' }}>{t('admin.ai.emb.progressError', { error: job.lastError || '' })}</div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div style={{ height: 1, background: 'var(--border-subtle)', margin: '24px 0 18px' }} />
+
+        {msgBox}
+
+        <button type="submit" disabled={saving || (!formValid && !canSaveAiConfig(form, emb, config))}
+          style={{ padding: '8px 18px', background: 'var(--accent)', color: 'var(--accent-text)', border: 'none', borderRadius: 7, fontSize: 13, fontWeight: 500, cursor: 'pointer', opacity: (saving || (!formValid && !canSaveAiConfig(form, emb, config))) ? 0.5 : 1 }}>
           {saving ? t('common.saving') : t('common.save')}
         </button>
       </form>
@@ -6681,11 +6916,31 @@ const TABS = [
 function ShortcutsTab() {
   const { t } = useTranslation();
   const { shortcuts, setShortcuts } = useStore();
+  const { commandDefinitions, getContext } = useCommandRuntimeContext();
   const [recording, setRecording] = useState(null); // action name currently being recorded
-  const [pendingConflict, setPendingConflict] = useState(null); // { action: conflictingAction, key }
+  const [pendingConflict, setPendingConflict] = useState(null); // { actions: conflictingCommandIds, key }
 
-  const effective = getEffectiveShortcuts(shortcuts);
-  const groups = getGroupedActions();
+  const context = getContext();
+  const effectiveRows = getEffectiveCommandBindings(commandDefinitions, context);
+  const bindingsById = Object.fromEntries(effectiveRows.map(item => [item.commandId, item.bindings]));
+  const effective = Object.fromEntries(effectiveRows.map(item => [item.commandId, item.bindings[0]?.keys || null]));
+  const sources = Object.fromEntries(effectiveRows.map(item => [item.commandId, item.bindings[0]?.source]));
+  const definitionById = new Map(commandDefinitions.map(definition => [definition.id, definition]));
+  const groupKeys = {
+    compose: 'shortcuts.groups.composeSearch', help: 'shortcuts.groups.composeSearch',
+    navigation: 'shortcuts.groups.navigation', selection: 'shortcuts.groups.navigation',
+    layout: 'shortcuts.groups.navigation', mail: 'shortcuts.groups.messageActions',
+    respond: 'shortcuts.groups.messageActions', gtd: 'shortcuts.groups.gtd', app: 'shortcuts.groups.navigation',
+  };
+  const groups = commandDefinitions.filter(definition => effective[definition.id]
+    || definition.id === 'gtd.someday' || definition.id === 'gtd.reference').reduce((result, definition) => {
+    const groupKey = groupKeys[definition.group] || 'shortcuts.groups.navigation';
+    (result[groupKey] ||= []).push({
+      action: definition.id,
+      descriptionKey: definition.titleKey,
+    });
+    return result;
+  }, {});
 
   // Listen for key presses while recording
   useEffect(() => {
@@ -6701,12 +6956,13 @@ function ShortcutsTab() {
         return;
       }
 
-      const key = (e.ctrlKey || e.metaKey) ? `ctrl+${e.key.toLowerCase()}` : e.key;
+      const key = shortcutEventChord(e);
 
       // Detect conflicts with other actions (excluding the one being edited)
-      const conflictEntry = Object.entries(effective).find(([a, k]) => k === key && a !== recording);
-      if (conflictEntry) {
-        setPendingConflict({ action: conflictEntry[0], key });
+      const conflicts = effectiveRows
+        .filter(item => item.commandId !== recording && item.bindings.some(binding => binding.keys === key));
+      if (conflicts.length) {
+        setPendingConflict({ actions: conflicts.map(item => item.commandId), key });
       } else {
         setPendingConflict(null);
       }
@@ -6717,7 +6973,7 @@ function ShortcutsTab() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [recording, effective, shortcuts]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [recording, effective, shortcuts, context.platform]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const clearShortcut = (action) => {
     const updated = { ...shortcuts, [action]: null };
@@ -6764,35 +7020,7 @@ function ShortcutsTab() {
     if (!key) {
       return <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>—</span>;
     }
-    // Modifier combos like 'ctrl+p'
-    const mod = parseModKey(key);
-    if (mod) {
-      return (
-        <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-          <kbd style={kbdStyle}>{modLabel(mod.mod)}</kbd>
-          <span style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>+</span>
-          <kbd style={kbdStyle}>{mod.bare.toUpperCase()}</kbd>
-        </span>
-      );
-    }
-    // Special key names like 'Delete', 'ArrowUp' — single keypress, render as one badge
-    if (SPECIAL_KEY_LABELS[key]) {
-      return <kbd style={kbdStyle}>{SPECIAL_KEY_LABELS[key]}</kbd>;
-    }
-    // Multi-char keys like 'gi': render each character as separate kbd with "then"
-    if (key.length > 1) {
-      return (
-        <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-          {[...key].map((c, i) => (
-            <span key={i} style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-              <kbd style={kbdStyle}>{c}</kbd>
-              {i < key.length - 1 && <span style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>{t('shortcuts.then')}</span>}
-            </span>
-          ))}
-        </span>
-      );
-    }
-    return <kbd style={kbdStyle}>{key}</kbd>;
+    return <kbd style={kbdStyle}>{formatCommandKey(key, context.platform)}</kbd>;
   };
 
   return (
@@ -6824,7 +7052,11 @@ function ShortcutsTab() {
           background: 'rgba(234, 179, 8, 0.1)', border: '1px solid rgba(234, 179, 8, 0.4)',
           borderRadius: 7, fontSize: 12, color: 'var(--text-secondary)',
         }}>
-          {t('admin.shortcuts.conflict', { key: pendingConflict.key, action: t(ACTION_DEFS[pendingConflict.action]?.labelKey) })}
+          {t('admin.shortcuts.conflict', {
+            key: pendingConflict.key,
+            action: pendingConflict.actions
+              .map(action => t(definitionById.get(action)?.titleKey)).join(', '),
+          })}
         </div>
       )}
 
@@ -6839,6 +7071,7 @@ function ShortcutsTab() {
           <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
             {actions.map(({ action, descriptionKey }, i) => {
               const key = effective[action];
+              const bindings = bindingsById[action] || [];
               const isDefault = !(action in shortcuts);
               const isRec = recording === action;
               return (
@@ -6857,6 +7090,7 @@ function ShortcutsTab() {
                   </span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
                     <button
+                      data-shortcut-recorder={isRec ? 'true' : undefined}
                       onClick={() => setRecording(isRec ? null : action)}
                       title={isRec ? t('common.cancel') : t('admin.shortcuts.description')}
                       style={{
@@ -6866,6 +7100,19 @@ function ShortcutsTab() {
                     >
                       {renderKey(action, key)}
                     </button>
+                    {!isRec && sources[action] && (
+                      <small style={{ color: 'var(--text-tertiary)', fontSize: 9 }}>
+                        {t(`admin.shortcuts.sources.${sources[action]}`)}
+                      </small>
+                    )}
+                    {!isRec && bindings.slice(1).map(binding => (
+                      <span key={binding.keys} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        <kbd style={kbdStyle}>{formatCommandKey(binding.keys, context.platform)}</kbd>
+                        <small style={{ color: 'var(--text-tertiary)', fontSize: 9 }}>
+                          {t(`admin.shortcuts.sources.${binding.source}`)}
+                        </small>
+                      </span>
+                    ))}
                     {!isDefault && (
                       <button
                         onClick={() => resetAction(action)}
