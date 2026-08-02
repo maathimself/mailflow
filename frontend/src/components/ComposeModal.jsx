@@ -176,7 +176,7 @@ function parseChips(val) {
 
 export default function ComposeModal() {
   const { t } = useTranslation();
-  const { closeCompose, composeData, accounts, addNotification, setSelectedAccount, plaintextEmail, setThreadMessages } = useStore();
+  const { closeCompose, openCompose, composeData, accounts, addNotification, setSelectedAccount, plaintextEmail, setThreadMessages } = useStore();
   const isMobile = useMobile();
   const uiScale = useUiScale();
 
@@ -207,7 +207,7 @@ export default function ComposeModal() {
   const [draftFolder, setDraftFolder] = useState(() => composeData?.draftFolder ?? null);
   const [draftAccountId, setDraftAccountId] = useState(() => composeData?.accountId ?? null);
   const [savingDraft, setSavingDraft] = useState(false);
-  const [attachments, setAttachments] = useState([]);
+  const [attachments, setAttachments] = useState(() => composeData?.attachments || []);
   const [fwdAttachments, setFwdAttachments] = useState(() => composeData?.forwardedAttachments || []);
 
   // Baseline values captured at open time — updated after each successful keep-open save
@@ -217,8 +217,10 @@ export default function ComposeModal() {
   const initialToRef = useRef(normalizeTo(composeData?.to || []));
   const initialCcRef = useRef(normalizeTo(composeData?.cc || []));
   const initialBccRef = useRef(normalizeTo(composeData?.bcc || []));
-  // Start at fwdAttachments.length so pre-loaded forwarded attachments aren't dirty.
-  const savedAttachmentCountRef = useRef((composeData?.forwardedAttachments || []).length);
+  // Pre-loaded attachments (including an undone send) start clean.
+  const savedAttachmentCountRef = useRef(
+    (composeData?.attachments || []).length + (composeData?.forwardedAttachments || []).length,
+  );
   // True when the compose was opened by clicking an existing draft from the list.
   // Used by handleClose to decide whether to prompt about an unmodified draft.
   const draftWasPreExisting = useRef(composeData?.draftUid != null);
@@ -277,7 +279,7 @@ export default function ComposeModal() {
   const [replyAll, setReplyAll] = useState(() => !!composeData?.isReplyAll);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
-  const [priority, setPriority] = useState('normal');
+  const [priority, setPriority] = useState(() => composeData?.priority || 'normal');
   const [minimized, setMinimized] = useState(false);
   const [maximized, setMaximized] = useState(false);
   const [pos, setPos] = useState(null);
@@ -646,6 +648,7 @@ export default function ComposeModal() {
   const handleKeyDown = (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
       e.preventDefault();
+      e.stopPropagation();
       handleSend();
     }
   };
@@ -757,6 +760,7 @@ export default function ComposeModal() {
           : {}),
         inReplyTo: composeData?.inReplyTo,
         references: composeData?.references || undefined,
+        undoSendSeconds: useStore.getState().undoSendSeconds,
         ...(priority !== 'normal' ? { priority } : {}),
         ...(attachments.length ? {
           attachments: attachments.map(a => ({
@@ -772,34 +776,87 @@ export default function ComposeModal() {
       }, { 'X-Idempotency-Key': idempotencyKeyRef.current });
       // Send confirmed — clear the key so a subsequent send from a reused modal gets a fresh one.
       idempotencyKeyRef.current = null;
-      const replyThreadId = isReply ? composeData?.threadId : null;
-      closeCompose();
-      if (draftUid != null && draftFolder != null && draftAccountId) {
-        api.deleteDraft(draftAccountId, draftUid, draftFolder).catch(() => {});
-      }
-      const sentFolder = accounts.find(a => a.id === accountId)?.folder_mappings?.sent || 'Sent';
-      // The message was delivered; sentCopySaved:false means it couldn't be saved to the
-      // account's Sent folder — tell the user so they know their record is incomplete.
-      const sentCopyFailed = sendResult?.sentCopySaved === false;
-      addNotification({
-        title: sentCopyFailed ? t('compose.sent.noCopy') : t('compose.sent.title'),
-        body: subject || t('common.noSubject'),
-        // When the Sent copy wasn't saved, omit the "View" action — it would navigate to a
-        // Sent folder that doesn't contain the message.
-        ...(sentCopyFailed ? {} : {
-          onAction: () => setSelectedAccount(accountId, sentFolder),
-          actionLabel: t('compose.sent.action'),
-        }),
-      });
-      if (replyThreadId) {
-        const refreshThread = async () => {
-          try {
-            const data = await api.getThread(replyThreadId);
-            if (data.messages?.length) setThreadMessages(replyThreadId, data.messages);
-          } catch { /* best-effort refresh */ }
+      if (sendResult?.queued) {
+        const capturedPayload = {
+          accountId,
+          ...(aliasId ? { aliasId } : {}),
+          to: toFinal,
+          cc: [...ccChips, ...(ccInput.trim() ? [ccInput.trim()] : [])],
+          bcc: [...bccChips, ...(bccInput.trim() ? [bccInput.trim()] : [])],
+          subject,
+          body: bodyToSend,
+          bodyIsHtml: !plaintextEmail,
+          quotedBody,
+          quotedBodyHtml: !plaintextEmail && (quotedBodyHtml != null || quotedHtmlRef.current)
+            ? (quotedHtmlRef.current ? quotedHtmlRef.current.innerHTML : quotedBodyHtml)
+            : undefined,
+          inReplyTo: composeData?.inReplyTo,
+          references: composeData?.references,
+          priority,
+          attachments: attachments.map(attachment => ({ ...attachment })),
+          forwardedAttachments: fwdAttachments.map(attachment => ({ ...attachment })),
+          ...(draftUid != null ? { draftUid } : {}),
+          ...(draftFolder != null ? { draftFolder } : {}),
+          ...(isReply ? {
+            isReply: true,
+            isReplyAll: replyAll,
+            threadId: composeData?.threadId,
+            originalFrom: composeData?.originalFrom,
+            allRecipients: composeData?.allRecipients,
+          } : {}),
+          ...(isForward ? { isForward: true } : {}),
         };
-        setTimeout(refreshThread, 3000);
-        setTimeout(refreshThread, 10000);
+        closeCompose();
+        const countdownUntil = new Date(sendResult.sendAt).getTime();
+        addNotification({
+          persistent: true,
+          durationMs: Math.max(0, countdownUntil - Date.now()),
+          title: t('compose.sending.title'),
+          body: subject || t('common.noSubject'),
+          countdownUntil,
+          onUndo: async () => {
+            try {
+              await api.cancelOutbox(sendResult.outboxId);
+              openCompose(capturedPayload);
+            } catch {
+              addNotification({
+                type: 'error',
+                title: t('compose.sending.tooLate'),
+                body: subject || t('common.noSubject'),
+              });
+            }
+          },
+        });
+      } else {
+        const replyThreadId = isReply ? composeData?.threadId : null;
+        closeCompose();
+        if (draftUid != null && draftFolder != null && draftAccountId) {
+          api.deleteDraft(draftAccountId, draftUid, draftFolder).catch(() => {});
+        }
+        const sentFolder = accounts.find(a => a.id === accountId)?.folder_mappings?.sent || 'Sent';
+        // The message was delivered; sentCopySaved:false means it couldn't be saved to the
+        // account's Sent folder — tell the user so they know their record is incomplete.
+        const sentCopyFailed = sendResult?.sentCopySaved === false;
+        addNotification({
+          title: sentCopyFailed ? t('compose.sent.noCopy') : t('compose.sent.title'),
+          body: subject || t('common.noSubject'),
+          // When the Sent copy wasn't saved, omit the "View" action — it would navigate to a
+          // Sent folder that doesn't contain the message.
+          ...(sentCopyFailed ? {} : {
+            onAction: () => setSelectedAccount(accountId, sentFolder),
+            actionLabel: t('compose.sent.action'),
+          }),
+        });
+        if (replyThreadId) {
+          const refreshThread = async () => {
+            try {
+              const data = await api.getThread(replyThreadId);
+              if (data.messages?.length) setThreadMessages(replyThreadId, data.messages);
+            } catch { /* best-effort refresh */ }
+          };
+          setTimeout(refreshThread, 3000);
+          setTimeout(refreshThread, 10000);
+        }
       }
     } catch (err) {
       setError(err.message);
@@ -844,6 +901,8 @@ export default function ComposeModal() {
         ...(signatureContentRef.current || fromSignature != null
           ? { editedSignature: plaintextEmail ? plainSig : signatureContentRef.current }
           : {}),
+        inReplyTo: composeData?.inReplyTo,
+        references: composeData?.references || undefined,
         ...(draftUid != null && draftFolder != null ? { existingUid: draftUid, existingFolder: draftFolder } : {}),
       });
       if (result.uid != null) {
@@ -1999,7 +2058,7 @@ export default function ComposeModal() {
           }}
         >
           {sending ? sendSpinner : sendIcon}
-          {sending ? t('compose.sending') : t('compose.send')}
+          {sending ? t('compose.sending.label') : t('compose.send')}
         </button>
 
         {plaintextEmail && (
@@ -3163,4 +3222,3 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
     </div>
   );
 }
-

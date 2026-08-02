@@ -5,6 +5,37 @@ function parseAddressField(raw) {
   } catch { return ''; }
 }
 
+function formatAddressArray(raw) {
+  try {
+    const addresses = Array.isArray(raw) ? raw : JSON.parse(raw || '[]');
+    return addresses.map(address => {
+      if (typeof address === 'string') return address;
+      const email = address.address || address.email || '';
+      return address.name && email
+        ? `${address.name} <${email}>`
+        : (email || address.name || '');
+    }).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+export async function openDraftFromMessage(message, { openCompose, getMessageBody }) {
+  const bodyData = await getMessageBody(message.id);
+  openCompose({
+    accountId: message.account_id,
+    draftUid: message.uid,
+    draftFolder: message.folder,
+    to: formatAddressArray(message.to_addresses),
+    cc: formatAddressArray(message.cc_addresses),
+    subject: message.subject || '',
+    body: bodyData.html || bodyData.text || '',
+    bodyIsHtml: !!bodyData.html,
+    ...(message.in_reply_to ? { inReplyTo: message.in_reply_to } : {}),
+    ...(message.thread_references ? { references: message.thread_references } : {}),
+  });
+}
+
 export async function openReplyFromMessage(message, { accounts, openCompose, getMessageBody, replyAll = false }) {
   const replyToArr = Array.isArray(message.reply_to)
     ? message.reply_to
@@ -87,6 +118,7 @@ export async function openReplyFromMessage(message, { accounts, openCompose, get
     isReplyAll: replyAll,
     originalFrom: sender,
     allRecipients,
+    threadId: message.thread_id,
   });
 }
 

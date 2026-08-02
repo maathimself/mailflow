@@ -4,6 +4,9 @@ import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { GTD_STATES, GTD_COLORS, resolveAccountGtdFolders, gtdStatesInFolders } from '../utils/gtd.js';
 import { getContextMenuPolicy, resolveContextMenuMessage } from '../utils/contextMenuPolicy.js';
+import { stableConversationId } from '../commands/contracts.js';
+import { toContextMenuCommand } from '../commands/contextMenuCommands.js';
+import { useCommandRuntimeContext } from '../commands/CommandRuntimeContext.jsx';
 import MessageHeaderModal from './MessageHeaderModal.jsx';
 import { useUiScale, descale } from '../hooks/useUiScale.js';
 
@@ -15,8 +18,19 @@ const SPAM_NAME_RE = /(spam|junk|bulk|indesiderata|spamverdacht|courrier\s*ind|p
 // ─── Context Menu ─────────────────────────────────────────────────────────────
 const CATEGORIES = ['primary', 'newsletter', 'promotion', 'automated', 'social'];
 
-export default function ContextMenu({ x, y, message, onClose, onAction, defaultMoveView = false, variant = 'inbox' }) {
+export default function ContextMenu({
+  x,
+  y,
+  message,
+  targetIds = [stableConversationId(message)].filter(Boolean),
+  onClose,
+  onAction,
+  defaultMoveView = false,
+  variant = 'inbox',
+  onCommand,
+}) {
   const { t } = useTranslation();
+  const { controller } = useCommandRuntimeContext();
   const uiScale = useUiScale();
   // Variants share one menu; the policy removes actions that depend on the center
   // list or conflict with GTD's Done contract while preserving ordinary mail actions.
@@ -49,6 +63,18 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
   const [folderSearch, setFolderSearch] = useState('');
   const unreadCount = Number.parseInt(message.unread_count, 10);
   const hasUnread = Number.isFinite(unreadCount) ? unreadCount > 0 : !message.is_read;
+  const runAction = (action, data) => {
+    const invocation = toContextMenuCommand(action, data);
+    if (invocation) {
+      if (onCommand) return onCommand(invocation.commandId, invocation.input);
+      return controller.execute(invocation.commandId, {
+        source: 'context-menu',
+        input: invocation.input,
+        frozenTargetIds: targetIds,
+      });
+    }
+    return onAction(action, data);
+  };
 
   // A folder is "spam-like" when either the user mapped it as spam or the IMAP
   // server tagged it with \Junk special-use. Falls back to a multilingual name
@@ -117,14 +143,14 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
         {
           label: t('contextMenu.open'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>,
-          action: () => onAction('open'),
+          action: () => runAction('open'),
         },
         {
           label: hasUnread ? t('contextMenu.markRead') : t('contextMenu.markUnread'),
           icon: hasUnread
             ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path style={{strokeLinecap: 'round'}} d="M22,9v9c0,1.1-.9,2-2,2H4c-1.1,0-2-.9-2-2v-9"/><polyline points="22 9 12 16 2 9"/><polyline points="2 9 12 2 22 9"/></svg>
             : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path style={{strokeLinecap: 'round'}} d="M22,10.91v7.09c0,1.1-.9,2-2,2H4c-1.1,0-2-.9-2-2V6c0-1.1.9-2,2-2h11"/><polyline style={{strokeLinecap: 'round'}} points="16.36 9.95 12 13 2 6"/><circle style={{strokeMiterlimit: 10, fill: 'currentColor'}} cx="19.96" cy="6" r="3"/></svg>,
-          action: () => onAction(hasUnread ? 'markRead' : 'markUnread'),
+          action: () => runAction(hasUnread ? 'markRead' : 'markUnread'),
         },
         {
           label: message.is_starred ? t('contextMenu.unstar') : t('contextMenu.star'),
@@ -133,12 +159,12 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
             stroke={message.is_starred ? 'var(--amber)' : 'currentColor'} strokeWidth="1.75">
             <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
           </svg>,
-          action: () => onAction('toggleStar'),
+          action: () => runAction('toggleStar'),
         },
         ...(!menuPolicy.select ? [] : [{
           label: t('contextMenu.select'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="3" y="3" width="18" height="18" rx="3"/><polyline points="9 12 11 14 15 10"/></svg>,
-          action: () => onAction('bulkSelect'),
+          action: () => runAction('bulkSelect'),
         }]),
       ]
     },
@@ -148,17 +174,17 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
         ...(!menuPolicy.compose ? [] : [{
           label: t('contextMenu.reply'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 00-4-4H4"/></svg>,
-          action: () => onAction('reply'),
+          action: () => runAction('reply'),
         },
         {
           label: t('contextMenu.replyAll'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polyline points="7 17 2 12 7 7"/><polyline points="12 17 7 12 12 7"/><path d="M22 18v-2a4 4 0 00-4-4H7"/></svg>,
-          action: () => onAction('replyAll'),
+          action: () => runAction('replyAll'),
         },
         {
           label: t('contextMenu.forward'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polyline points="15 17 20 12 15 7"/><path d="M4 18v-2a4 4 0 014-4h12"/></svg>,
-          action: () => onAction('forward'),
+          action: () => runAction('forward'),
         }]),
         {
           label: t('contextMenu.moveToFolder'),
@@ -170,7 +196,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
         ...(!menuPolicy.archive ? [] : [{
           label: t('contextMenu.archive'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a1 1 0 001 1h14a1 1 0 001-1V8"/><polyline points="9 13 12 16 15 13"/><line x1="12" y1="11" x2="12" y2="16"/></svg>,
-          action: () => onAction('archive'),
+          action: () => runAction('archive'),
         }]),
         ...(message.folder !== 'Snoozed' && menuPolicy.snooze ? [{
           label: t('contextMenu.snooze.label'),
@@ -198,17 +224,17 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
         ...(menuPolicy.done ? [{
           label: t('gtd.done'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polyline points="20 6 9 17 4 12"/></svg>,
-          action: () => onAction('gtdDone'),
+          action: () => runAction('gtdDone'),
         }] : []),
         ...(!menuPolicy.rules ? [] : [{
           label: t('contextMenu.createRule'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>,
-          action: () => onAction('createRuleFromMessage'),
+          action: () => runAction('createRuleFromMessage'),
         },
         {
           label: t('contextMenu.addToBlockList'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>,
-          action: () => onAction('addToBlockList'),
+          action: () => runAction('addToBlockList'),
         }]),
         // Spam / ham are only shown when there's a real destination for the
         // action: "Mark as Spam" when the message isn't already in a spam-like
@@ -217,12 +243,12 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
         ...(spamFolderPaths.size > 0 && !inSpamFolder && menuPolicy.spam ? [{
           label: t('contextMenu.markAsSpam'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M12 3L4 7v5c0 5 3.5 9.3 8 10.3C16.5 21.3 20 17 20 12V7L12 3z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
-          action: () => onAction('markSpam'),
+          action: () => runAction('markSpam'),
         }] : []),
         ...(inSpamFolder && menuPolicy.spam ? [{
           label: t('contextMenu.markAsHam'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M12 3L4 7v5c0 5 3.5 9.3 8 10.3C16.5 21.3 20 17 20 12V7L12 3z"/><polyline points="9 12 11 14 15 10"/></svg>,
-          action: () => onAction('markHam'),
+          action: () => runAction('markHam'),
         }] : []),
       ]
     },
@@ -232,12 +258,12 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
         {
           label: t('contextMenu.copySubject'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>,
-          action: () => { navigator.clipboard.writeText(message.subject || ''); onAction('copy'); },
+          action: () => { navigator.clipboard.writeText(message.subject || ''); runAction('copy'); },
         },
         {
           label: t('contextMenu.copySender'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>,
-          action: () => { navigator.clipboard.writeText(message.from_email || ''); onAction('copy'); },
+          action: () => { navigator.clipboard.writeText(message.from_email || ''); runAction('copy'); },
         },
       ]
     },
@@ -264,7 +290,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
         {
           label: t('contextMenu.delete'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>,
-          action: () => onAction('delete'),
+          action: () => runAction('delete'),
           danger: true,
         },
       ]
@@ -336,7 +362,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
             {GTD_STATES.map(state => (
               <div
                 key={state}
-                onClick={() => { onAction('gtdClassify', state); onClose(); }}
+                onClick={() => { runAction('gtdClassify', state); onClose(); }}
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)' }}
                 onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
@@ -351,7 +377,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
                 {gtdRemovableStates.map(state => (
                   <div
                     key={`rm-${state}`}
-                    onClick={() => { onAction('gtdRemove', state); onClose(); }}
+                    onClick={() => { runAction('gtdRemove', state); onClose(); }}
                     style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-secondary)' }}
                     onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
                     onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
@@ -386,7 +412,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
               return (
                 <div
                   key={cat}
-                  onClick={() => { if (!isCurrent) { onAction('setCategory', cat); onClose(); } }}
+                  onClick={() => { if (!isCurrent) { runAction('setCategory', cat); onClose(); } }}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 10,
                     padding: '7px 14px', cursor: isCurrent ? 'default' : 'pointer',
@@ -454,7 +480,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
                   onClick={() => {
                     const d = new Date(`${customDate}T${customTime}`);
                     if (isNaN(d.getTime())) return;
-                    onAction('snooze', d.toISOString());
+                    runAction('snooze', d.toISOString());
                     onClose();
                   }}
                   style={{
@@ -503,7 +529,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
               ].map(({ label, getDate }) => (
                 <div
                   key={label}
-                  onClick={() => { onAction('snooze', getDate().toISOString()); onClose(); }}
+                  onClick={() => { runAction('snooze', getDate().toISOString()); onClose(); }}
                   style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)' }}
                   onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
                   onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
@@ -600,7 +626,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
                         <FolderMenuItem
                           key={folder.path}
                           folder={folder}
-                          onClick={() => { onAction('moveTo', folder.path); onClose(); }}
+                          onClick={() => { runAction('moveTo', folder.path); onClose(); }}
                         />
                       ))}
                     </>
@@ -626,7 +652,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
                           <FolderMenuItem
                             key={`recent-${folder.path}`}
                             folder={folder}
-                            onClick={() => { onAction('moveTo', folder.path); onClose(); }}
+                            onClick={() => { runAction('moveTo', folder.path); onClose(); }}
                           />
                         ))}
                         <div style={{ height: 1, background: 'var(--border-subtle)', margin: '3px 0' }} />
@@ -641,7 +667,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
                           <FolderMenuItem
                             key={`fav-${folder.path}`}
                             folder={folder}
-                            onClick={() => { onAction('moveTo', folder.path); onClose(); }}
+                            onClick={() => { runAction('moveTo', folder.path); onClose(); }}
                           />
                         ))}
                         <div style={{ height: 1, background: 'var(--border-subtle)', margin: '3px 0' }} />
@@ -653,7 +679,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
                         <FolderMenuItem
                           key={folder.path}
                           folder={folder}
-                          onClick={() => { onAction('moveTo', folder.path); onClose(); }}
+                          onClick={() => { runAction('moveTo', folder.path); onClose(); }}
                         />
                       ))
                     }

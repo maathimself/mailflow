@@ -71,7 +71,7 @@ services:
 
   # ── PostgreSQL ───────────────────────────────────────────────────────────────
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: mailflow-postgres
     restart: unless-stopped
     # PUID/PGID default to 0:0 (root), identical to the image's normal behaviour.

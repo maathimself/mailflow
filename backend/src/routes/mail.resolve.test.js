@@ -56,13 +56,18 @@ describe('GET /api/mail/resolve-message account scope', () => {
   });
 
   it('keeps unscoped deep-link resolution backward compatible', async () => {
-    query.mockResolvedValueOnce({ rows: [{ id: 'current-row', account_id: ACCOUNT_ID }] });
+    query.mockResolvedValueOnce({ rows: [{
+      id: 'current-row', account_id: ACCOUNT_ID,
+      delegation: '{"contact_id":null,"display_name":"Casey"}',
+    }] });
 
     const response = await fetch(`${base}/api/mail/resolve-message?ref=${encodeURIComponent(MESSAGE_ID)}`);
 
     expect(response.status).toBe(200);
     const [, params] = query.mock.calls[0];
     expect(params).toEqual([MESSAGE_ID, 'user-1', null]);
+    expect((await response.json()).delegation).toEqual({ contact_id: null, display_name: 'Casey' });
+    expect(query.mock.calls[0][0]).toContain('gtd_delegations');
   });
 
   it('rejects a malformed account scope before querying', async () => {

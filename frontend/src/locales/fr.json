@@ -107,7 +107,12 @@
     "bodyPh": "Écrivez votre message…",
     "send": "Envoyer",
     "sendTooltip": "Envoyer (Ctrl+Entrée)",
-    "sending": "Envoi…",
+    "sending": {
+      "label": "Envoi…",
+      "title": "Envoi du message",
+      "countdown": "Envoi dans {{seconds}} s",
+      "tooLate": "Trop tard pour annuler"
+    },
     "discard": "Supprimer",
     "saveDraft": "Enregistrer le brouillon",
     "savingDraft": "Enregistrement…",
@@ -213,22 +218,13 @@
     "aiCopied": "Copié",
     "previousMessage": "Message précédent",
     "nextMessage": "Message suivant",
-    "archived": {
-      "title": "Message archivé",
-      "failTitle": "Échec de l'archivage",
-      "failBody": "Impossible d'archiver le message.",
-      "noFolderTitle": "Aucun dossier d'archive",
-      "noFolderBody": "Aucun dossier d'archive configuré pour ce compte. Définissez-en un dans Paramètres → Comptes → Mappage des dossiers."
-    },
     "moved": {
-      "title": "Message déplacé",
       "failTitle": "Échec du déplacement",
       "failBody": "Impossible de déplacer le message."
     },
     "snoozed": {
       "title": "Message mis en attente",
-      "failTitle": "Échec de la mise en attente",
-      "failBody": "Impossible de mettre ce message en attente."
+      "failTitle": "Échec de la mise en attente"
     },
     "whitelistFail": {
       "title": "Impossible d'enregistrer la préférence",
@@ -239,8 +235,7 @@
       "info": "Vous pouvez vous désabonner de cette liste de diffusion.",
       "button": "Se désabonner",
       "done": "Désabonnement réussi.",
-      "error": "Échec du désabonnement.",
-      "moveToTrash": "Déplacer vers la corbeille"
+      "error": "Échec du désabonnement."
     },
     "aiClassify": {
       "info": "Cet e-mail n'a pas de catégorie. Le classer avec l'IA ?",
@@ -251,6 +246,8 @@
   },
   "messageList": {
     "search": "Rechercher…",
+    "semanticToggle": "Recherche sémantique",
+    "semanticBuildingHint": "Index sémantique en cours de création — affichage des résultats par mot-clé",
     "unread": "Non lus",
     "showAll": "Tout afficher",
     "unreadOnly": "Non lus seulement",
@@ -277,18 +274,12 @@
     "loadMore": "Charger plus",
     "noMoreMessages": "Aucun message supplémentaire",
     "deleted": {
-      "title": "Message supprimé",
-      "body": "Déplacé vers la corbeille.",
-      "failTitle": "Échec de la suppression",
-      "failBody": "Impossible de supprimer le message."
+      "failTitle": "Échec de la suppression"
     },
     "bulkDeleted": {
       "title_one": "{{count}} message supprimé",
       "title_other": "{{count}} messages supprimés",
-      "body": "Déplacé vers la corbeille.",
-      "failTitle": "Échec de la suppression",
-      "failBody_one": "Impossible de supprimer {{count}} message.",
-      "failBody_other": "Impossible de supprimer {{count}} messages."
+      "failTitle": "Échec de la suppression"
     },
     "bulkMoved": {
       "title_one": "{{count}} message déplacé",
@@ -300,16 +291,7 @@
     "bulkArchived": {
       "title_one": "{{count}} message archivé",
       "title_other": "{{count}} messages archivés",
-      "body": "Déplacé vers l'archive.",
-      "failTitle": "Échec de l'archivage",
-      "failBody_one": "Impossible d'archiver {{count}} message.",
-      "failBody_other": "Impossible d'archiver {{count}} messages.",
-      "noFolderTitle": "Aucun dossier d'archive",
-      "noFolderBody": "Un ou plusieurs comptes n'ont pas de dossier d'archive configuré. Définissez-en un dans Paramètres → Comptes → Mappage des dossiers."
-    },
-    "noArchiveFolder": {
-      "title": "Aucun dossier d'archive",
-      "body": "Aucun dossier d'archive configuré. Définissez-en un dans Paramètres → Comptes → Mappage des dossiers."
+      "failTitle": "Échec de l'archivage"
     },
     "selectMessages": "Sélectionner des messages",
     "selectedCount": "{{count}} sélectionné(s)",
@@ -447,27 +429,77 @@
     }
   },
   "commandPalette": {
-    "placeholder": "Rechercher des actions…",
-    "noResults": "Aucune action trouvée",
+    "title": "Palette de commandes",
+    "placeholder": "Rechercher des commandes…",
+    "noResults": "Aucune commande trouvée",
+    "matchedAlias": "Correspondance : {{alias}}",
+    "announcement": "{{count}} commandes. Cible : {{target}}.",
+    "target": {
+      "application": "Application",
+      "conversation": "Conversation",
+      "selected": "{{count}} conversations sélectionnées"
+    },
+    "outcome": {
+      "failedTitle": "Échec de la commande",
+      "partialTitle": "Commande partiellement exécutée",
+      "partialBody": "{{succeeded}} réussies ; {{failed}} échouées."
+    },
     "hint": {
       "navigate": "naviguer",
       "select": "sélectionner",
       "close": "fermer"
+    }
+  },
+  "commands": {
+    "mail": {
+      "archive": { "aliasDone": "Terminé" },
+      "snooze": { "aliasRemind": "Me le rappeler" },
+      "trash": { "aliasDelete": "Supprimer" },
+      "spam": { "aliasJunk": "Indésirable" },
+      "partial": "{{succeeded}} réussies ; {{failed}} échouées"
     },
-    "actions": {
-      "compose": "Composer un nouveau message",
-      "inbox": "Aller à la boîte de réception",
-      "settings": "Ouvrir les paramètres",
-      "themes": "Ouvrir les thèmes",
-      "switchTheme": "Passer au thème {{theme}}",
-      "accountInbox": "{{name}} — Boîte de réception"
+    "shortcuts": {
+      "undo": "Annuler", "nextThreadMessage": "Message suivant du fil", "previousThreadMessage": "Message précédent du fil",
+      "scrollDown": "Faire défiler vers le bas", "scrollUp": "Faire défiler vers le haut", "openConversation": "Ouvrir la conversation",
+      "extendNext": "Étendre la sélection vers le bas", "extendPrevious": "Étendre la sélection vers le haut",
+      "selectOlder": "Sélectionner la conversation active et les précédentes", "selectAll": "Sélectionner toutes les conversations",
+      "clearSelection": "Effacer la sélection", "sent": "Aller aux messages envoyés", "drafts": "Aller aux brouillons", "contacts": "Aller aux contacts"
+    },
+    "compose": { "new": { "title": "Composer", "alias": { "write": "Écrire" } } },
+    "navigation": {
+      "search": { "title": "Rechercher dans les e-mails" },
+      "unifiedInbox": { "title": "Accéder à la boîte de réception unifiée" },
+      "accountInbox": { "title": "{{name}} — Boîte de réception" },
+      "folder": { "title": "{{name}}" },
+      "gtd": {
+        "todo": { "title": "Aller à À faire" },
+        "watch": { "title": "Aller à Surveiller" },
+        "delegated": { "title": "Aller à Délégué" },
+        "reference": { "title": "Aller à Référence" },
+        "someday": { "title": "Aller à Un jour" }
+      }
+    },
+    "appearance": { "theme": { "title": "Passer au thème {{name}}" } },
+    "settings": {
+      "accounts": { "title": "Ouvrir les paramètres des comptes" },
+      "notifications": { "title": "Ouvrir les paramètres de notifications" },
+      "rules": { "title": "Ouvrir Règles" },
+      "categories": { "title": "Ouvrir Catégories" },
+      "appearance": { "title": "Ouvrir les paramètres d’apparence" },
+      "shortcuts": { "title": "Ouvrir les paramètres des raccourcis" },
+      "security": { "title": "Ouvrir les paramètres de sécurité" },
+      "integrations": { "title": "Ouvrir Intégrations" },
+      "ai-actions": { "title": "Ouvrir Actions IA" },
+      "about": { "title": "Ouvrir À propos" },
+      "users": { "title": "Ouvrir l’administration des utilisateurs" },
+      "sso": { "title": "Ouvrir les paramètres SSO" },
+      "ai": { "title": "Ouvrir les paramètres IA" }
     }
   },
   "shortcuts": {
     "title": "Raccourcis clavier",
     "customizeHint": "Personnaliser les raccourcis dans Paramètres → Raccourcis",
     "closeHint": "Appuyez sur ? ou Échap pour fermer",
-    "then": "puis",
     "groups": {
       "composeSearch": "Rédaction et recherche",
       "navigation": "Navigation",
@@ -475,85 +507,47 @@
       "gtd": "GTD"
     },
     "actions": {
-      "compose": {
-        "label": "Composer",
-        "description": "Ouvrir une nouvelle fenêtre de rédaction"
-      },
-      "focusSearch": {
-        "label": "Rechercher",
-        "description": "Placer le curseur dans le champ de recherche"
-      },
-      "showHelp": {
-        "label": "Afficher les raccourcis",
-        "description": "Afficher cette liste des raccourcis clavier"
-      },
       "nextMessage": {
-        "label": "Message suivant",
-        "description": "Passer au message suivant"
+        "label": "Message suivant"
       },
       "prevMessage": {
-        "label": "Message précédent",
-        "description": "Passer au message précédent"
-      },
-      "openMessage": {
-        "label": "Ouvrir le premier message",
-        "description": "Ouvrir le premier message si aucun n'est sélectionné"
-      },
-      "goInbox": {
-        "label": "Aller à la boîte de réception",
-        "description": "Accéder à la boîte de réception unifiée"
+        "label": "Message précédent"
       },
       "reply": {
-        "label": "Répondre",
-        "description": "Répondre au message actuel"
+        "label": "Répondre"
       },
       "replyAll": {
-        "label": "Répondre à tous",
-        "description": "Répondre à tous pour le message actuel"
+        "label": "Répondre à tous"
       },
       "forward": {
-        "label": "Transférer",
-        "description": "Transférer le message actuel"
+        "label": "Transférer"
       },
       "archive": {
-        "label": "Archiver",
-        "description": "Archiver le message / la sélection"
+        "label": "Archiver"
       },
       "delete": {
-        "label": "Supprimer",
-        "description": "Supprimer le message / la sélection"
+        "label": "Supprimer"
       },
       "toggleStar": {
-        "label": "Étoile",
-        "description": "Activer ou désactiver l'étoile du message actuel"
+        "label": "Étoile"
       },
       "toggleRead": {
-        "label": "Marquer lu / non lu",
-        "description": "Marquer le message actuel comme lu ou non lu"
+        "label": "Marquer lu / non lu"
       },
       "selectMessage": {
-        "label": "Sélectionner le message",
-        "description": "Cocher ou décocher le message actuel"
+        "label": "Sélectionner le message"
       },
       "printMessage": {
-        "label": "Imprimer",
-        "description": "Imprimer le message actuel"
+        "label": "Imprimer"
       },
       "gtdTodo": {
-        "label": "Marquer À faire",
-        "description": "Classer le message sélectionné comme À faire"
+        "label": "Marquer À faire"
       },
       "gtdWatch": {
-        "label": "Marquer Surveiller",
-        "description": "Classer le message sélectionné comme Surveiller"
-      },
-      "gtdDelegated": {
-        "label": "Marquer Délégué",
-        "description": "Classer le message sélectionné comme Délégué"
+        "label": "Marquer Surveiller"
       },
       "toggleRightSidebar": {
-        "label": "Afficher ou masquer la barre latérale droite",
-        "description": "Masquer ou afficher la barre latérale droite"
+        "label": "Afficher ou masquer la barre latérale droite"
       }
     }
   },
@@ -586,7 +580,25 @@
     "uploadPhoto": "Téléverser une photo",
     "removePhoto": "Supprimer la photo",
     "errorNotImage": "Veuillez sélectionner un fichier image.",
-    "errorProcess": "Impossible de traiter l'image."
+    "errorProcess": "Impossible de traiter l'image.",
+    "tokens": {
+      "label": "Jetons API (MCP)",
+      "namePlaceholder": "Nom du jeton (p. ex. ordinateur)",
+      "create": "Créer",
+      "revoke": "Révoquer",
+      "usedOn": "utilisé {{date}}",
+      "neverUsed": "jamais utilisé",
+      "copyOnce": "Copiez-le maintenant — vous ne le reverrez plus.",
+      "createFailed": "Échec de la création du jeton",
+      "revokeFailed": "Échec de la révocation du jeton",
+      "scopes": {
+        "read": "Lire les e-mails",
+        "write": "Modifier les e-mails",
+        "send": "Envoyer des e-mails",
+        "settings": "Gérer les paramètres",
+        "sendRisk": "Ce jeton peut envoyer des e-mails en votre nom sans confirmation supplémentaire."
+      }
+    }
   },
   "admin": {
     "title": "Paramètres",
@@ -863,6 +875,12 @@
       "defaultReplyAction": "Action de réponse par défaut",
       "defaultReply": "Répondre",
       "defaultReplyAllDesc": "Le bouton Répondre envoie à tous les destinataires",
+      "undoSend": "Annuler l’envoi",
+      "undoSendOff": "Désactivé",
+      "undoSend10": "10 secondes",
+      "undoSend30": "30 secondes",
+      "undoSend60": "60 secondes",
+      "undoSend120": "2 minutes",
       "markReadBehavior": "Marquer comme lu",
       "markReadImmediate": "Immédiatement",
       "markReadImmediateDesc": "Marquer les e-mails comme lus dès que vous les ouvrez.",
@@ -1013,7 +1031,8 @@
       "conflict": "La touche {{key}} était déjà assignée à {{action}} — elle a été réassignée.",
       "resetDefault": "Réinitialiser par défaut",
       "remove": "Supprimer le raccourci",
-      "footer": "Appuyez sur ? n'importe où dans l'application pour voir la référence des raccourcis."
+      "footer": "Appuyez sur ? n'importe où dans l'application pour voir la référence des raccourcis.",
+      "sources": { "primary": "Principal", "secondary": "Secondaire", "platform": "Plateforme", "user": "Personnalisé" }
     },
     "users": {
       "title": "Utilisateurs",
@@ -1101,7 +1120,39 @@
       "copied": "Copié",
       "copyFailed": "Impossible de copier le code.",
       "openAuthorization": "Ouvrir la page d’autorisation",
-      "deviceExpires": "Le code expire à {{time}}."
+      "deviceExpires": "Le code expire à {{time}}.",
+      "remove": "Supprimer la configuration",
+      "emb": {
+        "title": "Embeddings (recherche sémantique)",
+        "benefit": "Les embeddings rendent la recherche plus rapide et plus précise — pour vous ou pour un agent connecté via MCP.",
+        "defaultOff": "Désactivé par défaut. Rien n'est envoyé tant que vous n'activez pas les embeddings et ne lancez pas une génération.",
+        "enable": "Activer les embeddings",
+        "privacyWarning": "Avec un point de terminaison hébergé configuré, le fournisseur d'embeddings (p. ex. OpenAI) reçoit le contenu de vos e-mails — objet et corps du texte. À ce moment-là, ce chemin de données n'est plus auto-hébergé.",
+        "vectorUnavailable": "L'extension pgvector n'est pas disponible sur cette base de données, la recherche sémantique ne peut donc pas fonctionner. La recherche par mots-clés fonctionne toujours.",
+        "endpoint": "URL du point de terminaison",
+        "endpointPh": "https://api.openai.com/v1",
+        "endpointHint": "Le client ajoute /embeddings à cette URL.",
+        "sameAsChat": "Identique au fournisseur de chat",
+        "sameAsChatActive": "Utilise le point de terminaison du fournisseur de chat",
+        "model": "Modèle",
+        "modelPh": "text-embedding-3-small",
+        "dimension": "Dimension",
+        "dimensionPh": "1536",
+        "dimensionHint": "Taille du vecteur renvoyée par le modèle. Lancez « Tester » pour la confirmer depuis le point de terminaison.",
+        "apiKey": "Clé d'API des embeddings",
+        "test": "Tester le point de terminaison",
+        "testOk": "Point de terminaison accessible — dimension {{dimension}}.",
+        "build": "Générer l'index",
+        "rebuild": "Régénérer l'index",
+        "building": "Génération…",
+        "buildStarted": "Génération lancée — l'indexation s'exécute en arrière-plan.",
+        "saveHint": "Enregistrez vos modifications avant de tester ou de générer.",
+        "progressLabel": "Indexation de {{processed}} / {{total}} messages",
+        "progressDone": "Embeddings à jour ({{total}} messages indexés).",
+        "progressError": "Erreur de génération : {{error}}",
+        "localTitle": "Exécuter les embeddings en local",
+        "localHelp": "Mailflow peut générer les embeddings entièrement sur votre propre matériel, de sorte qu'aucun contenu de message ne quitte votre réseau. Sur un Raspberry Pi, exécutez Ollama avec un petit modèle comme all-minilm (384) ou nomic-embed-text (768) — tous deux exposent un point de terminaison compatible OpenAI auquel Mailflow parle directement. Les processeurs de classe Pi sont lents : la première génération de l'index d'une grande boîte aux lettres peut prendre de quelques heures à quelques jours, mais elle ne s'exécute qu'une fois en arrière-plan et reprend en toute sécurité ; ensuite, l'intégration des nouveaux e-mails est instantanée. Pour une première génération plus rapide, dirigez le point de terminaison vers une API hébergée ou une machine plus puissante et toujours allumée de votre LAN."
+      }
     },
     "aiActions": {
       "description": "Créez vos propres actions IA. Elles apparaissent dans le menu IA lors de la lecture d'un message, à côté de Résumer. Le prompt de chaque action est appliqué au contenu du message.",
@@ -1399,10 +1450,7 @@
     "movedToInbox": "Déplacé dans la boîte de réception",
     "movedToInboxBulk": "{{count}} messages déplacés dans la boîte de réception",
     "failTitle": "Impossible de marquer comme spam",
-    "failHamTitle": "Impossible de marquer comme non spam",
-    "failBody": "Le serveur de messagerie a refusé le déplacement.",
-    "failHamBody": "Le serveur de messagerie a refusé le déplacement.",
-    "failBodyBulk": "{{count}} messages n'ont pas pu être déplacés."
+    "failHamTitle": "Impossible de marquer comme non spam"
   },
   "contacts": {
     "title": "Contacts",
@@ -1470,6 +1518,21 @@
   },
   "gtd": {
     "title": "GTD",
+    "delegate": {
+      "command": "Déléguer",
+      "pickerTitle": "Déléguer {{count}} message(s)",
+      "pickerHint": "Choisissez un contact synchronisé ou continuez sans personne",
+      "search": "Rechercher des contacts",
+      "contacts": "Contacts",
+      "withoutPerson": "Déléguer sans personne",
+      "empty": "Aucun contact trouvé",
+      "retry": "Réessayer",
+      "loadFailed": "Impossible de charger les contacts",
+      "assignedTo": "Délégué à {{name}}",
+      "success": "{{count}} message(s) délégué(s)",
+      "partial": "{{succeeded}} message(s) délégué(s) ; {{failed}} échec(s)",
+      "failed": "Impossible de déléguer les messages sélectionnés"
+    },
     "inbox": "Boîte de réception",
     "waiting": "En attente",
     "inboxZero": "Boîte vide ✓",

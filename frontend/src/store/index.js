@@ -13,12 +13,15 @@ import {
 } from '../utils/gtd.js';
 import { applyGtdRemovalGuard } from '../utils/pendingGtdRemovals.js';
 import { clampRightSidebarWidth } from '../utils/rightSidebar.js';
+import { nextSelection } from '../commands/selection.js';
 import {
   cacheFolderOrderFromPreferences,
   mergeFolderOrder,
   readFolderOrder,
 } from './folderOrder.js';
+import { readStoredSearchMode, writeStoredSearchMode } from '../utils/searchMode.js';
 import i18n from '../i18n.js';
+import { normalizeCarddavStatus } from '../utils/delegation.js';
 
 // Accumulate rapid preference changes and flush at most once per second.
 let _prefFlushTimer = null;
@@ -58,6 +61,8 @@ export const useStore = create((set, get) => ({
       senderFaviconsLoaded: false,
       senderFavicons: false,
       senderFaviconsSaving: false,
+      carddavStatus: { connected: false },
+      carddavStatusLoaded: false,
     } : {}),
   })),
   updateUser: (updates) => set(state => ({ user: state.user ? { ...state.user, ...updates } : state.user })),
@@ -68,6 +73,25 @@ export const useStore = create((set, get) => ({
     if (connected) localStorage.setItem('mailflow_todoist_connected', '1');
     else localStorage.removeItem('mailflow_todoist_connected');
     set({ todoistConnected: connected });
+  },
+
+  // Shared CardDAV status drives the Delegate command's continuation decision.
+  carddavStatus: { connected: false },
+  carddavStatusLoaded: false,
+  setCarddavStatus: (status) => set({
+    carddavStatus: normalizeCarddavStatus(status),
+    carddavStatusLoaded: true,
+  }),
+  refreshCarddavStatus: async () => {
+    try {
+      const status = await api.carddav.status();
+      get().setCarddavStatus(status);
+      return normalizeCarddavStatus(status);
+    } catch {
+      const status = { connected: false };
+      get().setCarddavStatus(status);
+      return status;
+    }
   },
 
   // Lock screen
@@ -81,7 +105,7 @@ export const useStore = create((set, get) => ({
         isLocked: true,
         messages: [], searchResults: [], searchQuery: '',
         accounts: [], accountsReady: false,
-        folders: {}, selectedMessageId: null,
+        folders: {}, selectedMessageIds: new Set(), selectedMessageId: null,
         unreadCounts: { total: 0, byAccount: {} },
         notifications: [], threadMessages: {}, expandedThreadId: null,
         backfillProgress: {},
@@ -135,7 +159,9 @@ export const useStore = create((set, get) => ({
       return {
         selectedAccountId: accountId,
         selectedFolder: folder,
+        selectedMessageIds: new Set(),
         selectedMessageId: null,
+        activeGtdTab: null,
         messages: [],
         messagesOffset: 0,
         hasMoreMessages: true,
@@ -228,6 +254,14 @@ export const useStore = create((set, get) => ({
   hasMoreMessages: true,
   setHasMoreMessages: (v) => set({ hasMoreMessages: v }),
 
+  // Shared checkbox selection: row UUIDs for existing bulk APIs. Command context
+  // converts these to account-scoped account_id:(message_id || id) identities.
+  selectedMessageIds: new Set(),
+  setSelectedMessageIds: (nextOrUpdater) => set(state => ({
+    selectedMessageIds: nextSelection(state.selectedMessageIds, nextOrUpdater),
+  })),
+  clearSelectedMessageIds: () => set({ selectedMessageIds: new Set() }),
+
   // Selected message
   selectedMessageId: null,
   lastViewedMessageId: null,
@@ -314,6 +348,10 @@ export const useStore = create((set, get) => ({
     else localStorage.removeItem('mailflow_search_all_folders');
     set({ searchAllFolders: v });
   },
+  // Search mode: 'lexical' (default) | 'hybrid' | 'vector'. Persisted per device,
+  // like searchAllFolders. Only meaningful when /api/ai/status reports vector available.
+  searchMode: readStoredSearchMode(localStorage),
+  setSearchMode: (mode) => set({ searchMode: writeStoredSearchMode(localStorage, mode) }),
   swipeActions: (() => {
     try {
       return JSON.parse(localStorage.getItem('mailflow_swipe_actions') || 'null') || { left: 'archive', right: 'markRead' };
@@ -460,6 +498,13 @@ export const useStore = create((set, get) => ({
     localStorage.setItem('mailflow_reply_default', val);
     set({ replyDefault: val });
     schedulePrefSave({ replyDefault: val });
+  },
+
+  undoSendSeconds: parseInt(localStorage.getItem('mailflow_undo_send_seconds') || '0', 10) || 0,
+  setUndoSendSeconds: (val) => {
+    localStorage.setItem('mailflow_undo_send_seconds', String(val));
+    set({ undoSendSeconds: val });
+    schedulePrefSave({ undoSendSeconds: val });
   },
 
   markReadBehavior: localStorage.getItem('mailflow_mark_read_behavior') || 'immediate',
@@ -978,6 +1023,11 @@ export const useStore = create((set, get) => ({
       if (prefs.replyDefault === 'reply' || prefs.replyDefault === 'replyAll') {
         localStorage.setItem('mailflow_reply_default', prefs.replyDefault);
         set({ replyDefault: prefs.replyDefault });
+      }
+      if ([0, 10, 30, 60, 120].includes(Number(prefs.undoSendSeconds))) {
+        const n = Number(prefs.undoSendSeconds);
+        localStorage.setItem('mailflow_undo_send_seconds', String(n));
+        set({ undoSendSeconds: n });
       }
       if (prefs.markReadBehavior === 'immediate' || prefs.markReadBehavior === 'delay' || prefs.markReadBehavior === 'manual') {
         localStorage.setItem('mailflow_mark_read_behavior', prefs.markReadBehavior);

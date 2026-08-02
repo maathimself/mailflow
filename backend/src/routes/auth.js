@@ -19,6 +19,7 @@ import { sanitizeGtdPrefs } from '../utils/gtdPrefs.js';
 import { sanitizeRightSidebarPrefs } from '../utils/rightSidebarPrefs.js';
 import { redisClient } from '../services/redis.js';
 import { consume as rlConsume, reset as rlReset } from '../services/rateLimiter.js';
+import { UNDO_CHOICES } from '../services/outboxService.js';
 
 const router = Router();
 
@@ -769,7 +770,7 @@ export async function patchPreferences(req, res) {
           showAppBadge, showFaviconBadge, replyDefault, sidebarWidth,
           categorizationEnabled, markReadBehavior, markReadDelay, aiActions,
           autoLockMinutes, showMobileAvatars, gravatarAvatars, folderSyncInterval,
-          folderOrder, senderFavicons } = req.body;
+          folderOrder, senderFavicons, undoSendSeconds } = req.body;
   // GTD content and generic right-sidebar layout preferences are independent flat
   // top-level keys with separate allow-lists. gtdEnabled is intentionally NOT a user
   // preference — it lives per-account in email_accounts.gtd_enabled.
@@ -794,6 +795,7 @@ export async function patchPreferences(req, res) {
   const autoLockMinutesVal    = [0, 1, 5, 15, 30].includes(Number(autoLockMinutes)) ? String(Number(autoLockMinutes)) : null;
   // Folder-structure sync cadence in seconds; 0 = never.
   const folderSyncIntervalVal = folderSyncInterval != null && [0, 900, 1800, 3600].includes(Number(folderSyncInterval)) ? String(Number(folderSyncInterval)) : null;
+  const undoSendSecondsVal    = UNDO_CHOICES.includes(Number(undoSendSeconds)) ? String(Number(undoSendSeconds)) : null;
   // User-defined AI actions: bound the array and each field so the JSONB can't grow unbounded.
   const aiActionsJson = (() => {
     if (!Array.isArray(aiActions)) return null;
@@ -851,6 +853,7 @@ export async function patchPreferences(req, res) {
       || CASE WHEN $38::text IS NOT NULL THEN jsonb_build_object('folderSyncInterval', $38::text) ELSE '{}'::jsonb END
       || CASE WHEN $39::jsonb IS NOT NULL THEN jsonb_build_object('folderOrder', $39::jsonb) ELSE '{}'::jsonb END
       || CASE WHEN $40::boolean IS NOT NULL THEN jsonb_build_object('senderFavicons', $40::boolean) ELSE '{}'::jsonb END
+      || CASE WHEN $41::int IS NOT NULL THEN jsonb_build_object('undoSendSeconds', $41::int) ELSE '{}'::jsonb END
     WHERE id = $1
   `, [req.session.userId, theme ?? null, font ?? null, layout ?? null, notificationSound ?? null,
       pageSize ?? null, scrollMode ?? null, syncInterval ?? null,
@@ -860,7 +863,8 @@ export async function patchPreferences(req, res) {
       showAppBadge ?? null, showFaviconBadge ?? null, replyDefaultVal, sidebarWidthVal,
       categorizationEnabled ?? null, markReadBehaviorVal, markReadDelayVal, aiActionsJson,
       rightSidebarWidth, rightSidebarHidden, gtdCollapsedSectionsJson, gtdPetSlug, autoLockMinutesVal,
-      showMobileAvatars ?? null, gravatarAvatars ?? null, folderSyncIntervalVal, folderOrderJson, senderFaviconsVal]);
+      showMobileAvatars ?? null, gravatarAvatars ?? null, folderSyncIntervalVal, folderOrderJson, senderFaviconsVal,
+      undoSendSecondsVal]);
 
   if (syncInterval != null) {
     const ms = parseInt(syncInterval) * 1000;
