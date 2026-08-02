@@ -9,6 +9,7 @@ import {
 import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
 import { resolveContextMenuMessage } from '../utils/contextMenuPolicy.js';
 import { doneGtdRow } from '../utils/gtdDone.js';
+import { handleComposeRequest } from '../utils/composeRequest.js';
 
 // One pending delayed auto-read across ALL GTD surfaces (module scope, not per hook
 // instance): the sidebar and the tab browse list are mounted together in desktop row
@@ -218,20 +219,21 @@ export function useGtdTriage() {
         try {
           const message = await resolveContextMenuMessage(thread, 'gtdSidebar', api.resolveMessage);
           if (action === 'forward') {
-            await openForwardFromMessage(message, {
+            await handleComposeRequest(() => openForwardFromMessage(message, {
               openCompose,
               getMessageBody: api.getMessageBody,
-            });
+            }), { addNotification, t });
           } else {
-            await openReplyFromMessage(message, {
+            await handleComposeRequest(() => openReplyFromMessage(message, {
               accounts,
               openCompose,
               getMessageBody: api.getMessageBody,
               replyAll: action === 'replyAll',
-            });
+            }), { addNotification, t });
           }
         } catch (err) {
           console.error('GTD compose prefill failed:', err.message);
+          addNotification({ type: 'error', title: t('common.error', { message: err.message }) });
           scheduleGtdSectionsFetch();
         }
         break;

@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { installCapacitorNativeBridge } from '../utils/capacitorNativeBridge.js';
 import { createBoundedActionIdTracker, isTrustedNativeMessage } from '../utils/nativeActionSecurity.js';
+import { handleComposeRequest } from '../utils/composeRequest.js';
 
 export default function ElectronNotificationBridge() {
+  const { t } = useTranslation();
   const addNotification = useStore(state => state.addNotification);
   const openCompose = useStore(state => state.openCompose);
   const setSelectedAccount = useStore(state => state.setSelectedAccount);
@@ -148,7 +151,7 @@ export default function ElectronNotificationBridge() {
       const originalMessageId = message.message_id || message.messageId;
       const priorInReplyTo = message.in_reply_to || message.inReplyTo;
 
-      openCompose({
+      return handleComposeRequest(() => openCompose({
         to: sender,
         cc: [],
         subject,
@@ -159,7 +162,7 @@ export default function ElectronNotificationBridge() {
         isReply: true,
         originalFrom: sender,
         allRecipients: [],
-      });
+      }), { addNotification, t });
     };
 
     const runNativeAction = async (payload) => {
@@ -177,7 +180,10 @@ export default function ElectronNotificationBridge() {
 
       try {
         if (action === 'new-mail') {
-          openCompose(payload?.composeData || {});
+          await handleComposeRequest(
+            () => openCompose(payload?.composeData || {}),
+            { addNotification, t },
+          );
           return;
         }
 
@@ -187,7 +193,7 @@ export default function ElectronNotificationBridge() {
         }
 
         if (action === 'reply-message') {
-          openReplyFromPayload(payload);
+          await openReplyFromPayload(payload);
           return;
         }
 
@@ -273,7 +279,7 @@ export default function ElectronNotificationBridge() {
       window.removeEventListener('message', handleNativeMessage);
       if (typeof unsubscribe === 'function') unsubscribe();
     };
-  }, [addNotification, nativeBridgeReady, openCompose, setSearchQuery, setSelectedAccount, setSelectedMessage]);
+  }, [addNotification, nativeBridgeReady, openCompose, setSearchQuery, setSelectedAccount, setSelectedMessage, t]);
 
   return null;
 }

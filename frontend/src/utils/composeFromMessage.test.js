@@ -1,6 +1,11 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { openReplyFromMessage, openForwardFromMessage } from './composeFromMessage.js';
+import * as composeFromMessage from './composeFromMessage.js';
+
+const {
+  openReplyFromMessage,
+  openForwardFromMessage,
+} = composeFromMessage;
 
 function harness(body = null) {
   let payload = null;
@@ -11,7 +16,69 @@ function harness(body = null) {
   };
 }
 
+describe('openDraftFromMessage', () => {
+  it('restores persisted threading headers into the compose payload', async () => {
+    assert.equal(typeof composeFromMessage.openDraftFromMessage, 'function');
+    const h = harness({ html: '<p>Saved reply</p>', text: 'Saved reply' });
+
+    await composeFromMessage.openDraftFromMessage({
+      id: 'draft-row',
+      account_id: 'account-1',
+      uid: 42,
+      folder: 'Drafts',
+      to_addresses: [{ name: 'Recipient', email: 'recipient@example.com' }],
+      cc_addresses: [],
+      subject: 'Re: Thread',
+      in_reply_to: '<parent@example.com>',
+      thread_references: '<root@example.com> <parent@example.com>',
+    }, {
+      openCompose: h.openCompose,
+      getMessageBody: h.getMessageBody,
+    });
+
+    assert.deepEqual(h.payload(), {
+      accountId: 'account-1',
+      draftUid: 42,
+      draftFolder: 'Drafts',
+      to: ['Recipient <recipient@example.com>'],
+      cc: [],
+      subject: 'Re: Thread',
+      body: '<p>Saved reply</p>',
+      bodyIsHtml: true,
+      inReplyTo: '<parent@example.com>',
+      references: '<root@example.com> <parent@example.com>',
+    });
+  });
+
+  it('returns the compose controller result and propagates its failure', async () => {
+    const message = {
+      id: 'draft-row', account_id: 'account-1', uid: 42, folder: 'Drafts',
+      to_addresses: [], cc_addresses: [], subject: 'Synthetic draft',
+    };
+    const result = await composeFromMessage.openDraftFromMessage(message, {
+      openCompose: async () => 'claimed',
+      getMessageBody: async () => ({ text: 'Saved body' }),
+    });
+    assert.equal(result, 'claimed');
+
+    const failure = new Error('synthetic claim failure');
+    await assert.rejects(composeFromMessage.openDraftFromMessage(message, {
+      openCompose: async () => { throw failure; },
+      getMessageBody: async () => ({ text: 'Saved body' }),
+    }), error => error === failure);
+  });
+});
+
 describe('openReplyFromMessage reply target', () => {
+  it('preserves the source thread identity', async () => {
+    const h = harness();
+    await openReplyFromMessage(
+      { account_id: 'a', thread_id: 'thread-1', from_email: 'sender@example.com' },
+      { accounts: [], openCompose: h.openCompose, getMessageBody: h.getMessageBody },
+    );
+    assert.equal(h.payload().threadId, 'thread-1');
+  });
+
   it('prefers reply_to[0] over from', async () => {
     const h = harness();
     await openReplyFromMessage(
@@ -95,6 +162,7 @@ describe('openReplyFromMessage reply-all recipients', () => {
     });
     assert.deepEqual(h.payload().cc, [{ email: 'keep@example.com' }, { email: 'cckeep@example.com' }]);
     assert.deepEqual(h.payload().allRecipients, [{ email: 'keep@example.com' }, { email: 'cckeep@example.com' }]);
+    assert.deepEqual(h.payload().replyAllRecipients, h.payload().allRecipients);
   });
 
   it('leaves cc empty for a plain reply but still computes allRecipients', async () => {
@@ -104,6 +172,7 @@ describe('openReplyFromMessage reply-all recipients', () => {
     });
     assert.deepEqual(h.payload().cc, []);
     assert.deepEqual(h.payload().allRecipients, [{ email: 'keep@example.com' }, { email: 'cckeep@example.com' }]);
+    assert.deepEqual(h.payload().replyAllRecipients, h.payload().allRecipients);
   });
 });
 
@@ -194,6 +263,26 @@ describe('openForwardFromMessage', () => {
     assert.deepEqual(h.payload().forwardedAttachments, [
       { messageId: 'm1', part: '2', filename: 'a.pdf', type: 'application/pdf', size: 10 },
     ]);
+  });
+});
+
+describe('compose controller outcomes', () => {
+  it('returns and propagates reply and forward controller outcomes', async () => {
+    const message = { id: 'message-1', account_id: 'account-1', from_email: 'sender@example.com' };
+    assert.equal(await openReplyFromMessage(message, {
+      accounts: [], openCompose: async () => 'replied', getMessageBody: async () => null,
+    }), 'replied');
+    assert.equal(await openForwardFromMessage(message, {
+      openCompose: async () => 'forwarded', getMessageBody: async () => null,
+    }), 'forwarded');
+
+    const failure = new Error('synthetic compose failure');
+    await assert.rejects(openReplyFromMessage(message, {
+      accounts: [], openCompose: async () => { throw failure; }, getMessageBody: async () => null,
+    }), error => error === failure);
+    await assert.rejects(openForwardFromMessage(message, {
+      openCompose: async () => { throw failure; }, getMessageBody: async () => null,
+    }), error => error === failure);
   });
 });
 

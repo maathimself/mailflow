@@ -114,6 +114,7 @@ const dir = dirname(fileURLToPath(import.meta.url));
 // Two locales sharing a value is only allowed if both appear in the same group.
 // Any unlisted pair will still fail.
 const SAME_VALUE_ALLOWED = {
+  'gtd.delegate.contacts':                  [['en', 'fr']], // Same word in both languages
   // ── Universal placeholders / brand names (all locales share) ───────────────
   'admin.about.kofi':                       'any', // Ko-fi — brand name, same everywhere
   'admin.about.githubSponsors':             'any', // GitHub Sponsors — product name, same everywhere
@@ -126,6 +127,9 @@ const SAME_VALUE_ALLOWED = {
   'admin.accounts.smtpHostPh':              'any', // smtp.gmail.com
   'admin.ai.baseUrlPh':                      'any', // http://localhost:11434/v1
   'admin.ai.chatgptModelPh':                 'any', // gpt-5.6-luna
+  'admin.ai.emb.endpointPh':                 'any', // https://api.openai.com/v1
+  'admin.ai.emb.modelPh':                    'any', // text-embedding-3-small — model id
+  'admin.ai.emb.dimensionPh':                'any', // 1536 — numeric placeholder
   'admin.appearance.customCssPlaceholder':   'any', // CSS code snippet, same in all locales
   'admin.integrations.microsoft.clientIdPh':'any', // xxxxxxxx-xxxx-…
   'admin.integrations.microsoft.title':     'any', // Microsoft 365 / Outlook.com
@@ -139,8 +143,12 @@ const SAME_VALUE_ALLOWED = {
   // ── Specific language groups ───────────────────────────────────────────────
   // "Version" — same spelling in de, en, fr
   'admin.about.version': [['de', 'en', 'fr']],
+  // "Dimension" — international technical term, same spelling in de, en, fr
+  'admin.ai.emb.dimension': [['de', 'en', 'fr']],
   // "{{n}} min" — the "min" abbreviation is shared in en, es, fr, it
   'admin.lock.autoLockMin': [['en', 'es', 'fr', 'it']],
+  // "2 minutes" — identical spelling in English and French
+  'admin.messageList.undoSend120': [['en', 'fr']],
 
   // "Website" — international term, same in de and en
   'admin.about.website': [['de', 'en']],
@@ -148,6 +156,7 @@ const SAME_VALUE_ALLOWED = {
   // "Alias" — Latin origin, same spelling in es, fr, it
   'admin.accounts.aliases': [['es', 'fr', 'it']],
   'admin.aliases.title':     [['es', 'fr', 'it']],
+  'admin.shortcuts.sources.primary': [['es', 'fr']],
 
 
   // email placeholder — example.com address looks the same in en, ru, zhCN
@@ -302,6 +311,16 @@ const SAME_VALUE_ALLOWED = {
   // "GTD" — acronym (Getting Things Done), same in every locale
   'gtd.title': 'any',
 
+  // ── Command palette ───────────────────────────────────────────────────────
+  // These labels are spelled identically in English and French.
+  'commandPalette.target.application': [['en', 'fr']],
+  'commandPalette.target.conversation': [['en', 'fr']],
+  // "Junk" is the conventional mailbox label in both German and English.
+  'commands.mail.spam.aliasJunk': [['de', 'en']],
+  // Folder names come from the account, so every locale intentionally renders
+  // the same interpolation token without adding surrounding copy.
+  'commands.navigation.folder.title': 'any',
+
   // ── Keyboard shortcuts ─────────────────────────────────────────────────────
   // "GTD" — acronym group heading, same in every locale (like admin.categories.gtdReveal)
   'shortcuts.groups.gtd': 'any',
@@ -357,6 +376,37 @@ const DYNAMIC_KEYS = new Set([
   // appear as literals; the other three do via the tab pills).
   'gtd.state.watch',
   'gtd.state.delegated',
+  // Command definitions generate these keys from the fixed GTD-section and
+  // settings-tab allowlists in appCommands.js.
+  'commands.navigation.gtd.todo.title',
+  'commands.navigation.gtd.watch.title',
+  'commands.navigation.gtd.delegated.title',
+  'commands.navigation.gtd.reference.title',
+  'commands.navigation.gtd.someday.title',
+  'commands.settings.accounts.title',
+  'commands.settings.notifications.title',
+  'commands.settings.rules.title',
+  'commands.settings.categories.title',
+  'commands.settings.appearance.title',
+  'commands.settings.shortcuts.title',
+  'commands.settings.security.title',
+  'commands.settings.integrations.title',
+  'commands.settings.ai-actions.title',
+  'commands.settings.about.title',
+  'commands.settings.users.title',
+  'commands.settings.sso.title',
+  'commands.settings.ai.title',
+  'admin.shortcuts.sources.primary',
+  'admin.shortcuts.sources.secondary',
+  'admin.shortcuts.sources.platform',
+  'admin.shortcuts.sources.user',
+  // ComposeChip resolves controller persistence codes through this fixed template.
+  'compose.dirty',
+  'compose.saving',
+  'compose.saved',
+  'compose.offline',
+  'compose.error',
+  'compose.conflict',
 ]);
 
 // JSX attribute names whose values must never be plain strings — always t().
@@ -538,8 +588,43 @@ function isAllowedPair(key, lang1, lang2) {
 const locales = loadLocales();
 const langs = Object.keys(locales).sort();
 const allKeys = [...new Set(langs.flatMap(l => Object.keys(locales[l])))].sort();
+const REQUIRED_KEYS = [
+  'commands.mail.archive.aliasDone',
+  'commands.mail.snooze.aliasRemind',
+  'commands.mail.trash.aliasDelete',
+  'commands.mail.spam.aliasJunk',
+  'commands.mail.partial',
+  'commands.shortcuts.undo',
+  'commands.shortcuts.nextThreadMessage',
+  'commands.shortcuts.previousThreadMessage',
+  'commands.shortcuts.scrollDown',
+  'commands.shortcuts.scrollUp',
+  'commands.shortcuts.openConversation',
+  'commands.shortcuts.extendNext',
+  'commands.shortcuts.extendPrevious',
+  'commands.shortcuts.selectOlder',
+  'commands.shortcuts.selectAll',
+  'commands.shortcuts.clearSelection',
+  'commands.shortcuts.sent',
+  'commands.shortcuts.drafts',
+  'commands.shortcuts.contacts',
+  'admin.shortcuts.sources.primary',
+  'admin.shortcuts.sources.secondary',
+  'admin.shortcuts.sources.platform',
+  'admin.shortcuts.sources.user',
+];
 
 describe('i18n locale files', () => {
+
+  it('provides localized mail command aliases and partial outcomes', () => {
+    const missing = [];
+    for (const lang of langs) {
+      for (const key of REQUIRED_KEYS) {
+        if (typeof locales[lang][key] !== 'string') missing.push(`${lang}: ${key}`);
+      }
+    }
+    assert.deepEqual(missing, []);
+  });
 
   it('places sender favicon setting copy under the admin message-list namespace', () => {
     const keys = [
@@ -582,6 +667,48 @@ describe('i18n locale files', () => {
   });
 
   describe('key coverage — every key must appear in every locale', () => {
+    it('includes every durable compose-session label with consistent slot interpolation', () => {
+      const required = [
+        'compose.requestFailed',
+        'compose.sessions.limit',
+        'compose.sessions.saving',
+        'compose.sessions.saved',
+        'compose.sessions.offline',
+        'compose.sessions.error',
+        'compose.sessions.conflict',
+        'compose.sessions.useRemote',
+        'compose.sessions.keepMine',
+        'compose.sessions.slotLabel',
+        'compose.sessions.minimized',
+        'commands.compose.minimize',
+        'commands.compose.close',
+        'commands.compose.discard',
+        'commands.compose.activateSlot',
+      ];
+      for (const [lang, locale] of Object.entries(locales)) {
+        const missing = required.filter(key => typeof locale[key] !== 'string');
+        assert.deepEqual(missing, [], `${lang} is missing durable compose-session labels`);
+        for (const key of ['compose.sessions.slotLabel', 'commands.compose.activateSlot']) {
+          assert.equal((locale[key].match(/\{\{slot\}\}/g) || []).length, 1,
+            `${lang} ${key} must contain exactly one {{slot}} token`);
+          assert.doesNotMatch(locale[key], /<slot>/,
+            `${lang} ${key} must use i18next interpolation`);
+        }
+      }
+    });
+
+    it('includes the complete delegated-contact workflow in every locale', () => {
+      const required = [
+        'gtd.delegate.command', 'gtd.delegate.pickerTitle', 'gtd.delegate.pickerHint',
+        'gtd.delegate.search', 'gtd.delegate.contacts', 'gtd.delegate.withoutPerson',
+        'gtd.delegate.empty', 'gtd.delegate.retry', 'gtd.delegate.loadFailed',
+        'gtd.delegate.assignedTo', 'gtd.delegate.success', 'gtd.delegate.partial',
+        'gtd.delegate.failed',
+      ];
+      for (const [lang, locale] of Object.entries(locales)) {
+        for (const key of required) assert.equal(typeof locale[key], 'string', `${lang}: ${key}`);
+      }
+    });
     for (const lang of langs) {
       it(`${lang} has no missing keys`, () => {
         const present = new Set(Object.keys(locales[lang]));
@@ -590,6 +717,75 @@ describe('i18n locale files', () => {
           `Missing keys:\n${missing.map(k => `  - ${k}`).join('\n')}`);
       });
     }
+  });
+
+  describe('undo-send feature contract', () => {
+    const requiredKeys = [
+      'admin.messageList.undoSend',
+      'admin.messageList.undoSendOff',
+      'admin.messageList.undoSend10',
+      'admin.messageList.undoSend30',
+      'admin.messageList.undoSend60',
+      'admin.messageList.undoSend120',
+      'compose.sending.label',
+      'compose.sending.title',
+      'compose.sending.countdown',
+      'compose.sending.tooLate',
+    ];
+
+    for (const lang of langs) {
+      it(`${lang} includes every undo-send preference and countdown label`, () => {
+        const missing = requiredKeys.filter(key => locales[lang][key] === undefined);
+        assert.deepEqual(missing, []);
+        assert.match(locales[lang]['compose.sending.countdown'], /\{\{seconds\}\}/);
+      });
+    }
+  });
+
+  describe('durable compose-session accessibility contract', () => {
+    const workspaceSource = readFileSync(resolve(dir, '../components/ComposeWorkspace.jsx'), 'utf8');
+    const modalSource = readFileSync(resolve(dir, '../components/ComposeModal.jsx'), 'utf8');
+    const presentationSource = readFileSync(
+      resolve(dir, '../components/composePresentationModel.js'), 'utf8',
+    );
+
+    it('labels every expanded composer as a stable, uniquely named region', () => {
+      assert.match(workspaceSource, /role="region"/);
+      assert.match(workspaceSource, /aria-labelledby=\{titleId\}/);
+      assert.match(workspaceSource, /compose-session-title-\$\{session\.id\}/);
+    });
+
+    it('uses one polite workspace status for localized slot and persistence announcements', () => {
+      assert.equal((workspaceSource.match(/role="status"/g) || []).length, 1);
+      assert.equal((workspaceSource.match(/aria-live="polite"/g) || []).length, 1);
+      assert.match(presentationSource, /compose\.sessions\.slotLabel/);
+      assert.match(presentationSource, /compose\.sessions\.minimized/);
+      assert.match(workspaceSource, /compose\.sessions\.limit/);
+    });
+
+    it('keeps server and local-recovery conflict choices distinct', () => {
+      assert.match(workspaceSource, /session\.recoveryConflict/);
+      assert.match(workspaceSource, /compose\.sessions\.recoveryConflict/);
+      assert.match(workspaceSource, /strategy: 'recovered'/);
+      assert.match(workspaceSource, /strategy: 'remote'/);
+      assert.match(workspaceSource, /compose\.sessions\.useRecovered/);
+      assert.match(workspaceSource, /compose\.sessions\.useRemote/);
+      assert.match(workspaceSource, /compose\.sessions\.keepMine/);
+      assert.match(workspaceSource, /catch \{[\s\S]*controller preserves the conflict/i,
+        'a rejected durable resolution must not escape the click handler');
+    });
+
+    it('disables unsafe composer actions while a terminal mutation is pending', () => {
+      assert.match(modalSource, /const terminalPending = Boolean\(session\.terminalPending\)/);
+      assert.match(modalSource, /disabled=\{terminalPending\}/);
+      assert.match(modalSource, /disabled=\{terminalPending \|\| sending/);
+    });
+
+    it('removes the obsolete attachment-loss warning from every locale', () => {
+      for (const lang of langs) {
+        assert.equal(locales[lang]['compose.draftHasAttachments'], undefined, lang);
+      }
+    });
   });
 
   describe('value uniqueness — no unlisted locale pair should share a value for the same key', () => {

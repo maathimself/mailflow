@@ -1,5 +1,10 @@
 import sanitizeHtml from 'sanitize-html';
 
+// Reject strings that contain characters that could inject extra email headers.
+export function hasHeaderInjectionChars(str) {
+  return typeof str === 'string' && /[\r\n\0]/.test(str);
+}
+
 // Strip the <head> element from email HTML, preserving any <style> blocks inside it.
 //
 // Why: sanitize-html's 'discard' mode removes disallowed tags (e.g. <title>) but

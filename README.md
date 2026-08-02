@@ -83,6 +83,193 @@ configurable per account, and accounts with GTD off behave exactly as before.
 
 ---
 
+## MCP server
+
+MailFlow exposes a Model Context Protocol endpoint at `POST /mcp`. Authenticate
+with an API token in the `Authorization: Bearer <token>` header. Tokens have one or
+more scopes:
+
+- `read` — search, inspect messages, and list mailbox state
+- `write` — change mailbox state; also implies `read`
+- `send` — send, queue, cancel, or recall mail; also implies `read`
+- `settings` — manage accounts, aliases, and rules; also implies `read`
+
+`stage_deletion` requires `write`, even though execution is a separate,
+session-authorized step. `run_rules` requires both `settings` and `write` because
+rule actions can move, archive, or delete messages.
+
+### Tools
+
+#### Search and read
+
+| Tool | Scope | Description |
+|---|---|---|
+| `ping` | `read` | Check transport and authentication health. |
+| `search_metadata` | `read` | Search message metadata with the supported Gmail-style query subset. |
+| `search_message_bodies` | `read` | Run keyword full-text search over message bodies. |
+| `semantic_search_messages` | `read` | Run vector or hybrid semantic search over indexed messages. |
+| `get_message` | `read` | Get message details and a pageable body slice. |
+| `list_messages` | `read` | List messages with account, participant, date, attachment, and conversation filters. |
+| `get_stats` | `read` | Get archive totals, attachment statistics, and accounts. |
+| `aggregate` | `read` | Group message statistics by sender, recipient, domain, label, or year. |
+| `search_by_domains` | `read` | Find messages involving any of a set of domains. |
+| `find_similar_messages` | `read` | Find messages closest to a seed message in the vector index. |
+| `search_in_message` | `read` | Find keyword or semantic matches inside one message. |
+
+#### Compose sessions
+
+| Tool | Scope | Description |
+|---|---|---|
+| `list_compose_sessions` | `read` | List live compose sessions and available slots. |
+| `get_compose_session` | `read` | Get a complete live compose session by slot. |
+| `create_compose_session` | `write` | Create a live compose session in a requested or available slot. |
+| `update_compose_session` | `write` | Update explicitly provided fields on a live compose session. |
+| `minimize_compose_session` | `write` | Minimize a live compose session. |
+| `restore_compose_session` | `write` | Restore a minimized live compose session. |
+| `add_compose_attachment` | `write` | Add a base64-encoded attachment to a live compose session. |
+| `remove_compose_attachment` | `write` | Remove an attachment from a live compose session. |
+| `close_compose_session` | `write` | Close a compose session, saving meaningful content as an IMAP draft. |
+| `discard_compose_session` | `write` | Permanently discard a compose session and free its slot. |
+| `send_compose_session` | `send` | Send a compose session and free its slot after acceptance. |
+
+Compose-session tools control Mailflow's nine live server-owned slots. Draft
+tools control messages already stored in the account's IMAP Drafts folder.
+Closing a meaningful compose session converts it into an IMAP draft and frees
+the slot.
+
+#### Drafts
+
+| Tool | Scope | Description |
+|---|---|---|
+| `create_draft` | `write` | Create a draft without sending it. |
+| `update_draft` | `write` | Replace a draft and return its new IMAP UID. |
+| `list_drafts` | `read` | List drafts newest-first. |
+| `get_draft` | `read` | Get draft bodies, threading headers, and attachment metadata. |
+| `delete_draft` | `write` | Permanently delete a draft from IMAP. |
+
+#### Send, outbox, and undo-send
+
+| Tool | Scope | Description |
+|---|---|---|
+| `send_email` | `send` | Send immediately or queue within an undo-send window. |
+| `send_draft` | `send` | Send a stored draft and delete it only after delivery or enqueue succeeds. |
+| `reply_email` | `send` | Reply to a message sender. |
+| `reply_all_email` | `send` | Reply to the sender and stored To/Cc recipients. |
+| `forward_email` | `send` | Forward a message, including server-side attachment references. |
+| `unsend_email` | `send` | Cancel a queued message before its `send_at` time. |
+| `list_outbox` | `read` | List messages still waiting in the undo-send outbox. |
+| `recall_email` | `send` | Cancel a queued send, or clean up a Sent copy and prepare a follow-up draft. |
+
+#### Mailbox and folders
+
+| Tool | Scope | Description |
+|---|---|---|
+| `list_folders` | `read` | List scoped folders and live message counts. |
+| `create_folder` | `write` | Create a folder in one account. |
+| `rename_folder` | `write` | Rename the final component of a folder path. |
+| `delete_folder` | `write` | Delete a folder after confirming its live message count. |
+| `move_messages` | `write` | Move messages and return replacement IDs. |
+| `archive_messages` | `write` | Archive messages and return replacement IDs. |
+| `trash_messages` | `write` | Move messages to Trash without silently expunging existing Trash items. |
+| `mark_read` / `mark_unread` | `write` | Change read state for explicit message IDs. |
+| `star_message` / `unstar_message` | `write` | Change starred state for explicit message IDs. |
+| `mark_spam` / `mark_not_spam` | `write` | Move a message into or out of the configured spam folder. |
+| `snooze_message` / `unsnooze_message` | `write` | Snooze or restore a message and its reply-chain siblings. |
+| `set_category` | `write` | Set the category of one message. |
+| `gtd_classify` | `write` | Apply or remove one GTD state label. |
+| `gtd_done` | `write` | Remove GTD labels and archive the Inbox copy. |
+| `stage_deletion` | `write` | Stage a filtered deletion for separate session-authorized execution. |
+
+#### Triage
+
+| Tool | Scope | Description |
+|---|---|---|
+| `triage_inbox` | `read` | Page through untriaged Inbox messages with sender, thread, category, and optional semantic signals. |
+| `get_triage_context` | `read` | Get thread, sender-history, similar-message, and matched-rule context. |
+| `mark_triaged` | `write` | Checkpoint messages so later triage runs skip them. |
+
+#### Accounts and settings
+
+| Tool | Scope | Description |
+|---|---|---|
+| `list_accounts` | `read` | List connected accounts and aliases without credentials. |
+| `add_account` | `settings` | Stage non-secret account configuration and return a `stage_id`. |
+| `update_account_settings` | `settings` | Update non-secret account settings. |
+| `test_account_connection` | `settings` | Test stored IMAP and SMTP credentials without sending mail. |
+| `create_alias` / `update_alias` / `delete_alias` | `settings` | Manage send-as aliases on scoped accounts. |
+| `list_rules` | `settings` | List global and account-specific inbox rules. |
+| `create_rule` / `update_rule` / `delete_rule` | `settings` | Manage user-owned inbox rules. |
+| `run_rules` | `settings` + `write` | Run enabled rules against current Inbox messages. |
+
+### Undo-send and recall
+
+`send_email` and `send_draft` accept an undo window from 0 to 120 seconds. A
+zero-second window hands the message to SMTP immediately. A positive window puts
+it in the outbox until `send_at`; use `list_outbox` to inspect queued messages and
+`unsend_email` to cancel one before handoff.
+
+Recall is deliberately honest. `recall_email` can withdraw a message only while
+it is still queued. SMTP cannot claw back mail already delivered; for an
+already-sent message, recall can delete MailFlow's Sent copy and prepare a
+"please disregard" follow-up draft, but it never pretends recipients lost their
+copy and never sends the follow-up automatically.
+
+### Adding an account
+
+`add_account` accepts non-secret connection configuration only. It returns a
+`stage_id`; a human then supplies fresh credentials in **Settings → Accounts**,
+or through the session-authenticated
+`POST /api/mcp-account-stages/:id/execute` endpoint.
+
+Passwords, OAuth access tokens, and OAuth refresh tokens never cross the MCP
+bearer-token channel.
+
+### Agent cookbook
+
+A morning triage loop can page oldest-first and checkpoint every disposition:
+
+```text
+07:00  triage_inbox { limit: 25, unread_only: true }
+       → items, cursor, has_more, counts.untriaged_unread
+
+       Obvious newsletters/promotions:
+       archive_messages { message_ids: ["m1", "m2", ...] }
+       → archived: [{ id: "m1", new_id: "n1", ... }, ...]
+       mark_triaged {
+         message_ids: ["n1", "n2", ...],
+         action: "archived"
+       }
+
+       Ambiguous message with a known sender and active thread:
+       get_triage_context { message_id: "m17" }
+       gtd_classify { message_id: "m17", state: "todo" }
+       star_message { message_ids: ["m17"] }
+       mark_triaged {
+         message_ids: ["m17"],
+         action: "flagged_todo",
+         note: "Needs a reply"
+       }
+
+       Snooze a reply chain:
+       mark_triaged { message_ids: ["m22"], action: "snoozed" }
+       snooze_message {
+         message_id: "m22",
+         until: "2026-07-31T08:00:00Z"
+       }
+       → { ok: true, moved_count: 3, sibling_ids: [...], folder: "Snoozed" }
+
+07:04  triage_inbox { cursor: "<previous cursor>", limit: 25 }
+       → repeat until has_more is false
+```
+
+**Mark before move:** call `mark_triaged` before archiving, moving, or snoozing,
+or use each successful move/archive receipt's `new_id`. Message IDs change during
+a move; a stale pre-move ID resolves to `skipped`. Re-running `triage_inbox`
+without a cursor is safe: the checkpoint table, not the cursor, is what prevents
+already-triaged messages from being offered again.
+
+---
+
 ## Screenshots
 
 <table>
@@ -187,6 +374,14 @@ docker compose up -d
 ```
 
 To pin to a specific version instead of `latest`, add `MAILFLOW_VERSION=2.7.0` to your `.env`.
+
+> **Upgrading an existing install across the Postgres image change** (`postgres:16-alpine` → `pgvector/pgvector:pg16`): the new image uses a different C library (musl → glibc), which changes text collation order. Reindex once after the switch or text indexes can silently return wrong results — the backend also prints this warning at startup when it detects the mismatch:
+>
+> ```bash
+> docker compose exec postgres psql -U mailflow -d mailflow \
+>   -c 'REINDEX DATABASE "mailflow";' \
+>   -c 'ALTER DATABASE "mailflow" REFRESH COLLATION VERSION;'
+> ```
 
 ---
 

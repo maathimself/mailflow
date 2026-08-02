@@ -34,12 +34,16 @@ vi.mock('../services/gtdConfig.js', async (importOriginal) => {
   const actual = await importOriginal();
   return { ...actual, getGtdConfig: vi.fn() };
 });
+vi.mock('../services/gtdDelegations.js', async (importOriginal) => ({
+  ...(await importOriginal()), reconcileDelegatedRemovals: vi.fn(), delegateMessages: vi.fn(),
+}));
 
 import express from 'express';
 import { query } from '../services/db.js';
 import { imapManager } from '../index.js';
 import { resolveArchiveFolder, isAllMailFolder, adjustFolderCounts, fanOutReadToSiblings } from '../utils/mailUtils.js';
 import { getGtdConfig, DEFAULT_GTD_FOLDERS } from '../services/gtdConfig.js';
+import { reconcileDelegatedRemovals } from '../services/gtdDelegations.js';
 import gtdRoutes from './gtd.js';
 
 const MSG_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
@@ -47,7 +51,7 @@ const ACCT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
 // The rail acts on the Watch-folder copy; a distinct INBOX sibling is what the archive step
 // moves. is_read true on both keeps the mark-read path off the IMAP setFlag mock.
-const msg = { id: MSG_ID, account_id: ACCT_ID, uid: 10, folder: 'Watch', message_id: '<m@x>', is_read: true };
+const msg = { id: MSG_ID, account_id: ACCT_ID, uid: 10, folder: 'Watch', message_id: '<m@x>', thread_key: 'thread-a', is_read: true };
 const account = { id: ACCT_ID, user_id: 'u1', folder_mappings: {} };
 const inboxCopy = { id: 'ib-1', uid: 77, is_read: true };
 
@@ -91,6 +95,7 @@ beforeEach(() => {
   query.mockReset();
   Object.values(imapManager).forEach(fn => fn.mockReset());
   [resolveArchiveFolder, isAllMailFolder, adjustFolderCounts, fanOutReadToSiblings, getGtdConfig].forEach(fn => fn.mockReset());
+  reconcileDelegatedRemovals.mockReset();
   getGtdConfig.mockResolvedValue({ enabled: true, folders: DEFAULT_GTD_FOLDERS });
   resolveArchiveFolder.mockResolvedValue('Archive');
   isAllMailFolder.mockResolvedValue(false);
@@ -107,6 +112,16 @@ describe('POST /api/gtd/done — id validation', () => {
 });
 
 describe('POST /api/gtd/done — archive count-adjust race', () => {
+  it('clears person metadata after successfully stripping Delegated', async () => {
+    stubQueries();
+    const res = await done({ id: MSG_ID, states: ['delegated'] });
+    expect(res.status).toBe(200);
+    expect(reconcileDelegatedRemovals).toHaveBeenCalledWith({
+      userId: 'u1', accountId: ACCT_ID,
+      delegatedFolder: 'Delegated', threadKeys: ['thread-a'],
+    });
+  });
+
   it('archives + adjusts both counts when the INBOX-scoped write applied (rowCount 1)', async () => {
     stubQueries({ archiveWrite: { rowCount: 1 } });
     imapManager.moveMessage.mockResolvedValue(88); // UIDPLUS newUid

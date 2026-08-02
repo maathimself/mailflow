@@ -1,9 +1,21 @@
 import { query } from './db.js';
 import { resolveAccountScope } from './unifiedInbox.js';
+import { DELEGATION_SELECT_SQL, delegationJoinSql, mapDelegationRow } from './gtdDelegations.js';
 
-export async function listMessages({ userId, accountId, folder = 'INBOX', limit = 50, offset = 0, unreadOnly, threaded, category }) {
+export async function listMessages({
+  userId,
+  accountId,
+  folder = 'INBOX',
+  limit = 50,
+  offset = 0,
+  unreadOnly,
+  threaded,
+  category,
+  excludeClaimedSourceDrafts = false,
+}) {
   const accountsResult = await query(
-    'SELECT id, include_in_unified_inbox FROM email_accounts WHERE user_id = $1 AND enabled = true',
+    `SELECT id, include_in_unified_inbox, folder_mappings
+     FROM email_accounts WHERE user_id = $1 AND enabled = true`,
     [userId]
   );
   const {
@@ -41,20 +53,21 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
     whereConditions.push(`(m.category IS NULL OR m.category = 'primary')`);
   }
 
-  const where = whereConditions.join(' AND ');
-
   const safeLimit  = Math.min(Math.max(parseInt(limit)  || 50, 1), 500);
   const safeOffset = Math.max(parseInt(offset) || 0, 0);
 
   let total = 0;
+  let folderRow = null;
   try {
     if (isSpecificAccount) {
       const r = await query(
-        'SELECT total_count, unread_count FROM folders WHERE account_id = $1 AND path = $2',
+        `SELECT total_count, unread_count, special_use, name
+         FROM folders WHERE account_id = $1 AND path = $2`,
         [accountId, folder]
       );
       if (r.rows.length) {
-        total = isUnreadOnly ? (r.rows[0].unread_count ?? 0) : (r.rows[0].total_count ?? 0);
+        [folderRow] = r.rows;
+        total = isUnreadOnly ? (folderRow.unread_count ?? 0) : (folderRow.total_count ?? 0);
       }
     } else {
       const r = isUnreadOnly
@@ -72,7 +85,41 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
     total = 0;
   }
 
-  if (threaded === 'true' || threaded === true) {
+  const selectedAccount = isSpecificAccount
+    ? accountsResult.rows.find(account => account.id === resolvedAccountId)
+    : null;
+  const mappedDraftsFolder = selectedAccount?.folder_mappings?.drafts;
+  const isDraftsFolder = isSpecificAccount && (
+    mappedDraftsFolder === folder
+    || folderRow?.special_use === '\\Drafts'
+    || folderRow?.name?.toLowerCase().includes('draft')
+  );
+  const filterClaimedSources = excludeClaimedSourceDrafts && isDraftsFolder;
+  if (filterClaimedSources) {
+    whereConditions.push(`NOT EXISTS (
+      SELECT 1 FROM compose_sessions cs
+      WHERE cs.user_id = $${p++}
+        AND cs.source_draft_account_id = m.account_id
+        AND cs.source_draft_folder = m.folder
+        AND cs.source_draft_uid = m.uid
+    )`);
+    values.push(userId);
+  }
+
+  const where = whereConditions.join(' AND ');
+  const isThreaded = threaded === 'true' || threaded === true;
+
+  if (filterClaimedSources && !isThreaded) {
+    const countResult = await query(
+      `SELECT COUNT(*)::int AS total
+       FROM messages m
+       WHERE ${where}`,
+      values,
+    );
+    total = countResult.rows[0]?.total ?? 0;
+  }
+
+  if (isThreaded) {
     const filterValues = [...values];
     const threadAccountParam = isSpecificAccount ? [resolvedAccountId] : scopedAccountIds;
     // For INBOX-specific views the thread badge must match the expansion, so scope
@@ -100,6 +147,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
                m.date, m.snippet, m.is_read, m.is_starred,
                m.has_attachments, m.account_id, m.category,
                m.list_unsubscribe, m.list_unsubscribe_post, m.delivery_addresses,
+               ${DELEGATION_SELECT_SQL},
                a.name  AS account_name,
                a.email_address AS account_email,
                a.color AS account_color,
@@ -109,6 +157,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
         LEFT JOIN contacts co ON co.user_id = a.user_id
                               AND co.primary_email = lower(m.from_email)
                               AND co.photo_data IS NOT NULL
+        ${delegationJoinSql('m', 'a')}
         WHERE ${where}
           AND m.thread_key IN (SELECT thread_id FROM paged_threads)
         ORDER BY m.account_id,
@@ -147,7 +196,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
              account_name, account_email, account_color,
              category, list_unsubscribe, list_unsubscribe_post, delivery_addresses,
              message_count, unread_count,
-             thread_has_contact_photo AS has_contact_photo
+             thread_has_contact_photo AS has_contact_photo, delegation
       FROM ranked
       WHERE rn = 1
       ORDER BY date DESC
@@ -160,7 +209,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
     `, filterValues);
 
     return {
-      messages: threadResult.rows,
+      messages: threadResult.rows.map(row => ({ ...row, delegation: mapDelegationRow(row) })),
       total: threadCountResult.rows[0]?.total ?? 0,
       threaded: true,
       resolvedAccountId,
@@ -178,19 +227,21 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
            m.has_attachments, m.account_id, m.category,
            m.list_unsubscribe, m.list_unsubscribe_post, m.delivery_addresses,
            a.name as account_name, a.email_address as account_email, a.color as account_color,
-           (co.id IS NOT NULL) AS has_contact_photo
+           (co.id IS NOT NULL) AS has_contact_photo,
+           ${DELEGATION_SELECT_SQL}
     FROM messages m
     JOIN email_accounts a ON m.account_id = a.id
     LEFT JOIN contacts co ON co.user_id = a.user_id
                           AND co.primary_email = lower(m.from_email)
                           AND co.photo_data IS NOT NULL
+    ${delegationJoinSql('m', 'a')}
     WHERE ${where}
     ORDER BY m.date DESC
     LIMIT $${limitParam} OFFSET $${offsetParam}
   `, values);
 
   return {
-    messages: result.rows,
+    messages: result.rows.map(row => ({ ...row, delegation: mapDelegationRow(row) })),
     total,
     resolvedAccountId,
   };

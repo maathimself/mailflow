@@ -13,12 +13,15 @@ import {
 } from '../utils/gtd.js';
 import { applyGtdRemovalGuard } from '../utils/pendingGtdRemovals.js';
 import { clampRightSidebarWidth } from '../utils/rightSidebar.js';
+import { nextSelection } from '../commands/selection.js';
 import {
   cacheFolderOrderFromPreferences,
   mergeFolderOrder,
   readFolderOrder,
 } from './folderOrder.js';
+import { readStoredSearchMode, writeStoredSearchMode } from '../utils/searchMode.js';
 import i18n from '../i18n.js';
+import { normalizeCarddavStatus } from '../utils/delegation.js';
 
 // Accumulate rapid preference changes and flush at most once per second.
 let _prefFlushTimer = null;
@@ -39,6 +42,109 @@ function schedulePrefSave(prefs) {
 let _gtdSectionsSeq = 0;
 let _gtdFetchTimer = null;
 
+const MAX_PENDING_COMPOSE_REQUESTS = 32;
+const pendingComposeRequests = [];
+const inFlightComposeRequests = new Set();
+let activeComposeRequest = null;
+let composeRequestGeneration = 0;
+
+function composeRequestCancellationError() {
+  const error = new Error('Compose request cancelled because the authenticated user changed');
+  error.code = 'compose_request_cancelled';
+  return error;
+}
+
+function settleComposeRequest(request, kind, value) {
+  if (request.settled) return;
+  request.settled = true;
+  request[kind](value);
+}
+
+function invokeComposeRequest(controller, input) {
+  if (input.draftUid != null && input.accountId && input.draftFolder) {
+    return controller.claimDraft({
+      accountId: input.accountId,
+      folder: input.draftFolder,
+      uid: input.draftUid,
+    });
+  }
+  return controller.createSession(input);
+}
+
+function pumpComposeRequests(get) {
+  if (activeComposeRequest) return;
+  const controller = get().composeWorkspaceController;
+  if (!controller) return;
+
+  let request = null;
+  while (pendingComposeRequests.length && !request) {
+    const candidate = pendingComposeRequests.shift();
+    if (candidate.generation === composeRequestGeneration) request = candidate;
+    else settleComposeRequest(candidate, 'reject', composeRequestCancellationError());
+  }
+  if (!request) return;
+
+  activeComposeRequest = request;
+  inFlightComposeRequests.add(request);
+  const finish = (kind, value) => {
+    inFlightComposeRequests.delete(request);
+    if (activeComposeRequest === request) activeComposeRequest = null;
+    if (!request.settled) {
+      if (request.generation !== composeRequestGeneration) {
+        settleComposeRequest(request, 'reject', composeRequestCancellationError());
+      } else {
+        settleComposeRequest(request, kind, value);
+      }
+    }
+    pumpComposeRequests(get);
+  };
+
+  let operation;
+  try {
+    operation = invokeComposeRequest(controller, request.input);
+  } catch (error) {
+    finish('reject', error);
+    return;
+  }
+  void Promise.resolve(operation).then(
+    value => finish('resolve', value),
+    error => finish('reject', error),
+  ).catch(() => {});
+}
+
+function enqueueComposeRequest(get, data) {
+  const activeCount = activeComposeRequest
+    && activeComposeRequest.generation === composeRequestGeneration
+    && !activeComposeRequest.settled ? 1 : 0;
+  if (pendingComposeRequests.length + activeCount >= MAX_PENDING_COMPOSE_REQUESTS) {
+    const error = new Error('Too many compose requests are waiting for the workspace');
+    error.code = 'compose_request_queue_full';
+    return Promise.reject(error);
+  }
+  const input = data && typeof data === 'object' ? data : {};
+  const promise = new Promise((resolve, reject) => {
+    pendingComposeRequests.push({
+      input, resolve, reject,
+      generation: composeRequestGeneration,
+      settled: false,
+    });
+  });
+  pumpComposeRequests(get);
+  return promise;
+}
+
+function cancelPendingComposeRequests() {
+  composeRequestGeneration += 1;
+  for (const request of pendingComposeRequests.splice(0)) {
+    settleComposeRequest(request, 'reject', composeRequestCancellationError());
+  }
+  for (const request of inFlightComposeRequests) {
+    settleComposeRequest(request, 'reject', composeRequestCancellationError());
+  }
+  inFlightComposeRequests.clear();
+  activeComposeRequest = null;
+}
+
 function readGtdCollapsedSections() {
   try {
     const raw = JSON.parse(localStorage.getItem('mailflow_gtd_collapsed_sections') || 'null');
@@ -52,14 +158,25 @@ function readGtdCollapsedSections() {
 export const useStore = create((set, get) => ({
   // Auth
   user: null,
-  setUser: (user) => set(state => ({
-    user,
-    ...(state.user?.id !== user?.id ? {
-      senderFaviconsLoaded: false,
-      senderFavicons: false,
-      senderFaviconsSaving: false,
-    } : {}),
-  })),
+  setUser: (user) => {
+    const userChanged = get().user?.id !== user?.id;
+    if (userChanged) {
+      cancelPendingComposeRequests();
+      try { get().composeWorkspaceController?.destroy?.(); } catch { /* cleanup is best effort */ }
+    }
+    set({
+      user,
+      ...(userChanged ? {
+        composeWorkspaceController: null,
+        focusedComposeSessionId: null,
+        senderFaviconsLoaded: false,
+        senderFavicons: false,
+        senderFaviconsSaving: false,
+        carddavStatus: { connected: false },
+        carddavStatusLoaded: false,
+      } : {}),
+    });
+  },
   updateUser: (updates) => set(state => ({ user: state.user ? { ...state.user, ...updates } : state.user })),
 
   // Todoist integration status (persisted across page loads via localStorage)
@@ -68,6 +185,25 @@ export const useStore = create((set, get) => ({
     if (connected) localStorage.setItem('mailflow_todoist_connected', '1');
     else localStorage.removeItem('mailflow_todoist_connected');
     set({ todoistConnected: connected });
+  },
+
+  // Shared CardDAV status drives the Delegate command's continuation decision.
+  carddavStatus: { connected: false },
+  carddavStatusLoaded: false,
+  setCarddavStatus: (status) => set({
+    carddavStatus: normalizeCarddavStatus(status),
+    carddavStatusLoaded: true,
+  }),
+  refreshCarddavStatus: async () => {
+    try {
+      const status = await api.carddav.status();
+      get().setCarddavStatus(status);
+      return normalizeCarddavStatus(status);
+    } catch {
+      const status = { connected: false };
+      get().setCarddavStatus(status);
+      return status;
+    }
   },
 
   // Lock screen
@@ -81,7 +217,7 @@ export const useStore = create((set, get) => ({
         isLocked: true,
         messages: [], searchResults: [], searchQuery: '',
         accounts: [], accountsReady: false,
-        folders: {}, selectedMessageId: null,
+        folders: {}, selectedMessageIds: new Set(), selectedMessageId: null,
         unreadCounts: { total: 0, byAccount: {} },
         notifications: [], threadMessages: {}, expandedThreadId: null,
         backfillProgress: {},
@@ -135,7 +271,9 @@ export const useStore = create((set, get) => ({
       return {
         selectedAccountId: accountId,
         selectedFolder: folder,
+        selectedMessageIds: new Set(),
         selectedMessageId: null,
+        activeGtdTab: null,
         messages: [],
         messagesOffset: 0,
         hasMoreMessages: true,
@@ -228,6 +366,14 @@ export const useStore = create((set, get) => ({
   hasMoreMessages: true,
   setHasMoreMessages: (v) => set({ hasMoreMessages: v }),
 
+  // Shared checkbox selection: row UUIDs for existing bulk APIs. Command context
+  // converts these to account-scoped account_id:(message_id || id) identities.
+  selectedMessageIds: new Set(),
+  setSelectedMessageIds: (nextOrUpdater) => set(state => ({
+    selectedMessageIds: nextSelection(state.selectedMessageIds, nextOrUpdater),
+  })),
+  clearSelectedMessageIds: () => set({ selectedMessageIds: new Set() }),
+
   // Selected message
   selectedMessageId: null,
   lastViewedMessageId: null,
@@ -314,6 +460,10 @@ export const useStore = create((set, get) => ({
     else localStorage.removeItem('mailflow_search_all_folders');
     set({ searchAllFolders: v });
   },
+  // Search mode: 'lexical' (default) | 'hybrid' | 'vector'. Persisted per device,
+  // like searchAllFolders. Only meaningful when /api/ai/status reports vector available.
+  searchMode: readStoredSearchMode(localStorage),
+  setSearchMode: (mode) => set({ searchMode: writeStoredSearchMode(localStorage, mode) }),
   swipeActions: (() => {
     try {
       return JSON.parse(localStorage.getItem('mailflow_swipe_actions') || 'null') || { left: 'archive', right: 'markRead' };
@@ -359,10 +509,25 @@ export const useStore = create((set, get) => ({
     }
     set({ customSoundDataUrl: dataUrl });
   },
-  composing: false,
-  composeData: null,
-  openCompose: (data = null) => set({ composing: true, composeData: data }),
-  closeCompose: () => set({ composing: false, composeData: null }),
+  composeWorkspaceController: null,
+  focusedComposeSessionId: null,
+  setComposeWorkspaceController: (controller) => {
+    set({ composeWorkspaceController: controller });
+    pumpComposeRequests(get);
+  },
+  clearComposeWorkspaceController: (controller) => set(state => (
+    state.composeWorkspaceController === controller
+      ? { composeWorkspaceController: null, focusedComposeSessionId: null }
+      : {}
+  )),
+  setFocusedComposeSessionId: (id) => set({ focusedComposeSessionId: id || null }),
+  openCompose: (data = null) => enqueueComposeRequest(get, data),
+  closeCompose: async (id) => {
+    const state = get();
+    const sessionId = id || state.focusedComposeSessionId;
+    if (!state.composeWorkspaceController || !sessionId) return null;
+    return state.composeWorkspaceController.closeSession(sessionId);
+  },
   searchQuery: '',
   setSearchQuery: (q) => set({ searchQuery: q }),
   isSearching: false,
@@ -460,6 +625,13 @@ export const useStore = create((set, get) => ({
     localStorage.setItem('mailflow_reply_default', val);
     set({ replyDefault: val });
     schedulePrefSave({ replyDefault: val });
+  },
+
+  undoSendSeconds: parseInt(localStorage.getItem('mailflow_undo_send_seconds') || '0', 10) || 0,
+  setUndoSendSeconds: (val) => {
+    localStorage.setItem('mailflow_undo_send_seconds', String(val));
+    set({ undoSendSeconds: val });
+    schedulePrefSave({ undoSendSeconds: val });
   },
 
   markReadBehavior: localStorage.getItem('mailflow_mark_read_behavior') || 'immediate',
@@ -978,6 +1150,11 @@ export const useStore = create((set, get) => ({
       if (prefs.replyDefault === 'reply' || prefs.replyDefault === 'replyAll') {
         localStorage.setItem('mailflow_reply_default', prefs.replyDefault);
         set({ replyDefault: prefs.replyDefault });
+      }
+      if ([0, 10, 30, 60, 120].includes(Number(prefs.undoSendSeconds))) {
+        const n = Number(prefs.undoSendSeconds);
+        localStorage.setItem('mailflow_undo_send_seconds', String(n));
+        set({ undoSendSeconds: n });
       }
       if (prefs.markReadBehavior === 'immediate' || prefs.markReadBehavior === 'delay' || prefs.markReadBehavior === 'manual') {
         localStorage.setItem('mailflow_mark_read_behavior', prefs.markReadBehavior);

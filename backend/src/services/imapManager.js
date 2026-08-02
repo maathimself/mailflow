@@ -16,6 +16,8 @@ import { getConnectionPolicy } from './connectionPolicy.js';
 import { applyInboxRules, applyBlockList } from './inboxRules.js';
 import { generateVCard } from '../utils/vcard.js';
 import { randomUUID } from 'crypto';
+import { reconcileDelegatedRemovals, sweepStaleDelegations } from './gtdDelegations.js';
+import { restoreSnoozedRow } from './mailbox/snooze.js';
 
 
 // Shorthand for log lines — keeps domain visible while masking the local part.
@@ -526,6 +528,10 @@ function safeDate(d) {
 // flagPollEveryTicks:  for non-push flag providers, poll flags every N successful sync ticks.
 // snippetIndex:        run the background snippet indexer after backfill.
 //                      Disabled for providers that throttle body fetches too aggressively.
+// bodyBackfill:        run the background body-materialization drainer
+//                      (services/bodyBackfill.js) for this provider. Enabled only for
+//                      providers that tolerate sustained background BODY[] fetches;
+//                      Gmail/PurelyMail/Microsoft stay off in v1 (unproven / throttle-hostile).
 // skipFolderPatterns:  folder path substrings to skip during backfill (label-view dedup).
 // skipFolderNames:     exact folder paths to skip (non-selectable namespace containers).
 // batchSize/Delay/errorDelay/batchesPerConn: backfill rate-limit tuning.
@@ -540,6 +546,7 @@ const PROVIDERS = {
     fetchBody: false,
     pushesFlags: false,
     snippetIndex: false,
+    bodyBackfill: false,
     speculativeFetch: false,
     skipFolderPatterns: ['all mail', '[gmail]/starred', '[gmail]/important'],
     // [Gmail] is a namespace container — not a selectable mailbox. It must be
@@ -551,6 +558,7 @@ const PROVIDERS = {
     fetchBody: false,
     pushesFlags: true,
     snippetIndex: true,
+    bodyBackfill: true,
     speculativeFetch: false,
     skipFolderPatterns: [],
     skipFolderNames: [],
@@ -561,6 +569,7 @@ const PROVIDERS = {
     fetchBody: false,
     pushesFlags: true,
     snippetIndex: true,
+    bodyBackfill: true,
     speculativeFetch: true,
     skipFolderPatterns: [],
     skipFolderNames: [],
@@ -570,6 +579,7 @@ const PROVIDERS = {
     fetchBody: false,
     pushesFlags: true,
     snippetIndex: true,
+    bodyBackfill: false,
     speculativeFetch: true,
     skipFolderPatterns: [],
     skipFolderNames: [],
@@ -601,6 +611,7 @@ const PROVIDERS = {
     idleKeepaliveMs: 4 * 60 * 1000, // re-issue IDLE every 4 min (Apple Mail-style) so the connection never goes deaf
     pushesFlags: false,             // IDLE 'flags' handles most changes; keep the periodic flag poll as a backstop
     snippetIndex: false,
+    bodyBackfill: false,
     speculativeFetch: false,
     preferFreshBodyFetch: true,
     freshInboxSync: false,          // IDLE push + backstop poll on the persistent connection replaces fresh-login-per-tick
@@ -619,6 +630,7 @@ const PROVIDERS = {
     fetchBody: false,
     pushesFlags: true,
     snippetIndex: true,
+    bodyBackfill: true,
     speculativeFetch: true,
     skipFolderPatterns: [],
     skipFolderNames: [],
@@ -764,6 +776,13 @@ export async function emitGtdSectionsRefreshIfEnabled(mgr, account, changedCount
 // is identical either way.
 export const emitGtdSectionsRefreshOnDelete = emitGtdSectionsRefreshIfEnabled;
 
+export function delegationSnapshotIsComplete(serverUids, localRows) {
+  const localUids = new Set(localRows.map(row => Number(row.uid)));
+  const normalizedServerUids = new Set([...serverUids].map(Number));
+  return localUids.size === normalizedServerUids.size
+    && [...normalizedServerUids].every(uid => localUids.has(uid));
+}
+
 // One GTD tick's body: sync each designated label folder for a connected gtd_enabled
 // account, then broadcast a single gtd_sections_updated if any folder actually changed.
 // Folders are synced one at a time (not in parallel) so a multi-folder account doesn't
@@ -788,15 +807,23 @@ export async function runGtdSyncTick(mgr, account) {
       const key = `${account.id}:${folder}`;
       if (mgr.onDemandSyncing.has(key)) continue; // a user-triggered sync owns this folder
       mgr.onDemandSyncing.add(key);
-      try {
+      mgr.onDemandSyncPromises ||= new Map();
+      const syncPromise = (async () => {
         const before = await mgr._gtdFolderFingerprint(account.id, folder);
         await mgr._gtdSyncFolder(account, folder);
         const after = await mgr._gtdFolderFingerprint(account.id, folder);
-        if (before !== after) changedFolders.push(folder);
+        return before !== after;
+      })();
+      mgr.onDemandSyncPromises.set(key, syncPromise);
+      try {
+        if (await syncPromise) changedFolders.push(folder);
       } catch (err) {
         console.warn(`GTD sync error ${logAccount(account)}/${folder}:`, err.message);
       } finally {
         mgr.onDemandSyncing.delete(key);
+        if (mgr.onDemandSyncPromises.get(key) === syncPromise) {
+          mgr.onDemandSyncPromises.delete(key);
+        }
       }
     }
 
@@ -1309,6 +1336,7 @@ export class ImapManager {
     this._backfillSem = createKeyedSemaphore(BACKFILL_MAX_PER_HOST); // cap concurrent backfills per provider host
     this._connectCooldown = new Map(); // accountId -> { until: ms, failures: number } after connection refusals
     this.onDemandSyncing = new Set(); // `${accountId}:${folder}` — prevent duplicate on-demand syncs
+    this.onDemandSyncPromises = new Map(); // same key -> awaitable user-triggered sync
     this.syncingAccounts = new Set(); // prevent overlapping interval syncs
     this.syncStartedAt = new Map();   // accountId -> ms when the current sync tick began (hung-sync detection)
     this.syncThrottleSkips = new Map(); // accountId -> remaining ticks to skip when throttled
@@ -3783,6 +3811,7 @@ export class ImapManager {
     to = [],
     cc = [],
     inReplyTo = null,
+    references = null,
     snippet = '',
     bodyHtml = null,
     bodyText = null,
@@ -3794,9 +3823,9 @@ export class ImapManager {
       INSERT INTO messages (
         account_id, uid, folder, message_id, subject,
         from_name, from_email, to_addresses, cc_addresses,
-        in_reply_to, date, snippet, is_read, is_starred, has_attachments,
+        in_reply_to, thread_references, date, snippet, is_read, is_starred, has_attachments,
         flags, body_html, body_text, thread_id
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,$12,true,false,false,$13::jsonb,$14,$15,$16)
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,$12,$13,true,false,false,$14::jsonb,$15,$16,$17)
       ON CONFLICT (account_id, uid, folder) DO UPDATE SET
         message_id = COALESCE(EXCLUDED.message_id, messages.message_id),
         subject = CASE
@@ -3811,6 +3840,7 @@ export class ImapManager {
           WHEN EXCLUDED.cc_addresses::text IS NOT NULL AND EXCLUDED.cc_addresses::text <> '[]'
           THEN EXCLUDED.cc_addresses ELSE messages.cc_addresses END,
         in_reply_to = COALESCE(EXCLUDED.in_reply_to, messages.in_reply_to),
+        thread_references = COALESCE(EXCLUDED.thread_references, messages.thread_references),
         date = EXCLUDED.date,
         snippet = CASE WHEN EXCLUDED.snippet <> '' THEN EXCLUDED.snippet ELSE messages.snippet END,
         flags = EXCLUDED.flags,
@@ -3821,7 +3851,7 @@ export class ImapManager {
       sanitizeStr(subject || '(no subject)'),
       sanitizeStr(fromName || ''), sanitizeStr(fromEmail || ''),
       JSON.stringify(Array.isArray(to) ? to : []), JSON.stringify(Array.isArray(cc) ? cc : []),
-      inReplyTo || null, safeDate(date), sanitizeStr(snippet || ''),
+      inReplyTo || null, references || null, safeDate(date), sanitizeStr(snippet || ''),
       JSON.stringify(['\\Draft', '\\Seen']),
       bodyHtml != null ? sanitizeStr(bodyHtml) : null,
       bodyText != null ? sanitizeStr(bodyText) : null,
@@ -3850,30 +3880,63 @@ export class ImapManager {
   // Uses a pooled connection — does NOT touch the main sync connection.
   async syncFolderOnDemand(account, folder) {
     const key = `${account.id}:${folder}`;
+    this.onDemandSyncPromises ||= new Map();
+    const inFlight = this.onDemandSyncPromises.get(key);
+    if (inFlight) return inFlight;
     if (this.onDemandSyncing.has(key)) {
       console.log(`syncFolderOnDemand skipped (already running): ${logAccount(account)}/${folder}`);
       return;
     }
     this.onDemandSyncing.add(key);
-    console.log(`syncFolderOnDemand start: ${logAccount(account)}/${folder}`);
-    try {
-      await withFreshClient(account, async (client) => {
-        await this.syncMessages(account, client, folder, 100, false, true);
-      });
-      console.log(`syncFolderOnDemand done: ${logAccount(account)}/${folder}`);
-      // sync_complete fires mailflow:refresh in the frontend, reloading the message list
-      this.broadcast({ type: 'sync_complete', accountId: account.id }, account.user_id);
-    } catch (err) {
-      console.error(`On-demand sync error ${logAccount(account)}/${folder}:`, err.message);
-    } finally {
-      this.onDemandSyncing.delete(key);
-    }
+    const syncPromise = (async () => {
+      console.log(`syncFolderOnDemand start: ${logAccount(account)}/${folder}`);
+      try {
+        await withFreshClient(account, async (client) => {
+          await this.syncMessages(account, client, folder, 100, false, true);
+        });
+        console.log(`syncFolderOnDemand done: ${logAccount(account)}/${folder}`);
+        // sync_complete fires mailflow:refresh in the frontend, reloading the message list
+        this.broadcast({ type: 'sync_complete', accountId: account.id }, account.user_id);
+      } catch (err) {
+        console.error(`On-demand sync error ${logAccount(account)}/${folder}:`, err.message);
+        throw err;
+      } finally {
+        this.onDemandSyncing.delete(key);
+        this.onDemandSyncPromises.delete(key);
+      }
+    })();
+    this.onDemandSyncPromises.set(key, syncPromise);
+    return syncPromise;
   }
 
   // Pre-fetch and cache the body for newly arrived messages immediately after sync.
   // Called in the background (via setImmediate) so it doesn't block the sync path.
   // By the time the user clicks the email (typically 2–10s later), the body is already
   // in the DB and the click returns instantly without a live IMAP round-trip.
+  // Shared fetch+sanitize+snippet+UPDATE step behind every body-materialization path
+  // (opportunistic new-mail prefetch, on-view folder prefetch, and the body-backfill
+  // drainer). Kept as one helper so the UPDATE shape that fires the search_fts/last_modified
+  // triggers never drifts between callers. Returns true if a body was actually written.
+  // Private (underscore-prefixed, matching this file's convention for internal helpers like
+  // _enqueueFlagPush) — not new public surface, so it doesn't count against the
+  // one-narrow-method invariant that governs fetchBodiesForMessages.
+  async _fetchAndStoreBody(account, msg) {
+    const { html, text, attachments } = await this.fetchMessageBody(
+      account, msg.uid, msg.folder || 'INBOX'
+    );
+    const safeHtml = html ? sanitizeEmail(html) : null;
+    if (!safeHtml && !text) return false;
+    const snip = snippetFromBody(text, safeHtml || html);
+    await query(
+      `UPDATE messages
+       SET body_html = $1, body_text = $2, attachments = $3,
+           snippet = CASE WHEN $5 != '' THEN $5 ELSE snippet END
+       WHERE id = $4`,
+      [sanitizeStr(safeHtml), sanitizeStr(text), JSON.stringify(attachments || []), msg.id, sanitizeStr(snip)]
+    );
+    return true;
+  }
+
   async prefetchNewMessageBodies(account, messages) {
     for (const msg of messages) {
       try {
@@ -3884,24 +3947,56 @@ export class ImapManager {
         );
         if (existing.rows.length) continue;
 
-        const { html, text, attachments } = await this.fetchMessageBody(
-          account, msg.uid, msg.folder || 'INBOX'
-        );
-        const safeHtml = html ? sanitizeEmail(html) : null;
-        if (safeHtml || text) {
-          const snip = snippetFromBody(text, safeHtml || html);
-          await query(
-            `UPDATE messages
-             SET body_html = $1, body_text = $2, attachments = $3,
-                 snippet = CASE WHEN $5 != '' THEN $5 ELSE snippet END
-             WHERE id = $4`,
-            [sanitizeStr(safeHtml), sanitizeStr(text), JSON.stringify(attachments || []), msg.id, sanitizeStr(snip)]
-          );
-        }
+        await this._fetchAndStoreBody(account, msg);
       } catch (err) {
         console.warn(`Body prefetch failed for uid ${msg.uid}:`, err.message);
       }
     }
+  }
+
+  // Narrow entry point for the body-materialization drainer (services/bodyBackfill.js).
+  // Given a set of message IDs, fetch each body over IMAP and persist it with the same
+  // UPDATE the prefetch path uses. This is the ONLY method the drainer calls into the
+  // singleton — all batching, pacing, provider gating, and progress live in bodyBackfill.js
+  // (imapManager invariant, specs/search-overhaul/README.md). Returns the number of bodies
+  // actually written.
+  //
+  // A single poison message (deleted/renamed folder, a per-message server-side rejection)
+  // must not wedge the whole batch — bodyBackfill.js's keyset cursor only advances past ids
+  // this method actually processed, and its circuit breaker only trips on a batch that made
+  // zero progress. So each message's fetch+store is individually caught and skipped here;
+  // only when the WHOLE batch fails (zero successes and at least one error — almost always a
+  // dead connection, not a bad message) do we rethrow, so the drainer's breaker can still back
+  // a genuinely broken account off.
+  async fetchBodiesForMessages(accountId, messageIds) {
+    if (!messageIds.length) return { fetched: 0 };
+
+    const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
+    if (!accountResult.rows.length) return { fetched: 0 };
+    const account = accountResult.rows[0];
+
+    // Only touch rows that still lack a body — a concurrent open/prefetch may have filled
+    // some since the drainer selected them.
+    const rowsResult = await query(
+      `SELECT id, uid, folder FROM messages
+       WHERE id = ANY($1::uuid[]) AND body_html IS NULL AND body_text IS NULL`,
+      [messageIds]
+    );
+
+    let fetched = 0;
+    let errors = 0;
+    let lastError = null;
+    for (const msg of rowsResult.rows) {
+      try {
+        if (await this._fetchAndStoreBody(account, msg)) fetched++;
+      } catch (err) {
+        errors++;
+        lastError = err;
+        console.warn(`Body backfill: skipped message ${msg.id} (uid ${msg.uid}):`, err.message);
+      }
+    }
+    if (fetched === 0 && errors > 0) throw lastError;
+    return { fetched };
   }
 
   // Background body prefetch for messages currently visible in a folder.
@@ -3937,18 +4032,7 @@ export class ImapManager {
         );
         if (existing.rows.length) continue;
 
-        const { html, text, attachments } = await this.fetchMessageBody(account, msg.uid, msg.folder);
-        const safeHtml = html ? sanitizeEmail(html) : null;
-        if (safeHtml || text) {
-          const snip = snippetFromBody(text, safeHtml || html);
-          await query(
-            `UPDATE messages
-             SET body_html = $1, body_text = $2, attachments = $3,
-                 snippet = CASE WHEN $5 != '' THEN $5 ELSE snippet END
-             WHERE id = $4`,
-            [sanitizeStr(safeHtml), sanitizeStr(text), JSON.stringify(attachments || []), msg.id, sanitizeStr(snip)]
-          );
-        }
+        await this._fetchAndStoreBody(account, msg);
       } catch (err) {
         console.warn(`Folder body prefetch failed for uid ${msg.uid}:`, err.message);
       }
@@ -4464,7 +4548,14 @@ export class ImapManager {
       return null;
     }
 
-    await insertCopiedSibling(accountId, uid, fromFolder, toFolder, newUid);
+    try {
+      await insertCopiedSibling(accountId, uid, fromFolder, toFolder, newUid);
+    } catch (err) {
+      // The remote UIDPLUS COPY already succeeded. Preserve its exact destination UID so
+      // the caller can compensate without guessing among same-thread copies.
+      if (err && typeof err === 'object') err.copiedUid = newUid;
+      throw err;
+    }
     return newUid;
   }
 
@@ -4808,69 +4899,16 @@ export class ImapManager {
       WHERE sm.snooze_until <= NOW()
     `);
 
+    const restoreImapManager = Object.assign(Object.create(this), {
+      _withFreshClient: withFreshClient,
+    });
+
     for (const row of due.rows) {
       try {
-        const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [row.account_id]);
-        if (!accountResult.rows.length) continue;
-        const account = accountResult.rows[0];
-
-        // Guard source UID before the IMAP move so reconcileDeletes cannot delete
-        // the DB row if an EXPUNGE arrives from the Snoozed folder while the move
-        // is in flight.
-        this._guardMoveUid(row.account_id, row.snoozed_folder, row.uid);
-        let newUid;
-        try {
-          // Move back to original folder
-          newUid = await this.moveMessageGetNewUid(
-            account, row.uid, row.snoozed_folder, row.original_folder
-          );
-
-          // Mark as unread so the user notices it
-          if (newUid) {
-            await this.setFlag(account, newUid, row.original_folder, '\\Seen', false);
-          } else if (row.message_id_header) {
-            // No UIDPLUS — server moved the message but returned no UID map.
-            // Search the destination folder by Message-ID to locate and unflag \Seen.
-            try {
-              await withFreshClient(account, async (client) => {
-                const lock = await client.getMailboxLock(row.original_folder);
-                try {
-                  const uids = await client.search({ header: ['Message-ID', row.message_id_header] }, { uid: true });
-                  if (uids.length > 0) {
-                    const r = await client.messageFlagsRemove(String(uids[0]), ['\\Seen'], { uid: true });
-                    if (r === false) console.warn(`Snooze wakeup: messageFlagsRemove returned false for ${row.original_folder}`);
-                  } else {
-                    console.warn(`Snooze wakeup: could not find message in ${row.original_folder} to mark unread (Message-ID: ${row.message_id_header})`);
-                  }
-                } finally {
-                  lock.release();
-                }
-              });
-            } catch (err) {
-              console.warn(`Snooze wakeup: could not mark message unread on server (no UIDPLUS): ${err.message}`);
-            }
-          }
-
-          // Update DB: change folder, mark unread, and update UID if the move returned one.
-          if (newUid != null) {
-            await query(
-              'UPDATE messages SET folder = $1, is_read = false, read_changed_at = NOW(), uid = $4 WHERE account_id = $2 AND message_id = $3 AND folder = $5',
-              [row.original_folder, row.account_id, row.message_id_header, newUid, row.snoozed_folder]
-            );
-          } else {
-            // Non-UIDPLUS: DB holds the stale source UID at the destination. Guard it so
-            // reconcileDeletes does not treat it as an orphan before the next sync corrects it.
-            this._guardMoveUid(row.account_id, row.original_folder, row.uid);
-            await query(
-              'UPDATE messages SET folder = $1, is_read = false, read_changed_at = NOW() WHERE account_id = $2 AND message_id = $3 AND folder = $4',
-              [row.original_folder, row.account_id, row.message_id_header, row.snoozed_folder]
-            );
-            setTimeout(() => this._unguardMoveUid(row.account_id, row.original_folder, row.uid), 10_000);
-          }
-        } finally {
-          this._unguardMoveUid(row.account_id, row.snoozed_folder, row.uid);
-        }
-
+        const restored = await restoreSnoozedRow(restoreImapManager, row, {
+          markUnread: true,
+        });
+        if (!restored.restored) continue;
         // Remove snooze record
         await query('DELETE FROM snoozed_messages WHERE id = $1', [row.snooze_id]);
 
@@ -4951,9 +4989,22 @@ export class ImapManager {
       'SELECT DISTINCT folder FROM messages WHERE account_id = $1',
       [account.id]
     );
-    if (!folderResult.rows.length) return;
-
-    const folders = folderResult.rows.map(r => r.folder);
+    let delegatedFolder;
+    try {
+      const { folders: gtdFolders } = await getGtdConfig(account.id);
+      delegatedFolder = gtdFolders.delegated || null;
+    } catch (err) {
+      logger.debug(`Reconcile: delegated cleanup config unavailable for ${account.id}: ${err.message}`);
+      return;
+    }
+    // Always include the configured Delegated folder, even when it currently has no
+    // local rows. A successful empty server snapshot is the authority needed to clean
+    // metadata whose last local message row disappeared in an earlier failed pass.
+    const folders = [...new Set([
+      ...folderResult.rows.map(r => r.folder),
+      ...(delegatedFolder ? [delegatedFolder] : []),
+    ])];
+    if (!folders.length) return;
 
     // Phase 1 — fetch server UID sets for each folder (IMAP only, inside withFreshClient).
     const serverUidsByFolder = new Map(); // folder -> Set<number>
@@ -4984,14 +5035,17 @@ export class ImapManager {
     // Phase 2 — diff each folder's server UIDs against the DB and delete orphans.
     // Runs outside withFreshClient so DB errors never cause unnecessary pool eviction.
     let deletedCount = 0;
+    const delegatedThreadKeys = [];
     for (const [folder, serverUidSet] of serverUidsByFolder) {
       const dbResult = await query(
-        'SELECT uid FROM messages WHERE account_id = $1 AND folder = $2 AND (synced_at IS NULL OR synced_at < $3)',
+        'SELECT uid, thread_key FROM messages WHERE account_id = $1 AND folder = $2 AND (synced_at IS NULL OR synced_at < $3)',
         [account.id, folder, reconcileStartedAt]
       );
-      const orphanUids = dbResult.rows
-        .map(r => Number(r.uid))
-        .filter(uid => !serverUidSet.has(uid) && !this._isMoveUidGuarded(account.id, folder, uid));
+      const orphanRows = dbResult.rows.filter(row => {
+        const uid = Number(row.uid);
+        return !serverUidSet.has(uid) && !this._isMoveUidGuarded(account.id, folder, uid);
+      });
+      const orphanUids = orphanRows.map(row => Number(row.uid));
 
       if (orphanUids.length === 0) continue;
 
@@ -5013,6 +5067,39 @@ export class ImapManager {
         [account.id, folder]
       );
       deletedCount += orphanUids.length;
+      if (folder === delegatedFolder) {
+        delegatedThreadKeys.push(...orphanRows.map(row => row.thread_key).filter(Boolean));
+      }
+    }
+
+    if (delegatedThreadKeys.length) {
+      await reconcileDelegatedRemovals({
+        userId: account.user_id,
+        accountId: account.id,
+        delegatedFolder,
+        threadKeys: delegatedThreadKeys,
+      });
+    }
+    if (delegatedFolder && serverUidsByFolder.has(delegatedFolder)) {
+      // Only sweep when the local folder is an exact mirror of the successful server
+      // snapshot. If the folder could not be opened, or the server has a UID that local
+      // ingest has not materialized yet (UIDVALIDITY rebuild / incomplete sync), local
+      // absence is not authoritative and valid delegation metadata must be retained.
+      const localDelegated = await query(
+        'SELECT uid FROM messages WHERE account_id = $1 AND folder = $2 AND is_deleted = false',
+        [account.id, delegatedFolder]
+      );
+      const serverUids = serverUidsByFolder.get(delegatedFolder);
+      const snapshotIsComplete = delegationSnapshotIsComplete(serverUids, localDelegated.rows);
+      if (snapshotIsComplete) {
+        // Retry cleanup even when the message row that originally triggered it was already
+        // removed by a prior pass whose metadata DELETE failed.
+        await sweepStaleDelegations({
+          userId: account.user_id,
+          accountId: account.id,
+          delegatedFolder,
+        });
+      }
     }
 
     if (deletedCount > 0) {

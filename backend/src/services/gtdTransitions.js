@@ -2,6 +2,7 @@ import { query } from './db.js';
 import { getGtdConfig } from './gtdConfig.js';
 import { resolveAllDraftsPaths } from '../utils/mailUtils.js';
 import { logger } from './logger.js';
+import { reconcileDelegatedRemovals } from './gtdDelegations.js';
 
 // Transition rules for auto-stripping a GTD label once a thread's state has moved on,
 // evaluated per thread against its LAST non-draft message. Designed to match the
@@ -148,7 +149,7 @@ export async function runGtdTransitions(imapManager, account, threadKeys) {
 
   let anyStripped = false;
 
-  for (const [, threadRows] of byThread) {
+  for (const [threadKey, threadRows] of byThread) {
     const nonDraft = threadRows.filter((r) => !draftPaths.has(r.folder));
     if (nonDraft.length === 0) continue;
 
@@ -160,6 +161,8 @@ export async function runGtdTransitions(imapManager, account, threadKeys) {
       if (diff > 0 || (diff === 0 && String(r.id) > String(newest.id))) newest = r;
     }
     const isSelf = owner.has(normalizeAddress(newest.from_email));
+    let delegatedRemoved = false;
+    let delegatedRemovalFailed = false;
 
     for (const [state, folder] of Object.entries(stateFolder)) {
       const rule = STRIP_RULE[state];
@@ -170,13 +173,21 @@ export async function runGtdTransitions(imapManager, account, threadKeys) {
         anyStripped = true;
         try {
           await imapManager.removeMessageCopy(account.id, copy.uid, copy.folder);
+          if (state === 'delegated') delegatedRemoved = true;
         } catch (err) {
+          if (state === 'delegated') delegatedRemovalFailed = true;
           // An external automation may strip the same label concurrently, so the copy
           // can already be gone on the server. Treat a failed removal as a successful
           // strip and move on; the stale DB row reconciles on the next sync.
           logger.debug(`gtdTransitions: tolerated removeMessageCopy failure uid=${copy.uid} ${copy.folder}: ${err.message}`);
         }
       }
+    }
+    if (delegatedRemoved && !delegatedRemovalFailed) {
+      await reconcileDelegatedRemovals({
+        userId: account.user_id, accountId: account.id,
+        delegatedFolder: stateFolder.delegated, threadKeys: [threadKey],
+      });
     }
   }
 

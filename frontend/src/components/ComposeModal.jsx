@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, forwardRef } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo, forwardRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import DOMPurify from 'dompurify';
 import { useStore } from '../store/index.js';
@@ -16,6 +16,18 @@ import { Table } from '@tiptap/extension-table';
 import { TableRow } from '@tiptap/extension-table-row';
 import { TableHeader } from '@tiptap/extension-table-header';
 import { TableCell } from '@tiptap/extension-table-cell';
+import {
+  attachmentChipView,
+  composeFormPatch,
+  initialComposeForm,
+  reconcileComposeForm,
+  replyAllRecipientsForSession,
+  persistComposeDraft,
+  runAfterStableAttachmentMutations,
+  uploadFilesSequentially,
+} from './composePresentationModel.js';
+import { composeEscapeOwners } from '../compose/escapeOwners.js';
+import { handleComposeModalKeyDown } from '../compose/keyboard.js';
 
 // Resize an image blob/file to max maxW pixels wide, preserving aspect ratio.
 // Returns a Promise<string> of a base64 data URL.
@@ -174,51 +186,64 @@ function parseChips(val) {
   return parts;
 }
 
-export default function ComposeModal() {
+export default function ComposeModal({
+  session, tiled = false, allowFreeform = false,
+  onChange, onSave, onFocus, onMinimize, onClose, onDiscard,
+  onSend, onUndoQueuedSend, onAddAttachment, onRemoveAttachment,
+}) {
   const { t } = useTranslation();
-  const { closeCompose, composeData, accounts, addNotification, setSelectedAccount, plaintextEmail, setThreadMessages } = useStore();
+  const {
+    accounts, addNotification, setSelectedAccount,
+    plaintextEmail: defaultPlaintextEmail, setThreadMessages,
+  } = useStore();
   const isMobile = useMobile();
   const uiScale = useUiScale();
+  const composeData = session;
+  const canFreeform = allowFreeform && !tiled;
+  const terminalPending = Boolean(session.terminalPending);
+  const dirtyFieldsRef = useRef(new Set());
+  const lastEditablePatchRef = useRef(null);
+  const hydratedRef = useRef(Boolean(composeData?.snapshot));
+  const initialFormRef = useRef(null);
+  if (!initialFormRef.current) {
+    initialFormRef.current = initialComposeForm(composeData, {
+      defaultPlaintext: defaultPlaintextEmail,
+    });
+  }
+  const initialForm = initialFormRef.current;
 
-  const isReply = !!(composeData?.isReply || composeData?.isReplyAll);
-  const isForward = !!composeData?.isForward;
-
-  const [toChips, setToChips] = useState(() => parseChips(composeData?.to));
+  const [composeMode, setComposeMode] = useState(() => initialForm.mode);
+  const [inReplyTo, setInReplyTo] = useState(() => initialForm.inReplyTo);
+  const [references, setReferences] = useState(() => initialForm.references);
+  const [fromChanged, setFromChanged] = useState(() => initialForm.fromChanged);
+  const isReply = ['reply', 'reply_all'].includes(composeMode);
+  const isForward = composeMode === 'forward';
+  const [toChips, setToChips] = useState(() => parseChips(initialForm.to));
   const [toInput, setToInput] = useState('');
   const [ccChips, setCcChips] = useState(() => parseChips(composeData?.cc));
   const [ccInput, setCcInput] = useState('');
   const [bccChips, setBccChips] = useState(() => parseChips(composeData?.bcc));
   const [bccInput, setBccInput] = useState('');
-  const [subject, setSubject] = useState(() => composeData?.subject || '');
-  const [body, setBody] = useState(() => composeData?.body || '');
-  const [quotedBody, setQuotedBody] = useState(() => composeData?.quotedBody || '');
-  const [quotedBodyHtml] = useState(() => composeData?.quotedBodyHtml || null);
+  const [subject, setSubject] = useState(() => initialForm.subject);
+  const [body, setBody] = useState(() => initialForm.body);
+  const [bodyIsHtml, setBodyIsHtml] = useState(() => initialForm.bodyIsHtml);
+  const plaintextEmail = !bodyIsHtml;
+  const [quotedBody, setQuotedBody] = useState(() => initialForm.quotedBody);
+  const [quotedBodyHtml, setQuotedBodyHtml] = useState(() => initialForm.quotedBodyHtml);
   const [showDiscardSheet, setShowDiscardSheet] = useState(false);
   const [showEmptySubjectWarn, setShowEmptySubjectWarn] = useState(false);
   const [showForgottenAttachWarn, setShowForgottenAttachWarn] = useState(false);
   const [showCloseDialog, setShowCloseDialog] = useState(false);
-  const [showAttachWarnForDraft, setShowAttachWarnForDraft] = useState(false);
-  const [attachWarnDraftCloseAfter, setAttachWarnDraftCloseAfter] = useState(false);
   const [showPrioritySheet, setShowPrioritySheet] = useState(false);
   const [showCcBccMenu, setShowCcBccMenu] = useState(false);
   const [ccBccMenuPos, setCcBccMenuPos] = useState(null);
   const ccBccMenuBtnRef = useRef(null);
   const [draftUid, setDraftUid] = useState(() => composeData?.draftUid ?? null);
-  const [draftFolder, setDraftFolder] = useState(() => composeData?.draftFolder ?? null);
-  const [draftAccountId, setDraftAccountId] = useState(() => composeData?.accountId ?? null);
   const [savingDraft, setSavingDraft] = useState(false);
-  const [attachments, setAttachments] = useState([]);
+  const savingDraftRef = useRef(false);
+  const [attachments, setAttachments] = useState(() => composeData?.attachments || []);
   const [fwdAttachments, setFwdAttachments] = useState(() => composeData?.forwardedAttachments || []);
 
-  // Baseline values captured at open time — updated after each successful keep-open save
-  // so isDirty() reflects changes since the last save, not since the modal opened.
-  const initialBodyRef = useRef(composeData?.body || '');
-  const initialSubjectRef = useRef(composeData?.subject || '');
-  const initialToRef = useRef(normalizeTo(composeData?.to || []));
-  const initialCcRef = useRef(normalizeTo(composeData?.cc || []));
-  const initialBccRef = useRef(normalizeTo(composeData?.bcc || []));
-  // Start at fwdAttachments.length so pre-loaded forwarded attachments aren't dirty.
-  const savedAttachmentCountRef = useRef((composeData?.forwardedAttachments || []).length);
   // True when the compose was opened by clicking an existing draft from the list.
   // Used by handleClose to decide whether to prompt about an unmodified draft.
   const draftWasPreExisting = useRef(composeData?.draftUid != null);
@@ -274,11 +299,12 @@ export default function ComposeModal() {
     } catch { return []; }
   }, []);
 
-  const [replyAll, setReplyAll] = useState(() => !!composeData?.isReplyAll);
+  const [replyAll, setReplyAll] = useState(() => (
+    composeData?.mode === 'reply_all' || !!composeData?.isReplyAll
+  ));
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
-  const [priority, setPriority] = useState('normal');
-  const [minimized, setMinimized] = useState(false);
+  const [priority, setPriority] = useState(() => composeData?.priority || 'normal');
   const [maximized, setMaximized] = useState(false);
   const [pos, setPos] = useState(null);
   const [customSize, setCustomSize] = useState(() => {
@@ -312,10 +338,20 @@ export default function ComposeModal() {
   const posRef = useRef(null);
   const customSizeRef = useRef(null);
   const dragCleanupRef = useRef(null);
+  const attachmentUploadQueueRef = useRef(Promise.resolve([]));
+  const [uploadingAttachments, setUploadingAttachments] = useState(false);
   posRef.current = pos;
   customSizeRef.current = customSize;
 
-  const [plainSig, setPlainSig] = useState(() => fromSignature ? stripHtml(fromSignature) : '');
+  const [plainSig, setPlainSig] = useState(() => {
+    if (composeData?.editedSignature != null) {
+      return composeData.bodyIsHtml === true
+        ? stripHtml(String(composeData.editedSignature))
+        : String(composeData.editedSignature);
+    }
+    return fromSignature ? stripHtml(fromSignature) : '';
+  });
+  const [richSignature, setRichSignature] = useState(() => initialForm.editedSignature);
   // Tracks the user's current (possibly edited) rich-text signature; kept current by onInput.
   const signatureContentRef = useRef('');
   // Prevents the signature from being reset by a store refresh (same fromValue, accounts updated).
@@ -341,6 +377,9 @@ export default function ComposeModal() {
       Placeholder.configure({ placeholder: t('compose.bodyPh') }),
     ],
     content: composeData?.body || '',
+    onUpdate: ({ editor: updatedEditor }) => {
+      if (!plaintextEmail && !htmlMode) setBody(updatedEditor.getHTML());
+    },
     autofocus: (isReply || isForward) && !plaintextEmail ? 'start' : false,
     immediatelyRender: false,
     editorProps: {
@@ -367,6 +406,145 @@ export default function ComposeModal() {
       },
     },
   });
+
+  const buildEditablePatch = useCallback(() => {
+    const { accountId, aliasId } = resolveFrom(fromValue);
+    const bodyValue = plaintextEmail ? body : (htmlMode ? htmlSource : body);
+    const signatureValue = plaintextEmail ? plainSig : richSignature;
+    return composeFormPatch({
+      accountId,
+      aliasId,
+      mode: isReply ? (replyAll ? 'reply_all' : 'reply') : (isForward ? 'forward' : 'new'),
+      to: [...toChips, ...(toInput.trim() ? [toInput.trim()] : [])],
+      cc: [...ccChips, ...(ccInput.trim() ? [ccInput.trim()] : [])],
+      bcc: [...bccChips, ...(bccInput.trim() ? [bccInput.trim()] : [])],
+      subject,
+      body: bodyValue,
+      bodyIsHtml,
+      quotedBody,
+      // Body format and quoted-source format are independent. A plain-text reply
+      // must not erase the authoritative rich quoted body on its next full patch.
+      quotedBodyHtml: quotedHtmlRef.current?.innerHTML ?? quotedBodyHtml,
+      editedSignature: signatureValue,
+      forwardedAttachments: fwdAttachments,
+      priority,
+      inReplyTo,
+      references,
+      fromChanged,
+    }, composeData.snapshot || {});
+  }, [
+    bccChips, bccInput, body, bodyIsHtml, ccChips, ccInput, composeData.snapshot,
+    fromChanged, fromValue, fwdAttachments, htmlMode, htmlSource, inReplyTo,
+    isForward, isReply,
+    plainSig, plaintextEmail, priority, quotedBody, quotedBodyHtml, replyAll,
+    references, richSignature, subject, toChips, toInput,
+  ]);
+
+  const editablePatch = useMemo(() => buildEditablePatch(), [buildEditablePatch]);
+  const latestEditablePatchBuilderRef = useRef(buildEditablePatch);
+  latestEditablePatchBuilderRef.current = buildEditablePatch;
+  const editablePatchKey = JSON.stringify(editablePatch);
+  useEffect(() => {
+    if (!hydratedRef.current) return;
+    const previous = lastEditablePatchRef.current;
+    if (!previous) {
+      lastEditablePatchRef.current = editablePatch;
+      return;
+    }
+    const changedFields = Object.keys(editablePatch)
+      .filter(field => JSON.stringify(previous[field]) !== JSON.stringify(editablePatch[field]));
+    if (!changedFields.length) return;
+    changedFields.forEach(field => dirtyFieldsRef.current.add(field));
+    lastEditablePatchRef.current = editablePatch;
+    onChange(session.id, buildEditablePatch());
+  }, [buildEditablePatch, editablePatch, editablePatchKey, onChange, session.id]);
+
+  useEffect(() => {
+    if (!session.snapshot) return;
+    const firstHydration = !hydratedRef.current;
+    const pending = session.localChanges || {};
+    const retainLocal = ['dirty', 'saving', 'offline', 'conflict'].includes(session.status)
+      || session.recoveryConflict;
+    const nextPatch = firstHydration ? {} : { ...(lastEditablePatchRef.current || {}) };
+    const protectedFields = firstHydration
+      ? new Set()
+      : new Set([...dirtyFieldsRef.current].filter(field => (
+        retainLocal || Object.hasOwn(pending, field)
+      )));
+    const reconciledForm = firstHydration
+      ? initialComposeForm(session, { defaultPlaintext: defaultPlaintextEmail })
+      : reconcileComposeForm(nextPatch, session, protectedFields);
+    const reconcile = (field, value, apply) => {
+      if (protectedFields.has(field)) return;
+      dirtyFieldsRef.current.delete(field);
+      const authoritativeValue = Object.hasOwn(session, field)
+        ? reconciledForm[field]
+        : value;
+      nextPatch[field] = authoritativeValue;
+      apply(authoritativeValue);
+    };
+
+    reconcile('to', session.to || [], value => setToChips(parseChips(value)));
+    reconcile('cc', session.cc || [], value => {
+      setCcChips(parseChips(value));
+      if (value.length) setShowCc(true);
+    });
+    reconcile('bcc', session.bcc || [], value => {
+      setBccChips(parseChips(value));
+      if (value.length) setShowBcc(true);
+    });
+    reconcile('subject', session.subject || '', setSubject);
+    reconcile('body', session.body || '', value => {
+      setBody(value);
+      if (!plaintextEmail && editor && editor.getHTML() !== value) {
+        editor.commands.setContent(value, { emitUpdate: false });
+      }
+    });
+    if (typeof session.bodyIsHtml === 'boolean') {
+      reconcile('bodyIsHtml', session.bodyIsHtml, setBodyIsHtml);
+    }
+    reconcile('quotedBody', session.quotedBody || '', setQuotedBody);
+    reconcile('quotedBodyHtml', session.quotedBodyHtml ?? null, value => {
+      setQuotedBodyHtml(value);
+      if (quotedHtmlRef.current) {
+        quotedHtmlRef.current.innerHTML = DOMPurify.sanitize(value || '', { FORBID_TAGS: ['style'] });
+      }
+    });
+    reconcile('editedSignature', session.editedSignature || '', value => {
+      setRichSignature(value);
+      setPlainSig(session.bodyIsHtml === true ? stripHtml(value) : value);
+      signatureContentRef.current = value;
+      if (signatureRef.current && !plaintextEmail) signatureRef.current.innerHTML = value;
+    });
+    reconcile('forwardedAttachments', session.forwardedAttachments || [], setFwdAttachments);
+    reconcile('priority', session.priority || 'normal', setPriority);
+    reconcile('mode', session.mode || 'new', value => {
+      setComposeMode(value);
+      setReplyAll(value === 'reply_all');
+    });
+    reconcile('inReplyTo', session.inReplyTo ?? null, setInReplyTo);
+    reconcile('references', session.references || [], setReferences);
+    reconcile('fromChanged', Boolean(session.fromChanged), setFromChanged);
+    const identityDirty = dirtyFieldsRef.current.has('accountId')
+      || dirtyFieldsRef.current.has('aliasId');
+    const identityPending = Object.hasOwn(pending, 'accountId')
+      || Object.hasOwn(pending, 'aliasId');
+    if (!identityDirty || (!retainLocal && !identityPending)) {
+      dirtyFieldsRef.current.delete('accountId');
+      dirtyFieldsRef.current.delete('aliasId');
+      const identity = session.aliasId && session.accountId
+        ? `alias:${session.aliasId}:${session.accountId}`
+        : (session.accountId ? `account:${session.accountId}` : null);
+      if (identity) setFromValue(identity);
+      nextPatch.accountId = session.accountId || '';
+      nextPatch.aliasId = session.aliasId ?? null;
+    }
+    setAttachments(session.attachments || []);
+    setDraftUid(session.draftUid ?? null);
+    if (session.draftUid != null) draftWasPreExisting.current = true;
+    lastEditablePatchRef.current = nextPatch;
+    hydratedRef.current = true;
+  }, [defaultPlaintextEmail, editor, plaintextEmail, session]);
 
   useEffect(() => {
     if (!editor || isReply || isForward) return;
@@ -418,9 +596,12 @@ export default function ComposeModal() {
     const clamp = () => {
       if (!posRef.current) return;
       const w = customSizeRef.current?.width || 540;
+      const bounds = composeWindowRef.current?.offsetParent?.getBoundingClientRect?.();
+      const availableWidth = bounds?.width || window.innerWidth;
+      const availableHeight = bounds?.height || window.innerHeight;
       setPos(prev => prev ? {
-        x: Math.max(0, Math.min(window.innerWidth - w, prev.x)),
-        y: Math.max(0, Math.min(window.innerHeight - 40, prev.y)),
+        x: Math.max(0, Math.min(availableWidth - w, prev.x)),
+        y: Math.max(0, Math.min(availableHeight - 40, prev.y)),
       } : prev);
     };
     window.addEventListener('resize', clamp);
@@ -467,6 +648,7 @@ export default function ComposeModal() {
   }, [showReplyType]);
 
   const handleTitleDragStart = useCallback((e) => {
+    if (!canFreeform) return;
     if (e.button !== 0) return;
     if (e.target.closest('button, select, a')) return;
     if (maximized) return;
@@ -481,10 +663,12 @@ export default function ComposeModal() {
     // Finish any entry animation so getBoundingClientRect reflects the final position.
     el.getAnimations().forEach(a => a.finish());
     const rect = el.getBoundingClientRect();
+    const bounds = el.offsetParent?.getBoundingClientRect?.()
+      || { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
     const startMouseX = e.clientX;
     const startMouseY = e.clientY;
-    const startX = rect.left;
-    const startY = rect.top;
+    const startX = rect.left - bounds.left;
+    const startY = rect.top - bounds.top;
     const w = rect.width;
     const h = rect.height;
     // Immediately switch from bottom/right to top/left in the DOM — no re-render
@@ -502,8 +686,8 @@ export default function ComposeModal() {
     // Mutate the DOM directly during drag — avoids a React re-render on every
     // pointermove event, which was the source of lag and jerkiness.
     const onMove = (ev) => {
-      curX = Math.max(0, Math.min(window.innerWidth - w, startX + ev.clientX - startMouseX));
-      curY = Math.max(0, Math.min(Math.max(0, window.innerHeight - h), startY + ev.clientY - startMouseY));
+      curX = Math.max(0, Math.min(bounds.width - w, startX + ev.clientX - startMouseX));
+      curY = Math.max(0, Math.min(Math.max(0, bounds.height - h), startY + ev.clientY - startMouseY));
       el.style.left = curX + 'px';
       el.style.top = curY + 'px';
     };
@@ -526,9 +710,10 @@ export default function ComposeModal() {
     captureEl.addEventListener('pointerup', cleanup);
     captureEl.addEventListener('pointercancel', cleanupNoCommit);
     window.addEventListener('blur', cleanupNoCommit);
-  }, [maximized]);
+  }, [canFreeform, maximized]);
 
   const handleResizeDragStart = useCallback((e) => {
+    if (!canFreeform) return;
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
@@ -541,6 +726,8 @@ export default function ComposeModal() {
     captureEl.setPointerCapture(pointerId);
     el.getAnimations().forEach(a => a.finish());
     const rect = el.getBoundingClientRect();
+    const bounds = el.offsetParent?.getBoundingClientRect?.()
+      || { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
     const startMouseX = e.clientX;
     const startMouseY = e.clientY;
     const startWidth = rect.width;
@@ -548,16 +735,16 @@ export default function ComposeModal() {
     // Switch to top/left positioning if not already positioned.
     el.style.bottom = '';
     el.style.right = '';
-    if (!el.style.top) el.style.top = rect.top + 'px';
-    if (!el.style.left) el.style.left = rect.left + 'px';
-    setPos(prev => prev ?? { x: rect.left, y: rect.top });
+    if (!el.style.top) el.style.top = (rect.top - bounds.top) + 'px';
+    if (!el.style.left) el.style.left = (rect.left - bounds.left) + 'px';
+    setPos(prev => prev ?? { x: rect.left - bounds.left, y: rect.top - bounds.top });
     document.body.style.cursor = 'nwse-resize';
     document.body.style.userSelect = 'none';
     let curW = startWidth;
     let curH = startHeight;
     const onMove = (ev) => {
-      curW = Math.min(window.innerWidth - 16, Math.max(360, startWidth + ev.clientX - startMouseX));
-      curH = Math.min(window.innerHeight - 40, Math.max(200, startHeight + ev.clientY - startMouseY));
+      curW = Math.min(bounds.width - 16, Math.max(360, startWidth + ev.clientX - startMouseX));
+      curH = Math.min(bounds.height - 40, Math.max(200, startHeight + ev.clientY - startMouseY));
       el.style.width = curW + 'px';
       el.style.height = curH + 'px';
     };
@@ -581,7 +768,7 @@ export default function ComposeModal() {
     captureEl.addEventListener('pointerup', cleanup);
     captureEl.addEventListener('pointercancel', cleanupNoCommit);
     window.addEventListener('blur', cleanupNoCommit);
-  }, []);
+  }, [canFreeform]);
 
   useEffect(() => { return () => { dragCleanupRef.current?.({ commit: false }); }; }, []);
 
@@ -595,17 +782,32 @@ export default function ComposeModal() {
       prevFromValueRef.current = fromValue;
       signatureInitializedRef.current = false;
     }
+    if (!fromValueChanged && composeData?.editedSignature != null) {
+      signatureInitializedRef.current = true;
+      const custom = String(composeData.editedSignature);
+      const richCustom = DOMPurify.sanitize(custom);
+      signatureContentRef.current = richCustom;
+      if (signatureRef.current && !plaintextEmail) signatureRef.current.innerHTML = richCustom;
+      setRichSignature(richCustom);
+      setPlainSig(plaintextEmail ? custom : stripHtml(custom));
+      return;
+    }
+    // Summary-only records are not authoritative enough to synthesize a default
+    // signature. Wait for the controller's server snapshot first.
+    if (!composeData?.snapshot) return;
     if (!signatureInitializedRef.current && fromSignature != null) {
       signatureInitializedRef.current = true;
       const sanitized = DOMPurify.sanitize(fromSignature);
       if (signatureRef.current) signatureRef.current.innerHTML = sanitized;
       signatureContentRef.current = sanitized;
+      setRichSignature(sanitized);
       setPlainSig(stripHtml(fromSignature));
     } else if (fromValueChanged && fromSignature == null) {
       signatureContentRef.current = '';
+      setRichSignature('');
       setPlainSig('');
     }
-  }, [fromValue, fromSignature]);
+  }, [composeData?.editedSignature, composeData?.snapshot, fromValue, fromSignature, plaintextEmail]);
 
   // Initialise quoted HTML contentEditable once on mount (ref-based to avoid React cursor conflicts)
   useEffect(() => {
@@ -626,28 +828,85 @@ export default function ComposeModal() {
     }
   }, [editor]);
 
+  const queueAttachmentMutation = (mutation) => {
+    const previous = attachmentUploadQueueRef.current.catch(() => []);
+    const queued = previous.then(mutation);
+    attachmentUploadQueueRef.current = queued;
+    setUploadingAttachments(true);
+    queued.catch(error => setError(error.message)).finally(() => {
+      if (attachmentUploadQueueRef.current === queued) setUploadingAttachments(false);
+    });
+    return queued;
+  };
+
+  const runAfterAttachmentUploads = async (action) => {
+    try {
+      return await runAfterStableAttachmentMutations(
+        () => attachmentUploadQueueRef.current,
+        action,
+      );
+    } catch (uploadError) {
+      setError(uploadError.message);
+      return null;
+    }
+  };
+
   const handleFileSelect = (e) => {
+    if (terminalPending || savingDraftRef.current) {
+      e.target.value = '';
+      return;
+    }
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
-    files.forEach(file => {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        const base64 = ev.target.result.split(',')[1];
-        setAttachments(prev => {
-          if (prev.some(a => a.name === file.name)) return prev;
-          return [...prev, { name: file.name, size: file.size, type: file.type, data: base64 }];
-        });
-      };
-      reader.readAsDataURL(file);
-    });
+    queueAttachmentMutation(() => uploadFilesSequentially(
+      files,
+      file => onAddAttachment(session.id, file),
+    ));
     e.target.value = '';
   };
 
+  const attachmentViews = attachments.map(attachmentChipView);
+  const removeAttachmentAt = (index) => {
+    if (terminalPending || savingDraftRef.current) return;
+    const attachmentId = attachments[index]?.id;
+    if (!attachmentId) return;
+    queueAttachmentMutation(() => onRemoveAttachment(session.id, attachmentId));
+  };
+
+  const localEscapeOwned = showCcBccMenu || showDiscardSheet
+    || showEmptySubjectWarn || showForgottenAttachWarn || showPrioritySheet
+    || showCloseDialog || showReplyType;
+
+  const dismissLocalEscape = useCallback(() => {
+    if (showCcBccMenu) {
+      setShowCcBccMenu(false);
+      setCcBccMenuPos(null);
+    } else if (showReplyType) setShowReplyType(false);
+    else if (showPrioritySheet) setShowPrioritySheet(false);
+    else if (showEmptySubjectWarn) setShowEmptySubjectWarn(false);
+    else if (showForgottenAttachWarn) setShowForgottenAttachWarn(false);
+    else if (showDiscardSheet) setShowDiscardSheet(false);
+    else if (showCloseDialog) setShowCloseDialog(false);
+  }, [
+    showCcBccMenu, showCloseDialog, showDiscardSheet,
+    showEmptySubjectWarn, showForgottenAttachWarn, showPrioritySheet, showReplyType,
+  ]);
+
+  useEffect(() => {
+    if (!localEscapeOwned) return undefined;
+    return composeEscapeOwners.register({
+      sessionId: session.id,
+      dismiss: dismissLocalEscape,
+      priority: 100,
+    });
+  }, [dismissLocalEscape, localEscapeOwned, session.id]);
+
   const handleKeyDown = (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-      e.preventDefault();
-      handleSend();
-    }
+    handleComposeModalKeyDown(e, {
+      localEscapeOwned,
+      dismissOverlay: dismissLocalEscape,
+      send: handleSend,
+    });
   };
 
   const handleAiAction = async (action) => {
@@ -706,8 +965,8 @@ export default function ComposeModal() {
   };
 
   const handleSend = async ({ skipSubjectWarn = false, skipAttachWarn = false } = {}) => {
-    if (sending) return; // guard against a rapid double-submit (e.g. double Ctrl/Cmd+Enter)
-    const { accountId, aliasId } = resolveFrom(fromValue);
+    if (terminalPending || sending) return; // guard terminal work and rapid double-submit
+    const { accountId } = resolveFrom(fromValue);
     const toFinal = [...toChips, ...(toInput.trim() ? [toInput.trim()] : [])];
     if (!toFinal.length || !accountId) return;
 
@@ -730,76 +989,77 @@ export default function ComposeModal() {
       }
     }
 
+    try {
+      await attachmentUploadQueueRef.current;
+    } catch (uploadError) {
+      setError(uploadError.message);
+      return;
+    }
+
     localStorage.setItem('mailflow_last_from_account', accountId);
     setSending(true);
     setError('');
-    const bodyToSend = plaintextEmail ? body : (htmlMode ? htmlSource : (editor?.getHTML() ?? ''));
     // crypto.randomUUID needs a secure context; fall back for plain-HTTP LAN deployments.
     if (!idempotencyKeyRef.current) {
       idempotencyKeyRef.current = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     }
     try {
-      const sendResult = await api.post('/mail/send', {
-        accountId,
-        ...(aliasId ? { aliasId } : {}),
-        to: toFinal,
-        cc: [...ccChips, ...(ccInput.trim() ? [ccInput.trim()] : [])],
-        bcc: [...bccChips, ...(bccInput.trim() ? [bccInput.trim()] : [])],
-        subject,
-        body: bodyToSend,
-        bodyIsHtml: !plaintextEmail,
-        ...(quotedBody ? { quotedBody } : {}),
-        ...(!plaintextEmail && (quotedBodyHtml != null || quotedHtmlRef.current)
-          ? { quotedBodyHtml: quotedHtmlRef.current ? quotedHtmlRef.current.innerHTML : quotedBodyHtml }
-          : {}),
-        ...(signatureContentRef.current || fromSignature != null
-          ? { editedSignature: plaintextEmail ? plainSig : signatureContentRef.current }
-          : {}),
-        inReplyTo: composeData?.inReplyTo,
-        references: composeData?.references || undefined,
-        ...(priority !== 'normal' ? { priority } : {}),
-        ...(attachments.length ? {
-          attachments: attachments.map(a => ({
-            filename: a.name,
-            content: a.data,
-            encoding: 'base64',
-            contentType: a.type || 'application/octet-stream',
-          })),
-        } : {}),
-        ...(fwdAttachments.length ? {
-          forwardedAttachments: fwdAttachments.map(a => ({ messageId: a.messageId, part: a.part })),
-        } : {}),
-      }, { 'X-Idempotency-Key': idempotencyKeyRef.current });
+      // All editable content already belongs to the session controller. Send only
+      // lifecycle options here so this component cannot bypass revision/conflict handling.
+      const sendResult = await onSend(session.id, {
+        undoSendSeconds: useStore.getState().undoSendSeconds,
+        idempotencyKey: idempotencyKeyRef.current,
+      });
       // Send confirmed — clear the key so a subsequent send from a reused modal gets a fresh one.
       idempotencyKeyRef.current = null;
-      const replyThreadId = isReply ? composeData?.threadId : null;
-      closeCompose();
-      if (draftUid != null && draftFolder != null && draftAccountId) {
-        api.deleteDraft(draftAccountId, draftUid, draftFolder).catch(() => {});
-      }
-      const sentFolder = accounts.find(a => a.id === accountId)?.folder_mappings?.sent || 'Sent';
-      // The message was delivered; sentCopySaved:false means it couldn't be saved to the
-      // account's Sent folder — tell the user so they know their record is incomplete.
-      const sentCopyFailed = sendResult?.sentCopySaved === false;
-      addNotification({
-        title: sentCopyFailed ? t('compose.sent.noCopy') : t('compose.sent.title'),
-        body: subject || t('common.noSubject'),
-        // When the Sent copy wasn't saved, omit the "View" action — it would navigate to a
-        // Sent folder that doesn't contain the message.
-        ...(sentCopyFailed ? {} : {
-          onAction: () => setSelectedAccount(accountId, sentFolder),
-          actionLabel: t('compose.sent.action'),
-        }),
-      });
-      if (replyThreadId) {
-        const refreshThread = async () => {
-          try {
-            const data = await api.getThread(replyThreadId);
-            if (data.messages?.length) setThreadMessages(replyThreadId, data.messages);
-          } catch { /* best-effort refresh */ }
-        };
-        setTimeout(refreshThread, 3000);
-        setTimeout(refreshThread, 10000);
+      if (sendResult?.queued) {
+        const countdownUntil = new Date(sendResult.sendAt).getTime();
+        addNotification({
+          persistent: true,
+          durationMs: Math.max(0, countdownUntil - Date.now()),
+          title: t('compose.sending.title'),
+          body: subject || t('common.noSubject'),
+          countdownUntil,
+          onUndo: async () => {
+            try {
+              // Cancellation and authoritative session restoration are one server
+              // transaction, so uploaded attachments survive undo as well.
+              await onUndoQueuedSend(sendResult.outboxId);
+            } catch {
+              addNotification({
+                type: 'error',
+                title: t('compose.sending.tooLate'),
+                body: subject || t('common.noSubject'),
+              });
+            }
+          },
+        });
+      } else {
+        const replyThreadId = isReply ? composeData?.threadId : null;
+        const sentFolder = accounts.find(a => a.id === accountId)?.folder_mappings?.sent || 'Sent';
+        // The message was delivered; sentCopySaved:false means it couldn't be saved to the
+        // account's Sent folder — tell the user so they know their record is incomplete.
+        const sentCopyFailed = sendResult?.sentCopySaved === false;
+        addNotification({
+          title: sentCopyFailed ? t('compose.sent.noCopy') : t('compose.sent.title'),
+          body: subject || t('common.noSubject'),
+          // When the Sent copy wasn't saved, omit the "View" action — it would navigate to a
+          // Sent folder that doesn't contain the message.
+          ...(sentCopyFailed ? {} : {
+            onAction: () => setSelectedAccount(accountId, sentFolder),
+            actionLabel: t('compose.sent.action'),
+          }),
+        });
+        if (replyThreadId) {
+          const refreshThread = async () => {
+            try {
+              const data = await api.getThread(replyThreadId);
+              if (data.messages?.length) setThreadMessages(replyThreadId, data.messages);
+            } catch { /* best-effort refresh */ }
+          };
+          setTimeout(refreshThread, 3000);
+          setTimeout(refreshThread, 10000);
+        }
       }
     } catch (err) {
       setError(err.message);
@@ -808,101 +1068,58 @@ export default function ComposeModal() {
   };
 
   const isDirty = () => {
-    const currentBody = plaintextEmail ? body : (htmlMode ? htmlSource : (editor?.isEmpty ? '' : (editor?.getHTML() ?? '')));
-    return (
-      currentBody !== initialBodyRef.current ||
-      subject !== initialSubjectRef.current ||
-      normalizeTo(toChips) !== initialToRef.current ||
-      toInput.trim() !== '' ||
-      normalizeTo(ccChips) !== initialCcRef.current ||
-      ccInput.trim() !== '' ||
-      normalizeTo(bccChips) !== initialBccRef.current ||
-      bccInput.trim() !== '' ||
-      attachments.length + fwdAttachments.length !== savedAttachmentCountRef.current
-    );
+    return dirtyFieldsRef.current.size > 0
+      || Object.keys(session.localChanges || {}).length > 0
+      || toInput.trim() !== '' || ccInput.trim() !== '' || bccInput.trim() !== '';
   };
 
   const doSaveDraft = async ({ closeAfter = false } = {}) => {
-    const { accountId, aliasId } = resolveFrom(fromValue);
+    if (savingDraftRef.current) return null;
+    const { accountId } = resolveFrom(fromValue);
     if (!accountId) return;
-    setSavingDraft(true);
-    try {
-      const bodyToSend = plaintextEmail ? body : (htmlMode ? htmlSource : (editor?.isEmpty ? '' : (editor?.getHTML() ?? '')));
-      const result = await api.saveDraft({
-        accountId,
-        ...(aliasId ? { aliasId } : {}),
-        to: [...toChips, ...(toInput.trim() ? [toInput.trim()] : [])],
-        cc: [...ccChips, ...(ccInput.trim() ? [ccInput.trim()] : [])],
-        bcc: [...bccChips, ...(bccInput.trim() ? [bccInput.trim()] : [])],
-        subject,
-        body: bodyToSend,
-        bodyIsHtml: !plaintextEmail,
-        ...(quotedBody ? { quotedBody } : {}),
-        ...(!plaintextEmail && (quotedBodyHtml != null || quotedHtmlRef.current)
-          ? { quotedBodyHtml: quotedHtmlRef.current ? quotedHtmlRef.current.innerHTML : quotedBodyHtml }
-          : {}),
-        ...(signatureContentRef.current || fromSignature != null
-          ? { editedSignature: plaintextEmail ? plainSig : signatureContentRef.current }
-          : {}),
-        ...(draftUid != null && draftFolder != null ? { existingUid: draftUid, existingFolder: draftFolder } : {}),
-      });
-      if (result.uid != null) {
-        setDraftUid(result.uid);
-        setDraftFolder(result.folder);
-        setDraftAccountId(accountId);
-      }
-      if (closeAfter) {
-        closeCompose();
-      } else {
-        // Commit any pending recipient inputs — they were included in the API call,
-        // so promote them to chips and clear the inputs to keep UI in sync.
-        const pendingTo = toInput.trim();
-        const pendingCc = ccInput.trim();
-        const pendingBcc = bccInput.trim();
-        if (pendingTo) { setToChips(prev => [...prev, pendingTo]); setToInput(''); }
-        if (pendingCc) { setCcChips(prev => [...prev, pendingCc]); setCcInput(''); }
-        if (pendingBcc) { setBccChips(prev => [...prev, pendingBcc]); setBccInput(''); }
-
-        // Sync baselines so isDirty() returns false until the user makes new changes.
-        // Use the same body expression as isDirty() — not bodyToSend — so that an
-        // empty TipTap editor (getHTML() → '<p></p>', isEmpty → true → '') produces
-        // a consistent '' on both sides rather than a permanent dirty mismatch.
-        // Include pending inputs in the To/CC/BCC baselines since they're now saved.
-        initialBodyRef.current = plaintextEmail ? body
-          : (htmlMode ? htmlSource
-          : (editor?.isEmpty ? '' : (editor?.getHTML() ?? '')));
-        initialSubjectRef.current = subject;
-        initialToRef.current = normalizeTo([...toChips, ...(pendingTo ? [pendingTo] : [])]);
-        initialCcRef.current = normalizeTo([...ccChips, ...(pendingCc ? [pendingCc] : [])]);
-        initialBccRef.current = normalizeTo([...bccChips, ...(pendingBcc ? [pendingBcc] : [])]);
-        savedAttachmentCountRef.current = attachments.length + fwdAttachments.length;
-        addNotification({ title: t('compose.draftSaved'), body: subject || t('common.noSubject') });
-      }
-    } catch (err) {
-      console.error('Save draft failed:', err.message);
-    } finally {
-      setSavingDraft(false);
+    const result = await persistComposeDraft({
+      sessionId: session.id,
+      getChanges: () => latestEditablePatchBuilderRef.current(),
+      closeAfter,
+      waitForAttachments: runAfterAttachmentUploads,
+      onChange,
+      onSave,
+      onClose,
+      onSavingChange: value => {
+        savingDraftRef.current = value;
+        setSavingDraft(value);
+      },
+      onError: err => {
+        setError(err.message);
+        console.error('Save draft failed:', err.message);
+      },
+    });
+    if (!closeAfter && result != null) {
+      const pendingTo = toInput.trim();
+      const pendingCc = ccInput.trim();
+      const pendingBcc = bccInput.trim();
+      if (pendingTo) { setToChips(prev => [...prev, pendingTo]); setToInput(''); }
+      if (pendingCc) { setCcChips(prev => [...prev, pendingCc]); setCcInput(''); }
+      if (pendingBcc) { setBccChips(prev => [...prev, pendingBcc]); setBccInput(''); }
     }
+    return result;
   };
 
   const handleSaveDraft = (closeAfter = false) => {
-    if ((attachments.length > 0 || fwdAttachments.length > 0) && !showAttachWarnForDraft) {
-      setAttachWarnDraftCloseAfter(closeAfter);
-      setShowAttachWarnForDraft(true);
-      return;
-    }
-    setShowAttachWarnForDraft(false);
-    doSaveDraft({ closeAfter });
+    void doSaveDraft({ closeAfter });
   };
 
+  const attachmentControlsDisabled = terminalPending || savingDraft;
+
   const handleClose = () => {
+    if (terminalPending) return;
     if (isDirty()) {
       setShowCloseDialog(true);
     } else if (draftUid != null && draftWasPreExisting.current) {
       // Opened from the drafts list with no modifications — ask to discard or keep.
       setShowCloseDialog(true);
     } else {
-      closeCompose();
+      runAfterAttachmentUploads(() => onClose(session.id));
     }
   };
 
@@ -922,7 +1139,10 @@ export default function ComposeModal() {
       contentEditable
       suppressContentEditableWarning
       spellCheck={false}
-      onInput={() => { signatureContentRef.current = signatureRef.current?.innerHTML || ''; }}
+      onInput={() => {
+        signatureContentRef.current = signatureRef.current?.innerHTML || '';
+        setRichSignature(signatureContentRef.current);
+      }}
       style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, outline: 'none' }}
     />
   );
@@ -957,7 +1177,7 @@ export default function ComposeModal() {
     const switchToReplyAll = () => {
       setToChips(parseChips(composeData?.originalFrom || composeData?.to));
       setToInput('');
-      const allRecipients = parseChips(composeData?.allRecipients || []);
+      const allRecipients = parseChips(replyAllRecipientsForSession(composeData));
       if (allRecipients.length) { setCcChips(allRecipients); setCcInput(''); setShowCc(true); }
       setReplyAll(true);
       setShowReplyType(false);
@@ -987,7 +1207,11 @@ export default function ComposeModal() {
         animation: 'backdrop-enter var(--motion-fast) var(--ease-standard) both',
       }} />
       <div
-        ref={composePanelRef}
+      ref={composePanelRef}
+      data-compose-session-id={session.id}
+      aria-busy={terminalPending}
+      inert={terminalPending ? '' : undefined}
+        data-compose-escape-owner={localEscapeOwned ? 'true' : undefined}
         onKeyDown={handleKeyDown}
         style={{
           position: 'fixed', top: 0, left: 0, right: 0,
@@ -999,7 +1223,14 @@ export default function ComposeModal() {
           animation: 'sheet-enter var(--motion-normal) var(--ease-emphasized) both',
         }}
       >
-        <input ref={fileInputRef} type="file" multiple onChange={handleFileSelect} style={{ display: 'none' }} />
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          disabled={attachmentControlsDisabled}
+          onChange={handleFileSelect}
+          style={{ display: 'none' }}
+        />
         {/* Header */}
         <div style={{
           display: 'flex', alignItems: 'center',
@@ -1011,7 +1242,7 @@ export default function ComposeModal() {
               if (isDirty() || (draftUid != null && draftWasPreExisting.current)) {
                 setShowDiscardSheet(true);
               } else {
-                closeCompose();
+                runAfterAttachmentUploads(() => onClose(session.id));
               }
             }}
             style={{
@@ -1046,12 +1277,12 @@ export default function ComposeModal() {
             </button>
             <button
               onClick={handleSend}
-              disabled={sending || (toChips.length === 0 && !toInput.trim())}
+              disabled={terminalPending || sending || uploadingAttachments || (toChips.length === 0 && !toInput.trim())}
               style={{
                 background: 'none', border: 'none',
-                color: sending || (toChips.length === 0 && !toInput.trim()) ? 'var(--text-tertiary)' : 'var(--accent)',
+                color: terminalPending || sending || uploadingAttachments || (toChips.length === 0 && !toInput.trim()) ? 'var(--text-tertiary)' : 'var(--accent)',
                 fontSize: 16, fontWeight: 600,
-                cursor: sending || (toChips.length === 0 && !toInput.trim()) ? 'default' : 'pointer',
+                cursor: terminalPending || sending || uploadingAttachments || (toChips.length === 0 && !toInput.trim()) ? 'default' : 'pointer',
                 padding: '4px 0',
                 WebkitTapHighlightColor: 'transparent',
                 transition: 'color 0.15s',
@@ -1133,6 +1364,7 @@ export default function ComposeModal() {
           <div style={fieldStyle}>
             <span style={labelStyle}>{t('compose.to')}</span>
             <ChipInput
+              composeSessionId={session.id}
               chips={toChips} onChipsChange={setToChips}
               value={toInput} onChange={setToInput}
               placeholder={t('compose.toPh')}
@@ -1168,6 +1400,7 @@ export default function ComposeModal() {
             <div style={fieldStyle}>
               <span style={labelStyle}>{t('compose.cc')}</span>
               <ChipInput
+                composeSessionId={session.id}
                 chips={ccChips} onChipsChange={setCcChips}
                 value={ccInput} onChange={setCcInput}
                 placeholder={t('compose.ccPh')}
@@ -1183,6 +1416,7 @@ export default function ComposeModal() {
             <div style={fieldStyle}>
               <span style={labelStyle}>{t('compose.bcc')}</span>
               <ChipInput
+                composeSessionId={session.id}
                 chips={bccChips} onChipsChange={setBccChips}
                 value={bccInput} onChange={setBccInput}
                 placeholder={t('compose.bccPh')}
@@ -1223,7 +1457,9 @@ export default function ComposeModal() {
             />
           ) : (
             <div className="tiptap-compose" style={{ flex: '1 0 auto', minHeight: 200, display: 'flex', flexDirection: 'column' }}>
-              <RichToolbar editor={editor} onAttach={() => fileInputRef.current?.click()}
+              <RichToolbar composeSessionId={session.id} editor={editor}
+                onAttach={() => fileInputRef.current?.click()}
+                attachmentDisabled={attachmentControlsDisabled}
                 htmlMode={htmlMode}
                 onToggleHtml={() => {
                   if (!htmlMode) { setHtmlSource(editor?.getHTML() ?? ''); setHtmlMode(true); }
@@ -1287,7 +1523,7 @@ export default function ComposeModal() {
           )}
 
           {/* Signature */}
-          {fromSignature && (
+          {(fromSignature || richSignature) && (
             <div style={{ padding: '0 16px 12px' }}>
               <div style={{ fontSize: 11, color: 'var(--text-tertiary)', margin: '8px 0 6px', userSelect: 'none' }}>
                 -- signature
@@ -1304,6 +1540,7 @@ export default function ComposeModal() {
                 contentEditable
                 suppressContentEditableWarning
                 spellCheck={false}
+                onInput={event => setQuotedBodyHtml(event.currentTarget.innerHTML)}
                 style={{
                   padding: '10px 16px', borderTop: '1px solid var(--border-subtle)',
                   color: 'var(--text-secondary)', fontSize: 13, lineHeight: 1.6,
@@ -1329,10 +1566,10 @@ export default function ComposeModal() {
           )}
 
           {fwdAttachments.length > 0 && (
-            <AttachmentChips attachments={fwdAttachments.map(a => ({ name: a.filename, size: a.size }))} onRemove={i => setFwdAttachments(prev => prev.filter((_, j) => j !== i))} mobile />
+            <AttachmentChips attachments={fwdAttachments.map(a => ({ name: a.filename, size: a.size }))} onRemove={i => setFwdAttachments(prev => prev.filter((_, j) => j !== i))} disabled={attachmentControlsDisabled} mobile />
           )}
           {attachments.length > 0 && (
-            <AttachmentChips attachments={attachments} onRemove={i => setAttachments(prev => prev.filter((_, j) => j !== i))} mobile />
+            <AttachmentChips attachments={attachmentViews} onRemove={removeAttachmentAt} disabled={attachmentControlsDisabled} mobile />
           )}
 
           {/* Error */}
@@ -1354,7 +1591,7 @@ export default function ComposeModal() {
       {showCcBccMenu && ccBccMenuPos && (
         <>
           <div onClick={() => { setShowCcBccMenu(false); setCcBccMenuPos(null); }} style={{ position: 'fixed', inset: 0, zIndex: 2050 }} />
-          <div style={{
+          <div data-compose-escape-owner style={{
             position: 'fixed', top: descale(ccBccMenuPos.top, uiScale), right: descale(ccBccMenuPos.right, uiScale),
             zIndex: 2051,
             background: 'var(--bg-elevated)', border: '1px solid var(--border)',
@@ -1388,7 +1625,7 @@ export default function ComposeModal() {
             onClick={() => setShowDiscardSheet(false)}
             style={{ position: 'fixed', inset: 0, zIndex: 2100, background: 'rgba(0,0,0,0.4)' }}
           />
-          <div style={{
+          <div data-compose-escape-owner style={{
             position: 'fixed', left: 0, right: 0, bottom: 0,
             zIndex: 2101, background: 'var(--bg-elevated)',
             borderRadius: '16px 16px 0 0',
@@ -1411,10 +1648,7 @@ export default function ComposeModal() {
             <button
               onClick={() => {
                 setShowDiscardSheet(false);
-                if (draftUid != null && draftFolder != null && draftAccountId) {
-                  api.deleteDraft(draftAccountId, draftUid, draftFolder).catch(() => {});
-                }
-                closeCompose();
+                runAfterAttachmentUploads(() => onDiscard(session.id));
               }}
               style={{ width: '100%', padding: '16px 20px', textAlign: 'left', background: 'none', border: 'none', color: 'var(--red)', fontSize: 16, fontWeight: 500, cursor: 'pointer', borderBottom: '1px solid var(--border-subtle)', WebkitTapHighlightColor: 'transparent' }}
             >
@@ -1430,34 +1664,6 @@ export default function ComposeModal() {
         </>
       )}
 
-      {/* Draft attachment warning sheet */}
-      {showAttachWarnForDraft && (
-        <>
-          <div onClick={() => setShowAttachWarnForDraft(false)} style={{ position: 'fixed', inset: 0, zIndex: 2100, background: 'rgba(0,0,0,0.4)' }} />
-          <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 2101, background: 'var(--bg-elevated)', borderRadius: '16px 16px 0 0', paddingBottom: 'calc(var(--sab) + 8px)', boxShadow: 'var(--shadow-modal)', animation: 'sheet-enter 0.22s var(--ease-emphasized) both' }}>
-            <div style={{ padding: '16px 20px 4px', fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}>
-              {t('compose.saveDraft')}
-            </div>
-            <div style={{ padding: '10px 20px 12px', fontSize: 13, color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-subtle)' }}>
-              {t('compose.draftHasAttachments')}
-            </div>
-            <button
-              onClick={() => { setShowAttachWarnForDraft(false); doSaveDraft({ closeAfter: attachWarnDraftCloseAfter }); }}
-              disabled={savingDraft}
-              style={{ width: '100%', padding: '16px 20px', textAlign: 'left', background: 'none', border: 'none', color: 'var(--accent)', fontSize: 16, fontWeight: 500, cursor: 'pointer', borderBottom: '1px solid var(--border-subtle)', WebkitTapHighlightColor: 'transparent' }}
-            >
-              {savingDraft ? t('compose.savingDraft') : t('compose.closeDraft.save')}
-            </button>
-            <button
-              onClick={() => setShowAttachWarnForDraft(false)}
-              style={{ width: '100%', padding: '16px 20px', textAlign: 'left', background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 16, fontWeight: 500, cursor: 'pointer', WebkitTapHighlightColor: 'transparent' }}
-            >
-              {t('compose.closeDraft.keepEditing')}
-            </button>
-          </div>
-        </>
-      )}
-
       {/* Empty subject warning sheet */}
       {showEmptySubjectWarn && (
         <>
@@ -1465,7 +1671,7 @@ export default function ComposeModal() {
             onClick={() => setShowEmptySubjectWarn(false)}
             style={{ position: 'fixed', inset: 0, zIndex: 2100, background: 'rgba(0,0,0,0.4)' }}
           />
-          <div style={{
+          <div data-compose-escape-owner style={{
             position: 'fixed', left: 0, right: 0, bottom: 0,
             zIndex: 2101, background: 'var(--bg-elevated)',
             borderRadius: '16px 16px 0 0',
@@ -1499,7 +1705,7 @@ export default function ComposeModal() {
             onClick={() => setShowForgottenAttachWarn(false)}
             style={{ position: 'fixed', inset: 0, zIndex: 2100, background: 'rgba(0,0,0,0.4)' }}
           />
-          <div style={{
+          <div data-compose-escape-owner style={{
             position: 'fixed', left: 0, right: 0, bottom: 0,
             zIndex: 2101, background: 'var(--bg-elevated)',
             borderRadius: '16px 16px 0 0',
@@ -1533,7 +1739,7 @@ export default function ComposeModal() {
       {showPrioritySheet && (
         <>
           <div onClick={() => setShowPrioritySheet(false)} style={{ position: 'fixed', inset: 0, zIndex: 2100, background: 'rgba(0,0,0,0.4)' }} />
-          <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 2101, background: 'var(--bg-elevated)', borderRadius: '16px 16px 0 0', paddingBottom: 'calc(var(--sab) + 8px)', boxShadow: 'var(--shadow-modal)', animation: 'sheet-enter 0.22s var(--ease-emphasized) both' }}>
+          <div data-compose-escape-owner style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 2101, background: 'var(--bg-elevated)', borderRadius: '16px 16px 0 0', paddingBottom: 'calc(var(--sab) + 8px)', boxShadow: 'var(--shadow-modal)', animation: 'sheet-enter 0.22s var(--ease-emphasized) both' }}>
             <div style={{ padding: '16px 20px 8px', fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}>
               {t('compose.priority')}
             </div>
@@ -1571,36 +1777,13 @@ export default function ComposeModal() {
     outline: 'none',
   };
 
-  if (minimized) {
-    return (
-      <div
-        onClick={() => setMinimized(false)}
-        style={{
-          position: 'fixed', bottom: 0, right: 24,
-          background: 'var(--bg-elevated)', border: '1px solid var(--border)',
-          borderBottom: 'none', borderRadius: '8px 8px 0 0',
-          padding: '10px 16px', cursor: 'pointer',
-          display: 'flex', alignItems: 'center', gap: 10,
-          color: 'var(--text-primary)', fontSize: 13, fontWeight: 500,
-          boxShadow: 'var(--shadow-soft)', zIndex: 1000,
-        }}
-      >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2">
-          <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
-          <polyline points="22,6 12,13 2,6"/>
-        </svg>
-        {subject || modeLabel}
-      </div>
-    );
-  }
-
   return (
     <>
       {maximized && (
         <div
           onClick={() => setMaximized(false)}
           style={{
-            position: 'fixed', inset: 0, zIndex: 999,
+            position: 'absolute', inset: 0, zIndex: 999,
             background: 'rgba(0,0,0,0.35)',
             backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)',
           }}
@@ -1608,23 +1791,36 @@ export default function ComposeModal() {
       )}
     <div
       ref={composeWindowRef}
+      data-compose-session-id={session.id}
+      aria-busy={terminalPending}
+      inert={terminalPending ? '' : undefined}
+      data-compose-escape-owner={localEscapeOwned ? 'true' : undefined}
       onKeyDown={handleKeyDown}
+      onFocus={() => {
+        if (!terminalPending) onFocus(session.id);
+      }}
       style={maximized ? {
-        position: 'fixed', top: 28, left: 28, right: 28, bottom: 28,
+        position: 'absolute', top: 28, left: 28, right: 28, bottom: 28,
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
         borderRadius: 12, boxShadow: 'var(--shadow-modal)',
         zIndex: 1000, display: 'flex', flexDirection: 'column',
-      } : pos ? {
-        position: 'fixed', top: pos.y, left: pos.x,
+      } : tiled ? {
+        position: 'relative', width: '100%', height: 'min(72vh, 720px)',
+        minWidth: 0, maxWidth: 'none', overflow: 'hidden',
+        background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+        borderRadius: 10, boxShadow: 'var(--shadow-modal)',
+        display: 'flex', flexDirection: 'column',
+      } : pos && canFreeform ? {
+        position: 'absolute', top: pos.y, left: pos.x,
         width: customSize?.width || 540,
         ...(customSize?.height ? { height: customSize.height } : { maxHeight: '75vh' }),
-        maxWidth: 'calc(100vw - 16px)',
+        maxWidth: 'calc(100% - 16px)',
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
         borderRadius: 10, boxShadow: 'var(--shadow-modal)',
         zIndex: 1000, display: 'flex', flexDirection: 'column',
       } : {
-        position: 'fixed', bottom: 0, right: 24,
-        width: customSize?.width || 540, maxWidth: 'calc(100vw - 48px)',
+        position: 'absolute', bottom: 0, right: 24,
+        width: customSize?.width || 540, maxWidth: 'calc(100% - 48px)',
         ...(customSize?.height ? { height: customSize.height } : { maxHeight: '75vh' }),
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
         borderRadius: 10,
@@ -1633,11 +1829,18 @@ export default function ComposeModal() {
         animation: 'compose-enter var(--motion-normal) var(--ease-emphasized) backwards',
       }}
     >
-      <input ref={fileInputRef} type="file" multiple onChange={handleFileSelect} style={{ display: 'none' }} />
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        disabled={attachmentControlsDisabled}
+        onChange={handleFileSelect}
+        style={{ display: 'none' }}
+      />
       <input ref={imageInputRef} type="file" accept="image/*" onChange={e => { const f = e.target.files?.[0]; if (f) insertImageIntoEditor(f); e.target.value = ''; }} style={{ display: 'none' }} />
       {/* Title bar */}
       <div
-        onPointerDown={handleTitleDragStart}
+        onPointerDown={canFreeform ? handleTitleDragStart : undefined}
         style={{
           padding: '10px 14px', display: 'flex', alignItems: 'center',
           justifyContent: 'space-between', borderBottom: '1px solid var(--border-subtle)',
@@ -1674,7 +1877,7 @@ export default function ComposeModal() {
             </button>
 
             {showReplyType && (
-              <div style={{
+              <div data-compose-escape-owner style={{
                 position: 'absolute', top: '100%', left: 0, marginTop: 4,
                 background: 'var(--bg-elevated)', border: '1px solid var(--border)',
                 borderRadius: 8, overflow: 'hidden', zIndex: 10,
@@ -1699,7 +1902,7 @@ export default function ComposeModal() {
                   onClick={() => {
                     setToChips(parseChips(composeData?.originalFrom || composeData?.to));
                     setToInput('');
-                    const allRecipients = parseChips(composeData?.allRecipients || []);
+                    const allRecipients = parseChips(replyAllRecipientsForSession(composeData));
                     if (allRecipients.length) { setCcChips(allRecipients); setCcInput(''); setShowCc(true); }
                     setReplyAll(true);
                     setShowReplyType(false);
@@ -1715,12 +1918,12 @@ export default function ComposeModal() {
         )}
 
         <div style={{ display: 'flex', gap: 4 }}>
-          <TitleBtn onClick={() => setMinimized(true)} title={t('compose.toolbar.minimize')}>
+          <TitleBtn disabled={terminalPending} onClick={() => runAfterAttachmentUploads(() => onMinimize(session.id))} title={t('compose.toolbar.minimize')}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <line x1="5" y1="12" x2="19" y2="12"/>
             </svg>
           </TitleBtn>
-          <TitleBtn onClick={() => setMaximized(m => !m)} title={maximized ? t('compose.toolbar.restore') : t('compose.toolbar.maximize')}>
+          <TitleBtn disabled={terminalPending} onClick={() => setMaximized(m => !m)} title={maximized ? t('compose.toolbar.restore') : t('compose.toolbar.maximize')}>
             {maximized ? (
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                 <polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/>
@@ -1733,7 +1936,7 @@ export default function ComposeModal() {
               </svg>
             )}
           </TitleBtn>
-          <TitleBtn onClick={handleClose} danger title={t('compose.toolbar.close')}>
+          <TitleBtn disabled={terminalPending} onClick={handleClose} danger title={t('compose.toolbar.close')}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
             </svg>
@@ -1781,6 +1984,7 @@ export default function ComposeModal() {
         <div style={{ display: 'flex', alignItems: 'flex-start', borderBottom: '1px solid var(--border-subtle)', padding: '0 12px' }}>
           <span style={{ fontSize: 12, color: 'var(--text-tertiary)', width: 52, flexShrink: 0, paddingTop: 9 }}>{t('compose.to')}</span>
           <ChipInput
+            composeSessionId={session.id}
             chips={toChips} onChipsChange={setToChips}
             value={toInput} onChange={setToInput}
             placeholder={t('compose.toPh')}
@@ -1809,6 +2013,7 @@ export default function ComposeModal() {
           <div style={{ display: 'flex', alignItems: 'flex-start', borderBottom: '1px solid var(--border-subtle)', padding: '0 12px' }}>
             <span style={{ fontSize: 12, color: 'var(--text-tertiary)', width: 52, flexShrink: 0, paddingTop: 9 }}>{t('compose.cc')}</span>
             <ChipInput
+              composeSessionId={session.id}
               chips={ccChips} onChipsChange={setCcChips}
               value={ccInput} onChange={setCcInput}
               placeholder={t('compose.ccPh')}
@@ -1823,6 +2028,7 @@ export default function ComposeModal() {
           <div style={{ display: 'flex', alignItems: 'flex-start', borderBottom: '1px solid var(--border-subtle)', padding: '0 12px' }}>
             <span style={{ fontSize: 12, color: 'var(--text-tertiary)', width: 52, flexShrink: 0, paddingTop: 9 }}>{t('compose.bcc')}</span>
             <ChipInput
+              composeSessionId={session.id}
               chips={bccChips} onChipsChange={setBccChips}
               value={bccInput} onChange={setBccInput}
               placeholder={t('compose.bccPh')}
@@ -1844,7 +2050,10 @@ export default function ComposeModal() {
       </div>
 
       {/* Toolbar — sits outside overflow container so dropdowns are never clipped */}
-      {!plaintextEmail && <RichToolbar editor={editor} onAttach={() => fileInputRef.current?.click()} onInsertImage={() => imageInputRef.current?.click()}
+      {!plaintextEmail && <RichToolbar composeSessionId={session.id} editor={editor}
+        onAttach={() => fileInputRef.current?.click()}
+        attachmentDisabled={attachmentControlsDisabled}
+        onInsertImage={() => imageInputRef.current?.click()}
         htmlMode={htmlMode}
         onToggleHtml={() => {
           if (!htmlMode) { setHtmlSource(editor?.getHTML() ?? ''); setHtmlMode(true); }
@@ -1888,10 +2097,10 @@ export default function ComposeModal() {
         </div>
       )}
       {fwdAttachments.length > 0 && (
-        <AttachmentChips attachments={fwdAttachments.map(a => ({ name: a.filename, size: a.size }))} onRemove={i => setFwdAttachments(prev => prev.filter((_, j) => j !== i))} />
+        <AttachmentChips attachments={fwdAttachments.map(a => ({ name: a.filename, size: a.size }))} onRemove={i => setFwdAttachments(prev => prev.filter((_, j) => j !== i))} disabled={attachmentControlsDisabled} />
       )}
       {attachments.length > 0 && (
-        <AttachmentChips attachments={attachments} onRemove={i => setAttachments(prev => prev.filter((_, j) => j !== i))} />
+        <AttachmentChips attachments={attachmentViews} onRemove={removeAttachmentAt} disabled={attachmentControlsDisabled} />
       )}
 
       {/* Scrollable body area */}
@@ -1934,7 +2143,7 @@ export default function ComposeModal() {
           </div>
         )}
 
-        {fromSignature ? (
+        {(fromSignature || richSignature) ? (
           <div style={{ padding: '0 14px 10px' }}>
             <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 6, userSelect: 'none' }}>
               -- signature
@@ -1950,6 +2159,7 @@ export default function ComposeModal() {
               contentEditable
               suppressContentEditableWarning
               spellCheck={false}
+              onInput={event => setQuotedBodyHtml(event.currentTarget.innerHTML)}
               style={{
                 width: '100%', minHeight: 120,
                 padding: '10px 14px',
@@ -1986,30 +2196,34 @@ export default function ComposeModal() {
       }}>
         <button
           onClick={handleSend}
-          disabled={sending || (toChips.length === 0 && !toInput.trim())}
+          disabled={terminalPending || sending || uploadingAttachments || (toChips.length === 0 && !toInput.trim())}
           title={sending ? undefined : t('compose.sendTooltip')}
           style={{
             padding: '8px 20px', background: 'var(--accent)',
             border: 'none', borderRadius: 7, color: 'var(--accent-text)',
             fontSize: 13, fontWeight: 500,
-            cursor: sending || (toChips.length === 0 && !toInput.trim()) ? 'not-allowed' : 'pointer',
-            opacity: sending || (toChips.length === 0 && !toInput.trim()) ? 0.6 : 1,
+            cursor: terminalPending || sending || uploadingAttachments || (toChips.length === 0 && !toInput.trim()) ? 'not-allowed' : 'pointer',
+            opacity: terminalPending || sending || uploadingAttachments || (toChips.length === 0 && !toInput.trim()) ? 0.6 : 1,
             display: 'flex', alignItems: 'center', gap: 6,
             transition: 'opacity 0.15s',
           }}
         >
           {sending ? sendSpinner : sendIcon}
-          {sending ? t('compose.sending') : t('compose.send')}
+          {sending ? t('compose.sending.label') : t('compose.send')}
         </button>
 
         {plaintextEmail && (
           <button
             type="button"
             title={t('compose.toolbar.attachFile')}
+            disabled={attachmentControlsDisabled}
             onClick={() => fileInputRef.current?.click()}
             style={{
               background: 'none', border: 'none', borderRadius: 5, padding: '4px 8px',
-              color: 'var(--text-tertiary)', cursor: 'pointer', display: 'flex', alignItems: 'center',
+              color: 'var(--text-tertiary)',
+              cursor: attachmentControlsDisabled ? 'default' : 'pointer',
+              opacity: attachmentControlsDisabled ? 0.6 : 1,
+              display: 'flex', alignItems: 'center',
             }}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -2046,9 +2260,9 @@ export default function ComposeModal() {
         </button>
       </div>
 
-      {!maximized && (
+      {!maximized && canFreeform && (
         <div
-          onPointerDown={handleResizeDragStart}
+          onPointerDown={canFreeform ? handleResizeDragStart : undefined}
           style={{ position: 'absolute', bottom: 0, right: 0, width: 18, height: 18, cursor: 'nwse-resize' }}
         >
           <svg
@@ -2069,7 +2283,7 @@ export default function ComposeModal() {
           onClick={() => setShowEmptySubjectWarn(false)}
           style={{ position: 'fixed', inset: 0, zIndex: 2100, background: 'rgba(0,0,0,0.4)' }}
         />
-        <div style={{
+        <div data-compose-escape-owner style={{
           position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
           zIndex: 2101, background: 'var(--bg-elevated)',
           borderRadius: 12, boxShadow: 'var(--shadow-modal)',
@@ -2103,7 +2317,7 @@ export default function ComposeModal() {
           onClick={() => setShowForgottenAttachWarn(false)}
           style={{ position: 'fixed', inset: 0, zIndex: 2100, background: 'rgba(0,0,0,0.4)' }}
         />
-        <div style={{
+        <div data-compose-escape-owner style={{
           position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
           zIndex: 2101, background: 'var(--bg-elevated)',
           borderRadius: 12, boxShadow: 'var(--shadow-modal)',
@@ -2140,7 +2354,7 @@ export default function ComposeModal() {
           onClick={() => setShowCloseDialog(false)}
           style={{ position: 'fixed', inset: 0, zIndex: 2100, background: 'rgba(0,0,0,0.4)' }}
         />
-        <div style={{
+        <div data-compose-escape-owner style={{
           position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
           zIndex: 2101, background: 'var(--bg-elevated)',
           borderRadius: 12, boxShadow: 'var(--shadow-modal)',
@@ -2162,10 +2376,7 @@ export default function ComposeModal() {
             <button
               onClick={() => {
                 setShowCloseDialog(false);
-                if (draftUid != null && draftFolder != null && draftAccountId) {
-                  api.deleteDraft(draftAccountId, draftUid, draftFolder).catch(() => {});
-                }
-                closeCompose();
+                runAfterAttachmentUploads(() => onDiscard(session.id));
               }}
               style={{ padding: '8px 16px', background: 'none', border: '1px solid var(--border)', borderRadius: 7, color: 'var(--red)', fontSize: 13, cursor: 'pointer', textAlign: 'center' }}
             >
@@ -2182,32 +2393,6 @@ export default function ComposeModal() {
       </>
     )}
 
-    {/* Desktop draft attachment warning */}
-    {showAttachWarnForDraft && (
-      <>
-        <div onClick={() => setShowAttachWarnForDraft(false)} style={{ position: 'fixed', inset: 0, zIndex: 2100, background: 'rgba(0,0,0,0.4)' }} />
-        <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', zIndex: 2101, background: 'var(--bg-elevated)', borderRadius: 12, boxShadow: 'var(--shadow-modal)', minWidth: 280, maxWidth: 380, padding: '20px 24px 16px' }}>
-          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>
-            {t('compose.saveDraft')}
-          </div>
-          <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>
-            {t('compose.draftHasAttachments')}
-          </div>
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <button onClick={() => setShowAttachWarnForDraft(false)} style={{ padding: '7px 14px', background: 'none', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer' }}>
-              {t('compose.closeDraft.keepEditing')}
-            </button>
-            <button
-              onClick={() => { setShowAttachWarnForDraft(false); doSaveDraft({ closeAfter: attachWarnDraftCloseAfter }); }}
-              disabled={savingDraft}
-              style={{ padding: '7px 14px', background: 'var(--accent)', border: 'none', borderRadius: 6, color: 'var(--accent-text)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
-            >
-              {savingDraft ? t('compose.savingDraft') : t('compose.closeDraft.save')}
-            </button>
-          </div>
-        </div>
-      </>
-    )}
     </>
   );
 }
@@ -2304,7 +2489,7 @@ function Sep() {
   return <span style={{ width: 1, background: 'var(--border-subtle)', margin: '2px 4px', alignSelf: 'stretch' }} />;
 }
 
-function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, isMobile, aiEnabled, onAiAction, aiPanelOpen }) {
+function RichToolbar({ composeSessionId, editor, onAttach, attachmentDisabled = false, onInsertImage, htmlMode, onToggleHtml, isMobile, aiEnabled, onAiAction, aiPanelOpen }) {
   const { t } = useTranslation();
   const uiScale = useUiScale();
   const savedSelectionRef = useRef(null);
@@ -2373,6 +2558,25 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
       document.removeEventListener('touchstart', handler);
     };
   }, [colorPos, highlightPos, emojiPos, linkPos, tablePos, aiMenuPos]);
+
+  useEffect(() => {
+    if (!composeSessionId
+      || (!colorPos && !highlightPos && !emojiPos && !linkPos && !tablePos && !aiMenuPos)) {
+      return undefined;
+    }
+    return composeEscapeOwners.register({
+      sessionId: composeSessionId,
+      priority: 20,
+      dismiss: () => {
+        if (aiMenuPos) setAiMenuPos(null);
+        else if (tablePos) setTablePos(null);
+        else if (linkPos) setLinkPos(null);
+        else if (emojiPos) setEmojiPos(null);
+        else if (highlightPos) setHighlightPos(null);
+        else if (colorPos) setColorPos(null);
+      },
+    });
+  }, [composeSessionId, colorPos, highlightPos, emojiPos, linkPos, tablePos, aiMenuPos]);
 
   const es = useEditorState({
     editor,
@@ -2488,8 +2692,8 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
             {mtb(es.underline, 'Underline', e => { e.preventDefault(); editor.chain().focus().toggleUnderline().run(); }, <u>U</u>)}
             {mtb(es.strike, 'Strikethrough', e => { e.preventDefault(); editor.chain().focus().toggleStrike().run(); }, <s>S</s>)}
             {onAttach && (
-              <button title={t('compose.toolbar.attachFile')} onMouseDown={e => { e.preventDefault(); onAttach(); }}
-                style={{ background: 'none', border: 'none', borderRadius: 4, padding: '6px 4px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 1, color: 'var(--text-secondary)', WebkitTapHighlightColor: 'transparent' }}>
+              <button title={t('compose.toolbar.attachFile')} disabled={attachmentDisabled} onMouseDown={e => { e.preventDefault(); onAttach(); }}
+                style={{ background: 'none', border: 'none', borderRadius: 4, padding: '6px 4px', cursor: attachmentDisabled ? 'default' : 'pointer', opacity: attachmentDisabled ? 0.6 : 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 1, color: 'var(--text-secondary)', WebkitTapHighlightColor: 'transparent' }}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
                 </svg>
@@ -2600,8 +2804,8 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
         </select>
 
         {onAttach && (
-          <button title={t('compose.toolbar.attachFile')} onMouseDown={e => { e.preventDefault(); onAttach(); }}
-            style={{ background: 'none', border: 'none', borderRadius: 4, padding: '3px 6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', color: 'var(--text-secondary)' }}>
+          <button title={t('compose.toolbar.attachFile')} disabled={attachmentDisabled} onMouseDown={e => { e.preventDefault(); onAttach(); }}
+            style={{ background: 'none', border: 'none', borderRadius: 4, padding: '3px 6px', cursor: attachmentDisabled ? 'default' : 'pointer', opacity: attachmentDisabled ? 0.6 : 1, display: 'inline-flex', alignItems: 'center', color: 'var(--text-secondary)' }}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
             </svg>
@@ -2714,7 +2918,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
 
       {/* Popups — position:fixed so they escape any overflow clipping */}
       {colorPos && (
-        <div ref={colorPopRef} style={{
+        <div ref={colorPopRef} data-compose-escape-owner style={{
           position: 'fixed', top: descale(colorPos.top, uiScale), left: descale(colorPos.left, uiScale), zIndex: 9900,
           background: 'var(--bg-elevated)', border: '1px solid var(--border)',
           borderRadius: 8, padding: 8, boxShadow: 'var(--shadow-popover)',
@@ -2733,7 +2937,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
       )}
 
       {highlightPos && (
-        <div ref={highlightPopRef} style={{
+        <div ref={highlightPopRef} data-compose-escape-owner style={{
           position: 'fixed', top: descale(highlightPos.top, uiScale), left: descale(highlightPos.left, uiScale), zIndex: 9900,
           background: 'var(--bg-elevated)', border: '1px solid var(--border)',
           borderRadius: 8, padding: 8, boxShadow: 'var(--shadow-popover)',
@@ -2752,7 +2956,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
       )}
 
       {linkPos && (
-        <div ref={linkPopRef} style={{
+        <div ref={linkPopRef} data-compose-escape-owner style={{
           position: 'fixed', top: descale(linkPos.top, uiScale), left: descale(linkPos.left, uiScale), zIndex: 9900,
           background: 'var(--bg-elevated)', border: '1px solid var(--border)',
           borderRadius: 8, padding: '10px 12px', boxShadow: 'var(--shadow-popover)',
@@ -2777,7 +2981,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
       )}
 
       {emojiPos && emojiPickerRef.current && (
-        <div ref={emojiPopRef} style={{ position: 'fixed', top: descale(emojiPos.top, uiScale), bottom: descale(emojiPos.bottom, uiScale), left: descale(emojiPos.left, uiScale), zIndex: 9900, height: 284, overflow: 'hidden', borderRadius: 8 }}>
+        <div ref={emojiPopRef} data-compose-escape-owner style={{ position: 'fixed', top: descale(emojiPos.top, uiScale), bottom: descale(emojiPos.bottom, uiScale), left: descale(emojiPos.left, uiScale), zIndex: 9900, height: 284, overflow: 'hidden', borderRadius: 8 }}>
           <emojiPickerRef.current.Picker data={emojiPickerRef.current.data} onEmojiSelect={emoji => { editor.chain().focus().insertContent(emoji.native).run(); setEmojiPos(null); }}
             theme="auto" previewPosition="none" skinTonePosition="none"
             perLine={7} emojiSize={18} emojiButtonSize={26} maxFrequentRows={1} />
@@ -2785,7 +2989,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
       )}
 
       {tablePos && (
-        <div ref={tablePopRef} style={{
+        <div ref={tablePopRef} data-compose-escape-owner style={{
           position: 'fixed', top: descale(tablePos.top, uiScale), left: descale(tablePos.left, uiScale), zIndex: 9900,
           background: 'var(--bg-elevated)', border: '1px solid var(--border)',
           borderRadius: 8, padding: '10px 12px', boxShadow: 'var(--shadow-popover)',
@@ -2821,7 +3025,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
         </div>
       )}
       {aiMenuPos && (
-        <div ref={aiMenuRef} style={{
+        <div ref={aiMenuRef} data-compose-escape-owner style={{
           position: 'fixed', top: descale(aiMenuPos.top, uiScale), left: descale(aiMenuPos.left, uiScale), zIndex: 9999,
           background: 'var(--bg-elevated)', border: '1px solid var(--border)',
           borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.18)',
@@ -2852,16 +3056,17 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
   );
 }
 
-function TitleBtn({ children, onClick, danger, title }) {
+function TitleBtn({ children, onClick, danger, title, disabled = false }) {
   const [hov, setHov] = useState(false);
   return (
-    <button onClick={onClick} title={title}
-      onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
+    <button disabled={disabled} onClick={onClick} title={title}
+      onMouseEnter={() => { if (!disabled) setHov(true); }} onMouseLeave={() => setHov(false)}
       style={{
         background: hov ? (danger ? 'var(--red)' : 'var(--bg-hover)') : 'var(--bg-elevated)',
         border: 'none', borderRadius: 4, padding: '4px',
         color: hov && danger ? 'white' : 'var(--text-tertiary)',
-        cursor: 'pointer', display: 'flex', alignItems: 'center', transition: 'all 0.1s',
+        cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.55 : 1,
+        display: 'flex', alignItems: 'center', transition: 'all 0.1s',
       }}
     >
       {children}
@@ -2900,7 +3105,7 @@ function formatBytes(bytes) {
   return `${(bytes / 1048576).toFixed(1)}MB`;
 }
 
-function AttachmentChips({ attachments, onRemove, mobile }) {
+function AttachmentChips({ attachments, onRemove, mobile, disabled = false }) {
   return (
     <div style={{
       display: 'flex', flexWrap: 'wrap', gap: 6,
@@ -2922,8 +3127,9 @@ function AttachmentChips({ attachments, onRemove, mobile }) {
           <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}>{formatBytes(a.size)}</span>
           <button
             type="button"
+            disabled={disabled}
             onClick={() => onRemove(i)}
-            style={{ background: 'none', border: 'none', padding: '0 0 0 2px', cursor: 'pointer', color: 'var(--text-tertiary)', display: 'flex', lineHeight: 1, flexShrink: 0 }}
+            style={{ background: 'none', border: 'none', padding: '0 0 0 2px', cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.6 : 1, color: 'var(--text-tertiary)', display: 'flex', lineHeight: 1, flexShrink: 0 }}
           >
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
@@ -2935,7 +3141,7 @@ function AttachmentChips({ attachments, onRemove, mobile }) {
   );
 }
 
-function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFocus, inputStyle, getSuggestions, containerStyle }) {
+function ChipInput({ composeSessionId, chips, onChipsChange, value, onChange, placeholder, autoFocus, inputStyle, getSuggestions, containerStyle }) {
   const { t } = useTranslation();
   const uiScale = useUiScale();
   const [suggestions, setSuggestions] = useState([]);
@@ -3052,6 +3258,22 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
     return () => { document.removeEventListener('pointerdown', close); document.removeEventListener('keydown', onKey); };
   }, [menu]);
 
+  useEffect(() => {
+    if (!composeSessionId || (!menu && suggestions.length === 0)) return undefined;
+    return composeEscapeOwners.register({
+      sessionId: composeSessionId,
+      priority: 10,
+      dismiss: () => {
+        if (menu) setMenu(null);
+        else {
+          setSuggestions([]);
+          setSuggIdx(-1);
+          setDropStyle(null);
+        }
+      },
+    });
+  }, [composeSessionId, menu, suggestions.length]);
+
   const menuItems = menu ? [
     { label: t('common.edit'),                   fn: () => startEdit(menu.index) },
     { label: t('compose.recipientMenu.copy'),    fn: () => { copyText(chipEmail(chips[menu.index])); setMenu(null); } },
@@ -3060,7 +3282,11 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
   ] : [];
 
   return (
-    <div ref={wrapperRef} style={{ display: 'flex', flexWrap: 'wrap', gap: 4, flex: 1, alignItems: 'center', padding: '5px 0', minWidth: 0, ...containerStyle }}>
+    <div
+      ref={wrapperRef}
+      data-compose-escape-owner={suggestions.length > 0 || menu ? 'true' : undefined}
+      style={{ display: 'flex', flexWrap: 'wrap', gap: 4, flex: 1, alignItems: 'center', padding: '5px 0', minWidth: 0, ...containerStyle }}
+    >
       {chips.map((chip, i) => (
         <span key={i}
           title={chip}
@@ -3100,6 +3326,7 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
       />
       {suggestions.length > 0 && dropStyle && (
         <div
+          data-compose-escape-owner
           onMouseDown={e => e.preventDefault()} /* keep the input focused; don't clear on interaction */
           style={{
             position: 'fixed',
@@ -3137,6 +3364,7 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
       )}
       {menu && (
         <div
+          data-compose-escape-owner
           onPointerDown={e => e.stopPropagation()}
           style={{
             position: 'fixed', top: descale(menu.y, uiScale), left: descale(menu.x, uiScale), zIndex: 9900, minWidth: 160,
@@ -3163,4 +3391,3 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
     </div>
   );
 }
-

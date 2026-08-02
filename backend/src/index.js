@@ -11,13 +11,14 @@ import { redisClient } from './services/redis.js';
 
 import sendRoutes from './routes/send.js';
 import draftRoutes from './routes/draft.js';
-import oauthRoutes from './routes/oauth.js';
+import oauthRoutes, { refreshMicrosoftToken } from './routes/oauth.js';
 import integrationsRoutes, { loadIntegrationConfigs } from './routes/integrations.js';
 import authRoutes from './routes/auth.js';
 import accountRoutes from './routes/accounts.js';
 import mailRoutes from './routes/mail.js';
 import searchRoutes from './routes/search.js';
 import adminRoutes from './routes/admin.js';
+import indexingRoutes from './routes/indexing.js';
 import totpRoutes from './routes/totp.js';
 import oidcApiRouter, { oidcBrowserRouter } from './routes/oidc.js';
 import rulesRoutes from './routes/rules.js';
@@ -25,19 +26,38 @@ import blockListRoutes from './routes/blockList.js';
 import contactsRoutes from './routes/contacts.js';
 import todoistRoutes from './routes/todoist.js';
 import aiRoutes from './routes/ai.js';
+import aiEmbeddingsRoutes from './routes/aiEmbeddings.js';
 import categoriesRoutes from './routes/categories.js';
 import gtdRoutes from './routes/gtd.js';
 import senderFaviconsRoutes from './routes/senderFavicons.js';
 import carddavRouter from './routes/carddav.js';
 import carddavAccountRouter from './routes/carddavAccount.js';
+import {
+  createMcpRuntimeDependencies,
+  entityTooLargeResponse,
+  mcpBodyLimit,
+  mountMcp,
+} from './mcp/server.js';
+import apiTokensRoutes from './routes/apiTokens.js';
+import mcpDeletionsRoutes from './routes/mcpDeletions.js';
+import mcpAccountStagesRoutes from './routes/mcpAccountStages.js';
+import { createComposeSessionsRouter } from './routes/composeSessions.js';
 import { startCardavScheduler } from './services/carddavSync.js';
-import { encryptExistingCredentials, query } from './services/db.js';
-import { runMigrations } from './services/migrations.js';
+import { scheduleFtsBackfill } from './services/search/ftsBackfill.js';
+import { encryptExistingCredentials, query, withTransaction } from './services/db.js';
+import { runMigrations, warnOnCollationMismatch } from './services/migrations.js';
+import { ensureVectorSchema } from './services/embeddings/vectorStore.js';
+import { startEmbeddingScheduler } from './services/embeddings/scheduler.js';
 import { parseVCard } from './utils/vcard.js';
 import { reloadAuthSettings } from './services/authLimiter.js';
 import { setupWebSocket } from './services/websocket.js';
 import { ImapManager } from './services/imapManager.js';
 import { getUpdateStatus } from './services/updateCheck.js';
+import * as sendService from './services/sendService.js';
+import * as outboxService from './services/outboxService.js';
+import * as draftService from './services/draftService.js';
+import * as composeSessionService from './services/composeSessionService.js';
+import * as composeSessionLifecycle from './services/composeSessionLifecycle.js';
 
 const packageMeta = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
 let buildMeta = {};
@@ -113,15 +133,20 @@ app.use((req, res, next) => {
 // 25 MB attachment limit → ~34 MB base64 on the wire; add headroom for the rest of the payload.
 app.use('/api/mail/send', express.json({ limit: '35mb' }));
 app.use('/api/mail/draft', express.json({ limit: '35mb' }));
+app.use(
+  '/api/compose-sessions/:id/attachments',
+  express.raw({ type: 'application/octet-stream', limit: '25mb' }),
+);
+app.use('/api/compose-sessions', express.json({ limit: '35mb' }));
+app.use('/mcp', mcpBodyLimit());
 // A pet-import body carries a base64 spritesheet (~33% larger than the 5 MB sheet cap
 // enforced after decode in gtdPet.importPet), so it needs more than the global 1 MB.
 app.use('/api/gtd/pet/import', express.json({ limit: '8mb' }));
 app.use(express.json({ limit: '1mb' }));
 // Return a clean JSON error when the body parser rejects an oversized payload.
 app.use((err, req, res, next) => {
-  if (err.type === 'entity.too.large') {
-    return res.status(413).json({ error: 'Request too large. Total attachment size must not exceed 25 MB.' });
-  }
+  const response = entityTooLargeResponse(err, req.path);
+  if (response) return res.status(response.status).json(response.body);
   next(err);
 });
 app.use(sessionMiddleware);
@@ -168,6 +193,7 @@ app.use('/api/mail', sendRoutes);
 app.use('/api/mail', draftRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/admin/indexing', indexingRoutes);
 app.use('/api/totp', totpRoutes);
 app.use('/api/rules', rulesRoutes);
 app.use('/api/block-list', blockListRoutes);
@@ -175,6 +201,15 @@ app.use('/api/contacts', contactsRoutes);
 app.use('/api/todoist', todoistRoutes);
 app.use('/api/carddav', carddavAccountRouter);
 app.use('/api', aiRoutes);
+app.use('/api', aiEmbeddingsRoutes);
+app.use('/api/tokens', apiTokensRoutes);
+app.use('/api/mcp-deletions', mcpDeletionsRoutes);
+app.use('/api/mcp-account-stages', mcpAccountStagesRoutes);
+app.use('/api/compose-sessions', createComposeSessionsRouter({
+  query,
+  withTransaction,
+  broadcast: (event, userId) => imapManager.broadcast(event, userId),
+}));
 app.use('/api', categoriesRoutes);
 // Mounted at the /api/gtd subtree (not bare /api) so gtd.js's router-level
 // requireAuth cannot intercept the unauthenticated /api/health and /api/version
@@ -186,6 +221,24 @@ app.use('/api/sender-favicons', senderFaviconsRoutes);
 app.use('/carddav', carddavRouter);
 // RFC 6764 well-known redirect — handle all methods so PROPFIND probes also redirect
 app.all('/.well-known/carddav', (req, res) => res.redirect(308, '/carddav/'));
+
+// MCP Streamable-HTTP endpoint. Bearer-authenticated (mcp/auth.js), intentionally
+// outside the /api CSRF gate and session middleware — auth is a token, not a cookie.
+mountMcp(app, {
+  ...createMcpRuntimeDependencies({
+    imapManager,
+    refreshMicrosoftToken,
+    redisClient,
+    sendService,
+    outboxService,
+    draftService,
+    composeSessionService,
+    composeSessionLifecycle,
+    query,
+    withTransaction,
+    broadcast: (event, userId) => imapManager.broadcast(event, userId),
+  }),
+});
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 app.get('/api/version', (_req, res) => res.json({ version: APP_VERSION, sha: process.env.BUILD_SHA || 'dev' }));
@@ -211,6 +264,11 @@ setupWebSocket(wss, sessionMiddleware, imapManager);
 
 // Run pending schema migrations then start
 await runMigrations();
+
+// Loud, best-effort drift check: a Postgres image swap (e.g. postgres:16-alpine →
+// pgvector/pgvector:pg16) changes the libc collation and silently corrupts text-index
+// ordering until a REINDEX. Logs the remedy; never blocks the boot.
+await warnOnCollationMismatch();
 
 // One-time backfill: populate photo_data from existing vcard column for contacts
 // that were synced before CardDAV PUT started persisting photo_data.
@@ -240,11 +298,25 @@ await encryptExistingCredentials();
 // Load OAuth integration configs from DB into process.env
 await loadIntegrationConfigs();
 
+// Best-effort vector schema bring-up. On stock postgres:16-alpine this logs
+// "Vector disabled" and semantic search stays off; lexical is unaffected.
+await ensureVectorSchema();
+
+// Periodic embedding nudge — drives any building/active generation toward coverage.
+startEmbeddingScheduler();
+
 // Start background snooze watcher — polls every 60 seconds to restore snoozed messages
 imapManager.startSnoozeWatcher();
+outboxService.startOutboxWorker(
+  { imapManager, refreshMicrosoftToken, redisClient, query },
+  { tickMs: 5000 },
+);
 
 // Schedule periodic CardDAV contact sync for any connected accounts.
 startCardavScheduler();
+
+// Postgres-only drainer: populate search_fts for pre-existing rows (no IMAP).
+scheduleFtsBackfill();
 
 // Re-connect all enabled IMAP accounts on startup with bounded concurrency so a
 // large user base doesn't hammer IMAP servers and the DB connection pool at once.
