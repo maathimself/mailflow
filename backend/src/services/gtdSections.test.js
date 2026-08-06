@@ -82,6 +82,19 @@ describe('getGtdSections — account resolution', () => {
 });
 
 describe('getGtdSections — section folding', () => {
+  it('projects normalized delegation metadata and snapshot fallbacks', async () => {
+    const delegation = {
+      contact_id: null, display_name: 'Casey Rivera', primary_email: 'casey@example.test',
+      delegated_at: '2026-07-01T12:00:00.000Z', updated_at: '2026-07-02T12:00:00.000Z',
+    };
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null }] })
+      .mockResolvedValueOnce({ rows: [headRow({ state: 'delegated', delegation: JSON.stringify(delegation) })] });
+    const { sections } = await getGtdSections({ userId: 'u1' });
+    expect(sections.delegated.threads[0].delegation).toEqual(delegation);
+    expect(query.mock.calls[1][0]).toContain('gtd_delegations');
+  });
+
   it('places a multi-folder thread in every state section it belongs to, once each, preserving in_inbox', async () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: 'acc-1', folder_mappings: null }] }) // accounts

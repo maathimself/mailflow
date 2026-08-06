@@ -13,15 +13,17 @@ import GtdTabList from './GtdTabList.jsx';
 import { useUiScale, descale } from '../hooks/useUiScale.js';
 import {
   gtdActiveForContext, buildGtdDisplaySections, GTD_COLORS, GTD_CHIP_BG, sectionBadge, isSelectedRow,
-  classifyThread, unclassifyThread,
+  unclassifyThread,
 } from '../utils/gtd.js';
 import { formatDate } from '../utils/formatDate.js';
-import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
 import SenderAvatarImage from './SenderAvatarImage.jsx';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { createLatestRequest } from '../utils/latestRequest.js';
-import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
-import { applyDeleteGuard, clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.js';
+import { pendingMarkReadMap, completedMarkReadMap } from '../utils/pendingReads.js';
+import { applyDeleteGuard } from '../utils/pendingDeletes.js';
+import { stableConversationId } from '../commands/contracts.js';
+import { contextMenuTargetMessages } from '../commands/contextMenuCommands.js';
+import { useCommandRuntimeContext } from '../commands/CommandRuntimeContext.jsx';
 
 // Folder icon for move picker
 function FolderIcon({ specialUse, size = 13 }) {
@@ -58,6 +60,20 @@ const SWIPE_ACTIONS = {
   replyAll: { color: '#3b82f6' },
   disabled: { color: 'transparent' },
 };
+
+const SWIPE_COMMANDS = Object.freeze({
+  archive: 'mail.archive',
+  delete: 'mail.trash',
+  star: 'mail.toggleStar',
+  markRead: 'mail.toggleRead',
+  reply: 'mail.reply',
+  replyAll: 'mail.replyAll',
+});
+
+const THREAD_EXPANDING_COMMANDS = new Set([
+  'mail.archive', 'mail.snooze', 'mail.move', 'mail.read', 'mail.unread', 'mail.toggleRead',
+  'mail.star', 'mail.unstar', 'mail.toggleStar', 'mail.trash', 'mail.spam', 'mail.notSpam',
+]);
 
 function getSwipeActionView(action, message, t, unreadCount = null) {
   const unread = unreadCount != null ? unreadCount > 0 : !message.is_read;
@@ -100,13 +116,14 @@ function SwipeBackground({ side, actionView, innerRef }) {
 
 export default function MessageList() {
   const { t } = useTranslation();
+  const { controller: commandController } = useCommandRuntimeContext();
   const uiScale = useUiScale();
   const {
     selectedAccountId, selectedFolder, messages, setMessages,
     appendMessages, messagesTotal, setMessagesTotal,
     setMessagesOffset, hasMoreMessages, setHasMoreMessages,
     loadingMessages, setLoadingMessages, selectedMessageId, lastViewedMessageId,
-    setSelectedMessage, updateMessage, removeMessage, removeMessages,
+    setSelectedMessage, updateMessage, removeMessage,
     decrementUnread, incrementUnread, addNotification, notifications, removeNotification,
     searchQuery, setSearchQuery, setIsSearching,
     searchResults, setSearchResults, openCompose, accountsReady, accounts,
@@ -117,7 +134,7 @@ export default function MessageList() {
     hoverQuickActions, showMobileAvatars,
     swipeActions,
     folders, favoriteFolders, addFavoriteFolder, removeFavoriteFolder, setSelectedAccount,
-    categorizationEnabled, categoryCounts, setCategoryCounts, adjustCategoryCount,
+    categorizationEnabled, categoryCounts, setCategoryCounts,
     markReadBehavior, markReadDelay,
     searchAllFolders,
     activeGtdTab, setActiveGtdTab, gtdSections,
@@ -125,6 +142,8 @@ export default function MessageList() {
   // RFC message_id of the open message, so a row highlights when it is a different DB copy
   // of the selected message (multi-folder model) — e.g. the inbox copy of a GTD sidebar click.
   const selectedMid = useStore(selectSelectedMessageMid);
+  const selectedIds = useStore(state => state.selectedMessageIds);
+  const setSelectedIds = useStore(state => state.setSelectedMessageIds);
 
   const isMobile = useMobile();
   const isUnified = selectedAccountId === null;
@@ -183,12 +202,10 @@ export default function MessageList() {
   const searchFetchedOffsetRef = useRef(0);
   const listRef = useRef(null);
   const searchInputRef = useRef(null); // for focusSearch shortcut
-  const pendingDeleteTimers = useRef(new Map()); // id/thread key -> pending delete metadata
   const recentMessageOpenUntilRef = useRef(0);
   const deferredRefreshTimerRef = useRef(null);
 
   // Bulk selection state
-  const [selectedIds, setSelectedIds] = useState(new Set());
   const [selectionModeActive, setSelectionModeActive] = useState(false);
   const [showFolderPicker, setShowFolderPicker] = useState(false);
   const [pickerFolders, setPickerFolders] = useState([]);
@@ -204,7 +221,7 @@ export default function MessageList() {
   const layoutPickerRef = useRef(null);
 
   useEffect(() => { currentPageRef.current = currentPage; }, [currentPage]);
-  useEffect(() => { setActiveCategory('primary'); setActiveGtdTab(null); }, [selectedAccountId, selectedFolder, setActiveGtdTab]);
+  useEffect(() => { setActiveCategory('primary'); }, [selectedAccountId, selectedFolder]);
   useEffect(() => {
     const markOpening = () => {
       recentMessageOpenUntilRef.current = Date.now() + 1500;
@@ -267,9 +284,7 @@ export default function MessageList() {
   // Ref that always holds the latest values needed by shortcut handlers.
   // Updated synchronously on every render so handlers are never stale.
   const scRef = useRef({});
-  scRef.current = { messages, selectedIds, setSelectedIds, updateMessage, decrementUnread, addNotification };
-  const tRef = useRef(t);
-  useEffect(() => { tRef.current = t; }, [t]);
+  scRef.current = { selectedIds, setSelectedIds };
 
   // Clear selection whenever the message list resets (nav, folder change, etc.)
   useEffect(() => {
@@ -277,7 +292,7 @@ export default function MessageList() {
     setSelectionModeActive(false);
     setShowFolderPicker(false);
     lastSelectIdxRef.current = -1;
-  }, [messagesRefreshToken]);
+  }, [messagesRefreshToken, setSelectedIds]);
 
   // Escape clears selection; click-outside closes folder picker
   useEffect(() => {
@@ -303,7 +318,7 @@ export default function MessageList() {
       document.removeEventListener('keydown', onKey);
       document.removeEventListener('pointerdown', onPointer);
     };
-  }, []);
+  }, [setSelectedIds]);
 
   useEffect(() => {
     if (!showFolderPicker) setPickerSearch('');
@@ -522,29 +537,6 @@ export default function MessageList() {
     }
   }, [searchQuery, selectedAccountId, searchFolder, searchPageSize, searchLoadingMore, applyReadGuard]);
 
-  const prefetchSearchAfterRemoval = useCallback(async (offset) => {
-    const qSnapshot = useStore.getState().searchQuery;
-    if (!qSnapshot.trim()) return;
-    try {
-      const data = await api.search(qSnapshot, selectedAccountId || undefined, { offset, limit: searchPageSize, folder: searchFolder });
-      if (useStore.getState().searchQuery !== qSnapshot) return;
-      searchFetchedOffsetRef.current = Math.max(searchFetchedOffsetRef.current, offset + data.messages.length);
-      const additions = applyReadGuard(data.messages);
-      if (!additions.length) {
-        setSearchHasMore(data.messages.length === searchPageSize);
-        return;
-      }
-      useStore.setState(state => {
-        const existing = new Set(state.searchResults.map(m => m.id));
-        const missing = additions.filter(m => m && !existing.has(m.id));
-        return missing.length ? { searchResults: [...state.searchResults, ...missing] } : {};
-      });
-      setSearchHasMore(data.messages.length === searchPageSize);
-    } catch (err) {
-      console.error('Search prefetch after delete failed:', err);
-    }
-  }, [selectedAccountId, searchFolder, searchPageSize, applyReadGuard]);
-
   // Infinite scroll + scroll-to-top visibility
   const handleScroll = useCallback(() => {
     if (!listRef.current) return;
@@ -696,168 +688,43 @@ export default function MessageList() {
     }
     const effectiveFolder = selectedAccountId ? selectedFolder : 'INBOX';
     const data = await api.getThread(tid, effectiveFolder, isUnified);
-    return data.messages?.length ? data.messages : [message];
-  }, [isThreadListRow, threadMessages, selectedAccountId, selectedFolder, isUnified]);
+    const resolved = data.messages?.length ? data.messages : [message];
+    if (resolved.length > 1) setThreadMessages(tid, resolved);
+    return resolved;
+  }, [isThreadListRow, threadMessages, selectedAccountId, selectedFolder, isUnified, setThreadMessages]);
 
-  const setCachedThreadRead = useCallback((message, read) => {
-    const tid = message.thread_id || message.id;
-    if (threadMessages[tid]) {
-      setThreadMessages(tid, threadMessages[tid].map(msg => ({ ...msg, is_read: read })));
-    }
-  }, [threadMessages, setThreadMessages]);
-
-  const setCachedThreadStarred = useCallback((message, starred) => {
-    const tid = message.thread_id || message.id;
-    if (threadMessages[tid]) {
-      setThreadMessages(tid, threadMessages[tid].map(msg => ({ ...msg, is_starred: starred })));
-    }
-  }, [threadMessages, setThreadMessages]);
-
-  const setMessagesReadState = useCallback(async (message, read) => {
-    const isThreadRow = isThreadListRow(message);
-    const unreadCount = Number.parseInt(message.unread_count, 10);
-    // Use the row's own unread_count as the immediate estimate.
-    // For thread rows this is the aggregate already present on the row;
-    // for single messages it is always 1 (or 0 if already in the target state).
-    const estimatedDelta = isThreadRow && Number.isFinite(unreadCount) ? unreadCount : 1;
-
-    // Immediate optimistic update — do not wait for thread resolution.
-    // For unexpanded thread rows this avoids a visible delay caused by the
-    // api.getThread call inside resolveMessagesForThreadAction.
-    if (isThreadRow) {
-      updateMessage(message.id, { is_read: read, unread_count: read ? 0 : estimatedDelta });
-      // setCachedThreadRead intentionally deferred until after resolution so
-      // that actionMessages still reflects the pre-update sub-message states,
-      // letting us compute the exact delta for any needed correction.
-    } else {
-      updateMessage(message.id, { is_read: read, unread_count: read ? 0 : 1 });
-    }
-    if (read) {
-      if (estimatedDelta > 0) {
-        decrementUnread(message.account_id, estimatedDelta);
-        adjustCategoryCount(message.category, -estimatedDelta);
-      }
-    } else {
-      if (estimatedDelta > 0) {
-        incrementUnread(message.account_id, estimatedDelta);
-        adjustCategoryCount(message.category, estimatedDelta);
-      }
-    }
-
-    // Resolve the individual sub-messages needed for the bulk API call.
-    // For unexpanded thread rows this fires api.getThread, but the UI has
-    // already updated above so the user sees no delay.
-    let actionMessages;
-    try {
-      actionMessages = await resolveMessagesForThreadAction(message);
-    } catch (err) {
-      console.error('Failed to load thread for read state change:', err.message);
-      // Revert the optimistic update
-      if (isThreadRow) {
-        updateMessage(message.id, { is_read: !read, unread_count: !read ? 0 : estimatedDelta });
-      } else {
-        updateMessage(message.id, { is_read: !read, unread_count: !read ? 0 : 1 });
-      }
-      if (read && estimatedDelta > 0) { incrementUnread(message.account_id, estimatedDelta); adjustCategoryCount(message.category, estimatedDelta); }
-      else if (!read && estimatedDelta > 0) { decrementUnread(message.account_id, estimatedDelta); adjustCategoryCount(message.category, -estimatedDelta); }
-      return;
-    }
-
-    // Compute exact delta from sub-message states (before mutating the cache).
-    const actualDelta = read
-      ? actionMessages.filter(msg => !msg.is_read).length
-      : actionMessages.filter(msg => msg.is_read).length;
-
-    // Now update the thread cache and correct the parent row if our estimate was off.
-    if (isThreadRow) {
-      setCachedThreadRead(message, read);
-      if (actualDelta !== estimatedDelta) {
-        updateMessage(message.id, { is_read: read, unread_count: read ? 0 : actionMessages.length });
-      }
-    }
-
-    // Correct the sidebar badge if the estimate differed from the actual count.
-    if (actualDelta !== estimatedDelta) {
-      const diff = actualDelta - estimatedDelta;
-      if (read) {
-        if (diff > 0) decrementUnread(message.account_id, diff);
-        else incrementUnread(message.account_id, -diff);
-      } else {
-        if (diff > 0) incrementUnread(message.account_id, diff);
-        else decrementUnread(message.account_id, -diff);
-      }
-      adjustCategoryCount(message.category, read ? -diff : diff);
-    }
-
-    if (read) {
-      actionMessages.forEach(msg => setPending(msg.id, msg.account_id));
-    } else {
-      actionMessages.forEach(msg => {
-        pendingMarkReadMap.delete(msg.id);
-        completedMarkReadMap.delete(msg.id);
-      });
-    }
-
-    try {
-      await api.bulkRead(actionMessages.map(msg => msg.id), read);
-      if (read) {
-        actionMessages.forEach(msg => {
-          pendingMarkReadMap.delete(msg.id);
-          completedMarkReadMap.set(msg.id, msg.account_id);
-          setTimeout(() => completedMarkReadMap.delete(msg.id), 10000);
+  const executeForMessages = useCallback(async (commandId, source, targetMessages, input) => {
+    let actionableMessages = targetMessages;
+    if (THREAD_EXPANDING_COMMANDS.has(commandId)) {
+      try {
+        actionableMessages = (await Promise.all(
+          targetMessages.map(message => resolveMessagesForThreadAction(message)),
+        )).flat();
+      } catch (error) {
+        addNotification({
+          type: 'error',
+          title: t('commandPalette.outcome.failedTitle'),
+          body: error instanceof Error ? error.message : String(error),
         });
-      }
-    } catch (err) {
-      console.error('markRead failed:', err);
-      if (isThreadRow) {
-        updateMessage(message.id, { is_read: !read, unread_count: read ? actualDelta : 0 });
-        setCachedThreadRead(message, !read);
-      } else {
-        updateMessage(message.id, { is_read: !read, unread_count: read ? 1 : 0 });
-      }
-      if (read) {
-        if (actualDelta > 0) { incrementUnread(message.account_id, actualDelta); adjustCategoryCount(message.category, actualDelta); }
-        actionMessages.forEach(msg => pendingMarkReadMap.delete(msg.id));
-      } else if (actualDelta > 0) {
-        decrementUnread(message.account_id, actualDelta);
-        adjustCategoryCount(message.category, -actualDelta);
+        return { status: 'failed', error };
       }
     }
-  }, [
-    resolveMessagesForThreadAction, isThreadListRow, updateMessage, setCachedThreadRead,
-    decrementUnread, incrementUnread, adjustCategoryCount,
-  ]);
+    const frozenTargetIds = [...new Set(actionableMessages.map(stableConversationId).filter(Boolean))];
+    return commandController.execute(commandId, {
+      source,
+      input,
+      frozenTargetIds,
+    });
+  }, [addNotification, commandController, resolveMessagesForThreadAction, t]);
 
   const handleMarkRead = (e, message) => {
     e.stopPropagation();
-    setMessagesReadState(message, !message.is_read);
+    executeForMessages('mail.toggleRead', 'hover', [message]);
   };
-
-  const setMessagesStarredState = useCallback(async (message, starred) => {
-    let actionMessages;
-    try {
-      actionMessages = await resolveMessagesForThreadAction(message);
-    } catch (err) {
-      console.error('Failed to load thread for star state change:', err.message);
-      return;
-    }
-
-    const isThreadRow = isThreadListRow(message);
-    updateMessage(message.id, { is_starred: starred });
-    if (isThreadRow) setCachedThreadStarred(message, starred);
-
-    try {
-      await Promise.all(actionMessages.map(msg => api.markStarred(msg.id, starred)));
-    } catch (err) {
-      console.error('markStarred failed:', err.message);
-      updateMessage(message.id, { is_starred: !starred });
-      if (isThreadRow) setCachedThreadStarred(message, !starred);
-    }
-  }, [resolveMessagesForThreadAction, isThreadListRow, updateMessage, setCachedThreadStarred]);
 
   const handleStar = (e, message) => {
     e.stopPropagation();
-    setMessagesStarredState(message, !message.is_starred);
+    executeForMessages('mail.toggleStar', 'hover', [message]);
   };
 
   // GTD "done" from the inbox hover cluster (all-states mode): the backend marks the thread
@@ -889,420 +756,15 @@ export default function MessageList() {
     }
   }, [removeMessage, decrementUnread, incrementUnread, addNotification, t]);
 
-  // Undo-able delete: optimistically remove, delay the API call by 4.5s so user can undo
-  const scheduleDelete = useCallback(async (message) => {
-    const tid = message.thread_id || message.id;
-    const isThreadRow = isThreadListRow(message);
-    const key = isThreadRow ? `thread:${tid}` : message.id;
-    if (pendingDeleteTimers.current.has(key)) return;
-
-    let deleteMessages = [message];
-    try {
-      deleteMessages = await resolveMessagesForThreadAction(message);
-    } catch (err) {
-      console.error('Failed to load thread for delete:', err.message);
-      addNotification({ type: 'error', title: t('messageList.deleted.failTitle'), body: t('messageList.deleted.failBody') });
-      return;
-    }
-
-    const ids = [...new Set(deleteMessages.map(msg => msg.id).filter(Boolean))];
-    const visibleMessage = message;
-    ids.forEach((id) => setPendingDelete(id));
-
-    // Advance selection to the next visible message before removing this one
-    const { selectedMessageId, setSelectedMessage } = useStore.getState();
-    if (selectedMessageId === visibleMessage.id) {
-      const displayMsgs = scRef.current.displayMessages || [];
-      const idx = displayMsgs.findIndex(m => m.id === visibleMessage.id);
-      const next = displayMsgs[idx + 1] || displayMsgs[idx - 1] || null;
-      setSelectedMessage(next?.id ?? null);
-    }
-
-    removeMessage(visibleMessage.id);
-    if (expandedThreadId === tid) setExpandedThreadId(null);
-
-    const unreadCount = Number.parseInt(message.unread_count, 10);
-    const unreadDelta = Number.isFinite(unreadCount)
-      ? unreadCount
-      : deleteMessages.filter(msg => !msg.is_read).length;
-    if (unreadDelta > 0) decrementUnread(message.account_id, unreadDelta);
-
-    const timer = setTimeout(async () => {
-      pendingDeleteTimers.current.delete(key);
-      try {
-        if (ids.length > 1) {
-          const result = await api.bulkDelete(ids);
-          const deletedSet = new Set(result.deleted ?? []);
-          ids.forEach(id => (deletedSet.has(id) ? setCompletedDelete(id) : clearDeleteGuard(id)));
-          const failedIds = ids.filter(id => !deletedSet.has(id));
-          if (failedIds.length > 0) {
-            const idToMsg = new Map(deleteMessages.map(m => [m.id, m]));
-            const failedUnreadDelta = failedIds.filter(id => idToMsg.has(id) && !idToMsg.get(id).is_read).length;
-            useStore.getState().restoreMessages([visibleMessage]);
-            if (failedUnreadDelta > 0) incrementUnread(message.account_id, failedUnreadDelta);
-            addNotification({
-              type: 'error',
-              title: t('messageList.bulkDeleted.failTitle'),
-              body: t('messageList.bulkDeleted.failBody', { count: failedIds.length }),
-            });
-          }
-        } else {
-          await api.deleteMessage(ids[0] || visibleMessage.id);
-          ids.forEach((id) => setCompletedDelete(id));
-        }
-      } catch {
-        ids.forEach((id) => clearDeleteGuard(id));
-        useStore.getState().restoreMessages([visibleMessage]);
-        if (unreadDelta > 0) incrementUnread(message.account_id, unreadDelta);
-        addNotification({
-          type: 'error',
-          title: ids.length > 1 ? t('messageList.bulkDeleted.failTitle') : t('messageList.deleted.failTitle'),
-          body: ids.length > 1 ? t('messageList.bulkDeleted.failBody', { count: ids.length }) : t('messageList.deleted.failBody'),
-        });
-      }
-    }, 4500);
-    pendingDeleteTimers.current.set(key, { timer, message: visibleMessage, ids });
-    addNotification({
-      title: ids.length > 1 ? t('messageList.bulkDeleted.title', { count: ids.length }) : t('messageList.deleted.title'),
-      body: ids.length > 1 ? t('messageList.bulkDeleted.body') : t('messageList.deleted.body'),
-      onUndo: () => {
-        const pending = pendingDeleteTimers.current.get(key);
-        if (!pending) return;
-        clearTimeout(pending.timer);
-        pendingDeleteTimers.current.delete(key);
-        ids.forEach((id) => clearPendingDelete(id));
-        useStore.getState().restoreMessages([visibleMessage]);
-        if (unreadDelta > 0) incrementUnread(message.account_id, unreadDelta);
-      },
-    });
-  }, [
-    isThreadListRow, expandedThreadId, resolveMessagesForThreadAction,
-    removeMessage, setExpandedThreadId, decrementUnread, incrementUnread,
-    addNotification, t,
-  ]);
-
-  // Antispam helpers (v0.1).
-  //
-  // Strategy for both mark-as-spam and mark-as-ham:
-  //   1. Optimistically remove the message(s) from the visible list and decrement
-  //      unread counts — same pattern as scheduleDelete above.
-  //   2. Show a toast with Undo (4.5s window). Undo restores the message locally
-  //      and cancels the API call via a per-message timer.
-  //   3. After the timer fires, call api.markSpam / api.markHam per id in parallel
-  //      (Promise.allSettled). On any failure, restore the messages that failed
-  //      and show an error toast.
-  //
-  // Bulk is handled by collecting `messages` from selectedIds if multiple are
-  // selected; the caller (handleContextAction) decides which set to pass.
-
-  const performSpamLabel = useCallback(async (messages, label) => {
-    if (!messages.length) return;
-    const ids = messages.map(m => m.id);
-    const isBulk = ids.length > 1;
-
-    // Optimistic local update: remove from view + drop unread badge.
-    const unreadCount = messages.reduce((sum, m) => sum + (m.is_read ? 0 : 1), 0);
-    const accountId = messages[0].account_id;
-    messages.forEach(m => removeMessage(m.id));
-    if (unreadCount > 0) decrementUnread(accountId, unreadCount);
-
-    // Folder-aware unread badge updates for the sidebar.
-    //
-    // For spam (move INTO the junk folder) we decrement whichever folder the
-    // messages came from (typically INBOX, but possibly some other folder the
-    // user is in). For ham (move OUT of junk into inbox) we decrement the
-    // source folder (junk) and increment the destination folder (inbox).
-    //
-    // We aggregate by folder path because a bulk action may touch messages
-    // from different folders in theory (the UI currently only selects from
-    // one folder at a time, but the data model allows otherwise).
-    const { adjustFolderUnread } = useStore.getState();
-    const account = accounts.find(a => a.id === accountId);
-    const spamDest = account?.folder_mappings?.spam;
-    const inboxDest = account?.folder_mappings?.inbox || 'INBOX';
-    const unreadBySource = new Map();
-    const unreadByHamSource = new Map(); // for ham: track source folder
-    messages.forEach(m => {
-      if (m.is_read) return;
-      const src = m.folder;
-      if (!src) return;
-      if (label === 'spam') {
-        unreadBySource.set(src, (unreadBySource.get(src) || 0) + 1);
-      } else if (label === 'ham') {
-        unreadByHamSource.set(src, (unreadByHamSource.get(src) || 0) + 1);
-      }
-    });
-    if (label === 'spam') {
-      // origin folder loses its unread messages; junk gains them
-      for (const [src, n] of unreadBySource) adjustFolderUnread(accountId, src, -n);
-      if (spamDest && unreadCount > 0) adjustFolderUnread(accountId, spamDest, +unreadCount);
-    } else if (label === 'ham') {
-      // junk loses them; inbox gains them
-      for (const [src, n] of unreadByHamSource) adjustFolderUnread(accountId, src, -n);
-      if (inboxDest && unreadCount > 0) adjustFolderUnread(accountId, inboxDest, +unreadCount);
-    }
-
-    // Per-id timer map so Undo can cancel any pending API call.
-    const timers = new Map();
-    let settled = false;
-    const undo = () => {
-      settled = true;
-      timers.forEach(timer => clearTimeout(timer));
-      timers.clear();
-      // Restore the messages in their original position (re-sort by date).
-      useStore.getState().restoreMessages(messages);
-      if (unreadCount > 0) incrementUnread(accountId, unreadCount);
-      // Reverse the folder badge adjustments so undo behaves like the move
-      // never happened.
-      if (label === 'spam') {
-        for (const [src, n] of unreadBySource) adjustFolderUnread(accountId, src, +n);
-        if (spamDest && unreadCount > 0) adjustFolderUnread(accountId, spamDest, -unreadCount);
-      } else if (label === 'ham') {
-        for (const [src, n] of unreadByHamSource) adjustFolderUnread(accountId, src, +n);
-        if (inboxDest && unreadCount > 0) adjustFolderUnread(accountId, inboxDest, -unreadCount);
-      }
-    };
-
-    const performCall = (id) => {
-      const fn = label === 'spam' ? api.markSpam : api.markHam;
-      return fn(id).catch(err => ({ __failed: true, id, message: err.message }));
-    };
-
-    timers.set('__call__', setTimeout(async () => {
-      if (settled) return;
-      timers.delete('__call__');
-      const results = await Promise.allSettled(ids.map(performCall));
-      const failed = [];
-      results.forEach((r, i) => {
-        if (r.status === 'rejected' || r.value?.__failed) failed.push(ids[i]);
-      });
-      if (failed.length) {
-        const failedMsgs = messages.filter(m => failed.includes(m.id));
-        useStore.getState().restoreMessages(failedMsgs);
-        const failedUnread = failedMsgs.reduce((sum, m) => sum + (m.is_read ? 0 : 1), 0);
-        if (failedUnread > 0) incrementUnread(accountId, failedUnread);
-        const titleKey = label === 'spam' ? 'spam.failTitle' : 'spam.failHamTitle';
-        const bodyKey = label === 'spam' ? 'spam.failBody' : 'spam.failHamBody';
-        addNotification({
-          type: 'error',
-          title: t(titleKey),
-          body: isBulk ? t('spam.failBodyBulk', { count: failed.length }) : t(bodyKey),
-        });
-      }
-      // Safety net: after the IMAP move actually completes (or partially
-      // fails), reconcile sidebar counts and folder badges with the server.
-      // Even if our optimistic math was right, edge cases like the user
-      // moving messages between two folders that share a parent, or a
-      // concurrent IMAP IDLE update, can desync the local counters.
-      api.getUnreadCounts().then(c => useStore.getState().setUnreadCounts(c)).catch(() => {});
-      api.getFolders(accountId).then(f => useStore.getState().setFolders(accountId, f)).catch(() => {});
-    }, 4500));
-
-    addNotification({
-      title: label === 'spam'
-        ? (isBulk ? t('spam.movedToSpamBulk', { count: ids.length }) : t('spam.movedToSpam'))
-        : (isBulk ? t('spam.movedToInboxBulk', { count: ids.length }) : t('spam.movedToInbox')),
-      body: messages[0].subject || t('common.noSubject'),
-      onUndo: undo,
-    });
-  }, [removeMessage, decrementUnread, incrementUnread, addNotification, t, accounts]);
-
-  // On page unload (refresh/close), fire pending deletes with keepalive:true so the
-  // browser completes the request even after the page tears down. Clears the map so
-  // the unmount cleanup below does not double-fire on normal navigation.
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      pendingDeleteTimers.current.forEach(({ timer, message, ids }) => {
-        clearTimeout(timer);
-        const deleteIds = ids?.length ? ids : [message.id];
-        try {
-          if (deleteIds.length > 1) {
-            fetch('/api/mail/messages/bulk-delete', {
-              method: 'POST',
-              credentials: 'include',
-              headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'MailFlow' },
-              body: JSON.stringify({ ids: deleteIds }),
-              keepalive: true,
-            });
-          } else {
-            fetch(`/api/mail/messages/${deleteIds[0]}`, {
-              method: 'DELETE',
-              credentials: 'include',
-              headers: { 'X-Requested-With': 'MailFlow' },
-              keepalive: true,
-            });
-          }
-        } catch { /* keepalive not supported — best effort */ }
-      });
-      pendingDeleteTimers.current.clear();
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, []);
-
-  // On normal unmount (navigating away), immediately fire any pending deletes.
-  // Navigating away during the 4.5s undo window should still delete the message —
-  // cancelling the timer would silently leave it on the server.
-  // (Page refresh is handled by the beforeunload listener above which clears the map first.)
-  useEffect(() => () => {
-    pendingDeleteTimers.current.forEach(({ timer, message, ids }) => {
-      clearTimeout(timer);
-      const deleteIds = ids?.length ? ids : [message.id];
-      const deletePromise =
-        deleteIds.length > 1
-          ? api.bulkDelete(deleteIds)
-          : api.deleteMessage(deleteIds[0]);
-      deletePromise
-        .then(result => {
-          const actuallyDeleted = new Set(result?.deleted ?? deleteIds);
-          deleteIds.forEach(id => (actuallyDeleted.has(id) ? setCompletedDelete(id) : clearDeleteGuard(id)));
-        })
-        .catch(() => { deleteIds.forEach((id) => clearDeleteGuard(id)); });
-    });
-  }, []);
-
   const handleDelete = (e, message) => {
     e.stopPropagation();
-    scheduleDelete(message);
+    executeForMessages('mail.trash', 'hover', [message]);
   };
 
-  // Mobile swipe action handlers (no event object needed)
-  const handleSwipeDelete = useCallback((message) => {
-    scheduleDelete(message);
-  }, [scheduleDelete]);
-
-  const handleSwipeToggleRead = useCallback(async (message) => {
-    const unreadCount = Number.parseInt(message.unread_count, 10);
-    const hasThreadUnreadCount = Number.isFinite(unreadCount);
-    const isUnread = hasThreadUnreadCount ? unreadCount > 0 : !message.is_read;
-    await setMessagesReadState(message, isUnread);
-  }, [setMessagesReadState]);
-
-  const handleSwipeArchive = useCallback(async (message) => {
-    refreshRequestRef.current.invalidate();
-    advanceSelectionAfterRemoval(message.id);
-    removeMessage(message.id);
-    if (!message.is_read) decrementUnread(message.account_id);
-    let undone = false;
-    const timer = setTimeout(async () => {
-      if (undone) return;
-      try {
-        await api.bulkArchive([message.id]);
-      } catch (err) {
-        console.error('swipe archive failed:', err.message);
-      }
-    }, 4500);
-    addNotification({
-      title: t('messageList.bulkArchived.title', { count: 1 }),
-      body: message.subject || '',
-      onUndo: () => {
-        undone = true;
-        clearTimeout(timer);
-        useStore.getState().restoreMessages([message]);
-        if (!message.is_read) incrementUnread(message.account_id);
-      },
-    });
-  }, [removeMessage, decrementUnread, incrementUnread, addNotification, t]);
-
-  const handleSwipeStar = useCallback((message) => {
-    setMessagesStarredState(message, !message.is_starred);
-  }, [setMessagesStarredState]);
-
-  const handleSwipeReply = useCallback((message, replyAll = false) => {
-    const replyToArr = Array.isArray(message.reply_to)
-      ? message.reply_to
-      : (() => { try { return JSON.parse(message.reply_to || '[]'); } catch { return []; } })();
-    const replyTarget = (replyToArr.length && replyToArr[0].email)
-      ? replyToArr[0]
-      : { name: message.from_name || '', email: message.from_email || '' };
-    const sender = replyTarget.email ? [replyTarget] : [];
-
-    const myAccount = accounts.find(a => a.id === message.account_id);
-    const myEmail = myAccount?.email_address || '';
-    const myAddresses = new Set([
-      myEmail.toLowerCase(),
-      ...(myAccount?.aliases || []).map(al => al.email.toLowerCase()),
-    ]);
-
-    const replyAliasId = (() => {
-      const aliases = myAccount?.aliases || [];
-      if (!aliases.length) return null;
-      try {
-        const toArr = Array.isArray(message.to_addresses)
-          ? message.to_addresses
-          : JSON.parse(message.to_addresses || '[]');
-        const ccArr = Array.isArray(message.cc_addresses)
-          ? message.cc_addresses
-          : JSON.parse(message.cc_addresses || '[]');
-        const allEmails = [...toArr, ...ccArr].map(t => t.email?.toLowerCase()).filter(Boolean);
-        const fromEmail = (message.from_email || '').toLowerCase();
-        const match = aliases.find(al => {
-          const aliasEmail = al.email.toLowerCase();
-          return allEmails.includes(aliasEmail) || fromEmail === aliasEmail;
-        });
-        return match ? match.id : null;
-      } catch { return null; }
-    })();
-
-    const allRecipients = (() => {
-      try {
-        const toArr = Array.isArray(message.to_addresses)
-          ? message.to_addresses
-          : JSON.parse(message.to_addresses || '[]');
-        const ccArr = Array.isArray(message.cc_addresses)
-          ? message.cc_addresses
-          : JSON.parse(message.cc_addresses || '[]');
-        return [...toArr, ...ccArr].filter(
-          t => t.email && !myAddresses.has(t.email.toLowerCase()) && t.email !== replyTarget.email
-        );
-      } catch { return []; }
-    })();
-
-    const referencesChain = [message.in_reply_to, message.message_id]
-      .filter(Boolean).join(' ').trim() || null;
-    const rawSubject = (message.subject || '').trim();
-
-    openCompose({
-      to: sender,
-      cc: replyAll ? allRecipients : [],
-      subject: rawSubject.startsWith('Re:') ? rawSubject : rawSubject ? `Re: ${rawSubject}` : 'Re:',
-      body: '',
-      quotedBody: '',
-      inReplyTo: message.message_id,
-      references: referencesChain,
-      accountId: message.account_id,
-      aliasId: replyAliasId,
-      isReply: true,
-      isReplyAll: replyAll,
-      originalFrom: sender,
-      allRecipients,
-    });
-  }, [accounts, openCompose]);
-  
   const runSwipeAction = useCallback((action, message) => {
-    switch (action) {
-      case 'archive':
-        handleSwipeArchive(message);
-        break;
-      case 'delete':
-        handleSwipeDelete(message);
-        break;
-      case 'star':
-        handleSwipeStar(message);
-        break;
-      case 'markRead':
-        handleSwipeToggleRead(message);
-        break;
-      case 'reply':
-        handleSwipeReply(message, false);
-        break;
-      case 'replyAll':
-        handleSwipeReply(message, true);
-        break;
-      default:
-        break;
-    }
-  }, [handleSwipeArchive, handleSwipeDelete, handleSwipeReply, handleSwipeStar, handleSwipeToggleRead]);
+    const commandId = SWIPE_COMMANDS[action];
+    if (commandId) executeForMessages(commandId, 'swipe', [message]);
+  }, [executeForMessages]);
 
   // ── Bulk selection helpers ───────────────────────────────────
   const toggleSelect = useCallback((id) => {
@@ -1311,18 +773,18 @@ export default function MessageList() {
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
-  }, []);
+  }, [setSelectedIds]);
 
   const selectAll = useCallback((msgs) => {
     setSelectedIds(new Set(msgs.map(m => m.id)));
-  }, []);
+  }, [setSelectedIds]);
 
   const clearSelection = useCallback(() => {
     setSelectedIds(new Set());
     setSelectionModeActive(false);
     setShowFolderPicker(false);
     lastSelectIdxRef.current = -1;
-  }, []);
+  }, [setSelectedIds]);
 
   // Derived from store — must be declared before callbacks that use it in dependency arrays
   const displayMessages = searchQuery.trim() ? searchResults : messages;
@@ -1347,14 +809,16 @@ export default function MessageList() {
     }
     return results;
   })();
-  // Keep scRef in sync so scheduleDelete can read displayMessages without a stale closure
-  scRef.current.displayMessages = displayMessages;
-
   // Arrow-key navigation: intercepts ArrowDown/ArrowUp when the list container has focus.
   const handleListKeyDown = useCallback((e) => {
-    if (e.key === 'ArrowDown') { e.preventDefault(); shortcutBus.emit('nextMessage'); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); shortcutBus.emit('prevMessage'); }
-  }, []);
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      commandController.execute('navigation.nextConversation', { source: 'list-keydown' });
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      commandController.execute('navigation.previousConversation', { source: 'list-keydown' });
+    }
+  }, [commandController]);
 
   // Called when the avatar is clicked: enters selection mode and selects that message
   const handleAvatarClick = useCallback((id) => {
@@ -1366,7 +830,7 @@ export default function MessageList() {
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
-  }, [displayMessages]);
+  }, [displayMessages, setSelectedIds]);
 
   // Called for normal (non-shift) row checkbox toggles — tracks anchor for range select
   const handleRowToggleSelect = useCallback((id) => {
@@ -1377,7 +841,7 @@ export default function MessageList() {
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
-  }, [displayMessages]);
+  }, [displayMessages, setSelectedIds]);
 
   // Called on shift-click: selects all rows between anchor and current index
   const handleRangeSelect = useCallback((id) => {
@@ -1393,133 +857,19 @@ export default function MessageList() {
       return next;
     });
     lastSelectIdxRef.current = clickedIdx;
-  }, [displayMessages]);
+  }, [displayMessages, setSelectedIds]);
 
-  const handleBulkDelete = useCallback(async (ids, msgs) => {
-    const key = `bulk:${ids[0]}`;
-    // Selected thread rows delete the whole conversation, matching the
-    // single-row delete path — without this only each thread's visible
-    // (newest) message was deleted and the rest of the thread survived.
-    let deleteIds = ids;
-    try {
-      const resolved = await Promise.all(msgs.map(m => resolveMessagesForThreadAction(m)));
-      deleteIds = [...new Set([...ids, ...resolved.flat().map(m => m?.id).filter(Boolean)])];
-    } catch (err) {
-      console.error('Failed to load thread for bulk delete:', err.message);
-    }
-    const searchOffsetBeforeRemoval = searchFetchedOffsetRef.current;
-    const shouldPrefetchSearch = Boolean(useStore.getState().searchQuery.trim() && searchHasMore);
-    deleteIds.forEach(id => setPendingDelete(id));
-    ids.forEach(id => removeMessage(id));
-    if (shouldPrefetchSearch) {
-      prefetchSearchAfterRemoval(searchOffsetBeforeRemoval);
-    }
-    msgs.forEach(msg => {
-      const delta = parseInt(msg.unread_count) || (msg.is_read ? 0 : 1);
-      if (delta > 0) decrementUnread(msg.account_id, delta);
-    });
-    setSelectedIds(new Set());
+  const handleBulkDelete = useCallback((_ids, msgs) => {
     setSelectionModeActive(false);
     setShowFolderPicker(false);
-    let undone = false;
-    const timer = setTimeout(async () => {
-      pendingDeleteTimers.current.delete(key);
-      if (undone) return;
-      const chunks = [];
-      for (let i = 0; i < deleteIds.length; i += 500) chunks.push(deleteIds.slice(i, i + 500));
-      const results = await Promise.allSettled(chunks.map(chunk => api.bulkDelete(chunk)));
-      results
-        .filter(r => r.status === 'rejected')
-        .forEach(r => console.error('Bulk delete failed:', r.reason?.message));
-      const deleted = results
-        .filter(r => r.status === 'fulfilled')
-        .flatMap(r => r.value.deleted ?? []);
-      const deletedSet = new Set(deleted);
-      deleteIds.forEach(id => (deletedSet.has(id) ? setCompletedDelete(id) : clearDeleteGuard(id)));
-      const failedIds = deleteIds.filter(id => !deletedSet.has(id));
-      if (failedIds.length > 0) {
-        const failedSet = new Set(failedIds);
-        const failedMsgs = msgs.filter(msg => failedSet.has(msg.id));
-        useStore.getState().restoreMessages(failedMsgs);
-        failedMsgs.forEach(msg => {
-          const delta = parseInt(msg.unread_count) || (msg.is_read ? 0 : 1);
-          if (delta > 0) incrementUnread(msg.account_id, delta);
-        });
-        addNotification({ type: 'error', title: t('messageList.bulkDeleted.failTitle'), body: t('messageList.bulkDeleted.failBody', { count: failedIds.length }) });
-      }
-      if (useStore.getState().searchQuery.trim()) {
-        setSearchReloadToken(token => token + 1);
-      }
-    }, 4500);
-    pendingDeleteTimers.current.set(key, { timer, message: msgs[0], ids: deleteIds });
-    addNotification({
-      title: t('messageList.bulkDeleted.title', { count: deleteIds.length }),
-      body: t('messageList.bulkDeleted.body'),
-      onUndo: () => {
-        undone = true;
-        clearTimeout(timer);
-        pendingDeleteTimers.current.delete(key);
-        deleteIds.forEach(id => clearPendingDelete(id));
-        useStore.getState().restoreMessages(msgs);
-        msgs.forEach(msg => {
-          const delta = parseInt(msg.unread_count) || (msg.is_read ? 0 : 1);
-          if (delta > 0) incrementUnread(msg.account_id, delta);
-        });
-      },
-    });
-  }, [searchHasMore, removeMessage, prefetchSearchAfterRemoval, resolveMessagesForThreadAction, decrementUnread, incrementUnread, addNotification, t]);
+    return executeForMessages('mail.trash', 'bulk-toolbar', msgs);
+  }, [executeForMessages]);
 
-  const handleBulkMove = useCallback(async (ids, msgs, folder) => {
-    // Selected thread rows move the whole conversation. A folder path is
-    // account-specific, so scope each thread's expansion to its row's own
-    // account — the server would just skip (and previously silently drop)
-    // another account's copies from a folder that doesn't exist there.
-    let moveIds = ids;
-    try {
-      const resolved = await Promise.all(msgs.map(async (m) => {
-        const thread = await resolveMessagesForThreadAction(m);
-        return thread.filter(tm => tm?.account_id === m.account_id);
-      }));
-      moveIds = [...new Set([...ids, ...resolved.flat().map(m => m?.id).filter(Boolean)])];
-    } catch (err) {
-      console.error('Failed to load thread for bulk move:', err.message);
-    }
-    ids.forEach(id => removeMessage(id));
-    msgs.forEach(msg => { if (!msg.is_read) decrementUnread(msg.account_id); });
-    setSelectedIds(new Set());
+  const handleBulkMove = useCallback((_ids, msgs, folder) => {
     setSelectionModeActive(false);
     setShowFolderPicker(false);
-    let undone = false;
-    const timer = setTimeout(async () => {
-      if (undone) return;
-      try {
-        const result = await api.bulkMove(moveIds, folder);
-        const movedSet = new Set(result.moved ?? []);
-        const failedCount = moveIds.filter(id => !movedSet.has(id)).length;
-        if (failedCount > 0) {
-          const failedMsgs = msgs.filter(msg => !movedSet.has(msg.id));
-          if (failedMsgs.length > 0) useStore.getState().restoreMessages(failedMsgs);
-          addNotification({ title: t('messageList.bulkMoved.failTitle'), body: t('messageList.bulkMoved.failBody', { count: failedCount }) });
-        } else if (msgs[0]?.account_id) {
-          useStore.getState().recordRecentFolder({ accountId: msgs[0].account_id, path: folder });
-        }
-      } catch (err) {
-        console.error('Bulk move failed:', err);
-        useStore.getState().restoreMessages(msgs);
-        addNotification({ title: t('messageList.bulkMoved.failTitle'), body: t('messageList.bulkMoved.failBody', { count: moveIds.length }) });
-      }
-    }, 4500);
-    addNotification({
-      title: t('messageList.bulkMoved.title', { count: moveIds.length }),
-      body: folder,
-      onUndo: () => {
-        undone = true;
-        clearTimeout(timer);
-        useStore.getState().restoreMessages(msgs);
-        msgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
-      },
-    });
-  }, [removeMessage, decrementUnread, incrementUnread, resolveMessagesForThreadAction, addNotification, t]);
+    return executeForMessages('mail.move', 'bulk-toolbar', msgs, { folder });
+  }, [executeForMessages]);
 
   const handleRowMove = useCallback((e, msg) => {
     e.stopPropagation();
@@ -1537,293 +887,31 @@ export default function MessageList() {
     e.dataTransfer.effectAllowed = 'move';
   }, []);
 
-  const handleBulkArchive = useCallback((ids, msgs) => {
-    refreshRequestRef.current.invalidate();
-    // Tombstone the ids so a background refresh/websocket refetch during the undo window
-    // can't resurrect them — applyDeleteGuard filters pending/completed ids out of refetch
-    // results — and drop every row in one batched state update rather than one per id.
-    ids.forEach(id => setPendingDelete(id));
-    removeMessages(ids);
-    msgs.forEach(msg => { if (!msg.is_read) decrementUnread(msg.account_id); });
-    setSelectedIds(new Set());
+  const handleBulkArchive = useCallback((_ids, msgs) => {
     setSelectionModeActive(false);
     setShowFolderPicker(false);
-    let undone = false;
-    const timer = setTimeout(async () => {
-      if (undone) return;
-      try {
-        const result = await api.bulkArchive(ids);
-        const archivedSet = new Set(result.archived ?? []);
-        // Archived: keep guarding briefly (completed grace) so an in-flight refetch can't
-        // bring them back; not archived: release the guard so those rows can return.
-        ids.forEach(id => (archivedSet.has(id) ? setCompletedDelete(id) : clearDeleteGuard(id)));
-        const failedMsgs = msgs.filter(msg => !archivedSet.has(msg.id));
-        if (failedMsgs.length > 0) {
-          useStore.getState().restoreMessages(failedMsgs);
-          failedMsgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
-          if (result.noArchiveFolder?.length) {
-            addNotification({ title: t('messageList.bulkArchived.noFolderTitle'), body: t('messageList.bulkArchived.noFolderBody') });
-          } else {
-            addNotification({ title: t('messageList.bulkArchived.failTitle'), body: t('messageList.bulkArchived.failBody', { count: failedMsgs.length }) });
-          }
-        }
-      } catch (err) {
-        console.error('Bulk archive failed:', err);
-        ids.forEach(id => clearDeleteGuard(id));
-        useStore.getState().restoreMessages(msgs);
-        msgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
-        addNotification({ title: t('messageList.bulkArchived.failTitle'), body: t('messageList.bulkArchived.failBody', { count: ids.length }) });
-      }
-    }, 4500);
-    addNotification({
-      title: t('messageList.bulkArchived.title', { count: ids.length }),
-      body: t('messageList.bulkArchived.body'),
-      onUndo: () => {
-        undone = true;
-        clearTimeout(timer);
-        ids.forEach(id => clearPendingDelete(id));
-        useStore.getState().restoreMessages(msgs);
-        msgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
-      },
-    });
-  }, [removeMessages, decrementUnread, incrementUnread, addNotification, t]);
+    return executeForMessages('mail.archive', 'bulk-toolbar', msgs);
+  }, [executeForMessages]);
 
-  const handleBulkMarkRead = useCallback(async (ids, msgs) => {
-    const markAsRead = msgs.some(m => !m.is_read);
-    // Compute per-account and per-category unread deltas before mutating state
-    const deltaByAccount = {};
-    const deltaByCategory = {};
-    msgs.forEach(msg => {
-      if (!deltaByAccount[msg.account_id]) deltaByAccount[msg.account_id] = 0;
-      const catKey = msg.category || 'primary';
-      if (!deltaByCategory[catKey]) deltaByCategory[catKey] = 0;
-      if (markAsRead && !msg.is_read) { deltaByAccount[msg.account_id]++; deltaByCategory[catKey]++; }
-      if (!markAsRead && msg.is_read) { deltaByAccount[msg.account_id]++; deltaByCategory[catKey]++; }
-    });
-    // Optimistic update
-    msgs.forEach(msg => updateMessage(msg.id, { is_read: markAsRead, unread_count: markAsRead ? 0 : 1 }));
-    Object.entries(deltaByAccount).forEach(([accountId, delta]) => {
-      if (delta > 0) markAsRead ? decrementUnread(accountId, delta) : incrementUnread(accountId, delta);
-    });
-    Object.entries(deltaByCategory).forEach(([cat, delta]) => {
-      if (delta > 0) adjustCategoryCount(cat, markAsRead ? -delta : delta);
-    });
-    setSelectedIds(new Set());
+  const handleBulkMarkRead = useCallback((_ids, msgs) => {
     setSelectionModeActive(false);
-    try {
-      await api.bulkRead(ids, markAsRead);
-    } catch (err) {
-      console.error('Bulk mark read failed:', err);
-      msgs.forEach(msg => updateMessage(msg.id, { is_read: msg.is_read, unread_count: msg.unread_count }));
-      Object.entries(deltaByAccount).forEach(([accountId, delta]) => {
-        if (delta > 0) markAsRead ? incrementUnread(accountId, delta) : decrementUnread(accountId, delta);
-      });
-      Object.entries(deltaByCategory).forEach(([cat, delta]) => {
-        if (delta > 0) adjustCategoryCount(cat, markAsRead ? delta : -delta);
-      });
-    }
-  }, [updateMessage, decrementUnread, incrementUnread, adjustCategoryCount]);
+    return executeForMessages('mail.toggleRead', 'bulk-toolbar', msgs);
+  }, [executeForMessages]);
 
   const autoMarkReadTimerRef = useRef(null);
   useEffect(() => () => clearTimeout(autoMarkReadTimerRef.current), []);
 
-  // Keep refs to bulk handlers so the shortcut effect (registered once) is never stale
-  const bulkDeleteRef    = useRef(handleBulkDelete);
-  const bulkArchiveRef   = useRef(handleBulkArchive);
-  const scheduleDeleteRef = useRef(scheduleDelete);
-  const handleContextActionRef = useRef(null); // assigned below, once handleContextAction is defined
-  useEffect(() => { bulkDeleteRef.current    = handleBulkDelete;  }, [handleBulkDelete]);
-  useEffect(() => { bulkArchiveRef.current   = handleBulkArchive; }, [handleBulkArchive]);
-  useEffect(() => { scheduleDeleteRef.current = scheduleDelete;   }, [scheduleDelete]);
-
   // Subscribe to keyboard shortcut actions that belong to the message list.
-  // Registered once ([] deps); all live state is read through scRef/bulkDeleteRef/bulkArchiveRef.
   useEffect(() => {
-    const getState = () => useStore.getState();
-
-    const markRead = (msg) => {
-      if (msg.is_read) return;
-      const { updateMessage, decrementUnread, incrementUnread, adjustCategoryCount, markReadBehavior, markReadDelay } = getState();
-      if (markReadBehavior === 'manual') return;
-      clearTimeout(autoMarkReadTimerRef.current);
-      autoMarkReadTimerRef.current = null;
-      const doMarkRead = () => {
-        updateMessage(msg.id, { is_read: true });
-        decrementUnread(msg.account_id);
-        adjustCategoryCount(msg.category, -1);
-        setPending(msg.id, msg.account_id);
-        api.bulkRead([msg.id], true)
-          .then(() => {
-            pendingMarkReadMap.delete(msg.id);
-            completedMarkReadMap.set(msg.id, msg.account_id);
-            setTimeout(() => completedMarkReadMap.delete(msg.id), 10000);
-          })
-          .catch(e => {
-            console.error('markRead failed:', e.message);
-            updateMessage(msg.id, { is_read: false });
-            incrementUnread(msg.account_id);
-            adjustCategoryCount(msg.category, 1);
-            pendingMarkReadMap.delete(msg.id);
-          });
-      };
-      if (markReadBehavior === 'delay') {
-        autoMarkReadTimerRef.current = setTimeout(doMarkRead, (markReadDelay || 1) * 1000);
-      } else {
-        doMarkRead();
-      }
-    };
-
-    const onNext = () => {
-      const { messages, searchResults, searchQuery, selectedMessageId, setSelectedMessage } = getState();
-      const pool = searchQuery.trim() ? searchResults : messages;
-      if (!pool.length) return;
-      const idx = pool.findIndex(m => m.id === selectedMessageId);
-      const next = pool[idx + 1] ?? pool[0];
-      setSelectedMessage(next.id);
-      markRead(next);
-    };
-
-    const onPrev = () => {
-      const { messages, searchResults, searchQuery, selectedMessageId, setSelectedMessage } = getState();
-      const pool = searchQuery.trim() ? searchResults : messages;
-      if (!pool.length) return;
-      const idx = pool.findIndex(m => m.id === selectedMessageId);
-      const prev = idx <= 0 ? pool[pool.length - 1] : pool[idx - 1];
-      setSelectedMessage(prev.id);
-      markRead(prev);
-    };
-
-    const onOpen = () => {
-      const { messages, selectedMessageId, setSelectedMessage } = getState();
-      if (selectedMessageId || !messages.length) return;
-      setSelectedMessage(messages[0].id);
-    };
-
-    const onSelect = () => {
-      const { selectedMessageId } = getState();
-      if (!selectedMessageId) return;
-      scRef.current.setSelectedIds(prev => {
-        const next = new Set(prev);
-        if (next.has(selectedMessageId)) next.delete(selectedMessageId);
-        else next.add(selectedMessageId);
-        return next;
-      });
-    };
-
-    const onArchive = () => {
-      const { messages, searchResults, searchQuery, selectedMessageId, removeMessage, decrementUnread, addNotification } = getState();
-      const pool = searchQuery.trim() ? searchResults : messages;
-      const ids = [...scRef.current.selectedIds];
-      if (ids.length > 0) {
-        const msgs = pool.filter(m => ids.includes(m.id));
-        bulkArchiveRef.current(ids, msgs);
-      } else if (selectedMessageId) {
-        const msg = pool.find(m => m.id === selectedMessageId);
-        if (!msg) return;
-        refreshRequestRef.current.invalidate();
-        setPendingDelete(selectedMessageId);
-        advanceSelectionAfterRemoval(selectedMessageId);
-        removeMessage(selectedMessageId);
-        if (!msg.is_read) decrementUnread(msg.account_id);
-        api.bulkArchive([selectedMessageId]).then(result => {
-          setCompletedDelete(selectedMessageId);
-          if (result.noArchiveFolder?.length) {
-            addNotification({ title: tRef.current('messageList.noArchiveFolder.title'), body: tRef.current('messageList.noArchiveFolder.body') });
-          }
-        }).catch(err => { clearDeleteGuard(selectedMessageId); console.error(err); });
-      }
-    };
-
-    const onDelete = () => {
-      const { messages, searchResults, searchQuery, selectedMessageId } = getState();
-      const pool = searchQuery.trim() ? searchResults : messages;
-      const ids = [...scRef.current.selectedIds];
-      if (ids.length > 0) {
-        const msgs = pool.filter(m => ids.includes(m.id));
-        bulkDeleteRef.current(ids, msgs);
-      } else if (selectedMessageId) {
-        const msg = pool.find(m => m.id === selectedMessageId);
-        if (!msg) return;
-        scheduleDeleteRef.current(msg);
-      }
-    };
-
-    const onToggleRead = () => {
-      const { messages, selectedMessageId, updateMessage, decrementUnread, incrementUnread, adjustCategoryCount } = getState();
-      if (!selectedMessageId) return;
-      const msg = messages.find(m => m.id === selectedMessageId);
-      if (!msg) return;
-      const newRead = !msg.is_read;
-      updateMessage(selectedMessageId, { is_read: newRead });
-      if (newRead) {
-        decrementUnread(msg.account_id);
-        adjustCategoryCount(msg.category, -1);
-        setPending(selectedMessageId, msg.account_id);
-        api.bulkRead([selectedMessageId], true)
-          .then(() => {
-            pendingMarkReadMap.delete(selectedMessageId);
-            completedMarkReadMap.set(selectedMessageId, msg.account_id);
-            setTimeout(() => completedMarkReadMap.delete(selectedMessageId), 10000);
-          })
-          .catch(err => {
-            console.error('markRead failed:', err);
-            pendingMarkReadMap.delete(selectedMessageId);
-          });
-      } else {
-        incrementUnread(msg.account_id);
-        adjustCategoryCount(msg.category, 1);
-        pendingMarkReadMap.delete(selectedMessageId);
-        completedMarkReadMap.delete(selectedMessageId);
-        api.bulkRead([selectedMessageId], false).catch(console.error);
-      }
-    };
-
     const onFocusSearch = () => {
       searchInputRef.current?.focus();
       searchInputRef.current?.select();
     };
 
-    // GTD classify keys (t/w/d): COPY the selected message into a state's label
-    // folder, reusing the same classify dispatch as the context menu (no parallel
-    // action path). Silent no-op unless the message's account has GTD enabled, so
-    // the keys stay inert for non-GTD accounts.
-    const gtdClassifySelected = (state) => () => {
-      const { messages, searchResults, searchQuery, selectedMessageId, accounts } = getState();
-      if (!selectedMessageId) return;
-      const pool = searchQuery.trim() ? searchResults : messages;
-      const msg = pool.find(m => m.id === selectedMessageId);
-      if (!msg) return;
-      if (!accounts.find(a => a.id === msg.account_id)?.gtd_enabled) return;
-      handleContextActionRef.current?.('gtdClassify', msg, state);
-    };
-    const onGtdTodo      = gtdClassifySelected('todo');
-    const onGtdWatch     = gtdClassifySelected('watch');
-    const onGtdDelegated = gtdClassifySelected('delegated');
-
-    shortcutBus.on('nextMessage',   onNext);
-    shortcutBus.on('prevMessage',   onPrev);
-    shortcutBus.on('openMessage',   onOpen);
-    shortcutBus.on('selectMessage', onSelect);
-    shortcutBus.on('archive',       onArchive);
-    shortcutBus.on('delete',        onDelete);
-    shortcutBus.on('toggleRead',    onToggleRead);
     shortcutBus.on('focusSearch',   onFocusSearch);
-    shortcutBus.on('gtdTodo',       onGtdTodo);
-    shortcutBus.on('gtdWatch',      onGtdWatch);
-    shortcutBus.on('gtdDelegated',  onGtdDelegated);
 
     return () => {
-      shortcutBus.off('nextMessage',   onNext);
-      shortcutBus.off('prevMessage',   onPrev);
-      shortcutBus.off('openMessage',   onOpen);
-      shortcutBus.off('selectMessage', onSelect);
-      shortcutBus.off('archive',       onArchive);
-      shortcutBus.off('delete',        onDelete);
-      shortcutBus.off('toggleRead',    onToggleRead);
       shortcutBus.off('focusSearch',   onFocusSearch);
-      shortcutBus.off('gtdTodo',       onGtdTodo);
-      shortcutBus.off('gtdWatch',      onGtdWatch);
-      shortcutBus.off('gtdDelegated',  onGtdDelegated);
     };
   }, []);
 
@@ -1852,189 +940,14 @@ export default function MessageList() {
   }, [showFolderPicker]);
   // ─────────────────────────────────────────────────────────────
 
-  const handleContextAction = async (action, message, data) => {
+  const handleContextUtility = async (action, message, data) => {
     switch (action) {
       case 'open':
         handleSelect(message);
         break;
-      case 'markRead': {
-        const uc = parseInt(message.unread_count);
-        const threadUnread = Number.isFinite(uc) && uc > 0;
-        if (!message.is_read || threadUnread) {
-          await setMessagesReadState(message, true);
-        }
-        break;
-      }
-      case 'markUnread': {
-        const uc = parseInt(message.unread_count);
-        const needsMarkUnread = message.is_read || (Number.isFinite(uc) && uc === 0);
-        if (needsMarkUnread) {
-          await setMessagesReadState(message, false);
-        }
-        break;
-      }
-      case 'toggleStar': {
-        const newVal = !message.is_starred;
-        await setMessagesStarredState(message, newVal);
-        break;
-      }
-      case 'reply':
-      case 'replyAll':
-        await openReplyFromMessage(message, {
-          accounts,
-          openCompose,
-          getMessageBody: api.getMessageBody,
-          replyAll: action === 'replyAll',
-        });
-        break;
-      case 'forward':
-        await openForwardFromMessage(message, {
-          openCompose,
-          getMessageBody: api.getMessageBody,
-        });
-        break;
       case 'bulkSelect':
         setSelectedIds(new Set([message.id]));
         break;
-      case 'archive': {
-        const archived = message;
-        refreshRequestRef.current.invalidate();
-        advanceSelectionAfterRemoval(archived.id);
-        removeMessage(archived.id);
-        if (!archived.is_read) decrementUnread(archived.account_id);
-        let archiveUndone = false;
-        const archiveTimer = setTimeout(async () => {
-          if (archiveUndone) return;
-          try {
-            const result = await api.bulkArchive([archived.id]);
-            if (result.noArchiveFolder?.length) {
-              addNotification({ title: t('message.archived.noFolderTitle'), body: t('message.archived.noFolderBody') });
-            }
-          } catch (err) {
-            console.error('Archive failed:', err.message);
-            addNotification({ title: t('message.archived.failTitle'), body: t('message.archived.failBody') });
-          }
-        }, 4500);
-        addNotification({
-          title: t('message.archived.title'),
-          body: archived.subject || t('common.noSubject'),
-          onUndo: () => {
-            archiveUndone = true;
-            clearTimeout(archiveTimer);
-            useStore.getState().restoreMessages([archived]);
-            if (!archived.is_read) incrementUnread(archived.account_id);
-          },
-        });
-        break;
-      }
-      case 'moveTo': {
-        const folder = data;
-        if (!folder) break;
-        // If multiple messages are checked and the right-clicked message is among them,
-        // delegate to handleBulkMove so all selected messages are moved together.
-        if (selectedIds.size > 1 && selectedIds.has(message.id)) {
-          const bulkMsgs = displayMessages.filter(m => selectedIds.has(m.id));
-          handleBulkMove([...selectedIds], bulkMsgs, folder);
-          // handleBulkMove already clears the selection internally.
-          break;
-        }
-        const moved = message;
-        let moveMessages;
-        try {
-          moveMessages = await resolveMessagesForThreadAction(message);
-        } catch (err) {
-          console.error('Failed to load thread for move:', err.message);
-          addNotification({ title: t('message.moved.failTitle'), body: t('message.moved.failBody') });
-          break;
-        }
-        // A folder path is account-specific: a thread can span accounts (and
-        // always includes Sent copies), and the server skips messages whose
-        // account lacks the destination folder. Scope the move to the
-        // right-clicked message's account so nothing is silently dropped.
-        moveMessages = moveMessages.filter(msg => msg?.account_id === moved.account_id);
-        const moveIds = [...new Set(moveMessages.map(msg => msg.id).filter(Boolean))];
-        if (!moveIds.length) moveIds.push(moved.id);
-        removeMessage(moved.id);
-        if (!moved.is_read) decrementUnread(moved.account_id);
-        // Remove the moved message from the selection so the action bar doesn't
-        // stay around claiming "X selected" for messages that are no longer here.
-        if (selectedIds.has(moved.id)) {
-          const next = new Set(selectedIds);
-          next.delete(moved.id);
-          setSelectedIds(next);
-          if (next.size === 0) setSelectionModeActive(false);
-        }
-        let moveUndone = false;
-        const moveTimer = setTimeout(async () => {
-          if (moveUndone) return;
-          try {
-            const result = await api.bulkMove(moveIds, folder);
-            // The server reports per-message success (200 even when some IMAP
-            // moves fail or are skipped) — surface partial failures instead of
-            // letting the thread silently reappear on the next sync.
-            const movedSet = new Set(result.moved ?? []);
-            const failedCount = moveIds.filter(id => !movedSet.has(id)).length;
-            if (failedCount > 0) {
-              if (!movedSet.has(moved.id)) {
-                useStore.getState().restoreMessages([moved]);
-                if (!moved.is_read) incrementUnread(moved.account_id);
-              }
-              addNotification({ type: 'error', title: t('message.moved.failTitle'), body: t('messageList.bulkMoved.failBody', { count: failedCount }) });
-            } else {
-              useStore.getState().recordRecentFolder({ accountId: moved.account_id, path: folder });
-            }
-          } catch (err) {
-            console.error('Move failed:', err.message);
-            useStore.getState().restoreMessages([moved]);
-            if (!moved.is_read) incrementUnread(moved.account_id);
-            addNotification({ title: t('message.moved.failTitle'), body: t('message.moved.failBody') });
-          }
-        }, 4500);
-        addNotification({
-          title: t('message.moved.title'),
-          body: folder,
-          onUndo: () => {
-            moveUndone = true;
-            clearTimeout(moveTimer);
-            useStore.getState().restoreMessages([moved]);
-            if (!moved.is_read) incrementUnread(moved.account_id);
-          },
-        });
-        break;
-      }
-      case 'snooze': {
-        const snoozedMsg = message;
-        const untilIso = data;
-        if (!untilIso) break;
-        removeMessage(snoozedMsg.id);
-        if (!snoozedMsg.is_read) decrementUnread(snoozedMsg.account_id);
-        if (selectedIds.has(snoozedMsg.id)) {
-          const next = new Set(selectedIds);
-          next.delete(snoozedMsg.id);
-          setSelectedIds(next);
-          if (next.size === 0) setSelectionModeActive(false);
-        }
-        addNotification({ title: t('message.snoozed.title'), body: snoozedMsg.subject || t('common.noSubject') });
-        api.snoozeMessage(snoozedMsg.id, untilIso).catch(err => {
-          console.error('Snooze failed:', err.message);
-          useStore.getState().restoreMessages([snoozedMsg]);
-          if (!snoozedMsg.is_read) incrementUnread(snoozedMsg.account_id);
-          addNotification({ title: t('message.snoozed.failTitle'), body: t('message.snoozed.failBody') });
-        });
-        break;
-      }
-      case 'gtdClassify': {
-        // Classify = COPY into the state's label folder. The message stays put
-        // (no optimistic removal / undo — it does not leave INBOX), so we just
-        // fire the copy and poke the GTD sections store instead of waiting on the WS event.
-        await classifyThread(message.id, data, {
-          gtdClassify: api.gtdClassify,
-          addNotification,
-          scheduleGtdSectionsFetch: useStore.getState().scheduleGtdSectionsFetch,
-          t,
-        });
-        break;
-      }
       case 'gtdRemove': {
         await unclassifyThread(message.id, data, {
           gtdUnclassify: api.gtdUnclassify,
@@ -2061,36 +974,6 @@ export default function MessageList() {
         });
         break;
       }
-      case 'delete':
-        if (selectedIds.size > 1 && selectedIds.has(message.id)) {
-          const bulkMsgs = displayMessages.filter(m => selectedIds.has(m.id));
-          handleBulkDelete([...selectedIds], bulkMsgs);
-        } else {
-          scheduleDelete(message);
-        }
-        break;
-      case 'markSpam': {
-        // Bulk when more than one message is selected and the right-clicked
-        // message is among them; otherwise just the single message.
-        const targets = (selectedIds.size > 1 && selectedIds.has(message.id))
-          ? displayMessages.filter(m => selectedIds.has(m.id))
-          : [message];
-        performSpamLabel(targets, 'spam');
-        // The action bar should not claim "X selected" for messages that have
-        // just been queued for move-to-Junk. Clear the selection (handleBulk*
-        // already does this; performSpamLabel doesn't, because it's shared
-        // with the single-message toolbar path which never had a selection).
-        if (selectedIds.has(message.id)) clearSelection();
-        break;
-      }
-      case 'markHam': {
-        const targets = (selectedIds.size > 1 && selectedIds.has(message.id))
-          ? displayMessages.filter(m => selectedIds.has(m.id))
-          : [message];
-        performSpamLabel(targets, 'ham');
-        if (selectedIds.has(message.id)) clearSelection();
-        break;
-      }
       case 'setCategory': {
         const newCategory = data || 'primary';
         const dbCategory = newCategory === 'primary' ? null : newCategory;
@@ -2114,17 +997,11 @@ export default function MessageList() {
         break;
     }
   };
-  // Expose the latest handleContextAction to the once-registered shortcut effect via
-  // a post-commit effect (the sibling handler refs' pattern), rather than mutating the
-  // ref during render. No dep array: handleContextAction isn't memoized, so it syncs
-  // on every commit.
-  useEffect(() => { handleContextActionRef.current = handleContextAction; });
-
   const handleThreadMarkRead = (e, message) => {
     e.stopPropagation();
     const uc = parseInt(message.unread_count);
     const hasUnreadInThread = Number.isFinite(uc) && uc > 0;
-    handleContextAction(hasUnreadInThread ? 'markRead' : 'markUnread', message);
+    executeForMessages(hasUnreadInThread ? 'mail.read' : 'mail.unread', 'hover', [message]);
   };
 
   const isDraftsFolder = (() => {
@@ -2173,27 +1050,7 @@ export default function MessageList() {
     clearTimeout(autoMarkReadTimerRef.current);
     autoMarkReadTimerRef.current = null;
     if (!message.is_read && markReadBehavior !== 'manual') {
-      const prevUnread = message.unread_count;
-      const doMarkRead = () => {
-        updateMessage(message.id, { is_read: true, unread_count: 0 });
-        decrementUnread(message.account_id);
-        adjustCategoryCount(message.category, -1);
-        setPending(message.id, message.account_id);
-        api.bulkRead([message.id], true)
-          .catch(() => api.bulkRead([message.id], true))
-          .then(() => {
-            pendingMarkReadMap.delete(message.id);
-            completedMarkReadMap.set(message.id, message.account_id);
-            setTimeout(() => completedMarkReadMap.delete(message.id), 10000);
-          })
-          .catch(e => {
-            console.error('markRead failed:', e.message);
-            updateMessage(message.id, { is_read: false, unread_count: prevUnread });
-            incrementUnread(message.account_id);
-            adjustCategoryCount(message.category, 1);
-            pendingMarkReadMap.delete(message.id);
-          });
-      };
+      const doMarkRead = () => executeForMessages('mail.read', 'auto-read', [message]);
       if (markReadBehavior === 'delay') {
         autoMarkReadTimerRef.current = setTimeout(doMarkRead, markReadDelay * 1000);
       } else {
@@ -3506,9 +2363,22 @@ export default function MessageList() {
             x={contextMenu.x}
             y={contextMenu.y}
             message={contextMenu.message}
+            targetIds={(selectedIds.size > 1 && selectedIds.has(contextMenu.message.id)
+              ? displayMessages.filter(candidate => selectedIds.has(candidate.id))
+              : [contextMenu.message]
+            ).map(stableConversationId).filter(Boolean)}
             defaultMoveView={contextMenu.defaultMoveView}
+            onCommand={(commandId, input) => {
+              const selectedMessages = displayMessages.filter(candidate => selectedIds.has(candidate.id));
+              const targetMessages = contextMenuTargetMessages(
+                commandId,
+                contextMenu.message,
+                selectedMessages,
+              );
+              return executeForMessages(commandId, 'context-menu', targetMessages, input);
+            }}
             onClose={() => setContextMenu(null)}
-            onAction={(action, data) => handleContextAction(action, contextMenu.message, data)}
+            onAction={(action, data) => handleContextUtility(action, contextMenu.message, data)}
           />
         )}
 

@@ -213,22 +213,13 @@
     "aiCopied": "Copiato",
     "previousMessage": "Messaggio precedente",
     "nextMessage": "Messaggio successivo",
-    "archived": {
-      "title": "Messaggio archiviato",
-      "failTitle": "Archiviazione fallita",
-      "failBody": "Impossibile archiviare il messaggio.",
-      "noFolderTitle": "Nessuna cartella di archivio",
-      "noFolderBody": "Nessuna cartella di archivio configurata per questo account. Impostane una in Impostazioni → Account → Mappatura cartelle."
-    },
     "moved": {
-      "title": "Messaggio spostato",
       "failTitle": "Spostamento fallito",
       "failBody": "Impossibile spostare il messaggio."
     },
     "snoozed": {
       "title": "Messaggio posticipato",
-      "failTitle": "Posticipa fallito",
-      "failBody": "Impossibile posticipare questo messaggio."
+      "failTitle": "Posticipa fallito"
     },
     "whitelistFail": {
       "title": "Impossibile salvare la preferenza",
@@ -239,8 +230,7 @@
       "info": "Puoi annullare l'iscrizione a questa mailing list.",
       "button": "Annulla iscrizione",
       "done": "Iscrizione annullata con successo.",
-      "error": "Annullamento iscrizione fallito.",
-      "moveToTrash": "Sposta nel cestino"
+      "error": "Annullamento iscrizione fallito."
     },
     "aiClassify": {
       "info": "Questa email non ha una categoria. Classificare con IA?",
@@ -277,18 +267,12 @@
     "loadMore": "Carica altro",
     "noMoreMessages": "Nessun altro messaggio",
     "deleted": {
-      "title": "Messaggio eliminato",
-      "body": "Spostato nel Cestino.",
-      "failTitle": "Eliminazione fallita",
-      "failBody": "Impossibile eliminare il messaggio."
+      "failTitle": "Eliminazione fallita"
     },
     "bulkDeleted": {
       "title_one": "{{count}} messaggio eliminato",
       "title_other": "{{count}} messaggi eliminati",
-      "body": "Spostato nel Cestino.",
-      "failTitle": "Eliminazione fallita",
-      "failBody_one": "Impossibile eliminare {{count}} messaggio.",
-      "failBody_other": "Impossibile eliminare {{count}} messaggi."
+      "failTitle": "Eliminazione fallita"
     },
     "bulkMoved": {
       "title_one": "{{count}} messaggio spostato",
@@ -300,16 +284,7 @@
     "bulkArchived": {
       "title_one": "{{count}} messaggio archiviato",
       "title_other": "{{count}} messaggi archiviati",
-      "body": "Spostato nell'Archivio.",
-      "failTitle": "Archiviazione fallita",
-      "failBody_one": "Impossibile archiviare {{count}} messaggio.",
-      "failBody_other": "Impossibile archiviare {{count}} messaggi.",
-      "noFolderTitle": "Nessuna cartella di archivio",
-      "noFolderBody": "Uno o più account non hanno una cartella di archivio configurata. Impostane una in Impostazioni → Account → Mappatura cartelle."
-    },
-    "noArchiveFolder": {
-      "title": "Nessuna cartella di archivio",
-      "body": "Nessuna cartella di archivio configurata. Impostane una in Impostazioni → Account → Mappatura cartelle."
+      "failTitle": "Archiviazione fallita"
     },
     "selectMessages": "Seleziona messaggi",
     "selectedCount": "{{count}} selezionato/i",
@@ -447,27 +422,77 @@
     }
   },
   "commandPalette": {
-    "placeholder": "Cerca azioni…",
-    "noResults": "Nessuna azione trovata",
+    "title": "Tavolozza dei comandi",
+    "placeholder": "Cerca comandi…",
+    "noResults": "Nessun comando trovato",
+    "matchedAlias": "Corrispondenza: {{alias}}",
+    "announcement": "{{count}} comandi. Destinazione: {{target}}.",
+    "target": {
+      "application": "Applicazione",
+      "conversation": "Conversazione",
+      "selected": "{{count}} conversazioni selezionate"
+    },
+    "outcome": {
+      "failedTitle": "Comando non riuscito",
+      "partialTitle": "Comando completato parzialmente",
+      "partialBody": "{{succeeded}} riusciti; {{failed}} non riusciti."
+    },
     "hint": {
       "navigate": "naviga",
       "select": "seleziona",
       "close": "chiudi"
+    }
+  },
+  "commands": {
+    "mail": {
+      "archive": { "aliasDone": "Fatto" },
+      "snooze": { "aliasRemind": "Ricordamelo" },
+      "trash": { "aliasDelete": "Elimina" },
+      "spam": { "aliasJunk": "Posta indesiderata" },
+      "partial": "{{succeeded}} riuscite; {{failed}} non riuscite"
     },
-    "actions": {
-      "compose": "Scrivi nuovo messaggio",
-      "inbox": "Vai alla Posta in arrivo",
-      "settings": "Apri Impostazioni",
-      "themes": "Apri Temi",
-      "switchTheme": "Passa al tema {{theme}}",
-      "accountInbox": "{{name}} — Posta in arrivo"
+    "shortcuts": {
+      "undo": "Annulla", "nextThreadMessage": "Messaggio successivo nella conversazione", "previousThreadMessage": "Messaggio precedente nella conversazione",
+      "scrollDown": "Scorri in basso", "scrollUp": "Scorri in alto", "openConversation": "Apri conversazione",
+      "extendNext": "Estendi selezione verso il basso", "extendPrevious": "Estendi selezione verso l’alto",
+      "selectOlder": "Seleziona conversazione attiva e precedenti", "selectAll": "Seleziona tutte le conversazioni",
+      "clearSelection": "Cancella selezione", "sent": "Vai a Inviati", "drafts": "Vai a Bozze", "contacts": "Vai a Contatti"
+    },
+    "compose": { "new": { "title": "Scrivi", "alias": { "write": "Componi" } } },
+    "navigation": {
+      "search": { "title": "Cerca nella posta" },
+      "unifiedInbox": { "title": "Vai alla posta in arrivo unificata" },
+      "accountInbox": { "title": "{{name}} — Posta in arrivo" },
+      "folder": { "title": "{{name}}" },
+      "gtd": {
+        "todo": { "title": "Vai a Da fare" },
+        "watch": { "title": "Vai a Osservare" },
+        "delegated": { "title": "Vai a Delegato" },
+        "reference": { "title": "Vai a Riferimento" },
+        "someday": { "title": "Vai a Un giorno" }
+      }
+    },
+    "appearance": { "theme": { "title": "Passa al tema {{name}}" } },
+    "settings": {
+      "accounts": { "title": "Apri impostazioni account" },
+      "notifications": { "title": "Apri impostazioni notifiche" },
+      "rules": { "title": "Apri Regole" },
+      "categories": { "title": "Apri Categorie" },
+      "appearance": { "title": "Apri impostazioni aspetto" },
+      "shortcuts": { "title": "Apri impostazioni scorciatoie" },
+      "security": { "title": "Apri impostazioni sicurezza" },
+      "integrations": { "title": "Apri Integrazioni" },
+      "ai-actions": { "title": "Apri Azioni IA" },
+      "about": { "title": "Apri Informazioni" },
+      "users": { "title": "Apri amministrazione utenti" },
+      "sso": { "title": "Apri impostazioni SSO" },
+      "ai": { "title": "Apri impostazioni IA" }
     }
   },
   "shortcuts": {
     "title": "Scorciatoie da tastiera",
     "customizeHint": "Personalizza le scorciatoie in Impostazioni → Scorciatoie",
     "closeHint": "Premi ? o Esc per chiudere",
-    "then": "poi",
     "groups": {
       "composeSearch": "Composizione e ricerca",
       "navigation": "Navigazione",
@@ -475,85 +500,50 @@
       "gtd": "GTD"
     },
     "actions": {
-      "compose": {
-        "label": "Scrivi",
-        "description": "Apri una nuova finestra di composizione"
-      },
-      "focusSearch": {
-        "label": "Cerca",
-        "description": "Attiva il campo di ricerca"
-      },
-      "showHelp": {
-        "label": "Mostra scorciatoie",
-        "description": "Mostra questo elenco di scorciatoie da tastiera"
-      },
       "nextMessage": {
-        "label": "Messaggio successivo",
-        "description": "Passa al messaggio successivo"
+        "label": "Messaggio successivo"
       },
       "prevMessage": {
-        "label": "Messaggio precedente",
-        "description": "Passa al messaggio precedente"
-      },
-      "openMessage": {
-        "label": "Apri il primo messaggio",
-        "description": "Apri il primo messaggio se non ne è selezionato nessuno"
-      },
-      "goInbox": {
-        "label": "Vai alla Posta in arrivo",
-        "description": "Vai alla posta in arrivo unificata"
+        "label": "Messaggio precedente"
       },
       "reply": {
-        "label": "Rispondi",
-        "description": "Rispondi al messaggio corrente"
+        "label": "Rispondi"
       },
       "replyAll": {
-        "label": "Rispondi a tutti",
-        "description": "Rispondi a tutti per il messaggio corrente"
+        "label": "Rispondi a tutti"
       },
       "forward": {
-        "label": "Inoltra",
-        "description": "Inoltra il messaggio corrente"
+        "label": "Inoltra"
       },
       "archive": {
-        "label": "Archivia",
-        "description": "Archivia messaggio / selezione"
+        "label": "Archivia"
       },
       "delete": {
-        "label": "Elimina",
-        "description": "Elimina messaggio / selezione"
+        "label": "Elimina"
       },
       "toggleStar": {
-        "label": "Segna con stella",
-        "description": "Attiva o disattiva la stella sul messaggio corrente"
+        "label": "Segna con stella"
       },
       "toggleRead": {
-        "label": "Segna letto / non letto",
-        "description": "Segna il messaggio corrente come letto o non letto"
+        "label": "Segna letto / non letto"
       },
       "selectMessage": {
-        "label": "Seleziona messaggio",
-        "description": "Seleziona o deseleziona il messaggio corrente"
+        "label": "Seleziona messaggio"
       },
       "printMessage": {
-        "label": "Stampa",
-        "description": "Stampa il messaggio corrente"
+        "label": "Stampa"
       },
       "gtdTodo": {
-        "label": "Segna Da fare",
-        "description": "Classifica il messaggio selezionato come Da fare"
+        "label": "Segna Da fare"
       },
       "gtdWatch": {
-        "label": "Segna Osservare",
-        "description": "Classifica il messaggio selezionato come Osservare"
+        "label": "Segna Osservare"
       },
       "gtdDelegated": {
-        "label": "Segna Delegato",
-        "description": "Classifica il messaggio selezionato come Delegato"
+        "label": "Segna Delegato"
       },
       "toggleRightSidebar": {
-        "label": "Mostra o nascondi la barra laterale destra",
-        "description": "Nascondi o mostra la barra laterale destra"
+        "label": "Mostra o nascondi la barra laterale destra"
       }
     }
   },
@@ -1017,7 +1007,8 @@
       "conflict": "Il tasto {{key}} era già assegnato a {{action}} — è stato riassegnato.",
       "resetDefault": "Ripristina predefinito",
       "remove": "Rimuovi scorciatoia",
-      "footer": "Premi ? ovunque nell'app per vedere le scorciatoie attuali."
+      "footer": "Premi ? ovunque nell'app per vedere le scorciatoie attuali.",
+      "sources": { "primary": "Principale", "secondary": "Secondaria", "platform": "Piattaforma", "user": "Personalizzata" }
     },
     "users": {
       "title": "Utenti",
@@ -1403,10 +1394,7 @@
     "movedToInbox": "Spostato in Posta in arrivo",
     "movedToInboxBulk": "{{count}} messaggi spostati in Posta in arrivo",
     "failTitle": "Impossibile segnalare come spam",
-    "failHamTitle": "Impossibile segnalare come non spam",
-    "failBody": "Il server di posta ha rifiutato lo spostamento.",
-    "failHamBody": "Il server di posta ha rifiutato lo spostamento.",
-    "failBodyBulk": "{{count}} messaggi non possono essere spostati."
+    "failHamTitle": "Impossibile segnalare come non spam"
   },
   "contacts": {
     "title": "Contatti",

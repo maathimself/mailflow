@@ -186,6 +186,27 @@ describe('listMessages — threaded mode', () => {
 });
 
 describe('listMessages — message shape', () => {
+  it('projects delegation metadata in flat and threaded results', async () => {
+    const delegation = JSON.stringify({ contact_id: null, display_name: 'Casey' });
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
+      .mockResolvedValueOnce({ rows: [{ total_count: 1, unread_count: 0 }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'msg-1', delegation }] });
+    const flat = await listMessages({ userId: 'user-1', accountId: 'acc-1' });
+    expect(flat.messages[0].delegation).toEqual({ contact_id: null, display_name: 'Casey' });
+    expect(query.mock.calls[2][0]).toContain('gtd_delegations');
+
+    query.mockReset();
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
+      .mockResolvedValueOnce({ rows: [{ total_count: 1, unread_count: 0 }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'msg-1', delegation }] })
+      .mockResolvedValueOnce({ rows: [{ total: 1 }] });
+    const threaded = await listMessages({ userId: 'user-1', accountId: 'acc-1', threaded: true });
+    expect(threaded.messages[0].delegation.display_name).toBe('Casey');
+    expect(query.mock.calls[2][0]).toContain('gtd_delegations');
+  });
+
   it('selects delivery_addresses in the flat query', async () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })

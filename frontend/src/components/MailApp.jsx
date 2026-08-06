@@ -4,11 +4,12 @@ import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { useWebSocket } from '../hooks/useWebSocket.js';
 import { useMobile } from '../hooks/useMobile.js';
+import { useCommandRuntime } from '../hooks/useCommandRuntime.js';
 import { LAYOUTS } from '../layouts.js';
 import { updateFaviconBadge } from '../themes.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { setPending, pendingMarkReadMap, completedMarkReadMap } from '../utils/pendingReads.js';
-import { buildKeyMap, buildModKeyMap, getEffectiveShortcuts, getGroupedActions, parseModKey, modLabel, SPECIAL_KEYS, SPECIAL_KEY_LABELS } from '../utils/defaultShortcuts.js';
+import { formatCommandKey, getEffectiveCommandBindings } from '../commands/shortcuts.js';
 import Sidebar from './Sidebar.jsx';
 import MessageList from './MessageList.jsx';
 import MessagePane from './MessagePane.jsx';
@@ -16,6 +17,8 @@ import GtdSidebarContent from './GtdSidebarContent.jsx';
 import NotificationToasts from './NotificationToasts.jsx';
 import CommandPalette from './CommandPalette.jsx';
 import { gtdActiveForContext } from '../utils/gtd.js';
+import { CommandRuntimeProvider } from '../commands/CommandRuntimeContext.jsx';
+import { commandPaletteShortcut } from '../commands/paletteShortcut.js';
 
 const ContactsPage = lazy(() => import('./ContactsPage.jsx'));
 
@@ -59,11 +62,12 @@ const lazyFallback = (
 
 export default function MailApp() {
   const { t } = useTranslation();
+  const editorPalettePressRef = useRef(null);
   const {
     setAccounts, setUnreadCounts, showAdmin,
     setShowAdmin, setAdminTab, composing, sidebarCollapsed, layout,
-    unreadCounts, selectedAccountId, openCompose, setSelectedAccount,
-    shortcuts, selectedMessageId, setSelectedMessage,
+    unreadCounts, selectedAccountId, openCompose,
+    selectedMessageId, setSelectedMessage,
     mobileSidebarOpen, setMobileSidebarOpen, addNotification,
     fontSize, showAppBadge, showFaviconBadge,
     sidebarWidth, setSidebarWidth, setIsSidebarResizing,
@@ -131,6 +135,10 @@ export default function MailApp() {
 
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const commandRuntime = useCommandRuntime({ t, shortcutHelpOpen: showShortcutHelp, paletteOpen });
+  useEffect(() => {
+    if (commandRuntime.continuation) setPaletteOpen(true);
+  }, [commandRuntime.continuation]);
   const isMobile = useMobile();
   const sidebarDragRef = useRef(null);
   const sidebarResizeRef = useRef(null);
@@ -197,8 +205,13 @@ export default function MailApp() {
 
   // Shortcut hint (e.g. "⌘/") for the collapse/expand tooltips, derived from the
   // live shortcut map via the existing helpers — no new plumbing. '' when unbound.
-  const rightSidebarToggleParsed = parseModKey(getEffectiveShortcuts(shortcuts).toggleRightSidebar);
-  const rightSidebarToggleHint = rightSidebarToggleParsed ? `${modLabel(rightSidebarToggleParsed.mod)}${rightSidebarToggleParsed.bare}` : '';
+  const rightSidebarToggleKey = getEffectiveCommandBindings(
+    commandRuntime.commandDefinitions,
+    commandRuntime.getContext(),
+  ).find(item => item.commandId === 'layout.toggleRightSidebar')?.bindings[0]?.keys;
+  const rightSidebarToggleHint = rightSidebarToggleKey
+    ? formatCommandKey(rightSidebarToggleKey, commandRuntime.getContext().platform)
+    : '';
   // The right sidebar renders when a feature supplies content. GTD is the
   // current (only) provider; the layout/shortcut infrastructure below is
   // feature-agnostic and keys off the seam, not the feature.
@@ -517,6 +530,7 @@ export default function MailApp() {
       }
 
       if (paletteOpenRef.current) {
+        commandRuntime.clearContinuation();
         setPaletteOpen(false);
         return true;
       }
@@ -542,103 +556,14 @@ export default function MailApp() {
     return () => {
       if (window.__mailflowHandleAndroidBack) delete window.__mailflowHandleAndroidBack;
     };
-  }, [setMobileSidebarOpen, setSelectedMessage, setShowAdmin]);
-
-  useEffect(() => {
-    if (isMobile) return;
-    const keyMap    = buildKeyMap(shortcuts);
-    const modKeyMap = buildModKeyMap(shortcuts);
-    // Keys that are prefixes of two-key sequences (e.g. 'g' for 'gi').
-    // Special keys like 'Delete' have length > 1 but are single keypresses — exclude them.
-    const prefixKeys = new Set(
-      Object.keys(keyMap).filter(k => k.length > 1 && !SPECIAL_KEYS.has(k)).map(k => k[0])
-    );
-
-    let pendingKey   = null;
-    let pendingTimer = null;
-
-    const clearPending = () => {
-      pendingKey = null;
-      if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null; }
-    };
-
-    const handler = (e) => {
-      // Never intercept when the compose modal or admin panel is open, or an input is focused
-      if (composingRef.current || showAdminRef.current) return;
-      const tag = e.target.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
-      // Modifier combos: emit registered actions, pass everything else through
-      if (e.ctrlKey || e.metaKey) {
-        const action = modKeyMap[e.key.toLowerCase()];
-        if (action) { e.preventDefault(); shortcutBus.emit(action); }
-        return;
-      }
-      if (e.altKey) return;
-
-      const key = e.key;
-
-      // Pure modifier keys — never intercept
-      if (['CapsLock', 'Control', 'Meta', 'Alt', 'Shift'].includes(key)) return;
-
-      // Escape cancels any pending prefix sequence
-      if (key === 'Escape') { clearPending(); return; }
-
-      // Resolve two-key sequences
-      let resolved = key;
-      if (pendingKey !== null) {
-        resolved = pendingKey + key;
-        clearPending();
-      }
-
-      // Check the keymap first — bound actions take priority, including special
-      // keys like Delete that would otherwise be skipped below.
-      const action = keyMap[resolved];
-      if (action) {
-        e.preventDefault();
-        shortcutBus.emit(action);
-        return;
-      }
-
-      // Skip non-character keys that aren't bound (arrow keys, F-keys, etc.)
-      if (['Tab', 'Enter', 'Backspace', 'Delete',
-           'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
-           'Home', 'End', 'PageUp', 'PageDown', 'Insert',
-           'F1', 'F2', 'F3', 'F4', 'F5', 'F6',
-           'F7', 'F8', 'F9', 'F10', 'F11', 'F12'].includes(key)) {
-        return;
-      }
-
-      // Check if this single key could start a two-key sequence
-      if (prefixKeys.has(resolved) && resolved.length === 1) {
-        e.preventDefault();
-        pendingKey   = resolved;
-        pendingTimer = setTimeout(clearPending, 1000);
-        return;
-      }
-
-      // Typed key didn't match anything — clear any stale pending state
-      if (pendingKey !== null) clearPending();
-    };
-
-    document.addEventListener('keydown', handler);
-    return () => {
-      document.removeEventListener('keydown', handler);
-      clearPending();
-    };
-  }, [shortcuts, isMobile]); // Re-build key map only when shortcuts or device type changes
+  }, [commandRuntime, setMobileSidebarOpen, setSelectedMessage, setShowAdmin]);
 
   // Subscribe to global actions that MailApp owns
   useEffect(() => {
-    const onCompose   = () => openCompose({ accountId: useStore.getState().selectedAccountId || undefined });
-    const onGoInbox   = () => setSelectedAccount(null, 'INBOX');
     const onShowHelp  = () => { if (!isMobile) setShowShortcutHelp(v => !v); };
 
-    shortcutBus.on('compose',   onCompose);
-    shortcutBus.on('goInbox',   onGoInbox);
     shortcutBus.on('showHelp',  onShowHelp);
     return () => {
-      shortcutBus.off('compose',   onCompose);
-      shortcutBus.off('goInbox',   onGoInbox);
       shortcutBus.off('showHelp',  onShowHelp);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -651,25 +576,49 @@ export default function MailApp() {
     return () => shortcutBus.off('toggleRightSidebar', onToggleRightSidebar);
   }, [rightSidebarApplicable, toggleRightSidebarHidden]);
 
-  // Close help overlay on Escape
+  // Close help overlay on Escape or the same ? shortcut that opened it.
   useEffect(() => {
     if (!showShortcutHelp) return;
-    const handler = (e) => { if (e.key === 'Escape') { e.preventDefault(); setShowShortcutHelp(false); } };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [showShortcutHelp]);
-
-  // Cmd+K / Ctrl+K opens command palette
-  useEffect(() => {
     const handler = (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      if (e.isComposing || e.keyCode === 229) return;
+      if (e.key === 'Escape' || e.key === '?') {
         e.preventDefault();
-        setPaletteOpen(v => !v);
+        e.stopImmediatePropagation();
+        setShowShortcutHelp(false);
       }
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, []);
+  }, [showShortcutHelp]);
+
+  // Cmd+K / Ctrl+K toggles the command palette. In a rich-text editor, the
+  // first press remains available to the editor and a second press opens it.
+  useEffect(() => {
+    if (isMobile) return undefined;
+    const handler = event => {
+      const decision = commandPaletteShortcut({
+        metaKey: event.metaKey,
+        ctrlKey: event.ctrlKey,
+        altKey: event.altKey,
+        key: event.key,
+        keyCode: event.keyCode,
+        isComposing: event.isComposing,
+        target: event.target,
+        isMobile,
+      }, editorPalettePressRef.current);
+      if (!decision.handled) return;
+      editorPalettePressRef.current = decision.nextEditorPress;
+      if (!decision.toggle) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setPaletteOpen(open => {
+        if (open) commandRuntime.clearContinuation();
+        return !open;
+      });
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [commandRuntime, isMobile]);
 
   // Handle same-tab OAuth callback redirects (e.g. /?oauth_success=microsoft).
   // The popup case (window.opener present) is handled earlier in App.jsx before
@@ -702,6 +651,7 @@ export default function MailApp() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
+    <CommandRuntimeProvider runtime={commandRuntime}>
     <div style={{
       width: '100vw', height: 'var(--app-height, 100svh)',
       overflow: 'hidden', background: 'var(--bg-primary)',
@@ -873,52 +823,39 @@ export default function MailApp() {
       <Suspense fallback={lazyFallback}>{showAdmin && <AdminPanel />}</Suspense>
       <Suspense fallback={null}>{hasNativeBridge && <ElectronNotificationBridge />}</Suspense>
       <NotificationToasts />
-      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+      <CommandPalette open={paletteOpen} onClose={() => {
+        commandRuntime.clearContinuation();
+        setPaletteOpen(false);
+      }} />
 
       {/* Keyboard shortcut help overlay — toggled by the '?' key */}
       {showShortcutHelp && (
         <ShortcutHelpOverlay
-          shortcuts={shortcuts}
+          definitions={commandRuntime.commandDefinitions}
+          context={commandRuntime.getContext()}
           onClose={() => setShowShortcutHelp(false)}
         />
       )}
     </div>
     </div>
+    </CommandRuntimeProvider>
   );
 }
 
-function ShortcutHelpOverlay({ shortcuts, onClose }) {
+function ShortcutHelpOverlay({ definitions, context, onClose }) {
   const { t } = useTranslation();
-  const effective = getEffectiveShortcuts(shortcuts);
-  const groups    = getGroupedActions();
+  const effective = new Map(getEffectiveCommandBindings(definitions, context)
+    .map(item => [item.commandId, item.bindings]));
+  const groups = definitions.filter(definition => effective.get(definition.id)?.length).reduce((result, definition) => {
+    (result[definition.group] ||= []).push(definition);
+    return result;
+  }, {});
 
-  const keyBadge = (key) => {
-    if (!key) return <span style={{ color: 'var(--text-tertiary)', fontSize: 11 }}>—</span>;
-    // Modifier combos like 'ctrl+p'
-    const mod = parseModKey(key);
-    if (mod) {
-      return (
-        <span style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <kbd style={kbdStyle}>{modLabel(mod.mod)}</kbd>
-          <span style={{ color: 'var(--text-tertiary)', margin: '0 2px', fontSize: 10 }}>+</span>
-          <kbd style={kbdStyle}>{mod.bare.toUpperCase()}</kbd>
-        </span>
-      );
-    }
-    // Special key names like 'Delete', 'ArrowUp' — single keypress, render as one badge
-    if (SPECIAL_KEY_LABELS[key]) {
-      return <kbd style={kbdStyle}>{SPECIAL_KEY_LABELS[key]}</kbd>;
-    }
-    // For two-key sequences like 'gi', render each key separately
-    const parts = key.length > 1
-      ? [...key].map((c, i) => (
-          <span key={i}>
-            <kbd style={kbdStyle}>{c}</kbd>
-            {i < key.length - 1 && <span style={{ color: 'var(--text-tertiary)', margin: '0 2px', fontSize: 10 }}>{t('shortcuts.then')}</span>}
-          </span>
-        ))
-      : [<kbd key={0} style={kbdStyle}>{key}</kbd>];
-    return <span style={{ display: 'flex', alignItems: 'center', gap: 2 }}>{parts}</span>;
+  const keyBadge = (bindings = []) => {
+    if (!bindings.length) return <span style={{ color: 'var(--text-tertiary)', fontSize: 11 }}>—</span>;
+    return <span style={{ display: 'flex', gap: 4 }}>{bindings.map(binding => (
+      <kbd key={binding.keys} style={kbdStyle}>{formatCommandKey(binding.keys, context.platform)}</kbd>
+    ))}</span>;
   };
 
   return (
@@ -963,15 +900,15 @@ function ShortcutHelpOverlay({ shortcuts, onClose }) {
           {Object.entries(groups).map(([groupName, actions]) => (
             <div key={groupName} style={{ marginBottom: 20 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
-                {t(groupName)}
+                {groupName}
               </div>
-              {actions.map(({ action, descriptionKey }) => (
-                <div key={action} style={{
+              {actions.map(definition => (
+                <div key={definition.id} style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                   padding: '5px 0', borderBottom: '1px solid var(--border-subtle)',
                 }}>
-                  <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{t(descriptionKey)}</span>
-                  {keyBadge(effective[action])}
+                  <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{t(definition.titleKey, definition.params)}</span>
+                  {keyBadge(effective.get(definition.id))}
                 </div>
               ))}
             </div>

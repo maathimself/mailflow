@@ -8,6 +8,11 @@ import { fanOutReadToSiblings } from '../utils/mailUtils.js';
 import { archiveInboxCopy } from '../services/archiveInbox.js';
 import { query } from '../services/db.js';
 import { imapManager } from '../index.js';
+import {
+  delegateMessages,
+  GtdDelegationError,
+  reconcileDelegatedRemovals,
+} from '../services/gtdDelegations.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -16,6 +21,20 @@ router.use(requireAuth);
 // id is a clean 400 rather than a parametrized query that just finds nothing (404) or a
 // driver cast error. Same idiom + regex as mail.js.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function parseDelegationBody(body) {
+  if (!Array.isArray(body?.messageIds)) {
+    throw new GtdDelegationError('invalid_request', 400, 'messageIds must be an array');
+  }
+  const messageIds = [...new Set(body.messageIds)];
+  if (messageIds.length < 1 || messageIds.length > 100 || messageIds.some(id => !UUID_RE.test(id))) {
+    throw new GtdDelegationError('invalid_request', 400, 'messageIds must contain 1 to 100 UUIDs');
+  }
+  if (body.contactId !== null && !UUID_RE.test(body.contactId || '')) {
+    throw new GtdDelegationError('invalid_request', 400, 'contactId must be a UUID or null');
+  }
+  return { messageIds, contactId: body.contactId };
+}
 
 // Shared classify precondition: an account must have GTD enabled and the request's
 // state must resolve to a designated folder. Returns { folder } to proceed, or
@@ -82,6 +101,24 @@ router.get('/sections', async (req, res) => {
     userId: req.session.userId,
     broadcast: (payload, uid) => imapManager.broadcast(payload, uid),
   }).catch(err => console.warn('GTD gist generation error:', err.message));
+});
+
+router.post('/delegations', async (req, res, next) => {
+  try {
+    const { messageIds, contactId } = parseDelegationBody(req.body);
+    const result = await delegateMessages({
+      userId: req.session.userId,
+      messageIds,
+      contactId,
+      imapManager,
+    });
+    res.json(result);
+  } catch (error) {
+    if (error instanceof GtdDelegationError) {
+      return res.status(error.status).json({ error: error.code });
+    }
+    next(error);
+  }
 });
 
 // ── GTD Inbox-Zero pet ────────────────────────────────────────────────────────
@@ -225,10 +262,24 @@ router.delete('/classify', async (req, res) => {
     return res.status(400).json({ error: 'Message has no Message-ID — cannot resolve GTD copy' });
   }
   const siblingUid = await resolveCopyUid(msg, stateFolder);
-  if (siblingUid == null) return res.json({ ok: true, removed: false });
+  if (siblingUid == null) {
+    if (state === 'delegated' && msg.thread_key) {
+      await reconcileDelegatedRemovals({
+        userId: req.session.userId, accountId: msg.account_id,
+        delegatedFolder: stateFolder, threadKeys: [msg.thread_key],
+      });
+    }
+    return res.json({ ok: true, removed: false });
+  }
 
   try {
     await imapManager.removeMessageCopy(msg.account_id, siblingUid, stateFolder);
+    if (state === 'delegated' && msg.thread_key) {
+      await reconcileDelegatedRemovals({
+        userId: req.session.userId, accountId: msg.account_id,
+        delegatedFolder: stateFolder, threadKeys: [msg.thread_key],
+      });
+    }
   } catch (err) {
     console.error(`GTD unclassify failed for message ${messageId} in ${stateFolder}:`, err.message);
     return res.status(500).json({ error: 'Failed to remove GTD label' });
@@ -315,9 +366,16 @@ router.post('/done', async (req, res) => {
   try {
     for (const folder of stripOrder) {
       const uid = await resolveCopyUid(msg, folder);
-      if (uid == null) continue; // already gone
-      await imapManager.removeMessageCopy(msg.account_id, uid, folder);
-      removed.push(folder);
+      if (uid != null) {
+        await imapManager.removeMessageCopy(msg.account_id, uid, folder);
+        removed.push(folder);
+      }
+      if (folder === folders.delegated && msg.thread_key) {
+        await reconcileDelegatedRemovals({
+          userId: req.session.userId, accountId: msg.account_id,
+          delegatedFolder: folder, threadKeys: [msg.thread_key],
+        });
+      }
     }
   } catch (err) {
     console.error(`GTD done: label strip for ${id} failed:`, err.message);

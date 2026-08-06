@@ -213,22 +213,13 @@
     "aiCopied": "Kopiert",
     "previousMessage": "Vorherige Nachricht",
     "nextMessage": "Nächste Nachricht",
-    "archived": {
-      "title": "Nachricht archiviert",
-      "failTitle": "Archivierung fehlgeschlagen",
-      "failBody": "Nachricht konnte nicht archiviert werden.",
-      "noFolderTitle": "Kein Archivordner",
-      "noFolderBody": "Kein Archivordner für dieses Konto konfiguriert. In Einstellungen → Konten → Ordnerzuordnungen festlegen."
-    },
     "moved": {
-      "title": "Nachricht verschoben",
       "failTitle": "Verschieben fehlgeschlagen",
       "failBody": "Nachricht konnte nicht verschoben werden."
     },
     "snoozed": {
       "title": "Nachricht zurückgestellt",
-      "failTitle": "Zurückstellen fehlgeschlagen",
-      "failBody": "Diese Nachricht konnte nicht zurückgestellt werden."
+      "failTitle": "Zurückstellen fehlgeschlagen"
     },
     "whitelistFail": {
       "title": "Einstellung konnte nicht gespeichert werden",
@@ -239,8 +230,7 @@
       "info": "Sie können sich von dieser Mailingliste abmelden.",
       "button": "Abmelden",
       "done": "Erfolgreich abgemeldet.",
-      "error": "Abmeldung fehlgeschlagen.",
-      "moveToTrash": "In den Papierkorb verschieben"
+      "error": "Abmeldung fehlgeschlagen."
     },
     "aiClassify": {
       "info": "Diese E-Mail hat keine Kategorie. Mit KI klassifizieren?",
@@ -277,18 +267,12 @@
     "loadMore": "Mehr laden",
     "noMoreMessages": "Keine weiteren Nachrichten",
     "deleted": {
-      "title": "Nachricht gelöscht",
-      "body": "In den Papierkorb verschoben.",
-      "failTitle": "Löschen fehlgeschlagen",
-      "failBody": "Nachricht konnte nicht gelöscht werden."
+      "failTitle": "Löschen fehlgeschlagen"
     },
     "bulkDeleted": {
       "title_one": "{{count}} Nachricht gelöscht",
       "title_other": "{{count}} Nachrichten gelöscht",
-      "body": "In den Papierkorb verschoben.",
-      "failTitle": "Löschen fehlgeschlagen",
-      "failBody_one": "{{count}} Nachricht konnte nicht gelöscht werden.",
-      "failBody_other": "{{count}} Nachrichten konnten nicht gelöscht werden."
+      "failTitle": "Löschen fehlgeschlagen"
     },
     "bulkMoved": {
       "title_one": "{{count}} Nachricht verschoben",
@@ -300,16 +284,7 @@
     "bulkArchived": {
       "title_one": "{{count}} Nachricht archiviert",
       "title_other": "{{count}} Nachrichten archiviert",
-      "body": "In das Archiv verschoben.",
-      "failTitle": "Archivierung fehlgeschlagen",
-      "failBody_one": "{{count}} Nachricht konnte nicht archiviert werden.",
-      "failBody_other": "{{count}} Nachrichten konnten nicht archiviert werden.",
-      "noFolderTitle": "Kein Archivordner",
-      "noFolderBody": "Bei einem oder mehreren Konten ist kein Archivordner konfiguriert. In Einstellungen → Konten → Ordnerzuordnungen festlegen."
-    },
-    "noArchiveFolder": {
-      "title": "Kein Archivordner",
-      "body": "Kein Archivordner konfiguriert. In Einstellungen → Konten → Ordnerzuordnungen festlegen."
+      "failTitle": "Archivierung fehlgeschlagen"
     },
     "selectMessages": "Nachrichten auswählen",
     "selectedCount": "{{count}} ausgewählt",
@@ -447,27 +422,77 @@
     "markAsHam": "Als kein Spam markieren"
   },
   "commandPalette": {
-    "placeholder": "Aktionen suchen…",
-    "noResults": "Keine Aktionen gefunden",
+    "title": "Befehlspalette",
+    "placeholder": "Befehle durchsuchen…",
+    "noResults": "Keine Befehle gefunden",
+    "matchedAlias": "Treffer: {{alias}}",
+    "announcement": "{{count}} Befehle. Ziel: {{target}}.",
+    "target": {
+      "application": "Anwendung",
+      "conversation": "Unterhaltung",
+      "selected": "{{count}} Unterhaltungen ausgewählt"
+    },
+    "outcome": {
+      "failedTitle": "Befehl fehlgeschlagen",
+      "partialTitle": "Befehl teilweise ausgeführt",
+      "partialBody": "{{succeeded}} erfolgreich; {{failed}} fehlgeschlagen."
+    },
     "hint": {
       "navigate": "navigieren",
       "select": "auswählen",
       "close": "schließen"
+    }
+  },
+  "commands": {
+    "mail": {
+      "archive": { "aliasDone": "Erledigt" },
+      "snooze": { "aliasRemind": "Später erinnern" },
+      "trash": { "aliasDelete": "Löschen" },
+      "spam": { "aliasJunk": "Junk" },
+      "partial": "{{succeeded}} erfolgreich; {{failed}} fehlgeschlagen"
     },
-    "actions": {
-      "compose": "Neue Nachricht verfassen",
-      "inbox": "Zum Posteingang",
-      "settings": "Einstellungen öffnen",
-      "themes": "Designs öffnen",
-      "switchTheme": "Zu {{theme}} wechseln",
-      "accountInbox": "{{name}} — Posteingang"
+    "shortcuts": {
+      "undo": "Rückgängig", "nextThreadMessage": "Nächste Nachricht im Thread", "previousThreadMessage": "Vorherige Nachricht im Thread",
+      "scrollDown": "Nach unten scrollen", "scrollUp": "Nach oben scrollen", "openConversation": "Konversation öffnen",
+      "extendNext": "Auswahl nach unten erweitern", "extendPrevious": "Auswahl nach oben erweitern",
+      "selectOlder": "Fokussierte und ältere Konversationen auswählen", "selectAll": "Alle Konversationen auswählen",
+      "clearSelection": "Auswahl löschen", "sent": "Zu Gesendet", "drafts": "Zu Entwürfe", "contacts": "Zu Kontakte"
+    },
+    "compose": { "new": { "title": "Verfassen", "alias": { "write": "Schreiben" } } },
+    "navigation": {
+      "search": { "title": "E-Mails durchsuchen" },
+      "unifiedInbox": { "title": "Zum vereinheitlichten Posteingang" },
+      "accountInbox": { "title": "{{name}} — Posteingang" },
+      "folder": { "title": "{{name}}" },
+      "gtd": {
+        "todo": { "title": "Zu Aufgaben" },
+        "watch": { "title": "Zu Beobachten" },
+        "delegated": { "title": "Zu Delegiert" },
+        "reference": { "title": "Zu Referenz" },
+        "someday": { "title": "Zu Irgendwann" }
+      }
+    },
+    "appearance": { "theme": { "title": "Zum Design {{name}} wechseln" } },
+    "settings": {
+      "accounts": { "title": "Kontoeinstellungen öffnen" },
+      "notifications": { "title": "Benachrichtigungseinstellungen öffnen" },
+      "rules": { "title": "Regeln öffnen" },
+      "categories": { "title": "Kategorien öffnen" },
+      "appearance": { "title": "Darstellungseinstellungen öffnen" },
+      "shortcuts": { "title": "Tastaturkürzel-Einstellungen öffnen" },
+      "security": { "title": "Sicherheitseinstellungen öffnen" },
+      "integrations": { "title": "Integrationen öffnen" },
+      "ai-actions": { "title": "KI-Aktionen öffnen" },
+      "about": { "title": "Über öffnen" },
+      "users": { "title": "Benutzerverwaltung öffnen" },
+      "sso": { "title": "SSO-Einstellungen öffnen" },
+      "ai": { "title": "KI-Einstellungen öffnen" }
     }
   },
   "shortcuts": {
     "title": "Tastaturkürzel",
     "customizeHint": "Kürzel anpassen unter Einstellungen → Tastaturkürzel",
     "closeHint": "? oder Esc zum Schließen drücken",
-    "then": "dann",
     "groups": {
       "composeSearch": "Verfassen & Suche",
       "navigation": "Navigation",
@@ -475,85 +500,50 @@
       "gtd": "GTD"
     },
     "actions": {
-      "compose": {
-        "label": "Verfassen",
-        "description": "Neues Fenster zum Verfassen öffnen"
-      },
-      "focusSearch": {
-        "label": "Suchen",
-        "description": "Suchfeld fokussieren"
-      },
-      "showHelp": {
-        "label": "Kürzel anzeigen",
-        "description": "Diese Tastenkürzel-Übersicht anzeigen"
-      },
       "nextMessage": {
-        "label": "Nächste Nachricht",
-        "description": "Zur nächsten Nachricht wechseln"
+        "label": "Nächste Nachricht"
       },
       "prevMessage": {
-        "label": "Vorherige Nachricht",
-        "description": "Zur vorherigen Nachricht wechseln"
-      },
-      "openMessage": {
-        "label": "Erste Nachricht öffnen",
-        "description": "Erste Nachricht öffnen, wenn keine ausgewählt ist"
-      },
-      "goInbox": {
-        "label": "Zum Posteingang",
-        "description": "Zum vereinheitlichten Posteingang wechseln"
+        "label": "Vorherige Nachricht"
       },
       "reply": {
-        "label": "Antworten",
-        "description": "Auf die aktuelle Nachricht antworten"
+        "label": "Antworten"
       },
       "replyAll": {
-        "label": "Allen antworten",
-        "description": "Allen auf die aktuelle Nachricht antworten"
+        "label": "Allen antworten"
       },
       "forward": {
-        "label": "Weiterleiten",
-        "description": "Die aktuelle Nachricht weiterleiten"
+        "label": "Weiterleiten"
       },
       "archive": {
-        "label": "Archivieren",
-        "description": "Nachricht / Auswahl archivieren"
+        "label": "Archivieren"
       },
       "delete": {
-        "label": "Löschen",
-        "description": "Nachricht / Auswahl löschen"
+        "label": "Löschen"
       },
       "toggleStar": {
-        "label": "Markieren",
-        "description": "Stern für die aktuelle Nachricht umschalten"
+        "label": "Markieren"
       },
       "toggleRead": {
-        "label": "Gelesen umschalten",
-        "description": "Aktuelle Nachricht als gelesen oder ungelesen markieren"
+        "label": "Gelesen umschalten"
       },
       "selectMessage": {
-        "label": "Nachricht auswählen",
-        "description": "Aktuelle Nachricht an- oder abwählen"
+        "label": "Nachricht auswählen"
       },
       "printMessage": {
-        "label": "Drucken",
-        "description": "Die aktuelle Nachricht drucken"
+        "label": "Drucken"
       },
       "gtdTodo": {
-        "label": "Als Aufgabe markieren",
-        "description": "Die ausgewählte Nachricht als Aufgabe einordnen"
+        "label": "Als Aufgabe markieren"
       },
       "gtdWatch": {
-        "label": "Als Beobachten markieren",
-        "description": "Die ausgewählte Nachricht als Beobachten einordnen"
+        "label": "Als Beobachten markieren"
       },
       "gtdDelegated": {
-        "label": "Als Delegiert markieren",
-        "description": "Die ausgewählte Nachricht als Delegiert einordnen"
+        "label": "Als Delegiert markieren"
       },
       "toggleRightSidebar": {
-        "label": "Rechte Seitenleiste umschalten",
-        "description": "Rechte Seitenleiste aus- oder einblenden"
+        "label": "Rechte Seitenleiste umschalten"
       }
     }
   },
@@ -947,7 +937,8 @@
       "conflict": "Taste {{key}} war bereits {{action}} zugewiesen — neu zugewiesen.",
       "resetDefault": "Auf Standard zurücksetzen",
       "remove": "Kürzel entfernen",
-      "footer": "Überall in der App ? drücken, um die aktuelle Kürzelbeschreibung zu sehen."
+      "footer": "Überall in der App ? drücken, um die aktuelle Kürzelbeschreibung zu sehen.",
+      "sources": { "primary": "Primär", "secondary": "Sekundär", "platform": "Plattform", "user": "Benutzerdefiniert" }
     },
     "users": {
       "title": "Benutzer",
@@ -1403,10 +1394,7 @@
     "movedToInbox": "In den Posteingang verschoben",
     "movedToInboxBulk": "{{count}} Nachrichten in den Posteingang verschoben",
     "failTitle": "Als Spam markieren fehlgeschlagen",
-    "failHamTitle": "Als kein Spam markieren fehlgeschlagen",
-    "failBody": "Der Mailserver hat die Verschiebung abgelehnt.",
-    "failHamBody": "Der Mailserver hat die Verschiebung abgelehnt.",
-    "failBodyBulk": "{{count}} Nachrichten konnten nicht verschoben werden."
+    "failHamTitle": "Als kein Spam markieren fehlgeschlagen"
   },
   "contacts": {
     "title": "Kontakte",

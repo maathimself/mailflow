@@ -213,22 +213,13 @@
     "aiCopied": "Copied",
     "previousMessage": "Previous message",
     "nextMessage": "Next message",
-    "archived": {
-      "title": "Message archived",
-      "failTitle": "Archive failed",
-      "failBody": "Could not archive message.",
-      "noFolderTitle": "No archive folder",
-      "noFolderBody": "No archive folder configured for this account. Set one in Settings → Accounts → Folder Mappings."
-    },
     "moved": {
-      "title": "Message moved",
       "failTitle": "Move failed",
       "failBody": "Could not move message."
     },
     "snoozed": {
       "title": "Message snoozed",
-      "failTitle": "Snooze failed",
-      "failBody": "Could not snooze this message."
+      "failTitle": "Snooze failed"
     },
     "whitelistFail": {
       "title": "Could not save preference",
@@ -239,8 +230,7 @@
       "info": "You can unsubscribe from this mailing list.",
       "button": "Unsubscribe",
       "done": "Unsubscribed successfully.",
-      "error": "Unsubscribe failed.",
-      "moveToTrash": "Move to trash"
+      "error": "Unsubscribe failed."
     },
     "aiClassify": {
       "info": "This email has no category. Classify it with AI?",
@@ -277,18 +267,12 @@
     "loadMore": "Load more",
     "noMoreMessages": "No more messages",
     "deleted": {
-      "title": "Message deleted",
-      "body": "Removed.",
-      "failTitle": "Delete failed",
-      "failBody": "Could not delete message."
+      "failTitle": "Delete failed"
     },
     "bulkDeleted": {
       "title_one": "{{count}} message deleted",
       "title_other": "{{count}} messages deleted",
-      "body": "Removed.",
-      "failTitle": "Delete failed",
-      "failBody_one": "Could not delete {{count}} message.",
-      "failBody_other": "Could not delete {{count}} messages."
+      "failTitle": "Delete failed"
     },
     "bulkMoved": {
       "title_one": "{{count}} message moved",
@@ -300,16 +284,7 @@
     "bulkArchived": {
       "title_one": "{{count}} message archived",
       "title_other": "{{count}} messages archived",
-      "body": "Moved to Archive.",
-      "failTitle": "Archive failed",
-      "failBody_one": "Could not archive {{count}} message.",
-      "failBody_other": "Could not archive {{count}} messages.",
-      "noFolderTitle": "No archive folder",
-      "noFolderBody": "One or more accounts have no archive folder configured. Set one in Settings → Accounts → Folder Mappings."
-    },
-    "noArchiveFolder": {
-      "title": "No archive folder",
-      "body": "No archive folder configured. Set one in Settings → Accounts → Folder Mappings."
+      "failTitle": "Archive failed"
     },
     "selectMessages": "Select messages",
     "selectedCount": "{{count}} selected",
@@ -447,27 +422,77 @@
     }
   },
   "commandPalette": {
-    "placeholder": "Search actions…",
-    "noResults": "No actions found",
+    "title": "Command palette",
+    "placeholder": "Search commands…",
+    "noResults": "No commands found",
+    "matchedAlias": "Matched: {{alias}}",
+    "announcement": "{{count}} commands. Target: {{target}}.",
+    "target": {
+      "application": "Application",
+      "conversation": "Conversation",
+      "selected": "{{count}} conversations selected"
+    },
+    "outcome": {
+      "failedTitle": "Command failed",
+      "partialTitle": "Command partially completed",
+      "partialBody": "{{succeeded}} succeeded; {{failed}} failed."
+    },
     "hint": {
       "navigate": "navigate",
       "select": "select",
       "close": "close"
+    }
+  },
+  "commands": {
+    "mail": {
+      "archive": { "aliasDone": "Done" },
+      "snooze": { "aliasRemind": "Remind me" },
+      "trash": { "aliasDelete": "Delete" },
+      "spam": { "aliasJunk": "Junk" },
+      "partial": "{{succeeded}} succeeded; {{failed}} failed"
     },
-    "actions": {
-      "compose": "Compose new message",
-      "inbox": "Go to Inbox",
-      "settings": "Open Settings",
-      "themes": "Open Themes",
-      "switchTheme": "Switch to {{theme}} theme",
-      "accountInbox": "{{name}} — Inbox"
+    "shortcuts": {
+      "undo": "Undo", "nextThreadMessage": "Next message in thread", "previousThreadMessage": "Previous message in thread",
+      "scrollDown": "Scroll down", "scrollUp": "Scroll up", "openConversation": "Open conversation",
+      "extendNext": "Extend selection down", "extendPrevious": "Extend selection up",
+      "selectOlder": "Select focused and older conversations", "selectAll": "Select all conversations",
+      "clearSelection": "Clear selection", "sent": "Go to Sent", "drafts": "Go to Drafts", "contacts": "Go to Contacts"
+    },
+    "compose": { "new": { "title": "Compose", "alias": { "write": "Write" } } },
+    "navigation": {
+      "search": { "title": "Search mail" },
+      "unifiedInbox": { "title": "Go to Unified Inbox" },
+      "accountInbox": { "title": "{{name}} — Inbox" },
+      "folder": { "title": "{{name}}" },
+      "gtd": {
+        "todo": { "title": "Go to Todo" },
+        "watch": { "title": "Go to Watch" },
+        "delegated": { "title": "Go to Delegated" },
+        "reference": { "title": "Go to Reference" },
+        "someday": { "title": "Go to Someday" }
+      }
+    },
+    "appearance": { "theme": { "title": "Switch to {{name}} theme" } },
+    "settings": {
+      "accounts": { "title": "Open Account Settings" },
+      "notifications": { "title": "Open Notification Settings" },
+      "rules": { "title": "Open Rules" },
+      "categories": { "title": "Open Categories" },
+      "appearance": { "title": "Open Appearance Settings" },
+      "shortcuts": { "title": "Open Shortcut Settings" },
+      "security": { "title": "Open Security Settings" },
+      "integrations": { "title": "Open Integrations" },
+      "ai-actions": { "title": "Open AI Actions" },
+      "about": { "title": "Open About" },
+      "users": { "title": "Open User Administration" },
+      "sso": { "title": "Open SSO Settings" },
+      "ai": { "title": "Open AI Settings" }
     }
   },
   "shortcuts": {
     "title": "Keyboard Shortcuts",
     "customizeHint": "Customise shortcuts in Settings → Shortcuts",
     "closeHint": "Press ? or Esc to close",
-    "then": "then",
     "groups": {
       "composeSearch": "Compose & Search",
       "navigation": "Navigation",
@@ -475,85 +500,50 @@
       "gtd": "GTD"
     },
     "actions": {
-      "compose": {
-        "label": "Compose",
-        "description": "Open new compose window"
-      },
-      "focusSearch": {
-        "label": "Search",
-        "description": "Focus the search box"
-      },
-      "showHelp": {
-        "label": "Show shortcuts",
-        "description": "Show this keyboard shortcut reference"
-      },
       "nextMessage": {
-        "label": "Next message",
-        "description": "Move to the next message"
+        "label": "Next message"
       },
       "prevMessage": {
-        "label": "Previous message",
-        "description": "Move to the previous message"
-      },
-      "openMessage": {
-        "label": "Open first message",
-        "description": "Open first message if none selected"
-      },
-      "goInbox": {
-        "label": "Go to Inbox",
-        "description": "Navigate to the unified inbox"
+        "label": "Previous message"
       },
       "reply": {
-        "label": "Reply",
-        "description": "Reply to the current message"
+        "label": "Reply"
       },
       "replyAll": {
-        "label": "Reply all",
-        "description": "Reply all to the current message"
+        "label": "Reply all"
       },
       "forward": {
-        "label": "Forward",
-        "description": "Forward the current message"
+        "label": "Forward"
       },
       "archive": {
-        "label": "Archive",
-        "description": "Archive message / selection"
+        "label": "Archive"
       },
       "delete": {
-        "label": "Delete",
-        "description": "Delete message / selection"
+        "label": "Delete"
       },
       "toggleStar": {
-        "label": "Star",
-        "description": "Toggle star on the current message"
+        "label": "Star"
       },
       "toggleRead": {
-        "label": "Toggle read",
-        "description": "Mark current message read or unread"
+        "label": "Toggle read"
       },
       "selectMessage": {
-        "label": "Select message",
-        "description": "Check or uncheck the current message"
+        "label": "Select message"
       },
       "printMessage": {
-        "label": "Print",
-        "description": "Print the current message"
+        "label": "Print"
       },
       "gtdTodo": {
-        "label": "Mark Todo",
-        "description": "Classify the selected message as Todo"
+        "label": "Mark Todo"
       },
       "gtdWatch": {
-        "label": "Mark Watch",
-        "description": "Classify the selected message as Watch"
+        "label": "Mark Watch"
       },
       "gtdDelegated": {
-        "label": "Mark Delegated",
-        "description": "Classify the selected message as Delegated"
+        "label": "Mark Delegated"
       },
       "toggleRightSidebar": {
-        "label": "Toggle right sidebar",
-        "description": "Hide or show the right sidebar"
+        "label": "Toggle right sidebar"
       }
     }
   },
@@ -1017,7 +1007,8 @@
       "conflict": "Key {{key}} was already assigned to {{action}} — it has been reassigned.",
       "resetDefault": "Reset to default",
       "remove": "Remove shortcut",
-      "footer": "Press ? anywhere in the app to see the current shortcut reference."
+      "footer": "Press ? anywhere in the app to see the current shortcut reference.",
+      "sources": { "primary": "Primary", "secondary": "Secondary", "platform": "Platform", "user": "Custom" }
     },
     "users": {
       "title": "Users",
@@ -1403,10 +1394,7 @@
     "movedToInbox": "Moved to Inbox",
     "movedToInboxBulk": "Moved {{count}} messages to Inbox",
     "failTitle": "Could not mark as spam",
-    "failHamTitle": "Could not mark as not spam",
-    "failBody": "The mail server rejected the move.",
-    "failHamBody": "The mail server rejected the move.",
-    "failBodyBulk": "{{count}} messages could not be moved."
+    "failHamTitle": "Could not mark as not spam"
   },
   "contacts": {
     "title": "Contacts",

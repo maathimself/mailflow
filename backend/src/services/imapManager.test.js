@@ -12,7 +12,7 @@ vi.mock('../utils/redact.js', () => ({ redactEmail: vi.fn() }));
 vi.mock('./hostValidation.js', () => ({ resolveForConnection: vi.fn() }));
 vi.mock('./gtdTransitions.js', () => ({ runGtdTransitions: vi.fn(), threadKeysForMessageIds: vi.fn(), threadKeysInFolders: vi.fn() }));
 
-import { ImapManager, providerProfile, makeClientCfg, gtdRelocateGuard, insertCopiedSibling, deleteMessageCopyRow, emitAfterDeferredCopySync, emitGtdSectionsRefreshOnDelete, emitGtdSectionsRefreshIfEnabled, selectGtdReevalIds, ensureMailbox, runGtdSyncTick, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure } from './imapManager.js';
+import { ImapManager, providerProfile, makeClientCfg, gtdRelocateGuard, insertCopiedSibling, deleteMessageCopyRow, emitAfterDeferredCopySync, emitGtdSectionsRefreshOnDelete, emitGtdSectionsRefreshIfEnabled, selectGtdReevalIds, ensureMailbox, runGtdSyncTick, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, delegationSnapshotIsComplete } from './imapManager.js';
 import { query } from './db.js';
 import { invalidateGtdConfigCache } from './gtdConfig.js';
 import { runGtdTransitions, threadKeysInFolders } from './gtdTransitions.js';
@@ -768,6 +768,34 @@ describe('runGtdSyncTick', () => {
     expect(runGtdTransitions).not.toHaveBeenCalled();
   });
 
+  it('publishes an awaitable in-flight sync for an immediate user-triggered retry', async () => {
+    const accountId = 'acct-tick-shared';
+    invalidateGtdConfigCache(accountId);
+    query.mockResolvedValueOnce({ rows: [{
+      gtd_enabled: true,
+      gtd_folders: { todo: 'Todo', watch: 'Todo', delegated: 'Todo', someday: 'Todo', reference: 'Todo' },
+    }] });
+    let releaseSync;
+    const pendingSync = new Promise(resolve => { releaseSync = resolve; });
+    const mgr = mgrWithConnection(accountId, {
+      _gtdFolderFingerprint: vi.fn()
+        .mockResolvedValueOnce('before')
+        .mockResolvedValueOnce('after'),
+      _gtdSyncFolder: vi.fn().mockReturnValue(pendingSync),
+      onDemandSyncPromises: new Map(),
+    });
+    const acct = { id: accountId, user_id: 'user-1' };
+
+    const tick = runGtdSyncTick(mgr, acct);
+    await vi.waitFor(() => expect(mgr._gtdSyncFolder).toHaveBeenCalledTimes(1));
+    const userRetry = ImapManager.prototype.syncFolderOnDemand.call(mgr, acct, 'Todo');
+    expect(mgr._gtdSyncFolder).toHaveBeenCalledTimes(1);
+
+    releaseSync();
+    await Promise.all([tick, userRetry]);
+    expect(mgr.onDemandSyncPromises.size).toBe(0);
+  });
+
   it('broadcasts gtd_sections_updated and re-runs transitions when a folder fingerprint changes', async () => {
     const allTodo = { todo: 'Todo', watch: 'Todo', delegated: 'Todo', someday: 'Todo', reference: 'Todo' };
     query.mockResolvedValueOnce({ rows: [{ gtd_enabled: true, gtd_folders: allTodo }] });
@@ -1270,5 +1298,31 @@ describe('walkStructure attachment classification', () => {
     });
     expect(results.attachments).toHaveLength(1);
     expect(results.attachments[0].filename).toBe('invoice.pdf');
+  });
+});
+
+describe('reconcileDeletes delegation cleanup durability', () => {
+  beforeEach(() => query.mockReset());
+
+  it('only treats local absence as authoritative when the successful server snapshot agrees', () => {
+    expect(delegationSnapshotIsComplete(new Set(), [])).toBe(true);
+    expect(delegationSnapshotIsComplete(new Set([41]), [])).toBe(false);
+    expect(delegationSnapshotIsComplete(new Set([41]), [{ uid: 41 }])).toBe(true);
+    expect(delegationSnapshotIsComplete(new Set([41]), [{ uid: 41 }, { uid: 42 }])).toBe(false);
+  });
+
+  it('aborts before any message deletion when delegation config cannot be loaded', async () => {
+    const accountId = 'acct-reconcile-config-fail';
+    invalidateGtdConfigCache(accountId);
+    query
+      .mockResolvedValueOnce({ rows: [{ folder: 'Delegated' }] })
+      .mockRejectedValueOnce(new Error('config unavailable'));
+    const mgr = new ImapManager(null);
+
+    await expect(mgr.reconcileDeletes({ id: accountId, user_id: 'user-1' }))
+      .resolves.toBeUndefined();
+
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(query.mock.calls.some(([sql]) => sql.startsWith('DELETE FROM messages'))).toBe(false);
   });
 });

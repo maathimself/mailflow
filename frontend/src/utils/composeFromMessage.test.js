@@ -12,6 +12,15 @@ function harness(body = null) {
 }
 
 describe('openReplyFromMessage reply target', () => {
+  it('preserves the source thread identity', async () => {
+    const h = harness();
+    await openReplyFromMessage(
+      { account_id: 'a', thread_id: 'thread-1', from_email: 'sender@example.com' },
+      { accounts: [], openCompose: h.openCompose, getMessageBody: h.getMessageBody },
+    );
+    assert.equal(h.payload().threadId, 'thread-1');
+  });
+
   it('prefers reply_to[0] over from', async () => {
     const h = harness();
     await openReplyFromMessage(
