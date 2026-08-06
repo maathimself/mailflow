@@ -646,6 +646,7 @@ export default function ComposeModal() {
   const handleKeyDown = (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
       e.preventDefault();
+      e.stopPropagation();
       handleSend();
     }
   };
@@ -3163,4 +3164,3 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
     </div>
   );
 }
-

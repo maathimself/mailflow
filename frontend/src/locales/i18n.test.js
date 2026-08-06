@@ -114,6 +114,7 @@ const dir = dirname(fileURLToPath(import.meta.url));
 // Two locales sharing a value is only allowed if both appear in the same group.
 // Any unlisted pair will still fail.
 const SAME_VALUE_ALLOWED = {
+  'gtd.delegate.contacts':                  [['en', 'fr']], // Same word in both languages
   // ── Universal placeholders / brand names (all locales share) ───────────────
   'admin.about.kofi':                       'any', // Ko-fi — brand name, same everywhere
   'admin.about.githubSponsors':             'any', // GitHub Sponsors — product name, same everywhere
@@ -148,6 +149,7 @@ const SAME_VALUE_ALLOWED = {
   // "Alias" — Latin origin, same spelling in es, fr, it
   'admin.accounts.aliases': [['es', 'fr', 'it']],
   'admin.aliases.title':     [['es', 'fr', 'it']],
+  'admin.shortcuts.sources.primary': [['es', 'fr']],
 
 
   // email placeholder — example.com address looks the same in en, ru, zhCN
@@ -302,6 +304,16 @@ const SAME_VALUE_ALLOWED = {
   // "GTD" — acronym (Getting Things Done), same in every locale
   'gtd.title': 'any',
 
+  // ── Command palette ───────────────────────────────────────────────────────
+  // These labels are spelled identically in English and French.
+  'commandPalette.target.application': [['en', 'fr']],
+  'commandPalette.target.conversation': [['en', 'fr']],
+  // "Junk" is the conventional mailbox label in both German and English.
+  'commands.mail.spam.aliasJunk': [['de', 'en']],
+  // Folder names come from the account, so every locale intentionally renders
+  // the same interpolation token without adding surrounding copy.
+  'commands.navigation.folder.title': 'any',
+
   // ── Keyboard shortcuts ─────────────────────────────────────────────────────
   // "GTD" — acronym group heading, same in every locale (like admin.categories.gtdReveal)
   'shortcuts.groups.gtd': 'any',
@@ -357,6 +369,30 @@ const DYNAMIC_KEYS = new Set([
   // appear as literals; the other three do via the tab pills).
   'gtd.state.watch',
   'gtd.state.delegated',
+  // Command definitions generate these keys from the fixed GTD-section and
+  // settings-tab allowlists in appCommands.js.
+  'commands.navigation.gtd.todo.title',
+  'commands.navigation.gtd.watch.title',
+  'commands.navigation.gtd.delegated.title',
+  'commands.navigation.gtd.reference.title',
+  'commands.navigation.gtd.someday.title',
+  'commands.settings.accounts.title',
+  'commands.settings.notifications.title',
+  'commands.settings.rules.title',
+  'commands.settings.categories.title',
+  'commands.settings.appearance.title',
+  'commands.settings.shortcuts.title',
+  'commands.settings.security.title',
+  'commands.settings.integrations.title',
+  'commands.settings.ai-actions.title',
+  'commands.settings.about.title',
+  'commands.settings.users.title',
+  'commands.settings.sso.title',
+  'commands.settings.ai.title',
+  'admin.shortcuts.sources.primary',
+  'admin.shortcuts.sources.secondary',
+  'admin.shortcuts.sources.platform',
+  'admin.shortcuts.sources.user',
 ]);
 
 // JSX attribute names whose values must never be plain strings — always t().
@@ -538,8 +574,43 @@ function isAllowedPair(key, lang1, lang2) {
 const locales = loadLocales();
 const langs = Object.keys(locales).sort();
 const allKeys = [...new Set(langs.flatMap(l => Object.keys(locales[l])))].sort();
+const REQUIRED_KEYS = [
+  'commands.mail.archive.aliasDone',
+  'commands.mail.snooze.aliasRemind',
+  'commands.mail.trash.aliasDelete',
+  'commands.mail.spam.aliasJunk',
+  'commands.mail.partial',
+  'commands.shortcuts.undo',
+  'commands.shortcuts.nextThreadMessage',
+  'commands.shortcuts.previousThreadMessage',
+  'commands.shortcuts.scrollDown',
+  'commands.shortcuts.scrollUp',
+  'commands.shortcuts.openConversation',
+  'commands.shortcuts.extendNext',
+  'commands.shortcuts.extendPrevious',
+  'commands.shortcuts.selectOlder',
+  'commands.shortcuts.selectAll',
+  'commands.shortcuts.clearSelection',
+  'commands.shortcuts.sent',
+  'commands.shortcuts.drafts',
+  'commands.shortcuts.contacts',
+  'admin.shortcuts.sources.primary',
+  'admin.shortcuts.sources.secondary',
+  'admin.shortcuts.sources.platform',
+  'admin.shortcuts.sources.user',
+];
 
 describe('i18n locale files', () => {
+
+  it('provides localized mail command aliases and partial outcomes', () => {
+    const missing = [];
+    for (const lang of langs) {
+      for (const key of REQUIRED_KEYS) {
+        if (typeof locales[lang][key] !== 'string') missing.push(`${lang}: ${key}`);
+      }
+    }
+    assert.deepEqual(missing, []);
+  });
 
   it('places sender favicon setting copy under the admin message-list namespace', () => {
     const keys = [
@@ -582,6 +653,18 @@ describe('i18n locale files', () => {
   });
 
   describe('key coverage — every key must appear in every locale', () => {
+    it('includes the complete delegated-contact workflow in every locale', () => {
+      const required = [
+        'gtd.delegate.command', 'gtd.delegate.pickerTitle', 'gtd.delegate.pickerHint',
+        'gtd.delegate.search', 'gtd.delegate.contacts', 'gtd.delegate.withoutPerson',
+        'gtd.delegate.empty', 'gtd.delegate.retry', 'gtd.delegate.loadFailed',
+        'gtd.delegate.assignedTo', 'gtd.delegate.success', 'gtd.delegate.partial',
+        'gtd.delegate.failed',
+      ];
+      for (const [lang, locale] of Object.entries(locales)) {
+        for (const key of required) assert.equal(typeof locale[key], 'string', `${lang}: ${key}`);
+      }
+    });
     for (const lang of langs) {
       it(`${lang} has no missing keys`, () => {
         const present = new Set(Object.keys(locales[lang]));

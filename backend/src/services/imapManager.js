@@ -16,6 +16,7 @@ import { getConnectionPolicy } from './connectionPolicy.js';
 import { applyInboxRules, applyBlockList } from './inboxRules.js';
 import { generateVCard } from '../utils/vcard.js';
 import { randomUUID } from 'crypto';
+import { reconcileDelegatedRemovals, sweepStaleDelegations } from './gtdDelegations.js';
 
 
 // Shorthand for log lines — keeps domain visible while masking the local part.
@@ -764,6 +765,13 @@ export async function emitGtdSectionsRefreshIfEnabled(mgr, account, changedCount
 // is identical either way.
 export const emitGtdSectionsRefreshOnDelete = emitGtdSectionsRefreshIfEnabled;
 
+export function delegationSnapshotIsComplete(serverUids, localRows) {
+  const localUids = new Set(localRows.map(row => Number(row.uid)));
+  const normalizedServerUids = new Set([...serverUids].map(Number));
+  return localUids.size === normalizedServerUids.size
+    && [...normalizedServerUids].every(uid => localUids.has(uid));
+}
+
 // One GTD tick's body: sync each designated label folder for a connected gtd_enabled
 // account, then broadcast a single gtd_sections_updated if any folder actually changed.
 // Folders are synced one at a time (not in parallel) so a multi-folder account doesn't
@@ -788,15 +796,23 @@ export async function runGtdSyncTick(mgr, account) {
       const key = `${account.id}:${folder}`;
       if (mgr.onDemandSyncing.has(key)) continue; // a user-triggered sync owns this folder
       mgr.onDemandSyncing.add(key);
-      try {
+      mgr.onDemandSyncPromises ||= new Map();
+      const syncPromise = (async () => {
         const before = await mgr._gtdFolderFingerprint(account.id, folder);
         await mgr._gtdSyncFolder(account, folder);
         const after = await mgr._gtdFolderFingerprint(account.id, folder);
-        if (before !== after) changedFolders.push(folder);
+        return before !== after;
+      })();
+      mgr.onDemandSyncPromises.set(key, syncPromise);
+      try {
+        if (await syncPromise) changedFolders.push(folder);
       } catch (err) {
         console.warn(`GTD sync error ${logAccount(account)}/${folder}:`, err.message);
       } finally {
         mgr.onDemandSyncing.delete(key);
+        if (mgr.onDemandSyncPromises.get(key) === syncPromise) {
+          mgr.onDemandSyncPromises.delete(key);
+        }
       }
     }
 
@@ -1309,6 +1325,7 @@ export class ImapManager {
     this._backfillSem = createKeyedSemaphore(BACKFILL_MAX_PER_HOST); // cap concurrent backfills per provider host
     this._connectCooldown = new Map(); // accountId -> { until: ms, failures: number } after connection refusals
     this.onDemandSyncing = new Set(); // `${accountId}:${folder}` — prevent duplicate on-demand syncs
+    this.onDemandSyncPromises = new Map(); // same key -> awaitable user-triggered sync
     this.syncingAccounts = new Set(); // prevent overlapping interval syncs
     this.syncStartedAt = new Map();   // accountId -> ms when the current sync tick began (hung-sync detection)
     this.syncThrottleSkips = new Map(); // accountId -> remaining ticks to skip when throttled
@@ -3850,24 +3867,33 @@ export class ImapManager {
   // Uses a pooled connection — does NOT touch the main sync connection.
   async syncFolderOnDemand(account, folder) {
     const key = `${account.id}:${folder}`;
+    this.onDemandSyncPromises ||= new Map();
+    const inFlight = this.onDemandSyncPromises.get(key);
+    if (inFlight) return inFlight;
     if (this.onDemandSyncing.has(key)) {
       console.log(`syncFolderOnDemand skipped (already running): ${logAccount(account)}/${folder}`);
       return;
     }
     this.onDemandSyncing.add(key);
-    console.log(`syncFolderOnDemand start: ${logAccount(account)}/${folder}`);
-    try {
-      await withFreshClient(account, async (client) => {
-        await this.syncMessages(account, client, folder, 100, false, true);
-      });
-      console.log(`syncFolderOnDemand done: ${logAccount(account)}/${folder}`);
-      // sync_complete fires mailflow:refresh in the frontend, reloading the message list
-      this.broadcast({ type: 'sync_complete', accountId: account.id }, account.user_id);
-    } catch (err) {
-      console.error(`On-demand sync error ${logAccount(account)}/${folder}:`, err.message);
-    } finally {
-      this.onDemandSyncing.delete(key);
-    }
+    const syncPromise = (async () => {
+      console.log(`syncFolderOnDemand start: ${logAccount(account)}/${folder}`);
+      try {
+        await withFreshClient(account, async (client) => {
+          await this.syncMessages(account, client, folder, 100, false, true);
+        });
+        console.log(`syncFolderOnDemand done: ${logAccount(account)}/${folder}`);
+        // sync_complete fires mailflow:refresh in the frontend, reloading the message list
+        this.broadcast({ type: 'sync_complete', accountId: account.id }, account.user_id);
+      } catch (err) {
+        console.error(`On-demand sync error ${logAccount(account)}/${folder}:`, err.message);
+        throw err;
+      } finally {
+        this.onDemandSyncing.delete(key);
+        this.onDemandSyncPromises.delete(key);
+      }
+    })();
+    this.onDemandSyncPromises.set(key, syncPromise);
+    return syncPromise;
   }
 
   // Pre-fetch and cache the body for newly arrived messages immediately after sync.
@@ -4464,7 +4490,14 @@ export class ImapManager {
       return null;
     }
 
-    await insertCopiedSibling(accountId, uid, fromFolder, toFolder, newUid);
+    try {
+      await insertCopiedSibling(accountId, uid, fromFolder, toFolder, newUid);
+    } catch (err) {
+      // The remote UIDPLUS COPY already succeeded. Preserve its exact destination UID so
+      // the caller can compensate without guessing among same-thread copies.
+      if (err && typeof err === 'object') err.copiedUid = newUid;
+      throw err;
+    }
     return newUid;
   }
 
@@ -4951,9 +4984,22 @@ export class ImapManager {
       'SELECT DISTINCT folder FROM messages WHERE account_id = $1',
       [account.id]
     );
-    if (!folderResult.rows.length) return;
-
-    const folders = folderResult.rows.map(r => r.folder);
+    let delegatedFolder;
+    try {
+      const { folders: gtdFolders } = await getGtdConfig(account.id);
+      delegatedFolder = gtdFolders.delegated || null;
+    } catch (err) {
+      logger.debug(`Reconcile: delegated cleanup config unavailable for ${account.id}: ${err.message}`);
+      return;
+    }
+    // Always include the configured Delegated folder, even when it currently has no
+    // local rows. A successful empty server snapshot is the authority needed to clean
+    // metadata whose last local message row disappeared in an earlier failed pass.
+    const folders = [...new Set([
+      ...folderResult.rows.map(r => r.folder),
+      ...(delegatedFolder ? [delegatedFolder] : []),
+    ])];
+    if (!folders.length) return;
 
     // Phase 1 — fetch server UID sets for each folder (IMAP only, inside withFreshClient).
     const serverUidsByFolder = new Map(); // folder -> Set<number>
@@ -4984,14 +5030,17 @@ export class ImapManager {
     // Phase 2 — diff each folder's server UIDs against the DB and delete orphans.
     // Runs outside withFreshClient so DB errors never cause unnecessary pool eviction.
     let deletedCount = 0;
+    const delegatedThreadKeys = [];
     for (const [folder, serverUidSet] of serverUidsByFolder) {
       const dbResult = await query(
-        'SELECT uid FROM messages WHERE account_id = $1 AND folder = $2 AND (synced_at IS NULL OR synced_at < $3)',
+        'SELECT uid, thread_key FROM messages WHERE account_id = $1 AND folder = $2 AND (synced_at IS NULL OR synced_at < $3)',
         [account.id, folder, reconcileStartedAt]
       );
-      const orphanUids = dbResult.rows
-        .map(r => Number(r.uid))
-        .filter(uid => !serverUidSet.has(uid) && !this._isMoveUidGuarded(account.id, folder, uid));
+      const orphanRows = dbResult.rows.filter(row => {
+        const uid = Number(row.uid);
+        return !serverUidSet.has(uid) && !this._isMoveUidGuarded(account.id, folder, uid);
+      });
+      const orphanUids = orphanRows.map(row => Number(row.uid));
 
       if (orphanUids.length === 0) continue;
 
@@ -5013,6 +5062,39 @@ export class ImapManager {
         [account.id, folder]
       );
       deletedCount += orphanUids.length;
+      if (folder === delegatedFolder) {
+        delegatedThreadKeys.push(...orphanRows.map(row => row.thread_key).filter(Boolean));
+      }
+    }
+
+    if (delegatedThreadKeys.length) {
+      await reconcileDelegatedRemovals({
+        userId: account.user_id,
+        accountId: account.id,
+        delegatedFolder,
+        threadKeys: delegatedThreadKeys,
+      });
+    }
+    if (delegatedFolder && serverUidsByFolder.has(delegatedFolder)) {
+      // Only sweep when the local folder is an exact mirror of the successful server
+      // snapshot. If the folder could not be opened, or the server has a UID that local
+      // ingest has not materialized yet (UIDVALIDITY rebuild / incomplete sync), local
+      // absence is not authoritative and valid delegation metadata must be retained.
+      const localDelegated = await query(
+        'SELECT uid FROM messages WHERE account_id = $1 AND folder = $2 AND is_deleted = false',
+        [account.id, delegatedFolder]
+      );
+      const serverUids = serverUidsByFolder.get(delegatedFolder);
+      const snapshotIsComplete = delegationSnapshotIsComplete(serverUids, localDelegated.rows);
+      if (snapshotIsComplete) {
+        // Retry cleanup even when the message row that originally triggered it was already
+        // removed by a prior pass whose metadata DELETE failed.
+        await sweepStaleDelegations({
+          userId: account.user_id,
+          accountId: account.id,
+          delegatedFolder,
+        });
+      }
     }
 
     if (deletedCount > 0) {

@@ -13,12 +13,14 @@ import {
 } from '../utils/gtd.js';
 import { applyGtdRemovalGuard } from '../utils/pendingGtdRemovals.js';
 import { clampRightSidebarWidth } from '../utils/rightSidebar.js';
+import { nextSelection } from '../commands/selection.js';
 import {
   cacheFolderOrderFromPreferences,
   mergeFolderOrder,
   readFolderOrder,
 } from './folderOrder.js';
 import i18n from '../i18n.js';
+import { normalizeCarddavStatus } from '../utils/delegation.js';
 
 // Accumulate rapid preference changes and flush at most once per second.
 let _prefFlushTimer = null;
@@ -58,6 +60,8 @@ export const useStore = create((set, get) => ({
       senderFaviconsLoaded: false,
       senderFavicons: false,
       senderFaviconsSaving: false,
+      carddavStatus: { connected: false },
+      carddavStatusLoaded: false,
     } : {}),
   })),
   updateUser: (updates) => set(state => ({ user: state.user ? { ...state.user, ...updates } : state.user })),
@@ -68,6 +72,25 @@ export const useStore = create((set, get) => ({
     if (connected) localStorage.setItem('mailflow_todoist_connected', '1');
     else localStorage.removeItem('mailflow_todoist_connected');
     set({ todoistConnected: connected });
+  },
+
+  // Shared CardDAV status drives the Delegate command's continuation decision.
+  carddavStatus: { connected: false },
+  carddavStatusLoaded: false,
+  setCarddavStatus: (status) => set({
+    carddavStatus: normalizeCarddavStatus(status),
+    carddavStatusLoaded: true,
+  }),
+  refreshCarddavStatus: async () => {
+    try {
+      const status = await api.carddav.status();
+      get().setCarddavStatus(status);
+      return normalizeCarddavStatus(status);
+    } catch {
+      const status = { connected: false };
+      get().setCarddavStatus(status);
+      return status;
+    }
   },
 
   // Lock screen
@@ -81,7 +104,7 @@ export const useStore = create((set, get) => ({
         isLocked: true,
         messages: [], searchResults: [], searchQuery: '',
         accounts: [], accountsReady: false,
-        folders: {}, selectedMessageId: null,
+        folders: {}, selectedMessageIds: new Set(), selectedMessageId: null,
         unreadCounts: { total: 0, byAccount: {} },
         notifications: [], threadMessages: {}, expandedThreadId: null,
         backfillProgress: {},
@@ -135,7 +158,9 @@ export const useStore = create((set, get) => ({
       return {
         selectedAccountId: accountId,
         selectedFolder: folder,
+        selectedMessageIds: new Set(),
         selectedMessageId: null,
+        activeGtdTab: null,
         messages: [],
         messagesOffset: 0,
         hasMoreMessages: true,
@@ -227,6 +252,14 @@ export const useStore = create((set, get) => ({
   setMessagesTotal: (total) => set({ messagesTotal: total }),
   hasMoreMessages: true,
   setHasMoreMessages: (v) => set({ hasMoreMessages: v }),
+
+  // Shared checkbox selection: row UUIDs for existing bulk APIs. Command context
+  // converts these to account-scoped account_id:(message_id || id) identities.
+  selectedMessageIds: new Set(),
+  setSelectedMessageIds: (nextOrUpdater) => set(state => ({
+    selectedMessageIds: nextSelection(state.selectedMessageIds, nextOrUpdater),
+  })),
+  clearSelectedMessageIds: () => set({ selectedMessageIds: new Set() }),
 
   // Selected message
   selectedMessageId: null,

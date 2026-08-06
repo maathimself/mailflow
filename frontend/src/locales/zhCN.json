@@ -213,22 +213,13 @@
     "aiCopied": "已复制",
     "previousMessage": "上一封邮件",
     "nextMessage": "下一封邮件",
-    "archived": {
-      "title": "邮件已归档",
-      "failTitle": "归档失败",
-      "failBody": "无法归档此邮件。",
-      "noFolderTitle": "未设置归档文件夹",
-      "noFolderBody": "此账户未配置归档文件夹。请前往「设置 → 账户 → 文件夹映射」中设置。"
-    },
     "moved": {
-      "title": "邮件已移动",
       "failTitle": "移动失败",
       "failBody": "无法移动此邮件。"
     },
     "snoozed": {
       "title": "邮件已稍后提醒",
-      "failTitle": "稍后提醒失败",
-      "failBody": "无法对此邮件设置稍后提醒。"
+      "failTitle": "稍后提醒失败"
     },
     "whitelistFail": {
       "title": "无法保存偏好设置",
@@ -239,8 +230,7 @@
       "info": "您可以取消订阅此邮件列表。",
       "button": "取消订阅",
       "done": "取消订阅成功。",
-      "error": "取消订阅失败。",
-      "moveToTrash": "移至垃圾箱"
+      "error": "取消订阅失败。"
     },
     "aiClassify": {
       "info": "此邮件没有分类。使用 AI 进行分类？",
@@ -277,18 +267,12 @@
     "loadMore": "加载更多",
     "noMoreMessages": "没有更多邮件了",
     "deleted": {
-      "title": "邮件已删除",
-      "body": "已移至废件箱。",
-      "failTitle": "删除失败",
-      "failBody": "无法删除此邮件。"
+      "failTitle": "删除失败"
     },
     "bulkDeleted": {
       "title_one": "已删除 {{count}} 封邮件",
       "title_other": "已删除 {{count}} 封邮件",
-      "body": "已移至废件箱。",
-      "failTitle": "删除失败",
-      "failBody_one": "无法删除 {{count}} 封邮件。",
-      "failBody_other": "无法删除 {{count}} 封邮件。"
+      "failTitle": "删除失败"
     },
     "bulkMoved": {
       "title_one": "已移动 {{count}} 封邮件",
@@ -300,16 +284,7 @@
     "bulkArchived": {
       "title_one": "已归档 {{count}} 封邮件",
       "title_other": "已归档 {{count}} 封邮件",
-      "body": "已移至归档。",
-      "failTitle": "归档失败",
-      "failBody_one": "无法归档 {{count}} 封邮件。",
-      "failBody_other": "无法归档 {{count}} 封邮件。",
-      "noFolderTitle": "未设置归档文件夹",
-      "noFolderBody": "一个或多个账户未配置归档文件夹。请前往「设置 → 账户 → 文件夹映射」中设置。"
-    },
-    "noArchiveFolder": {
-      "title": "未设置归档文件夹",
-      "body": "未配置归档文件夹。请前往「设置 → 账户 → 文件夹映射」中设置。"
+      "failTitle": "归档失败"
     },
     "selectMessages": "选择邮件",
     "selectedCount": "已选 {{count}} 封",
@@ -447,27 +422,77 @@
     }
   },
   "commandPalette": {
-    "placeholder": "搜索操作…",
-    "noResults": "未找到任何操作",
+    "title": "命令面板",
+    "placeholder": "搜索命令…",
+    "noResults": "未找到命令",
+    "matchedAlias": "匹配项：{{alias}}",
+    "announcement": "{{count}} 个命令。目标：{{target}}。",
+    "target": {
+      "application": "应用",
+      "conversation": "会话",
+      "selected": "已选择 {{count}} 个会话"
+    },
+    "outcome": {
+      "failedTitle": "命令执行失败",
+      "partialTitle": "命令部分完成",
+      "partialBody": "{{succeeded}} 个成功；{{failed}} 个失败。"
+    },
     "hint": {
       "navigate": "导航",
       "select": "选择",
       "close": "关闭"
+    }
+  },
+  "commands": {
+    "mail": {
+      "archive": { "aliasDone": "完成" },
+      "snooze": { "aliasRemind": "提醒我" },
+      "trash": { "aliasDelete": "删除" },
+      "spam": { "aliasJunk": "垃圾邮件" },
+      "partial": "成功 {{succeeded}} 个；失败 {{failed}} 个"
     },
-    "actions": {
-      "compose": "撰写新邮件",
-      "inbox": "前往收件箱",
-      "settings": "打开设置",
-      "themes": "打开主题",
-      "switchTheme": "切换至「{{theme}}」主题",
-      "accountInbox": "{{name}} — 收件箱"
+    "shortcuts": {
+      "undo": "撤销", "nextThreadMessage": "会话中的下一封邮件", "previousThreadMessage": "会话中的上一封邮件",
+      "scrollDown": "向下滚动", "scrollUp": "向上滚动", "openConversation": "打开会话",
+      "extendNext": "向下扩展选择", "extendPrevious": "向上扩展选择",
+      "selectOlder": "选择当前及更早的会话", "selectAll": "选择所有会话",
+      "clearSelection": "清除选择", "sent": "前往已发送", "drafts": "前往草稿", "contacts": "前往联系人"
+    },
+    "compose": { "new": { "title": "撰写", "alias": { "write": "写邮件" } } },
+    "navigation": {
+      "search": { "title": "搜索邮件" },
+      "unifiedInbox": { "title": "前往统一收件箱" },
+      "accountInbox": { "title": "{{name}} — 收件箱" },
+      "folder": { "title": "{{name}}" },
+      "gtd": {
+        "todo": { "title": "前往待办" },
+        "watch": { "title": "前往关注" },
+        "delegated": { "title": "前往已委派" },
+        "reference": { "title": "前往参考" },
+        "someday": { "title": "前往将来" }
+      }
+    },
+    "appearance": { "theme": { "title": "切换至「{{name}}」主题" } },
+    "settings": {
+      "accounts": { "title": "打开账户设置" },
+      "notifications": { "title": "打开通知设置" },
+      "rules": { "title": "打开规则" },
+      "categories": { "title": "打开分类" },
+      "appearance": { "title": "打开外观设置" },
+      "shortcuts": { "title": "打开快捷键设置" },
+      "security": { "title": "打开安全设置" },
+      "integrations": { "title": "打开集成" },
+      "ai-actions": { "title": "打开 AI 操作" },
+      "about": { "title": "打开关于" },
+      "users": { "title": "打开用户管理" },
+      "sso": { "title": "打开单点登录设置" },
+      "ai": { "title": "打开 AI 设置" }
     }
   },
   "shortcuts": {
     "title": "键盘快捷键",
     "customizeHint": "可在「设置 → 快捷键」中自定义快捷键",
     "closeHint": "按 ? 或 Esc 关闭",
-    "then": "然后",
     "groups": {
       "composeSearch": "撰写与搜索",
       "navigation": "导航",
@@ -475,85 +500,47 @@
       "gtd": "GTD"
     },
     "actions": {
-      "compose": {
-        "label": "撰写",
-        "description": "打开新的撰写窗口"
-      },
-      "focusSearch": {
-        "label": "搜索",
-        "description": "聚焦搜索框"
-      },
-      "showHelp": {
-        "label": "显示快捷键",
-        "description": "显示此键盘快捷键参考"
-      },
       "nextMessage": {
-        "label": "下一封邮件",
-        "description": "移动到下一封邮件"
+        "label": "下一封邮件"
       },
       "prevMessage": {
-        "label": "上一封邮件",
-        "description": "移动到上一封邮件"
-      },
-      "openMessage": {
-        "label": "打开第一封邮件",
-        "description": "若未选中任何邮件则打开第一封"
-      },
-      "goInbox": {
-        "label": "前往收件箱",
-        "description": "跳转到统一收件箱"
+        "label": "上一封邮件"
       },
       "reply": {
-        "label": "回复",
-        "description": "回复当前邮件"
+        "label": "回复"
       },
       "replyAll": {
-        "label": "回复全部",
-        "description": "回复当前邮件的所有收件人"
+        "label": "回复全部"
       },
       "forward": {
-        "label": "转发",
-        "description": "转发当前邮件"
+        "label": "转发"
       },
       "archive": {
-        "label": "归档",
-        "description": "归档邮件 / 所选项"
+        "label": "归档"
       },
       "delete": {
-        "label": "删除",
-        "description": "删除邮件 / 所选项"
+        "label": "删除"
       },
       "toggleStar": {
-        "label": "加星标",
-        "description": "切换当前邮件的星标"
+        "label": "加星标"
       },
       "toggleRead": {
-        "label": "切换已读状态",
-        "description": "将当前邮件标记为已读或未读"
+        "label": "切换已读状态"
       },
       "selectMessage": {
-        "label": "选择邮件",
-        "description": "勾选或取消勾选当前邮件"
+        "label": "选择邮件"
       },
       "printMessage": {
-        "label": "打印",
-        "description": "打印当前邮件"
+        "label": "打印"
       },
       "gtdTodo": {
-        "label": "标记为待办",
-        "description": "将所选邮件归类为待办"
+        "label": "标记为待办"
       },
       "gtdWatch": {
-        "label": "标记为关注",
-        "description": "将所选邮件归类为关注"
-      },
-      "gtdDelegated": {
-        "label": "标记为已委派",
-        "description": "将所选邮件归类为已委派"
+        "label": "标记为关注"
       },
       "toggleRightSidebar": {
-        "label": "切换右侧边栏",
-        "description": "隐藏或显示右侧边栏"
+        "label": "切换右侧边栏"
       }
     }
   },
@@ -1017,7 +1004,8 @@
       "conflict": "按键 {{key}} 原已分配给「{{action}}」，现已重新分配。",
       "resetDefault": "恢复默认",
       "remove": "移除快捷键",
-      "footer": "在应用任意位置按 ? 即可查看当前快捷键参考。"
+      "footer": "在应用任意位置按 ? 即可查看当前快捷键参考。",
+      "sources": { "primary": "主要", "secondary": "备用", "platform": "平台", "user": "自定义" }
     },
     "users": {
       "title": "用户",
@@ -1403,10 +1391,7 @@
     "movedToInbox": "已移至收件箱",
     "movedToInboxBulk": "已移至收件箱 {{count}} 封",
     "failTitle": "标记为垃圾邮件失败",
-    "failHamTitle": "标记为非垃圾邮件失败",
-    "failBody": "邮件服务器拒绝了移动操作。",
-    "failHamBody": "邮件服务器拒绝了移动操作。",
-    "failBodyBulk": "{{count}} 封邮件无法移动。"
+    "failHamTitle": "标记为非垃圾邮件失败"
   },
   "contacts": {
     "title": "联系人",
@@ -1474,6 +1459,21 @@
   },
   "gtd": {
     "title": "GTD",
+    "delegate": {
+      "command": "委派",
+      "pickerTitle": "委派 {{count}} 封邮件",
+      "pickerHint": "选择已同步的联系人，或不指定联系人继续",
+      "search": "搜索联系人",
+      "contacts": "联系人",
+      "withoutPerson": "不指定联系人直接委派",
+      "empty": "未找到联系人",
+      "retry": "重试",
+      "loadFailed": "无法加载联系人",
+      "assignedTo": "已委派给 {{name}}",
+      "success": "已委派 {{count}} 封邮件",
+      "partial": "已委派 {{succeeded}} 封；{{failed}} 封失败",
+      "failed": "无法委派所选邮件"
+    },
     "inbox": "收件箱",
     "waiting": "等待中",
     "inboxZero": "收件箱清零 ✓",
