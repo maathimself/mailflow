@@ -1014,7 +1014,8 @@ router.post('/forgot-password', authLimiter, async (req, res) => {
           const cfg = JSON.parse(sysResult.rows[0].value);
           const pass = cfg.pass ? decrypt(cfg.pass) : null;
           if (cfg.host && cfg.user && pass) {
-            const sysResolved = await resolveForConnection(cfg.host);
+            const policy = await getConnectionPolicy();
+            const sysResolved = await resolveForConnection(cfg.host, { allowPrivate: policy.allowPrivateHosts });
             const sysTls = { rejectUnauthorized: true };
             if (sysResolved.servername) sysTls.servername = sysResolved.servername;
             transport = createSmtpTransport(sysResolved, {

@@ -288,7 +288,8 @@ router.post('/invites', async (req, res) => {
         const cfg = JSON.parse(sysResult.rows[0].value);
         const pass = cfg.pass ? decrypt(cfg.pass) : null;
         if (cfg.host && cfg.user && pass) {
-          const sysResolved = await resolveForConnection(cfg.host);
+          const policy = await getConnectionPolicy();
+          const sysResolved = await resolveForConnection(cfg.host, { allowPrivate: policy.allowPrivateHosts });
           const sysTls = { rejectUnauthorized: true };
           if (sysResolved.servername) sysTls.servername = sysResolved.servername;
           transport = createSmtpTransport(sysResolved, {
@@ -408,7 +409,11 @@ router.post('/system-email', async (req, res) => {
     return res.status(400).json({ error: 'SMTP host and username are required' });
   }
 
-  const hostErr = await validateHost(host);
+  // Honor the admin's "Allow private / local hosts" policy, exactly as the personal
+  // account routes do — a self-hosted System Email relay on a private IP must be
+  // accepted when the toggle is on (#358). With it off, the private/reserved check stands.
+  const policy = await getConnectionPolicy();
+  const hostErr = await validateHost(host, { allowPrivate: policy.allowPrivateHosts });
   if (hostErr) return res.status(400).json({ error: hostErr });
 
   // Load existing config so we can keep the encrypted password if the field wasn't changed
@@ -458,7 +463,8 @@ router.post('/system-email/test', async (req, res) => {
     return res.status(400).json({ error: 'No password stored — save the configuration first' });
   }
   try {
-    const testResolved = await resolveForConnection(cfg.host);
+    const policy = await getConnectionPolicy();
+    const testResolved = await resolveForConnection(cfg.host, { allowPrivate: policy.allowPrivateHosts });
     const testTls = { rejectUnauthorized: true };
     if (testResolved.servername) testTls.servername = testResolved.servername;
     const transport = createSmtpTransport(testResolved, {

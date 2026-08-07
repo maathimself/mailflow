@@ -10,10 +10,15 @@ vi.mock('./aiProvider.js', () => ({ getAiStatus: vi.fn(), completeText: vi.fn() 
 vi.mock('./pushNotifications.js', () => ({ sendPushToUser: vi.fn() }));
 vi.mock('../utils/redact.js', () => ({ redactEmail: vi.fn() }));
 vi.mock('./hostValidation.js', () => ({ resolveForConnection: vi.fn() }));
+vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
 vi.mock('./gtdTransitions.js', () => ({ runGtdTransitions: vi.fn(), threadKeysForMessageIds: vi.fn(), threadKeysInFolders: vi.fn() }));
 
 import { ImapManager, providerProfile, makeClientCfg, gtdRelocateGuard, insertCopiedSibling, deleteMessageCopyRow, emitAfterDeferredCopySync, emitGtdSectionsRefreshOnDelete, emitGtdSectionsRefreshIfEnabled, selectGtdReevalIds, ensureMailbox, runGtdSyncTick, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure } from './imapManager.js';
+import { EventEmitter } from 'node:events';
+import { ImapFlow } from 'imapflow';
 import { query } from './db.js';
+import { resolveForConnection } from './hostValidation.js';
+import { getConnectionPolicy } from './connectionPolicy.js';
 import { invalidateGtdConfigCache } from './gtdConfig.js';
 import { runGtdTransitions, threadKeysInFolders } from './gtdTransitions.js';
 import { parseMessage } from './messageParser.js';
@@ -1296,5 +1301,68 @@ describe('_shouldAutoBackfillOnConnect (#354)', () => {
   it('skips backfill for a PurelyMail account that already has cached messages', async () => {
     query.mockResolvedValueOnce({ rows: [{ exists: 1 }] });
     await expect(gate({ imap_host: 'imap.purelymail.com', id: 'a1' })).resolves.toBe(false);
+  });
+});
+
+// ── #360: 'error' listener attached before connect() ─────────────────────────
+// An ImapFlow 'error' emitted during the connection handshake (e.g. a socket timeout,
+// raised from a detached timer callback) with no listener is an unhandled EventEmitter
+// error — Node throws and the whole process dies, taking every account down, not just the
+// one connecting. connectAccount must therefore register its 'error' handler BEFORE it
+// awaits connect(). This test locks in that ordering: it inspects listenerCount('error')
+// at the exact moment connect() is invoked and confirms a handshake-time emission is
+// absorbed rather than thrown.
+describe("connectAccount attaches 'error' before connect (#360)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('has an error listener at connect() time and absorbs a handshake error', async () => {
+    let errorListenersAtConnect = -1;
+    let emitThrew = false;
+
+    ImapFlow.mockImplementation(function () {
+      const client = new EventEmitter();
+      client.connect = vi.fn(() => {
+        errorListenersAtConnect = client.listenerCount('error');
+        // Simulate a transport 'error' during the handshake. With the listener already
+        // attached this is a logged no-op; without it, emit() throws synchronously —
+        // which is exactly the process-killing #360 crash.
+        try { client.emit('error', new Error('Socket timeout')); } catch { emitThrew = true; }
+        return Promise.resolve();
+      });
+      client.logout = vi.fn(() => Promise.resolve());
+      client.close = vi.fn();
+      return client;
+    });
+
+    // PurelyMail host: preferFreshBodyFetch skips the pool pre-warm and its private
+    // acquirePooledClient (which would build a second mock client), keeping this test to
+    // the single connectAccount code path under test.
+    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: true, allowInsecureTls: true });
+    resolveForConnection.mockResolvedValue({ host: '127.0.0.1', addresses: ['127.0.0.1'], servername: null });
+    query.mockResolvedValue({ rows: [] });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const mgr = new ImapManager(null);
+    clearInterval(mgr._healthCheckTimer);
+    clearInterval(mgr._snippetSchedulerTimer);
+    // Stub the post-connect fan-out — this test asserts only the listener-ordering
+    // invariant, not folder/message sync behavior.
+    mgr.disconnectAccount = vi.fn(() => Promise.resolve());
+    mgr._attachIdleListeners = vi.fn();
+    mgr.syncFolders = vi.fn(() => Promise.resolve());
+    mgr.syncMessages = vi.fn(() => Promise.resolve());
+    mgr._shouldAutoBackfillOnConnect = vi.fn(() => Promise.resolve(false));
+    mgr.backfillAllFolders = vi.fn(() => Promise.resolve());
+    mgr._startSyncInterval = vi.fn();
+    mgr.broadcast = vi.fn();
+
+    const acct = { id: 1, user_id: 1, imap_host: 'imap.purelymail.com', imap_port: 993, imap_tls: true, auth_user: 'u', auth_pass: 'enc' };
+    const ok = await mgr.connectAccount(acct);
+
+    expect(ok).toBe(true);
+    expect(ImapFlow).toHaveBeenCalledTimes(1);
+    expect(errorListenersAtConnect).toBeGreaterThanOrEqual(1);
+    expect(emitThrew).toBe(false);
   });
 });
