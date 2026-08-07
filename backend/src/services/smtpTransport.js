@@ -1,5 +1,5 @@
 import nodemailer from 'nodemailer';
-import { refreshMicrosoftToken } from '../routes/oauth.js';
+import { refreshMicrosoftToken, refreshGoogleToken } from '../routes/oauth.js';
 import { decrypt } from './encryption.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { resolveForConnection } from './hostValidation.js';
@@ -68,12 +68,14 @@ export function createSmtpTransport(resolved, transportOptions, createTransport 
 
 export async function createAccountSmtpTransport(inputAccount) {
   let account = inputAccount;
-  if (account.oauth_provider === 'microsoft') {
+  const refreshers = { microsoft: refreshMicrosoftToken, google: refreshGoogleToken };
+  const refresh = refreshers[account.oauth_provider];
+  if (refresh) {
     const expiryMs = account.oauth_token_expiry
       ? new Date(account.oauth_token_expiry).getTime()
       : 0;
     if (expiryMs - Date.now() < 5 * 60 * 1000) {
-      account = await refreshMicrosoftToken(account);
+      account = await refresh(account);
     }
   }
 
