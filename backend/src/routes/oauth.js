@@ -388,9 +388,14 @@ async function doRefreshMicrosoftToken(account) {
 
 const GOOGLE_AUTH_URL  = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
-// https://mail.google.com/ is the full IMAP/SMTP scope. It is a restricted scope:
-// an app serving users outside its own org needs Google verification, but a
-// consent screen left in Testing mode allows up to 100 named test users without it.
+// https://mail.google.com/ is the full IMAP/SMTP scope, and it is *restricted*,
+// which constrains how the consent screen must be configured:
+//   - User Type "Internal" (project owned by a Workspace org): no verification,
+//     refresh tokens do not expire. This is the practical option for self-hosting.
+//   - "External" + Testing: works immediately, but Google revokes refresh tokens
+//     after 7 days, so the account must be reconnected weekly.
+//   - "External" + In production: needs full verification including a security
+//     audit before restricted scopes are granted long-lived tokens.
 const GOOGLE_SCOPE = 'https://mail.google.com/ openid email profile';
 
 const googleJwks = createRemoteJWKSet(new URL('https://www.googleapis.com/oauth2/v3/certs'));
