@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('nodemailer', () => ({ default: { createTransport: vi.fn() } }));
-vi.mock('../routes/oauth.js', () => ({ refreshMicrosoftToken: vi.fn() }));
+vi.mock('../routes/oauth.js', () => ({ refreshMicrosoftToken: vi.fn(), refreshGoogleToken: vi.fn() }));
 vi.mock('./encryption.js', () => ({ decrypt: vi.fn(v => v) }));
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
 vi.mock('./hostValidation.js', () => ({ resolveForConnection: vi.fn() }));
 
 const nodemailer = (await import('nodemailer')).default;
-const { refreshMicrosoftToken } = await import('../routes/oauth.js');
+const { refreshMicrosoftToken, refreshGoogleToken } = await import('../routes/oauth.js');
 const { getConnectionPolicy } = await import('./connectionPolicy.js');
 const { resolveForConnection } = await import('./hostValidation.js');
 const {
@@ -201,6 +201,52 @@ describe('createAccountSmtpTransport', () => {
 
     expect(refreshMicrosoftToken).toHaveBeenCalledTimes(1);
     expect(result.account.oauth_access_token).toBe('fresh-token');
+  });
+
+  it('refreshes an expired Google token before creating the transport', async () => {
+    refreshGoogleToken.mockResolvedValue({
+      oauth_provider: 'google',
+      oauth_access_token: 'fresh-google-token',
+      oauth_token_expiry: new Date(Date.now() + 5 * 60_000),
+      auth_user: 'sender@gmail.com',
+      email_address: 'sender@gmail.com',
+      smtp_host: 'smtp.gmail.com',
+      smtp_port: 587,
+      smtp_tls: 'STARTTLS',
+    });
+
+    const result = await createAccountSmtpTransport({
+      id: 'account-2',
+      oauth_provider: 'google',
+      oauth_access_token: 'expired-token',
+      oauth_token_expiry: new Date(0),
+      auth_user: 'sender@gmail.com',
+      email_address: 'sender@gmail.com',
+      smtp_host: 'smtp.gmail.com',
+      smtp_port: 587,
+      smtp_tls: 'STARTTLS',
+    });
+
+    expect(refreshGoogleToken).toHaveBeenCalledTimes(1);
+    expect(refreshMicrosoftToken).not.toHaveBeenCalled();
+    expect(result.account.oauth_access_token).toBe('fresh-google-token');
+  });
+
+  it('leaves a still-valid Google token alone', async () => {
+    const result = await createAccountSmtpTransport({
+      id: 'account-3',
+      oauth_provider: 'google',
+      oauth_access_token: 'valid-token',
+      oauth_token_expiry: new Date(Date.now() + 60 * 60_000),
+      auth_user: 'sender@gmail.com',
+      email_address: 'sender@gmail.com',
+      smtp_host: 'smtp.gmail.com',
+      smtp_port: 587,
+      smtp_tls: 'STARTTLS',
+    });
+
+    expect(refreshGoogleToken).not.toHaveBeenCalled();
+    expect(result.account.oauth_access_token).toBe('valid-token');
   });
 
   it('returns a policy error instead of creating a plain-text transport', async () => {
