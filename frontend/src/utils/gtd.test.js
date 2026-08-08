@@ -1019,20 +1019,65 @@ describe('openGtdThreadWithAutoRead', () => {
 describe('classifyThread', () => {
   const t = (key) => key;
 
-  it('classifies, reconverges the GTD sections store, then notifies success', async () => {
+  it('attaches a supplied inbox inverse only when the new label is undoable', async () => {
     const calls = [];
     const deps = {
-      gtdClassify: async (id, state) => { calls.push(['classify', id, state]); },
-      addNotification: (n) => calls.push(['notify', n.title, n.body]),
+      gtdClassify: async (id, state) => {
+        calls.push(['classify', id, state]);
+        return { applied: true, undoable: true, folder: 'Todo' };
+      },
+      createUndo: result => ({
+        undoScope: 'inbox-triage',
+        undoExpiresAt: 5500,
+        onUndo: () => { calls.push(['undo', result.folder]); },
+      }),
+      addNotification: (n) => calls.push(['notify', n]),
       scheduleGtdSectionsFetch: () => calls.push(['schedule']),
       t,
     };
     await classifyThread('m1', 'todo', deps);
-    assert.deepEqual(calls, [
+    assert.deepEqual(calls.slice(0, 2), [
       ['classify', 'm1', 'todo'],
       ['schedule'],
-      ['notify', 'gtd.classified', 'gtd.state.todo'],
     ]);
+    const notification = calls[2][1];
+    assert.equal(calls[2][0], 'notify');
+    assert.equal(notification.title, 'gtd.classified');
+    assert.equal(notification.body, 'gtd.state.todo');
+    assert.equal(notification.undoScope, 'inbox-triage');
+    assert.equal(notification.undoExpiresAt, 5500);
+    notification.onUndo();
+    assert.deepEqual(calls[3], ['undo', 'Todo']);
+  });
+
+  it('does not attach an inverse when the GTD label already existed', async () => {
+    const notifications = [];
+    let createUndoCalls = 0;
+    await classifyThread('m1', 'todo', {
+      gtdClassify: async () => ({ applied: false, folder: 'Todo' }),
+      createUndo: () => { createUndoCalls += 1; return { onUndo() {} }; },
+      addNotification: (n) => notifications.push(n),
+      scheduleGtdSectionsFetch: () => {},
+      t,
+    });
+    assert.equal(createUndoCalls, 0);
+    assert.deepEqual(notifications, [{ title: 'gtd.classified', body: 'gtd.state.todo' }]);
+    assert.equal(notifications[0].onUndo, undefined);
+  });
+
+  it('does not attach an inverse when the new label has no Message-ID', async () => {
+    const notifications = [];
+    let createUndoCalls = 0;
+    await classifyThread('m1', 'todo', {
+      gtdClassify: async () => ({ applied: true, undoable: false, folder: 'Todo' }),
+      createUndo: () => { createUndoCalls += 1; return { onUndo() {} }; },
+      addNotification: (n) => notifications.push(n),
+      scheduleGtdSectionsFetch: () => {},
+      t,
+    });
+    assert.equal(createUndoCalls, 0);
+    assert.deepEqual(notifications, [{ title: 'gtd.classified', body: 'gtd.state.todo' }]);
+    assert.equal(notifications[0].onUndo, undefined);
   });
 
   it('notifies a classify failure instead of the GTD sections store when the API call rejects', async () => {
@@ -1062,12 +1107,12 @@ describe('unclassifyThread', () => {
     await unclassifyThread('m1', 'todo', deps);
     assert.deepEqual(calls, [
       ['unclassify', 'm1', 'todo'],
-      ['schedule'],
       ['notify', 'gtd.removed', 'gtd.state.todo'],
+      ['schedule'],
     ]);
   });
 
-  it('notifies an unclassify failure instead of the GTD sections store when the API call rejects', async () => {
+  it('reconverges the GTD sections store and notifies failure when unclassify rejects', async () => {
     const calls = [];
     const deps = {
       gtdUnclassify: async () => { throw new Error('boom'); },
@@ -1076,6 +1121,9 @@ describe('unclassifyThread', () => {
       t,
     };
     await unclassifyThread('m1', 'todo', deps);
-    assert.deepEqual(calls, [['notify', 'gtd.removeFailed', 'gtd.state.todo']]);
+    assert.deepEqual(calls, [
+      ['notify', 'gtd.removeFailed', 'gtd.state.todo'],
+      ['schedule'],
+    ]);
   });
 });

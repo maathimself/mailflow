@@ -8,7 +8,7 @@ import { LAYOUTS } from '../layouts.js';
 import { updateFaviconBadge } from '../themes.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { setPending, pendingMarkReadMap, completedMarkReadMap } from '../utils/pendingReads.js';
-import { buildKeyMap, buildModKeyMap, getEffectiveShortcuts, getGroupedActions, parseModKey, modLabel, SPECIAL_KEYS, SPECIAL_KEY_LABELS } from '../utils/defaultShortcuts.js';
+import { buildKeyMap, buildModKeyMap, getEffectiveShortcuts, getGroupedActions, parseModKey, modLabel, shouldIgnoreGlobalShortcut, SPECIAL_KEYS, SPECIAL_KEY_LABELS } from '../utils/defaultShortcuts.js';
 import Sidebar from './Sidebar.jsx';
 import MessageList from './MessageList.jsx';
 import MessagePane from './MessagePane.jsx';
@@ -563,10 +563,12 @@ export default function MailApp() {
     };
 
     const handler = (e) => {
-      // Never intercept when the compose modal or admin panel is open, or an input is focused
-      if (composingRef.current || showAdminRef.current) return;
-      const tag = e.target.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
+      // Never intercept when the compose modal or admin panel is open, or an input is focused.
+      if (shouldIgnoreGlobalShortcut({
+        composing: composingRef.current,
+        showAdmin: showAdminRef.current,
+        target: e.target,
+      })) return;
       // Modifier combos: emit registered actions, pass everything else through
       if (e.ctrlKey || e.metaKey) {
         const action = modKeyMap[e.key.toLowerCase()];

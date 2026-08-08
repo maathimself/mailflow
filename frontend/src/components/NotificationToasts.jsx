@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { useMobile } from '../hooks/useMobile.js';
+import { getUndoRemainingMs } from '../utils/inboxTriageUndo.js';
+
+const EXIT_ANIMATION_MS = 190;
 
 export default function NotificationToasts() {
   const { notifications, removeNotification } = useStore();
@@ -48,22 +51,34 @@ export default function NotificationToasts() {
 
 function ActionBar({ notification, onDismiss, isMobile }) {
   const { t } = useTranslation();
+  const runNotificationUndo = useStore(state => state.runNotificationUndo);
   const [exiting, setExiting] = useState(false);
+  const remainingMs = getUndoRemainingMs(notification);
 
   const dismiss = () => {
+    if (getUndoRemainingMs(notification) <= EXIT_ANIMATION_MS) {
+      onDismiss();
+      return;
+    }
     setExiting(true);
-    setTimeout(onDismiss, 190);
+    setTimeout(onDismiss, EXIT_ANIMATION_MS);
   };
 
   const handleUndo = () => {
-    notification.onUndo();
-    dismiss();
+    runNotificationUndo(notification.id);
   };
 
   useEffect(() => {
-    const timer = setTimeout(dismiss, 6000);
+    const remaining = getUndoRemainingMs(notification);
+    if (remaining <= 0) {
+      onDismiss();
+      return undefined;
+    }
+    const timer = setTimeout(onDismiss, remaining);
     return () => clearTimeout(timer);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [notification, onDismiss]);
+
+  if (remainingMs <= 0) return null;
 
   return (
     <div
@@ -82,13 +97,13 @@ function ActionBar({ notification, onDismiss, isMobile }) {
         overflow: 'hidden',
       }}
     >
-      {/* Progress bar — empties over 4.5s (the undo window) */}
+      {/* Progress bar — empties at the notification's absolute undo expiry. */}
       <div style={{
         position: 'absolute',
         bottom: 0, left: 0,
         height: 2,
         background: 'var(--accent)',
-        animation: 'action-bar-progress 4.5s linear forwards',
+        animation: `action-bar-progress ${remainingMs}ms linear forwards`,
       }} />
 
       <span style={{
@@ -141,24 +156,33 @@ function ActionBar({ notification, onDismiss, isMobile }) {
 
 function Toast({ notification, onDismiss, isMobile }) {
   const { t } = useTranslation();
+  const runNotificationUndo = useStore(state => state.runNotificationUndo);
   const [exiting, setExiting] = useState(false);
+  const isUndoable = typeof notification.onUndo === 'function';
+  const remainingMs = isUndoable ? getUndoRemainingMs(notification) : 5000;
 
-  const dismiss = () => {
+  const dismiss = useCallback(() => {
+    if (isUndoable && getUndoRemainingMs(notification) <= EXIT_ANIMATION_MS) {
+      onDismiss();
+      return;
+    }
     setExiting(true);
-    setTimeout(onDismiss, 190);
-  };
+    setTimeout(onDismiss, EXIT_ANIMATION_MS);
+  }, [isUndoable, notification, onDismiss]);
 
   useEffect(() => {
-    if (notification.persistent) return undefined;
-
-    const duration = notification.onUndo ? 6000 : 5000;
-    const timer = setTimeout(dismiss, duration);
+    if (notification.persistent && !isUndoable) return undefined;
+    const remaining = isUndoable ? getUndoRemainingMs(notification) : 5000;
+    if (remaining <= 0) {
+      onDismiss();
+      return undefined;
+    }
+    const timer = setTimeout(isUndoable ? onDismiss : dismiss, remaining);
     return () => clearTimeout(timer);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [dismiss, isUndoable, notification, onDismiss]);
 
   const handleUndo = () => {
-    notification.onUndo();
-    dismiss();
+    runNotificationUndo(notification.id);
   };
 
   const enterClass = isMobile ? 'toast-enter-mobile' : 'toast-enter';
@@ -225,7 +249,7 @@ function Toast({ notification, onDismiss, isMobile }) {
           {notification.actionLabel || t('common.view')}
         </button>
       )}
-      {notification.onUndo && (
+      {isUndoable && remainingMs > 0 && (
         <button
           onClick={handleUndo}
           style={{

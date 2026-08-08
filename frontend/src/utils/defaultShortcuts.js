@@ -42,6 +42,7 @@ export const ACTION_DEFS = {
   toggleRead:    { groupKey: 'shortcuts.groups.messageActions', labelKey: 'shortcuts.actions.toggleRead.label',    descriptionKey: 'shortcuts.actions.toggleRead.description',    defaultKey: 'm'  },
   selectMessage: { groupKey: 'shortcuts.groups.messageActions', labelKey: 'shortcuts.actions.selectMessage.label', descriptionKey: 'shortcuts.actions.selectMessage.description', defaultKey: 'x'      },
   printMessage:  { groupKey: 'shortcuts.groups.messageActions', labelKey: 'shortcuts.actions.printMessage.label',  descriptionKey: 'shortcuts.actions.printMessage.description',  defaultKey: 'ctrl+p' },
+  undo:          { groupKey: 'shortcuts.groups.messageActions', labelKey: 'common.undo',                           descriptionKey: 'shortcuts.actions.undo.description',          defaultKey: 'ctrl+z' },
 
   // ── GTD ──────────────────────────────────────────────────────────────────────
   // Classify the selected message into a GTD state (COPY into its label folder).
@@ -114,6 +115,13 @@ export function buildModKeyMap(userOverrides = {}) {
     map[parsed.bare] = action;
   }
   return map;
+}
+
+export function shouldIgnoreGlobalShortcut({ composing, showAdmin, target }) {
+  const tag = target?.tagName;
+  return Boolean(composing || showAdmin
+    || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
+    || target?.isContentEditable);
 }
 
 // Returns actions grouped for display in the help overlay / settings tab.

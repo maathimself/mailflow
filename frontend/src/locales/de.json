@@ -539,6 +539,9 @@
         "label": "Drucken",
         "description": "Die aktuelle Nachricht drucken"
       },
+      "undo": {
+        "description": "Letzte Inbox-Aktion rückgängig machen"
+      },
       "gtdTodo": {
         "label": "Als Aufgabe markieren",
         "description": "Die ausgewählte Nachricht als Aufgabe einordnen"

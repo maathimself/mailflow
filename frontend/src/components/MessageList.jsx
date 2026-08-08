@@ -22,6 +22,15 @@ import { shortcutBus } from '../utils/shortcutBus.js';
 import { createLatestRequest } from '../utils/latestRequest.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
 import { applyDeleteGuard, clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.js';
+import {
+  createInboxTriageUndoMetadata,
+  getUndoRemainingMs,
+  registerInboxTriageUndoShortcut,
+  scheduleInboxTriageUndoCommit,
+} from '../utils/inboxTriageUndo.js';
+import { scheduleUndoableArchive } from '../utils/undoableArchive.js';
+
+const EXIT_ANIMATION_MS = 190;
 
 // Folder icon for move picker
 function FolderIcon({ specialUse, size = 13 }) {
@@ -268,6 +277,16 @@ export default function MessageList() {
   // Updated synchronously on every render so handlers are never stale.
   const scRef = useRef({});
   scRef.current = { messages, selectedIds, setSelectedIds, updateMessage, decrementUnread, addNotification };
+  const getInboxUndoMetadata = useCallback(() => {
+    const state = useStore.getState();
+    return createInboxTriageUndoMetadata({
+      selectedFolder: state.selectedFolder,
+      searchQuery: state.searchQuery,
+      activeGtdTab: state.activeGtdTab,
+      selectedMessageId: state.selectedMessageId,
+      displayedMessageIds: (scRef.current.displayMessages || []).map(message => message.id),
+    });
+  }, []);
   const tRef = useRef(t);
   useEffect(() => { tRef.current = t; }, [t]);
 
@@ -895,6 +914,7 @@ export default function MessageList() {
     const isThreadRow = isThreadListRow(message);
     const key = isThreadRow ? `thread:${tid}` : message.id;
     if (pendingDeleteTimers.current.has(key)) return;
+    const undoMetadata = getInboxUndoMetadata();
 
     let deleteMessages = [message];
     try {
@@ -927,7 +947,7 @@ export default function MessageList() {
       : deleteMessages.filter(msg => !msg.is_read).length;
     if (unreadDelta > 0) decrementUnread(message.account_id, unreadDelta);
 
-    const timer = setTimeout(async () => {
+    const { timer, undoMetadata: deadlineMetadata } = scheduleInboxTriageUndoCommit(async () => {
       pendingDeleteTimers.current.delete(key);
       try {
         if (ids.length > 1) {
@@ -960,11 +980,12 @@ export default function MessageList() {
           body: ids.length > 1 ? t('messageList.bulkDeleted.failBody', { count: ids.length }) : t('messageList.deleted.failBody'),
         });
       }
-    }, 4500);
+    }, undoMetadata);
     pendingDeleteTimers.current.set(key, { timer, message: visibleMessage, ids });
     addNotification({
       title: ids.length > 1 ? t('messageList.bulkDeleted.title', { count: ids.length }) : t('messageList.deleted.title'),
       body: ids.length > 1 ? t('messageList.bulkDeleted.body') : t('messageList.deleted.body'),
+      ...deadlineMetadata,
       onUndo: () => {
         const pending = pendingDeleteTimers.current.get(key);
         if (!pending) return;
@@ -978,7 +999,7 @@ export default function MessageList() {
   }, [
     isThreadListRow, expandedThreadId, resolveMessagesForThreadAction,
     removeMessage, setExpandedThreadId, decrementUnread, incrementUnread,
-    addNotification, t,
+    addNotification, getInboxUndoMetadata, t,
   ]);
 
   // Antispam helpers (v0.1).
@@ -997,6 +1018,7 @@ export default function MessageList() {
 
   const performSpamLabel = useCallback(async (messages, label) => {
     if (!messages.length) return;
+    const undoMetadata = getInboxUndoMetadata();
     const ids = messages.map(m => m.id);
     const isBulk = ids.length > 1;
 
@@ -1046,6 +1068,7 @@ export default function MessageList() {
     const timers = new Map();
     let settled = false;
     const undo = () => {
+      if (settled) return;
       settled = true;
       timers.forEach(timer => clearTimeout(timer));
       timers.clear();
@@ -1068,8 +1091,9 @@ export default function MessageList() {
       return fn(id).catch(err => ({ __failed: true, id, message: err.message }));
     };
 
-    timers.set('__call__', setTimeout(async () => {
+    const { timer: callTimer, undoMetadata: deadlineMetadata } = scheduleInboxTriageUndoCommit(async () => {
       if (settled) return;
+      settled = true;
       timers.delete('__call__');
       const results = await Promise.allSettled(ids.map(performCall));
       const failed = [];
@@ -1096,16 +1120,18 @@ export default function MessageList() {
       // concurrent IMAP IDLE update, can desync the local counters.
       api.getUnreadCounts().then(c => useStore.getState().setUnreadCounts(c)).catch(() => {});
       api.getFolders(accountId).then(f => useStore.getState().setFolders(accountId, f)).catch(() => {});
-    }, 4500));
+    }, undoMetadata);
+    timers.set('__call__', callTimer);
 
     addNotification({
       title: label === 'spam'
         ? (isBulk ? t('spam.movedToSpamBulk', { count: ids.length }) : t('spam.movedToSpam'))
         : (isBulk ? t('spam.movedToInboxBulk', { count: ids.length }) : t('spam.movedToInbox')),
       body: messages[0].subject || t('common.noSubject'),
+      ...deadlineMetadata,
       onUndo: undo,
     });
-  }, [removeMessage, decrementUnread, incrementUnread, addNotification, t, accounts]);
+  }, [removeMessage, decrementUnread, incrementUnread, addNotification, getInboxUndoMetadata, t, accounts]);
 
   // On page unload (refresh/close), fire pending deletes with keepalive:true so the
   // browser completes the request even after the page tears down. Clears the map so
@@ -1178,31 +1204,42 @@ export default function MessageList() {
     await setMessagesReadState(message, isUnread);
   }, [setMessagesReadState]);
 
-  const handleSwipeArchive = useCallback(async (message) => {
-    refreshRequestRef.current.invalidate();
-    advanceSelectionAfterRemoval(message.id);
-    removeMessage(message.id);
-    if (!message.is_read) decrementUnread(message.account_id);
-    let undone = false;
-    const timer = setTimeout(async () => {
-      if (undone) return;
-      try {
-        await api.bulkArchive([message.id]);
-      } catch (err) {
-        console.error('swipe archive failed:', err.message);
-      }
-    }, 4500);
-    addNotification({
-      title: t('messageList.bulkArchived.title', { count: 1 }),
-      body: message.subject || '',
-      onUndo: () => {
-        undone = true;
-        clearTimeout(timer);
-        useStore.getState().restoreMessages([message]);
-        if (!message.is_read) incrementUnread(message.account_id);
+  const scheduleArchive = useCallback((message) => {
+    const state = useStore.getState();
+    const undoMetadata = getInboxUndoMetadata();
+
+    scheduleUndoableArchive(message, {
+      archive: id => api.bulkArchive([id]),
+      invalidate: () => refreshRequestRef.current.invalidate(),
+      markPending: setPendingDelete,
+      advanceSelection: advanceSelectionAfterRemoval,
+      removeMessage: state.removeMessage,
+      restoreMessage: restored => useStore.getState().restoreMessages([restored]),
+      decrementUnread: state.decrementUnread,
+      incrementUnread: state.incrementUnread,
+      clearPending: clearPendingDelete,
+      clearGuard: clearDeleteGuard,
+      completeGuard: setCompletedDelete,
+      addNotification: state.addNotification,
+      notifyNoFolder: () => state.addNotification({
+        title: tRef.current('messageList.noArchiveFolder.title'),
+        body: tRef.current('messageList.noArchiveFolder.body'),
+      }),
+      notifyFailure: () => state.addNotification({
+        title: tRef.current('message.archived.failTitle'),
+        body: tRef.current('message.archived.failBody'),
+      }),
+      notification: {
+        title: tRef.current('message.archived.title'),
+        body: message.subject || tRef.current('common.noSubject'),
       },
+      undoMetadata,
     });
-  }, [removeMessage, decrementUnread, incrementUnread, addNotification, t]);
+  }, [getInboxUndoMetadata]);
+
+  const handleSwipeArchive = useCallback((message) => {
+    scheduleArchive(message);
+  }, [scheduleArchive]);
 
   const handleSwipeStar = useCallback((message) => {
     setMessagesStarredState(message, !message.is_starred);
@@ -1396,6 +1433,7 @@ export default function MessageList() {
   }, [displayMessages]);
 
   const handleBulkDelete = useCallback(async (ids, msgs) => {
+    const undoMetadata = getInboxUndoMetadata();
     const key = `bulk:${ids[0]}`;
     // Selected thread rows delete the whole conversation, matching the
     // single-row delete path — without this only each thread's visible
@@ -1422,9 +1460,10 @@ export default function MessageList() {
     setSelectionModeActive(false);
     setShowFolderPicker(false);
     let undone = false;
-    const timer = setTimeout(async () => {
+    const { timer, undoMetadata: deadlineMetadata } = scheduleInboxTriageUndoCommit(async () => {
       pendingDeleteTimers.current.delete(key);
       if (undone) return;
+      undone = true;
       const chunks = [];
       for (let i = 0; i < deleteIds.length; i += 500) chunks.push(deleteIds.slice(i, i + 500));
       const results = await Promise.allSettled(chunks.map(chunk => api.bulkDelete(chunk)));
@@ -1450,12 +1489,14 @@ export default function MessageList() {
       if (useStore.getState().searchQuery.trim()) {
         setSearchReloadToken(token => token + 1);
       }
-    }, 4500);
+    }, undoMetadata);
     pendingDeleteTimers.current.set(key, { timer, message: msgs[0], ids: deleteIds });
     addNotification({
       title: t('messageList.bulkDeleted.title', { count: deleteIds.length }),
       body: t('messageList.bulkDeleted.body'),
+      ...deadlineMetadata,
       onUndo: () => {
+        if (undone) return;
         undone = true;
         clearTimeout(timer);
         pendingDeleteTimers.current.delete(key);
@@ -1467,9 +1508,10 @@ export default function MessageList() {
         });
       },
     });
-  }, [searchHasMore, removeMessage, prefetchSearchAfterRemoval, resolveMessagesForThreadAction, decrementUnread, incrementUnread, addNotification, t]);
+  }, [searchHasMore, removeMessage, prefetchSearchAfterRemoval, resolveMessagesForThreadAction, decrementUnread, incrementUnread, addNotification, getInboxUndoMetadata, t]);
 
   const handleBulkMove = useCallback(async (ids, msgs, folder) => {
+    const undoMetadata = getInboxUndoMetadata();
     // Selected thread rows move the whole conversation. A folder path is
     // account-specific, so scope each thread's expansion to its row's own
     // account — the server would just skip (and previously silently drop)
@@ -1490,8 +1532,9 @@ export default function MessageList() {
     setSelectionModeActive(false);
     setShowFolderPicker(false);
     let undone = false;
-    const timer = setTimeout(async () => {
+    const { timer, undoMetadata: deadlineMetadata } = scheduleInboxTriageUndoCommit(async () => {
       if (undone) return;
+      undone = true;
       try {
         const result = await api.bulkMove(moveIds, folder);
         const movedSet = new Set(result.moved ?? []);
@@ -1508,18 +1551,20 @@ export default function MessageList() {
         useStore.getState().restoreMessages(msgs);
         addNotification({ title: t('messageList.bulkMoved.failTitle'), body: t('messageList.bulkMoved.failBody', { count: moveIds.length }) });
       }
-    }, 4500);
+    }, undoMetadata);
     addNotification({
       title: t('messageList.bulkMoved.title', { count: moveIds.length }),
       body: folder,
+      ...deadlineMetadata,
       onUndo: () => {
+        if (undone) return;
         undone = true;
         clearTimeout(timer);
         useStore.getState().restoreMessages(msgs);
         msgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
       },
     });
-  }, [removeMessage, decrementUnread, incrementUnread, resolveMessagesForThreadAction, addNotification, t]);
+  }, [removeMessage, decrementUnread, incrementUnread, resolveMessagesForThreadAction, addNotification, getInboxUndoMetadata, t]);
 
   const handleRowMove = useCallback((e, msg) => {
     e.stopPropagation();
@@ -1538,6 +1583,7 @@ export default function MessageList() {
   }, []);
 
   const handleBulkArchive = useCallback((ids, msgs) => {
+    const undoMetadata = getInboxUndoMetadata();
     refreshRequestRef.current.invalidate();
     // Tombstone the ids so a background refresh/websocket refetch during the undo window
     // can't resurrect them — applyDeleteGuard filters pending/completed ids out of refetch
@@ -1549,8 +1595,9 @@ export default function MessageList() {
     setSelectionModeActive(false);
     setShowFolderPicker(false);
     let undone = false;
-    const timer = setTimeout(async () => {
+    const { timer, undoMetadata: deadlineMetadata } = scheduleInboxTriageUndoCommit(async () => {
       if (undone) return;
+      undone = true;
       try {
         const result = await api.bulkArchive(ids);
         const archivedSet = new Set(result.archived ?? []);
@@ -1574,11 +1621,13 @@ export default function MessageList() {
         msgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
         addNotification({ title: t('messageList.bulkArchived.failTitle'), body: t('messageList.bulkArchived.failBody', { count: ids.length }) });
       }
-    }, 4500);
+    }, undoMetadata);
     addNotification({
       title: t('messageList.bulkArchived.title', { count: ids.length }),
       body: t('messageList.bulkArchived.body'),
+      ...deadlineMetadata,
       onUndo: () => {
+        if (undone) return;
         undone = true;
         clearTimeout(timer);
         ids.forEach(id => clearPendingDelete(id));
@@ -1586,7 +1635,7 @@ export default function MessageList() {
         msgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
       },
     });
-  }, [removeMessages, decrementUnread, incrementUnread, addNotification, t]);
+  }, [removeMessages, decrementUnread, incrementUnread, addNotification, getInboxUndoMetadata, t]);
 
   const handleBulkMarkRead = useCallback(async (ids, msgs) => {
     const markAsRead = msgs.some(m => !m.is_read);
@@ -1630,10 +1679,12 @@ export default function MessageList() {
   // Keep refs to bulk handlers so the shortcut effect (registered once) is never stale
   const bulkDeleteRef    = useRef(handleBulkDelete);
   const bulkArchiveRef   = useRef(handleBulkArchive);
+  const scheduleArchiveRef = useRef(scheduleArchive);
   const scheduleDeleteRef = useRef(scheduleDelete);
   const handleContextActionRef = useRef(null); // assigned below, once handleContextAction is defined
   useEffect(() => { bulkDeleteRef.current    = handleBulkDelete;  }, [handleBulkDelete]);
   useEffect(() => { bulkArchiveRef.current   = handleBulkArchive; }, [handleBulkArchive]);
+  useEffect(() => { scheduleArchiveRef.current = scheduleArchive; }, [scheduleArchive]);
   useEffect(() => { scheduleDeleteRef.current = scheduleDelete;   }, [scheduleDelete]);
 
   // Subscribe to keyboard shortcut actions that belong to the message list.
@@ -1711,26 +1762,15 @@ export default function MessageList() {
     };
 
     const onArchive = () => {
-      const { messages, searchResults, searchQuery, selectedMessageId, removeMessage, decrementUnread, addNotification } = getState();
+      const { messages, searchResults, searchQuery, selectedMessageId } = getState();
       const pool = searchQuery.trim() ? searchResults : messages;
       const ids = [...scRef.current.selectedIds];
       if (ids.length > 0) {
         const msgs = pool.filter(m => ids.includes(m.id));
         bulkArchiveRef.current(ids, msgs);
       } else if (selectedMessageId) {
-        const msg = pool.find(m => m.id === selectedMessageId);
-        if (!msg) return;
-        refreshRequestRef.current.invalidate();
-        setPendingDelete(selectedMessageId);
-        advanceSelectionAfterRemoval(selectedMessageId);
-        removeMessage(selectedMessageId);
-        if (!msg.is_read) decrementUnread(msg.account_id);
-        api.bulkArchive([selectedMessageId]).then(result => {
-          setCompletedDelete(selectedMessageId);
-          if (result.noArchiveFolder?.length) {
-            addNotification({ title: tRef.current('messageList.noArchiveFolder.title'), body: tRef.current('messageList.noArchiveFolder.body') });
-          }
-        }).catch(err => { clearDeleteGuard(selectedMessageId); console.error(err); });
+        const msg = pool.find(item => item.id === selectedMessageId);
+        if (msg) scheduleArchiveRef.current(msg);
       }
     };
 
@@ -1799,6 +1839,11 @@ export default function MessageList() {
     const onGtdTodo      = gtdClassifySelected('todo');
     const onGtdWatch     = gtdClassifySelected('watch');
     const onGtdDelegated = gtdClassifySelected('delegated');
+    const cleanupUndo = registerInboxTriageUndoShortcut({
+      shortcutBus,
+      getState,
+      getDisplayedMessageIds: () => (scRef.current.displayMessages || []).map(message => message.id),
+    });
 
     shortcutBus.on('nextMessage',   onNext);
     shortcutBus.on('prevMessage',   onPrev);
@@ -1819,6 +1864,7 @@ export default function MessageList() {
       shortcutBus.off('selectMessage', onSelect);
       shortcutBus.off('archive',       onArchive);
       shortcutBus.off('delete',        onDelete);
+      cleanupUndo();
       shortcutBus.off('toggleRead',    onToggleRead);
       shortcutBus.off('focusSearch',   onFocusSearch);
       shortcutBus.off('gtdTodo',       onGtdTodo);
@@ -1897,39 +1943,13 @@ export default function MessageList() {
         setSelectedIds(new Set([message.id]));
         break;
       case 'archive': {
-        const archived = message;
-        refreshRequestRef.current.invalidate();
-        advanceSelectionAfterRemoval(archived.id);
-        removeMessage(archived.id);
-        if (!archived.is_read) decrementUnread(archived.account_id);
-        let archiveUndone = false;
-        const archiveTimer = setTimeout(async () => {
-          if (archiveUndone) return;
-          try {
-            const result = await api.bulkArchive([archived.id]);
-            if (result.noArchiveFolder?.length) {
-              addNotification({ title: t('message.archived.noFolderTitle'), body: t('message.archived.noFolderBody') });
-            }
-          } catch (err) {
-            console.error('Archive failed:', err.message);
-            addNotification({ title: t('message.archived.failTitle'), body: t('message.archived.failBody') });
-          }
-        }, 4500);
-        addNotification({
-          title: t('message.archived.title'),
-          body: archived.subject || t('common.noSubject'),
-          onUndo: () => {
-            archiveUndone = true;
-            clearTimeout(archiveTimer);
-            useStore.getState().restoreMessages([archived]);
-            if (!archived.is_read) incrementUnread(archived.account_id);
-          },
-        });
+        scheduleArchive(message);
         break;
       }
       case 'moveTo': {
         const folder = data;
         if (!folder) break;
+        const undoMetadata = getInboxUndoMetadata();
         // If multiple messages are checked and the right-clicked message is among them,
         // delegate to handleBulkMove so all selected messages are moved together.
         if (selectedIds.size > 1 && selectedIds.has(message.id)) {
@@ -1965,8 +1985,9 @@ export default function MessageList() {
           if (next.size === 0) setSelectionModeActive(false);
         }
         let moveUndone = false;
-        const moveTimer = setTimeout(async () => {
+        const { timer: moveTimer, undoMetadata: deadlineMetadata } = scheduleInboxTriageUndoCommit(async () => {
           if (moveUndone) return;
+          moveUndone = true;
           try {
             const result = await api.bulkMove(moveIds, folder);
             // The server reports per-message success (200 even when some IMAP
@@ -1989,11 +2010,13 @@ export default function MessageList() {
             if (!moved.is_read) incrementUnread(moved.account_id);
             addNotification({ title: t('message.moved.failTitle'), body: t('message.moved.failBody') });
           }
-        }, 4500);
+        }, undoMetadata);
         addNotification({
           title: t('message.moved.title'),
           body: folder,
+          ...deadlineMetadata,
           onUndo: () => {
+            if (moveUndone) return;
             moveUndone = true;
             clearTimeout(moveTimer);
             useStore.getState().restoreMessages([moved]);
@@ -2024,14 +2047,23 @@ export default function MessageList() {
         break;
       }
       case 'gtdClassify': {
-        // Classify = COPY into the state's label folder. The message stays put
-        // (no optimistic removal / undo — it does not leave INBOX), so we just
-        // fire the copy and poke the GTD sections store instead of waiting on the WS event.
+        // Snapshot eligibility before the request, because the delayed response may
+        // arrive after navigation or a search/GTD-context change.
+        const inboxUndo = getInboxUndoMetadata();
         await classifyThread(message.id, data, {
           gtdClassify: api.gtdClassify,
           addNotification,
           scheduleGtdSectionsFetch: useStore.getState().scheduleGtdSectionsFetch,
           t,
+          createUndo: () => inboxUndo.undoScope ? {
+            ...inboxUndo,
+            onUndo: () => unclassifyThread(message.id, data, {
+              gtdUnclassify: api.gtdUnclassify,
+              addNotification,
+              scheduleGtdSectionsFetch: useStore.getState().scheduleGtdSectionsFetch,
+              t,
+            }),
+          } : null,
         });
         break;
       }
@@ -3724,22 +3756,34 @@ export default function MessageList() {
 
 function UndoBar({ notification, onDismiss, showTopBorder }) {
   const { t } = useTranslation();
+  const runNotificationUndo = useStore(state => state.runNotificationUndo);
   const [exiting, setExiting] = useState(false);
+  const remainingMs = getUndoRemainingMs(notification);
 
   const dismiss = () => {
+    if (getUndoRemainingMs(notification) <= EXIT_ANIMATION_MS) {
+      onDismiss();
+      return;
+    }
     setExiting(true);
-    setTimeout(onDismiss, 190);
+    setTimeout(onDismiss, EXIT_ANIMATION_MS);
   };
 
   const handleUndo = () => {
-    notification.onUndo();
-    dismiss();
+    runNotificationUndo(notification.id);
   };
 
   useEffect(() => {
-    const timer = setTimeout(dismiss, 6000);
+    const remaining = getUndoRemainingMs(notification);
+    if (remaining <= 0) {
+      onDismiss();
+      return undefined;
+    }
+    const timer = setTimeout(onDismiss, remaining);
     return () => clearTimeout(timer);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [notification, onDismiss]);
+
+  if (remainingMs <= 0) return null;
 
   return (
     <div
@@ -3757,7 +3801,7 @@ function UndoBar({ notification, onDismiss, showTopBorder }) {
       <div style={{
         position: 'absolute', bottom: 0, left: 0,
         height: 2, background: 'var(--accent)',
-        animation: 'action-bar-progress 4.5s linear forwards',
+        animation: `action-bar-progress ${remainingMs}ms linear forwards`,
       }} />
       <span style={{
         flex: 1, minWidth: 0,

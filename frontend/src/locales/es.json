@@ -539,6 +539,9 @@
         "label": "Imprimir",
         "description": "Imprimir el mensaje actual"
       },
+      "undo": {
+        "description": "Deshacer la última acción de la bandeja de entrada"
+      },
       "gtdTodo": {
         "label": "Marcar Por hacer",
         "description": "Clasificar el mensaje seleccionado como Por hacer"

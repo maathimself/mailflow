@@ -539,6 +539,9 @@
         "label": "Imprimer",
         "description": "Imprimer le message actuel"
       },
+      "undo": {
+        "description": "Annuler la dernière action de la boîte de réception"
+      },
       "gtdTodo": {
         "label": "Marquer À faire",
         "description": "Classer le message sélectionné comme À faire"
