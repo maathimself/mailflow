@@ -551,6 +551,10 @@
         "label": "Mark Delegated",
         "description": "Classify the selected message as Delegated"
       },
+      "toggleLeftSidebar": {
+        "label": "Toggle left sidebar",
+        "description": "Collapse or expand the left sidebar"
+      },
       "toggleRightSidebar": {
         "label": "Toggle right sidebar",
         "description": "Hide or show the right sidebar"

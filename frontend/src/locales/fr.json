@@ -551,6 +551,10 @@
         "label": "Marquer Délégué",
         "description": "Classer le message sélectionné comme Délégué"
       },
+      "toggleLeftSidebar": {
+        "label": "Afficher ou masquer la barre latérale gauche",
+        "description": "Réduire ou développer la barre latérale gauche"
+      },
       "toggleRightSidebar": {
         "label": "Afficher ou masquer la barre latérale droite",
         "description": "Masquer ou afficher la barre latérale droite"

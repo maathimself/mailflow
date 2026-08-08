@@ -9,6 +9,7 @@ import { updateFaviconBadge } from '../themes.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { setPending, pendingMarkReadMap, completedMarkReadMap } from '../utils/pendingReads.js';
 import { buildKeyMap, buildModKeyMap, getEffectiveShortcuts, getGroupedActions, parseModKey, modLabel, SPECIAL_KEYS, SPECIAL_KEY_LABELS } from '../utils/defaultShortcuts.js';
+import { sidebarTransition } from '../utils/sidebarTransition.js';
 import Sidebar from './Sidebar.jsx';
 import MessageList from './MessageList.jsx';
 import MessagePane from './MessagePane.jsx';
@@ -61,7 +62,7 @@ export default function MailApp() {
   const { t } = useTranslation();
   const {
     setAccounts, setUnreadCounts, showAdmin,
-    setShowAdmin, setAdminTab, composing, sidebarCollapsed, layout,
+    setShowAdmin, setAdminTab, composing, sidebarCollapsed, toggleSidebar, layout,
     unreadCounts, selectedAccountId, openCompose, setSelectedAccount,
     shortcuts, selectedMessageId, setSelectedMessage,
     mobileSidebarOpen, setMobileSidebarOpen, addNotification,
@@ -643,6 +644,13 @@ export default function MailApp() {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Whole left-sidebar collapse toggle (cmd+\). Mobile keeps its drawer-specific controls.
+  useEffect(() => {
+    const onToggleLeftSidebar = () => { if (!isMobile) toggleSidebar(); };
+    shortcutBus.on('toggleLeftSidebar', onToggleLeftSidebar);
+    return () => shortcutBus.off('toggleLeftSidebar', onToggleLeftSidebar);
+  }, [isMobile, toggleSidebar]);
+
   // Whole right-sidebar collapse toggle (cmd+/). Re-subscribed when applicability
   // flips so the handler never toggles a sidebar that is not rendered.
   useEffect(() => {
@@ -832,12 +840,12 @@ export default function MailApp() {
                     // Disabled while dragging (mirrors Sidebar's isSidebarResizing guard):
                     // otherwise every mousemove's CSS-var write would animate toward the new
                     // width instead of tracking the cursor.
-                    transition: isRightSidebarResizing ? 'none' : 'width 0.2s ease',
+                    transition: isRightSidebarResizing ? 'none' : sidebarTransition('width'),
                   }}>
                     <div style={{
                       width: 'var(--right-sidebar-width, 296px)', height: '100%',
                       transform: rightSidebarHidden ? 'translateX(100%)' : 'translateX(0)',
-                      transition: 'transform 0.2s ease',
+                      transition: sidebarTransition('transform'),
                     }}>
                       {rightSidebarContent}
                     </div>
