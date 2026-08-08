@@ -13,6 +13,7 @@ import { BUILTIN_SUMMARIZE } from '../aiActions.js';
 import { getResults, saveResult, removeResult } from '../aiResults.js';
 import { renderMarkdown } from '../utils/renderMarkdown.js';
 import { pickReplyAlias } from '../utils/replyAlias.js';
+import { classifyThread, unclassifyThread } from '../utils/gtd.js';
 const USE_DIV_RENDER = import.meta.env.VITE_EMAIL_DIV_RENDER === 'true';
 const MESSAGE_OPENING_EVENT = 'mailflow:message-opening';
 
@@ -37,6 +38,7 @@ import MessageHeaderModal from './MessageHeaderModal.jsx';
 import FolderIcon from './FolderIcon.jsx';
 import TodoistTaskModal from './TodoistTaskModal.jsx';
 import SenderAvatarImage from './SenderAvatarImage.jsx';
+import ContextMenu from './ContextMenu.jsx';
 
 function parseAddressField(raw) {
   try {
@@ -279,6 +281,12 @@ export default function MessagePane() {
   const [movePickerLoading, setMovePickerLoading] = useState(false);
   const [moveSearch, setMoveSearch] = useState('');
   const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [contextMenu, setContextMenu] = useState(null);
+  const [findDialogOpen, setFindDialogOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState('');
+  const [findMatchCase, setFindMatchCase] = useState(false);
+  const [findMatchIndex, setFindMatchIndex] = useState(-1);
+  const findInputRef = useRef(null);
   const [showTodoistModal, setShowTodoistModal] = useState(false);
   const [aiStatus, setAiStatus] = useState(null);
   // Per-action results for the current message: { [actionKey]: { status, text, label } }.
@@ -311,6 +319,57 @@ export default function MessagePane() {
   // Ref holding the latest pane action handlers so shortcut subscriptions ([] deps) never go stale
   const paneActionsRef = useRef({});
   const emailScaleRef = useRef(1); // scale applied to wide emails that resist CSS reflow
+
+  const getPaneSelectionText = useCallback(() => {
+    const iframeDoc = iframeRef.current?.contentDocument;
+    const iframeSelection = iframeDoc?.getSelection?.().toString() || '';
+    if (iframeSelection.trim()) return iframeSelection;
+    return window.getSelection?.().toString() || '';
+  }, []);
+
+  const isSelectionContextTarget = useCallback((event, doc = document) => {
+    const selection = doc.getSelection?.();
+    if (!selection?.toString().trim() || selection.rangeCount === 0) return false;
+    const target = event.target;
+    if (!target || target === doc.body || target === doc.documentElement) return false;
+    try {
+      return selection.containsNode(target, true) || selection.getRangeAt(0).intersectsNode(target);
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const hasNativeContextTarget = useCallback((event, doc = document) => {
+    if (isSelectionContextTarget(event, doc)) return true;
+    return Boolean(event.target?.closest?.(
+      'a[href], img, input, textarea, select, button, [role="button"], [contenteditable="true"], [contenteditable=""]'
+    ));
+  }, [isSelectionContextTarget]);
+
+  const openPaneContextMenu = useCallback((x, y, options = {}) => {
+    if (!message) return;
+    setShowReplyMenu(false);
+    setShowMovePicker(false);
+    setShowMoreMenu(false);
+    setShowAiMenu(false);
+    setContextMenu({
+      x,
+      y,
+      message,
+      source: options.source || 'pane',
+      selectedText: options.selectedText ?? getPaneSelectionText(),
+    });
+  }, [getPaneSelectionText, message]);
+
+  const handlePaneContextMenu = useCallback((event) => {
+    if (hasNativeContextTarget(event, event.currentTarget?.ownerDocument || document)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    openPaneContextMenu(event.clientX, event.clientY, {
+      selectedText: getPaneSelectionText(),
+      source: 'pane',
+    });
+  }, [getPaneSelectionText, hasNativeContextTarget, openPaneContextMenu]);
 
   // Track previous blocking policy so we can detect tightening vs loosening.
   const prevBlockingPolicyRef = useRef(null);
@@ -457,6 +516,8 @@ export default function MessagePane() {
 
     let rafId;
     let lastH = 0;
+    let contextMenuDoc = null;
+    let iframeContextMenuHandler = null;
 
     const setHeight = () => {
       const doc = iframe.contentDocument;
@@ -593,6 +654,18 @@ export default function MessagePane() {
         }
       });
 
+      iframeContextMenuHandler = (ev) => {
+        if (hasNativeContextTarget(ev, doc)) return;
+        ev.preventDefault();
+        const rect = iframe.getBoundingClientRect();
+        openPaneContextMenu(rect.left + ev.clientX, rect.top + ev.clientY, {
+          source: 'iframe',
+          selectedText: doc.getSelection?.().toString() || '',
+        });
+      };
+      contextMenuDoc = doc;
+      doc.addEventListener('contextmenu', iframeContextMenuHandler);
+
       // Re-measure after each lazy-loaded image settles; also re-expand any
       // scroll containers whose content has grown due to the newly loaded image.
       doc.querySelectorAll('img').forEach(img => {
@@ -620,10 +693,13 @@ export default function MessagePane() {
     return () => {
       cancelAnimationFrame(rafId);
       if (roRef.current) { roRef.current.disconnect(); roRef.current = null; }
+      if (contextMenuDoc && iframeContextMenuHandler) {
+        contextMenuDoc.removeEventListener('contextmenu', iframeContextMenuHandler);
+      }
       iframe.removeEventListener('load', onLoaded);
       emailScaleRef.current = 1;
     };
-  }, [body?.html, selectedMessageId]);
+  }, [body?.html, selectedMessageId, hasNativeContextTarget, openPaneContextMenu]);
 
   // Inject scoped email styles before paint so there is no flash of unstyled content.
   // useLayoutEffect runs synchronously after DOM mutations and before the browser paints,
@@ -1221,6 +1297,93 @@ ${bodyContent}
     }
   }, []);
 
+  const getFindRoot = useCallback(() => {
+    if (!USE_DIV_RENDER && body?.html && iframeRef.current?.contentDocument?.body) {
+      return {
+        doc: iframeRef.current.contentDocument,
+        root: iframeRef.current.contentDocument.body,
+        iframe: iframeRef.current,
+      };
+    }
+    return {
+      doc: document,
+      root: innerRef.current || scrollContainerRef.current,
+      iframe: null,
+    };
+  }, [body?.html]);
+
+  const collectFindMatches = useCallback((query, matchCase) => {
+    const { doc, root } = getFindRoot();
+    if (!query || !root) return [];
+
+    const needle = matchCase ? query : query.toLowerCase();
+    const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        if (!node.nodeValue?.trim()) return NodeFilter.FILTER_REJECT;
+        const parent = node.parentElement;
+        if (!parent || ['SCRIPT', 'STYLE', 'NOSCRIPT'].includes(parent.tagName)) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    });
+
+    const matches = [];
+    let node = walker.nextNode();
+    while (node) {
+      const haystack = matchCase ? node.nodeValue : node.nodeValue.toLowerCase();
+      let index = haystack.indexOf(needle);
+      while (index !== -1) {
+        matches.push({ doc, node, start: index, end: index + query.length });
+        index = haystack.indexOf(needle, index + Math.max(needle.length, 1));
+      }
+      node = walker.nextNode();
+    }
+    return matches;
+  }, [getFindRoot]);
+
+  const selectFindMatch = useCallback((match) => {
+    if (!match) return;
+    const range = match.doc.createRange();
+    range.setStart(match.node, match.start);
+    range.setEnd(match.node, match.end);
+    const selection = match.doc.getSelection?.();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+
+    const rect = range.getBoundingClientRect();
+    if (match.doc === document) {
+      const container = scrollContainerRef.current;
+      if (container && rect.height) {
+        const containerRect = container.getBoundingClientRect();
+        container.scrollTop += rect.top - containerRect.top - Math.max(32, container.clientHeight * 0.25);
+      }
+    } else if (iframeRef.current && rect.height) {
+      const iframeRect = iframeRef.current.getBoundingClientRect();
+      const container = scrollContainerRef.current;
+      if (container) {
+        const containerRect = container.getBoundingClientRect();
+        container.scrollTop += iframeRect.top + rect.top - containerRect.top - Math.max(32, container.clientHeight * 0.25);
+      }
+    }
+  }, []);
+
+  const runMessageFind = useCallback((direction = 1) => {
+    const matches = collectFindMatches(findQuery, findMatchCase);
+    if (matches.length === 0) {
+      setFindMatchIndex(-1);
+      return;
+    }
+    const nextIndex = findMatchIndex < 0
+      ? (direction < 0 ? matches.length - 1 : 0)
+      : (findMatchIndex + direction + matches.length) % matches.length;
+    setFindMatchIndex(nextIndex);
+    selectFindMatch(matches[nextIndex]);
+  }, [collectFindMatches, findMatchCase, findMatchIndex, findQuery, selectFindMatch]);
+
+  useEffect(() => {
+    if (!findDialogOpen) return;
+    setTimeout(() => findInputRef.current?.focus(), 0);
+  }, [findDialogOpen]);
+
   const handleMoveToFolder = useCallback((folder) => {
     if (!message) return;
     setShowMovePicker(false);
@@ -1257,6 +1420,7 @@ ${bodyContent}
     setShowMovePicker(false);
     setShowHeaderModal(false);
     setShowMoreMenu(false);
+    setContextMenu(null);
     setUnsubscribeStatus(null);
     setAiClassifying(false);
   }, [selectedMessageId]);
@@ -1394,6 +1558,154 @@ ${bodyContent}
         if (!archived.is_read) incrementUnread(archived.account_id);
       },
     });
+  };
+
+  const handlePaneContextAction = async (action, data) => {
+    if (!message) return;
+
+    switch (action) {
+      case 'open':
+      case 'bulkSelect':
+      case 'gtdDone':
+        break;
+      case 'copy':
+      case 'copySelection': {
+        const text = getPaneSelectionText();
+        if (text) navigator.clipboard?.writeText(text).catch(() => {});
+        break;
+      }
+      case 'selectAllContent': {
+        const selection = window.getSelection?.();
+        selection?.removeAllRanges();
+        if (contextMenu?.source === 'iframe' && iframeRef.current?.contentDocument?.body) {
+          const doc = iframeRef.current.contentDocument;
+          const range = doc.createRange();
+          range.selectNodeContents(doc.body);
+          doc.getSelection?.().removeAllRanges();
+          doc.getSelection?.().addRange(range);
+        } else if (scrollContainerRef.current) {
+          const range = document.createRange();
+          range.selectNodeContents(scrollContainerRef.current);
+          selection?.addRange(range);
+        }
+        break;
+      }
+      case 'findInContent': {
+        setFindDialogOpen(true);
+        setFindMatchIndex(-1);
+        break;
+      }
+      case 'print':
+        handlePrint();
+        break;
+      case 'markRead':
+        if (!message.is_read) {
+          updateMessage(message.id, { is_read: true });
+          decrementUnread(message.account_id);
+          adjustCategoryCount(message.category, -1);
+          setPending(message.id, message.account_id);
+          api.bulkRead([message.id], true).catch(e => {
+            console.error('markRead failed:', e.message);
+            updateMessage(message.id, { is_read: false });
+            incrementUnread(message.account_id);
+            adjustCategoryCount(message.category, 1);
+            pendingMarkReadMap.delete(message.id);
+          });
+        }
+        break;
+      case 'markUnread':
+        handleMarkUnread();
+        break;
+      case 'toggleStar':
+        await handleStarToggle();
+        break;
+      case 'reply':
+        handleReply(false);
+        break;
+      case 'replyAll':
+        handleReply(true);
+        break;
+      case 'forward':
+        handleForward();
+        break;
+      case 'archive':
+        handleArchive();
+        break;
+      case 'moveTo':
+        if (data) handleMoveToFolder(data);
+        break;
+      case 'delete':
+        handleDelete();
+        break;
+      case 'markSpam':
+        performSingleSpamLabel('spam');
+        break;
+      case 'markHam':
+        performSingleSpamLabel('ham');
+        break;
+      case 'snooze':
+        if (data) {
+          const snoozedMsg = message;
+          removeMessage(snoozedMsg.id);
+          if (!snoozedMsg.is_read) decrementUnread(snoozedMsg.account_id);
+          addNotification({ title: t('message.snoozed.title'), body: snoozedMsg.subject || t('common.noSubject') });
+          api.snoozeMessage(snoozedMsg.id, data).catch(err => {
+            console.error('Snooze failed:', err.message);
+            useStore.getState().restoreMessages([snoozedMsg]);
+            if (!snoozedMsg.is_read) incrementUnread(snoozedMsg.account_id);
+            addNotification({ title: t('message.snoozed.failTitle'), body: t('message.snoozed.failBody') });
+          });
+        }
+        break;
+      case 'gtdClassify':
+        await classifyThread(message.id, data, {
+          gtdClassify: api.gtdClassify,
+          addNotification,
+          scheduleGtdSectionsFetch: useStore.getState().scheduleGtdSectionsFetch,
+          t,
+        });
+        break;
+      case 'gtdRemove':
+        await unclassifyThread(message.id, data, {
+          gtdUnclassify: api.gtdUnclassify,
+          addNotification,
+          scheduleGtdSectionsFetch: useStore.getState().scheduleGtdSectionsFetch,
+          t,
+        });
+        break;
+      case 'createRuleFromMessage': {
+        const store = useStore.getState();
+        store.setRulesPreFill?.({ fromEmail: message.from_email, fromName: message.from_name });
+        store.setAdminTab('rules');
+        store.setShowAdmin(true);
+        break;
+      }
+      case 'addToBlockList': {
+        const email = message.from_email;
+        if (!email) break;
+        api.addToBlockList(email).then(() => {
+          addNotification({ title: t('blockList.blocked'), body: email });
+        }).catch(() => {
+          addNotification({ title: t('blockList.errorAdd'), body: email });
+        });
+        break;
+      }
+      case 'setCategory': {
+        const newCategory = data || 'primary';
+        const dbCategory = newCategory === 'primary' ? null : newCategory;
+        try {
+          await api.setMessageCategory(message.id, newCategory);
+          updateMessage(message.id, { category: dbCategory });
+          const params = message.account_id ? { accountId: message.account_id } : {};
+          api.getCategoryCounts(params).then(d => setCategoryCounts(d.counts || {})).catch(() => {});
+        } catch (err) {
+          console.error('setCategory failed:', err?.message);
+        }
+        break;
+      }
+      default:
+        break;
+    }
   };
 
   const handleLoadImages = () => {
@@ -2028,6 +2340,7 @@ ${bodyContent}
       <div
         ref={scrollContainerRef}
         onScroll={e => setPaneScrolled(e.currentTarget.scrollTop > 4)}
+        onContextMenu={handlePaneContextMenu}
         style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', background: 'var(--bg-primary)' }}
       >
       <div style={{ padding: isMobile ? '12px 0 0' : '24px 28px 0' }}>
@@ -2457,6 +2770,7 @@ ${bodyContent}
                 ref={outerRef}
                 style={{ position: 'relative', width: '100%' }}
                 onClick={handleEmailClick}
+                onContextMenu={handlePaneContextMenu}
               >
                 <div ref={scaleRef}>
                   <div
@@ -2704,6 +3018,125 @@ ${bodyContent}
             </div>
           </div>
         </>
+      )}
+
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          message={contextMenu.message}
+          variant="messagePane"
+          selectedText={getPaneSelectionText()}
+          onClose={() => setContextMenu(null)}
+          onAction={handlePaneContextAction}
+        />
+      )}
+
+      {findDialogOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 80,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 4100,
+            width: 456,
+            maxWidth: 'calc(100vw - 24px)',
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--border)',
+            borderRadius: 6,
+            boxShadow: 'var(--shadow-modal)',
+            color: 'var(--text-primary)',
+            padding: '10px 16px 14px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
+            <div style={{ flex: 1, textAlign: 'center', fontSize: 18, fontWeight: 500 }}>Search</div>
+            <button
+              onClick={() => setFindDialogOpen(false)}
+              aria-label="Close search"
+              style={{
+                background: 'none', border: 'none', color: 'var(--text-secondary)',
+                cursor: 'pointer', padding: 2, fontSize: 28, lineHeight: 1,
+              }}
+            >
+              &times;
+            </button>
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, fontSize: 14 }}>
+            <span>Find:</span>
+            <input
+              ref={findInputRef}
+              value={findQuery}
+              onChange={e => { setFindQuery(e.target.value); setFindMatchIndex(-1); }}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  runMessageFind(e.shiftKey ? -1 : 1);
+                } else if (e.key === 'Escape') {
+                  setFindDialogOpen(false);
+                }
+              }}
+              style={{
+                flex: 1,
+                height: 34,
+                boxSizing: 'border-box',
+                border: '1px solid var(--accent)',
+                borderRadius: 4,
+                padding: '5px 8px',
+                outline: 'none',
+                background: 'var(--bg-primary)',
+                color: 'var(--text-primary)',
+                fontSize: 14,
+              }}
+            />
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 22px 4px', fontSize: 14 }}>
+            <input
+              type="checkbox"
+              checked={findMatchCase}
+              onChange={e => { setFindMatchCase(e.target.checked); setFindMatchIndex(-1); }}
+              style={{ width: 17, height: 17 }}
+            />
+            Match case
+          </label>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <button
+              onClick={() => runMessageFind(-1)}
+              disabled={!findQuery}
+              style={{
+                minWidth: 88, height: 38, border: 'none', borderRadius: 4,
+                background: 'var(--bg-tertiary)', color: 'var(--text-primary)',
+                cursor: findQuery ? 'pointer' : 'default', opacity: findQuery ? 1 : 0.55,
+                fontSize: 14,
+              }}
+            >
+              Previous
+            </button>
+            <button
+              onClick={() => runMessageFind(1)}
+              disabled={!findQuery}
+              style={{
+                minWidth: 88, height: 38, border: 'none', borderRadius: 4,
+                background: 'var(--accent)', color: 'var(--accent-text)',
+                cursor: findQuery ? 'pointer' : 'default', opacity: findQuery ? 1 : 0.55,
+                fontSize: 14,
+              }}
+            >
+              Next
+            </button>
+            <button
+              onClick={() => setFindDialogOpen(false)}
+              style={{
+                minWidth: 88, height: 38, border: 'none', borderRadius: 4,
+                background: 'var(--bg-tertiary)', color: 'var(--text-primary)',
+                cursor: 'pointer', fontSize: 14,
+              }}
+            >
+              Close
+            </button>
+          </div>
+        </div>
       )}
 
       {showHeaderModal && (

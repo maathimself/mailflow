@@ -1399,6 +1399,60 @@ function setupMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
+function showContextMenu(webContents, params) {
+  const template = [];
+  const hasSelection = Boolean(params.selectionText && params.selectionText.trim());
+  const hasLink = Boolean(params.linkURL);
+  const hasImage = params.mediaType === 'image' && Boolean(params.srcURL);
+
+  if (params.isEditable) {
+    template.push(
+      { label: 'Cut', role: 'cut' },
+      { label: 'Copy', role: 'copy', enabled: hasSelection },
+      { label: 'Paste', role: 'paste' },
+      { type: 'separator' },
+      { label: 'Select All', role: 'selectAll' },
+    );
+  } else {
+    if (hasLink) {
+      template.push(
+        {
+          label: 'Open Link',
+          click: () => {
+            if (isAllowedExternalUrl(params.linkURL)) shell.openExternal(params.linkURL);
+          },
+        },
+        {
+          label: 'Copy Link',
+          click: () => clipboard.writeText(params.linkURL),
+        },
+      );
+    }
+
+    if (hasImage) {
+      if (template.length > 0) template.push({ type: 'separator' });
+      template.push({
+        label: 'Copy Image Address',
+        click: () => clipboard.writeText(params.srcURL),
+      });
+    }
+
+    if (hasSelection) {
+      if (template.length > 0) template.push({ type: 'separator' });
+      template.push(
+        { label: 'Copy', role: 'copy' },
+        { label: 'Select All', role: 'selectAll' },
+      );
+    }
+  }
+
+  if (template.length === 0) return;
+
+  Menu.buildFromTemplate(template).popup({
+    window: BrowserWindow.fromWebContents(webContents) || mainWindow,
+  });
+}
+
 function getDefaultWindowBounds() {
   return {
     width: 1280,
@@ -1561,6 +1615,10 @@ function createWindow() {
     }
 
     return { action: 'deny' };
+  });
+
+  mainWindow.webContents.on('context-menu', (_event, params) => {
+    showContextMenu(mainWindow.webContents, params);
   });
 
   const navigationPolicy = createNavigationPolicy(readHost);

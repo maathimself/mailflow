@@ -15,7 +15,7 @@ const SPAM_NAME_RE = /(spam|junk|bulk|indesiderata|spamverdacht|courrier\s*ind|p
 // ─── Context Menu ─────────────────────────────────────────────────────────────
 const CATEGORIES = ['primary', 'newsletter', 'promotion', 'automated', 'social'];
 
-export default function ContextMenu({ x, y, message, onClose, onAction, defaultMoveView = false, variant = 'inbox' }) {
+export default function ContextMenu({ x, y, message, onClose, onAction, defaultMoveView = false, variant = 'inbox', selectedText = '' }) {
   const { t } = useTranslation();
   const uiScale = useUiScale();
   // Variants share one menu; the policy removes actions that depend on the center
@@ -49,6 +49,8 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
   const [folderSearch, setFolderSearch] = useState('');
   const unreadCount = Number.parseInt(message.unread_count, 10);
   const hasUnread = Number.isFinite(unreadCount) ? unreadCount > 0 : !message.is_read;
+  const isMessagePane = variant === 'messagePane';
+  const hasSelectedText = Boolean(String(selectedText || '').trim());
 
   // A folder is "spam-like" when either the user mapped it as spam or the IMAP
   // server tagged it with \Junk special-use. Falls back to a multilingual name
@@ -111,14 +113,47 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
   }, [onClose]);
 
   const items = [
+    ...(isMessagePane ? [
+      {
+        group: 'Reading',
+        actions: [
+          {
+            label: t('common.copy'),
+            icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>,
+            action: () => onAction('copySelection'),
+            disabled: !hasSelectedText,
+          },
+          {
+            label: t('messageList.selectAll'),
+            icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 7h10v10H7z"/></svg>,
+            action: () => onAction('selectAllContent'),
+          },
+          {
+            label: 'Find',
+            icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>,
+            action: () => onAction('findInContent'),
+          },
+        ],
+      },
+      {
+        group: 'Print',
+        actions: [
+          {
+            label: t('message.print'),
+            icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>,
+            action: () => onAction('print'),
+          },
+        ],
+      },
+    ] : []),
     {
       group: 'Message',
       actions: [
-        {
+        ...(isMessagePane ? [] : [{
           label: t('contextMenu.open'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>,
           action: () => onAction('open'),
-        },
+        }]),
         {
           label: hasUnread ? t('contextMenu.markRead') : t('contextMenu.markUnread'),
           icon: hasUnread
@@ -294,26 +329,27 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
           }
         `}</style>
 
-        {/* Message info header */}
-        <div style={{
-          padding: '10px 14px 8px',
-          borderBottom: '1px solid var(--border-subtle)',
-        }}>
+        {!isMessagePane && (
           <div style={{
-            fontSize: 12, fontWeight: 500, color: 'var(--text-primary)',
-            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            padding: '10px 14px 8px',
+            borderBottom: '1px solid var(--border-subtle)',
           }}>
-            {message.subject || t('common.noSubject')}
+            <div style={{
+              fontSize: 12, fontWeight: 500, color: 'var(--text-primary)',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              {message.subject || t('common.noSubject')}
+            </div>
+            <div style={{
+              fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              {message.from_name
+                ? `${message.from_name} <${message.from_email}>`
+                : message.from_email}
+            </div>
           </div>
-          <div style={{
-            fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2,
-            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          }}>
-            {message.from_name
-              ? `${message.from_name} <${message.from_email}>`
-              : message.from_email}
-          </div>
-        </div>
+        )}
 
         {gtdView ? (
           <>
@@ -674,8 +710,10 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
                     icon={item.icon}
                     label={item.label}
                     danger={item.danger}
+                    disabled={item.disabled}
                     hasSubmenu={item.hasSubmenu}
                     onClick={() => {
+                      if (item.disabled) return;
                       item.action();
                       if (!item.keepOpen) onClose();
                     }}
@@ -699,7 +737,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
   );
 }
 
-function MenuItem({ icon, label, onClick, danger, hasSubmenu }) {
+function MenuItem({ icon, label, onClick, danger, hasSubmenu, disabled }) {
   const [hov, setHov] = useState(false);
   return (
     <div
@@ -708,11 +746,12 @@ function MenuItem({ icon, label, onClick, danger, hasSubmenu }) {
       onMouseLeave={() => setHov(false)}
       style={{
         display: 'flex', alignItems: 'center', gap: 10,
-        padding: '7px 14px', cursor: 'pointer',
-        background: hov ? (danger ? 'rgba(248,113,113,0.08)' : 'var(--bg-hover)') : 'transparent',
-        color: danger ? (hov ? 'var(--red)' : 'var(--text-secondary)') : 'var(--text-primary)',
+        padding: '7px 14px', cursor: disabled ? 'default' : 'pointer',
+        background: hov && !disabled ? (danger ? 'rgba(248,113,113,0.08)' : 'var(--bg-hover)') : 'transparent',
+        color: disabled ? 'var(--text-tertiary)' : danger ? (hov ? 'var(--red)' : 'var(--text-secondary)') : 'var(--text-primary)',
         transition: 'background 0.08s, color 0.08s',
         fontSize: 13,
+        opacity: disabled ? 0.55 : 1,
       }}
     >
       <span style={{ flexShrink: 0, color: danger && hov ? 'var(--red)' : 'var(--text-tertiary)', display: 'flex' }}>
