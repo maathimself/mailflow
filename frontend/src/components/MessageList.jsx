@@ -10,6 +10,7 @@ import { useSwipeRow } from '../hooks/useSwipeRow.js';
 import ContextMenu from './ContextMenu.jsx';
 import RowHoverActions from './RowHoverActions.jsx';
 import GtdTabList from './GtdTabList.jsx';
+import GtdZeroPet from './GtdZeroPet.jsx';
 import { useUiScale, descale } from '../hooks/useUiScale.js';
 import {
   gtdActiveForContext, buildGtdDisplaySections, GTD_COLORS, GTD_CHIP_BG, sectionBadge, isSelectedRow,
@@ -20,6 +21,7 @@ import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFr
 import SenderAvatarImage from './SenderAvatarImage.jsx';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { createLatestRequest } from '../utils/latestRequest.js';
+import { resolveMessageListEmptyVisual } from '../utils/messageListEmptyState.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
 import { applyDeleteGuard, clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.js';
 
@@ -3800,8 +3802,15 @@ function UndoBar({ notification, onDismiss, showTopBorder }) {
 
 function EmptyState({ folderSyncing, searchQuery, unreadOnly, selectedFolder, accounts, onClearSearch, onShowAll, onCompose }) {
   const { t } = useTranslation();
+  const visual = resolveMessageListEmptyVisual({
+    folderSyncing,
+    searchQuery,
+    unreadOnly,
+    hasAccounts: accounts.length > 0,
+    selectedFolder,
+  });
 
-  if (folderSyncing) {
+  if (visual === 'syncing') {
     return (
       <div style={{ padding: '60px 40px', textAlign: 'center', color: 'var(--text-tertiary)' }}>
         <div style={{
@@ -3814,7 +3823,7 @@ function EmptyState({ folderSyncing, searchQuery, unreadOnly, selectedFolder, ac
     );
   }
 
-  if (searchQuery) {
+  if (visual === 'search') {
     return (
       <div style={{ padding: '60px 24px', textAlign: 'center' }}>
         <div style={{
@@ -3838,7 +3847,7 @@ function EmptyState({ folderSyncing, searchQuery, unreadOnly, selectedFolder, ac
     );
   }
 
-  if (unreadOnly) {
+  if (visual === 'unread') {
     return (
       <div style={{ padding: '60px 24px', textAlign: 'center' }}>
         <div style={{
@@ -3860,7 +3869,7 @@ function EmptyState({ folderSyncing, searchQuery, unreadOnly, selectedFolder, ac
     );
   }
 
-  if (!accounts.length) {
+  if (visual === 'no-accounts') {
     return (
       <div style={{ padding: '60px 24px', textAlign: 'center' }}>
         <div style={{
@@ -3879,25 +3888,24 @@ function EmptyState({ folderSyncing, searchQuery, unreadOnly, selectedFolder, ac
     );
   }
 
-  const isInbox = !selectedFolder || selectedFolder === 'INBOX';
+  const isInbox = visual === 'inbox-zero';
   return (
     <div style={{ padding: '60px 24px', textAlign: 'center' }}>
-      <div style={{
-        width: 48, height: 48, borderRadius: 14, margin: '0 auto 16px',
-        background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        color: 'var(--text-tertiary)',
-      }}>
-        {isInbox ? (
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/>
-            <path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/>
-          </svg>
-        ) : (
+      {isInbox ? (
+        <div style={{ display: 'flex', justifyContent: 'center', margin: '0 auto 16px' }}>
+          <GtdZeroPet />
+        </div>
+      ) : (
+        <div style={{
+          width: 48, height: 48, borderRadius: 14, margin: '0 auto 16px',
+          background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: 'var(--text-tertiary)',
+        }}>
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
             <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
           </svg>
-        )}
-      </div>
+        </div>
+      )}
       <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 6 }}>
         {isInbox ? 'Inbox is empty' : 'Nothing here'}
       </div>
