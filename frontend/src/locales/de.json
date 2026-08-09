@@ -179,6 +179,11 @@
     }
   },
   "message": {
+    "find": {
+      "title": "Suchen",
+      "close": "Suche schließen",
+      "label": "Suchen:"
+    },
     "selectToRead": "Nachricht auswählen zum Lesen",
     "noSubject": "(kein Betreff)",
     "to": "An:",
@@ -403,6 +408,7 @@
     "updateAvailable": "Update verfügbar: v{{version}}"
   },
   "contextMenu": {
+    "find": "Suchen",
     "open": "Öffnen",
     "markRead": "Als gelesen markieren",
     "markUnread": "Als ungelesen markieren",

@@ -179,6 +179,11 @@
     }
   },
   "message": {
+    "find": {
+      "title": "搜索",
+      "close": "关闭搜索",
+      "label": "查找："
+    },
     "selectToRead": "请选择一封邮件以阅读",
     "noSubject": "（无主题）",
     "to": "收件人：",
@@ -403,6 +408,7 @@
     "updateAvailable": "有可用更新：v{{version}}"
   },
   "contextMenu": {
+    "find": "查找",
     "open": "打开",
     "markRead": "标为已读",
     "markUnread": "标为未读",

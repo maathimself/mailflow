@@ -179,6 +179,11 @@
     }
   },
   "message": {
+    "find": {
+      "title": "Search",
+      "close": "Close search",
+      "label": "Find:"
+    },
     "selectToRead": "Select a message to read",
     "noSubject": "(no subject)",
     "to": "To:",
@@ -403,6 +408,7 @@
     "updateAvailable": "Update available: v{{version}}"
   },
   "contextMenu": {
+    "find": "Find",
     "open": "Open",
     "markRead": "Mark as read",
     "markUnread": "Mark as unread",

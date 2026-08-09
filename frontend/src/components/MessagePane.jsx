@@ -3051,10 +3051,10 @@ ${bodyContent}
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
-            <div style={{ flex: 1, textAlign: 'center', fontSize: 18, fontWeight: 500 }}>Search</div>
+            <div style={{ flex: 1, textAlign: 'center', fontSize: 18, fontWeight: 500 }}>{t('message.find.title')}</div>
             <button
               onClick={() => setFindDialogOpen(false)}
-              aria-label="Close search"
+              aria-label={t('message.find.close')}
               style={{
                 background: 'none', border: 'none', color: 'var(--text-secondary)',
                 cursor: 'pointer', padding: 2, fontSize: 28, lineHeight: 1,
@@ -3064,7 +3064,7 @@ ${bodyContent}
             </button>
           </div>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, fontSize: 14 }}>
-            <span>Find:</span>
+            <span>{t('message.find.label')}</span>
             <input
               ref={findInputRef}
               value={findQuery}
