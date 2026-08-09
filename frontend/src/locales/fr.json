@@ -182,7 +182,11 @@
     "find": {
       "title": "Rechercher",
       "close": "Fermer la recherche",
-      "label": "Rechercher :"
+      "label": "Rechercher :",
+      "matchCase": "Respecter la casse",
+      "previous": "Précédent",
+      "next": "Suivant",
+      "closeButton": "Fermer"
     },
     "selectToRead": "Sélectionnez un message à lire",
     "noSubject": "(sans objet)",

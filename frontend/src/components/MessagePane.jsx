@@ -3098,7 +3098,7 @@ ${bodyContent}
               onChange={e => { setFindMatchCase(e.target.checked); setFindMatchIndex(-1); }}
               style={{ width: 17, height: 17 }}
             />
-            Match case
+            {t('message.find.matchCase')}
           </label>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
             <button
@@ -3111,7 +3111,7 @@ ${bodyContent}
                 fontSize: 14,
               }}
             >
-              Previous
+              {t('message.find.previous')}
             </button>
             <button
               onClick={() => runMessageFind(1)}
@@ -3123,7 +3123,7 @@ ${bodyContent}
                 fontSize: 14,
               }}
             >
-              Next
+              {t('message.find.next')}
             </button>
             <button
               onClick={() => setFindDialogOpen(false)}
@@ -3133,7 +3133,7 @@ ${bodyContent}
                 cursor: 'pointer', fontSize: 14,
               }}
             >
-              Close
+              {t('message.find.closeButton')}
             </button>
           </div>
         </div>

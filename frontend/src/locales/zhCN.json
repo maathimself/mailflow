@@ -182,7 +182,11 @@
     "find": {
       "title": "搜索",
       "close": "关闭搜索",
-      "label": "查找："
+      "label": "查找：",
+      "matchCase": "区分大小写",
+      "previous": "上一个",
+      "next": "下一个",
+      "closeButton": "关闭"
     },
     "selectToRead": "请选择一封邮件以阅读",
     "noSubject": "（无主题）",
