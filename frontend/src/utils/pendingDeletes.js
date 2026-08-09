@@ -37,7 +37,23 @@ export function clearDeleteGuard(messageId) {
   clearCompletedDelete(messageId);
 }
 
+export function threadDeleteGuardKey(threadId, folder, accountId = null) {
+  if (!threadId || !folder) return null;
+  const accountScope = accountId ? `:account:${accountId}` : '';
+  return `thread:${threadId}${accountScope}:folder:${folder}`;
+}
+
 export function applyDeleteGuard(messages) {
   if (pendingDeleteMap.size === 0 && completedDeleteMap.size === 0) return messages;
-  return messages.filter(m => !pendingDeleteMap.has(m.id) && !completedDeleteMap.has(m.id));
+  return messages.filter((m) => {
+    const guarded = key => key && (pendingDeleteMap.has(key) || completedDeleteMap.has(key));
+    const threadKey = m.thread_id ? `thread:${m.thread_id}` : null;
+    const folderThreadKey = threadDeleteGuardKey(m.thread_id, m.folder);
+    const accountThreadKey = threadDeleteGuardKey(m.thread_id, m.folder, m.account_id);
+    return !pendingDeleteMap.has(m.id)
+      && !completedDeleteMap.has(m.id)
+      && !guarded(threadKey)
+      && !guarded(folderThreadKey)
+      && !guarded(accountThreadKey);
+  });
 }

@@ -2,11 +2,15 @@ import { useRef, useEffect, useCallback } from 'react';
 
 const SWIPE_THRESHOLD = 72;
 
+export function isInteractiveSwipeTarget(target) {
+  return Boolean(target?.closest?.('button, input, select, textarea, a, [role="button"]'));
+}
+
 export function useSwipeRow({ isMobile, message, onSwipeLeft, onSwipeRight, onLongPress, onTap }) {
   const contentRef = useRef(null);
   const swipeBgLeftRef = useRef(null);
   const swipeBgRightRef = useRef(null);
-  const swipeRef = useRef({ active: false, startX: 0, startY: 0, dir: null, x: 0 });
+  const swipeRef = useRef({ active: false, startX: 0, startY: 0, dir: null, x: 0, interactive: false });
   const longPressTimerRef = useRef(null);
   const springBackTimerRef = useRef(null);
   const longPressActivatedRef = useRef(false);
@@ -51,7 +55,7 @@ export function useSwipeRow({ isMobile, message, onSwipeLeft, onSwipeRight, onLo
       }
     };
     const resetSwipeState = () => {
-      swipeRef.current = { active: false, startX: 0, startY: 0, dir: null, x: 0 };
+      swipeRef.current = { active: false, startX: 0, startY: 0, dir: null, x: 0, interactive: false };
     };
     const suppressNextClick = () => {
       if (tapSuppressTimerRef.current) clearTimeout(tapSuppressTimerRef.current);
@@ -69,9 +73,10 @@ export function useSwipeRow({ isMobile, message, onSwipeLeft, onSwipeRight, onLo
         springBackTimerRef.current = null;
       }
       longPressActivatedRef.current = false;
-      swipeRef.current = { active: false, startX: t.clientX, startY: t.clientY, dir: null, x: 0 };
+      const interactive = isInteractiveSwipeTarget(e.target);
+      swipeRef.current = { active: false, startX: t.clientX, startY: t.clientY, dir: null, x: 0, interactive };
       showBgs();
-      if (latestRef.current.onLongPress) {
+      if (!interactive && latestRef.current.onLongPress) {
         longPressTimerRef.current = setTimeout(() => {
           longPressTimerRef.current = null;
           longPressActivatedRef.current = true;
@@ -83,6 +88,7 @@ export function useSwipeRow({ isMobile, message, onSwipeLeft, onSwipeRight, onLo
 
     const onMove = (e) => {
       const s = swipeRef.current;
+      if (s.interactive) return;
       const t = e.touches[0];
       const dx = t.clientX - s.startX;
       const dy = t.clientY - s.startY;
@@ -116,7 +122,7 @@ export function useSwipeRow({ isMobile, message, onSwipeLeft, onSwipeRight, onLo
       cancelLongPress();
       const s = swipeRef.current;
       if (!s.active) {
-        const wasTap = !s.dir;
+        const wasTap = !s.dir && !s.interactive;
         resetSwipeState();
         hideBgs();
         // Fire onTap immediately on touchend instead of waiting for the synthesized

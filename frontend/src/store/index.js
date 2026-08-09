@@ -18,6 +18,7 @@ import {
   mergeFolderOrder,
   readFolderOrder,
 } from './folderOrder.js';
+import { removeThreadCacheEntry } from '../utils/threadedArchive.js';
 import i18n from '../i18n.js';
 
 // Accumulate rapid preference changes and flush at most once per second.
@@ -490,6 +491,9 @@ export const useStore = create((set, get) => ({
   threadMessages: {},
   setThreadMessages: (threadId, msgs) => set(state => ({
     threadMessages: { ...state.threadMessages, [threadId]: msgs },
+  })),
+  clearThreadMessages: (threadId) => set(state => ({
+    threadMessages: removeThreadCacheEntry(state.threadMessages, threadId),
   })),
   loadingThread: null,
   setLoadingThread: (id) => set({ loadingThread: id }),

@@ -16,7 +16,11 @@ import {
 // setCompletedDelete / clearDeleteGuard; the three list-refetch paths run results through
 // applyDeleteGuard. These tests cover that reconciliation.
 describe('pendingDeletes guard', () => {
-  const list = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
+  const list = [
+    { id: 'a', thread_id: 'thread-a', account_id: 'account-1', folder: 'INBOX' },
+    { id: 'b', thread_id: 'thread-b', account_id: 'account-1', folder: 'INBOX' },
+    { id: 'c', thread_id: 'thread-c', account_id: 'account-1', folder: 'INBOX' },
+  ];
   const guarded = () => applyDeleteGuard(list).map(m => m.id);
 
   // Clear timers/state so tests don't leak into each other or keep the process alive.
@@ -53,5 +57,37 @@ describe('pendingDeletes guard', () => {
     clearDeleteGuard('a');
     assert.ok(!pendingDeleteMap.has('a') && !completedDeleteMap.has('a'));
     assert.deepEqual(guarded(), ['a', 'b', 'c']);
+  });
+
+  it('hides a replacement head while its stable account-folder thread id is pending', () => {
+    setPendingDelete('thread:thread-b:account:account-1:folder:INBOX');
+    assert.deepEqual(guarded(), ['a', 'c']);
+    clearDeleteGuard('thread:thread-b:account:account-1:folder:INBOX');
+  });
+
+  it('keeps a replacement head hidden during the completed folder thread grace window', () => {
+    setCompletedDelete('thread:thread-b:folder:INBOX');
+    assert.deepEqual(guarded(), ['a', 'c']);
+    clearDeleteGuard('thread:thread-b:folder:INBOX');
+  });
+
+  it('does not hide a preserved-folder copy of a guarded thread', () => {
+    setPendingDelete('thread:thread-b:folder:INBOX');
+    const copies = [
+      { id: 'inbox', thread_id: 'thread-b', account_id: 'account-1', folder: 'INBOX' },
+      { id: 'sent', thread_id: 'thread-b', account_id: 'account-1', folder: 'Sent' },
+    ];
+    assert.deepEqual(applyDeleteGuard(copies).map(message => message.id), ['sent']);
+    clearDeleteGuard('thread:thread-b:folder:INBOX');
+  });
+
+  it('does not hide the same Inbox thread in another account for an account-scoped guard', () => {
+    setPendingDelete('thread:thread-b:account:account-1:folder:INBOX');
+    const copies = [
+      { id: 'first', thread_id: 'thread-b', account_id: 'account-1', folder: 'INBOX' },
+      { id: 'second', thread_id: 'thread-b', account_id: 'account-2', folder: 'INBOX' },
+    ];
+    assert.deepEqual(applyDeleteGuard(copies).map(message => message.id), ['second']);
+    clearDeleteGuard('thread:thread-b:account:account-1:folder:INBOX');
   });
 });
