@@ -46,7 +46,7 @@ const SAFE_FIELDS = [
   'id', 'name', 'sender_name', 'email_address', 'color', 'protocol',
   'imap_host', 'imap_port', 'imap_skip_tls_verify',
   'smtp_host', 'smtp_port', 'smtp_tls',
-  'auth_user', 'oauth_provider', 'enabled',
+  'auth_user', 'smtp_auth_user', 'oauth_provider', 'enabled',
   'include_in_unified_inbox',
   'last_sync', 'sync_error', 'sort_order', 'folder_mappings',
   'signature', 'created_at', 'categorization_enabled',
@@ -62,7 +62,7 @@ function safeAccount(row) {
 router.get('/', async (req, res) => {
   const result = await query(
     `SELECT id, name, sender_name, email_address, color, protocol, imap_host, imap_port, imap_tls, imap_skip_tls_verify,
-            smtp_host, smtp_port, smtp_tls, auth_user, oauth_provider, enabled,
+            smtp_host, smtp_port, smtp_tls, auth_user, smtp_auth_user, oauth_provider, enabled,
             include_in_unified_inbox,
             last_sync, sync_error, sort_order, folder_mappings, signature, created_at,
             categorization_enabled, gtd_enabled, gtd_folders
@@ -100,7 +100,7 @@ router.post('/', async (req, res) => {
     name, sender_name = null, email_address, color = '#6366f1', protocol = 'imap',
     imap_host, imap_port = 993, imap_skip_tls_verify = false,
     smtp_host, smtp_port = 587, smtp_tls = 'STARTTLS',
-    auth_user, auth_pass,
+    auth_user, auth_pass, smtp_auth_user = null, smtp_auth_pass = null,
     oauth_provider, oauth_access_token, oauth_refresh_token,
     signature = null
   } = req.body;
@@ -131,14 +131,15 @@ router.post('/', async (req, res) => {
       INSERT INTO email_accounts (
         user_id, name, sender_name, email_address, color, protocol,
         imap_host, imap_port, imap_tls, imap_skip_tls_verify, smtp_host, smtp_port, smtp_tls,
-        auth_user, auth_pass, oauth_provider, oauth_access_token, oauth_refresh_token,
+        auth_user, auth_pass, smtp_auth_user, smtp_auth_pass, oauth_provider, oauth_access_token, oauth_refresh_token,
         signature
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
       RETURNING *
     `, [
       req.session.userId, name, sender_name || null, email_address, color, protocol,
       imap_host, imap_port, Number(imap_port) % 1000 === 993, !!imap_skip_tls_verify, smtp_host, smtp_port, smtp_tls,
-      auth_user, encrypt(auth_pass), oauth_provider, encrypt(oauth_access_token), encrypt(oauth_refresh_token),
+      auth_user, encrypt(auth_pass), smtp_auth_user || null, encrypt(smtp_auth_pass) || null,
+      oauth_provider, encrypt(oauth_access_token), encrypt(oauth_refresh_token),
       sanitizeSignature(signature) || null
     ]);
 
@@ -222,14 +223,15 @@ router.put('/:id', async (req, res) => {
     gtdFoldersChanged = JSON.stringify(before) !== JSON.stringify(folders);
   }
 
-  const allowed = ['name', 'sender_name', 'color', 'enabled', 'include_in_unified_inbox', 'auth_user', 'auth_pass', 'sort_order', 'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify', 'smtp_host', 'smtp_port', 'smtp_tls', 'folder_mappings', 'signature', 'categorization_enabled', 'gtd_enabled', 'gtd_folders'];
+  const allowed = ['name', 'sender_name', 'color', 'enabled', 'include_in_unified_inbox', 'auth_user', 'auth_pass', 'sort_order', 'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify', 'smtp_host', 'smtp_port', 'smtp_tls', 'smtp_auth_user', 'smtp_auth_pass', 'folder_mappings', 'signature', 'categorization_enabled', 'gtd_enabled', 'gtd_folders'];
   const sets = [];
   const values = [];
   let i = 1;
   for (const key of allowed) {
     if (key in updates) {
       sets.push(`${key} = $${i++}`);
-      const value = (key === 'auth_pass' && updates[key]) ? encrypt(updates[key])
+      const value = ((key === 'auth_pass' || key === 'smtp_auth_pass') && updates[key]) ? encrypt(updates[key])
+        : (key === 'smtp_auth_user' || key === 'smtp_auth_pass') ? (updates[key] || null)
         : (key === 'signature') ? sanitizeSignature(updates[key]) || null
         : (key === 'gtd_enabled') ? !!updates[key]
         : (key === 'include_in_unified_inbox') ? !!updates[key]

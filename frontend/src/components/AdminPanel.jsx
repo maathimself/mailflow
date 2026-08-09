@@ -80,11 +80,13 @@ function AccountForm({ initial, onSave, onCancel }) {
     name: '', email_address: '', color: '#6366f1', protocol: 'imap',
     imap_host: '', imap_port: 993, imap_skip_tls_verify: false,
     smtp_host: '', smtp_port: 587, smtp_tls: 'STARTTLS',
+    smtp_auth_user: '', smtp_auth_pass: '',
     auth_user: '', auth_pass: '', categorization_enabled: false,
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [showPass, setShowPass] = useState(false);
+  const [showSmtpPass, setShowSmtpPass] = useState(false);
   const [selectedPreset, setSelectedPreset] = useState(null);
   const [mailPolicy, setMailPolicy] = useState({ allowPrivateHosts: false, allowInsecureTls: false, allowNonstandardPorts: false });
 
@@ -185,6 +187,29 @@ function AccountForm({ initial, onSave, onCancel }) {
         </Field>
       )}
 
+      <div style={{ height: 1, background: 'var(--border-subtle)', margin: '16px 0' }} />
+      <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 10, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+        {t('admin.accounts.imapSection')}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px', gap: 10 }}>
+        <Field label={t('admin.accounts.imapHost')} required>
+          <input value={form.imap_host || ''} onChange={e => set('imap_host', e.target.value)}
+            placeholder={t('admin.accounts.imapHostPh')} style={inputStyle}
+            onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+            onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+        </Field>
+        <Field label={t('admin.accounts.imapPort')}>
+          <input
+            type={mailPolicy.allowNonstandardPorts ? 'text' : 'number'}
+            value={form.imap_port || 993}
+            onChange={e => set('imap_port', mailPolicy.allowNonstandardPorts ? e.target.value : parseInt(e.target.value))}
+            style={inputStyle}
+            onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+            onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+        </Field>
+      </div>
+
       <Field label={t('admin.accounts.authUser')} required>
         <input value={form.auth_user || ''} onChange={e => set('auth_user', e.target.value)}
           placeholder={t('admin.accounts.authUserPh')} style={inputStyle}
@@ -214,29 +239,6 @@ function AccountForm({ initial, onSave, onCancel }) {
           </button>
         </div>
       </Field>
-
-      <div style={{ height: 1, background: 'var(--border-subtle)', margin: '16px 0' }} />
-      <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 10, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-        {t('admin.accounts.imapSection')}
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px', gap: 10 }}>
-        <Field label={t('admin.accounts.imapHost')} required>
-          <input value={form.imap_host || ''} onChange={e => set('imap_host', e.target.value)}
-            placeholder={t('admin.accounts.imapHostPh')} style={inputStyle}
-            onFocus={e => e.target.style.borderColor = 'var(--accent)'}
-            onBlur={e => e.target.style.borderColor = 'var(--border)'} />
-        </Field>
-        <Field label={t('admin.accounts.imapPort')}>
-          <input
-            type={mailPolicy.allowNonstandardPorts ? 'text' : 'number'}
-            value={form.imap_port || 993}
-            onChange={e => set('imap_port', mailPolicy.allowNonstandardPorts ? e.target.value : parseInt(e.target.value))}
-            style={inputStyle}
-            onFocus={e => e.target.style.borderColor = 'var(--accent)'}
-            onBlur={e => e.target.style.borderColor = 'var(--border)'} />
-        </Field>
-      </div>
 
       {mailPolicy.allowInsecureTls && (
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginTop: 10 }}>
@@ -301,6 +303,38 @@ function AccountForm({ initial, onSave, onCancel }) {
             onBlur={e => e.target.style.borderColor = 'var(--border)'} />
         </Field>
       </div>
+
+      <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 12, marginBottom: 4, lineHeight: 1.5 }}>
+        {t('admin.accounts.smtpAuthNote')}
+      </div>
+      <Field label={t('admin.accounts.smtpAuthUser')}>
+        <input value={form.smtp_auth_user || ''} onChange={e => set('smtp_auth_user', e.target.value)}
+          placeholder={t('admin.accounts.smtpAuthUserPh')} style={inputStyle}
+          onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+          onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+      </Field>
+      <Field label={t('admin.accounts.smtpAuthPass')}>
+        <div style={{ position: 'relative' }}>
+          <input type={showSmtpPass ? 'text' : 'password'}
+            value={form.smtp_auth_pass || ''} onChange={e => set('smtp_auth_pass', e.target.value)}
+            placeholder={isEdit ? '••••••••' : ''}
+            style={{ ...inputStyle, paddingRight: 36 }}
+            onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+            onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+          <button type="button" onClick={() => setShowSmtpPass(!showSmtpPass)} style={{
+            position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+            background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer',
+            display: 'flex', padding: 2,
+          }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              {showSmtpPass
+                ? <><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></>
+                : <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>
+              }
+            </svg>
+          </button>
+        </div>
+      </Field>
 
       <div style={{ height: 1, background: 'var(--border-subtle)', margin: '16px 0' }} />
       <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 10, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
@@ -438,6 +472,15 @@ function AccountsTab() {
     const updates = { name: form.name, sender_name: form.sender_name || null, color: form.color, imap_host: form.imap_host, imap_port: form.imap_port, imap_skip_tls_verify: !!form.imap_skip_tls_verify, smtp_host: form.smtp_host, smtp_port: form.smtp_port, smtp_tls: form.smtp_tls, signature: form.signature || null, categorization_enabled: !!form.categorization_enabled, include_in_unified_inbox: form.include_in_unified_inbox !== false };
     if (form.auth_pass) updates.auth_pass = form.auth_pass;
     if (form.auth_user) updates.auth_user = form.auth_user;
+    // Separate SMTP credentials (optional). A username sends both (a blank password on
+    // edit keeps the stored one); a blank username clears both back to the IMAP login.
+    if (form.smtp_auth_user) {
+      updates.smtp_auth_user = form.smtp_auth_user;
+      if (form.smtp_auth_pass) updates.smtp_auth_pass = form.smtp_auth_pass;
+    } else {
+      updates.smtp_auth_user = null;
+      updates.smtp_auth_pass = null;
+    }
     const updated = await api.updateAccount(editTarget.id, updates);
     const nextAccounts = accounts.map(account => account.id === editTarget.id
       ? { ...account, ...updated }
@@ -1474,7 +1517,7 @@ function SwipeActionIcon({ action, size = 17 }) {
 function LayoutsTab() {
   const { t } = useTranslation();
   const isMobile = useMobile();
-  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, senderFavicons, senderFaviconsSaving, setSenderFavicons } = useStore();
+  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, senderFavicons, senderFaviconsSaving, setSenderFavicons, showMessagePreviews, setShowMessagePreviews } = useStore();
   const [senderFaviconsError, setSenderFaviconsError] = useState('');
 
   // "Set MailFlow as your default email app": registerProtocolHandler is the
@@ -1680,6 +1723,37 @@ function LayoutsTab() {
                 <button
                   key={String(id)}
                   onClick={() => setHoverQuickActions(id)}
+                  style={{
+                    flex: 1, padding: '10px 12px', textAlign: 'left',
+                    background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
+                    border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
+                    borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s', outline: 'none',
+                  }}
+                  onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; }}
+                  onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
+                >
+                  <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{label}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{desc}</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div style={{ marginTop: 22, paddingTop: 18, borderTop: '1px solid var(--border-subtle)' }}>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
+            {t('admin.messageList.showMessagePreviews')}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {[
+              { id: false, label: t('admin.messageList.previewOff'), desc: t('admin.messageList.previewOffDesc') },
+              { id: true, label: t('admin.messageList.previewOn'), desc: t('admin.messageList.previewOnDesc') },
+            ].map(({ id, label, desc }) => {
+              const active = showMessagePreviews === id;
+              return (
+                <button
+                  key={String(id)}
+                  onClick={() => setShowMessagePreviews(id)}
                   style={{
                     flex: 1, padding: '10px 12px', textAlign: 'left',
                     background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',

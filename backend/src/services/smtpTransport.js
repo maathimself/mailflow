@@ -95,14 +95,18 @@ export async function createAccountSmtpTransport(inputAccount) {
       accessToken,
     };
   } else {
-    const pass = decrypt(account.auth_pass);
+    // Separate SMTP credentials (issue #353): if the account has its own SMTP
+    // username/password, use them; otherwise fall back to the IMAP login. Each
+    // side falls back independently, so a different-username/same-password (or the
+    // reverse) config also works. Empty/NULL columns are falsy and fall through.
+    const pass = decrypt(account.smtp_auth_pass || account.auth_pass);
     if (!pass) {
       return {
         status: 502,
         error: 'SMTP password is corrupted or missing — please re-enter your account password in Settings.',
       };
     }
-    auth = { user: account.auth_user, pass };
+    auth = { user: account.smtp_auth_user || account.auth_user, pass };
   }
 
   const policy = await getConnectionPolicy();

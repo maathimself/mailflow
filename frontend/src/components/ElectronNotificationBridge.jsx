@@ -4,6 +4,30 @@ import { api } from '../utils/api.js';
 import { installCapacitorNativeBridge } from '../utils/capacitorNativeBridge.js';
 import { createBoundedActionIdTracker, isTrustedNativeMessage } from '../utils/nativeActionSecurity.js';
 
+function linuxInstructionPath(filePath) {
+  const normalized = String(filePath || '').replace(/\\/g, '/');
+  if (!normalized) return null;
+  return normalized.replace(/^\/home\/[^/]+(?=\/)/, '$HOME');
+}
+
+function getLinuxInstallCommandFromPath(filePath) {
+  const normalized = linuxInstructionPath(filePath);
+  if (!normalized) return null;
+
+  const escaped = normalized.startsWith('$HOME/')
+    ? normalized.replace(/(["\\`])/g, '\\$1')
+    : normalized.replace(/(["\\$`])/g, '\\$1');
+  const quotedPath = `"${escaped}"`;
+
+  if (/\.deb$/i.test(normalized)) return `sudo apt install ${quotedPath}`;
+  if (/\.rpm$/i.test(normalized)) return `sudo dnf install ${quotedPath}`;
+  return null;
+}
+
+function isLinuxPackagePath(filePath) {
+  return /\.(deb|rpm)$/i.test(String(filePath || ''));
+}
+
 export default function ElectronNotificationBridge() {
   const addNotification = useStore(state => state.addNotification);
   const openCompose = useStore(state => state.openCompose);
@@ -59,15 +83,59 @@ export default function ElectronNotificationBridge() {
     const unsubscribe = window.mailflowNative?.updates?.onStatus?.((status) => {
       if (status?.type !== 'downloaded') return;
 
+      const platform = window.mailflowNative?.platform;
+      const filePath = status?.data?.filePath || status?.data?.updatePath || '';
+      const installCommand = status?.data?.installCommand
+        || (platform === 'linux' ? getLinuxInstallCommandFromPath(filePath) : null);
+      const manualInstall = Boolean(
+        status?.data?.manualInstall
+        || installCommand
+        || (platform === 'linux' && (isLinuxPackagePath(filePath) || status?.data?.manual))
+      );
       addNotification({
         type: 'success',
         title: 'Update ready',
-        body: 'MailFlow downloaded the update.',
+        body: manualInstall
+          ? `MailFlow downloaded and verified the update.${installCommand ? ` Install it from a terminal with:\n${installCommand}` : ''}`
+          : 'MailFlow downloaded the update.',
         allowWrap: true,
         persistent: true,
-        actionLabel: 'Install',
+        actionLabel: manualInstall ? 'Copy & Quit' : 'Install',
         onAction: async () => {
+          if (manualInstall) {
+            const result = await window.mailflowNative?.updates?.copyInstallCommandAndQuit?.({
+              installCommand,
+              filePath,
+            });
+            if (!result?.copied) {
+              addNotification({
+                type: 'error',
+                title: 'Copy failed',
+                body: 'The update command could not be copied.',
+              });
+            }
+            return;
+          }
+
           const result = await window.mailflowNative?.updates?.installDownloaded?.();
+          if (result?.reason === 'manual-install-required' && result.installCommand) {
+            addNotification({
+              type: 'success',
+              title: 'Update ready',
+              body: `MailFlow downloaded and verified the update. Install it from a terminal with:\n${result.installCommand}`,
+              allowWrap: true,
+              persistent: true,
+              actionLabel: 'Copy & Quit',
+              onAction: async () => {
+                await window.mailflowNative?.updates?.copyInstallCommandAndQuit?.({
+                  installCommand: result.installCommand,
+                  filePath,
+                });
+              },
+            });
+            return;
+          }
+
           if (result && result.installed === false) {
             addNotification({
               type: 'error',

@@ -203,7 +203,7 @@ function Toast({ notification, onDismiss, isMobile }) {
           fontSize: 12, color: 'var(--text-tertiary)',
           overflow: notification.allowWrap ? 'visible' : 'hidden',
           textOverflow: notification.allowWrap ? 'clip' : 'ellipsis',
-          whiteSpace: notification.allowWrap ? 'normal' : 'nowrap',
+          whiteSpace: notification.allowWrap ? 'pre-wrap' : 'nowrap',
           lineHeight: notification.allowWrap ? 1.35 : undefined,
           overflowWrap: notification.allowWrap ? 'anywhere' : undefined,
         }}>

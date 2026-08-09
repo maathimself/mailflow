@@ -147,10 +147,10 @@ configs:
   caddyfile:
     content: |
       {
-          email {$ACME_EMAIL}
+          email ${ACME_EMAIL:-}
       }
 
-      {$DOMAIN} {
+      ${DOMAIN:-localhost} {
           reverse_proxy frontend:443 {
               transport http {
                   tls_insecure_skip_verify

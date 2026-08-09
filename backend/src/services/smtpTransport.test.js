@@ -133,6 +133,48 @@ describe('createAccountSmtpTransport', () => {
     );
   });
 
+  it('prefers separate SMTP credentials when the account has them', async () => {
+    const result = await createAccountSmtpTransport({
+      smtp_host: 'smtp.relay.example',
+      smtp_port: 587,
+      smtp_tls: 'STARTTLS',
+      auth_user: 'sender@example.com',
+      auth_pass: 'imap-password',
+      smtp_auth_user: 'relay-user',
+      smtp_auth_pass: 'relay-password',
+      imap_skip_tls_verify: false,
+    });
+    await result.transport.sendMail({ to: 'user@example.com' });
+
+    expect(result.error).toBeUndefined();
+    expect(nodemailer.createTransport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        auth: { user: 'relay-user', pass: 'relay-password' },
+      })
+    );
+  });
+
+  it('falls back to the IMAP login for whichever SMTP credential is unset', async () => {
+    // Separate SMTP username, but no separate SMTP password -> reuse the IMAP password.
+    const result = await createAccountSmtpTransport({
+      smtp_host: 'smtp.relay.example',
+      smtp_port: 587,
+      smtp_tls: 'STARTTLS',
+      auth_user: 'sender@example.com',
+      auth_pass: 'imap-password',
+      smtp_auth_user: 'relay-user',
+      smtp_auth_pass: null,
+      imap_skip_tls_verify: false,
+    });
+    await result.transport.sendMail({ to: 'user@example.com' });
+
+    expect(nodemailer.createTransport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        auth: { user: 'relay-user', pass: 'imap-password' },
+      })
+    );
+  });
+
   it('refreshes an expired Microsoft token before creating the transport', async () => {
     refreshMicrosoftToken.mockResolvedValue({
       oauth_provider: 'microsoft',

@@ -28,6 +28,7 @@ function subscribeNativeAction(callback) {
 }
 
 contextBridge.exposeInMainWorld('mailflowNative', {
+  platform: process.platform,
   getHost: () => ipcRenderer.invoke('mailflow:getHost'),
   saveHost: (host) => ipcRenderer.invoke('mailflow:saveHost', host),
   resetHost: () => ipcRenderer.invoke('mailflow:resetHost'),
@@ -38,6 +39,7 @@ contextBridge.exposeInMainWorld('mailflowNative', {
     check: (verbose) => ipcRenderer.invoke('mailflow:updates:check', { verbose }),
     installDownloaded: () => ipcRenderer.invoke('mailflow:updates:install-downloaded'),
     installAuto: () => ipcRenderer.invoke('mailflow:updates:install-auto'),
+    copyInstallCommandAndQuit: (options) => ipcRenderer.invoke('mailflow:updates:copy-install-command-and-quit', options),
     openDownload: () => ipcRenderer.invoke('mailflow:updates:open-download'),
     onStatus: (callback) => subscribe('mailflow:updates:status', callback),
   },
