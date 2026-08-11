@@ -6,6 +6,39 @@ import { encrypt, decrypt, isEncrypted } from '../services/encryption.js';
 const router = Router();
 router.use(requireAuth);
 
+// Maps each provider's stored config keys to the process.env vars the OAuth routes
+// read. Config can arrive from this UI or straight from .env; both converge here,
+// so getMsConfig()/getGoogleConfig() only ever need to look at process.env.
+const PROVIDER_ENV = {
+  microsoft: {
+    clientId: 'MS_CLIENT_ID',
+    clientSecret: 'MS_CLIENT_SECRET',
+    tenantId: 'MS_TENANT_ID',
+    redirectUri: 'MS_REDIRECT_URI',
+  },
+  google: {
+    clientId: 'GOOGLE_CLIENT_ID',
+    clientSecret: 'GOOGLE_CLIENT_SECRET',
+    redirectUri: 'GOOGLE_REDIRECT_URI',
+  },
+};
+
+function applyConfigToEnv(provider, config) {
+  const map = PROVIDER_ENV[provider];
+  if (!map) return;
+  for (const [key, envVar] of Object.entries(map)) {
+    if (!config[key]) continue;
+    // clientSecret is stored encrypted; decrypt() passes plaintext through unchanged
+    process.env[envVar] = key === 'clientSecret' ? decrypt(config[key]) : config[key];
+  }
+}
+
+function clearConfigFromEnv(provider) {
+  const map = PROVIDER_ENV[provider];
+  if (!map) return;
+  for (const envVar of Object.values(map)) delete process.env[envVar];
+}
+
 // Get all integration configs (secrets redacted) — admin only (exposes OAuth client IDs)
 router.get('/', requireAdmin, async (req, res) => {
   const result = await query(
@@ -33,14 +66,16 @@ router.get('/status', async (req, res) => {
     microsoft: {
       configured: !!process.env.MS_CLIENT_ID,
     },
+    google: {
+      configured: !!process.env.GOOGLE_CLIENT_ID,
+    },
   });
 });
 
 // Save/update integration config — admin only (writes affect global OAuth env vars)
 router.post('/:provider', requireAdmin, async (req, res) => {
   const { provider } = req.params;
-  const allowed = ['microsoft'];
-  if (!allowed.includes(provider)) return res.status(400).json({ error: 'Unknown provider' });
+  if (!PROVIDER_ENV[provider]) return res.status(400).json({ error: 'Unknown provider' });
 
   const config = req.body;
 
@@ -70,12 +105,7 @@ router.post('/:provider', requireAdmin, async (req, res) => {
   `, [provider, config]);
 
   // Write plaintext values to process.env so oauth routes pick them up immediately
-  if (provider === 'microsoft') {
-    if (config.clientId) process.env.MS_CLIENT_ID = config.clientId;
-    if (config.clientSecret) process.env.MS_CLIENT_SECRET = decrypt(config.clientSecret);
-    if (config.tenantId) process.env.MS_TENANT_ID = config.tenantId;
-    if (config.redirectUri) process.env.MS_REDIRECT_URI = config.redirectUri;
-  }
+  applyConfigToEnv(provider, config);
 
   res.json({ ok: true });
 });
@@ -86,12 +116,7 @@ router.delete('/:provider', requireAdmin, async (req, res) => {
     'DELETE FROM integration_config WHERE provider = $1',
     [req.params.provider]
   );
-  if (req.params.provider === 'microsoft') {
-    delete process.env.MS_CLIENT_ID;
-    delete process.env.MS_CLIENT_SECRET;
-    delete process.env.MS_TENANT_ID;
-    delete process.env.MS_REDIRECT_URI;
-  }
+  clearConfigFromEnv(req.params.provider);
   res.json({ ok: true });
 });
 
@@ -100,14 +125,8 @@ export async function loadIntegrationConfigs() {
   try {
     const result = await query('SELECT provider, config FROM integration_config');
     for (const row of result.rows) {
-      if (row.provider === 'microsoft') {
-        const c = row.config;
-        if (c.clientId) process.env.MS_CLIENT_ID = c.clientId;
-        // decrypt() returns value unchanged for plaintext (migration fallback)
-        if (c.clientSecret) process.env.MS_CLIENT_SECRET = decrypt(c.clientSecret);
-        if (c.tenantId) process.env.MS_TENANT_ID = c.tenantId;
-        if (c.redirectUri) process.env.MS_REDIRECT_URI = c.redirectUri;
-      }
+      // decrypt() returns the value unchanged for plaintext (migration fallback)
+      applyConfigToEnv(row.provider, row.config);
     }
     console.log('Integration configs loaded');
   } catch (err) {

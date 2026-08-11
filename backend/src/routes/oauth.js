@@ -380,4 +380,250 @@ async function doRefreshMicrosoftToken(account) {
   return { ...account, oauth_access_token: access_token, oauth_token_expiry: expiry, oauth_public_client: isPublic };
 }
 
+// ─── Google ──────────────────────────────────────────────────────────────────
+// Gmail and Google Workspace over IMAP/SMTP with XOAUTH2. Workspace tenants can
+// disable app passwords entirely, so OAuth is the only way to reach those
+// mailboxes. makeClientCfg() and createAccountSmtpTransport() already accept
+// oauth_provider === 'google'; this supplies the tokens they expect.
+
+const GOOGLE_AUTH_URL  = 'https://accounts.google.com/o/oauth2/v2/auth';
+const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
+// https://mail.google.com/ is the full IMAP/SMTP scope, and it is *restricted*,
+// which constrains how the consent screen must be configured:
+//   - User Type "Internal" (project owned by a Workspace org): no verification,
+//     refresh tokens do not expire. This is the practical option for self-hosting.
+//   - "External" + Testing: works immediately, but Google revokes refresh tokens
+//     after 7 days, so the account must be reconnected weekly.
+//   - "External" + In production: needs full verification including a security
+//     audit before restricted scopes are granted long-lived tokens.
+const GOOGLE_SCOPE = 'https://mail.google.com/ openid email profile';
+
+const googleJwks = createRemoteJWKSet(new URL('https://www.googleapis.com/oauth2/v3/certs'));
+
+function getGoogleConfig() {
+  return {
+    clientId: process.env.GOOGLE_CLIENT_ID,
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    redirectUri: process.env.GOOGLE_REDIRECT_URI,
+  };
+}
+
+// Step 1: redirect user to Google consent
+router.get('/google', async (req, res) => {
+  if (!req.session?.userId) return res.status(401).json({ error: 'Not authenticated' });
+
+  const { clientId, redirectUri } = getGoogleConfig();
+  if (!clientId || !redirectUri) {
+    return res.status(500).json({ error: 'Google OAuth not configured. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI in .env' });
+  }
+
+  const oauthNonce = randomBytes(16).toString('hex');
+  req.session.oauthNonce  = oauthNonce;
+  req.session.oauthUserId = req.session.userId;
+
+  const params = new URLSearchParams({
+    client_id: clientId,
+    response_type: 'code',
+    redirect_uri: redirectUri,
+    scope: GOOGLE_SCOPE,
+    state: oauthNonce,
+    // Google only issues a refresh token when both of these are set, and only on
+    // the first consent unless prompt=consent forces re-issue. Without them a
+    // reconnect silently yields an access-token-only grant that dies in an hour.
+    access_type: 'offline',
+    prompt: 'consent select_account',
+  });
+
+  await new Promise((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
+  res.redirect(`${GOOGLE_AUTH_URL}?${params}`);
+});
+
+// Step 2: Google redirects back here with auth code
+router.get('/google/callback', async (req, res) => {
+  const { code, state, error } = req.query;
+
+  if (error) {
+    console.error('Google OAuth error:', error);
+    return res.redirect(`/?oauth_error=${encodeURIComponent(error)}`);
+  }
+
+  if (!state || state !== req.session.oauthNonce) {
+    return res.redirect(`/?oauth_error=${encodeURIComponent('Invalid OAuth state — please try again')}`);
+  }
+  const userId = req.session.oauthUserId;
+  if (!userId) return res.redirect(`/?oauth_error=${encodeURIComponent('OAuth session expired — please try again')}`);
+  delete req.session.oauthNonce;
+  delete req.session.oauthUserId;
+
+  const { clientId, clientSecret, redirectUri } = getGoogleConfig();
+
+  try {
+    const tokenRes = await fetch(GOOGLE_TOKEN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        code,
+        redirect_uri: redirectUri,
+        grant_type: 'authorization_code',
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+
+    const tokens = await tokenRes.json();
+    if (!tokenRes.ok) {
+      throw new Error(tokens.error_description || tokens.error || 'Token exchange failed');
+    }
+
+    await processGoogleTokens(userId, tokens, { clientId });
+    res.redirect('/?oauth_success=google');
+  } catch (err) {
+    console.error('Google OAuth callback error:', err);
+    res.redirect('/?oauth_error=Authentication+failed');
+  }
+});
+
+// Shared: validate tokens, upsert account, connect IMAP.
+async function processGoogleTokens(userId, tokens, { clientId }) {
+  const { access_token, refresh_token, expires_in, id_token } = tokens;
+  const expiresInSecs = Number.isFinite(expires_in) && expires_in > 0 ? expires_in : 3600;
+  const expiry = new Date(Date.now() + expiresInSecs * 1000);
+
+  if (!refresh_token) {
+    // Without a refresh token the account dies silently in an hour. Fail loudly
+    // instead of persisting a mailbox that will break by itself later.
+    throw new Error('Google did not return a refresh token. Revoke this app at myaccount.google.com/permissions and reconnect.');
+  }
+
+  let email = null;
+  let displayName = null;
+  if (id_token) {
+    try {
+      const { payload } = await jwtVerify(id_token, googleJwks, {
+        audience: clientId,
+        issuer: ['https://accounts.google.com', 'accounts.google.com'],
+      });
+      if (payload.email_verified === false) {
+        throw new Error('Google account email is not verified');
+      }
+      email = payload.email || null;
+      displayName = payload.name || null;
+    } catch (jwtErr) {
+      console.error('Google id_token validation failed:', jwtErr.message);
+      throw new Error('Could not validate Google identity token — please try again', { cause: jwtErr });
+    }
+  }
+
+  if (!email) throw new Error('Could not retrieve email address from Google profile — ensure the openid, email, and profile scopes are granted');
+
+  // Same advisory-lock upsert as Microsoft: two callbacks racing for one mailbox
+  // would otherwise both miss the SELECT and each INSERT a duplicate row.
+  const account = await withTransaction(async (client) => {
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',
+      [`oauth-account:${userId}:${email.toLowerCase()}`]);
+
+    const existing = await client.query(
+      'SELECT id FROM email_accounts WHERE user_id = $1 AND email_address = $2',
+      [userId, email]
+    );
+
+    let accountId;
+    if (existing.rows.length) {
+      accountId = existing.rows[0].id;
+      await client.query(`
+        UPDATE email_accounts SET
+          oauth_provider = 'google',
+          oauth_access_token = $1, oauth_refresh_token = $2, oauth_token_expiry = $3,
+          name = $4, oauth_public_client = false, sync_error = NULL
+        WHERE id = $5
+      `, [encrypt(access_token), encrypt(refresh_token), expiry, displayName || email, accountId]);
+    } else {
+      const colors = ['#ea4335', '#fbbc04', '#34a853', '#4285f4'];
+      const color = colors[Math.floor(Math.random() * colors.length)];
+      const result = await client.query(`
+        INSERT INTO email_accounts (
+          user_id, name, email_address, color, protocol,
+          imap_host, imap_port, imap_tls,
+          smtp_host, smtp_port, smtp_tls,
+          auth_user,
+          oauth_provider, oauth_access_token, oauth_refresh_token, oauth_token_expiry,
+          oauth_public_client
+        ) VALUES ($1,$2,$3,$4,'imap',
+          'imap.gmail.com', 993, true,
+          'smtp.gmail.com', 587, 'STARTTLS',
+          $3,
+          'google', $5, $6, $7,
+          false)
+        RETURNING *
+      `, [userId, displayName, email, color, encrypt(access_token), encrypt(refresh_token), expiry]);
+      accountId = result.rows[0].id;
+    }
+
+    const accountResult = await client.query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
+    return accountResult.rows[0];
+  });
+
+  imapManager.connectAccount(account).catch(err =>
+    console.error(`OAuth connect failed for ${redactEmail(email)}:`, err.message)
+  );
+  return email;
+}
+
+// Serialize refreshes per account, same reasoning as Microsoft. Google does not
+// rotate the refresh token on every refresh, but concurrent IMAP and SMTP paths
+// can still both trip the 5-minute expiry window at once.
+const inFlightGoogleRefresh = new Map(); // accountId -> Promise
+export function refreshGoogleToken(account) {
+  const existing = inFlightGoogleRefresh.get(account.id);
+  if (existing) return existing;
+  const p = doRefreshGoogleToken(account).finally(() => inFlightGoogleRefresh.delete(account.id));
+  inFlightGoogleRefresh.set(account.id, p);
+  return p;
+}
+
+async function doRefreshGoogleToken(account) {
+  const { clientId, clientSecret } = getGoogleConfig();
+
+  const storedRefreshToken = decrypt(account.oauth_refresh_token);
+  if (!storedRefreshToken) throw new Error('OAuth refresh token is missing or corrupted — please reconnect your account');
+
+  const tokenRes = await fetch(GOOGLE_TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: storedRefreshToken,
+      grant_type: 'refresh_token',
+    }),
+    signal: AbortSignal.timeout(10000),
+  });
+
+  const tokens = await tokenRes.json();
+  if (!tokenRes.ok) {
+    // invalid_grant means the user revoked access, changed password, or the token
+    // expired from disuse. No retry will fix it — the account must be reconnected.
+    if (tokens.error === 'invalid_grant') {
+      throw new Error('Google access was revoked or expired — please reconnect this account');
+    }
+    throw new Error(tokens.error_description || tokens.error || 'Token refresh failed');
+  }
+
+  const { access_token, refresh_token, expires_in } = tokens;
+  const refreshExpiresInSecs = Number.isFinite(expires_in) && expires_in > 0 ? expires_in : 3600;
+  const expiry = new Date(Date.now() + refreshExpiresInSecs * 1000);
+
+  // Google normally omits refresh_token on refresh; COALESCE keeps the stored one.
+  await query(`
+    UPDATE email_accounts SET
+      oauth_access_token = $1,
+      oauth_refresh_token = COALESCE($2, oauth_refresh_token),
+      oauth_token_expiry = $3
+    WHERE id = $4
+  `, [encrypt(access_token), refresh_token ? encrypt(refresh_token) : null, expiry, account.id]);
+
+  return { ...account, oauth_access_token: access_token, oauth_token_expiry: expiry };
+}
+
 export default router;

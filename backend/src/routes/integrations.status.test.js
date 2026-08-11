@@ -34,6 +34,7 @@ function buildApp() {
 let server;
 let base;
 const savedClientId = process.env.MS_CLIENT_ID;
+const savedGoogleClientId = process.env.GOOGLE_CLIENT_ID;
 
 beforeAll(async () => {
   await new Promise((resolve) => { server = buildApp().listen(0, resolve); });
@@ -44,22 +45,43 @@ afterAll(async () => {
   await new Promise((resolve) => server.close(resolve));
   if (savedClientId === undefined) delete process.env.MS_CLIENT_ID;
   else process.env.MS_CLIENT_ID = savedClientId;
+  if (savedGoogleClientId === undefined) delete process.env.GOOGLE_CLIENT_ID;
+  else process.env.GOOGLE_CLIENT_ID = savedGoogleClientId;
 });
 
-afterEach(() => { delete process.env.MS_CLIENT_ID; });
+afterEach(() => {
+  delete process.env.MS_CLIENT_ID;
+  delete process.env.GOOGLE_CLIENT_ID;
+});
 
 describe('GET /api/integrations/status (non-admin capability check)', () => {
   it('is reachable by a non-admin (not behind requireAdmin) and reports configured=true when MS_CLIENT_ID is set', async () => {
     process.env.MS_CLIENT_ID = 'some-client-id';
     const res = await fetch(`${base}/api/integrations/status`);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ microsoft: { configured: true } });
+    expect(await res.json()).toEqual({
+      microsoft: { configured: true },
+      google: { configured: false },
+    });
   });
 
   it('reports configured=false when MS_CLIENT_ID is unset', async () => {
     const res = await fetch(`${base}/api/integrations/status`);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ microsoft: { configured: false } });
+    expect(await res.json()).toEqual({
+      microsoft: { configured: false },
+      google: { configured: false },
+    });
+  });
+
+  it('reports google configured=true when GOOGLE_CLIENT_ID is set, independently of Microsoft', async () => {
+    process.env.GOOGLE_CLIENT_ID = 'some-google-client-id';
+    const res = await fetch(`${base}/api/integrations/status`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      microsoft: { configured: false },
+      google: { configured: true },
+    });
   });
 
   it('never leaks credentials in the response', async () => {
