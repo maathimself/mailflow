@@ -6,6 +6,7 @@ import {
   clearPendingDelete,
   setCompletedDelete,
   setPendingDelete,
+  threadDeleteGuardKey,
   pendingDeleteMap,
   completedDeleteMap,
 } from './pendingDeletes.js';
@@ -24,7 +25,13 @@ describe('pendingDeletes guard', () => {
   const guarded = () => applyDeleteGuard(list).map(m => m.id);
 
   // Clear timers/state so tests don't leak into each other or keep the process alive.
-  afterEach(() => ['a', 'b', 'c'].forEach(clearDeleteGuard));
+  afterEach(() => [
+    'a',
+    'b',
+    'c',
+    'head',
+    threadDeleteGuardKey('t1', 'INBOX', 'acct-1'),
+  ].forEach(clearDeleteGuard));
 
   it('returns the input untouched when nothing is guarded', () => {
     assert.equal(applyDeleteGuard(list), list);
@@ -89,5 +96,26 @@ describe('pendingDeletes guard', () => {
     ];
     assert.deepEqual(applyDeleteGuard(copies).map(message => message.id), ['second']);
     clearDeleteGuard('thread:thread-b:account:account-1:folder:INBOX');
+  });
+
+  it('suppresses a replacement head from the same thread, folder and account', () => {
+    const sibling = { id: 'older-sibling', thread_id: 't1', account_id: 'acct-1', folder: 'INBOX' };
+    const threadGuard = threadDeleteGuardKey('t1', 'INBOX', 'acct-1');
+
+    setPendingDelete('head');
+    setPendingDelete(threadGuard);
+    assert.deepEqual(applyDeleteGuard([sibling]).map(message => message.id), []);
+
+    clearDeleteGuard('head');
+    clearDeleteGuard(threadGuard);
+  });
+
+  it('does not suppress the same thread id in a different folder', () => {
+    const sent = { id: 'sent-copy', thread_id: 't1', account_id: 'acct-1', folder: 'Sent' };
+    const threadGuard = threadDeleteGuardKey('t1', 'INBOX', 'acct-1');
+
+    setPendingDelete(threadGuard);
+    assert.deepEqual(applyDeleteGuard([sent]).map(message => message.id), ['sent-copy']);
+    clearDeleteGuard(threadGuard);
   });
 });

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { useMobile } from '../hooks/useMobile.js';
+import { UNDO_WINDOW_MS } from '../utils/undoableAction.js';
 
 export default function NotificationToasts() {
   const { notifications, removeNotification } = useStore();
@@ -61,7 +62,7 @@ function ActionBar({ notification, onDismiss, isMobile }) {
   };
 
   useEffect(() => {
-    const timer = setTimeout(dismiss, 6000);
+    const timer = setTimeout(dismiss, UNDO_WINDOW_MS);
     return () => clearTimeout(timer);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -88,7 +89,7 @@ function ActionBar({ notification, onDismiss, isMobile }) {
         bottom: 0, left: 0,
         height: 2,
         background: 'var(--accent)',
-        animation: 'action-bar-progress 4.5s linear forwards',
+        animation: `action-bar-progress ${UNDO_WINDOW_MS}ms linear forwards`,
       }} />
 
       <span style={{
@@ -151,7 +152,7 @@ function Toast({ notification, onDismiss, isMobile }) {
   useEffect(() => {
     if (notification.persistent) return undefined;
 
-    const duration = notification.onUndo ? 6000 : 5000;
+    const duration = notification.onUndo ? UNDO_WINDOW_MS : 5000;
     const timer = setTimeout(dismiss, duration);
     return () => clearTimeout(timer);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
