@@ -12,7 +12,7 @@ vi.mock('../utils/redact.js', () => ({ redactEmail: vi.fn() }));
 vi.mock('./hostValidation.js', () => ({ resolveForConnection: vi.fn() }));
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
 
-import { ImapManager, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure } from './imapManager.js';
+import { ImapManager, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, labelCopyThreadKey, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure } from './imapManager.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { EventEmitter } from 'node:events';
 import { ImapFlow } from 'imapflow';
@@ -359,6 +359,16 @@ describe('deleteMessageCopyRow', () => {
     query.mockResolvedValueOnce({ rows: [] });
     await deleteMessageCopyRow('acct-1', 100, 'Todo');
     expect(countAdjusts()).toHaveLength(0);
+  });
+});
+
+describe('labelCopyThreadKey', () => {
+  beforeEach(() => query.mockReset());
+
+  it('captures the thread before a label row is removed', async () => {
+    query.mockResolvedValueOnce({ rows: [{ thread_key: 'thread-1' }] });
+    await expect(labelCopyThreadKey('acct-1', 42, 'Delegated')).resolves.toBe('thread-1');
+    expect(query.mock.calls[0][1]).toEqual(['acct-1', 42, 'Delegated']);
   });
 });
 
@@ -1008,7 +1018,9 @@ describe('syncMessages — empty local cache vs nonempty server (wiring)', () =>
     // wire: an active inbox-ingest plugin makes syncMessages collect the new row's id and
     // dispatch runHook('inboxIngest', …). We spy the registry rather than register a real
     // plugin so the singleton stays clean for other suites.
-    const hasActive = vi.spyOn(pluginRegistry, 'hasActiveAsync').mockImplementation(async (name) => name === 'inboxIngest');
+    const hasActive = vi.spyOn(pluginRegistry, 'hasActiveAsync').mockImplementation(async (name) => (
+      name === 'inboxIngest' || name === 'messageRowsIngested'
+    ));
     const runHook = vi.spyOn(pluginRegistry, 'runHook').mockResolvedValue([]);
     try {
       const account = {
@@ -1050,6 +1062,9 @@ describe('syncMessages — empty local cache vs nonempty server (wiring)', () =>
       // The hook receives the bounded facade, never the raw engine (`this`).
       expect(runHook).toHaveBeenCalledWith('inboxIngest', {
         mgr: mgr.pluginFacade, account, newInboxIds: ['ingest-1'], deletedIds: new Set(),
+      });
+      expect(runHook).toHaveBeenCalledWith('messageRowsIngested', {
+        account, messageIds: ['ingest-1'],
       });
     } finally {
       hasActive.mockRestore();

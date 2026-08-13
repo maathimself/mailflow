@@ -6,7 +6,7 @@
 // of its own. GTD's code still lives under routes/ and services/; later phases move its
 // storage and UI behind the plugin boundary. Behavior is unchanged.
 import gtdRoutes from './routes.js';
-import { relocateExemptFolders, sectionsChanged, inboxIngest, afterLabelCopy, afterLabelRemove, onMailMutation, onSentMessage, onUserDelete, enrichAccount, validateAccountSettings, persistAccountSettings, onAccountIdentityChanged, onPluginActivationChanged, gtdEnabledForAccount, gtdSyncTick } from './hooks.js';
+import { relocateExemptFolders, sectionsChanged, inboxIngest, afterLabelCopy, afterLabelRemove, messageRowsIngested, onMailMutation, onSentMessage, onUserDelete, enrichAccount, validateAccountSettings, persistAccountSettings, onAccountIdentityChanged, onPluginActivationChanged, gtdEnabledForAccount, gtdSyncTick } from './hooks.js';
 
 export const gtdPlugin = {
   id: 'gtd',
@@ -30,6 +30,7 @@ export const gtdPlugin = {
     // broadcast (and, for copy, run a gtd_enabled-gated deferred reconcile inside the handler).
     afterLabelCopy,
     afterLabelRemove,
+    messageRowsIngested: { handler: messageRowsIngested, isActive: gtdEnabledForAccount },
     // Fired by the mail/send/admin routes for ordinary mail mutations, sent-message sync, and
     // user deletion. Each self-gates internally (gtd_enabled / pet-slug presence), so they stay
     // unconditional here and match the pre-plugin direct calls.
