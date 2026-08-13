@@ -27,6 +27,32 @@ export function getGtdMetadataRefreshGeneration() {
   return refreshGeneration;
 }
 
+export function selectGtdMetadataTargets({
+  accounts,
+  selectedFolder,
+  searchQuery,
+  messages,
+  searchResults,
+  sectionMessages,
+  selectedMessage,
+  windowMessages,
+}) {
+  const metadataSurfaceActive = Boolean(searchQuery?.trim()) || selectedFolder === 'INBOX';
+  const renderedPool = metadataSurfaceActive
+    ? (searchQuery?.trim() ? searchResults : messages)
+    : [];
+  const enabledAccountIds = new Set(
+    (accounts || []).filter(account => account.gtd_enabled).map(account => account.id),
+  );
+  return [...new Map([
+    ...(renderedPool || []),
+    ...(sectionMessages || []),
+    selectedMessage,
+    ...(windowMessages || []),
+  ].filter(message => message && enabledAccountIds.has(message.account_id))
+    .map(message => [message.id, message])).values()];
+}
+
 export function invalidateGtdMetadata() {
   requestGeneration += 1;
   refreshGeneration += 1;
@@ -143,6 +169,29 @@ export function removeGtdMetadataState(message, state) {
       date: dated.at(-1) ?? null,
     });
   }
+  requestGeneration += 1;
+  emit();
+}
+
+export function patchGtdDelegation(message, delegation) {
+  const messageId = typeof message === 'string' ? message : message?.id;
+  if (!messageId) return;
+  const current = metadata.get(messageId) || { states: [], dates: {}, date: null };
+  const delegatedAt = delegation?.delegatedAt ?? null;
+  const states = delegation && !current.states.includes('delegated')
+    ? [...current.states, 'delegated'].sort((a, b) => STATE_ORDER.indexOf(a) - STATE_ORDER.indexOf(b))
+    : current.states;
+  const dates = delegation && !current.dates?.delegated
+    ? { ...current.dates, delegated: delegatedAt }
+    : { ...current.dates };
+  const dated = Object.values(dates).filter(Boolean).sort();
+  metadata.set(messageId, {
+    ...current,
+    states,
+    dates,
+    date: dated.at(-1) ?? current.date ?? null,
+    delegation,
+  });
   requestGeneration += 1;
   emit();
 }

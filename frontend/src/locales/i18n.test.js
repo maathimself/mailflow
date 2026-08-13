@@ -366,6 +366,10 @@ const LOCALE_SPECIFIC_KEYS_BY_LOCALE = {
     'admin.messageList.markReadDelaySeconds_one',
     'admin.messageList.markReadDelaySeconds_few',
     'admin.messageList.markReadDelaySeconds_many',
+    'gtd.delegate.title_few',
+    'gtd.delegate.success_few',
+    'gtd.delegate.failed_few',
+    'gtd.delegate.pillAria_few',
   ]),
   pl: new Set([
     'message.attachment_few', 'message.attachment_many',
@@ -379,6 +383,16 @@ const LOCALE_SPECIFIC_KEYS_BY_LOCALE = {
     'admin.messageList.markReadDelaySeconds_one',
     'admin.messageList.markReadDelaySeconds_few',
     'admin.messageList.markReadDelaySeconds_many',
+    'gtd.delegate.title_few', 'gtd.delegate.title_many',
+    'gtd.delegate.success_few', 'gtd.delegate.success_many',
+    'gtd.delegate.failed_few', 'gtd.delegate.failed_many',
+    'gtd.delegate.pillAria_few', 'gtd.delegate.pillAria_many',
+  ]),
+  ru: new Set([
+    'gtd.delegate.title_few', 'gtd.delegate.title_many',
+    'gtd.delegate.success_few', 'gtd.delegate.success_many',
+    'gtd.delegate.failed_few', 'gtd.delegate.failed_many',
+    'gtd.delegate.pillAria_few', 'gtd.delegate.pillAria_many',
   ]),
 };
 const LOCALE_SPECIFIC_KEYS = new Set(
@@ -756,4 +770,31 @@ describe('Czech plural resolution', () => {
       assert.equal(instance.t('message.attachment', { count }), value, `count=${count}`);
     }
   });
+});
+
+describe('GTD delegation plural resolution', () => {
+  const cases = {
+    en: new Map([[1, 'Delegate message · 1'], [2, 'Delegate messages · 2']]),
+    cs: new Map([[1, 'Delegovat 1 zprávu'], [2, 'Delegovat 2 zprávy'], [5, 'Delegovat 5 zpráv']]),
+    pl: new Map([[1, 'Deleguj 1 wiadomość'], [2, 'Deleguj 2 wiadomości'], [5, 'Deleguj 5 wiadomości']]),
+    ru: new Map([[1, 'Делегировать 1 сообщение'], [2, 'Делегировать 2 сообщения'], [5, 'Делегировать 5 сообщений']]),
+  };
+
+  for (const [locale, expected] of Object.entries(cases)) {
+    it(`selects delegation forms for ${locale}`, async () => {
+      const instance = i18next.createInstance();
+      await instance.init({
+        lng: locale,
+        fallbackLng: false,
+        resources: {
+          [locale]: { translation: JSON.parse(readFileSync(join(dir, `${locale}.json`), 'utf8')) },
+        },
+        interpolation: { escapeValue: false },
+      });
+
+      for (const [count, value] of expected) {
+        assert.equal(instance.t('gtd.delegate.title', { count }), value, `${locale} count=${count}`);
+      }
+    });
+  }
 });

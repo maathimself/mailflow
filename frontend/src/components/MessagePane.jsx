@@ -38,6 +38,7 @@ import FolderIcon from './FolderIcon.jsx';
 import TodoistTaskModal from './TodoistTaskModal.jsx';
 import SenderAvatarImage from './SenderAvatarImage.jsx';
 import ContextMenu from './ContextMenu.jsx';
+import { PluginSlot } from '../plugins/PluginSlot.jsx';
 
 function parseAddressField(raw) {
   try {
@@ -2352,6 +2353,8 @@ ${bodyContent}
           </>
         )}
 
+        <PluginSlot name="message-pane-actions" ctx={{ message }} />
+
         <PaneBtn onClick={handleStarToggle} title={t('message.star')}>
           <svg width="15" height="15" viewBox="0 0 24 24"
             fill={message.is_starred ? 'var(--amber)' : 'none'}
@@ -2404,6 +2407,7 @@ ${bodyContent}
                 ? paneSubject
                 : t('message.noSubject');
             })()}
+            <PluginSlot name="message-pane-meta" ctx={{ message }} />
           </div>
 
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 16px' }}>
@@ -3069,6 +3073,7 @@ ${bodyContent}
           x={contextMenu.x}
           y={contextMenu.y}
           message={contextMenu.message}
+          targetMessageIds={[contextMenu.message.id]}
           variant="messagePane"
           selectedText={getPaneSelectionText()}
           onClose={() => setContextMenu(null)}

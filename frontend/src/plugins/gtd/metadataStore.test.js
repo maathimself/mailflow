@@ -6,6 +6,7 @@ import {
   getGtdMetadataRefreshGeneration,
   invalidateGtdMetadata,
   patchGtdMetadata,
+  selectGtdMetadataTargets,
   startGtdMetadataFetch,
   subscribeGtdMetadataRefresh,
 } from './metadataStore.js';
@@ -131,6 +132,26 @@ describe('startGtdMetadataFetch', () => {
     assert.equal(calls, 2);
     assert.equal(scheduled.length, 1);
     cancel();
+  });
+});
+
+describe('selectGtdMetadataTargets', () => {
+  it('keeps ordinary rows scoped to Inbox/search but includes section and reading-pane targets anywhere', () => {
+    const inboxRow = { id: 'inbox-row', account_id: A1 };
+    const sectionRow = { id: 'section-row', account_id: A1 };
+    const paneRow = { id: 'pane-row', account_id: A1 };
+    const windowRow = { id: 'window-row', account_id: A1 };
+
+    assert.deepEqual(selectGtdMetadataTargets({
+      accounts: [{ id: A1, gtd_enabled: true }],
+      selectedFolder: 'Sent',
+      searchQuery: '',
+      messages: [inboxRow],
+      searchResults: [],
+      sectionMessages: [sectionRow],
+      selectedMessage: paneRow,
+      windowMessages: [windowRow],
+    }), [sectionRow, paneRow, windowRow]);
   });
 });
 
