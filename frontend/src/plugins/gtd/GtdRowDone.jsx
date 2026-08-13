@@ -3,6 +3,7 @@ import { useStore } from '../../store/index.js';
 import { api } from '../../utils/api.js';
 import { advanceSelectionAfterRemoval } from '../../utils/listSelection.js';
 import { ActionBtn } from '../../components/RowHoverActions.jsx';
+import { invalidateGtdMetadata } from './metadataStore.js';
 
 // The GTD "done" checkmark for the row hover cluster, rendered via the 'row-hover-action' slot.
 //
@@ -29,6 +30,7 @@ export default function GtdRowDone({ message, done }) {
     if (unreadDelta > 0) decrementUnread(message.account_id, unreadDelta);
     try {
       const res = await api.gtdDone(message.id);
+      invalidateGtdMetadata();
       // Labels stripped but the archive step failed: the optimistic removal is still correct, but
       // the email is still in the inbox — say so rather than leave a gap.
       if (res?.archiveFailed) {

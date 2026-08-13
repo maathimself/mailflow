@@ -1211,7 +1211,8 @@ describe('unclassifyThread', () => {
       scheduleGtdSectionsFetch: () => calls.push(['schedule']),
       t,
     };
-    await unclassifyThread('m1', 'todo', deps);
+    const removed = await unclassifyThread('m1', 'todo', deps);
+    assert.equal(removed, true);
     assert.deepEqual(calls, [
       ['unclassify', 'm1', 'todo'],
       ['schedule'],
@@ -1227,7 +1228,8 @@ describe('unclassifyThread', () => {
       scheduleGtdSectionsFetch: () => calls.push(['schedule']),
       t,
     };
-    await unclassifyThread('m1', 'todo', deps);
+    const removed = await unclassifyThread('m1', 'todo', deps);
+    assert.equal(removed, false);
     assert.deepEqual(calls, [['notify', 'gtd.removeFailed', 'gtd.state.todo']]);
   });
 });
