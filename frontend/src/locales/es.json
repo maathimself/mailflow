@@ -562,6 +562,9 @@
         "label": "Marcar Delegado",
         "description": "Clasificar el mensaje seleccionado como Delegado"
       },
+      "gtdUndo": {
+        "description": "Deshacer la última clasificación GTD"
+      },
       "toggleRightSidebar": {
         "label": "Alternar la barra lateral derecha",
         "description": "Ocultar o mostrar la barra lateral derecha"
@@ -1513,6 +1516,7 @@
     "removeFrom": "Quitar de {{state}}",
     "classified": "Etiqueta aplicada",
     "classifyFailed": "No se pudo aplicar la etiqueta",
+    "undoFailed": "No se pudo deshacer la etiqueta",
     "removed": "Etiqueta eliminada",
     "removeFailed": "No se pudo quitar la etiqueta",
     "done": "Marcar como hecho",
