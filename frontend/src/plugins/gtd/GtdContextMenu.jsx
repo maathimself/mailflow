@@ -3,6 +3,7 @@ import { GTD_STATES, GTD_COLORS, resolveAccountGtdFolders, gtdStatesInFolders, u
 import { useStore } from '../../store/index.js';
 import { api } from '../../utils/api.js';
 import { classifyWithUndo } from './classification.js';
+import { invalidateGtdMetadata, removeGtdMetadataState } from './metadataStore.js';
 
 // GTD's context-menu contributions, injected into core's 'context-menu-actions' collector so the
 // menu itself carries no GTD-specific code. Placement is preserved: core splices these items into
@@ -22,14 +23,27 @@ function GtdContextSubmenu({ message, account, onClose, onBack }) {
   // Classify = COPY into the state's label folder (message stays put); remove = strip that label.
   // Store-based, so they run the same on every surface — no dependency on the caller's onAction.
   const classify = (state) => {
-    void classifyWithUndo(message.id, state, {
+    void classifyWithUndo(message, state, {
       api,
       store: { addNotification, scheduleGtdSectionsFetch },
       t,
     });
     onClose();
   };
-  const removeFrom = (state) => { unclassifyThread(message.id, state, { gtdUnclassify: api.gtdUnclassify, addNotification, scheduleGtdSectionsFetch, t }); onClose(); };
+  const removeFrom = (state) => {
+    void unclassifyThread(message.id, state, {
+      gtdUnclassify: api.gtdUnclassify,
+      addNotification,
+      scheduleGtdSectionsFetch,
+      t,
+    }).then(removed => {
+      if (removed) {
+        removeGtdMetadataState(message, state);
+        invalidateGtdMetadata();
+      }
+    });
+    onClose();
+  };
   return (
     <>
       <div

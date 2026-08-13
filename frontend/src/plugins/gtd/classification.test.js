@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { classifyWithUndo, undoLatestGtdNotification } from './classification.js';
+import { getGtdMetadata, getGtdMetadataRefreshGeneration } from './metadataStore.js';
 
 function createHarness(classifyResult = {}) {
   const notifications = [];
@@ -86,6 +87,51 @@ describe('classifyWithUndo', () => {
     assert.equal(harness.calls.refresh, 0);
     assert.equal(harness.notifications[0].type, 'error');
     assert.equal(harness.notifications[0].title, 'gtd.classifyFailed');
+  });
+
+  it('optimistically patches metadata for the classified visible message', async () => {
+    const message = {
+      id: 'metadata-message',
+      date: '2026-08-04T00:00:00.000Z',
+    };
+    const harness = createHarness({ ok: true, applied: true, undoToken: null });
+
+    const refreshBefore = getGtdMetadataRefreshGeneration();
+    await classifyWithUndo(message, 'reference', harness);
+
+    assert.deepEqual(harness.calls.classify, [[message.id, 'reference']]);
+    assert.deepEqual(getGtdMetadata(message.id), {
+      states: ['reference'],
+      dates: { reference: message.date },
+      date: message.date,
+    });
+    assert.equal(getGtdMetadataRefreshGeneration(), refreshBefore + 1);
+  });
+
+  it('removes the optimistic state after a successful undo', async () => {
+    const message = {
+      id: 'metadata-undo-message',
+      date: '2026-08-05T00:00:00.000Z',
+    };
+    const harness = createHarness({
+      ok: true,
+      applied: true,
+      undoToken: {
+        messageId: message.id,
+        state: 'todo',
+        folder: 'GTD/Todo',
+        uid: 904,
+      },
+    });
+
+    const refreshBefore = getGtdMetadataRefreshGeneration();
+    await classifyWithUndo(message, 'todo', harness);
+    assert.deepEqual(getGtdMetadata(message.id)?.states, ['todo']);
+
+    await harness.notifications[0].onUndo();
+
+    assert.equal(getGtdMetadata(message.id), null);
+    assert.equal(getGtdMetadataRefreshGeneration(), refreshBefore + 2);
   });
 });
 

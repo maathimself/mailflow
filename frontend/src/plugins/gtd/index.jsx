@@ -14,6 +14,8 @@ import { buildGtdContextItems } from './GtdContextMenu.jsx';
 import { gtdActiveForContext } from '../../utils/gtd.js';
 import { accountAffectsUnifiedInbox } from '../../utils/unifiedInbox.js';
 import { useStore } from '../../store/index.js';
+import GtdInboxIndicators from './GtdInboxIndicators.jsx';
+import { invalidateGtdMetadata } from './metadataStore.js';
 
 // Right-sidebar panel: GTD's triage rail. Live when GTD is on for the current account scope
 // (per-user activation is already checked by the slot registry, so pass `true` here).
@@ -54,6 +56,12 @@ registerSlot('row-hover-action', {
   render: (ctx) => <GtdRowDone message={ctx.message} done={ctx.done} />,
 });
 
+registerSlot('message-row-meta', {
+  pluginId: 'gtd',
+  isActive: (ctx) => gtdActiveForContext(useStore.getState().accounts, ctx.message.account_id, true),
+  render: (ctx) => <GtdInboxIndicators message={ctx.message} />,
+});
+
 // WS: a GTD label folder changed (tick / classify copy-remove / transition strip). Refetch the
 // rail+tab sections when the event's account is in the current rail scope (debounced in the store).
 registerWsHandler('gtd_sections_updated', {
@@ -65,6 +73,7 @@ registerWsHandler('gtd_sections_updated', {
       store.selectedAccountId === data.accountId
     ) {
       store.scheduleGtdSectionsFetch();
+      invalidateGtdMetadata();
     }
   },
 });
@@ -76,6 +85,9 @@ registerReconnectHandler({
   pluginId: 'gtd',
   handler: () => {
     const { accounts, selectedAccountId, scheduleGtdSectionsFetch } = useStore.getState();
-    if (gtdActiveForContext(accounts, selectedAccountId, true)) scheduleGtdSectionsFetch();
+    if (gtdActiveForContext(accounts, selectedAccountId, true)) {
+      scheduleGtdSectionsFetch();
+      invalidateGtdMetadata();
+    }
   },
 });
