@@ -1,4 +1,5 @@
-import { summarizeMessage, summarizeAvailable, getMessageFields, getMessageAnnotations, setMessageAnnotation } from '../api.js';
+import { summarizeMessage, summarizeAvailable, getMessageFields } from '../api.js';
+import { getMessageAnnotations, setMessageAnnotation } from '../gtdApi.js';
 
 // AI-condensed one-line gist for GTD "waiting" entries. The client shows the raw
 // message snippet by default; when a gist has been generated for a waiting thread's
@@ -62,7 +63,7 @@ const _inFlight = new Set();
 async function generateForAccount(accountId, ids) {
   // Skip ids that already carry a cached gist (belt-and-suspenders over the sections-side filter,
   // so a head that got a gist since the sections snapshot isn't regenerated / doesn't re-broadcast).
-  const existing = await getMessageAnnotations(accountId, ids, 'gtd');
+  const existing = await getMessageAnnotations(accountId, ids);
   const need = ids.filter((id) => !existing[id]?.gist);
   if (!need.length) return 0;
 
@@ -76,7 +77,7 @@ async function generateForAccount(accountId, ids) {
     });
     if (!gist) return;
     // Store under GTD's annotation namespace on the message (cleaned with the message on delete).
-    const n = await setMessageAnnotation(accountId, row.id, 'gtd', { gist });
+    const n = await setMessageAnnotation(accountId, row.id, { gist });
     if (n > 0) wrote++;
   });
   return wrote;

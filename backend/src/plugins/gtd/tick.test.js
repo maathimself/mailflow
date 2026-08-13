@@ -37,7 +37,7 @@ describe('gtd hooks — gtdSyncTick', () => {
   });
 
   beforeEach(() => {
-    query.mockReset();
+    query.mockReset().mockResolvedValue({ rows: [], rowCount: 0 });
     getAccountConfig.mockReset();
     runGtdTransitions.mockReset();
     threadKeysInFolders.mockReset();
@@ -86,6 +86,7 @@ describe('gtd hooks — gtdSyncTick', () => {
     expect(mgr.syncFolderViaPool).toHaveBeenCalledWith(account, 'Todo');
     expect(mgr.broadcast).not.toHaveBeenCalled();
     expect(runGtdTransitions).not.toHaveBeenCalled();
+    expect(query.mock.calls.some(([sql]) => sql.includes('NOT EXISTS'))).toBe(true);
   });
 
   it('broadcasts gtd_sections_updated and re-runs transitions when a folder fingerprint changes', async () => {

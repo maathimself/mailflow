@@ -5,6 +5,8 @@ import { queueGistGeneration } from './gtdGist.js';
 import { importPet, decodeUploadedSheet, getPetMeta, getPetSheet, parsePetSlug, customPetSlug } from './gtdPet.js';
 import { getGtdConfig, resolveGtdStateFolder, sanitizeGtdFolders, sanitizeGtdFoldersDetailed, DEFAULT_GTD_FOLDERS, planGtdFolderPersist, invalidateGtdConfigCache } from './gtdConfig.js';
 import { applyLabel, removeExactLabelCopy, removeLabel, markThreadRead, ensureLabelFolders, archiveInboxCopy, broadcast, loadOwnedMessage, getOwnedAccount, getMessageCopyFolders, getLabelMetadata, getAccountConfig, setAccountConfig } from '../api.js';
+import { getMessageAnnotations } from '../gtdApi.js';
+import { delegateMessages, GtdDelegationError } from './gtdDelegations.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -109,12 +111,23 @@ router.post('/metadata', async (req, res) => {
     const folder = folders?.[state];
     if (folder && !stateByFolder.has(folder)) stateByFolder.set(folder, state);
   }
-  const rows = await getLabelMetadata(accountId, ids, [...stateByFolder.keys()]);
+  const [rows, annotations] = await Promise.all([
+    getLabelMetadata(accountId, ids, [...stateByFolder.keys()]),
+    getMessageAnnotations(accountId, ids),
+  ]);
   const messages = {};
   for (const row of rows) {
     const state = stateByFolder.get(row.folder);
     if (!state) continue;
-    if (!messages[row.messageId]) messages[row.messageId] = { states: [], dates: {}, date: null };
+    const storedDelegation = annotations[row.messageId]?.delegation;
+    if (!messages[row.messageId]) messages[row.messageId] = {
+      states: [],
+      dates: {},
+      date: null,
+      // A personless delegation retains an internal delegatedAt boundary so an older reply
+      // cannot immediately clear it, but remains null in the public metadata contract.
+      delegation: storedDelegation?.contactId ? storedDelegation : null,
+    };
     const entry = messages[row.messageId];
     if (!entry.states.includes(state)) entry.states.push(state);
     entry.dates[state] = row.date;
@@ -125,6 +138,28 @@ router.post('/metadata', async (req, res) => {
     entry.dates = Object.fromEntries(entry.states.map(state => [state, entry.dates[state] ?? null]));
   }
   return res.json({ messages });
+});
+
+router.post('/delegations', async (req, res) => {
+  const { messageIds, contactId } = req.body || {};
+  if (!Array.isArray(messageIds) || messageIds.length < 1 || messageIds.length > 100) {
+    return res.status(400).json({ error: 'messageIds must contain 1–100 ids' });
+  }
+  if (messageIds.some(id => typeof id !== 'string' || !UUID_RE.test(id))) {
+    return res.status(400).json({ error: 'Invalid message id' });
+  }
+  if (contactId !== null && !UUID_RE.test(contactId || '')) {
+    return res.status(400).json({ error: 'Invalid contact id' });
+  }
+  try {
+    return res.json(await delegateMessages({ userId: req.session.userId, messageIds, contactId }));
+  } catch (error) {
+    if (error instanceof GtdDelegationError && error.code === 'contact_not_found') {
+      return res.status(404).json({ error: 'Contact not found' });
+    }
+    if (error instanceof GtdDelegationError) return res.status(error.status).json({ error: error.code });
+    throw error;
+  }
 });
 
 // ── GTD Inbox-Zero pet ────────────────────────────────────────────────────────

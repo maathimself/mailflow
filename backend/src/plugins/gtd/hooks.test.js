@@ -20,7 +20,8 @@ import { getAccountConfig, setAccountConfig } from '../accountConfig.js';
 import { runGtdTransitions, threadKeysForMessageIds, runTransitionsForSentMessage, invalidateOwnerAddressesCache } from './gtdTransitions.js';
 import { emitGtdIfRelevant } from './gtdSections.js';
 import { deleteUserPet } from './gtdPet.js';
-import { relocateExemptFolders, sectionsChanged, inboxIngest, selectGtdReevalIds, gtdEnabledForAccount, emitAfterDeferredCopySync, afterLabelCopy, afterLabelRemove, onMailMutation, onSentMessage, onUserDelete, enrichAccount, validateAccountSettings, persistAccountSettings, onAccountIdentityChanged, onPluginActivationChanged } from './hooks.js';
+import { withGtdDelegationLock } from './gtdDelegationLock.js';
+import { clearOrphanedDelegations, relocateExemptFolders, sectionsChanged, inboxIngest, selectGtdReevalIds, gtdEnabledForAccount, emitAfterDeferredCopySync, afterLabelCopy, afterLabelRemove, messageRowsDeleted, messageRowsIngested, onMailMutation, onSentMessage, onUserDelete, enrichAccount, validateAccountSettings, persistAccountSettings, onAccountIdentityChanged, onPluginActivationChanged } from './hooks.js';
 
 describe('gtd hooks — relocateExemptFolders', () => {
   beforeEach(() => getGtdFolderSet.mockReset());
@@ -143,7 +144,7 @@ describe('gtd hooks — emitAfterDeferredCopySync', () => {
     const mgr = { syncFolderOnDemand: vi.fn().mockResolvedValue(undefined), broadcast: vi.fn() };
     const account = { id: 'acct-1', user_id: 'user-1' }; // gtd_enabled falsy → no transition re-run
     await emitAfterDeferredCopySync(mgr, account, 'Todo', 100, 'INBOX');
-    expect(mgr.syncFolderOnDemand).toHaveBeenCalledWith(account, 'Todo');
+    expect(mgr.syncFolderOnDemand).toHaveBeenCalledWith(account, 'Todo', { freshAfterActive: true });
     expect(mgr.broadcast).toHaveBeenCalledWith({ type: 'gtd_sections_updated', accountId: 'acct-1' }, 'user-1');
     expect(runGtdTransitions).not.toHaveBeenCalled();
   });
@@ -164,6 +165,23 @@ describe('gtd hooks — emitAfterDeferredCopySync', () => {
     await emitAfterDeferredCopySync(mgr, account, 'Todo', 100, 'INBOX');
     expect(query.mock.calls[0][1]).toEqual(['acct-1', 100, 'INBOX']);
     expect(runGtdTransitions).toHaveBeenCalledWith(mgr, account, ['thr-9']);
+  });
+
+  it('skips post-copy transitions for an explicit delegation while still syncing and emitting', async () => {
+    const mgr = { syncFolderOnDemand: vi.fn().mockResolvedValue(undefined), broadcast: vi.fn() };
+    const account = { id: 'acct-1', user_id: 'user-1' };
+    getGtdConfig.mockResolvedValue({ enabled: true });
+
+    await emitAfterDeferredCopySync(mgr, account, 'Delegated', 100, 'INBOX', {
+      skipPostCopyTransitions: true,
+    });
+
+    expect(mgr.syncFolderOnDemand).toHaveBeenCalledWith(
+      account, 'Delegated', { freshAfterActive: true },
+    );
+    expect(mgr.broadcast).toHaveBeenCalled();
+    expect(query).not.toHaveBeenCalled();
+    expect(runGtdTransitions).not.toHaveBeenCalled();
   });
 
   it('swallows a transition re-run failure after still emitting', async () => {
@@ -193,13 +211,163 @@ describe('gtd hooks — afterLabelCopy / afterLabelRemove', () => {
     const account = { id: 'a1', user_id: 'u1' };
     await afterLabelCopy({ mgr, account, toFolder: 'Todo', fromFolder: 'INBOX', srcUid: 5, newUid: null });
     expect(mgr.broadcast).toHaveBeenCalledWith({ type: 'gtd_sections_updated', accountId: 'a1' }, 'u1');
-    expect(mgr.syncFolderOnDemand).toHaveBeenCalledWith(account, 'Todo');
+    expect(mgr.syncFolderOnDemand).toHaveBeenCalledWith(account, 'Todo', { freshAfterActive: true });
+  });
+
+  it('afterLabelCopy waits for non-UIDPLUS destination reconciliation', async () => {
+    let finishSync;
+    const sync = new Promise(resolve => { finishSync = resolve; });
+    const mgr = { broadcast: vi.fn(), syncFolderOnDemand: vi.fn(() => sync) };
+    const account = { id: 'a1', user_id: 'u1' };
+    let settled = false;
+    const copyHook = afterLabelCopy({
+      mgr, account, toFolder: 'Todo', fromFolder: 'INBOX', srcUid: 5, newUid: null,
+    }).then(() => { settled = true; });
+
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    finishSync();
+    await copyHook;
+    expect(settled).toBe(true);
   });
 
   it('afterLabelRemove broadcasts the section refresh', async () => {
     const mgr = { broadcast: vi.fn() };
     await afterLabelRemove({ mgr, account: { id: 'a1', user_id: 'u1' } });
     expect(mgr.broadcast).toHaveBeenCalledWith({ type: 'gtd_sections_updated', accountId: 'a1' }, 'u1');
+  });
+
+  it('clears delegation only after the final Delegated copy disappears', async () => {
+    getGtdConfig.mockResolvedValue({ enabled: true, folders: { delegated: 'Delegated' } });
+    query
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rowCount: 3, rows: [] });
+    const mgr = { broadcast: vi.fn() };
+    await afterLabelRemove({
+      mgr,
+      account: { id: 'a1', user_id: 'u1' },
+      folder: 'Delegated',
+      threadKey: 'thread-1',
+    });
+    expect(query.mock.calls[0][1]).toEqual(['a1', 'thread-1', 'Delegated']);
+    expect(query.mock.calls[1][0]).toContain('(plugin_annotations -> $3) - $4');
+  });
+
+  it('retains delegation while a Delegated copy survives', async () => {
+    getGtdConfig.mockResolvedValue({ enabled: true, folders: { delegated: 'Delegated' } });
+    query.mockResolvedValueOnce({ rows: [{ uid: 91 }] });
+    await afterLabelRemove({
+      mgr: { broadcast: vi.fn() },
+      account: { id: 'a1', user_id: 'u1' },
+      folder: 'Delegated',
+      threadKey: 'thread-1',
+    });
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+
+  it('serializes final-copy cleanup with delegation writes for the same thread', async () => {
+    getGtdConfig.mockResolvedValue({ enabled: true, folders: { delegated: 'Delegated' } });
+    query.mockResolvedValueOnce({ rows: [{ uid: 91 }] });
+    let release;
+    let signalEntered;
+    const entered = new Promise(resolve => { signalEntered = resolve; });
+    const held = withGtdDelegationLock('a1', 'thread-locked', () => {
+      signalEntered();
+      return new Promise(resolve => { release = resolve; });
+    });
+    await entered;
+    const cleanup = afterLabelRemove({
+      mgr: { broadcast: vi.fn() },
+      account: { id: 'a1', user_id: 'u1' },
+      folder: 'Delegated',
+      threadKey: 'thread-locked',
+    });
+    await Promise.resolve();
+    expect(query).not.toHaveBeenCalled();
+    release();
+    await held;
+    await cleanup;
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('gtd hooks — delegation inheritance', () => {
+  beforeEach(() => query.mockReset());
+
+  it('copies an authoritative thread delegation onto newly ingested rows', async () => {
+    const delegation = { contactId: 'c1', displayName: 'Casey' };
+    query
+      .mockResolvedValueOnce({ rows: [{ thread_key: 'thread-1' }] })
+      .mockResolvedValueOnce({ rows: [
+        { id: 'new-row', thread_key: 'thread-1', plugin_annotations: {} },
+        { id: 'old-row', thread_key: 'thread-1', plugin_annotations: { gtd: { delegation } } },
+      ] })
+      .mockResolvedValueOnce({ rowCount: 2, rows: [] });
+
+    await messageRowsIngested({ account: { id: 'a1' }, messageIds: ['new-row'] });
+
+    await vi.waitFor(() => expect(query).toHaveBeenCalledTimes(3));
+    expect(query.mock.calls[2][1]).toEqual(['a1', 'thread-1', 'gtd', 'delegation', JSON.stringify(delegation)]);
+  });
+
+  it('does not block folder sync while inheritance waits for an active delegation write', async () => {
+    const delegation = { contactId: 'new-contact', displayName: 'New Contact' };
+    query
+      .mockResolvedValueOnce({ rows: [{ thread_key: 'thread-ingest-locked' }] })
+      .mockResolvedValueOnce({ rows: [
+        { id: 'new-row', thread_key: 'thread-ingest-locked', plugin_annotations: {} },
+        { id: 'old-row', thread_key: 'thread-ingest-locked', plugin_annotations: { gtd: { delegation } } },
+      ] })
+      .mockResolvedValueOnce({ rowCount: 2, rows: [] });
+    let release;
+    let signalEntered;
+    const entered = new Promise(resolve => { signalEntered = resolve; });
+    const held = withGtdDelegationLock('a1', 'thread-ingest-locked', () => {
+      signalEntered();
+      return new Promise(resolve => { release = resolve; });
+    });
+    await entered;
+
+    const ingest = messageRowsIngested({ account: { id: 'a1' }, messageIds: ['new-row'] });
+    await expect(Promise.race([
+      ingest.then(() => 'settled'),
+      new Promise(resolve => setTimeout(() => resolve('timed-out'), 50)),
+    ])).resolves.toBe('settled');
+    expect(query).toHaveBeenCalledTimes(1);
+    release();
+    await held;
+    await vi.waitFor(() => expect(query).toHaveBeenCalledTimes(3));
+    expect(query.mock.calls[1][1]).toEqual(['a1', ['thread-ingest-locked']]);
+    expect(query.mock.calls[2][1]).toEqual([
+      'a1', 'thread-ingest-locked', 'gtd', 'delegation', JSON.stringify(delegation),
+    ]);
+  });
+
+  it('clears delegation after external deletion removes the final Delegated copy', async () => {
+    getGtdConfig.mockResolvedValue({ enabled: true, folders: { delegated: 'Delegated' } });
+    query
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rowCount: 2, rows: [] });
+
+    await messageRowsDeleted({
+      account: { id: 'a1', user_id: 'u1' },
+      folder: 'Delegated',
+      threadKeys: ['thread-1'],
+    });
+
+    expect(query.mock.calls[0][1]).toEqual(['a1', 'thread-1', 'Delegated']);
+    expect(query.mock.calls[1][0]).toContain('(plugin_annotations -> $3) - $4');
+  });
+
+  it('sweeps an orphaned snapshot after a prior delete hook failure', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ thread_key: 'thread-orphan' }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rowCount: 2, rows: [] });
+
+    await expect(clearOrphanedDelegations('a1', 'Delegated')).resolves.toBe(1);
+    expect(query.mock.calls[0][0]).toContain('NOT EXISTS');
+    expect(query.mock.calls[2][1]).toEqual(['a1', 'thread-orphan', 'gtd', 'delegation']);
   });
 });
 
