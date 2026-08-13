@@ -1936,7 +1936,29 @@
     "removeFailed": "라벨을 삭제할 수 없습니다.",
     "onlyCopy": "이 메시지의 유일한 사본이므로 라벨을 삭제하면 메시지도 삭제됩니다. 대신 보관하거나 이동하세요.",
     "doneArchiveFailed": "완료로 표시했지만 보관에 실패했습니다. 여전히 받은편지함에 있습니다.",
-    "doneThreadRemains": "이 대화의 일부 메시지를 정리하지 못해 GTD 섹션에 그대로 남아 있습니다"
+    "doneThreadRemains": "이 대화의 일부 메시지를 정리하지 못해 GTD 섹션에 그대로 남아 있습니다",
+    "delegate": {
+      "menu": "위임…",
+      "button": "연락처에 위임",
+      "title_one": "메시지 위임 · {{count}}",
+      "title_other": "메시지 위임 · {{count}}",
+      "hint": "CardDAV 연락처를 선택하거나, 담당자 없이 위임하세요.",
+      "search": "연락처 검색",
+      "empty": "연락처를 찾을 수 없습니다",
+      "retry": "다시 시도",
+      "loadFailed": "연락처를 불러올 수 없습니다",
+      "withoutPerson": "담당자 없이 위임",
+      "success_one": "메시지를 위임했습니다: {{count}}",
+      "success_other": "메시지를 위임했습니다: {{count}}",
+      "partial": "{{success}}개 위임됨, {{failed}}개 실패",
+      "failed_one": "메시지를 위임하지 못했습니다: {{count}}",
+      "failed_other": "메시지를 위임하지 못했습니다: {{count}}",
+      "tooMany": "한 번에 최대 {{max}}개의 메시지만 위임할 수 있습니다",
+      "shortcutLabel": "연락처에 위임",
+      "shortcutDescription": "선택한 메시지를 위임할 연락처를 고릅니다",
+      "pillAria_one": "{{name}}에게 위임됨, {{days}}일 전",
+      "pillAria_other": "{{name}}에게 위임됨, {{days}}일 전"
+    }
   },
   "rightSidebar": {
     "show": "오른쪽 사이드바 표시",

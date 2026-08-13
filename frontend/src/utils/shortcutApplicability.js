@@ -20,7 +20,7 @@ export function canRunGlobalAction(action, { rightSidebarApplicable }) {
 
 export function canRunSelectedAction(action, state) {
   if (canDispatchHoveredGtdShortcut(action, state)) return true;
-  if (['gtdTodo', 'gtdWatch', 'gtdDelegated', 'gtdReference', 'gtdSomeday', 'gtdDone'].includes(action)) {
+  if (['gtdTodo', 'gtdWatch', 'gtdDelegated', 'gtdReference', 'gtdSomeday', 'gtdDone', 'gtdDelegateContact'].includes(action)) {
     return Boolean(resolveGtdHotkeyTarget(state));
   }
   if (!SELECTED_ACTIONS.has(action)) return true;

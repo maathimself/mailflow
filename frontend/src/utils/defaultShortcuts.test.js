@@ -105,6 +105,7 @@ describe('modifier shortcuts', () => {
     assert.equal(resolveShortcutAction({ key: 'E', ctrlKey: true, shiftKey: true }), null);
     assert.equal(resolveShortcutAction({ key: 'e', ctrlKey: true, shiftKey: false }), null);
     assert.equal(resolveShortcutAction({ key: 'E', ctrlKey: false, shiftKey: true }), 'gtdDone');
+    assert.equal(resolveShortcutAction({ key: 'D', ctrlKey: false, shiftKey: true }), 'gtdDelegateContact');
     assert.equal(resolveShortcutAction(keyEvent('E', { ctrlKey: true, shiftKey: true }), { gtdDone: 'ctrl+shift+e' }), 'gtdDone');
   });
 

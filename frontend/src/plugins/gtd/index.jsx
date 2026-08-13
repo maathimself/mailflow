@@ -14,6 +14,8 @@ import GtdInboxIndicators from './GtdInboxIndicators.jsx';
 import { shouldShowInboxGtdMetadata } from './indicators.js';
 import { invalidateGtdMetadata } from './metadataStore.js';
 import { buildGtdContextItems } from './GtdContextMenu.jsx';
+import DelegatePill from './DelegatePill.jsx';
+import DelegateButton from './DelegateButton.jsx';
 import GtdStateIcon from './GtdStateIcon.jsx';
 import { buildGtdMovePickerSections } from './movePickerSections.js';
 import { classifyWithUndo, classifyManyWithUndo } from '../../utils/gtdClassification.js';
@@ -82,6 +84,33 @@ registerSlot('message-row-meta', {
       && shouldShowInboxGtdMetadata(store);
   },
   render: ctx => <GtdInboxIndicators message={ctx.message} />,
+});
+
+// Row pills follow the inbox chips' gate; their metadata is only fetched for Inbox and search rows.
+registerSlot('message-row-meta', {
+  pluginId: 'gtd',
+  order: 20,
+  isActive: ctx => {
+    const store = useStore.getState();
+    return gtdActiveForContext(store.accounts, ctx.message.account_id, true)
+      && shouldShowInboxGtdMetadata(store);
+  },
+  render: ctx => <DelegatePill message={ctx.message} />,
+});
+
+for (const slotName of ['gtd-entry-meta', 'message-pane-meta']) {
+  registerSlot(slotName, {
+    pluginId: 'gtd',
+    order: 20,
+    isActive: (ctx) => gtdActiveForContext(useStore.getState().accounts, ctx.message.account_id, true),
+    render: (ctx) => <DelegatePill message={ctx.message} />,
+  });
+}
+
+registerSlot('message-pane-actions', {
+  pluginId: 'gtd',
+  isActive: (ctx) => gtdActiveForContext(useStore.getState().accounts, ctx.message.account_id, true),
+  render: (ctx) => <DelegateButton message={ctx.message} />,
 });
 
 // WS: a GTD label folder changed (tick / classify copy-remove / transition strip). Refetch the

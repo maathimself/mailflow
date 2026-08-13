@@ -67,6 +67,7 @@ export const ACTION_DEFS = {
   gtdReference: { groupKey: 'shortcuts.groups.gtd', labelKey: 'gtd.state.reference', descriptionKey: 'shortcuts.actions.gtdReference.description', defaultKey: 'v' },
   gtdSomeday: { groupKey: 'shortcuts.groups.gtd', labelKey: 'gtd.state.someday', descriptionKey: 'shortcuts.actions.gtdSomeday.description', defaultKey: 'b' },
   gtdDone: { groupKey: 'shortcuts.groups.gtd', labelKey: 'gtd.done', descriptionKey: 'shortcuts.actions.gtdDone.description', defaultKey: 'shift+e' },
+  gtdDelegateContact: { groupKey: 'shortcuts.groups.gtd', labelKey: 'gtd.delegate.shortcutLabel', descriptionKey: 'gtd.delegate.shortcutDescription', defaultKey: 'shift+d' },
 };
 
 // Returns the effective shortcut map: action → key, with user overrides applied.

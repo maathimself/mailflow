@@ -40,6 +40,18 @@ export function tickGtdMetadataClock(now = Date.now()) {
   for (const listener of clockListeners) listener();
 }
 
+// Messages whose GTD metadata is needed: the visible rows (empty when row chips are hidden) plus
+// the rail entries, the selected message and open message windows, which show delegate pills.
+export function selectGtdMetadataTargets({ rows, sectionMessages, selectedMessage, windowMessages }) {
+  return [...new Map([
+    ...(rows || []),
+    ...(sectionMessages || []),
+    selectedMessage,
+    ...(windowMessages || []),
+  ].filter(message => message?.id && message.account_id)
+    .map(message => [message.id, message])).values()];
+}
+
 export function invalidateGtdMetadata() {
   requestGeneration += 1;
   refreshGeneration += 1;
@@ -161,6 +173,24 @@ export function patchGtdMetadata(message, state, date) {
     if (!(state in dates) || (date && (!dates[state] || new Date(date) < new Date(dates[state])))) dates[state] = date ?? null;
     const dated = Object.values(dates).filter(Boolean).sort();
     metadata.set(id, { ...current, states, dates, date: dated[0] ?? null });
+  }
+  requestGeneration += 1;
+  emit();
+}
+
+// A successful delegation leaves the thread in Delegated only (a switch removes its other states),
+// with `delegation` null when no person was picked.
+export function patchGtdDelegation(message, delegation) {
+  for (const id of relatedIds(message)) {
+    const current = metadata.get(id) || { states: [], dates: {}, date: null };
+    const delegatedDate = current.dates?.delegated ?? delegation?.delegatedAt ?? null;
+    metadata.set(id, {
+      ...current,
+      states: ['delegated'],
+      dates: { delegated: delegatedDate },
+      date: delegatedDate,
+      delegation,
+    });
   }
   requestGeneration += 1;
   emit();
