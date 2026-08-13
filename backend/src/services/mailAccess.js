@@ -22,6 +22,30 @@ export async function loadOwnedMessage(userId, messageId) {
   return rows[0] || null;
 }
 
+export async function loadOwnedMessages(userId, messageIds) {
+  if (!messageIds?.length) return [];
+  const { rows } = await query(
+    `SELECT m.*
+       FROM messages m
+       JOIN email_accounts a ON a.id = m.account_id
+      WHERE a.user_id = $1
+        AND m.id = ANY($2::uuid[])
+        AND m.is_deleted = false`,
+    [userId, messageIds]
+  );
+  return rows;
+}
+
+export async function loadOwnedContact(userId, contactId) {
+  const { rows } = await query(
+    `SELECT c.id, c.display_name, c.primary_email
+       FROM contacts c
+      WHERE c.id = $1 AND c.user_id = $2`,
+    [contactId, userId]
+  );
+  return rows[0] || null;
+}
+
 // One of the user's accounts by id (ownership enforced), or null. Full row.
 export async function getOwnedAccount(userId, accountId) {
   const { rows } = await query(
@@ -96,6 +120,18 @@ export async function getMessagesByThreadKeys(accountId, threadKeys) {
     `SELECT thread_key, uid, folder, from_email, date, id
        FROM messages
       WHERE account_id = $1 AND thread_key = ANY($2::text[]) AND is_deleted = false`,
+    [accountId, threadKeys]
+  );
+  return rows;
+}
+
+export async function getThreadMessages(accountId, threadKeys) {
+  if (!threadKeys?.length) return [];
+  const { rows } = await query(
+    `SELECT * FROM messages
+      WHERE account_id = $1
+        AND thread_key = ANY($2::text[])
+        AND is_deleted = false`,
     [accountId, threadKeys]
   );
   return rows;
@@ -186,6 +222,33 @@ export async function setMessageAnnotation(accountId, messageId, pluginId, patch
               true)
       WHERE id = $2 AND account_id = $1`,
     [accountId, messageId, pluginId, JSON.stringify(patch)]
+  );
+  return rowCount;
+}
+
+export async function setThreadAnnotation(accountId, threadKey, pluginId, key, value) {
+  if (value === null) {
+    const { rowCount } = await query(
+      `UPDATE messages
+          SET plugin_annotations = jsonb_set(
+                COALESCE(plugin_annotations, '{}'::jsonb),
+                ARRAY[$3::text],
+                COALESCE((plugin_annotations -> $3) - $4, '{}'::jsonb),
+                true)
+        WHERE account_id = $1 AND thread_key = $2 AND is_deleted = false`,
+      [accountId, threadKey, pluginId, key]
+    );
+    return rowCount;
+  }
+  const { rowCount } = await query(
+    `UPDATE messages
+        SET plugin_annotations = jsonb_set(
+              COALESCE(plugin_annotations, '{}'::jsonb),
+              ARRAY[$3::text],
+              COALESCE(plugin_annotations -> $3, '{}'::jsonb) || jsonb_build_object($4::text, $5::jsonb),
+              true)
+      WHERE account_id = $1 AND thread_key = $2 AND is_deleted = false`,
+    [accountId, threadKey, pluginId, key, JSON.stringify(value)]
   );
   return rowCount;
 }

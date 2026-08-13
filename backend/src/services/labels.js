@@ -27,6 +27,27 @@ export async function resolveLabelCopyUid(message, folder) {
   return rows[0]?.uid ?? null;
 }
 
+export async function listLabelCopyUids(accountId, threadKey, folder) {
+  const { rows } = await query(
+    `SELECT uid FROM messages
+      WHERE account_id = $1 AND thread_key = $2 AND folder = $3
+        AND is_deleted = false
+      ORDER BY uid`,
+    [accountId, threadKey, folder]
+  );
+  return rows.map(row => Number(row.uid));
+}
+
+export async function reconcileLabelApply(imapManager, account, message, folder, beforeUids) {
+  await imapManager.syncFolderOnDemand(account, folder);
+  const before = new Set((beforeUids || []).map(Number));
+  const added = (await listLabelCopyUids(message.account_id, message.thread_key, folder))
+    .filter(uid => !before.has(uid));
+  return added.length === 1
+    ? { uid: added[0], ambiguous: false }
+    : { uid: null, ambiguous: true };
+}
+
 // Apply a label: ensure the label folder exists, then COPY the message into it (leaving the
 // original in place). imapManager.copyMessage also emits the section-refresh event. No-op when
 // the message already lives in the label folder. `message` needs { uid, folder }.

@@ -36,6 +36,8 @@ export const removeLabel = (message, labelFolder) => labelsWrite.removeLabel(get
 export const removeExactLabelCopy = (message, labelFolder, uid) => labelsWrite.removeExactLabelCopy(getMailEngine(), message, labelFolder, uid);
 export const markThreadRead = (account, message) => labelsWrite.markThreadRead(getMailEngine(), account, message);
 export const ensureLabelFolders = (account, folderPaths) => labelsWrite.ensureLabelFolders(getMailEngine(), account, folderPaths);
+export const listLabelCopyUids = labelsWrite.listLabelCopyUids;
+export const reconcileLabelApply = (account, message, folder, beforeUids) => labelsWrite.reconcileLabelApply(getMailEngine(), account, message, folder, beforeUids);
 export const resolveLabelCopyUid = labelsWrite.resolveLabelCopyUid;
 
 // ── Archive ───────────────────────────────────────────────────────────────────
@@ -84,6 +86,8 @@ export { resolveAllDraftsPaths } from '../utils/mailUtils.js';
 // reads mail/account data only through these — never raw SQL, never across users.
 export {
   loadOwnedMessage,
+  loadOwnedMessages,
+  loadOwnedContact,
   getOwnedAccount,
   listUserAccounts,
   getAccountAddresses,
@@ -91,10 +95,12 @@ export {
   getThreadKeysInFolders,
   getThreadKeysForMessageIdHeaders,
   getMessagesByThreadKeys,
+  getThreadMessages,
   getThreadKeyForUid,
   getMessageCopyFolders,
   getMessageFields,
   getMessageAnnotations,
   getLabelMetadata,
   setMessageAnnotation,
+  setThreadAnnotation,
 } from '../services/mailAccess.js';

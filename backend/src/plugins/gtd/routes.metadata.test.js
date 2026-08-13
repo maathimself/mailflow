@@ -41,6 +41,9 @@ beforeEach(() => {
       { message_id: M1, folder: 'Todo', date: new Date('2026-08-01T00:00:00.000Z') },
       { message_id: M2, folder: 'Reference', date: null },
     ] };
+    if (sql.includes('plugin_annotations -> $3')) return { rows: [
+      { id: M1, ann: { delegation: { contactId: 'c1' } } },
+    ] };
     return { rows: [] };
   });
 });
@@ -84,8 +87,9 @@ describe('POST /api/gtd/metadata', () => {
         states: ['todo', 'watch'],
         dates: { todo: '2026-08-01T00:00:00.000Z', watch: '2026-07-01T00:00:00.000Z' },
         date: '2026-08-01T00:00:00.000Z',
+        delegation: { contactId: 'c1' },
       },
-      [M2]: { states: ['reference'], dates: { reference: null }, date: null },
+      [M2]: { states: ['reference'], dates: { reference: null }, date: null, delegation: null },
     } });
     const labelCall = query.mock.calls.find(([sql]) => sql.includes('FROM messages target'));
     expect(labelCall[1][1]).toEqual([M1, M2]);
@@ -98,9 +102,10 @@ describe('POST /api/gtd/metadata', () => {
     });
     query.mockImplementation(async sql => {
       if (sql.startsWith('SELECT * FROM email_accounts')) return { rows: [{ id: ACCOUNT, user_id: 'u1' }] };
-      if (sql.includes('FROM messages target')) return { rows: [
+    if (sql.includes('FROM messages target')) return { rows: [
         { message_id: M1, folder: 'Next Actions', date: new Date('2026-08-02T00:00:00.000Z') },
-      ] };
+    ] };
+    if (sql.includes('plugin_annotations -> $3')) return { rows: [{ id: M1, ann: { delegation: { contactId: 'c1' } } }] };
       return { rows: [] };
     });
     const res = await metadata({ accountId: ACCOUNT, messageIds: [M1] });
