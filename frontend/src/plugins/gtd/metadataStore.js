@@ -108,3 +108,26 @@ export function removeGtdMetadataState(message, state) {
   requestGeneration += 1;
   emit();
 }
+
+export function patchGtdDelegation(message, delegation) {
+  const messageId = typeof message === 'string' ? message : message?.id;
+  if (!messageId) return;
+  const current = metadata.get(messageId) || { states: [], dates: {}, date: null };
+  const delegatedAt = delegation?.delegatedAt ?? null;
+  const states = delegation && !current.states.includes('delegated')
+    ? [...current.states, 'delegated'].sort((a, b) => STATE_ORDER.indexOf(a) - STATE_ORDER.indexOf(b))
+    : current.states;
+  const dates = delegation && !current.dates?.delegated
+    ? { ...current.dates, delegated: delegatedAt }
+    : { ...current.dates };
+  const dated = Object.values(dates).filter(Boolean).sort();
+  metadata.set(messageId, {
+    ...current,
+    states,
+    dates,
+    date: dated.at(-1) ?? current.date ?? null,
+    delegation,
+  });
+  requestGeneration += 1;
+  emit();
+}

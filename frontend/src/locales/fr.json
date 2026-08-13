@@ -1522,6 +1522,23 @@
     "done": "Marquer comme terminé",
     "doneFailed": "Impossible de marquer comme terminé",
     "doneArchiveFailed": "Marqué comme terminé, mais l'archivage a échoué — toujours dans la boîte de réception",
+    "delegate": {
+      "menu": "Déléguer…",
+      "button": "Déléguer à un contact",
+      "title": "Déléguer {{count}} message",
+      "hint": "Choisissez un contact CardDAV ou déléguez sans personne.",
+      "search": "Rechercher des contacts",
+      "empty": "Aucun contact trouvé",
+      "retry": "Réessayer",
+      "loadFailed": "Impossible de charger les contacts",
+      "withoutPerson": "Déléguer sans personne",
+      "success": "{{count}} message délégué",
+      "partial": "{{success}} délégués ; {{failed}} en échec",
+      "failed": "Impossible de déléguer {{count}} message",
+      "shortcutLabel": "Déléguer à un contact",
+      "shortcutDescription": "Choisir un contact pour le message sélectionné",
+      "pillAria": "Délégué à {{name}} il y a {{days}} jours"
+    },
     "state": {
       "todo": "À faire",
       "watch": "Surveiller",

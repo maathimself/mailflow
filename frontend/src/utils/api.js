@@ -392,6 +392,7 @@ export const api = {
   },
   gtdClassify: (messageId, state) => request('POST', '/gtd/classify', { messageId, state }),
   gtdMetadata: (accountId, messageIds) => request('POST', '/gtd/metadata', { accountId, messageIds }),
+  gtdDelegate: (messageIds, contactId) => request('POST', '/gtd/delegations', { messageIds, contactId }),
   gtdUndoClassify: (undoToken) => request('POST', '/gtd/classify/undo', undoToken),
   gtdUnclassify: (messageId, state) => request('DELETE', '/gtd/classify', { messageId, state }),
   // GTD "done": strip the row's label(s) for these states, mark read, archive the INBOX

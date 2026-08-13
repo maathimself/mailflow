@@ -1522,6 +1522,23 @@
     "done": "Als erledigt markieren",
     "doneFailed": "Konnte nicht als erledigt markiert werden",
     "doneArchiveFailed": "Als erledigt markiert, aber Archivieren fehlgeschlagen – noch im Posteingang",
+    "delegate": {
+      "menu": "Delegieren…",
+      "button": "An Kontakt delegieren",
+      "title": "{{count}} Nachricht delegieren",
+      "hint": "Wähle einen CardDAV-Kontakt oder delegiere ohne Person.",
+      "search": "Kontakte suchen",
+      "empty": "Keine Kontakte gefunden",
+      "retry": "Erneut versuchen",
+      "loadFailed": "Kontakte konnten nicht geladen werden",
+      "withoutPerson": "Ohne Person delegieren",
+      "success": "{{count}} Nachricht delegiert",
+      "partial": "{{success}} delegiert; {{failed}} fehlgeschlagen",
+      "failed": "{{count}} Nachricht konnte nicht delegiert werden",
+      "shortcutLabel": "An Kontakt delegieren",
+      "shortcutDescription": "Kontakt für die ausgewählte Nachricht wählen",
+      "pillAria": "Vor {{days}} Tagen an {{name}} delegiert"
+    },
     "state": {
       "todo": "Aufgabe",
       "watch": "Beobachten",

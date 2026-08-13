@@ -19,6 +19,7 @@ describe('buildKeyMap', () => {
     assert.equal(map.t, 'gtdTodo');
     assert.equal(map.w, 'gtdWatch');
     assert.equal(map.d, 'gtdDelegated');
+    assert.equal(map.D, 'gtdDelegateContact');
   });
 
   it('warns and keeps last-writer-wins when an override collides with a default key', (t) => {

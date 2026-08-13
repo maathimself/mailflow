@@ -16,6 +16,8 @@ import { accountAffectsUnifiedInbox } from '../../utils/unifiedInbox.js';
 import { useStore } from '../../store/index.js';
 import GtdInboxIndicators from './GtdInboxIndicators.jsx';
 import { invalidateGtdMetadata } from './metadataStore.js';
+import DelegatePill from './DelegatePill.jsx';
+import DelegateButton from './DelegateButton.jsx';
 
 // Right-sidebar panel: GTD's triage rail. Live when GTD is on for the current account scope
 // (per-user activation is already checked by the slot registry, so pass `true` here).
@@ -60,6 +62,21 @@ registerSlot('message-row-meta', {
   pluginId: 'gtd',
   isActive: (ctx) => gtdActiveForContext(useStore.getState().accounts, ctx.message.account_id, true),
   render: (ctx) => <GtdInboxIndicators message={ctx.message} />,
+});
+
+for (const slotName of ['message-row-meta', 'gtd-entry-meta', 'message-pane-meta']) {
+  registerSlot(slotName, {
+    pluginId: 'gtd',
+    order: 20,
+    isActive: (ctx) => gtdActiveForContext(useStore.getState().accounts, ctx.message.account_id, true),
+    render: (ctx) => <DelegatePill message={ctx.message} />,
+  });
+}
+
+registerSlot('message-pane-actions', {
+  pluginId: 'gtd',
+  isActive: (ctx) => gtdActiveForContext(useStore.getState().accounts, ctx.message.account_id, true),
+  render: (ctx) => <DelegateButton message={ctx.message} />,
 });
 
 // WS: a GTD label folder changed (tick / classify copy-remove / transition strip). Refetch the

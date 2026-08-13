@@ -1522,6 +1522,23 @@
     "done": "Segna come completato",
     "doneFailed": "Impossibile segnare come completato",
     "doneArchiveFailed": "Segnato come completato, ma archiviazione non riuscita: è ancora nella posta in arrivo",
+    "delegate": {
+      "menu": "Delega…",
+      "button": "Delega a un contatto",
+      "title": "Delega {{count}} messaggio",
+      "hint": "Scegli un contatto CardDAV oppure delega senza assegnare una persona.",
+      "search": "Cerca contatti",
+      "empty": "Nessun contatto trovato",
+      "retry": "Riprova",
+      "loadFailed": "Impossibile caricare i contatti",
+      "withoutPerson": "Delega senza persona",
+      "success": "{{count}} messaggio delegato",
+      "partial": "{{success}} delegati; {{failed}} non riusciti",
+      "failed": "Impossibile delegare {{count}} messaggio",
+      "shortcutLabel": "Delega a contatto",
+      "shortcutDescription": "Scegli un contatto per il messaggio selezionato",
+      "pillAria": "Delegato a {{name}} {{days}} giorni fa"
+    },
     "state": {
       "todo": "Da fare",
       "watch": "Osservare",

@@ -1522,6 +1522,23 @@
     "done": "标记为完成",
     "doneFailed": "无法标记为完成",
     "doneArchiveFailed": "已标记为完成，但归档失败——邮件仍在收件箱中",
+    "delegate": {
+      "menu": "委派…",
+      "button": "委派给联系人",
+      "title": "委派 {{count}} 封邮件",
+      "hint": "选择 CardDAV 联系人，或不指定人员直接委派。",
+      "search": "搜索联系人",
+      "empty": "未找到联系人",
+      "retry": "重试",
+      "loadFailed": "无法加载联系人",
+      "withoutPerson": "不指定人员委派",
+      "success": "已委派 {{count}} 封邮件",
+      "partial": "已委派 {{success}} 封；{{failed}} 封失败",
+      "failed": "无法委派 {{count}} 封邮件",
+      "shortcutLabel": "委派给联系人",
+      "shortcutDescription": "为所选邮件选择联系人",
+      "pillAria": "{{days}} 天前委派给 {{name}}"
+    },
     "state": {
       "todo": "待办",
       "watch": "关注",
