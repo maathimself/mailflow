@@ -1,5 +1,6 @@
 import { getGtdConfig } from './gtdConfig.js';
 import { resolveAllDraftsPaths, resolveAllTrashPaths, resolveAllSpamPaths, logger, getAccountAddresses, getThreadKeysForMessageIds as _threadKeysForIds, getThreadKeysInFolders as _threadKeysInFolders, getThreadKeysForMessageIdHeaders, getMessagesByThreadKeys } from '../api.js';
+import { withGtdDelegationLock } from './gtdDelegationLock.js';
 
 // Transition rules for auto-stripping a GTD label once a thread's state has moved on,
 // evaluated per thread against its LAST non-draft message:
@@ -67,6 +68,15 @@ export async function getOwnerAddresses(accountId) {
 export const threadKeysForMessageIds = (accountId, ids) => _threadKeysForIds(accountId, ids);
 export const threadKeysInFolders = (accountId, folders) => _threadKeysInFolders(accountId, folders);
 
+async function withThreadTransitionLocks(accountId, keys, work, index = 0) {
+  if (index >= keys.length) return work();
+  return withGtdDelegationLock(
+    accountId,
+    keys[index],
+    () => withThreadTransitionLocks(accountId, keys, work, index + 1),
+  );
+}
+
 // ── Transition engine ────────────────────────────────────────────────────────
 // Apply the GTD Labeler rules to a set of threads for one account.
 //
@@ -113,79 +123,84 @@ export async function runGtdTransitions(imapManager, account, threadKeys) {
   const excludedFolders = new Set([...Object.values(folders), ...draftPaths, ...trashPaths, ...spamPaths]);
   const owner = await getOwnerAddresses(account.id);
 
-  const rows = await getMessagesByThreadKeys(account.id, keys);
+  // Acquire every affected thread in stable order before taking the message snapshot.
+  // An explicit delegation uses the same lock, so whichever operation entered first
+  // finishes first and a tick never inspects a half-written state change.
+  await withThreadTransitionLocks(account.id, [...keys].sort(), async () => {
+    const rows = await getMessagesByThreadKeys(account.id, keys);
 
-  const byThread = new Map();
-  for (const row of rows) {
-    if (!byThread.has(row.thread_key)) byThread.set(row.thread_key, []);
-    byThread.get(row.thread_key).push(row);
-  }
-
-  let anyStripped = false;
-
-  for (const [, threadRows] of byThread) {
-    const nonDraft = threadRows.filter((r) => !draftPaths.has(r.folder));
-    if (nonDraft.length === 0) continue;
-
-    // Newest non-draft message wins; ties break by id (matches the sections head order),
-    // though a tie is always between sibling copies of one message so it cannot flip self.
-    let newest = nonDraft[0];
-    for (const r of nonDraft) {
-      const diff = new Date(r.date) - new Date(newest.date);
-      if (diff > 0 || (diff === 0 && String(r.id) > String(newest.id))) newest = r;
+    const byThread = new Map();
+    for (const row of rows) {
+      if (!byThread.has(row.thread_key)) byThread.set(row.thread_key, []);
+      byThread.get(row.thread_key).push(row);
     }
-    const isSelf = owner.has(normalizeAddress(newest.from_email));
 
-    for (const [state, folder] of Object.entries(stateFolder)) {
-      const rule = STRIP_RULE[state];
-      const shouldStrip = rule === 'self' && isSelf;
-      if (!shouldStrip) continue;
+    let anyStripped = false;
 
-      for (const copy of threadRows.filter((r) => r.folder === folder)) {
-        // Users can move mail into GTD folders. Only strip a duplicate backed
-        // by the same email outside GTD, Drafts and disposable folders.
-        if (!copy.message_id) continue;
-        const siblings = threadRows.filter(row =>
-          row.message_id === copy.message_id && !excludedFolders.has(row.folder)
-        );
-        if (!siblings.length) continue;
-        // The source cache can also be stale. A live sibling only authorizes
-        // deletion when the physical GTD source still has the same identity.
-        try {
-          if (!await imapManager.hasMessageCopy(account, copy.uid, copy.folder, copy.message_id)) continue;
-        } catch (err) {
-          logger.debug(`gtdTransitions: could not verify source ${copy.folder}: ${err.message}`);
-          continue;
-        }
-        let survives = false;
-        for (const sibling of siblings) {
+    for (const [, threadRows] of byThread) {
+      const nonDraft = threadRows.filter((r) => !draftPaths.has(r.folder));
+      if (nonDraft.length === 0) continue;
+
+      // Newest non-draft message wins; ties break by id (matches the sections head order),
+      // though a tie is always between sibling copies of one message so it cannot flip self.
+      let newest = nonDraft[0];
+      for (const r of nonDraft) {
+        const diff = new Date(r.date) - new Date(newest.date);
+        if (diff > 0 || (diff === 0 && String(r.id) > String(newest.id))) newest = r;
+      }
+      const isSelf = owner.has(normalizeAddress(newest.from_email));
+
+      for (const [state, folder] of Object.entries(stateFolder)) {
+        const rule = STRIP_RULE[state];
+        const shouldStrip = rule === 'self' && isSelf;
+        if (!shouldStrip) continue;
+
+        for (const copy of threadRows.filter((r) => r.folder === folder)) {
+          // Users can move mail into GTD folders. Only strip a duplicate backed
+          // by the same email outside GTD, Drafts and disposable folders.
+          if (!copy.message_id) continue;
+          const siblings = threadRows.filter(row =>
+            row.message_id === copy.message_id && !excludedFolders.has(row.folder)
+          );
+          if (!siblings.length) continue;
+          // The source cache can also be stale. A live sibling only authorizes
+          // deletion when the physical GTD source still has the same identity.
           try {
-            if (await imapManager.hasMessageCopy(account, sibling.uid, sibling.folder, copy.message_id)) {
-              survives = true;
-              break;
-            }
+            if (!await imapManager.hasMessageCopy(account, copy.uid, copy.folder, copy.message_id)) continue;
           } catch (err) {
-            logger.debug(`gtdTransitions: could not verify surviving copy ${sibling.folder}: ${err.message}`);
+            logger.debug(`gtdTransitions: could not verify source ${copy.folder}: ${err.message}`);
+            continue;
           }
-        }
-        if (!survives) continue;
-        anyStripped = true;
-        try {
-          await imapManager.removeMessageCopy(account.id, copy.uid, copy.folder);
-        } catch (err) {
-          // An external automation may strip the same label concurrently, so the copy
-          // can already be gone on the server. Treat a failed removal as a successful
-          // strip and move on; the stale DB row reconciles on the next sync.
-          logger.debug(`gtdTransitions: tolerated removeMessageCopy failure uid=${copy.uid} ${copy.folder}: ${err.message}`);
+          let survives = false;
+          for (const sibling of siblings) {
+            try {
+              if (await imapManager.hasMessageCopy(account, sibling.uid, sibling.folder, copy.message_id)) {
+                survives = true;
+                break;
+              }
+            } catch (err) {
+              logger.debug(`gtdTransitions: could not verify surviving copy ${sibling.folder}: ${err.message}`);
+            }
+          }
+          if (!survives) continue;
+          anyStripped = true;
+          try {
+            await imapManager.removeMessageCopy(account.id, copy.uid, copy.folder);
+          } catch (err) {
+            // An external automation may strip the same label concurrently, so the copy
+            // can already be gone on the server. Treat a failed removal as a successful
+            // strip and move on; the stale DB row reconciles on the next sync.
+            logger.debug(`gtdTransitions: tolerated removeMessageCopy failure uid=${copy.uid} ${copy.folder}: ${err.message}`);
+          }
         }
       }
     }
-  }
 
-  // One batched emit per run (not per stripped copy) so the rail converges once.
-  if (anyStripped) {
-    imapManager.broadcast({ type: 'gtd_sections_updated', accountId: account.id }, account.user_id);
-  }
+    // One batched emit per run (not per stripped copy) so the rail converges once.
+    if (anyStripped) {
+      imapManager.broadcast({ type: 'gtd_sections_updated', accountId: account.id }, account.user_id);
+    }
+  });
 }
 
 // ── Sent-message hook ────────────────────────────────────────────────────────

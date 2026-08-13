@@ -4,7 +4,10 @@ import { getGtdSections } from './gtdSections.js';
 import { queueGistGeneration } from './gtdGist.js';
 import { importPet, decodeUploadedSheet, getPetMeta, getPetSheet, parsePetSlug, customPetSlug } from './gtdPet.js';
 import { getGtdConfig, resolveGtdStateFolder, sanitizeGtdFolders, sanitizeGtdFoldersDetailed, DEFAULT_GTD_FOLDERS, planGtdFolderPersist, invalidateGtdConfigCache } from './gtdConfig.js';
-import { applyLabel, hasMessageCopy, resolveLabelCopyUid, removeExactLabelCopy, removeLabel, markThreadRead, markCopySeen, isLabelStoreAccount, supportsUidPlus, ensureLabelFolders, archiveInboxCopy, broadcast, loadOwnedMessage, getOwnedAccount, getMessageCopyFolders, getLabelMetadata, getMessagesByThreadKeys, getAccountConfig, setAccountConfig, resolveAllDraftsPaths, resolveAllTrashPaths, resolveAllSpamPaths } from '../api.js';
+import { hasMessageCopy, resolveLabelCopyUid, removeExactLabelCopy, removeLabel, markThreadRead, markCopySeen, isLabelStoreAccount, supportsUidPlus, ensureLabelFolders, archiveInboxCopy, broadcast, loadOwnedMessage, getOwnedAccount, getMessageCopyFolders, getLabelMetadata, getMessagesByThreadKeys, getAccountConfig, setAccountConfig, resolveAllDraftsPaths, resolveAllTrashPaths, resolveAllSpamPaths } from '../api.js';
+import { getMessageAnnotations } from '../gtdApi.js';
+import { delegateMessages, GtdDelegationError } from './gtdDelegations.js';
+import { switchGtdState } from './gtdStateSwitch.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -112,12 +115,22 @@ router.post('/metadata', async (req, res) => {
     states.push(state);
     statesByFolder.set(folder, states);
   }
-  const rows = await getLabelMetadata(accountId, ids, [...statesByFolder.keys()]);
+  const [rows, annotations] = await Promise.all([
+    getLabelMetadata(accountId, ids, [...statesByFolder.keys()]),
+    getMessageAnnotations(accountId, ids),
+  ]);
   const messages = {};
   for (const row of rows) {
     const states = statesByFolder.get(row.folder);
     if (!states) continue;
-    if (!messages[row.messageId]) messages[row.messageId] = { states: [], dates: {}, date: null };
+    const storedDelegation = annotations[row.messageId]?.delegation;
+    if (!messages[row.messageId]) messages[row.messageId] = {
+      states: [],
+      dates: {},
+      date: null,
+      // A personless delegation is stored with a null contact and stays null here.
+      delegation: storedDelegation?.contactId ? storedDelegation : null,
+    };
     const entry = messages[row.messageId];
     for (const state of states) {
       if (!entry.states.includes(state)) entry.states.push(state);
@@ -130,6 +143,28 @@ router.post('/metadata', async (req, res) => {
     entry.dates = Object.fromEntries(entry.states.map(state => [state, entry.dates[state] ?? null]));
   }
   return res.json({ messages });
+});
+
+router.post('/delegations', async (req, res) => {
+  const { messageIds, contactId } = req.body || {};
+  if (!Array.isArray(messageIds) || messageIds.length < 1 || messageIds.length > 100) {
+    return res.status(400).json({ error: 'messageIds must contain 1–100 ids' });
+  }
+  if (messageIds.some(id => typeof id !== 'string' || !UUID_RE.test(id))) {
+    return res.status(400).json({ error: 'Invalid message id' });
+  }
+  if (contactId !== null && !UUID_RE.test(contactId || '')) {
+    return res.status(400).json({ error: 'Invalid contact id' });
+  }
+  try {
+    return res.json(await delegateMessages({ userId: req.session.userId, messageIds, contactId }));
+  } catch (error) {
+    if (error instanceof GtdDelegationError && error.code === 'contact_not_found') {
+      return res.status(404).json({ error: 'Contact not found' });
+    }
+    if (error instanceof GtdDelegationError) return res.status(error.status).json({ error: error.code });
+    throw error;
+  }
 });
 
 // ── GTD Inbox-Zero pet ────────────────────────────────────────────────────────
@@ -207,87 +242,15 @@ router.post('/classify', async (req, res) => {
 
   const account = await getOwnedAccount(req.session.userId, msg.account_id);
 
-  let result;
-  let oldCopies = [];
-  let sourceRemoved = false;
+  let switched;
   try {
-    const oldStateFolders = new Set(Object.entries(folders)
-      .filter(([otherState, folder]) => otherState !== state && folder !== toFolder)
-      .map(([, folder]) => folder));
-    const threadCopies = msg.thread_key
-      ? await getMessagesByThreadKeys(msg.account_id, [msg.thread_key])
-      : [];
-    if (threadCopies.length) {
-      oldCopies = threadCopies
-        .filter(copy => oldStateFolders.has(copy.folder))
-        .map(copy => ({ message: { ...copy, account_id: msg.account_id }, folder: copy.folder }));
-      if (oldStateFolders.has(msg.folder) && !oldCopies.some(copy => copy.message.uid === msg.uid && copy.folder === msg.folder)) {
-        oldCopies.push({ message: msg, folder: msg.folder });
-      }
-    } else {
-      // A missing thread key or unindexed thread still gets the same-message
-      // labels. The selected row's folder remains known without Message-ID.
-      const present = new Set(msg.message_id
-        ? await getMessageCopyFolders(msg.account_id, msg.message_id)
-        : []);
-      present.add(msg.folder);
-      for (const folder of oldStateFolders) {
-        if (!present.has(folder)) continue;
-        const uid = await resolveLabelCopyUid(msg, folder);
-        if (uid != null) oldCopies.push({ message: { ...msg, uid, folder }, folder });
-      }
-    }
-
-    // A failed later removal must leave the selected message id available for
-    // retry. The selected old-state row is the last copy we strip.
-    const isSelectedCopy = copy => copy.folder === msg.folder && copy.message.uid === msg.uid;
-    oldCopies = [
-      ...oldCopies.filter(copy => !isSelectedCopy(copy)),
-      ...oldCopies.filter(isSelectedCopy),
-    ];
-
-    result = await applyLabel(account, msg, toFolder, { forceCopy: oldCopies.length > 0 });
-    // A cache-only destination can already be gone on IMAP. Confirm a fresh
-    // COPY for each email before expunging any old state, accepting duplicates.
-    // An arbitrary stored Message-ID must not collide with a headerless source.
-    const identity = message => message.message_id
-      ? `rfc:${message.message_id}`
-      : `physical:${message.folder}:${message.uid}`;
-    const confirmsIdentity = async (message, uid, folder) => {
-      if (!message.message_id) return true;
-      try {
-        return await hasMessageCopy(account, uid, folder, message.message_id);
-      } catch (err) {
-        console.warn(`GTD classify could not verify copy ${folder}: ${err.message}`);
-        return false;
-      }
-    };
-    const preserved = new Set();
-    // COPYUID confirms a physical copy, but cached Message-ID metadata may be
-    // stale. Reusing that copy for another source requires live identity proof
-    // on both sides; unavailable proof falls back to copying each source.
-    if (oldCopies.length && result.applied && result.uid != null && await confirmsIdentity(msg, result.uid, toFolder)) {
-      preserved.add(identity(msg));
-    }
-    for (const copy of oldCopies) {
-      const key = identity(copy.message);
-      if (preserved.has(key) && await confirmsIdentity(copy.message, copy.message.uid, copy.folder)) continue;
-      const copied = await applyLabel(account, copy.message, toFolder, { forceCopy: true });
-      // Without COPYUID, an OK response may have copied no stale source UID.
-      // Copy each physical sibling unless this request confirmed a destination.
-      if (copied.uid != null && await confirmsIdentity(copy.message, copied.uid, toFolder)) preserved.add(key);
-    }
-    // Removal can throw after EXPUNGE. Keep every confirmed target copy;
-    // compensation by deletion could erase the last surviving email.
-    for (const copy of oldCopies) {
-      const { removed } = await removeLabel(copy.message, copy.folder);
-      if (removed && isSelectedCopy(copy)) sourceRemoved = true;
-    }
+    switched = await switchGtdState(account, msg, folders, state, toFolder);
   } catch (err) {
     console.error(`GTD classify failed for message ${messageId} -> ${toFolder}:`, err.message);
     return res.status(500).json({ error: 'Failed to apply GTD label' });
   }
 
+  const { result, oldCopies, sourceRemoved } = switched;
   // The existing undo token can only remove the new copy. A state switch also
   // removed the old state, so offering that token would silently lose it.
   const undoToken = !oldCopies.length && result.applied && result.uid != null && msg.message_id
