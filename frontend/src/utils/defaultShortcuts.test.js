@@ -19,6 +19,7 @@ describe('buildKeyMap', () => {
     assert.equal(map.t, 'gtdTodo');
     assert.equal(map.w, 'gtdWatch');
     assert.equal(map.d, 'gtdDelegated');
+    assert.equal(map.D, 'gtdDelegateContact');
   });
 
   it('warns and keeps last-writer-wins when an override collides with a default key', (t) => {
@@ -37,8 +38,9 @@ describe('buildKeyMap', () => {
 describe('buildModKeyMap', () => {
   it('does not warn when no overrides are given (defaults have no collisions)', (t) => {
     const warn = t.mock.method(console, 'warn', () => {});
-    buildModKeyMap();
+    const map = buildModKeyMap();
     assert.equal(warn.mock.callCount(), 0);
+    assert.equal(map.z, 'gtdUndo');
   });
 
   it('warns and keeps last-writer-wins when an override collides on a modifier+key', (t) => {

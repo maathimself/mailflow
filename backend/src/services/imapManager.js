@@ -706,6 +706,16 @@ export async function deleteMessageCopyRow(accountId, uid, folder) {
   return row ? 1 : 0;
 }
 
+export async function labelCopyThreadKey(accountId, uid, folder) {
+  const { rows } = await query(
+    `SELECT thread_key FROM messages
+      WHERE account_id = $1 AND uid = $2 AND folder = $3
+      LIMIT 1`,
+    [accountId, uid, folder]
+  );
+  return rows[0]?.thread_key ?? null;
+}
+
 // Notify label-feed plugins that an ordinary mail mutation changed the messages table outside
 // their own periodic tick, so a tick's change-fingerprint can't detect it. Fires the generic
 // `sectionsChanged` hook; each active plugin decides whether the change is relevant to its
@@ -2440,7 +2450,9 @@ export class ImapManager {
         // THIS account (GTD's handler is active only when gtd_enabled), so a mailbox with no such
         // plugin collects nothing and issues no extra queries — identical to the pre-plugin gate.
         const wantsInboxIngest = folder === 'INBOX' && await pluginRegistry.hasActiveAsync('inboxIngest', { account });
+        const wantsMessageRowsIngested = await pluginRegistry.hasActiveAsync('messageRowsIngested', { account });
         const newInboxIds = [];
+        const ingestedMessageIds = [];
         const ingestDeletedIds = new Set();
 
         // Relocate-exempt label folders for this account (empty when no label plugin is
@@ -2574,6 +2586,7 @@ export class ImapManager {
             ]);
             if (result.rows[0]?.is_new) {
               insertedCount++;
+              if (wantsMessageRowsIngested) ingestedMessageIds.push(result.rows[0].id);
               // Inbox-ingest candidate: any newly-inserted INBOX row, read OR unread (read state
               // is not a gate here — the plugin decides). The unread-only push below still drives
               // notifications. Gated on wantsInboxIngest so a mailbox with no ingest plugin builds
@@ -2857,6 +2870,11 @@ export class ImapManager {
         if (wantsInboxIngest && newInboxIds.length > 0) {
           await pluginRegistry.runHook('inboxIngest', {
             mgr: this.pluginFacade, account, newInboxIds, deletedIds: ingestDeletedIds,
+          });
+        }
+        if (wantsMessageRowsIngested && ingestedMessageIds.length > 0) {
+          await pluginRegistry.runHook('messageRowsIngested', {
+            account, messageIds: ingestedMessageIds,
           });
         }
         await query('UPDATE email_accounts SET last_sync = NOW() WHERE id = $1', [account.id]);
@@ -4432,10 +4450,11 @@ export class ImapManager {
     const account = accountResult.rows[0];
     if (!account) throw new Error(`removeMessageCopy: account ${accountId} not found`);
 
+    const threadKey = await labelCopyThreadKey(accountId, uid, folder);
     await this.permanentDeleteMessage(account, uid, folder);
     const result = await deleteMessageCopyRow(accountId, uid, folder);
     // Removing a label copy changes label-feed data — let plugins broadcast their refresh.
-    await pluginRegistry.runHook('afterLabelRemove', { mgr: this.pluginFacade, account, folder, uid });
+    await pluginRegistry.runHook('afterLabelRemove', { mgr: this.pluginFacade, account, folder, uid, threadKey });
     return result;
   }
 

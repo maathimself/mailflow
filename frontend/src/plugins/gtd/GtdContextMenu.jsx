@@ -1,7 +1,10 @@
 import { useTranslation } from 'react-i18next';
-import { GTD_STATES, GTD_COLORS, resolveAccountGtdFolders, gtdStatesInFolders, classifyThread, unclassifyThread } from '../../utils/gtd.js';
+import { GTD_STATES, GTD_COLORS, resolveAccountGtdFolders, gtdStatesInFolders, unclassifyThread } from '../../utils/gtd.js';
 import { useStore } from '../../store/index.js';
 import { api } from '../../utils/api.js';
+import { classifyWithUndo } from './classification.js';
+import { invalidateGtdMetadata, removeGtdMetadataState } from './metadataStore.js';
+import { runDelegation } from './delegation.js';
 
 // GTD's context-menu contributions, injected into core's 'context-menu-actions' collector so the
 // menu itself carries no GTD-specific code. Placement is preserved: core splices these items into
@@ -20,8 +23,28 @@ function GtdContextSubmenu({ message, account, onClose, onBack }) {
   const removableStates = gtdStatesInFolders(message.folders, gtdFolders);
   // Classify = COPY into the state's label folder (message stays put); remove = strip that label.
   // Store-based, so they run the same on every surface — no dependency on the caller's onAction.
-  const classify = (state) => { classifyThread(message.id, state, { gtdClassify: api.gtdClassify, addNotification, scheduleGtdSectionsFetch, t }); onClose(); };
-  const removeFrom = (state) => { unclassifyThread(message.id, state, { gtdUnclassify: api.gtdUnclassify, addNotification, scheduleGtdSectionsFetch, t }); onClose(); };
+  const classify = (state) => {
+    void classifyWithUndo(message, state, {
+      api,
+      store: { addNotification, scheduleGtdSectionsFetch },
+      t,
+    });
+    onClose();
+  };
+  const removeFrom = (state) => {
+    void unclassifyThread(message.id, state, {
+      gtdUnclassify: api.gtdUnclassify,
+      addNotification,
+      scheduleGtdSectionsFetch,
+      t,
+    }).then(removed => {
+      if (removed) {
+        removeGtdMetadataState(message, state);
+        invalidateGtdMetadata();
+      }
+    });
+    onClose();
+  };
   return (
     <>
       <div
@@ -78,7 +101,7 @@ function GtdContextSubmenu({ message, account, onClose, onBack }) {
 // the account (so a non-GTD account contributes nothing). The "Done" entry is sidebar-only, mirroring
 // the old menuPolicy.done gate (variant === 'gtdSidebar').
 export function buildGtdContextItems(ctx) {
-  const { message, account, variant, onAction, onClose, openSubmenu, t } = ctx;
+  const { message, account, variant, onAction, onClose, openSubmenu, targetMessageIds, t } = ctx;
   const items = [];
   if (account?.gtd_enabled) {
     items.push({
@@ -89,6 +112,15 @@ export function buildGtdContextItems(ctx) {
       action: () => openSubmenu((onBack) => (
         <GtdContextSubmenu message={message} account={account} onClose={onClose} onBack={onBack} />
       )),
+    });
+    items.push({
+      label: t('gtd.delegate.menu'),
+      icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="9" cy="7" r="4"/><path d="M2 21v-2a7 7 0 0114 0v2"/><path d="M19 8v6M16 11h6"/></svg>,
+      action: () => {
+        const addNotification = useStore.getState().addNotification;
+        void runDelegation(targetMessageIds || [message.id], { api, store: { addNotification }, t });
+        onClose();
+      },
     });
   }
   // The sidebar's "done" checkmark — section-scoped stripping happens in the caller's onAction.

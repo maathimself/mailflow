@@ -20,7 +20,7 @@ import { getAccountConfig, setAccountConfig } from '../accountConfig.js';
 import { runGtdTransitions, threadKeysForMessageIds, runTransitionsForSentMessage, invalidateOwnerAddressesCache } from './gtdTransitions.js';
 import { emitGtdIfRelevant } from './gtdSections.js';
 import { deleteUserPet } from './gtdPet.js';
-import { relocateExemptFolders, sectionsChanged, inboxIngest, selectGtdReevalIds, gtdEnabledForAccount, emitAfterDeferredCopySync, afterLabelCopy, afterLabelRemove, onMailMutation, onSentMessage, onUserDelete, enrichAccount, validateAccountSettings, persistAccountSettings, onAccountIdentityChanged, onPluginActivationChanged } from './hooks.js';
+import { relocateExemptFolders, sectionsChanged, inboxIngest, selectGtdReevalIds, gtdEnabledForAccount, emitAfterDeferredCopySync, afterLabelCopy, afterLabelRemove, messageRowsIngested, onMailMutation, onSentMessage, onUserDelete, enrichAccount, validateAccountSettings, persistAccountSettings, onAccountIdentityChanged, onPluginActivationChanged } from './hooks.js';
 
 describe('gtd hooks — relocateExemptFolders', () => {
   beforeEach(() => getGtdFolderSet.mockReset());
@@ -200,6 +200,53 @@ describe('gtd hooks — afterLabelCopy / afterLabelRemove', () => {
     const mgr = { broadcast: vi.fn() };
     await afterLabelRemove({ mgr, account: { id: 'a1', user_id: 'u1' } });
     expect(mgr.broadcast).toHaveBeenCalledWith({ type: 'gtd_sections_updated', accountId: 'a1' }, 'u1');
+  });
+
+  it('clears delegation only after the final Delegated copy disappears', async () => {
+    getGtdConfig.mockResolvedValue({ enabled: true, folders: { delegated: 'Delegated' } });
+    query
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rowCount: 3, rows: [] });
+    const mgr = { broadcast: vi.fn() };
+    await afterLabelRemove({
+      mgr,
+      account: { id: 'a1', user_id: 'u1' },
+      folder: 'Delegated',
+      threadKey: 'thread-1',
+    });
+    expect(query.mock.calls[0][1]).toEqual(['a1', 'thread-1', 'Delegated']);
+    expect(query.mock.calls[1][0]).toContain('(plugin_annotations -> $3) - $4');
+  });
+
+  it('retains delegation while a Delegated copy survives', async () => {
+    getGtdConfig.mockResolvedValue({ enabled: true, folders: { delegated: 'Delegated' } });
+    query.mockResolvedValueOnce({ rows: [{ uid: 91 }] });
+    await afterLabelRemove({
+      mgr: { broadcast: vi.fn() },
+      account: { id: 'a1', user_id: 'u1' },
+      folder: 'Delegated',
+      threadKey: 'thread-1',
+    });
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('gtd hooks — delegation inheritance', () => {
+  beforeEach(() => query.mockReset());
+
+  it('copies an authoritative thread delegation onto newly ingested rows', async () => {
+    const delegation = { contactId: 'c1', displayName: 'Casey' };
+    query
+      .mockResolvedValueOnce({ rows: [{ thread_key: 'thread-1' }] })
+      .mockResolvedValueOnce({ rows: [
+        { id: 'new-row', thread_key: 'thread-1', plugin_annotations: {} },
+        { id: 'old-row', thread_key: 'thread-1', plugin_annotations: { gtd: { delegation } } },
+      ] })
+      .mockResolvedValueOnce({ rowCount: 2, rows: [] });
+
+    await messageRowsIngested({ account: { id: 'a1' }, messageIds: ['new-row'] });
+
+    expect(query.mock.calls[2][1]).toEqual(['a1', 'thread-1', 'gtd', 'delegation', JSON.stringify(delegation)]);
   });
 });
 

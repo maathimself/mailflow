@@ -562,6 +562,9 @@
         "label": "Mark Delegated",
         "description": "Classify the selected message as Delegated"
       },
+      "gtdUndo": {
+        "description": "Undo the latest GTD classification"
+      },
       "toggleRightSidebar": {
         "label": "Toggle right sidebar",
         "description": "Hide or show the right sidebar"
@@ -1513,11 +1516,29 @@
     "removeFrom": "Remove from {{state}}",
     "classified": "Label applied",
     "classifyFailed": "Couldn't apply label",
+    "undoFailed": "Couldn't undo label",
     "removed": "Label removed",
     "removeFailed": "Couldn't remove label",
     "done": "Mark done",
     "doneFailed": "Couldn't mark done",
     "doneArchiveFailed": "Marked done, but archiving failed — still in your Inbox",
+    "delegate": {
+      "menu": "Delegate…",
+      "button": "Delegate to a contact",
+      "title": "Delegate {{count}} message",
+      "hint": "Choose a CardDAV contact, or delegate without assigning a person.",
+      "search": "Search contacts",
+      "empty": "No contacts found",
+      "retry": "Try again",
+      "loadFailed": "Couldn't load contacts",
+      "withoutPerson": "Delegate without person",
+      "success": "Delegated {{count}} message",
+      "partial": "Delegated {{success}}; {{failed}} failed",
+      "failed": "Couldn't delegate {{count}} message",
+      "shortcutLabel": "Delegate to contact",
+      "shortcutDescription": "Choose a contact for the selected message",
+      "pillAria": "Delegated to {{name}}, {{days}} days ago"
+    },
     "state": {
       "todo": "Todo",
       "watch": "Watch",

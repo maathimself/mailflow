@@ -682,3 +682,27 @@ body, #root {
 [data-mailflow-theme="winxp"] .mailflow-window-titlebar .mailflow-window-btn {
   color: #ffffff !important;
 }
+
+.gtd-delegate-scrim {
+  position: fixed; inset: 0; z-index: 5000; display: grid; place-items: center;
+  padding: 20px; background: rgba(0, 0, 0, 0.46);
+}
+.gtd-delegate-dialog {
+  width: min(480px, 100%); max-height: min(620px, 90vh); display: flex;
+  flex-direction: column; gap: 10px; padding: 18px; border: 1px solid var(--border);
+  border-radius: 12px; background: var(--bg-elevated, var(--bg-secondary));
+  box-shadow: 0 18px 60px rgba(0, 0, 0, .35); color: var(--text-primary);
+}
+.gtd-delegate-dialog h2, .gtd-delegate-dialog p { margin: 0; }
+.gtd-delegate-dialog p { color: var(--text-secondary); font-size: 13px; }
+.gtd-delegate-dialog input {
+  padding: 9px 11px; border: 1px solid var(--border); border-radius: 7px;
+  background: var(--bg-primary); color: var(--text-primary);
+}
+.gtd-delegate-list { min-height: 180px; overflow-y: auto; border: 1px solid var(--border-subtle); border-radius: 8px; }
+.gtd-delegate-option { display: flex; flex-direction: column; width: 100%; padding: 9px 11px; border: 0; border-bottom: 1px solid var(--border-subtle); background: transparent; color: var(--text-primary); text-align: left; cursor: pointer; }
+.gtd-delegate-option span { color: var(--text-tertiary); font-size: 12px; }
+.gtd-delegate-option.active { background: var(--bg-hover); }
+.gtd-delegate-status { display: flex; gap: 10px; align-items: center; justify-content: center; min-height: 180px; color: var(--text-secondary); }
+.gtd-delegate-footer { display: flex; justify-content: space-between; gap: 8px; }
+.gtd-delegate-footer button, .gtd-delegate-status button { padding: 7px 11px; border: 1px solid var(--border); border-radius: 7px; background: var(--bg-tertiary); color: var(--text-primary); cursor: pointer; }

@@ -12,7 +12,18 @@ import { getGtdFolderSet, getGtdConfig, gtdTickFolders, sanitizeGtdFoldersDetail
 import { runGtdTransitions, threadKeysForMessageIds, threadKeysInFolders, runTransitionsForSentMessage, invalidateOwnerAddressesCache } from './gtdTransitions.js';
 import { emitGtdIfRelevant } from './gtdSections.js';
 import { deleteUserPet } from './gtdPet.js';
-import { logger, getThreadKeyForUid, listUserAccounts, getAccountConfig, setAccountConfig } from '../api.js';
+import {
+  getAccountConfig,
+  getThreadKeyForUid,
+  getThreadKeysForMessageIdHeaders,
+  getThreadKeysForMessageIds,
+  getThreadMessages,
+  listLabelCopyUids,
+  listUserAccounts,
+  logger,
+  setAccountConfig,
+  setThreadAnnotation,
+} from '../api.js';
 
 // Choose the INBOX message ids to run GTD transitions over after a sync batch completes.
 //   newInboxIds — the id of every row the sync newly inserted into INBOX, collected REGARDLESS
@@ -174,8 +185,43 @@ export async function afterLabelCopy({ mgr, account, toFolder, fromFolder, srcUi
 
 // runHook('afterLabelRemove'): core just deleted one folder's copy of a message. Broadcast the
 // GTD section refresh so clients refetch — same manager-level emit the pre-plugin code did.
-export async function afterLabelRemove({ mgr, account }) {
+export async function afterLabelRemove({ mgr, account, folder, threadKey }) {
   mgr.broadcast({ type: 'gtd_sections_updated', accountId: account.id }, account.user_id);
+  if (!threadKey) return;
+  const config = await getGtdConfig(account.id);
+  const delegatedFolder = config.enabled ? config.folders?.delegated : null;
+  if (!delegatedFolder || folder !== delegatedFolder) return;
+  const remaining = await listLabelCopyUids(account.id, threadKey, delegatedFolder);
+  if (remaining.length === 0) {
+    await setThreadAnnotation(account.id, threadKey, 'gtd', 'delegation', null);
+  }
+}
+
+export async function messageRowsIngested({ account, messageIds }) {
+  if (!messageIds?.length) return;
+  const threadKeys = await getThreadKeysForMessageIds(account.id, messageIds);
+  const rows = await getThreadMessages(account.id, threadKeys);
+  for (const threadKey of threadKeys) {
+    const authoritative = rows.find(row => (
+      row.thread_key === threadKey && row.plugin_annotations?.gtd?.delegation
+    ))?.plugin_annotations.gtd.delegation;
+    if (authoritative) {
+      await setThreadAnnotation(account.id, threadKey, 'gtd', 'delegation', authoritative);
+    }
+  }
+}
+
+async function clearMissingDelegations(accountId, messageIds) {
+  if (!messageIds?.length) return;
+  const config = await getGtdConfig(accountId);
+  const folder = config.enabled ? config.folders?.delegated : null;
+  if (!folder) return;
+  const threadKeys = await getThreadKeysForMessageIdHeaders(accountId, messageIds);
+  for (const threadKey of threadKeys) {
+    if ((await listLabelCopyUids(accountId, threadKey, folder)).length === 0) {
+      await setThreadAnnotation(accountId, threadKey, 'gtd', 'delegation', null);
+    }
+  }
 }
 
 // runHook('onMailMutation'): an ordinary mail mutation (archive/delete/move/read/star/snooze)
@@ -186,6 +232,11 @@ export async function afterLabelRemove({ mgr, account }) {
 // never turned into a 500.
 export async function onMailMutation({ imapManager, accountId, userId, messageIds, actedFolders }) {
   await emitGtdIfRelevant(imapManager, accountId, userId, messageIds, actedFolders);
+  try {
+    await clearMissingDelegations(accountId, messageIds);
+  } catch (err) {
+    logger.debug(`GTD delegation reconciliation skipped for ${accountId}: ${err.message}`);
+  }
 }
 
 // runHook('onSentMessage'): a sent message just synced into the Sent folder. Re-run GTD

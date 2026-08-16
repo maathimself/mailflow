@@ -15,7 +15,7 @@ const SPAM_NAME_RE = /(spam|junk|bulk|indesiderata|spamverdacht|courrier\s*ind|p
 // ─── Context Menu ─────────────────────────────────────────────────────────────
 const CATEGORIES = ['primary', 'newsletter', 'promotion', 'automated', 'social'];
 
-export default function ContextMenu({ x, y, message, onClose, onAction, defaultMoveView = false, variant = 'inbox', selectedText = '' }) {
+export default function ContextMenu({ x, y, message, onClose, onAction, defaultMoveView = false, variant = 'inbox', selectedText = '', targetMessageIds = null }) {
   const { t } = useTranslation();
   const uiScale = useUiScale();
   // Variants share one menu; the policy removes actions that depend on the center
@@ -113,6 +113,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
   // the content area with its own submenu render.
   const pluginActionItems = usePluginCollected('context-menu-actions', {
     message, account, variant, onAction, onClose,
+    targetMessageIds: targetMessageIds?.length ? targetMessageIds : [message.id],
     openSubmenu: (render) => setPluginSubmenu(() => render),
     t,
   });

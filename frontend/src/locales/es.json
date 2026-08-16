@@ -562,6 +562,9 @@
         "label": "Marcar Delegado",
         "description": "Clasificar el mensaje seleccionado como Delegado"
       },
+      "gtdUndo": {
+        "description": "Deshacer la última clasificación GTD"
+      },
       "toggleRightSidebar": {
         "label": "Alternar la barra lateral derecha",
         "description": "Ocultar o mostrar la barra lateral derecha"
@@ -1513,11 +1516,29 @@
     "removeFrom": "Quitar de {{state}}",
     "classified": "Etiqueta aplicada",
     "classifyFailed": "No se pudo aplicar la etiqueta",
+    "undoFailed": "No se pudo deshacer la etiqueta",
     "removed": "Etiqueta eliminada",
     "removeFailed": "No se pudo quitar la etiqueta",
     "done": "Marcar como hecho",
     "doneFailed": "No se pudo marcar como hecho",
     "doneArchiveFailed": "Marcado como hecho, pero falló el archivado: sigue en la bandeja de entrada",
+    "delegate": {
+      "menu": "Delegar…",
+      "button": "Delegar a un contacto",
+      "title": "Delegar {{count}} mensaje",
+      "hint": "Elige un contacto de CardDAV o delega sin asignar a nadie.",
+      "search": "Buscar contactos",
+      "empty": "No se encontraron contactos",
+      "retry": "Reintentar",
+      "loadFailed": "No se pudieron cargar los contactos",
+      "withoutPerson": "Delegar sin persona",
+      "success": "Se delegó {{count}} mensaje",
+      "partial": "{{success}} delegados; {{failed}} fallaron",
+      "failed": "No se pudo delegar {{count}} mensaje",
+      "shortcutLabel": "Delegar a contacto",
+      "shortcutDescription": "Elegir un contacto para el mensaje seleccionado",
+      "pillAria": "Delegado a {{name}} hace {{days}} días"
+    },
     "state": {
       "todo": "Por hacer",
       "watch": "Vigilar",

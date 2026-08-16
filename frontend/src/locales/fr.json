@@ -562,6 +562,9 @@
         "label": "Marquer Délégué",
         "description": "Classer le message sélectionné comme Délégué"
       },
+      "gtdUndo": {
+        "description": "Annuler le dernier classement GTD"
+      },
       "toggleRightSidebar": {
         "label": "Afficher ou masquer la barre latérale droite",
         "description": "Masquer ou afficher la barre latérale droite"
@@ -1513,11 +1516,29 @@
     "removeFrom": "Retirer de {{state}}",
     "classified": "Étiquette appliquée",
     "classifyFailed": "Impossible d'appliquer l'étiquette",
+    "undoFailed": "Impossible d'annuler l'étiquette",
     "removed": "Étiquette retirée",
     "removeFailed": "Impossible de retirer l'étiquette",
     "done": "Marquer comme terminé",
     "doneFailed": "Impossible de marquer comme terminé",
     "doneArchiveFailed": "Marqué comme terminé, mais l'archivage a échoué — toujours dans la boîte de réception",
+    "delegate": {
+      "menu": "Déléguer…",
+      "button": "Déléguer à un contact",
+      "title": "Déléguer {{count}} message",
+      "hint": "Choisissez un contact CardDAV ou déléguez sans personne.",
+      "search": "Rechercher des contacts",
+      "empty": "Aucun contact trouvé",
+      "retry": "Réessayer",
+      "loadFailed": "Impossible de charger les contacts",
+      "withoutPerson": "Déléguer sans personne",
+      "success": "{{count}} message délégué",
+      "partial": "{{success}} délégués ; {{failed}} en échec",
+      "failed": "Impossible de déléguer {{count}} message",
+      "shortcutLabel": "Déléguer à un contact",
+      "shortcutDescription": "Choisir un contact pour le message sélectionné",
+      "pillAria": "Délégué à {{name}} il y a {{days}} jours"
+    },
     "state": {
       "todo": "À faire",
       "watch": "Surveiller",
