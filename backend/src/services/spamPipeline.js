@@ -51,9 +51,11 @@ const round = (n, places = 3) => Math.round(n * 10 ** places) / 10 ** places;
 export async function classifyAndTagMessage(messageId, opts = {}) {
   const data = await query(`
     SELECT m.*, a.user_id AS owner_id, a.email_address AS account_email,
-           a.antispam_enabled, a.folder_mappings
+           a.antispam_enabled, a.folder_mappings,
+           u.preferences->>'spamEnabled' AS master_spam_enabled
     FROM messages m
     JOIN email_accounts a ON m.account_id = a.id
+    JOIN users u ON u.id = a.user_id
     WHERE m.id = $1
   `, [messageId]);
   const row = data.rows[0];
@@ -62,8 +64,11 @@ export async function classifyAndTagMessage(messageId, opts = {}) {
   // Layer 3: user intent always wins.
   if (row.spam_user_override) return { skipped: 'user_override' };
 
-  // Per-account feature toggle (default OFF on install; opt-in).
-  if (!row.antispam_enabled) return { skipped: 'antispam_disabled' };
+  // Per-user master switch (users.preferences.spamEnabled, default on) AND
+  // per-account feature toggle (default OFF on install; opt-in).
+  if (row.master_spam_enabled === 'false' || !row.antispam_enabled) {
+    return { skipped: row.master_spam_enabled === 'false' ? 'spam_disabled' : 'antispam_disabled' };
+  }
 
   const attachments = Array.isArray(row.attachments) ? row.attachments : [];
   const msg = {
