@@ -14,6 +14,7 @@ import { adjustFolderCounts } from '../utils/mailUtils.js';
 import { resolveForConnection, createPinnedLookup } from './hostValidation.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { applyInboxRules, applyBlockList } from './inboxRules.js';
+import { classifyAndTagMessage } from './spamPipeline.js';
 import { generateVCard } from '../utils/vcard.js';
 import { randomUUID } from 'crypto';
 
@@ -2783,6 +2784,22 @@ export class ImapManager {
               }
               if (!parsed.isRead) {
                 newMessages.push({ ...parsed, id: result.rows[0].id, accountId: account.id, folder });
+              }
+              // v0.2: anti-spam auto-classification. Fire-and-forget so the sync
+              // loop is never blocked; failures only log. Only runs for accounts
+              // with antispam_enabled (checked inside the pipeline).
+              if (account.antispam_enabled) {
+                classifyAndTagMessage(result.rows[0].id, {
+                  headers: parsed.parsedHeaders || [],
+                  imap: {
+                    moveMessage: (...args) => this.moveMessage(...args),
+                    broadcast: (...args) => this.broadcast(...args),
+                    _guardMoveUid: (...args) => this._guardMoveUid(...args),
+                    _unguardMoveUid: (...args) => this._unguardMoveUid(...args),
+                  },
+                }).catch(err => {
+                  console.warn(`spam auto-classification failed (msg ${result.rows[0].id}):`, err.message);
+                });
               }
             }
             // Propagate resolved thread_id to any earlier messages that used this
