@@ -7,6 +7,7 @@ import {
   blendScores,
   extractTopTokens,
   flagTokensFor,
+  retrainFromRecords,
   AUTH_WEIGHTS,
 } from './spamModel.js';
 
@@ -238,6 +239,57 @@ describe('blendScores', () => {
   it('blends 20/80 rules/ML above 500', () => {
     expect(blendScores(1, 0, 600)).toBe(0.8);
     expect(blendScores(0, 1, 600)).toBe(0.2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// retrainFromRecords (full retrain with decay)
+// ---------------------------------------------------------------------------
+
+describe('retrainFromRecords', () => {
+  const NOW = new Date('2026-08-18T00:00:00Z');
+
+  it('rebuilds vocabulary from token_counts, weighted by label', () => {
+    const model = retrainFromRecords([
+      { label: 'spam', created_at: NOW, token_counts: { viagra: 2 }, flag_features: {} },
+      { label: 'ham', created_at: NOW, token_counts: { meeting: 1 }, flag_features: {} },
+    ], 90, NOW);
+    expect(model.vocabulary.viagra).toEqual({ spam: 2, ham: 0 });
+    expect(model.vocabulary.meeting).toEqual({ spam: 0, ham: 1 });
+    expect(model.trainingRecords).toBe(2);
+    expect(model.priorSpam).toBeCloseTo(2 / 3);
+    expect(model.lastTrainedAt).toBeTruthy();
+  });
+
+  it('applies exponential decay to older records (downweight, never delete)', () => {
+    // 90 days ago → weight = 2^(-90/90) = 0.5
+    const old = new Date(NOW.getTime() - 90 * 24 * 60 * 60 * 1000);
+    const model = retrainFromRecords([
+      { label: 'spam', created_at: old, token_counts: { viagra: 1 }, flag_features: {} },
+    ], 90, NOW);
+    expect(model.vocabulary.viagra.spam).toBeCloseTo(0.5);
+  });
+
+  it('falls back to raw text when token_counts is absent (v0.1 rows)', () => {
+    const model = retrainFromRecords([
+      { label: 'spam', created_at: NOW, subject: '', body_text: 'click buy now' },
+    ], 90, NOW);
+    expect(model.vocabulary.click).toEqual({ spam: 1, ham: 0 });
+    expect(model.vocabulary.buy).toEqual({ spam: 1, ham: 0 });
+  });
+
+  it('includes flag features as special tokens', () => {
+    const model = retrainFromRecords([
+      { label: 'spam', created_at: NOW, token_counts: { x: 1 }, flag_features: { has_attachment: 1 } },
+    ], 90, NOW);
+    expect(model.vocabulary.__has_attachment__).toEqual({ spam: 1, ham: 0 });
+  });
+
+  it('handles an empty record list (neutral cold-start model)', () => {
+    const model = retrainFromRecords([], 90, NOW);
+    expect(model.trainingRecords).toBe(0);
+    expect(model.priorSpam).toBe(0.5);
+    expect(model.priorHam).toBe(0.5);
   });
 });
 
