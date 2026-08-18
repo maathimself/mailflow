@@ -15,6 +15,8 @@
 //   - .hermes/design/ADR-001-v0.2-ml-classifier-architecture.md (auth weights)
 //   - .hermes/design/spam-classifier-v0.2.md §6.2 (MNB formula, priors)
 
+import { tokenize } from './spamTokenizer.js';
+
 export const MODEL_VERSION = 1;
 
 export const ALPHA = 1.0; // Laplace smoothing
@@ -271,6 +273,66 @@ export function blendScores(mlScore, rulesScore, trainingRecords) {
   if (trainingRecords < 50) return rulesScore; // rules-only
   if (trainingRecords <= 500) return 0.6 * rulesScore + 0.4 * mlScore;
   return 0.2 * rulesScore + 0.8 * mlScore;
+}
+
+// ---------------------------------------------------------------------------
+// Full retrain (scheduled nightly job / admin "retrain now")
+// ---------------------------------------------------------------------------
+
+/**
+ * Rebuild a model from training-log records with exponential time decay.
+ *
+ * Records come straight from spam_training_log (NO JOIN with messages —
+ * design §7.3 / migration 0048 stores all features at mark time). Each
+ * record is weighted by 2^(-age_days / decay_threshold_days); counts
+ * aggregate as weighted sums. Priors derive from the weighted totals.
+ *
+ * Pure: no I/O. Decay is DOWNWEIGHTING, never deletion (ADR v2).
+ *
+ * @param {Array<Object>} records
+ *   [{ label: 'spam'|'ham', created_at: Date|string,
+ *      token_counts?: Object|null, subject?: string|null, body_text?: string|null,
+ *      flag_features?: Object|null }]
+ * @param {number} [decayThresholdDays=90]
+ * @param {Date|number} [now=new Date()] — injectable for tests
+ * @returns {Object} rebuilt model (createEmptyModel shape, lastTrainedAt set)
+ */
+export function retrainFromRecords(records, decayThresholdDays = 90, now = new Date()) {
+  const model = createEmptyModel();
+  const nowMs = now instanceof Date ? now.getTime() : now;
+  const decayMs = decayThresholdDays * 24 * 60 * 60 * 1000;
+
+  for (const record of records) {
+    const label = record.label === 'spam' ? 'spam' : 'ham';
+    const ageMs = Math.max(0, nowMs - new Date(record.created_at).getTime());
+    const weight = decayMs > 0 ? 2 ** (-ageMs / decayMs) : 1;
+
+    // Pre-tokenized counts win (migration 0048); fall back to raw text for
+    // v0.1-era rows that predate the token_counts column.
+    let tokens = [];
+    if (record.token_counts && typeof record.token_counts === 'object') {
+      for (const [word, count] of Object.entries(record.token_counts)) {
+        tokens.push(...Array(Math.max(1, Math.round(count))).fill(word));
+      }
+    } else {
+      tokens = tokenize({ subject: record.subject || '', body: record.body_text || '' });
+    }
+    tokens.push(...flagTokensFor(record.flag_features));
+
+    for (const token of tokens) {
+      const entry = model.vocabulary[token] || (model.vocabulary[token] = { spam: 0, ham: 0 });
+      entry[label] += weight;
+    }
+    if (label === 'spam') model.totalSpam += weight * tokens.length;
+    else model.totalHam += weight * tokens.length;
+  }
+
+  const sum = model.totalSpam + model.totalHam;
+  model.priorSpam = sum === 0 ? 0.5 : model.totalSpam / sum;
+  model.priorHam = sum === 0 ? 0.5 : model.totalHam / sum;
+  model.trainingRecords = records.length;
+  model.lastTrainedAt = new Date(nowMs).toISOString();
+  return model;
 }
 
 // ---------------------------------------------------------------------------
