@@ -81,6 +81,14 @@ describe('classifyAndTagMessage — gate rules', () => {
     expect(result).toEqual({ skipped: 'antispam_disabled' });
   });
 
+  it('skips when the per-user master switch is off', async () => {
+    query.mockResolvedValueOnce({
+      rows: [messageRow({ master_spam_enabled: 'false' })],
+    });
+    const result = await classifyAndTagMessage(MESSAGE_ID, {});
+    expect(result).toEqual({ skipped: 'spam_disabled' });
+  });
+
   it('returns null for an unknown message', async () => {
     query.mockResolvedValueOnce({ rows: [] });
     await expect(classifyAndTagMessage(MESSAGE_ID, {})).resolves.toBeNull();
