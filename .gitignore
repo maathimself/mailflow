@@ -32,3 +32,6 @@ Thumbs.db
 
 .superpowers/
 output/
+
+# E2E antispam harness (local dev only — see .hermes/v0.2-notes/reports.md)
+test-fixtures/
