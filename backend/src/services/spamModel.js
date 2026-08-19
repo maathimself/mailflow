@@ -2,7 +2,7 @@
 //
 // The model is a per-user JSONB vocabulary {word: {spam, ham}} with running
 // counts (incremental training) plus cached totals and priors, persisted in
-// the spam_models table (migration 0049). This module implements the math;
+// the spam_models table (migration 0053). This module implements the math;
 // DB access lives in spamModelStore.js (V2-4).
 //
 // Scoring is done in LOG-PROBABILITY SPACE. The auth flags (DKIM/SPF/DMARC)
