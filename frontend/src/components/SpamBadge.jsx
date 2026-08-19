@@ -30,11 +30,11 @@ export default function SpamBadge({ message, onClick }) {
         verticalAlign: 'middle',
       }}
     >
-      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-        <path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z" />
-        <path d="M19 14l.7 2L22 17l-2.3 1-.7 2-.7-2-2.3-1 2.3-1 .7-2z" />
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M12 2l2.4 4.9 5.4.8-3.9 3.8.9 5.4L12 14.8 7.2 17.6l.9-5.4L4.2 8.4l5.4-.8L12 2z" />
       </svg>
-      {pct != null ? `${pct}%` : t('spam.badgeLabel')}
+      <span>{t('spam.badgeLabel')}</span>
+      {pct != null ? ` ${pct}%` : null}
     </button>
   );
 }

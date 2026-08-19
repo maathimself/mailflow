@@ -35,7 +35,7 @@ export default function SpamExplainModal({ messageId, onClose }) {
     display: 'flex', flexDirection: 'column', gap: 12,
     color: 'var(--text-primary)',
   };
-  const sectionTitle = { fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4, color: 'var(--text-tertiary)', margin: '8px 0 4px' };
+  const sectionTitle = { fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4, color: 'var(--text-secondary)', margin: '8px 0 4px' };
 
   return (
     <div style={overlayStyle} onClick={onClose}>
@@ -54,17 +54,17 @@ export default function SpamExplainModal({ messageId, onClose }) {
           <>
             <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 13 }}>
               <div>
-                <span style={{ color: 'var(--text-tertiary)' }}>{t('spam.explainVerdict')}: </span>
+                <span style={{ color: 'var(--text-secondary)' }}>{t('spam.explainVerdict')}: </span>
                 <strong style={{ color: data.verdict === 'spam' ? 'var(--danger, #dc2626)' : 'var(--text-primary)' }}>
                   {t(`spam.verdict.${data.verdict || 'ham'}`)}
                 </strong>
               </div>
               <div>
-                <span style={{ color: 'var(--text-tertiary)' }}>{t('spam.explainMethod')}: </span>
+                <span style={{ color: 'var(--text-secondary)' }}>{t('spam.explainMethod')}: </span>
                 <strong>{t(`spam.method.${data.method || 'rules'}`)}</strong>
               </div>
               <div>
-                <span style={{ color: 'var(--text-tertiary)' }}>{t('spam.explainConfidence')}: </span>
+                <span style={{ color: 'var(--text-secondary)' }}>{t('spam.explainConfidence')}: </span>
                 <strong>
                   {data.mlProbability != null
                     ? `${Math.round(data.mlProbability * 100)}%`
