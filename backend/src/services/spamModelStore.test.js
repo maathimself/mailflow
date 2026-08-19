@@ -137,7 +137,9 @@ describe('retrainUser', () => {
 
   it('rebuilds the model from training rows and upserts it', async () => {
     const now = new Date().toISOString();
-    // 1. training-log SELECT
+    // 1. training-log SELECT. created_at is the test-run "now"; the retrain
+    // applies a tiny decay factor (2^-age/90d), so count assertions must be
+    // tolerant of sub-1e-9 weight drift.
     query.mockResolvedValueOnce({
       rows: [
         { label: 'spam', created_at: now, token_counts: { viagra: 2, click: 1 }, flag_features: { has_attachment: 1 }, subject: null, body_text: null },
@@ -156,11 +158,12 @@ describe('retrainUser', () => {
     expect(upsert).toBeDefined();
     const params = upsert[1];
     expect(params[0]).toBe('user-retrain');
-    expect(JSON.parse(params[1])).toMatchObject({
-      viagra: { spam: 2, ham: 0 },
-      meeting: { spam: 0, ham: 1 },
-      __has_attachment__: { spam: 1, ham: 0 },
-    });
+    const vocab = JSON.parse(params[1]);
+    expect(vocab.viagra.spam).toBeCloseTo(2, 5);
+    expect(vocab.viagra.ham).toBe(0);
+    expect(vocab.meeting.ham).toBeCloseTo(1, 5);
+    expect(vocab.meeting.spam).toBe(0);
+    expect(vocab.__has_attachment__.spam).toBeCloseTo(1, 5);
     // decayThresholdDays = default 90 (no existing model)
     expect(params[7]).toBe(90);
   });
