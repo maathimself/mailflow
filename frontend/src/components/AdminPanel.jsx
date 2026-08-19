@@ -32,6 +32,7 @@ import DiagnosticsReportModal from './DiagnosticsReportModal.jsx';
 import { getEffectiveShortcuts, getGroupedActions, ACTION_DEFS, SPECIAL_KEY_LABELS, parseModKey, modLabel } from '../utils/defaultShortcuts.js';
 import { isValidForwardAddress } from '../utils/ruleActions.js';
 import { folderParentLabel } from '../utils/folderDisplay.js';
+import SpamSettings from './SpamSettings.jsx';
 
 // ─── Shared field component ───────────────────────────────────────────────────
 function Field({ label, required, children }) {
@@ -84,7 +85,7 @@ function AccountForm({ initial, onSave, onCancel }) {
     imap_host: '', imap_port: 993, imap_skip_tls_verify: false,
     smtp_host: '', smtp_port: 587, smtp_tls: 'STARTTLS',
     smtp_auth_user: '', smtp_auth_pass: '',
-    auth_user: '', auth_pass: '', categorization_enabled: false,
+    auth_user: '', auth_pass: '', categorization_enabled: false, antispam_enabled: false,
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -411,6 +412,36 @@ function AccountForm({ initial, onSave, onCancel }) {
               </div>
             </div>
           </div>
+
+          <div style={{ height: 1, background: 'var(--border-subtle)', margin: '16px 0' }} />
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 10, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+            {t('admin.accounts.antispamSection')}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+            <button
+              type="button"
+              onClick={() => set('antispam_enabled', !form.antispam_enabled)}
+              style={{
+                width: 36, height: 20, borderRadius: 10, border: 'none',
+                cursor: 'pointer', padding: 0,
+                background: form.antispam_enabled ? 'var(--accent)' : TOGGLE_OFF_BACKGROUND,
+                position: 'relative', transition: 'background 0.2s', flexShrink: 0, marginTop: 1,
+              }}
+            >
+              <span style={{
+                position: 'absolute', top: 2,
+                left: form.antispam_enabled ? 18 : 2,
+                width: 16, height: 16,
+                borderRadius: '50%', background: 'white', transition: 'left 0.2s',
+              }} />
+            </button>
+            <div>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{t('admin.accounts.antispamEnabled')}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>
+                {t('admin.accounts.antispamEnabledDesc')}
+              </div>
+            </div>
+          </div>
         </>
       )}
 
@@ -472,7 +503,7 @@ function AccountsTab() {
   };
 
   const handleEdit = async (form) => {
-    const updates = { name: form.name, sender_name: form.sender_name || null, color: form.color, imap_host: form.imap_host, imap_port: form.imap_port, imap_skip_tls_verify: !!form.imap_skip_tls_verify, smtp_host: form.smtp_host, smtp_port: form.smtp_port, smtp_tls: form.smtp_tls, signature: form.signature || null, categorization_enabled: !!form.categorization_enabled, include_in_unified_inbox: form.include_in_unified_inbox !== false };
+    const updates = { name: form.name, sender_name: form.sender_name || null, color: form.color, imap_host: form.imap_host, imap_port: form.imap_port, imap_skip_tls_verify: !!form.imap_skip_tls_verify, smtp_host: form.smtp_host, smtp_port: form.smtp_port, smtp_tls: form.smtp_tls, signature: form.signature || null, categorization_enabled: !!form.categorization_enabled, antispam_enabled: !!form.antispam_enabled, include_in_unified_inbox: form.include_in_unified_inbox !== false };
     if (form.auth_pass) updates.auth_pass = form.auth_pass;
     if (form.auth_user) updates.auth_user = form.auth_user;
     // Separate SMTP credentials (optional). A username sends both (a blank password on
@@ -6965,7 +6996,7 @@ function MailboxCleanupTab() {
 }
 
 const TAB_GROUPS = [
-  { id: 'account-mail', labelKey: 'admin.tabs.groupAccountMail', tabIds: ['accounts', 'notifications', 'rules', 'categories', 'cleanup'] },
+  { id: 'account-mail', labelKey: 'admin.tabs.groupAccountMail', tabIds: ['accounts', 'notifications', 'rules', 'categories', 'cleanup', 'antispam'] },
   { id: 'display', labelKey: 'admin.tabs.groupDisplay', tabIds: ['appearance', 'shortcuts'] },
   { id: 'security-integrations', labelKey: 'admin.tabs.groupSecurityIntegrations', tabIds: ['security', 'integrations', 'ai', 'ai-actions', 'plugins'] },
   { id: 'admin', labelKey: 'admin.tabs.groupAdmin', tabIds: ['users', 'sso'] },
@@ -6992,6 +7023,10 @@ const TABS = [
   {
     id: 'cleanup', labelKey: 'admin.tabs.cleanup', beta: true,
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M19 3l-6 6"/><path d="M14 4l6 6"/><path d="M11 8l-7 7c-1 1-1 3 0 4s3 1 4 0l7-7"/><path d="M6 20l-3-3"/></svg>,
+  },
+  {
+    id: 'antispam', labelKey: 'admin.tabs.antispam',
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z"/><path d="M19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8L19 14z"/><path d="M5 15l.6 1.8L7.5 17l-1.9.7L5 19.5l-.6-1.8L2.5 17l1.9-.7L5 15z"/></svg>,
   },
   // Display
   {
@@ -8639,6 +8674,7 @@ export default function AdminPanel() {
   const tabContent = (
     <>
       {adminTab === 'accounts' && <AccountsTab />}
+      {adminTab === 'antispam' && <SpamSettings />}
       {adminTab === 'rules' && <RulesAndBlockListTab initialSubTab={pendingSubTab} />}
       {adminTab === 'categories' && <CategoriesSection initialSubTab={pendingSubTab} />}
       {adminTab === 'cleanup' && <MailboxCleanupTab />}
