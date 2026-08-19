@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useStore } from '../store/index.js';
 import { spamApi } from '../utils/spamApi.js';
 
 // Antispam settings panel (v0.2) — mounted as the "Antispam" tab in AdminPanel.
@@ -58,12 +59,12 @@ function Slider({ value, min, max, step = 0.01, onChange }) {
 
 export default function SpamSettings() {
   const { t } = useTranslation();
+  const addNotification = useStore(s => s.addNotification);
   const [status, setStatus] = useState(null);
   const [thresholds, setThresholds] = useState(null);
   const [decay, setDecay] = useState(90);
   const [deletions, setDeletions] = useState([]);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -77,16 +78,14 @@ export default function SpamSettings() {
       setDecay(dc.decayThresholdDays);
       setDeletions(del);
     } catch (err) {
-      setMessage({ kind: 'error', text: err.message });
+      addNotification({ type: 'error', title: err.message });
     }
-  }, []);
+  }, [addNotification]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  const flash = (kind, text) => {
-    setMessage({ kind, text });
-    setTimeout(() => setMessage(null), 4000);
-  };
+  const notifyOk = (title) => addNotification({ type: 'ok', title });
+  const notifyErr = (err) => addNotification({ type: 'error', title: err?.message || err });
 
   const saveThresholds = async () => {
     setSaving(true);
@@ -96,9 +95,9 @@ export default function SpamSettings() {
         autoMoveThreshold: thresholds.autoMoveThreshold,
       });
       setThresholds(updated);
-      flash('ok', t('spam.saved'));
+      notifyOk(t('spam.saved'));
     } catch (err) {
-      flash('error', err.message);
+      notifyErr(err);
     } finally {
       setSaving(false);
     }
@@ -108,9 +107,9 @@ export default function SpamSettings() {
     setSaving(true);
     try {
       await spamApi.updateDecayThreshold(decay);
-      flash('ok', t('spam.saved'));
+      notifyOk(t('spam.saved'));
     } catch (err) {
-      flash('error', err.message);
+      notifyErr(err);
     } finally {
       setSaving(false);
     }
@@ -121,9 +120,9 @@ export default function SpamSettings() {
     try {
       await spamApi.enable(value);
       await refresh();
-      flash('ok', t('spam.saved'));
+      notifyOk(t('spam.saved'));
     } catch (err) {
-      flash('error', err.message);
+      notifyErr(err);
     } finally {
       setBusy(false);
     }
@@ -135,9 +134,9 @@ export default function SpamSettings() {
       const res = await spamApi.resetTrainingAll();
       await refresh();
       setConfirmReset(false);
-      flash('ok', t('spam.resetAllDone', { n: res.deletedTrainingRecords ?? 0 }));
+      notifyOk(t('spam.resetAllDone', { n: res.deletedTrainingRecords ?? 0 }));
     } catch (err) {
-      flash('error', err.message);
+      notifyErr(err);
       setConfirmReset(false);
     } finally {
       setBusy(false);
@@ -149,9 +148,9 @@ export default function SpamSettings() {
     try {
       const res = await spamApi.retrainNow();
       await refresh();
-      flash('ok', t('spam.retrainDone', { n: res.usersProcessed ?? 0 }));
+      notifyOk(t('spam.retrainDone', { n: res.usersProcessed ?? 0 }));
     } catch (err) {
-      flash('error', err.message);
+      notifyErr(err);
     } finally {
       setBusy(false);
     }
@@ -167,16 +166,6 @@ export default function SpamSettings() {
       <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)' }}>
         {t('spam.subtitle')}
       </p>
-
-      {message && (
-        <div style={{
-          marginTop: 10, padding: '8px 12px', borderRadius: 8, fontSize: 13,
-          background: message.kind === 'error' ? 'var(--danger-dim, rgba(220,38,38,.12))' : 'var(--accent-dim)',
-          color: message.kind === 'error' ? 'var(--danger, #dc2626)' : 'var(--accent)',
-        }}>
-          {message.text}
-        </div>
-      )}
 
       {/* Model status */}
       <Row label={t('spam.statusTitle')} help={t('spam.statusHelp')}>
@@ -293,7 +282,7 @@ export default function SpamSettings() {
 function Stat({ label, value }) {
   return (
     <div style={{ background: 'var(--bg-hover)', borderRadius: 10, padding: '10px 12px' }}>
-      <div style={{ fontSize: 11.5, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: 0.4 }}>{label}</div>
+      <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600 }}>{label}</div>
       <div style={{ fontSize: 15, fontWeight: 600, marginTop: 2 }}>{value}</div>
     </div>
   );

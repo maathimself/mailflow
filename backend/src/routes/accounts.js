@@ -48,7 +48,7 @@ const SAFE_FIELDS = [
   'auth_user', 'smtp_auth_user', 'oauth_provider', 'enabled',
   'include_in_unified_inbox',
   'last_sync', 'sync_error', 'sort_order', 'folder_mappings',
-  'signature', 'created_at', 'categorization_enabled',
+  'signature', 'created_at', 'categorization_enabled', 'antispam_enabled',
 ];
 function safeAccount(row) {
   const obj = Object.fromEntries(SAFE_FIELDS.map(k => [k, row[k]]));
