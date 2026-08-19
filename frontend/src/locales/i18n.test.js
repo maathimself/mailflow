@@ -158,6 +158,21 @@ const SAME_VALUE_ALLOWED = {
   'admin.accounts.emailPh':    [['en', 'ru', 'zhCN']],
   'admin.aliases.emailPh':     [['de', 'en', 'ru', 'zhCN']],
   'admin.privacy.addDomainPh': [['de', 'en', 'ru', 'zhCN']],
+
+  // ── Antispam v0.2 ──────────────────────────────────────────────────────────
+  // "Antispam" — international loanword, same spelling in en, it, de, es, fr
+  'admin.tabs.antispam':          [['en', 'it', 'de', 'es', 'fr']],
+  'admin.accounts.antispamSection': [['en', 'it', 'de', 'es', 'fr']],
+  'spam.title':                   [['en', 'it', 'de', 'es', 'fr']],
+  // "spam" — lowercase loanword shared in en, es, fr, it (de capitalizes: "Spam")
+  'spam.badgeLabel':              [['en', 'es', 'fr', 'it']],
+  // "Verdict" / "Mature" — same spelling in en and fr
+  'spam.explainVerdict':          [['en', 'fr']],
+  'spam.maturity.mature':         [['en', 'fr']],
+  // "Fresco" — same spelling in es and it
+  'spam.maturity.fresh':          [['es', 'it']],
+  // "Spam" — capitalized loanword shared in en, it, de, es, fr
+  'spam.verdict.spam':            [['en', 'it', 'de', 'es', 'fr']],
   'admin.privacy.addSenderPh': [['en', 'ru', 'zhCN']],
   'admin.rules.actionForwardPlaceholder': [['es', 'it']],
   'admin.sso.domainsPh':       [['de', 'en', 'ru', 'zhCN']],
@@ -345,6 +360,7 @@ const DYNAMIC_KEYS = new Set([
   'admin.tabs.shortcuts',
   'admin.tabs.about',
   'admin.tabs.categories',
+  'admin.tabs.antispam',
   // t(group.labelKey) — labelKey is a string property set in the TAB_GROUPS array
   'admin.tabs.groupAccountMail',
   'admin.tabs.groupDisplay',
@@ -361,6 +377,16 @@ const DYNAMIC_KEYS = new Set([
   // appear as literals; the other three do via the tab pills).
   'gtd.state.watch',
   'gtd.state.delegated',
+  // Antispam v0.2 — template-literal keys (SpamSettings/SpamBadge/SpamExplainModal)
+  'spam.maturity.mature',
+  'spam.maturity.fresh',
+  'spam.maturity.insufficient',
+  'spam.deleteScope.per_account',
+  'spam.deleteScope.all',
+  'spam.verdict.spam',
+  'spam.verdict.ham',
+  'spam.method.rules',
+  'spam.method.blended',
 ]);
 
 // JSX attribute names whose values must never be plain strings — always t().

@@ -14,6 +14,8 @@ import { resolveAccountScope } from '../services/unifiedInbox.js';
 import { validateHost } from '../services/hostValidation.js';
 import { safeFetch } from '../services/safeFetch.js';
 import { safeFilename, attachmentDisposition } from '../utils/contentDisposition.js';
+import { tokenize, extractFlagFeatures } from '../services/spamTokenizer.js';
+import { updateIncrementalForUser } from '../services/spamModelStore.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -141,6 +143,7 @@ router.get('/messages/:id', async (req, res) => {
              m.date, m.snippet, m.is_read, m.is_starred,
              m.has_attachments, m.account_id, m.category,
              m.list_unsubscribe, m.list_unsubscribe_post, m.unsubscribed_at, m.delivery_addresses,
+             m.spam_verdict, m.spam_user_override, m.spam_score_ml,
              a.name AS account_name, a.email_address AS account_email,
              a.color AS account_color
       FROM messages m
@@ -178,6 +181,7 @@ router.get('/resolve-message', async (req, res) => {
              m.date, m.snippet, m.is_read, m.is_starred,
              m.has_attachments, m.account_id, m.category,
              m.list_unsubscribe, m.list_unsubscribe_post, m.unsubscribed_at, m.delivery_addresses,
+             m.spam_verdict, m.spam_user_override, m.spam_score_ml,
              a.name AS account_name, a.email_address AS account_email,
              a.color AS account_color`;
   try {
@@ -1871,6 +1875,74 @@ router.delete('/messages/:id', async (req, res) => {
 //
 // No automatic classification runs here — that ships in v0.2 (ML) and v0.3 (SA).
 
+// Helper: build the v0.2 feature payload for a messages row at mark time.
+// Shape matches spam_training_log (migration 0048) + spamModelStore inputs.
+function extractSpamFeatures(message) {
+  const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+  const attachmentNames = attachments
+    .map(a => a?.filename || a?.name)
+    .filter(Boolean)
+    .map(f => { const dot = String(f).lastIndexOf('.'); return dot > 0 ? String(f).slice(dot + 1).toLowerCase() : null; })
+    .filter(Boolean);
+
+  const msg = {
+    subject: message.subject || '',
+    body: message.body_text || '',
+    bodyHtml: message.body_html || '',
+    from: message.from_email ? `<${message.from_email}>` : null,
+    replyTo: null,
+    headers: [],
+    attachments,
+  };
+
+  return {
+    subject: msg.subject,
+    body_text: message.body_text || null,
+    body_html: message.body_html || null,
+    token_counts: countTokens(tokenize(msg)),
+    flag_features: extractFlagFeatures(msg),
+    sender_domain: message.from_email ? message.from_email.split('@').pop()?.toLowerCase() || null : null,
+    attachment_types: attachmentNames.length ? attachmentNames : null,
+  };
+}
+
+// count token occurrences into {word: n}
+function countTokens(tokens) {
+  const counts = {};
+  for (const t of tokens) counts[t] = (counts[t] || 0) + 1;
+  return counts;
+}
+
+// Log one training decision with its v0.2 features, then feed the ML model.
+async function logSpamTraining(userId, message, folder, label, features) {
+  await query(
+    `INSERT INTO spam_training_log
+       (user_id, account_id, message_id_header, message_uid, folder, label, source,
+        subject, body_text, body_html, token_counts, flag_features, sender_domain, attachment_types)
+     VALUES ($1, $2, $3, $4, $5, $6, 'manual', $7, $8, $9, $10, $11, $12, $13)
+     ON CONFLICT DO NOTHING`,
+    [
+      userId, message.account_id, message.message_id || null, message.uid, folder, label,
+      features.subject, features.body_text, features.body_html,
+      JSON.stringify(features.token_counts), JSON.stringify(features.flag_features),
+      features.sender_domain, features.attachment_types ?? null,
+    ]
+  );
+  // Incremental training: update the user's Naive Bayes model in <1s.
+  // Non-blocking on failure — user feedback must never break the HTTP path.
+  try {
+    await updateIncrementalForUser(userId, {
+      subject: features.subject,
+      body: features.body_text || '',
+      bodyHtml: features.body_html || '',
+      from: message.from_email ? `<${message.from_email}>` : null,
+      attachments: Array.isArray(message.attachments) ? message.attachments : [],
+    }, label);
+  } catch (err) {
+    console.warn(`spam incremental training failed for user ${userId}:`, err.message);
+  }
+}
+
 // Helper: move a single message to a destination folder, update DB, log to
 // training_log, and broadcast folder_updated. Shared between /spam and /ham.
 async function moveForSpamLabel(messageId, userId, destinationFolder, label) {
@@ -1883,16 +1955,16 @@ async function moveForSpamLabel(messageId, userId, destinationFolder, label) {
   if (!result.rows.length) return { ok: false, status: 404, error: 'Message not found' };
   const message = result.rows[0];
 
+  // v0.2: extract token/flag features at mark time (Solution C, migration
+  // 0048) and feed the per-user Naive Bayes model incrementally. The stored
+  // features make the retrain path independent of message persistence.
+  const spamFeatures = extractSpamFeatures(message);
+
   // No-op: message already in the destination folder.
   if (message.folder === destinationFolder) {
     // Still record the training label so the user's intent is captured
     // (e.g. re-confirming a verdict), but skip the IMAP move.
-    await query(
-      `INSERT INTO spam_training_log
-         (user_id, account_id, message_id_header, message_uid, folder, label)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [userId, message.account_id, message.message_id, message.uid, message.folder, label]
-    );
+    await logSpamTraining(userId, message, destinationFolder, label, spamFeatures);
     await query(
       `UPDATE messages SET spam_user_override = $1, spam_verdict = $1, spam_analyzed_at = NOW() WHERE id = $2`,
       [label, messageId]
@@ -1944,12 +2016,7 @@ async function moveForSpamLabel(messageId, userId, destinationFolder, label) {
   adjustFolderCounts(account.id, destinationFolder, 1, wasUnread);
 
   // Training log: capture the decision for future model training.
-  await query(
-    `INSERT INTO spam_training_log
-       (user_id, account_id, message_id_header, message_uid, folder, label, source)
-     VALUES ($1, $2, $3, $4, $5, $6, 'manual')`,
-    [userId, account.id, message.message_id, message.uid, destinationFolder, label]
-  );
+  await logSpamTraining(userId, { ...message, account_id: account.id }, destinationFolder, label, spamFeatures);
 
   // If folder_mappings.spam is not yet configured, learn from the discovered folder.
   if (label === 'spam' && !account.folder_mappings?.spam) {

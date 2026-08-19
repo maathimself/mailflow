@@ -48,7 +48,7 @@ const SAFE_FIELDS = [
   'auth_user', 'smtp_auth_user', 'oauth_provider', 'enabled',
   'include_in_unified_inbox',
   'last_sync', 'sync_error', 'sort_order', 'folder_mappings',
-  'signature', 'created_at', 'categorization_enabled',
+  'signature', 'created_at', 'categorization_enabled', 'antispam_enabled',
 ];
 function safeAccount(row) {
   const obj = Object.fromEntries(SAFE_FIELDS.map(k => [k, row[k]]));
@@ -63,7 +63,7 @@ router.get('/', async (req, res) => {
             smtp_host, smtp_port, smtp_tls, auth_user, smtp_auth_user, oauth_provider, enabled,
             include_in_unified_inbox,
             last_sync, sync_error, sort_order, folder_mappings, signature, created_at,
-            categorization_enabled
+            categorization_enabled, antispam_enabled
      FROM email_accounts WHERE user_id = $1 ORDER BY sort_order, created_at`,
     [req.session.userId]
   );
@@ -218,7 +218,7 @@ router.put('/:id', async (req, res) => {
     if (r.requiresReconnect) pluginRequiresReconnect = true;
   }
 
-  const allowed = ['name', 'sender_name', 'color', 'enabled', 'include_in_unified_inbox', 'auth_user', 'auth_pass', 'sort_order', 'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify', 'smtp_host', 'smtp_port', 'smtp_tls', 'smtp_auth_user', 'smtp_auth_pass', 'folder_mappings', 'signature', 'categorization_enabled'];
+  const allowed = ['name', 'sender_name', 'color', 'enabled', 'include_in_unified_inbox', 'auth_user', 'auth_pass', 'sort_order', 'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify', 'smtp_host', 'smtp_port', 'smtp_tls', 'smtp_auth_user', 'smtp_auth_pass', 'folder_mappings', 'signature', 'categorization_enabled', 'antispam_enabled'];
   const sets = [];
   const values = [];
   let i = 1;

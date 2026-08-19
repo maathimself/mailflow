@@ -31,9 +31,11 @@ import { loadBundledPlugins } from './plugins/loadPlugins.js';
 import { setMailEngine } from './plugins/mailEngine.js';
 import pluginsRoutes from './routes/plugins.js';
 import senderFaviconsRoutes from './routes/senderFavicons.js';
+import spamRoutes, { accountSpamRouter } from './routes/spam.js';
 import carddavRouter from './routes/carddav.js';
 import carddavAccountRouter from './routes/carddavAccount.js';
 import { startCardavScheduler } from './services/carddavSync.js';
+import { start as startSpamScheduler } from './services/spamScheduler.js';
 import { encryptExistingCredentials, query } from './services/db.js';
 import { runMigrations } from './services/migrations.js';
 import { parseVCard } from './utils/vcard.js';
@@ -169,6 +171,10 @@ app.use('/auth/oidc', oidcBrowserRouter);
 app.use('/oauth', oauthRoutes);
 app.use('/api/integrations', integrationsRoutes);
 app.use('/api/accounts', accountRoutes);
+// Per-account antispam GDPR reset (mounted before the generic /api/accounts
+// router's own :id routes to avoid path shadowing; shares the namespace).
+app.use('/api/accounts', accountSpamRouter);
+app.use('/api/spam', spamRoutes);
 app.use('/api/mail', mailRoutes);
 app.use('/api/mail', sendRoutes);
 app.use('/api/mail', draftRoutes);
@@ -257,6 +263,9 @@ imapManager.startSnoozeWatcher();
 
 // Schedule periodic CardDAV contact sync for any connected accounts.
 startCardavScheduler();
+
+// Nightly anti-spam model retrains, staggered per-user across 24h.
+startSpamScheduler();
 
 // Re-connect all enabled IMAP accounts on startup with bounded concurrency so a
 // large user base doesn't hammer IMAP servers and the DB connection pool at once.

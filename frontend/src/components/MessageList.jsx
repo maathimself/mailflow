@@ -18,6 +18,8 @@ import { formatDate } from '../utils/formatDate.js';
 import { advanceSelectionAfterRemoval } from '../utils/listSelection.js';
 import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
 import SenderAvatarImage from './SenderAvatarImage.jsx';
+import SpamBadge from './SpamBadge.jsx';
+import SpamExplainModal from './SpamExplainModal.jsx';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { createLatestRequest } from '../utils/latestRequest.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
@@ -116,6 +118,8 @@ export default function MessageList() {
   const selectedMid = useStore(selectSelectedMessageMid);
 
   const isMobile = useMobile();
+  // Auto-spam explain modal target (opened from the badge on a row).
+  const [spamExplainMessageId, setSpamExplainMessageId] = useState(null);
   const isUnified = selectedAccountId === null;
   const selectedAccount = accounts.find(a => a.id === selectedAccountId);
   const unifiedInboxAccountKey = accounts
@@ -3393,6 +3397,7 @@ export default function MessageList() {
                 onToggleSelect={handleRowToggleSelect}
                 onRangeSelect={handleRangeSelect}
                 onLongPress={isMobile ? (id) => { setSelectionModeActive(true); toggleSelect(id); } : undefined}
+                onExplainSpam={(msg) => setSpamExplainMessageId(msg.id)}
               />
             );
           })
@@ -3433,6 +3438,7 @@ export default function MessageList() {
                 onSwipeLeft={selectionMode || swipeLeftAction === 'disabled' ? undefined : (msg) => runSwipeAction(swipeLeftAction, msg)}
                 onSwipeRight={selectionMode || swipeRightAction === 'disabled' ? undefined : (msg) => runSwipeAction(swipeRightAction, msg)}
                 onLongPress={isMobile ? (id) => { setSelectionModeActive(true); toggleSelect(id); } : undefined}
+                onExplainSpam={(msg) => setSpamExplainMessageId(msg.id)}
               />
             );
           })
@@ -3446,6 +3452,13 @@ export default function MessageList() {
             defaultMoveView={contextMenu.defaultMoveView}
             onClose={() => setContextMenu(null)}
             onAction={(action, data) => handleContextAction(action, contextMenu.message, data)}
+          />
+        )}
+
+        {spamExplainMessageId && (
+          <SpamExplainModal
+            messageId={spamExplainMessageId}
+            onClose={() => setSpamExplainMessageId(null)}
           />
         )}
 
@@ -3849,7 +3862,7 @@ function EmptyState({ folderSyncing, searchQuery, unreadOnly, selectedFolder, ac
   );
 }
 
-function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, lastViewedMessageId, showAccount, isNarrow, onThreadClick, showMobileAvatars, showMessagePreviews, onSelect, onOpenWindow, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress }) {
+function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, lastViewedMessageId, showAccount, isNarrow, onThreadClick, showMobileAvatars, showMessagePreviews, onSelect, onOpenWindow, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress, onExplainSpam }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const messageCount = message.message_count || 1;
@@ -4035,11 +4048,15 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
           </div>
           {/* Row 2: subject */}
           <div style={{
+            display: 'flex', alignItems: 'center', gap: 4,
             fontSize: 12, fontWeight: unreadCount > 0 ? 500 : 400,
             color: unreadCount > 0 ? 'var(--text-primary)' : 'var(--text-secondary)',
-            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 2,
+            marginBottom: 2,
           }}>
-            {message.subject || t('common.noSubject')}
+            <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {message.subject || t('common.noSubject')}
+            </span>
+            <SpamBadge message={message} onClick={onExplainSpam} />
           </div>
           {/* Row 3: snippet */}
           {showMessagePreviews && (
@@ -4130,7 +4147,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
   );
 }
 
-function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, showAccount, isNarrow, onSelect, onOpenWindow, onToggleSelect, onRangeSelect, onAvatarClick, showMobileAvatars, showMessagePreviews, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, onLongPress }) {
+function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, showAccount, isNarrow, onSelect, onOpenWindow, onToggleSelect, onRangeSelect, onAvatarClick, showMobileAvatars, showMessagePreviews, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, onLongPress, onExplainSpam }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const [avatarHovered, setAvatarHovered] = useState(false);
@@ -4350,12 +4367,15 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
 
         {/* Row 2: Subject */}
         <div style={{
+          display: 'flex', alignItems: 'center', gap: 4,
           fontSize: 13, fontWeight: message.is_read ? 400 : 500,
           color: message.is_read ? 'var(--text-secondary)' : 'var(--text-primary)',
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           marginBottom: 3,
         }}>
-          {message.subject || t('message.noSubject')}
+          <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {message.subject || t('message.noSubject')}
+          </span>
+          <SpamBadge message={message} onClick={onExplainSpam} />
         </div>
 
         {/* Row 3: Snippet */}
