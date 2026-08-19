@@ -1478,7 +1478,7 @@
     },
     "records": "registros",
     "howItWorks": "Cómo funciona: tus decisiones manuales de Marcar como spam / No spam entrenan el modelo. Los mensajes clasificados automáticamente nunca lo re-entrenan. Las reglas están siempre activas; el modelo ML se une con 50+ registros.",
-    "badgeLabel": "spam",
+    "badgeLabel": "ÍNDICE SPAM",
     "badgeTitle": "Clasificado automáticamente como spam — clic para detalles",
     "explainTitle": "¿Por qué se marcó como spam?",
     "explainVerdict": "Veredicto",

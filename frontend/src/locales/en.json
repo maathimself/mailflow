@@ -1478,7 +1478,7 @@
     },
     "records": "records",
     "howItWorks": "How it works: your manual Mark as spam / Not spam choices train the model. Auto-classified messages never re-train it. Rules are always on; the ML model joins once you have 50+ training records.",
-    "badgeLabel": "spam",
+    "badgeLabel": "SPAM INDEX",
     "badgeTitle": "Auto-classified as spam — click for details",
     "explainTitle": "Why was this marked as spam?",
     "explainVerdict": "Verdict",

@@ -1478,7 +1478,7 @@
     },
     "records": "enregistrements",
     "howItWorks": "Comment ça marche : vos choix manuels Marquer comme spam / Non-spam entraînent le modèle. Les messages classés automatiquement ne le ré-entraînent jamais. Les règles sont toujours actives ; le modèle ML s'ajoute avec 50+ enregistrements.",
-    "badgeLabel": "spam",
+    "badgeLabel": "INDEX SPAM",
     "badgeTitle": "Classé automatiquement comme spam — cliquer pour les détails",
     "explainTitle": "Pourquoi marqué comme spam ?",
     "explainVerdict": "Verdict",

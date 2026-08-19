@@ -1478,7 +1478,7 @@
     },
     "records": "Datensätze",
     "howItWorks": "So funktioniert es: Ihre manuellen Als-Spam/Nicht-Spam-Entscheidungen trainieren das Modell. Automatisch klassifizierte Nachrichten trainieren es nie erneut. Regeln sind immer aktiv; das ML-Modell kommt ab 50+ Datensätzen dazu.",
-    "badgeLabel": "Spam",
+    "badgeLabel": "SPAM-INDEX",
     "badgeTitle": "Automatisch als Spam klassifiziert — klicken für Details",
     "explainTitle": "Warum wurde dies als Spam markiert?",
     "explainVerdict": "Ergebnis",

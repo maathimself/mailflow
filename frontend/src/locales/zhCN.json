@@ -1478,7 +1478,7 @@
     },
     "records": "条记录",
     "howItWorks": "工作原理：您手动的标记为垃圾/非垃圾选择训练模型。自动分类的邮件永远不会重新训练它。规则始终启用；拥有 50 条以上记录后 ML 模型加入。",
-    "badgeLabel": "垃圾",
+    "badgeLabel": "垃圾指数",
     "badgeTitle": "自动分类为垃圾邮件 — 点击查看详情",
     "explainTitle": "为什么标记为垃圾邮件？",
     "explainVerdict": "判定",

@@ -1478,7 +1478,7 @@
     },
     "records": "record",
     "howItWorks": "Come funziona: le tue scelte manuali Spam / Non spam addestrano il modello. I messaggi classificati automaticamente non lo ri-addestrano mai. Le regole sono sempre attive; il modello ML entra in gioco dopo 50+ record.",
-    "badgeLabel": "spam",
+    "badgeLabel": "INDICE SPAM",
     "badgeTitle": "Classificato automaticamente come spam — clicca per dettagli",
     "explainTitle": "Perché è stato marcato come spam?",
     "explainVerdict": "Verdetto",
