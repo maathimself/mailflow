@@ -5,6 +5,20 @@ vi.mock('./spamTokenizer.js', () => ({
   tokenize: vi.fn(),
   extractFlagFeatures: vi.fn(),
 }));
+// Partial mock: keep the real store logic, spy the write/invalidate primitives.
+// saveModel/invalidateModelCache pass through to the real implementation so
+// the existing query-assertion tests still see the INSERT upsert.
+// NOTE: retrainUser internally calls saveModel/invalidateModelCache (module
+// bindings, not exports) — the partial mock above spies only the exported
+// references, so these retrainUser tests assert on the observable query layer.
+vi.mock('./spamModelStore.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    saveModel: vi.fn((userId, model) => actual.saveModel(userId, model)),
+    invalidateModelCache: vi.fn((userId) => actual.invalidateModelCache(userId)),
+  };
+});
 
 import { query } from './db.js';
 import { tokenize, extractFlagFeatures } from './spamTokenizer.js';
@@ -15,12 +29,15 @@ import {
   invalidateModelCache,
   getAllUsersWithTraining,
   getAllUsersWithTrainingLog,
+  retrainUser,
 } from './spamModelStore.js';
 
 beforeEach(() => {
   query.mockReset();
   tokenize.mockReset();
   extractFlagFeatures.mockReset();
+  saveModel.mockClear();
+  invalidateModelCache.mockClear();
   invalidateModelCache('test-user');
   query.mockResolvedValue({ rows: [] });
 });
@@ -105,6 +122,60 @@ describe('updateIncrementalForUser', () => {
     // No INSERT should have been issued.
     const inserts = query.mock.calls.filter(([sql]) => sql.includes('INSERT INTO spam_models'));
     expect(inserts).toHaveLength(0);
+  });
+});
+
+describe('retrainUser', () => {
+  it('returns no_training_data when the log has no rows', async () => {
+    query.mockResolvedValueOnce({ rows: [] }); // training log empty
+    const result = await retrainUser('user-retrain-empty');
+    expect(result).toMatchObject({ ok: false, recordsUsed: 0, reason: 'no_training_data' });
+    // No model SELECT, no UPSERT attempted.
+    const upserts = query.mock.calls.filter(([sql]) => sql.includes('ON CONFLICT (user_id) DO UPDATE'));
+    expect(upserts).toHaveLength(0);
+  });
+
+  it('rebuilds the model from training rows and upserts it', async () => {
+    const now = new Date().toISOString();
+    // 1. training-log SELECT
+    query.mockResolvedValueOnce({
+      rows: [
+        { label: 'spam', created_at: now, token_counts: { viagra: 2, click: 1 }, flag_features: { has_attachment: 1 }, subject: null, body_text: null },
+        { label: 'ham', created_at: now, token_counts: { meeting: 1 }, flag_features: {}, subject: null, body_text: null },
+      ],
+    });
+    // 2. getModelForUser → no existing model (cold start)
+    query.mockResolvedValueOnce({ rows: [] });
+
+    const result = await retrainUser('user-retrain');
+    expect(result.ok).toBe(true);
+    expect(result.recordsUsed).toBe(2);
+
+    // The upsert carries the rebuilt vocabulary + derived priors + decay default.
+    const upsert = query.mock.calls.find(([sql]) => sql.includes('ON CONFLICT (user_id) DO UPDATE'));
+    expect(upsert).toBeDefined();
+    const params = upsert[1];
+    expect(params[0]).toBe('user-retrain');
+    expect(JSON.parse(params[1])).toMatchObject({
+      viagra: { spam: 2, ham: 0 },
+      meeting: { spam: 0, ham: 1 },
+      __has_attachment__: { spam: 1, ham: 0 },
+    });
+    // decayThresholdDays = default 90 (no existing model)
+    expect(params[7]).toBe(90);
+  });
+
+  it('honours the decay threshold stored on an existing model', async () => {
+    const now = new Date().toISOString();
+    query.mockResolvedValueOnce({
+      rows: [{ label: 'spam', created_at: now, token_counts: { viagra: 1 }, flag_features: {}, subject: null, body_text: null }],
+    });
+    // existing model row with decay_threshold_days = 30
+    query.mockResolvedValueOnce({ rows: [row({ decay_threshold_days: 30 })] });
+
+    await retrainUser('user-retrain-decay');
+    const upsert = query.mock.calls.find(([sql]) => sql.includes('ON CONFLICT (user_id) DO UPDATE'));
+    expect(upsert[1][7]).toBe(30); // decay carried through
   });
 });
 
