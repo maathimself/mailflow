@@ -563,6 +563,9 @@
         "label": "标记为已委派",
         "description": "将所选邮件归类为已委派"
       },
+      "gtdUndo": {
+        "description": "撤销最近的 GTD 分类"
+      },
       "toggleRightSidebar": {
         "label": "切换右侧边栏",
         "description": "隐藏或显示右侧边栏"
@@ -1514,6 +1517,7 @@
     "removeFrom": "从{{state}}中移除",
     "classified": "已添加标签",
     "classifyFailed": "无法添加标签",
+    "undoFailed": "无法撤销标签",
     "removed": "已移除标签",
     "removeFailed": "无法移除标签",
     "done": "标记为完成",

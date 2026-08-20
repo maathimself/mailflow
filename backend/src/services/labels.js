@@ -31,10 +31,34 @@ export async function resolveLabelCopyUid(message, folder) {
 // original in place). imapManager.copyMessage also emits the section-refresh event. No-op when
 // the message already lives in the label folder. `message` needs { uid, folder }.
 export async function applyLabel(imapManager, account, message, labelFolder) {
-  if (message.folder === labelFolder) return { applied: false, reason: 'already-there' };
+  if (message.folder === labelFolder) {
+    return { applied: false, uid: message.uid, reason: 'already-there' };
+  }
+  const existingUid = await resolveLabelCopyUid(message, labelFolder);
+  if (existingUid != null) {
+    return { applied: false, uid: existingUid, reason: 'already-labelled' };
+  }
   await imapManager.ensureFolder(account, labelFolder);
-  await imapManager.copyMessage(account.id, message.uid, message.folder, labelFolder);
-  return { applied: true };
+  const uid = await imapManager.copyMessage(account.id, message.uid, message.folder, labelFolder);
+  return { applied: true, uid: uid ?? null };
+}
+
+// Remove one exact label copy only when it still carries the source message's RFC Message-ID.
+// This is the safe inverse for a COPY whose destination UID was returned by UIDPLUS: a stale or
+// forged UID cannot remove a different message's label copy. Without a Message-ID there is no
+// stable identity shared by the source and copied rows, so no inverse is advertised.
+export async function removeExactLabelCopy(imapManager, message, labelFolder, uid) {
+  if (!message.message_id) return { removed: false };
+  const { rows } = await query(
+    `SELECT uid FROM messages
+      WHERE account_id = $1 AND folder = $2 AND uid = $3
+        AND message_id = $4 AND is_deleted = false
+      LIMIT 1`,
+    [message.account_id, labelFolder, uid, message.message_id]
+  );
+  if (!rows[0]) return { removed: false };
+  await imapManager.removeMessageCopy(message.account_id, uid, labelFolder);
+  return { removed: true };
 }
 
 // Remove a label: delete the message's copy living in the label folder, leaving INBOX and any

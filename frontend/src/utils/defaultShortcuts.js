@@ -49,6 +49,7 @@ export const ACTION_DEFS = {
   gtdTodo:       { groupKey: 'shortcuts.groups.gtd',            labelKey: 'shortcuts.actions.gtdTodo.label',       descriptionKey: 'shortcuts.actions.gtdTodo.description',       defaultKey: 't' },
   gtdWatch:      { groupKey: 'shortcuts.groups.gtd',            labelKey: 'shortcuts.actions.gtdWatch.label',      descriptionKey: 'shortcuts.actions.gtdWatch.description',      defaultKey: 'w' },
   gtdDelegated:  { groupKey: 'shortcuts.groups.gtd',            labelKey: 'shortcuts.actions.gtdDelegated.label',  descriptionKey: 'shortcuts.actions.gtdDelegated.description',  defaultKey: 'd' },
+  gtdUndo:       { groupKey: 'shortcuts.groups.gtd',            labelKey: 'common.undo',                            descriptionKey: 'shortcuts.actions.gtdUndo.description',       defaultKey: 'ctrl+z' },
 };
 
 // Returns the effective shortcut map: action → key, with user overrides applied.

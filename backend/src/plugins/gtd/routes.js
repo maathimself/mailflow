@@ -4,7 +4,7 @@ import { getGtdSections } from './gtdSections.js';
 import { queueGistGeneration } from './gtdGist.js';
 import { importPet, decodeUploadedSheet, getPetMeta, getPetSheet, parsePetSlug, customPetSlug } from './gtdPet.js';
 import { getGtdConfig, resolveGtdStateFolder, sanitizeGtdFolders, sanitizeGtdFoldersDetailed, DEFAULT_GTD_FOLDERS, planGtdFolderPersist, invalidateGtdConfigCache } from './gtdConfig.js';
-import { applyLabel, removeLabel, markThreadRead, ensureLabelFolders, archiveInboxCopy, broadcast, loadOwnedMessage, getOwnedAccount, getMessageCopyFolders, getAccountConfig, setAccountConfig } from '../api.js';
+import { applyLabel, removeExactLabelCopy, removeLabel, markThreadRead, ensureLabelFolders, archiveInboxCopy, broadcast, loadOwnedMessage, getOwnedAccount, getMessageCopyFolders, getLabelMetadata, getAccountConfig, setAccountConfig } from '../api.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -13,6 +13,7 @@ router.use(requireAuth);
 // id is a clean 400 rather than a parametrized query that just finds nothing (404) or a
 // driver cast error. Same idiom + regex as mail.js.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const METADATA_STATE_ORDER = ['todo', 'watch', 'delegated', 'reference', 'someday'];
 
 // Shared classify precondition: an account must have GTD enabled and the request's
 // state must resolve to a designated folder. Returns { folder } to proceed, or
@@ -79,6 +80,49 @@ router.get('/sections', async (req, res) => {
     userId: req.session.userId,
     broadcast,
   }).catch(err => console.warn('GTD gist generation error:', err.message));
+});
+
+// Bounded, plugin-owned metadata for ordinary message rows. Core supplies only the neutral row
+// slot; GTD resolves its configured label folders here without coupling the message-list query to
+// any plugin schema or state.
+router.post('/metadata', async (req, res) => {
+  const { accountId, messageIds } = req.body || {};
+  if (!UUID_RE.test(accountId || '')) return res.status(400).json({ error: 'Invalid account id' });
+  if (!Array.isArray(messageIds) || messageIds.length < 1 || messageIds.length > 100) {
+    return res.status(400).json({ error: 'messageIds must contain 1–100 ids' });
+  }
+  if (messageIds.some(id => typeof id !== 'string' || !UUID_RE.test(id))) {
+    return res.status(400).json({ error: 'Invalid message id' });
+  }
+
+  const ids = [...new Set(messageIds)];
+  const account = await getOwnedAccount(req.session.userId, accountId);
+  if (!account) return res.status(404).json({ error: 'Account not found' });
+
+  const { enabled, folders } = await getGtdConfig(accountId);
+  if (!enabled) return res.json({ messages: {} });
+
+  const stateByFolder = new Map();
+  for (const state of METADATA_STATE_ORDER) {
+    const folder = folders?.[state];
+    if (folder && !stateByFolder.has(folder)) stateByFolder.set(folder, state);
+  }
+  const rows = await getLabelMetadata(accountId, ids, [...stateByFolder.keys()]);
+  const messages = {};
+  for (const row of rows) {
+    const state = stateByFolder.get(row.folder);
+    if (!state) continue;
+    if (!messages[row.messageId]) messages[row.messageId] = { states: [], dates: {}, date: null };
+    const entry = messages[row.messageId];
+    if (!entry.states.includes(state)) entry.states.push(state);
+    entry.dates[state] = row.date;
+    if (row.date && (!entry.date || new Date(row.date) > new Date(entry.date))) entry.date = row.date;
+  }
+  for (const entry of Object.values(messages)) {
+    entry.states.sort((a, b) => METADATA_STATE_ORDER.indexOf(a) - METADATA_STATE_ORDER.indexOf(b));
+    entry.dates = Object.fromEntries(entry.states.map(state => [state, entry.dates[state] ?? null]));
+  }
+  return res.json({ messages });
 });
 
 // ── GTD Inbox-Zero pet ────────────────────────────────────────────────────────
@@ -156,19 +200,51 @@ router.post('/classify', async (req, res) => {
   if (target.error) return res.status(target.status).json({ error: target.error });
   const toFolder = target.folder;
 
-  // Already labelled with this state — nothing to copy.
-  if (msg.folder === toFolder) return res.json({ ok: true, folder: toFolder });
-
   const account = await getOwnedAccount(req.session.userId, msg.account_id);
 
+  let result;
   try {
-    await applyLabel(account, msg, toFolder);
+    result = await applyLabel(account, msg, toFolder);
   } catch (err) {
     console.error(`GTD classify failed for message ${messageId} -> ${toFolder}:`, err.message);
     return res.status(500).json({ error: 'Failed to apply GTD label' });
   }
 
-  res.json({ ok: true, folder: toFolder });
+  const undoToken = result.applied && result.uid != null && msg.message_id
+    ? { messageId, state, folder: toFolder, uid: result.uid }
+    : null;
+  res.json({ ok: true, folder: toFolder, applied: result.applied, undoToken });
+});
+
+// POST /api/gtd/classify/undo — remove only the exact UID created by the classify request.
+// The state is resolved again so a later folder remap invalidates the token instead of deleting
+// from its stale path. removeExactLabelCopy additionally proves the UID still belongs to the
+// source message by RFC Message-ID; replay and stale-token misses are safe no-ops.
+router.post('/classify/undo', async (req, res) => {
+  const { messageId, state, folder, uid } = req.body || {};
+  if (!messageId || !state || typeof folder !== 'string' || !folder) {
+    return res.status(400).json({ error: 'messageId, state, folder, and uid are required' });
+  }
+  if (!UUID_RE.test(messageId)) return res.status(400).json({ error: 'Invalid message id' });
+  if (!Number.isSafeInteger(uid) || uid <= 0) return res.status(400).json({ error: 'Invalid copy uid' });
+
+  const msg = await loadOwnedMessage(req.session.userId, messageId);
+  if (!msg) return res.status(404).json({ error: 'Message not found' });
+
+  const { enabled, folders } = await getGtdConfig(msg.account_id);
+  const target = classifyTarget({ enabled, folders, state });
+  if (target.error) return res.status(target.status).json({ error: target.error });
+  if (target.folder !== folder) {
+    return res.status(409).json({ error: 'GTD state folder changed — undo token is stale' });
+  }
+
+  try {
+    const { removed } = await removeExactLabelCopy(msg, folder, uid);
+    return res.json({ ok: true, removed, folder });
+  } catch (err) {
+    console.error(`GTD classify undo failed for message ${messageId} in ${folder}:`, err.message);
+    return res.status(500).json({ error: 'Failed to undo GTD classification' });
+  }
 });
 
 // DELETE /api/gtd/classify { messageId, state } — remove a GTD label by deleting
