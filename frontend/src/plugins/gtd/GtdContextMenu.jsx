@@ -1,7 +1,8 @@
 import { useTranslation } from 'react-i18next';
-import { GTD_STATES, GTD_COLORS, resolveAccountGtdFolders, gtdStatesInFolders, classifyThread, unclassifyThread } from '../../utils/gtd.js';
+import { GTD_STATES, GTD_COLORS, resolveAccountGtdFolders, gtdStatesInFolders, unclassifyThread } from '../../utils/gtd.js';
 import { useStore } from '../../store/index.js';
 import { api } from '../../utils/api.js';
+import { classifyWithUndo } from './classification.js';
 
 // GTD's context-menu contributions, injected into core's 'context-menu-actions' collector so the
 // menu itself carries no GTD-specific code. Placement is preserved: core splices these items into
@@ -20,7 +21,14 @@ function GtdContextSubmenu({ message, account, onClose, onBack }) {
   const removableStates = gtdStatesInFolders(message.folders, gtdFolders);
   // Classify = COPY into the state's label folder (message stays put); remove = strip that label.
   // Store-based, so they run the same on every surface — no dependency on the caller's onAction.
-  const classify = (state) => { classifyThread(message.id, state, { gtdClassify: api.gtdClassify, addNotification, scheduleGtdSectionsFetch, t }); onClose(); };
+  const classify = (state) => {
+    void classifyWithUndo(message.id, state, {
+      api,
+      store: { addNotification, scheduleGtdSectionsFetch },
+      t,
+    });
+    onClose();
+  };
   const removeFrom = (state) => { unclassifyThread(message.id, state, { gtdUnclassify: api.gtdUnclassify, addNotification, scheduleGtdSectionsFetch, t }); onClose(); };
   return (
     <>
