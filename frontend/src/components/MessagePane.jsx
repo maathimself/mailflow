@@ -541,6 +541,8 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     let lastH = 0;
     let contextMenuDoc = null;
     let iframeContextMenuHandler = null;
+    let clickDoc = null;
+    let iframeClickHandler = null;
 
     const setHeight = () => {
       const doc = iframe.contentDocument;
@@ -664,7 +666,13 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       // origin via allow-same-origin and open a new mailflow tab instead of
       // the intended destination.  We read the raw attribute to bypass
       // browser resolution and only forward absolute http(s)/mailto links.
-      doc.addEventListener('click', (ev) => {
+      // Tracked and removed like the contextmenu handler below — onLoaded can
+      // re-run on the same document when the effect's callback deps change,
+      // and an untracked listener stacks up, opening N duplicate tabs per click.
+      if (clickDoc && iframeClickHandler) {
+        clickDoc.removeEventListener('click', iframeClickHandler);
+      }
+      iframeClickHandler = (ev) => {
         const anchor = ev.target.closest('a[href]');
         if (!anchor) return;
         ev.preventDefault();
@@ -675,8 +683,13 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         } else if (/^mailto:/i.test(raw)) {
           window.open(raw, '_blank', 'noopener,noreferrer');
         }
-      });
+      };
+      clickDoc = doc;
+      doc.addEventListener('click', iframeClickHandler);
 
+      if (contextMenuDoc && iframeContextMenuHandler) {
+        contextMenuDoc.removeEventListener('contextmenu', iframeContextMenuHandler);
+      }
       iframeContextMenuHandler = (ev) => {
         if (hasNativeContextTarget(ev, doc)) return;
         ev.preventDefault();
@@ -718,6 +731,9 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       if (roRef.current) { roRef.current.disconnect(); roRef.current = null; }
       if (contextMenuDoc && iframeContextMenuHandler) {
         contextMenuDoc.removeEventListener('contextmenu', iframeContextMenuHandler);
+      }
+      if (clickDoc && iframeClickHandler) {
+        clickDoc.removeEventListener('click', iframeClickHandler);
       }
       iframe.removeEventListener('load', onLoaded);
       emailScaleRef.current = 1;
