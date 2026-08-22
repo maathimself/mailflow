@@ -61,17 +61,26 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
   })();
   const inSpamFolder = spamFolderPaths.has(message.folder);
 
-  // Adjust position to stay within viewport
+  // Adjust position to stay within viewport. The menu's height changes after
+  // mount (folders load async, subviews like Move/Snooze swap in), so re-clamp
+  // on every size change — measuring only at open time lets a menu that grows
+  // near the bottom edge overflow off-screen.
   const [pos, setPos] = useState({ x, y });
   useEffect(() => {
-    if (!menuRef.current) return;
-    const rect = menuRef.current.getBoundingClientRect();
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    setPos({
-      x: Math.max(0, x + rect.width  > vw ? x - rect.width  : x),
-      y: Math.max(0, y + rect.height > vh ? y - rect.height : y),
-    });
+    const menu = menuRef.current;
+    if (!menu) return;
+    const clamp = () => {
+      const rect = menu.getBoundingClientRect();
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const nx = Math.max(0, x + rect.width  > vw ? x - rect.width  : x);
+      const ny = Math.max(0, y + rect.height > vh ? y - rect.height : y);
+      setPos(prev => (prev.x === nx && prev.y === ny ? prev : { x: nx, y: ny }));
+    };
+    clamp();
+    const observer = new ResizeObserver(clamp);
+    observer.observe(menu);
+    return () => observer.disconnect();
   }, [x, y]);
 
   // Auto-load folders when opened directly in move mode (e.g. from row folder icon)
