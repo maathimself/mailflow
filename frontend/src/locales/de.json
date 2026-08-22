@@ -564,6 +564,10 @@
         "label": "Als Delegiert markieren",
         "description": "Die ausgewählte Nachricht als Delegiert einordnen"
       },
+      "toggleLeftSidebar": {
+        "label": "Linke Seitenleiste umschalten",
+        "description": "Linke Seitenleiste aus- oder einblenden"
+      },
       "toggleRightSidebar": {
         "label": "Rechte Seitenleiste umschalten",
         "description": "Rechte Seitenleiste aus- oder einblenden"

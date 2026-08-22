@@ -564,6 +564,10 @@
         "label": "标记为已委派",
         "description": "将所选邮件归类为已委派"
       },
+      "toggleLeftSidebar": {
+        "label": "切换左侧边栏",
+        "description": "折叠或展开左侧边栏"
+      },
       "toggleRightSidebar": {
         "label": "切换右侧边栏",
         "description": "隐藏或显示右侧边栏"

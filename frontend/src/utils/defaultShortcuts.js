@@ -30,6 +30,7 @@ export const ACTION_DEFS = {
   prevMessage:   { groupKey: 'shortcuts.groups.navigation',     labelKey: 'shortcuts.actions.prevMessage.label',   descriptionKey: 'shortcuts.actions.prevMessage.description',   defaultKey: 'k'  },
   openMessage:   { groupKey: 'shortcuts.groups.navigation',     labelKey: 'shortcuts.actions.openMessage.label',   descriptionKey: 'shortcuts.actions.openMessage.description',   defaultKey: 'o'  },
   goInbox:       { groupKey: 'shortcuts.groups.navigation',     labelKey: 'shortcuts.actions.goInbox.label',       descriptionKey: 'shortcuts.actions.goInbox.description',       defaultKey: 'gi' },
+  toggleLeftSidebar: { groupKey: 'shortcuts.groups.navigation', labelKey: 'shortcuts.actions.toggleLeftSidebar.label', descriptionKey: 'shortcuts.actions.toggleLeftSidebar.description', defaultKey: 'ctrl+\\' },
   toggleRightSidebar: { groupKey: 'shortcuts.groups.navigation', labelKey: 'shortcuts.actions.toggleRightSidebar.label', descriptionKey: 'shortcuts.actions.toggleRightSidebar.description', defaultKey: 'ctrl+/' },
 
   // ── Message actions ────────────────────────────────────────────────────────
