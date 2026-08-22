@@ -620,7 +620,7 @@ export default function Sidebar() {
       return;
     }
     try {
-      await api.createFolder(creatingFolder.accountId, createName.trim());
+      await api.createFolder(creatingFolder.accountId, createName.trim(), creatingFolder.parentPath);
       const updated = await api.getFolders(creatingFolder.accountId);
       setFolders(creatingFolder.accountId, updated);
       setCreatingFolder(null);
