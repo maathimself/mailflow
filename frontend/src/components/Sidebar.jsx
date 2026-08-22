@@ -1360,7 +1360,7 @@ export default function Sidebar() {
                           handleMsgDrop(event, folder.path);
                         }}
                       >
-                        {canReorder && (
+                        {canReorder ? (
                           <span
                             draggable
                             onDragStart={event => handleFolderOrderDragStart(event, folder.path)}
@@ -1377,6 +1377,11 @@ export default function Sidebar() {
                               <circle cx="2" cy="12" r="1.5"/><circle cx="8" cy="12" r="1.5"/>
                             </svg>
                           </span>
+                        ) : !isMobile && (
+                          // Keep single-child rows aligned with siblings that have a
+                          // drag handle — without this spacer the missing handle
+                          // visually cancels the depth indent.
+                          <span style={{ width: 10, flexShrink: 0 }} />
                         )}
                         {/* Chevron toggle for parent folders; invisible spacer for leaf folders to align icons */}
                         {hasChildren ? (
