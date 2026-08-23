@@ -409,6 +409,8 @@
     "renameFailed": "Error al renombrar",
     "deleteFailed": "Error al eliminar",
     "emptyFailed": "Error al vaciar",
+    "emptying": "Vaciando «{{name}}»…",
+    "emptied": "Carpeta vaciada",
     "backToAccounts": "Volver a cuentas",
     "updateAvailable": "Actualización disponible: v{{version}}"
   },
@@ -602,9 +604,25 @@
     "errorProcess": "No se pudo procesar la imagen."
   },
   "admin": {
+    "cleanup": {
+      "title": "Limpieza del buzón",
+      "intro": "Encuentra el correo masivo que satura tu bandeja de entrada y muévelo a la Papelera. El correo eliminado va a la Papelera y puede recuperarse hasta que la vacíes.",
+      "account": "Cuenta",
+      "summary": "{{bulk}} de {{total}} mensajes de la bandeja son correo masivo ({{pct}}%).",
+      "tier1Title": "Principales remitentes masivos",
+      "tier1Desc": "Son los remitentes de boletines y marketing con más volumen en tu bandeja. Mover uno envía todo su correo de la bandeja a la Papelera.",
+      "noneFound": "No se encontraron remitentes masivos.",
+      "moveToTrash": "Mover a la Papelera",
+      "confirm": "¿Mover a la Papelera los {{count}} mensajes de {{sender}}? Se pueden recuperar de la Papelera hasta que la vacíes.",
+      "tier2Title": "Términos promocionales comunes",
+      "tier2Desc": "Busca estos términos para revisar y eliminar el resto tú mismo. Abarcan muchos remitentes, así que revisa los resultados antes de eliminar.",
+      "tier3Title": "Limpiar el resto",
+      "tier3Desc": "Para lo demás, busca por remitente o palabra clave, selecciona todo y elimina. Al eliminar, el correo va primero a la Papelera, así que puedes revisar antes de vaciarla."
+    },
     "title": "Ajustes",
     "close": "Cerrar",
     "tabs": {
+      "cleanup": "Limpieza",
       "accounts": "Cuentas",
       "rules": "Reglas",
       "appearance": "Apariencia",
@@ -1478,7 +1496,6 @@
     "carddavBadge": "Sincronizado desde CardDAV"
   },
   "todoist": {
-    "betaLabel": "Beta",
     "title": "Crear tarea en Todoist",
     "taskTitle": "Título de la tarea",
     "taskTitlePh": "¿Qué hay que hacer?",

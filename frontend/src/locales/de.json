@@ -409,6 +409,8 @@
     "renameFailed": "Umbenennen fehlgeschlagen",
     "deleteFailed": "Löschen fehlgeschlagen",
     "emptyFailed": "Leeren fehlgeschlagen",
+    "emptying": "„{{name}}” wird geleert…",
+    "emptied": "Ordner geleert",
     "backToAccounts": "Zurück zu Konten",
     "updateAvailable": "Update verfügbar: v{{version}}"
   },
@@ -602,9 +604,25 @@
     "errorProcess": "Bild konnte nicht verarbeitet werden."
   },
   "admin": {
+    "cleanup": {
+      "title": "Postfach aufräumen",
+      "intro": "Finden Sie Massen-E-Mails, die Ihren Posteingang füllen, und verschieben Sie sie in den Papierkorb. Gelöschte E-Mails landen im Papierkorb und lassen sich wiederherstellen, bis Sie ihn leeren.",
+      "account": "Konto",
+      "summary": "{{bulk}} von {{total}} Posteingangs-Nachrichten sind Massen-E-Mails ({{pct}}%).",
+      "tier1Title": "Größte Massenabsender",
+      "tier1Desc": "Das sind die volumenstärksten Newsletter- und Marketing-Absender in Ihrem Posteingang. Einen zu verschieben legt alle Posteingangs-E-Mails dieses Absenders in den Papierkorb.",
+      "noneFound": "Keine Massenabsender gefunden.",
+      "moveToTrash": "In den Papierkorb",
+      "confirm": "Alle {{count}} Posteingangs-Nachrichten von {{sender}} in den Papierkorb verschieben? Sie lassen sich aus dem Papierkorb wiederherstellen, bis Sie ihn leeren.",
+      "tier2Title": "Häufige Werbebegriffe",
+      "tier2Desc": "Suchen Sie nach diesen Begriffen, um den Rest selbst zu prüfen und zu löschen. Sie betreffen viele Absender, überfliegen Sie die Ergebnisse also vor dem Löschen.",
+      "tier3Title": "Den Rest aufräumen",
+      "tier3Desc": "Für alles Übrige nach Absender oder Stichwort suchen, alle auswählen und löschen. Löschungen wandern zuerst in den Papierkorb, Sie können also prüfen, bevor Sie ihn leeren."
+    },
     "title": "Einstellungen",
     "close": "Schließen",
     "tabs": {
+      "cleanup": "Aufräumen",
       "accounts": "Konten",
       "appearance": "Darstellung",
       "notifications": "Benachrichtigungen",
@@ -1478,7 +1496,6 @@
     "carddavBadge": "Von CardDAV synchronisiert"
   },
   "todoist": {
-    "betaLabel": "Beta",
     "title": "Todoist-Aufgabe erstellen",
     "taskTitle": "Aufgabentitel",
     "taskTitlePh": "Was muss erledigt werden?",

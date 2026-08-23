@@ -22,9 +22,9 @@ import accountRoutes from './accounts.js';
 // boundary rather than the plugin-internal cache call.
 let identityHook;
 
-const URL_ACCOUNT_ID = 'account-from-url';
-const CHECKED_ACCOUNT_ID = 'account-from-ownership-check';
-const ALIAS_ID = 'alias-1';
+const URL_ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
+const CHECKED_ACCOUNT_ID = '22222222-2222-4222-8222-222222222222';
+const ALIAS_ID = '33333333-3333-4333-8333-333333333333';
 const insertedAlias = {
   id: ALIAS_ID,
   account_id: URL_ACCOUNT_ID,

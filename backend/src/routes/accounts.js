@@ -8,6 +8,7 @@ import { validateHost } from '../services/hostValidation.js';
 import { getConnectionPolicy } from '../services/connectionPolicy.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { createKeyedSerializer } from '../utils/keyedSerializer.js';
+import { uuidParam } from '../utils/uuid.js';
 
 // Serialize an account's reconnect triggers so a rapid settings change (e.g. a
 // gtd_enabled double-toggle) can't fire two overlapping disconnect→connect chains —
@@ -39,6 +40,10 @@ function hasHeaderInjectionChars(str) {
 
 const router = Router();
 router.use(requireAuth);
+// Reject malformed UUID path params with a 400 before they reach a uuid-typed query (else the
+// Postgres cast error surfaces as a 500). Every :id/:aliasId in this router is a UUID.
+router.param('id', uuidParam('id'));
+router.param('aliasId', uuidParam('aliasId'));
 
 // Fields safe to return to the client — matches the GET list, excludes credentials and tokens
 const SAFE_FIELDS = [

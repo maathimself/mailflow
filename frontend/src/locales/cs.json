@@ -155,6 +155,8 @@
     "renameFailed": "Přejmenování se nezdařilo",
     "deleteFailed": "Smazání se nezdařilo",
     "emptyFailed": "Vyprázdnění se nezdařilo",
+    "emptying": "Vyprazdňování složky „{{name}}“…",
+    "emptied": "Složka vyprázdněna",
     "backToAccounts": "Zpět k účtům",
     "updateAvailable": "Je dostupná aktualizace: v{{version}}"
   },
@@ -623,7 +625,6 @@
     "failBodyBulk": "Nepodařilo se přesunout {{count}} zpráv."
   },
   "todoist": {
-    "betaLabel": "Beta",
     "title": "Vytvořit úkol v Todoistu",
     "taskTitle": "Název úkolu",
     "taskTitlePh": "Co je potřeba udělat?",
@@ -669,9 +670,25 @@
     }
   },
   "admin": {
+    "cleanup": {
+      "title": "Úklid schránky",
+      "intro": "Najděte hromadnou poštu, která zahlcuje Doručenou poštu, a přesuňte ji do koše. Smazaná pošta se přesune do složky Koš a lze ji obnovit, dokud koš nevyprázdníte.",
+      "account": "Účet",
+      "summary": "{{bulk}} z {{total}} zpráv v Doručené poště tvoří hromadná pošta ({{pct}} %).",
+      "tier1Title": "Nejčastější odesílatelé hromadné pošty",
+      "tier1Desc": "Toto jsou odesílatelé newsletterů a marketingových zpráv s nejvyšším počtem zpráv ve vaší Doručené poště. Přesunutím jednoho odesílatele se všechny jeho zprávy z Doručené pošty přesunou do koše.",
+      "noneFound": "Nebyli nalezeni žádní odesílatelé hromadné pošty.",
+      "moveToTrash": "Přesunout do koše",
+      "confirm": "Přesunout všechny zprávy ({{count}}) od odesílatele {{sender}} z Doručené pošty do koše? Dokud koš nevyprázdníte, můžete je obnovit.",
+      "tier2Title": "Běžné propagační výrazy",
+      "tier2Desc": "Vyhledejte tyto výrazy, projděte výsledky a zbytek smažte ručně. Výsledky zahrnují více odesílatelů, proto je před smazáním zkontrolujte.",
+      "tier3Title": "Úklid zbývajících zpráv",
+      "tier3Desc": "U ostatních zpráv vyhledávejte podle odesílatele nebo klíčového slova, označte je a smažte. Smazané zprávy se vždy nejprve přesunou do koše, takže je před jeho vyprázdněním můžete zkontrolovat."
+    },
     "title": "Nastavení",
     "close": "Zavřít",
     "tabs": {
+      "cleanup": "Úklid",
       "accounts": "Účty",
       "rules": "Pravidla",
       "appearance": "Vzhled",

@@ -409,6 +409,8 @@
     "renameFailed": "Rinomina fallita",
     "deleteFailed": "Eliminazione fallita",
     "emptyFailed": "Svuotamento fallito",
+    "emptying": "Svuotamento di \"{{name}}\"…",
+    "emptied": "Cartella svuotata",
     "backToAccounts": "Torna agli account",
     "updateAvailable": "Aggiornamento disponibile: v{{version}}"
   },
@@ -602,9 +604,25 @@
     "errorProcess": "Impossibile elaborare l'immagine."
   },
   "admin": {
+    "cleanup": {
+      "title": "Pulizia della casella",
+      "intro": "Trova la posta di massa che ingombra la tua casella e spostala nel Cestino. La posta eliminata va nel Cestino e può essere recuperata finché non lo svuoti.",
+      "account": "Account",
+      "summary": "{{bulk}} di {{total}} messaggi in arrivo sono posta di massa ({{pct}}%).",
+      "tier1Title": "Principali mittenti di massa",
+      "tier1Desc": "Sono i mittenti di newsletter e marketing con più volume nella tua casella. Spostarne uno invia tutta la sua posta in arrivo nel Cestino.",
+      "noneFound": "Nessun mittente di massa trovato.",
+      "moveToTrash": "Sposta nel Cestino",
+      "confirm": "Spostare nel Cestino tutti i {{count}} messaggi di {{sender}}? Possono essere recuperati dal Cestino finché non lo svuoti.",
+      "tier2Title": "Termini promozionali comuni",
+      "tier2Desc": "Cerca questi termini per rivedere ed eliminare il resto da solo. Riguardano molti mittenti, quindi scorri i risultati prima di eliminare.",
+      "tier3Title": "Pulire il resto",
+      "tier3Desc": "Per tutto il resto, cerca per mittente o parola chiave, seleziona tutto ed elimina. Le eliminazioni passano prima dal Cestino, così puoi controllare prima di svuotarlo."
+    },
     "title": "Impostazioni",
     "close": "Chiudi",
     "tabs": {
+      "cleanup": "Pulizia",
       "accounts": "Account",
       "rules": "Regole",
       "appearance": "Aspetto",
@@ -1478,7 +1496,6 @@
     "carddavBadge": "Sincronizzato da CardDAV"
   },
   "todoist": {
-    "betaLabel": "Beta",
     "title": "Crea attività Todoist",
     "taskTitle": "Titolo dell'attività",
     "taskTitlePh": "Cosa c'è da fare?",

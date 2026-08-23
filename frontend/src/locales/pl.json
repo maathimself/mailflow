@@ -425,6 +425,8 @@
     "renameFailed": "Zmiana nazwy nie powiodła się",
     "deleteFailed": "Usuwanie nie powiodło się",
     "emptyFailed": "Opróżnianie nie powiodło się",
+    "emptying": "Opróżnianie „{{name}}”…",
+    "emptied": "Folder opróżniony",
     "backToAccounts": "Powrót do kont",
     "updateAvailable": "Dostępna aktualizacja: v{{version}}"
   },
@@ -618,9 +620,25 @@
     "errorProcess": "Nie udało się przetworzyć obrazu."
   },
   "admin": {
+    "cleanup": {
+      "title": "Porządki w skrzynce",
+      "intro": "Znajdź masową pocztę zapychającą skrzynkę odbiorczą i przenieś ją do Kosza. Usunięta poczta trafia do Kosza i można ją odzyskać, dopóki go nie opróżnisz.",
+      "account": "Konto",
+      "summary": "{{bulk}} z {{total}} wiadomości w skrzynce to poczta masowa ({{pct}}%).",
+      "tier1Title": "Najwięksi nadawcy masowi",
+      "tier1Desc": "To nadawcy newsletterów i marketingu o największej liczbie wiadomości w Twojej skrzynce. Przeniesienie jednego wysyła całą jego pocztę ze skrzynki do Kosza.",
+      "noneFound": "Nie znaleziono nadawców masowych.",
+      "moveToTrash": "Przenieś do Kosza",
+      "confirm": "Przenieść wszystkie {{count}} wiadomości od {{sender}} do Kosza? Można je odzyskać z Kosza, dopóki go nie opróżnisz.",
+      "tier2Title": "Typowe hasła promocyjne",
+      "tier2Desc": "Wyszukaj te hasła, aby samodzielnie przejrzeć i usunąć resztę. Dotyczą wielu nadawców, więc przejrzyj wyniki przed usunięciem.",
+      "tier3Title": "Sprzątanie reszty",
+      "tier3Desc": "W przypadku pozostałych wyszukaj według nadawcy lub słowa kluczowego, zaznacz wszystko i usuń. Usunięcia najpierw trafiają do Kosza, więc możesz sprawdzić przed jego opróżnieniem."
+    },
     "title": "Ustawienia",
     "close": "Zamknij",
     "tabs": {
+      "cleanup": "Porządki",
       "accounts": "Konta",
       "rules": "Reguły",
       "appearance": "Wygląd",
@@ -1497,7 +1515,6 @@
     "carddavBadge": "Zsynchronizowano z CardDAV"
   },
   "todoist": {
-    "betaLabel": "Beta",
     "title": "Utwórz zadanie Todoist",
     "taskTitle": "Tytuł zadania",
     "taskTitlePh": "Co trzeba zrobić?",

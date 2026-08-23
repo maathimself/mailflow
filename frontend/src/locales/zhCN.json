@@ -409,6 +409,8 @@
     "renameFailed": "重命名失败",
     "deleteFailed": "删除失败",
     "emptyFailed": "清空失败",
+    "emptying": "正在清空「{{name}}」…",
+    "emptied": "文件夹已清空",
     "backToAccounts": "返回账户列表",
     "updateAvailable": "有可用更新：v{{version}}"
   },
@@ -602,9 +604,25 @@
     "errorProcess": "无法处理该图片。"
   },
   "admin": {
+    "cleanup": {
+      "title": "邮箱清理",
+      "intro": "找出堆满收件箱的批量邮件并移到回收站。删除的邮件会进入回收站，在清空之前都可以恢复。",
+      "account": "账户",
+      "summary": "收件箱 {{total}} 封邮件中有 {{bulk}} 封是批量邮件（{{pct}}%）。",
+      "tier1Title": "主要批量发件人",
+      "tier1Desc": "这些是您收件箱中数量最多的订阅和营销发件人。移动其中一个会将该发件人在收件箱中的所有邮件移到回收站。",
+      "noneFound": "未发现批量发件人。",
+      "moveToTrash": "移到回收站",
+      "confirm": "将来自 {{sender}} 的全部 {{count}} 封收件箱邮件移到回收站吗？在清空回收站之前都可以恢复。",
+      "tier2Title": "常见促销词",
+      "tier2Desc": "搜索这些词以自行查看并删除其余邮件。它们涉及多个发件人，删除前请先浏览结果。",
+      "tier3Title": "清理其余邮件",
+      "tier3Desc": "其余邮件可按发件人或关键词搜索，全选后删除。删除总是先移到回收站，因此可在清空前检查。"
+    },
     "title": "设置",
     "close": "关闭",
     "tabs": {
+      "cleanup": "清理",
       "accounts": "账户",
       "rules": "规则",
       "appearance": "外观",
@@ -1478,7 +1496,6 @@
     "carddavBadge": "从 CardDAV 同步"
   },
   "todoist": {
-    "betaLabel": "测试版",
     "title": "创建 Todoist 任务",
     "taskTitle": "任务标题",
     "taskTitlePh": "需要做什么？",

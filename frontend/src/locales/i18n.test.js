@@ -142,6 +142,8 @@ const SAME_VALUE_ALLOWED = {
   'admin.about.version': [['de', 'en', 'fr']],
   // "via" (on-behalf-of sender, #366) — identical preposition in en and fr
   'message.via': [['en', 'fr']],
+  // "Account" — identical in en/it; "Konto" — identical in de/pl
+  'admin.cleanup.account': [['en', 'it'], ['de', 'pl']],
   // "{{n}} min" — the "min" abbreviation is shared in en, es, fr, it
   'admin.lock.autoLockMin': [['cs', 'en', 'es', 'fr', 'it', 'pl']],
 
@@ -324,9 +326,6 @@ const SAME_VALUE_ALLOWED = {
   // ── Todoist integration ────────────────────────────────────────────────────
   // "Todoist" — brand name, same in all locales
   'admin.integrations.todoist.title': 'any',
-  // "Beta" — same spelling in de, en, es, it; fr uses "Bêta", ru uses "Бета", zh uses "测试版"
-  'todoist.betaLabel': [['cs', 'de', 'en', 'es', 'it', 'pl']],
-
   // "Description" — same spelling in en and fr
   'todoist.description': [['en', 'fr']],
   // "Labels" — international loanword, same in de and en
