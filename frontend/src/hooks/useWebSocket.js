@@ -322,6 +322,20 @@ export function useWebSocket() {
         break;
       }
 
+      case 'folder_emptied': {
+        // Background empty finished (see mail.js /folders/empty). Toast the outcome and refresh
+        // the view and counts either way — on failure the messages are still on the server and
+        // should reappear.
+        addNotification({ title: data.ok ? t('sidebar.emptied') : t('sidebar.emptyFailed') });
+        window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+        window.dispatchEvent(new CustomEvent('mailflow:sync_done'));
+        api.getUnreadCounts().then(_applyServerCounts).catch(() => {});
+        if (data.accountId && useStore.getState().folders[data.accountId]) {
+          api.getFolders(data.accountId).then(f => setFolders(data.accountId, f)).catch(() => {});
+        }
+        break;
+      }
+
       case 'snooze_wakeup': {
         window.dispatchEvent(new CustomEvent('mailflow:refresh'));
         api.getUnreadCounts().then(counts => {

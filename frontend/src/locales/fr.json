@@ -409,6 +409,8 @@
     "renameFailed": "Échec du renommage",
     "deleteFailed": "Échec de la suppression",
     "emptyFailed": "Échec du vidage",
+    "emptying": "Vidage de « {{name}} »…",
+    "emptied": "Dossier vidé",
     "backToAccounts": "Retour aux comptes",
     "updateAvailable": "Mise à jour disponible : v{{version}}"
   },
@@ -1494,7 +1496,6 @@
     "carddavBadge": "Synchronisé depuis CardDAV"
   },
   "todoist": {
-    "betaLabel": "Bêta",
     "title": "Créer une tâche Todoist",
     "taskTitle": "Titre de la tâche",
     "taskTitlePh": "Que faut-il faire ?",
