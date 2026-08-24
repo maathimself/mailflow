@@ -566,6 +566,10 @@
         "label": "Marcar Delegado",
         "description": "Clasificar el mensaje seleccionado como Delegado"
       },
+      "toggleLeftSidebar": {
+        "label": "Alternar la barra lateral izquierda",
+        "description": "Contraer o expandir la barra lateral izquierda"
+      },
       "toggleRightSidebar": {
         "label": "Alternar la barra lateral derecha",
         "description": "Ocultar o mostrar la barra lateral derecha"

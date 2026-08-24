@@ -566,6 +566,10 @@
         "label": "Segna Delegato",
         "description": "Classifica il messaggio selezionato come Delegato"
       },
+      "toggleLeftSidebar": {
+        "label": "Mostra o nascondi la barra laterale sinistra",
+        "description": "Comprimi o espandi la barra laterale sinistra"
+      },
       "toggleRightSidebar": {
         "label": "Mostra o nascondi la barra laterale destra",
         "description": "Nascondi o mostra la barra laterale destra"

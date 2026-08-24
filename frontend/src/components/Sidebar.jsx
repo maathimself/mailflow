@@ -10,6 +10,7 @@ import {
   folderDropPosition,
   resolveFolderOrderDrop,
 } from '../utils/sidebar.js';
+import { sidebarTransition } from '../utils/sidebarTransition.js';
 import { useMobile } from '../hooks/useMobile.js';
 import LogoMark from './LogoMark.jsx';
 import ProfileModal from './ProfileModal.jsx';
@@ -796,7 +797,7 @@ export default function Sidebar() {
       borderRight: '1px solid var(--border-subtle)',
       display: 'flex',
       flexDirection: 'column',
-      transition: isSidebarResizing ? 'none' : 'width 0.2s ease, min-width 0.2s ease',
+      transition: isSidebarResizing ? 'none' : sidebarTransition('width', 'min-width'),
       overflow: 'hidden',
     }}>
       {/* Header */}
