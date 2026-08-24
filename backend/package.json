@@ -1,6 +1,6 @@
 {
   "name": "mailflow-backend",
-  "version": "3.1.4",
+  "version": "3.2.4",
   "type": "module",
   "engines": {
     "node": ">=22 <23"

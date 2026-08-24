@@ -409,6 +409,8 @@
     "renameFailed": "Не удалось переименовать",
     "deleteFailed": "Не удалось удалить",
     "emptyFailed": "Не удалось очистить",
+    "emptying": "Очистка «{{name}}»…",
+    "emptied": "Папка очищена",
     "backToAccounts": "Назад к аккаунтам",
     "updateAvailable": "Доступно обновление: v{{version}}"
   },
@@ -1494,7 +1496,6 @@
     "carddavBadge": "Синхронизировано из CardDAV"
   },
   "todoist": {
-    "betaLabel": "Бета",
     "title": "Создать задачу Todoist",
     "taskTitle": "Название задачи",
     "taskTitlePh": "Что нужно сделать?",

@@ -119,13 +119,6 @@ export default function TodoistTaskModal({ message, onClose }) {
             <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>
               {t('todoist.title')}
             </span>
-            <span style={{
-              fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4,
-              background: 'rgba(99,102,241,0.15)', color: 'var(--accent)',
-              textTransform: 'uppercase', letterSpacing: '0.06em',
-            }}>
-              {t('todoist.betaLabel')}
-            </span>
           </div>
           <button
             onClick={onClose}

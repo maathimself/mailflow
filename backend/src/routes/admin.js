@@ -10,9 +10,12 @@ import { reloadAuthSettings } from '../services/authLimiter.js';
 import { imapManager } from '../index.js';
 import { stopCardavUser } from '../services/carddavSync.js';
 import { pluginRegistry } from '../plugins/registry.js';
+import { uuidParam } from '../utils/uuid.js';
 
 const router = Router();
 router.use(requireAdmin);
+// Reject a malformed :id (user UUID) with a 400 before it reaches a uuid-typed query.
+router.param('id', uuidParam('id'));
 
 // ── Users ──────────────────────────────────────────────────────────────────────
 

@@ -2215,7 +2215,6 @@ function CardDavCard() {
         <div style={{ flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{t('admin.integrations.carddav.title')}</span>
-            <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: 'rgba(99,102,241,0.15)', color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('todoist.betaLabel')}</span>
             <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: (!loading && connected) ? 'rgba(34,197,94,0.1)' : 'var(--bg-primary)', color: (!loading && connected) ? '#22c55e' : 'var(--text-tertiary)', border: `1px solid ${(!loading && connected) ? '#22c55e' : 'var(--border)'}` }}>
               {loading ? '...' : (connected ? t('admin.integrations.carddav.connected') : t('admin.integrations.carddav.notConnected'))}
             </span>
@@ -2866,13 +2865,6 @@ function IntegrationsTab() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
                     {t('admin.integrations.todoist.title')}
-                  </span>
-                  <span style={{
-                    fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4,
-                    background: 'rgba(99,102,241,0.15)', color: 'var(--accent)',
-                    textTransform: 'uppercase', letterSpacing: '0.06em',
-                  }}>
-                    {t('todoist.betaLabel')}
                   </span>
                   <span style={{
                     fontSize: 11, padding: '2px 8px', borderRadius: 10,
@@ -6441,13 +6433,20 @@ function MailboxCleanupTab() {
   const [busySender, setBusySender] = useState('');
   const [progress, setProgress] = useState(null);
 
+  // Re-fetch the summary/sender data without touching the error banner or the loading
+  // spinner, so a caller that just wants fresh counts (after a cleanup, including a partial
+  // failure) can refresh without clobbering an error it already set.
+  const fetchUsage = useCallback(async (id) => {
+    setData(await api.mailboxUsage(id));
+  }, []);
+
   const load = useCallback(async (id) => {
     if (!id) return;
     setLoading(true); setError('');
-    try { setData(await api.mailboxUsage(id)); }
+    try { await fetchUsage(id); }
     catch (e) { setError(e.message); setData(null); }
     finally { setLoading(false); }
-  }, []);
+  }, [fetchUsage]);
 
   useEffect(() => { if (accountId) load(accountId); }, [accountId, load]);
 
@@ -6464,9 +6463,13 @@ function MailboxCleanupTab() {
         done += batch.length;
         setProgress({ done, total: ids.length });
       }
-      await load(accountId); // idempotent refresh
     } catch (e) { setError(e.message); }
-    finally { setBusySender(''); setProgress(null); }
+    finally {
+      // Always refresh counts so the summary reflects what actually got trashed, even on a
+      // partial failure; preserve any error already set (don't route through load()).
+      try { await fetchUsage(accountId); } catch { /* keep the primary error and last-good data */ }
+      setBusySender(''); setProgress(null);
+    }
   };
 
   const bloatPct = data && data.inboxTotal ? Math.round((data.bulkTotal / data.inboxTotal) * 100) : 0;
@@ -6570,11 +6573,11 @@ const TABS = [
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>,
   },
   {
-    id: 'categories', labelKey: 'admin.tabs.categories', beta: true,
+    id: 'categories', labelKey: 'admin.tabs.categories',
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>,
   },
   {
-    id: 'cleanup', labelKey: 'admin.tabs.cleanup',
+    id: 'cleanup', labelKey: 'admin.tabs.cleanup', beta: true,
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M19 3l-6 6"/><path d="M14 4l6 6"/><path d="M11 8l-7 7c-1 1-1 3 0 4s3 1 4 0l7-7"/><path d="M6 20l-3-3"/></svg>,
   },
   // Display
@@ -6597,12 +6600,12 @@ const TABS = [
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="12" cy="12" r="3"/><path d="M6.343 6.343a8 8 0 000 11.314M17.657 6.343a8 8 0 010 11.314M3 12h1m16 0h1M12 3v1m0 16v1"/></svg>,
   },
   {
-    id: 'ai', labelKey: 'admin.tabs.ai', beta: true,
+    id: 'ai', labelKey: 'admin.tabs.ai',
     adminOnly: true,
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M5 3v4M19 17v4M3 5h4M17 19h4"/></svg>,
   },
   {
-    id: 'ai-actions', labelKey: 'admin.tabs.aiActions', beta: true,
+    id: 'ai-actions', labelKey: 'admin.tabs.aiActions',
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M15 4V2M15 16v-2M8 9h2M20 9h2M17.8 11.8 19 13M15 9h.01M17.8 6.2 19 5M3 21l9-9M12.2 6.2 11 5"/></svg>,
   },
   {
@@ -8338,14 +8341,14 @@ export default function AdminPanel() {
     >
       <div className="admin-panel admin-window" style={{
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-        borderRadius: 16, width: '100%', maxWidth: 680,
+        borderRadius: 16, width: '100%', maxWidth: 740,
         height: '82vh', maxHeight: 700, display: 'flex', overflow: 'hidden',
         boxShadow: 'var(--shadow-modal)',
         animation: 'modal-enter var(--motion-normal) var(--ease-emphasized) both',
       }}>
         {/* Left sidebar */}
         <div style={{
-          width: 180, borderRight: '1px solid var(--border-subtle)',
+          width: 216, borderRight: '1px solid var(--border-subtle)',
           background: 'var(--bg-primary)', padding: '20px 10px',
           display: 'flex', flexDirection: 'column', flexShrink: 0,
         }}>
@@ -8355,7 +8358,10 @@ export default function AdminPanel() {
 
           {/* Scrollable tab list — keeps the Close button pinned even when the tab list is taller
               than the modal (e.g. once several plugins/beta tabs are present). */}
-          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+          {/* overflowX hidden: overflowY:auto would otherwise promote overflow-x to auto too, so a
+              long label in any locale (e.g. German "Tastaturkürzel") would show a horizontal
+              scrollbar. Labels wrap instead of overflowing (see the tab buttons below). */}
+          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden' }}>
           {TAB_GROUPS.map((group, gi) => {
             const groupTabs = visibleTabs.filter(tab => group.tabIds.includes(tab.id));
             if (groupTabs.length === 0) return null;
@@ -8363,7 +8369,7 @@ export default function AdminPanel() {
               <div key={group.id} style={{ marginBottom: gi < TAB_GROUPS.length - 1 ? 4 : 0 }}>
                 <div style={{
                   fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)',
-                  letterSpacing: '0.07em', textTransform: 'uppercase',
+                  letterSpacing: '0.07em', textTransform: 'uppercase', overflowWrap: 'anywhere',
                   padding: gi === 0 ? '2px 10px 3px' : '10px 10px 3px',
                   borderTop: gi === 0 ? 'none' : '1px solid var(--border-subtle)',
                   marginTop: gi === 0 ? 0 : 4,
@@ -8388,11 +8394,11 @@ export default function AdminPanel() {
                       onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
                       onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
                     >
-                      <span style={{ color: isActive ? 'var(--accent)' : 'var(--text-tertiary)' }}>
+                      <span style={{ color: isActive ? 'var(--accent)' : 'var(--text-tertiary)', flexShrink: 0 }}>
                         {tab.icon}
                       </span>
-                      {t(tab.labelKey)}
-                      {tab.beta && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', padding: '1px 4px', borderRadius: 3, background: 'color-mix(in srgb, var(--accent) 15%, transparent)', color: 'var(--accent)', marginLeft: 'auto' }}>BETA</span>}
+                      <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{t(tab.labelKey)}</span>
+                      {tab.beta && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', padding: '1px 4px', borderRadius: 3, background: 'color-mix(in srgb, var(--accent) 15%, transparent)', color: 'var(--accent)', flexShrink: 0 }}>BETA</span>}
                     </button>
                   );
                 })}
@@ -8418,11 +8424,11 @@ export default function AdminPanel() {
                 onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
                 onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
               >
-                <span style={{ color: isActive ? 'var(--accent)' : 'var(--text-tertiary)' }}>
+                <span style={{ color: isActive ? 'var(--accent)' : 'var(--text-tertiary)', flexShrink: 0 }}>
                   {tab.icon}
                 </span>
-                {t(tab.labelKey)}
-                {tab.beta && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', padding: '1px 4px', borderRadius: 3, background: 'color-mix(in srgb, var(--accent) 15%, transparent)', color: 'var(--accent)', marginLeft: 'auto' }}>BETA</span>}
+                <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{t(tab.labelKey)}</span>
+                {tab.beta && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', padding: '1px 4px', borderRadius: 3, background: 'color-mix(in srgb, var(--accent) 15%, transparent)', color: 'var(--accent)', flexShrink: 0 }}>BETA</span>}
               </button>
             );
           })}

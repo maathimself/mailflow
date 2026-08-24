@@ -57,6 +57,37 @@ async function runInBatches(items, concurrency, fn) {
   return results;
 }
 
+// Columns copied verbatim when a message row is relocated to a new folder/UID via the
+// DELETE + reinsert CTE used by the bulk trash / move / archive paths on UIDPLUS servers.
+// The destination uid comes from the UIDPLUS map (u.new_uid) and the destination folder is
+// always bound as $4; everything else is carried over from the deleted row (d.*).
+//
+// Excluded on purpose:
+//   - id, synced_at        -> use their column defaults (a fresh UUID and timestamp), which
+//                             preserves the historical "row gets a new id on move" behavior.
+//   - normalized_subject,
+//     search_vector,
+//     thread_key           -> GENERATED ALWAYS columns; Postgres computes them, and inserting
+//                             an explicit value (even NULL) errors.
+//
+// IMPORTANT: when a migration adds a data column to `messages`, add it to RELOCATE_COPY_COLS
+// or a relocate will silently reset it to its default. This list previously went stale and
+// dropped delivery_addresses (0037), plugin_annotations (0044) and sender_name/sender_email
+// (0050). A unit test (mail.relocate.test.js) guards the four that regression touched.
+const RELOCATE_COPY_COLS = [
+  'message_id', 'subject', 'from_name', 'from_email', 'to_addresses', 'cc_addresses',
+  'reply_to', 'in_reply_to', 'date', 'snippet', 'is_read', 'is_starred', 'has_attachments',
+  'flags', 'body_html', 'body_text', 'attachments', 'thread_references', 'thread_id', 'is_bulk',
+  'read_changed_at', 'star_changed_at', 'spam_score_sa', 'spam_score_ml', 'spam_verdict',
+  'spam_analyzed_at', 'spam_details', 'spam_user_override', 'category', 'list_unsubscribe',
+  'list_unsubscribe_post', 'unsubscribed_at', 'delivery_addresses', 'plugin_annotations',
+  'sender_name', 'sender_email',
+];
+// INSERT target list and the matching SELECT projection. account_id + the carried columns come
+// from the deleted row; uid is the UIDPLUS-mapped new uid; folder is the destination ($4).
+export const RELOCATE_INSERT_COLS = ['account_id', 'uid', 'folder', ...RELOCATE_COPY_COLS].join(', ');
+export const RELOCATE_SELECT_COLS = ['d.account_id', 'u.new_uid', '$4', ...RELOCATE_COPY_COLS.map(c => `d.${c}`)].join(', ');
+
 
 // Returns true if a snippet contains content that should never appear in plain-text
 // preview, indicating it was generated from unclean HTML and needs regeneration:
@@ -954,27 +985,45 @@ router.post('/folders/rename', async (req, res) => {
   }
 });
 
-// Empty folder (delete all messages)
+// Guards against two overlapping empties of the same (account, folder) — a double-click or a
+// second device would otherwise start two background deletes over the same folder.
+const emptyInFlight = new Set();
+
+// Empty folder (delete all messages). Emptying a large folder is a slow IMAP operation (chunked
+// delete + expunge over the provider), so it runs in the BACKGROUND: the request returns 202
+// immediately and the outcome is reported over WebSocket (folder_emptied). This keeps the UI from
+// hanging on big folders. On failure the DB rows are left in place so the next sync reconciles.
 router.post('/folders/empty', async (req, res) => {
   const { accountId, path } = req.body;
   if (!accountId || !path) return res.status(400).json({ error: 'accountId and path required' });
   if (!isValidFolderName(path)) return res.status(400).json({ error: 'Invalid folder path' });
   const check = await query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
+  const account = check.rows[0];
 
-  try {
-    await imapManager.emptyFolder(check.rows[0], path);
-  } catch (err) {
-    console.error(`IMAP emptyFolder failed for ${path}:`, err.message);
-    return res.status(500).json({ error: 'Failed to empty folder on server' });
-  }
-  await query('DELETE FROM messages WHERE account_id = $1 AND folder = $2', [accountId, path]);
-  await query(
-    'UPDATE folders SET total_count = 0, unread_count = 0 WHERE account_id = $1 AND path = $2',
-    [accountId, path]
-  );
-  imapManager.broadcast({ type: 'sync_complete', accountId }, check.rows[0].user_id);
-  res.json({ ok: true });
+  const inflightKey = `${accountId}:${path}`;
+  if (emptyInFlight.has(inflightKey)) return res.status(409).json({ error: 'This folder is already being emptied' });
+  emptyInFlight.add(inflightKey);
+
+  res.status(202).json({ ok: true, started: true });
+
+  (async () => {
+    try {
+      await imapManager.emptyFolder(account, path);
+      await query('DELETE FROM messages WHERE account_id = $1 AND folder = $2', [accountId, path]);
+      await query(
+        'UPDATE folders SET total_count = 0, unread_count = 0 WHERE account_id = $1 AND path = $2',
+        [accountId, path]
+      );
+      imapManager.broadcast({ type: 'folder_emptied', accountId, folder: path, ok: true }, account.user_id);
+      imapManager.broadcast({ type: 'sync_complete', accountId }, account.user_id);
+    } catch (err) {
+      console.error(`Async emptyFolder failed for ${path}:`, err.message);
+      imapManager.broadcast({ type: 'folder_emptied', accountId, folder: path, ok: false }, account.user_id);
+    } finally {
+      emptyInFlight.delete(inflightKey);
+    }
+  })();
 });
 
 // Bulk mark read/unread
@@ -1195,25 +1244,8 @@ router.post('/messages/bulk-delete', async (req, res) => {
           uid_map(src_id, new_uid) AS (
             SELECT * FROM unnest($2::uuid[], $3::bigint[])
           )
-          INSERT INTO messages (
-            account_id, uid, folder, message_id, subject,
-            from_name, from_email, to_addresses, cc_addresses,
-            reply_to, in_reply_to, date, snippet, is_read, is_starred,
-            has_attachments, flags, body_html, body_text, attachments,
-            thread_references, thread_id, is_bulk,
-            read_changed_at, star_changed_at, spam_score_sa, spam_score_ml,
-            spam_verdict, spam_analyzed_at, spam_details, spam_user_override,
-            category, list_unsubscribe, list_unsubscribe_post, unsubscribed_at
-          )
-          SELECT
-            d.account_id, u.new_uid, $4, d.message_id, d.subject,
-            d.from_name, d.from_email, d.to_addresses, d.cc_addresses,
-            d.reply_to, d.in_reply_to, d.date, d.snippet, d.is_read, d.is_starred,
-            d.has_attachments, d.flags, d.body_html, d.body_text, d.attachments,
-            d.thread_references, d.thread_id, d.is_bulk,
-            d.read_changed_at, d.star_changed_at, d.spam_score_sa, d.spam_score_ml,
-            d.spam_verdict, d.spam_analyzed_at, d.spam_details, d.spam_user_override,
-            d.category, d.list_unsubscribe, d.list_unsubscribe_post, d.unsubscribed_at
+          INSERT INTO messages (${RELOCATE_INSERT_COLS})
+          SELECT ${RELOCATE_SELECT_COLS}
           FROM deleted d
           JOIN uid_map u ON d.id = u.src_id
           ON CONFLICT (account_id, uid, folder) DO NOTHING
@@ -1306,12 +1338,17 @@ router.get('/mailbox-usage', async (req, res) => {
      FROM messages WHERE account_id = $1 AND folder = 'INBOX'`,
     [accountId]
   );
+  // Group senders case-insensitively so a sender that uses mixed-case addresses
+  // (Promo@x vs promo@x) is one row whose count matches the delete — cleanup-preview
+  // matches lower(from_email), so a case-sensitive count here would understate what
+  // clicking the row actually trashes. min(from_email) is a real observed casing for
+  // display; the delete lower-matches it and so still captures every case variant.
   const senders = await query(
-    `SELECT from_email, max(from_name) AS from_name, count(*)::int AS count
+    `SELECT min(from_email) AS from_email, max(from_name) AS from_name, count(*)::int AS count
      FROM messages
      WHERE account_id = $1 AND folder = 'INBOX' AND is_bulk
        AND from_email IS NOT NULL AND from_email <> ''
-     GROUP BY from_email ORDER BY count DESC, from_email LIMIT 25`,
+     GROUP BY lower(from_email) ORDER BY count DESC, lower(min(from_email)) LIMIT 25`,
     [accountId]
   );
 
@@ -1336,8 +1373,10 @@ router.get('/mailbox-usage', async (req, res) => {
 
 // Return the INBOX message ids for ONE specific sender, so the client can move exactly those to
 // Trash via /messages/bulk-delete. Read-only; strictly scoped to the caller's account, INBOX, and
-// an EXACT (case-insensitive) from_email match — never a wildcard, never another folder. Idempotent:
-// once those messages are trashed, a re-run returns an empty set.
+// an EXACT (case-insensitive) from_email match — never a wildcard, never another folder. Scoped to
+// is_bulk so it trashes exactly the bulk messages the sender list counted (mailbox-usage counts
+// bulk-only): a non-bulk message from that sender (a receipt, a personal note) is never surprise-
+// trashed. Idempotent: once those messages are trashed, a re-run returns an empty set.
 router.get('/cleanup-preview', async (req, res) => {
   const { accountId, fromEmail } = req.query;
   if (!accountId || !UUID_RE.test(accountId)) return res.status(400).json({ error: 'valid accountId required' });
@@ -1347,7 +1386,7 @@ router.get('/cleanup-preview', async (req, res) => {
 
   const rows = await query(
     `SELECT id FROM messages
-     WHERE account_id = $1 AND folder = 'INBOX' AND lower(from_email) = lower($2)`,
+     WHERE account_id = $1 AND folder = 'INBOX' AND is_bulk AND lower(from_email) = lower($2)`,
     [accountId, fromEmail.trim()]
   );
   res.json({ accountId, fromEmail: fromEmail.trim(), count: rows.rows.length, ids: rows.rows.map(r => r.id) });
@@ -1449,25 +1488,8 @@ router.post('/messages/bulk-move', async (req, res) => {
         uid_map(src_id, new_uid) AS (
           SELECT * FROM unnest($2::uuid[], $3::bigint[])
         )
-        INSERT INTO messages (
-          account_id, uid, folder, message_id, subject,
-          from_name, from_email, to_addresses, cc_addresses,
-          reply_to, in_reply_to, date, snippet, is_read, is_starred,
-          has_attachments, flags, body_html, body_text, attachments,
-          thread_references, thread_id, is_bulk,
-          read_changed_at, star_changed_at, spam_score_sa, spam_score_ml,
-          spam_verdict, spam_analyzed_at, spam_details, spam_user_override,
-          category, list_unsubscribe, list_unsubscribe_post, unsubscribed_at
-        )
-        SELECT
-          d.account_id, u.new_uid, $4, d.message_id, d.subject,
-          d.from_name, d.from_email, d.to_addresses, d.cc_addresses,
-          d.reply_to, d.in_reply_to, d.date, d.snippet, d.is_read, d.is_starred,
-          d.has_attachments, d.flags, d.body_html, d.body_text, d.attachments,
-          d.thread_references, d.thread_id, d.is_bulk,
-          d.read_changed_at, d.star_changed_at, d.spam_score_sa, d.spam_score_ml,
-          d.spam_verdict, d.spam_analyzed_at, d.spam_details, d.spam_user_override,
-          d.category, d.list_unsubscribe, d.list_unsubscribe_post, d.unsubscribed_at
+        INSERT INTO messages (${RELOCATE_INSERT_COLS})
+        SELECT ${RELOCATE_SELECT_COLS}
         FROM deleted d
         JOIN uid_map u ON d.id = u.src_id
         ON CONFLICT (account_id, uid, folder) DO NOTHING
@@ -1607,25 +1629,8 @@ router.post('/messages/bulk-archive', async (req, res) => {
         uid_map(src_id, new_uid) AS (
           SELECT * FROM unnest($2::uuid[], $3::bigint[])
         )
-        INSERT INTO messages (
-          account_id, uid, folder, message_id, subject,
-          from_name, from_email, to_addresses, cc_addresses,
-          reply_to, in_reply_to, date, snippet, is_read, is_starred,
-          has_attachments, flags, body_html, body_text, attachments,
-          thread_references, thread_id, is_bulk,
-          read_changed_at, star_changed_at, spam_score_sa, spam_score_ml,
-          spam_verdict, spam_analyzed_at, spam_details, spam_user_override,
-          category, list_unsubscribe, list_unsubscribe_post, unsubscribed_at
-        )
-        SELECT
-          d.account_id, u.new_uid, $4, d.message_id, d.subject,
-          d.from_name, d.from_email, d.to_addresses, d.cc_addresses,
-          d.reply_to, d.in_reply_to, d.date, d.snippet, d.is_read, d.is_starred,
-          d.has_attachments, d.flags, d.body_html, d.body_text, d.attachments,
-          d.thread_references, d.thread_id, d.is_bulk,
-          d.read_changed_at, d.star_changed_at, d.spam_score_sa, d.spam_score_ml,
-          d.spam_verdict, d.spam_analyzed_at, d.spam_details, d.spam_user_override,
-          d.category, d.list_unsubscribe, d.list_unsubscribe_post, d.unsubscribed_at
+        INSERT INTO messages (${RELOCATE_INSERT_COLS})
+        SELECT ${RELOCATE_SELECT_COLS}
         FROM deleted d
         JOIN uid_map u ON d.id = u.src_id
         ON CONFLICT (account_id, uid, folder) DO NOTHING
