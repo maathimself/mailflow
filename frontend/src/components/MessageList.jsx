@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore, selectSelectedMessageMid } from '../store/index.js';
 import { api } from '../utils/api.js';
@@ -203,6 +203,8 @@ export default function MessageList() {
   const [pickerLoading, setPickerLoading] = useState(false);
   const [pickerSearch, setPickerSearch] = useState('');
   const folderPickerRef = useRef(null);
+  const pickerMenuRef = useRef(null);
+  const [pickerPos, setPickerPos] = useState(null);
   // Tracks the index of the last toggled row for shift-click range selection
   const lastSelectIdxRef = useRef(-1);
 
@@ -333,6 +335,32 @@ export default function MessageList() {
   useEffect(() => {
     if (!showFolderPicker) setPickerSearch('');
   }, [showFolderPicker]);
+
+  // Fixed-position the bulk-move picker against its toolbar button, clamped to
+  // the viewport. The button sits near the panel's left edge, so a plain
+  // right-aligned absolute popover clips against ancestor overflow once the
+  // folder labels widen it; re-place on every size change (folders load async,
+  // search filtering grows/shrinks the list).
+  useLayoutEffect(() => {
+    if (!showFolderPicker || isMobile) { setPickerPos(null); return; }
+    const menu = pickerMenuRef.current;
+    const anchor = folderPickerRef.current;
+    if (!menu || !anchor) return;
+    const place = () => {
+      const a = anchor.getBoundingClientRect();
+      const m = menu.getBoundingClientRect();
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const x = Math.max(8, Math.min(a.right - m.width, vw - m.width - 8));
+      const below = a.bottom + 4;
+      const y = Math.max(8, below + m.height > vh ? a.top - m.height - 4 : below);
+      setPickerPos(prev => (prev?.x === x && prev?.y === y ? prev : { x, y }));
+    };
+    place();
+    const observer = new ResizeObserver(place);
+    observer.observe(menu);
+    return () => observer.disconnect();
+  }, [showFolderPicker, isMobile]);
 
   // Collapse any open thread when the message list resets
   useEffect(() => {
@@ -3395,15 +3423,17 @@ export default function MessageList() {
               </BulkBtn>
 
               {showFolderPicker && !isMobile && (<>
-                <div onClick={() => setShowFolderPicker(false)} aria-hidden style={{ position: 'fixed', inset: 0, zIndex: 99 }} />
-                <div style={{
-                  position: 'absolute', top: 'calc(100% + 4px)', right: 0,
+                <div onClick={() => setShowFolderPicker(false)} aria-hidden style={{ position: 'fixed', inset: 0, zIndex: 999 }} />
+                <div ref={pickerMenuRef} style={{
+                  position: 'fixed',
+                  left: descale(pickerPos?.x ?? 0, uiScale), top: descale(pickerPos?.y ?? 0, uiScale),
+                  visibility: pickerPos ? 'visible' : 'hidden',
                   background: 'var(--bg-elevated)',
                   border: '1px solid var(--border)',
                   borderRadius: 8,
                   boxShadow: 'var(--shadow-popover)',
                   minWidth: 200, maxWidth: 320,
-                  zIndex: 100,
+                  zIndex: 1000,
                 }}>
                   {pickerLoading ? (
                     <div style={{ padding: '20px 16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12 }}>
