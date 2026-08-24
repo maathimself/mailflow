@@ -409,6 +409,8 @@
     "renameFailed": "Rename failed",
     "deleteFailed": "Delete failed",
     "emptyFailed": "Empty failed",
+    "emptying": "Emptying \"{{name}}\"…",
+    "emptied": "Folder emptied",
     "backToAccounts": "Back to accounts",
     "updateAvailable": "Update available: v{{version}}"
   },
@@ -1494,7 +1496,6 @@
     "carddavBadge": "Synced from CardDAV"
   },
   "todoist": {
-    "betaLabel": "Beta",
     "title": "Create Todoist Task",
     "taskTitle": "Task title",
     "taskTitlePh": "What needs to be done?",

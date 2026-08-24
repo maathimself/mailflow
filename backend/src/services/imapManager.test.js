@@ -1452,3 +1452,112 @@ describe('syncFolders pruning', () => {
     expect(del[1][1]).toEqual(['Archive']);
   });
 });
+
+// ── _deleteAllInFolder — chunked, throttle-tolerant empty ─────────────────────
+describe('_deleteAllInFolder — chunked delete', () => {
+  const run = (client, opts) =>
+    ImapManager.prototype._deleteAllInFolder.call(ImapManager.prototype, client, 'Trash', { retryBackoffMs: 0, ...opts });
+
+  it('deletes in UID-addressed chunks of chunkSize and returns the total', async () => {
+    const uids = Array.from({ length: 1200 }, (_, i) => i + 1);
+    const client = {
+      search: vi.fn().mockResolvedValue(uids),
+      messageDelete: vi.fn().mockResolvedValue(true),
+    };
+    const deleted = await run(client, { chunkSize: 500 });
+
+    expect(deleted).toBe(1200);
+    expect(client.search).toHaveBeenCalledWith({ all: true }, { uid: true });
+    expect(client.messageDelete).toHaveBeenCalledTimes(3); // 500 + 500 + 200
+    // Every call is UID-addressed, and the chunks together cover exactly all UIDs, in order.
+    const seen = [];
+    for (const [range, options] of client.messageDelete.mock.calls) {
+      expect(options).toEqual({ uid: true });
+      seen.push(...range.split(',').map(Number));
+    }
+    expect(seen).toEqual(uids);
+  });
+
+  it('is a no-op when the folder is already empty', async () => {
+    const client = {
+      search: vi.fn().mockResolvedValue([]),
+      messageDelete: vi.fn(),
+    };
+    const deleted = await run(client);
+    expect(deleted).toBe(0);
+    expect(client.messageDelete).not.toHaveBeenCalled();
+  });
+
+  it('retries a chunk once after the server declines it, then succeeds', async () => {
+    const client = {
+      search: vi.fn().mockResolvedValue([1, 2, 3]),
+      messageDelete: vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true),
+    };
+    const deleted = await run(client);
+    expect(deleted).toBe(3);
+    expect(client.messageDelete).toHaveBeenCalledTimes(2); // one decline, one retry
+  });
+
+  it('throws with progress when a chunk keeps failing after the retry', async () => {
+    const client = {
+      search: vi.fn().mockResolvedValue([1, 2, 3]),
+      messageDelete: vi.fn().mockResolvedValue(false),
+    };
+    await expect(run(client)).rejects.toThrow(/messageDelete could not be confirmed/);
+    expect(client.messageDelete).toHaveBeenCalledTimes(2); // initial attempt + one retry
+  });
+
+  it('surfaces the underlying error if the retry attempt throws', async () => {
+    const client = {
+      search: vi.fn().mockResolvedValue([1, 2, 3]),
+      messageDelete: vi.fn()
+        .mockResolvedValueOnce(false)
+        .mockRejectedValueOnce(new Error('Socket timeout')),
+    };
+    await expect(run(client)).rejects.toThrow(/Socket timeout/);
+    expect(client.messageDelete).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ── _markSeenInFolder — chunked mark-all-read ────────────────────────────────
+describe('_markSeenInFolder — chunked mark-all-read', () => {
+  const run = (client, opts) =>
+    ImapManager.prototype._markSeenInFolder.call(ImapManager.prototype, client, 'INBOX', { retryBackoffMs: 0, ...opts });
+
+  it('adds \\Seen to UNSEEN messages in UID-addressed chunks', async () => {
+    const uids = Array.from({ length: 1100 }, (_, i) => i + 1);
+    const client = {
+      search: vi.fn().mockResolvedValue(uids),
+      messageFlagsAdd: vi.fn().mockResolvedValue(true),
+    };
+    const flagged = await run(client, { chunkSize: 500 });
+
+    expect(flagged).toBe(1100);
+    // Only unread messages are targeted, and the return is UID-addressed.
+    expect(client.search).toHaveBeenCalledWith({ seen: false }, { uid: true });
+    expect(client.messageFlagsAdd).toHaveBeenCalledTimes(3); // 500 + 500 + 100
+    for (const [range, flags, options] of client.messageFlagsAdd.mock.calls) {
+      expect(flags).toEqual(['\\Seen']);
+      expect(options).toEqual({ uid: true });
+      expect(range.split(',').length).toBeLessThanOrEqual(500);
+    }
+  });
+
+  it('is a no-op when nothing is unread', async () => {
+    const client = {
+      search: vi.fn().mockResolvedValue([]),
+      messageFlagsAdd: vi.fn(),
+    };
+    expect(await run(client)).toBe(0);
+    expect(client.messageFlagsAdd).not.toHaveBeenCalled();
+  });
+
+  it('retries a chunk once, then throws with progress if it keeps failing', async () => {
+    const client = {
+      search: vi.fn().mockResolvedValue([1, 2, 3]),
+      messageFlagsAdd: vi.fn().mockResolvedValue(false),
+    };
+    await expect(run(client)).rejects.toThrow(/messageFlagsAdd could not be confirmed/);
+    expect(client.messageFlagsAdd).toHaveBeenCalledTimes(2);
+  });
+});
