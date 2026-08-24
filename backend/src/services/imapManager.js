@@ -4618,8 +4618,7 @@ export class ImapManager {
       const lock = await client.getMailboxLock(folder);
       try {
         if (!client.mailbox || client.mailbox.exists === 0) return;
-        const deleted = await client.messageDelete('1:*', { uid: false });
-        if (deleted === false) throw new Error('messageDelete returned false — server did not confirm deletion');
+        await this._deleteAllInFolder(client, folder);
       } catch (err) {
         const msg = (err.message || '').toLowerCase();
         // Non-fatal if folder is already empty or server reports no messages
@@ -4630,16 +4629,74 @@ export class ImapManager {
     });
   }
 
+  // Apply a whole-folder IMAP write to every matching message in the currently-locked
+  // folder, in UID-addressed chunks with a one-shot retry per chunk. A single command over
+  // the whole folder (messageDelete('1:*') / messageFlagsAdd('1:*', ...)) gets throttled or
+  // times out on some providers on a large folder (observed failing on a 4k+ message Trash,
+  // then succeeding on a manual retry), so batch it and confirm each chunk. UID addressing
+  // keeps a concurrent EXPUNGE from shifting a sequence range under us. `searchQuery` selects
+  // the messages; `apply(client, range)` runs the IMAP command for a UID range and returns
+  // imapflow's truthy/false result. Returns the count processed; throws (with progress) if a
+  // chunk cannot be confirmed.
+  async _chunkedFolderOp(client, folder, searchQuery, apply, { label = 'operation', chunkSize = 500, retryBackoffMs = 500 } = {}) {
+    const uids = await client.search(searchQuery, { uid: true });
+    if (!uids || uids.length === 0) return 0;
+    let done = 0;
+    for (let i = 0; i < uids.length; i += chunkSize) {
+      const chunk = uids.slice(i, i + chunkSize);
+      const range = chunk.join(',');
+      let ok = false;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          ok = await apply(client, range);
+        } catch (err) {
+          if (attempt === 1) throw err; // exhausted the retry — surface the real error
+          ok = false;
+        }
+        if (ok) break;
+        if (attempt === 0 && retryBackoffMs > 0) await new Promise(r => setTimeout(r, retryBackoffMs));
+      }
+      if (!ok) {
+        throw new Error(`${label} could not be confirmed for ${folder} after ${done}/${uids.length} messages`);
+      }
+      done += chunk.length;
+    }
+    return done;
+  }
+
+  // Delete every message in the locked folder, chunked (see _chunkedFolderOp). The caller
+  // leaves the DB rows in place on throw so the next sync reconciles.
+  async _deleteAllInFolder(client, folder, opts = {}) {
+    return this._chunkedFolderOp(
+      client, folder, { all: true },
+      (c, range) => c.messageDelete(range, { uid: true }),
+      { label: 'messageDelete', ...opts },
+    );
+  }
+
+  // Add \Seen to every unread message in the locked folder, chunked (see _chunkedFolderOp).
+  // Searching UNSEEN only touches what needs changing (idempotent, and a no-op on an
+  // already-read folder).
+  async _markSeenInFolder(client, folder, opts = {}) {
+    return this._chunkedFolderOp(
+      client, folder, { seen: false },
+      (c, range) => c.messageFlagsAdd(range, ['\\Seen'], { uid: true }),
+      { label: 'messageFlagsAdd', ...opts },
+    );
+  }
+
   async markAllReadImap(account, folder) {
     return withFreshClient(account, async (client) => {
       const lock = await client.getMailboxLock(folder);
       try {
         if (!client.mailbox || client.mailbox.exists === 0) return;
-        const result = await client.messageFlagsAdd('1:*', ['\\Seen'], { uid: false });
-        if (result === false) console.warn(`markAllReadImap: messageFlagsAdd returned false for ${folder} — server may not have applied flags`);
+        // Chunked so a single STORE +FLAGS \Seen over a large folder can't get throttled
+        // into a whole-operation failure (which would leave the DB read but the server
+        // unread, and the next flag-sync would flip those rows back to unread).
+        await this._markSeenInFolder(client, folder);
       } catch (err) {
         console.warn(`markAllRead IMAP warning for ${folder}:`, err.message);
-        // Non-fatal — DB is already updated
+        // Non-fatal — DB is already updated; the next sync reconciles any residual unread.
       } finally {
         lock.release();
       }

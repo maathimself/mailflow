@@ -409,6 +409,8 @@
     "renameFailed": "Umbenennen fehlgeschlagen",
     "deleteFailed": "Löschen fehlgeschlagen",
     "emptyFailed": "Leeren fehlgeschlagen",
+    "emptying": "„{{name}}” wird geleert…",
+    "emptied": "Ordner geleert",
     "backToAccounts": "Zurück zu Konten",
     "updateAvailable": "Update verfügbar: v{{version}}"
   },
@@ -1494,7 +1496,6 @@
     "carddavBadge": "Von CardDAV synchronisiert"
   },
   "todoist": {
-    "betaLabel": "Beta",
     "title": "Todoist-Aufgabe erstellen",
     "taskTitle": "Aufgabentitel",
     "taskTitlePh": "Was muss erledigt werden?",

@@ -326,8 +326,6 @@ const SAME_VALUE_ALLOWED = {
   // ── Todoist integration ────────────────────────────────────────────────────
   // "Todoist" — brand name, same in all locales
   'admin.integrations.todoist.title': 'any',
-  // "Beta" — same spelling in de, en, es, it; fr uses "Bêta", ru uses "Бета", zh uses "测试版"
-  'todoist.betaLabel': [['de', 'en', 'es', 'it', 'pl']],
 
   // "Description" — same spelling in en and fr
   'todoist.description': [['en', 'fr']],

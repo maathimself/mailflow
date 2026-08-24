@@ -36,6 +36,15 @@ function schedulePrefSave(prefs) {
     api.savePreferences(toSave).catch(() => {});
   }, 1000);
 }
+// Drop any queued preference flush. Called on logout / account switch: a pending debounce
+// belongs to the previous user's session, so letting it fire would either save into the new
+// user's account or hit a dead session (401). The prefs are already applied locally; only the
+// deferred network write is discarded.
+function cancelPendingPrefSave() {
+  clearTimeout(_prefFlushTimer);
+  _prefFlushTimer = null;
+  _pendingPrefs = {};
+}
 
 // GTD sections fetch coordination. A monotonic seq guards against stale
 // responses landing after a newer context switch; the timer debounces the
@@ -56,14 +65,19 @@ function readGtdCollapsedSections() {
 export const useStore = create((set, get) => ({
   // Auth
   user: null,
-  setUser: (user) => set(state => ({
-    user,
-    ...(state.user?.id !== user?.id ? {
-      senderFaviconsLoaded: false,
-      senderFavicons: false,
-      senderFaviconsSaving: false,
-    } : {}),
-  })),
+  setUser: (user) => {
+    // On a real identity change (login, logout, account switch) drop any queued preference
+    // flush so the previous user's debounce can't save into the new/absent session.
+    if (get().user?.id !== user?.id) cancelPendingPrefSave();
+    set(state => ({
+      user,
+      ...(state.user?.id !== user?.id ? {
+        senderFaviconsLoaded: false,
+        senderFavicons: false,
+        senderFaviconsSaving: false,
+      } : {}),
+    }));
+  },
   updateUser: (updates) => set(state => ({ user: state.user ? { ...state.user, ...updates } : state.user })),
 
   // Plugin activation — the per-user set of activated plugin ids (users.preferences.enabledPlugins).
