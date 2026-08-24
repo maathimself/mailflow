@@ -409,6 +409,8 @@
     "renameFailed": "Rinomina fallita",
     "deleteFailed": "Eliminazione fallita",
     "emptyFailed": "Svuotamento fallito",
+    "emptying": "Svuotamento di \"{{name}}\"…",
+    "emptied": "Cartella svuotata",
     "backToAccounts": "Torna agli account",
     "updateAvailable": "Aggiornamento disponibile: v{{version}}"
   },
@@ -1494,7 +1496,6 @@
     "carddavBadge": "Sincronizzato da CardDAV"
   },
   "todoist": {
-    "betaLabel": "Beta",
     "title": "Crea attività Todoist",
     "taskTitle": "Titolo dell'attività",
     "taskTitlePh": "Cosa c'è da fare?",

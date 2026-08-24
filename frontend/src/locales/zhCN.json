@@ -409,6 +409,8 @@
     "renameFailed": "重命名失败",
     "deleteFailed": "删除失败",
     "emptyFailed": "清空失败",
+    "emptying": "正在清空「{{name}}」…",
+    "emptied": "文件夹已清空",
     "backToAccounts": "返回账户列表",
     "updateAvailable": "有可用更新：v{{version}}"
   },
@@ -1494,7 +1496,6 @@
     "carddavBadge": "从 CardDAV 同步"
   },
   "todoist": {
-    "betaLabel": "测试版",
     "title": "创建 Todoist 任务",
     "taskTitle": "任务标题",
     "taskTitlePh": "需要做什么？",

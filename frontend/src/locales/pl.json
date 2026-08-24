@@ -425,6 +425,8 @@
     "renameFailed": "Zmiana nazwy nie powiodła się",
     "deleteFailed": "Usuwanie nie powiodło się",
     "emptyFailed": "Opróżnianie nie powiodło się",
+    "emptying": "Opróżnianie „{{name}}”…",
+    "emptied": "Folder opróżniony",
     "backToAccounts": "Powrót do kont",
     "updateAvailable": "Dostępna aktualizacja: v{{version}}"
   },
@@ -1513,7 +1515,6 @@
     "carddavBadge": "Zsynchronizowano z CardDAV"
   },
   "todoist": {
-    "betaLabel": "Beta",
     "title": "Utwórz zadanie Todoist",
     "taskTitle": "Tytuł zadania",
     "taskTitlePh": "Co trzeba zrobić?",

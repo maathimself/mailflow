@@ -409,6 +409,8 @@
     "renameFailed": "Error al renombrar",
     "deleteFailed": "Error al eliminar",
     "emptyFailed": "Error al vaciar",
+    "emptying": "Vaciando «{{name}}»…",
+    "emptied": "Carpeta vaciada",
     "backToAccounts": "Volver a cuentas",
     "updateAvailable": "Actualización disponible: v{{version}}"
   },
@@ -1494,7 +1496,6 @@
     "carddavBadge": "Sincronizado desde CardDAV"
   },
   "todoist": {
-    "betaLabel": "Beta",
     "title": "Crear tarea en Todoist",
     "taskTitle": "Título de la tarea",
     "taskTitlePh": "¿Qué hay que hacer?",

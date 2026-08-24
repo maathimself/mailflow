@@ -592,9 +592,11 @@ export default function Sidebar() {
       account: accountLabel,
       onConfirm: async () => {
         try {
+          // The server empties in the background now (202) and broadcasts folder_emptied when
+          // done, so the UI never blocks on a large folder. Show progress; the WebSocket handler
+          // refreshes the view and counts on completion (or reports failure).
           await api.emptyFolder(accountId, folderPath);
-          window.dispatchEvent(new CustomEvent('mailflow:refresh'));
-          api.getFolders(accountId).then(f => setFolders(accountId, f)).catch(() => {});
+          addNotification({ title: t('sidebar.emptying', { name }) });
         } catch (err) {
           addNotification({ title: t('sidebar.emptyFailed'), body: err.message });
         }
