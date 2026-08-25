@@ -31,8 +31,13 @@ const SECTION_SQL = `
     SELECT m.id, m.account_id, m.thread_key, m.message_id, m.folder,
            m.subject, m.from_name, m.from_email, m.date, m.snippet, m.is_read, m.is_starred, m.uid
     FROM messages m
+    JOIN folders live_folder ON live_folder.account_id = m.account_id
+      AND live_folder.path = m.folder
+      AND live_folder.is_present = true
+      AND live_folder.uid_validity IS NOT NULL
     WHERE m.account_id = $1
       AND m.is_deleted = false
+      AND m.metadata_complete = true
       AND m.folder <> ALL($4::text[])
   ),
   folders_agg AS (

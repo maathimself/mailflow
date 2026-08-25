@@ -1,3 +1,8 @@
+import {
+  completeBulkOperationKeys,
+  prepareBulkOperationKeys,
+} from './bulkOperationKeys.js';
+
 const BASE = '/api';
 
 // Sent on every /api request so the backend CSRF guard accepts it. A cross-site
@@ -7,6 +12,20 @@ const BASE = '/api';
 export const CSRF_HEADER = 'X-Requested-With';
 export const CSRF_VALUE = 'MailFlow';
 const messageBodyRequests = new Map();
+const gtdClassifyOperationKeys = new Map();
+
+function newOperationKey() {
+  return globalThis.crypto?.randomUUID?.()
+    ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+async function durableBulkRequest(kind, ids, path, body, resultField, destination = '') {
+  const operationKeys = prepareBulkOperationKeys(kind, ids, destination);
+  const canonicalIds = Object.keys(operationKeys);
+  const result = await request('POST', path, { ...body, ids: canonicalIds, operationKeys });
+  completeBulkOperationKeys(kind, result?.[resultField] || [], destination);
+  return result;
+}
 
 async function request(method, path, body, extraHeaders) {
   const opts = {
@@ -28,7 +47,7 @@ async function request(method, path, body, extraHeaders) {
       window.dispatchEvent(new CustomEvent('mailflow:session_expired'));
     }
     const err = await res.json().catch(() => ({ error: 'Request failed' }));
-    throw new Error(err.error || 'Request failed');
+    throw Object.assign(new Error(err.error || 'Request failed'), err, { status: res.status });
   }
   return res.json();
 }
@@ -239,9 +258,29 @@ export const api = {
   markStarred: (id, starred) => request('PATCH', `/mail/messages/${id}/star`, { starred }),
   markAllRead: (accountId, folder) => request('POST', '/mail/mark-all-read', { accountId, folder }),
   deleteMessage: (id) => request('DELETE', `/mail/messages/${id}`),
-  bulkDelete: (ids) => request('POST', '/mail/messages/bulk-delete', { ids }),
-  bulkMove: (ids, folder) => request('POST', '/mail/messages/bulk-move', { ids, folder }),
-  bulkArchive: (ids) => request('POST', '/mail/messages/bulk-archive', { ids }),
+  bulkDelete: (ids) => durableBulkRequest(
+    'delete', ids, '/mail/messages/bulk-delete', { ids }, 'deleted',
+  ),
+  bulkDeleteKeepalive: (ids) => {
+    const operationKeys = prepareBulkOperationKeys('delete', ids);
+    const canonicalIds = Object.keys(operationKeys);
+    return fetch(`${BASE}/mail/messages/bulk-delete`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        [CSRF_HEADER]: CSRF_VALUE,
+      },
+      body: JSON.stringify({ ids: canonicalIds, operationKeys }),
+      keepalive: true,
+    });
+  },
+  bulkMove: (ids, folder) => durableBulkRequest(
+    'move', ids, '/mail/messages/bulk-move', { ids, folder }, 'moved', folder,
+  ),
+  bulkArchive: (ids) => durableBulkRequest(
+    'archive', ids, '/mail/messages/bulk-archive', { ids }, 'archived',
+  ),
   getUnreadCounts: () => request('GET', '/mail/unread-counts'),
 
   // Mailbox cleanup (read-only analysis; actual cleanup reuses bulkDelete above).
@@ -341,7 +380,9 @@ export const api = {
   runRules:    (accountId) => request('POST',  '/rules/run', accountId ? { accountId } : {}),
 
   // Drafts
-  saveDraft:   (data)              => request('POST',   '/mail/draft', data),
+  saveDraft:   (data, operationKey) => request(
+    'POST', '/mail/draft', data, { 'X-Idempotency-Key': operationKey },
+  ),
   deleteDraft: (accountId, uid, folder) =>
     request('DELETE', `/mail/draft/${uid}?accountId=${encodeURIComponent(accountId)}&folder=${encodeURIComponent(folder)}`),
 
@@ -398,13 +439,40 @@ export const api = {
     const qs = p.toString();
     return request('GET', `/gtd/sections${qs ? '?' + qs : ''}`);
   },
-  gtdClassify: (messageId, state) => request('POST', '/gtd/classify', { messageId, state }),
+  gtdClassify: async (messageId, state) => {
+    const lifecycle = `${messageId}:${state}`;
+    const operationKey = gtdClassifyOperationKeys.get(lifecycle) || newOperationKey();
+    gtdClassifyOperationKeys.set(lifecycle, operationKey);
+    const result = await request(
+      'POST', '/gtd/classify', { messageId, state }, { 'X-Idempotency-Key': operationKey },
+    );
+    gtdClassifyOperationKeys.delete(lifecycle);
+    return result;
+  },
   gtdUndoClassify: (undoToken) => request('POST', '/gtd/classify/undo', undoToken),
   gtdUnclassify: (messageId, state) => request('DELETE', '/gtd/classify', { messageId, state }),
   // GTD "done": strip the row's label(s) for these states, mark read, archive the INBOX
   // copy. id is the rail head's row id (its label-folder copy); the server resolves the
   // INBOX copy from the shared Message-ID.
-  gtdDone: (id, states) => request('POST', '/gtd/done', { id, states }),
+  gtdDone: async (id, states) => {
+    const canonicalStates = Array.isArray(states) ? [...new Set(states)].sort() : (states ?? null);
+    const lifecycle = JSON.stringify(canonicalStates);
+    const operationKey = prepareBulkOperationKeys('gtd-done', [id], lifecycle)[String(id).toLowerCase()];
+    try {
+      const result = await request(
+        'POST', '/gtd/done', { id, states: canonicalStates }, { 'X-Idempotency-Key': operationKey },
+      );
+      if (result?.ok === true && result?.phase === 'completed') {
+        completeBulkOperationKeys('gtd-done', [id], lifecycle);
+      }
+      return result;
+    } catch (error) {
+      if (error?.retryable === false) {
+        completeBulkOperationKeys('gtd-done', [id], lifecycle);
+      }
+      throw error;
+    }
+  },
   gtdEnsureFolders: (accountId, folders) => request('POST', '/gtd/folders/ensure', { accountId, folders }),
 
   // GTD — Inbox-Zero pet. Import uploads your own pet (pet.json text + a base64 spritesheet)

@@ -18,6 +18,10 @@ describe('listThreadHeadsByLabels', () => {
     });
     expect(rows).toEqual([{ state: 'todo', total: 3, unread: 1 }]);
     const [sql, params] = query.mock.calls[0];
+    expect(sql).toContain('m.metadata_complete = true');
+    expect(sql).toMatch(/JOIN folders live_folder/);
+    expect(sql).toContain('live_folder.is_present = true');
+    expect(sql).toContain('live_folder.uid_validity IS NOT NULL');
     expect(sql).toMatch(/WITH gtd\(state, folder\)/);       // the thread-aware CTE
     expect(sql).toMatch(/bool_or\(NOT is_read\)\s+AS thread_unread/); // thread-level unread
     expect(params).toEqual(['acct-1', ['todo', 'watch'], ['Todo', 'Watch'], ['Drafts'], 8, ['watch']]);

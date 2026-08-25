@@ -19,8 +19,11 @@ describe('relocate reinsert column lists', () => {
     expect(insertCols.length).toBe(selectCols.length);
   });
 
-  it('carries the columns that previously went stale (migrations 0037/0044/0050)', () => {
-    for (const col of ['delivery_addresses', 'plugin_annotations', 'sender_name', 'sender_email']) {
+  it('carries data columns added by migrations, including envelope verification', () => {
+    for (const col of [
+      'delivery_addresses', 'plugin_annotations', 'sender_name', 'sender_email',
+      'metadata_complete', 'read_revision', 'star_revision', 'provider_modseq',
+    ]) {
       expect(insertCols).toContain(col);
       expect(selectCols).toContain(`d.${col}`);
     }

@@ -1,5 +1,14 @@
 import { ImapFlow } from 'imapflow';
-import { query } from './db.js';
+import { query, withTransaction } from './db.js';
+import {
+  assertFolderObservation,
+  claimFolderObservation,
+  claimFolderObservations,
+  claimMailboxTopology,
+  commitMailboxTopology,
+  seedFolderUidValidity,
+  readFolderObservation,
+} from './folderObservation.js';
 import { parseMessage, snippetFromBody, detectBulkFromParsedHeaders, parseHeadersInput, headersToRawString, decodeMimeWords, enrichParsedMetadata } from './messageParser.js';
 import { classifyMessage, loadSocialDomains, getGlobalCategorizationEnabled } from './categorizer.js';
 import { pluginRegistry } from '../plugins/registry.js';
@@ -11,16 +20,61 @@ import { recordBroadcast, recordWarning } from './diagnosticsRing.js';
 import { decrypt } from './encryption.js';
 import { sendPushToUser } from './pushNotifications.js';
 import { redactEmail } from '../utils/redact.js';
-import { adjustFolderCounts, resolveSpamFolder } from '../utils/mailUtils.js';
+import { adjustFolderCounts, folderCountDeltasInLockOrder, resolveArchiveFolder, isAllMailFolder, resolveSpamFolder } from '../utils/mailUtils.js';
 import { resolveForConnection, createPinnedLookup } from './hostValidation.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { applyInboxRules, applyBlockList } from './inboxRules.js';
 import { generateVCard } from '../utils/vcard.js';
 import { randomUUID } from 'crypto';
+import {
+  buildProviderOperationId,
+  buildProviderOperationIdentity,
+  ProviderOperationError,
+  providerOperationMarker,
+  providerOperationExecutor,
+} from './providerOperations.js';
+import { materializeArchiveReceipt } from './archiveInbox.js';
+import { assertLiveMessageSnapshots, snapshotFromMessageRow } from './messageSnapshots.js';
+import {
+  createImapDesiredFlagSession,
+  desiredFlagExecutor,
+  desiredFlagRepository,
+} from './desiredFlags.js';
+
+// Task 3 owns this observation-lock primitive. Keeping it beside provider operations makes
+// the staged production tree self-contained even when later task work in mailUtils is omitted.
+async function lockFolderRows(tx, accountId, paths) {
+  const ordered = [...new Set((paths || []).filter(Boolean))].sort();
+  if (!ordered.length) return [];
+  const { rows } = await tx.query(
+    `SELECT path, uid_validity, observation_generation
+       FROM folders
+      WHERE account_id = $1 AND path = ANY($2::text[])
+      ORDER BY path
+      FOR UPDATE`,
+    [accountId, ordered],
+  );
+  return rows;
+}
 
 
 // Shorthand for log lines — keeps domain visible while masking the local part.
 const logAccount = (account) => redactEmail(account?.email_address || '');
+
+function isFolderObservationError(err) {
+  return err?.code === 'FOLDER_OBSERVATION_SUPERSEDED' ||
+    err?.code === 'FOLDER_OBSERVATION_UIDVALIDITY_CHANGED';
+}
+
+async function assertObservationContext(tx, accountId, observationContext) {
+  const tokens = [...(observationContext?.tokens || [])]
+    .sort((a, b) => a.folder.localeCompare(b.folder));
+  const rows = new Map();
+  for (const token of tokens) {
+    rows.set(token.folder, await assertFolderObservation(tx, accountId, token));
+  }
+  return rows;
+}
 
 // Resolves the IMAP host for an account, applying server-level connection policy.
 // Returns { resolved, policy } so callers can pass policy to makeClientCfg.
@@ -264,6 +318,7 @@ const BODY_PREFETCH_PARTS = ['1', '1.1', '1.2', '2', '2.1', '2.2', '1.1.1', '1.2
 // race so it is never confused with a real fetch error.
 const FLAG_SCAN_TIMEOUT_MS = 20000;
 const FLAG_SCAN_TIMED_OUT = Symbol('flagScanTimedOut');
+const METADATA_SYNC_BATCH_SIZE = 100;
 
 // Upper bound on how far back the delta flag scan looks. iCloud advertises CONDSTORE (so we take
 // the delta path) but IGNORES the changedSince fetch modifier — it returns EVERY message in the
@@ -344,8 +399,8 @@ const SYNC_HUNG_MS = 30 * 1000;
 // is why we don't need to touch the three pull-sync guards. Give up (clear the marker so
 // the server's truth can show through) after MAX_ATTEMPTS connected failures.
 const FLAG_PUSH_RECONCILE_MS = 15 * 1000;
-const FLAG_PUSH_MAX_ATTEMPTS = 40;   // ~10 min of connected retries before honest revert
 const FLAG_PUSH_PER_CYCLE = 30;      // cap setFlag attempts per account per cycle (bounds cycle time)
+const PROVIDER_CLEANUP_PER_CYCLE = 20;
 
 // Unicode bidi override/embedding characters that can visually reverse a filename,
 // making "malware.exe" display as "malware.pdf" to the user.
@@ -632,6 +687,70 @@ function safeDate(d) {
   return new Date();
 }
 
+// Metadata ingestion explicitly requests ENVELOPE. ImapFlow omits this property when the
+// server returns only a partial FETCH record (for example during an EXPUNGE race), while a
+// legitimate all-NIL ENVELOPE is represented as an empty object and must remain ingestible.
+function hasFetchedEnvelope(msg) {
+  return !!msg
+    && Object.prototype.hasOwnProperty.call(msg, 'envelope')
+    && !!msg.envelope
+    && typeof msg.envelope === 'object'
+    && !Array.isArray(msg.envelope);
+}
+
+// Fetch a bounded UID batch without allowing one provider-side phantom to starve all later
+// mail. A UID omitted by UID FETCH is independently re-addressed through sequence numbers:
+// plain SEARCH returns sequence numbers for real messages, while an empty result confirms that
+// the omitted UID was expunged or is a provider phantom. Any inconclusive alternate path defers
+// the whole batch so callers never advance their retry watermark past a real incomplete message.
+async function fetchCompleteMetadataBatch(client, expectedUids, fetchQuery) {
+  const orderedExpected = [...new Set(expectedUids.map(Number))]
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b);
+  const expected = new Set(orderedExpected);
+  const messagesByUid = new Map();
+  const initiallyReturned = new Set();
+
+  for await (const msg of client.fetch(orderedExpected.join(','), fetchQuery, { uid: true })) {
+    const uid = Number(msg?.uid);
+    if (!expected.has(uid) || initiallyReturned.has(uid) || !hasFetchedEnvelope(msg)) return null;
+    initiallyReturned.add(uid);
+    messagesByUid.set(uid, msg);
+  }
+
+  const omitted = orderedExpected.filter(uid => !initiallyReturned.has(uid));
+  if (omitted.length === 0) return orderedExpected.map(uid => messagesByUid.get(uid));
+
+  const sequenceResult = await client.search({ uid: omitted.join(',') }, { uid: false });
+  if (!Array.isArray(sequenceResult)) return null;
+  const sequences = [...new Set(sequenceResult.map(Number))].sort((a, b) => a - b);
+  if (sequences.length !== sequenceResult.length || sequences.some(seq => !Number.isFinite(seq) || seq < 1)) {
+    return null;
+  }
+  if (sequences.length === 0) {
+    return orderedExpected.filter(uid => messagesByUid.has(uid)).map(uid => messagesByUid.get(uid));
+  }
+
+  const omittedSet = new Set(omitted);
+  const expectedSequences = new Set(sequences);
+  const returnedSequences = new Set();
+  const recovered = new Map();
+  for await (const msg of client.fetch(sequences.join(','), fetchQuery, { uid: false })) {
+    const seq = Number(msg?.seq);
+    const uid = Number(msg?.uid);
+    if (!expectedSequences.has(seq) || returnedSequences.has(seq)
+        || !omittedSet.has(uid) || recovered.has(uid) || !hasFetchedEnvelope(msg)) {
+      return null;
+    }
+    returnedSequences.add(seq);
+    recovered.set(uid, msg);
+  }
+  if (returnedSequences.size !== sequences.length || recovered.size !== sequences.length) return null;
+  for (const [uid, msg] of recovered) messagesByUid.set(uid, msg);
+
+  return orderedExpected.filter(uid => messagesByUid.has(uid)).map(uid => messagesByUid.get(uid));
+}
+
 // Per-provider capability flags and rate-limit tuning.
 //
 // fetchBody:           store body_html/body_text during backfill/sync.
@@ -774,53 +893,186 @@ export function relocateExemptGuard(exemptFolders, paramIndex) {
 // (RETURNING is empty if a sync beat us to it), and unread only when the copy is
 // unread. Extracted (like relocateExemptGuard) so the DB behavior is unit-testable
 // without a live IMAP pool.
-export async function insertCopiedSibling(accountId, uid, fromFolder, toFolder, newUid) {
-  const res = await query(`
+export async function insertCopiedSibling(
+  accountId, uid, fromFolder, toFolder, newUid, { tx = null, receipt = null } = {},
+) {
+  if (!receipt?.marker || Number(receipt.uid) !== Number(newUid) ||
+      receipt.destinationToken?.folder !== toFolder ||
+      receipt.destinationToken?.uidValidity == null ||
+      receipt.destinationToken?.generation == null) {
+    throw new ProviderOperationError('COPY requires an exact destination receipt', {
+      code: 'COPY_DESTINATION_RECEIPT_REQUIRED', retryable: false, uncertain: true,
+    });
+  }
+  const runQuery = tx ? tx.query.bind(tx) : query;
+  const res = await runQuery(`
     INSERT INTO messages (
       account_id, uid, folder, message_id, subject,
       from_name, from_email, to_addresses, cc_addresses,
       reply_to, in_reply_to, date, snippet, is_read, is_starred,
-      has_attachments, flags, body_html, body_text, attachments,
+      has_attachments, flags,
+      body_html, body_text, attachments,
       thread_references, thread_id, is_bulk,
       read_changed_at, star_changed_at, spam_score_sa, spam_score_ml,
       spam_verdict, spam_analyzed_at, spam_details, spam_user_override,
-      category, list_unsubscribe, list_unsubscribe_post, unsubscribed_at, delivery_addresses, sender_name, sender_email
+      category, list_unsubscribe, list_unsubscribe_post, unsubscribed_at, delivery_addresses, sender_name, sender_email,
+      metadata_complete
     )
     SELECT
       account_id, $4, $5, message_id, subject,
       from_name, from_email, to_addresses, cc_addresses,
       reply_to, in_reply_to, date, snippet, is_read, is_starred,
-      has_attachments, flags, body_html, body_text, attachments,
+      has_attachments, COALESCE(flags, '[]'::jsonb) || jsonb_build_array($6::text),
+      body_html, body_text, attachments,
       thread_references, thread_id, is_bulk,
       read_changed_at, star_changed_at, spam_score_sa, spam_score_ml,
       spam_verdict, spam_analyzed_at, spam_details, spam_user_override,
-      category, list_unsubscribe, list_unsubscribe_post, unsubscribed_at, delivery_addresses, sender_name, sender_email
+      category, list_unsubscribe, list_unsubscribe_post, unsubscribed_at, delivery_addresses, sender_name, sender_email,
+      metadata_complete
     FROM messages
     WHERE account_id = $1 AND folder = $2 AND uid = $3
     ON CONFLICT (account_id, uid, folder) DO NOTHING
     RETURNING id, is_read
-  `, [accountId, fromFolder, uid, newUid, toFolder]);
+  `, [accountId, fromFolder, uid, newUid, toFolder, receipt.marker]);
   const row = res.rows[0];
   if (row) {
-    adjustFolderCounts(accountId, toFolder, 1, row.is_read ? 0 : 1);
+    if (tx) {
+      await adjustFolderCounts(accountId, toFolder, 1, row.is_read ? 0 : 1, {
+        strict: true,
+        query: tx.query.bind(tx),
+      });
+    } else {
+      await adjustFolderCounts(accountId, toFolder, 1, row.is_read ? 0 : 1);
+    }
+    return row.id;
   }
-  return row ? row.id : null;
+
+  const existing = await runQuery(
+    `SELECT m.id
+       FROM messages m
+       JOIN folders f ON f.account_id = m.account_id AND f.path = m.folder
+                     AND f.is_present = true
+                     AND f.uid_validity = $5
+                     AND f.observation_generation = $6
+      WHERE m.account_id = $1 AND m.uid = $2 AND m.folder = $3
+        AND m.is_deleted = false AND m.metadata_complete = true
+        AND m.flags @> jsonb_build_array($4::text)
+      FOR SHARE OF f, m`,
+    [
+      accountId, Number(newUid), toFolder, receipt.marker,
+      String(receipt.destinationToken.uidValidity),
+      String(receipt.destinationToken.generation),
+    ],
+  );
+  if (existing.rows.length !== 1) {
+    throw new ProviderOperationError('COPY destination row is not exact and actionable', {
+      code: 'COPY_DESTINATION_NOT_ACTIONABLE', retryable: true, uncertain: true,
+    });
+  }
+  return existing.rows[0].id;
 }
 
 // DB half of removeMessageCopy: delete exactly one folder's copy of a message. Scoped
 // to (account_id, uid, folder) — the messages unique key — so sibling rows in other
 // folders are never touched. Decrements that folder's counts off the removed row's
 // read state. Returns the number of rows removed (0 if it was already gone).
-export async function deleteMessageCopyRow(accountId, uid, folder) {
-  const res = await query(
-    'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 RETURNING is_read',
-    [accountId, uid, folder]
-  );
-  const row = res.rows[0];
-  if (row) {
-    adjustFolderCounts(accountId, folder, -1, row.is_read ? 0 : -1);
+export async function deleteMessageCopyRow(accountId, uid, folder, expectedId = null, { tx = null } = {}) {
+  const idClause = expectedId ? ' AND id = $4' : '';
+  const params = expectedId
+    ? [accountId, uid, folder, expectedId]
+    : [accountId, uid, folder];
+  const remove = async transaction => {
+    await lockFolderRows(transaction, accountId, [folder]);
+    const res = await transaction.query(
+      `DELETE FROM messages
+        WHERE account_id = $1 AND uid = $2 AND folder = $3${idClause}
+        RETURNING is_read`,
+      params
+    );
+    const row = res.rows[0];
+    if (row) {
+      await adjustFolderCounts(accountId, folder, -1, row.is_read ? 0 : -1, {
+        strict: true,
+        query: transaction.query.bind(transaction),
+      });
+    }
+    return row ? 1 : 0;
+  };
+  return tx ? remove(tx) : withTransaction(remove);
+}
+
+export async function reconcileMovedMessageCopyRow(accountId, row, destinationReceipt) {
+  const destinationFolder = destinationReceipt.folder;
+  const destinationUid = destinationReceipt.uid;
+  return withTransaction(async (tx) => {
+    const locked = await lockFolderRows(tx, accountId, [row.folder, destinationFolder]);
+    const epochs = new Map((locked || []).map(folder => [folder.path, folder.uid_validity]));
+    if (Object.prototype.hasOwnProperty.call(row, 'folder_uid_validity')) {
+      const sourceEpoch = epochs.get(row.folder);
+      if (sourceEpoch == null || row.folder_uid_validity == null ||
+          Number(sourceEpoch) !== Number(row.folder_uid_validity)) {
+        const err = new Error('Snapshot UIDVALIDITY changed before recovery commit');
+        err.code = 'SNAPSHOT_UIDVALIDITY_CHANGED';
+        throw err;
+      }
+    }
+    const destinationEpoch = epochs.get(destinationFolder);
+    if (destinationEpoch == null || destinationReceipt.uidValidity == null ||
+        Number(destinationEpoch) !== Number(destinationReceipt.uidValidity)) {
+      const err = new Error('Destination UIDVALIDITY changed before recovery commit');
+      err.code = 'DESTINATION_UIDVALIDITY_CHANGED';
+      throw err;
+    }
+    const target = await tx.query(
+      'SELECT id FROM messages WHERE account_id = $1 AND folder = $2 AND uid = $3 AND id <> $4 LIMIT 1',
+      [accountId, destinationFolder, destinationUid, row.id]
+    );
+    if (target.rows.length > 0) {
+      const removed = await tx.query(
+        'DELETE FROM messages WHERE id = $1 AND account_id = $2 AND folder = $3 AND uid = $4 RETURNING is_read',
+        [row.id, accountId, row.folder, row.uid]
+      );
+      const deleted = removed.rows[0];
+      if (deleted) {
+        await adjustFolderCounts(accountId, row.folder, -1, deleted.is_read ? 0 : -1, {
+          strict: true,
+          query: tx.query.bind(tx),
+        });
+      }
+      // Zero rows can mean the exact source was concurrently relocated, not that another
+      // request completed this reconciliation. Let the outer full-id confirmation decide.
+      return { reconciled: Boolean(deleted), changed: deleted ? 1 : 0 };
+    }
+
+    const moved = await tx.query(
+      'UPDATE messages SET folder = $1, uid = $2, synced_at = NOW() WHERE id = $3 AND account_id = $4 AND folder = \'INBOX\' AND uid = $5 RETURNING is_read',
+      [destinationFolder, destinationUid, row.id, accountId, row.uid]
+    );
+    const updated = moved.rows[0] || (moved.rowCount > 0 ? { is_read: row.is_read } : null);
+    if (!updated) return { reconciled: false, changed: 0 };
+    const unreadDelta = updated.is_read ? 0 : 1;
+    const options = { strict: true, query: tx.query.bind(tx) };
+    const deltas = folderCountDeltasInLockOrder([
+      { path: 'INBOX', totalDelta: -1, unreadDelta: unreadDelta ? -unreadDelta : 0 },
+      { path: destinationFolder, totalDelta: 1, unreadDelta },
+    ]);
+    for (const { path, totalDelta, unreadDelta: folderUnreadDelta } of deltas) {
+      await adjustFolderCounts(accountId, path, totalDelta, folderUnreadDelta, options);
+    }
+    return { reconciled: true, changed: 1 };
+  });
+}
+
+async function confirmLocalMessageCopyGone(row) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const remaining = await query(
+      'SELECT 1 FROM messages WHERE id = $1 AND account_id = $2 LIMIT 1',
+      [row.id, row.account_id]
+    );
+    if (remaining.rows.length === 0) return true;
+    if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 25));
   }
-  return row ? 1 : 0;
+  return false;
 }
 
 // Notify label-feed plugins that an ordinary mail mutation changed the messages table outside
@@ -874,44 +1126,63 @@ export function connectStaggerFor(profile, accountCount) {
 const connectionPools = new Map(); // accountId -> { clients: [], waiting: [] }
 const POOL_SIZE = 2;
 
-// When a message moves folders (same Message-ID, new UID), refresh metadata too —
-// otherwise a draft→sent relocate can leave subject/addresses stale forever.
-const RELOCATE_MESSAGE_SQL = `
-  UPDATE messages SET
-    folder = $1::text,
-    uid = $2::bigint,
-    is_deleted = false,
-    subject = CASE
-      WHEN $5::text IS NOT NULL AND $5::text <> '' AND $5::text <> '(no subject)'
-      THEN $5::text ELSE messages.subject END,
-    from_name = COALESCE(NULLIF($6::text, ''), messages.from_name),
-    from_email = COALESCE(NULLIF($7::text, ''), messages.from_email),
-    to_addresses = CASE
-      WHEN $8::jsonb::text IS NOT NULL AND $8::jsonb::text <> '[]'
-      THEN $8::jsonb ELSE messages.to_addresses END,
-    cc_addresses = CASE
-      WHEN $9::jsonb::text IS NOT NULL AND $9::jsonb::text <> '[]'
-      THEN $9::jsonb ELSE messages.cc_addresses END,
-    reply_to = COALESCE(NULLIF(messages.reply_to::text, '[]'), $10::text)::jsonb,
-    date = $11::timestamptz
-  WHERE account_id = $3::uuid
-    AND message_id = $4::text
-    AND (folder != $1::text OR uid != $2::bigint)
-    AND 1 = (SELECT COUNT(*) FROM messages WHERE account_id = $3::uuid AND message_id = $4::text)
-    AND COALESCE((SELECT special_use FROM folders WHERE account_id = $3::uuid AND path = $1::text), '') NOT IN ('\\All', '\\Important')`;
-
-function relocateMessageParams(folder, parsed, accountId, msgId) {
-  return [
-    folder, parsed.uid, accountId, msgId,
-    sanitizeStr(parsed.subject),
-    sanitizeStr(parsed.fromName),
-    sanitizeStr(parsed.fromEmail),
-    JSON.stringify(parsed.to),
-    JSON.stringify(parsed.cc),
-    JSON.stringify(parsed.replyTo || []),
-    safeDate(parsed.date),
-  ];
-}
+// A verified FETCH that lands on an unverified legacy row must replace the complete
+// manufactured envelope, not merely fill a few empty strings before declaring the row
+// complete. Complete rows retain the historical conservative merge/local-wins behavior.
+export const COMPLETE_METADATA_CONFLICT_UPDATE_SQL = `
+  message_id = CASE WHEN NOT messages.metadata_complete THEN EXCLUDED.message_id ELSE messages.message_id END,
+  subject = CASE WHEN NOT messages.metadata_complete THEN EXCLUDED.subject ELSE
+    CASE WHEN EXCLUDED.subject IS NOT NULL AND EXCLUDED.subject != '' AND EXCLUDED.subject != '(no subject)'
+         THEN EXCLUDED.subject ELSE messages.subject END END,
+  from_name = CASE WHEN NOT messages.metadata_complete THEN EXCLUDED.from_name
+                   ELSE COALESCE(NULLIF(EXCLUDED.from_name, ''), messages.from_name) END,
+  from_email = CASE WHEN NOT messages.metadata_complete THEN EXCLUDED.from_email
+                    ELSE COALESCE(NULLIF(EXCLUDED.from_email, ''), messages.from_email) END,
+  to_addresses = CASE WHEN NOT messages.metadata_complete THEN EXCLUDED.to_addresses ELSE
+    CASE WHEN EXCLUDED.to_addresses::text IS NOT NULL AND EXCLUDED.to_addresses::text <> '[]'
+         THEN EXCLUDED.to_addresses ELSE messages.to_addresses END END,
+  cc_addresses = CASE WHEN NOT messages.metadata_complete THEN EXCLUDED.cc_addresses ELSE
+    CASE WHEN EXCLUDED.cc_addresses::text IS NOT NULL AND EXCLUDED.cc_addresses::text <> '[]'
+         THEN EXCLUDED.cc_addresses ELSE messages.cc_addresses END END,
+  reply_to = CASE WHEN NOT messages.metadata_complete THEN EXCLUDED.reply_to
+                  ELSE COALESCE(NULLIF(messages.reply_to::text, '[]'), EXCLUDED.reply_to::text)::jsonb END,
+  in_reply_to = CASE WHEN NOT messages.metadata_complete THEN EXCLUDED.in_reply_to
+                     ELSE COALESCE(messages.in_reply_to, EXCLUDED.in_reply_to) END,
+  date = CASE WHEN NOT messages.metadata_complete THEN EXCLUDED.date ELSE messages.date END,
+  snippet = CASE WHEN NOT messages.metadata_complete THEN EXCLUDED.snippet ELSE
+    CASE WHEN EXCLUDED.snippet != '' THEN EXCLUDED.snippet ELSE messages.snippet END END,
+  is_read = CASE WHEN NOT messages.metadata_complete THEN EXCLUDED.is_read ELSE messages.is_read END,
+  is_starred = CASE WHEN NOT messages.metadata_complete THEN EXCLUDED.is_starred ELSE messages.is_starred END,
+  has_attachments = CASE WHEN NOT messages.metadata_complete THEN EXCLUDED.has_attachments
+                         ELSE messages.has_attachments END,
+  flags = CASE WHEN NOT messages.metadata_complete THEN EXCLUDED.flags ELSE EXCLUDED.flags END,
+  body_html = CASE WHEN NOT messages.metadata_complete THEN EXCLUDED.body_html
+                   ELSE COALESCE(messages.body_html, EXCLUDED.body_html) END,
+  body_text = CASE WHEN NOT messages.metadata_complete THEN EXCLUDED.body_text
+                   ELSE COALESCE(messages.body_text, EXCLUDED.body_text) END,
+  attachments = CASE WHEN NOT messages.metadata_complete THEN EXCLUDED.attachments
+                     ELSE COALESCE(messages.attachments::text, EXCLUDED.attachments::text)::jsonb END,
+  thread_references = CASE WHEN NOT messages.metadata_complete THEN EXCLUDED.thread_references
+                           ELSE COALESCE(messages.thread_references, EXCLUDED.thread_references) END,
+  thread_id = CASE WHEN NOT messages.metadata_complete THEN EXCLUDED.thread_id ELSE
+    CASE WHEN messages.thread_id = messages.message_id AND EXCLUDED.thread_id IS NOT NULL
+                   AND EXCLUDED.thread_id <> messages.message_id
+         THEN EXCLUDED.thread_id ELSE COALESCE(messages.thread_id, EXCLUDED.thread_id) END END,
+  is_bulk = CASE WHEN NOT messages.metadata_complete THEN EXCLUDED.is_bulk
+                 ELSE COALESCE(messages.is_bulk, EXCLUDED.is_bulk) END,
+  category = CASE WHEN NOT messages.metadata_complete THEN EXCLUDED.category
+                  ELSE COALESCE(messages.category, EXCLUDED.category) END,
+  list_unsubscribe = CASE WHEN NOT messages.metadata_complete THEN EXCLUDED.list_unsubscribe
+                          ELSE COALESCE(messages.list_unsubscribe, EXCLUDED.list_unsubscribe) END,
+  list_unsubscribe_post = CASE WHEN NOT messages.metadata_complete THEN EXCLUDED.list_unsubscribe_post
+                               ELSE COALESCE(messages.list_unsubscribe_post, EXCLUDED.list_unsubscribe_post) END,
+  delivery_addresses = CASE WHEN NOT messages.metadata_complete THEN EXCLUDED.delivery_addresses
+                            ELSE COALESCE(messages.delivery_addresses, EXCLUDED.delivery_addresses) END,
+  sender_name = CASE WHEN NOT messages.metadata_complete THEN EXCLUDED.sender_name
+                     ELSE COALESCE(EXCLUDED.sender_name, messages.sender_name) END,
+  sender_email = CASE WHEN NOT messages.metadata_complete THEN EXCLUDED.sender_email
+                      ELSE COALESCE(EXCLUDED.sender_email, messages.sender_email) END,
+  metadata_complete = true`;
 
 // Label-aware relocate: exempt label folders are excluded from relocation because a labeled
 // message intentionally lives as sibling rows in several folders, and relocating in place would
@@ -927,14 +1198,6 @@ function relocateMessageParams(folder, parsed, accountId, msgId) {
 export async function collectRelocateExemptFolders(account) {
   const sets = await pluginRegistry.collectHook('relocateExemptFolders', { account, accountId: account.id });
   return [...new Set(sets.flat().filter(Boolean))];
-}
-
-function relocateMessageQuery(folder, parsed, accountId, msgId, exemptFolders) {
-  const guard = relocateExemptGuard(exemptFolders, 12);
-  return {
-    sql: `${RELOCATE_MESSAGE_SQL}${guard.clause}\n  RETURNING id`,
-    params: [...relocateMessageParams(folder, parsed, accountId, msgId), ...guard.params],
-  };
 }
 
 // Strip null bytes that PostgreSQL's UTF-8 encoding rejects (some emails contain them)
@@ -1100,7 +1363,9 @@ function drainWaiters(pool) {
 async function acquirePooledClient(account) {
   const id = account.id;
   if (!connectionPools.has(id)) {
-    connectionPools.set(id, { clients: [], inUse: new Set(), waiters: [] });
+    connectionPools.set(id, {
+      clients: [], inUse: new Set(), waiters: [], temporaryClients: new Set(), evicted: false,
+    });
   }
   const pool = connectionPools.get(id);
 
@@ -1128,6 +1393,12 @@ async function acquirePooledClient(account) {
         drainWaiters(p);
       }
     });
+    // The pool can be evicted while connectImapClient is awaiting the handshake. Do not
+    // resurrect that generation with a freshly connected but already stale session.
+    if (pool.evicted || connectionPools.get(id) !== pool) {
+      abortPoolClients([client]);
+      throw new Error('IMAP pool evicted during connect');
+    }
     pool.clients.push(client);
     pool.inUse.add(client);
     return client;
@@ -1142,6 +1413,10 @@ async function acquirePooledClient(account) {
         const freshAccount = await ensureFreshToken(account);
         const { resolved, policy } = await resolveAccountHost(freshAccount);
         const tmp = await connectImapClient(freshAccount, resolved, { policy }, 30000, 'IMAP temp connect');
+        if (!registerTemporaryPoolClient(pool, tmp)) {
+          reject(new Error('IMAP pool evicted during temporary connect'));
+          return;
+        }
         resolve(tmp);
       } catch (err) {
         reject(err);
@@ -1153,8 +1428,15 @@ async function acquirePooledClient(account) {
 
 function releasePooledClient(account, client) {
   const pool = connectionPools.get(account.id);
-  if (!pool) { client.logout().catch(() => {}); return; }
+  if (!pool) {
+    try { client.close(); } catch { /* already closed */ }
+    return;
+  }
   pool.inUse.delete(client);
+  if (pool.temporaryClients.delete(client)) {
+    client.logout().catch(() => {});
+    return;
+  }
   // If this client isn't in our pool (was a temp or already evicted on error),
   // log it out. logout() is async — must use .catch() not try/catch.
   if (!pool.clients.includes(client)) {
@@ -1164,13 +1446,88 @@ function releasePooledClient(account, client) {
   }
 }
 
+export function abortPoolClients(clients) {
+  for (const client of clients) {
+    // ImapFlow logout is graceful and queues LOGOUT behind an active command. Epoch
+    // eviction is a correctness fence: close the socket synchronously so a stale UID
+    // fetch cannot complete after UIDVALIDITY has changed.
+    try { client.close(); } catch { /* already closed */ }
+  }
+}
+
+export function registerTemporaryPoolClient(pool, client) {
+  if (pool.evicted) {
+    abortPoolClients([client]);
+    return false;
+  }
+  pool.temporaryClients.add(client);
+  return true;
+}
+
+export function abortConnectionPool(pool) {
+  pool.evicted = true;
+  abortPoolClients([...pool.clients, ...pool.temporaryClients]);
+  const evictErr = new Error('IMAP pool evicted');
+  for (const entry of pool.waiters) {
+    clearTimeout(entry.timer);
+    entry.reject(evictErr);
+  }
+}
+
 function evictPool(accountId) {
   const pool = connectionPools.get(accountId);
   if (!pool) return;
-  for (const c of pool.clients) { c.logout().catch(() => {}); }
-  const evictErr = new Error('IMAP pool evicted');
-  for (const entry of pool.waiters) { clearTimeout(entry.timer); entry.reject(evictErr); }
+  abortConnectionPool(pool);
   connectionPools.delete(accountId);
+}
+
+// Fence a pooled UID command against cross-process UIDVALIDITY transitions. The shared
+// folder-row lock is held for the entire IMAP operation: a transition's FOR UPDATE must
+// wait for an old-epoch command to finish, while a command arriving after the transition
+// sees the new durable epoch and aborts every process-local pooled session before using UID.
+export async function withUidEpochFence(
+  accountId, folder, client, operation, expectedUidValidity = undefined,
+  observationContext = null, messageSnapshots = []
+) {
+  const selectedValidity = client.mailbox?.uidValidity != null
+    ? Number(client.mailbox.uidValidity)
+    : null;
+  return withTransaction(async (tx) => {
+    const states = observationContext
+      ? await assertObservationContext(tx, accountId, observationContext)
+      : null;
+    const state = states?.get(folder) || await tx.query(
+      `SELECT uid_validity FROM folders
+        WHERE account_id = $1 AND path = $2
+        FOR SHARE`,
+      [accountId, folder]
+    ).then(result => result.rows[0]);
+    const durableValidity = state?.uid_validity != null
+      ? Number(state.uid_validity)
+      : null;
+    if (expectedUidValidity !== undefined && (
+      expectedUidValidity == null ||
+      durableValidity == null ||
+      Number(expectedUidValidity) !== durableValidity
+    )) {
+      evictPool(accountId);
+      try { client.close(); } catch { /* already closed */ }
+      const err = new Error(`Snapshot UIDVALIDITY changed before ${folder} operation`);
+      err.code = 'SNAPSHOT_UIDVALIDITY_CHANGED';
+      throw err;
+    }
+    if (durableValidity != null && selectedValidity !== durableValidity) {
+      evictPool(accountId);
+      try { client.close(); } catch { /* already closed */ }
+      const err = new Error(`UIDVALIDITY mismatch for pooled ${folder} operation`);
+      err.code = 'POOLED_UIDVALIDITY_CHANGED';
+      throw err;
+    }
+    if (messageSnapshots.length > 0) {
+      await assertLiveMessageSnapshots(tx, accountId, messageSnapshots);
+    }
+    return operation(tx);
+  });
 }
 
 async function withFreshClient(account, fn) {
@@ -1193,6 +1550,25 @@ async function withFreshClient(account, fn) {
   } finally {
     releasePooledClient(account, client);
   }
+}
+
+async function withFencedUidClient(account, folder, operation, {
+  acquire = withFreshClient,
+  expectedUidValidity = undefined,
+  observationContext = null,
+  messageSnapshots = [],
+} = {}) {
+  return acquire(account, async (client) => {
+    const lock = await client.getMailboxLock(folder);
+    try {
+      return await withUidEpochFence(
+        account.id, folder, client, (tx) => operation(client, tx), expectedUidValidity,
+        observationContext, messageSnapshots
+      );
+    } finally {
+      lock.release();
+    }
+  });
 }
 
 // Like withFreshClient, but bypasses the pool entirely: it opens a BRAND-NEW IMAP login,
@@ -1271,6 +1647,88 @@ export async function ensureMailbox(client, path, { resolvePath = false } = {}) 
   }
 }
 
+async function bufferMailboxTopology(client) {
+  const mailboxes = await client.list();
+  if (!Array.isArray(mailboxes)) throw new Error('IMAP LIST returned an incomplete result');
+  if (mailboxes.length === 0) throw new Error('IMAP LIST returned an empty LIST result');
+  const byPath = new Map();
+  for (const mb of mailboxes) {
+    if (!mb || typeof mb.path !== 'string' || !mb.path) {
+      throw new Error('IMAP LIST returned an invalid mailbox entry');
+    }
+    const noSelect = !!(mb.flags && (
+      mb.flags.has('\\Noselect') || mb.flags.has('\\NonExistent')
+    ));
+    byPath.set(mb.path, {
+      path: mb.path,
+      name: mb.name || mb.path,
+      delimiter: mb.delimiter ?? null,
+      specialUse: mb.specialUse || null,
+      noSelect,
+    });
+  }
+  if (![...byPath.keys()].some(path => path.toUpperCase() === 'INBOX')) {
+    throw new Error('IMAP LIST result is missing mandatory INBOX');
+  }
+  return [...byPath.values()];
+}
+
+export async function mutateMailboxTopology(account, client, providerMutation) {
+  const topologyToken = await claimMailboxTopology(account.id);
+  const result = await providerMutation(client);
+  const mailboxes = await bufferMailboxTopology(client);
+  await commitMailboxTopology(account.id, topologyToken, mailboxes);
+  return result;
+}
+
+// A freshly created or newly discovered mailbox has a durable topology row but no UID epoch
+// until it has been selected once. Provider operations cannot safely address that mailbox before
+// the epoch exists, so ensure-folder does not return the mailbox as usable until it has seeded the
+// exact observation from a SELECT. Existing authoritative observations avoid the extra round trip.
+export async function ensureMailboxTopology(account, client, path, opts = {}) {
+  const result = await mutateMailboxTopology(
+    account,
+    client,
+    current => ensureMailbox(current, path, opts),
+  );
+  const folder = result?.path || String(path);
+  const observation = await readFolderObservation(account.id, folder);
+  if (observation.uidValidity != null) return result;
+
+  const token = await claimFolderObservation(account.id, folder);
+  const lock = await client.getMailboxLock(folder);
+  try {
+    const uidValidity = client.mailbox?.uidValidity;
+    if (uidValidity == null) {
+      const err = new Error(`Could not establish UIDVALIDITY for ${folder}`);
+      err.code = 'FOLDER_UIDVALIDITY_UNAVAILABLE';
+      throw err;
+    }
+    await withTransaction(tx => seedFolderUidValidity(
+      tx, account.id, token, uidValidity,
+    ));
+  } finally {
+    lock.release();
+  }
+  return result;
+}
+
+export function createMailboxTopology(account, client, path) {
+  return mutateMailboxTopology(account, client, current => current.mailboxCreate(path));
+}
+
+export function deleteMailboxTopology(account, client, path) {
+  return mutateMailboxTopology(account, client, current => current.mailboxDelete(path));
+}
+
+export function renameMailboxTopology(account, client, oldPath, newPath) {
+  return mutateMailboxTopology(
+    account,
+    client,
+    current => current.mailboxRename(oldPath, newPath),
+  );
+}
+
 // Resolve the server's REAL casing for a mailbox that already exists, by case-insensitive
 // lookup against the folder LIST. On a case-insensitive server "TODO" can already exist when
 // "Todo" was requested; imapflow's already-exists result echoes the REQUESTED casing, which,
@@ -1289,9 +1747,385 @@ async function resolveServerFolderCasing(client, knownPath) {
   }
 }
 
+// Missing PERMANENTFLAGS means the server did not restrict keywords; an explicit \* permits
+// new keywords. A mailbox that advertises only named flags must explicitly include ours.
+export function recoveryKeywordAllowed(mailbox, keyword) {
+  const permanentFlags = mailbox?.permanentFlags;
+  return !permanentFlags || permanentFlags.has('\\*') || permanentFlags.has(keyword);
+}
+
+function terminalProviderCapability(message, code) {
+  return new ProviderOperationError(message, {
+    code, retryable: false, uncertain: false, manual: false,
+  });
+}
+
+export function validateFrozenMoveCapabilities(resource, marker, {
+  role = 'Source', requireMove = role === 'Source',
+} = {}) {
+  if (requireMove && !resource?.client?.capabilities?.has('MOVE')) {
+    throw terminalProviderCapability(
+      'Causal provider operation requires native IMAP MOVE support',
+      'PROVIDER_NATIVE_MOVE_UNSUPPORTED',
+    );
+  }
+  if (!recoveryKeywordAllowed(resource?.client?.mailbox, marker)) {
+    throw terminalProviderCapability(
+      `${role} mailbox does not support a safe provider recovery marker`,
+      'PROVIDER_RECOVERY_MARKER_UNSUPPORTED',
+    );
+  }
+}
+
+export function normalizeFrozenMailboxAcquisitionError(error, folders = []) {
+  const statuses = [error?.code, error?.responseStatus, error?.serverResponseCode]
+    .filter(Boolean)
+    .map(value => String(value).toUpperCase());
+  const text = String(error?.responseText || error?.message || '').toLowerCase();
+  const explicitlyMissing = statuses.includes('NONEXISTENT')
+    || /no such (mailbox|folder)/.test(text)
+    || /(mailbox|folder).*(does not exist|doesn't exist|not found|nonexistent)/.test(text);
+  if (!explicitlyMissing) return error;
+  return terminalProviderCapability(
+    `Frozen provider mailbox was deleted or renamed: ${folders.join(', ')}`,
+    'PROVIDER_MAILBOX_SUPERSEDED',
+  );
+}
+
+// SEARCH returning false is a command failure in ImapFlow, never proof of absence. Destination
+// recovery is valid only when one exact message carries the deterministic keyword.
+export async function findSingleRecoveryKeywordUid(client, keyword) {
+  const found = await client.search({ keyword }, { uid: true });
+  if (found === false) throw new Error(`IMAP SEARCH failed for recovery keyword ${keyword}`);
+  const uids = [...new Set((found || []).map(Number).filter(Number.isFinite))];
+  if (uids.length > 1) throw new Error(`Ambiguous recovery keyword ${keyword}: ${uids.length} matches`);
+  return uids[0] ?? null;
+}
+
+function normalizeMessageId(value) {
+  let normalized = String(value || '').trim();
+  if (normalized.startsWith('<') && normalized.endsWith('>')) {
+    normalized = normalized.slice(1, -1).trim();
+  }
+  return normalized;
+}
+
+export async function findSingleMessageIdUid(client, messageId) {
+  const expectedMessageId = normalizeMessageId(messageId);
+  if (!expectedMessageId) throw new Error('Message-ID is required for recovery');
+  const found = await client.search({ header: ['Message-ID', expectedMessageId] }, { uid: true });
+  if (found === false) throw new Error(`IMAP SEARCH failed for Message-ID ${expectedMessageId}`);
+  const uids = [...new Set((found || []).map(Number).filter(Number.isFinite))];
+  if (!uids.length) return null;
+
+  const exactUids = [];
+  for (const uid of uids) {
+    const candidate = await client.fetchOne(String(uid), { headers: ['message-id'] }, { uid: true });
+    if (!candidate) throw new Error(`Could not verify Message-ID ${expectedMessageId} at uid=${uid}`);
+    if (candidate.uid != null && Number(candidate.uid) !== uid) {
+      throw new Error(`Message-ID verification returned uid=${candidate.uid}, expected uid=${uid}`);
+    }
+    const candidateMessageId = normalizeMessageId(parseHeadersInput(candidate.headers)['message-id']);
+    if (candidateMessageId === expectedMessageId) exactUids.push(uid);
+  }
+  if (exactUids.length > 1) {
+    throw new Error(`Ambiguous Message-ID ${expectedMessageId}: ${exactUids.length} exact matches`);
+  }
+  if (!exactUids.length) {
+    throw new Error(`Message-ID candidate set does not exactly match ${expectedMessageId}`);
+  }
+  return exactUids[0];
+}
+
+export async function searchContainsExactUid(client, uid, extraQuery = {}) {
+  const found = await client.search({ uid: String(uid), ...extraQuery }, { uid: true });
+  if (found === false) throw new Error(`IMAP SEARCH failed for uid=${uid}`);
+  return (found || []).some(foundUid => Number(foundUid) === Number(uid));
+}
+
+export function validateRecoveryDestinationUid(uidPlusUid, keywordUid) {
+  if (keywordUid == null) throw new Error('Recovery keyword was not found in destination');
+  if (uidPlusUid != null && Number(uidPlusUid) !== Number(keywordUid)) {
+    throw new Error(`UIDPLUS destination ${uidPlusUid} disagrees with recovery keyword UID ${keywordUid}`);
+  }
+  return Number(keywordUid);
+}
+
+async function storeAndVerifyProviderMarker(client, uid, marker) {
+  if (!recoveryKeywordAllowed(client.mailbox, marker)) {
+    throw new Error(`Mailbox does not support provider operation marker ${marker}`);
+  }
+  const stored = await client.messageFlagsAdd(String(uid), [marker], { uid: true });
+  if (stored === false) throw new Error(`Server did not store provider operation marker for uid=${uid}`);
+  if (!(await searchContainsExactUid(client, uid, { keyword: marker }))) {
+    throw new Error(`Provider operation marker was not stored for uid=${uid}`);
+  }
+}
+
+async function removeProviderMarkerAtUid(client, uid, marker) {
+  if (!(await searchContainsExactUid(client, uid, { keyword: marker }))) return;
+  const removed = await client.messageFlagsRemove(String(uid), [marker], { uid: true });
+  if (removed === false || await searchContainsExactUid(client, uid, { keyword: marker })) {
+    throw new Error(`Provider operation marker cleanup failed for uid=${uid}`);
+  }
+}
+
+async function cleanupCompletedProviderMarkerSide(resource, token, uid, marker) {
+  if (!token || uid == null) return;
+  try {
+    await resource.switchTo(token.folder);
+  } catch (error) {
+    const normalized = normalizeFrozenMailboxAcquisitionError(error, [token.folder]);
+    if (normalized?.code === 'PROVIDER_MAILBOX_SUPERSEDED') return;
+    throw error;
+  }
+  const liveUidValidity = resource.client.mailbox?.uidValidity;
+  // A reset creates a new mailbox incarnation where the old marker cannot exist. Treat only
+  // that side as clean so MOVE/COPY can still remove a marker from the other live side.
+  if (liveUidValidity == null) {
+    throw new Error(`Provider cleanup cannot establish UIDVALIDITY for ${token.folder}`);
+  }
+  if (String(liveUidValidity) !== String(token.uidValidity)) return;
+  await removeProviderMarkerAtUid(resource.client, uid, marker);
+}
+
+async function cleanupCompletedProviderOperationMarkers(resource, marker, receipt, operation) {
+  if (operation.kind !== 'append') {
+    await cleanupCompletedProviderMarkerSide(
+      resource, operation.source, operation.source?.uid, marker,
+    );
+  }
+  if (operation.kind !== 'delete') {
+    await cleanupCompletedProviderMarkerSide(
+      resource, operation.destination, receipt?.uid, marker,
+    );
+  }
+}
+
+async function acquireProviderOperationCleanupResource(account, operation, callback) {
+  const folders = [...new Set([
+    operation.destination?.folder, operation.source?.folder,
+  ].filter(Boolean))];
+  let explicitlyMissing = null;
+  for (const folder of folders) {
+    try {
+      return await withSwitchableMailboxClient(account, folder, callback);
+    } catch (error) {
+      const normalized = normalizeFrozenMailboxAcquisitionError(error, [folder]);
+      if (normalized?.code !== 'PROVIDER_MAILBOX_SUPERSEDED') throw error;
+      explicitlyMissing = error;
+    }
+  }
+  if (!explicitlyMissing) throw new Error('Provider cleanup operation has no mailbox identity');
+  // Every frozen side was explicitly reported missing. Supply a resource whose switches preserve
+  // that proof so the side-aware cleanup can converge without inventing a live mailbox epoch.
+  return callback({
+    client: { mailbox: null },
+    switchTo: async () => { throw explicitlyMissing; },
+    uidValidities: new Map(),
+    folder: null,
+  });
+}
+
+async function assertProviderOperationObservations(tx, intent) {
+  const values = [intent.source, intent.destination]
+    .filter(Boolean)
+    .sort((a, b) => a.folder.localeCompare(b.folder));
+  for (const token of values) {
+    const row = await assertFolderObservation(tx, intent.accountId, token);
+    if (row.is_present !== true || row.uid_validity == null) {
+      const error = new Error(`Provider operation folder ${token.folder} is not authoritative`);
+      error.code = 'FOLDER_OBSERVATION_UNSAFE';
+      throw error;
+    }
+  }
+}
+
+async function assertProviderOperationDestination(tx, operation) {
+  const row = await assertFolderObservation(tx, operation.accountId, operation.destination);
+  if (row.is_present !== true || row.uid_validity == null) {
+    const error = new Error(
+      `Provider operation folder ${operation.destination.folder} is not authoritative`,
+    );
+    error.code = 'FOLDER_OBSERVATION_UNSAFE';
+    throw error;
+  }
+}
+
+const FROZEN_OBSERVATION_TERMINAL_CODES = new Set([
+  'FOLDER_OBSERVATION_SUPERSEDED',
+  'FOLDER_OBSERVATION_UIDVALIDITY_CHANGED',
+  'FOLDER_OBSERVATION_TOPOLOGY_CHANGED',
+  'FOLDER_OBSERVATION_UNSAFE',
+]);
+
+async function preflightFrozenProviderOperation(intent) {
+  try {
+    await withTransaction(tx => assertProviderOperationObservations(tx, intent));
+  } catch (error) {
+    if (FROZEN_OBSERVATION_TERMINAL_CODES.has(error?.code)) error.retryable = false;
+    throw error;
+  }
+}
+
+function assertLiveProviderEpoch(resource, token, label = 'Destination') {
+  const live = resource.uidValidities?.get(token.folder) ??
+    (resource.folder === token.folder ? resource.client.mailbox?.uidValidity : null);
+  if (live == null || String(live) !== String(token.uidValidity)) {
+    const error = new Error(`${label} UIDVALIDITY changed for ${token.folder}`);
+    error.code = 'FOLDER_OBSERVATION_UIDVALIDITY_CHANGED';
+    throw error;
+  }
+}
+
+function requireExactMutationSnapshot(snapshot, accountId, uid, folder, label) {
+  if (!snapshot?.id || snapshot.accountId !== accountId ||
+      Number(snapshot.uid) !== Number(uid) || snapshot.folder !== folder ||
+      snapshot.uidValidity == null || snapshot.folderGeneration == null) {
+    throw new Error(`${label} requires an exact live message snapshot`);
+  }
+  return snapshot;
+}
+
+export function desiredFlagDeliverySnapshot(delivery) {
+  return {
+    id: delivery.messageId,
+    accountId: delivery.accountId,
+    uid: delivery.uid,
+    folder: delivery.folder,
+    uidValidity: delivery.uidValidity,
+    folderGeneration: delivery.folderGeneration,
+    readRevision: delivery.flag === 'read' ? Number(delivery.revision) : null,
+    starRevision: delivery.flag === 'star' ? Number(delivery.revision) : null,
+  };
+}
+
+async function readProviderOperationObservations(accountId, folders, supplied = []) {
+  const suppliedByFolder = new Map((supplied || []).map(token => [token.folder, token]));
+  return Promise.all([...new Set(folders)].map(folder => (
+    suppliedByFolder.get(folder) || readFolderObservation(accountId, folder)
+  )));
+}
+
+async function withSwitchableMailboxClient(account, initialFolder, callback) {
+  return withFreshClient(account, async client => {
+    let lock = null;
+    let currentFolder = null;
+    const uidValidities = new Map();
+    const switchTo = async folder => {
+      if (currentFolder === folder && lock) return;
+      lock?.release();
+      lock = await client.getMailboxLock(folder);
+      currentFolder = folder;
+      if (client.mailbox?.uidValidity != null) {
+        uidValidities.set(folder, String(client.mailbox.uidValidity));
+      }
+    };
+    await switchTo(initialFolder);
+    try {
+      return await callback({
+        client,
+        switchTo,
+        uidValidities,
+        get folder() { return currentFolder; },
+      });
+    } finally {
+      lock?.release();
+    }
+  });
+}
+
+export async function recoverProviderMarkerOnClient(client, marker) {
+  const found = await client.search({ keyword: marker }, { uid: true });
+  if (found === false) throw new Error(`IMAP SEARCH failed for provider operation marker ${marker}`);
+  const uids = [...new Set((found || []).map(Number).filter(Number.isFinite))].sort((a, b) => a - b);
+  if (uids.length === 0) return { status: 'absent' };
+  if (uids.length > 1) return { status: 'ambiguous', uids };
+  const uidValidity = client.mailbox?.uidValidity;
+  if (uidValidity == null) throw new Error('Provider marker recovery requires destination UIDVALIDITY');
+  return { status: 'unique', uid: uids[0], uidValidity: String(uidValidity) };
+}
+
+async function appendMessageOnClient(client, folder, rawMessage, flags, marker) {
+  if (!recoveryKeywordAllowed(client.mailbox, marker)) {
+    throw new Error(`Destination mailbox does not support provider operation marker ${marker}`);
+  }
+  const appendFlags = [...new Set([...(flags || []), marker])];
+  const result = await client.append(folder, rawMessage, appendFlags);
+  if (result === false) throw new Error('IMAP append returned false — server did not confirm message was stored');
+  const recovery = await recoverProviderMarkerOnClient(client, marker);
+  if (recovery.status !== 'unique') {
+    throw new Error(`APPEND provider marker is ${recovery.status}`);
+  }
+  if (result?.uid != null && Number(result.uid) !== recovery.uid) {
+    throw new ProviderOperationError(
+      `UIDPLUS destination ${result.uid} disagrees with provider marker UID ${recovery.uid}`,
+      {
+        code: 'PROVIDER_RECEIPT_MISMATCH', retryable: false, uncertain: true, manual: true,
+        details: { uidplus: Number(result.uid), markerUid: recovery.uid },
+      },
+    );
+  }
+  return { uid: recovery.uid, uidValidity: recovery.uidValidity };
+}
+
+function assertExactArchiveRecoveryOperation(operation, {
+  operationId, accountId, row, archiveFolder,
+}) {
+  const source = operation?.source;
+  const destination = operation?.destination;
+  const receipt = operation?.receipt;
+  const receiptRequired = ['provider_applied', 'completed'].includes(operation?.state);
+  const sameToken = (left, right, includeUid = false) => Boolean(left && right) &&
+    left.folder === right.folder &&
+    String(left.uidValidity) === String(right.uidValidity) &&
+    String(left.generation) === String(right.generation) &&
+    (!includeUid || Number(left.uid) === Number(right.uid));
+  const valid = operation?.id === operationId && operation.kind === 'move' &&
+    operation.accountId === accountId &&
+    operation.marker === providerOperationMarker(operationId) &&
+    source?.folder === row.folder && Number(source?.uid) === Number(row.uid) &&
+    String(source?.uidValidity) === String(row.folder_uid_validity) &&
+    source?.generation != null && destination?.folder === archiveFolder &&
+    destination?.uidValidity != null && destination?.generation != null &&
+    (!receiptRequired || (
+      receipt?.marker === operation.marker && receipt.folder === archiveFolder &&
+      Number.isSafeInteger(Number(receipt.uid)) && Number(receipt.uid) > 0 &&
+      String(receipt.uidValidity) === String(destination.uidValidity) &&
+      sameToken(receipt.sourceToken, source, true) &&
+      sameToken(receipt.destinationToken, destination)
+    ));
+  if (!valid) {
+    throw new ProviderOperationError(
+      'Stored provider operation is not the exact archive request',
+      { code: 'PROVIDER_OPERATION_IDENTITY_MISMATCH', retryable: true, uncertain: true },
+    );
+  }
+}
+
 export class ImapManager {
+  async extendFolderObservationContext(accountId, observationContext, paths) {
+    if (!observationContext) return null;
+    observationContext.tokens = await claimFolderObservations(accountId, paths, {
+      context: observationContext.tokens,
+    });
+    return observationContext;
+  }
+
+  async withFolderObservationContext(accountId, observationContext, callback) {
+    return withTransaction(async (tx) => {
+      if (observationContext) await assertObservationContext(tx, accountId, observationContext);
+      return callback(tx);
+    });
+  }
+
+  async _withFreshSyncSession(account, callback) {
+    return withFreshLogin(account, callback);
+  }
+
   constructor(wss) {
     this.wss = wss;
+    this.providerOperationExecutor = providerOperationExecutor;
     this.connections = new Map();   // accountId -> ImapFlow (persistent sync connection)
     this.syncIntervals = new Map();
     this.pluginSyncIntervals = new Map(); // `${accountId}::${pluginId}` -> timer for a plugin's periodic sync tick
@@ -1316,12 +2150,13 @@ export class ImapManager {
     this.lastUserActivity = new Map();      // accountId -> ms timestamp of last live body fetch
     this.syncTickCount = new Map(); // accountId -> successful sync ticks (for reconcile scheduling)
     this.lastSyncOkAt = new Map(); // accountId -> ms timestamp of last successful sync tick (staleness detection)
+    // Process-local durable mailbox epochs observed by the persistent sync path. Pools are
+    // generic UID consumers and cannot receive another backend process's transition directly;
+    // the next local sync observation fences any pool generation created under the prior epoch.
+    this._observedSyncEpochs = new Map(); // `${accountId}:${folder}` -> UIDVALIDITY
     this._flagDebounceTimers   = new Map(); // accountId -> debounce timer for flag-change syncs
     this._expungeDebounceTimers = new Map(); // accountId -> debounce timer for expunge reconciles
     this._pendingFlagSync = new Set(); // accountId — flag sync was skipped because a full sync was running; drain after sync
-    // accountId -> Map<`${messageId}:${flag}`, { messageId, flag, attempts }>: local read/star
-    // changes whose IMAP push failed and must be retried until the server confirms them.
-    this._pendingFlagPush = new Map();
     // Tracks UIDs that are actively being moved by inboxRules so reconcileDeletes
     // does not delete the DB row if an EXPUNGE arrives before the DB update completes,
     // or if the server is non-UIDPLUS and the DB temporarily holds a stale UID.
@@ -1582,125 +2417,82 @@ export class ImapManager {
     // until the server confirms it. Runs below the 30s local-wins window so its per-cycle
     // marker re-bump keeps a pull from reverting the change while the retry is outstanding.
     this._flagPushReconcilerTimer = setInterval(() => {
-      if (this._flagPushRunning) return;
-      this._flagPushRunning = true;
-      this._reconcileFlagPushes()
-        .catch(err => console.error('Flag-push reconciler error:', err.message))
-        .finally(() => { this._flagPushRunning = false; });
+      if (!this._flagPushRunning) {
+        this._flagPushRunning = true;
+        this._reconcileFlagPushes()
+          .catch(err => console.error('Flag-push reconciler error:', err.message))
+          .finally(() => { this._flagPushRunning = false; });
+      }
+      if (!this._providerCleanupRunning) {
+        this._providerCleanupRunning = true;
+        this._sweepProviderOperationCleanup(PROVIDER_CLEANUP_PER_CYCLE)
+          .catch(err => console.error('Provider marker cleanup reconciler error:', err.message))
+          .finally(() => { this._providerCleanupRunning = false; });
+      }
     }, FLAG_PUSH_RECONCILE_MS);
   }
 
-  // Record a local read/star change whose immediate IMAP push failed so the reconciler
-  // re-pushes it until the server confirms. Keyed by message+flag; a repeat toggle updates
-  // the intended `value` and preserves the attempt count. The reconciler pushes and
-  // re-asserts THIS value — never a re-read of the row, which a concurrent flag-pull could
-  // have reverted (that re-read was a silent-loss bug).
-  _enqueueFlagPush(accountId, messageId, flag, value) {
-    if (!accountId || !messageId) return;
-    let ops = this._pendingFlagPush.get(accountId);
-    if (!ops) { ops = new Map(); this._pendingFlagPush.set(accountId, ops); }
-    const key = `${messageId}:${flag}`;
-    const existing = ops.get(key);
-    ops.set(key, { messageId, flag, value: !!value, attempts: existing ? existing.attempts : 0 });
-  }
-
-  // A later push of the SAME message+flag succeeded — drop any queued op so the reconciler
-  // can't re-assert/re-push a now-stale value (e.g. mark-read failed, then mark-unread
-  // succeeded: the queued read=true must not resurrect).
-  _resolveFlagPush(accountId, messageId, flag) {
-    const ops = this._pendingFlagPush.get(accountId);
-    if (!ops) return;
-    const key = `${messageId}:${flag}`;
-    // Mark resolved as well as delete: a reconciler cycle may already hold this op object in
-    // its snapshot, parked on an await — the flag lets it bail before clobbering the newer value.
-    const op = ops.get(key);
-    if (op) op.resolved = true;
-    ops.delete(key);
-    if (ops.size === 0) this._pendingFlagPush.delete(accountId);
-  }
-
-  // Re-bump the *_changed_at marker for every pending message up-front, before any
-  // (possibly slow) setFlag, so the 30s "local wins" window can't lapse mid-cycle and let
-  // a concurrent pull revert an unconfirmed change.
-  async _rebumpFlagMarkers(ops) {
-    const readIds = [];
-    const starIds = [];
-    for (const op of ops.values()) {
-      (op.flag === '\\Seen' ? readIds : starIds).push(op.messageId);
-    }
-    if (readIds.length) {
-      await query('UPDATE messages SET read_changed_at = NOW() WHERE id = ANY($1::uuid[])', [readIds]).catch(() => {});
-    }
-    if (starIds.length) {
-      await query('UPDATE messages SET star_changed_at = NOW() WHERE id = ANY($1::uuid[])', [starIds]).catch(() => {});
-    }
-  }
-
-  // Clear the marker for a message+flag once the server has confirmed (or we give up), so a
-  // subsequent flag-sync pull resumes reflecting the server for that message.
-  async _clearFlagMarker(messageId, flag) {
-    const col = flag === '\\Seen' ? 'read_changed_at' : 'star_changed_at';
-    // col is a fixed internal literal (not user input) — safe to interpolate.
-    await query(`UPDATE messages SET ${col} = NULL WHERE id = $1`, [messageId]).catch(() => {});
-  }
-
   async _reconcileFlagPushes() {
-    for (const [accountId, ops] of this._pendingFlagPush) {
-      if (ops.size === 0) { this._pendingFlagPush.delete(accountId); continue; }
-
-      // Hold the local-wins window for all pending messages this cycle regardless of
-      // whether we can push right now.
-      await this._rebumpFlagMarkers(ops);
-
-      // Only attempt pushes while the account has a live connection; otherwise keep the
-      // ops queued (markers already re-bumped) and wait for reconnect. Not counted as an
-      // attempt, so an outage doesn't burn the give-up budget.
-      if (!this.connections.has(accountId)) continue;
-
-      const acct = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
-      const account = acct.rows[0];
-      if (!account) { this._pendingFlagPush.delete(accountId); continue; }
-
-      let processed = 0;
-      for (const [key, op] of [...ops]) {
-        if (processed >= FLAG_PUSH_PER_CYCLE) break; // rest wait for the next cycle
-        if (!ops.has(key)) continue; // resolved by a concurrent successful push mid-cycle
-        processed++;
-        // Re-read only uid/folder (a move changes them) + existence — NOT the flag value,
-        // which we own via op.value. A concurrent pull may have reverted the row, so
-        // re-assert our intended value locally (with a fresh marker) before pushing the
-        // same value, so a slow cycle can never let the change be silently lost.
-        const { rows: [msg] } = await query(
-          'SELECT uid, folder FROM messages WHERE id = $1',
-          [op.messageId]
+    const durable = await desiredFlagRepository.listPending(FLAG_PUSH_PER_CYCLE);
+    const accounts = new Map();
+    for (const delivery of durable) {
+      let account = accounts.get(delivery.accountId);
+      if (account === undefined) {
+        const result = await query(
+          "SELECT * FROM email_accounts WHERE id = $1 AND enabled = true AND protocol = 'imap'",
+          [delivery.accountId],
         );
-        if (!msg) { ops.delete(key); continue; } // message gone — nothing to push
-        // A concurrent successful push may have resolved this op during the await above —
-        // don't re-assert/re-push a now-stale value over the newer one.
-        if (op.resolved) continue;
-        if (op.flag === '\\Seen') {
-          await query('UPDATE messages SET is_read = $1, read_changed_at = NOW() WHERE id = $2', [op.value, op.messageId]).catch(() => {});
-        } else {
-          await query('UPDATE messages SET is_starred = $1, star_changed_at = NOW() WHERE id = $2', [op.value, op.messageId]).catch(() => {});
-        }
-        try {
-          await this.setFlag(account, msg.uid, msg.folder, op.flag, op.value);
-          // If a newer value was pushed elsewhere while our setFlag was in flight, leave its
-          // marker in place and let the pull reconcile, rather than clearing to our stale push.
-          if (!op.resolved) await this._clearFlagMarker(op.messageId, op.flag); // confirmed on server
-          ops.delete(key);
-        } catch (err) {
-          op.attempts += 1;
-          if (op.attempts >= FLAG_PUSH_MAX_ATTEMPTS) {
-            console.warn(`Flag-push giving up after ${op.attempts} attempts (${op.flag} msg=${op.messageId}): ${extractImapError(err)}`);
-            await this._clearFlagMarker(op.messageId, op.flag); // honest revert to server truth
-            ops.delete(key);
-          }
-          // else keep queued; marker + value re-asserted above so nothing is lost before retry
+        account = result.rows[0] || null;
+        accounts.set(delivery.accountId, account);
+      }
+      if (!account) continue;
+      try {
+        await desiredFlagExecutor.deliver(
+          delivery.messageId,
+          delivery.flag,
+          this._desiredFlagProvider(account),
+        );
+      } catch (err) {
+        if (!err?.retryable) {
+          console.warn(`Desired-flag reconciliation failed (${delivery.flag} msg=${delivery.messageId}): ${extractImapError(err)}`);
         }
       }
-      if (ops.size === 0) this._pendingFlagPush.delete(accountId);
     }
+
+  }
+
+  async _sweepProviderOperationCleanup(limit = PROVIDER_CLEANUP_PER_CYCLE) {
+    const pending = await this.providerOperationExecutor.listPendingCleanup(limit);
+    const accounts = new Map();
+    let completed = 0;
+    for (const operation of pending) {
+      let account = accounts.get(operation.accountId);
+      if (account === undefined) {
+        const result = await query(
+          "SELECT * FROM email_accounts WHERE id = $1 AND enabled = true AND protocol = 'imap'",
+          [operation.accountId],
+        );
+        account = result.rows[0] || null;
+        accounts.set(operation.accountId, account);
+      }
+      if (!account) continue;
+      try {
+        const replay = await this.providerOperationExecutor.completeExisting(operation.id, {
+          acquireProvider: callback => acquireProviderOperationCleanupResource(
+            account, operation, callback,
+          ),
+          cleanup: (resource, marker, receipt, ownedOperation) => (
+            cleanupCompletedProviderOperationMarkers(
+              resource, marker, receipt, ownedOperation,
+            )
+          ),
+        });
+        if (replay.status === 'completed') completed++;
+      } catch (error) {
+        console.warn(`Provider marker cleanup remains pending for ${operation.id}: ${error.message}`);
+      }
+    }
+    return completed;
   }
 
   // Attach the three IDLE event listeners shared by both the initial connect path
@@ -1929,6 +2721,22 @@ export class ImapManager {
     evictPool(accountId);
   }
 
+  _evictPool(accountId) {
+    evictPool(accountId);
+  }
+
+  _observeSyncEpoch(accountId, folder, uidValidity) {
+    if (uidValidity == null) return;
+    const key = `${accountId}:${folder}`;
+    const hadPrior = this._observedSyncEpochs.has(key);
+    const prior = this._observedSyncEpochs.get(key);
+    this._observedSyncEpochs.set(key, uidValidity);
+    // The first observation is conservative: a body/header request can have created a
+    // pool before this folder's first sync. Later changes cover transitions committed by
+    // another backend process even when durable and selected epochs already match here.
+    if (!hadPrior || prior !== uidValidity) this._evictPool(accountId);
+  }
+
   // Effective per-host persistent-connection cap for an account: the tighter of the env default and
   // any provider-profile cap. Infinity = unlimited (default), which short-circuits the whole
   // poll-only path in connectAccount so behavior is unchanged.
@@ -2074,6 +2882,11 @@ export class ImapManager {
   async _shouldAutoBackfillOnConnect(account) {
     const profile = providerProfile(account);
     if (profile.autoBackfillExistingOnConnect !== false) return true;
+    const incomplete = await query(
+      'SELECT 1 FROM folders WHERE account_id = $1 AND backfill_incomplete = true LIMIT 1',
+      [account.id]
+    );
+    if (incomplete.rows.length > 0) return true;
     const existing = await query('SELECT 1 FROM messages WHERE account_id = $1 LIMIT 1', [account.id]);
     return existing.rows.length === 0;
   }
@@ -2278,12 +3091,37 @@ export class ImapManager {
   // isn't clobbered by a stale server value, and only touches rows whose flags actually differ.
   // Returns the number of rows changed. Shared by _syncFlagsForRange and the delta flag scan so
   // the flag-conflict logic lives in exactly one place.
-  async _applyFlagUpdates(account, folder, flagsToUpdate) {
+  async _applyFlagUpdates(
+    account, folder, flagsToUpdate, expectedUidValidity = null,
+    observationContext = null, pullSnapshot = null
+  ) {
     if (!flagsToUpdate.length) return 0;
+    if (pullSnapshot) {
+      const byUid = new Map(pullSnapshot.rows.map(row => [Number(row.uid), row]));
+      const rows = flagsToUpdate.flatMap(update => {
+        const captured = byUid.get(Number(update.uid));
+        if (!captured) return [];
+        return [{
+          ...captured,
+          isRead: update.isRead === true,
+          isStarred: update.isStarred === true,
+          modseq: update.modseq == null ? null : String(update.modseq),
+        }];
+      });
+      if (rows.length === 0) return 0;
+      const repository = this?._desiredFlagRepository || desiredFlagRepository;
+      return repository.applyPull({
+        accountId: account.id,
+        folder,
+        uidValidity: pullSnapshot.uidValidity,
+        folderGeneration: pullSnapshot.folderGeneration,
+        rows,
+      });
+    }
     const uids    = flagsToUpdate.map(f => f.uid);
     const reads   = flagsToUpdate.map(f => f.isRead);
     const starred = flagsToUpdate.map(f => f.isStarred);
-    const result = await query(`
+    const apply = async (runQuery) => runQuery(`
       UPDATE messages SET
         is_read = CASE
           WHEN messages.read_changed_at IS NOT NULL
@@ -2317,7 +3155,57 @@ export class ImapManager {
         )`,
       [uids, reads, starred, account.id, folder]
     );
+    const result = expectedUidValidity == null && !observationContext
+      ? await apply(query)
+      : await withTransaction(async (tx) => {
+          const states = observationContext
+            ? await assertObservationContext(tx, account.id, observationContext)
+            : null;
+          const state = states?.get(folder) || await tx.query(
+            `SELECT uid_validity, highest_modseq FROM folders
+              WHERE account_id = $1 AND path = $2
+              FOR UPDATE`,
+            [account.id, folder]
+          ).then(current => current.rows[0]);
+          if (expectedUidValidity != null &&
+              Number(state?.uid_validity) !== Number(expectedUidValidity)) {
+            const err = new Error(`UIDVALIDITY changed before flag update for ${folder}`);
+            err.code = 'SYNC_UIDVALIDITY_CHANGED';
+            throw err;
+          }
+          return apply(tx.query.bind(tx));
+        });
     return result.rowCount;
+  }
+
+  async _captureFlagPullSnapshot(account, folder, expectedUidValidity = null, tokenOverride = null) {
+    const token = tokenOverride || await readFolderObservation(account.id, folder);
+    if (token.isPresent === false || token.uidValidity == null || token.generation == null ||
+        (expectedUidValidity != null && Number(token.uidValidity) !== Number(expectedUidValidity))) {
+      const err = new Error(`Cannot capture actionable flag rows for ${folder}`);
+      err.code = 'SYNC_UIDVALIDITY_CHANGED';
+      throw err;
+    }
+    const result = await query(
+      `SELECT m.id, m.uid, m.read_revision, m.star_revision
+         FROM messages m
+         JOIN folders f ON f.account_id = m.account_id AND f.path = m.folder
+                       AND f.is_present = true AND f.uid_validity IS NOT NULL
+        WHERE m.account_id = $1 AND m.folder = $2
+          AND m.is_deleted = false AND m.metadata_complete = true
+          AND f.uid_validity = $3 AND f.observation_generation = $4`,
+      [account.id, folder, token.uidValidity, token.generation],
+    );
+    return {
+      uidValidity: token.uidValidity,
+      folderGeneration: token.generation,
+      rows: result.rows.map(row => ({
+        id: row.id,
+        uid: Number(row.uid),
+        readRevision: Number(row.read_revision || 0),
+        starRevision: Number(row.star_revision || 0),
+      })),
+    };
   }
 
   // Lightweight flag-only sync: fetch uid+flags for the last 200 messages in INBOX
@@ -2344,6 +3232,10 @@ export class ImapManager {
         try {
           const mailbox = client.mailbox;
           if (!mailbox || !mailbox.exists) return;
+          const selectedValidity = mailbox.uidValidity != null ? Number(mailbox.uidValidity) : null;
+          const pullSnapshot = await this._captureFlagPullSnapshot(
+            account, 'INBOX', selectedValidity,
+          );
 
           const seqCount = 200;
           const fetchRange = mailbox.exists > seqCount
@@ -2356,12 +3248,15 @@ export class ImapManager {
               uid: msg.uid,
               isRead: msg.flags.has('\\Seen'),
               isStarred: msg.flags.has('\\Flagged'),
+              modseq: msg.modseq ?? null,
             });
           }
 
           if (flagsToUpdate.length === 0) return;
 
-          const changed = await this._applyFlagUpdates(account, 'INBOX', flagsToUpdate);
+          const changed = await this._applyFlagUpdates(
+            account, 'INBOX', flagsToUpdate, selectedValidity, null, pullSnapshot,
+          );
           if (changed > 0) {
             console.log(`Flag sync: ${changed} flag change(s) for ${logAccount(account)}, broadcasting`);
             this.broadcast({ type: 'flags_synced', accountId: account.id }, account.user_id);
@@ -2447,7 +3342,7 @@ export class ImapManager {
               COALESCE(SUM(uid), 0)::text AS uidsum,
               COALESCE(MAX(uid), 0)::text AS maxuid
        FROM messages
-       WHERE account_id = $1 AND folder = $2 AND is_deleted = false`,
+       WHERE account_id = $1 AND folder = $2 AND is_deleted = false AND metadata_complete = true`,
       [accountId, folder]
     );
     const r = rows[0] || {};
@@ -2487,48 +3382,14 @@ export class ImapManager {
   }
 
   async syncFolders(account, client) {
+    const topologyToken = await claimMailboxTopology(account.id);
     try {
-      const mailboxes = await client.list();
-      for (const mb of mailboxes) {
-        // \Noselect (e.g. Gmail's "[Gmail]" parent) and \NonExistent mailboxes cannot be
-        // SELECTed. Persist that so role resolvers never route to them and the folder-mapping
-        // UI can hide them — see migration 0047 and mailUtils.mappedFolderUsable.
-        const noSelect = !!(mb.flags && (mb.flags.has('\\Noselect') || mb.flags.has('\\NonExistent')));
-        await query(`
-          INSERT INTO folders (account_id, path, name, delimiter, special_use, no_select)
-          VALUES ($1, $2, $3, $4, $5, $6)
-          ON CONFLICT (account_id, path) DO UPDATE
-          SET name = $3, special_use = $5, no_select = $6, updated_at = NOW()
-        `, [account.id, mb.path, mb.name, mb.delimiter, mb.specialUse || null, noSelect]);
-      }
-      // Many IMAP servers omit INBOX from LIST responses (it is implicit per RFC 3501).
-      // Without a row in folders, subfolders like INBOX/Work have no parent in the map
-      // and fall to the sidebar root instead of nesting correctly.
-      if (!mailboxes.some(mb => mb.path === 'INBOX')) {
-        const delimiter = mailboxes[0]?.delimiter || '/';
-        await query(`
-          INSERT INTO folders (account_id, path, name, delimiter, special_use)
-          VALUES ($1, 'INBOX', 'INBOX', $2, NULL)
-          ON CONFLICT (account_id, path) DO NOTHING
-        `, [account.id, delimiter]);
-      }
-      // Prune rows for folders that no longer exist on the server (renamed or
-      // deleted by another client, or left behind by a pre-fix subtree rename).
-      // Without this, ghost folders duplicate the sidebar tree and every sync
-      // tick keeps trying — and failing — to open their stale paths. Message
-      // rows are left alone: in-app folder deletion already removes them
-      // explicitly, and orphans stop syncing once their folder row is gone.
-      // Guarded on a non-empty LIST so a pathological empty response can't
-      // wipe the account's folder tree.
-      if (mailboxes.length > 0) {
-        await query(
-          `DELETE FROM folders
-           WHERE account_id = $1 AND path != 'INBOX' AND NOT (path = ANY($2))`,
-          [account.id, mailboxes.map(mb => mb.path)]
-        );
-      }
+      const mailboxes = await bufferMailboxTopology(client);
+      await commitMailboxTopology(account.id, topologyToken, mailboxes);
+      return true;
     } catch (err) {
       console.error(`Folder sync error for ${logAccount(account)}:`, err.message);
+      throw err;
     }
   }
 
@@ -2543,19 +3404,38 @@ export class ImapManager {
   // noBodyParts: skip ALL body part fetches (uid/flags/envelope/bodyStructure only).
   // Used for the periodic sync interval so slow servers like purelymail.com don't time out
   // fetching 3+ body parts × 50 messages.  Snippets come from backfill or on-demand fetches.
-  async syncMessages(account, client, folder = 'INBOX', limit = 50, prefetchBody = true, noBodyParts = false) {
+  async syncMessages(
+    account, client, folder = 'INBOX', limit = 50, prefetchBody = true,
+    noBodyParts = false, supersessionRestartsRemaining = 1
+  ) {
     const provider = providerProfile(account);
+    const observationToken = await claimFolderObservation(account.id, folder);
+    const observationContext = { accountId: account.id, tokens: [observationToken] };
+    const observationStartedAt = new Date();
 
     try {
       const lock = await client.getMailboxLock(folder);
       try {
         const mailbox = client.mailbox;
-        if (!mailbox || mailbox.exists === 0) return { insertedCount: 0, broadcastedNewMessages: false };
-
+        if (!mailbox) return { insertedCount: 0, broadcastedNewMessages: false };
         // UIDVALIDITY check — detects server-side mailbox rebuilds (migration, restore).
         // If UIDVALIDITY changed, all stored UIDs for this folder are invalid; purge them
         // and let backfill re-populate from the new UID epoch.
         const currentValidity = mailbox.uidValidity ? Number(mailbox.uidValidity) : null;
+        const assertCurrentSyncEpoch = async (tx) => {
+          const states = await assertObservationContext(tx, account.id, observationContext);
+          const stateRow = states.get(folder);
+          const state = { rows: [stateRow] };
+          const durableValidity = state.rows[0]?.uid_validity != null
+            ? Number(state.rows[0].uid_validity)
+            : null;
+          if (currentValidity == null) return;
+          if (durableValidity !== currentValidity) {
+            const err = new Error(`UIDVALIDITY changed before sync write for ${folder}`);
+            err.code = 'SYNC_UIDVALIDITY_CHANGED';
+            throw err;
+          }
+        };
         // CONDSTORE HIGHESTMODSEQ read at SELECT time (M). ImapFlow auto-enables CONDSTORE on
         // connect, so this is populated on any server that supports it and null otherwise —
         // in which case delta sync transparently falls back to the full UID/sequence phases.
@@ -2570,57 +3450,179 @@ export class ImapManager {
           );
           const storedValidity = foldRow.rows[0]?.uid_validity ? Number(foldRow.rows[0].uid_validity) : null;
           storedModseq = foldRow.rows[0]?.highest_modseq ?? null;
+          if (storedValidity === null) {
+            const seeded = await withTransaction(tx => seedFolderUidValidity(
+              tx, account.id, observationToken, currentValidity,
+            ));
+            Object.assign(observationToken, seeded);
+          }
           if (storedValidity !== null && storedValidity !== currentValidity) {
-            uidValidityChanged = true;
-            console.warn(`UIDVALIDITY changed for ${logAccount(account)}/${folder}: ${storedValidity} → ${currentValidity}. Purging stale messages and re-backfilling.`);
-            const purged = await query('DELETE FROM messages WHERE account_id = $1 AND folder = $2', [account.id, folder]);
-            // The stored modseq belongs to the OLD UIDVALIDITY epoch and is no longer
-            // comparable — clear it so the next sync re-seeds cleanly from the new epoch.
-            await query('UPDATE folders SET highest_modseq = NULL WHERE account_id = $1 AND path = $2', [account.id, folder]);
-            storedModseq = null;
+            // A long-lived selected connection can retain the prior mailbox object after
+            // another connection observes the provider's new epoch. STATUS gives us a fresh
+            // server value before we are allowed to author a durable transition; never let a
+            // stale client rewind the DB to its cached UIDVALIDITY.
+            const status = await client.status(folder, { uidValidity: true });
+            const statusValidity = status?.uidValidity != null ? Number(status.uidValidity) : null;
+            if (statusValidity !== currentValidity) {
+              // The selected sync session is stale, so any process-local pooled session may
+              // be stale too. Fence it even though this sync cannot author the transition.
+              this._evictPool?.(account.id);
+              throw new Error(`UIDVALIDITY changed during sync selection for ${folder}`);
+            }
+            // Serialize the epoch transition with every backfill write by locking the
+            // folder row. Update the epoch before deleting: if an old backfill owns the
+            // lock first, this delete removes anything it committed; if this transition
+            // owns it first, the old backfill wakes, observes the new epoch, and aborts.
+            const transition = await withTransaction(async (tx) => {
+              const lockedRow = await assertFolderObservation(
+                tx, account.id, observationToken, { checkUidValidity: false }
+              );
+              const locked = { rows: [lockedRow] };
+              const lockedValidity = locked.rows[0]?.uid_validity != null
+                ? Number(locked.rows[0].uid_validity)
+                : null;
+              if (lockedValidity === currentValidity) {
+                return { changed: false, purgedCount: 0, modseq: locked.rows[0]?.highest_modseq ?? null };
+              }
+              if (lockedValidity !== storedValidity) {
+                throw new Error(`UIDVALIDITY changed concurrently for ${folder}`);
+              }
+              await tx.query(
+                `UPDATE folders
+                    SET uid_validity = $1, highest_modseq = NULL, backfill_incomplete = true
+                  WHERE account_id = $2 AND path = $3`,
+                [currentValidity, account.id, folder]
+              );
+              const purged = await tx.query(
+                'DELETE FROM messages WHERE account_id = $1 AND folder = $2',
+                [account.id, folder]
+              );
+              return { changed: true, purgedCount: purged.rowCount, modseq: null };
+            });
+            uidValidityChanged = transition.changed;
+            storedModseq = transition.modseq;
+            observationToken.uidValidity = String(currentValidity);
+            if (!transition.changed) {
+              // Another sync completed this epoch transition while we waited.
+              console.log(`UIDVALIDITY transition already applied for ${logAccount(account)}/${folder}`);
+            } else {
+              console.warn(`UIDVALIDITY changed for ${logAccount(account)}/${folder}: ${storedValidity} → ${currentValidity}. Purging stale messages and re-backfilling.`);
+            }
+            // Pooled UID consumers (body/header/attachment fetches and reconcile) may still
+            // be selected on the old epoch. Every process that observes the completed
+            // transition must evict its own process-local pool, not only the transaction
+            // winner. Hard close makes this an immediate fence for in-flight commands.
+            this._evictPool?.(account.id);
             // A UIDVALIDITY purge drops every row for this folder — including any GTD thread's copy
             // here — so refresh GTD section data like the other sync-delete paths. Backfill re-populates
             // below; the emit just avoids a stale gap. See emitSectionsChanged.
-            await emitSectionsChanged(this.pluginFacade, account, purged.rowCount);
+            await emitSectionsChanged(this.pluginFacade, account, transition.purgedCount);
             // Route through the per-host backfill cap too: a provider-side mailbox rebuild
             // can reset UIDVALIDITY across many accounts/folders at once, which would
             // otherwise flood connections on exactly the many-account-per-provider setup the
             // cap protects. Acquire at the call site (not inside backfillMessages) —
             // backfillAllFolders already holds the slot while calling it per folder, so an
             // internal acquire would self-deadlock at the limit.
-            const reindexHost = (account.imap_host || '').toLowerCase();
-            setImmediate(async () => {
-              await this._bgConnSem.acquire(reindexHost);
-              try {
-                await this.backfillMessages(account, folder);
-              } catch (err) {
-                console.error(`Post-UIDVALIDITY backfill error for ${logAccount(account)}/${folder}:`, err.message);
-              } finally {
-                this._bgConnSem.release(reindexHost);
-              }
-            });
+            if (transition.changed && mailbox.exists > 0) {
+              const reindexHost = (account.imap_host || '').toLowerCase();
+              const reindexKey = `${account.id}:${folder}`;
+              setImmediate(async () => {
+                // A transition can be discovered by normal sync while an old-epoch backfill
+                // still owns the per-folder slot. Wait for that run to observe the fence and
+                // unwind; otherwise the one scheduled repair would return false immediately.
+                while (this.backfillRunning?.has(reindexKey)) {
+                  await new Promise(resolve => setTimeout(resolve, 100));
+                }
+                await this._bgConnSem.acquire(reindexHost);
+                try {
+                  await this.backfillMessages(account, folder);
+                } catch (err) {
+                  console.error(`Post-UIDVALIDITY backfill error for ${logAccount(account)}/${folder}:`, err.message);
+                } finally {
+                  this._bgConnSem.release(reindexHost);
+                }
+              });
+            }
           }
+          // This also closes the cross-process observer gap: another process may already
+          // have committed the new epoch, making stored===selected here while our local
+          // pool still contains sessions selected under the prior epoch. Run for every
+          // folder, including INBOX, and also record locally-authored transitions.
+          this._observeSyncEpoch?.(account.id, folder, currentValidity);
+        }
+
+        if (mailbox.exists === 0) {
+          // An empty SELECT is still authoritative state. In particular, a provider can
+          // recreate a mailbox at a new UIDVALIDITY with zero messages; returning before
+          // the epoch transition would strand old-epoch rows forever. Reconcile under the
+          // same folder-row lock used by backfill so an old writer cannot reinsert after us.
+          const emptied = await withTransaction(async (tx) => {
+            const lockedRow = await assertFolderObservation(tx, account.id, observationToken);
+            const locked = { rows: [lockedRow] };
+            const lockedValidity = locked.rows[0]?.uid_validity != null
+              ? Number(locked.rows[0].uid_validity)
+              : null;
+            if (currentValidity != null && lockedValidity != null && lockedValidity !== currentValidity) {
+              throw new Error(`UIDVALIDITY changed while reconciling empty ${folder}`);
+            }
+            const purged = await tx.query(
+              `DELETE FROM messages
+                WHERE account_id = $1 AND folder = $2
+                  AND (synced_at IS NULL OR synced_at < $3)`,
+              [account.id, folder, observationStartedAt]
+            );
+            await tx.query(
+              `UPDATE folders f
+                  SET total_count = stats.complete_count,
+                      unread_count = stats.unread_count,
+                      backfill_incomplete = CASE
+                        WHEN stats.row_count = 0 THEN false
+                        ELSE f.backfill_incomplete OR stats.incomplete_count > 0
+                      END,
+                      uid_validity = COALESCE($1, f.uid_validity), updated_at = NOW()
+                 FROM (
+                   SELECT COUNT(*) FILTER (WHERE metadata_complete = true) AS complete_count,
+                          COUNT(*) FILTER (WHERE metadata_complete = true AND is_read = false) AS unread_count,
+                          COUNT(*) AS row_count,
+                          COUNT(*) FILTER (WHERE metadata_complete = false) AS incomplete_count
+                     FROM messages
+                    WHERE account_id = $2 AND folder = $3 AND is_deleted = false
+                 ) stats
+                WHERE f.account_id = $2 AND f.path = $3`,
+              [currentValidity, account.id, folder]
+            );
+            return purged.rowCount;
+          });
+          await emitSectionsChanged(this.pluginFacade, account, emptied);
+          return { insertedCount: 0, broadcastedNewMessages: false };
         }
 
         // mailbox.unseen from IMAP SELECT is the sequence number of the first unseen
         // message, NOT the count of unread messages.  Compute the real count from the
         // messages table instead — accurate post-backfill and never inflated.
         const { rows: [ucRow] } = await query(
-          `SELECT COUNT(*) FILTER (WHERE is_read = false) AS n FROM messages WHERE account_id = $1 AND folder = $2`,
+          `SELECT COUNT(*) FILTER (WHERE is_read = false) AS n FROM messages
+           WHERE account_id = $1 AND folder = $2 AND is_deleted = false AND metadata_complete = true`,
           [account.id, folder]
         );
         const dbUnreadCount = parseInt(ucRow.n || 0);
-        await query(`
-          INSERT INTO folders (account_id, path, name, total_count, unread_count, uid_validity)
-          VALUES ($1, $2, $2, $3, $4, $5)
-          ON CONFLICT (account_id, path) DO UPDATE
-          SET total_count = $3, unread_count = $4, uid_validity = COALESCE($5, folders.uid_validity), updated_at = NOW()
-        `, [account.id, folder, mailbox.exists, dbUnreadCount, currentValidity]);
+        await withTransaction(async (tx) => {
+          await assertCurrentSyncEpoch(tx);
+          await tx.query(
+            `UPDATE folders
+                SET total_count = $3,
+                    unread_count = $4,
+                    uid_validity = COALESCE($5, uid_validity),
+                    updated_at = NOW()
+              WHERE account_id = $1 AND path = $2`,
+            [account.id, folder, mailbox.exists, dbUnreadCount, currentValidity],
+          );
+        });
 
         // Omit body parts for providers that throttle BODY[] fetches, and when
         // noBodyParts is set. Envelope/flags/uid/bodyStructure always fetched.
         const fetchQuery = {
-          uid: true, flags: true, envelope: true,
+          uid: true, flags: true, modseq: true, envelope: true,
           bodyStructure: true,
           size: true,
           internalDate: true,
@@ -2641,6 +3643,14 @@ export class ImapManager {
         let newMessages = [];
         let insertedCount = 0;
         let broadcastedNewMessages = false;
+        let metadataRetryDeferred = false;
+        let pullSnapshot = null;
+        let warnedIncompleteFetch = false;
+        const warnIncompleteFetch = () => {
+          if (warnedIncompleteFetch) return;
+          warnedIncompleteFetch = true;
+          console.warn(`Message sync deferred incomplete metadata for ${logAccount(account)}/${folder}; retrying on a later sync`);
+        };
 
         // Inbox-ingest facts core hands to plugins after this batch (via the `inboxIngest` hook):
         //   • newInboxIds — the id of every row this sync newly inserts into INBOX, read or unread.
@@ -2658,12 +3668,6 @@ export class ImapManager {
         const newInboxIds = [];
         const ingestDeletedIds = new Set();
 
-        // Relocate-exempt label folders for this account (empty when no label plugin is
-        // active). Loaded once per sync — the plugins' folder sets are cheap/cached — so the
-        // relocate guard keeps a labeled message's sibling rows instead of collapsing them
-        // onto whichever folder synced last. See relocateMessageQuery / collectRelocateExemptFolders.
-        const exemptFolders = await collectRelocateExemptFolders(account);
-
         // Insert/update a single fetched message and track it as new if appropriate.
         // Called from both Phase 1 and Phase 2; ON CONFLICT handles deduplication so
         // a message processed in both phases is never double-counted.
@@ -2679,7 +3683,7 @@ export class ImapManager {
             });
             if (!parsed.uid) {
               console.warn(`Message sync skipped: IMAP FETCH returned no UID for ${account.email}/${folder}`);
-              return;
+              return false;
             }
             let safeHtml = null, text = null, atts = [];
             if (prefetchBody && provider.fetchBody) {
@@ -2693,18 +3697,6 @@ export class ImapManager {
             const refs = sanitizeStr(parsed.references);
             const threadId = await computeThreadId(account.id, msgId, inReplyTo, refs, sanitizeStr(parsed.subject));
 
-            // If a row with this message_id already exists for this account at a
-            // different (folder, uid), it was moved. Relocate it in-place rather
-            // than inserting a duplicate. The COUNT=1 guard prevents incorrectly
-            // merging Gmail's virtual-folder copies (same message_id in INBOX and
-            // [Gmail]/All Mail simultaneously).
-            if (msgId) {
-              const { sql: relocateSql, params: relocateParams } =
-                relocateMessageQuery(folder, parsed, account.id, msgId, exemptFolders);
-              const relocated = await query(relocateSql, relocateParams);
-              if (relocated.rows.length > 0) return;
-            }
-
             let msgCategory = null;
             if (account.categorization_enabled || await getGlobalCategorizationEnabled(account.user_id)) {
               try {
@@ -2714,8 +3706,10 @@ export class ImapManager {
               } catch { /* non-fatal — leave category NULL */ }
             }
 
-            const result = await query(`
-              INSERT INTO messages (
+            const result = await withTransaction(async (tx) => {
+              await assertCurrentSyncEpoch(tx);
+              const insertResult = await tx.query(`
+                INSERT INTO messages (
                 account_id, uid, folder, message_id, subject,
                 from_name, from_email, to_addresses, cc_addresses,
                 reply_to, in_reply_to,
@@ -2726,80 +3720,38 @@ export class ImapManager {
                 sender_name, sender_email
               ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
               ON CONFLICT (account_id, uid, folder) DO UPDATE
-              SET subject = CASE
-                    WHEN EXCLUDED.subject IS NOT NULL
-                         AND EXCLUDED.subject != ''
-                         AND EXCLUDED.subject != '(no subject)'
-                    THEN EXCLUDED.subject
-                    ELSE messages.subject
-                  END,
-                  from_name = COALESCE(NULLIF(EXCLUDED.from_name, ''), messages.from_name),
-                  from_email = COALESCE(NULLIF(EXCLUDED.from_email, ''), messages.from_email),
-                  to_addresses = CASE
-                    WHEN EXCLUDED.to_addresses::text IS NOT NULL AND EXCLUDED.to_addresses::text <> '[]'
-                    THEN EXCLUDED.to_addresses
-                    ELSE messages.to_addresses
-                  END,
-                  cc_addresses = CASE
-                    WHEN EXCLUDED.cc_addresses::text IS NOT NULL AND EXCLUDED.cc_addresses::text <> '[]'
-                    THEN EXCLUDED.cc_addresses
-                    ELSE messages.cc_addresses
-                  END,
-                  reply_to = COALESCE(NULLIF(messages.reply_to::text, '[]'), EXCLUDED.reply_to::text)::jsonb,
-                  in_reply_to = COALESCE(messages.in_reply_to, EXCLUDED.in_reply_to),
-                  snippet = CASE WHEN EXCLUDED.snippet != '' THEN EXCLUDED.snippet
-                                 ELSE messages.snippet END,
-                  is_read = CASE
-                    WHEN messages.read_changed_at IS NOT NULL
-                         AND NOW() - messages.read_changed_at < interval '30 seconds'
-                    THEN messages.is_read
-                    ELSE EXCLUDED.is_read
-                  END,
-                  is_starred = CASE
-                    WHEN messages.star_changed_at IS NOT NULL
-                         AND NOW() - messages.star_changed_at < interval '30 seconds'
-                    THEN messages.is_starred
-                    ELSE EXCLUDED.is_starred
-                  END,
-                  flags = $17,
-                  body_html = COALESCE(messages.body_html, EXCLUDED.body_html),
-                  body_text = COALESCE(messages.body_text, EXCLUDED.body_text),
-                  attachments = COALESCE(messages.attachments::text, EXCLUDED.attachments::text)::jsonb,
-                  thread_references = COALESCE(messages.thread_references, EXCLUDED.thread_references),
-                  -- #378: heal a row that was self-rooted (thread_id = its own Message-ID, e.g. a
-                  -- sent copy orphaned by an older upsert) by adopting the real conversation root
-                  -- the sync just computed. Genuine thread roots keep their value (EXCLUDED equals it).
-                  thread_id = CASE
-                    WHEN messages.thread_id = messages.message_id
-                         AND EXCLUDED.thread_id IS NOT NULL
-                         AND EXCLUDED.thread_id <> messages.message_id
-                    THEN EXCLUDED.thread_id
-                    ELSE COALESCE(messages.thread_id, EXCLUDED.thread_id)
-                  END,
-                  is_bulk = COALESCE(messages.is_bulk, EXCLUDED.is_bulk),
-                  category = COALESCE(messages.category, EXCLUDED.category),
-                  list_unsubscribe = COALESCE(messages.list_unsubscribe, EXCLUDED.list_unsubscribe),
-                  list_unsubscribe_post = COALESCE(messages.list_unsubscribe_post, EXCLUDED.list_unsubscribe_post),
-                  delivery_addresses = COALESCE(messages.delivery_addresses, EXCLUDED.delivery_addresses),
-                  sender_name = COALESCE(EXCLUDED.sender_name, messages.sender_name),
-                  sender_email = COALESCE(EXCLUDED.sender_email, messages.sender_email)
-              RETURNING id, (xmax = 0) as is_new
-            `, [
-              account.id, parsed.uid, folder,
-              msgId, sanitizeStr(parsed.subject),
-              sanitizeStr(parsed.fromName), sanitizeStr(parsed.fromEmail),
-              JSON.stringify(parsed.to), JSON.stringify(parsed.cc),
-              JSON.stringify(parsed.replyTo || []), inReplyTo,
-              safeDate(parsed.date), sanitizeStr(parsed.snippet),
-              parsed.isRead, parsed.isStarred,
-              parsed.hasAttachments, JSON.stringify(parsed.flags),
-              sanitizeStr(safeHtml), sanitizeStr(text), JSON.stringify(atts || []),
-              refs, threadId, parsed.isBulk ?? null, msgCategory,
-              sanitizeStr(decodeMimeWords(parsed.parsedHeaders?.['list-unsubscribe'] ?? null)),
-              sanitizeStr(decodeMimeWords(parsed.parsedHeaders?.['list-unsubscribe-post'] ?? null)),
-              JSON.stringify(parsed.deliveryAddresses || []),
-              sanitizeStr(parsed.senderName), sanitizeStr(parsed.senderEmail),
-            ]);
+              SET ${COMPLETE_METADATA_CONFLICT_UPDATE_SQL}
+                RETURNING id, (xmax = 0) as is_new
+              `, [
+                account.id, parsed.uid, folder,
+                msgId, sanitizeStr(parsed.subject),
+                sanitizeStr(parsed.fromName), sanitizeStr(parsed.fromEmail),
+                JSON.stringify(parsed.to), JSON.stringify(parsed.cc),
+                JSON.stringify(parsed.replyTo || []), inReplyTo,
+                safeDate(parsed.date), sanitizeStr(parsed.snippet),
+                parsed.isRead, parsed.isStarred,
+                parsed.hasAttachments, JSON.stringify(parsed.flags),
+                sanitizeStr(safeHtml), sanitizeStr(text), JSON.stringify(atts || []),
+                refs, threadId, parsed.isBulk ?? null, msgCategory,
+                sanitizeStr(decodeMimeWords(parsed.parsedHeaders?.['list-unsubscribe'] ?? null)),
+                sanitizeStr(decodeMimeWords(parsed.parsedHeaders?.['list-unsubscribe-post'] ?? null)),
+                JSON.stringify(parsed.deliveryAddresses || []),
+                sanitizeStr(parsed.senderName), sanitizeStr(parsed.senderEmail),
+              ]);
+
+              // Keep the inserted row and conversation repair atomic. If the
+              // propagation fails, rolling back the insert leaves this UID
+              // eligible for the next exact-diff retry.
+              if (threadId && threadId !== msgId) {
+                await tx.query(
+                  `UPDATE messages SET thread_id = $1
+                   WHERE account_id = $2 AND thread_id = $3 AND message_id != $3`,
+                  [threadId, account.id, msgId]
+                );
+              }
+
+              return insertResult;
+            });
             if (result.rows[0]?.is_new) {
               insertedCount++;
               // Inbox-ingest candidate: any newly-inserted INBOX row, read OR unread (read state
@@ -2813,18 +3765,55 @@ export class ImapManager {
                 newMessages.push({ ...parsed, id: result.rows[0].id, accountId: account.id, folder });
               }
             }
-            // Propagate resolved thread_id to any earlier messages that used this
-            // message as a provisional thread root (out-of-order delivery / sync).
-            if (threadId && threadId !== msgId) {
-              await query(
-                `UPDATE messages SET thread_id = $1
-                 WHERE account_id = $2 AND thread_id = $3 AND message_id != $3`,
-                [threadId, account.id, msgId]
-              );
-            }
+            return true;
           } catch (parseErr) {
+            if (parseErr?.code === 'SYNC_UIDVALIDITY_CHANGED' || isFolderObservationError(parseErr)) throw parseErr;
             console.error('Message sync parse error:', parseErr.message);
+            return false;
           }
+        };
+
+        // Preserve the UID watermark as a retry floor. If one candidate is incomplete, a
+        // later valid UID must not be inserted first or MAX(uid) would leap past the gap and
+        // periodic sync would never request the incomplete message again.
+        const processMetadataBatch = async (messages, expectedCount = null) => {
+          const ordered = [...messages].sort((a, b) => Number(a.uid) - Number(b.uid));
+          const returnedUids = new Set(ordered
+            .map(msg => Number(msg?.uid))
+            .filter(Number.isFinite));
+          if ((expectedCount != null && returnedUids.size !== expectedCount)
+              || ordered.some(msg => !hasFetchedEnvelope(msg))) {
+            metadataRetryDeferred = true;
+            warnIncompleteFetch();
+            return false;
+          }
+          for (const msg of ordered) {
+            if (!await processMsg(msg)) {
+              metadataRetryDeferred = true;
+              warnIncompleteFetch();
+              return false;
+            }
+          }
+          if (pullSnapshot) {
+            const changed = await ImapManager.prototype._applyFlagUpdates.call(
+              this,
+              account,
+              folder,
+              ordered.map(msg => ({
+                uid: msg.uid,
+                isRead: msg.flags?.has?.('\\Seen') === true,
+                isStarred: msg.flags?.has?.('\\Flagged') === true,
+                modseq: msg.modseq ?? null,
+              })),
+              currentValidity,
+              observationContext,
+              pullSnapshot,
+            );
+            if (changed > 0) {
+              this.broadcast({ type: 'flags_synced', accountId: account.id }, account.user_id);
+            }
+          }
+          return true;
         };
 
         // Fetch strategy. The UID-watermark phase below catches new mail only when the local
@@ -2838,20 +3827,51 @@ export class ImapManager {
           maxKnownUid,
           serverExists: mailbox.exists,
         });
+        if (observationToken.uidValidity != null && observationToken.generation != null) {
+          pullSnapshot = await ImapManager.prototype._captureFlagPullSnapshot.call(
+            this,
+            account, folder, currentValidity, observationToken,
+          );
+        }
 
         // ── New-mail phase — UID-watermark safety net for a populated local cache. Fetches only
         // UIDs above the highest we already have — usually just the newest message, then a no-op
         // upsert. When no local UID exists, the full plan above owns metadata ingestion instead.
         if (maxKnownUid > 0) {
           try {
-            for await (const msg of client.fetch(`${maxKnownUid + 1}:*`, fetchQuery, { uid: true })) {
-              await processMsg(msg);
+            // Search first so work scales with actual messages rather than numeric UID distance.
+            // `n:*` has reversed-range semantics when n is above the server's current maximum,
+            // so filter the SEARCH result strictly above our local watermark before fetching.
+            const candidateResult = await client.search(
+              { uid: `${maxKnownUid + 1}:*` },
+              { uid: true }
+            );
+            if (!Array.isArray(candidateResult)) {
+              metadataRetryDeferred = true;
+              warnIncompleteFetch();
+            } else {
+              const candidateUids = [...new Set(candidateResult
+                .map(Number)
+                .filter(uid => Number.isFinite(uid) && uid > maxKnownUid))]
+                .sort((a, b) => a - b);
+
+              for (let offset = 0; offset < candidateUids.length; offset += METADATA_SYNC_BATCH_SIZE) {
+                const batchUids = candidateUids.slice(offset, offset + METADATA_SYNC_BATCH_SIZE);
+                const newMailCandidates = await fetchCompleteMetadataBatch(client, batchUids, fetchQuery);
+                if (newMailCandidates === null) {
+                  metadataRetryDeferred = true;
+                  warnIncompleteFetch();
+                  break;
+                }
+                if (!await processMetadataBatch(newMailCandidates)) break;
+              }
             }
           } catch (err) {
             if (!extractImapError(err).toLowerCase().includes('invalid messageset')) throw err;
-            // UID range became stale due to concurrent expunge between SELECT and FETCH.
-            // Non-fatal — next sync will catch up.
-            console.warn(`New-mail sync skipped for ${logAccount(account)}/${folder}: stale UID range after concurrent expunge`);
+            // SEARCH or an exact candidate FETCH became stale after a concurrent EXPUNGE.
+            // Preserve the retry floor and keep later phases from advancing past the gap.
+            metadataRetryDeferred = true;
+            warnIncompleteFetch();
           }
         }
 
@@ -2860,8 +3880,8 @@ export class ImapManager {
         // Bounded by FLAG_SCAN_TIMEOUT_MS: if a throttled connection makes it crawl, we DEFER it
         // (flagScanComplete=false) and skip advancing the watermark, so it retries next tick with
         // nothing lost — rather than burning the whole-sync budget and forcing a reconnect.
-        let flagScanComplete = true;
-        if (plan === 'delta') {
+        let flagScanComplete = !metadataRetryDeferred;
+        if (!metadataRetryDeferred && plan === 'delta') {
           // Flag-only scan. The only thing that changes on an EXISTING message is its flags
           // (read/star) — new mail is the UID phase's job — so fetch just uid+flags over a recent
           // UID window and bulk-apply. Deliberately lightweight: iCloud advertises CONDSTORE (so
@@ -2874,8 +3894,13 @@ export class ImapManager {
           const flagsToUpdate = [];
           try {
             const scan = (async () => {
-              for await (const msg of client.fetch(`${deltaLow}:*`, { uid: true, flags: true }, { uid: true, changedSince: BigInt(storedModseq) })) {
-                flagsToUpdate.push({ uid: msg.uid, isRead: msg.flags.has('\\Seen'), isStarred: msg.flags.has('\\Flagged') });
+              for await (const msg of client.fetch(`${deltaLow}:*`, { uid: true, flags: true, modseq: true }, { uid: true, changedSince: BigInt(storedModseq) })) {
+                flagsToUpdate.push({
+                  uid: msg.uid,
+                  isRead: msg.flags.has('\\Seen'),
+                  isStarred: msg.flags.has('\\Flagged'),
+                  modseq: msg.modseq ?? null,
+                });
               }
             })();
             // If the timeout wins the race, the fetch keeps running until ImapFlow's commandTimeout
@@ -2900,7 +3925,9 @@ export class ImapManager {
           // so the next tick redoes it. A flag change has no new_messages event of its own, so a
           // flags_synced nudge lets a read-elsewhere reflect live instead of staying stale.
           if (flagScanComplete) {
-            const changed = await this._applyFlagUpdates(account, folder, flagsToUpdate);
+            const changed = await this._applyFlagUpdates(
+              account, folder, flagsToUpdate, currentValidity, observationContext, pullSnapshot
+            );
             logger.debug(`Delta flag scan OK for ${logAccount(account)}/${folder}: ${flagsToUpdate.length} fetched, ${changed} changed in ${Date.now() - deltaStartedAt}ms (uid>=${deltaLow}), modseq ${storedModseq}->${serverModseq}`);
             if (changed > 0) {
               this.broadcast({ type: 'flags_synced', accountId: account.id }, account.user_id);
@@ -2911,7 +3938,7 @@ export class ImapManager {
               await emitSectionsChanged(this.pluginFacade, account, changed);
             }
           }
-        } else if (plan === 'full') {
+        } else if (!metadataRetryDeferred && plan === 'full') {
           // A missing/invalid modseq baseline or an incomplete local cache requires a recent
           // sequence scan with full metadata. Re-read exists from the live connection — ImapFlow
           // may have decremented it if an EXPUNGE arrived during the UID phase, making a range
@@ -2920,12 +3947,18 @@ export class ImapManager {
           // older un-cached messages in a large folder are backfill's job, not this scan's; backfill
           // runs on connect/reconnect/reindex and its dbCount-vs-serverTotal check re-detects the gap.
           const liveExists = client.mailbox?.exists ?? 0;
-          const phase2Range = liveExists > limit
-            ? `${liveExists - limit + 1}:${liveExists}` : '1:*';
+          const expectedMetadataCount = Math.min(liveExists, limit);
+          const phase2Range = expectedMetadataCount === 0
+            ? null
+            : liveExists > limit
+              ? `${liveExists - limit + 1}:${liveExists}`
+              : `1:${liveExists}`;
           try {
+            const fullMetadataBatch = [];
             const scan = (async () => {
+              if (!phase2Range) return;
               for await (const msg of client.fetch(phase2Range, fetchQuery)) {
-                await processMsg(msg);
+                fullMetadataBatch.push(msg);
               }
             })();
             scan.catch(() => {}); // see the delta branch — swallow a post-timeout late rejection
@@ -2936,6 +3969,8 @@ export class ImapManager {
             if (outcome === FLAG_SCAN_TIMED_OUT) {
               flagScanComplete = false;
               console.warn(`Sequence flag scan deferred for ${logAccount(account)}/${folder}: over ${FLAG_SCAN_TIMEOUT_MS}ms (provider throttling) — retrying next tick`);
+            } else if (!await processMetadataBatch(fullMetadataBatch, expectedMetadataCount)) {
+              flagScanComplete = false;
             }
           } catch (err) {
             if (!extractImapError(err).toLowerCase().includes('invalid messageset')) throw err;
@@ -2953,10 +3988,15 @@ export class ImapManager {
         // advancing past an incomplete scan would drop those flag changes. Skipped when nothing
         // changed (already equal) and on a UIDVALIDITY reset (reseed from the new epoch instead).
         if (serverModseq != null && !uidValidityChanged && plan !== 'unchanged' && flagScanComplete) {
-          await query(
-            'UPDATE folders SET highest_modseq = $1 WHERE account_id = $2 AND path = $3',
-            [serverModseq.toString(), account.id, folder]
-          );
+          await withTransaction(async (tx) => {
+            await assertCurrentSyncEpoch(tx);
+            await tx.query(
+              `UPDATE folders SET highest_modseq = $1
+                WHERE account_id = $2 AND path = $3
+                  AND ($4::bigint IS NULL OR uid_validity = $4)`,
+              [serverModseq.toString(), account.id, folder, currentValidity]
+            );
+          });
         }
 
         if (newMessages.length > 0) {
@@ -2969,12 +4009,12 @@ export class ImapManager {
             // re-eval below can exclude any they move out of INBOX. Only needed with an ingest plugin.
             const unreadBeforeRules = wantsInboxIngest ? newMessages.map(m => m.id) : null;
             try {
-              newMessages = await applyBlockList(newMessages, account, this);
+              newMessages = await applyBlockList(newMessages, account, this, observationContext);
             } catch (err) {
               console.error('blockList error:', err.message);
             }
             try {
-              const rulesResult = await applyInboxRules(newMessages, account, this);
+              const rulesResult = await applyInboxRules(newMessages, account, this, observationContext);
               newMessages = rulesResult.remaining;
               mutedIds = rulesResult.mutedIds;
             } catch (err) {
@@ -3033,7 +4073,8 @@ export class ImapManager {
             query(
               `SELECT COUNT(*)::int AS total FROM messages m
                JOIN email_accounts a ON a.id = m.account_id
-               WHERE a.user_id = $1 AND a.enabled = true AND m.folder = 'INBOX' AND m.is_read = false AND m.is_deleted = false`,
+               WHERE a.user_id = $1 AND a.enabled = true AND m.folder = 'INBOX'
+                 AND m.is_read = false AND m.is_deleted = false AND m.metadata_complete = true`,
               [account.user_id]
             ).then(r => {
               sendPushToUser(account.user_id, { ...basePayload, unreadCount: r.rows[0]?.total ?? 0 })
@@ -3093,20 +4134,43 @@ export class ImapManager {
         // without this an on-demand folder (e.g. Junk/Spam, which has no follow-up tick) keeps
         // showing the pre-sync count until it is opened again. Mirrors the recompute that backfill
         // and reconcileDeletes already run; total_count keeps the server EXISTS value set above.
-        await query(
-          `UPDATE folders
-           SET unread_count = (SELECT COUNT(*) FILTER (WHERE m.is_read = false)
-                               FROM messages m WHERE m.account_id = $1 AND m.folder = $2)
-           WHERE account_id = $1 AND path = $2`,
-          [account.id, folder]
-        );
-        await query('UPDATE email_accounts SET last_sync = NOW() WHERE id = $1', [account.id]);
+        const reconciledServerTotal = Number(client.mailbox?.exists ?? mailbox.exists ?? 0);
+        await withTransaction(async (tx) => {
+          if (observationContext.tokens.length > 0) await assertObservationContext(tx, account.id, observationContext);
+          else await lockFolderRows(tx, account.id, [folder]);
+          await tx.query(
+            `UPDATE folders
+             SET total_count = $3,
+                 unread_count = (SELECT COUNT(*) FILTER (WHERE m.is_read = false)
+                                 FROM messages m WHERE m.account_id = $1 AND m.folder = $2
+                                   AND m.is_deleted = false AND m.metadata_complete = true)
+             WHERE account_id = $1 AND path = $2`,
+            [account.id, folder, reconciledServerTotal]
+          );
+          await tx.query(
+            'UPDATE email_accounts SET last_sync = NOW() WHERE id = $1',
+            [account.id]
+          );
+        });
         return { insertedCount, broadcastedNewMessages };
       } finally {
         lock.release();
       }
     } catch (err) {
       console.error(`Message sync error for ${logAccount(account)}/${folder}:`, extractImapError(err));
+      const superseded = err?.code === 'SYNC_UIDVALIDITY_CHANGED' || isFolderObservationError(err);
+      if (superseded) {
+        try { client.close(); } catch { /* already closed */ }
+      }
+      if (superseded && supersessionRestartsRemaining > 0) {
+        // One fresh-login retry gives this operation a new SELECT/UID set without
+        // allowing competing observers to create an unbounded recursive retry loop.
+        return this._withFreshSyncSession(account, (freshClient) =>
+          ImapManager.prototype.syncMessages.call(
+            this, account, freshClient, folder, limit, prefetchBody, noBodyParts,
+            supersessionRestartsRemaining - 1
+          ));
+      }
       throw err;
     }
   }
@@ -3121,25 +4185,111 @@ export class ImapManager {
   //      quickly even on a fresh account with tens of thousands of messages.
   //   4. For non-Gmail providers also store body_html/body_text during backfill so
   //      clicking an old email never needs a live IMAP round-trip.
-  async backfillMessages(account, folder = 'INBOX') {
+  async backfillMessages(account, folder = 'INBOX', restartOnSupersession = true) {
     const backfillKey = `${account.id}:${folder}`;
-    if (this.backfillRunning.has(backfillKey)) return;
+    if (this.backfillRunning.has(backfillKey)) return false;
     this.backfillRunning.add(backfillKey);
 
     // Spread into a local copy so per-run mutations (e.g. batchSize reduction on rate-limit)
     // don't permanently modify the shared PROVIDERS singleton for other accounts.
     const cfg = { ...providerProfile(account) };
 
-    // Relocate-exempt label folders for this account (empty when no label plugin is active).
-    // Loaded once per backfill — the plugins' folder sets are cheap/cached — so the relocate
-    // guard keeps labeled messages' sibling rows. See relocateMessageQuery /
-    // collectRelocateExemptFolders.
-    const exemptFolders = await collectRelocateExemptFolders(account);
-
     // Dedicated connection managed here — completely independent of the shared pool
     // so backfilling never blocks the user from opening emails.
     let bfClient = null;
     let batchesOnConn = 0;
+    let backfillUidValidity = null;
+    let backfillObservationToken = null;
+    let observationStartedAt = null;
+
+    const backfillEpochError = (observed, source) => {
+      const err = new Error(`Backfill UIDVALIDITY changed from ${backfillUidValidity} to ${observed} (${source})`);
+      err.code = 'BACKFILL_UIDVALIDITY_CHANGED';
+      return err;
+    };
+
+    const assertBackfillEpoch = () => {
+      const selectedValidity = bfClient?.mailbox?.uidValidity != null
+        ? Number(bfClient.mailbox.uidValidity)
+        : null;
+      if (backfillUidValidity == null) {
+        backfillUidValidity = selectedValidity;
+      } else if (selectedValidity != null && selectedValidity !== backfillUidValidity) {
+        throw backfillEpochError(selectedValidity, 'selected mailbox');
+      }
+      return selectedValidity;
+    };
+
+    const assertStoredBackfillEpoch = async (runQuery = query, { lock = false } = {}) => {
+      if (backfillUidValidity == null) return;
+      const stored = await runQuery(
+        `SELECT uid_validity FROM folders WHERE account_id = $1 AND path = $2${lock ? ' FOR UPDATE' : ''}`,
+        [account.id, folder]
+      );
+      const storedValidity = stored.rows[0]?.uid_validity != null
+        ? Number(stored.rows[0].uid_validity)
+        : null;
+      if (storedValidity !== backfillUidValidity) {
+        throw backfillEpochError(storedValidity, 'folder state');
+      }
+    };
+
+    const withBackfillEpochFence = (callback) => withTransaction(async (tx) => {
+      if (backfillObservationToken) {
+        await assertFolderObservation(tx, account.id, backfillObservationToken);
+      }
+      await assertStoredBackfillEpoch((sql, params) => tx.query(sql, params), { lock: true });
+      return callback(tx);
+    });
+
+    const completeBackfill = async ({ empty = false } = {}) => {
+      return withBackfillEpochFence(async (tx) => {
+        if (empty) {
+          const newer = await tx.query(
+            `SELECT 1 FROM messages
+              WHERE account_id = $1 AND folder = $2 AND synced_at >= $3
+              LIMIT 1`,
+            [account.id, folder, observationStartedAt]
+          );
+          if (newer.rows.length > 0) return false;
+        }
+        const completed = empty
+          ? await tx.query(
+              `UPDATE folders
+                  SET total_count = 0, unread_count = 0, backfill_incomplete = false
+                WHERE account_id = $1 AND path = $2
+                RETURNING path`,
+              [account.id, folder]
+            )
+          : await tx.query(
+              `UPDATE folders
+                  SET total_count  = (SELECT COUNT(*) FROM messages m
+                                       WHERE m.account_id = $1 AND m.folder = $2
+                                         AND m.is_deleted = false AND m.metadata_complete = true),
+                      unread_count = (SELECT COUNT(*) FILTER (WHERE is_read = false) FROM messages m
+                                       WHERE m.account_id = $1 AND m.folder = $2
+                                         AND m.is_deleted = false AND m.metadata_complete = true),
+                      backfill_incomplete = false
+                WHERE account_id = $1 AND path = $2
+                RETURNING path`,
+              [account.id, folder]
+            );
+        if (completed.rowCount === 0 && completed.rows.length === 0) {
+          throw new Error(`Backfill folder disappeared for ${logAccount(account)}/${folder}`);
+        }
+        return true;
+      });
+    };
+
+    const verifyBackfillEpoch = async () => {
+      const lock = await bfClient.getMailboxLock(folder);
+      try {
+        assertBackfillEpoch();
+        await assertStoredBackfillEpoch();
+      } finally {
+        lock.release();
+      }
+    };
 
     const openBfClient = async () => {
       // Always clean up any existing client before creating a new one
@@ -3166,20 +4316,33 @@ export class ImapManager {
       // A false skip is self-correcting: the next reconnect or explicit sync will
       // re-evaluate, and syncMessages independently checks UIDVALIDITY changes.
       const folderMeta = await query(
-        'SELECT uid_validity, total_count FROM folders WHERE account_id = $1 AND path = $2',
+        'SELECT uid_validity, total_count, backfill_incomplete FROM folders WHERE account_id = $1 AND path = $2',
         [account.id, folder]
       );
       const meta = folderMeta.rows[0];
-      if (meta?.uid_validity && meta.total_count > 0) {
+      if (meta?.uid_validity && meta.total_count > 0 && !meta.backfill_incomplete) {
         const countRow = await query(
           'SELECT COUNT(*) AS n FROM messages WHERE account_id = $1 AND folder = $2 AND is_deleted = false',
           [account.id, folder]
         );
         if (Number(countRow.rows[0].n) >= Number(meta.total_count)) {
           logger.debug(`Backfill skipped for ${logAccount(account)}/${folder} — DB pre-check: ${countRow.rows[0].n} msgs ≥ cached total ${meta.total_count}`);
-          return;
+          return true;
         }
       }
+
+      // One advancing token owns the server observation and every marker/data/count write.
+      // Claim it before publishing that an exact diff is owed and before SELECT/SEARCH.
+      backfillObservationToken = await claimFolderObservation(account.id, folder);
+      observationStartedAt = new Date();
+
+      // Once a run passes the cheap completed-folder gate, persist that an exact UID diff is now
+      // owed. Any interruption or incomplete FETCH keeps future runs from trusting count/max
+      // shortcuts until a full server-vs-DB UID comparison clears this marker.
+      await withBackfillEpochFence((tx) => tx.query(
+        'UPDATE folders SET backfill_incomplete = true WHERE account_id = $1 AND path = $2',
+        [account.id, folder]
+      ));
 
       console.log(`Starting backfill for ${logAccount(account)}/${folder} (batch=${cfg.batchSize}, delay=${cfg.batchDelay}ms, fetchBody=${cfg.fetchBody})`);
       await openBfClient();
@@ -3191,38 +4354,40 @@ export class ImapManager {
       {
         const lock = await bfClient.getMailboxLock(folder);
         try {
+          const currentValidity = assertBackfillEpoch();
+
+          // Backfill may seed an as-yet-unknown epoch, but it never changes a known one.
+          // Only syncMessages performs epoch transitions because it can atomically publish
+          // the new epoch and purge the old rows under the shared folder-row lock. Treat a
+          // mismatch here as a stale backfill connection and leave the durable marker set.
+          if (currentValidity) {
+            await withTransaction(async (tx) => {
+              const foldRow = await tx.query(
+                `SELECT uid_validity FROM folders
+                  WHERE account_id = $1 AND path = $2
+                  FOR UPDATE`,
+                [account.id, folder]
+              );
+              const storedValidity = foldRow.rows[0]?.uid_validity != null
+                ? Number(foldRow.rows[0].uid_validity)
+                : null;
+              if (storedValidity !== null && storedValidity !== currentValidity) {
+                throw backfillEpochError(storedValidity, 'folder state');
+              }
+              if (storedValidity === null) {
+                backfillObservationToken = await seedFolderUidValidity(
+                  tx, account.id, backfillObservationToken, currentValidity,
+                );
+              }
+            });
+          }
+
           const totalExists = bfClient.mailbox?.exists || 0;
           if (totalExists === 0) {
             logger.debug(`Backfill ${logAccount(account)}: mailbox empty`);
-            await query(
-              'UPDATE folders SET total_count = 0, unread_count = 0 WHERE account_id = $1 AND path = $2',
-              [account.id, folder]
-            ).catch(() => {});
-            return;
+            return await completeBackfill({ empty: true });
           }
           serverUids = await bfClient.search({ all: true }, { uid: true });
-
-          // UIDVALIDITY check — if this backfill connection sees a different epoch than
-          // what is stored, purge stale rows so the diff below re-fetches everything.
-          const currentValidity = bfClient.mailbox?.uidValidity ? Number(bfClient.mailbox.uidValidity) : null;
-          if (currentValidity) {
-            const foldRow = await query(
-              'SELECT uid_validity FROM folders WHERE account_id = $1 AND path = $2',
-              [account.id, folder]
-            );
-            const storedValidity = foldRow.rows[0]?.uid_validity ? Number(foldRow.rows[0].uid_validity) : null;
-            if (storedValidity !== null && storedValidity !== currentValidity) {
-              console.warn(`Backfill: UIDVALIDITY changed for ${logAccount(account)}/${folder}: ${storedValidity} → ${currentValidity}. Purging stale messages.`);
-              const purged = await query('DELETE FROM messages WHERE account_id = $1 AND folder = $2', [account.id, folder]);
-              // Same GTD section-data staleness gap as the syncMessages purge path.
-              await emitSectionsChanged(this.pluginFacade, account, purged.rowCount);
-            }
-            // Always keep stored validity current
-            await query(
-              'UPDATE folders SET uid_validity = $1 WHERE account_id = $2 AND path = $3',
-              [currentValidity, account.id, folder]
-            );
-          }
         } finally {
           lock.release();
         }
@@ -3241,18 +4406,10 @@ export class ImapManager {
         [account.id, folder]
       );
       const dbCount = parseInt(dbSummaryResult.rows[0].count);
-      const maxDbUid = Number(dbSummaryResult.rows[0].max_uid);
-      // serverUids from UID SEARCH ALL are in ascending order per IMAP RFC 3501
-      const maxServerUid = serverUids.length > 0 ? serverUids[serverUids.length - 1] : 0;
 
-      // Both conditions must hold: we have the newest message (max UID matches) AND
-      // we have at least as many messages as the server.  Checking only max UID is
-      // insufficient — syncMessages always fetches the most-recent N messages, so
-      // maxDbUid == maxServerUid even when thousands of older messages are missing.
-      if (maxServerUid > 0 && maxDbUid >= maxServerUid && dbCount >= serverTotal) {
-        console.log(`Backfill already complete for ${logAccount(account)}: maxDbUid=${maxDbUid}, maxServerUid=${maxServerUid}, dbCount=${dbCount}`);
-        return;
-      }
+      // Once the cheap completed-folder gate above decides a backfill is needed, always compute
+      // the exact UID diff. Count+max alone cannot prove completeness: one stale DB UID can mask
+      // one genuine historical gap while preserving both values.
 
       // Step 2 — load UIDs we already have so we can diff precisely.
       // Even for 47 000 messages this query is fast (uid is indexed) and the
@@ -3262,7 +4419,7 @@ export class ImapManager {
       // comparison works correctly. IMAP UIDs are 32-bit unsigned integers so
       // they are always within JavaScript's safe integer range (< 2^53).
       const existingRows = await query(
-        'SELECT uid FROM messages WHERE account_id = $1 AND folder = $2',
+        'SELECT uid FROM messages WHERE account_id = $1 AND folder = $2 AND metadata_complete = true',
         [account.id, folder]
       );
       const existingUids = new Set(existingRows.rows.map(r => Number(r.uid)));
@@ -3273,16 +4430,11 @@ export class ImapManager {
         .sort((a, b) => b - a);
 
       if (missingUids.length === 0) {
+        await verifyBackfillEpoch();
         console.log(`Backfill ${logAccount(account)}: no missing UIDs (${dbCount} in DB vs ${serverTotal} on server — within tolerance)`);
         // Still reconcile folder counts — they may be stale if a previous backfill was interrupted.
-        await query(
-          `UPDATE folders
-           SET total_count  = (SELECT COUNT(*)                                FROM messages m WHERE m.account_id = $1 AND m.folder = $2),
-               unread_count = (SELECT COUNT(*) FILTER (WHERE is_read = false)  FROM messages m WHERE m.account_id = $1 AND m.folder = $2)
-           WHERE account_id = $1 AND path = $2`,
-          [account.id, folder]
-        ).catch(() => {});
-        return;
+        await completeBackfill();
+        return true;
       }
 
       console.log(`Backfill ${logAccount(account)}: ${missingUids.length} missing of ${serverTotal} (${dbCount} already in DB)`);
@@ -3303,13 +4455,21 @@ export class ImapManager {
       // refreshed once at completion when the account is gtd_enabled — the tick's fingerprint
       // can't see rows backfill already wrote (before==after). See emitSectionsChanged.
       let backfilledRows = 0;
+      let backfillIncomplete = false;
+      let warnedIncompleteBackfill = false;
+      const deferIncompleteBackfill = () => {
+        backfillIncomplete = true;
+        if (warnedIncompleteBackfill) return;
+        warnedIncompleteBackfill = true;
+        console.warn(`Backfill deferred incomplete metadata for ${logAccount(account)}/${folder}; retrying on a later backfill`);
+      };
 
       while (i < missingUids.length) {
         // Stop immediately if the account was deleted while backfilling
         const accountCheck = await query('SELECT id FROM email_accounts WHERE id = $1', [account.id]);
         if (!accountCheck.rows.length) {
           console.log(`Backfill stopping — account ${logAccount(account)} was deleted`);
-          return;
+          return false;
         }
 
         // Periodically reconnect to keep connections fresh and pick up refreshed OAuth tokens
@@ -3323,12 +4483,12 @@ export class ImapManager {
         }
 
         const batch = missingUids.slice(i, i + cfg.batchSize);
-        // Comma-separated UID list — e.g. "1234,5678,9012"
-        const uidSet = batch.join(',');
 
         try {
           const lock = await bfClient.getMailboxLock(folder);
           try {
+            assertBackfillEpoch();
+            await assertStoredBackfillEpoch();
             // Third arg { uid: true } issues UID FETCH instead of sequence FETCH.
             // bodyParts omitted for Gmail (empty array) — metadata only, no throttling.
             const bfQuery = {
@@ -3339,8 +4499,12 @@ export class ImapManager {
             };
             if (bodyParts.length > 0) bfQuery.bodyParts = bodyParts;
 
-            for await (const msg of bfClient.fetch(uidSet, bfQuery, { uid: true })) {
-              try {
+            const metadataMessages = await fetchCompleteMetadataBatch(bfClient, batch, bfQuery);
+            if (metadataMessages === null) {
+              deferIncompleteBackfill();
+            } else {
+              for (const msg of metadataMessages) {
+                try {
                 const parsed = await parseMessage(msg);
                 enrichParsedMetadata(parsed, {
                   accountEmail: account.email_address,
@@ -3351,6 +4515,7 @@ export class ImapManager {
                 });
                 if (!parsed.uid) {
                   console.warn(`Backfill skipped: IMAP FETCH returned no UID for ${account.email}/${folder}`);
+                  deferIncompleteBackfill();
                   continue;
                 }
                 let safeHtml = null, bodyText = null, atts = [];
@@ -3366,14 +4531,6 @@ export class ImapManager {
                 const bfReplyTo  = sanitizeStr(parsed.inReplyTo);
                 const bfRefs     = sanitizeStr(parsed.references);
                 const bfThreadId = await computeThreadId(account.id, bfMsgId, bfReplyTo, bfRefs, sanitizeStr(parsed.subject));
-
-                if (bfMsgId) {
-                  const { sql: relocateSql, params: relocateParams } =
-                    relocateMessageQuery(folder, parsed, account.id, bfMsgId, exemptFolders);
-                  const relocated = await query(relocateSql, relocateParams);
-                  if (relocated.rows.length > 0) { backfilledRows += relocated.rows.length; continue; }
-                }
-
                 let bfCategory = null;
                 if (account.categorization_enabled || await getGlobalCategorizationEnabled(account.user_id)) {
                   try {
@@ -3383,8 +4540,9 @@ export class ImapManager {
                   } catch { /* non-fatal */ }
                 }
 
-                await query(`
-                  INSERT INTO messages (
+                const writeResult = await withBackfillEpochFence(async (tx) => {
+                  await tx.query(`
+                    INSERT INTO messages (
                     account_id, uid, folder, message_id, subject,
                     from_name, from_email, to_addresses, cc_addresses,
                     reply_to, in_reply_to,
@@ -3395,87 +4553,41 @@ export class ImapManager {
                     sender_name, sender_email
                   ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
                   ON CONFLICT (account_id, uid, folder) DO UPDATE
-                  SET subject = CASE
-                        WHEN EXCLUDED.subject IS NOT NULL
-                             AND EXCLUDED.subject != ''
-                             AND EXCLUDED.subject != '(no subject)'
-                        THEN EXCLUDED.subject
-                        ELSE messages.subject
-                      END,
-                      from_name = COALESCE(NULLIF(EXCLUDED.from_name, ''), messages.from_name),
-                      from_email = COALESCE(NULLIF(EXCLUDED.from_email, ''), messages.from_email),
-                      to_addresses = CASE
-                        WHEN EXCLUDED.to_addresses::text IS NOT NULL AND EXCLUDED.to_addresses::text <> '[]'
-                        THEN EXCLUDED.to_addresses
-                        ELSE messages.to_addresses
-                      END,
-                      cc_addresses = CASE
-                        WHEN EXCLUDED.cc_addresses::text IS NOT NULL AND EXCLUDED.cc_addresses::text <> '[]'
-                        THEN EXCLUDED.cc_addresses
-                        ELSE messages.cc_addresses
-                      END,
-                      reply_to = COALESCE(NULLIF(messages.reply_to::text, '[]'), EXCLUDED.reply_to::text)::jsonb,
-                      in_reply_to = COALESCE(messages.in_reply_to, EXCLUDED.in_reply_to),
-                      snippet = CASE WHEN EXCLUDED.snippet != '' THEN EXCLUDED.snippet
-                                     ELSE messages.snippet END,
-                      is_read = CASE
-                        WHEN messages.read_changed_at IS NOT NULL
-                             AND NOW() - messages.read_changed_at < interval '30 seconds'
-                        THEN messages.is_read
-                        ELSE EXCLUDED.is_read
-                      END,
-                      is_starred = CASE
-                        WHEN messages.star_changed_at IS NOT NULL
-                             AND NOW() - messages.star_changed_at < interval '30 seconds'
-                        THEN messages.is_starred
-                        ELSE EXCLUDED.is_starred
-                      END,
-                      flags = EXCLUDED.flags,
-                      body_html = COALESCE(messages.body_html, EXCLUDED.body_html),
-                      body_text = COALESCE(messages.body_text, EXCLUDED.body_text),
-                      attachments = COALESCE(messages.attachments::text, EXCLUDED.attachments::text)::jsonb,
-                      thread_references = COALESCE(messages.thread_references, EXCLUDED.thread_references),
-                      -- #378: heal a self-rooted (orphaned) row by adopting the real conversation root.
-                      thread_id = CASE
-                        WHEN messages.thread_id = messages.message_id
-                             AND EXCLUDED.thread_id IS NOT NULL
-                             AND EXCLUDED.thread_id <> messages.message_id
-                        THEN EXCLUDED.thread_id
-                        ELSE COALESCE(messages.thread_id, EXCLUDED.thread_id)
-                      END,
-                      is_bulk = COALESCE(messages.is_bulk, EXCLUDED.is_bulk),
-                      category = COALESCE(messages.category, EXCLUDED.category),
-                      list_unsubscribe = COALESCE(messages.list_unsubscribe, EXCLUDED.list_unsubscribe),
-                      list_unsubscribe_post = COALESCE(messages.list_unsubscribe_post, EXCLUDED.list_unsubscribe_post),
-                      delivery_addresses = COALESCE(messages.delivery_addresses, EXCLUDED.delivery_addresses),
-                      sender_name = COALESCE(EXCLUDED.sender_name, messages.sender_name),
-                      sender_email = COALESCE(EXCLUDED.sender_email, messages.sender_email)
-                `, [
-                  account.id, parsed.uid, folder,
-                  bfMsgId, sanitizeStr(parsed.subject),
-                  sanitizeStr(parsed.fromName), sanitizeStr(parsed.fromEmail),
-                  JSON.stringify(parsed.to), JSON.stringify(parsed.cc),
-                  JSON.stringify(parsed.replyTo || []), bfReplyTo,
-                  safeDate(parsed.date), sanitizeStr(parsed.snippet),
-                  parsed.isRead, parsed.isStarred,
-                  parsed.hasAttachments, JSON.stringify(parsed.flags),
-                  sanitizeStr(safeHtml), sanitizeStr(bodyText), JSON.stringify(atts || []),
-                  bfRefs, bfThreadId, parsed.isBulk ?? null, bfCategory,
-                  sanitizeStr(decodeMimeWords(parsed.parsedHeaders?.['list-unsubscribe'] ?? null)),
-                  sanitizeStr(decodeMimeWords(parsed.parsedHeaders?.['list-unsubscribe-post'] ?? null)),
-                  JSON.stringify(parsed.deliveryAddresses || []),
-                  sanitizeStr(parsed.senderName), sanitizeStr(parsed.senderEmail),
-                ]);
-                backfilledRows++;
-                if (bfThreadId && bfThreadId !== bfMsgId) {
-                  await query(
-                    `UPDATE messages SET thread_id = $1
-                     WHERE account_id = $2 AND thread_id = $3 AND message_id != $3`,
-                    [bfThreadId, account.id, bfMsgId]
-                  );
+                  SET ${COMPLETE_METADATA_CONFLICT_UPDATE_SQL}
+                  `, [
+                    account.id, parsed.uid, folder,
+                    bfMsgId, sanitizeStr(parsed.subject),
+                    sanitizeStr(parsed.fromName), sanitizeStr(parsed.fromEmail),
+                    JSON.stringify(parsed.to), JSON.stringify(parsed.cc),
+                    JSON.stringify(parsed.replyTo || []), bfReplyTo,
+                    safeDate(parsed.date), sanitizeStr(parsed.snippet),
+                    parsed.isRead, parsed.isStarred,
+                    parsed.hasAttachments, JSON.stringify(parsed.flags),
+                    sanitizeStr(safeHtml), sanitizeStr(bodyText), JSON.stringify(atts || []),
+                    bfRefs, bfThreadId, parsed.isBulk ?? null, bfCategory,
+                    sanitizeStr(decodeMimeWords(parsed.parsedHeaders?.['list-unsubscribe'] ?? null)),
+                    sanitizeStr(decodeMimeWords(parsed.parsedHeaders?.['list-unsubscribe-post'] ?? null)),
+                    JSON.stringify(parsed.deliveryAddresses || []),
+                    sanitizeStr(parsed.senderName), sanitizeStr(parsed.senderEmail),
+                  ]);
+
+                  if (bfThreadId && bfThreadId !== bfMsgId) {
+                    await tx.query(
+                      `UPDATE messages SET thread_id = $1
+                       WHERE account_id = $2 AND thread_id = $3 AND message_id != $3`,
+                      [bfThreadId, account.id, bfMsgId]
+                    );
+                  }
+                  return { rowsChanged: 1 };
+                });
+                backfilledRows += writeResult.rowsChanged;
+                } catch (parseErr) {
+                  if (parseErr?.code === 'BACKFILL_UIDVALIDITY_CHANGED' ||
+                      parseErr?.code === 'FOLDER_OBSERVATION_SUPERSEDED' ||
+                      parseErr?.code === 'FOLDER_OBSERVATION_UIDVALIDITY_CHANGED') throw parseErr;
+                  console.error('Backfill parse error:', parseErr.message);
+                  deferIncompleteBackfill();
                 }
-              } catch (parseErr) {
-                console.error('Backfill parse error:', parseErr.message);
               }
             }
           } finally {
@@ -3498,6 +4610,9 @@ export class ImapManager {
           await new Promise(r => setTimeout(r, cfg.batchDelay));
 
         } catch (err) {
+          if (err?.code === 'BACKFILL_UIDVALIDITY_CHANGED' ||
+              err?.code === 'FOLDER_OBSERVATION_SUPERSEDED' ||
+              err?.code === 'FOLDER_OBSERVATION_UIDVALIDITY_CHANGED') throw err;
           consecutiveErrors++;
           const detail = extractImapError(err);
           // Discard the broken connection — openBfClient will reconnect next iteration
@@ -3521,24 +4636,50 @@ export class ImapManager {
         }
       }
 
+      if (backfillIncomplete) {
+        // Keep the authoritative server count instead of shrinking it to the incomplete DB
+        // count. The next backfill then fails its count pre-check and recomputes the exact
+        // missing UID set, while clients never receive a false completion event.
+        await withBackfillEpochFence((tx) => tx.query(
+          `UPDATE folders
+              SET total_count = $3,
+                  unread_count = (SELECT COUNT(*) FILTER (WHERE is_read = false)
+                                    FROM messages m
+                                   WHERE m.account_id = $1 AND m.folder = $2
+                                     AND m.is_deleted = false AND m.metadata_complete = true),
+                  backfill_incomplete = true
+            WHERE account_id = $1 AND path = $2`,
+          [account.id, folder, serverTotal]
+        ));
+        await emitSectionsChanged(this.pluginFacade, account, backfilledRows);
+        return false;
+      }
+
       console.log(`Backfill complete for ${logAccount(account)}/${folder}`);
+      await verifyBackfillEpoch();
       // Backfill inserts rows directly without going through adjustFolderCounts,
       // so folder counters would stay at 0 without this reconciliation step.
-      await query(
-        `UPDATE folders
-         SET total_count  = (SELECT COUNT(*)                                FROM messages m WHERE m.account_id = $1 AND m.folder = $2),
-             unread_count = (SELECT COUNT(*) FILTER (WHERE is_read = false)  FROM messages m WHERE m.account_id = $1 AND m.folder = $2)
-         WHERE account_id = $1 AND path = $2`,
-        [account.id, folder]
-      ).catch(err => console.error(`Folder count update after backfill failed for ${logAccount(account)}/${folder}:`, err.message));
+      await completeBackfill();
       this.broadcast({ type: 'backfill_complete', accountId: account.id }, account.user_id);
       // Backfill wrote rows the GTD tick's fingerprint can't detect (before==after); if this
       // folder is a designated GTD folder and any row changed, nudge GTD section clients. One emit per
       // affected folder (backfillAllFolders loops here); the client debounces. Gated cheaply
       // on gtd_enabled + changedCount>0 only.
       await emitSectionsChanged(this.pluginFacade, account, backfilledRows);
+      return true;
     } catch (err) {
       console.error(`Backfill failed for ${logAccount(account)}/${folder}:`, err.message);
+      if (restartOnSupersession && typeof this.backfillMessages === 'function' && (
+        isFolderObservationError(err) || err?.code === 'BACKFILL_UIDVALIDITY_CHANGED'
+      )) {
+        if (bfClient) {
+          try { bfClient.close(); } catch { /* already closed */ }
+          bfClient = null;
+        }
+        this.backfillRunning.delete(backfillKey);
+        return this.backfillMessages(account, folder, false);
+      }
+      return false;
     } finally {
       if (bfClient) { try { await bfClient.logout(); } catch { /* already disconnected */ } }
       this.backfillRunning.delete(backfillKey);
@@ -3661,14 +4802,15 @@ export class ImapManager {
   // Skips provider-specific duplicate-view folders (e.g. Gmail's All Mail, Starred, Important)
   // to avoid storing tens of thousands of duplicate message rows.
   async backfillAllFolders(account) {
-    if (this.backfillAllRunning.has(account.id)) return;
+    if (this.backfillAllRunning.has(account.id)) return false;
     this.backfillAllRunning.add(account.id);
     const host = (account.imap_host || '').toLowerCase();
     // Broadcast start BEFORE waiting on the per-host semaphore so a queued reindex shows as
-    // "in progress" in the admin UI instead of looking idle while it waits for a slot. The
-    // matching backfill_all_complete always fires from the finally, so the pair stays balanced.
+    // "in progress" in the admin UI instead of looking idle while it waits for a slot.
+    // A completion event is emitted only when every folder reports a complete metadata pass.
     this.broadcast({ type: 'backfill_all_start', accountId: account.id }, account.user_id);
     let slotHeld = false;
+    let allComplete = false;
     try {
       // Draw from the per-host background-connection budget (shared with the snippet indexer):
       // a user with many accounts on one provider would otherwise open a background connection
@@ -3679,7 +4821,7 @@ export class ImapManager {
       const { skipFolderPatterns, skipFolderNames } = providerProfile(account);
 
       // INBOX first — highest priority, existing behaviour
-      await this.backfillMessages(account, 'INBOX');
+      let metadataDeferred = await this.backfillMessages(account, 'INBOX') === false;
 
       // Then all other known folders (discovered at connect time by syncFolders)
       const folderResult = await query(
@@ -3689,25 +4831,44 @@ export class ImapManager {
 
       for (const { path } of folderResult.rows) {
         const pathLower = path.toLowerCase();
-        if (skipFolderPatterns.some(pat => pathLower.includes(pat))) continue;
-        if (skipFolderNames.includes(pathLower)) continue;
-        await this.backfillMessages(account, path).catch(err =>
-          console.warn(`Backfill skipped ${logAccount(account)}/${path}: ${err.message}`)
-        );
+        const deliberatelySkipped = skipFolderPatterns.some(pat => pathLower.includes(pat))
+          || skipFolderNames.includes(pathLower);
+        if (deliberatelySkipped) {
+          try {
+            await query(
+              'UPDATE folders SET backfill_incomplete = false WHERE account_id = $1 AND path = $2',
+              [account.id, path]
+            );
+          } catch (err) {
+            metadataDeferred = true;
+            console.warn(`Backfill marker clear failed for skipped ${logAccount(account)}/${path}: ${err.message}`);
+          }
+          continue;
+        }
+        const folderComplete = await this.backfillMessages(account, path).catch(err => {
+          console.warn(`Backfill skipped ${logAccount(account)}/${path}: ${err.message}`);
+          return false;
+        });
+        if (folderComplete === false) metadataDeferred = true;
       }
-
+      allComplete = !metadataDeferred;
     } finally {
       if (slotHeld) this._bgConnSem.release(host); // free the per-host slot for the next background job
       this.backfillAllRunning.delete(account.id);
-      this.broadcast({ type: 'backfill_all_complete', accountId: account.id }, account.user_id);
-      // Both run as background jobs after the complete signal — neither should block the UI.
-      this.refreshBulkFlags(account).catch(err =>
-        console.warn(`Bulk flag refresh failed for ${logAccount(account)}:`, err.message)
-      );
-      this.startSnippetIndexer(account).catch(err =>
-        console.error(`Snippet indexer failed for ${logAccount(account)}:`, err.message)
-      );
+      if (allComplete) {
+        this.broadcast({ type: 'backfill_all_complete', accountId: account.id }, account.user_id);
+        // Both run as background jobs after the complete signal — neither should block the UI.
+        this.refreshBulkFlags(account).catch(err =>
+          console.warn(`Bulk flag refresh failed for ${logAccount(account)}:`, err.message)
+        );
+        this.startSnippetIndexer(account).catch(err =>
+          console.error(`Snippet indexer failed for ${logAccount(account)}:`, err.message)
+        );
+      } else {
+        this.broadcast({ type: 'backfill_all_deferred', accountId: account.id }, account.user_id);
+      }
     }
+    return allComplete;
   }
 
   // Called by the body-fetch route whenever a user opens a message that required a live
@@ -3810,46 +4971,58 @@ export class ImapManager {
           }
 
           const batchResult = await query(
-            `SELECT uid FROM messages
-             WHERE account_id = $1 AND folder = $2 AND (snippet IS NULL OR snippet = '') AND snippet_attempted_at IS NULL
-             ORDER BY date DESC LIMIT $3`,
+            `SELECT m.id, m.account_id, m.uid, m.folder, m.read_revision, m.star_revision,
+                    f.uid_validity AS folder_uid_validity,
+                    f.observation_generation AS folder_observation_generation
+             FROM messages m
+             JOIN folders f ON f.account_id = m.account_id AND f.path = m.folder
+                           AND f.is_present = true AND f.uid_validity IS NOT NULL
+             WHERE m.account_id = $1 AND m.folder = $2
+               AND m.is_deleted = false AND m.metadata_complete = true
+               AND (m.snippet IS NULL OR m.snippet = '') AND m.snippet_attempted_at IS NULL
+             ORDER BY m.date DESC LIMIT $3`,
             [account.id, folder, batchSize]
           );
           if (!batchResult.rows.length) { done = true; break; }
 
           const uids = batchResult.rows.map(r => r.uid);
+          const snapshotByUid = new Map(batchResult.rows.map(row => [Number(row.uid), row]));
+          const batchSnapshots = batchResult.rows.map(snapshotFromMessageRow);
           try {
             const lock = await siClient.getMailboxLock(folder);
             try {
-              for await (const msg of siClient.fetch(uids.join(','), {
-                uid: true, envelope: true, bodyStructure: true,
-                bodyParts: BODY_PREFETCH_PARTS,
-              }, { uid: true })) {
-                try {
-                  const parsed = await parseMessage(msg);
-                  if (parsed.snippet) {
-                    await query(
-                      `UPDATE messages SET snippet = $1
-                       WHERE account_id = $2 AND uid = $3 AND folder = $4
-                         AND (snippet IS NULL OR snippet = '')`,
-                      [sanitizeStr(parsed.snippet), account.id, msg.uid, folder]
-                    );
-                  }
-                } catch { /* skip snippet on parse/update failure */ }
-              }
+              await withUidEpochFence(account.id, folder, siClient, async tx => {
+                for await (const msg of siClient.fetch(uids.join(','), {
+                  uid: true, envelope: true, bodyStructure: true,
+                  bodyParts: BODY_PREFETCH_PARTS,
+                }, { uid: true })) {
+                  try {
+                    const snapshot = snapshotByUid.get(Number(msg.uid));
+                    if (!snapshot) continue;
+                    const parsed = await parseMessage(msg);
+                    if (parsed.snippet) {
+                      await tx.query(
+                        `UPDATE messages SET snippet = $1
+                         WHERE id = $2 AND account_id = $3 AND uid = $4 AND folder = $5
+                           AND (snippet IS NULL OR snippet = '')`,
+                        [sanitizeStr(parsed.snippet), snapshot.id, account.id, msg.uid, folder]
+                      );
+                    }
+                  } catch { /* skip snippet on parse/update failure */ }
+                }
+                // Mark every exact snapshot row in this batch that still has no snippet as
+                // attempted while the folder epoch is fenced. A UID reused after an epoch
+                // transition can never inherit old-epoch body content or retry state.
+                await tx.query(
+                  `UPDATE messages SET snippet_attempted_at = NOW()
+                   WHERE account_id = $1 AND folder = $2 AND id = ANY($3::uuid[])
+                     AND (snippet IS NULL OR snippet = '') AND snippet_attempted_at IS NULL`,
+                  [account.id, folder, batchResult.rows.map(row => row.id)]
+                );
+              }, undefined, null, batchSnapshots);
             } finally {
               lock.release();
             }
-            // Mark every message in this batch that still has no snippet as attempted, so a
-            // fetched-but-empty (or server-missing) message is never re-selected — this is what
-            // guarantees the backlog drains by one batch per iteration instead of looping on the
-            // same un-snippetable rows forever (#379).
-            await query(
-              `UPDATE messages SET snippet_attempted_at = NOW()
-               WHERE account_id = $1 AND folder = $2 AND uid = ANY($3::bigint[])
-                 AND (snippet IS NULL OR snippet = '') AND snippet_attempted_at IS NULL`,
-              [account.id, folder, uids]
-            );
             batchCount++;
             consecutiveErrors = 0;
           } catch (err) {
@@ -3911,19 +5084,61 @@ export class ImapManager {
     }
   }
 
-  async appendToFolder(account, folder, rawMessage, flags = ['\\Seen']) {
-    let uid = null;
-    await withFreshClient(account, async (client) => {
-      const result = await client.append(folder, rawMessage, flags);
-      if (result === false) throw new Error('IMAP append returned false — server did not confirm message was stored');
-      if (result && typeof result.uid === 'number') uid = result.uid;
+  async appendToFolder(account, folder, rawMessage, flags = ['\\Seen'], {
+    operationKey,
+    materialize = null,
+  } = {}) {
+    const destination = await readFolderObservation(account.id, folder);
+    const intent = buildProviderOperationIdentity({
+      kind: 'append', accountId: account.id, destination, requestKey: operationKey,
     });
-    console.log(`Appended to IMAP ${logAccount(account)}/${folder} uid=${uid}`);
-    return { uid, folder };
+    const receipt = await this.providerOperationExecutor.execute({
+      intent,
+      acquireProvider: (callback) => withSwitchableMailboxClient(
+        account, folder, callback,
+      ),
+      validate: async (resource, tx, operation) => {
+        await assertProviderOperationObservations(tx, operation);
+        if (!recoveryKeywordAllowed(resource.client.mailbox, operation.marker)) {
+          throw new Error(`Destination mailbox does not support provider operation marker ${operation.marker}`);
+        }
+        assertLiveProviderEpoch(resource, operation.destination);
+      },
+      validateRecovery: async (resource, tx, operation) => {
+        await assertProviderOperationDestination(tx, operation);
+        assertLiveProviderEpoch(resource, operation.destination);
+      },
+      validateCompletion: (tx, operation) => assertProviderOperationDestination(tx, operation),
+      prepare: ({ client }, marker) => {
+        if (!recoveryKeywordAllowed(client.mailbox, marker)) {
+          throw new Error(`Destination mailbox does not support provider operation marker ${marker}`);
+        }
+      },
+      command: async ({ client }, marker) => ({
+        ...(await appendMessageOnClient(client, folder, rawMessage, flags, marker)),
+        folder,
+      }),
+      recover: async ({ client }, marker) => ({
+        ...(await recoverProviderMarkerOnClient(client, marker)), folder,
+      }),
+      complete: async (providerReceipt, _operation, tx) => {
+        const typedReceipt = { ...providerReceipt, folder };
+        if (tx) await materialize?.(typedReceipt, tx);
+        else await materialize?.(typedReceipt);
+        return typedReceipt;
+      },
+      cleanup: async ({ client }, marker, providerReceipt, operation) => {
+        await cleanupCompletedProviderOperationMarkers({
+          client, switchTo: async () => {},
+        }, marker, providerReceipt, operation);
+      },
+    });
+    console.log(`Appended to IMAP ${logAccount(account)}/${folder} uid=${receipt.uid}`);
+    return receipt;
   }
 
-  async appendToSent(account, folder, rawMessage) {
-    return this.appendToFolder(account, folder, rawMessage, ['\\Seen']);
+  async appendToSent(account, folder, rawMessage, options = {}) {
+    return this.appendToFolder(account, folder, rawMessage, ['\\Seen'], options);
   }
 
   // Persist authoritative Sent metadata right after SMTP/APPEND so a later IMAP sync
@@ -3940,7 +5155,7 @@ export class ImapManager {
     date = new Date(),
     inReplyTo = null,
     references = null,
-  }) {
+  }, { tx = null } = {}) {
     if (!uid || !folder) return;
     const msgId = sanitizeStr(messageId);
     // Thread the Sent copy into its conversation the same way a real sync does — via the
@@ -3950,7 +5165,8 @@ export class ImapManager {
     const threadId = msgId
       ? await computeThreadId(account.id, msgId, sanitizeStr(inReplyTo), sanitizeStr(references), sanitizeStr(subject))
       : null;
-    await query(`
+    const runQuery = tx ? tx.query.bind(tx) : query;
+    await runQuery(`
       INSERT INTO messages (
         account_id, uid, folder, message_id, subject,
         from_name, from_email, to_addresses, cc_addresses,
@@ -3979,7 +5195,8 @@ export class ImapManager {
                AND EXCLUDED.thread_id <> messages.message_id
           THEN EXCLUDED.thread_id
           ELSE COALESCE(messages.thread_id, EXCLUDED.thread_id)
-        END
+        END,
+        metadata_complete = true
     `, [
       account.id, uid, folder, msgId,
       sanitizeStr(subject || '(no subject)'),
@@ -4008,10 +5225,11 @@ export class ImapManager {
     bodyHtml = null,
     bodyText = null,
     date = new Date(),
-  }) {
+  }, { tx = null } = {}) {
     if (!uid || !folder) return;
     const msgId = sanitizeStr(messageId);
-    await query(`
+    const runQuery = tx ? tx.query.bind(tx) : query;
+    await runQuery(`
       INSERT INTO messages (
         account_id, uid, folder, message_id, subject,
         from_name, from_email, to_addresses, cc_addresses,
@@ -4036,7 +5254,8 @@ export class ImapManager {
         snippet = CASE WHEN EXCLUDED.snippet <> '' THEN EXCLUDED.snippet ELSE messages.snippet END,
         flags = EXCLUDED.flags,
         body_html = COALESCE(EXCLUDED.body_html, messages.body_html),
-        body_text = COALESCE(EXCLUDED.body_text, messages.body_text)
+        body_text = COALESCE(EXCLUDED.body_text, messages.body_text),
+        metadata_complete = true
     `, [
       account.id, uid, folder, msgId,
       sanitizeStr(subject || '(no subject)'),
@@ -4052,18 +5271,9 @@ export class ImapManager {
 
   async findUidByMessageId(account, folder, messageId) {
     if (!messageId || !folder) return null;
-    const mid = String(messageId).replace(/[<>]/g, '').trim();
+    const mid = String(messageId).trim();
     if (!mid) return null;
-    return withFreshClient(account, async (client) => {
-      const lock = await client.getMailboxLock(folder);
-      try {
-        const uids = await client.search({ header: ['Message-ID', mid] }, { uid: true });
-        if (!uids?.length) return null;
-        return uids[uids.length - 1];
-      } finally {
-        lock.release();
-      }
-    });
+    return withFencedUidClient(account, folder, (client) => findSingleMessageIdUid(client, mid));
   }
 
   // Syncs the most recent messages in a specific folder on demand.
@@ -4138,13 +5348,22 @@ export class ImapManager {
       try {
         // Skip if body already cached (concurrent click may have triggered this too)
         const existing = await query(
-          'SELECT id FROM messages WHERE id = $1 AND (body_html IS NOT NULL OR body_text IS NOT NULL)',
+          `SELECT m.id, m.account_id, m.uid, m.folder, m.read_revision, m.star_revision,
+                  f.uid_validity AS folder_uid_validity,
+                  f.observation_generation AS folder_observation_generation,
+                  (m.body_html IS NOT NULL OR m.body_text IS NOT NULL) AS cached
+             FROM messages m
+             JOIN folders f ON f.account_id = m.account_id AND f.path = m.folder
+                           AND f.is_present = true AND f.uid_validity IS NOT NULL
+            WHERE m.id = $1 AND m.is_deleted = false AND m.metadata_complete = true`,
           [msg.id]
         );
-        if (existing.rows.length) continue;
+        if (!existing.rows.length || existing.rows[0].cached) continue;
+        const live = existing.rows[0];
+        const snapshot = snapshotFromMessageRow(live);
 
         const { html, text, attachments } = await this.fetchMessageBody(
-          account, msg.uid, msg.folder || 'INBOX'
+          account, live.uid, live.folder, { snapshot },
         );
         const safeHtml = html ? sanitizeEmail(html) : null;
         if (safeHtml || text) {
@@ -4153,8 +5372,19 @@ export class ImapManager {
             `UPDATE messages
              SET body_html = $1, body_text = $2, attachments = $3,
                  snippet = CASE WHEN $5 != '' THEN $5 ELSE snippet END
-             WHERE id = $4`,
-            [sanitizeStr(safeHtml), sanitizeStr(text), JSON.stringify(attachments || []), msg.id, sanitizeStr(snip)]
+             WHERE id = $4 AND account_id = $6 AND uid = $7 AND folder = $8
+               AND is_deleted = false AND metadata_complete = true
+               AND EXISTS (
+                 SELECT 1 FROM folders f
+                  WHERE f.account_id = messages.account_id AND f.path = messages.folder
+                    AND f.is_present = true AND f.uid_validity = $9
+                    AND f.observation_generation = $10
+               )`,
+            [
+              sanitizeStr(safeHtml), sanitizeStr(text), JSON.stringify(attachments || []),
+              msg.id, sanitizeStr(snip), snapshot.accountId, snapshot.uid, snapshot.folder,
+              snapshot.uidValidity, snapshot.folderGeneration,
+            ]
           );
         }
       } catch (err) {
@@ -4177,8 +5407,14 @@ export class ImapManager {
     if (!providerProfile(account).snippetIndex) return;
 
     const uncachedResult = await query(
-      `SELECT id, uid, folder FROM messages
-       WHERE id = ANY($1::uuid[]) AND body_html IS NULL AND body_text IS NULL`,
+      `SELECT m.id, m.account_id, m.uid, m.folder, m.read_revision, m.star_revision,
+              f.uid_validity AS folder_uid_validity,
+              f.observation_generation AS folder_observation_generation
+         FROM messages m
+         JOIN folders f ON f.account_id = m.account_id AND f.path = m.folder
+                       AND f.is_present = true AND f.uid_validity IS NOT NULL
+        WHERE m.id = ANY($1::uuid[]) AND m.body_html IS NULL AND m.body_text IS NULL
+          AND m.is_deleted = false AND m.metadata_complete = true`,
       [messageIds]
     );
     if (!uncachedResult.rows.length) return;
@@ -4190,13 +5426,16 @@ export class ImapManager {
       }
 
       try {
+        const snapshot = snapshotFromMessageRow(msg);
         const existing = await query(
           'SELECT id FROM messages WHERE id = $1 AND (body_html IS NOT NULL OR body_text IS NOT NULL)',
           [msg.id]
         );
         if (existing.rows.length) continue;
 
-        const { html, text, attachments } = await this.fetchMessageBody(account, msg.uid, msg.folder);
+        const { html, text, attachments } = await this.fetchMessageBody(
+          account, msg.uid, msg.folder, { snapshot },
+        );
         const safeHtml = html ? sanitizeEmail(html) : null;
         if (safeHtml || text) {
           const snip = snippetFromBody(text, safeHtml || html);
@@ -4204,8 +5443,19 @@ export class ImapManager {
             `UPDATE messages
              SET body_html = $1, body_text = $2, attachments = $3,
                  snippet = CASE WHEN $5 != '' THEN $5 ELSE snippet END
-             WHERE id = $4`,
-            [sanitizeStr(safeHtml), sanitizeStr(text), JSON.stringify(attachments || []), msg.id, sanitizeStr(snip)]
+             WHERE id = $4 AND account_id = $6 AND uid = $7 AND folder = $8
+               AND is_deleted = false AND metadata_complete = true
+               AND EXISTS (
+                 SELECT 1 FROM folders f
+                  WHERE f.account_id = messages.account_id AND f.path = messages.folder
+                    AND f.is_present = true AND f.uid_validity = $9
+                    AND f.observation_generation = $10
+               )`,
+            [
+              sanitizeStr(safeHtml), sanitizeStr(text), JSON.stringify(attachments || []),
+              msg.id, sanitizeStr(snip), snapshot.accountId, snapshot.uid, snapshot.folder,
+              snapshot.uidValidity, snapshot.folderGeneration,
+            ]
           );
         }
       } catch (err) {
@@ -4217,12 +5467,12 @@ export class ImapManager {
   // Uses a fresh connection to avoid lock contention with sync connection.
   // Auto-retries once on transient connection errors (stale pool connection, NAT
   // timeout, half-open TCP, etc.) so a single click is enough in all common cases.
-  async fetchMessageBody(account, uid, folder) {
+  async fetchMessageBody(account, uid, folder, { snapshot = null } = {}) {
     // Inner fetch — called up to twice. `acquire` selects how the connection is obtained:
     // the first attempt uses the pool (withFreshClient); the retry uses a genuinely fresh
     // login (withFreshLogin) so a frozen/half-open pooled connection can't hang or return
     // a blank body for recently-arrived mail.
-    const doFetch = (acquire) => acquire(account, async (client) => {
+    const doFetch = (acquire) => withFencedUidClient(account, folder, async (client) => {
       let html = null;
       let text = null;
       let attachments;
@@ -4232,8 +5482,6 @@ export class ImapManager {
       // quota is hit.
       const uidStr = String(uid);
 
-      const lock = await client.getMailboxLock(folder);
-      try {
         let structure = null;
         const prefetched = new Map(); // part number -> Buffer
 
@@ -4370,13 +5618,13 @@ export class ImapManager {
             html = html.replace(new RegExp(`cid:<?${escapedCid}>?`, 'gi'), dataUri);
           }
         }
-      } finally {
-        lock.release();
-      }
-
       // Some malformed emails include NUL bytes that PostgreSQL rejects in text
       // columns. Strip them once here so all callers are safe.
       return { html: sanitizeStr(html), text: sanitizeStr(text), attachments };
+    }, {
+      acquire,
+      expectedUidValidity: snapshot?.uidValidity,
+      messageSnapshots: snapshot ? [snapshot] : [],
     });
 
     // Providers flagged preferFreshBodyFetch (e.g. PurelyMail) skip the shared pool on the
@@ -4426,10 +5674,8 @@ export class ImapManager {
     }
   }
 
-  async fetchHeaders(account, uid, folder) {
-    return withFreshClient(account, async (client) => {
-      const lock = await client.getMailboxLock(folder);
-      try {
+  async fetchHeaders(account, uid, folder, { snapshot = null } = {}) {
+    return withFencedUidClient(account, folder, async (client) => {
         const uidStr = String(uid);
         let headers = '';
 
@@ -4449,18 +5695,15 @@ export class ImapManager {
             }
           }
         }
-
         return headers;
-      } finally {
-        lock.release();
-      }
+    }, {
+      expectedUidValidity: snapshot?.uidValidity,
+      messageSnapshots: snapshot ? [snapshot] : [],
     });
   }
 
-  async fetchAttachment(account, uid, folder, partNum) {
-    return withFreshClient(account, async (client) => {
-      const lock = await client.getMailboxLock(folder);
-      try {
+  async fetchAttachment(account, uid, folder, partNum, { snapshot = null } = {}) {
+    return withFencedUidClient(account, folder, async (client) => {
         let buffer = null;
         const uidStr = String(uid);
 
@@ -4478,19 +5721,17 @@ export class ImapManager {
           }
         }
         return buffer;
-      } finally {
-        lock.release();
-      }
+    }, {
+      expectedUidValidity: snapshot?.uidValidity,
+      messageSnapshots: snapshot ? [snapshot] : [],
     });
   }
 
   // Fetch multiple attachment parts in a single IMAP round trip.
   // parts: array of { part, encoding } (metadata from messages.attachments).
   // Returns Map<partNum, Buffer> — missing or empty parts are omitted.
-  async fetchMultipleAttachments(account, uid, folder, parts) {
-    return withFreshClient(account, async (client) => {
-      const lock = await client.getMailboxLock(folder);
-      try {
+  async fetchMultipleAttachments(account, uid, folder, parts, { snapshot = null } = {}) {
+    return withFencedUidClient(account, folder, async (client) => {
         const uidStr = String(uid);
         const partNums = parts.map(p => p.part);
         const buffers = new Map();
@@ -4519,53 +5760,58 @@ export class ImapManager {
         }
 
         return buffers;
-      } finally {
-        lock.release();
-      }
+    }, {
+      expectedUidValidity: snapshot?.uidValidity,
+      messageSnapshots: snapshot ? [snapshot] : [],
     });
   }
 
-  async setFlag(account, uid, folder, flag, value) {
-    console.log(`setFlag: uid=${uid} folder=${folder} flag=${flag} value=${value}`);
-    // Up to 2 attempts. ImapFlow returns false when the server did NOT apply the flag —
-    // typically a stale/half-open pooled connection whose SELECT view is missing the UID.
-    // Throwing on false makes withFreshClient evict that client from the pool, so the
-    // retry acquires a fresh connection (this is exactly why marking a message
-    // individually a moment later succeeds). Re-applying a flag is idempotent, so the
-    // retry is safe. Surfacing the final failure keeps callers such as bulk-read from
-    // reporting success while the DB read/flag state silently drifts from the server —
-    // which a later flag-sync would then revert, leaving the message unexpectedly unread.
-    let lastErr = null;
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      try {
-        await withFreshClient(account, async (client) => {
-          const lock = await client.getMailboxLock(folder);
-          try {
-            const flagResult = value
-              ? await client.messageFlagsAdd(String(uid), [flag], { uid: true })
-              : await client.messageFlagsRemove(String(uid), [flag], { uid: true });
-            if (flagResult === false) {
-              throw new Error(`server did not apply ${flag}=${value} for uid=${uid} (no matching message)`);
-            }
-            logger.debug(`setFlag success: uid=${uid} ${flag}=${value}`);
-          } finally {
-            lock.release();
-          }
-        });
-        return; // applied
-      } catch (err) {
-        lastErr = err;
-        if (attempt < 2) await new Promise(r => setTimeout(r, 400));
-      }
+  async setDesiredFlag(account, messageId, flag, value, { snapshot = null } = {}) {
+    const accepted = await desiredFlagExecutor.accept({
+      messageId,
+      flag,
+      value,
+      ...(snapshot ? {
+        accountId: snapshot.accountId,
+        uid: snapshot.uid,
+        folder: snapshot.folder,
+        uidValidity: snapshot.uidValidity,
+        folderGeneration: snapshot.folderGeneration,
+      } : {}),
+    });
+    try {
+      const delivered = await desiredFlagExecutor.deliver(
+        messageId, flag, this._desiredFlagProvider(account),
+      );
+      return { ...accepted, acceptance: accepted, delivery: delivered };
+    } catch (err) {
+      // Acceptance committed the local row/count and durable pending intent before
+      // provider delivery began. Preserve that fact explicitly so callers can
+      // reflect local truth without guessing from a provider error.
+      err.desiredFlagAcceptance = accepted;
+      throw err;
     }
-    console.error(`setFlag failed after retry: uid=${uid} ${flag}=${value}:`, lastErr?.message);
-    throw lastErr;
+  }
+
+  _desiredFlagProvider(account) {
+    return {
+      withSession: (delivery, callback) => {
+        const deliverySnapshot = desiredFlagDeliverySnapshot(delivery);
+        return withFencedUidClient(
+          account,
+          delivery.folder,
+          client => callback(createImapDesiredFlagSession(client, delivery)),
+          {
+            expectedUidValidity: delivery.uidValidity,
+            messageSnapshots: [deliverySnapshot],
+          },
+        );
+      },
+    };
   }
 
   async createFolder(account, path) {
-    return withFreshClient(account, async (client) => {
-      await client.mailboxCreate(path);
-    });
+    return withFreshClient(account, client => createMailboxTopology(account, client, path));
   }
 
   // Ensure a mailbox exists, returning { path, created }: `path` is the real server path
@@ -4574,29 +5820,7 @@ export class ImapManager {
   // folders" action reports both so the settings UI can show the real path and whether it
   // pre-existed. Namespace/delimiter/already-exists handling lives in ensureMailbox.
   async ensureFolder(account, path, opts = {}) {
-    return withFreshClient(account, (client) => ensureMailbox(client, path, opts));
-  }
-
-  async moveMessageGetNewUid(account, uid, fromFolder, toFolder) {
-    let newUid = null;
-    try {
-      await withFreshClient(account, async (client) => {
-        const lock = await client.getMailboxLock(fromFolder);
-        try {
-          const result = await client.messageMove(String(uid), toFolder, { uid: true });
-          if (result === false) throw new Error('messageMove returned false — server did not confirm move');
-          if (result?.uidMap) {
-            newUid = result.uidMap.get(Number(uid)) || null;
-          }
-        } finally {
-          lock.release();
-        }
-      });
-    } catch (err) {
-      console.error(`moveMessageGetNewUid failed: uid=${uid}:`, err.message);
-      throw err;
-    }
-    return newUid;
+    return withFreshClient(account, client => ensureMailboxTopology(account, client, path, opts));
   }
 
   async deleteFolder(account, path) {
@@ -4606,135 +5830,487 @@ export class ImapManager {
         const lock = await client.getMailboxLock('INBOX');
         lock.release();
       }
-      await client.mailboxDelete(path);
+      return deleteMailboxTopology(account, client, path);
     });
   }
 
   async renameFolder(account, oldPath, newPath) {
-    return withFreshClient(account, async (client) => {
-      await client.mailboxRename(oldPath, newPath);
-    });
+    return withFreshClient(
+      account,
+      client => renameMailboxTopology(account, client, oldPath, newPath),
+    );
   }
 
-  async emptyFolder(account, folder) {
+  async assertRecoveryKeywordSupported(account, folder, keyword) {
     return withFreshClient(account, async (client) => {
       const lock = await client.getMailboxLock(folder);
       try {
-        if (!client.mailbox || client.mailbox.exists === 0) return;
-        await this._deleteAllInFolder(client, folder);
-      } catch (err) {
-        const msg = (err.message || '').toLowerCase();
-        // Non-fatal if folder is already empty or server reports no messages
-        if (!msg.includes('no messages') && !msg.includes('empty') && !msg.includes('nothing')) throw err;
-      } finally {
-        lock.release();
-      }
-    });
-  }
-
-  // Apply a whole-folder IMAP write to every matching message in the currently-locked
-  // folder, in UID-addressed chunks with a one-shot retry per chunk. A single command over
-  // the whole folder (messageDelete('1:*') / messageFlagsAdd('1:*', ...)) gets throttled or
-  // times out on some providers on a large folder (observed failing on a 4k+ message Trash,
-  // then succeeding on a manual retry), so batch it and confirm each chunk. UID addressing
-  // keeps a concurrent EXPUNGE from shifting a sequence range under us. `searchQuery` selects
-  // the messages; `apply(client, range)` runs the IMAP command for a UID range and returns
-  // imapflow's truthy/false result. Returns the count processed; throws (with progress) if a
-  // chunk cannot be confirmed.
-  async _chunkedFolderOp(client, folder, searchQuery, apply, { label = 'operation', chunkSize = 500, retryBackoffMs = 500 } = {}) {
-    const uids = await client.search(searchQuery, { uid: true });
-    if (!uids || uids.length === 0) return 0;
-    let done = 0;
-    for (let i = 0; i < uids.length; i += chunkSize) {
-      const chunk = uids.slice(i, i + chunkSize);
-      const range = chunk.join(',');
-      let ok = false;
-      for (let attempt = 0; attempt < 2; attempt++) {
-        try {
-          ok = await apply(client, range);
-        } catch (err) {
-          if (attempt === 1) throw err; // exhausted the retry — surface the real error
-          ok = false;
+        if (!recoveryKeywordAllowed(client.mailbox, keyword)) {
+          throw new Error(`Destination mailbox does not support recovery keyword ${keyword}`);
         }
-        if (ok) break;
-        if (attempt === 0 && retryBackoffMs > 0) await new Promise(r => setTimeout(r, retryBackoffMs));
-      }
-      if (!ok) {
-        throw new Error(`${label} could not be confirmed for ${folder} after ${done}/${uids.length} messages`);
-      }
-      done += chunk.length;
-    }
-    return done;
-  }
-
-  // Delete every message in the locked folder, chunked (see _chunkedFolderOp). The caller
-  // leaves the DB rows in place on throw so the next sync reconciles.
-  async _deleteAllInFolder(client, folder, opts = {}) {
-    return this._chunkedFolderOp(
-      client, folder, { all: true },
-      (c, range) => c.messageDelete(range, { uid: true }),
-      { label: 'messageDelete', ...opts },
-    );
-  }
-
-  // Add \Seen to every unread message in the locked folder, chunked (see _chunkedFolderOp).
-  // Searching UNSEEN only touches what needs changing (idempotent, and a no-op on an
-  // already-read folder).
-  async _markSeenInFolder(client, folder, opts = {}) {
-    return this._chunkedFolderOp(
-      client, folder, { seen: false },
-      (c, range) => c.messageFlagsAdd(range, ['\\Seen'], { uid: true }),
-      { label: 'messageFlagsAdd', ...opts },
-    );
-  }
-
-  async markAllReadImap(account, folder) {
-    return withFreshClient(account, async (client) => {
-      const lock = await client.getMailboxLock(folder);
-      try {
-        if (!client.mailbox || client.mailbox.exists === 0) return;
-        // Chunked so a single STORE +FLAGS \Seen over a large folder can't get throttled
-        // into a whole-operation failure (which would leave the DB read but the server
-        // unread, and the next flag-sync would flip those rows back to unread).
-        await this._markSeenInFolder(client, folder);
-      } catch (err) {
-        console.warn(`markAllRead IMAP warning for ${folder}:`, err.message);
-        // Non-fatal — DB is already updated; the next sync reconciles any residual unread.
+        return true;
       } finally {
         lock.release();
       }
     });
   }
 
-  async moveMessage(account, uid, fromFolder, toFolder) {
-    let newUid = null;
+  async findUidByRecoveryKeyword(account, folder, keyword) {
+    return withFencedUidClient(account, folder, (client) =>
+      findSingleRecoveryKeywordUid(client, keyword));
+  }
+
+  async findUidByRecoveryKeywordReceipt(account, folder, keyword) {
+    return withFencedUidClient(account, folder, async (client) => {
+      const uid = await findSingleRecoveryKeywordUid(client, keyword);
+      const uidValidity = client.mailbox?.uidValidity != null
+        ? String(client.mailbox.uidValidity)
+        : null;
+      if (uid == null || uidValidity == null) {
+        throw new Error(`Could not establish destination UID epoch for ${folder}`);
+      }
+      return { folder, uid: Number(uid), uidValidity };
+    });
+  }
+
+  async findUidByMessageIdReceipt(account, folder, messageId) {
+    const [token] = await readProviderOperationObservations(account.id, [folder]);
+    return withFencedUidClient(account, folder, async (client) => {
+      const uid = await findSingleMessageIdUid(client, messageId);
+      const uidValidity = client.mailbox?.uidValidity != null
+        ? String(client.mailbox.uidValidity)
+        : null;
+      if (uid == null || uidValidity == null) {
+        throw new Error(`Could not establish destination UID epoch for ${folder}`);
+      }
+      return { folder, uid: Number(uid), uidValidity, destinationToken: token };
+    }, {
+      expectedUidValidity: token.uidValidity,
+      observationContext: { accountId: account.id, tokens: [token] },
+    });
+  }
+
+  async upsertSentMessageRecordFromReceipt(account, receipt, meta) {
+    if (!receipt?.destinationToken || Number(receipt.uid) <= 0) {
+      throw new Error('Exact Sent destination receipt is required');
+    }
+    return this.withFolderObservationContext(
+      account.id,
+      { accountId: account.id, tokens: [receipt.destinationToken] },
+      tx => this.upsertSentMessageRecord(
+        account, receipt.folder, receipt.uid, meta, { tx },
+      ),
+    );
+  }
+
+  async moveMessage(account, uid, fromFolder, toFolder, {
+    expectedUidValidity = undefined,
+    returnReceipt = false,
+    observationContext = null,
+    operationTokens = null,
+    operationKey,
+    materialize = null,
+    snapshot = null,
+  } = {}) {
+    requireExactMutationSnapshot(snapshot, account.id, uid, fromFolder, 'MOVE');
     try {
-      await withFreshClient(account, async (client) => {
-        const lock = await client.getMailboxLock(fromFolder);
-        try {
+      let tokens = observationContext && !operationTokens
+        ? await claimFolderObservations(account.id, [fromFolder, toFolder], {
+          context: observationContext.tokens,
+        })
+        : await readProviderOperationObservations(
+          account.id,
+          [fromFolder, toFolder],
+          operationTokens,
+        );
+      let recoveryOperation = null;
+      if (operationTokens && this.providerOperationExecutor.getExisting) {
+        const supplied = new Map(operationTokens.map(token => [token.folder, token]));
+        const frozenIntent = buildProviderOperationIdentity({
+          kind: 'move', accountId: account.id,
+          source: { ...supplied.get(fromFolder), uid: Number(uid) },
+          destination: supplied.get(toFolder), requestKey: operationKey,
+          sourceMessageId: snapshot.id,
+        });
+        recoveryOperation = await this.providerOperationExecutor.getExisting(frozenIntent.id);
+        if (recoveryOperation) {
+          tokens = await readProviderOperationObservations(account.id, [fromFolder, toFolder]);
+        } else {
+          await preflightFrozenProviderOperation(frozenIntent);
+        }
+      }
+      if (observationContext) observationContext.tokens = tokens;
+      const tokenByFolder = new Map(tokens.map(token => [token.folder, token]));
+      const sourceToken = tokenByFolder.get(fromFolder);
+      const destinationToken = tokenByFolder.get(toFolder);
+      if (expectedUidValidity !== undefined && (
+        expectedUidValidity == null || sourceToken?.uidValidity == null ||
+        Number(sourceToken.uidValidity) !== Number(expectedUidValidity)
+      )) {
+        const err = new Error(`Snapshot UIDVALIDITY changed before ${fromFolder} move`);
+        err.code = 'SNAPSHOT_UIDVALIDITY_CHANGED';
+        throw err;
+      }
+      const intent = buildProviderOperationIdentity({
+        kind: 'move', accountId: account.id,
+        source: { ...sourceToken, uid: Number(uid) }, destination: destinationToken,
+        requestKey: operationKey, sourceMessageId: snapshot.id,
+      });
+      if (operationTokens && !this.providerOperationExecutor.getExisting) {
+        await preflightFrozenProviderOperation(intent);
+      }
+      const receipt = await this.providerOperationExecutor.execute({
+        intent,
+        completeWithProvider: Boolean(materialize),
+        acquireProvider: async (callback, operation) => {
+          try {
+            return await withSwitchableMailboxClient(
+              account,
+              toFolder,
+              async resource => {
+                if (operation.state === 'ready') {
+                  validateFrozenMoveCapabilities(resource, intent.marker, {
+                    role: 'Destination', requireMove: false,
+                  });
+                  await resource.switchTo(fromFolder);
+                }
+                return callback(resource);
+              },
+            );
+          } catch (error) {
+            throw operationTokens
+              ? normalizeFrozenMailboxAcquisitionError(error, [fromFolder, toFolder])
+              : error;
+          }
+        },
+        validate: async (resource, tx, operation) => {
+          await assertProviderOperationObservations(tx, operation);
+          await assertLiveMessageSnapshots(tx, account.id, [snapshot]);
+          validateFrozenMoveCapabilities(resource, operation.marker, {
+            role: 'Source', requireMove: true,
+          });
+          assertLiveProviderEpoch(resource, operation.source, 'Source');
+          assertLiveProviderEpoch(resource, operation.destination);
+        },
+        validateRecovery: async (resource, tx, operation) => {
+          await assertProviderOperationDestination(tx, operation);
+          assertLiveProviderEpoch(resource, operation.destination);
+        },
+        validateCompletion: async (tx, operation) => {
+          await assertProviderOperationDestination(tx, operation);
+          await assertLiveMessageSnapshots(tx, account.id, [snapshot], {
+            includeRevisions: false,
+            includeFolderGeneration: !recoveryOperation,
+          });
+        },
+        prepare: ({ client }, marker) => storeAndVerifyProviderMarker(client, uid, marker),
+        command: async ({ client, switchTo }, marker, operation) => {
           const result = await client.messageMove(String(uid), toFolder, { uid: true });
           if (result === false) throw new Error('messageMove returned false — server did not confirm move');
-          if (result?.uidMap) newUid = result.uidMap.get(Number(uid)) || null;
-        } finally {
-          lock.release();
-        }
+          const mappedUid = result?.uidMap?.get(Number(uid)) ?? null;
+          await switchTo(toFolder);
+          const recovered = await recoverProviderMarkerOnClient(client, marker);
+          if (recovered.status !== 'unique') {
+            throw new Error(`MOVE provider marker is ${recovered.status}`);
+          }
+          if (mappedUid != null && Number(mappedUid) !== recovered.uid) {
+            throw new ProviderOperationError(
+              `UIDPLUS destination ${mappedUid} disagrees with provider marker UID ${recovered.uid}`,
+              {
+                code: 'PROVIDER_RECEIPT_MISMATCH', retryable: false, uncertain: true, manual: true,
+                details: { uidplus: Number(mappedUid), markerUid: recovered.uid },
+              },
+            );
+          }
+          return {
+            uid: recovered.uid, uidValidity: recovered.uidValidity, folder: toFolder,
+            sourceToken: operation.source, destinationToken: operation.destination, marker,
+          };
+        },
+        recover: async ({ client, switchTo }, marker, operation) => {
+          await switchTo(toFolder);
+          return withUidEpochFence(
+            account.id,
+            toFolder,
+            client,
+            async () => ({
+              ...(await recoverProviderMarkerOnClient(client, marker)), folder: toFolder,
+              sourceToken: operation.source, destinationToken: operation.destination, marker,
+            }),
+            operation.destination.uidValidity,
+          );
+        },
+        complete: async (providerReceipt, operation, tx, providerResource) => {
+          await materialize?.(providerReceipt, operation, tx, providerResource);
+          return providerReceipt;
+        },
+        cleanup: async ({ client, switchTo }, marker, providerReceipt, operation) => {
+          await cleanupCompletedProviderOperationMarkers(
+            { client, switchTo }, marker, providerReceipt, operation,
+          );
+        },
       });
+      return returnReceipt ? receipt : receipt.uid;
     } catch (err) {
       console.error(`moveMessage failed: uid=${uid}:`, err.message);
       throw err;
     }
-    return newUid;
   }
 
-  async permanentDeleteMessage(account, uid, folder) {
-    await withFreshClient(account, async (client) => {
-      const lock = await client.getMailboxLock(folder);
-      try {
-        const result = await client.messageDelete(String(uid), { uid: true });
-        if (result === false) throw new Error('messageDelete returned false — server did not confirm deletion');
-      } finally {
-        lock.release();
+  async moveMessageWithReceipt(account, uid, fromFolder, toFolder, {
+    expectedUidValidity = undefined,
+    observationContext = null,
+    operationTokens = null,
+    operationKey,
+    materialize = null,
+    snapshot = null,
+  } = {}) {
+    return this.moveMessage(account, uid, fromFolder, toFolder, {
+      expectedUidValidity, observationContext,
+      ...(operationTokens ? { operationTokens } : {}),
+      operationKey, materialize, snapshot,
+      returnReceipt: true,
+    });
+  }
+
+  // Verify one exact UID without fetching message content. Used only to reconcile an
+  // interrupted two-system mutation: if IMAP already removed/moved the source but the DB
+  // transaction failed, the next idempotent request can safely discard the stale local row.
+  async messageExists(account, uid, folder, { expectedUidValidity = undefined } = {}) {
+    return withFencedUidClient(
+      account,
+      folder,
+      (client) => searchContainsExactUid(client, uid),
+      { expectedUidValidity },
+    );
+  }
+
+  async reconcileMissingMessageCopy(account, row, { deleteIfUncaused = false } = {}) {
+    const durableMove = await this.providerOperationExecutor?.findMoveBySource?.({
+      accountId: account.id, sourceMessageId: row.id, folder: row.folder, uid: row.uid,
+    });
+    if (durableMove) {
+      // An associated durable MOVE is causal evidence: resume it under executor ownership and
+      // preserve the source UUID/local metadata. Never reinterpret its absent UID as deletion.
+      if (!durableMove.requestKey) return { reconciled: false, changed: 0 };
+      const destinationFolder = durableMove.destination.folder;
+      const allMail = await isAllMailFolder(account.id, destinationFolder);
+      let materialized = null;
+      const receipt = await this.moveMessageWithReceipt(
+        account, row.uid, row.folder, destinationFolder, {
+          operationKey: durableMove.requestKey,
+          operationTokens: [durableMove.source, durableMove.destination],
+          expectedUidValidity: row.folder_uid_validity,
+          snapshot: snapshotFromMessageRow(row),
+          materialize: async (providerReceipt, operation, tx, providerResource) => {
+            materialized = await materializeArchiveReceipt(tx, {
+              accountId: account.id, sourceSnapshot: row, destinationFolder,
+              receipt: providerReceipt, operation, allMail, providerResource,
+            });
+          },
+        },
+      );
+      if (materialized) {
+        return { reconciled: true, changed: materialized.concurrentWinner ? 0 : 1 };
       }
+      const confirmed = await query(
+        `SELECT 1 FROM messages
+          WHERE id = $1 AND account_id = $2
+            AND (($3::boolean = true AND folder <> $4)
+              OR ($3::boolean = false AND folder = $4 AND uid = $5))
+          LIMIT 1`,
+        [row.id, account.id, allMail, receipt.folder, Number(receipt.uid)],
+      );
+      return { reconciled: confirmed.rows.length === 1, changed: 0 };
+    }
+    if (row.folder === 'INBOX') {
+      const archiveFolder = await resolveArchiveFolder(account.id, account.folder_mappings);
+      if (archiveFolder) {
+        const allMail = await isAllMailFolder(account.id, archiveFolder);
+        if (row.folder_uid_validity == null) return { reconciled: false, changed: 0 };
+        const operationId = buildProviderOperationId({
+          kind: 'move', accountId: account.id, requestKey: `archive:${row.id}`,
+          source: {
+            folder: row.folder, uid: Number(row.uid),
+            uidValidity: String(row.folder_uid_validity),
+          },
+          destinationFolder: archiveFolder,
+        });
+        let materialized = null;
+        let recoveryIntent;
+        if (row.folder_observation_generation != null) {
+          const fresh = await readProviderOperationObservations(
+            account.id, [row.folder, archiveFolder],
+          );
+          const byFolder = new Map(fresh.map(token => [token.folder, token]));
+          recoveryIntent = buildProviderOperationIdentity({
+            kind: 'move', accountId: account.id, requestKey: `archive:${row.id}`,
+            source: { ...byFolder.get(row.folder), uid: Number(row.uid) },
+            destination: byFolder.get(archiveFolder), sourceMessageId: row.id,
+          });
+        }
+        const replay = await this.providerOperationExecutor.completeExisting(operationId, {
+          ...(recoveryIntent ? { intent: recoveryIntent } : {}),
+          completeWithProvider: allMail,
+          acquireProvider: (callback, operation) => withSwitchableMailboxClient(
+            account, archiveFolder, callback, operation,
+          ),
+          validateExisting: operation => assertExactArchiveRecoveryOperation(operation, {
+            operationId, accountId: account.id, row, archiveFolder,
+          }),
+          validateCompletion: (tx, operation) => (
+            assertProviderOperationDestination(tx, operation)
+          ),
+          complete: async (providerReceipt, operation, tx, providerResource) => {
+            materialized = await materializeArchiveReceipt(tx, {
+              accountId: account.id,
+              sourceSnapshot: row,
+              destinationFolder: archiveFolder,
+              receipt: providerReceipt,
+              operation,
+              allMail,
+              providerResource,
+            });
+            return providerReceipt;
+          },
+          cleanup: async ({ client, switchTo }, marker, providerReceipt, operation) => {
+            await cleanupCompletedProviderOperationMarkers(
+              { client, switchTo }, marker, providerReceipt, operation,
+            );
+          },
+        });
+        if (replay.status !== 'completed') return { reconciled: false, changed: 0 };
+        const destinationReceipt = replay.receipt;
+        if (materialized) {
+          return { reconciled: true, changed: materialized.concurrentWinner ? 0 : 1 };
+        }
+        if (allMail) {
+          const remaining = await query(
+            'SELECT 1 FROM messages WHERE id = $1 AND account_id = $2 LIMIT 1',
+            [row.id, account.id],
+          );
+          return { reconciled: remaining.rows.length === 0, changed: 0 };
+        }
+        const confirmed = await query(
+          `SELECT m.id
+             FROM messages m
+             JOIN folders live_folder ON live_folder.account_id = m.account_id
+                                     AND live_folder.path = m.folder
+                                     AND live_folder.is_present = true
+                                     AND live_folder.uid_validity IS NOT NULL
+            WHERE m.id = $1 AND m.account_id = $2 AND m.folder = $3 AND m.uid = $4
+              AND m.is_deleted = false AND m.metadata_complete = true`,
+          [row.id, account.id, archiveFolder, Number(destinationReceipt.uid)],
+        );
+        return { reconciled: confirmed.rows.length === 1, changed: 0 };
+      }
+      if (!deleteIfUncaused) return { reconciled: false, changed: 0 };
+    }
+    const changed = await deleteMessageCopyRow(row.account_id, row.uid, row.folder, row.id);
+    if (changed > 0) return { reconciled: true, changed };
+    // A zero-row exact delete is only an idempotent concurrent completion when the
+    // message row itself is gone. If the same id was relocated, its live server copy
+    // still needs Seen and Done must remain blocked/retryable.
+    return { reconciled: await confirmLocalMessageCopyGone(row), changed: 0 };
+  }
+
+  async permanentDeleteMessage(account, uid, folder, {
+    expectedUidValidity = undefined,
+    snapshot = null,
+    materialize = null,
+    operationKey = null,
+  } = {}) {
+    requireExactMutationSnapshot(snapshot, account.id, uid, folder, 'Permanent delete');
+    const [sourceToken] = await readProviderOperationObservations(account.id, [folder]);
+    if (expectedUidValidity !== undefined && (
+      expectedUidValidity == null || sourceToken?.uidValidity == null ||
+      Number(sourceToken.uidValidity) !== Number(expectedUidValidity)
+    )) {
+      const err = new Error(`Snapshot UIDVALIDITY changed before ${folder} delete`);
+      err.code = 'SNAPSHOT_UIDVALIDITY_CHANGED';
+      throw err;
+    }
+    const intent = buildProviderOperationIdentity({
+      kind: 'delete', accountId: account.id,
+      source: { ...sourceToken, uid: Number(uid) },
+      destination: sourceToken,
+      requestKey: operationKey || `delete:${snapshot.id}`,
+      sourceMessageId: snapshot.id,
+    });
+    const deleteExactUid = async client => {
+      if (!client.capabilities?.has('UIDPLUS')) {
+        throw new ProviderOperationError('Causal permanent delete requires UIDPLUS', {
+          code: 'PROVIDER_UIDPLUS_REQUIRED', retryable: false, uncertain: false,
+        });
+      }
+      const result = await client.messageDelete(String(uid), { uid: true });
+      if (result === false) throw new Error('messageDelete returned false — server did not confirm deletion');
+    };
+    return this.providerOperationExecutor.execute({
+      intent,
+      acquireProvider: callback => withFreshClient(account, async client => {
+        const lock = await client.getMailboxLock(folder);
+        try {
+          return await callback({ client });
+        } finally {
+          lock.release();
+        }
+      }),
+      validate: async ({ client }, tx, operation) => {
+        await assertProviderOperationObservations(tx, operation);
+        await assertLiveMessageSnapshots(tx, account.id, [snapshot]);
+        assertLiveProviderEpoch({ client }, operation.source, 'Source');
+        if (!client.capabilities?.has('UIDPLUS')) {
+          throw new ProviderOperationError('Causal permanent delete requires UIDPLUS', {
+            code: 'PROVIDER_UIDPLUS_REQUIRED', retryable: false, uncertain: false,
+          });
+        }
+      },
+      validateRecovery: async ({ client }, tx, operation) => {
+        await assertProviderOperationObservations(tx, operation);
+        assertLiveProviderEpoch({ client }, operation.source, 'Source');
+      },
+      validateCompletion: async (tx) => {
+        const remaining = await tx.query(
+          'SELECT 1 FROM messages WHERE id = $1 AND account_id = $2 LIMIT 1',
+          [snapshot.id, account.id],
+        );
+        if (remaining.rows.length) {
+          await assertLiveMessageSnapshots(tx, account.id, [snapshot], { includeRevisions: false });
+        }
+      },
+      prepare: ({ client }, marker) => storeAndVerifyProviderMarker(client, uid, marker),
+      command: async ({ client }, marker, operation) => {
+        await deleteExactUid(client);
+        return {
+          status: 'unique', folder, uid: Number(uid),
+          uidValidity: String(operation.source.uidValidity),
+          sourceToken: operation.source, destinationToken: operation.destination, marker,
+        };
+      },
+      recover: async ({ client }, marker, operation) => {
+        if (!(await searchContainsExactUid(client, uid, { keyword: marker }))) {
+          return { status: 'absent' };
+        }
+        await deleteExactUid(client);
+        if (await searchContainsExactUid(client, uid)) {
+          return { status: 'ambiguous', folder, uid: Number(uid), marker };
+        }
+        return {
+          status: 'unique', folder, uid: Number(uid),
+          uidValidity: String(operation.source.uidValidity),
+          sourceToken: operation.source, destinationToken: operation.destination, marker,
+        };
+      },
+      complete: async (receipt, operation, tx) => {
+        await materialize?.(tx, receipt, operation);
+        return receipt;
+      },
+      cleanup: async ({ client }, marker, providerReceipt, operation) => {
+        await cleanupCompletedProviderOperationMarkers({
+          client, switchTo: async () => {},
+        }, marker, providerReceipt, operation);
+      },
     });
   }
 
@@ -4750,40 +6326,113 @@ export class ImapManager {
   // Post-copy notification/re-evaluation is a plugin concern: the generic `afterLabelCopy`
   // hook lets the owning plugin (GTD) broadcast its refresh event and, on the deferred path,
   // reconcile once the sibling lands. copyMessage itself stays label-feature-agnostic.
-  async copyMessage(accountId, uid, fromFolder, toFolder) {
+  async copyMessage(accountId, uid, fromFolder, toFolder, { operationKey, snapshot = null } = {}) {
+    requireExactMutationSnapshot(snapshot, accountId, uid, fromFolder, 'COPY');
     const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
     const account = accountResult.rows[0];
     if (!account) throw new Error(`copyMessage: account ${accountId} not found`);
 
-    let newUid = null;
+    const tokens = await readProviderOperationObservations(account.id, [fromFolder, toFolder]);
+    const tokenByFolder = new Map(tokens.map(token => [token.folder, token]));
+    const sourceToken = tokenByFolder.get(fromFolder);
+    const destinationToken = tokenByFolder.get(toFolder);
+    const intent = buildProviderOperationIdentity({
+      kind: 'copy', accountId: account.id,
+      source: { ...sourceToken, uid: Number(uid) }, destination: destinationToken,
+      requestKey: operationKey, sourceMessageId: snapshot.id,
+    });
+    let receipt;
     try {
-      await withFreshClient(account, async (client) => {
-        const lock = await client.getMailboxLock(fromFolder);
-        try {
-          const result = await client.messageCopy(String(uid), toFolder, { uid: true });
-          if (result === false) throw new Error('messageCopy returned false — server did not confirm copy');
-          if (result?.uidMap) newUid = result.uidMap.get(Number(uid)) || null;
-        } finally {
-          lock.release();
-        }
+      receipt = await this.providerOperationExecutor.execute({
+        intent,
+        acquireProvider: (callback, operation) => withSwitchableMailboxClient(
+          account,
+          toFolder,
+          async resource => {
+            if (operation.state === 'ready') {
+              if (!recoveryKeywordAllowed(resource.client.mailbox, intent.marker)) {
+                throw new Error(`Destination mailbox does not support provider operation marker ${intent.marker}`);
+              }
+              await resource.switchTo(fromFolder);
+            }
+            return callback(resource);
+          },
+        ),
+        validate: async (resource, tx, operation) => {
+          await assertProviderOperationObservations(tx, operation);
+          await assertLiveMessageSnapshots(tx, account.id, [snapshot]);
+          if (!recoveryKeywordAllowed(resource.client.mailbox, operation.marker)) {
+            throw new Error(`Source mailbox does not support provider operation marker ${operation.marker}`);
+          }
+          assertLiveProviderEpoch(resource, operation.source, 'Source');
+          assertLiveProviderEpoch(resource, operation.destination);
+        },
+        validateRecovery: async (resource, tx, operation) => {
+          await assertProviderOperationDestination(tx, operation);
+          assertLiveProviderEpoch(resource, operation.destination);
+        },
+        validateCompletion: async (tx, operation) => {
+          await assertProviderOperationDestination(tx, operation);
+          await assertLiveMessageSnapshots(tx, account.id, [snapshot], { includeRevisions: false });
+        },
+        prepare: ({ client }, marker) => storeAndVerifyProviderMarker(client, uid, marker),
+        command: async ({ client, switchTo }, marker, operation) => {
+          const copyResult = await client.messageCopy(String(uid), toFolder, { uid: true });
+          if (copyResult === false) throw new Error('messageCopy returned false — server did not confirm copy');
+          const mappedUid = copyResult?.uidMap?.get(Number(uid)) || null;
+          await switchTo(toFolder);
+          const recovered = await recoverProviderMarkerOnClient(client, marker);
+          if (recovered.status !== 'unique') throw new Error(`COPY provider marker is ${recovered.status}`);
+          if (mappedUid != null && mappedUid !== recovered.uid) {
+            throw new ProviderOperationError(
+              `UIDPLUS destination ${mappedUid} disagrees with provider marker UID ${recovered.uid}`,
+              {
+                code: 'PROVIDER_RECEIPT_MISMATCH', retryable: false, uncertain: true, manual: true,
+                details: { uidplus: Number(mappedUid), markerUid: recovered.uid },
+              },
+            );
+          }
+          return {
+            uid: recovered.uid, uidValidity: recovered.uidValidity, folder: toFolder,
+            sourceToken: operation.source, destinationToken: operation.destination, marker,
+          };
+        },
+        recover: async ({ client, switchTo }, marker, operation) => {
+          await switchTo(toFolder);
+          return withUidEpochFence(
+            account.id,
+            toFolder,
+            client,
+            async () => ({
+              ...(await recoverProviderMarkerOnClient(client, marker)), folder: toFolder,
+              sourceToken: operation.source, destinationToken: operation.destination, marker,
+            }),
+            operation.destination.uidValidity,
+          );
+        },
+        complete: async (providerReceipt, _operation, tx) => {
+          await insertCopiedSibling(accountId, uid, fromFolder, toFolder, providerReceipt.uid, {
+            tx, receipt: providerReceipt,
+          });
+          return providerReceipt;
+        },
+        afterCommit: async providerReceipt => {
+          await pluginRegistry.runHook('afterLabelCopy', {
+            mgr: this.pluginFacade, account, toFolder, fromFolder,
+            srcUid: uid, newUid: providerReceipt.uid ?? null,
+          });
+        },
+        cleanup: async ({ client, switchTo }, marker, providerReceipt, operation) => {
+          await cleanupCompletedProviderOperationMarkers(
+            { client, switchTo }, marker, providerReceipt, operation,
+          );
+        },
       });
     } catch (err) {
       console.error(`copyMessage failed: uid=${uid}:`, err.message);
       throw err;
     }
-
-    // Hand off to label plugins (GTD broadcasts its section-refresh and, on the deferred path,
-    // reconciles once the sibling lands — see plugins/gtd/hooks.js afterLabelCopy). Fired before
-    // the sibling INSERT to preserve the historical emit-then-insert order; `newUid` tells the
-    // plugin whether the sibling is available now (UIDPLUS) or deferred to a destination sync
-    // (null). The hook swallows per-plugin errors and the plugin's deferred work is fire-and-
-    // forget, so this never blocks or breaks the copy.
-    await pluginRegistry.runHook('afterLabelCopy', { mgr: this.pluginFacade, account, toFolder, fromFolder, srcUid: uid, newUid });
-
-    if (newUid == null) return null;
-
-    await insertCopiedSibling(accountId, uid, fromFolder, toFolder, newUid);
-    return newUid;
+    return receipt.uid;
   }
 
   // Remove a single label = delete ONE folder's copy of the message, leaving the other
@@ -4792,15 +6441,40 @@ export class ImapManager {
   // If the IMAP delete throws, the DB row is left in place so the two never silently diverge.
   // Post-remove notification is a plugin concern (generic `afterLabelRemove` hook), so this
   // stays label-feature-agnostic.
-  async removeMessageCopy(accountId, uid, folder) {
+  async removeMessageCopy(accountId, uid, folder, {
+    expectedId = null,
+    notify = true,
+    expectedUidValidity = undefined,
+    snapshot = null,
+    operationKey = null,
+  } = {}) {
     const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
     const account = accountResult.rows[0];
     if (!account) throw new Error(`removeMessageCopy: account ${accountId} not found`);
+    requireExactMutationSnapshot(snapshot, accountId, uid, folder, 'Remove message copy');
+    if (expectedId && expectedId !== snapshot.id) {
+      throw new Error('Remove message copy row identity disagrees with its exact snapshot');
+    }
 
-    await this.permanentDeleteMessage(account, uid, folder);
-    const result = await deleteMessageCopyRow(accountId, uid, folder);
+    let result = 0;
+    try {
+      await this.permanentDeleteMessage(account, uid, folder, {
+        expectedUidValidity: expectedUidValidity ?? snapshot.uidValidity,
+        snapshot,
+        operationKey: operationKey || `delete:${expectedId || snapshot?.id}`,
+        materialize: async tx => {
+          result = await deleteMessageCopyRow(accountId, uid, folder, expectedId, { tx });
+          return result;
+        },
+      });
+    } catch (err) {
+      if (err.code === 'SNAPSHOT_UIDVALIDITY_CHANGED') throw err;
+      throw err;
+    }
     // Removing a label copy changes label-feed data — let plugins broadcast their refresh.
-    await pluginRegistry.runHook('afterLabelRemove', { mgr: this.pluginFacade, account, folder, uid });
+    if (notify && result > 0) {
+      await pluginRegistry.runHook('afterLabelRemove', { mgr: this.pluginFacade, account, folder, uid });
+    }
     return result;
   }
 
@@ -4813,202 +6487,72 @@ export class ImapManager {
   // destination UIDNEXT so the DB can store the correct new UIDs.
   // On command failure, verifies via UID SEARCH and confirms destination arrival
   // before trusting the source-absence result.
-  async bulkMoveMessages(account, uids, fromFolder, toFolder) {
+  async bulkMoveMessages(account, uids, fromFolder, toFolder, {
+    observationContext = null,
+    operationKey,
+    operationKeys = null,
+    sourceSnapshots = null,
+    sourceRows = null,
+    materialize = null,
+  } = {}) {
     if (!uids.length) return { uidMap: new Map(), succeeded: [], failed: [] };
-    let destUidNextBefore = null;
-
-    // Capture UIDNEXT on a dedicated connection so a STATUS failure (e.g. toFolder
-    // is the currently selected mailbox on a pooled connection) cannot corrupt the
-    // connection used for the actual move.
-    try {
-      const status = await withFreshClient(account, async (client) => {
-        return await client.status(toFolder, { uidNext: true });
-      });
-      destUidNextBefore = status?.uidNext ?? null;
-    } catch (statusErr) {
-      console.warn(`bulkMoveMessages STATUS ${toFolder} failed (${statusErr.message}) — reconciliation skipped`);
-    }
-
-    try {
-      const serverUidMap = await withFreshClient(account, async (client) => {
-        const lock = await client.getMailboxLock(fromFolder);
-        try {
-          const result = await client.messageMove(uids.map(String), toFolder, { uid: true });
-          if (result === false) throw new Error('bulk messageMove returned false — server did not confirm move');
-          return result?.uidMap?.size ? result.uidMap : null;
-        } finally {
-          lock.release();
-        }
-      });
-
-      if (serverUidMap) {
-        return { uidMap: serverUidMap, succeeded: uids, failed: [] };
-      }
-
-      // Move succeeded but server returned no uidMap (no UIDPLUS).
-      // Try to recover new UIDs via UIDNEXT scan so the DB stays accurate.
-      const uidMap = await this._reconcileMovedUids(account, uids, toFolder, destUidNextBefore);
-      return { uidMap, succeeded: uids, failed: [] };
-
-    } catch (err) {
-      console.warn(`bulkMoveMessages ${fromFolder} → ${toFolder}: batch failed (${err.message}), verifying via UID SEARCH`);
+    if (!operationKey) throw new Error('bulk MOVE operation key is required');
+    for (const uid of uids) {
+      const snapshot = sourceSnapshots?.get?.(uid) || sourceSnapshots?.get?.(String(uid));
       try {
-        const remaining = await withFreshClient(account, async (client) => {
-          const lock = await client.getMailboxLock(fromFolder);
-          try {
-            return await client.search({ uid: uids.join(',') }, { uid: true });
-          } finally {
-            lock.release();
-          }
-        });
-        const remainingSet = new Set(remaining.map(Number));
-        const succeeded = uids.filter(uid => !remainingSet.has(Number(uid)));
-        const failed    = uids.filter(uid =>  remainingSet.has(Number(uid)));
-
-        if (!succeeded.length) {
-          return { uidMap: new Map(), succeeded: [], failed: uids };
-        }
-
-        // Confirm that messages gone from source actually landed in destination
-        // before treating source-absence as proof of success.
-        if (destUidNextBefore !== null) {
-          try {
-            const destNewUids = await withFreshClient(account, async (client) => {
-              const lock = await client.getMailboxLock(toFolder);
-              try {
-                return await client.search({ uid: `${destUidNextBefore}:*` }, { uid: true });
-              } finally {
-                lock.release();
-              }
-            });
-            if (destNewUids.length < succeeded.length) {
-              console.warn(`bulkMoveMessages fallback: ${succeeded.length} UIDs gone from source but only ${destNewUids.length} new UIDs in destination — treating all as failed`);
-              return { uidMap: new Map(), succeeded: [], failed: uids };
-            }
-            // Destination count confirms the move; build uidMap if counts match exactly.
-            const uidMap = new Map();
-            if (destNewUids.length === succeeded.length) {
-              // IMAP MOVE assigns destination UIDs in ascending source-UID order, so BOTH
-              // sides must be sorted before zipping. `succeeded` is in arbitrary input
-              // order (not UID order), so zipping it against the sorted destination UIDs
-              // as-is would map each message to the wrong new UID.
-              const sortedSrc = succeeded.map(Number).sort((a, b) => a - b);
-              const sortedNew = [...destNewUids].sort((a, b) => a - b);
-              sortedSrc.forEach((uid, i) => uidMap.set(uid, sortedNew[i]));
-            }
-            console.log(`bulkMoveMessages: ${succeeded.length}/${uids.length} confirmed moved via UID SEARCH + dest verification`);
-            return { uidMap, succeeded, failed };
-          } catch (destErr) {
-            console.warn(`bulkMoveMessages: destination verification failed (${destErr.message}) — trusting source-absence`);
-          }
-        }
-
-        if (succeeded.length) {
-          console.log(`bulkMoveMessages: ${succeeded.length}/${uids.length} messages confirmed moved via UID SEARCH`);
-        }
-        return { uidMap: new Map(), succeeded, failed };
-      } catch (searchErr) {
-        console.error(`bulkMoveMessages: UID SEARCH verification failed: ${searchErr.message}`);
-        return { uidMap: new Map(), succeeded: [], failed: uids };
+        requireExactMutationSnapshot(snapshot, account.id, uid, fromFolder, 'Bulk MOVE');
+      } catch {
+        throw new Error(`Exact source snapshot missing or invalid for bulk MOVE uid ${uid}`);
       }
     }
-  }
-
-  // After a successful move that returned no uidMap, scan the destination folder
-  // for UIDs >= destUidNextBefore and assign them to source UIDs in sorted order.
-  // Only commits the mapping when the count matches exactly (conservative).
-  async _reconcileMovedUids(account, sourceUids, toFolder, destUidNextBefore) {
-    if (destUidNextBefore === null) return new Map();
-    try {
-      const newUids = await withFreshClient(account, async (client) => {
-        const lock = await client.getMailboxLock(toFolder);
-        try {
-          return await client.search({ uid: `${destUidNextBefore}:*` }, { uid: true });
-        } finally {
-          lock.release();
-        }
-      });
-      if (newUids.length !== sourceUids.length) {
-        console.warn(`bulkMoveMessages reconcile: expected ${sourceUids.length} new UIDs in ${toFolder}, found ${newUids.length} — skipping UID update (will reconcile on next sync)`);
-        return new Map();
-      }
-      // IMAP MOVE assigns destination UIDs in ascending source-UID order, so sort BOTH
-      // sides before zipping — sourceUids is in arbitrary input order.
-      const sortedSrc = sourceUids.map(Number).sort((a, b) => a - b);
-      const sortedNew = [...newUids].sort((a, b) => a - b);
-      const uidMap = new Map();
-      sortedSrc.forEach((uid, i) => uidMap.set(uid, sortedNew[i]));
-      console.log(`bulkMoveMessages: reconciled ${uidMap.size} UIDs via destination UIDNEXT scan`);
-      return uidMap;
-    } catch (err) {
-      console.warn(`bulkMoveMessages: UID reconciliation failed (${err.message}) — UIDs will be updated on next sync`);
-      return new Map();
-    }
-  }
-
-  // Permanently delete a batch of UIDs already in the given folder (two-step:
-  // flag \Deleted + expunge) in a single IMAP command sequence.
-  // Returns { succeeded, failed } — subsets of the input uids array.
-  //
-  // With UIDPLUS: UID EXPUNGE targets only the specified UIDs — safe.
-  // Without UIDPLUS: plain EXPUNGE removes ALL \Deleted messages in the mailbox.
-  // To prevent collateral damage, we temporarily unflag any other \Deleted messages
-  // before expunging, then restore them in a finally block.
-  async bulkPermanentDelete(account, uids, folder) {
-    if (!uids.length) return { succeeded: [], failed: [] };
-    try {
-      await withFreshClient(account, async (client) => {
-        const lock = await client.getMailboxLock(folder);
-        try {
-          const hasUidPlus = client.capabilities?.has('UIDPLUS');
-          if (hasUidPlus) {
-            const result = await client.messageDelete(uids.map(String).join(','), { uid: true });
-            if (result === false) throw new Error('bulk messageDelete returned false — server did not confirm deletion');
-          } else {
-            // No UIDPLUS: protect other \Deleted messages from the broad EXPUNGE.
-            const ourSet = new Set(uids.map(Number));
-            const allDeleted = await client.search({ deleted: true }, { uid: true });
-            const othersDeleted = allDeleted.filter(uid => !ourSet.has(uid));
-            if (othersDeleted.length > 0) {
-              await client.messageFlagsRemove(othersDeleted.join(','), ['\\Deleted'], { uid: true });
-            }
-            try {
-              const result = await client.messageDelete(uids.map(String).join(','), { uid: true });
-              if (result === false) throw new Error('bulk messageDelete returned false — server did not confirm deletion');
-            } finally {
-              if (othersDeleted.length > 0) {
-                await client.messageFlagsAdd(othersDeleted.join(','), ['\\Deleted'], { uid: true });
-              }
-            }
-          }
-        } finally {
-          lock.release();
-        }
-      });
-      return { succeeded: uids, failed: [] };
-    } catch (err) {
-      console.warn(`bulkPermanentDelete ${folder}: batch failed (${err.message}), verifying via UID SEARCH`);
+    const tokens = observationContext
+      ? await claimFolderObservations(account.id, [fromFolder, toFolder], {
+        context: observationContext.tokens,
+      })
+      : await readProviderOperationObservations(account.id, [fromFolder, toFolder]);
+    if (observationContext) observationContext.tokens = tokens;
+    const outcomes = await Promise.all(uids.map(async uid => {
       try {
-        const remaining = await withFreshClient(account, async (client) => {
-          const lock = await client.getMailboxLock(folder);
-          try {
-            return await client.search({ uid: uids.join(',') }, { uid: true });
-          } finally {
-            lock.release();
+        let rowOperationKey;
+        if (operationKeys != null) {
+          rowOperationKey = operationKeys.get?.(uid) ?? operationKeys.get?.(String(uid));
+          if (!rowOperationKey) {
+            throw new Error(`exact bulk MOVE operation key missing for uid ${uid}`);
           }
-        });
-        const remainingSet = new Set(remaining.map(Number));
-        const succeeded = uids.filter(uid => !remainingSet.has(Number(uid)));
-        const failed    = uids.filter(uid =>  remainingSet.has(Number(uid)));
-        if (succeeded.length) {
-          console.log(`bulkPermanentDelete: ${succeeded.length}/${uids.length} messages confirmed deleted via UID SEARCH`);
+        } else {
+          rowOperationKey = `${operationKey}:${uid}`;
         }
-        return { succeeded, failed };
-      } catch (searchErr) {
-        console.error(`bulkPermanentDelete: UID SEARCH verification failed: ${searchErr.message}`);
-        return { succeeded: [], failed: uids };
+        const sourceSnapshot = sourceSnapshots?.get?.(uid) || sourceSnapshots?.get?.(String(uid));
+        const sourceRow = sourceRows?.get?.(uid) || sourceRows?.get?.(String(uid));
+        const receipt = await this.moveMessage(account, uid, fromFolder, toFolder, {
+          returnReceipt: true,
+          operationTokens: tokens,
+          operationKey: rowOperationKey,
+          snapshot: sourceSnapshot,
+          expectedUidValidity: sourceSnapshot.uidValidity,
+          ...(materialize ? {
+            materialize: (providerReceipt, operation, tx, providerResource) => (
+              materialize(sourceRow, providerReceipt, operation, tx, providerResource)
+            ),
+          } : {}),
+        });
+        return { uid, receipt };
+      } catch (error) {
+        console.warn(`bulkMoveMessages ${fromFolder} → ${toFolder} uid=${uid} failed: ${error.message}`);
+        return { uid, error };
       }
-    }
+    }));
+    const succeeded = outcomes.filter(item => item.receipt).map(item => item.uid);
+    const failed = outcomes.filter(item => item.error).map(item => item.uid);
+    const uidMap = new Map(outcomes
+      .filter(item => item.receipt?.uid != null)
+      .map(item => [Number(item.uid), Number(item.receipt.uid)]));
+    const receiptMap = new Map(outcomes
+      .filter(item => item.receipt)
+      .map(item => [Number(item.uid), item.receipt]));
+    const result = { uidMap, succeeded, failed };
+    Object.defineProperty(result, 'receiptMap', { value: receiptMap, enumerable: false });
+    return result;
   }
 
   async syncNow(userId, accountId = null) {
@@ -5114,17 +6658,26 @@ export class ImapManager {
   }
 
   async _runSnoozeWakeup() {
-    // Find snoozed messages whose snooze_until has passed and which are still in
-    // the snoozed folder (joined via stable Message-ID header).
+    // Find due snoozes through the exact local row captured when the provider MOVE
+    // completed. Message-ID is descriptive metadata, never wakeup causality.
     const due = await query(`
       SELECT sm.id AS snooze_id, sm.user_id, sm.account_id,
-             sm.message_id_header, sm.original_folder, sm.snoozed_folder, m.uid, m.is_read
+             sm.message_row_id, sm.message_id_header, sm.original_folder,
+             sm.snoozed_folder, m.uid, m.is_read, m.read_revision, m.star_revision,
+             live_folder.uid_validity AS folder_uid_validity,
+             live_folder.observation_generation AS folder_observation_generation
       FROM snoozed_messages sm
-      JOIN messages m ON m.account_id = sm.account_id
-                     AND m.message_id = sm.message_id_header
+      JOIN messages m ON m.id = sm.message_row_id
+                     AND m.account_id = sm.account_id
                      AND m.folder = sm.snoozed_folder
                      AND m.is_deleted = false
+                     AND m.metadata_complete = true
+      JOIN folders live_folder ON live_folder.account_id = m.account_id
+                              AND live_folder.path = m.folder
+                              AND live_folder.is_present = true
+                              AND live_folder.uid_validity IS NOT NULL
       WHERE sm.snooze_until <= NOW()
+        AND sm.resolution_state = 'active'
     `);
 
     for (const row of due.rows) {
@@ -5137,89 +6690,78 @@ export class ImapManager {
         // the DB row if an EXPUNGE arrives from the Snoozed folder while the move
         // is in flight.
         this._guardMoveUid(row.account_id, row.snoozed_folder, row.uid);
-        let newUid;
         try {
-          // Move back to original folder
-          newUid = await this.moveMessageGetNewUid(
-            account, row.uid, row.snoozed_folder, row.original_folder
+          // The durable receipt is the only destination identity. Marker recovery always
+          // supplies an exact UID even when UIDPLUS is unavailable.
+          const moveReceipt = await this.moveMessage(
+            account, row.uid, row.snoozed_folder, row.original_folder,
+            {
+              operationKey: `snooze-wakeup:${row.snooze_id}`,
+              returnReceipt: true,
+              expectedUidValidity: row.folder_uid_validity,
+              snapshot: snapshotFromMessageRow({
+                ...row, id: row.message_row_id, account_id: row.account_id,
+                folder: row.snoozed_folder,
+              }),
+              materialize: (receipt, operation, tx) => materializeArchiveReceipt(tx, {
+                accountId: row.account_id,
+                sourceSnapshot: {
+                  ...row, id: row.message_row_id, account_id: row.account_id,
+                  folder: row.snoozed_folder,
+                },
+                destinationFolder: row.original_folder,
+                receipt,
+                operation,
+              }),
+            },
           );
 
-          // Mark as unread so the user notices it
-          if (newUid) {
-            await this.setFlag(account, newUid, row.original_folder, '\\Seen', false);
-          } else if (row.message_id_header) {
-            // No UIDPLUS — server moved the message but returned no UID map.
-            // Search the destination folder by Message-ID to locate and unflag \Seen.
-            try {
-              await withFreshClient(account, async (client) => {
-                const lock = await client.getMailboxLock(row.original_folder);
-                try {
-                  const uids = await client.search({ header: ['Message-ID', row.message_id_header] }, { uid: true });
-                  if (uids.length > 0) {
-                    const r = await client.messageFlagsRemove(String(uids[0]), ['\\Seen'], { uid: true });
-                    if (r === false) console.warn(`Snooze wakeup: messageFlagsRemove returned false for ${row.original_folder}`);
-                  } else {
-                    console.warn(`Snooze wakeup: could not find message in ${row.original_folder} to mark unread (Message-ID: ${row.message_id_header})`);
-                  }
-                } finally {
-                  lock.release();
-                }
-              });
-            } catch (err) {
-              console.warn(`Snooze wakeup: could not mark message unread on server (no UIDPLUS): ${err.message}`);
-            }
+          const unread = await this.setDesiredFlag(
+            account, row.message_row_id, 'read', false, {
+              snapshot: {
+                id: row.message_row_id, accountId: row.account_id,
+                uid: Number(moveReceipt.uid), folder: row.original_folder,
+                uidValidity: String(moveReceipt.uidValidity),
+                folderGeneration: String(moveReceipt.destinationToken.generation),
+                readRevision: Number(row.read_revision || 0),
+                starRevision: Number(row.star_revision || 0),
+              },
+            },
+          );
+          if (unread?.delivery?.state !== 'confirmed') {
+            throw new Error('Snooze wakeup unread delivery was not confirmed');
           }
 
-          // Update DB: change folder, mark unread, and update UID if the move returned one.
-          if (newUid != null) {
-            await query(
-              'UPDATE messages SET folder = $1, is_read = false, read_changed_at = NOW(), uid = $4 WHERE account_id = $2 AND message_id = $3 AND folder = $5',
-              [row.original_folder, row.account_id, row.message_id_header, newUid, row.snoozed_folder]
-            );
-          } else {
-            // Non-UIDPLUS: DB holds the stale source UID at the destination. Guard it so
-            // reconcileDeletes does not treat it as an orphan before the next sync corrects it.
-            this._guardMoveUid(row.account_id, row.original_folder, row.uid);
-            await query(
-              'UPDATE messages SET folder = $1, is_read = false, read_changed_at = NOW() WHERE account_id = $2 AND message_id = $3 AND folder = $4',
-              [row.original_folder, row.account_id, row.message_id_header, row.snoozed_folder]
-            );
-            setTimeout(() => this._unguardMoveUid(row.account_id, row.original_folder, row.uid), 10_000);
+          const resolved = await query(
+            `DELETE FROM snoozed_messages
+              WHERE id = $1 AND message_row_id = $2 AND resolution_state = 'active'`,
+            [row.snooze_id, row.message_row_id],
+          );
+          if (resolved.rowCount !== 1) {
+            const error = new Error('Exact snooze resolution record was superseded');
+            error.code = 'SNOOZE_RESOLUTION_PERSISTENCE_FAILED';
+            error.retryable = false;
+            throw error;
           }
         } finally {
           this._unguardMoveUid(row.account_id, row.snoozed_folder, row.uid);
         }
-
-        // Remove snooze record
-        await query('DELETE FROM snoozed_messages WHERE id = $1', [row.snooze_id]);
-
-        // Update folder counts: message leaves Snoozed and re-enters original_folder as unread.
-        // row.is_read reflects the read state in the Snoozed folder before the move.
-        adjustFolderCounts(row.account_id, row.snoozed_folder, -1, row.is_read ? 0 : -1);
-        adjustFolderCounts(row.account_id, row.original_folder, 1, 1); // always +1 unread on wakeup
 
         // Notify the user's open clients so the message reappears
         this.broadcast({ type: 'snooze_wakeup', accountId: row.account_id }, row.user_id);
 
         console.log(`Snooze wakeup: message ${row.message_id_header} restored to ${row.original_folder}`);
       } catch (err) {
-        console.error(`Snooze wakeup failed for snooze_id ${row.snooze_id}:`, err.message);
+        console.error(
+          `Snooze wakeup failed for snooze_id ${row.snooze_id}${err.code ? ` [${err.code}]` : ''}:`,
+          err.message,
+        );
       }
     }
 
-    // Clean up orphaned snooze records whose message has left the snoozed folder
-    // (e.g. user manually moved it out) and are at least 5 minutes past due.
-    await query(`
-      DELETE FROM snoozed_messages sm
-      WHERE sm.snooze_until <= NOW() - INTERVAL '5 minutes'
-        AND NOT EXISTS (
-          SELECT 1 FROM messages m
-          WHERE m.account_id = sm.account_id
-            AND m.message_id = sm.message_id_header
-            AND m.folder = sm.snoozed_folder
-            AND m.is_deleted = false
-        )
-    `);
+    // Non-actionable and orphaned legacy rows remain durable for reconciliation.
+    // Deleting by absence would turn an observation into causal success and could also
+    // erase a zero-CAS/manual result after the provider MOVE already happened.
   }
 
   broadcast(data, userId = null) {
@@ -5255,12 +6797,104 @@ export class ImapManager {
     return this._pendingMoveUids.has(`${accountId}:${folder}:${uid}`);
   }
 
+  async _reconcileFolderDeletes(
+    account, folder, serverUidSet, selectedValidity, reconcileStartedAt,
+    observationContext = null
+  ) {
+    // UIDVALIDITY is mandatory for a destructive UID diff. A pooled client can retain an
+    // old selected mailbox across a provider rebuild; without this fence, old-epoch SEARCH
+    // results could delete unrelated new-epoch rows after UID reuse.
+    if (selectedValidity == null) return 0;
+
+    const orphanRows = await withTransaction(async (tx) => {
+      // Capture exact row and folder identities under the authoritative snapshot epoch. Provider
+      // recovery runs after releasing this lock so its own observation fences cannot deadlock.
+      const states = observationContext
+        ? await assertObservationContext(tx, account.id, observationContext)
+        : null;
+      const state = states?.get(folder) || await tx.query(
+        `SELECT uid_validity FROM folders
+          WHERE account_id = $1 AND path = $2
+          FOR UPDATE`,
+        [account.id, folder]
+      ).then(result => result.rows[0]);
+      const durableValidity = state?.uid_validity != null
+        ? Number(state.uid_validity)
+        : null;
+      if (durableValidity !== selectedValidity) return null;
+
+      const dbResult = await tx.query(
+        `SELECT m.*,
+                f.uid_validity AS folder_uid_validity,
+                f.observation_generation AS folder_observation_generation,
+                f.topology_identity AS folder_topology_identity
+           FROM messages m
+           JOIN folders f ON f.account_id = m.account_id AND f.path = m.folder
+          WHERE m.account_id = $1 AND m.folder = $2
+            AND (m.synced_at IS NULL OR m.synced_at < $3)`,
+        [account.id, folder, reconcileStartedAt]
+      );
+      return dbResult.rows.filter(row => (
+        !serverUidSet.has(Number(row.uid)) &&
+        !this._isMoveUidGuarded(account.id, folder, row.uid)
+      ));
+    });
+    if (orphanRows == null) return 0;
+
+    let removedCount = 0;
+    if (orphanRows.length > 0) {
+      console.log(`Reconcile: resolving ${orphanRows.length} missing message(s) from ${logAccount(account)}/${folder}`);
+    }
+    for (const row of orphanRows) {
+      try {
+        const result = await this.reconcileMissingMessageCopy(
+          account, row, { deleteIfUncaused: true },
+        );
+        removedCount += Number(result.changed || 0);
+      } catch (error) {
+        console.warn(
+          `Reconcile: retaining recoverable source ${row.id} (${folder}/${row.uid}): ${error.message}`,
+        );
+      }
+    }
+
+    await withTransaction(async tx => {
+      const states = observationContext
+        ? await assertObservationContext(tx, account.id, observationContext)
+        : null;
+      const state = states?.get(folder) || await tx.query(
+        `SELECT uid_validity FROM folders
+          WHERE account_id = $1 AND path = $2
+          FOR UPDATE`,
+        [account.id, folder],
+      ).then(result => result.rows[0]);
+      if (Number(state?.uid_validity) !== selectedValidity) return;
+      // SEARCH is authoritative for total UIDs. A local-count mismatch means at least one
+      // historical server UID is absent or incomplete locally; retain the server total and
+      // force exact-UID backfill instead of hiding the gap behind a smaller local count.
+      await tx.query(
+        `UPDATE folders f
+         SET total_count  = $3,
+             unread_count = (SELECT COUNT(*) FILTER (WHERE m.is_read = false)
+                                             FROM messages m WHERE m.account_id = $1 AND m.folder = $2
+                                               AND m.is_deleted = false AND m.metadata_complete = true),
+             backfill_incomplete = f.backfill_incomplete OR
+               (SELECT COUNT(*) FROM messages m
+                 WHERE m.account_id = $1 AND m.folder = $2
+                   AND m.is_deleted = false AND m.metadata_complete = true) <> $3
+         WHERE f.account_id = $1 AND f.path = $2`,
+        [account.id, folder, serverUidSet.size]
+      );
+    });
+    return removedCount;
+  }
+
   // Compare the server's UID set for every folder that has local messages against our DB
   // and hard-delete rows whose UIDs no longer exist on the server (deleted by another
   // client). Phase 1: collect all server UID sets via one pool connection (IMAP-only, no
   // DB writes). Phase 2: diff and delete outside the IMAP connection so a DB error never
   // evicts a healthy pool client.
-  async reconcileDeletes(account) {
+  async reconcileDeletes(account, restartOnSupersession = true) {
     // Captured before the Phase 1 snapshot. Any row inserted or re-synced after this
     // instant (new IDLE mail, a bulk-move reinsert) is NOT in the snapshot yet, so it
     // would look like an orphan. Excluding rows synced at/after the cutoff closes that
@@ -5274,9 +6908,13 @@ export class ImapManager {
     if (!folderResult.rows.length) return;
 
     const folders = folderResult.rows.map(r => r.folder);
+    const observationContext = {
+      accountId: account.id,
+      tokens: await claimFolderObservations(account.id, folders),
+    };
 
     // Phase 1 — fetch server UID sets for each folder (IMAP only, inside withFreshClient).
-    const serverUidsByFolder = new Map(); // folder -> Set<number>
+    const serverUidsByFolder = new Map(); // folder -> { uids: Set<number>, uidValidity: number }
     try {
       await withFreshClient(account, async (client) => {
         for (const folder of folders) {
@@ -5285,6 +6923,13 @@ export class ImapManager {
             const lock = await client.getMailboxLock(folder);
             try {
               serverUids = await client.search({ all: true }, { uid: true });
+              const selectedValidity = client.mailbox?.uidValidity != null
+                ? Number(client.mailbox.uidValidity)
+                : null;
+              serverUidsByFolder.set(folder, {
+                uids: new Set(serverUids),
+                uidValidity: selectedValidity,
+              });
             } finally {
               lock.release();
             }
@@ -5293,7 +6938,6 @@ export class ImapManager {
             console.warn(`Reconcile: could not open ${logAccount(account)}/${folder}: ${extractImapError(err)}`);
             continue;
           }
-          serverUidsByFolder.set(folder, new Set(serverUids));
         }
       });
     } catch (err) {
@@ -5304,35 +6948,19 @@ export class ImapManager {
     // Phase 2 — diff each folder's server UIDs against the DB and delete orphans.
     // Runs outside withFreshClient so DB errors never cause unnecessary pool eviction.
     let deletedCount = 0;
-    for (const [folder, serverUidSet] of serverUidsByFolder) {
-      const dbResult = await query(
-        'SELECT uid FROM messages WHERE account_id = $1 AND folder = $2 AND (synced_at IS NULL OR synced_at < $3)',
-        [account.id, folder, reconcileStartedAt]
-      );
-      const orphanUids = dbResult.rows
-        .map(r => Number(r.uid))
-        .filter(uid => !serverUidSet.has(uid) && !this._isMoveUidGuarded(account.id, folder, uid));
-
-      if (orphanUids.length === 0) continue;
-
-      console.log(`Reconcile: removing ${orphanUids.length} server-deleted message(s) from ${logAccount(account)}/${folder}`);
-      // Re-assert the cutoff in the DELETE: a row updated to a fresh synced_at between
-      // the SELECT above and here (e.g. a concurrent bulk-move reinsert) is spared.
-      await query(
-        'DELETE FROM messages WHERE account_id = $1 AND folder = $2 AND uid = ANY($3::bigint[]) AND (synced_at IS NULL OR synced_at < $4)',
-        [account.id, folder, orphanUids, reconcileStartedAt]
-      );
-      // Resync cached folder counts from actual row data — reconcile deletes rows
-      // without going through adjustFolderCounts, so counts would otherwise drift.
-      await query(
-        `UPDATE folders f
-         SET total_count  = (SELECT COUNT(*)              FROM messages m WHERE m.account_id = $1 AND m.folder = $2),
-             unread_count = (SELECT COUNT(*) FILTER (WHERE m.is_read = false)
-                                             FROM messages m WHERE m.account_id = $1 AND m.folder = $2)
-         WHERE f.account_id = $1 AND f.path = $2`,
-        [account.id, folder]
-      );
-      deletedCount += orphanUids.length;
+    try {
+      for (const [folder, snapshot] of serverUidsByFolder) {
+        deletedCount += await this._reconcileFolderDeletes(
+          account, folder, snapshot.uids, snapshot.uidValidity, reconcileStartedAt,
+          observationContext
+        );
+      }
+    } catch (err) {
+      if (restartOnSupersession && isFolderObservationError(err)) {
+        this._evictPool?.(account.id);
+        return this.reconcileDeletes(account, false);
+      }
+      throw err;
     }
 
     if (deletedCount > 0) {

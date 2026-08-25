@@ -53,6 +53,7 @@ describe('GET /api/mail/unread-counts unified total', () => {
       total: 2,
       byAccount: { included: 2, excluded: 5 },
     });
+    expect(query.mock.calls[0][0]).toContain('m.metadata_complete = true');
   });
 
   it('uses only opted-in accounts for unified category counts', async () => {
@@ -71,6 +72,7 @@ describe('GET /api/mail/unread-counts unified total', () => {
 
     expect(response.status).toBe(200);
     expect(query.mock.calls[1][1]).toEqual([['included']]);
+    expect(query.mock.calls[1][0]).toContain('m.metadata_complete = true');
   });
 
   it('uses only opted-in accounts when expanding a unified thread', async () => {
@@ -87,5 +89,28 @@ describe('GET /api/mail/unread-counts unified total', () => {
 
     expect(response.status).toBe(200);
     expect(query.mock.calls[1][1][0]).toEqual(['included']);
+    expect(query.mock.calls[1][0]).toContain('m.metadata_complete = true');
+  });
+
+  it('hides an unverified row from the direct message endpoint', async () => {
+    query.mockResolvedValueOnce({ rows: [] });
+    const response = await fetch(`${base}/api/mail/messages/11111111-1111-4111-8111-111111111111`);
+    expect(response.status).toBe(404);
+    expect(query.mock.calls[0][0]).toContain('m.metadata_complete = true');
+  });
+
+  it.each([
+    ['single attachment', '/attachments/2'],
+    ['attachment ZIP', '/attachments.zip'],
+  ])('hides an incomplete or deleted row from the %s endpoint', async (_name, suffix) => {
+    query.mockResolvedValueOnce({ rows: [] });
+    const response = await fetch(
+      `${base}/api/mail/messages/11111111-1111-4111-8111-111111111111${suffix}`
+    );
+
+    expect(response.status).toBe(404);
+    const sql = query.mock.calls[0][0];
+    expect(sql).toContain('m.is_deleted = false');
+    expect(sql).toContain('m.metadata_complete = true');
   });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { mappedFolderUsable, resolveTrashFolder, resolveArchiveFolder, resolveSentFolder, isAllMailFolder, resolveSpamFolder, getDeleteStrategy, fanOutReadToSiblings, fanOutStarToSiblings, fanOutBulkReadToSiblings } from './mailUtils.js';
+import { mappedFolderUsable, resolveTrashFolder, resolveArchiveFolder, resolveSentFolder, isAllMailFolder, resolveSpamFolder, getDeleteStrategy, fanOutReadToSiblings, fanOutStarToSiblings, fanOutBulkReadToSiblings, folderCountDeltasInLockOrder } from './mailUtils.js';
 
 vi.mock('../services/db.js', () => ({
   query: vi.fn(),
@@ -9,6 +9,20 @@ const { query } = await import('../services/db.js');
 
 beforeEach(() => {
   query.mockClear();
+});
+
+describe('folderCountDeltasInLockOrder', () => {
+  it('coalesces duplicate paths and sorts Archive before INBOX for every transaction', () => {
+    expect(folderCountDeltasInLockOrder([
+      { path: 'INBOX', totalDelta: -1, unreadDelta: -1 },
+      { path: 'Archive', totalDelta: 1, unreadDelta: 1 },
+      { path: 'INBOX', unreadDelta: -1 },
+      { path: 'No-op' },
+    ])).toEqual([
+      { path: 'Archive', totalDelta: 1, unreadDelta: 1 },
+      { path: 'INBOX', totalDelta: -1, unreadDelta: -2 },
+    ]);
+  });
 });
 
 describe('mappedFolderUsable', () => {

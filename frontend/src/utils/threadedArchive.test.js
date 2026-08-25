@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import * as threadedArchive from './threadedArchive.js';
+import { api } from './api.js';
 
 const {
   archiveTargetsForFolder,
@@ -101,6 +102,13 @@ describe('thread load invalidation', () => {
     assert.equal(isCurrentThreadLoad(versions, 'thread-1', captured), true);
     invalidateThreadLoad(versions, 'thread-1');
     assert.equal(isCurrentThreadLoad(versions, 'thread-1', captured), false);
+  });
+
+  it('rejects an in-flight load captured before a global thread-cache reset', () => {
+    const versions = new Map();
+    const captured = currentThreadLoadVersion(versions, 'thread-1');
+    assert.equal(isCurrentThreadLoad(versions, 'thread-1', captured, 2, 2), true);
+    assert.equal(isCurrentThreadLoad(versions, 'thread-1', captured, 2, 3), false);
   });
 
   it('removes a cache key without leaving a non-array sentinel behind', () => {
@@ -244,6 +252,32 @@ describe('archiveInChunks', () => {
     assert.deepEqual(calls.map(chunk => chunk.length), [500, 1]);
     assert.deepEqual(result.archived, ids.slice(0, 499));
     assert.deepEqual(result.noArchiveFolder, [ids[499], ids[500]]);
+  });
+
+  it('preserves an unconfirmed row key across chunked mixed-subset retry', async () => {
+    const ids = Array.from({ length: 501 }, (_, index) => `id-${index}`);
+    const calls = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (_url, init) => {
+      const body = JSON.parse(init.body);
+      calls.push(body);
+      return {
+        ok: true,
+        json: async () => ({
+          archived: calls.length === 2 ? [] : body.ids,
+          noArchiveFolder: [],
+        }),
+      };
+    };
+    try {
+      await threadedArchive.archiveInChunks(ids, api.bulkArchive);
+      await threadedArchive.archiveInChunks(['id-500', 'id-new'], api.bulkArchive);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    assert.deepEqual(calls.map(({ ids: rowIds }) => rowIds.length), [500, 1, 2]);
+    assert.equal(calls[2].operationKeys['id-500'], calls[1].operationKeys['id-500']);
+    assert.notEqual(calls[2].operationKeys['id-new'], calls[1].operationKeys['id-500']);
   });
 
   it('preserves completed chunks and reports the unconfirmed remainder after an error', async () => {

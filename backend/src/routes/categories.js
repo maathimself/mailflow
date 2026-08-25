@@ -236,7 +236,11 @@ router.post('/categories/ai-classify/:messageId', requireAuth, async (req, res) 
     SELECT m.subject, m.from_email, m.snippet
     FROM messages m
     JOIN email_accounts a ON m.account_id = a.id
-    WHERE m.id = $1 AND a.user_id = $2 AND m.is_deleted = false
+    JOIN folders live_folder ON live_folder.account_id = m.account_id
+      AND live_folder.path = m.folder AND live_folder.is_present = true
+      AND live_folder.uid_validity IS NOT NULL
+    WHERE m.id = $1 AND a.user_id = $2
+      AND m.is_deleted = false AND m.metadata_complete = true
   `, [messageId, req.session.userId]);
 
   if (!msgResult.rows.length) return res.status(404).json({ error: 'Message not found' });
@@ -246,12 +250,19 @@ router.post('/categories/ai-classify/:messageId', requireAuth, async (req, res) 
   if (!category) return res.status(503).json({ error: 'AI classification unavailable or failed' });
 
   // Persist the AI-assigned category.
-  await query(
+  const updateResult = await query(
     `UPDATE messages SET category = $1
      FROM email_accounts a
-     WHERE messages.id = $2 AND messages.account_id = a.id AND a.user_id = $3`,
+     JOIN folders live_folder ON live_folder.account_id = a.id
+     WHERE messages.id = $2 AND messages.account_id = a.id AND a.user_id = $3
+       AND live_folder.path = messages.folder
+       AND live_folder.is_present = true
+       AND live_folder.uid_validity IS NOT NULL
+       AND messages.is_deleted = false AND messages.metadata_complete = true
+     RETURNING messages.id`,
     [category === 'primary' ? null : category, messageId, req.session.userId]
   );
+  if (!updateResult.rows.length) return res.status(404).json({ error: 'Message not found' });
 
   res.json({ ok: true, category });
 });

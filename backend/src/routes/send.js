@@ -1,4 +1,3 @@
-import nodemailer from 'nodemailer';
 import { randomBytes, createHash, randomUUID } from 'crypto';
 import { Router } from 'express';
 import { query } from '../services/db.js';
@@ -6,11 +5,14 @@ import { requireAuth } from '../middleware/auth.js';
 import sanitizeHtml from 'sanitize-html';
 import { sanitizeSignature, sanitizeComposeBody } from '../services/emailSanitizer.js';
 import { embedInlineDataImages } from '../utils/inlineImages.js';
-import { redisClient } from '../services/redis.js';
-import { redactEmail } from '../utils/redact.js';
+import {
+  revalidateLiveMessageSnapshotGroups,
+  snapshotFromMessageRow,
+} from '../services/messageSnapshots.js';
 import { resolveSentFolder } from '../utils/mailUtils.js';
 import { generateVCard } from '../utils/vcard.js';
 import { createAccountSmtpTransport } from '../services/smtpTransport.js';
+import { loadPreparedSmtp, renderPreparedSmtp } from '../services/preparedSmtp.js';
 import { imapManager } from '../index.js';
 import { pluginRegistry } from '../plugins/registry.js';
 
@@ -59,24 +61,6 @@ function buildSentSnippet(body, bodyIsHtml) {
   return bodyToPlain(body, bodyIsHtml).replace(/\s+/g, ' ').trim().substring(0, 200);
 }
 
-function scheduleSentMetadataUpsert(account, sentFolder, mailOptions, meta) {
-  if (!sentFolder || !mailOptions.messageId) return;
-  setImmediate(async () => {
-    for (const delay of [3000, 10000, 20000]) {
-      await new Promise(r => setTimeout(r, delay));
-      try {
-        const uid = await imapManager.findUidByMessageId(account, sentFolder, mailOptions.messageId);
-        if (uid) {
-          await imapManager.upsertSentMessageRecord(account, sentFolder, uid, meta);
-          return;
-        }
-      } catch (err) {
-        console.warn('Post-send sent metadata upsert failed:', err.message);
-      }
-    }
-  });
-}
-
 // Reject any recipient address that contains newlines, null bytes, or looks
 // malformed — these are the classic email header-injection vectors.
 function normalizeRecipients(list, fieldName) {
@@ -123,6 +107,102 @@ function bodyToHtml(body, isHtml) {
   return sanitizeComposeBody(body);
 }
 
+function stableJson(value) {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function parseStoredJson(value) {
+  if (typeof value !== 'string') return value;
+  return JSON.parse(value);
+}
+
+function scheduleSentSync(account, sentFolder, messageId, delay, label) {
+  setTimeout(() => {
+    imapManager.syncFolderOnDemand(account, sentFolder)
+      .then(() => pluginRegistry.runHook('onSentMessage', {
+        imapManager: imapManager.pluginFacade, account, messageId,
+      }))
+      .catch(e => console.error(`Post-send ${label} sync failed: ${e.message}`));
+  }, delay);
+}
+
+async function materializePreparedSent(account, operation, userId, idempotencyKey) {
+  const sentFolder = operation.sent_folder;
+  if (!sentFolder) return null;
+  const sentMeta = parseStoredJson(operation.sent_metadata);
+  if (!operation.message_id || !sentMeta || sentMeta.messageId !== operation.message_id) {
+    throw new Error('Durable Sent recovery facts are incomplete');
+  }
+
+  if (operation.server_auto_saves) {
+    const receipt = await imapManager.findUidByMessageIdReceipt(
+      account, sentFolder, operation.message_id,
+    );
+    await imapManager.upsertSentMessageRecordFromReceipt(account, receipt, sentMeta);
+    scheduleSentSync(account, sentFolder, operation.message_id, 3000, '3s');
+    scheduleSentSync(account, sentFolder, operation.message_id, 15000, '15s');
+    return null;
+  }
+
+  if (!operation.raw_message) throw new Error('Durable Sent MIME is unavailable');
+  await Promise.race([
+    imapManager.appendToSent(account, sentFolder, Buffer.from(operation.raw_message), {
+      operationKey: `send:${userId}:${idempotencyKey}`,
+      materialize: ({ uid: appendedUid }, tx) => (
+        tx
+          ? imapManager.upsertSentMessageRecord(
+              account, sentFolder, appendedUid, sentMeta, { tx },
+            )
+          : imapManager.upsertSentMessageRecord(
+              account, sentFolder, appendedUid, sentMeta,
+            )
+      ),
+    }),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Sent APPEND timed out')), 20000)),
+  ]);
+  scheduleSentSync(account, sentFolder, operation.message_id, 1000, 'post-append');
+  return true;
+}
+
+async function completeProviderAppliedSend({ account, operation, userId, idempotencyKey, payloadDigest }) {
+  const sentCopySaved = await materializePreparedSent(
+    account, operation, userId, idempotencyKey,
+  );
+  const sendResult = { ok: true };
+  if (sentCopySaved === false) sendResult.sentCopySaved = false;
+  if (operation.sent_folder) sendResult.sentFolder = operation.sent_folder;
+  const completed = await query(
+    `UPDATE send_operations
+        SET state = 'completed', response = $4::jsonb,
+            message_id = NULL, sent_folder = NULL, sent_metadata = NULL,
+            raw_message = NULL, server_auto_saves = NULL,
+            smtp_message = NULL, smtp_envelope = NULL,
+            prepared_payload_digest = NULL, source_snapshots = NULL,
+            completed_at = NOW(), updated_at = NOW()
+      WHERE user_id = $1 AND operation_key = $2 AND payload_digest = $3
+        AND state = 'provider_applied'
+      RETURNING operation_key`,
+    [userId, idempotencyKey, payloadDigest, JSON.stringify(sendResult)],
+  );
+  if (completed.rowCount !== 1) throw new Error('Durable send completion was not persisted');
+  return sendResult;
+}
+
+async function revalidateForwardedSnapshots(forwardedSnapshots) {
+  if (forwardedSnapshots.size === 0) return;
+  const byAccount = new Map();
+  for (const snapshot of forwardedSnapshots.values()) {
+    const snapshots = byAccount.get(snapshot.accountId) || [];
+    snapshots.push(snapshot);
+    byAccount.set(snapshot.accountId, snapshots);
+  }
+  await revalidateLiveMessageSnapshotGroups(byAccount);
+}
+
 const router = Router();
 router.use(requireAuth);
 
@@ -138,14 +218,12 @@ router.post('/send', async (req, res) => {
   // concurrent same-key submit is blocked by the reservation set just before delivery
   // (below). Neither can produce a duplicate email.
   const idempotencyKey = typeof req.headers['x-idempotency-key'] === 'string'
-    ? req.headers['x-idempotency-key'].slice(0, 128)
+    ? req.headers['x-idempotency-key'].trim().slice(0, 128)
     : null;
-  const idemKeyRedis = idempotencyKey ? `send_idem:${req.session.userId}:${idempotencyKey}` : null;
-  if (idemKeyRedis) {
-    const cached = await redisClient.get(idemKeyRedis).catch(() => null);
-    if (cached === '__inflight__') return res.status(409).json({ error: 'This message is already being sent.' });
-    if (cached) return res.json(JSON.parse(cached));
+  if (!idempotencyKey) {
+    return res.status(400).json({ error: 'X-Idempotency-Key required for send' });
   }
+  const sendPayloadDigest = createHash('sha256').update(stableJson(req.body)).digest('hex');
 
   if (attachments !== undefined) {
     if (!Array.isArray(attachments)) return res.status(400).json({ error: 'attachments must be an array' });
@@ -177,19 +255,100 @@ router.post('/send', async (req, res) => {
   }
   const normalizedSubject = sanitizeHeaderValue(subject || '');
 
-  const [result, prefResult] = await Promise.all([
-    query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]),
-    query('SELECT preferences FROM users WHERE id = $1', [req.session.userId]),
-  ]);
+  const result = await query(
+    'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2',
+    [accountId, req.session.userId],
+  );
   if (!result.rows.length) return res.status(404).json({ error: 'Account not found' });
-  const plaintextEmail = prefResult.rows[0]?.preferences?.plaintextEmail === true;
   let account = result.rows[0];
 
-  // Resolve the From identity — account by default, alias if requested
+  let sendOperation;
+  try {
+    await query(
+      `INSERT INTO send_operations (user_id, operation_key, payload_digest)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (user_id, operation_key) DO NOTHING`,
+      [req.session.userId, idempotencyKey, sendPayloadDigest],
+    );
+    const sendOperationResult = await query(
+      `SELECT state, payload_digest, response, message_id, sent_folder,
+              sent_metadata, raw_message, server_auto_saves, smtp_message,
+              smtp_envelope, prepared_payload_digest, source_snapshots
+         FROM send_operations
+        WHERE user_id = $1 AND operation_key = $2`,
+      [req.session.userId, idempotencyKey],
+    );
+    sendOperation = sendOperationResult.rows[0];
+  } catch (err) {
+    console.error('Send reservation failed:', err.message);
+    return res.status(500).json({
+      error: 'Failed to reserve send operation.',
+      operationKeyDisposition: 'rotate_on_payload_change',
+    });
+  }
+  if (!sendOperation) return res.status(503).json({ error: 'Durable send ledger unavailable' });
+  if (sendOperation.payload_digest !== sendPayloadDigest) {
+    return res.status(409).json({
+      error: 'Idempotency key is already bound to a different message.',
+      operationKeyDisposition: sendOperation.state === 'ready'
+        ? 'rotate_on_payload_change'
+        : 'retain',
+    });
+  }
+  if (sendOperation.state === 'completed') return res.json(sendOperation.response || { ok: true });
+  if (['provider_started', 'uncertain'].includes(sendOperation.state)) {
+    return res.status(409).json({
+      error: 'The prior send outcome is uncertain; another SMTP delivery is blocked.',
+      code: 'SEND_OUTCOME_UNCERTAIN', outcome: sendOperation.state, retryable: false,
+      operationKeyDisposition: 'retain',
+    });
+  }
+  if (!['ready', 'provider_applied'].includes(sendOperation.state)) {
+    return res.status(409).json({ error: 'The prior send outcome cannot be resumed.' });
+  }
+
+  if (sendOperation.state === 'provider_applied') {
+    try {
+      const sendResult = await completeProviderAppliedSend({
+        account, operation: sendOperation, userId: req.session.userId,
+        idempotencyKey, payloadDigest: sendPayloadDigest,
+      });
+      return res.json(sendResult);
+    } catch (err) {
+      console.error('Sent materialization recovery failed:', err.message);
+      return res.status(503).json({
+        error: 'Message was delivered, but its Sent copy is still being recovered.',
+        code: 'SENT_MATERIALIZATION_PENDING', outcome: 'provider_applied', retryable: true,
+        operationKeyDisposition: 'retain',
+      });
+    }
+  }
+
+  const preparedReplay = Boolean(sendOperation.smtp_message);
+  const plaintextEmail = preparedReplay
+    ? false
+    : (await query('SELECT preferences FROM users WHERE id = $1', [req.session.userId]))
+      .rows[0]?.preferences?.plaintextEmail === true;
   let fromName = account.sender_name || account.name;
   let fromEmail = account.email_address;
   let fromSignature = account.signature;
   let fromReplyTo = null;
+  let effectiveSignature = null;
+  let resolvedFwdAttachments = [];
+  const forwardedSnapshots = new Map();
+
+  if (preparedReplay) {
+    for (const snapshot of parseStoredJson(sendOperation.source_snapshots) || []) {
+      if (!snapshot?.id || !snapshot.accountId) {
+        return res.status(409).json({
+          error: 'Durable send source snapshot is unavailable.',
+          operationKeyDisposition: 'rotate_on_payload_change',
+        });
+      }
+      forwardedSnapshots.set(snapshot.id, snapshot);
+    }
+  } else {
+  // Resolve the From identity — account by default, alias if requested
 
   if (aliasId) {
     const aliasResult = await query(
@@ -208,22 +367,29 @@ router.post('/send', async (req, res) => {
 
   // Allow the client to override the signature per-send (editedSignature === undefined means use DB value).
   // Sanitize client-supplied HTML to prevent injecting scripts or tracking pixels into sent mail.
-  const effectiveSignature = editedSignature !== undefined
+  effectiveSignature = editedSignature !== undefined
     ? (editedSignature ? sanitizeSignature(editedSignature) : null)
     : fromSignature;  // fromSignature from DB is already sanitized on write
 
   // Fetch forwarded attachment content from IMAP before entering the SMTP try-block so that
   // attachment errors return descriptive messages rather than being sanitized as SMTP errors.
-  let resolvedFwdAttachments = [];
   if (forwardedAttachments?.length) {
     try {
       // Resolve every referenced message in a SINGLE ownership-scoped query so a large
       // forwardedAttachments array can't fan out into one DB round-trip per entry.
       const distinctMsgIds = [...new Set(forwardedAttachments.map(fa => fa.messageId))];
       const msgRows = await query(
-        `SELECT m.id, m.uid, m.folder, m.attachments, m.account_id FROM messages m
+        `SELECT m.id, m.uid, m.folder, m.attachments, m.account_id,
+                m.read_revision, m.star_revision,
+                live_folder.uid_validity AS folder_uid_validity,
+                live_folder.observation_generation AS folder_observation_generation
+         FROM messages m
          JOIN email_accounts a ON m.account_id = a.id
-         WHERE m.id = ANY($1::uuid[]) AND a.user_id = $2`,
+         JOIN folders live_folder ON live_folder.account_id = m.account_id
+           AND live_folder.path = m.folder AND live_folder.is_present = true
+           AND live_folder.uid_validity IS NOT NULL
+         WHERE m.id = ANY($1::uuid[]) AND a.user_id = $2
+           AND m.is_deleted = false AND m.metadata_complete = true`,
         [distinctMsgIds, req.session.userId]
       );
       const msgById = new Map(msgRows.rows.map(m => [m.id, m]));
@@ -242,6 +408,7 @@ router.post('/send', async (req, res) => {
           : (msg.attachments || []);
         const att = storedAtts.find(a => a.part === fa.part);
         if (!att) throw Object.assign(new Error('Attachment not found in message'), { status: 404 });
+        forwardedSnapshots.set(msg.id, snapshotFromMessageRow(msg));
         declaredFwdBytes += Number(att.size) || 0;
         return { msg, att };
       });
@@ -261,7 +428,10 @@ router.post('/send', async (req, res) => {
         const fetched = await Promise.all(batch.map(async ({ msg, att }) => {
           const acct = acctById.get(msg.account_id);
           if (!acct) throw Object.assign(new Error('Account not found'), { status: 404 });
-          const buffer = await imapManager.fetchAttachment(acct, msg.uid, msg.folder, att.part);
+          const buffer = await imapManager.fetchAttachment(
+            acct, msg.uid, msg.folder, att.part,
+            { snapshot: snapshotFromMessageRow(msg) },
+          );
           if (!buffer) throw Object.assign(new Error(`Could not fetch attachment: ${att.filename}`), { status: 502 });
           return {
             filename: sanitizeHeaderValue(att.filename || 'attachment'),
@@ -278,100 +448,175 @@ router.post('/send', async (req, res) => {
         return res.status(400).json({ error: 'Total attachment size exceeds 25 MB' });
       }
     } catch (err) {
-      return res.status(err.status || 500).json({ error: err.message || 'Failed to fetch forwarded attachments' });
+      return res.status(err.status || 500).json({
+        error: err.message || 'Failed to fetch forwarded attachments',
+        operationKeyDisposition: 'rotate_on_payload_change',
+      });
     }
   }
+  }
 
-  let delivered = false; // true once transport.sendMail has actually handed off the message
+  let operationState = 'ready';
   try {
+    // The Message-ID is prepared durably while the operation is still retryable, then reused
+    // by SMTP and every Sent-materialization recovery attempt. A ready replay never rebuilds
+    // these facts from mutable aliases, preferences, signatures, or attachment sources.
+    const domain = fromEmail.split('@')[1] || 'mailflow.local';
+    const messageId = sendOperation.message_id
+      || `<${randomBytes(16).toString('hex')}@${domain}>`;
+    let serverAutoSaves = sendOperation.server_auto_saves === true;
+    let sentFolder = sendOperation.sent_folder;
+    let sentMeta = parseStoredJson(sendOperation.sent_metadata);
+    let rawMessage = sendOperation.raw_message;
+    let preparedMail;
+
+    if (preparedReplay) {
+      preparedMail = loadPreparedSmtp({
+        message: sendOperation.smtp_message,
+        envelope: sendOperation.smtp_envelope,
+        digest: sendOperation.prepared_payload_digest,
+      });
+    } else {
+      const mailOptions = {
+        messageId,
+        from: `${fromName} <${fromEmail}>`,
+        ...(fromReplyTo ? { replyTo: fromReplyTo } : {}),
+        to: normalizedTo.join(', '),
+        cc: normalizedCc.join(', ') || undefined,
+        bcc: normalizedBcc.join(', ') || undefined,
+        subject: normalizedSubject,
+        ...(emailPriority !== 'normal' ? { priority: emailPriority } : {}),
+        text: effectiveSignature
+          ? bodyToPlain(body, bodyIsHtml) + '\n\n-- \n' + sigToPlainText(effectiveSignature) + (quotedBody || '')
+          : bodyToPlain(body, bodyIsHtml) + (quotedBody || ''),
+      };
+
+      let inlineImageAttachments = [];
+      if (!plaintextEmail) {
+        const rawHtml = bodyToHtml(body, bodyIsHtml) +
+          (effectiveSignature
+            ? '<div style="margin-top:16px;color:#555;font-size:13px">' + effectiveSignature + '</div>'
+            : '') +
+          (quotedBodyHtml || (quotedBody ? textToHtml(quotedBody) : ''));
+        const embedded = embedInlineDataImages(rawHtml);
+        mailOptions.html = embedded.html;
+        inlineImageAttachments = embedded.attachments;
+      }
+
+      if (inReplyTo) {
+        mailOptions.inReplyTo = sanitizeHeaderValue(inReplyTo);
+        mailOptions.references = sanitizeHeaderValue(references || inReplyTo);
+      }
+      const allAttachments = [
+        ...inlineImageAttachments,
+        ...(attachments?.length ? attachments.map(a => ({
+          filename: sanitizeHeaderValue(a.filename),
+          content: Buffer.from(a.content, 'base64'),
+          contentType: typeof a.contentType === 'string' ? a.contentType : 'application/octet-stream',
+        })) : []),
+        ...resolvedFwdAttachments,
+      ];
+      if (allAttachments.length) mailOptions.attachments = allAttachments;
+
+      serverAutoSaves = !!account.oauth_provider;
+      sentFolder = await resolveSentFolder(accountId, account.folder_mappings);
+      sentMeta = sentFolder ? {
+          messageId,
+          subject: normalizedSubject,
+          fromName,
+          fromEmail,
+          to: mapRecipientList(normalizedTo),
+          cc: mapRecipientList(normalizedCc),
+          snippet: buildSentSnippet(body, bodyIsHtml),
+          date: new Date().toISOString(),
+          inReplyTo: mailOptions.inReplyTo || null,
+          references: mailOptions.references || null,
+        } : null;
+      const envelope = {
+        from: fromEmail,
+        to: [...normalizedTo, ...normalizedCc, ...normalizedBcc]
+          .map(address => parseAddress(address).email),
+      };
+      const needsSentCopy = Boolean(sentFolder && !serverAutoSaves);
+      const rendered = await renderPreparedSmtp(
+        mailOptions,
+        envelope,
+        { includeBccInSentCopy: needsSentCopy },
+      );
+      rawMessage = needsSentCopy ? rendered.sentMessage : null;
+      const prepared = await query(
+        `UPDATE send_operations
+            SET message_id = $4, sent_folder = $5, sent_metadata = $6::jsonb,
+                raw_message = $7, server_auto_saves = $8,
+                smtp_message = $9, smtp_envelope = $10::jsonb,
+                prepared_payload_digest = $11, source_snapshots = $12::jsonb,
+                prepared_at = NOW(), updated_at = NOW()
+          WHERE user_id = $1 AND operation_key = $2 AND payload_digest = $3
+            AND state = 'ready' AND smtp_message IS NULL
+          RETURNING state, payload_digest, message_id, sent_folder,
+                    sent_metadata, raw_message, server_auto_saves, smtp_message,
+                    smtp_envelope, prepared_payload_digest, source_snapshots`,
+        [
+          req.session.userId, idempotencyKey, sendPayloadDigest, messageId,
+          sentFolder, sentMeta ? JSON.stringify(sentMeta) : null, rawMessage, serverAutoSaves,
+          rendered.message, JSON.stringify(rendered.envelope), rendered.digest,
+          JSON.stringify([...forwardedSnapshots.values()]),
+        ],
+      );
+      if (prepared.rowCount !== 1) {
+        return res.status(409).json({ error: 'This message is already being prepared or sent.' });
+      }
+      sendOperation = {
+        ...sendOperation, state: 'ready', message_id: messageId, sent_folder: sentFolder,
+        sent_metadata: sentMeta, raw_message: rawMessage, server_auto_saves: serverAutoSaves,
+        smtp_message: rendered.message, smtp_envelope: rendered.envelope,
+        prepared_payload_digest: rendered.digest,
+        source_snapshots: [...forwardedSnapshots.values()],
+      };
+      preparedMail = loadPreparedSmtp({
+        message: sendOperation.smtp_message,
+        envelope: sendOperation.smtp_envelope,
+        digest: sendOperation.prepared_payload_digest,
+      });
+    }
+
+    await revalidateForwardedSnapshots(forwardedSnapshots);
+
     const smtp = await createAccountSmtpTransport(account);
-    if (smtp.error) return res.status(smtp.status).json({ error: smtp.error });
+    if (smtp.error) return res.status(smtp.status).json({
+      error: smtp.error,
+      operationKeyDisposition: 'rotate_on_payload_change',
+    });
     account = smtp.account;
     const transport = smtp.transport;
 
-    // Use a stable Message-ID so the SMTP copy and any IMAP APPEND reference the same message.
-    const domain = fromEmail.split('@')[1] || 'mailflow.local';
-    const mailOptions = {
-      messageId: `<${randomBytes(16).toString('hex')}@${domain}>`,
-      from: `${fromName} <${fromEmail}>`,
-      ...(fromReplyTo ? { replyTo: fromReplyTo } : {}),
-      to: normalizedTo.join(', '),
-      cc: normalizedCc.join(', ') || undefined,
-      bcc: normalizedBcc.join(', ') || undefined,
-      subject: normalizedSubject,
-      ...(emailPriority !== 'normal' ? { priority: emailPriority } : {}),
-      text: effectiveSignature
-        ? bodyToPlain(body, bodyIsHtml) + '\n\n-- \n' + sigToPlainText(effectiveSignature) + (quotedBody || '')
-        : bodyToPlain(body, bodyIsHtml) + (quotedBody || ''),
-    };
-
-    let inlineImageAttachments = [];
-    if (!plaintextEmail) {
-      const rawHtml = bodyToHtml(body, bodyIsHtml) +
-        (effectiveSignature
-          ? '<div style="margin-top:16px;color:#555;font-size:13px">' + effectiveSignature + '</div>'
-          : '') +
-        (quotedBodyHtml || (quotedBody ? textToHtml(quotedBody) : ''));
-      const embedded = embedInlineDataImages(rawHtml);
-      mailOptions.html = embedded.html;
-      inlineImageAttachments = embedded.attachments;
+    const started = await query(
+      `UPDATE send_operations
+          SET state = 'provider_started', provider_started_at = NOW(), updated_at = NOW()
+        WHERE user_id = $1 AND operation_key = $2 AND payload_digest = $3
+          AND state = 'ready' AND message_id = $4 AND prepared_payload_digest = $5
+        RETURNING operation_key`,
+      [
+        req.session.userId, idempotencyKey, sendPayloadDigest, messageId,
+        sendOperation.prepared_payload_digest,
+      ],
+    );
+    if (started.rowCount !== 1) {
+      return res.status(409).json({ error: 'This message is already being sent.' });
     }
-
-    if (inReplyTo) {
-      mailOptions.inReplyTo = sanitizeHeaderValue(inReplyTo);
-      // Use the full prior references chain if available; fall back to just inReplyTo.
-      mailOptions.references = sanitizeHeaderValue(references || inReplyTo);
-    }
-    const allAttachments = [
-      ...inlineImageAttachments,
-      ...(attachments?.length ? attachments.map(a => ({
-        filename: sanitizeHeaderValue(a.filename),
-        content: Buffer.from(a.content, 'base64'),
-        contentType: typeof a.contentType === 'string' ? a.contentType : 'application/octet-stream',
-      })) : []),
-      ...resolvedFwdAttachments,
-    ];
-    if (allAttachments.length) {
-      mailOptions.attachments = allAttachments;
-    }
-
-    // OAuth providers (Gmail, Microsoft) save sent mail to IMAP automatically via their
-    // servers — skip APPEND and sync after a delay.  All other accounts use direct IMAP
-    // APPEND so sent mail reliably appears regardless of what the SMTP server does.
-    const serverAutoSaves = !!account.oauth_provider;
-
-    // For servers that don't auto-save, generate the raw MIME now so we can APPEND it.
-    // Use CRLF newlines ('windows'): RFC 5322 / IMAP APPEND require CRLF. A bare-LF message is
-    // stored verbatim by strict servers (e.g. PurelyMail/Dovecot), and downstream clients then
-    // mis-parse the headers — the reporter saw Subject and the To display-name dropped (#365). This
-    // only affects non-OAuth accounts (OAuth servers auto-save and skip this path); the SMTP-
-    // delivered copy uses a separate transport that is already CRLF, so only the Sent copy was wrong.
-    let rawMessage = null;
-    if (!serverAutoSaves) {
-      const streamTransport = nodemailer.createTransport({ streamTransport: true, newline: 'windows' });
-      const streamInfo = await streamTransport.sendMail(mailOptions);
-      const chunks = [];
-      await new Promise((resolve, reject) => {
-        streamInfo.message.on('data', c => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
-        streamInfo.message.on('end', resolve);
-        streamInfo.message.on('error', reject);
-      });
-      rawMessage = Buffer.concat(chunks);
-    }
-
-    // Reserve the idempotency key atomically right before delivery so a concurrent
-    // same-key submit cannot also send (the post-send cache alone can't stop concurrent
-    // duplicates). Overwritten with the result on success; released in the catch only if
-    // delivery never happened, so a genuine retry after a pre-send failure can proceed.
-    if (idemKeyRedis) {
-      // TTL comfortably above the worst-case send (large attachment over a slow SMTP
-      // server) so the in-flight guard cannot lapse while this request is still running.
-      const reserved = await redisClient.set(idemKeyRedis, '__inflight__', { NX: true, EX: 300 }).catch(() => 'OK');
-      if (reserved === null) return res.status(409).json({ error: 'This message is already being sent.' });
-    }
-
-    await transport.sendMail(mailOptions);
-    delivered = true;
+    operationState = 'provider_started';
+    await transport.sendMail(preparedMail);
+    const applied = await query(
+      `UPDATE send_operations
+          SET state = 'provider_applied', provider_applied_at = NOW(), updated_at = NOW()
+        WHERE user_id = $1 AND operation_key = $2 AND payload_digest = $3
+          AND state = 'provider_started'
+        RETURNING operation_key`,
+      [req.session.userId, idempotencyKey, sendPayloadDigest],
+    );
+    if (applied.rowCount !== 1) throw new Error('Durable send provider receipt was not persisted');
+    operationState = 'provider_applied';
+    await revalidateForwardedSnapshots(forwardedSnapshots);
 
     // Auto-learn sent recipients so they rank above inbound-only senders in autocomplete.
     // Fire-and-forget — a DB error here must never affect the send response.
@@ -440,115 +685,52 @@ router.post('/send', async (req, res) => {
       });
     }
 
-    // Get the Sent folder path (manual mapping takes priority over special_use auto-detect,
-    // but a mapping pointing at a non-selectable folder is ignored in favour of \Sent — #386).
-    const sentFolder = await resolveSentFolder(accountId, account.folder_mappings);
-    console.log(`Post-send: ${redactEmail(account.email_address)} sentFolder=${sentFolder} autoSaves=${serverAutoSaves}`);
-
-    // sentCopySaved: null = not applicable (server auto-saves, or no Sent folder resolved);
-    // true/false = whether OUR IMAP APPEND landed the Sent copy. Surfaced to the client so
-    // it can warn when a delivered message could not be saved to Sent.
-    let sentCopySaved = null;
-    const sentMeta = sentFolder ? {
-      messageId: mailOptions.messageId,
-      subject: normalizedSubject,
-      fromName,
-      fromEmail,
-      to: mapRecipientList(normalizedTo),
-      cc: mapRecipientList(normalizedCc),
-      snippet: buildSentSnippet(body, bodyIsHtml),
-      date: new Date(),
-      // Carried so the Sent row threads into its conversation via the References chain
-      // rather than orphaning at its own Message-ID (#378).
-      inReplyTo: mailOptions.inReplyTo || null,
-      references: mailOptions.references || null,
-    } : null;
-
-    if (sentFolder) {
-      if (rawMessage) {
-        // Non-auto-saving account: APPEND the Sent copy ourselves — exactly ONCE. IMAP
-        // APPEND is NOT idempotent (unlike a \Seen flag), so we must not retry: a retry
-        // whose first attempt merely timed out (but still lands on the server) would store
-        // a SECOND copy. Bound the wait so a stalled connection can't hang the response;
-        // the abandoned append can at worst still save the single copy. On failure, warn
-        // the user and schedule a fallback sync in case the append landed late. Audit [2].
-        sentCopySaved = false;
-        try {
-          const { uid } = await Promise.race([
-            imapManager.appendToSent(account, sentFolder, rawMessage),
-            new Promise((_, rej) => setTimeout(() => rej(new Error('Sent APPEND timed out')), 20000)),
-          ]);
-          sentCopySaved = true;
-          if (uid && sentMeta) {
-            await imapManager.upsertSentMessageRecord(account, sentFolder, uid, sentMeta)
-              .catch(err => console.warn('Sent metadata upsert failed:', err.message));
-          }
-          setTimeout(() => {
-            imapManager.syncFolderOnDemand(account, sentFolder)
-              // Once the Sent copy is in the DB, notify label plugins the message synced: GTD
-              // re-runs transitions for its thread (a reply to a Todo/Someday thread means the
-              // owner acted, so that label should drop). The sent message reaches no other hook
-              // (Sent isn't INBOX, and the tick watches only the state folders), so this is the
-              // only trigger. The hook swallows per-plugin errors — the next inbound sync / tick
-              // self-heals.
-              .then(() => pluginRegistry.runHook('onSentMessage', { imapManager: imapManager.pluginFacade, account, messageId: mailOptions.messageId }))
-              .catch(e => console.error(`Post-append sync failed: ${e.message}`));
-          }, 1000);
-        } catch (appendErr) {
-          console.error(`IMAP append to Sent failed for ${redactEmail(account.email_address)}/${sentFolder}: ${appendErr.message}`);
-          // The append may still have landed (or land shortly) — pull the folder so a
-          // late-completing append self-corrects the DB rather than staying invisible.
-          setTimeout(() => {
-            imapManager.syncFolderOnDemand(account, sentFolder)
-              .catch(e => console.error(`Post-append fallback sync failed: ${e.message}`));
-          }, 8000);
-        }
-      } else {
-        // Server auto-saves via SMTP; seed metadata once the Sent copy is searchable.
-        if (sentMeta) scheduleSentMetadataUpsert(account, sentFolder, mailOptions, sentMeta);
-        // Server auto-saves via SMTP; just sync after a delay. Two attempts because the
-        // provider (e.g. Gmail) can be slow to expose the sent message; the 3s pass usually
-        // catches it, the 15s pass is the safety net. GTD transitions run after each: the 3s
-        // attempt may miss (Sent copy not yet visible → empty thread set → no-op) and the 15s
-        // attempt then catches it; if 3s already stripped, 15s is an idempotent no-op.
-        const syncAttempt = (label) => imapManager.syncFolderOnDemand(account, sentFolder)
-          .then(() => {
-            console.log(`Post-send ${label} sync done: ${redactEmail(account.email_address)}/${sentFolder}`);
-            return pluginRegistry.runHook('onSentMessage', { imapManager: imapManager.pluginFacade, account, messageId: mailOptions.messageId });
-          })
-          .catch(e => console.error(`Post-send ${label} sync failed: ${e.message}`));
-        setTimeout(() => syncAttempt('3s'), 3000);
-        setTimeout(() => syncAttempt('15s'), 15000);
-      }
-    }
-
-    const sendResult = { ok: true };
-    // Surface only the problem case so existing success handling is unchanged; the UI warns
-    // when a delivered message could not be saved to the account's Sent folder.
-    if (sentCopySaved === false) sendResult.sentCopySaved = false;
-    // Tell the client which Sent folder we actually resolved to, so its post-send "View"
-    // navigates to the real folder rather than recomputing from a possibly-stale mapping (#386).
-    if (sentFolder) sendResult.sentFolder = sentFolder;
-    // Overwrite the in-flight reservation with the final result so a retry after a lost
-    // response returns this instead of re-sending.
-    if (idemKeyRedis) redisClient.set(idemKeyRedis, JSON.stringify(sendResult), { EX: 86400 }).catch(() => {});
+    const sendResult = await completeProviderAppliedSend({
+      account, operation: sendOperation, userId: req.session.userId,
+      idempotencyKey, payloadDigest: sendPayloadDigest,
+    });
+    operationState = 'completed';
     res.json(sendResult);
   } catch (err) {
     console.error('Send failed:', err.message);
-    if (idemKeyRedis) {
-      if (delivered) {
-        // The message WAS delivered but a later step threw. Persist a DURABLE success
-        // result (not just the short-lived reservation) so a retry at ANY time returns it
-        // instead of re-running transport.sendMail — otherwise the reservation would lapse
-        // and the same key could deliver a second copy.
-        redisClient.set(idemKeyRedis, JSON.stringify({ ok: true }), { EX: 86400 }).catch(() => {});
-      } else {
-        // Delivery never happened — release so a genuine retry after a pre-send failure
-        // can proceed immediately.
-        redisClient.del(idemKeyRedis).catch(() => {});
-      }
+    if (operationState === 'provider_started') {
+      const uncertain = await query(
+        `UPDATE send_operations
+            SET state = 'uncertain', updated_at = NOW()
+          WHERE user_id = $1 AND operation_key = $2 AND payload_digest = $3
+            AND state = 'provider_started'
+          RETURNING operation_key`,
+        [req.session.userId, idempotencyKey, sendPayloadDigest],
+      ).catch(() => null);
+      if (uncertain?.rowCount === 1) operationState = 'uncertain';
     }
-    res.status(500).json({ error: sanitizeSmtpError(err) });
+    if (operationState === 'provider_applied') {
+      return res.status(503).json({
+        error: 'Message was delivered, but its Sent copy is still being recovered.',
+        code: 'SENT_MATERIALIZATION_PENDING', outcome: 'provider_applied', retryable: true,
+        operationKeyDisposition: 'retain',
+      });
+    }
+    if (err?.code === 'MESSAGE_SNAPSHOT_SUPERSEDED') {
+      const uncertainOutcome = ['provider_started', 'uncertain'].includes(operationState);
+      return res.status(409).json({
+        error: err.message, code: err.code,
+        outcome: uncertainOutcome ? operationState : 'not_sent',
+        retryable: !uncertainOutcome,
+        operationKeyDisposition: uncertainOutcome ? 'retain' : 'rotate_on_payload_change',
+      });
+    }
+    if (operationState === 'provider_started' || operationState === 'uncertain') {
+      return res.status(409).json({
+        error: 'SMTP delivery may have occurred; another delivery is blocked.',
+        code: 'SEND_OUTCOME_UNCERTAIN', outcome: operationState, retryable: false,
+        operationKeyDisposition: 'retain',
+      });
+    }
+    res.status(500).json({
+      error: sanitizeSmtpError(err),
+      operationKeyDisposition: 'rotate_on_payload_change',
+    });
   }
 });
 

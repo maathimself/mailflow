@@ -4,7 +4,26 @@ import { getGtdSections } from './gtdSections.js';
 import { queueGistGeneration } from './gtdGist.js';
 import { importPet, decodeUploadedSheet, getPetMeta, getPetSheet, parsePetSlug, customPetSlug } from './gtdPet.js';
 import { getGtdConfig, resolveGtdStateFolder, sanitizeGtdFolders, sanitizeGtdFoldersDetailed, DEFAULT_GTD_FOLDERS, planGtdFolderPersist, invalidateGtdConfigCache } from './gtdConfig.js';
-import { applyLabel, removeExactLabelCopy, removeLabel, markThreadRead, ensureLabelFolders, archiveInboxCopy, broadcast, loadOwnedMessage, getOwnedAccount, getMessageCopyFolders, getAccountConfig, setAccountConfig } from '../api.js';
+import {
+  applyLabel,
+  removeExactLabelCopy,
+  removeLabel,
+  removeLabelRow,
+  markThreadRowsRead,
+  ensureLabelFolders,
+  archiveInboxCopy,
+  broadcast,
+  loadOwnedMessage,
+  getOwnedAccount,
+  getAccountConfig,
+  setAccountConfig,
+  createOrLoadGtdDoneOperation,
+  claimGtdDoneOperation,
+  renewGtdDoneOperation,
+  advanceGtdDoneOperation,
+  releaseGtdDoneOperation,
+} from '../api.js';
+import { executeGtdDonePhases } from './gtdDonePhases.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -55,6 +74,52 @@ export function resolveDoneFolders({ enabled, folders, states, existing }) {
     if (!resolved.includes(folder)) resolved.push(folder);
   }
   return { folders: resolved };
+}
+
+function summarizeDoneOperation(operation, outcome = {}) {
+  const plan = operation.plan;
+  const entries = operation.outcomes || [];
+  const archiveUnconfirmedCount = Number(outcome.archiveUnconfirmedCount || 0);
+  const labelUnconfirmedCount = Number(outcome.labelUnconfirmedCount || 0);
+  const archiveEntries = entries.filter(entry => entry.phase === 'archive' && entry.rowId);
+  const labelEntries = entries.filter(entry => entry.phase === 'labels' && entry.rowId);
+  const archivedCount = archiveEntries.filter(entry => entry.archived === true).length;
+  const archiveAlreadyGoneCount = archiveEntries.filter(entry => entry.alreadyGone === true).length;
+  const removedEntries = labelEntries.filter(entry => entry.removed === true);
+  const labelAlreadyGoneEntries = labelEntries.filter(entry => entry.alreadyGone === true);
+  const removedIds = new Set([...removedEntries, ...labelAlreadyGoneEntries]
+    .filter(entry => entry.removed === true || entry.alreadyGone === true)
+    .map(entry => entry.rowId));
+  const removed = [...new Set(plan.labelRows
+    .filter(row => removedIds.has(row.id))
+    .map(row => row.folder))];
+  const inboxCleared = outcome.inboxCleared === true
+    || plan.inboxRows.length === 0
+    || archiveEntries.length === plan.inboxRows.length
+    || outcome.phase === 'labels'
+    || outcome.phase === 'completed';
+  return {
+    inboxCleared,
+    archiveTargetCount: plan.inboxRows.length,
+    archivedCount,
+    archiveAlreadyGoneCount,
+    archiveFailedCount: 0,
+    archiveUnconfirmedCount,
+    archivePendingCount: Math.max(
+      0,
+      plan.inboxRows.length - archiveEntries.length - archiveUnconfirmedCount,
+    ),
+    labelTargetCount: plan.labelRows.length,
+    removed,
+    removedCount: removedEntries.length,
+    labelAlreadyGoneCount: labelAlreadyGoneEntries.length,
+    labelUnconfirmedCount,
+    labelPendingCount: Math.max(
+      0,
+      plan.labelRows.length - labelEntries.length - labelUnconfirmedCount,
+    ),
+    archived: inboxCleared && plan.inboxRows.length > 0,
+  };
 }
 
 // GET /api/gtd/sections — thread heads + counts per GTD state for GTD display surfaces.
@@ -147,6 +212,8 @@ router.post('/classify', async (req, res) => {
   const { messageId, state } = req.body || {};
   if (!messageId || !state) return res.status(400).json({ error: 'messageId and state are required' });
   if (!UUID_RE.test(messageId)) return res.status(400).json({ error: 'Invalid message id' });
+  const requestKey = req.get('X-Idempotency-Key')?.trim();
+  if (!requestKey) return res.status(400).json({ error: 'X-Idempotency-Key required' });
 
   const msg = await loadOwnedMessage(req.session.userId, messageId);
   if (!msg) return res.status(404).json({ error: 'Message not found' });
@@ -160,7 +227,9 @@ router.post('/classify', async (req, res) => {
 
   let result;
   try {
-    result = await applyLabel(account, msg, toFolder);
+    result = await applyLabel(account, msg, toFolder, {
+      operationKey: `gtd-classify:${req.session.userId}:${requestKey}`,
+    });
   } catch (err) {
     console.error(`GTD classify failed for message ${messageId} -> ${toFolder}:`, err.message);
     return res.status(500).json({ error: 'Failed to apply GTD label' });
@@ -239,101 +308,99 @@ router.delete('/classify', async (req, res) => {
 });
 
 // POST /api/gtd/done { id, states? } — the GTD "done" action. Two callers: the GTD sidebar passes
-// an explicit `states` array (strip that section's labels); the inbox checkmark omits states
-// (or sends 'all') for "done from anywhere" — strip every GTD label the thread carries. The
-// id is its GTD-label-folder copy for the sidebar, or the INBOX copy from the inbox; either way
-// the archive step resolves the INBOX copy from the shared Message-ID rather than acting on
-// `id` directly. In one round trip this: (a) marks the whole thread read (DB fan-out across
-// sibling copies, \Seen on the INBOX copy so it rides the archive move); (b) strips the
-// row's own GTD label copies named in `states` — a merged Waiting row passes both
-// watch+delegated — leaving any GTD labels in OTHER sections intact; (c) archives the INBOX
-// copy if one exists (reusing resolveArchiveFolder + moveMessage, snooze's in-place UPDATE).
-// One terminal gtd_sections_updated broadcast makes the row disappear cleanly on refetch.
+// Thread-wide Done. GTD section rows are heads for (account, thread_key), so the displayed row's
+// Message-ID is not a safe mutation identity: another reply may own the requested label or still
+// live in INBOX. Authorize through the acted UUID, freeze all live rows for its account+thread,
+// then mutate only that immutable worklist. Late arrivals are deliberately left for the next
+// action/sync. Core capabilities own SQL/IMAP; this plugin only orchestrates them.
 router.post('/done', async (req, res) => {
   const { id, states } = req.body || {};
   if (!id) return res.status(400).json({ error: 'id is required' });
   if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
-
-  const msg = await loadOwnedMessage(req.session.userId, id);
-  if (!msg) return res.status(404).json({ error: 'Message not found' });
-  if (!msg.message_id) return res.status(400).json({ error: 'Message has no Message-ID — cannot mark done' });
-
-  const { enabled, folders } = await getGtdConfig(msg.account_id);
-
-  // All-states mode (inbox checkmark) resolves against the label copies that actually exist
-  // for this thread; the GTD sidebar's explicit-states path is untouched. Only look copies up when
-  // we'll use them (enabled + all-states); resolveDoneFolders still owns the gtd_enabled gate.
-  const allStates = states == null || states === 'all';
-  let existing;
-  if (allStates && enabled) {
-    existing = await getMessageCopyFolders(msg.account_id, msg.message_id);
-  }
-  const target = allStates
-    ? resolveDoneFolders({ enabled, folders, states: 'all', existing })
-    : resolveDoneFolders({ enabled, folders, states });
-  if (target.error) return res.status(target.status).json({ error: target.error });
-
-  const account = await getOwnedAccount(req.session.userId, msg.account_id);
-
-  // (a) Mark the whole thread read. The DB fan-out (by Message-ID) covers every sibling
-  // copy and adjusts each folder's unread count; \Seen is set on the durable INBOX copy
-  // only (it rides the archive move; Gmail propagates message-wide) — the same per-copy
-  // asymmetry the ordinary read route accepts. A best-effort flag push is never fatal.
-  const { inboxCopy, error: markReadError } = await markThreadRead(account, msg);
-  if (markReadError) console.warn(`GTD done: mark-read for ${id} degraded:`, markReadError.message);
-
-  // (b) Strip this row's GTD label copies. Each is a distinct folder copy resolved from
-  // the shared Message-ID; removeMessageCopy deletes the IMAP + DB copy and adjusts that
-  // label folder's counts, leaving INBOX and other-section labels untouched.
-  //
-  // Strip the acted row's OWN folder (msg.folder) LAST. A merged Waiting done passes both
-  // watch+delegated, and if an earlier copy's removal throws we 500 — but the same-id retry
-  // must still resolve the acted message via loadOwnedMessage. Deleting the acted row first
-  // would 404 that retry and orphan the copies not yet stripped, so keep it alive until every
-  // other copy is gone. (msg.folder is absent from target.folders in the inbox 'all' case —
-  // the acted INBOX row is never stripped anyway — so the ordering is a no-op there.)
-  const stripOrder = [
-    ...target.folders.filter(f => f !== msg.folder),
-    ...target.folders.filter(f => f === msg.folder),
-  ];
-  const removed = [];
+  const lifecycleKey = req.get('X-Idempotency-Key')?.trim();
+  if (!lifecycleKey) return res.status(400).json({ error: 'X-Idempotency-Key required' });
+  // Inbox Done has no section context, so the backend derives every actual GTD label from the
+  // frozen row set. Sidebar callers send their explicit section intent.
+  const intent = states == null ? 'all' : states;
+  let operation;
+  let account;
   try {
-    for (const folder of stripOrder) {
-      const { removed: didRemove } = await removeLabel(msg, folder);
-      if (didRemove) removed.push(folder);
-    }
-  } catch (err) {
-    console.error(`GTD done: label strip for ${id} failed:`, err.message);
-    return res.status(500).json({ error: 'Failed to mark done' });
-  }
+    operation = await createOrLoadGtdDoneOperation({
+      userId: req.session.userId,
+      actedMessageId: id,
+      intent,
+      lifecycleKey,
+      deriveTargetFolders: ({ enabled, folders, states: frozenStates, existing }) => {
+        const resolvedFolders = { ...DEFAULT_GTD_FOLDERS, ...(folders || {}) };
+        return resolveDoneFolders({
+          enabled,
+          folders: resolvedFolders,
+          states: frozenStates,
+          existing,
+        });
+      },
+    });
+    account = await getOwnedAccount(req.session.userId, operation.accountId);
+    if (!account) return res.status(404).json({ error: 'Account not found' });
 
-  // (c) Archive the INBOX copy if one is present, via the shared per-copy archive primitive
-  // (resolveArchiveFolder + guarded moveMessage + race-safe DB repoint + count adjust, with
-  // the Gmail All-Mail DELETE branch). No archive folder configured is a soft outcome, not a
-  // failure — the GTD labels are already gone, so the thread has left all GTD sections regardless.
-  let archived = false;
-  let noArchiveFolder = false;
-  let archiveFailed = false;
-  if (inboxCopy) {
+    const outcome = await executeGtdDonePhases(operation, {
+      claim: claimGtdDoneOperation,
+      renew: renewGtdDoneOperation,
+      release: releaseGtdDoneOperation,
+      advance: advanceGtdDoneOperation,
+      markSeen: rows => markThreadRowsRead(account, rows),
+      archive: row => archiveInboxCopy(account, row, {
+        archiveFolder: operation.plan.archiveFolder,
+        archiveAllMail: operation.plan.archiveAllMail,
+        archiveObservation: operation.plan.archiveObservation,
+      }),
+      removeLabel: row => removeLabelRow(row, { notify: false }),
+    });
+    const completedOperation = outcome.operation || operation;
+    const summary = summarizeDoneOperation(completedOperation, outcome);
     try {
-      const result = await archiveInboxCopy(account, inboxCopy);
-      archived = result.archived;
-      noArchiveFolder = result.noArchiveFolder;
-    } catch (err) {
-      // Step (b) already stripped the labels (or had nothing to strip). A failed archive must
-      // not 500: that misreports a mostly-successful action, and — with the label row now
-      // gone — a retry by the same id would 404. Report a partial success (200, archiveFailed
-      // true, archived false) so the client can surface it and the id stays retryable.
-      console.error(`GTD done: archive of INBOX copy for ${id} failed:`, err.message);
-      archiveFailed = true;
+      broadcast({ type: 'gtd_sections_updated', accountId: operation.accountId }, account.user_id);
+    } catch (error) {
+      console.warn(`GTD done terminal broadcast failed for ${operation.key}:`, error.message);
     }
+    const response = {
+      ok: outcome.complete,
+      phase: outcome.phase,
+      retryable: !outcome.complete,
+      uncertain: !outcome.complete,
+      ...summary,
+      seenFailedCount: outcome.seenFailedCount || 0,
+      noArchiveFolder: outcome.noArchiveFolder === true,
+      archiveFailed: !outcome.complete && outcome.phase === 'archive',
+      archiveSkippedNoFolderCount: outcome.noArchiveFolder === true ? 1 : 0,
+    };
+    return res.status(outcome.phase === 'seen' ? 503 : 200).json(response);
+  } catch (err) {
+    console.error(`GTD done for ${id} failed:`, err.message);
+    const failedOperation = err.gtdDoneOperation || operation;
+    const phase = err.gtdDonePhase || failedOperation?.phase || 'snapshot';
+    const summary = failedOperation?.plan
+      ? summarizeDoneOperation(failedOperation, {
+          phase,
+          inboxCleared: err.inboxCleared === true,
+        })
+      : { inboxCleared: err.inboxCleared === true };
+    if (operation && account) {
+      try {
+        broadcast({ type: 'gtd_sections_updated', accountId: operation.accountId }, account.user_id);
+      } catch (broadcastError) {
+        console.warn(`GTD done terminal broadcast failed for ${operation.key}:`, broadcastError.message);
+      }
+    }
+    return res.status(err.status || 500).json({
+      error: err.message || 'Failed to mark done',
+      code: err.code,
+      phase,
+      ...summary,
+      retryable: err.retryable !== false,
+      uncertain: true,
+    });
   }
-
-  // One terminal refresh so GTD section data converges to the post-done state (removeMessageCopy
-  // also emits mid-op, but this covers the archive that follows it).
-  broadcast({ type: 'gtd_sections_updated', accountId: msg.account_id }, account.user_id);
-
-  res.json({ ok: true, removed, archived, noArchiveFolder, archiveFailed });
 });
 
 // POST /api/gtd/folders/ensure { accountId, folders } — create any of the account's

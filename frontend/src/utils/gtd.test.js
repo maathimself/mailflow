@@ -920,6 +920,27 @@ describe('GTD row removal rollback', () => {
     assert.equal(restored.delegated.total, 1);
     assert.deepEqual(restored.waiting, { total: 1, unread: 1 });
   });
+
+  it('snapshots and removes only the matching account in unified GTD', () => {
+    const sections = {
+      todo: {
+        total: 2,
+        unread: 2,
+        threads: [
+          { message_id: 'same', account_id: 'account-a', is_read: false },
+          { message_id: 'same', account_id: 'account-b', is_read: false },
+        ],
+      },
+    };
+
+    const snapshot = snapshotGtdThreadRemoval(sections, 'same', ['todo'], 'account-a');
+    const removed = removeGtdThreadFromSections(sections, 'same', ['todo'], 'account-a');
+
+    assert.deepEqual(snapshot.removedByState.todo.map(row => row.thread.account_id), ['account-a']);
+    assert.deepEqual(removed.todo.threads.map(row => row.account_id), ['account-b']);
+    assert.equal(removed.todo.total, 1);
+    assert.equal(removed.todo.unread, 1);
+  });
 });
 
 describe('setGtdThreadReadInSections', () => {

@@ -295,6 +295,16 @@ export function useWebSocket() {
         break;
       }
 
+      case 'backfill_all_deferred': {
+        // The server withheld completion because at least one IMAP FETCH returned
+        // incomplete metadata. Clear the busy state so the user can retry while
+        // leaving the existing messages visible and refreshing any valid rows.
+        clearTimeout(backfillRefreshTimer);
+        window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+        setBackfillProgress(data.accountId, null);
+        break;
+      }
+
       case 'folder_updated': {
         // Emitted by move/archive/delete routes after messages leave one folder and land in
         // another. The event names ONE folder (usually the move destination), but the change

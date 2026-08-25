@@ -1,5 +1,5 @@
 import { getGtdConfig } from './gtdConfig.js';
-import { resolveAllDraftsPaths, logger, getAccountAddresses, getThreadKeysForMessageIds as _threadKeysForIds, getThreadKeysInFolders as _threadKeysInFolders, getThreadKeysForMessageIdHeaders, getMessagesByThreadKeys } from '../api.js';
+import { resolveAllDraftsPaths, getAccountAddresses, getThreadKeysForMessageIds as _threadKeysForIds, getThreadKeysInFolders as _threadKeysInFolders, getThreadKeysForMessageIdHeaders, getMessagesByThreadKeys } from '../api.js';
 
 // Transition rules for auto-stripping a GTD label once a thread's state has moved on,
 // evaluated per thread against its LAST non-draft message. Designed to match the
@@ -140,15 +140,20 @@ export async function runGtdTransitions(imapManager, account, threadKeys) {
       if (!shouldStrip) continue;
 
       for (const copy of threadRows.filter((r) => r.folder === folder)) {
+        const snapshot = {
+          id: copy.id, accountId: account.id, uid: Number(copy.uid), folder: copy.folder,
+          uidValidity: String(copy.folder_uid_validity),
+          folderGeneration: String(copy.folder_observation_generation),
+          readRevision: Number(copy.read_revision || 0),
+          starRevision: Number(copy.star_revision || 0),
+        };
+        await imapManager.removeMessageCopy(account.id, copy.uid, copy.folder, {
+          expectedId: copy.id,
+          expectedUidValidity: copy.folder_uid_validity,
+          snapshot,
+          operationKey: `gtd-transition:${copy.id}`,
+        });
         anyStripped = true;
-        try {
-          await imapManager.removeMessageCopy(account.id, copy.uid, copy.folder);
-        } catch (err) {
-          // An external automation may strip the same label concurrently, so the copy
-          // can already be gone on the server. Treat a failed removal as a successful
-          // strip and move on; the stale DB row reconciles on the next sync.
-          logger.debug(`gtdTransitions: tolerated removeMessageCopy failure uid=${copy.uid} ${copy.folder}: ${err.message}`);
-        }
       }
     }
   }

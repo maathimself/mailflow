@@ -3,6 +3,7 @@ import { useStore } from '../../store/index.js';
 import { api } from '../../utils/api.js';
 import { advanceSelectionAfterRemoval } from '../../utils/listSelection.js';
 import { ActionBtn } from '../../components/RowHoverActions.jsx';
+import { doneGtdInboxRow, gtdDoneRefreshPatch } from '../../utils/gtdDone.js';
 
 // The GTD "done" checkmark for the row hover cluster, rendered via the 'row-hover-action' slot.
 //
@@ -13,8 +14,8 @@ import { ActionBtn } from '../../components/RowHoverActions.jsx';
 export default function GtdRowDone({ message, done }) {
   const { t } = useTranslation();
   const removeMessage = useStore(s => s.removeMessage);
+  const restoreMessages = useStore(s => s.restoreMessages);
   const decrementUnread = useStore(s => s.decrementUnread);
-  const incrementUnread = useStore(s => s.incrementUnread);
   const addNotification = useStore(s => s.addNotification);
 
   const inboxDone = async (e) => {
@@ -27,19 +28,25 @@ export default function GtdRowDone({ message, done }) {
     const unreadCount = Number.parseInt(message.unread_count, 10);
     const unreadDelta = Number.isFinite(unreadCount) ? unreadCount : (message.is_read ? 0 : 1);
     if (unreadDelta > 0) decrementUnread(message.account_id, unreadDelta);
-    try {
-      const res = await api.gtdDone(message.id);
-      // Labels stripped but the archive step failed: the optimistic removal is still correct, but
-      // the email is still in the inbox — say so rather than leave a gap.
-      if (res?.archiveFailed) {
-        addNotification({ title: t('gtd.doneArchiveFailed'), body: message.subject || t('common.noSubject') });
-      }
-    } catch (err) {
-      console.error('GTD done failed:', err.message);
-      useStore.getState().restoreMessages([message]);
-      if (unreadDelta > 0) incrementUnread(message.account_id, unreadDelta);
-      addNotification({ title: t('gtd.doneFailed'), body: message.subject || t('common.noSubject') });
-    }
+    await doneGtdInboxRow(message, {
+      gtdDone: api.gtdDone,
+      refreshMessages: () => useStore.setState(gtdDoneRefreshPatch),
+      refreshUnreadCounts: async () => {
+        const counts = await api.getUnreadCounts();
+        useStore.getState().setUnreadCounts(counts);
+      },
+      refreshFolders: async (accountId) => {
+        const folders = await api.getFolders(accountId);
+        useStore.getState().setFolders(accountId, folders);
+      },
+      refreshGtdSections: () => useStore.getState().fetchGtdSections(),
+      restoreInbox: restored => {
+        restoreMessages([restored]);
+        if (unreadDelta > 0) useStore.getState().incrementUnread(restored.account_id, unreadDelta);
+      },
+      addNotification,
+      t,
+    });
   };
 
   return (

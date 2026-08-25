@@ -12,7 +12,12 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
   } = resolveAccountScope(accountsResult.rows, accountId);
   if (!scopedAccountIds.length) return { messages: [], total: 0 };
 
-  let whereConditions = ['m.is_deleted = false'];
+  let whereConditions = [
+    'm.is_deleted = false',
+    'm.metadata_complete = true',
+    'f.is_present = true',
+    'f.uid_validity IS NOT NULL',
+  ];
   const values = [];
   let p = 1;
 
@@ -50,7 +55,9 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
   try {
     if (isSpecificAccount) {
       const r = await query(
-        'SELECT total_count, unread_count FROM folders WHERE account_id = $1 AND path = $2',
+        `SELECT total_count, unread_count FROM folders
+          WHERE account_id = $1 AND path = $2
+            AND is_present = true AND uid_validity IS NOT NULL`,
         [accountId, folder]
       );
       if (r.rows.length) {
@@ -59,11 +66,15 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
     } else {
       const r = isUnreadOnly
         ? await query(
-            "SELECT COALESCE(SUM(unread_count), 0)::int AS n FROM folders WHERE account_id = ANY($1) AND path = 'INBOX'",
+            `SELECT COALESCE(SUM(unread_count), 0)::int AS n FROM folders
+              WHERE account_id = ANY($1) AND path = 'INBOX'
+                AND is_present = true AND uid_validity IS NOT NULL`,
             [scopedAccountIds]
           )
         : await query(
-            "SELECT COALESCE(SUM(total_count), 0)::int AS n FROM folders WHERE account_id = ANY($1) AND path = 'INBOX'",
+            `SELECT COALESCE(SUM(total_count), 0)::int AS n FROM folders
+              WHERE account_id = ANY($1) AND path = 'INBOX'
+                AND is_present = true AND uid_validity IS NOT NULL`,
             [scopedAccountIds]
           );
       total = r.rows[0]?.n ?? 0;
@@ -86,6 +97,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
       WITH paged_threads AS (
         SELECT m.thread_key AS thread_id
         FROM messages m
+        JOIN folders f ON f.account_id = m.account_id AND f.path = m.folder
         WHERE ${where}
         GROUP BY m.thread_key
         ORDER BY MAX(m.date) DESC
@@ -106,6 +118,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
                (co.id IS NOT NULL) AS has_contact_photo
         FROM messages m
         JOIN email_accounts a ON m.account_id = a.id
+        JOIN folders f ON f.account_id = m.account_id AND f.path = m.folder
         LEFT JOIN contacts co ON co.user_id = a.user_id
                               AND co.primary_email = lower(m.from_email)
                               AND co.photo_data IS NOT NULL
@@ -121,8 +134,12 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
         SELECT m.thread_key AS thread_id,
                COUNT(DISTINCT m.message_id)::int AS message_count
         FROM messages m
+        JOIN folders tf ON tf.account_id = m.account_id AND tf.path = m.folder
         WHERE m.account_id = ANY($${p})
           AND m.is_deleted = false
+          AND m.metadata_complete = true
+          AND tf.is_present = true
+          AND tf.uid_validity IS NOT NULL
           AND m.message_id IS NOT NULL
           ${threadFolderFilter}
           AND m.thread_key IN (SELECT thread_id FROM paged_threads)
@@ -156,6 +173,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
     const threadCountResult = await query(`
       SELECT COUNT(DISTINCT m.thread_key)::int AS total
       FROM messages m
+      JOIN folders f ON f.account_id = m.account_id AND f.path = m.folder
       WHERE ${where}
     `, filterValues);
 
@@ -181,6 +199,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
            (co.id IS NOT NULL) AS has_contact_photo
     FROM messages m
     JOIN email_accounts a ON m.account_id = a.id
+    JOIN folders f ON f.account_id = m.account_id AND f.path = m.folder
     LEFT JOIN contacts co ON co.user_id = a.user_id
                           AND co.primary_email = lower(m.from_email)
                           AND co.photo_data IS NOT NULL

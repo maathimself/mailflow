@@ -51,6 +51,10 @@ describe('GET /api/search unified account scope', () => {
 
     expect(response.status).toBe(200);
     expect(query.mock.calls[1][1][0]).toEqual(['included']);
+    expect(query.mock.calls[1][0]).toContain('m.metadata_complete = true');
+    expect(query.mock.calls[1][0]).toMatch(/JOIN folders live_folder/);
+    expect(query.mock.calls[1][0]).toContain('live_folder.is_present = true');
+    expect(query.mock.calls[1][0]).toContain('live_folder.uid_validity IS NOT NULL');
   });
 
   it('keeps an opted-out account searchable when explicitly selected', async () => {

@@ -14,8 +14,8 @@ const makeSections = () => ({
     total: 2,
     unread: 1,
     threads: [
-      { id: 'todo-x', message_id: 'x', is_read: false },
-      { id: 'todo-y', message_id: 'y', is_read: true },
+      { id: 'todo-x', account_id: 'account-1', message_id: 'x', is_read: false },
+      { id: 'todo-y', account_id: 'account-2', message_id: 'y', is_read: true },
     ],
   },
   watch: {
@@ -39,7 +39,7 @@ const makeSections = () => ({
 describe('pending GTD removal guard', () => {
   afterEach(() => {
     for (const removal of [...pendingGtdRemovalMap.values(), ...completedGtdRemovalMap.values()]) {
-      clearGtdRemovalGuard(removal.identity, removal.states);
+      clearGtdRemovalGuard(removal.identity, removal.states, removal.accountId);
     }
   });
 
@@ -90,5 +90,14 @@ describe('pending GTD removal guard', () => {
 
     clearGtdRemovalGuard('x', ['todo']);
     assert.equal(applyGtdRemovalGuard(sections), sections);
+  });
+
+  it('does not hide the same Message-ID from another account in unified GTD', () => {
+    const sections = makeSections();
+    sections.todo.threads.push({ id: 'todo-x-other', account_id: 'account-2', message_id: 'x', is_read: true });
+    sections.todo.total = 3;
+    setPendingGtdRemoval('x', ['todo'], 'account-1');
+    const guarded = applyGtdRemovalGuard(sections);
+    assert.deepEqual(guarded.todo.threads.map(row => row.id), ['todo-y', 'todo-x-other']);
   });
 });

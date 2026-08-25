@@ -181,19 +181,24 @@ export async function backfillCategories(accountId, userId) {
 
   for (;;) {
     const result = await query(
-      `SELECT id, from_email, is_bulk
-       FROM messages
-       WHERE account_id = $1
-         AND category IS NULL
-         AND is_deleted = false
-       ORDER BY date DESC
+      `SELECT m.id, m.from_email, m.is_bulk, m.account_id, m.uid, m.folder,
+              m.read_revision, m.star_revision,
+              f.uid_validity AS folder_uid_validity,
+              f.observation_generation AS folder_observation_generation
+       FROM messages m
+       JOIN folders f ON f.account_id = m.account_id AND f.path = m.folder
+         AND f.is_present = true AND f.uid_validity IS NOT NULL
+       WHERE m.account_id = $1
+         AND m.category IS NULL
+         AND m.is_deleted = false
+         AND m.metadata_complete = true
+       ORDER BY m.date DESC
        LIMIT $2 OFFSET $3`,
       [accountId, BATCH, offset]
     );
     if (!result.rows.length) break;
 
-    const ids = [];
-    const categories = [];
+    const desired = [];
 
     for (const row of result.rows) {
       // For backfill without re-fetching IMAP headers, derive from is_bulk
@@ -214,18 +219,68 @@ export async function backfillCategories(accountId, userId) {
       }
 
       if (category !== 'primary') {
-        ids.push(row.id);
-        categories.push(category);
+        desired.push({
+          id: row.id,
+          category,
+          uid: Number(row.uid),
+          folder: row.folder,
+          uid_validity: String(row.folder_uid_validity),
+          folder_generation: String(row.folder_observation_generation),
+          read_revision: Number(row.read_revision),
+          star_revision: Number(row.star_revision),
+        });
       }
     }
 
-    if (ids.length > 0) {
-      await query(
-        `UPDATE messages SET category = v.category
-         FROM (SELECT unnest($1::uuid[]) AS id, unnest($2::text[]) AS category) AS v
-         WHERE messages.id = v.id`,
-        [ids, categories]
+    if (desired.length > 0) {
+      const updated = await query(
+        `WITH desired AS (
+           SELECT * FROM jsonb_to_recordset($2::jsonb) AS d(
+             id uuid, category text, uid bigint, folder text, uid_validity numeric,
+             folder_generation bigint, read_revision bigint, star_revision bigint
+           )
+         ), folder_fence AS MATERIALIZED (
+           SELECT f.path, f.uid_validity, f.observation_generation, f.is_present
+             FROM folders f
+            WHERE f.account_id = $1
+              AND f.path = ANY(ARRAY(SELECT folder FROM desired))
+            ORDER BY f.path
+            FOR SHARE OF f
+         ), live AS MATERIALIZED (
+           SELECT desired.*
+             FROM desired
+             JOIN folder_fence f ON f.path = desired.folder
+                                AND f.is_present = true
+                                AND f.uid_validity IS NOT NULL
+                                AND f.uid_validity = desired.uid_validity
+                                AND f.observation_generation = desired.folder_generation
+             JOIN messages m ON m.id = desired.id AND m.account_id = $1
+                            AND m.uid = desired.uid AND m.folder = desired.folder
+                            AND m.read_revision = desired.read_revision
+                            AND m.star_revision = desired.star_revision
+                            AND m.category IS NULL
+                            AND m.is_deleted = false AND m.metadata_complete = true
+            ORDER BY m.id
+            FOR UPDATE OF m
+         )
+         UPDATE messages SET category = live.category
+           FROM live
+          WHERE messages.id = live.id AND messages.account_id = $1
+            AND messages.uid = live.uid AND messages.folder = live.folder
+            AND messages.read_revision = live.read_revision
+            AND messages.star_revision = live.star_revision
+            AND messages.category IS NULL
+            AND messages.is_deleted = false AND messages.metadata_complete = true
+            AND (SELECT COUNT(*) FROM live) = (SELECT COUNT(*) FROM desired)
+         RETURNING messages.id`,
+        [accountId, JSON.stringify(desired)]
       );
+      if (updated?.rowCount != null && updated.rowCount !== desired.length) {
+        const error = new Error('Category source snapshot was superseded');
+        error.code = 'MESSAGE_SNAPSHOT_SUPERSEDED';
+        error.retryable = true;
+        throw error;
+      }
     }
 
     processed += result.rows.length;

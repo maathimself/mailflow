@@ -152,6 +152,8 @@ export const useStore = create((set, get) => ({
   selectedAccountId: localStorage.getItem('mailflow_selected_account') || null, // '' stored as null
   selectedFolder: localStorage.getItem('mailflow_selected_folder') || 'INBOX',
   messagesRefreshToken: 0, // incremented on every nav click so the effect always re-fires
+  searchRefreshToken: 0, // explicit invalidation for mutations that can change active search results
+  threadCacheVersion: 0, // global generation for rejecting thread loads after authoritative resets
   setSelectedAccount: (accountId, folder = 'INBOX') => {
     localStorage.setItem('mailflow_selected_account', accountId ?? '');
     localStorage.setItem('mailflow_selected_folder', folder);
@@ -706,11 +708,11 @@ export const useStore = create((set, get) => ({
   // are the backend section keys whose labels were removed (todo/watch/delegated/…).
   // Delegates to a pure helper (unit-tested in gtd.test.js) that also keeps the deduped
   // Waiting rollup in step so the Waiting badge is correct instantly.
-  removeGtdThread: (identity, states) => {
+  removeGtdThread: (identity, states, accountId = null) => {
     let snapshot = null;
     set(state => {
-      snapshot = snapshotGtdThreadRemoval(state.gtdSections, identity, states);
-      const next = removeGtdThreadFromSections(state.gtdSections, identity, states);
+      snapshot = snapshotGtdThreadRemoval(state.gtdSections, identity, states, accountId);
+      const next = removeGtdThreadFromSections(state.gtdSections, identity, states, accountId);
       return next === state.gtdSections ? {} : { gtdSections: next };
     });
     return snapshot;

@@ -154,17 +154,44 @@ export async function resolveSentFolder(accountId, folderMappings) {
 }
 
 // Adjust cached folder row counts after local message mutations so that pagination
-// totals stay accurate without waiting for the next IMAP sync. Fire-and-forget —
-// errors are logged but never block the caller; sync will correct any discrepancy.
-export function adjustFolderCounts(accountId, path, totalDelta, unreadDelta) {
-  if (totalDelta === 0 && unreadDelta === 0) return;
-  query(
+// totals stay accurate without waiting for the next IMAP sync. Ordinary callers retain
+// the historical best-effort behavior. Integrity-sensitive callers can pass a transaction
+// executor with `strict: true`, making the message mutation and its cached counts one atomic
+// unit instead of reporting success with stale badges.
+export function adjustFolderCounts(accountId, path, totalDelta, unreadDelta, options = {}) {
+  if (totalDelta === 0 && unreadDelta === 0) return Promise.resolve();
+  const runQuery = options.query || query;
+  const pending = runQuery(
     `UPDATE folders
         SET total_count  = GREATEST(0, total_count  + $1),
             unread_count = GREATEST(0, unread_count + $2)
       WHERE account_id = $3 AND path = $4`,
     [totalDelta, unreadDelta, accountId, path]
-  ).catch(err => console.error('Folder count adjust failed:', err.message));
+  );
+  if (options.strict) return pending;
+  return pending.catch(err => console.error('Folder count adjust failed:', err.message));
+}
+
+// Coalesce a transaction's folder-count writes and return them in one global lock order.
+// Every transaction that updates more than one folders row must use this ordering; otherwise
+// concurrent archive/read reconciliation can lock the same folders in opposite orders.
+export function folderCountDeltasInLockOrder(deltas) {
+  const byPath = new Map();
+  for (const { path, totalDelta = 0, unreadDelta = 0 } of deltas || []) {
+    const current = byPath.get(path) || { path, totalDelta: 0, unreadDelta: 0 };
+    current.totalDelta += totalDelta;
+    current.unreadDelta += unreadDelta;
+    byPath.set(path, current);
+  }
+  return [...byPath.values()]
+    .filter(({ totalDelta, unreadDelta }) => totalDelta !== 0 || unreadDelta !== 0)
+    .sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
+}
+
+// A deterministic, IMAP-atom-safe keyword used only to recover a headerless message when the
+// provider MOVE succeeds before its database transaction commits. Message row ids are UUIDs.
+export function moveRecoveryKeyword(messageRowId) {
+  return `$MailFlowMove-${messageRowId}`;
 }
 
 // Fan a read-state change out to a message's sibling label rows. Under GTD a single

@@ -24,6 +24,18 @@ export async function query(text, params) {
   return pool.query(text, params);
 }
 
+// Hold one physical PostgreSQL session for callbacks that need session-scoped
+// primitives such as advisory locks, without opening a transaction around
+// provider I/O.
+export async function withSession(fn) {
+  const client = await pool.connect();
+  try {
+    return await fn(client);
+  } finally {
+    client.release();
+  }
+}
+
 // Run fn(client) inside a serializable transaction. Commits on success, rolls
 // back on throw. The client exposes a .query(text, params) method identical to
 // the top-level query() helper.

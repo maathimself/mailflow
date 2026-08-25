@@ -244,8 +244,13 @@ router.get('/', searchLimiter, async (req, res) => {
         a.name as account_name, a.email_address as account_email, a.color as account_color
       FROM messages m
       JOIN email_accounts a ON m.account_id = a.id
+      JOIN folders live_folder ON live_folder.account_id = m.account_id
+        AND live_folder.path = m.folder
+        AND live_folder.is_present = true
+        AND live_folder.uid_validity IS NOT NULL
       WHERE m.account_id = ANY($1)
         AND m.is_deleted = false
+        AND m.metadata_complete = true
         AND ${conditions.join('\n        AND ')}
       ORDER BY m.date DESC
       LIMIT $${p} OFFSET $${p + 1}

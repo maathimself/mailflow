@@ -40,6 +40,6 @@ export function createPluginMailFacade(engine) {
     syncFolderOnDemand: (account, folder) => engine.syncFolderOnDemand(account, folder),
 
     // Remove a message's copy from a label folder (GTD transition strips).
-    removeMessageCopy: (accountId, uid, folder) => engine.removeMessageCopy(accountId, uid, folder),
+    removeMessageCopy: (accountId, uid, folder, options) => engine.removeMessageCopy(accountId, uid, folder, options),
   });
 }

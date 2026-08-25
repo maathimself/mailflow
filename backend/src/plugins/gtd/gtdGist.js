@@ -1,4 +1,11 @@
-import { summarizeMessage, summarizeAvailable, getMessageFields, getMessageAnnotations, setMessageAnnotation } from '../api.js';
+import {
+  summarizeMessage,
+  summarizeAvailable,
+  getMessageFields,
+  validateMessageFieldsSnapshot,
+  getMessageAnnotations,
+  setMessageAnnotationForSnapshot,
+} from '../api.js';
 
 // AI-condensed one-line gist for GTD "waiting" entries. The client shows the raw
 // message snippet by default; when a gist has been generated for a waiting thread's
@@ -69,14 +76,16 @@ async function generateForAccount(accountId, ids) {
   const rows = await getMessageFields(accountId, need);
   let wrote = 0;
   await runPool(rows, GIST_CONCURRENCY, async (row) => {
+    if (!await validateMessageFieldsSnapshot(accountId, row)) return;
     const gist = await summarizeMessage({
       subject: row.subject,
       from: row.from_name || row.from_email,
       content: row.content,
     });
     if (!gist) return;
+    if (!await validateMessageFieldsSnapshot(accountId, row)) return;
     // Store under GTD's annotation namespace on the message (cleaned with the message on delete).
-    const n = await setMessageAnnotation(accountId, row.id, 'gtd', { gist });
+    const n = await setMessageAnnotationForSnapshot(accountId, row, 'gtd', { gist });
     if (n > 0) wrote++;
   });
   return wrote;

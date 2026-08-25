@@ -186,6 +186,21 @@ describe('listMessages — threaded mode', () => {
 });
 
 describe('listMessages — message shape', () => {
+  it('suppresses legacy rows until an envelope-backed backfill verifies them', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
+      .mockResolvedValueOnce({ rows: [{ total_count: 1, unread_count: 0 }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await listMessages({ userId: 'user-1', accountId: 'acc-1' });
+
+    const sql = query.mock.calls[2][0];
+    expect(sql).toContain('m.metadata_complete = true');
+    expect(sql).toMatch(/JOIN folders f/);
+    expect(sql).toContain('f.is_present = true');
+    expect(sql).toContain('f.uid_validity IS NOT NULL');
+  });
+
   it('selects delivery_addresses in the flat query', async () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })

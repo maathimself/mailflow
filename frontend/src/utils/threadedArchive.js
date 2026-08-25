@@ -121,8 +121,15 @@ export function invalidateThreadLoad(versions, threadId) {
   return next;
 }
 
-export function isCurrentThreadLoad(versions, threadId, version) {
-  return currentThreadLoadVersion(versions, threadId) === version;
+export function isCurrentThreadLoad(
+  versions,
+  threadId,
+  version,
+  cacheVersion = null,
+  currentCacheVersion = null,
+) {
+  return currentThreadLoadVersion(versions, threadId) === version
+    && (cacheVersion == null || cacheVersion === currentCacheVersion);
 }
 
 export function removeThreadCacheEntry(cache, threadId) {

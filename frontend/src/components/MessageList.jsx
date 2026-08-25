@@ -111,7 +111,7 @@ export default function MessageList() {
     decrementUnread, incrementUnread, addNotification, notifications, removeNotification,
     searchQuery, setSearchQuery, setIsSearching,
     searchResults, setSearchResults, openCompose, accountsReady, accounts,
-    messagesRefreshToken, layout, setLayout, pageSize, setPageSize, scrollMode,
+    messagesRefreshToken, searchRefreshToken, threadCacheVersion, layout, setLayout, pageSize, setPageSize, scrollMode,
     setMobileSidebarOpen, unreadCounts, showContacts, setShowContacts,
     threadedView, expandedThreadId, setExpandedThreadId,
     threadMessages, setThreadMessages, clearThreadMessages, loadingThread, setLoadingThread,
@@ -537,7 +537,7 @@ export default function MessageList() {
       }
     }, 300);
     return () => clearTimeout(searchTimer.current);
-  }, [searchQuery, selectedAccountId, searchFolder, searchPageSize, searchReloadToken, unifiedInboxAccountKey, applyReadGuard, setIsSearching, setSearchResults]);
+  }, [searchQuery, selectedAccountId, searchFolder, searchPageSize, searchReloadToken, searchRefreshToken, unifiedInboxAccountKey, applyReadGuard, setIsSearching, setSearchResults]);
 
   // Re-run an active search (and refresh the folder view) after inbox rules run, since
   // rules can move messages out of the searched folder and a search snapshot would
@@ -1147,13 +1147,7 @@ export default function MessageList() {
         const deleteIds = ids?.length ? ids : [message.id];
         try {
           if (deleteIds.length > 1) {
-            fetch('/api/mail/messages/bulk-delete', {
-              method: 'POST',
-              credentials: 'include',
-              headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'MailFlow' },
-              body: JSON.stringify({ ids: deleteIds }),
-              keepalive: true,
-            });
+            api.bulkDeleteKeepalive(deleteIds).catch(() => {});
           } else {
             fetch(`/api/mail/messages/${deleteIds[0]}`, {
               method: 'DELETE',
@@ -2409,18 +2403,31 @@ export default function MessageList() {
     setExpandedThreadId(tid);
     if (!threadMessages[tid]) {
       const loadVersion = currentThreadLoadVersion(threadLoadVersionsRef.current, tid);
+      const cacheVersion = threadCacheVersion;
       setLoadingThread(tid);
       try {
         const effectiveFolder = selectedAccountId ? selectedFolder : 'INBOX';
         const data = await api.getThread(tid, effectiveFolder, isUnified);
         const msgs = data.messages || [];
-        if (isCurrentThreadLoad(threadLoadVersionsRef.current, tid, loadVersion)) {
+        if (isCurrentThreadLoad(
+          threadLoadVersionsRef.current,
+          tid,
+          loadVersion,
+          cacheVersion,
+          useStore.getState().threadCacheVersion,
+        )) {
           setThreadMessages(tid, msgs);
         }
       } catch (err) {
         console.error('Failed to load thread:', err);
       } finally {
-        if (isCurrentThreadLoad(threadLoadVersionsRef.current, tid, loadVersion)) {
+        if (isCurrentThreadLoad(
+          threadLoadVersionsRef.current,
+          tid,
+          loadVersion,
+          cacheVersion,
+          useStore.getState().threadCacheVersion,
+        )) {
           setLoadingThread(null);
         }
       }

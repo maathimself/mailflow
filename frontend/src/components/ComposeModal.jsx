@@ -3,6 +3,11 @@ import { useTranslation } from 'react-i18next';
 import DOMPurify from 'dompurify';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
+import {
+  recordSendFailure,
+  selectDraftOperation,
+  selectSendOperation,
+} from '../utils/draftOperation.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { useUiScale, descale } from '../hooks/useUiScale.js';
 import { useEditor, EditorContent, useEditorState, NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react';
@@ -298,10 +303,12 @@ export default function ComposeModal() {
   const [aiStatus, setAiStatus] = useState(null);
   const [aiPanel, setAiPanel] = useState(null);
   const aiAbortRef = useRef(null);
-  // Stable idempotency key for the current logical send. Generated on the first send
-  // attempt, reused across retries (so a retry after a lost response dedupes rather than
-  // double-sending), and cleared on success. Fixes audit finding [1].
+  // Stable operation for the current logical send. A conclusive pre-provider failure may
+  // rotate its key after an edit; ambiguous/provider-started failures retain it.
   const idempotencyKeyRef = useRef(null);
+  // A draft save is its own durable lifecycle. Reuse the key only while retrying the
+  // same failed save; clear it after success so two intentional identical drafts differ.
+  const draftOperationRef = useRef(null);
   const replyTypeRef = useRef(null);
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -734,42 +741,48 @@ export default function ComposeModal() {
     setSending(true);
     setError('');
     const bodyToSend = plaintextEmail ? body : (htmlMode ? htmlSource : (editor?.getHTML() ?? ''));
+    const sendPayload = {
+      accountId,
+      ...(aliasId ? { aliasId } : {}),
+      to: toFinal,
+      cc: [...ccChips, ...(ccInput.trim() ? [ccInput.trim()] : [])],
+      bcc: [...bccChips, ...(bccInput.trim() ? [bccInput.trim()] : [])],
+      subject,
+      body: bodyToSend,
+      bodyIsHtml: !plaintextEmail,
+      ...(quotedBody ? { quotedBody } : {}),
+      ...(!plaintextEmail && (quotedBodyHtml != null || quotedHtmlRef.current)
+        ? { quotedBodyHtml: quotedHtmlRef.current ? quotedHtmlRef.current.innerHTML : quotedBodyHtml }
+        : {}),
+      ...(signatureContentRef.current || fromSignature != null
+        ? { editedSignature: plaintextEmail ? plainSig : signatureContentRef.current }
+        : {}),
+      inReplyTo: composeData?.inReplyTo,
+      references: composeData?.references || undefined,
+      ...(priority !== 'normal' ? { priority } : {}),
+      ...(attachments.length ? {
+        attachments: attachments.map(a => ({
+          filename: a.name,
+          content: a.data,
+          encoding: 'base64',
+          contentType: a.type || 'application/octet-stream',
+        })),
+      } : {}),
+      ...(fwdAttachments.length ? {
+        forwardedAttachments: fwdAttachments.map(a => ({ messageId: a.messageId, part: a.part })),
+      } : {}),
+    };
     // crypto.randomUUID needs a secure context; fall back for plain-HTTP LAN deployments.
-    if (!idempotencyKeyRef.current) {
-      idempotencyKeyRef.current = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    }
+    idempotencyKeyRef.current = selectSendOperation(
+      idempotencyKeyRef.current,
+      sendPayload,
+      () => crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
     try {
-      const sendResult = await api.post('/mail/send', {
-        accountId,
-        ...(aliasId ? { aliasId } : {}),
-        to: toFinal,
-        cc: [...ccChips, ...(ccInput.trim() ? [ccInput.trim()] : [])],
-        bcc: [...bccChips, ...(bccInput.trim() ? [bccInput.trim()] : [])],
-        subject,
-        body: bodyToSend,
-        bodyIsHtml: !plaintextEmail,
-        ...(quotedBody ? { quotedBody } : {}),
-        ...(!plaintextEmail && (quotedBodyHtml != null || quotedHtmlRef.current)
-          ? { quotedBodyHtml: quotedHtmlRef.current ? quotedHtmlRef.current.innerHTML : quotedBodyHtml }
-          : {}),
-        ...(signatureContentRef.current || fromSignature != null
-          ? { editedSignature: plaintextEmail ? plainSig : signatureContentRef.current }
-          : {}),
-        inReplyTo: composeData?.inReplyTo,
-        references: composeData?.references || undefined,
-        ...(priority !== 'normal' ? { priority } : {}),
-        ...(attachments.length ? {
-          attachments: attachments.map(a => ({
-            filename: a.name,
-            content: a.data,
-            encoding: 'base64',
-            contentType: a.type || 'application/octet-stream',
-          })),
-        } : {}),
-        ...(fwdAttachments.length ? {
-          forwardedAttachments: fwdAttachments.map(a => ({ messageId: a.messageId, part: a.part })),
-        } : {}),
-      }, { 'X-Idempotency-Key': idempotencyKeyRef.current });
+      const sendResult = await api.post(
+        '/mail/send', sendPayload,
+        { 'X-Idempotency-Key': idempotencyKeyRef.current.key },
+      );
       // Send confirmed — clear the key so a subsequent send from a reused modal gets a fresh one.
       idempotencyKeyRef.current = null;
       const replyThreadId = isReply ? composeData?.threadId : null;
@@ -807,6 +820,7 @@ export default function ComposeModal() {
         setTimeout(refreshThread, 10000);
       }
     } catch (err) {
+      idempotencyKeyRef.current = recordSendFailure(idempotencyKeyRef.current, err);
       setError(err.message);
       setSending(false);
     }
@@ -833,7 +847,7 @@ export default function ComposeModal() {
     setSavingDraft(true);
     try {
       const bodyToSend = plaintextEmail ? body : (htmlMode ? htmlSource : (editor?.isEmpty ? '' : (editor?.getHTML() ?? '')));
-      const result = await api.saveDraft({
+      const draftPayload = {
         accountId,
         ...(aliasId ? { aliasId } : {}),
         to: [...toChips, ...(toInput.trim() ? [toInput.trim()] : [])],
@@ -850,7 +864,14 @@ export default function ComposeModal() {
           ? { editedSignature: plaintextEmail ? plainSig : signatureContentRef.current }
           : {}),
         ...(draftUid != null && draftFolder != null ? { existingUid: draftUid, existingFolder: draftFolder } : {}),
-      });
+      };
+      draftOperationRef.current = selectDraftOperation(
+        draftOperationRef.current,
+        draftPayload,
+        () => crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      );
+      const result = await api.saveDraft(draftPayload, draftOperationRef.current.key);
+      draftOperationRef.current = null;
       if (result.uid != null) {
         setDraftUid(result.uid);
         setDraftFolder(result.folder);
@@ -3169,4 +3190,3 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
     </div>
   );
 }
-

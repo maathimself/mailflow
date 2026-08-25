@@ -1,5 +1,5 @@
 import nodemailer from 'nodemailer';
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes, randomUUID } from 'crypto';
 import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -7,6 +7,7 @@ import sanitizeHtml from 'sanitize-html';
 import { sanitizeSignature, sanitizeComposeBody } from '../services/emailSanitizer.js';
 import { embedInlineDataImages } from '../utils/inlineImages.js';
 import { imapManager } from '../index.js';
+import { snapshotFromMessageRow } from '../services/messageSnapshots.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -36,7 +37,10 @@ function textToHtml(text) {
     .join('');
 }
 
-async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature }) {
+async function buildRawDraft({
+  accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody,
+  quotedBodyHtml, editedSignature, messageIdToken,
+}) {
   const acctResult = await query(
     'SELECT * FROM email_accounts WHERE id = $1',
     [accountId]
@@ -83,7 +87,7 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
 
   // Stable Message-ID so the appended MIME and the local DB row reference the same
   // message (and a later sync reconciles cleanly).
-  const messageId = `<${randomBytes(16).toString('hex')}@${(fromEmail.split('@')[1] || 'mailflow.local')}>`;
+  const messageId = `<${messageIdToken || randomBytes(16).toString('hex')}@${(fromEmail.split('@')[1] || 'mailflow.local')}>`;
   const textBody = sigText ? `${bodyText}\n\n-- \n${sigText}${quotedBody || ''}` : `${bodyText}${quotedBody || ''}`;
 
   const mailOptions = {
@@ -129,6 +133,30 @@ async function resolveDraftsFolder(account) {
 router.post('/draft', async (req, res) => {
   const { accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, editedSignature, existingUid, existingFolder } = req.body;
   if (!accountId) return res.status(400).json({ error: 'accountId required' });
+  const suppliedOperationKey = typeof req.headers['x-idempotency-key'] === 'string'
+    ? req.headers['x-idempotency-key'].trim().slice(0, 128)
+    : null;
+  const logicalOperationKey = suppliedOperationKey || `compat-${randomUUID()}`;
+  // A client key identifies one save attempt across process/network retries. Bind it to
+  // the exact editable payload so reusing that key after an edit cannot replay the old
+  // provider receipt and materialize stale draft contents.
+  const payloadDigest = createHash('sha256').update(JSON.stringify({
+    accountId,
+    aliasId: aliasId || null,
+    to: Array.isArray(to) ? to : [],
+    cc: Array.isArray(cc) ? cc : [],
+    bcc: Array.isArray(bcc) ? bcc : [],
+    subject: subject || '',
+    body: body || '',
+    bodyIsHtml: Boolean(bodyIsHtml),
+    quotedBody: quotedBody || '',
+    quotedBodyHtml: quotedBodyHtml || '',
+    editedSignature: editedSignature ?? null,
+    existingUid: existingUid ?? null,
+    existingFolder: existingFolder || null,
+  })).digest('hex');
+  const appendOperationKey = `draft:${req.session.userId}:${logicalOperationKey}:${payloadDigest}`;
+  const messageIdToken = createHash('sha256').update(appendOperationKey).digest('hex');
 
   const ownerCheck = await query(
     'SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2',
@@ -137,43 +165,70 @@ router.post('/draft', async (req, res) => {
   if (!ownerCheck.rows.length) return res.status(404).json({ error: 'Account not found' });
 
   try {
-    const { rawMessage, account, meta } = await buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature });
+    const { rawMessage, account, meta } = await buildRawDraft({
+      accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody,
+      quotedBodyHtml, editedSignature, messageIdToken,
+    });
 
     const draftsFolder = await resolveDraftsFolder(account);
     if (!draftsFolder) return res.status(422).json({ error: 'No Drafts folder found for this account' });
 
-    // APPEND the new draft first so we never lose the message
-    const { uid } = await imapManager.appendToFolder(account, draftsFolder, rawMessage, ['\\Draft', '\\Seen']);
-
-    // Persist a local Drafts row immediately so the composer can reopen this draft
-    // (recipient/subject/body) even if the folder re-sync is delayed or fails on a
-    // flaky connection. Non-fatal — the append already stored the message on IMAP.
-    if (uid != null) {
-      try {
-        await imapManager.upsertDraftMessageRecord(account, draftsFolder, uid, {
-          messageId: meta.messageId,
-          subject,
-          fromName: meta.fromName,
-          fromEmail: meta.fromEmail,
-          to: mapRecipientList(to),
-          cc: mapRecipientList(cc),
-          snippet: meta.snippet,
-          bodyHtml: meta.bodyHtml,
-          bodyText: meta.bodyText,
-        });
-      } catch (rowErr) {
-        console.error(`Draft: failed to persist local row uid=${uid}: ${rowErr.message}`);
-      }
-    }
+    // APPEND and local materialization share one durable operation receipt. If the process
+    // dies after the provider accepts APPEND, replay searches the causal marker and resumes
+    // this idempotent upsert without issuing APPEND again.
+    const { uid } = await imapManager.appendToFolder(
+      account,
+      draftsFolder,
+      rawMessage,
+      ['\\Draft', '\\Seen'],
+      {
+        operationKey: appendOperationKey,
+        materialize: async ({ uid: appendedUid }, tx) => {
+          const draftMeta = {
+            messageId: meta.messageId,
+            subject,
+            fromName: meta.fromName,
+            fromEmail: meta.fromEmail,
+            to: mapRecipientList(to),
+            cc: mapRecipientList(cc),
+            snippet: meta.snippet,
+            bodyHtml: meta.bodyHtml,
+            bodyText: meta.bodyText,
+          };
+          return tx
+            ? imapManager.upsertDraftMessageRecord(
+                account, draftsFolder, appendedUid, draftMeta, { tx },
+              )
+            : imapManager.upsertDraftMessageRecord(
+                account, draftsFolder, appendedUid, draftMeta,
+              );
+        },
+      },
+    );
 
     // Delete the old draft only after the new one is safely stored
     if (existingUid && existingFolder) {
       try {
-        await imapManager.permanentDeleteMessage(account, existingUid, existingFolder);
-        await query(
-          'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3',
-          [account.id, existingUid, existingFolder]
+        const old = await query(
+          `SELECT m.id, m.account_id, m.uid, m.folder, m.read_revision, m.star_revision,
+                  f.uid_validity AS folder_uid_validity,
+                  f.observation_generation AS folder_observation_generation
+             FROM messages m
+             JOIN folders f ON f.account_id = m.account_id AND f.path = m.folder
+               AND f.is_present = true AND f.uid_validity IS NOT NULL
+            WHERE m.account_id = $1 AND m.uid = $2 AND m.folder = $3
+              AND m.is_deleted = false AND m.metadata_complete = true
+            LIMIT 2`,
+          [account.id, existingUid, existingFolder],
         );
+        if (old.rows.length !== 1) throw new Error('Old draft coordinate is missing or ambiguous');
+        const row = old.rows[0];
+        await imapManager.removeMessageCopy(account.id, row.uid, row.folder, {
+          expectedId: row.id,
+          expectedUidValidity: row.folder_uid_validity,
+          snapshot: snapshotFromMessageRow(row),
+          operationKey: `draft-replace:${row.id}:${appendOperationKey}`,
+        });
       } catch (delErr) {
         console.error(`Draft: failed to delete old uid=${existingUid}: ${delErr.message}`);
       }
@@ -201,11 +256,26 @@ router.delete('/draft/:uid', async (req, res) => {
 
   try {
     const account = ownerCheck.rows[0];
-    await imapManager.permanentDeleteMessage(account, uid, folder);
-    await query(
-      'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3',
-      [account.id, uid, folder]
+    const exact = await query(
+      `SELECT m.id, m.account_id, m.uid, m.folder, m.read_revision, m.star_revision,
+              f.uid_validity AS folder_uid_validity,
+              f.observation_generation AS folder_observation_generation
+         FROM messages m
+         JOIN folders f ON f.account_id = m.account_id AND f.path = m.folder
+           AND f.is_present = true AND f.uid_validity IS NOT NULL
+        WHERE m.account_id = $1 AND m.uid = $2 AND m.folder = $3
+          AND m.is_deleted = false AND m.metadata_complete = true
+        LIMIT 2`,
+      [account.id, uid, folder],
     );
+    if (exact.rows.length !== 1) return res.status(404).json({ error: 'Draft not found' });
+    const row = exact.rows[0];
+    await imapManager.removeMessageCopy(account.id, row.uid, row.folder, {
+      expectedId: row.id,
+      expectedUidValidity: row.folder_uid_validity,
+      snapshot: snapshotFromMessageRow(row),
+      operationKey: `draft-delete:${row.id}`,
+    });
     res.json({ ok: true });
   } catch (err) {
     console.error('Delete draft failed:', err.message);

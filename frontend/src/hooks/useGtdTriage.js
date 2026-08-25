@@ -8,7 +8,7 @@ import {
 } from '../utils/gtd.js';
 import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
 import { resolveContextMenuMessage } from '../utils/contextMenuPolicy.js';
-import { doneGtdRow } from '../utils/gtdDone.js';
+import { doneGtdRow, gtdDoneRefreshPatch } from '../utils/gtdDone.js';
 
 // One pending delayed auto-read across ALL GTD surfaces (module scope, not per hook
 // instance): the sidebar and the tab browse list are mounted together in desktop row
@@ -56,7 +56,6 @@ export function useGtdTriage() {
   const setSelectedMessage = useStore(s => s.setSelectedMessage);
   const scheduleGtdSectionsFetch = useStore(s => s.scheduleGtdSectionsFetch);
   const removeGtdThread = useStore(s => s.removeGtdThread);
-  const restoreGtdThread = useStore(s => s.restoreGtdThread);
   const markGtdThreadRead = useStore(s => s.markGtdThreadRead);
   const markGtdThreadStarred = useStore(s => s.markGtdThreadStarred);
   const addNotification = useStore(s => s.addNotification);
@@ -80,15 +79,25 @@ export function useGtdTriage() {
 
   // The GTD "done" action: strip this row's label(s) (`states`), mark read, archive.
   // Optimistically drop and guard the row so stale refetches cannot resurrect it. On
-  // failure, restore its local snapshot and refetch for authoritative reconciliation.
+  // failure, drop the guard and refetch for authoritative reconciliation.
   const doneRow = (thread, states) => {
     cancelAutoMarkReadFor(thread);
     return doneGtdRow(thread, states, {
       gtdDone: api.gtdDone,
       removeGtdThread,
-      restoreGtdThread,
       addNotification,
-      scheduleGtdSectionsFetch,
+      refreshGtdSections: () => useStore.getState().fetchGtdSections(),
+      refreshMessages: ({ target }) => useStore.setState(
+        state => gtdDoneRefreshPatch(state, target),
+      ),
+      refreshUnreadCounts: async () => {
+        const counts = await api.getUnreadCounts();
+        useStore.getState().setUnreadCounts(counts);
+      },
+      refreshFolders: async (accountId) => {
+        const folders = await api.getFolders(accountId);
+        useStore.getState().setFolders(accountId, folders);
+      },
       t,
     });
   };

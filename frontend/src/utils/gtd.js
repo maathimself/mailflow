@@ -246,7 +246,7 @@ export function buildGtdDisplaySections(sections) {
 // both folders is a single Waiting row — so the Waiting badge is correct instantly instead
 // of only after the refetch. Returns the same sections reference when nothing changed, a
 // new object otherwise; never mutates the input.
-export function removeGtdThreadFromSections(sections, identity, states) {
+export function removeGtdThreadFromSections(sections, identity, states, accountId = null) {
   if (!sections || identity == null) return sections;
   const next = { ...sections };
   let changed = false;
@@ -257,7 +257,7 @@ export function removeGtdThreadFromSections(sections, identity, states) {
     if (!sec || !Array.isArray(sec.threads)) continue;
     let removed = 0, removedUnread = 0;
     const threads = sec.threads.filter(th => {
-      if ((th.message_id || th.id) !== identity) return true;
+      if ((th.message_id || th.id) !== identity || (accountId != null && th.account_id !== accountId)) return true;
       removed += 1;
       if (!th.is_read) removedUnread += 1;
       return false;
@@ -284,7 +284,7 @@ export function removeGtdThreadFromSections(sections, identity, states) {
   return changed ? next : sections;
 }
 
-export function snapshotGtdThreadRemoval(sections, identity, states) {
+export function snapshotGtdThreadRemoval(sections, identity, states, accountId = null) {
   if (!sections || identity == null) return null;
   const removedByState = {};
   for (const key of [...new Set(states || [])]) {
@@ -292,11 +292,14 @@ export function snapshotGtdThreadRemoval(sections, identity, states) {
     if (!sec || !Array.isArray(sec.threads)) continue;
     const rows = [];
     sec.threads.forEach((thread, index) => {
-      if ((thread.message_id || thread.id) === identity) rows.push({ index, thread });
+      if (
+        (thread.message_id || thread.id) === identity
+        && (accountId == null || thread.account_id === accountId)
+      ) rows.push({ index, thread });
     });
     if (rows.length) removedByState[key] = rows;
   }
-  return Object.keys(removedByState).length ? { identity, removedByState } : null;
+  return Object.keys(removedByState).length ? { identity, accountId, removedByState } : null;
 }
 
 export function restoreGtdThreadRemoval(sections, snapshot) {

@@ -8,8 +8,14 @@ import { gatherSnoozeConversation } from './mail.js';
 import { query } from '../services/db.js';
 
 // Column subset that the pool query selects.
-function row(id, message_id, { in_reply_to = null, thread_references = null, folder = 'INBOX', is_read = true } = {}) {
-  return { id, uid: id.charCodeAt(0), account_id: 'acct', folder, message_id, in_reply_to, thread_references, is_read };
+function row(id, message_id, {
+  in_reply_to = null, thread_references = null, folder = 'INBOX', is_read = true,
+  is_deleted = false, metadata_complete = true,
+} = {}) {
+  return {
+    id, uid: id.charCodeAt(0), account_id: 'acct', folder, message_id,
+    in_reply_to, thread_references, is_read, is_deleted, metadata_complete,
+  };
 }
 const ids = (rows) => rows.map(r => r.message_id).sort();
 

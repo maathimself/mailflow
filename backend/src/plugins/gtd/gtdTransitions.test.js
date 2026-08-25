@@ -29,7 +29,10 @@ function mockQuery({ owner = [{ addr: 'me@example.com' }], rows = [], sent = [] 
   query.mockImplementation((sql) => {
     if (sql.includes('message_id = ANY')) return Promise.resolve({ rows: sent });
     if (sql.includes('account_aliases')) return Promise.resolve({ rows: owner });
-    if (sql.includes('thread_key = ANY')) return Promise.resolve({ rows });
+    if (sql.includes('thread_key = ANY')) return Promise.resolve({ rows: rows.map(row => ({
+      folder_uid_validity: '101', folder_observation_generation: '7',
+      read_revision: 0, star_revision: 0, ...row,
+    })) });
     return Promise.resolve({ rows: [] });
   });
 }
@@ -102,7 +105,7 @@ describe('runGtdTransitions', () => {
     ] });
     const mgr = fakeManager();
     await runGtdTransitions(mgr, account, ['t1']);
-    expect(mgr.removeMessageCopy).toHaveBeenCalledWith('acct-1', 11, 'Todo');
+    expect(mgr.removeMessageCopy).toHaveBeenCalledWith('acct-1', 11, 'Todo', expect.objectContaining({ expectedId: 'r2' }));
     expect(mgr.removeMessageCopy).not.toHaveBeenCalledWith('acct-1', 12, 'Watch');
     expect(mgr.broadcast).toHaveBeenCalledWith({ type: 'gtd_sections_updated', accountId: 'acct-1' }, 'user-1');
   });
@@ -116,8 +119,8 @@ describe('runGtdTransitions', () => {
     ] });
     const mgr = fakeManager();
     await runGtdTransitions(mgr, account, ['t1']);
-    expect(mgr.removeMessageCopy).toHaveBeenCalledWith('acct-1', 22, 'Watch');
-    expect(mgr.removeMessageCopy).toHaveBeenCalledWith('acct-1', 23, 'Delegated');
+    expect(mgr.removeMessageCopy).toHaveBeenCalledWith('acct-1', 22, 'Watch', expect.objectContaining({ expectedId: 'r3' }));
+    expect(mgr.removeMessageCopy).toHaveBeenCalledWith('acct-1', 23, 'Delegated', expect.objectContaining({ expectedId: 'r4' }));
     expect(mgr.removeMessageCopy).not.toHaveBeenCalledWith('acct-1', 21, 'Todo');
   });
 
@@ -131,7 +134,7 @@ describe('runGtdTransitions', () => {
     });
     const mgr = fakeManager();
     await runGtdTransitions(mgr, account, ['t1']);
-    expect(mgr.removeMessageCopy).toHaveBeenCalledWith('acct-1', 31, 'Todo');
+    expect(mgr.removeMessageCopy).toHaveBeenCalledWith('acct-1', 31, 'Todo', expect.objectContaining({ expectedId: 'r2' }));
   });
 
   it('keeps Watch when the newest message is from a configured Fastmail masked alias', async () => {
@@ -157,7 +160,7 @@ describe('runGtdTransitions', () => {
     });
     const mgr = fakeManager();
     await runGtdTransitions(mgr, account, ['t1']);
-    expect(mgr.removeMessageCopy).toHaveBeenCalledWith('acct-1', 35, 'Watch');
+    expect(mgr.removeMessageCopy).toHaveBeenCalledWith('acct-1', 35, 'Watch', expect.objectContaining({ expectedId: 'r2' }));
   });
 
   it('never strips Reference, whoever sent last', async () => {
@@ -190,7 +193,7 @@ describe('runGtdTransitions', () => {
     ] });
     const mgr = fakeManager();
     await runGtdTransitions(mgr, account, ['t1']);
-    expect(mgr.removeMessageCopy).toHaveBeenCalledWith('acct-1', 51, 'Watch');
+    expect(mgr.removeMessageCopy).toHaveBeenCalledWith('acct-1', 51, 'Watch', expect.objectContaining({ expectedId: 'r2' }));
   });
 
   it('is fully inert when GTD is disabled — no rows query, no strips, no broadcast', async () => {
@@ -229,16 +232,16 @@ describe('runGtdTransitions', () => {
     expect(mgr.broadcast).toHaveBeenCalledTimes(1);
   });
 
-  it('tolerates a removeMessageCopy rejection (concurrent external strip) as success', async () => {
+  it('propagates a provider rejection instead of broadcasting a false successful strip', async () => {
     mockQuery({ rows: [
       { thread_key: 't1', uid: 70, folder: 'INBOX', from_email: 'me@example.com', date: '2026-07-09T10:00:00Z', id: 'r1' },
       { thread_key: 't1', uid: 71, folder: 'Todo',  from_email: 'me@example.com', date: '2026-07-09T10:00:00Z', id: 'r2' },
     ] });
     const mgr = fakeManager();
     mgr.removeMessageCopy.mockRejectedValue(new Error('NO [TRYCREATE] no such UID'));
-    await expect(runGtdTransitions(mgr, account, ['t1'])).resolves.toBeUndefined();
-    expect(mgr.removeMessageCopy).toHaveBeenCalledWith('acct-1', 71, 'Todo');
-    expect(mgr.broadcast).toHaveBeenCalledTimes(1);
+    await expect(runGtdTransitions(mgr, account, ['t1'])).rejects.toThrow('no such UID');
+    expect(mgr.removeMessageCopy).toHaveBeenCalledWith('acct-1', 71, 'Todo', expect.any(Object));
+    expect(mgr.broadcast).not.toHaveBeenCalled();
   });
 });
 
@@ -278,7 +281,7 @@ describe('runTransitionsForSentMessage', () => {
 
     const midCall = query.mock.calls.find(([sql]) => sql.includes('message_id = ANY'));
     expect(midCall[1]).toEqual(['acct-1', ['abc@example.com', '<abc@example.com>']]);
-    expect(mgr.removeMessageCopy).toHaveBeenCalledWith('acct-1', 81, 'Todo');
+    expect(mgr.removeMessageCopy).toHaveBeenCalledWith('acct-1', 81, 'Todo', expect.objectContaining({ expectedId: 'r2' }));
     expect(mgr.broadcast).toHaveBeenCalledWith({ type: 'gtd_sections_updated', accountId: 'acct-1' }, 'user-1');
   });
 

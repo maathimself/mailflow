@@ -27,6 +27,7 @@ const account = { id: 'acc-1', user_id: 'user-1', folder_mappings: {} };
 
 const mkMsg = (overrides = {}) => ({
   id: 'msg-1', uid: 100, folder: 'INBOX', account_id: 'acc-1',
+  folder_uid_validity: '100', folder_observation_generation: '7',
   fromEmail: 'sender@example.com', fromName: 'Sender',
   to: [], subject: 'Test', is_read: false, hasAttachments: false,
   parsedHeaders: {},
@@ -43,13 +44,21 @@ const mkRule = (actions, overrides = {}) => ({
 
 const mockImap = {
   bulkMoveMessages: vi.fn(),
+  setDesiredFlag: vi.fn(),
   setFlag: vi.fn(),
   _guardMoveUid: vi.fn(),
   _unguardMoveUid: vi.fn(),
+  withFolderObservationContext: vi.fn((_accountId, _context, callback) => callback({ query })),
 };
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.resetAllMocks();
+  mockImap.withFolderObservationContext.mockImplementation(
+    (_accountId, _context, callback) => callback({ query })
+  );
+  mockImap.setDesiredFlag.mockResolvedValue({
+    changed: true, delivery: { state: 'confirmed' },
+  });
 });
 
 describe('applyInboxRules — forwarding', () => {
@@ -107,12 +116,8 @@ describe('applyInboxRules — forwarding', () => {
 
       expect(mockImap.bulkMoveMessages).not.toHaveBeenCalled();
       expect(result.remaining).toHaveLength(1);
-      expect(mockImap.setFlag).toHaveBeenCalledWith(
-        account,
-        100,
-        'INBOX',
-        '\\Seen',
-        true
+      expect(mockImap.setDesiredFlag).toHaveBeenCalledWith(
+        account, 'msg-1', '\\Seen', true, expect.objectContaining({ snapshot: expect.any(Object) })
       );
       expect(consoleError).toHaveBeenCalledWith(
         'inboxRules: forward action failed; destination actions suppressed'
@@ -449,12 +454,10 @@ describe('applyInboxRules — archive to Gmail All Mail', () => {
     const result = await applyInboxRules([mkMsg({ is_read: false })], account, mockImap);
 
     expect(result.remaining).toHaveLength(0); // message removed from inbox
-    const deleteCall = query.mock.calls[1];
-    expect(deleteCall[0]).toMatch(/DELETE FROM messages/);
-    expect(deleteCall[1]).toEqual(['msg-1']);
-    // Source folder count decrements; All Mail destination count is never touched.
-    expect(adjustFolderCounts).toHaveBeenCalledWith('acc-1', 'INBOX', -1, -1);
-    expect(adjustFolderCounts).toHaveBeenCalledTimes(1);
+    expect(mockImap.bulkMoveMessages.mock.calls[0][4]).toEqual(expect.objectContaining({
+      materialize: expect.any(Function), sourceSnapshots: expect.any(Map),
+    }));
+    expect(adjustFolderCounts).not.toHaveBeenCalled();
   });
 });
 
@@ -472,9 +475,9 @@ describe('applyInboxRules — UID update after move', () => {
     const result = await applyInboxRules([mkMsg()], account, mockImap);
 
     expect(result.remaining).toHaveLength(0); // message removed from inbox
-    const updateCall = query.mock.calls[1];
-    expect(updateCall[0]).toMatch(/uid/i); // SQL includes uid update
-    expect(updateCall[1]).toEqual(['INBOX/Work', 789, 'msg-1']);
+    expect(mockImap.bulkMoveMessages.mock.calls[0][4]).toEqual(expect.objectContaining({
+      materialize: expect.any(Function), sourceSnapshots: expect.any(Map),
+    }));
   });
 
   it('updates only folder when uidMap is empty (no UIDPLUS)', async () => {
@@ -490,8 +493,9 @@ describe('applyInboxRules — UID update after move', () => {
     const result = await applyInboxRules([mkMsg()], account, mockImap);
 
     expect(result.remaining).toHaveLength(0);
-    const updateCall = query.mock.calls[1];
-    expect(updateCall[1]).toEqual(['INBOX/Work', 'msg-1']); // only folder, no uid
+    expect(mockImap.bulkMoveMessages.mock.calls[0][4]).toEqual(expect.objectContaining({
+      materialize: expect.any(Function), sourceSnapshots: expect.any(Map),
+    }));
   });
 });
 
@@ -512,7 +516,10 @@ describe('applyInboxRules — destination action deduplication', () => {
     await applyInboxRules([mkMsg()], account, mockImap);
 
     expect(mockImap.bulkMoveMessages).toHaveBeenCalledOnce();
-    expect(mockImap.bulkMoveMessages).toHaveBeenCalledWith(account, [100], 'INBOX', 'INBOX/Work');
+    expect(mockImap.bulkMoveMessages).toHaveBeenCalledWith(
+      account, [100], 'INBOX', 'INBOX/Work',
+      expect.objectContaining({ operationKey: 'rule-move:msg-1:INBOX:INBOX/Work' }),
+    );
   });
 
   it('executes only the first destination action when a legacy rule has move + delete', async () => {
@@ -528,7 +535,10 @@ describe('applyInboxRules — destination action deduplication', () => {
     await applyInboxRules([mkMsg()], account, mockImap);
 
     expect(mockImap.bulkMoveMessages).toHaveBeenCalledOnce();
-    expect(mockImap.bulkMoveMessages).toHaveBeenCalledWith(account, [100], 'INBOX', 'INBOX/Archive');
+    expect(mockImap.bulkMoveMessages).toHaveBeenCalledWith(
+      account, [100], 'INBOX', 'INBOX/Archive',
+      expect.objectContaining({ operationKey: 'rule-move:msg-1:INBOX:INBOX/Archive' }),
+    );
   });
 
   it('skips subsequent destination actions even when the first one fails', async () => {
@@ -563,7 +573,9 @@ describe('applyInboxRules — destination action deduplication', () => {
     await applyInboxRules([mkMsg()], account, mockImap);
 
     expect(mockImap.bulkMoveMessages).toHaveBeenCalledOnce();
-    expect(mockImap.setFlag).toHaveBeenCalledWith(account, 100, 'INBOX', '\\Seen', true);
+    expect(mockImap.setDesiredFlag).toHaveBeenCalledWith(
+      account, 'msg-1', '\\Seen', true, expect.objectContaining({ snapshot: expect.any(Object) })
+    );
   });
 });
 
@@ -587,7 +599,10 @@ describe('applyInboxRules — already-relocated message skips subsequent rules',
     // message removed from remaining; second move never fired
     expect(result.remaining).toHaveLength(0);
     expect(mockImap.bulkMoveMessages).toHaveBeenCalledOnce();
-    expect(mockImap.bulkMoveMessages).toHaveBeenCalledWith(account, [100], 'INBOX', 'INBOX/Work');
+    expect(mockImap.bulkMoveMessages).toHaveBeenCalledWith(
+      account, [100], 'INBOX', 'INBOX/Work',
+      expect.objectContaining({ operationKey: 'rule-move:msg-1:INBOX:INBOX/Work' }),
+    );
   });
 
   it('applies a subsequent mark_read rule even after an earlier rule moved the message', async () => {
@@ -612,10 +627,12 @@ describe('applyInboxRules — already-relocated message skips subsequent rules',
     const result = await applyInboxRules([mkMsg()], account, mockImap);
 
     expect(result.remaining).toHaveLength(0); // message still moved
-    // mark_read DB update fired: third query call (after rules fetch + move update)
-    expect(query).toHaveBeenCalledTimes(3);
-    // setFlag targeted the NEW uid (200) in the destination folder (INBOX/Work)
-    expect(mockImap.setFlag).toHaveBeenCalledWith(account, 200, 'INBOX/Work', '\\Seen', true);
+    // Durable desired-flag acceptance owns the local row mutation and provider
+    // delivery; inbox rules only persists the preceding move coordinates.
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(mockImap.setDesiredFlag).toHaveBeenCalledWith(
+      account, 'msg-1', '\\Seen', true, expect.objectContaining({ snapshot: expect.any(Object) })
+    );
   });
 
   it('does not double-decrement unread count when mark_read fires before move (reversed priority)', async () => {
@@ -639,16 +656,190 @@ describe('applyInboxRules — already-relocated message skips subsequent rules',
 
     await applyInboxRules([mkMsg({ is_read: false })], account, mockImap);
 
-    // mark_read should adjust INBOX unread (-1); move should NOT adjust unread again
-    // because wasUnread is false after mark_read updated msg.is_read in-memory.
-    expect(adjustFolderCounts).toHaveBeenCalledWith('acc-1', 'INBOX', 0, -1);  // mark_read
-    expect(adjustFolderCounts).toHaveBeenCalledWith('acc-1', 'INBOX', -1, 0);  // move source (no unread delta)
-    expect(adjustFolderCounts).toHaveBeenCalledWith('acc-1', 'INBOX/Work', 1, 0); // move dest (no unread delta)
-    expect(adjustFolderCounts).toHaveBeenCalledTimes(3);
+    // Desired-flag acceptance owns the read count. The subsequent move sees
+    // the updated in-memory state and only transfers total counts.
+    expect(adjustFolderCounts).not.toHaveBeenCalled();
   });
 });
 
 describe('applyInboxRules — mutedIds for mark_read', () => {
+  it('stops later move/count work and preserves in-memory state when read acceptance fails', async () => {
+    const rule = mkRule([
+      { type: 'mark_read', value: '' },
+      { type: 'move', value: 'INBOX/Work' },
+    ]);
+    const message = mkMsg({ is_read: false, isRead: false });
+    const imap = {
+      ...mockImap,
+      setDesiredFlag: vi.fn().mockRejectedValue(new Error('accept failed')),
+    };
+    query.mockResolvedValueOnce({ rows: [rule] });
+
+    const result = await applyInboxRules([message], account, imap);
+
+    expect(imap.setDesiredFlag).toHaveBeenCalledWith(
+      account, 'msg-1', '\\Seen', true,
+      expect.objectContaining({ snapshot: expect.any(Object) }),
+    );
+    expect(imap.bulkMoveMessages).not.toHaveBeenCalled();
+    expect(adjustFolderCounts).not.toHaveBeenCalled();
+    expect(message).toMatchObject({ uid: 100, folder: 'INBOX', is_read: false, isRead: false });
+    expect(result.remaining).toEqual([message]);
+    expect(result.mutedIds.has(message.id)).toBe(false);
+  });
+
+  it('keeps accepted local read state muted while stopping later work on non-confirmed delivery', async () => {
+    const rules = [
+      mkRule([{ type: 'mark_read', value: '' }], { id: 'read-rule' }),
+      mkRule([{ type: 'archive', value: '' }, { type: 'delete', value: '' }], { id: 'move-rule' }),
+    ];
+    const message = mkMsg({ is_read: false, isRead: false });
+    const imap = {
+      ...mockImap,
+      setDesiredFlag: vi.fn().mockResolvedValue({
+        changed: true,
+        acceptance: {
+          changed: true,
+          delivery: { state: 'pending', desiredValue: true, flag: 'read' },
+        },
+        delivery: { state: 'uncertain' },
+      }),
+    };
+    query.mockResolvedValueOnce({ rows: rules });
+
+    const result = await applyInboxRules([message], account, imap);
+
+    expect(resolveArchiveFolder).not.toHaveBeenCalled();
+    expect(imap.bulkMoveMessages).not.toHaveBeenCalled();
+    expect(adjustFolderCounts).not.toHaveBeenCalled();
+    expect(message).toMatchObject({ uid: 100, folder: 'INBOX', is_read: true, isRead: true });
+    expect(result.remaining).toEqual([message]);
+    expect(result.mutedIds.has(message.id)).toBe(true);
+  });
+
+  it('uses structured committed acceptance on delivery rejection to mute and suppress broadcast', async () => {
+    const rule = mkRule([
+      { type: 'mark_read', value: '' },
+      { type: 'move', value: 'INBOX/Work' },
+    ]);
+    const message = mkMsg({ is_read: false, isRead: false });
+    const deliveryError = Object.assign(new Error('provider delivery failed'), {
+      desiredFlagAcceptance: {
+        changed: true,
+        delivery: { state: 'pending', desiredValue: true, flag: 'read' },
+      },
+    });
+    const imap = {
+      ...mockImap,
+      setDesiredFlag: vi.fn().mockRejectedValue(deliveryError),
+    };
+    query.mockResolvedValueOnce({ rows: [rule] });
+
+    const result = await applyInboxRules([message], account, imap);
+
+    expect(imap.bulkMoveMessages).not.toHaveBeenCalled();
+    expect(adjustFolderCounts).not.toHaveBeenCalled();
+    expect(message).toMatchObject({ uid: 100, folder: 'INBOX', is_read: true, isRead: true });
+    expect(result.remaining).toEqual([message]);
+    expect(result.mutedIds.has(message.id)).toBe(true);
+    expect(result.remaining.filter(item => !result.mutedIds.has(item.id))).toEqual([]);
+  });
+
+  it('retains accepted read muting when a later accepted star delivery fails', async () => {
+    const rule = mkRule([
+      { type: 'mark_read', value: '' },
+      { type: 'star', value: '' },
+      { type: 'move', value: 'INBOX/Work' },
+    ]);
+    const message = mkMsg({ is_read: false, isRead: false, is_starred: false, isStarred: false });
+    const starError = Object.assign(new Error('star provider delivery failed'), {
+      desiredFlagAcceptance: {
+        changed: true,
+        delivery: { state: 'pending', desiredValue: true, flag: 'star' },
+      },
+    });
+    const imap = {
+      ...mockImap,
+      setDesiredFlag: vi.fn()
+        .mockResolvedValueOnce({
+          changed: true,
+          acceptance: {
+            changed: true,
+            delivery: { state: 'pending', desiredValue: true, flag: 'read' },
+          },
+          delivery: { state: 'confirmed' },
+        })
+        .mockRejectedValueOnce(starError),
+    };
+    query.mockResolvedValueOnce({ rows: [rule] });
+
+    const result = await applyInboxRules([message], account, imap);
+
+    expect(imap.setDesiredFlag).toHaveBeenCalledTimes(2);
+    expect(imap.bulkMoveMessages).not.toHaveBeenCalled();
+    expect(adjustFolderCounts).not.toHaveBeenCalled();
+    expect(message).toMatchObject({
+      uid: 100, folder: 'INBOX', is_read: true, isRead: true,
+      is_starred: true, isStarred: true,
+    });
+    expect(result.mutedIds.has(message.id)).toBe(true);
+  });
+
+  it('records rule read intent against the exact observed row and folder epoch', async () => {
+    const rule = mkRule([{ type: 'mark_read', value: '' }]);
+    const observationContext = {
+      accountId: account.id,
+      tokens: [{ folder: 'INBOX', uidValidity: '100', generation: '7' }],
+    };
+    const imap = {
+      ...mockImap,
+      setDesiredFlag: vi.fn().mockResolvedValue({ changed: true }),
+    };
+    query.mockResolvedValueOnce({ rows: [rule] });
+
+    await applyInboxRules([mkMsg({ read_revision: 4, star_revision: 2 })], account, imap, observationContext);
+
+    expect(imap.setDesiredFlag).toHaveBeenCalledWith(
+      account, 'msg-1', '\\Seen', true,
+      { snapshot: {
+        id: 'msg-1', accountId: 'acc-1', uid: 100, folder: 'INBOX',
+        uidValidity: '100', folderGeneration: '7', readRevision: 4, starRevision: 2,
+      } },
+    );
+    expect(mockImap.setFlag).not.toHaveBeenCalled();
+  });
+
+  it('awaits the provider flag mutation and carries the sync observation context', async () => {
+    const rule = mkRule([{ type: 'mark_read', value: '' }]);
+    const observationContext = {
+      accountId: account.id,
+      tokens: [{ folder: 'INBOX', uidValidity: '100', generation: '7' }],
+    };
+    let releaseFlag;
+    const flagPending = new Promise(resolve => { releaseFlag = resolve; });
+    query
+      .mockResolvedValueOnce({ rows: [rule] })
+      .mockResolvedValueOnce({ rows: [] });
+    mockImap.setDesiredFlag.mockReturnValue(flagPending);
+
+    let settled = false;
+    const applying = applyInboxRules([mkMsg()], account, mockImap, observationContext)
+      .then(result => { settled = true; return result; });
+    await vi.waitFor(() => expect(mockImap.setDesiredFlag).toHaveBeenCalledOnce());
+    await Promise.resolve();
+
+    expect(settled).toBe(false);
+    expect(mockImap.setDesiredFlag).toHaveBeenCalledWith(
+      account, 'msg-1', '\\Seen', true, { snapshot: {
+        id: 'msg-1', accountId: 'acc-1', uid: 100, folder: 'INBOX',
+        uidValidity: '100', folderGeneration: '7', readRevision: 0, starRevision: 0,
+      } }
+    );
+
+    releaseFlag({ changed: true, delivery: { state: 'confirmed' } });
+    await applying;
+  });
+
   it('adds message id to mutedIds when mark_read rule applies', async () => {
     const rule = mkRule([{ type: 'mark_read', value: '' }]);
     query
@@ -686,6 +877,30 @@ describe('applyInboxRules — mutedIds for mark_read', () => {
 });
 
 describe('applyInboxRules — adjustFolderCounts on action', () => {
+  it('passes the same sync observation context into a destination move', async () => {
+    const rule = mkRule([{ type: 'move', value: 'INBOX/Work' }]);
+    const observationContext = {
+      accountId: account.id,
+      tokens: [{ folder: 'INBOX', uidValidity: '100', generation: '7' }],
+    };
+    query
+      .mockResolvedValueOnce({ rows: [rule] })
+      .mockResolvedValueOnce({ rows: [] });
+    mockImap.bulkMoveMessages.mockResolvedValue({
+      failed: [],
+      uidMap: new Map([[100, 200]]),
+    });
+
+    await applyInboxRules([mkMsg()], account, mockImap, observationContext);
+
+    expect(mockImap.bulkMoveMessages).toHaveBeenCalledWith(
+      account, [100], 'INBOX', 'INBOX/Work', expect.objectContaining({
+        observationContext,
+        operationKey: 'rule-move:msg-1:INBOX:INBOX/Work',
+      })
+    );
+  });
+
   it('calls adjustFolderCounts for source and destination after a successful move', async () => {
     const rule = mkRule([{ type: 'move', value: 'INBOX/Work' }]);
     query
@@ -696,8 +911,7 @@ describe('applyInboxRules — adjustFolderCounts on action', () => {
     await applyInboxRules([mkMsg({ is_read: false })], account, mockImap);
 
     // unread message moved: source loses 1 total and 1 unread; dest gains 1 of each
-    expect(adjustFolderCounts).toHaveBeenCalledWith('acc-1', 'INBOX', -1, -1);
-    expect(adjustFolderCounts).toHaveBeenCalledWith('acc-1', 'INBOX/Work', 1, 1);
+    expect(adjustFolderCounts).not.toHaveBeenCalled();
   });
 
   it('calls adjustFolderCounts with zero unread delta when message is already read', async () => {
@@ -709,8 +923,7 @@ describe('applyInboxRules — adjustFolderCounts on action', () => {
 
     await applyInboxRules([mkMsg({ is_read: true })], account, mockImap);
 
-    expect(adjustFolderCounts).toHaveBeenCalledWith('acc-1', 'INBOX', -1, 0);
-    expect(adjustFolderCounts).toHaveBeenCalledWith('acc-1', 'INBOX/Work', 1, 0);
+    expect(adjustFolderCounts).not.toHaveBeenCalled();
   });
 
   it('calls adjustFolderCounts with unread delta only for mark_read on an unread message', async () => {
@@ -722,8 +935,7 @@ describe('applyInboxRules — adjustFolderCounts on action', () => {
 
     await applyInboxRules([mkMsg({ is_read: false })], account, mockImap);
 
-    expect(adjustFolderCounts).toHaveBeenCalledWith('acc-1', 'INBOX', 0, -1);
-    expect(adjustFolderCounts).toHaveBeenCalledTimes(1);
+    expect(adjustFolderCounts).not.toHaveBeenCalled();
   });
 
   it('does not call adjustFolderCounts for mark_read when message is already read', async () => {

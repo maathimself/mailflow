@@ -31,16 +31,30 @@ export { notifyOnLabelTouch } from '../services/labelsRead.js';
 // Apply/remove a label (a message copy in a label folder) and mark a thread read. The mail
 // engine is bound in by the platform (getMailEngine) so a plugin performs these mail actions
 // without ever holding the engine itself. resolveLabelCopyUid is pure (no engine).
-export const applyLabel = (account, message, labelFolder) => labelsWrite.applyLabel(getMailEngine(), account, message, labelFolder);
+export const applyLabel = (account, message, labelFolder, options) => labelsWrite.applyLabel(
+  getMailEngine(), account, message, labelFolder, options,
+);
 export const removeLabel = (message, labelFolder) => labelsWrite.removeLabel(getMailEngine(), message, labelFolder);
 export const removeExactLabelCopy = (message, labelFolder, uid) => labelsWrite.removeExactLabelCopy(getMailEngine(), message, labelFolder, uid);
+export const removeLabelRow = (message, options) => labelsWrite.removeLabelRow(getMailEngine(), message, options);
 export const markThreadRead = (account, message) => labelsWrite.markThreadRead(getMailEngine(), account, message);
+export const markThreadRowsRead = (account, rows) => labelsWrite.markThreadRowsRead(getMailEngine(), account, rows);
 export const ensureLabelFolders = (account, folderPaths) => labelsWrite.ensureLabelFolders(getMailEngine(), account, folderPaths);
 export const resolveLabelCopyUid = labelsWrite.resolveLabelCopyUid;
 
 // ── Archive ───────────────────────────────────────────────────────────────────
 // Archive a message's INBOX copy (used by GTD "done"). Engine bound by the platform.
-export const archiveInboxCopy = (account, inboxCopy) => _archiveInboxCopy(getMailEngine(), account, inboxCopy);
+export const archiveInboxCopy = (account, inboxCopy, options) => _archiveInboxCopy(
+  getMailEngine(), account, inboxCopy, options,
+);
+
+export {
+  createOrLoadGtdDoneOperation,
+  claimGtdDoneOperation,
+  renewGtdDoneOperation,
+  advanceGtdDoneOperation,
+  releaseGtdDoneOperation,
+} from '../services/gtdDoneOperations.js';
 
 // ── Realtime broadcast ────────────────────────────────────────────────────────
 // Push a payload to a specific user's live sessions. A plugin can notify its own clients; it
@@ -91,9 +105,12 @@ export {
   getThreadKeysInFolders,
   getThreadKeysForMessageIdHeaders,
   getMessagesByThreadKeys,
+  listLiveThreadRows,
   getThreadKeyForUid,
   getMessageCopyFolders,
   getMessageFields,
+  validateMessageFieldsSnapshot,
   getMessageAnnotations,
   setMessageAnnotation,
+  setMessageAnnotationForSnapshot,
 } from '../services/mailAccess.js';

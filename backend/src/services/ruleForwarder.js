@@ -2,6 +2,11 @@ import { embedInlineDataImages } from '../utils/inlineImages.js';
 import { query } from './db.js';
 import { sanitizeEmail } from './emailSanitizer.js';
 import { createAccountSmtpTransport } from './smtpTransport.js';
+import { loadPreparedSmtp, renderPreparedSmtp } from './preparedSmtp.js';
+import {
+  revalidateLiveMessageSnapshots,
+  snapshotFromMessageRow,
+} from './messageSnapshots.js';
 
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
@@ -91,6 +96,11 @@ function parseAttachments(value) {
   }
 }
 
+function parseStoredJson(value) {
+  if (typeof value !== 'string') return value;
+  return JSON.parse(value);
+}
+
 function forwardedHeaders(row) {
   const from = formatAddress({
     name: row.from_name,
@@ -148,6 +158,7 @@ function ensureAttachmentLimit(attachments) {
 }
 
 async function loadForwardContent({ row, account, imapManager }) {
+  const snapshot = snapshotFromMessageRow(row);
   let text = row.body_text;
   let html = row.body_html;
   let fetchedParts = [];
@@ -155,7 +166,8 @@ async function loadForwardContent({ row, account, imapManager }) {
     const fetched = await imapManager.fetchMessageBody(
       account,
       row.uid,
-      row.folder
+      row.folder,
+      { snapshot },
     );
     text = fetched.text;
     html = fetched.html;
@@ -198,7 +210,8 @@ async function loadForwardContent({ row, account, imapManager }) {
       account,
       row.uid,
       row.folder,
-      storedParts
+      storedParts,
+      { snapshot },
     );
     fetchedAttachments = storedParts.map(attachment => {
       const content = buffers.get(attachment.part);
@@ -236,70 +249,165 @@ export async function forwardRuleMessage({
   recipient,
 }) {
   const reserved = await query(
-    `INSERT INTO inbox_rule_forwards (rule_id, message_id)
-     VALUES ($1, $2)
+    `INSERT INTO inbox_rule_forwards (rule_id, message_id, recipient)
+     VALUES ($1, $2, $3)
      ON CONFLICT (rule_id, message_id) DO NOTHING
-     RETURNING id`,
-    [ruleId, message.id]
+     RETURNING id, status, recipient, payload_digest, smtp_message, smtp_envelope,
+               source_snapshot`,
+    [ruleId, message.id, recipient]
   );
-  if (!reserved.rows.length) {
+  let reservation = reserved.rows[0] ? {
+    status: 'ready', recipient, ...reserved.rows[0],
+  } : null;
+  if (!reservation) {
     const existing = await query(
-      `SELECT status
+      `SELECT status, id, recipient, payload_digest, smtp_message, smtp_envelope,
+              source_snapshot
        FROM inbox_rule_forwards
        WHERE rule_id = $1 AND message_id = $2`,
       [ruleId, message.id]
     );
     if (existing.rows[0]?.status === 'sent') return 'duplicate';
-    throw new Error('Forward delivery pending');
+    if (['pending', 'provider_started', 'uncertain'].includes(existing.rows[0]?.status)) {
+      throw new Error('Forward delivery outcome is uncertain');
+    }
+    if (existing.rows[0]?.status !== 'ready' || !existing.rows[0]?.id) {
+      throw new Error('Forward delivery pending');
+    }
+    reservation = existing.rows[0];
+  }
+  const reservationId = reservation.id;
+  if (reservation.recipient && reservation.recipient !== recipient) {
+    throw new Error('Forward operation payload collision');
   }
 
-  const reservationId = reserved.rows[0].id;
-  let delivered = false;
+  let deliveryStarted = false;
+  let deliveryCompleted = false;
+  let preparedDurably = Boolean(reservation.smtp_message);
   try {
-    const rowResult = await query(
-      `SELECT id, account_id, uid, folder, subject, from_name, from_email,
-              to_addresses, cc_addresses, date, body_text, body_html, attachments
-       FROM messages
-       WHERE id = $1 AND account_id = $2`,
-      [message.id, account.id]
-    );
-    if (!rowResult.rows.length) {
-      throw new Error('Forward source message not found');
+    if (!preparedDurably) {
+      const rowResult = await query(
+        `SELECT m.id, m.account_id, m.uid, m.folder, m.subject, m.from_name, m.from_email,
+                m.to_addresses, m.cc_addresses, m.date, m.body_text, m.body_html, m.attachments,
+                m.read_revision, m.star_revision,
+                live_folder.uid_validity AS folder_uid_validity,
+                live_folder.observation_generation AS folder_observation_generation
+         FROM messages m
+         JOIN folders live_folder ON live_folder.account_id = m.account_id
+           AND live_folder.path = m.folder AND live_folder.is_present = true
+           AND live_folder.uid_validity IS NOT NULL
+         WHERE m.id = $1 AND m.account_id = $2
+           AND m.is_deleted = false AND m.metadata_complete = true`,
+        [message.id, account.id]
+      );
+      if (!rowResult.rows.length) {
+        throw new Error('Forward source message not found');
+      }
+      const row = rowResult.rows[0];
+      const sourceSnapshot = snapshotFromMessageRow(row);
+      const content = await loadForwardContent({ row, account, imapManager });
+      await revalidateLiveMessageSnapshots(account.id, [sourceSnapshot]);
+      const prepared = await renderPreparedSmtp(
+        buildForwardMessage({ row, account, recipient, ...content }),
+        { from: account.email_address, to: [recipient] },
+      );
+      const stored = await query(
+        `UPDATE inbox_rule_forwards
+            SET recipient = $2, payload_digest = $3, smtp_message = $4,
+                smtp_envelope = $5::jsonb, source_snapshot = $6::jsonb,
+                prepared_at = NOW()
+          WHERE id = $1 AND status = 'ready' AND smtp_message IS NULL
+            AND (recipient IS NULL OR recipient = $2)
+          RETURNING id, status, recipient, payload_digest, smtp_message, smtp_envelope,
+                    source_snapshot`,
+        [
+          reservationId, recipient, prepared.digest, prepared.message,
+          JSON.stringify(prepared.envelope), JSON.stringify(sourceSnapshot),
+        ],
+      );
+      if (stored?.rowCount === 0) {
+        const replay = await query(
+          `SELECT status, id, recipient, payload_digest, smtp_message, smtp_envelope,
+                  source_snapshot
+             FROM inbox_rule_forwards
+            WHERE id = $1`,
+          [reservationId],
+        );
+        reservation = replay.rows[0];
+      } else {
+        reservation = stored?.rows?.[0]?.smtp_message ? stored.rows[0] : {
+          ...reservation, recipient, payload_digest: prepared.digest,
+          smtp_message: prepared.message, smtp_envelope: prepared.envelope,
+          source_snapshot: sourceSnapshot,
+        };
+      }
+      preparedDurably = Boolean(reservation?.smtp_message);
     }
-    const row = rowResult.rows[0];
 
-    const content = await loadForwardContent({ row, account, imapManager });
-    const mailOptions = buildForwardMessage({
-      row,
-      account,
-      recipient,
-      ...content,
+    if (!preparedDurably || reservation.recipient !== recipient) {
+      throw new Error('Forward operation payload collision');
+    }
+    const sourceSnapshot = parseStoredJson(reservation.source_snapshot);
+    if (!sourceSnapshot?.id || sourceSnapshot.accountId !== account.id) {
+      throw new Error('Durable forward source snapshot is unavailable');
+    }
+    const preparedMail = loadPreparedSmtp({
+      message: reservation.smtp_message,
+      envelope: reservation.smtp_envelope,
+      digest: reservation.payload_digest,
     });
 
     const smtp = await createAccountSmtpTransport(account);
     if (smtp.error) throw new Error(smtp.error);
     if (!smtp.transport) throw new Error('SMTP transport is unavailable');
 
+    await revalidateLiveMessageSnapshots(account.id, [sourceSnapshot]);
+
     try {
-      await smtp.transport.sendMail(mailOptions);
+      const started = await query(
+        `UPDATE inbox_rule_forwards
+            SET status = 'provider_started'
+          WHERE id = $1 AND status = 'ready' AND payload_digest = $2
+          RETURNING id`,
+        [reservationId, reservation.payload_digest],
+      );
+      if (started?.rowCount === 0) throw new Error('Forward delivery could not claim provider start');
+      deliveryStarted = true;
+      await smtp.transport.sendMail(preparedMail);
     } catch {
       throw new Error('Forward delivery failed');
     }
-    delivered = true;
-    await query(
+    const completed = await query(
       `UPDATE inbox_rule_forwards
-       SET status = 'sent', sent_at = NOW()
-       WHERE id = $1`,
-      [reservationId]
+       SET status = 'sent', recipient = NULL, smtp_message = NULL,
+           smtp_envelope = NULL, source_snapshot = NULL, sent_at = NOW()
+       WHERE id = $1 AND status = 'provider_started' AND payload_digest = $2
+       RETURNING id`,
+      [reservationId, reservation.payload_digest]
     );
+    if (completed?.rowCount === 0) throw new Error('Forward delivery completion was not persisted');
+    deliveryCompleted = true;
+    await revalidateLiveMessageSnapshots(account.id, [sourceSnapshot]);
     return 'sent';
   } catch (err) {
-    if (!delivered) {
-      await query(
-        `DELETE FROM inbox_rule_forwards
-         WHERE id = $1 AND status = 'pending'`,
-        [reservationId]
-      ).catch(() => {});
+    if (!deliveryStarted) {
+      if (!preparedDurably) {
+        try {
+          await query(
+            `DELETE FROM inbox_rule_forwards
+             WHERE id = $1 AND status = 'ready' AND smtp_message IS NULL`,
+            [reservationId]
+          );
+        } catch { /* retain the failed reservation */ }
+      }
+    } else if (!deliveryCompleted) {
+      try {
+        await query(
+          `UPDATE inbox_rule_forwards SET status = 'uncertain'
+            WHERE id = $1 AND status = 'provider_started'`,
+          [reservationId],
+        );
+      } catch { /* provider_started remains a durable conservative block */ }
     }
     throw err;
   }

@@ -83,20 +83,31 @@ describe('queueGistGeneration — provider gating', () => {
 });
 
 describe('queueGistGeneration — write path', () => {
-  const isBodySelect = (sql) => /FROM messages/i.test(sql) && /SELECT id, subject/i.test(sql);
+  const isBodySelect = (sql) => /SELECT m\.id, m\.uid, m\.folder/i.test(sql);
+  const isSnapshotValidation = (sql) => /SELECT 1[\s\S]*FROM messages m/i.test(sql);
   // The gist is now stored as a plugin annotation on the message (jsonb_set into plugin_annotations).
-  const isGistUpdate = (sql) => /UPDATE messages\s+SET plugin_annotations/i.test(sql);
+  const isGistUpdate = (sql) => /UPDATE messages(?:\s+m)?\s+SET plugin_annotations/i.test(sql);
 
   // Route query() by SQL rather than by call order: GIST_CONCURRENCY runs UPDATEs from
   // the pool concurrently, so their relative ordering isn't deterministic. The body
   // SELECT echoes one row per requested id so the pool has real work to do.
-  function mockDb({ updateRowCount = 1 } = {}) {
+  function mockDb({ updateRowCount = 1, snapshotMatches = null } = {}) {
+    const pendingSnapshotMatches = snapshotMatches ? [...snapshotMatches] : null;
     query.mockImplementation((sql, params) => {
       if (isBodySelect(sql)) {
         const ids = params[0];
         return Promise.resolve({
-          rows: ids.map((id) => ({ id, subject: `S ${id}`, from_name: 'Alice', from_email: 'a@x', content: `body ${id}` })),
+          rows: ids.map((id) => ({
+            id, uid: '11', folder: 'Watch', subject: `S ${id}`,
+            from_name: 'Alice', from_email: 'a@x', content: `body ${id}`,
+            read_revision: '2', star_revision: '3',
+            folder_uid_validity: '44', folder_observation_generation: '5',
+          })),
         });
+      }
+      if (isSnapshotValidation(sql)) {
+        const matches = pendingSnapshotMatches ? pendingSnapshotMatches.shift() : true;
+        return Promise.resolve({ rows: matches ? [{ matches: 1 }] : [] });
       }
       if (isGistUpdate(sql)) return Promise.resolve({ rowCount: updateRowCount });
       return Promise.resolve({ rows: [] });
@@ -134,14 +145,51 @@ describe('queueGistGeneration — write path', () => {
     const selectCall = query.mock.calls.find((c) => isBodySelect(c[0]));
     // The body read (getMessageFields) is scoped to the account, not just the id list.
     expect(selectCall[0]).toMatch(/account_id = \$2/);
+    expect(selectCall[0]).toMatch(/JOIN folders f/);
+    expect(selectCall[0]).toMatch(/m\.metadata_complete = true/);
+    expect(selectCall[0]).toMatch(/f\.is_present = true/);
+    expect(selectCall[0]).toMatch(/f\.uid_validity IS NOT NULL/);
     expect(selectCall[1]).toEqual([['w1'], 'a1']);
+
+    const validationCalls = query.mock.calls.filter((c) => isSnapshotValidation(c[0]));
+    expect(validationCalls).toHaveLength(2);
+    expect(validationCalls[0][1]).toEqual([
+      'a1', 'w1', '11', 'Watch', '2', '3', '44', '5',
+      'S w1', 'Alice', 'a@x', 'body w1',
+    ]);
 
     // Persists the sanitised gist under the message's GTD annotation namespace (account-scoped).
     const updateCall = query.mock.calls.find((c) => isGistUpdate(c[0]));
-    expect(updateCall[1]).toEqual(['a1', 'w1', 'gtd', JSON.stringify({ gist: 'waiting on their reply' })]);
+    expect(updateCall[0]).toMatch(/FROM folders f/);
+    expect(updateCall[0]).toMatch(/m\.read_revision = \$7/);
+    expect(updateCall[0]).toMatch(/f\.observation_generation = \$10/);
+    expect(updateCall[1]).toEqual([
+      'a1', 'w1', 'gtd', JSON.stringify({ gist: 'waiting on their reply' }),
+      '11', 'Watch', '2', '3', '44', '5', 'S w1', 'Alice', 'a@x', 'body w1',
+    ]);
 
     expect(broadcast).toHaveBeenCalledTimes(1);
     expect(broadcast).toHaveBeenCalledWith({ type: 'gtd_sections_updated', accountId: 'a1' }, 'u1');
+  });
+
+  it('does not send message text to AI when the live snapshot is superseded before generation', async () => {
+    mockDb({ snapshotMatches: [false] });
+
+    await queueGistGeneration({ sections: waitingHeads(['w1']), userId: 'u1', broadcast: vi.fn() });
+
+    expect(completeText).not.toHaveBeenCalled();
+    expect(query.mock.calls.some((c) => isGistUpdate(c[0]))).toBe(false);
+  });
+
+  it('does not annotate or broadcast when the snapshot is superseded while AI is running', async () => {
+    mockDb({ snapshotMatches: [true, false] });
+    const broadcast = vi.fn();
+
+    await queueGistGeneration({ sections: waitingHeads(['w1']), userId: 'u1', broadcast });
+
+    expect(completeText).toHaveBeenCalledTimes(1);
+    expect(query.mock.calls.some((c) => isGistUpdate(c[0]))).toBe(false);
+    expect(broadcast).not.toHaveBeenCalled();
   });
 
   it('does not broadcast when the UPDATE writes nothing (wrote === 0 — a newer head won the race)', async () => {
@@ -179,8 +227,13 @@ describe('queueGistGeneration — write path', () => {
     query.mockImplementation((sql, params) => {
       if (isBodySelect(sql)) {
         const ids = params[0];
-        return Promise.resolve({ rows: ids.map((id) => ({ id, subject: 'S', from_name: 'A', from_email: 'a@x', content: 'b' })) });
+        return Promise.resolve({ rows: ids.map((id) => ({
+          id, uid: '11', folder: 'Watch', subject: 'S', from_name: 'A', from_email: 'a@x', content: 'b',
+          read_revision: '2', star_revision: '3',
+          folder_uid_validity: '44', folder_observation_generation: '5',
+        })) });
       }
+      if (isSnapshotValidation(sql)) return Promise.resolve({ rows: [{ matches: 1 }] });
       if (isGistUpdate(sql)) return Promise.resolve({ rowCount: 1 });
       return Promise.resolve({ rows: [] });
     });

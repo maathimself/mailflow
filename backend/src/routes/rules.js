@@ -130,14 +130,22 @@ router.post('/run', async (req, res) => {
       if (!account) continue;
 
       const BATCH = 500;
+      const observationContext = { accountId: acctId, tokens: [] };
+      await imapMgr.extendFolderObservationContext(acctId, observationContext, ['INBOX']);
       let lastId = null;
       while (true) {
         const msgResult = await query(
-          `SELECT id, uid, folder, from_email, from_name, to_addresses, subject, has_attachments, is_read
-           FROM messages
-           WHERE account_id = $1 AND lower(folder) = 'inbox'
-             ${lastId ? 'AND id > $3' : ''}
-           ORDER BY id
+          `SELECT m.id, m.uid, m.folder, m.from_email, m.from_name, m.to_addresses,
+                  m.subject, m.has_attachments, m.is_read, m.read_revision, m.star_revision,
+                  f.uid_validity AS folder_uid_validity,
+                  f.observation_generation AS folder_observation_generation
+           FROM messages m
+           JOIN folders f ON f.account_id = m.account_id AND f.path = m.folder
+             AND f.is_present = true AND f.uid_validity IS NOT NULL
+           WHERE m.account_id = $1 AND lower(m.folder) = 'inbox'
+             AND m.is_deleted = false AND m.metadata_complete = true
+             ${lastId ? 'AND m.id > $3' : ''}
+           ORDER BY m.id
            LIMIT $2`,
           lastId ? [acctId, BATCH, lastId] : [acctId, BATCH]
         );
@@ -166,12 +174,16 @@ router.post('/run', async (req, res) => {
             hasAttachments: !!row.has_attachments,
             isRead: !!row.is_read,
             is_read: !!row.is_read,
+            read_revision: row.read_revision,
+            star_revision: row.star_revision,
             parsedHeaders: {},
           };
         });
 
         const before = messages.length;
-        const { remaining } = await applyInboxRules(messages, account, imapMgr);
+        const { remaining } = await applyInboxRules(
+          messages, account, imapMgr, observationContext,
+        );
         processed += before;
         matched += before - remaining.length;
 
