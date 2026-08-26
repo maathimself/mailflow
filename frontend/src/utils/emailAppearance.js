@@ -1,6 +1,7 @@
 import {
   compositeColors,
   contrastRatio,
+  createCssColorParser,
   formatCssColor,
   hslToRgb,
   isNeutralColor,
@@ -352,7 +353,7 @@ function assertGeneratedContentSafe(elements, styleSheets, budget, startedAt, do
   assertAnalysisBudget(budget, startedAt);
 }
 
-function sourceBackgrounds(snapshots, budget, startedAt) {
+function sourceBackgrounds(snapshots, budget, startedAt, parseColor) {
   const backgrounds = [];
   const colors = [];
   const pairedTextFills = new Set();
@@ -362,12 +363,12 @@ function sourceBackgrounds(snapshots, budget, startedAt) {
     assertWithinBudget(index, budget, startedAt);
     const node = snapshots[index];
     const parentBackground = node.parentIndex >= 0 ? backgrounds[node.parentIndex] : null;
-    const rawBackground = parseCssColor(node.style.backgroundColor);
+    const rawBackground = parseColor(node.style.backgroundColor);
     if (!rawBackground) throw new EmailAppearanceFallback('contrast_unproven');
     backgrounds[index] = rawBackground.a < 1 && parentBackground
       ? compositeColors(rawBackground, parentBackground)
       : rawBackground;
-    const color = parseCssColor(node.style.color);
+    const color = parseColor(node.style.color);
     if (!color) throw new EmailAppearanceFallback('contrast_unproven');
     colors[index] = color;
     if (node.hasOwnText) {
@@ -376,7 +377,7 @@ function sourceBackgrounds(snapshots, budget, startedAt) {
       // the element color in supporting engines. Empty is an unsupported/no-op
       // channel; retaining currentColor also keeps synthetic snapshots safe.
       if (rawTextFill && rawTextFill.toLowerCase() !== 'currentcolor') {
-        const textFill = parseCssColor(rawTextFill);
+        const textFill = parseColor(rawTextFill);
         const samePaint = textFill && ['r', 'g', 'b', 'a'].every(channel => (
           Math.abs(textFill[channel] - color[channel]) < 0.01
         ));
@@ -528,7 +529,7 @@ function mapBorder(source, sourceBackground, background, palette) {
   return { target, sourceContrast, targetContrast };
 }
 
-function preservationPlan(snapshots, source, budget, startedAt) {
+function preservationPlan(snapshots, source, budget, startedAt, parseColor) {
   const rootLocal = new Map();
   const boundaries = new Map();
   let processedRoots = 0;
@@ -544,7 +545,7 @@ function preservationPlan(snapshots, source, budget, startedAt) {
       while (boundary >= 0 && source.protectedNodes.has(boundary)) boundary = snapshots[boundary].parentIndex;
       if (boundary < 0) throw new EmailAppearanceFallback('protected_backdrop_unpreservable');
       boundaries.set(boundary, source.backgrounds[node.parentIndex]);
-    } else if (parseCssColor(style.backgroundColor)?.a < 1) {
+    } else if (parseColor(style.backgroundColor)?.a < 1) {
       rootLocal.set(index, source.backgrounds[index]);
     }
   }
@@ -568,10 +569,11 @@ function plannedBackground(node, sourceColor, parentBackground, palette) {
 export function planEmailAppearance(snapshots, palette, overrides = {}) {
   const budget = resolveBudget(overrides);
   const startedAt = overrides.startedAt ?? budget.clock();
+  const parseColor = overrides.parseColor || parseCssColor;
   const state = { mutations: [], cache: new Map() };
   try {
-    const source = sourceBackgrounds(snapshots, budget, startedAt);
-    const preservation = preservationPlan(snapshots, source, budget, startedAt);
+    const source = sourceBackgrounds(snapshots, budget, startedAt, parseColor);
+    const preservation = preservationPlan(snapshots, source, budget, startedAt, parseColor);
     const planned = [];
     for (let index = 0; index < snapshots.length; index += 1) {
       assertWithinBudget(index, budget, startedAt);
@@ -592,7 +594,7 @@ export function planEmailAppearance(snapshots, palette, overrides = {}) {
         planned[index] = writtenBoundary;
         addPreserve(state, node, 'background-color', writtenBoundary, budget);
       } else {
-        const background = plannedBackground(node, parseCssColor(node.style.backgroundColor), parentBackground, palette);
+        const background = plannedBackground(node, parseColor(node.style.backgroundColor), parentBackground, palette);
         planned[index] = background.effective;
         if (background.repair) {
           const sourceBackground = source.backgrounds[index];
@@ -617,7 +619,7 @@ export function planEmailAppearance(snapshots, palette, overrides = {}) {
       for (const [side, property] of BORDER_SIDES) {
         if (!(Number.parseFloat(node.style[`border${side}Width`]) > 0)
           || ['none', 'hidden'].includes(node.style[`border${side}Style`])) continue;
-        const sourceColor = parseCssColor(node.style[`border${side}Color`]);
+        const sourceColor = parseColor(node.style[`border${side}Color`]);
         if (!sourceColor) throw new EmailAppearanceFallback('contrast_unproven');
         const border = cachedTarget(state, sourceColor, 'border', source.backgrounds[index], planned[index], palette,
           () => mapBorder(sourceColor, source.backgrounds[index], planned[index], palette));
@@ -647,6 +649,7 @@ export function analyzeEmailAppearance(rootOrDocument, palette, overrides = {}) 
   const isDocument = rootOrDocument?.nodeType === 9;
   const root = isDocument ? rootOrDocument.documentElement : rootOrDocument;
   const canvas = isDocument ? rootOrDocument.body : root;
+  const parseColor = createCssColorParser(isDocument ? rootOrDocument : root?.ownerDocument);
   let elements = [];
   try {
     assertAnalysisBudget(budget, startedAt);
@@ -657,7 +660,7 @@ export function analyzeEmailAppearance(rootOrDocument, palette, overrides = {}) 
     }
     assertGeneratedContentSafe(elements, overrides.styleSheets, budget, startedAt, isDocument);
     const snapshots = readSnapshot(elements, canvas, budget, startedAt);
-    return planEmailAppearance(snapshots, palette, { ...budget, startedAt });
+    return planEmailAppearance(snapshots, palette, { ...budget, startedAt, parseColor });
   } catch (error) {
     return {
       status: 'fallback',

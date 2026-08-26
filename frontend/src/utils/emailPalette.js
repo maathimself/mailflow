@@ -1,5 +1,6 @@
 import { THEMES } from '../themes.js';
 import {
+  createCssColorParser,
   formatCssColor,
   parseCssColor,
   relativeLuminance,
@@ -71,6 +72,8 @@ function sameColor(first, second) {
 
 export function resolveEmailPalette(doc, themeName) {
   const probe = 'rgba(1, 2, 3, 0.123)';
+  const parseComputedColor = createCssColorParser(doc);
+  const parsedProbe = parseComputedColor(probe);
   const wrapper = doc.createElement('div');
   wrapper.dataset.mailflowPaletteProbe = '';
   wrapper.style.cssText = 'position:fixed;left:-10000px;visibility:hidden;pointer-events:none';
@@ -84,7 +87,8 @@ export function resolveEmailPalette(doc, themeName) {
       child.style.setProperty('color', `var(${variable})`, 'important');
       wrapper.appendChild(child);
       const resolved = doc.defaultView.getComputedStyle(child).color;
-      raw[role] = sameColor(parseCssColor(resolved), parseCssColor(probe)) ? null : resolved;
+      const parsed = parseComputedColor(resolved);
+      raw[role] = sameColor(parsed, parsedProbe) || !parsed ? null : formatCssColor(parsed);
     }
     return buildEmailPalette(raw, THEMES[themeName]?.vars, THEMES.dark.vars);
   } finally {

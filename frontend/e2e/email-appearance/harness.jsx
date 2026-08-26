@@ -56,6 +56,11 @@ const customCssCases = {
     --text-primary:#f2f4f7; --text-secondary:#d0d5dd;
     --accent:#84adff; --border:#98a2b3;
   }`,
+  modern: `:root {
+    --bg-secondary:oklch(20% 0.02 250); --bg-elevated:oklch(28% 0.02 250);
+    --text-primary:oklch(96% 0.01 250); --text-secondary:oklch(82% 0.02 250);
+    --accent:oklch(78% 0.12 250); --border:oklch(68% 0.04 250);
+  }`,
   invalid: ':root { --bg-secondary:not-a-color; --accent:var(--missing); }',
   broad: '* { color: #ff00ff !important; }',
 };
@@ -696,6 +701,11 @@ function htmlForScenario(scenario) {
     <p class="outlook-root">Root-qualified Outlook rule</p>
     <p class="outlook-body">Body-qualified Outlook rule</p>
     <p class="scheme-dependent">Scheme-dependent paint</p>`;
+  }
+  if (scenario === 'modern-sender-colors') {
+    return `<style>
+      .modern-sender { background:oklch(96% 0.01 250);color:color(display-p3 0.12 0.16 0.22); }
+    </style><p class="modern-sender">Modern sender paint</p>`;
   }
   if (scenario === 'inset-shadow') {
     return '<div data-case="inset-shadow" style="background:#fff;color:#111;box-shadow:inset 0 0 0 9999px #fff">Inset-shadow text</div>';

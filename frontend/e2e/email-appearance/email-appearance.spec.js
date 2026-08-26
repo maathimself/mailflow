@@ -40,6 +40,12 @@ for (const renderer of ['iframe', 'div']) {
     expect(result).toMatchObject({ status: 'themed', visibility: 'visible' });
     expect(await renderedContrast(page, renderer, '.native-card')).toBeGreaterThanOrEqual(4.5);
   });
+
+  test(`controller ${renderer} analyzes modern sender colors`, async ({ page }) => {
+    await page.goto(`/e2e/email-appearance/fixture.html?renderer=${renderer}&fixture=plain&theme=dark&mode=auto&scenario=modern-sender-colors`);
+    const result = await terminalResult(page, /themed/);
+    expect(result).toMatchObject({ status: 'themed', visibility: 'visible' });
+  });
 }
 
 for (const renderer of ['iframe', 'div']) {
@@ -76,16 +82,18 @@ for (const renderer of ['iframe', 'div']) {
     });
   }
 
-  test(`acceptance ${renderer} uses valid custom CSS as the resolved palette`, async ({ page }) => {
-    await page.goto(`/e2e/email-appearance/fixture.html?renderer=${renderer}&fixture=plain&theme=dark&mode=auto`);
-    const builtIn = await terminalResult(page, /themed/);
-    await page.goto(`/e2e/email-appearance/fixture.html?renderer=${renderer}&fixture=plain&theme=dark&mode=auto&custom=valid`);
-    const custom = await terminalResult(page, /themed/);
-    expect(custom.paletteFingerprint).not.toBe(builtIn.paletteFingerprint);
-    expect(custom.paletteFingerprint.split('|')).toHaveLength(6);
-    expect(custom.rootColors.background).toBe(custom.paletteColors.background);
-    expect(custom.rootColors.color).toBe(custom.paletteColors.text);
-  });
+  for (const customCase of ['valid', 'modern']) {
+    test(`acceptance ${renderer} uses ${customCase} custom CSS as the resolved palette`, async ({ page }) => {
+      await page.goto(`/e2e/email-appearance/fixture.html?renderer=${renderer}&fixture=plain&theme=dark&mode=auto`);
+      const builtIn = await terminalResult(page, /themed/);
+      await page.goto(`/e2e/email-appearance/fixture.html?renderer=${renderer}&fixture=plain&theme=dark&mode=auto&custom=${customCase}`);
+      const custom = await terminalResult(page, /themed/);
+      expect(custom.paletteFingerprint).not.toBe(builtIn.paletteFingerprint);
+      expect(custom.paletteFingerprint.split('|')).toHaveLength(6);
+      expect(custom.rootColors.background).toBe(custom.paletteColors.background);
+      expect(custom.rootColors.color).toBe(custom.paletteColors.text);
+    });
+  }
 
   for (const customCase of ['invalid', 'broad']) {
     test(`acceptance ${renderer} rejects ${customCase} custom CSS sentinel corruption`, async ({ page }) => {

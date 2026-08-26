@@ -87,6 +87,58 @@ export function parseCssColor(value) {
   return { r: channels[0], g: channels[1], b: channels[2], a: opacity };
 }
 
+// Computed styles may preserve modern color syntax instead of serializing to
+// rgb(). A one-pixel sRGB canvas lets the browser perform the standards-aware
+// conversion for every color syntax it supports without expanding this parser
+// into a second CSS color engine.
+export function createCssColorParser(doc) {
+  let context;
+  const cache = new Map();
+
+  return value => {
+    const direct = parseCssColor(value);
+    if (direct || typeof value !== 'string' || !value.trim()) return direct;
+    const key = value.trim().toLowerCase();
+    if (cache.has(key)) return cache.get(key);
+
+    if (context === undefined) {
+      try {
+        const canvas = doc?.createElement?.('canvas');
+        if (canvas) {
+          canvas.width = 1;
+          canvas.height = 1;
+          context = canvas.getContext('2d', { willReadFrequently: true }) || null;
+        } else {
+          context = null;
+        }
+      } catch {
+        context = null;
+      }
+    }
+
+    let parsed = null;
+    if (context) {
+      try {
+        // Invalid assignments leave fillStyle unchanged. Two different
+        // sentinels distinguish that from any valid color equal to one sentinel.
+        context.fillStyle = '#010203';
+        context.fillStyle = value;
+        const first = context.fillStyle;
+        context.fillStyle = '#040506';
+        context.fillStyle = value;
+        if (context.fillStyle === first) {
+          context.clearRect(0, 0, 1, 1);
+          context.fillRect(0, 0, 1, 1);
+          const [r, g, b, a] = context.getImageData(0, 0, 1, 1).data;
+          parsed = { r, g, b, a: a / 255 };
+        }
+      } catch { /* Treat unavailable or blocked canvas reads as an invalid color. */ }
+    }
+    cache.set(key, parsed);
+    return parsed;
+  };
+}
+
 export function formatCssColor(color) {
   const { r, g, b, a } = normalizedColor(color);
   const channels = [r, g, b].map(channel => Math.round(channel));
