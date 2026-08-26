@@ -47,18 +47,16 @@ function indexedCollection(length, read) {
 }
 
 describe('applyEmailMediaMode bounded traversal', () => {
-  it('freezes ordinary responsive media to a constant in automatic mode', () => {
+  it('preserves ordinary responsive media after selecting the color scheme', () => {
     const rule = mediaRule();
     rule.conditionText = '(max-width: 600px)';
-    let viewportMatches = true;
 
     const result = applyEmailMediaMode({
-      root: root({ matches: () => viewportMatches }), styleSheets: [sheet([rule])], scheme: 'dark',
+      root: root(), styleSheets: [sheet([rule])], scheme: 'dark',
     });
-    viewportMatches = false;
 
     assert.equal(result.status, 'ready');
-    assert.equal(rule.media.mediaText, '(min-width: 0px)');
+    assert.equal(rule.media.mediaText, '(max-width: 600px)');
   });
 
   it('restores authored responsive clauses while selecting light color scheme in fail-closed mode', () => {
@@ -75,7 +73,7 @@ describe('applyEmailMediaMode bounded traversal', () => {
     assert.equal(rule.media.mediaText, '(max-width: 600px) and (max-width: -1px)');
   });
 
-  it('budgets the cached authored condition again after an automatic freeze', () => {
+  it('budgets the cached authored condition again after an automatic selection', () => {
     const rule = mediaRule();
     rule.conditionText = `${' '.repeat(100)}(max-width: 600px)`;
     const rules = [sheet([rule])];

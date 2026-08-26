@@ -375,10 +375,10 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       : String(message?.id ?? 'preview');
     return prepareEmailHtml(
       body.html,
-      `${paneRootKey}-${appearance.renderMode}-${appearance.rootKey}`,
+      `${paneRootKey}-${appearance.rootKey}`,
       { recovery: appearance.recovery },
     );
-  }, [appearance.recovery, appearance.renderMode, appearance.rootKey, body?.html, message?.id, windowMode]);
+  }, [appearance.recovery, appearance.rootKey, body?.html, message?.id, windowMode]);
   const outerRef = useRef(null);
   const scaleRef = useRef(null);
   const innerRef = useRef(null);
@@ -718,7 +718,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       iframe.removeEventListener('load', onLoaded);
       emailScaleRef.current = 1;
     };
-  }, [appearance.recovery, appearance.rootKey, body?.html, hasNativeContextTarget, iframeSourceToken, openPaneContextMenu, processEmailDraft, selectedMessageId]);
+  }, [appearance.processToken, appearance.recovery, appearance.rootKey, body?.html, hasNativeContextTarget, iframeSourceToken, openPaneContextMenu, processEmailDraft, selectedMessageId]);
 
   // Inject scoped email styles before paint so there is no flash of unstyled content.
   // useLayoutEffect runs synchronously after DOM mutations and before the browser paints,
@@ -737,7 +737,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       recoverySafe: appearance.recovery,
       rootKey: appearance.rootKey,
     });
-  }, [appearance.recovery, appearance.rootKey, prepared, processEmailDraft]);
+  }, [appearance.processToken, appearance.recovery, appearance.rootKey, prepared, processEmailDraft]);
 
   // Div render path — scale-to-fit for wide fixed-layout emails.
   // Uses outer/inner refs: measures inner (natural dimensions, unaffected by transform),
@@ -2721,7 +2721,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
               </div>
             ) : (
               <iframe
-                key={`${message?.id ?? 'preview'}:${appearance.renderMode}:${appearance.renderKey}`}
+                key={`${message?.id ?? 'preview'}:${appearance.renderKey}`}
                 ref={iframeRef}
                 srcDoc={iframeDocumentHtml}
                 scrolling="no"

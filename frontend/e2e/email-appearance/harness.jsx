@@ -537,7 +537,12 @@ function controlsFor(scenario, boundary) {
       revealTimeoutMs: 5000,
     };
   }
-  if (scenario === 'reveal-100ms') return { checkpoint: blockOnce('before_engine') };
+  if (scenario === 'reveal-100ms') {
+    return {
+      checkpoint: blockOnce('before_engine'),
+      onRevealScheduled: delay => { window.mailflowFixtureRevealDelayMs = delay; },
+    };
+  }
   if (scenario === 'reveal-early-timer') {
     return {
       checkpoint: blockOnce('before_engine'),
@@ -668,6 +673,17 @@ function htmlForScenario(scenario) {
     </style>
     <p data-case="animated-text">Stable animated color text</p>
     <img data-case="animated-image" src="./assets/animated-status.svg" alt="Generic animated image asset">`;
+  }
+  if (scenario === 'remote-image-stability') {
+    return '<p>Stable body</p><img id="tracking-probe" src="/e2e/email-appearance/tracking-probe.svg" alt="Tracking probe">';
+  }
+  if (scenario === 'responsive-color-scheme') {
+    return `<style>
+      .responsive-flag { color:rgb(1, 2, 3); }
+      @media (max-width: 500px) and (prefers-color-scheme: dark) {
+        .responsive-flag { color:rgb(7, 8, 9); }
+      }
+    </style><p class="responsive-flag">Responsive sender rule</p>`;
   }
   if (scenario === 'inset-shadow') {
     return '<div data-case="inset-shadow" style="background:#fff;color:#111;box-shadow:inset 0 0 0 9999px #fff">Inset-shadow text</div>';
@@ -829,7 +845,7 @@ function Harness() {
     recovery: appearance.recovery,
     sourceToken: frameSourceToken,
   }), [appearance.recovery, frameSourceToken, html]);
-  const prefix = `email-fixture-${appearance.renderMode}-${appearance.rootKey}`;
+  const prefix = `email-fixture-${appearance.rootKey}`;
   const prepared = useMemo(() => (
     html && renderer === 'div'
       ? prepareEmailHtml(html, prefix, { recovery: appearance.recovery })
@@ -969,6 +985,7 @@ function Harness() {
       terminalElapsedMs: countsRef.current.startedAt
         ? performance.now() - countsRef.current.startedAt
         : 0,
+      revealDelayMs: window.mailflowFixtureRevealDelayMs,
       totalElapsedMs: countsRef.current.firstStartedAt
         ? performance.now() - countsRef.current.firstStartedAt
         : 0,
@@ -1022,6 +1039,10 @@ function Harness() {
       Object.assign(result, resultFor(resolvedRoot, media, theme === 'dark'
         ? { root, styleSheets, scheme: 'light' }
         : null));
+    } else if (scenario === 'responsive-color-scheme') {
+      const media = applyEmailMediaMode({ root, styleSheets, scheme: 'dark' });
+      result.media = media;
+      result.mediaConditions = mediaConditions(styleSheets);
     }
     window.mailflowFixtureResult = result;
     window.mailflowFixtureHistory ||= [];
@@ -1197,7 +1218,7 @@ function Harness() {
     void process(root, styleSheets).then(ready => {
       if (ready) finishGeometry(root, setupDivGeometry(root));
     });
-  }, [appearance.processDraft, appearance.recovery, appearance.rootKey, prepared, scenario]);
+  }, [appearance.processDraft, appearance.processToken, appearance.recovery, appearance.rootKey, prepared, scenario]);
 
   useEffect(() => {
     const iframe = iframeRef.current;
@@ -1298,11 +1319,11 @@ function Harness() {
       if (domReadyRafId) cancelAnimationFrame(domReadyRafId);
       iframe.removeEventListener('load', onLoaded);
     };
-  }, [appearance.processDraft, appearance.recovery, appearance.rootKey, frameSourceToken, html, renderer, scenario]);
+  }, [appearance.processDraft, appearance.processToken, appearance.recovery, appearance.rootKey, frameSourceToken, html, renderer, scenario]);
 
   if (!html) return <div>Loading fixture</div>;
   return renderer === 'iframe'
-    ? <iframe key={`${messageId}:${appearance.renderMode}:${appearance.renderKey}`} ref={iframeRef} title="Email fixture" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox" srcDoc={frameDocumentHtml} scrolling="no" style={{ width: 1, minWidth: '100%', border: 0, display: 'block', visibility: appearance.visibility }} />
+    ? <iframe key={`${messageId}:${appearance.renderKey}`} ref={iframeRef} title="Email fixture" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox" srcDoc={frameDocumentHtml} scrolling="no" style={{ width: 1, minWidth: '100%', border: 0, display: 'block', visibility: appearance.visibility }} />
     : <div ref={outerRef} style={{ position: 'relative', width: '100%', visibility: appearance.visibility }} onClick={handleEmailBodyLinkClick}>
       <div ref={scaleRef}>
         <div

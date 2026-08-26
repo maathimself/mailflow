@@ -43,13 +43,13 @@ for (const renderer of ['iframe', 'div']) {
 }
 
 for (const renderer of ['iframe', 'div']) {
-  test(`controller ${renderer} freezes viewport-width sender paint before a post-terminal resize`, async ({ page }) => {
+  test(`controller ${renderer} falls back when viewport-width sender paint can change`, async ({ page }) => {
     await page.setViewportSize({ width: 1000, height: 800 });
     await page.goto(`/e2e/email-appearance/fixture.html?renderer=${renderer}&fixture=plain&theme=dark&mode=auto&scenario=post-terminal-width-media`);
-    const result = await terminalResult(page, /themed/);
-    expect(result).toMatchObject({ status: 'themed', visibility: 'visible' });
-    await page.setViewportSize({ width: 500, height: 800 });
-    expect(await renderedContrast(page, renderer, '.resize-paint')).toBeGreaterThanOrEqual(4.5);
+    const result = await terminalResult(page, /fallback/);
+    expect(result).toMatchObject({
+      status: 'fallback', visibility: 'visible', reason: 'geometry_condition_unproven',
+    });
   });
 }
 
@@ -200,7 +200,10 @@ for (const renderer of ['iframe', 'div']) {
     test(`acceptance ${renderer} has one vertical scroll owner for ${fixture} at ${viewport.width}px`, async ({ page }) => {
       await page.setViewportSize(viewport);
       await page.goto(`/e2e/email-appearance/fixture.html?renderer=${renderer}&fixture=${fixture}&theme=dark&mode=auto`);
-      const result = await terminalResult(page, /themed/);
+      const result = await terminalResult(page, fixture === 'marketing-table' ? /fallback/ : /themed/);
+      if (fixture === 'marketing-table') {
+        expect(result).toMatchObject({ reason: 'geometry_condition_unproven' });
+      }
       expect(result.geometry.nestedVerticalScrolls).toBe(0);
       expect(result.geometry.contentWidth).toBeLessThanOrEqual(result.geometry.viewportWidth + 2);
       expect(result.geometry.contentHeight).toBeGreaterThan(0);
@@ -329,7 +332,8 @@ for (const renderer of ['iframe', 'div']) {
   test(`acceptance ${renderer} preserves responsive marketing columns on mobile`, async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`/e2e/email-appearance/fixture.html?renderer=${renderer}&fixture=marketing-table&theme=catppuccin_mocha&mode=auto`);
-    await terminalResult(page, /themed/);
+    const result = await terminalResult(page, /fallback/);
+    expect(result).toMatchObject({ reason: 'geometry_condition_unproven' });
     const columns = await page.evaluate(() => [...window.mailflowFixtureRoot.querySelectorAll('.column')].map(element => {
       const style = element.ownerDocument.defaultView.getComputedStyle(element);
       return { display: style.display, width: element.getBoundingClientRect().width };
@@ -482,11 +486,12 @@ for (const renderer of ['iframe', 'div']) {
 }
 
 for (const renderer of ['iframe', 'div']) {
-  test(`controller ${renderer} handles viewport-height sender media across post-ready geometry`, async ({ page }) => {
+  test(`controller ${renderer} falls back for viewport-height sender media`, async ({ page }) => {
     await page.goto(`/e2e/email-appearance/fixture.html?renderer=${renderer}&fixture=plain&theme=dark&mode=auto&scenario=post-geometry-height-media`);
-    const result = await terminalResult(page, /themed/);
-    expect(result).toMatchObject({ status: 'themed', visibility: 'visible' });
-    expect(await renderedContrast(page, renderer, '.geometry-paint')).toBeGreaterThanOrEqual(4.5);
+    const result = await terminalResult(page, /fallback/);
+    expect(result).toMatchObject({
+      status: 'fallback', visibility: 'visible', reason: 'geometry_condition_unproven',
+    });
   });
 }
 
@@ -550,7 +555,8 @@ for (const renderer of ['iframe', 'div']) {
       analyzerCalls: 0, commitCalls: 0,
     });
     expect(result.terminalElapsedMs).toBeGreaterThanOrEqual(85);
-    expect(result.terminalElapsedMs).toBeLessThan(250);
+    expect(result.revealDelayMs).toBeGreaterThan(0);
+    expect(result.revealDelayMs).toBeLessThanOrEqual(100);
   });
 
   test(`controller ${renderer} rebuilds exactly once after rollback failure`, async ({ page }) => {
@@ -619,7 +625,32 @@ for (const renderer of ['iframe', 'div']) {
     await page.evaluate(() => window.mailflowFixtureAction('custom-remove'));
     await expect.poll(() => page.evaluate(() => window.mailflowFixtureResult?.generation)).toBe(initial.generation + 3);
     const removed = await terminalResult(page, /themed/);
-    expect(removed).toMatchObject({ terminalThemeName: 'light', rootCount: 4, parseCount: 4 });
+    expect(removed).toMatchObject({ terminalThemeName: 'light', rootCount: 1, parseCount: 1 });
+  });
+
+  test(`controller ${renderer} does not reload remote images for appearance-only changes`, async ({ page }) => {
+    let imageRequests = 0;
+    await page.route('**/e2e/email-appearance/tracking-probe.svg', async route => {
+      imageRequests += 1;
+      await route.fulfill({
+        contentType: 'image/svg+xml',
+        headers: { 'cache-control': 'no-store' },
+        body: '<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8" fill="white"/></svg>',
+      });
+    });
+    await page.goto(`/e2e/email-appearance/fixture.html?renderer=${renderer}&fixture=plain&theme=dark&mode=auto&scenario=remote-image-stability`);
+    const initial = await terminalResult(page, /themed/);
+    expect(imageRequests).toBe(1);
+
+    await page.evaluate(() => window.mailflowFixtureAction('theme'));
+    await terminalResult(page, /themed/);
+    await page.evaluate(() => window.mailflowFixtureAction('custom'));
+    await terminalResult(page, /themed/);
+    await page.evaluate(() => window.mailflowFixtureAction('view'));
+    const original = await terminalResult(page, /original/);
+
+    expect(imageRequests).toBe(1);
+    expect(original).toMatchObject({ rootCount: initial.rootCount, parseCount: initial.parseCount });
   });
 }
 
@@ -641,7 +672,9 @@ for (const renderer of ['iframe', 'div']) {
         expect(history.some(entry => entry.generation === blocked.generation)).toBe(false);
         expect(result).toMatchObject({
           generation: blocked.generation + 1, visibility: 'visible',
-          rootCount: 2, parseCount: 2, survivingThemedMutations: 0,
+          rootCount: action === 'message' ? 2 : 1,
+          parseCount: action === 'message' ? 2 : 1,
+          survivingThemedMutations: 0,
         });
         const staleReachedAnalysis = boundary === 'before_commit' ? 1 : 0;
         const currentAnalyzed = action === 'view' ? 0 : 1;
@@ -983,7 +1016,7 @@ for (const renderer of ['iframe', 'div']) {
 }
 
 for (const renderer of ['iframe', 'div']) {
-  test(`controller ${renderer} remounts only when the view mode changes`, async ({ page }) => {
+  test(`controller ${renderer} preserves the mounted document across view changes`, async ({ page }) => {
     await page.goto(`/e2e/email-appearance/fixture.html?renderer=${renderer}&fixture=plain&theme=dark&mode=original`);
     await expect.poll(() => page.evaluate(() => window.mailflowFixtureResult?.status)).toBe('original');
     const initialRenderKey = await page.evaluate(() => window.mailflowFixtureResult.renderKey);
@@ -994,13 +1027,14 @@ for (const renderer of ['iframe', 'div']) {
     await page.evaluate(() => window.mailflowFixtureToggle());
     await expect.poll(() => page.evaluate(() => window.mailflowFixtureResult?.renderMode)).toBe('auto');
     await expect.poll(() => page.evaluate(() => window.mailflowFixtureResult?.status)).toMatch(/^(themed|fallback)$/);
-    expect(await page.evaluate(() => window.mailflowFixtureResult.renderKey)).toBe(initialRenderKey + 1);
-    expect(await page.evaluate(() => window.mailflowFixtureResult.rootChanged)).toBe(true);
-    expect(await page.evaluate(() => window.mailflowFixtureRoot.querySelector('#message')?.style.color || '')).not.toBe('rgb(1, 2, 3)');
+    expect(await page.evaluate(() => window.mailflowFixtureResult.renderKey)).toBe(initialRenderKey);
+    expect(await page.evaluate(() => window.mailflowFixtureResult.rootChanged)).toBe(false);
+    expect(await page.evaluate(() => window.mailflowFixtureRoot.querySelector('#message')?.style.color || '')).toBe('rgb(1, 2, 3)');
 
     await page.evaluate(() => window.mailflowFixtureToggle());
     await expect.poll(() => page.evaluate(() => window.mailflowFixtureResult?.status)).toBe('original');
-    expect(await page.evaluate(() => window.mailflowFixtureResult.renderKey)).toBe(initialRenderKey + 2);
+    expect(await page.evaluate(() => window.mailflowFixtureResult.renderKey)).toBe(initialRenderKey);
+    expect(await page.evaluate(() => window.mailflowFixtureRoot.querySelector('#message')?.style.color || '')).toBe('rgb(1, 2, 3)');
   });
 }
 
@@ -1067,12 +1101,16 @@ for (const renderer of ['iframe', 'div']) {
       expect(result.root.colorScheme).toBe('light');
     });
 
-    test('freezes matching responsive clauses after selecting sender media', async ({ page }) => {
+    test('preserves responsive clauses after selecting sender media', async ({ page }) => {
       await page.setViewportSize({ width: 400, height: 700 });
-      await page.goto(`/e2e/email-appearance/fixture.html?renderer=${renderer}&fixture=native-dark&theme=dark&mode=original`);
+      await page.goto(`/e2e/email-appearance/fixture.html?renderer=${renderer}&fixture=plain&theme=dark&mode=original&scenario=responsive-color-scheme`);
       await expect.poll(() => page.evaluate(() => window.mailflowFixtureResult?.status)).toBe('original');
-      const result = await page.evaluate(() => window.mailflowFixtureResult);
-      expect(result.mediaConditions).toContain('(min-width: 0px)');
+      const responsive = renderer === 'iframe'
+        ? page.frameLocator('iframe').locator('.responsive-flag')
+        : page.locator('[data-fixture-root] .responsive-flag');
+      await expect(responsive).toHaveCSS('color', 'rgb(7, 8, 9)');
+      await page.setViewportSize({ width: 700, height: 700 });
+      await expect(responsive).toHaveCSS('color', 'rgb(1, 2, 3)');
     });
   });
 }

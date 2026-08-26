@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { normalizeEmailBodyAppearance } from '../utils/emailBodyAppearance.js';
+import { createRetryableLoader } from '../utils/emailEngineLoader.js';
 import { applyEmailMediaMode } from '../utils/emailMediaMode.js';
 import { preflightEmailStyles } from '../utils/emailStylePreflight.js';
 import { subscribeAppearanceChanges } from '../themes.js';
 
-let automaticEnginePromise;
 let testControls = null;
 let testInstrumentation = null;
 if (import.meta.env.DEV) {
@@ -19,13 +19,16 @@ export function setEmailAppearanceTestControls(controls) {
   testControls = controls;
 }
 
-function loadAutomaticEngine() {
-  if (import.meta.env.DEV && !automaticEnginePromise) testInstrumentation.engineLoads += 1;
-  automaticEnginePromise ||= Promise.all([
+const loadAutomaticEngine = createRetryableLoader(() => {
+  if (import.meta.env.DEV) testInstrumentation.engineLoads += 1;
+  return Promise.all([
     import('../utils/emailPalette.js'),
     import('../utils/emailAppearance.js'),
   ]).then(([palette, appearance]) => ({ ...palette, ...appearance }));
-  return automaticEnginePromise;
+});
+
+function preloadAutomaticEngine() {
+  void loadAutomaticEngine().catch(() => {});
 }
 
 function neutralizeRootFilters(root) {
@@ -66,6 +69,7 @@ export function useEmailAppearance({ messageId, html, preference, themeName }) {
   const sourceRevisionRef = useRef(0);
   const previousInputRef = useRef({ initialized: false, messageId, html, desiredMode: null });
   const viewOverrideRef = useRef(null);
+  const committedDraftRef = useRef(null);
   const [viewOverride, setViewOverride] = useState(null);
   const descriptorRef = useRef(initialDescriptor(
     normalizeEmailBodyAppearance(preference), messageId, html, stylePreflight,
@@ -162,6 +166,18 @@ export function useEmailAppearance({ messageId, html, preference, themeName }) {
     const generation = generationRef.current;
     if (!root || descriptor.generation !== generation || descriptor.status !== 'pending' || descriptor.rootKey !== rootKey) return false;
 
+    const committedDraft = committedDraftRef.current;
+    if (committedDraft?.root === root) {
+      committedDraftRef.current = null;
+      try {
+        committedDraft.rollback();
+      } catch (error) {
+        return rebuildFallback(error.message || 'email_appearance_rollback_failed', generation);
+      }
+    } else if (committedDraft) {
+      committedDraftRef.current = null;
+    }
+
     const controls = import.meta.env.DEV ? testControls : null;
     const clock = controls?.clock || (() => performance.now());
     const startedAt = clock();
@@ -208,6 +224,8 @@ export function useEmailAppearance({ messageId, html, preference, themeName }) {
         return false;
       }
     };
+    const revealDelayMs = controls?.revealTimeoutMs ?? Math.max(0, deadline - clock());
+    if (import.meta.env.DEV) controls?.onRevealScheduled?.(revealDelayMs);
     const timeout = setTimeout(() => {
       timedOut = true;
       // Timer delivery is the semantic deadline signal. A fractional early
@@ -215,7 +233,7 @@ export function useEmailAppearance({ messageId, html, preference, themeName }) {
       deadlineFallbackReady = fallbackCurrentDraft(
         'reveal_deadline', generation, root, styleSheets, deadline, () => deadline,
       );
-    }, controls?.revealTimeoutMs ?? Math.max(0, deadline - clock()));
+    }, revealDelayMs);
     const current = () => generationRef.current === generation
       && descriptorRef.current.generation === generation
       && descriptorRef.current.status === 'pending'
@@ -296,9 +314,14 @@ export function useEmailAppearance({ messageId, html, preference, themeName }) {
         const guarded = guardDeadline();
         if (guarded.stopped) return guarded.result;
       }
-      return publishTerminal('themed', generation, import.meta.env.DEV
+      const published = publishTerminal('themed', generation, import.meta.env.DEV
         ? { ...analysis, themeName: themeNameRef.current, paletteFingerprint: palette.fingerprint }
         : undefined);
+      if (published && typeof commitRollback === 'function') {
+        committedDraftRef.current = { root, rootKey, rollback: commitRollback };
+        commitRollback = null;
+      }
+      return published;
     } catch (error) {
       if (!current()) return deadlineFallbackIsCurrent();
       if (!rollbackCommittedAppearance()) return false;
@@ -307,6 +330,9 @@ export function useEmailAppearance({ messageId, html, preference, themeName }) {
         : fallbackCurrentDraft(error.message || 'appearance_error', generation, root, styleSheets, deadline, clock);
     } finally {
       clearTimeout(timeout);
+      if (typeof commitRollback === 'function') {
+        try { commitRollback(); } catch { /* Stale draft mutations are no longer publishable. */ }
+      }
     }
   }, [fallbackCurrentDraft, publishTerminal, rebuildFallback]);
 
@@ -319,7 +345,7 @@ export function useEmailAppearance({ messageId, html, preference, themeName }) {
       previousInputRef.current = {
         initialized: true, messageId, html, desiredMode,
       };
-      if (desiredMode === 'auto' && stylePreflight.status === 'ready') void loadAutomaticEngine();
+      if (desiredMode === 'auto' && stylePreflight.status === 'ready') preloadAutomaticEngine();
       return;
     }
     const messageChanged = previous.initialized && previous.messageId !== messageId;
@@ -336,10 +362,9 @@ export function useEmailAppearance({ messageId, html, preference, themeName }) {
         initialized: true, messageId, html, desiredMode: nextDesired,
       };
       startGeneration(nextDesired, {
-        freshRoot: !messageChanged && !htmlChanged && desiredChanged,
         replaceRoot: messageChanged || htmlChanged,
       });
-      if (nextDesired === 'auto' && stylePreflight.status === 'ready') void loadAutomaticEngine();
+      if (nextDesired === 'auto' && stylePreflight.status === 'ready') preloadAutomaticEngine();
     }
   }, [desiredMode, html, messageId, normalizedPreference, startGeneration, stylePreflight]);
 
@@ -351,9 +376,10 @@ export function useEmailAppearance({ messageId, html, preference, themeName }) {
       initialized: true, messageId: current.messageId, html: current.html, desiredMode: current.desiredMode,
     };
     startGeneration(current.desiredMode, {
-      freshRoot: true, sourceRevision: sourceRevisionRef.current,
+      freshRoot: current.status === 'fallback' || current.recovery,
+      sourceRevision: sourceRevisionRef.current,
     });
-    if (current.desiredMode === 'auto' && stylePreflight.status === 'ready') void loadAutomaticEngine();
+    if (current.desiredMode === 'auto' && stylePreflight.status === 'ready') preloadAutomaticEngine();
   }), [startGeneration, stylePreflight]);
 
   const toggleViewMode = useCallback(() => {
@@ -363,8 +389,10 @@ export function useEmailAppearance({ messageId, html, preference, themeName }) {
     previousInputRef.current = {
       initialized: true, messageId, html, desiredMode: nextDesired,
     };
-    startGeneration(nextDesired, { freshRoot: true });
-    if (nextDesired === 'auto' && stylePreflight.status === 'ready') void loadAutomaticEngine();
+    startGeneration(nextDesired, {
+      freshRoot: current.status === 'fallback' || current.recovery,
+    });
+    if (nextDesired === 'auto' && stylePreflight.status === 'ready') preloadAutomaticEngine();
     setViewOverride(nextDesired);
   }, [html, messageId, startGeneration, stylePreflight]);
 
@@ -388,6 +416,7 @@ export function useEmailAppearance({ messageId, html, preference, themeName }) {
     status: publicStatus,
     visibility: publicStatus === 'pending' ? 'hidden' : 'visible',
     readyToken: publicStatus === 'pending' ? null : descriptor.readyToken,
+    processToken: descriptor.generation,
     processDraft,
     toggleViewMode,
   };

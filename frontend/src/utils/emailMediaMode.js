@@ -86,7 +86,6 @@ export function applyEmailMediaMode({
   }
 
   const sheets = styleSheets || [];
-  const view = root?.nodeType === 9 ? root.defaultView : root?.ownerDocument?.defaultView;
   const removedOwners = new Set();
   let rewrites = 0;
   let visitedRules = 0;
@@ -140,10 +139,7 @@ export function applyEmailMediaMode({
         if (conditionChars > maxConditionChars) return 'media_condition_limit';
         if (clock() >= deadline) return 'media_deadline';
         const selected = selectedCondition(authored, scheme);
-        if (!failClosed && typeof view?.matchMedia !== 'function') return 'media_rule_unwritable';
-        rule.media.mediaText = failClosed
-          ? selected
-          : (view.matchMedia(selected).matches ? ALWAYS : NEVER);
+        rule.media.mediaText = selected;
         rewrites += 1;
         if (clock() >= deadline) return 'media_deadline';
       }
