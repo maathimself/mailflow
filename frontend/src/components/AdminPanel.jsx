@@ -20,7 +20,7 @@ import {
   normalizeAiForm,
   selectAiConnectionMethod,
 } from '../utils/aiConfig.js';
-import { THEMES, applyTheme, applyCustomCss } from '../themes.js';
+import { THEMES, applyCustomCss } from '../themes.js';
 import { FONT_SETS, loadFontSet, isRetroFont } from '../fonts.js';
 import { LAYOUTS, applyLayout } from '../layouts.js';
 import { NOTIFICATION_SOUNDS, playNotificationSound, playCustomSound, warmUpAudioContext } from '../utils/notificationSounds.js';

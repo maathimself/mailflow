@@ -57,7 +57,7 @@ function fakeDocument() {
     if (node.id) nodes.set(node.id, node);
   };
   return {
-    documentElement: {},
+    documentElement: { setAttribute() {} },
     head: { appendChild },
     createElement: () => ({
       style: {},

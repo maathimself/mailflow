@@ -8,7 +8,6 @@ import { getEffectiveShortcuts, parseModKey, modCompactLabel } from '../utils/de
 import { useMobile } from '../hooks/useMobile.js';
 import { clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
-import DOMPurify from 'dompurify';
 import { BUILTIN_SUMMARIZE, summarizePromptForLocale } from '../aiActions.js';
 import { getResults, saveResult, removeResult } from '../aiResults.js';
 import { renderMarkdown } from '../utils/renderMarkdown.js';
@@ -696,13 +695,22 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     };
 
     iframe.addEventListener('load', onLoaded, { once: true });
-    if (iframe.contentDocument?.readyState === 'complete') {
-      onLoaded();
-    }
+    let domReadyRafId = 0;
+    const revealWhenParsed = () => {
+      const doc = iframe.contentDocument;
+      if (doc && doc.readyState !== 'loading'
+        && emailFrameDocumentMatchesSource(doc, iframeSourceToken)) {
+        onLoaded();
+        return;
+      }
+      domReadyRafId = requestAnimationFrame(revealWhenParsed);
+    };
+    revealWhenParsed();
 
     return () => {
       cancelled = true;
       cancelAnimationFrame(rafId);
+      if (domReadyRafId) cancelAnimationFrame(domReadyRafId);
       if (roRef.current) { roRef.current.disconnect(); roRef.current = null; }
       if (contextMenuDoc && iframeContextMenuHandler) {
         contextMenuDoc.removeEventListener('contextmenu', iframeContextMenuHandler);

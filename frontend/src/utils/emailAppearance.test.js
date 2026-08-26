@@ -549,7 +549,7 @@ describe('analyzeEmailAppearance budgets', () => {
       animationDuration: '1s',
     };
 
-    const result = analyzeEmailAppearance(documentWith([element]), palette);
+    const result = analyzeEmailAppearance(documentWith([element]), palette, { clock: () => 0 });
 
     assert.equal(result.reason, 'dynamic_paint_unproven');
   });

@@ -50,6 +50,7 @@ function initialDescriptor(desiredMode, messageId, html, stylePreflight) {
     desiredMode,
     renderMode: fallback ? 'original' : desiredMode,
     fallback,
+    recovery: fallback && stylePreflight.reason !== 'style_complexity_limit',
     fallbackReason: fallback ? stylePreflight.reason : undefined,
     status: 'pending',
     readyToken: 0,
@@ -81,6 +82,7 @@ export function useEmailAppearance({ messageId, html, preference, themeName }) {
     freshRoot = false,
     replaceRoot = freshRoot,
     fallback = false,
+    recovery,
     fallbackReason,
     sourceRevision = sourceRevisionRef.current,
   } = {}) => {
@@ -94,6 +96,9 @@ export function useEmailAppearance({ messageId, html, preference, themeName }) {
       desiredMode,
       renderMode: preflightFallback ? 'original' : renderMode,
       fallback: fallback || preflightFallback,
+      recovery: recovery ?? (preflightFallback
+        ? stylePreflight.reason !== 'style_complexity_limit'
+        : fallback),
       fallbackReason: preflightFallback ? stylePreflight.reason : fallbackReason,
       status: 'pending',
       readyToken: previous.readyToken,
@@ -126,6 +131,7 @@ export function useEmailAppearance({ messageId, html, preference, themeName }) {
     // renderer (`original`). A later real input can deliberately retry auto.
     startGeneration(current.desiredMode, {
       renderMode: 'original', freshRoot: true, fallback: true,
+      recovery: true,
       fallbackReason: reason,
       sourceRevision: current.sourceRevision,
     });
@@ -166,13 +172,13 @@ export function useEmailAppearance({ messageId, html, preference, themeName }) {
       // A recovery shell contains no sender-owned styles and has the marked
       // forced-light base. It is safe to terminalize once that shell is mounted;
       // never start a second recovery generation.
-      if (descriptor.fallback && recoverySafe) {
+      if (descriptor.fallback && descriptor.recovery && recoverySafe) {
         return publishTerminal('fallback', generation, import.meta.env.DEV ? baseline : undefined);
       }
       return rebuildFallback(baseline.reason, generation);
     }
     if (descriptor.fallback) {
-      if (!recoverySafe) return false;
+      if (descriptor.recovery && !recoverySafe) return false;
       return publishTerminal('fallback', generation, import.meta.env.DEV
         ? { ...baseline, reason: descriptor.fallbackReason || baseline.reason }
         : undefined);
@@ -271,9 +277,6 @@ export function useEmailAppearance({ messageId, html, preference, themeName }) {
         if (guarded.stopped) return guarded.result;
       }
       if (analysis.status !== 'ready') {
-        if (analysis.reason === 'style_complexity_limit') {
-          return rebuildFallback(analysis.reason, generation);
-        }
         return fallbackCurrentDraft(analysis, generation, root, styleSheets, deadline, clock);
       }
       if (import.meta.env.DEV && controls?.checkpoint) {
@@ -371,12 +374,14 @@ export function useEmailAppearance({ messageId, html, preference, themeName }) {
   const pendingPreflightFallback = !inputsMatch
     && desiredMode === 'auto'
     && stylePreflight.status !== 'ready';
+  const pendingPreflightRecovery = pendingPreflightFallback
+    && stylePreflight.reason !== 'style_complexity_limit';
   const result = {
     renderKey: descriptor.renderKey,
     rootKey: descriptor.rootKey,
     desiredMode: inputsMatch ? descriptor.desiredMode : desiredMode,
     renderMode: inputsMatch ? descriptor.renderMode : (pendingPreflightFallback ? 'original' : desiredMode),
-    recovery: inputsMatch ? descriptor.fallback : pendingPreflightFallback,
+    recovery: inputsMatch ? descriptor.recovery : pendingPreflightRecovery,
     status: publicStatus,
     visibility: publicStatus === 'pending' ? 'hidden' : 'visible',
     readyToken: publicStatus === 'pending' ? null : descriptor.readyToken,

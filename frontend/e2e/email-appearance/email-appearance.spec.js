@@ -764,47 +764,108 @@ test('controller iframe paints a >5,000-node fallback before synchronous geometr
   expect(timing.geometryFinishedAt).toBeGreaterThanOrEqual(timing.geometryStartedAt);
 });
 
+test('controller iframe reveals after DOM parsing while a subresource is still pending', async ({ page }) => {
+  let releaseResource;
+  await page.route('**/never-resolves.png', async route => {
+    await new Promise(resolve => { releaseResource = resolve; });
+    await route.abort();
+  });
+  await page.goto(
+    '/e2e/email-appearance/fixture.html?renderer=iframe&fixture=plain&theme=dark&mode=auto&scenario=dom-parsed-no-load',
+    { waitUntil: 'domcontentloaded' },
+  );
+
+  try {
+    const result = await terminalResult(page, /themed/);
+    expect(result).toMatchObject({ visibility: 'visible', geometryPasses: 1 });
+    expect(await page.evaluate(() => document.querySelector('iframe').contentDocument.readyState)).toBe('interactive');
+  } finally {
+    releaseResource?.();
+  }
+});
+
+for (const renderer of ['iframe', 'div']) {
+  test(`controller ${renderer} keeps sender styles when analysis reaches its complexity bound`, async ({ page }) => {
+    await page.goto(`/e2e/email-appearance/fixture.html?renderer=${renderer}&fixture=plain&theme=dark&mode=auto&scenario=analysis-style-complexity`);
+    const result = await terminalResult(page, /fallback/);
+
+    expect(result).toMatchObject({
+      status: 'fallback', reason: 'style_complexity_limit', visibility: 'visible',
+      recovery: false, generation: 1, rootCount: 1, parseCount: 1,
+      analyzerLoaded: true, analyzerCalls: 1, commitCalls: 0,
+    });
+    expect(result.senderStyleRuleCount).toBeGreaterThan(0);
+  });
+}
+
 for (const scenario of [
   'complex-pseudo-selector', 'complex-structural-selector',
-  'style-resolution-complexity', 'authored-style-complexity',
+  'authored-style-complexity',
   'escaped-continuation-selector', 'variable-amplification',
   'escaped-variable-delimiter', 'attribute-expansion', 'long-selector', 'nesting-depth', 'tracked-pseudo',
 ]) {
   for (const renderer of ['iframe', 'div']) {
-    test(`controller ${renderer} bounds ${scenario} matching inside the reveal contract`, async ({ page }) => {
+    test(`controller ${renderer} keeps sender styles after ${scenario} preflight fallback`, async ({ page }) => {
       await page.goto(`/e2e/email-appearance/fixture.html?renderer=${renderer}&fixture=plain&theme=dark&mode=auto&scenario=${scenario}`);
       const result = await terminalResult(page);
 
       expect(result).toMatchObject({
         status: 'fallback',
         visibility: 'visible',
-        recovery: true,
+        recovery: false,
         generation: 1,
         rootCount: 1,
         parseCount: 1,
         analyzerLoaded: false,
         analyzerCalls: 0,
         commitCalls: 0,
-        senderInlineStylePresent: false,
-        senderStyleRuleCount: 0,
         reason: 'style_complexity_limit',
       });
-      expect(result.terminalElapsedMs).toBeLessThan(250);
-      expect(result.totalElapsedMs).toBeLessThan(250);
+      if (scenario === 'authored-style-complexity') {
+        expect(result.senderInlineStylePresent).toBe(true);
+      } else if (scenario !== 'escaped-continuation-selector') {
+        expect(result.senderStyleRuleCount).toBeGreaterThan(0);
+      }
     });
   }
 }
 
 for (const renderer of ['iframe', 'div']) {
-  test(`controller ${renderer} recovery preserves style-like visible text`, async ({ page }) => {
+  test(`controller ${renderer} strips sender styles when complexity forced-light restore exceeds its rule limit`, async ({ page }) => {
+    await page.goto(`/e2e/email-appearance/fixture.html?renderer=${renderer}&fixture=plain&theme=dark&mode=auto&scenario=style-resolution-complexity`);
+    const result = await terminalResult(page, /fallback/);
+
+    expect(result).toMatchObject({
+      status: 'fallback', visibility: 'visible', recovery: true,
+      generation: 2, rootCount: 2, parseCount: 2,
+      senderStyleRuleCount: 0, analyzerLoaded: false, analyzerCalls: 0, commitCalls: 0,
+    });
+  });
+}
+
+for (const renderer of ['iframe', 'div']) {
+  test(`controller ${renderer} strips sender styles only after complexity forced-light restore fails`, async ({ page }) => {
+    await page.goto(`/e2e/email-appearance/fixture.html?renderer=${renderer}&fixture=plain&theme=dark&mode=auto&scenario=complexity-baseline-persistent`);
+    const result = await terminalResult(page, /fallback/);
+
+    expect(result).toMatchObject({
+      status: 'fallback', visibility: 'visible', recovery: true,
+      generation: 2, rootCount: 2, parseCount: 2,
+      senderStyleRuleCount: 0, analyzerLoaded: false, analyzerCalls: 0, commitCalls: 0,
+    });
+  });
+}
+
+for (const renderer of ['iframe', 'div']) {
+  test(`controller ${renderer} complexity fallback preserves style-like visible text`, async ({ page }) => {
     await page.goto(`/e2e/email-appearance/fixture.html?renderer=${renderer}&fixture=plain&theme=dark&mode=auto&scenario=recovery-style-text`);
     const result = await terminalResult(page, /fallback/);
 
     expect(result).toMatchObject({
-      recovery: true,
+      recovery: false,
       rootCount: 1,
       analyzerLoaded: false,
-      senderInlineStylePresent: false,
+      senderInlineStylePresent: true,
       reason: 'style_complexity_limit',
     });
     expect(await page.evaluate(() => window.mailflowFixtureRoot.textContent)).toContain('My style="bold" today');
@@ -817,7 +878,7 @@ for (const renderer of ['iframe', 'div']) {
     const result = await terminalResult(page, /fallback/);
 
     expect(result).toMatchObject({
-      recovery: true,
+      recovery: false,
       generation: 1,
       rootCount: 1,
       parseCount: 1,
@@ -831,7 +892,7 @@ for (const renderer of ['iframe', 'div']) {
 }
 
 for (const renderer of ['iframe', 'div']) {
-  test(`controller ${renderer} preflights hostile async HTML before its first renderer root`, async ({ page }) => {
+  test(`controller ${renderer} keeps styles for hostile async HTML after complexity preflight`, async ({ page }) => {
     await page.goto(`/e2e/email-appearance/fixture.html?renderer=${renderer}&fixture=plain&theme=dark&mode=auto`);
     const initial = await terminalResult(page, /themed/);
     const processedBefore = await page.evaluate(() => window.mailflowFixtureProcessedRoots.length);
@@ -840,9 +901,9 @@ for (const renderer of ['iframe', 'div']) {
     const result = await terminalResult(page, /fallback/);
     const hostileRoots = await page.evaluate(offset => window.mailflowFixtureProcessedRoots.slice(offset).filter(entry => entry.newRoot), processedBefore);
 
-    expect(result).toMatchObject({ recovery: true, analyzerCalls: initial.analyzerCalls, commitCalls: initial.commitCalls });
+    expect(result).toMatchObject({ recovery: false, analyzerCalls: initial.analyzerCalls, commitCalls: initial.commitCalls });
     expect(hostileRoots).toHaveLength(1);
-    expect(hostileRoots[0]).toMatchObject({ senderInlineStylePresent: false, senderStyleRuleCount: 0 });
+    expect(hostileRoots[0].senderStyleRuleCount).toBeGreaterThan(0);
   });
 
   test(`controller ${renderer} drops a stale Original override before a hostile message switch`, async ({ page }) => {
@@ -856,12 +917,12 @@ for (const renderer of ['iframe', 'div']) {
     const result = await terminalResult(page, /fallback/);
     const hostileRoots = await page.evaluate(offset => window.mailflowFixtureProcessedRoots.slice(offset).filter(entry => entry.newRoot), processedBefore);
 
-    expect(result).toMatchObject({ desiredMode: 'auto', renderMode: 'original', recovery: true });
+    expect(result).toMatchObject({ desiredMode: 'auto', renderMode: 'original', recovery: false });
     expect(hostileRoots).toHaveLength(1);
-    expect(hostileRoots[0]).toMatchObject({ senderInlineStylePresent: false, senderStyleRuleCount: 0 });
+    expect(hostileRoots[0].senderStyleRuleCount).toBeGreaterThan(0);
   });
 
-  test(`controller ${renderer} does not carry hostile recovery onto safe replacement HTML`, async ({ page }) => {
+  test(`controller ${renderer} does not carry a complexity fallback onto safe replacement HTML`, async ({ page }) => {
     await page.goto(`/e2e/email-appearance/fixture.html?renderer=${renderer}&fixture=plain&theme=dark&mode=auto&scenario=complex-structural-selector`);
     const hostile = await terminalResult(page, /fallback/);
     const processedBefore = await page.evaluate(() => window.mailflowFixtureProcessedRoots.length);

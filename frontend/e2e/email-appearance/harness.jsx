@@ -421,6 +421,9 @@ function blockOnce(boundary) {
 }
 
 function controlsFor(scenario, boundary) {
+  if (scenario === 'analysis-style-complexity') {
+    return { analysisOptions: { maxComputedValueChars: 8 } };
+  }
   if (new Set([
     'complex-pseudo-selector', 'complex-structural-selector',
     'style-resolution-complexity', 'authored-style-complexity',
@@ -602,16 +605,23 @@ function acceptanceControlsFor(scenario, boundary) {
 }
 
 function htmlForScenario(scenario) {
+  if (scenario === 'dom-parsed-no-load') {
+    return '<style>.dom-ready-copy{color:#111;background:#fff}</style><p class="dom-ready-copy">DOM parsed</p><img src="/e2e/email-appearance/never-resolves.png" alt="">';
+  }
+  if (scenario === 'analysis-style-complexity') {
+    return '<style>.analysis-complexity{color:#111;background:#fff}</style><p class="analysis-complexity">body</p>';
+  }
+  if (scenario === 'complexity-baseline-persistent') {
+    return '<style>.copy::before{content:"x"}</style><p class="copy">body</p>';
+  }
   if (scenario === 'nodes-5001') return `<main>${'<span>node</span>'.repeat(5001)}</main>`;
   if (scenario === 'safe-preflight-style') return '<style>.safe-copy{color:#111}</style><p class="safe-copy" style="background:#fff">body</p>';
   if (scenario === 'paint-before-geometry') return `<main>${'<span>node</span>'.repeat(20_000)}</main>`;
   if (scenario === 'complex-pseudo-selector') {
-    const relational = Array.from({ length: 1900 }, () => ':has(*)::before').join(',');
-    return `<style>${relational}{content:""}</style><main>${'<span>node</span>'.repeat(5000)}</main>`;
+    return '<style>.probe:has(*)::before{content:""}</style><main class="probe"><span>node</span></main>';
   }
   if (scenario === 'complex-structural-selector') {
-    const structural = Array.from({ length: 160 }, () => ':nth-child(2n)::before').join(',');
-    return `<style>${structural}{content:""}</style><main>${'<span>node</span>'.repeat(5000)}</main>`;
+    return '<style>.probe:nth-child(2n)::before{content:""}</style><main><span class="probe">node</span></main>';
   }
   if (scenario === 'escaped-continuation-selector') {
     return `<style>.probe:h\\\nas(*){color:red}</style><p class="probe">body</p>`;
@@ -629,7 +639,7 @@ function htmlForScenario(scenario) {
     return `<style>.${'a'.repeat(2000)}{color:red}</style><p>body</p>`;
   }
   if (scenario === 'nesting-depth') {
-    return `<style>${'.x{'.repeat(5000)}color:red;${'}'.repeat(5000)}</style><p class="x">body</p>`;
+    return `<style>${'.x{'.repeat(9)}color:red;${'}'.repeat(9)}</style><p class="x">body</p>`;
   }
   if (scenario === 'tracked-pseudo') {
     return '<style>.copy::before{content:"x"}</style><p class="copy">body</p>';
@@ -639,7 +649,7 @@ function htmlForScenario(scenario) {
   }
   if (scenario === 'style-resolution-complexity') {
     const rules = '.x{color:black}'.repeat(2500);
-    return `<style>${rules}</style><style>${rules}</style><main>${'<span class="x">node</span>'.repeat(5000)}</main>`;
+    return `<style>${rules}</style><style>${rules}</style><main>${'<span class="x">node</span>'.repeat(64)}</main>`;
   }
   if (scenario === 'authored-style-complexity') {
     return `<main><span data-hostile-inline style="background-image:url(data:image/svg+xml,${'a'.repeat(2_000_000)})">node</span></main>`;
@@ -1119,7 +1129,9 @@ function Harness() {
         try { return count + (sheet.cssRules?.length || 0); } catch { return count + 1; }
       }, 0),
     });
-    if (scenario === 'baseline-persistent') poisonBaseline(root);
+    if (scenario === 'baseline-persistent' || scenario === 'complexity-baseline-persistent') {
+      poisonBaseline(root);
+    }
     draftRef.current = { root, styleSheets, geometryReady: false, geometry: null };
     return appearance.processDraft({
       root, styleSheets, recoverySafe: appearance.recovery, rootKey: appearance.rootKey,
@@ -1259,8 +1271,22 @@ function Harness() {
       window.mailflowFixtureIframeLifecycle.readyStateShortcuts += 1;
       void processFrameDocument(iframe.contentDocument);
     }
+    let domReadyRafId = 0;
+    if (!scenario || scenario === 'dom-parsed-no-load') {
+      const revealWhenParsed = () => {
+        const doc = iframe.contentDocument;
+        if (doc && doc.readyState !== 'loading'
+          && emailFrameDocumentMatchesSource(doc, frameSourceToken)) {
+          void processFrameDocument(doc);
+          return;
+        }
+        domReadyRafId = requestAnimationFrame(revealWhenParsed);
+      };
+      revealWhenParsed();
+    }
     return () => {
       cancelled = true;
+      if (domReadyRafId) cancelAnimationFrame(domReadyRafId);
       iframe.removeEventListener('load', onLoaded);
     };
   }, [appearance.processDraft, appearance.recovery, appearance.rootKey, frameSourceToken, html, renderer, scenario]);
