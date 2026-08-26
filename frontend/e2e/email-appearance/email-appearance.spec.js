@@ -134,6 +134,19 @@ for (const renderer of ['iframe', 'div']) {
     expect(result.remotePlaceholder).toMatchObject({ protected: true, sourceProtocol: 'data:' });
   });
 
+  test(`acceptance ${renderer} preserves inset-shadow text paint`, async ({ page }) => {
+    await page.goto(`/e2e/email-appearance/fixture.html?renderer=${renderer}&fixture=plain&theme=dark&mode=auto&scenario=inset-shadow`);
+    const result = await terminalResult(page, /themed/);
+    expect(result.protectedColors.after['inset-shadow']).toEqual(result.protectedColors.before['inset-shadow']);
+    expect(result.mutations.filter(mutation => (
+      mutation.protectedCase === 'inset-shadow' && mutation.kind === 'repair'
+    ))).toEqual([]);
+    const target = renderer === 'iframe'
+      ? page.frameLocator('iframe').locator('[data-case="inset-shadow"]')
+      : page.locator('[data-fixture-root] [data-case="inset-shadow"]');
+    await expect(target).toHaveCSS('box-shadow', /inset/);
+  });
+
   test(`acceptance ${renderer} keeps links and immutable downstream HTML on the real draft`, async ({ context, page }) => {
     await page.goto(`/e2e/email-appearance/fixture.html?renderer=${renderer}&fixture=quoted&theme=dark&mode=auto`);
     const result = await terminalResult(page, /themed/);

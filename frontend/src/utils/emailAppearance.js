@@ -31,6 +31,7 @@ const LAYOUT_TAGS = new Set([
 const IMAGE_BACKING_TAGS = new Set(['TD', 'TH', 'DIV', 'TABLE', 'CENTER']);
 const SNAPSHOT_PROPERTIES = [
   'color', 'webkitTextFillColor', 'backgroundColor', 'backgroundImage',
+  'boxShadow',
   'borderTopColor', 'borderTopWidth', 'borderTopStyle',
   'borderRightColor', 'borderRightWidth', 'borderRightStyle',
   'borderBottomColor', 'borderBottomWidth', 'borderBottomStyle',
@@ -54,6 +55,7 @@ function hasUnknownPixels(node) {
   const style = node.style;
   return RASTER_TAGS.has(node.tagName)
     || style.backgroundImage !== 'none'
+    || /\binset\b/i.test(style.boxShadow)
     || Number(style.opacity) < 1
     || style.filter !== 'none'
     || style.backdropFilter !== 'none'

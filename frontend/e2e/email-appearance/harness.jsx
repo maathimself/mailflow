@@ -62,7 +62,7 @@ const customCssCases = {
 
 const PROTECTED_CASES = new Set([
   'gradient', 'opacity', 'filter', 'backdrop', 'blend',
-  'logo-backing', 'qr', 'remote-placeholder',
+  'inset-shadow', 'logo-backing', 'qr', 'remote-placeholder',
 ]);
 
 function scopedRoot(root) {
@@ -668,6 +668,9 @@ function htmlForScenario(scenario) {
     </style>
     <p data-case="animated-text">Stable animated color text</p>
     <img data-case="animated-image" src="./assets/animated-status.svg" alt="Generic animated image asset">`;
+  }
+  if (scenario === 'inset-shadow') {
+    return '<div data-case="inset-shadow" style="background:#fff;color:#111;box-shadow:inset 0 0 0 9999px #fff">Inset-shadow text</div>';
   }
   if (scenario === 'important-paint-animation') {
     return `<style>

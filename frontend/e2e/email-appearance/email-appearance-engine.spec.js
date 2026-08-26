@@ -4,6 +4,7 @@ import { compositeColors, contrastRatio, parseCssColor } from '../../src/utils/e
 
 const baseStyle = {
   color: 'rgb(0, 0, 0)', backgroundColor: 'rgb(255, 255, 255)', backgroundImage: 'none',
+  boxShadow: 'none',
   borderTopColor: 'rgb(220, 220, 220)', borderTopWidth: '1px', borderTopStyle: 'solid',
   borderRightColor: 'rgb(220, 220, 220)', borderRightWidth: '1px', borderRightStyle: 'solid',
   borderBottomColor: 'rgb(220, 220, 220)', borderBottomWidth: '1px', borderBottomStyle: 'solid',

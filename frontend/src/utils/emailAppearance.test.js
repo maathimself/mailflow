@@ -31,6 +31,7 @@ const baseStyle = {
   borderRightColor: 'rgb(220, 220, 220)', borderRightWidth: '1px', borderRightStyle: 'solid',
   borderBottomColor: 'rgb(220, 220, 220)', borderBottomWidth: '1px', borderBottomStyle: 'solid',
   borderLeftColor: 'rgb(220, 220, 220)', borderLeftWidth: '1px', borderLeftStyle: 'solid',
+  boxShadow: 'none',
   opacity: '1', filter: 'none', backdropFilter: 'none', mixBlendMode: 'normal', backgroundBlendMode: 'normal',
   animationName: 'none', animationDuration: '0s', animationDelay: '0s',
   transitionProperty: 'all', transitionDuration: '0s', transitionDelay: '0s',
@@ -308,6 +309,7 @@ describe('planEmailAppearance', () => {
     ['backdrop filter', { backdropFilter: 'blur(1px)' }],
     ['mix blend mode', { mixBlendMode: 'multiply' }],
     ['background blend mode', { backgroundBlendMode: 'multiply' }],
+    ['inset shadow', { boxShadow: 'rgb(255, 255, 255) 0px 0px 0px 9999px inset' }],
     ['raster', {}, { tagName: 'IMG' }],
     ['image-only backing', {}, { imageOnlyBacking: true }],
   ]) {

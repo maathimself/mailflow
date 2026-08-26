@@ -26,11 +26,11 @@ function buildApp() {
   return app;
 }
 
-function cachedMessage(preferences) {
+function cachedMessage(preferences, bodyHtml = LEGACY_HTML) {
   return {
     id: MESSAGE_ID,
     account_id: '22222222-2222-4222-8222-222222222222',
-    body_html: LEGACY_HTML,
+    body_html: bodyHtml,
     body_text: 'content',
     attachments: [],
     snippet: 'content',
@@ -81,5 +81,28 @@ describe('GET /api/mail/messages/:id/body cached resource safety', () => {
     expect(cacheWrite[1][0]).not.toContain('/api/probe');
     expect(cacheWrite[1][0]).toContain('https://cdn.example/safe.png');
     expect(cacheWrite[1][1]).toBe(MESSAGE_ID);
+  });
+
+  it('persists one fully canonical value after all legacy cache transforms', async () => {
+    const legacyHtml = `<html><head><title>Legacy</title></head><body>
+      <a href="example.com">link</a>
+      <img src="https://svcs.ebay.com/imageser/1/render?imageUrl=https://i.ebayimg.com/t.jpg&amp;w=200">
+      <img src="/api/probe?src">
+    </body></html>`;
+    query.mockResolvedValueOnce({ rows: [cachedMessage({ blockRemoteImages: false }, legacyHtml)] });
+
+    const response = await fetch(`${base}/api/mail/messages/${MESSAGE_ID}/body`);
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.html).not.toContain('<head');
+    expect(body.html).not.toContain('svcs.ebay.com/imageser');
+    expect(body.html).not.toContain('/api/probe');
+    expect(body.html).toContain('href="https://example.com"');
+    expect(body.html).toContain('https://i.ebayimg.com/t.jpg');
+
+    const cacheWrites = query.mock.calls.filter(([sql]) => sql.includes('UPDATE messages SET body_html'));
+    expect(cacheWrites).toHaveLength(1);
+    expect(cacheWrites[0][1][0]).toBe(body.html);
   });
 });
