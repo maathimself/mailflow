@@ -14,8 +14,10 @@ function root({ throws = false, matches = true } = {}) {
       this.attributes.delete(name);
     },
     style: {
-      setProperty() {
+      properties: new Map(),
+      setProperty(name, value, priority) {
         if (throws) throw new Error('blocked root style');
+        this.properties.set(name, { value, priority });
       },
     },
   };
@@ -58,6 +60,9 @@ describe('applyEmailMediaMode bounded traversal', () => {
     for (const element of [documentElement, body]) {
       assert.equal(element.attributes.has('data-ogsc'), true);
       assert.equal(element.attributes.has('data-ogsb'), true);
+      assert.deepEqual(element.style.properties.get('color-scheme'), {
+        value: 'dark', priority: 'important',
+      });
     }
 
     assert.equal(applyEmailMediaMode({
@@ -66,6 +71,9 @@ describe('applyEmailMediaMode bounded traversal', () => {
     for (const element of [documentElement, body]) {
       assert.equal(element.attributes.has('data-ogsc'), false);
       assert.equal(element.attributes.has('data-ogsb'), false);
+      assert.deepEqual(element.style.properties.get('color-scheme'), {
+        value: 'light', priority: 'important',
+      });
     }
   });
 

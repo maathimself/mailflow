@@ -61,8 +61,8 @@ function setRootMode(root, scopedRoot, scheme) {
       element.removeAttribute('data-ogsc');
       element.removeAttribute('data-ogsb');
     }
+    element.style.setProperty('color-scheme', scheme, 'important');
   }
-  scopedRoot.style.setProperty('color-scheme', scheme, 'important');
 }
 
 export function applyEmailMediaMode({

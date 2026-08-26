@@ -1122,6 +1122,7 @@ for (const renderer of ['iframe', 'div']) {
       await expect(email.locator('.outlook-html')).toHaveCSS('color', 'rgb(7, 8, 9)');
       await expect(email.locator('.outlook-root')).toHaveCSS('color', 'rgb(10, 11, 12)');
       await expect(email.locator('.outlook-body')).toHaveCSS('color', 'rgb(13, 14, 15)');
+      await expect(email.locator('.scheme-dependent')).toHaveCSS('background-color', 'rgb(16, 17, 18)');
     });
   });
 }

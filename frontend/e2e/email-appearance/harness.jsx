@@ -690,10 +690,12 @@ function htmlForScenario(scenario) {
       html[data-ogsc] .outlook-html { color:rgb(7, 8, 9); }
       :root[data-ogsc] .outlook-root { color:rgb(10, 11, 12); }
       body[data-ogsc] .outlook-body { color:rgb(13, 14, 15); }
+      .scheme-dependent { background-color:light-dark(rgb(1, 2, 3), rgb(16, 17, 18)); }
     </style>
     <p class="outlook-html">HTML-qualified Outlook rule</p>
     <p class="outlook-root">Root-qualified Outlook rule</p>
-    <p class="outlook-body">Body-qualified Outlook rule</p>`;
+    <p class="outlook-body">Body-qualified Outlook rule</p>
+    <p class="scheme-dependent">Scheme-dependent paint</p>`;
   }
   if (scenario === 'inset-shadow') {
     return '<div data-case="inset-shadow" style="background:#fff;color:#111;box-shadow:inset 0 0 0 9999px #fff">Inset-shadow text</div>';
