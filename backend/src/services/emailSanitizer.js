@@ -208,12 +208,15 @@ function normalizeHref(href) {
   } catch { /* handled by the relative/bare-domain policy below */ }
   // Fragment, root-relative, path-relative, query-only — unsafe to resolve in iframe
   if (/^[#/?.\\]/i.test(h)) return null;
-  // Explicitly block dangerous schemes even if they somehow reach this point
-  if (h.includes(':')) return null;
-  // Bare domain (e.g. "benchmade.com", "www.example.com/path") — no scheme, has a dot
+  // Bare domain (e.g. "benchmade.com", "example.com:8443/path") — no scheme,
+  // starts like a hostname, and has a dot. Parsing the https-prefixed candidate
+  // rejects invalid hosts and non-numeric/out-of-range ports before we accept it.
   if (/^[a-z0-9]/i.test(h) && h.includes('.')) {
-    return classifyResourceUrl(`https://${h}`)?.url ?? null;
+    const normalized = classifyResourceUrl(`https://${h}`)?.url;
+    if (normalized) return normalized;
   }
+  // Explicitly block dangerous or unknown schemes that reached this point.
+  if (h.includes(':')) return null;
   return null;
 }
 

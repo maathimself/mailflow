@@ -102,6 +102,11 @@ describe('sanitizeEmail — link handling', () => {
     expect(out).toContain('href="https://www.example.com/path?q=1"');
   });
 
+  it('upgrades a bare domain with a port to https', () => {
+    const out = sanitizeEmail('<a href="example.com:8443/path">link</a>');
+    expect(out).toContain('href="https://example.com:8443/path"');
+  });
+
   it('upgrades protocol-relative href to https', () => {
     const out = sanitizeEmail('<a href="//example.com/foo">link</a>');
     expect(out).toContain('href="https://example.com/foo"');
@@ -157,6 +162,11 @@ describe('rewriteAnchorHrefs', () => {
   it('upgrades bare domain with path', () => {
     const out = rewriteAnchorHrefs('<a href="www.example.com/foo">x</a>');
     expect(out).toContain('href="https://www.example.com/foo"');
+  });
+
+  it('upgrades a bare domain with a port', () => {
+    const out = rewriteAnchorHrefs('<a href="example.com:8443/path">x</a>');
+    expect(out).toContain('href="https://example.com:8443/path"');
   });
 
   it('upgrades protocol-relative href', () => {
