@@ -15,6 +15,19 @@ export function attachEmailBodyLinkHandler(root, openWindow) {
   return () => root.removeEventListener('click', handler);
 }
 
+export function createEmailFrameContextMenuHandler({ document, iframe, getActions }) {
+  return event => {
+    const { hasNativeContextTarget, openPaneContextMenu } = getActions();
+    if (hasNativeContextTarget(event, document)) return;
+    event.preventDefault();
+    const rect = iframe.getBoundingClientRect();
+    openPaneContextMenu(rect.left + event.clientX, rect.top + event.clientY, {
+      source: 'iframe',
+      selectedText: document.getSelection?.().toString() || '',
+    });
+  };
+}
+
 export function createEmailScrollExpander(root) {
   const expanded = new Set();
   return () => {

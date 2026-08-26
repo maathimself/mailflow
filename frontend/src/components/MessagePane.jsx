@@ -28,6 +28,7 @@ import {
   applyEmailDivGeometry,
   applyEmailIframeGeometry,
   attachEmailBodyLinkHandler,
+  createEmailFrameContextMenuHandler,
   createEmailScrollExpander,
   handleEmailBodyLinkClick,
 } from '../utils/emailRenderRuntime.js';
@@ -388,6 +389,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const imagesRequestedRef = useRef(new Set());
   // Ref holding the latest pane action handlers so shortcut subscriptions ([] deps) never go stale
   const paneActionsRef = useRef({});
+  const iframeContextActionsRef = useRef({});
   const emailScaleRef = useRef(1); // scale applied to wide emails that resist CSS reflow
 
   const getPaneSelectionText = useCallback(() => {
@@ -440,6 +442,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       source: 'pane',
     });
   }, [getPaneSelectionText, hasNativeContextTarget, openPaneContextMenu]);
+  iframeContextActionsRef.current = { hasNativeContextTarget, openPaneContextMenu };
 
   // Track previous blocking policy so we can detect tightening vs loosening.
   const prevBlockingPolicyRef = useRef(null);
@@ -662,15 +665,11 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       if (contextMenuDoc && iframeContextMenuHandler) {
         contextMenuDoc.removeEventListener('contextmenu', iframeContextMenuHandler);
       }
-      iframeContextMenuHandler = (ev) => {
-        if (hasNativeContextTarget(ev, doc)) return;
-        ev.preventDefault();
-        const rect = iframe.getBoundingClientRect();
-        openPaneContextMenu(rect.left + ev.clientX, rect.top + ev.clientY, {
-          source: 'iframe',
-          selectedText: doc.getSelection?.().toString() || '',
-        });
-      };
+      iframeContextMenuHandler = createEmailFrameContextMenuHandler({
+        document: doc,
+        iframe,
+        getActions: () => iframeContextActionsRef.current,
+      });
       contextMenuDoc = doc;
       doc.addEventListener('contextmenu', iframeContextMenuHandler);
 
@@ -718,7 +717,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       iframe.removeEventListener('load', onLoaded);
       emailScaleRef.current = 1;
     };
-  }, [appearance.processToken, appearance.recovery, appearance.rootKey, body?.html, hasNativeContextTarget, iframeSourceToken, openPaneContextMenu, processEmailDraft, selectedMessageId]);
+  }, [appearance.processToken, appearance.recovery, appearance.rootKey, body?.html, iframeSourceToken, processEmailDraft, selectedMessageId]);
 
   // Inject scoped email styles before paint so there is no flash of unstyled content.
   // useLayoutEffect runs synchronously after DOM mutations and before the browser paints,

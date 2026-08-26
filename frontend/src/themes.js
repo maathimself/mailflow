@@ -769,7 +769,7 @@ export function applyTheme(themeName) {
   // Expose the active theme as an attribute so a theme can layer scoped skeuomorphic
   // chrome (beveled scrollbars, selection tint) via CSS in index.css without adding
   // structural tokens to every palette. Retro themes (winxp/win9x) use this.
-  document.documentElement.setAttribute('data-mailflow-theme', THEMES[themeName] ? themeName : 'dark');
+  document.documentElement.setAttribute('data-mailflow-theme', selectedThemeName);
 
   // Inject vars via a <style> element rather than root.style.setProperty so
   // that <style id="mailflow-custom-css"> (appended afterward) can override

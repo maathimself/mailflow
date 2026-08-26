@@ -52,12 +52,16 @@ describe('THEMES CSS-var contract', () => {
 
 function fakeDocument() {
   const nodes = new Map();
+  const attributes = new Map();
   const appendChild = node => {
     node.isConnected = true;
     if (node.id) nodes.set(node.id, node);
   };
   return {
-    documentElement: { setAttribute() {} },
+    documentElement: {
+      setAttribute(name, value) { attributes.set(name, value); },
+      getAttribute(name) { return attributes.get(name) ?? null; },
+    },
     head: { appendChild },
     createElement: () => ({
       style: {},
@@ -150,6 +154,7 @@ describe('appearance change notifications', () => {
 
         assert.deepEqual(events.map(event => event.themeName), ['dark'], inheritedName);
         assert.ok(events[0].themeCss.includes('--bg-primary: #0f0f11;'), inheritedName);
+        assert.equal(document.documentElement.getAttribute('data-mailflow-theme'), 'dark', inheritedName);
       });
     }
   });
