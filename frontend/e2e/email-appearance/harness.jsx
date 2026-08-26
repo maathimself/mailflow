@@ -606,7 +606,7 @@ function acceptanceControlsFor(scenario, boundary) {
 
 function htmlForScenario(scenario) {
   if (scenario === 'dom-parsed-no-load') {
-    return '<style>.dom-ready-copy{color:#111;background:#fff}</style><p class="dom-ready-copy">DOM parsed</p><img src="/e2e/email-appearance/never-resolves.png" alt="">';
+    return '<style>.dom-ready-copy{width:2000px;color:#111;background:#fff}</style><p class="dom-ready-copy">DOM parsed</p><img src="/e2e/email-appearance/never-resolves.png" alt="">';
   }
   if (scenario === 'analysis-style-complexity') {
     return '<style>.analysis-complexity{color:#111;background:#fff}</style><p class="analysis-complexity">body</p>';
@@ -648,8 +648,8 @@ function htmlForScenario(scenario) {
     return '<p data-hostile-inline style="color:var(--unknown)">My style="bold" today</p>';
   }
   if (scenario === 'style-resolution-complexity') {
-    const rules = '.x{color:black}'.repeat(2500);
-    return `<style>${rules}</style><style>${rules}</style><main>${'<span class="x">node</span>'.repeat(64)}</main>`;
+    const rules = '.x{color:black}'.repeat(5001);
+    return `<style>${rules}</style><main>${'<span class="x">node</span>'.repeat(64)}</main>`;
   }
   if (scenario === 'authored-style-complexity') {
     return `<main><span data-hostile-inline style="background-image:url(data:image/svg+xml,${'a'.repeat(2_000_000)})">node</span></main>`;
@@ -1203,6 +1203,7 @@ function Harness() {
     const previousSource = acceptedFrameSourceRef.current;
     let processedDocument = null;
     let cancelled = false;
+    let frameScale = 1;
 
     const afterNextPaint = () => new Promise(resolve => {
       requestAnimationFrame(() => requestAnimationFrame(resolve));
@@ -1214,6 +1215,7 @@ function Harness() {
         window.mailflowFixtureIframeLifecycle.rejectedSources += 1;
         return false;
       }
+      frameScale = 1;
       processedDocument = frameDocument;
       if (scenario === 'stale-ready-state'
         && previousDocument
@@ -1244,7 +1246,9 @@ function Harness() {
       }
       acceptedFrameDocumentRef.current = frameDocument;
       acceptedFrameSourceRef.current = frameSourceToken;
-      finishGeometry(frameDocument, setupIframeGeometry(frameDocument, iframe));
+      const geometry = setupIframeGeometry(frameDocument, iframe);
+      frameScale = geometry.scale;
+      finishGeometry(frameDocument, geometry);
       if (scenario === 'paint-before-geometry') {
         window.mailflowFixtureGeometryFinishedAt = performance.now();
       }
@@ -1254,7 +1258,9 @@ function Harness() {
 
     const onLoaded = () => {
       window.mailflowFixtureIframeLifecycle.loads += 1;
-      void processFrameDocument(iframe.contentDocument);
+      void processFrameDocument(iframe.contentDocument).then(() => {
+        window.mailflowFixtureIframeLifecycle.scaleAfterLoad = frameScale;
+      });
     };
     iframe.addEventListener('load', onLoaded, { once: true });
     if (scenario === 'stale-ready-state'

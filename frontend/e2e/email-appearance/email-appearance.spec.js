@@ -778,7 +778,12 @@ test('controller iframe reveals after DOM parsing while a subresource is still p
   try {
     const result = await terminalResult(page, /themed/);
     expect(result).toMatchObject({ visibility: 'visible', geometryPasses: 1 });
+    expect(result.geometry.scale).toBeLessThan(1);
     expect(await page.evaluate(() => document.querySelector('iframe').contentDocument.readyState)).toBe('interactive');
+    releaseResource?.();
+    releaseResource = null;
+    await expect.poll(() => page.evaluate(() => window.mailflowFixtureIframeLifecycle.loads)).toBe(1);
+    await expect.poll(() => page.evaluate(() => window.mailflowFixtureIframeLifecycle.scaleAfterLoad)).toBe(result.geometry.scale);
   } finally {
     releaseResource?.();
   }

@@ -1,4 +1,5 @@
 import sanitizeHtml from 'sanitize-html';
+import parseSrcset from 'parse-srcset';
 
 // Strip the <head> element from email HTML, preserving any <style> blocks inside it.
 //
@@ -144,32 +145,36 @@ function upgradeUrl(url) {
 }
 
 function transformSrcsetUrls(srcset, transform) {
-  let out = '';
-  let cursor = 0;
-  while (cursor < srcset.length) {
-    const separatorStart = cursor;
-    while (cursor < srcset.length && (isCssWhitespace(srcset[cursor]) || srcset[cursor] === ',')) cursor++;
-    out += srcset.slice(separatorStart, cursor);
-    if (cursor >= srcset.length) break;
-    const candidateStart = cursor;
-    const dataLike = /^(?:data|cid):/i.test(srcset.slice(cursor));
-    while (cursor < srcset.length && !isCssWhitespace(srcset[cursor])
-      && (dataLike || srcset[cursor] !== ',')) cursor++;
-    out += transform(srcset.slice(candidateStart, cursor));
-    const descriptorStart = cursor;
-    while (cursor < srcset.length && srcset[cursor] !== ',') cursor++;
-    out += srcset.slice(descriptorStart, cursor);
+  let candidates;
+  try {
+    candidates = parseSrcset(srcset);
+  } catch {
+    return null;
   }
-  return out;
+  if (!candidates.length) return null;
+  const transformed = [];
+  for (const candidate of candidates) {
+    const url = transform(candidate.url);
+    if (typeof url !== 'string' || !url) return null;
+    const descriptor = candidate.w !== undefined
+      ? `${candidate.w}w`
+      : candidate.d !== undefined
+        ? `${candidate.d}x`
+        : candidate.h !== undefined
+          ? `${candidate.h}h`
+          : '';
+    transformed.push(descriptor ? `${url} ${descriptor}` : url);
+  }
+  return transformed.join(', ');
 }
 
 function srcsetHasNetworkUrl(srcset) {
   let found = false;
-  transformSrcsetUrls(srcset, candidate => {
+  const parsed = transformSrcsetUrls(srcset, candidate => {
     if (isNetworkResource(candidate)) found = true;
     return candidate;
   });
-  return found;
+  return parsed === null || found;
 }
 
 function sanitizeSrcset(srcset) {

@@ -258,6 +258,13 @@ describe('sanitizeEmail — image handling', () => {
     expect(unsafe).not.toContain('/api/probe');
   });
 
+  it('does not hide a later srcset candidate in a descriptor-less data URL', () => {
+    const unsafe = sanitizeEmail('<img srcset="data:image/png;base64,AAAA, /api/probe?later 2x">');
+
+    expect(unsafe).not.toContain('srcset=');
+    expect(unsafe).not.toContain('/api/probe');
+  });
+
   it('adds loading="lazy" to remote images', () => {
     const out = sanitizeEmail('<img src="https://example.com/img.jpg">');
     expect(out).toContain('loading="lazy"');
@@ -535,6 +542,13 @@ describe('hasRemoteImages', () => {
 
   it('preserves a data URL comma while detecting an unsafe later srcset candidate', () => {
     const html = '<img srcset="data:image/png;base64,AAAA 1x, /api/probe?later 2x">';
+
+    expect(hasRemoteImages(html)).toBe(true);
+    expect(blockRemoteImages(html)).not.toContain('srcset=');
+  });
+
+  it('detects a remote candidate after a descriptor-less data URL', () => {
+    const html = '<img srcset="data:image/png;base64,AAAA, https://tracker.invalid/pixel.png 2x">';
 
     expect(hasRemoteImages(html)).toBe(true);
     expect(blockRemoteImages(html)).not.toContain('srcset=');

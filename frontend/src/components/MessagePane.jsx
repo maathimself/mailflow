@@ -611,12 +611,11 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     };
 
     const onLoaded = async () => {
-      emailScaleRef.current = 1; // reset for each new email
-
       const doc = iframe.contentDocument;
       if (!doc
         || processedDocument === doc
         || !emailFrameDocumentMatchesSource(doc, iframeSourceToken)) return;
+      emailScaleRef.current = 1; // reset for each new email
       processedDocument = doc;
       const ready = await processEmailDraft({
         root: doc,

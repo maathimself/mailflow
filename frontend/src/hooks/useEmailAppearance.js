@@ -178,6 +178,9 @@ export function useEmailAppearance({ messageId, html, preference, themeName }) {
       return rebuildFallback(baseline.reason, generation);
     }
     if (descriptor.fallback) {
+      if (!descriptor.recovery && baseline.removedSheets > 0) {
+        return rebuildFallback(descriptor.fallbackReason || 'baseline_fail_closed', generation);
+      }
       if (descriptor.recovery && !recoverySafe) return false;
       return publishTerminal('fallback', generation, import.meta.env.DEV
         ? { ...baseline, reason: descriptor.fallbackReason || baseline.reason }
