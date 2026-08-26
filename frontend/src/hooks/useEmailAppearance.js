@@ -31,18 +31,6 @@ function preloadAutomaticEngine() {
   void loadAutomaticEngine().catch(() => {});
 }
 
-function neutralizeRootFilters(root) {
-  const documentRoot = root?.nodeType === 9;
-  const nodes = documentRoot
-    ? [root.documentElement, root.body, root.getElementById('mf-scale-wrapper')]
-    : [root];
-  for (const node of nodes) {
-    if (!node?.style) continue;
-    node.style.setProperty('filter', 'none', 'important');
-    node.style.setProperty('backdrop-filter', 'none', 'important');
-  }
-}
-
 function initialDescriptor(desiredMode, messageId, html, stylePreflight) {
   const fallback = desiredMode === 'auto' && stylePreflight.status !== 'ready';
   return {
@@ -182,7 +170,6 @@ export function useEmailAppearance({ messageId, html, preference, themeName }) {
     const clock = controls?.clock || (() => performance.now());
     const startedAt = clock();
     const deadline = startedAt + 100;
-    neutralizeRootFilters(root);
     const baseline = applyEmailMediaMode({ root, styleSheets, scheme: 'light', failClosed: true, deadline, clock });
     if (baseline.status !== 'ready') {
       // A recovery shell contains no sender-owned styles and has the marked
@@ -430,5 +417,3 @@ export function useEmailAppearance({ messageId, html, preference, themeName }) {
   }
   return result;
 }
-
-export { neutralizeRootFilters };

@@ -84,6 +84,12 @@ export function applyEmailIframeGeometry({ document: frameDocument, iframe, expa
     element.style.setProperty('min-height', '0', 'important');
     element.style.setProperty('overflow-y', 'hidden', 'important');
   }
+  const wrapper = frameDocument.getElementById('mf-scale-wrapper');
+  if (wrapper) {
+    wrapper.style.transform = '';
+    wrapper.style.transformOrigin = '';
+    wrapper.style.width = '';
+  }
   const viewportWidth = iframe.offsetWidth || iframe.clientWidth;
   body.style.setProperty('overflow-x', 'visible', 'important');
   root.style.setProperty('overflow-x', 'visible', 'important');
@@ -93,7 +99,6 @@ export function applyEmailIframeGeometry({ document: frameDocument, iframe, expa
   const scale = viewportWidth > 0 && naturalWidth > viewportWidth + 2
     ? viewportWidth / naturalWidth
     : 1;
-  const wrapper = frameDocument.getElementById('mf-scale-wrapper');
   if (wrapper && scale < 1) {
     wrapper.style.transform = `scale(${scale})`;
     wrapper.style.transformOrigin = 'top left';

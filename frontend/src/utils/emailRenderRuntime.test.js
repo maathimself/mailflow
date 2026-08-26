@@ -1,6 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createEmailFrameContextMenuHandler } from './emailRenderRuntime.js';
+import {
+  applyEmailIframeGeometry,
+  createEmailFrameContextMenuHandler,
+} from './emailRenderRuntime.js';
 
 describe('createEmailFrameContextMenuHandler', () => {
   it('uses the latest pane actions without reinstalling the document handler', () => {
@@ -30,5 +33,33 @@ describe('createEmailFrameContextMenuHandler', () => {
       y: 26,
       options: { source: 'iframe', selectedText: 'selected text' },
     }]);
+  });
+});
+
+describe('applyEmailIframeGeometry', () => {
+  it('clears a stale wrapper scale before measuring a narrower reflow', () => {
+    const style = () => ({
+      setProperty(name, value) { this[name] = value; },
+      removeProperty(name) { delete this[name]; },
+    });
+    const wrapper = {
+      style: { width: '1000px', transform: 'scale(0.5)', transformOrigin: 'top left' },
+    };
+    const root = { style: style(), scrollHeight: 200, get scrollWidth() { return wrapper.style.width ? 1000 : 400; } };
+    const body = { style: style(), scrollHeight: 200, get scrollWidth() { return wrapper.style.width ? 1000 : 400; } };
+    const document = {
+      body,
+      documentElement: root,
+      getElementById: id => id === 'mf-scale-wrapper' ? wrapper : null,
+    };
+
+    const geometry = applyEmailIframeGeometry({
+      document,
+      iframe: { offsetWidth: 500, clientWidth: 500 },
+    });
+
+    assert.equal(geometry.naturalWidth, 400);
+    assert.equal(geometry.scale, 1);
+    assert.deepEqual(wrapper.style, { width: '', transform: '', transformOrigin: '' });
   });
 });

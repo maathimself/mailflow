@@ -951,6 +951,27 @@ for (const renderer of ['iframe', 'div']) {
 }
 
 for (const renderer of ['iframe', 'div']) {
+  test(`controller ${renderer} preserves sender root filters in Original colors`, async ({ page }) => {
+    await page.goto(`/e2e/email-appearance/fixture.html?renderer=${renderer}&fixture=plain&theme=dark&mode=original&scenario=root-filters`);
+    await terminalResult(page, /original/);
+    const filters = await page.evaluate(() => ({
+      filter: window.mailflowFixtureRoot.style.getPropertyValue('filter'),
+      backdropFilter: window.mailflowFixtureRoot.style.getPropertyValue('backdrop-filter'),
+    }));
+    expect(filters).toEqual({ filter: 'invert(1)', backdropFilter: 'blur(1px)' });
+  });
+
+  test(`controller ${renderer} fails closed without removing sender root filters`, async ({ page }) => {
+    await page.goto(`/e2e/email-appearance/fixture.html?renderer=${renderer}&fixture=plain&theme=dark&mode=auto&scenario=root-filters`);
+    const result = await terminalResult(page, /fallback/);
+    expect(result.reason).toBe('protected_backdrop_unpreservable');
+    const filters = await page.evaluate(() => ({
+      filter: window.mailflowFixtureRoot.style.getPropertyValue('filter'),
+      backdropFilter: window.mailflowFixtureRoot.style.getPropertyValue('backdrop-filter'),
+    }));
+    expect(filters).toEqual({ filter: 'invert(1)', backdropFilter: 'blur(1px)' });
+  });
+
   test(`controller ${renderer} keeps styles for hostile async HTML after complexity preflight`, async ({ page }) => {
     await page.goto(`/e2e/email-appearance/fixture.html?renderer=${renderer}&fixture=plain&theme=dark&mode=auto`);
     const initial = await terminalResult(page, /themed/);

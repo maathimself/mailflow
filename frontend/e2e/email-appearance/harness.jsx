@@ -1159,6 +1159,10 @@ function Harness() {
       rootsRef.current.add(resolvedRoot);
       countsRef.current.roots += 1;
       countsRef.current.parses += 1;
+      if (scenario === 'root-filters') {
+        resolvedRoot.style.setProperty('filter', 'invert(1)', 'important');
+        resolvedRoot.style.setProperty('backdrop-filter', 'blur(1px)', 'important');
+      }
     }
     countsRef.current.processCalls += 1;
     countsRef.current.startedAt = performance.now();
