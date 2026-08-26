@@ -34,10 +34,25 @@ describe('scopeEmailCss Outlook root selectors', () => {
   });
 
   it('drops malformed selector lists instead of normalizing them into valid scoped CSS', () => {
-    assert.doesNotMatch(
-      scopeEmailCss('.bad,,.also { color:red }', 'email-test'),
-      /bad|also/,
-    );
+    for (const selector of [
+      '.bad,,.also',
+      ', .item',
+      '.item,',
+      '.item, , .other',
+      '.item,/**/,.other',
+    ]) {
+      assert.equal(scopeEmailCss(`${selector} { color:red }`, 'email-test'), '', selector);
+    }
+  });
+
+  it('keeps selector commas that do not create empty top-level arms', () => {
+    for (const selector of [
+      '.item:is(.first,.last)',
+      '[data-value=",,"]',
+      '.escaped\\,comma',
+    ]) {
+      assert.match(scopeEmailCss(`${selector} { color:red }`, 'email-test'), /color:red/, selector);
+    }
   });
 });
 

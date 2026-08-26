@@ -26,6 +26,47 @@ function scopeSelector(selector, prefix) {
   return text ? `.${prefix} ${text}` : `.${prefix}`;
 }
 
+function hasEmptySelectorArm(selector) {
+  let hasToken = false;
+  let bracketDepth = 0;
+  let parenDepth = 0;
+  let quote = null;
+
+  for (let index = 0; index < selector.length; index += 1) {
+    const char = selector[index];
+    if (char === '\\') {
+      hasToken = true;
+      index += 1;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      hasToken = true;
+      continue;
+    }
+    if (char === '/' && selector[index + 1] === '*') {
+      const end = selector.indexOf('*/', index + 2);
+      index = end < 0 ? selector.length : end + 1;
+      continue;
+    }
+    if (char === '[') bracketDepth += 1;
+    else if (char === ']' && bracketDepth > 0) bracketDepth -= 1;
+    else if (char === '(') parenDepth += 1;
+    else if (char === ')' && parenDepth > 0) parenDepth -= 1;
+    else if (char === ',' && bracketDepth === 0 && parenDepth === 0) {
+      if (!hasToken) return true;
+      hasToken = false;
+      continue;
+    }
+    if (!/\s/.test(char)) hasToken = true;
+  }
+  return !hasToken;
+}
+
 export function scopeEmailCss(cssText, prefix) {
   let root;
   try { root = postcss.parse(cssText); } catch { return ''; }
@@ -43,7 +84,7 @@ export function scopeEmailCss(cssText, prefix) {
   // Keyframe selectors (from, to, 0%) are gone after pass 1, so no special
   // parent-check is needed here.
   root.walkRules(rule => {
-    if (rule.selector.includes(',,')) {
+    if (hasEmptySelectorArm(rule.selector)) {
       rule.remove();
       return;
     }
