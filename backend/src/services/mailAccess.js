@@ -22,6 +22,30 @@ export async function loadOwnedMessage(userId, messageId) {
   return rows[0] || null;
 }
 
+export async function loadOwnedMessages(userId, messageIds) {
+  if (!messageIds?.length) return [];
+  const { rows } = await query(
+    `SELECT m.*
+       FROM messages m
+       JOIN email_accounts a ON a.id = m.account_id
+      WHERE a.user_id = $1
+        AND m.id = ANY($2::uuid[])
+        AND m.is_deleted = false`,
+    [userId, messageIds]
+  );
+  return rows;
+}
+
+export async function loadOwnedContact(userId, contactId) {
+  const { rows } = await query(
+    `SELECT c.id, c.display_name, c.primary_email
+       FROM contacts c
+      WHERE c.id = $1 AND c.user_id = $2`,
+    [contactId, userId]
+  );
+  return rows[0] || null;
+}
+
 // One of the user's accounts by id (ownership enforced), or null. Full row.
 export async function getOwnedAccount(userId, accountId) {
   const { rows } = await query(
@@ -101,6 +125,37 @@ export async function getMessagesByThreadKeys(accountId, threadKeys) {
   return rows;
 }
 
+export async function getThreadAnnotationRows(accountId, threadKeys) {
+  if (!threadKeys?.length) return [];
+  const { rows } = await query(
+    `SELECT id, thread_key, plugin_annotations FROM messages
+      WHERE account_id = $1
+        AND thread_key = ANY($2::text[])
+        AND is_deleted = false`,
+    [accountId, threadKeys]
+  );
+  return rows;
+}
+
+export async function getAnnotatedThreadKeysMissingFolder(accountId, folder, pluginId, key) {
+  const { rows } = await query(
+    `SELECT DISTINCT annotated.thread_key
+       FROM messages annotated
+      WHERE annotated.account_id = $1
+        AND annotated.is_deleted = false
+        AND annotated.plugin_annotations -> $3 -> $4 IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM messages label
+           WHERE label.account_id = annotated.account_id
+             AND label.thread_key = annotated.thread_key
+             AND label.folder = $2
+             AND label.is_deleted = false
+        )`,
+    [accountId, folder, pluginId, key]
+  );
+  return rows.map(row => row.thread_key);
+}
+
 // The thread key of a single message identified by its (uid, folder) within an account, or null.
 export async function getThreadKeyForUid(accountId, uid, folder) {
   const { rows } = await query(
@@ -147,6 +202,32 @@ export async function getMessageAnnotations(accountId, ids, pluginId) {
   return out;
 }
 
+// Label-folder membership for a bounded set of message rows. Targets are scoped to one account;
+// their live siblings are joined by the stored thread key so plugins can decorate existing rows
+// without adding feature-specific joins to the core message-list query.
+export async function getLabelMetadata(accountId, messageIds, labelFolders) {
+  if (!messageIds?.length || !labelFolders?.length) return [];
+  const { rows } = await query(
+    `SELECT target.id AS message_id, sibling.folder, MAX(sibling.date) AS date
+       FROM messages target
+       JOIN messages sibling
+         ON sibling.account_id = target.account_id
+        AND sibling.thread_key = target.thread_key
+        AND sibling.folder = ANY($3::text[])
+        AND sibling.is_deleted = false
+      WHERE target.account_id = $1
+        AND target.id = ANY($2::uuid[])
+      GROUP BY target.id, sibling.folder
+      ORDER BY target.id, sibling.folder`,
+    [accountId, messageIds, labelFolders]
+  );
+  return rows.map(row => ({
+    messageId: row.message_id,
+    folder: row.folder,
+    date: row.date == null ? null : new Date(row.date).toISOString(),
+  }));
+}
+
 // Merge `patch` into a plugin's namespace of a message's annotations (creating the namespace if
 // absent). Only ever touches plugin_annotations -> pluginId. Returns rows updated (0 if the
 // message isn't in the account). The annotation cache is cleaned with the message row on delete.
@@ -160,6 +241,33 @@ export async function setMessageAnnotation(accountId, messageId, pluginId, patch
               true)
       WHERE id = $2 AND account_id = $1`,
     [accountId, messageId, pluginId, JSON.stringify(patch)]
+  );
+  return rowCount;
+}
+
+export async function setThreadAnnotation(accountId, threadKey, pluginId, key, value) {
+  if (value === null) {
+    const { rowCount } = await query(
+      `UPDATE messages
+          SET plugin_annotations = jsonb_set(
+                COALESCE(plugin_annotations, '{}'::jsonb),
+                ARRAY[$3::text],
+                COALESCE((plugin_annotations -> $3) - $4, '{}'::jsonb),
+                true)
+        WHERE account_id = $1 AND thread_key = $2 AND is_deleted = false`,
+      [accountId, threadKey, pluginId, key]
+    );
+    return rowCount;
+  }
+  const { rowCount } = await query(
+    `UPDATE messages
+        SET plugin_annotations = jsonb_set(
+              COALESCE(plugin_annotations, '{}'::jsonb),
+              ARRAY[$3::text],
+              COALESCE(plugin_annotations -> $3, '{}'::jsonb) || jsonb_build_object($4::text, $5::jsonb),
+              true)
+      WHERE account_id = $1 AND thread_key = $2 AND is_deleted = false`,
+    [accountId, threadKey, pluginId, key, JSON.stringify(value)]
   );
   return rowCount;
 }

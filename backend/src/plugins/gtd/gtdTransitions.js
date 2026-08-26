@@ -1,5 +1,7 @@
 import { getGtdConfig } from './gtdConfig.js';
 import { resolveAllDraftsPaths, logger, getAccountAddresses, getThreadKeysForMessageIds as _threadKeysForIds, getThreadKeysInFolders as _threadKeysInFolders, getThreadKeysForMessageIdHeaders, getMessagesByThreadKeys } from '../api.js';
+import { getThreadAnnotationRows } from '../gtdApi.js';
+import { withGtdDelegationLock } from './gtdDelegationLock.js';
 
 // Transition rules for auto-stripping a GTD label once a thread's state has moved on,
 // evaluated per thread against its LAST non-draft message. Designed to match the
@@ -69,6 +71,15 @@ export async function getOwnerAddresses(accountId) {
 export const threadKeysForMessageIds = (accountId, ids) => _threadKeysForIds(accountId, ids);
 export const threadKeysInFolders = (accountId, folders) => _threadKeysInFolders(accountId, folders);
 
+async function withThreadTransitionLocks(accountId, keys, work, index = 0) {
+  if (index >= keys.length) return work();
+  return withGtdDelegationLock(
+    accountId,
+    keys[index],
+    () => withThreadTransitionLocks(accountId, keys, work, index + 1),
+  );
+}
+
 // ── Transition engine ────────────────────────────────────────────────────────
 // Apply the GTD Labeler rules to a set of threads for one account.
 //
@@ -111,17 +122,35 @@ export async function runGtdTransitions(imapManager, account, threadKeys) {
   const draftPaths = await resolveAllDraftsPaths(account.id, account.folder_mappings);
   const owner = await getOwnerAddresses(account.id);
 
-  const rows = await getMessagesByThreadKeys(account.id, keys);
+  // Acquire every affected thread in stable order before taking the message/annotation snapshot.
+  // An explicit delegation uses the same lock. Whichever operation entered first therefore
+  // finishes first, and a tick can never inspect a half-written label + delegation marker.
+  await withThreadTransitionLocks(account.id, [...keys].sort(), async () => {
+    const [rows, annotationRows] = await Promise.all([
+      getMessagesByThreadKeys(account.id, keys),
+      getThreadAnnotationRows(account.id, keys),
+    ]);
 
-  const byThread = new Map();
-  for (const row of rows) {
-    if (!byThread.has(row.thread_key)) byThread.set(row.thread_key, []);
-    byThread.get(row.thread_key).push(row);
-  }
+    const delegatedAtByThread = new Map();
+    for (const row of annotationRows) {
+      const raw = row.plugin_annotations?.gtd?.delegation?.delegatedAt;
+      const timestamp = Date.parse(raw);
+      if (!Number.isFinite(timestamp)) continue;
+      const previous = delegatedAtByThread.get(row.thread_key);
+      if (previous == null || timestamp > previous) {
+        delegatedAtByThread.set(row.thread_key, timestamp);
+      }
+    }
 
-  let anyStripped = false;
+    const byThread = new Map();
+    for (const row of rows) {
+      if (!byThread.has(row.thread_key)) byThread.set(row.thread_key, []);
+      byThread.get(row.thread_key).push(row);
+    }
 
-  for (const [, threadRows] of byThread) {
+    let anyStripped = false;
+
+    for (const [threadKey, threadRows] of byThread) {
     const nonDraft = threadRows.filter((r) => !draftPaths.has(r.folder));
     if (nonDraft.length === 0) continue;
 
@@ -136,7 +165,18 @@ export async function runGtdTransitions(imapManager, account, threadKeys) {
 
     for (const [state, folder] of Object.entries(stateFolder)) {
       const rule = STRIP_RULE[state];
-      const shouldStrip = rule === 'self' ? isSelf : rule === 'other' ? !isSelf : false;
+      let shouldStrip = rule === 'self' ? isSelf : rule === 'other' ? !isSelf : false;
+      if (state === 'delegated' && shouldStrip) {
+        const delegatedAt = delegatedAtByThread.get(threadKey);
+        if (delegatedAt != null) {
+          // Explicit delegation starts a new waiting period. The external message that was
+          // already newest at that moment must not immediately cancel it; only a later-dated
+          // external reply can do so. With an invalid/missing message date, retain the explicit
+          // state because there is no evidence that the message arrived after delegation.
+          const newestAt = Date.parse(newest.date);
+          shouldStrip = Number.isFinite(newestAt) && newestAt > delegatedAt;
+        }
+      }
       if (!shouldStrip) continue;
 
       for (const copy of threadRows.filter((r) => r.folder === folder)) {
@@ -153,10 +193,11 @@ export async function runGtdTransitions(imapManager, account, threadKeys) {
     }
   }
 
-  // One batched emit per run (not per stripped copy) so the rail converges once.
-  if (anyStripped) {
-    imapManager.broadcast({ type: 'gtd_sections_updated', accountId: account.id }, account.user_id);
-  }
+    // One batched emit per run (not per stripped copy) so the rail converges once.
+    if (anyStripped) {
+      imapManager.broadcast({ type: 'gtd_sections_updated', accountId: account.id }, account.user_id);
+    }
+  });
 }
 
 // ── Sent-message hook ────────────────────────────────────────────────────────

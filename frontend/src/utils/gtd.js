@@ -572,9 +572,11 @@ export async function unclassifyThread(id, state, { gtdUnclassify, addNotificati
     await gtdUnclassify(id, state);
     scheduleGtdSectionsFetch();
     addNotification({ title: t('gtd.removed'), body: t(`gtd.state.${state}`) });
+    return true;
   } catch (err) {
     console.error('GTD unclassify failed:', err.message);
     addNotification({ title: t('gtd.removeFailed'), body: t(`gtd.state.${state}`) });
+    return false;
   }
 }
 
