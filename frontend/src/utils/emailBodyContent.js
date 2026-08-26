@@ -1,5 +1,8 @@
 export function cacheCanonicalEmailBody(cache, order, messageId, body, limit = 50) {
   cache[messageId] = body;
+  for (let index = order.length - 1; index >= 0; index -= 1) {
+    if (order[index] === messageId) order.splice(index, 1);
+  }
   order.push(messageId);
   if (order.length > limit) {
     const evicted = order.shift();

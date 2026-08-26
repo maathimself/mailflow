@@ -22,6 +22,21 @@ describe('canonical email body consumers', () => {
     assert.deepEqual(order, ['message-1']);
   });
 
+  it('keeps refreshed message IDs unique during later eviction', () => {
+    const cache = {};
+    const order = [];
+    const original = { html: '<p>Original</p>' };
+    const refreshed = { html: '<p>Refreshed</p>' };
+
+    cacheCanonicalEmailBody(cache, order, 'message-1', original, 2);
+    delete cache['message-1'];
+    cacheCanonicalEmailBody(cache, order, 'message-1', refreshed, 2);
+    cacheCanonicalEmailBody(cache, order, 'message-2', { html: '<p>Second</p>' }, 2);
+
+    assert.equal(cache['message-1'], refreshed);
+    assert.deepEqual(order, ['message-1', 'message-2']);
+  });
+
   it('builds reply and forward HTML from the canonical body exactly once', () => {
     const body = { html: canonicalHtml, text: 'Immutable body' };
     const reply = buildReplyBodyContent({ body, date: 'Generic date', from: 'sender@example.invalid' });
