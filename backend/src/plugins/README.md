@@ -10,8 +10,8 @@ correctness*, not for whether it could compromise the app. That's what lets a co
 plugin without a deep security review of every PR.
 
 Two tiers (conceptual): **Tier-1** = trusted, in-repo (like GTD today); **Tier-2** = untrusted /
-third-party. Both use the *same* capability surface — GTD was migrated fully onto it so the surface
-is proven.
+third-party. GTD uses the public capability surface plus one bundled-only, namespace-bound
+annotation surface; third-party plugins cannot import that internal surface.
 
 ---
 
@@ -60,7 +60,6 @@ Everything a plugin may do, grouped:
 - **Summarize:** `summarizeMessage`, `summarizeAvailable` (fails closed when the AI provider is off)
 - **Per-plugin storage:** `storage.*` (the `plugin_data` table — KV + blobs, owner-scoped, cascade-cleaned)
 - **Per-account plugin config:** `getAccountConfig`, `setAccountConfig` (the `plugin_account_config` table)
-- **Per-message annotations:** `getMessageAnnotations`, `setMessageAnnotation` (namespaced `messages.plugin_annotations`)
 - **Activation:** `isPluginActivated`, `isPluginActivatedForAccount`
 - **Logging:** `logger` · **Auth middleware:** `requireAuth` · **Folder resolution:** `resolveAllDraftsPaths`
 - **Ownership-scoped mail/account reads:** `loadOwnedMessage`, `getOwnedAccount`, `listUserAccounts`, `getAccountAddresses`, `getMessagesByThreadKeys`, `getMessageCopyFolders`, `getMessageFields`, the thread-key resolvers, …

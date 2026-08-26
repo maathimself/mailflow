@@ -556,7 +556,33 @@
       "someday": "Někdy",
       "reference": "Reference"
     },
-    "undoFailed": "Štítek se nepodařilo vrátit zpět"
+    "undoFailed": "Štítek se nepodařilo vrátit zpět",
+    "delegate": {
+      "menu": "Delegovat…",
+      "button": "Delegovat kontaktu",
+      "title_one": "Delegovat {{count}} zprávu",
+      "title_few": "Delegovat {{count}} zprávy",
+      "title_other": "Delegovat {{count}} zpráv",
+      "hint": "Vyberte kontakt CardDAV nebo delegujte bez přiřazení osoby.",
+      "search": "Hledat kontakty",
+      "empty": "Nebyly nalezeny žádné kontakty",
+      "retry": "Zkusit znovu",
+      "loadFailed": "Kontakty se nepodařilo načíst",
+      "withoutPerson": "Delegovat bez osoby",
+      "success_one": "Delegována {{count}} zpráva",
+      "success_few": "Delegovány {{count}} zprávy",
+      "success_other": "Delegováno {{count}} zpráv",
+      "partial": "Delegováno: {{success}}; nezdařilo se: {{failed}}",
+      "failed_one": "Nepodařilo se delegovat {{count}} zprávu",
+      "failed_few": "Nepodařilo se delegovat {{count}} zprávy",
+      "failed_other": "Nepodařilo se delegovat {{count}} zpráv",
+      "tooMany": "Najednou lze delegovat nejvýše {{max}} zpráv",
+      "shortcutLabel": "Delegovat kontaktu",
+      "shortcutDescription": "Vybrat kontakt pro označenou zprávu",
+      "pillAria_one": "Delegováno kontaktu {{name}} před {{days}} dnem",
+      "pillAria_few": "Delegováno kontaktu {{name}} před {{days}} dny",
+      "pillAria_other": "Delegováno kontaktu {{name}} před {{days}} dny"
+    }
   },
   "rightSidebar": {
     "hide": "Skrýt pravý postranní panel",

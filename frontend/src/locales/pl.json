@@ -1573,7 +1573,37 @@
       "someday": "Kiedyś",
       "reference": "Materiały"
     },
-    "undoFailed": "Nie udało się cofnąć etykiety"
+    "undoFailed": "Nie udało się cofnąć etykiety",
+    "delegate": {
+      "menu": "Deleguj…",
+      "button": "Deleguj kontaktowi",
+      "title_one": "Deleguj {{count}} wiadomość",
+      "title_few": "Deleguj {{count}} wiadomości",
+      "title_many": "Deleguj {{count}} wiadomości",
+      "title_other": "Deleguj {{count}} wiadomości",
+      "hint": "Wybierz kontakt CardDAV lub deleguj bez przypisywania osoby.",
+      "search": "Szukaj kontaktów",
+      "empty": "Nie znaleziono kontaktów",
+      "retry": "Spróbuj ponownie",
+      "loadFailed": "Nie udało się wczytać kontaktów",
+      "withoutPerson": "Deleguj bez osoby",
+      "success_one": "Delegowano {{count}} wiadomość",
+      "success_few": "Delegowano {{count}} wiadomości",
+      "success_many": "Delegowano {{count}} wiadomości",
+      "success_other": "Delegowano {{count}} wiadomości",
+      "partial": "Delegowano: {{success}}; niepowodzenia: {{failed}}",
+      "failed_one": "Nie udało się delegować {{count}} wiadomości",
+      "failed_few": "Nie udało się delegować {{count}} wiadomości",
+      "failed_many": "Nie udało się delegować {{count}} wiadomości",
+      "failed_other": "Nie udało się delegować {{count}} wiadomości",
+      "tooMany": "Jednocześnie można delegować najwyżej {{max}} wiadomości",
+      "shortcutLabel": "Deleguj kontaktowi",
+      "shortcutDescription": "Wybierz kontakt dla zaznaczonej wiadomości",
+      "pillAria_one": "Delegowano kontaktowi {{name}} {{days}} dzień temu",
+      "pillAria_few": "Delegowano kontaktowi {{name}} {{days}} dni temu",
+      "pillAria_many": "Delegowano kontaktowi {{name}} {{days}} dni temu",
+      "pillAria_other": "Delegowano kontaktowi {{name}} {{days}} dni temu"
+    }
   },
   "window": {
     "minimize": "Minimalizuj",

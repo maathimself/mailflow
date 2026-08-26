@@ -1,5 +1,6 @@
 import { getGtdConfig, GTD_STATES } from './gtdConfig.js';
-import { resolveAllDraftsPaths, listThreadHeadsByLabels, notifyOnLabelTouch, listUserAccounts, getMessageAnnotations } from '../api.js';
+import { resolveAllDraftsPaths, listThreadHeadsByLabels, notifyOnLabelTouch, listUserAccounts } from '../api.js';
+import { getMessageAnnotations } from '../gtdApi.js';
 
 // States the frontend merges into the single "Waiting" section (utils/gtd.js). Their
 // counts must dedupe a thread holding BOTH labels; see the waiting_agg CTE below.
@@ -74,7 +75,7 @@ export async function getGtdSections({ userId, accountId = null, limit } = {}) {
 
     // The labels-read capability is generic (no GTD columns); merge GTD's own per-message gist
     // (stored in the message's plugin annotations) onto each head so mapHead can surface it.
-    const gists = await getMessageAnnotations(acct.id, rows.map(r => r.id), 'gtd');
+    const gists = await getMessageAnnotations(acct.id, rows.map(r => r.id));
     for (const row of rows) row.gist = gists[row.id]?.gist ?? null;
 
     // Fold this account's rows in. total/unread are constant within a state, so add

@@ -301,12 +301,13 @@ export const api = {
   suggestContacts: (q) => request('GET', `/search/contacts?q=${encodeURIComponent(q)}`),
 
   // Contacts
-  getContacts:   ({ q, limit, offset, is_auto } = {}) => {
+  getContacts:   ({ q, limit, offset, is_auto, source } = {}) => {
     const p = new URLSearchParams();
     if (q) p.set('q', q);
     if (limit !== undefined) p.set('limit', limit);
     if (offset !== undefined) p.set('offset', offset);
     if (is_auto !== undefined) p.set('is_auto', is_auto);
+    if (source !== undefined) p.set('source', source);
     const qs = p.toString();
     return request('GET', `/contacts${qs ? '?' + qs : ''}`);
   },
@@ -399,6 +400,8 @@ export const api = {
     return request('GET', `/gtd/sections${qs ? '?' + qs : ''}`);
   },
   gtdClassify: (messageId, state) => request('POST', '/gtd/classify', { messageId, state }),
+  gtdMetadata: (accountId, messageIds) => request('POST', '/gtd/metadata', { accountId, messageIds }),
+  gtdDelegate: (messageIds, contactId) => request('POST', '/gtd/delegations', { messageIds, contactId }),
   gtdUndoClassify: (undoToken) => request('POST', '/gtd/classify/undo', undoToken),
   gtdUnclassify: (messageId, state) => request('DELETE', '/gtd/classify', { messageId, state }),
   // GTD "done": strip the row's label(s) for these states, mark read, archive the INBOX

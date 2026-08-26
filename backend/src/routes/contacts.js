@@ -8,6 +8,12 @@ import crypto from 'crypto';
 const router = Router();
 router.use(requireAuth);
 
+export function parseContactSource(value) {
+  if (value === undefined || value === '') return null;
+  if (value === 'carddav' || value === 'local') return value;
+  throw new Error('Invalid contact source');
+}
+
 // In-memory cache for Gravatar lookups (hash -> { buf, type } hit or { miss:true }).
 // Bounded + TTL'd so we don't re-hit Gravatar for every list render and so the number of
 // third-party requests stays minimal (a privacy consideration — see the /gravatar route).
@@ -45,9 +51,15 @@ async function bumpSyncToken(addressBookId) {
 }
 
 // GET /api/contacts
-// Query params: q (search), limit, offset, is_auto (true|false|'')
+// Query params: q (search), limit, offset, is_auto (true|false|''), source (carddav|local)
 router.get('/', async (req, res) => {
   const { q, limit = 50, offset = 0, is_auto } = req.query;
+  let source;
+  try {
+    source = parseContactSource(req.query.source);
+  } catch {
+    return res.status(400).json({ error: 'Invalid contact source' });
+  }
   const userId = req.session.userId;
   const cap = Math.min(parseInt(limit) || 50, 500);
   const off = Math.max(0, parseInt(offset) || 0);
@@ -74,6 +86,12 @@ router.get('/', async (req, res) => {
     conditions.push('c.is_auto = false');
   }
 
+  if (source) {
+    params.push(source);
+    conditions.push(`ab.source = $${p}`);
+    p++;
+  }
+
   try {
     const result = await query(`
       SELECT
@@ -94,7 +112,9 @@ router.get('/', async (req, res) => {
     `, [...params, cap, off]);
 
     const total = await query(
-      `SELECT COUNT(*) FROM contacts c WHERE ${conditions.join(' AND ')}`,
+      `SELECT COUNT(*) FROM contacts c
+       JOIN address_books ab ON ab.id = c.address_book_id
+       WHERE ${conditions.join(' AND ')}`,
       params
     );
 

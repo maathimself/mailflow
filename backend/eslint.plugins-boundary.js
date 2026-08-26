@@ -15,7 +15,7 @@ import globals from 'globals';
 export default [
   {
     files: ['src/plugins/*/**/*.js'],
-    ignores: ['**/*.test.js'],
+    ignores: ['**/*.test.js', 'src/plugins/gtd/**/*.js'],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'module',
@@ -31,6 +31,29 @@ export default [
           {
             group: ['../*', '!../api.js'],
             message: 'Plugin boundary: from the plugin dir, only "../api.js" (the plugin API) may be imported.',
+          },
+        ],
+      }],
+    },
+  },
+  {
+    files: ['src/plugins/gtd/**/*.js'],
+    ignores: ['**/*.test.js'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      globals: { ...globals.node },
+    },
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [
+          {
+            group: ['../../**'],
+            message: 'Plugin boundary: import core capabilities from a reviewed plugin API.',
+          },
+          {
+            group: ['../*', '!../api.js', '!../gtdApi.js'],
+            message: 'Bundled GTD may import only "../api.js", "../gtdApi.js", and its siblings.',
           },
         ],
       }],
