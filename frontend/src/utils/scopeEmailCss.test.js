@@ -17,6 +17,22 @@ describe('scopeEmailCss Outlook root selectors', () => {
     );
   });
 
+  it('normalizes html, root, and body Outlook attributes onto the generated root', () => {
+    for (const selector of [
+      'html[data-ogsc] .copy',
+      ':root[data-ogsc] .copy',
+      'body[data-ogsc] .copy',
+      'html body[data-ogsc] .copy',
+      'html[data-ogsc] body .copy',
+    ]) {
+      assert.match(
+        scopeEmailCss(`${selector} { color:white }`, 'email-test'),
+        /\.email-test\[data-ogsc\] \.copy/,
+        selector,
+      );
+    }
+  });
+
   it('drops malformed selector lists instead of normalizing them into valid scoped CSS', () => {
     assert.doesNotMatch(
       scopeEmailCss('.bad,,.also { color:red }', 'email-test'),

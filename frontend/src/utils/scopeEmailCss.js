@@ -11,14 +11,15 @@ const LOCAL_GROUPING_ATRULES = new Set(['media', 'supports']);
 // Handles whitespace-separated (html body) and combinator-separated (html > body)
 // forms so the full prefix is removed in one pass.
 const LEADING_BODY_RE = /^(?:html(?:[\s>+~]+(?:body|:root))?|body|:root)(?=[\s>+~]|$)/i;
-const OUTLOOK_ROOT_RE = /^(?:(?:html|:root)\s+)?(?:body)?\[(data-ogsc|data-ogsb)\](?=$|[\s>+~.#:[])/i;
+const OUTLOOK_ROOT_RE = /^(?:\[(data-ogsc|data-ogsb)\]|(?:html|:root)\[(data-ogsc|data-ogsb)\](?:[\s>+~]+body)?|(?:html[\s>+~]+)?body\[(data-ogsc|data-ogsb)\])(?=$|[\s>+~.#:]|\[)/i;
 
 function scopeSelector(selector, prefix) {
   let text = selector.trim();
   const outlook = text.match(OUTLOOK_ROOT_RE);
   if (outlook) {
     text = text.slice(outlook[0].length);
-    return `.${prefix}[${outlook[1].toLowerCase()}]${text}`;
+    const attribute = outlook.slice(1).find(Boolean).toLowerCase();
+    return `.${prefix}[${attribute}]${text}`;
   }
   if (text.startsWith(`.${prefix}`)) return text;
   if (LEADING_BODY_RE.test(text)) text = text.replace(LEADING_BODY_RE, '').trimStart();

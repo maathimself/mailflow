@@ -685,6 +685,16 @@ function htmlForScenario(scenario) {
       }
     </style><p class="responsive-flag">Responsive sender rule</p>`;
   }
+  if (scenario === 'outlook-root-selectors') {
+    return `<style>
+      html[data-ogsc] .outlook-html { color:rgb(7, 8, 9); }
+      :root[data-ogsc] .outlook-root { color:rgb(10, 11, 12); }
+      body[data-ogsc] .outlook-body { color:rgb(13, 14, 15); }
+    </style>
+    <p class="outlook-html">HTML-qualified Outlook rule</p>
+    <p class="outlook-root">Root-qualified Outlook rule</p>
+    <p class="outlook-body">Body-qualified Outlook rule</p>`;
+  }
   if (scenario === 'inset-shadow') {
     return '<div data-case="inset-shadow" style="background:#fff;color:#111;box-shadow:inset 0 0 0 9999px #fff">Inset-shadow text</div>';
   }
@@ -1039,7 +1049,7 @@ function Harness() {
       Object.assign(result, resultFor(resolvedRoot, media, theme === 'dark'
         ? { root, styleSheets, scheme: 'light' }
         : null));
-    } else if (scenario === 'responsive-color-scheme') {
+    } else if (scenario === 'responsive-color-scheme' || scenario === 'outlook-root-selectors') {
       const media = applyEmailMediaMode({ root, styleSheets, scheme: 'dark' });
       result.media = media;
       result.mediaConditions = mediaConditions(styleSheets);

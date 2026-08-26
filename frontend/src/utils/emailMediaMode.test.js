@@ -47,6 +47,28 @@ function indexedCollection(length, read) {
 }
 
 describe('applyEmailMediaMode bounded traversal', () => {
+  it('mirrors Outlook mode attributes onto iframe html and body roots', () => {
+    const documentElement = root();
+    const body = root();
+    const documentRoot = { nodeType: 9, documentElement, body };
+
+    assert.equal(applyEmailMediaMode({
+      root: documentRoot, styleSheets: [], scheme: 'dark',
+    }).status, 'ready');
+    for (const element of [documentElement, body]) {
+      assert.equal(element.attributes.has('data-ogsc'), true);
+      assert.equal(element.attributes.has('data-ogsb'), true);
+    }
+
+    assert.equal(applyEmailMediaMode({
+      root: documentRoot, styleSheets: [], scheme: 'light',
+    }).status, 'ready');
+    for (const element of [documentElement, body]) {
+      assert.equal(element.attributes.has('data-ogsc'), false);
+      assert.equal(element.attributes.has('data-ogsb'), false);
+    }
+  });
+
   it('preserves ordinary responsive media after selecting the color scheme', () => {
     const rule = mediaRule();
     rule.conditionText = '(max-width: 600px)';

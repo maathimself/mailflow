@@ -1112,6 +1112,17 @@ for (const renderer of ['iframe', 'div']) {
       await page.setViewportSize({ width: 700, height: 700 });
       await expect(responsive).toHaveCSS('color', 'rgb(1, 2, 3)');
     });
+
+    test('matches Outlook attributes on html, root, and body selectors', async ({ page }) => {
+      await page.goto(`/e2e/email-appearance/fixture.html?renderer=${renderer}&fixture=plain&theme=dark&mode=original&scenario=outlook-root-selectors`);
+      await expect.poll(() => page.evaluate(() => window.mailflowFixtureResult?.status)).toBe('original');
+      const email = renderer === 'iframe'
+        ? page.frameLocator('iframe')
+        : page.locator('[data-fixture-root]');
+      await expect(email.locator('.outlook-html')).toHaveCSS('color', 'rgb(7, 8, 9)');
+      await expect(email.locator('.outlook-root')).toHaveCSS('color', 'rgb(10, 11, 12)');
+      await expect(email.locator('.outlook-body')).toHaveCSS('color', 'rgb(13, 14, 15)');
+    });
   });
 }
 

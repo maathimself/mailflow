@@ -47,15 +47,22 @@ function rootFor(root) {
   return root?.nodeType === 9 ? root.documentElement : root;
 }
 
-function setRootMode(root, scheme) {
-  if (scheme === 'dark') {
-    root.setAttribute('data-ogsc', '');
-    root.setAttribute('data-ogsb', '');
-  } else {
-    root.removeAttribute('data-ogsc');
-    root.removeAttribute('data-ogsb');
+function setRootMode(root, scopedRoot, scheme) {
+  const attributeRoots = root?.nodeType === 9
+    ? [scopedRoot, root.body].filter((element, index, elements) => (
+      element && elements.indexOf(element) === index
+    ))
+    : [scopedRoot];
+  for (const element of attributeRoots) {
+    if (scheme === 'dark') {
+      element.setAttribute('data-ogsc', '');
+      element.setAttribute('data-ogsb', '');
+    } else {
+      element.removeAttribute('data-ogsc');
+      element.removeAttribute('data-ogsb');
+    }
   }
-  root.style.setProperty('color-scheme', scheme, 'important');
+  scopedRoot.style.setProperty('color-scheme', scheme, 'important');
 }
 
 export function applyEmailMediaMode({
@@ -80,7 +87,7 @@ export function applyEmailMediaMode({
   }
 
   try {
-    setRootMode(scopedRoot, scheme);
+    setRootMode(root, scopedRoot, scheme);
   } catch {
     return fallback('media_rule_unwritable');
   }
