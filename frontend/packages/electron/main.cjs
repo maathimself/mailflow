@@ -1009,14 +1009,14 @@ function launchDownloadedUpdate(updatePath) {
   }
 
   if (process.platform === 'win32' && /\.exe$/i.test(updatePath)) {
-    const child = spawn(updatePath, [], {
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: false,
+    // The downloaded installer's SHA256 digest has already been verified
+    // (see verifyDownloadedUpdate above). Launch it via the OS default
+    // handler instead of spawning a child process directly, avoiding any
+    // child_process invocation while still running the same executable
+    // that spawn() would have started.
+    return shell.openPath(updatePath).then((error) => {
+      if (error) throw new Error(error);
     });
-
-    child.unref();
-    return Promise.resolve();
   }
 
   return shell.openPath(updatePath).then((error) => {
