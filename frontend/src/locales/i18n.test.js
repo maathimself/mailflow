@@ -474,7 +474,7 @@ function scanHardcodedStrings() {
     for (const entry of readdirSync(d, { withFileTypes: true })) {
       const full = join(d, entry.name);
       if (entry.isDirectory()) {
-        if (full === dir) continue; // skip locales/
+        if (isExcludedSourceDirectory(full, srcRoot)) continue;
         walk(full);
       } else if (entry.name.endsWith('.jsx')) {
         const lines = readFileSync(full, 'utf8').split('\n');
@@ -541,6 +541,10 @@ function baseKey(key) {
   return key;
 }
 
+function isExcludedSourceDirectory(full, srcRoot) {
+  return full === dir || full === join(srcRoot, 'e2e');
+}
+
 function loadSourceText() {
   const srcRoot = resolve(dir, '../..');
   const out = [];
@@ -548,7 +552,7 @@ function loadSourceText() {
     for (const entry of readdirSync(d, { withFileTypes: true })) {
       const full = join(d, entry.name);
       if (entry.isDirectory()) {
-        if (full === dir) continue; // skip locales/
+        if (isExcludedSourceDirectory(full, srcRoot)) continue;
         walk(full);
       } else if (entry.name.endsWith('.js') || entry.name.endsWith('.jsx')) {
         out.push(readFileSync(full, 'utf8'));
@@ -568,7 +572,7 @@ function loadLiteralSourceTranslationKeys(prefix) {
     for (const entry of readdirSync(d, { withFileTypes: true })) {
       const full = join(d, entry.name);
       if (entry.isDirectory()) {
-        if (full === dir) continue; // skip locales/
+        if (isExcludedSourceDirectory(full, srcRoot)) continue;
         walk(full);
       } else if (
         (entry.name.endsWith('.js') || entry.name.endsWith('.jsx'))
@@ -618,6 +622,11 @@ describe('i18n locale files', () => {
   });
 
   describe('source coverage — every key must be referenced in the source', () => {
+    it('excludes browser harnesses from production source scans', () => {
+      const e2eOnlyMarker = 'mailflowFixture' + 'Result';
+      assert.equal(loadSourceText().includes(e2eOnlyMarker), false);
+    });
+
     it('no unused keys', () => {
       const source = loadSourceText();
       const unused = allKeys.filter(k => !DYNAMIC_KEYS.has(k) && !source.includes(baseKey(k)));

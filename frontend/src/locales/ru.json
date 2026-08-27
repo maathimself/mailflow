@@ -245,6 +245,8 @@
       "body": "Не удалось обновить белый список изображений."
     },
     "emailFrameTitle": "Содержимое письма",
+    "showOriginalColors": "Показать исходные цвета",
+    "matchThemeColors": "Подстроить цвета под тему",
     "unsubscribe": {
       "info": "Вы можете отписаться от этой рассылки.",
       "button": "Отписаться",
@@ -842,7 +844,13 @@
       "customCssDescription": "Добавляет CSS после активной темы. Используйте CSS-переменные (например, --accent, --bg-primary) для переопределения значений темы или добавления собственных правил. Применяется ко всем пользователям.",
       "customCssPlaceholder": ":root {\n  --accent: #e74c3c;\n}",
       "customCssSave": "Сохранить",
-      "customCssSaved": "Сохранено"
+      "customCssSaved": "Сохранено",
+      "emailContent": "Содержимое писем",
+      "emailContentDescription": "Выберите, должны ли цвета HTML-писем следовать теме MailFlow или сохранять исходное светлое оформление отправителя.",
+      "emailContentMatchTheme": "Подстроить под тему",
+      "emailContentMatchThemeDescription": "Адаптирует цвета письма к активной теме. Рекомендуется.",
+      "emailContentOriginal": "Исходные цвета",
+      "emailContentOriginalDescription": "Всегда показывает очищенное светлое оформление отправителя."
     },
     "messageList": {
       "title": "Список сообщений",

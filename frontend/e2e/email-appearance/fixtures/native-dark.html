@@ -1,0 +1,19 @@
+<style>
+  .native-card { background: rgb(255, 255, 255); color: rgb(17, 17, 17); }
+  .responsive-flag { color: rgb(1, 2, 3); }
+  @media (prefers-color-scheme: dark) {
+    .native-card { background: rgb(18, 24, 38); color: rgb(244, 247, 251); }
+  }
+  @media (max-width: 500px) and (prefers-color-scheme: dark) {
+    .responsive-flag { color: rgb(7, 8, 9); }
+  }
+  [data-ogsc] .outlook-text { color: rgb(210, 220, 255); }
+  [data-ogsb] .outlook-surface { background: rgb(20, 30, 45); }
+  .bad,,.also { color:red }
+</style>
+<main class="native-card">
+  <p class="copy">Native sender colors</p>
+  <p class="responsive-flag">Responsive sender rule</p>
+  <p class="outlook-text">Outlook dark text</p>
+  <div class="outlook-surface">Outlook dark surface</div>
+</main>

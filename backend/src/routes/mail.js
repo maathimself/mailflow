@@ -397,10 +397,6 @@ router.get('/messages/:id/body', async (req, res) => {
     // Apply head-stripping to already-cached HTML so emails stored before this
     // fix was deployed are cleaned up immediately on first view.
     let html = message.body_html ? stripEmailHead(message.body_html) : null;
-    if (html !== message.body_html) {
-      // Update cache so subsequent views don't need to re-strip
-      query('UPDATE messages SET body_html = $1 WHERE id = $2', [sanitizeDbText(html), id]).catch(() => {});
-    }
     // Rewrite eBay imageser URLs to direct image URLs for emails cached before this fix.
     // imageser requires eBay session cookies (never sent cross-site) and returns 1 byte
     // without them; the real image is always in the `imageUrl` query parameter.
@@ -408,7 +404,6 @@ router.get('/messages/:id/body', async (req, res) => {
       const rewritten = rewriteEbayImageserUrls(html);
       if (rewritten !== html) {
         html = rewritten;
-        query('UPDATE messages SET body_html = $1 WHERE id = $2', [sanitizeDbText(html), id]).catch(() => {});
       }
     }
     // Normalise bare-domain hrefs (e.g. href="benchmade.com") cached before href
@@ -419,8 +414,25 @@ router.get('/messages/:id/body', async (req, res) => {
       const rewritten = rewriteAnchorHrefs(html);
       if (rewritten !== html) {
         html = rewritten;
-        query('UPDATE messages SET body_html = $1 WHERE id = $2', [sanitizeDbText(html), id]).catch(() => {});
       }
+    }
+    // Re-sanitize legacy cached HTML before applying the user's remote-image
+    // policy. Old rows may contain root-relative or otherwise invalid resource
+    // URLs that resolve against the app origin; those are unsafe even when the
+    // user allows remote images or has whitelisted the sender. Keep valid remote
+    // resources in the canonical cache so response-time blocking remains
+    // reversible, and persist the cleaned row for subsequent views.
+    if (html) {
+      const canonicalHtml = sanitizeEmail(html);
+      if (canonicalHtml !== html) {
+        html = canonicalHtml;
+      }
+    }
+    // Persist only the final canonical value. Issuing a write after each legacy
+    // transform lets pooled queries finish out of order and restore a partially
+    // cleaned value after the sanitizer write.
+    if (html !== message.body_html) {
+      query('UPDATE messages SET body_html = $1 WHERE id = $2', [sanitizeDbText(html), id]).catch(() => {});
     }
     // Backfill snippet when absent, or regenerate if garbled (undecoded HTML entities
     // from before the entity-stripping fix — e.g. "&zwnj;" in preview text).

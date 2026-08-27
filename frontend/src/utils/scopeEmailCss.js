@@ -1,61 +1,114 @@
 import postcss from 'postcss';
 import DOMPurify from 'dompurify';
+import { stripOpeningTagStyleAttributes } from './htmlStyleSafety.js';
 
-// At-rules stripped entirely before scoping. @import/@charset are semantically
-// wrong inside an inlined style block. @font-face and @keyframes are injected
-// into the global document.head by emailStyleRegistry, so keeping them would let
-// an email silently redefine app-level fonts (DM Sans) or animations (spin, etc.)
-// while the message is open.
-const REMOVE_ATRULES = new Set([
-  'charset', 'import', 'font-face', 'keyframes', '-webkit-keyframes',
-]);
+// Only grouping rules whose children can be selector-scoped belong in the div
+// renderer. Every other at-rule is removed: registrations and ordering rules
+// have document-global semantics even when their nested selectors are scoped.
+const LOCAL_GROUPING_ATRULES = new Set(['media', 'supports']);
 
 // Strips the leading browser-context selector token(s) from an email CSS selector.
 // Handles whitespace-separated (html body) and combinator-separated (html > body)
 // forms so the full prefix is removed in one pass.
 const LEADING_BODY_RE = /^(?:html(?:[\s>+~]+(?:body|:root))?|body|:root)(?=[\s>+~]|$)/i;
+const OUTLOOK_ROOT_RE = /^(?:\[(data-ogsc|data-ogsb)\]|(?:html|:root)\[(data-ogsc|data-ogsb)\](?:[\s>+~]+body)?|(?:html[\s>+~]+)?body\[(data-ogsc|data-ogsb)\])(?=$|[\s>+~.#:]|\[)/i;
+
+function scopeSelector(selector, prefix) {
+  let text = selector.trim();
+  const outlook = text.match(OUTLOOK_ROOT_RE);
+  if (outlook) {
+    text = text.slice(outlook[0].length);
+    const attribute = outlook.slice(1).find(Boolean).toLowerCase();
+    return `.${prefix}[${attribute}]${text}`;
+  }
+  if (text.startsWith(`.${prefix}`)) return text;
+  if (LEADING_BODY_RE.test(text)) text = text.replace(LEADING_BODY_RE, '').trimStart();
+  return text ? `.${prefix} ${text}` : `.${prefix}`;
+}
+
+function hasEmptySelectorArm(selector) {
+  let hasToken = false;
+  let bracketDepth = 0;
+  let parenDepth = 0;
+  let quote = null;
+
+  for (let index = 0; index < selector.length; index += 1) {
+    const char = selector[index];
+    if (char === '\\') {
+      hasToken = true;
+      index += 1;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      hasToken = true;
+      continue;
+    }
+    if (char === '/' && selector[index + 1] === '*') {
+      const end = selector.indexOf('*/', index + 2);
+      index = end < 0 ? selector.length : end + 1;
+      continue;
+    }
+    if (char === '[') bracketDepth += 1;
+    else if (char === ']' && bracketDepth > 0) bracketDepth -= 1;
+    else if (char === '(') parenDepth += 1;
+    else if (char === ')' && parenDepth > 0) parenDepth -= 1;
+    else if (char === ',' && bracketDepth === 0 && parenDepth === 0) {
+      if (!hasToken) return true;
+      hasToken = false;
+      continue;
+    }
+    if (!/\s/.test(char)) hasToken = true;
+  }
+  return !hasToken;
+}
 
 export function scopeEmailCss(cssText, prefix) {
   let root;
   try { root = postcss.parse(cssText); } catch { return ''; }
 
-  // Pass 1 — remove unsafe at-rules.
+  // Pass 1 — keep only renderer-local grouping at-rules.
   // walkAtRules never returns false so the full tree is always visited.
   // PostCSS is mutation-safe during traversal: removing a node (and its subtree)
   // does not skip or re-process adjacent siblings.
   root.walkAtRules(atRule => {
-    if (REMOVE_ATRULES.has(atRule.name.toLowerCase())) atRule.remove();
+    if (!LOCAL_GROUPING_ATRULES.has(atRule.name.toLowerCase()) || !atRule.nodes) atRule.remove();
   });
 
   // Pass 2 — scope every remaining rule.
-  // walkRules recurses through @media / @supports / @layer automatically.
+  // walkRules recurses through @media / @supports automatically.
   // Keyframe selectors (from, to, 0%) are gone after pass 1, so no special
   // parent-check is needed here.
   root.walkRules(rule => {
-    rule.selectors = rule.selectors.map(sel => {
-      let t = sel.trim();
-      if (t.startsWith(`.${prefix}`)) return t; // avoid double-prefix
-      if (LEADING_BODY_RE.test(t)) t = t.replace(LEADING_BODY_RE, '').trimStart();
-      if (!t) return `.${prefix}`;
-      return `.${prefix} ${t}`;
-    });
+    if (hasEmptySelectorArm(rule.selector)) {
+      rule.remove();
+      return;
+    }
+    rule.selectors = rule.selectors.map(sel => scopeSelector(sel, prefix));
   });
 
   return root.toResult().css;
 }
 
-export function prepareEmailHtml(rawHtml, uid) {
+export function prepareEmailHtml(rawHtml, uid, { recovery = false } = {}) {
   const prefix = `email-${uid}`;
   const styleBlocks = [];
 
-  const stripped = rawHtml.replace(
+  let stripped = rawHtml.replace(
     /<style[^>]*>([\s\S]*?)<\/style>/gi,
     (_, css) => {
-      const scoped = scopeEmailCss(css, prefix);
+      const scoped = recovery ? '' : scopeEmailCss(css, prefix);
       if (scoped) styleBlocks.push(scoped);
       return '';
     }
   );
+  if (recovery) {
+    stripped = stripOpeningTagStyleAttributes(stripped);
+  }
 
   // Base normalize injected AFTER email CSS so our rules win the source-order
   // tiebreak for same-specificity declarations. The !important posture on
@@ -97,6 +150,11 @@ export function prepareEmailHtml(rawHtml, uid) {
     .${prefix} a { color: #6366f1; }
     .${prefix} pre, .${prefix} code { overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
     .${prefix} blockquote { border-left: 3px solid #ddd; margin: 0; padding-left: 12px; color: #555; }
+    .${prefix}, .${prefix} *, .${prefix}::before, .${prefix}::after,
+    .${prefix} *::before, .${prefix} *::after {
+      animation: none !important;
+      transition: none !important;
+    }
   `);
 
   // Mirror the iframe's rel="noopener noreferrer" injection on all links.

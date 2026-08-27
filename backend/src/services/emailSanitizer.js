@@ -1,4 +1,5 @@
 import sanitizeHtml from 'sanitize-html';
+import parseSrcset from 'parse-srcset';
 
 // Strip the <head> element from email HTML, preserving any <style> blocks inside it.
 //
@@ -84,8 +85,109 @@ export function stripEmailHead(html) {
 }
 
 
+const EMAIL_RESOURCE_BASE = new URL('https://mailflow.invalid/');
+
+function serializedResourceUrl(parsed, source) {
+  const href = parsed.href;
+  const trimmed = source.trim();
+  // Preserve the long-standing no-trailing-slash representation for a bare
+  // authority while still using WHATWG serialization for every nontrivial URL.
+  return parsed.pathname === '/'
+    && !parsed.search
+    && !parsed.hash
+    && /^(?:https?:)?[\\/]{2}[^\\/?#]+$/i.test(trimmed)
+    ? href.slice(0, -1)
+    : href;
+}
+
+// Parse with a fixed, deliberately non-routable base so the decision matches a
+// browser without ever granting app-origin meaning to a relative email URL.
+// WHATWG parsing is important here: special-scheme URLs accept backslashes as
+// separators and ignore embedded tab/newline controls in schemes.
+function classifyResourceUrl(value) {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  let parsed;
+  try {
+    parsed = new URL(value, EMAIL_RESOURCE_BASE);
+  } catch {
+    return null;
+  }
+
+  const protocol = parsed.protocol.toLowerCase();
+  if (protocol === 'data:' || protocol === 'cid:') {
+    return { kind: 'local', url: parsed.href };
+  }
+  if (protocol !== 'http:' && protocol !== 'https:') return null;
+
+  // `https:tracker.invalid/x` is path-relative when the document scheme is
+  // https, whereas `http:tracker.invalid/x` is an absolute special-scheme URL.
+  // Comparing fixed-base and standalone parses distinguishes those cases while
+  // still accepting protocol-relative and backslash network-path references.
+  if (parsed.origin === EMAIL_RESOURCE_BASE.origin) {
+    try {
+      if (new URL(value).href !== parsed.href) return null;
+    } catch {
+      return null;
+    }
+  }
+
+  if (protocol === 'http:') parsed.protocol = 'https:';
+  return { kind: 'network', url: serializedResourceUrl(parsed, value) };
+}
+
+function isNetworkResource(value) {
+  if (typeof value !== 'string' || !value.trim()) return false;
+  return classifyResourceUrl(value)?.kind !== 'local';
+}
+
 function upgradeUrl(url) {
-  return typeof url === 'string' && url.startsWith('http://') ? 'https://' + url.slice(7) : url;
+  return classifyResourceUrl(url)?.url ?? null;
+}
+
+function transformSrcsetUrls(srcset, transform) {
+  let candidates;
+  try {
+    candidates = parseSrcset(srcset);
+  } catch {
+    return null;
+  }
+  if (!candidates.length) return null;
+  const transformed = [];
+  for (const candidate of candidates) {
+    const url = transform(candidate.url);
+    if (typeof url !== 'string' || !url) return null;
+    const descriptor = candidate.w !== undefined
+      ? `${candidate.w}w`
+      : candidate.d !== undefined
+        ? `${candidate.d}x`
+        : candidate.h !== undefined
+          ? `${candidate.h}h`
+          : '';
+    transformed.push(descriptor ? `${url} ${descriptor}` : url);
+  }
+  return transformed.join(', ');
+}
+
+function srcsetHasNetworkUrl(srcset) {
+  let found = false;
+  const parsed = transformSrcsetUrls(srcset, candidate => {
+    if (isNetworkResource(candidate)) found = true;
+    return candidate;
+  });
+  return parsed === null || found;
+}
+
+function sanitizeSrcset(srcset) {
+  let unsafe = false;
+  const sanitized = transformSrcsetUrls(srcset, candidate => {
+    const classified = classifyResourceUrl(candidate);
+    if (!classified) {
+      unsafe = true;
+      return candidate;
+    }
+    return classified.url;
+  });
+  return unsafe ? null : sanitized;
 }
 
 // Normalise an anchor href value to an absolute https/mailto/tel URL, or return
@@ -96,16 +198,25 @@ function normalizeHref(href) {
   if (!href) return null;
   const h = href.trim();
   if (!h) return null;
-  if (/^https:\/\//i.test(h)) return h;
-  if (/^http:\/\//i.test(h)) return 'https://' + h.slice(7);
-  if (/^(mailto:|cid:|tel:|sms:)/i.test(h)) return h;
-  if (h.startsWith('//')) return 'https:' + h;
+  const resource = classifyResourceUrl(h);
+  if (resource?.kind === 'network') return resource.url;
+  try {
+    const parsed = new URL(h);
+    if (['mailto:', 'cid:', 'tel:', 'sms:'].includes(parsed.protocol.toLowerCase())) {
+      return parsed.href;
+    }
+  } catch { /* handled by the relative/bare-domain policy below */ }
   // Fragment, root-relative, path-relative, query-only — unsafe to resolve in iframe
-  if (/^[#/?.]/i.test(h)) return null;
-  // Explicitly block dangerous schemes even if they somehow reach this point
-  if (/^(javascript|data|vbscript):/i.test(h)) return null;
-  // Bare domain (e.g. "benchmade.com", "www.example.com/path") — no scheme, has a dot
-  if (/^[a-z0-9]/i.test(h) && h.includes('.')) return 'https://' + h;
+  if (/^[#/?.\\]/i.test(h)) return null;
+  // Bare domain (e.g. "benchmade.com", "example.com:8443/path") — no scheme,
+  // starts like a hostname, and has a dot. Parsing the https-prefixed candidate
+  // rejects invalid hosts and non-numeric/out-of-range ports before we accept it.
+  if (/^[a-z0-9]/i.test(h) && h.includes('.')) {
+    const normalized = classifyResourceUrl(`https://${h}`)?.url;
+    if (normalized) return normalized;
+  }
+  // Explicitly block dangerous or unknown schemes that reached this point.
+  if (h.includes(':')) return null;
   return null;
 }
 
@@ -163,21 +274,402 @@ export function rewriteEbayImageserUrls(html) {
   );
 }
 
-// Upgrade http:// → https:// inside CSS url() expressions.
-// Handles both quoted (url('http://...'), url("http://...")) and unquoted (url(http://...)) forms.
-function upgradeStyleUrls(style) {
-  if (!style) return style;
-  return style.replace(/url\(\s*(['"]?)http:\/\//gi, (_, q) => `url(${q}https://`);
+// Canonicalize allowed CSS url() resources and neutralize URLs that would need
+// an email/app base. Handles quoted, unquoted, escaped, and commented forms.
+function serializeCssString(value) {
+  let out = '"';
+  for (const char of value) {
+    const codePoint = char.codePointAt(0);
+    if (char === '"' || char === '\\') out += `\\${char}`;
+    else if (codePoint === 0 || (codePoint >= 0xd800 && codePoint <= 0xdfff)) out += '\ufffd';
+    else if (codePoint <= 0x1f || codePoint === 0x7f) out += `\\${codePoint.toString(16)} `;
+    else out += char;
+  }
+  return `${out}"`;
 }
 
-// Strip external http/https url() expressions from <style> block CSS at sanitize time.
-// This prevents CSS-based exfiltration (loading pixel beacons or fonts) regardless of
-// the user's remote image blocking preference.  data: and cid: URIs are left intact.
+function upgradeStyleUrls(style) {
+  if (!style) return style;
+  let out = '';
+  let pos = 0;
+  let cursor = 0;
+  while (cursor < style.length) {
+    if (style[cursor] === '/' && style[cursor + 1] === '*') {
+      const close = style.indexOf('*/', cursor + 2);
+      cursor = close === -1 ? style.length : close + 2;
+    } else if (style[cursor] === '"' || style[cursor] === "'") {
+      const string = readCssString(style, cursor);
+      cursor = string ? string.end : style.length;
+    } else if (isCssNameChar(style[cursor]) || style[cursor] === '\\') {
+      const name = readCssIdentifier(style, cursor);
+      if (name.value.toLowerCase() === 'url') {
+        const url = readCssUrlFunction(style, name.end);
+        if (url && url.value.trim()) {
+          const classified = classifyResourceUrl(url.value);
+          out += `${style.slice(pos, cursor)}url(${serializeCssString(classified?.url ?? '')})`;
+          pos = url.end;
+          cursor = url.end;
+          continue;
+        }
+      }
+      cursor = name.end;
+    } else {
+      cursor++;
+    }
+  }
+  return out + style.slice(pos);
+}
+
+function isCssWhitespace(char) {
+  return char === ' ' || char === '\n' || char === '\r' || char === '\t' || char === '\f';
+}
+
+function isCssNameChar(char) {
+  return Boolean(char) && /[a-z0-9_-]/i.test(char);
+}
+
+// Decode one CSS escape for security classification. This deliberately covers the
+// CSS escape forms that can spell an at-keyword, function name, or URL scheme.
+function readCssEscape(css, start) {
+  let cursor = start + 1;
+  if (cursor >= css.length) return { value: '', end: cursor };
+
+  // CSS line continuations contribute no character. CRLF is one continuation.
+  if (css[cursor] === '\n' || css[cursor] === '\f') return { value: '', end: cursor + 1 };
+  if (css[cursor] === '\r') {
+    return { value: '', end: css[cursor + 1] === '\n' ? cursor + 2 : cursor + 1 };
+  }
+
+  if (/[0-9a-f]/i.test(css[cursor])) {
+    const hexStart = cursor;
+    while (cursor < css.length && cursor - hexStart < 6 && /[0-9a-f]/i.test(css[cursor])) cursor++;
+    const codePoint = Number.parseInt(css.slice(hexStart, cursor), 16);
+    if (css[cursor] === '\r' && css[cursor + 1] === '\n') cursor += 2;
+    else if (isCssWhitespace(css[cursor])) cursor++;
+    return { value: codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : '\ufffd', end: cursor };
+  }
+
+  return { value: css[cursor], end: cursor + 1 };
+}
+
+function readCssIdentifier(css, start) {
+  let value = '';
+  let cursor = start;
+  while (cursor < css.length) {
+    if (css[cursor] === '\\') {
+      const escaped = readCssEscape(css, cursor);
+      value += escaped.value;
+      cursor = escaped.end;
+    } else if (isCssNameChar(css[cursor])) {
+      value += css[cursor++];
+    } else {
+      break;
+    }
+  }
+  return { value, end: cursor };
+}
+
+function skipCssWhitespaceAndComments(css, start, end = css.length) {
+  let cursor = start;
+  while (cursor < end) {
+    if (isCssWhitespace(css[cursor])) {
+      cursor++;
+    } else if (css[cursor] === '/' && css[cursor + 1] === '*') {
+      const close = css.indexOf('*/', cursor + 2);
+      cursor = close === -1 ? end : close + 2;
+    } else {
+      break;
+    }
+  }
+  return cursor;
+}
+
+function readCssString(css, start, end = css.length) {
+  const quote = css[start];
+  let value = '';
+  let cursor = start + 1;
+  while (cursor < end) {
+    if (css[cursor] === quote) return { value, end: cursor + 1 };
+    if (css[cursor] === '\\') {
+      const escaped = readCssEscape(css, cursor);
+      value += escaped.value;
+      cursor = escaped.end;
+    } else {
+      value += css[cursor++];
+    }
+  }
+  return null;
+}
+
+function readCssUrlFunction(css, start, end = css.length) {
+  let cursor = skipCssWhitespaceAndComments(css, start, end);
+  if (css[cursor] !== '(') return null;
+  cursor = skipCssWhitespaceAndComments(css, cursor + 1, end);
+
+  let value = '';
+  if (css[cursor] === '"' || css[cursor] === "'") {
+    const string = readCssString(css, cursor, end);
+    if (!string) return null;
+    value = string.value;
+    cursor = skipCssWhitespaceAndComments(css, string.end, end);
+  } else {
+    while (cursor < end && css[cursor] !== ')') {
+      if (css[cursor] === '\\') {
+        const escaped = readCssEscape(css, cursor);
+        value += escaped.value;
+        cursor = escaped.end;
+      } else {
+        value += css[cursor++];
+      }
+    }
+    value = value.trim();
+  }
+
+  return css[cursor] === ')' ? { value, end: cursor + 1 } : null;
+}
+
+function scanCssFunctionForVar(css, open) {
+  let cursor = open + 1;
+  let depth = 1;
+  let hasVar = false;
+  while (cursor < css.length) {
+    if (css[cursor] === '/' && css[cursor + 1] === '*') {
+      const close = css.indexOf('*/', cursor + 2);
+      cursor = close === -1 ? css.length : close + 2;
+    } else if (css[cursor] === '"' || css[cursor] === "'") {
+      const string = readCssString(css, cursor);
+      cursor = string ? string.end : css.length;
+    } else if (isCssNameChar(css[cursor]) || css[cursor] === '\\') {
+      const name = readCssIdentifier(css, cursor);
+      if (name.value.toLowerCase() === 'var'
+        && css[skipCssWhitespaceAndComments(css, name.end)] === '(') hasVar = true;
+      cursor = name.end;
+    } else if (css[cursor] === '(') {
+      depth++;
+      cursor++;
+    } else if (css[cursor] === ')') {
+      depth--;
+      cursor++;
+      if (depth === 0) return { end: cursor, hasVar };
+    } else {
+      cursor++;
+    }
+  }
+  return null;
+}
+
+function isExternalCssUrl(value) {
+  return isNetworkResource(value);
+}
+
+function findCssAtRuleEnd(css, start) {
+  let cursor = start;
+  let quote = null;
+  let parenDepth = 0;
+  while (cursor < css.length) {
+    if (quote) {
+      if (css[cursor] === '\\') cursor = readCssEscape(css, cursor).end;
+      else if (css[cursor++] === quote) quote = null;
+    } else if (css[cursor] === '/' && css[cursor + 1] === '*') {
+      const close = css.indexOf('*/', cursor + 2);
+      cursor = close === -1 ? css.length : close + 2;
+    } else if (css[cursor] === '"' || css[cursor] === "'") {
+      quote = css[cursor++];
+    } else if (css[cursor] === '(') {
+      parenDepth++;
+      cursor++;
+    } else if (css[cursor] === ')' && parenDepth > 0) {
+      parenDepth--;
+      cursor++;
+    } else if (css[cursor++] === ';' && parenDepth === 0) {
+      return cursor;
+    }
+  }
+  return cursor;
+}
+
+function importHasExternalUrl(css, start, end) {
+  const sourceStart = skipCssWhitespaceAndComments(css, start, end);
+  if (css[sourceStart] === '"' || css[sourceStart] === "'") {
+    const string = readCssString(css, sourceStart, end);
+    return Boolean(string) && isExternalCssUrl(string.value);
+  }
+
+  const name = readCssIdentifier(css, sourceStart);
+  if (name.value.toLowerCase() === 'url') {
+    const url = readCssUrlFunction(css, name.end, end);
+    return Boolean(url) && isExternalCssUrl(url.value);
+  }
+
+  let cursor = sourceStart;
+  let value = '';
+  while (cursor < end && !isCssWhitespace(css[cursor]) && css[cursor] !== ';') {
+    if (css[cursor] === '\\') {
+      const escaped = readCssEscape(css, cursor);
+      value += escaped.value;
+      cursor = escaped.end;
+    } else {
+      value += css[cursor++];
+    }
+  }
+  return isExternalCssUrl(value);
+}
+
+// Strip network-capable or base-relative style resources at sanitize time. The
+// scanner is bounded and linear and ignores at-keyword-like text in strings/comments.
+function stripExternalStyleBlockResources(css, {
+  stripExternalUrls = true,
+  stripExternalImports = true,
+} = {}) {
+  let out = '';
+  let pos = 0;
+  let cursor = 0;
+  let parenDepth = 0;
+  const imageSetDepths = [];
+
+  while (cursor < css.length) {
+    if (css[cursor] === '/' && css[cursor + 1] === '*') {
+      const close = css.indexOf('*/', cursor + 2);
+      cursor = close === -1 ? css.length : close + 2;
+      continue;
+    }
+    if (css[cursor] === '"' || css[cursor] === "'") {
+      const string = readCssString(css, cursor);
+      if (string && imageSetDepths.at(-1) === parenDepth && isExternalCssUrl(string.value)) {
+        out += css.slice(pos, cursor) + 'url()';
+        pos = string.end;
+      }
+      cursor = string ? string.end : css.length;
+      continue;
+    }
+    if (css[cursor] === '@') {
+      const name = readCssIdentifier(css, cursor + 1);
+      if (stripExternalImports && name.value.toLowerCase() === 'import') {
+        const end = findCssAtRuleEnd(css, name.end);
+        if (importHasExternalUrl(css, name.end, end)) {
+          out += css.slice(pos, cursor);
+          pos = end;
+        }
+        cursor = end;
+        continue;
+      }
+    } else if (isCssNameChar(css[cursor]) || css[cursor] === '\\') {
+      const name = readCssIdentifier(css, cursor);
+      const lowerName = name.value.toLowerCase();
+      if (lowerName === 'url') {
+        const url = readCssUrlFunction(css, name.end);
+        if (url) {
+          if (isExternalCssUrl(url.value) && (stripExternalUrls || imageSetDepths.length > 0)) {
+            out += css.slice(pos, cursor) + 'url()';
+            pos = url.end;
+          }
+          cursor = url.end;
+          continue;
+        }
+      }
+      if (lowerName === 'image-set' || lowerName === '-webkit-image-set') {
+        const open = skipCssWhitespaceAndComments(css, name.end);
+        if (css[open] === '(') {
+          if (imageSetDepths.length === 0) {
+            const imageSet = scanCssFunctionForVar(css, open);
+            if (imageSet?.hasVar) {
+              out += css.slice(pos, cursor) + 'url()';
+              pos = imageSet.end;
+              cursor = imageSet.end;
+              continue;
+            }
+          }
+          parenDepth++;
+          imageSetDepths.push(parenDepth);
+          cursor = open + 1;
+          continue;
+        }
+      }
+      // A non-url identifier is a single token. Advancing by one character
+      // would rescan every suffix, both corrupting foo-url() and becoming O(n²).
+      cursor = name.end;
+      continue;
+    }
+    if (css[cursor] === '(') {
+      parenDepth++;
+    } else if (css[cursor] === ')' && parenDepth > 0) {
+      if (imageSetDepths.at(-1) === parenDepth) imageSetDepths.pop();
+      parenDepth--;
+    }
+    cursor++;
+  }
+
+  return out + css.slice(pos);
+}
+
 function stripExternalStyleBlockUrls(html) {
   if (!html) return html;
   return scanPaired(html, /<style\b/gi, '</style>', (open, content, close) =>
-    open + content.replace(/url\s*\(\s*(['"]?)https?:\/\/[^)]*\1\s*\)/gi, 'url()') + close
+    open + stripExternalStyleBlockResources(content) + close
   );
+}
+
+const INLINE_STYLE_ATTRIBUTE = /(\sstyle\s*=\s*)(?:"([^"]*)"|'([^']*)')/gi;
+
+function decodeStyleQuoteEntities(value) {
+  return value
+    .replace(/&(?:quot|#0*34|#x0*22);/gi, '"')
+    .replace(/&(?:apos|#0*39|#x0*27);/gi, "'");
+}
+
+function encodeStyleAttribute(value, quote) {
+  return quote === '"' ? value.replace(/"/g, '&quot;') : value.replace(/'/g, '&#39;');
+}
+
+function transformInlineStyleAttributes(html, transform) {
+  return html.replace(INLINE_STYLE_ATTRIBUTE, (match, prefix, doubleQuoted, singleQuoted) => {
+    const quote = doubleQuoted === undefined ? "'" : '"';
+    const value = decodeStyleQuoteEntities(doubleQuoted ?? singleQuoted);
+    return `${prefix}${quote}${encodeStyleAttribute(transform(value), quote)}${quote}`;
+  });
+}
+
+function stripExternalInlineImageResources(style) {
+  return stripExternalStyleBlockResources(style, {
+    // Ordinary url() references retain the established http→https upgrade.
+    // url() inside image-set remains network-capable and is still neutralized.
+    stripExternalUrls: false,
+    stripExternalImports: false,
+  });
+}
+
+function sanitizeInlineStyle(style) {
+  return upgradeStyleUrls(stripExternalInlineImageResources(style));
+}
+
+function sanitizeResourceAttributes(attribs) {
+  const out = { ...attribs };
+  if ('background' in out) {
+    const background = upgradeUrl(out.background);
+    if (background === null) delete out.background;
+    else out.background = background;
+  }
+  if (out.style) out.style = sanitizeInlineStyle(out.style);
+  return out;
+}
+
+function hasExternalInlineStyleResources(html) {
+  let found = false;
+  html.replace(INLINE_STYLE_ATTRIBUTE, (match, _prefix, doubleQuoted, singleQuoted) => {
+    const value = decodeStyleQuoteEntities(doubleQuoted ?? singleQuoted);
+    if (stripExternalStyleBlockResources(value) !== value) found = true;
+    return match;
+  });
+  return found;
+}
+
+function attributeHasNetworkUrl(html, pattern, srcset = false) {
+  pattern.lastIndex = 0;
+  let match;
+  while ((match = pattern.exec(html))) {
+    if (srcset ? srcsetHasNetworkUrl(match[2]) : isNetworkResource(match[2])) return true;
+  }
+  return false;
 }
 
 // Post-process sanitized HTML to upgrade http:// URLs inside <style> blocks.
@@ -187,34 +679,6 @@ function upgradeStyleBlocks(html) {
   if (!html) return html;
   return scanPaired(html, /<style\b/gi, '</style>', (open, content, close) =>
     open + content.replace(/url\(\s*(['"]?)http:\/\//gi, (_, q) => `url(${q}https://`) + close
-  );
-}
-
-// Strip dark-mode CSS from a <style> block's text content.
-// Targets @media (prefers-color-scheme: dark) blocks, Outlook dark-mode attribute
-// selectors, and properties that invert or override the forced-light background.
-function stripDarkModeCss(css) {
-  // Remove @media (prefers-color-scheme: dark) { ... } blocks.
-  // Pattern handles one level of brace nesting (sufficient for email CSS).
-  let out = css.replace(
-    /@media\b[^{]*prefers-color-scheme\s*:\s*dark[^{]*\{(?:[^{}]|\{[^{}]*\})*\}/gi,
-    ''
-  );
-  // Remove rules scoped to Outlook dark-mode attribute selectors
-  // (e.g. [data-ogsc], [data-ogsb]).
-  out = out.replace(/\[[^\]]*data-og[^\]]*\][^{]*\{[^}]*\}/gi, '');
-  // Strip color-scheme declarations — the iframe meta tag controls this instead.
-  out = out.replace(/\bcolor-scheme\s*:[^;!}]+;?/gi, '');
-  // Strip filter:invert(...) — used to simulate dark mode by inverting the page,
-  // which breaks rendering on our forced-white background.
-  out = out.replace(/\bfilter\s*:\s*invert\([^)]*\)[^;]*;?/gi, '');
-  return out;
-}
-
-function stripDarkModeStyleBlocks(html) {
-  if (!html) return html;
-  return scanPaired(html, /<style\b/gi, '</style>', (open, content, close) =>
-    open + stripDarkModeCss(content) + close
   );
 }
 
@@ -258,7 +722,7 @@ export function sanitizeEmail(html) {
       // the sandboxed iframe, and strip relative/fragment hrefs that would
       // otherwise resolve to the mailflow origin.
       'a': (tagName, attribs) => {
-        const out = { ...attribs, rel: 'noopener noreferrer' };
+        const out = { ...sanitizeResourceAttributes(attribs), rel: 'noopener noreferrer' };
         if ('href' in out) {
           const normalized = normalizeHref(out.href);
           if (normalized === null) delete out.href;
@@ -266,17 +730,20 @@ export function sanitizeEmail(html) {
         }
         return { tagName, attribs: out };
       },
-      // Upgrade http:// → https:// for image sources and inline style url() refs.
-      // Many marketing emails still use plain-http image URLs which are blocked as
-      // mixed content on an https host, causing images to silently fail.
+      // Canonicalize genuine image resources and discard values that need an
+      // application/document base. Plain HTTP is upgraded to avoid mixed content.
       'img': (tagName, attribs) => {
-        const out = { ...attribs };
-        if (out.src)    out.src    = unwrapEbayImgUrl(upgradeUrl(out.src));
-        // Simple regex replacement avoids split(',') corrupting data: URIs that
-        // contain commas (e.g. data:image/png;base64,abc 2x).
-        if (out.srcset) out.srcset = out.srcset.replace(/\bhttp:\/\//g, 'https://');
-        if (out.background) out.background = upgradeUrl(out.background);
-        if (out.style) out.style = upgradeStyleUrls(out.style);
+        const out = sanitizeResourceAttributes(attribs);
+        if ('src' in out) {
+          const src = upgradeUrl(out.src);
+          if (src === null) delete out.src;
+          else out.src = unwrapEbayImgUrl(src);
+        }
+        if ('srcset' in out) {
+          const srcset = sanitizeSrcset(out.srcset);
+          if (srcset === null) delete out.srcset;
+          else out.srcset = srcset;
+        }
         // Defer loading of remote images; skip cid:/data: which are already local.
         const isLocal = out.src && /^(cid:|data:)/i.test(out.src);
         if (!isLocal) out.loading = 'lazy';
@@ -290,23 +757,23 @@ export function sanitizeEmail(html) {
       // that marketing emails (like eBay's) use for table-based background images
       // and CSS background-image declarations.
       '*': (tagName, attribs) => {
-        const out = { ...attribs };
-        if (out.background) out.background = upgradeUrl(out.background);
-        if (out.style) out.style = upgradeStyleUrls(out.style);
-        return { tagName, attribs: out };
+        return { tagName, attribs: sanitizeResourceAttributes(attribs) };
       },
     },
     allowedSchemes: ['http', 'https', 'mailto', 'cid'],
     allowedSchemesByTag: {
       img: ['http', 'https', 'cid', 'data'],
+      // sanitize-html validates srcset under the attribute name rather than the
+      // owning tag. Without this entry it silently discards safe data: candidates.
+      srcset: ['http', 'https', 'cid', 'data'],
     },
     disallowedTagsMode: 'discard',
   });
 
-  // Upgrade http:// URLs in <style> block CSS content — sanitize-html's transformTags
-  // only handles attributes, so CSS url() inside <style> blocks must be fixed afterward.
-  // Then strip dark-mode CSS that would override the forced-light rendering environment.
-  return stripDarkModeStyleBlocks(upgradeStyleBlocks(stripExternalStyleBlockUrls(sanitized)));
+  // Upgrade safe resources and strip network-capable style-block URLs. Appearance
+  // policy is applied to a disposable render in the frontend; the canonical
+  // sanitized body retains safe sender light/dark rules and declarations.
+  return upgradeStyleBlocks(stripExternalStyleBlockUrls(sanitized));
 }
 
 // Sanitize user-authored compose body HTML — allows rich formatting and inline
@@ -379,17 +846,16 @@ export function sanitizeSignature(html) {
   });
 }
 
-// Returns true if the sanitized HTML contains any remote http/https image references,
-// including CSS @import with a bare quoted URL (not wrapped in url()) which bypasses
-// the url() pattern check but still causes an outbound stylesheet request.
+// Returns true if HTML contains a network-capable or unsafe base-relative image
+// reference. This intentionally handles legacy cached HTML as well as current output.
 export function hasRemoteImages(html) {
   if (!html) return false;
   return (
-    /<img\b[^>]*\ssrc=["']https?:\/\//i.test(html) ||
-    /<img\b[^>]*\ssrcset=["'][^"']*https?:\/\//i.test(html) ||
-    /\sbackground=["']https?:\/\//i.test(html) ||
-    /url\(\s*['"]?https?:\/\//i.test(html) ||
-    /@import\s+["']https?:\/\//i.test(html)
+    attributeHasNetworkUrl(html, /<img\b[^>]*\ssrc=(["'])([^"']*)\1/gi) ||
+    attributeHasNetworkUrl(html, /<img\b[^>]*\ssrcset=(["'])([^"']*)\1/gi, true) ||
+    attributeHasNetworkUrl(html, /\sbackground=(["'])([^"']*)\1/gi) ||
+    hasExternalInlineStyleResources(html) ||
+    stripExternalStyleBlockUrls(html) !== html
   );
 }
 
@@ -406,8 +872,9 @@ export function blockRemoteImages(html) {
   // making the entire email appear blank.  Reading the explicit width/height attributes
   // lets us generate a grey rectangle that matches the layout slot the author intended.
   let out = html.replace(
-    /(<img\b[^>]*?)\ssrc=(["'])(https?:\/\/[^\s"']*)\2/gi,
-    (match, pre) => {
+    /(<img\b[^>]*?)\ssrc=(["'])([^"']*)\2/gi,
+    (match, pre, _quote, source) => {
+      if (!isNetworkResource(source)) return match;
       const wMatch = pre.match(/\bwidth=["']?(\d+)["']?/i);
       const hMatch = pre.match(/\bheight=["']?(\d+)["']?/i);
       const w = wMatch ? parseInt(wMatch[1], 10) : 600;
@@ -423,28 +890,28 @@ export function blockRemoteImages(html) {
   out = out.replace(
     /(<img\b[^>]*?)\ssrcset=(["'])([^"']*)\2/gi,
     (_, pre, q, val) =>
-      /https?:\/\//i.test(val)
+      srcsetHasNetworkUrl(val)
         ? pre
         : `${pre} srcset=${q}${val}${q}`
   );
 
   // Blank background="https://..." attribute (table-based marketing email layouts).
   out = out.replace(
-    /(\s)background=(["'])(https?:\/\/[^\s"']*)\2/gi,
-    '$1background=$2$2'
+    /(\s)background=(["'])([^"']*)\2/gi,
+    (match, whitespace, quote, source) => (
+      isNetworkResource(source) ? `${whitespace}background=${quote}${quote}` : match
+    )
   );
 
-  // Block CSS url(https://...) in inline style= attributes.
-  out = out.replace(
-    /\sstyle="([^"]*)"/gi,
-    (_, styleVal) => {
-      const blocked = styleVal.replace(
-        /url\(\s*(['"]?)https?:\/\/[^'")]+\1\s*\)/gi,
-        'url("data:,")'
-      );
-      return ` style="${blocked}"`;
-    }
-  );
+  // Decode serialized quote entities before scanning inline CSS, then restore
+  // attribute quoting. This also covers legacy cached image-set declarations.
+  out = transformInlineStyleAttributes(out, styleVal => {
+    const blockedUrls = styleVal.replace(
+      /url\(\s*(['"]?)https?:\/\/[^'")]+\1\s*\)/gi,
+      'url("data:,")'
+    );
+    return stripExternalStyleBlockResources(blockedUrls);
+  });
 
   // Block remote CSS loads inside <style> blocks:
   // 1. Strip @import "https://..." (bare quoted form — not caught by url() pattern).
@@ -455,7 +922,7 @@ export function blockRemoteImages(html) {
       .replace(/@import\s+["']https?:\/\/[^"']*["']\s*;?/gi, '')
       .replace(/@import\s+url\(\s*["']?https?:\/\/[^"')]*["']?\s*\)\s*;?/gi, '')
       .replace(/url\(\s*(['"]?)https?:\/\/[^'")]+\1\s*\)/gi, 'url("data:,")');
-    return open + blocked + close;
+    return open + stripExternalStyleBlockResources(blocked) + close;
   });
 
   return out;

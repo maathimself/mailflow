@@ -245,6 +245,8 @@
       "body": "Aggiornamento della whitelist delle immagini fallito."
     },
     "emailFrameTitle": "Contenuto email",
+    "showOriginalColors": "Mostra colori originali",
+    "matchThemeColors": "Adatta i colori al tema",
     "unsubscribe": {
       "info": "Puoi annullare l'iscrizione a questa mailing list.",
       "button": "Annulla iscrizione",
@@ -842,7 +844,13 @@
       "customCssDescription": "Inserisce CSS aggiuntivo dopo il tema attivo. Usa proprietà CSS personalizzate (es. --accent, --bg-primary) per sovrascrivere i valori del tema o aggiungere regole proprie. Applicato a tutti gli utenti.",
       "customCssPlaceholder": ":root {\n  --accent: #e74c3c;\n}",
       "customCssSave": "Salva",
-      "customCssSaved": "Salvato"
+      "customCssSaved": "Salvato",
+      "emailContent": "Contenuto delle email",
+      "emailContentDescription": "Scegli se i colori delle email HTML seguono MailFlow o mantengono l'aspetto chiaro originale del mittente.",
+      "emailContentMatchTheme": "Adatta al tema",
+      "emailContentMatchThemeDescription": "Adatta i colori dell'email al tema attivo. Consigliato.",
+      "emailContentOriginal": "Colori originali",
+      "emailContentOriginalDescription": "Mostra sempre l'aspetto chiaro e sanificato del mittente."
     },
     "messageList": {
       "title": "Elenco messaggi",

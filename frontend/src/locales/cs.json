@@ -338,6 +338,8 @@
       "body": "Seznam povolených obrázků se nepodařilo aktualizovat."
     },
     "emailFrameTitle": "Obsah e-mailu",
+    "showOriginalColors": "Zobrazit původní barvy",
+    "matchThemeColors": "Přizpůsobit barvy motivu",
     "unsubscribe": {
       "info": "Z odběru tohoto seznamu se můžete odhlásit.",
       "button": "Odhlásit odběr",
@@ -836,6 +838,12 @@
       "fontSize": "Velikost písma",
       "fontSizeDescription": "Upravte velikost textu v rozhraní. Výchozí hodnota je 100 %.",
       "fontSizeReset": "Obnovit na 100 %",
+      "emailContent": "Obsah e-mailu",
+      "emailContentDescription": "Zvolte, zda mají barvy HTML e-mailů odpovídat MailFlow, nebo zachovat původní světlý vzhled odesílatele.",
+      "emailContentMatchTheme": "Přizpůsobit motivu",
+      "emailContentMatchThemeDescription": "Přizpůsobí barvy e-mailu aktivnímu motivu. Doporučeno.",
+      "emailContentOriginal": "Původní barvy",
+      "emailContentOriginalDescription": "Vždy zobrazí vyčištěný světlý vzhled odesílatele.",
       "customCss": "Vlastní CSS",
       "customCssDescription": "Vložte doplňující CSS, které se použije po aktivním motivu. Hodnoty motivu můžete přepsat pomocí vlastních proměnných CSS (např. --accent, --bg-primary) nebo přidat vlastní pravidla. Použije se pro všechny uživatele.",
       "customCssPlaceholder": ":root {\n  --accent: #e74c3c;\n}",

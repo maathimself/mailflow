@@ -1,7 +1,12 @@
 // Run with: node --test src/themes.test.js
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { THEMES } from './themes.js';
+import {
+  THEMES,
+  applyCustomCss,
+  applyTheme,
+  subscribeAppearanceChanges,
+} from './themes.js';
 
 const names = Object.keys(THEMES);
 
@@ -41,6 +46,116 @@ describe('THEMES CSS-var contract', () => {
     for (const name of names) {
       assert.ok(Array.isArray(THEMES[name].preview), `${name} preview must be an array`);
       assert.equal(THEMES[name].preview.length, arity, `${name} preview arity differs from ${reference}`);
+    }
+  });
+});
+
+function fakeDocument() {
+  const nodes = new Map();
+  const attributes = new Map();
+  const appendChild = node => {
+    node.isConnected = true;
+    if (node.id) nodes.set(node.id, node);
+  };
+  return {
+    documentElement: {
+      setAttribute(name, value) { attributes.set(name, value); },
+      getAttribute(name) { return attributes.get(name) ?? null; },
+    },
+    head: { appendChild },
+    createElement: () => ({
+      style: {},
+      isConnected: false,
+      remove() {
+        this.isConnected = false;
+        nodes.delete(this.id);
+      },
+    }),
+    getElementById: id => nodes.get(id) || null,
+    querySelector: () => null,
+  };
+}
+
+function withThemeDocument(run) {
+  const previousDocument = globalThis.document;
+  const previousGetComputedStyle = globalThis.getComputedStyle;
+  globalThis.document = fakeDocument();
+  globalThis.getComputedStyle = () => ({ getPropertyValue: () => 'blue' });
+  try {
+    run();
+  } finally {
+    globalThis.document = previousDocument;
+    globalThis.getComputedStyle = previousGetComputedStyle;
+  }
+}
+
+describe('appearance change notifications', () => {
+  it('publishes one synchronous event after theme and custom-CSS mutations', () => {
+    withThemeDocument(() => {
+      const events = [];
+      const unsubscribe = subscribeAppearanceChanges(event => {
+        events.push({
+          ...event,
+          themeCss: document.getElementById('mailflow-theme')?.textContent,
+          customCss: document.getElementById('mailflow-custom-css')?.textContent || null,
+        });
+      });
+
+      try {
+        applyTheme('light');
+        assert.equal(events.length, 1);
+        applyCustomCss(':root { --accent: #f00; }');
+        assert.equal(events.length, 2);
+        applyCustomCss('');
+        assert.equal(events.length, 3);
+      } finally {
+        unsubscribe();
+      }
+
+      assert.deepEqual(events.map(event => event.themeName), ['light', 'light', 'light']);
+      assert.ok(events[0].themeCss.includes('--bg-primary: #f0f0f5;'));
+      assert.equal(events[1].customCss, ':root { --accent: #f00; }');
+      assert.equal(events[2].customCss, null);
+    });
+  });
+
+  it('stops events after unsubscribe and isolates listener exceptions', () => {
+    withThemeDocument(() => {
+      const events = [];
+      const stopBroken = subscribeAppearanceChanges(() => { throw new Error('listener failure'); });
+      const stopHealthy = subscribeAppearanceChanges(event => events.push(event));
+
+      try {
+        applyTheme('dark');
+        stopHealthy();
+        applyTheme('light');
+      } finally {
+        stopBroken();
+      }
+
+      assert.deepEqual(events, [{ themeName: 'dark' }]);
+    });
+  });
+
+  it('falls back inherited theme keys to dark before notifying listeners', () => {
+    for (const inheritedName of ['toString', 'constructor', '__proto__']) {
+      withThemeDocument(() => {
+        const events = [];
+        const unsubscribe = subscribeAppearanceChanges(event => events.push({
+          ...event,
+          themeCss: document.getElementById('mailflow-theme')?.textContent,
+        }));
+
+        try {
+          assert.doesNotThrow(() => applyTheme(inheritedName), inheritedName);
+        } finally {
+          unsubscribe();
+        }
+
+        assert.deepEqual(events.map(event => event.themeName), ['dark'], inheritedName);
+        assert.ok(events[0].themeCss.includes('--bg-primary: #0f0f11;'), inheritedName);
+        assert.equal(document.documentElement.getAttribute('data-mailflow-theme'), 'dark', inheritedName);
+      });
     }
   });
 });
