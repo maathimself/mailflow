@@ -34,6 +34,7 @@ import {
   unreadCountsByAccount,
 } from '../utils/threadedArchive.js';
 import { createUndoableCommit, UNDO_COMMIT_DELAY_MS, UNDO_WINDOW_MS } from '../utils/undoableAction.js';
+import { PluginSlot } from '../plugins/PluginSlot.jsx';
 
 // Folder icon for move picker
 function FolderIcon({ specialUse, size = 13 }) {
@@ -4313,9 +4314,13 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
           <div style={{
             fontSize: 12, fontWeight: unreadCount > 0 ? 500 : 400,
             color: unreadCount > 0 ? 'var(--text-primary)' : 'var(--text-secondary)',
-            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 2,
+            overflow: 'hidden', whiteSpace: 'nowrap', marginBottom: 2,
+            display: 'flex', alignItems: 'center', gap: 5,
           }}>
-            {message.subject || t('common.noSubject')}
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, minWidth: 0 }}>
+              {message.subject || t('common.noSubject')}
+            </span>
+            <PluginSlot name="message-row-meta" ctx={{ message, surface: 'thread' }} />
           </div>
           {/* Row 3: snippet */}
           {showMessagePreviews && (
@@ -4632,10 +4637,14 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
         <div style={{
           fontSize: 13, fontWeight: message.is_read ? 400 : 500,
           color: message.is_read ? 'var(--text-secondary)' : 'var(--text-primary)',
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          overflow: 'hidden', whiteSpace: 'nowrap',
           marginBottom: 3,
+          display: 'flex', alignItems: 'center', gap: 5,
         }}>
-          {message.subject || t('message.noSubject')}
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, minWidth: 0 }}>
+            {message.subject || t('message.noSubject')}
+          </span>
+          <PluginSlot name="message-row-meta" ctx={{ message, surface: 'message' }} />
         </div>
 
         {/* Row 3: Snippet */}
