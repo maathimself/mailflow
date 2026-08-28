@@ -889,20 +889,30 @@ router.post('/folders', async (req, res) => {
   const check = await query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
 
-  // Build path: if parentPath given, look up the delimiter used by this account's folders
-  let path = name.trim();
-  if (parentPath) {
-    const delimResult = await query('SELECT delimiter FROM folders WHERE account_id = $1 LIMIT 1', [accountId]);
-    const delim = delimResult.rows[0]?.delimiter || '/';
-    path = `${parentPath}${delim}${name.trim()}`;
-  }
+  // Join parent and leaf with '/' and let ensureFolder translate: it splits on
+  // '/' and imapflow joins the segments with the server's real hierarchy
+  // delimiter and namespace, so a parent stored in native form (INBOX.Foo)
+  // plus a new leaf lands at INBOX.Foo.Bar on a dot-delimited server. The raw
+  // mailboxCreate this replaces ignored both, so a folder created through
+  // MailFlow could be stored under a path the server never had — and creating
+  // a subfolder beneath such a ghost silently vanished on the next
+  // folder-structure sync.
+  const requested = parentPath ? `${parentPath}/${name.trim()}` : name.trim();
 
   try {
-    await imapManager.createFolder(check.rows[0], path);
+    const { path } = await imapManager.ensureFolder(check.rows[0], requested, { resolvePath: true });
+    // Store the account's delimiter too — rows inserted without one (NULL)
+    // poison later delimiter lookups for subfolder creation and rename.
+    const delimResult = await query(
+      `SELECT delimiter FROM folders
+       WHERE account_id = $1 AND delimiter IS NOT NULL AND delimiter <> ''
+       LIMIT 1`,
+      [accountId]
+    );
     await query(
-      `INSERT INTO folders (account_id, path, name) VALUES ($1, $2, $3)
+      `INSERT INTO folders (account_id, path, name, delimiter) VALUES ($1, $2, $3, $4)
        ON CONFLICT (account_id, path) DO NOTHING`,
-      [accountId, path, name.trim()]
+      [accountId, path, name.trim(), delimResult.rows[0]?.delimiter || null]
     );
     res.json({ ok: true, path });
   } catch (err) {
