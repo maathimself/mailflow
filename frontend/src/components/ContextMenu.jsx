@@ -5,6 +5,8 @@ import { api } from '../utils/api.js';
 import { getContextMenuPolicy, resolveContextMenuMessage } from '../utils/contextMenuPolicy.js';
 import { usePluginCollected } from '../plugins/PluginSlot.jsx';
 import MessageHeaderModal from './MessageHeaderModal.jsx';
+import FolderPathLabel from './FolderPathLabel.jsx';
+import { folderMatchesQuery } from '../utils/folderDisplay.js';
 import { useUiScale, descale } from '../hooks/useUiScale.js';
 import { useMobile } from '../hooks/useMobile.js';
 
@@ -629,7 +631,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
                 const searchQuery = folderSearch.trim().toLowerCase();
                 if (searchQuery) {
                   const filtered = (moveFolders || [])
-                    .filter(f => f.path !== message.folder && f.name.toLowerCase().includes(searchQuery));
+                    .filter(f => f.path !== message.folder && folderMatchesQuery(f, searchQuery));
                   return filtered.length === 0 ? (
                     <div style={{ padding: '12px 14px', color: 'var(--text-tertiary)', fontSize: 12 }}>
                       {t('contextMenu.folders.empty')}
@@ -799,9 +801,7 @@ function FolderMenuItem({ folder, onClick }) {
       }}
     >
       <span style={{ flexShrink: 0, color: 'var(--text-tertiary)', display: 'flex' }}>{icon}</span>
-      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {folder.name || folder.path}
-      </span>
+      <FolderPathLabel folder={folder} />
     </div>
   );
 }
