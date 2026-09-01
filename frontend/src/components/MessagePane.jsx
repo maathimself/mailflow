@@ -13,6 +13,7 @@ import { BUILTIN_SUMMARIZE, summarizePromptForLocale } from '../aiActions.js';
 import { getResults, saveResult, removeResult } from '../aiResults.js';
 import { renderMarkdown } from '../utils/renderMarkdown.js';
 import { pickReplyAlias } from '../utils/replyAlias.js';
+import { measureContentHeight, createHeightController } from '../utils/emailFrameHeight.js';
 const USE_DIV_RENDER = import.meta.env.VITE_EMAIL_DIV_RENDER === 'true';
 const MESSAGE_OPENING_EVENT = 'mailflow:message-opening';
 
@@ -538,7 +539,8 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     if (!iframe || !body?.html) return;
 
     let rafId;
-    let lastH = 0;
+    const heights = createHeightController();
+    let initialisedDoc = null;
     let contextMenuDoc = null;
     let iframeContextMenuHandler = null;
     let clickDoc = null;
@@ -547,28 +549,41 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     const setHeight = () => {
       const doc = iframe.contentDocument;
       if (!doc) return;
-      const el = doc.documentElement;
-      const b  = doc.body;
-      const h  = Math.max(
-        el ? el.scrollHeight : 0,
-        el ? el.offsetHeight : 0,
-        b  ? b.scrollHeight  : 0,
-        b  ? b.offsetHeight  : 0,
-      );
+      const b = doc.body;
+      const wrapper = doc.getElementById('mf-scale-wrapper');
+      // documentElement is deliberately NOT measured: its scrollHeight is floored by
+      // the frame's own viewport, so once the frame is N tall every reading is >= N
+      // and an over-estimate can never be walked back. That floor, not the guard that
+      // used to sit below it, is what left whitespace under short emails.
+      const h = measureContentHeight({
+        wrapperOffsetHeight: wrapper ? wrapper.offsetHeight : 0,
+        wrapperOffsetTop:    wrapper ? wrapper.offsetTop    : 0,
+        bodyScrollHeight:    b ? b.scrollHeight : 0,
+        bodyOffsetHeight:    b ? b.offsetHeight : 0,
+      });
       // Scale visual height to match the proportional scale applied to the
       // email wrapper (1 for normal emails, <1 for wide fixed-layout emails).
-      const scaled = Math.round(h * emailScaleRef.current);
-      if (scaled > lastH) {
-        lastH = scaled;
-        iframe.style.height = scaled + 'px';
-      }
+      // offsetHeight above is untransformed, so the factor applies exactly once.
+      const next = heights.next(h, emailScaleRef.current);
+      if (next !== null) iframe.style.height = next + 'px';
     };
 
     const onLoaded = () => {
-      emailScaleRef.current = 1; // reset for each new email
-
       const doc = iframe.contentDocument;
-      if (!doc) return;
+      // Only ever initialise against OUR document. A freshly mounted frame exposes an
+      // about:blank whose readyState is already 'complete', and a frame whose srcDoc has
+      // just changed still exposes the PREVIOUS email until the swap lands. Either way the
+      // readyState fast path further down can fire against a document that is not this
+      // email, measuring it and binding a ResizeObserver to it. #mf-scale-wrapper is only
+      // present in a document we rendered, which makes it a reliable marker.
+      if (!doc || !doc.getElementById('mf-scale-wrapper')) return;
+      // Guard the fast path against re-running on a document already wired up. This is
+      // per effect run, so a genuine re-run (changed deps) still re-attaches everything
+      // the cleanup tore down.
+      if (doc === initialisedDoc) return;
+      initialisedDoc = doc;
+
+      emailScaleRef.current = 1; // reset for each new email
 
       // Some marketing emails have inline styles on their <body> tag (e.g. overflow:auto,
       // height:100%) that the HTML parser merges into the iframe's outer <body>.  Our
@@ -657,7 +672,11 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       };
       expandScrollContainers();
 
-      lastH = 0; // recalculate from scratch with the new scale
+      // Recalculate from scratch with the new scale. The controller deliberately does
+      // not seed itself from the frame's current height, so this measurement is
+      // authoritative even when it is SHORTER than what is currently applied. That is
+      // what clears leftover whitespace when the previous email was taller.
+      heights.reset();
       setHeight();
       rafId = requestAnimationFrame(setHeight);
 
@@ -712,10 +731,16 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       });
 
       // Watch for content that reflows after load (web fonts, dynamic content).
-      // Guard: only grow — never shrink on observer fires — so any residual loop
-      // stalls immediately once height stabilises.
+      // Shrinking is allowed here: content height cannot depend on frame height,
+      // because html/body are pinned to height:auto above and media queries key off
+      // width. createHeightController still carries a tolerance band plus an
+      // oscillation freeze in case some email defeats that reasoning.
       const root = doc.body || doc.documentElement;
       if (window.ResizeObserver && root) {
+        // Disconnect first: onLoaded can legitimately run more than once per effect
+        // (stale document, then the real one), and overwriting the ref without this
+        // leaves the previous observer running against the old document forever.
+        if (roRef.current) roRef.current.disconnect();
         roRef.current = new ResizeObserver(() => requestAnimationFrame(setHeight));
         roRef.current.observe(root);
       }
