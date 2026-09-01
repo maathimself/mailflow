@@ -1,3 +1,7 @@
+// Delimiter and parent-path primitives are shared with the move-picker label
+// and search helpers so the tree and the pickers can never disagree.
+import { folderDelimiter, folderParentPath as folderParent } from './folderDisplay.js';
+
 export function collapsedTooltip(label, collapsed) {
   if (!collapsed) return undefined;
   // An empty title suppresses the browser's own tooltip, so drop the attribute.
@@ -15,14 +19,9 @@ export function activateOnKey(activate) {
 export const FOLDER_ORDER_DRAG_TYPE = 'application/x-mailflow-folder-order';
 
 function delimiterFor(folders) {
-  return folders.find(folder => (
+  return folderDelimiter(folders.find(folder => (
     typeof folder?.delimiter === 'string' && folder.delimiter
-  ))?.delimiter || '/';
-}
-
-function folderParent(path, delimiter) {
-  const index = path.lastIndexOf(delimiter);
-  return index === -1 ? null : path.slice(0, index);
+  )));
 }
 
 function folderPathsWithAncestors(folders) {

@@ -13,6 +13,8 @@ import { BUILTIN_SUMMARIZE, summarizePromptForLocale } from '../aiActions.js';
 import { getResults, saveResult, removeResult } from '../aiResults.js';
 import { renderMarkdown } from '../utils/renderMarkdown.js';
 import { pickReplyAlias } from '../utils/replyAlias.js';
+import { folderMatchesQuery } from '../utils/folderDisplay.js';
+import FolderPathLabel from './FolderPathLabel.jsx';
 const USE_DIV_RENDER = import.meta.env.VITE_EMAIL_DIV_RENDER === 'true';
 const MESSAGE_OPENING_EVENT = 'mailflow:message-opening';
 
@@ -2062,7 +2064,7 @@ ${bodyContent}
                     const q = moveSearch.trim().toLowerCase();
                     if (q) {
                       const filtered = movePickerFolders
-                        .filter(f => f.path !== message.folder && f.name.toLowerCase().includes(q));
+                        .filter(f => f.path !== message.folder && folderMatchesQuery(f, q));
                       return filtered.length === 0 ? (
                         <div style={{ padding: '12px 12px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12 }}>
                           {t('contextMenu.folders.empty')}
@@ -2076,7 +2078,7 @@ ${bodyContent}
                           onMouseLeave={e => e.currentTarget.style.background = 'none'}
                         >
                           <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} /></span>
-                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                          <FolderPathLabel folder={f} />
                         </button>
                       ));
                     }
@@ -2096,7 +2098,7 @@ ${bodyContent}
                                 onMouseLeave={e => e.currentTarget.style.background = 'none'}
                               >
                                 <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} /></span>
-                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                                <FolderPathLabel folder={f} />
                               </button>
                             ))}
                             <div style={{ height: 1, background: 'var(--border-subtle)', margin: '3px 0' }} />
@@ -2116,7 +2118,7 @@ ${bodyContent}
                                 onMouseLeave={e => e.currentTarget.style.background = 'none'}
                               >
                                 <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} /></span>
-                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                                <FolderPathLabel folder={f} />
                               </button>
                             ))}
                             <div style={{ height: 1, background: 'var(--border-subtle)', margin: '3px 0' }} />
@@ -2133,7 +2135,7 @@ ${bodyContent}
                               onMouseLeave={e => e.currentTarget.style.background = 'none'}
                             >
                               <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} /></span>
-                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                              <FolderPathLabel folder={f} />
                             </button>
                           ))
                         }
@@ -2989,7 +2991,7 @@ ${bodyContent}
                 const q = moveSearch.trim().toLowerCase();
                 if (q) {
                   const filtered = movePickerFolders
-                    .filter(f => f.path !== message.folder && f.name.toLowerCase().includes(q));
+                    .filter(f => f.path !== message.folder && folderMatchesQuery(f, q));
                   return filtered.length === 0 ? (
                     <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
                       {t('contextMenu.folders.empty')}
@@ -3001,7 +3003,7 @@ ${bodyContent}
                       style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', minHeight: 48, padding: '0 20px', background: 'none', border: 'none', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: 15, cursor: 'pointer', textAlign: 'left' }}
                     >
                       <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} size={18} /></span>
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                      <FolderPathLabel folder={f} />
                     </button>
                   ));
                 }
@@ -3019,7 +3021,7 @@ ${bodyContent}
                             style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', minHeight: 48, padding: '0 20px', background: 'none', border: 'none', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: 15, cursor: 'pointer', textAlign: 'left' }}
                           >
                             <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} size={18} /></span>
-                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                            <FolderPathLabel folder={f} />
                           </button>
                         ))}
                         <div style={{ height: 1, background: 'var(--border-subtle)', margin: '3px 0' }} />
@@ -3037,7 +3039,7 @@ ${bodyContent}
                             style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', minHeight: 48, padding: '0 20px', background: 'none', border: 'none', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: 15, cursor: 'pointer', textAlign: 'left' }}
                           >
                             <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} size={18} /></span>
-                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                            <FolderPathLabel folder={f} />
                           </button>
                         ))}
                         <div style={{ height: 1, background: 'var(--border-subtle)', margin: '3px 0' }} />
@@ -3052,7 +3054,7 @@ ${bodyContent}
                           style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', minHeight: 48, padding: '0 20px', background: 'none', border: 'none', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: 15, cursor: 'pointer', textAlign: 'left' }}
                         >
                           <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} size={18} /></span>
-                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                          <FolderPathLabel folder={f} />
                         </button>
                       ))
                     }

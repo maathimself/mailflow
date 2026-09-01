@@ -30,6 +30,7 @@ import DiagnosticsReportModal from './DiagnosticsReportModal.jsx';
 import { getEffectiveShortcuts, getGroupedActions, ACTION_DEFS, SPECIAL_KEY_LABELS, parseModKey, modLabel } from '../utils/defaultShortcuts.js';
 import { unifiedUnreadTotal } from '../utils/unifiedInbox.js';
 import { isValidForwardAddress } from '../utils/ruleActions.js';
+import { folderParentLabel } from '../utils/folderDisplay.js';
 
 // ─── Shared field component ───────────────────────────────────────────────────
 function Field({ label, required, children }) {
@@ -5988,7 +5989,10 @@ function RulesTab() {
     const acts = Array.isArray(rule.actions) ? rule.actions : [];
     if (!acts.length) return '—';
     const labels = { mark_read: t('admin.rules.actionMarkRead'), star: t('admin.rules.actionStar'), forward: t('admin.rules.actionForward'), archive: t('admin.rules.actionArchive'), delete: t('admin.rules.actionDelete'), move: t('admin.rules.actionMove') };
-    return acts.map(a => labels[a.type] || a.type).join(', ');
+    // Show the move destination so same-named rules are tellable apart at a glance.
+    return acts.map(a => a.type === 'move' && a.value
+      ? `${labels.move} → ${a.value}`
+      : (labels[a.type] || a.type)).join(', ');
   }
 
   const FIELDS = [
@@ -6193,11 +6197,24 @@ function RulesTab() {
                         style={{ ...inputStyle, marginTop: 6, marginLeft: 22 }}
                         value={moveVal}
                         onChange={e => setActionValue('move', e.target.value)}
+                        // The closed control clips long paths; surface the full
+                        // selected path as a tooltip. (A native <option> cannot
+                        // host the pickers' two-tone/hover-scroll label.)
+                        title={moveVal || undefined}
                       >
                         <option value="">{t('admin.rules.actionMoveSelectFolder')}</option>
-                        {movableFolders.map(f => (
-                          <option key={f.path} value={f.path}>{f.name || f.path}</option>
-                        ))}
+                        {movableFolders.map(f => {
+                          // Same ancestor-path display as the move pickers, so
+                          // same-named folders under different parents are
+                          // distinguishable when choosing a rule destination.
+                          const parent = folderParentLabel(f);
+                          const name = f.name || f.path;
+                          return (
+                            <option key={f.path} value={f.path}>
+                              {parent ? `${parent} / ${name}` : name}
+                            </option>
+                          );
+                        })}
                       </select>
                     );
                   }
