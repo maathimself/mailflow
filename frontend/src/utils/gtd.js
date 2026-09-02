@@ -514,6 +514,19 @@ export function appendMessagesByIdentity(existing, incoming) {
 // This is the render-time guard the identity-aware merges (appendMessagesByIdentity) don't cover.
 // Order-preserving; on a collision the INBOX copy wins so the list shows the received message.
 // Null-safe: rows without a Message-ID key on their (unique) id, so distinct ones never merge. Pure.
+// Which copy of a duplicated message should represent it in the list. Lower wins.
+//
+// INBOX beats every other folder, as it always has. Within a folder class an UNREAD copy
+// beats a read one: the same notification delivered to two unified accounts arrives as two
+// rows with the same Message-ID and, very often, an identical Date, so the order they reach
+// us is arbitrary. Keeping whichever landed first could discard the unread copy and render
+// the message as already read, hiding genuinely unread mail from the default list while it
+// still showed under the unread filter (which excludes the read copy server-side).
+export function duplicateRank(m) {
+  const folderRank = m?.folder === 'INBOX' ? 0 : 2;
+  return folderRank + (m?.is_read ? 0 : -1);
+}
+
 export function dedupeByIdentity(list) {
   const idxByKey = new Map(); // identity -> index in result
   const result = [];
@@ -523,8 +536,10 @@ export function dedupeByIdentity(list) {
     if (!idxByKey.has(key)) {
       idxByKey.set(key, result.length);
       result.push(m);
-    } else if (result[idxByKey.get(key)].folder !== 'INBOX' && m.folder === 'INBOX') {
-      result[idxByKey.get(key)] = m; // prefer the INBOX copy of the same logical message
+    } else {
+      const i = idxByKey.get(key);
+      // Strict improvement only, so an exact tie keeps the earlier row and order stays stable.
+      if (duplicateRank(m) < duplicateRank(result[i])) result[i] = m;
     }
   }
   return result;

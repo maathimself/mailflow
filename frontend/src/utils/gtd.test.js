@@ -555,6 +555,55 @@ describe('dedupeByIdentity', () => {
     assert.equal(result[0].folder, 'INBOX');
   });
 
+  it('keeps the UNREAD copy when the same message reached two unified accounts', () => {
+    // The reported bug: one GitHub notification delivered to two of the user's addresses.
+    // Same Message-ID, same Date, so the order they arrive in is arbitrary. Keeping the
+    // read copy hid an unread email from the default list while the unread filter, which
+    // drops the read copy server-side, still showed it.
+    const list = [
+      { id: 'read',   message_id: '<m1>', folder: 'INBOX', account_id: 'a', is_read: true },
+      { id: 'unread', message_id: '<m1>', folder: 'INBOX', account_id: 'b', is_read: false },
+    ];
+    const result = dedupeByIdentity(list);
+    assert.equal(result.length, 1);
+    assert.equal(result[0].id, 'unread');
+    assert.equal(result[0].is_read, false);
+  });
+
+  it('keeps the unread copy no matter which order the two rows arrive in', () => {
+    const unread = { id: 'unread', message_id: '<m1>', folder: 'INBOX', is_read: false };
+    const read   = { id: 'read',   message_id: '<m1>', folder: 'INBOX', is_read: true };
+    assert.equal(dedupeByIdentity([unread, read])[0].id, 'unread');
+    assert.equal(dedupeByIdentity([read, unread])[0].id, 'unread');
+  });
+
+  it('still prefers INBOX over another folder even when the other copy is unread', () => {
+    // Folder rank dominates: an unread Sent twin must not displace the INBOX row.
+    const list = [
+      { id: 'inbox', message_id: '<m1>', folder: 'INBOX', is_read: true },
+      { id: 'sent',  message_id: '<m1>', folder: 'Sent',  is_read: false },
+    ];
+    const result = dedupeByIdentity(list);
+    assert.equal(result.length, 1);
+    assert.equal(result[0].id, 'inbox');
+  });
+
+  it('prefers the unread copy within a non-INBOX folder too', () => {
+    const list = [
+      { id: 'read',   message_id: '<m1>', folder: 'Archive', is_read: true },
+      { id: 'unread', message_id: '<m1>', folder: 'Archive', is_read: false },
+    ];
+    assert.equal(dedupeByIdentity(list)[0].id, 'unread');
+  });
+
+  it('leaves both rows alone when they are equally good, so ordering stays stable', () => {
+    const list = [
+      { id: 'first',  message_id: '<m1>', folder: 'INBOX', is_read: false },
+      { id: 'second', message_id: '<m1>', folder: 'INBOX', is_read: false },
+    ];
+    assert.equal(dedupeByIdentity(list)[0].id, 'first');
+  });
+
   it('preserves order and keeps the first occurrence when no INBOX copy exists', () => {
     const list = [
       { id: 'x', message_id: '<m2>', folder: 'Archive' },
