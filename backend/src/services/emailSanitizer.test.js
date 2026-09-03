@@ -429,3 +429,58 @@ describe('sanitizeSignature', () => {
     expect(sanitizeSignature('')).toBe('');
   });
 });
+
+// ── outgoing hrefs must survive the send path ───────────────────────────────────────────
+//
+// A disallowed scheme makes sanitize-html drop the href attribute but keep the <a>, so the
+// result renders and styles as a link yet does nothing when clicked. That is worse than
+// dropping the anchor outright, because nothing looks wrong until a recipient tries it.
+// The composer autolinks a typed bare domain as http:// (Tiptap's defaultProtocol), which
+// is precisely the case that used to be gutted.
+
+describe('sanitizeComposeBody link hrefs', () => {
+  const hrefOf = (html) => (html.match(/href="([^"]*)"/) || [])[1] ?? null;
+
+  it('upgrades an http:// link instead of stripping its href', () => {
+    const out = sanitizeComposeBody('<p><a href="http://example.com">example.com</a></p>');
+    expect(hrefOf(out)).toBe('https://example.com');
+  });
+
+  it('keeps an https:// link untouched', () => {
+    const out = sanitizeComposeBody('<p><a href="https://example.com/x?y=1">x</a></p>');
+    expect(hrefOf(out)).toBe('https://example.com/x?y=1');
+  });
+
+  it('resolves a bare domain to https', () => {
+    const out = sanitizeComposeBody('<p><a href="example.com">example.com</a></p>');
+    expect(hrefOf(out)).toBe('https://example.com');
+  });
+
+  it('keeps mailto and tel links clickable', () => {
+    expect(hrefOf(sanitizeComposeBody('<a href="mailto:a@b.com">m</a>'))).toBe('mailto:a@b.com');
+    expect(hrefOf(sanitizeComposeBody('<a href="tel:+15551234">t</a>'))).toBe('tel:+15551234');
+  });
+
+  it('never emits an anchor that has lost its href', () => {
+    // The actual defect: a styled link with nowhere to go. Either the href survives in a
+    // usable form, or normalizeHref rejected it and we expect no href at all.
+    for (const href of ['http://example.com', 'https://example.com', 'example.com',
+                        'www.example.com/path', 'mailto:a@b.com', 'tel:+15551234']) {
+      const out = sanitizeComposeBody(`<p><a href="${href}">text</a></p>`);
+      expect(hrefOf(out), `href "${href}" was stripped`).not.toBe(null);
+    }
+  });
+
+  it('still refuses dangerous and unresolvable hrefs', () => {
+    for (const href of ['javascript:alert(1)', 'data:text/html,x', 'vbscript:x', '#anchor', '/relative']) {
+      const out = sanitizeComposeBody(`<p><a href="${href}">text</a></p>`);
+      expect(hrefOf(out)).toBe(null);
+      expect(out).not.toMatch(/javascript:|vbscript:|data:text/i);
+    }
+  });
+
+  it('applies the same rules to signatures', () => {
+    expect(hrefOf(sanitizeSignature('<a href="http://example.com">site</a>'))).toBe('https://example.com');
+    expect(hrefOf(sanitizeSignature('<a href="javascript:alert(1)">x</a>'))).toBe(null);
+  });
+});

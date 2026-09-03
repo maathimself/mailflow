@@ -333,13 +333,26 @@ export function sanitizeComposeBody(html) {
       'table': ['width', 'cellpadding', 'cellspacing', 'border', 'align', 'bgcolor'],
       'code': ['class'],
     },
-    allowedSchemes: ['https', 'mailto'],
+    // Every scheme normalizeHref can emit must be listed. Anything it produces that is not
+    // allowed gets its href stripped while the <a> survives, which renders as a link but
+    // does nothing when clicked.
+    allowedSchemes: ['https', 'mailto', 'tel', 'sms', 'cid'],
     allowedSchemesByTag: { img: ['https', 'data'] },
     transformTags: {
-      'a': (tagName, attribs) => ({
-        tagName,
-        attribs: { ...attribs, rel: 'noopener noreferrer', target: '_blank' },
-      }),
+      'a': (tagName, attribs) => {
+        // Normalise before the scheme filter runs, as sanitizeEmail() already does on the
+        // receive path. Without it an http:// href was discarded rather than upgraded to
+        // https, and http:// is exactly what the composer emits for a typed bare domain,
+        // because Tiptap autolinks with defaultProtocol 'http'. So "example.com" became
+        // http://example.com and arrived as an anchor with no destination.
+        const out = { ...attribs, rel: 'noopener noreferrer', target: '_blank' };
+        if ('href' in out) {
+          const normalized = normalizeHref(out.href);
+          if (normalized === null) delete out.href;
+          else out.href = normalized;
+        }
+        return { tagName, attribs: out };
+      },
     },
     disallowedTagsMode: 'discard',
   });
@@ -367,13 +380,26 @@ export function sanitizeSignature(html) {
       'th': ['colspan', 'rowspan', 'align', 'valign'],
       'table': ['width', 'cellpadding', 'cellspacing', 'border', 'align', 'bgcolor'],
     },
-    allowedSchemes: ['https', 'mailto'],
+    // Every scheme normalizeHref can emit must be listed. Anything it produces that is not
+    // allowed gets its href stripped while the <a> survives, which renders as a link but
+    // does nothing when clicked.
+    allowedSchemes: ['https', 'mailto', 'tel', 'sms', 'cid'],
     allowedSchemesByTag: { img: ['https', 'data'] },
     transformTags: {
-      'a': (tagName, attribs) => ({
-        tagName,
-        attribs: { ...attribs, rel: 'noopener noreferrer', target: '_blank' },
-      }),
+      'a': (tagName, attribs) => {
+        // Normalise before the scheme filter runs, as sanitizeEmail() already does on the
+        // receive path. Without it an http:// href was discarded rather than upgraded to
+        // https, and http:// is exactly what the composer emits for a typed bare domain,
+        // because Tiptap autolinks with defaultProtocol 'http'. So "example.com" became
+        // http://example.com and arrived as an anchor with no destination.
+        const out = { ...attribs, rel: 'noopener noreferrer', target: '_blank' };
+        if ('href' in out) {
+          const normalized = normalizeHref(out.href);
+          if (normalized === null) delete out.href;
+          else out.href = normalized;
+        }
+        return { tagName, attribs: out };
+      },
     },
     disallowedTagsMode: 'discard',
   });
