@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { measureContentHeight, createHeightController } from './emailFrameHeight.js';
+import { measureContentHeight, createHeightController, forceEagerImages } from './emailFrameHeight.js';
 
 describe('measureContentHeight', () => {
   test('uses the wrapper box, offset by where the wrapper starts', () => {
@@ -124,5 +124,49 @@ describe('createHeightController', () => {
     c.reset(); // real document arrives
     const real = c.next(measureContentHeight({ wrapperOffsetHeight: 1470, bodyScrollHeight: 1470 }));
     assert.equal(real, 1470, 'no leftover whitespace from the previous measurement');
+  });
+});
+
+// ── forceEagerImages ────────────────────────────────────────────────────────────────────
+
+describe('forceEagerImages', () => {
+  // jsdom rather than a hand-rolled stub so the selector and the loading property behave
+  // the way they do in a browser, including the reflection between attribute and property.
+  const docFrom = async (html) => {
+    const { JSDOM } = await import('jsdom');
+    return new JSDOM(`<!doctype html><html><body>${html}</body></html>`).window.document;
+  };
+
+  test('flips lazy images to eager', async () => {
+    const doc = await docFrom('<img src="a.png" loading="lazy"><img src="b.png" loading="lazy">');
+    assert.equal(forceEagerImages(doc), 2);
+    const loading = [...doc.querySelectorAll('img')].map(i => i.getAttribute('loading'));
+    assert.deepEqual(loading, ['eager', 'eager']);
+  });
+
+  test('leaves images that were never lazy alone', async () => {
+    const doc = await docFrom('<img src="a.png"><img src="b.png" loading="eager">');
+    assert.equal(forceEagerImages(doc), 0);
+    assert.equal(doc.querySelectorAll('img')[0].getAttribute('loading'), null,
+      'an image with no loading attribute must not gain one');
+    assert.equal(doc.querySelectorAll('img')[1].getAttribute('loading'), 'eager');
+  });
+
+  test('matches the attribute case-insensitively, as HTML does', async () => {
+    const doc = await docFrom('<img src="a.png" loading="LAZY">');
+    assert.equal(forceEagerImages(doc), 1);
+    assert.equal(doc.querySelector('img').getAttribute('loading'), 'eager');
+  });
+
+  test('handles a document with no images', async () => {
+    const doc = await docFrom('<p>no pictures here</p>');
+    assert.equal(forceEagerImages(doc), 0);
+  });
+
+  test('is safe on a missing or unusable document', () => {
+    // onLoaded can in principle run against a frame whose document has gone away.
+    assert.equal(forceEagerImages(null), 0);
+    assert.equal(forceEagerImages(undefined), 0);
+    assert.equal(forceEagerImages({}), 0);
   });
 });

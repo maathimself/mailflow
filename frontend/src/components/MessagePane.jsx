@@ -13,7 +13,7 @@ import { BUILTIN_SUMMARIZE, summarizePromptForLocale } from '../aiActions.js';
 import { getResults, saveResult, removeResult } from '../aiResults.js';
 import { renderMarkdown } from '../utils/renderMarkdown.js';
 import { pickReplyAlias } from '../utils/replyAlias.js';
-import { measureContentHeight, createHeightController } from '../utils/emailFrameHeight.js';
+import { measureContentHeight, createHeightController, forceEagerImages } from '../utils/emailFrameHeight.js';
 const USE_DIV_RENDER = import.meta.env.VITE_EMAIL_DIV_RENDER === 'true';
 const MESSAGE_OPENING_EVENT = 'mailflow:message-opening';
 
@@ -584,6 +584,28 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       initialisedDoc = doc;
 
       emailScaleRef.current = 1; // reset for each new email
+
+      // Start every image fetching now, rather than letting the browser defer them.
+      //
+      // Lazy loading is gated on the scroll viewport, and for an iframe that viewport is
+      // the frame's own box, which starts at 300px. Images below that never fetch, so they
+      // measure as zero height, so the frame is sized short, which brings the next image
+      // into range, which fetches, which grows the content, which resizes the frame again.
+      // Every step of that staircase costs a network round trip, and a marketing email with
+      // nine stacked images renders in visible instalments. Looking at it mid-staircase is
+      // the "half loaded" email; it only appears fixed on a second visit because the images
+      // are cached by then.
+      //
+      // Nothing is lost by loading eagerly: the frame has no internal scrolling and is
+      // sized to its full content, so every image ends up on screen regardless.
+      //
+      // Done against the DOM rather than by rewriting the srcDoc HTML so there is no chance
+      // of matching the attribute inside text content. Flipping here, before the load
+      // handlers further down are attached, is safe because everything between is
+      // synchronous: a fetch cannot deliver its load event until this function yields, by
+      // which point the handlers exist. The ResizeObserver on the body is the backstop
+      // regardless.
+      forceEagerImages(doc);
 
       // Some marketing emails have inline styles on their <body> tag (e.g. overflow:auto,
       // height:100%) that the HTML parser merges into the iframe's outer <body>.  Our

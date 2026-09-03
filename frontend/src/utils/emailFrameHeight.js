@@ -113,3 +113,33 @@ export function createHeightController({ tolerancePx = 1, maxCommits = 60, histo
     },
   };
 }
+
+/**
+ * Make every deferred image in an email document load immediately.
+ *
+ * Lazy loading is gated on the scroll viewport, and inside an iframe that viewport is the
+ * frame's own box, which starts at 300px. Images below it never fetch, so they measure as
+ * zero height, so the frame is sized short, which brings the next image into range, which
+ * fetches, which grows the content, which resizes the frame. Each step of that staircase
+ * costs a network round trip, so an email with several stacked images renders in visible
+ * instalments and looks half loaded until it settles. It appears to fix itself on a second
+ * visit only because the images are cached by then.
+ *
+ * Eager loading costs nothing here: the frame has no internal scrolling and is sized to its
+ * full content, so every image is on screen regardless. Lazy loading is pure downside.
+ *
+ * Returns the number of images changed, which is what makes the behaviour testable.
+ */
+export function forceEagerImages(doc) {
+  if (!doc || typeof doc.querySelectorAll !== 'function') return 0;
+  let changed = 0;
+  for (const img of doc.querySelectorAll('img[loading="lazy" i]')) {
+    // setAttribute, not `img.loading = 'eager'`. The property is a reflected IDL attribute
+    // in browsers, but relying on that reflection is needless: writing the attribute is
+    // what actually changes the element's lazy-load state, and it is observable in any DOM
+    // implementation, which is what lets this be tested at all.
+    img.setAttribute('loading', 'eager');
+    changed++;
+  }
+  return changed;
+}
