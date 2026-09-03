@@ -175,8 +175,19 @@ export async function backfillCategories(accountId, userId) {
   const socialDomains = await loadSocialDomains(userId);
 
   // Process in batches of 500 to avoid memory pressure.
+  //
+  // Paged by a keyset on id, NOT by OFFSET. The result set shrinks under the cursor as we
+  // work: a row that gets a category drops out of `category IS NULL`, while a row we
+  // classify as primary is left NULL and stays in. With OFFSET that meant every row we
+  // categorized pushed one un-examined row past the next window, so it was never
+  // classified at all and nothing reported it. Keying off the last id visits every row
+  // exactly once however the set changes underneath.
+  //
+  // id rather than date: it is a non-null primary key, so the ordering is total, whereas
+  // date is nullable and DESC would put NULLs first and break the cursor comparison. The
+  // order rows are visited in does not affect which category any of them gets.
   const BATCH = 500;
-  let offset = 0;
+  let lastId = null;
   let processed = 0;
 
   for (;;) {
@@ -186,9 +197,10 @@ export async function backfillCategories(accountId, userId) {
        WHERE account_id = $1
          AND category IS NULL
          AND is_deleted = false
-       ORDER BY date DESC
-       LIMIT $2 OFFSET $3`,
-      [accountId, BATCH, offset]
+         AND ($2::uuid IS NULL OR id > $2::uuid)
+       ORDER BY id
+       LIMIT $3`,
+      [accountId, lastId, BATCH]
     );
     if (!result.rows.length) break;
 
@@ -229,7 +241,7 @@ export async function backfillCategories(accountId, userId) {
     }
 
     processed += result.rows.length;
-    offset += BATCH;
+    lastId = result.rows[result.rows.length - 1].id;
     if (result.rows.length < BATCH) break;
   }
 
