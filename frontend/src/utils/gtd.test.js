@@ -488,6 +488,51 @@ describe('messageIdentity', () => {
 });
 
 describe('appendMessagesByIdentity', () => {
+  it('does NOT let an incoming read twin replace the unread copy from another account', () => {
+    // The follow-up bug: one email delivered to two unified accounts. A background refresh or
+    // pagination merge replaced the displayed row unconditionally, so the already-read twin
+    // could evict the unread copy and hide mail the user had not seen.
+    const existing = [{ id: 'unread', message_id: '<m1>', folder: 'INBOX', account_id: 'a', is_read: false }];
+    const incoming = [{ id: 'read',   message_id: '<m1>', folder: 'INBOX', account_id: 'b', is_read: true }];
+    const result = appendMessagesByIdentity(existing, incoming);
+    assert.equal(result.length, 1);
+    assert.equal(result[0].id, 'unread');
+    assert.equal(result[0].is_read, false);
+  });
+
+  it('DOES let an incoming unread twin replace a read copy from another account', () => {
+    const existing = [{ id: 'read',   message_id: '<m1>', folder: 'INBOX', account_id: 'a', is_read: true }];
+    const incoming = [{ id: 'unread', message_id: '<m1>', folder: 'INBOX', account_id: 'b', is_read: false }];
+    const result = appendMessagesByIdentity(existing, incoming);
+    assert.equal(result.length, 1);
+    assert.equal(result[0].id, 'unread');
+  });
+
+  it('still replaces a reindexed row in the SAME account even when read state is unchanged', () => {
+    // Must not regress the original #378 fix: the held row is stale and unclickable, so it has
+    // to be replaced regardless of how the two compare.
+    const existing = [{ id: 'old', message_id: '<m1>', folder: 'INBOX', account_id: 'a', is_read: true }];
+    const incoming = [{ id: 'new', message_id: '<m1>', folder: 'INBOX', account_id: 'a', is_read: true }];
+    const result = appendMessagesByIdentity(existing, incoming);
+    assert.equal(result.length, 1);
+    assert.equal(result[0].id, 'new');
+  });
+
+  it('replaces a same-account reindexed row even when the incoming copy is now read', () => {
+    const existing = [{ id: 'old', message_id: '<m1>', folder: 'INBOX', account_id: 'a', is_read: false }];
+    const incoming = [{ id: 'new', message_id: '<m1>', folder: 'INBOX', account_id: 'a', is_read: true }];
+    assert.equal(appendMessagesByIdentity(existing, incoming)[0].id, 'new');
+  });
+
+  it('agrees with dedupeByIdentity: both paths keep the same copy of a cross-account pair', () => {
+    // The three merge paths disagreeing is what let the row flip between refreshes.
+    const unread = { id: 'unread', message_id: '<m1>', folder: 'INBOX', account_id: 'a', is_read: false };
+    const read   = { id: 'read',   message_id: '<m1>', folder: 'INBOX', account_id: 'b', is_read: true };
+    assert.equal(dedupeByIdentity([read, unread])[0].id, 'unread');
+    assert.equal(appendMessagesByIdentity([read], [unread])[0].id, 'unread');
+    assert.equal(appendMessagesByIdentity([unread], [read])[0].id, 'unread');
+  });
+
   it('replaces a reindexed message in place instead of duplicating it (the #378 bug)', () => {
     // Existing list holds the message under its old DB id; the fetched page carries the same
     // Message-ID under a NEW id (purge+reinsert regenerated the UUID).

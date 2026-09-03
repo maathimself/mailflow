@@ -495,8 +495,22 @@ export function appendMessagesByIdentity(existing, incoming) {
     if (takenKeys.has(key)) continue;      // a same-identity incoming row was already handled
     takenKeys.add(key);
     if (m.message_id && idxByMid.has(m.message_id)) {
-      if (!mutated) { messages = existing.slice(); mutated = true; }
-      messages[idxByMid.get(m.message_id)] = m; // reindexed: replace the stale row in place
+      const at = idxByMid.get(m.message_id);
+      const held = messages[at];
+      // Two different things share a Message-ID here, and they need opposite handling.
+      //
+      // SAME account: the row was purged and reinserted, regenerating its id. The held row is
+      // stale and unclickable, so it must be replaced no matter how it compares.
+      //
+      // DIFFERENT accounts: two live copies of one email delivered to two unified accounts.
+      // Replacing unconditionally lets whichever merged last win, which can swap an unread
+      // copy for its already-read twin and hide mail the user has not seen. Rank instead, the
+      // same way dedupeByIdentity does on full loads, so every path into the list agrees.
+      const sameAccount = !held?.account_id || !m.account_id || held.account_id === m.account_id;
+      if (sameAccount || duplicateRank(m) < duplicateRank(held)) {
+        if (!mutated) { messages = existing.slice(); mutated = true; }
+        messages[at] = m;
+      }
     } else {
       additions.push(m);                        // genuinely new
     }
