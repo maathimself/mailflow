@@ -17,7 +17,6 @@ import { Table } from '@tiptap/extension-table';
 import { TableRow } from '@tiptap/extension-table-row';
 import { TableHeader } from '@tiptap/extension-table-header';
 import { TableCell } from '@tiptap/extension-table-cell';
-import { ComposerLink } from '../utils/editorLink.js';
 
 // Resize an image blob/file to max maxW pixels wide, preserving aspect ratio.
 // Returns a Promise<string> of a base64 data URL.
@@ -332,12 +331,9 @@ export default function ComposeModal() {
 
   const editor = useEditor({
     extensions: [
-      // Link comes from ComposerLink instead of StarterKit's bundled copy so the mark can
-      // be made non-inclusive. See editorLink.js for why (#415).
       StarterKit.configure({
-        link: false,
+        link: { openOnClick: false },
       }),
-      ComposerLink,
       TextStyle,
       TiptapColor,
       FontFamily,
