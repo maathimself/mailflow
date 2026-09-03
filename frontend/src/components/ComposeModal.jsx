@@ -18,6 +18,7 @@ import { TableRow } from '@tiptap/extension-table-row';
 import { TableHeader } from '@tiptap/extension-table-header';
 import { TableCell } from '@tiptap/extension-table-cell';
 import { ComposerLink } from '../utils/editorLink.js';
+import { copyToClipboard } from '../utils/clipboard.js';
 
 // Resize an image blob/file to max maxW pixels wide, preserving aspect ratio.
 // Returns a Promise<string> of a base64 data URL.
@@ -3154,7 +3155,7 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
     const m = (chip || '').match(/<([^>]+)>/);
     return (m ? m[1] : chip || '').trim();
   };
-  const copyText = (text) => { navigator.clipboard?.writeText(text).catch(() => {}); };
+  const copyText = (text) => { copyToClipboard(text); };
 
   // Load a chip back into the input for editing, preserving any half-typed text.
   const startEdit = (i) => {

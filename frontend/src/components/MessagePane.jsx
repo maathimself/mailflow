@@ -14,6 +14,7 @@ import { getResults, saveResult, removeResult } from '../aiResults.js';
 import { renderMarkdown } from '../utils/renderMarkdown.js';
 import { pickReplyAlias } from '../utils/replyAlias.js';
 import { measureContentHeight, createHeightController, forceEagerImages } from '../utils/emailFrameHeight.js';
+import { copyToClipboard } from '../utils/clipboard.js';
 const USE_DIV_RENDER = import.meta.env.VITE_EMAIL_DIV_RENDER === 'true';
 const MESSAGE_OPENING_EVENT = 'mailflow:message-opening';
 
@@ -1691,7 +1692,7 @@ ${bodyContent}
       case 'copy':
       case 'copySelection': {
         const text = getPaneSelectionText();
-        if (text) navigator.clipboard?.writeText(text).catch(() => {});
+        if (text) copyToClipboard(text);
         break;
       }
       case 'selectAllContent': {
@@ -3334,11 +3335,16 @@ function AiResultBox({ result, canRegen, onRegen, onDismiss }) {
           'text/plain': new Blob([source], { type: 'text/plain' }),
         })]);
       } else {
-        await navigator.clipboard.writeText(source);
+        const { ok } = await copyToClipboard(source);
+        if (!ok) return;
       }
       flash();
     } catch {
-      try { await navigator.clipboard.writeText(source); flash(); } catch { /* clipboard unavailable */ }
+      // The rich path can fail on its own (no ClipboardItem, a rejected write). Fall back
+      // to plain text through the shared helper, which also covers non-secure contexts
+      // where navigator.clipboard does not exist at all.
+      const { ok } = await copyToClipboard(source);
+      if (ok) flash();
     }
   };
   const iconBtn = {

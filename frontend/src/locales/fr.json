@@ -7,6 +7,7 @@
     "add": "Ajouter",
     "remove": "Retirer",
     "copy": "Copier",
+    "copyFailed": "Échec de la copie. Sélectionnez le texte et copiez-le manuellement.",
     "back": "Retour",
     "undo": "Annuler",
     "view": "Voir",

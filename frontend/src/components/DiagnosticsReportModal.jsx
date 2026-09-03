@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import { copyToClipboard } from '../utils/clipboard.js';
 import { useStore } from '../store/index.js';
 import { useUiScale } from '../hooks/useUiScale.js';
 import { generateReport } from '../utils/diagnostics.js';
@@ -36,7 +37,8 @@ export default function DiagnosticsReportModal({ onClose }) {
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(state.json);
+      const { ok } = await copyToClipboard(state.json);
+      if (!ok) throw new Error('copy failed');
       addNotification({ title: t('diagnostics.copied') });
     } catch {
       addNotification({ type: 'error', title: t('diagnostics.copyFailed') });

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { copyToClipboard } from '../utils/clipboard.js';
 import { api } from '../utils/api.js';
 import { useMobile } from '../hooks/useMobile.js';
 
@@ -26,8 +27,9 @@ export default function MessageHeaderModal({ messageId, subject, onClose, onSubj
       .finally(() => setLoading(false));
   }, [messageId]);
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(headers || '');
+  const handleCopy = async () => {
+    const { ok } = await copyToClipboard(headers || '');
+    if (!ok) return; // leave the button unchanged rather than claiming a copy that failed
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };

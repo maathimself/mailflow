@@ -6,6 +6,7 @@ import { PluginSlot } from '../plugins/PluginSlot.jsx';
 import { newAiAction, AI_ACTION_LIMITS } from '../aiActions.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { api } from '../utils/api.js';
+import { copyToClipboard } from '../utils/clipboard.js';
 import {
   AI_ACCOUNT_PROVIDER_OPTIONS,
   AI_CONNECTION_METHOD_ACCOUNT,
@@ -3122,6 +3123,7 @@ function SSOTab() {
   const [error, setError] = useState('');
   const [confirmDialog, setConfirmDialog] = useState(null);
   const [copiedId, setCopiedId] = useState(null);
+  const [uriCopyFailedId, setUriCopyFailedId] = useState(null);
   const [templateNote, setTemplateNote] = useState('');
   const [internalAuthDisabled, setInternalAuthDisabled] = useState(false);
   const [internalAuthSaving, setInternalAuthSaving] = useState(false);
@@ -3240,12 +3242,12 @@ function SSOTab() {
     });
   };
 
-  const copyRedirectUri = (slug, id) => {
+  const copyRedirectUri = async (slug, id) => {
     const uri = `${window.location.origin}/auth/oidc/${slug}/callback`;
-    navigator.clipboard.writeText(uri).then(() => {
-      setCopiedId(id);
-      setTimeout(() => setCopiedId(null), 2000);
-    });
+    const { ok } = await copyToClipboard(uri);
+    setCopiedId(ok ? id : null);
+    setUriCopyFailedId(ok ? null : id);
+    setTimeout(() => { setCopiedId(null); setUriCopyFailedId(null); }, 2000);
   };
 
   if (loading) return <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>{t('common.loading')}</div>;
@@ -3360,7 +3362,9 @@ function SSOTab() {
                       fontSize: 10, padding: '2px 7px', cursor: 'pointer', flexShrink: 0,
                     }}
                   >
-                    {copiedId === p.id ? t('admin.sso.copiedUri') : t('admin.sso.copyUri')}
+                    {copiedId === p.id ? t('admin.sso.copiedUri')
+                      : uriCopyFailedId === p.id ? t('common.copyFailed')
+                        : t('admin.sso.copyUri')}
                   </button>
                 </div>
               </div>
@@ -3821,7 +3825,8 @@ function AISection() {
 
   const handleCopyCode = async () => {
     try {
-      await navigator.clipboard.writeText(deviceState.userCode);
+      const { ok } = await copyToClipboard(deviceState.userCode);
+      if (!ok) throw new Error('copy failed');
       setCopied(true);
     } catch {
       setMsg({ type: 'error', text: t('admin.ai.copyFailed') });
@@ -4643,6 +4648,7 @@ function UsersAndInvitesPanel() {
   const [inviteMsg, setInviteMsg] = useState(null); // { type: 'ok'|'error', text, url? }
   const [loading, setLoading] = useState(true);
   const [copiedId, setCopiedId] = useState(null);
+  const [copyFailedId, setCopyFailedId] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState(null);
 
   useEffect(() => {
@@ -4750,11 +4756,11 @@ function UsersAndInvitesPanel() {
     setInvites(inv => inv.filter(i => i.id !== id));
   };
 
-  const copyInviteUrl = (url, id) => {
-    navigator.clipboard.writeText(url).then(() => {
-      setCopiedId(id);
-      setTimeout(() => setCopiedId(null), 2000);
-    });
+  const copyInviteUrl = async (url, id) => {
+    const { ok } = await copyToClipboard(url);
+    setCopiedId(ok ? id : null);
+    setCopyFailedId(ok ? null : id);
+    setTimeout(() => { setCopiedId(null); setCopyFailedId(null); }, 2000);
   };
 
   if (loading) {
@@ -4963,14 +4969,16 @@ function UsersAndInvitesPanel() {
                 {inviteMsg.url}
               </code>
               <button
-                onClick={() => navigator.clipboard.writeText(inviteMsg.url)}
+                onClick={() => copyInviteUrl(inviteMsg.url, 'new')}
                 style={{
                   padding: '4px 10px', borderRadius: 6, fontSize: 11,
                   background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
                   color: 'var(--text-secondary)', cursor: 'pointer', flexShrink: 0,
                 }}
               >
-                {t('common.copy')}
+                {copiedId === 'new' ? t('admin.users.inviteCopied')
+                  : copyFailedId === 'new' ? t('common.copyFailed')
+                    : t('common.copy')}
               </button>
             </div>
           )}
@@ -5011,7 +5019,9 @@ function UsersAndInvitesPanel() {
                       cursor: 'pointer', flexShrink: 0, transition: 'all 0.15s',
                     }}
                   >
-                    {copiedId === inv.id ? t('admin.users.inviteCopied') : t('admin.users.inviteCopy')}
+                    {copiedId === inv.id ? t('admin.users.inviteCopied')
+                      : copyFailedId === inv.id ? t('common.copyFailed')
+                        : t('admin.users.inviteCopy')}
                   </button>
                   <IconBtn onClick={() => handleRevokeInvite(inv.id)} title={t('admin.users.inviteRevoke')} danger>
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

@@ -7,6 +7,7 @@
     "add": "Hinzufügen",
     "remove": "Entfernen",
     "copy": "Kopieren",
+    "copyFailed": "Kopieren fehlgeschlagen. Text markieren und manuell kopieren.",
     "back": "Zurück",
     "undo": "Rückgängig",
     "view": "Ansehen",
