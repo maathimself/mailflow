@@ -539,6 +539,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     if (!iframe || !body?.html) return;
 
     let rafId;
+    let pollId = null;
     const heights = createHeightController();
     let initialisedDoc = null;
     let contextMenuDoc = null;
@@ -768,13 +769,38 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       }
     };
 
-    iframe.addEventListener('load', onLoaded, { once: true });
-    if (iframe.contentDocument?.readyState === 'complete') {
+    // 'load' is kept, but it CANNOT be the only trigger. It waits for every subresource,
+    // so a single image that never settles (a dead tracking pixel, a blocked host, a host
+    // that accepts the connection and never answers) leaves the document parked at
+    // readyState 'interactive' forever. load never fires, none of the setup above ever
+    // runs, and the frame sits at its initial 300px with the email clipped inside it. One
+    // unreachable image was enough to break rendering of the whole message.
+    //
+    // Not { once: true } either: a frame fires 'load' for the about:blank it starts life
+    // with, and a once-listener is spent on that even though onLoaded correctly declines
+    // to initialise against a document that is not ours.
+    iframe.addEventListener('load', onLoaded);
+
+    // Everything onLoaded does needs only a parsed DOM, never a finished one, so drive it
+    // from the parsed state and let the image handlers and the ResizeObserver grow the
+    // frame as pictures arrive. Polling by frame rather than listening for
+    // DOMContentLoaded because the document to listen on does not exist yet at this point:
+    // the frame is still showing about:blank and swaps in the real one later. onLoaded is
+    // idempotent per document, so the repeated calls are free and stop as soon as one
+    // succeeds.
+    let pollFrames = 0;
+    const MAX_POLL_FRAMES = 300; // ~5s at 60fps; srcDoc parses far sooner
+    const pollUntilParsed = () => {
+      pollId = null;
       onLoaded();
-    }
+      if (initialisedDoc || pollFrames++ >= MAX_POLL_FRAMES) return;
+      pollId = requestAnimationFrame(pollUntilParsed);
+    };
+    pollUntilParsed();
 
     return () => {
       cancelAnimationFrame(rafId);
+      if (pollId) cancelAnimationFrame(pollId);
       if (roRef.current) { roRef.current.disconnect(); roRef.current = null; }
       if (contextMenuDoc && iframeContextMenuHandler) {
         contextMenuDoc.removeEventListener('contextmenu', iframeContextMenuHandler);
