@@ -23,27 +23,48 @@ import {
 } from './folderOrder.js';
 import { removeThreadCacheEntry } from '../utils/threadedArchive.js';
 import i18n from '../i18n.js';
+import { createPrefSaveQueue } from '../utils/prefSaveQueue.js';
 
-// Accumulate rapid preference changes and flush at most once per second.
-let _prefFlushTimer = null;
-let _pendingPrefs = {};
+// Accumulate rapid preference changes and flush at most once per second. The queue itself
+// lives in prefSaveQueue.js so its behaviour is testable without a network or a DOM.
+const _prefQueue = createPrefSaveQueue({
+  save: (prefs) => api.savePreferences(prefs),
+  saveOnExit: (prefs) => api.savePreferencesOnExit(prefs),
+  delayMs: 1000,
+  onError: (err, keys) => {
+    // Previously `.catch(() => {})`. A preference that failed to save said nothing and then
+    // reverted on the next load, when loadPreferences overwrote localStorage with the older
+    // server value. Naming the keys makes that diagnosable instead of a mystery.
+    console.error(`Failed to save preference(s): ${keys.join(', ')}`, err?.message || err);
+  },
+});
+
 function schedulePrefSave(prefs) {
-  Object.assign(_pendingPrefs, prefs);
-  clearTimeout(_prefFlushTimer);
-  _prefFlushTimer = setTimeout(() => {
-    const toSave = _pendingPrefs;
-    _pendingPrefs = {};
-    api.savePreferences(toSave).catch(() => {});
-  }, 1000);
+  _prefQueue.schedule(prefs);
 }
+
 // Drop any queued preference flush. Called on logout / account switch: a pending debounce
 // belongs to the previous user's session, so letting it fire would either save into the new
 // user's account or hit a dead session (401). The prefs are already applied locally; only the
 // deferred network write is discarded.
 function cancelPendingPrefSave() {
-  clearTimeout(_prefFlushTimer);
-  _prefFlushTimer = null;
-  _pendingPrefs = {};
+  _prefQueue.cancel();
+}
+
+// Write anything still queued before the page can go away. Without this a setting changed
+// inside the debounce window was lost outright, and because it had already been written to
+// localStorage the UI looked correct until the next load hydrated the older server value
+// back over it, so the setting appeared to revert on its own.
+//
+// pagehide plus visibilitychange rather than beforeunload: beforeunload does not fire
+// reliably on mobile, where the page is frozen or discarded instead. visibilitychange also
+// covers tab switches and app backgrounding, which simply means the write lands sooner.
+if (typeof window !== 'undefined') {
+  const flushOnExit = () => _prefQueue.flush({ exiting: true });
+  window.addEventListener('pagehide', flushOnExit);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushOnExit();
+  });
 }
 
 // GTD sections fetch coordination. A monotonic seq guards against stale

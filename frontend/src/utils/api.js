@@ -147,6 +147,18 @@ export const api = {
   resetPassword: (token, password) => request('POST', '/auth/reset-password', { token, password }),
   getPreferences: () => request('GET', '/auth/preferences'),
   savePreferences: (prefs) => request('PATCH', '/auth/preferences', prefs),
+  // The same write, but issued while the page is going away. keepalive lets the browser
+  // finish the request after the document is gone; an ordinary fetch is cancelled and the
+  // setting is lost, then overwritten by the older server value on the next load. Bypasses
+  // request() deliberately: there is no point parsing a response nobody will see, and the
+  // 401/423 events it dispatches cannot be acted on during unload.
+  savePreferencesOnExit: (prefs) => fetch(BASE + '/auth/preferences', {
+    method: 'PATCH',
+    credentials: 'include',
+    keepalive: true,
+    headers: { 'Content-Type': 'application/json', [CSRF_HEADER]: CSRF_VALUE },
+    body: JSON.stringify(prefs),
+  }),
   updateProfile: (data) => request('PATCH', '/auth/profile', data),
   uploadAvatar: (avatar) => request('POST', '/auth/avatar', { avatar }),
   deleteAvatar: () => request('DELETE', '/auth/avatar'),
