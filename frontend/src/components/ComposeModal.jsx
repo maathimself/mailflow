@@ -19,6 +19,7 @@ import { TableHeader } from '@tiptap/extension-table-header';
 import { TableCell } from '@tiptap/extension-table-cell';
 import { ComposerLink } from '../utils/editorLink.js';
 import { copyToClipboard } from '../utils/clipboard.js';
+import { resolveInitialFrom } from '../utils/defaultSender.js';
 
 // Resize an image blob/file to max maxW pixels wide, preserving aspect ratio.
 // Returns a Promise<string> of a base64 data URL.
@@ -238,18 +239,17 @@ export default function ComposeModal() {
     if (composeData?.quotedBody !== undefined) setQuotedBody(composeData.quotedBody);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps -- form initialisation runs once on mount; re-running on composeData changes would reset user edits
 
-  const initialFromValue = () => {
-    if (composeData?.aliasId && composeData?.accountId) {
-      return `alias:${composeData.aliasId}:${composeData.accountId}`;
-    }
-    const lastUsedId = localStorage.getItem('mailflow_last_from_account');
-    const acctId = composeData?.accountId
-      || useStore.getState().selectedAccountId
-      || (lastUsedId && accounts.find(a => a.id === lastUsedId) ? lastUsedId : null)
-      || accounts[0]?.id
-      || '';
-    return acctId ? `account:${acctId}` : '';
-  };
+  // Precedence lives in resolveInitialFrom, which is unit tested. The rung that matters
+  // here is the configured default sender: in the unified inbox there is no selected
+  // account, so without it the composer falls through to whichever account was last sent
+  // from and drifts silently (#417).
+  const initialFromValue = () => resolveInitialFrom({
+    composeData,
+    selectedAccountId: useStore.getState().selectedAccountId,
+    defaultSender: useStore.getState().defaultSender,
+    lastUsedAccountId: localStorage.getItem('mailflow_last_from_account'),
+    accounts,
+  });
   const [fromValue, setFromValue] = useState(initialFromValue);
 
   const resolveFrom = (val) => {

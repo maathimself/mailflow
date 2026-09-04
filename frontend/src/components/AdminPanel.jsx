@@ -7,6 +7,7 @@ import { newAiAction, AI_ACTION_LIMITS } from '../aiActions.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { api } from '../utils/api.js';
 import { copyToClipboard } from '../utils/clipboard.js';
+import { isValidFromValue } from '../utils/defaultSender.js';
 import {
   AI_ACCOUNT_PROVIDER_OPTIONS,
   AI_CONNECTION_METHOD_ACCOUNT,
@@ -1519,7 +1520,7 @@ function SwipeActionIcon({ action, size = 17 }) {
 function LayoutsTab() {
   const { t } = useTranslation();
   const isMobile = useMobile();
-  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, senderFavicons, senderFaviconsSaving, setSenderFavicons, showMessagePreviews, setShowMessagePreviews } = useStore();
+  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, senderFavicons, senderFaviconsSaving, setSenderFavicons, showMessagePreviews, setShowMessagePreviews, accounts, defaultSender, setDefaultSender } = useStore();
   const [senderFaviconsError, setSenderFaviconsError] = useState('');
 
   // "Set MailFlow as your default email app": registerProtocolHandler is the
@@ -2034,6 +2035,40 @@ function LayoutsTab() {
             );
           })}
         </div>
+      </div>
+
+      {/* Default sender (#417) */}
+      <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+          {t('admin.messageList.defaultSender')}
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 10 }}>
+          {t('admin.messageList.defaultSenderDesc')}
+        </div>
+        <select
+          // A default can outlive the account or alias it names. Showing '' rather than an
+          // unmatched value keeps the control honest: it reflects what the composer will
+          // actually do, which is fall back to last-used.
+          value={isValidFromValue(defaultSender, accounts) ? defaultSender : ''}
+          onChange={e => setDefaultSender(e.target.value)}
+          style={{
+            width: '100%', maxWidth: 420, padding: '8px 10px', borderRadius: 8,
+            background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+            color: 'var(--text-primary)', fontSize: 12, cursor: 'pointer', outline: 'none',
+          }}
+        >
+          <option value="">{t('admin.messageList.defaultSenderLastUsed')}</option>
+          {accounts.map(acc => [
+            <option key={acc.id} value={`account:${acc.id}`}>
+              {acc.sender_name ? `${acc.sender_name} <${acc.email_address}>` : acc.email_address}
+            </option>,
+            ...(acc.aliases || []).map(al => (
+              <option key={al.id} value={`alias:${al.id}:${acc.id}`}>
+                {`\u00a0\u00a0${al.name ? `${al.name} <${al.email}>` : al.email}`}
+              </option>
+            )),
+          ])}
+        </select>
       </div>
 
       {/* Default reply action */}

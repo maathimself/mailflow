@@ -96,3 +96,49 @@ describe('PATCH /auth/preferences senderFavicons', () => {
     expect(query).not.toHaveBeenCalled();
   });
 });
+
+describe('PATCH /auth/preferences defaultSender (#417)', () => {
+  const run = async (body) => {
+    const req = { session: { userId: 'user-1' }, body };
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+    await patchPreferences(req, res);
+    return res;
+  };
+  const A = '11111111-1111-4111-8111-111111111111';
+  const B = '22222222-2222-4222-8222-222222222222';
+
+  it('persists an account default', async () => {
+    const res = await run({ defaultSender: `account:${A}` });
+    const [sql, params] = query.mock.calls[0];
+    expect(sql).toContain("jsonb_build_object('defaultSender', $42::text)");
+    expect(params[41]).toBe(`account:${A}`);
+    expect(res.json).toHaveBeenCalledWith({ ok: true });
+  });
+
+  it('persists an alias default, so an identity can be the default and not just an account', async () => {
+    await run({ defaultSender: `alias:${A}:${B}` });
+    expect(query.mock.calls[0][1][41]).toBe(`alias:${A}:${B}`);
+  });
+
+  it('persists an empty string, which is how the preference is cleared', async () => {
+    // '' is meaningful: it means "no preference, fall back to last used". It must be
+    // written rather than treated as an absent key, or clearing would silently no-op.
+    await run({ defaultSender: '' });
+    expect(query.mock.calls[0][1][41]).toBe('');
+  });
+
+  it('leaves the stored value untouched when the key is absent', async () => {
+    await run({ theme: 'dark' });
+    expect(query.mock.calls[0][1][41]).toBe(null);
+  });
+
+  it('rejects malformed values instead of storing something unusable', async () => {
+    for (const bad of ['account:not-a-uuid', 'alias:only-one', `alias:${A}`, 'nonsense',
+                       `ACCOUNT:${A}`, 42, {}, [], `account:${A} extra`]) {
+      query.mockClear();
+      const res = await run({ defaultSender: bad });
+      expect(res.status, `${JSON.stringify(bad)} should be rejected`).toHaveBeenCalledWith(400);
+      expect(query).not.toHaveBeenCalled();
+    }
+  });
+});

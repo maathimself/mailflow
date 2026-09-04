@@ -514,6 +514,18 @@ export const useStore = create((set, get) => ({
     schedulePrefSave({ plaintextEmail: val });
   },
 
+  // Default sender for composes with no account context, i.e. the unified inbox (#417).
+  // Holds a From selector value ('account:<id>' or 'alias:<aliasId>:<accountId>') so an
+  // alias can be the default too. '' means "no preference", which keeps the previous
+  // last-used-account behaviour. Validated at use, since accounts and aliases outlive it.
+  defaultSender: localStorage.getItem('mailflow_default_sender') || '',
+  setDefaultSender: (val) => {
+    const clean = typeof val === 'string' ? val : '';
+    localStorage.setItem('mailflow_default_sender', clean);
+    set({ defaultSender: clean });
+    schedulePrefSave({ defaultSender: clean });
+  },
+
   // Message list quick actions
   hoverQuickActions: localStorage.getItem('mailflow_hover_quick_actions') !== 'false',
   setHoverQuickActions: (val) => {
@@ -1073,6 +1085,10 @@ export const useStore = create((set, get) => ({
       if (typeof prefs.plaintextEmail === 'boolean') {
         localStorage.setItem('mailflow_plaintext_email', String(prefs.plaintextEmail));
         set({ plaintextEmail: prefs.plaintextEmail });
+      }
+      if (typeof prefs.defaultSender === 'string') {
+        localStorage.setItem('mailflow_default_sender', prefs.defaultSender);
+        set({ defaultSender: prefs.defaultSender });
       }
       if (typeof prefs.hoverQuickActions === 'boolean') {
         localStorage.setItem('mailflow_hover_quick_actions', String(prefs.hoverQuickActions));

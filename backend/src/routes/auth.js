@@ -769,7 +769,7 @@ export async function patchPreferences(req, res) {
           showAppBadge, showFaviconBadge, replyDefault, sidebarWidth,
           categorizationEnabled, markReadBehavior, markReadDelay, aiActions,
           autoLockMinutes, showMobileAvatars, gravatarAvatars, folderSyncInterval,
-          folderOrder, senderFavicons, showMessagePreviews } = req.body;
+          folderOrder, senderFavicons, showMessagePreviews, defaultSender } = req.body;
   // GTD content and generic right-sidebar layout preferences are independent flat
   // top-level keys with separate allow-lists. gtdEnabled is intentionally NOT a user
   // preference — it lives per-account in email_accounts.gtd_enabled.
@@ -804,6 +804,23 @@ export async function patchPreferences(req, res) {
     })).filter(a => a.id && a.label && a.prompt);
     return JSON.stringify(clean);
   })();
+  // Default sender for composes with no account context (#417). Stored as a From selector
+  // value: 'account:<uuid>' or 'alias:<uuid>:<uuid>'. '' is meaningful and clears it, so it
+  // is preserved rather than treated as absent. Anything else is rejected outright instead
+  // of being written and silently ignored later.
+  const defaultSenderVal = (() => {
+    if (defaultSender == null) return null;          // key not sent: leave as-is
+    if (typeof defaultSender !== 'string') return undefined;  // sentinel: reject
+    const v = defaultSender.trim();
+    if (v === '') return '';
+    if (/^account:[0-9a-fA-F-]{36}$/.test(v)) return v;
+    if (/^alias:[0-9a-fA-F-]{36}:[0-9a-fA-F-]{36}$/.test(v)) return v;
+    return undefined;
+  })();
+  if (defaultSenderVal === undefined) {
+    return res.status(400).json({ error: 'defaultSender must be "", "account:<id>" or "alias:<id>:<accountId>"' });
+  }
+
   const hasSenderFavicons = Object.prototype.hasOwnProperty.call(req.body, 'senderFavicons');
   if (hasSenderFavicons && typeof senderFavicons !== 'boolean') {
     return res.status(400).json({ error: 'senderFavicons must be a boolean' });
@@ -852,6 +869,7 @@ export async function patchPreferences(req, res) {
       || CASE WHEN $39::jsonb IS NOT NULL THEN jsonb_build_object('folderOrder', $39::jsonb) ELSE '{}'::jsonb END
       || CASE WHEN $40::boolean IS NOT NULL THEN jsonb_build_object('senderFavicons', $40::boolean) ELSE '{}'::jsonb END
       || CASE WHEN $41::boolean IS NOT NULL THEN jsonb_build_object('showMessagePreviews', $41::boolean) ELSE '{}'::jsonb END
+      || CASE WHEN $42::text IS NOT NULL THEN jsonb_build_object('defaultSender', $42::text) ELSE '{}'::jsonb END
     WHERE id = $1
   `, [req.session.userId, theme ?? null, font ?? null, layout ?? null, notificationSound ?? null,
       pageSize ?? null, scrollMode ?? null, syncInterval ?? null,
@@ -862,7 +880,7 @@ export async function patchPreferences(req, res) {
       categorizationEnabled ?? null, markReadBehaviorVal, markReadDelayVal, aiActionsJson,
       rightSidebarWidth, rightSidebarHidden, gtdCollapsedSectionsJson, gtdPetSlug, autoLockMinutesVal,
       showMobileAvatars ?? null, gravatarAvatars ?? null, folderSyncIntervalVal, folderOrderJson, senderFaviconsVal,
-      showMessagePreviews ?? null]);
+      showMessagePreviews ?? null, defaultSenderVal]);
 
   if (syncInterval != null) {
     const ms = parseInt(syncInterval) * 1000;
