@@ -6,6 +6,7 @@ import { LAYOUTS } from '../layouts.js';
 import { senderColor } from '../themes.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { isAccountInUnifiedInbox } from '../utils/unifiedInbox.js';
+import { shouldSyncFolder, folderSyncKey } from '../utils/folderSync.js';
 import { useSwipeRow } from '../hooks/useSwipeRow.js';
 import ContextMenu from './ContextMenu.jsx';
 import RowHoverActions from './RowHoverActions.jsx';
@@ -194,6 +195,10 @@ export default function MessageList() {
   const pendingDeleteTimers = useRef(new Map()); // id/thread key -> pending delete metadata
   const recentMessageOpenUntilRef = useRef(0);
   const deferredRefreshTimerRef = useRef(null);
+  // When each folder was last pulled from IMAP, keyed by account+folder. Drives the
+  // interval in shouldSyncFolder, which is what stops an on-open sync looping against the
+  // mailflow:refresh that its own sync_complete triggers.
+  const folderSyncedAtRef = useRef(new Map());
 
   // Bulk selection state
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -398,9 +403,21 @@ export default function MessageList() {
             setMessagesOffset(data.messages.length);
             setHasMoreMessages(data.messages.length < data.total);
 
-            // If a specific non-INBOX folder opened empty, trigger an on-demand IMAP sync.
-            // The backend will broadcast sync_complete → mailflow:refresh once done.
-            if (data.messages.length === 0 && selectedAccountId && selectedFolder !== 'INBOX') {
+            // Pull the folder from IMAP whenever it is opened, not only when it happens to
+            // be empty. Only INBOX is polled in the background, so every other folder showed
+            // whatever backfill left behind: mail sent from another client, messages filed
+            // from a phone, anything a server-side rule moved. Requiring the folder to be
+            // empty meant it went stale permanently the moment it held one message.
+            const syncKey = folderSyncKey(selectedAccountId, selectedFolder);
+            if (shouldSyncFolder({
+              accountId: selectedAccountId,
+              folder: selectedFolder,
+              lastSyncedAt: folderSyncedAtRef.current.get(syncKey),
+            })) {
+              // Stamped before the request rather than after: the sync broadcasts
+              // sync_complete, which becomes mailflow:refresh, which re-runs this effect.
+              // Stamping late would let that second pass start another sync, and so on.
+              folderSyncedAtRef.current.set(syncKey, Date.now());
               setFolderSyncing(true);
               api.syncFolder(selectedAccountId, selectedFolder)
                 .catch(err => console.error('syncFolder failed:', err.message))
@@ -648,6 +665,15 @@ export default function MessageList() {
     setSyncing(true);
     try {
       await api.syncNow(selectedAccountId || undefined);
+      // syncNow only covers INBOX. Without this, pressing sync while looking at Sent or any
+      // other folder appeared to do nothing to that folder at all, which is the more
+      // surprising half of the same gap. Forced: the user asked, so the interval does not
+      // apply.
+      if (shouldSyncFolder({ accountId: selectedAccountId, folder: selectedFolder, force: true })) {
+        folderSyncedAtRef.current.set(folderSyncKey(selectedAccountId, selectedFolder), Date.now());
+        api.syncFolder(selectedAccountId, selectedFolder)
+          .catch(err => console.error('syncFolder failed:', err.message));
+      }
       // The server will send sync_complete via WebSocket when done, which triggers
       // mailflow:refresh (list reload) and mailflow:sync_done (spinner off).
       // Safety fallback: stop spinner after 15s in case WS event never arrives.
