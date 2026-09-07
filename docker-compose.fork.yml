@@ -1,0 +1,9 @@
+# Override for running the fork's own images (built by .github/workflows/fork-publish.yml):
+#   docker compose -f docker-compose.ghcr.yml -f docker-compose.fork.yml up -d
+# Set GHCR_OWNER in .env if the fork lives under a different account.
+
+services:
+  frontend:
+    image: ghcr.io/${GHCR_OWNER:-elmowater}/mailflow-frontend:fork
+  backend:
+    image: ghcr.io/${GHCR_OWNER:-elmowater}/mailflow-backend:fork
