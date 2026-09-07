@@ -581,10 +581,33 @@ function decodeAttachmentBuffer(buf, encoding) {
 }
 
 export function walkStructure(node, results) {
+  walkNode(node, results);
+  // A text part that carries a filename is an attached file (an .html report, a
+  // .txt log) when the message also has an unnamed text part serving as its
+  // body. Senders often mark such files inline or omit the disposition, so the
+  // disposition check alone absorbed them into the body candidates and they
+  // vanished from the attachment list. When every text part is named, leave
+  // them as body — some clients name their body parts.
+  const named = results.textParts.filter(p => p.filename);
+  if (!named.length || named.length === results.textParts.length) return;
+  results.textParts = results.textParts.filter(p => !p.filename);
+  for (const p of named) {
+    results.attachments.push({
+      part: p.part,
+      filename: p.filename,
+      type: p.rawType,
+      encoding: p.encoding || 'base64',
+      size: p.size,
+      disposition: p.disposition,
+    });
+  }
+}
+
+function walkNode(node, results) {
   if (!node) return;
   const type = (node.type || '').toLowerCase();
   if (node.childNodes && node.childNodes.length > 0) {
-    for (const child of node.childNodes) walkStructure(child, results);
+    for (const child of node.childNodes) walkNode(child, results);
     return;
   }
   const disposition = (node.disposition || '').toLowerCase();
@@ -605,23 +628,20 @@ export function walkStructure(node, results) {
       size: node.dispositionParameters?.size ? parseInt(node.dispositionParameters.size) : node.size || 0,
       disposition,
     });
-  } else if (type === 'text/html') {
+  } else if (type === 'text/html' || type === 'application/xhtml+xml' || type === 'text/plain') {
     results.textParts.push({
-      part: node.part || '1', type,
+      part: node.part || '1',
+      type: type === 'text/plain' ? 'text/plain' : 'text/html',
       encoding: node.encoding || '',
       charset: node.parameters?.charset || 'utf-8',
-    });
-  } else if (type === 'application/xhtml+xml') {
-    results.textParts.push({
-      part: node.part || '1', type: 'text/html',
-      encoding: node.encoding || '',
-      charset: node.parameters?.charset || 'utf-8',
-    });
-  } else if (type === 'text/plain') {
-    results.textParts.push({
-      part: node.part || '1', type,
-      encoding: node.encoding || '',
-      charset: node.parameters?.charset || 'utf-8',
+      // A filename marks a possible attached file; walkStructure's post-pass
+      // decides once the whole tree is known.
+      ...(filename ? {
+        filename,
+        rawType: node.type || type,
+        size: node.dispositionParameters?.size ? parseInt(node.dispositionParameters.size) : node.size || 0,
+        disposition,
+      } : {}),
     });
   } else if (type.startsWith('image/') && node.id && disposition !== 'attachment') {
     // Inline image referenced via cid: in the HTML body
