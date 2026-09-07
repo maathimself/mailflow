@@ -7,6 +7,7 @@ import { shortcutBus } from '../utils/shortcutBus.js';
 import { getEffectiveShortcuts, parseModKey, modCompactLabel } from '../utils/defaultShortcuts.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.js';
+import { startPaneArchive } from '../utils/paneArchive.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
 import DOMPurify from 'dompurify';
 import { BUILTIN_SUMMARIZE, summarizePromptForLocale } from '../aiActions.js';
@@ -1653,32 +1654,26 @@ ${bodyContent}
 
   const handleArchive = () => {
     const archived = message;
-    removeMessage(archived.id);
-    closeWindowIfWindowed();
-    if (!archived.is_read) decrementUnread(archived.account_id);
-    let undone = false;
-    const timer = setTimeout(async () => {
-      if (undone) return;
-      try {
-        const result = await api.bulkArchive([archived.id]);
-        if (result.noArchiveFolder?.length) {
-          addNotification({ title: t('message.archived.noFolderTitle'), body: t('message.archived.noFolderBody') });
-        }
-      } catch (err) {
+    const archiveAction = startPaneArchive({
+      message: archived,
+      archive: api.bulkArchive,
+      removeMessage,
+      restoreMessages: msgs => useStore.getState().restoreMessages(msgs),
+      decrementUnread,
+      incrementUnread,
+      onNoArchiveFolder: () => {
+        addNotification({ title: t('message.archived.noFolderTitle'), body: t('message.archived.noFolderBody') });
+      },
+      onError: (err) => {
         console.error('Archive failed:', err);
         addNotification({ title: t('message.archived.failTitle'), body: t('message.archived.failBody') });
-      }
-    }, 4500);
+      },
+    });
+    closeWindowIfWindowed();
     addNotification({
       title: t('message.archived.title'),
       body: archived.subject || t('common.noSubject'),
-      onUndo: () => {
-        undone = true;
-        clearTimeout(timer);
-        const state = useStore.getState();
-        state.setMessages([...state.messages, archived].sort((a, b) => new Date(b.date) - new Date(a.date)));
-        if (!archived.is_read) incrementUnread(archived.account_id);
-      },
+      onUndo: archiveAction.undo,
     });
   };
 
