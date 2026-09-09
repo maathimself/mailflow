@@ -412,11 +412,11 @@ const BIDI_OVERRIDE_RE = new RegExp(
 );
 
 // Extract html/text/attachments from an already-fetched msg (no extra IMAP round-trip)
-function extractBodyFromMsg(msg) {
+export function extractBodyFromMsg(msg) {
   if (!msg.bodyStructure) return { html: null, text: null, attachments: [] };
   const results = { textParts: [], attachments: [] };
   walkStructure(msg.bodyStructure, results);
-  if (results.textParts.length === 0) {
+  if (results.textParts.length === 0 && bodyFallbackApplies(results)) {
     const rootType = (msg.bodyStructure.type || '').toLowerCase();
     results.textParts.push({
       part: msg.bodyStructure.part || '1',
@@ -591,6 +591,15 @@ function decodeAttachmentBuffer(buf, encoding) {
   }
   // 7bit / 8bit / binary — raw bytes, no decoding needed
   return Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
+}
+
+// The single-part body fallback exists for a bare root whose type walkStructure
+// does not recognize. When the walk filed parts as attachments and found no
+// text, the message simply has no body (e.g. a DMARC report that is just an
+// application/zip, or a multipart/mixed holding only a file) — re-serving the
+// first part as text/plain rendered decoded binary as the message.
+export function bodyFallbackApplies(results) {
+  return !(results.attachments || []).length;
 }
 
 export function walkStructure(node, results) {
@@ -4528,7 +4537,7 @@ export class ImapManager {
         walkStructure(structure, results);
 
         // Handle single-part root node (no childNodes, type is the content type)
-        if (results.textParts.length === 0) {
+        if (results.textParts.length === 0 && bodyFallbackApplies(results)) {
           const rootType = (structure.type || '').toLowerCase();
           results.textParts.push({
             part: structure.part || '1',

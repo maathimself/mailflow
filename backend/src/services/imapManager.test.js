@@ -12,7 +12,7 @@ vi.mock('../utils/redact.js', () => ({ redactEmail: vi.fn() }));
 vi.mock('./hostValidation.js', () => ({ resolveForConnection: vi.fn(), createPinnedLookup: vi.fn() }));
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
 
-import { ImapManager, countMissingInboxCopies, fetchBackfillBatch, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch } from './imapManager.js';
+import { ImapManager, countMissingInboxCopies, fetchBackfillBatch, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, extractBodyFromMsg, bodyFallbackApplies, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch } from './imapManager.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { EventEmitter } from 'node:events';
 import { ImapFlow } from 'imapflow';
@@ -1359,6 +1359,39 @@ describe('walkStructure attachment classification', () => {
     });
     expect(results.textParts.map(p => p.type)).toEqual(['text/plain', 'text/html']);
     expect(results.attachments).toHaveLength(0);
+  });
+});
+
+describe('attachment-only messages have no body', () => {
+  const zipRoot = {
+    part: '1', type: 'application/zip', encoding: 'base64', size: 1024,
+    disposition: 'attachment',
+    dispositionParameters: { filename: 'google.com!example.com!1.zip' },
+  };
+
+  it('does not serve a single-part attachment root as the message text', () => {
+    // A DMARC aggregate report: the whole message is one application/zip part.
+    const msg = { bodyStructure: zipRoot, bodyParts: new Map([['1', Buffer.from('UEsDBBQ=')]]) };
+    const body = extractBodyFromMsg(msg);
+    expect(body.html).toBeNull();
+    expect(body.text).toBeNull();
+    expect(body.attachments.map(a => a.filename)).toEqual(['google.com!example.com!1.zip']);
+  });
+
+  it('does not fall back to the first part of a multipart holding only a file', () => {
+    const results = { textParts: [], attachments: [] };
+    walkStructure({ type: 'multipart/mixed', childNodes: [zipRoot] }, results);
+    expect(results.textParts).toHaveLength(0);
+    expect(bodyFallbackApplies(results)).toBe(false);
+  });
+
+  it('still promotes a bare unrecognized single part to text', () => {
+    const msg = {
+      bodyStructure: { part: '1', type: 'text/plain', encoding: '7bit', parameters: { charset: 'utf-8' } },
+      bodyParts: new Map([['1', Buffer.from('hello')]]),
+    };
+    expect(extractBodyFromMsg(msg).text).toBe('hello');
+    expect(bodyFallbackApplies({ textParts: [], attachments: [] })).toBe(true);
   });
 });
 
