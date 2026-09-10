@@ -1,7 +1,8 @@
-# Environment — never commit real secrets
+# Environment and deploy secrets — never commit real secrets
 .env
-.env.test
-*.env.local
+.env.*
+!.env.example
+!.env.test.example
 
 # Local docker compose overrides (e.g. temporary LOG_LEVEL=debug for a soak) — never committed
 docker-compose.override.yml
@@ -16,6 +17,16 @@ frontend/packages/release/
 
 # TLS certs (generated locally or via Let's Encrypt)
 certs/
+*.pem
+*.key
+
+# Host-mounted persistent Docker data (optional deployment configuration)
+postgres_data/
+redis_data/
+caddy_data/
+caddy_config/
+data/
+secrets/
 
 # Logs
 *.log
