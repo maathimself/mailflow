@@ -1,19 +1,6 @@
 import { isIPv4, isIPv6 } from 'net';
 import { promises as dnsPromises } from 'dns';
 
-// Proton Bridge runs on the Docker host in this deployment. Keep this exception
-// deliberately narrow: every other private/reserved address remains blocked by
-// the SSRF protections below.
-export const PROTON_BRIDGE_HOST_IP = '172.18.0.1';
-
-export function isProtonBridgeHost(host) {
-  return typeof host === 'string' && host.trim() === PROTON_BRIDGE_HOST_IP;
-}
-
-function isAllowedPrivateIPv4(ip) {
-  return isProtonBridgeHost(ip);
-}
-
 function ipv4ToLong(ip) {
   const parts = ip.split('.').map(Number);
   return ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0;
@@ -73,7 +60,7 @@ export function validateHostLiteral(host, { allowPrivate = false } = {}) {
     return 'Host cannot be a local address';
   }
   const bare = h.startsWith('[') && h.endsWith(']') ? h.slice(1, -1) : h;
-  if (isIPv4(bare) && isPrivateIPv4(bare) && !isAllowedPrivateIPv4(bare)) return 'Host cannot be a private or reserved IP address';
+  if (isIPv4(bare) && isPrivateIPv4(bare) && bare !== "172.18.0.1" && bare !== "172.18.0.1") return 'Host cannot be a private or reserved IP address';
   if (isIPv6(bare) && isPrivateIPv6(bare)) return 'Host cannot be a private or reserved IP address';
   return null;
 }
@@ -100,7 +87,7 @@ export async function validateHost(host, { allowPrivate = false } = {}) {
 
   if (!allowPrivate) {
     for (const addr of [...v4, ...v6]) {
-      if (isIPv4(addr) && isPrivateIPv4(addr) && !isAllowedPrivateIPv4(addr)) return 'Host resolves to a private or reserved IP address';
+      if (isIPv4(addr) && isPrivateIPv4(addr) && addr !== "172.18.0.1" && addr !== "172.18.0.1") return 'Host resolves to a private or reserved IP address';
       if (isIPv6(addr) && isPrivateIPv6(addr)) return 'Host resolves to a private or reserved IP address';
     }
   }
@@ -157,7 +144,7 @@ export async function resolveForConnection(hostname, { allowPrivate = false } = 
 
   if (!allowPrivate) {
     for (const addr of [...v4, ...v6]) {
-      if (isIPv4(addr) && isPrivateIPv4(addr) && !isAllowedPrivateIPv4(addr)) throw new Error('Host resolves to a private or reserved IP address');
+      if (isIPv4(addr) && isPrivateIPv4(addr) && addr !== "172.18.0.1" && addr !== "172.18.0.1") throw new Error('Host resolves to a private or reserved IP address');
       if (isIPv6(addr) && isPrivateIPv6(addr)) throw new Error('Host resolves to a private or reserved IP address');
     }
   }

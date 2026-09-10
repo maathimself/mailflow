@@ -1,0 +1,93 @@
+# Local, isolated MailFlow test environment.
+#
+# Run with:
+#   docker compose --env-file .env.test -p mailflow-test \
+#     -f docker-compose.yml -f docker-compose.test.yml up -d
+#
+# Open http://127.0.0.1:5173. Frontend source changes use Vite HMR; backend
+# source changes restart automatically through `node --watch`.
+#
+# It intentionally uses loopback-only high ports, distinct container names, and
+# dedicated named volumes so it cannot collide with a production deployment.
+services:
+  frontend:
+    # Vite serves the bind-mounted React source and pushes HMR updates directly
+    # to the browser. This intentionally replaces the production nginx build.
+    build: !reset null
+    image: node:22-alpine
+    container_name: mailflow-test-frontend
+    working_dir: /app
+    command: >-
+      sh -c 'test -x node_modules/.bin/vite || npm ci;
+      npm run dev -- --host 0.0.0.0'
+    ports: !override ["127.0.0.1:5173:5173"]
+    volumes:
+      - ./frontend:/app
+      - frontend_test_node_modules:/app/node_modules
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO/dev/null http://127.0.0.1:5173/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  backend:
+    # The backend watches its bind-mounted source with Node's built-in watcher.
+    build: !reset null
+    image: node:22-alpine
+    container_name: mailflow-test-backend
+    working_dir: /app
+    command: >-
+      sh -c 'test -x node_modules/.bin/vitest || npm ci;
+      npm run dev'
+    volumes:
+      - ./backend:/app
+      - backend_test_node_modules:/app/node_modules
+    environment:
+      NODE_ENV: development
+
+  # Proton Bridge deliberately binds its STARTTLS endpoints to host loopback.
+  # This host-networked proxy exposes only the test Docker gateway address, never
+  # a public interface, so MailFlow can reach Bridge without an SSH tunnel.
+  proton_bridge_proxy:
+    image: alpine/socat@sha256:ef6c281978dcd6927d9b3829484e4c4fdfc5d98de5acbd6312c04565d2d58cbf
+    container_name: mailflow-test-proton-bridge-proxy
+    network_mode: host
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - >-
+        socat TCP-LISTEN:1143,bind=172.18.0.1,fork,reuseaddr TCP:127.0.0.1:1143 &
+        socat TCP-LISTEN:1025,bind=172.18.0.1,fork,reuseaddr TCP:127.0.0.1:1025 &
+        wait
+
+  postgres:
+    container_name: mailflow-test-postgres
+
+  redis:
+    container_name: mailflow-test-redis
+
+volumes:
+  postgres_data:
+    name: mailflow-test-postgres-data
+  redis_data:
+    name: mailflow-test-redis-data
+  frontend_test_node_modules:
+    name: mailflow-test-frontend-node-modules
+  backend_test_node_modules:
+    name: mailflow-test-backend-node-modules
+
+networks:
+  # Mirrors the VPS bridge route used by Proton Bridge. The source exception is
+  # deliberately exact, so the test network uses the same host gateway.
+  mailflow:
+    ipam:
+      config:
+        - subnet: 172.18.0.0/16
+          gateway: 172.18.0.1

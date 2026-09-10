@@ -30,6 +30,8 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
   // folder_mappings.spam + special_use heuristics instead of a fragile name match.
   const account = useStore(s => s.accounts.find(a => a.id === message.account_id));
   const accountFolders = useStore(s => s.folders[message.account_id] || []);
+  const setSelectedAccount = useStore(s => s.setSelectedAccount);
+  const setSearchQuery = useStore(s => s.setSearchQuery);
   const categorizationEnabled = useStore(s => s.categorizationEnabled);
   const categorizationActive = categorizationEnabled || !!account?.categorization_enabled;
   const menuRef = useRef(null);
@@ -37,6 +39,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
   // A plugin submenu (render fn) takes over the menu content area, like categorizeView/moveView.
   // Set via the openSubmenu capability handed to context-menu-item contributions; null = item list.
   const [pluginSubmenu, setPluginSubmenu] = useState(null);
+  const [findByView, setFindByView] = useState(false);
   const [moveView, setMoveView] = useState(defaultMoveView);
   const [moveFolders, setMoveFolders] = useState(null);
   const [moveFoldersLoading, setMoveFoldersLoading] = useState(defaultMoveView);
@@ -63,6 +66,17 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
     ).map(f => f.path));
   })();
   const inSpamFolder = spamFolderPaths.has(message.folder);
+
+  // Search always keeps the selected message's account. `in:all` expands only
+  // to that account's folders; the search API receives selectedAccountId.
+  const findAllMailBy = (field) => {
+    const rawValue = field === 'sender' ? message.from_email : message.subject;
+    const value = String(rawValue || '').replace(/"/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!value) return;
+    setSelectedAccount(message.account_id, message.folder || 'INBOX');
+    setSearchQuery(`${field === 'sender' ? 'from' : 'subject'}:"${value}" in:all`);
+    onClose();
+  };
 
   // Adjust position to stay within viewport. The menu's height changes after
   // mount (folders load async, subviews like Move/Snooze swap in), so re-clamp
@@ -222,6 +236,13 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polyline points="15 17 20 12 15 7"/><path d="M4 18v-2a4 4 0 014-4h12"/></svg>,
           action: () => onAction('forward'),
         }]),
+        {
+          label: 'Find All Mails By',
+          icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>,
+          action: () => setFindByView(true),
+          keepOpen: true,
+          hasSubmenu: true,
+        },
         {
           label: t('contextMenu.moveToFolder'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>,
@@ -400,7 +421,36 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
           </div>
         )}
 
-        {pluginSubmenu ? (
+        {findByView ? (
+          <>
+            <div
+              onClick={() => setFindByView(false)}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', cursor: 'pointer', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-secondary)', fontSize: 12 }}
+              onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+              Find All Mails By
+            </div>
+            {[
+              ['sender', 'Sender', message.from_email],
+              ['subject', 'Subject', message.subject],
+            ].map(([field, label, value]) => {
+              const enabled = Boolean(String(value || '').trim());
+              return (
+                <div
+                  key={field}
+                  onClick={() => enabled && findAllMailBy(field)}
+                  style={{ display: 'flex', alignItems: 'center', padding: '8px 14px', cursor: enabled ? 'pointer' : 'default', fontSize: 13, color: enabled ? 'var(--text-primary)' : 'var(--text-tertiary)' }}
+                  onMouseEnter={e => { if (enabled) e.currentTarget.style.background = 'var(--bg-hover)'; }}
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                >
+                  {label}
+                </div>
+              );
+            })}
+          </>
+        ) : pluginSubmenu ? (
           // A plugin item opened its own submenu (e.g. GTD's classify/remove list). It renders its
           // own back row; onBack returns to the item list.
           pluginSubmenu(() => setPluginSubmenu(null))

@@ -7,12 +7,12 @@ import { createPluginMailFacade } from '../plugins/mailEngineFacade.js';
 import { refreshMicrosoftToken } from '../routes/oauth.js';
 import { sanitizeEmail } from './emailSanitizer.js';
 import { logger } from './logger.js';
-import { recordBroadcast, recordWarning, recordSyncSignal } from './diagnosticsRing.js';
+import { recordBroadcast, recordWarning } from './diagnosticsRing.js';
 import { decrypt } from './encryption.js';
 import { sendPushToUser } from './pushNotifications.js';
 import { redactEmail } from '../utils/redact.js';
 import { adjustFolderCounts, resolveSpamFolder } from '../utils/mailUtils.js';
-import { isProtonBridgeHost, resolveForConnection, createPinnedLookup } from './hostValidation.js';
+import { resolveForConnection, createPinnedLookup } from './hostValidation.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { applyInboxRules, applyBlockList } from './inboxRules.js';
 import { generateVCard } from '../utils/vcard.js';
@@ -178,15 +178,6 @@ const CONNECT_COOLDOWN_MAX_MS = 15 * 60 * 1000;  // capped at 15 min
 // delay recovery.
 export function isConnectionRefusal(detail) {
   return /connection not available|too many|maximum number|number of connections|rate.?limit|temporarily|try again|connection limit|over quota|throttl|connect timeout/i.test(String(detail || ''));
-}
-
-// Stamp an account's last successful sync. Shared by both exits of syncMessages so they cannot
-// drift: a folder that turned out to be empty is still a SUCCESSFUL sync and must be stamped.
-// Without this a brand-new account that has never received mail keeps last_sync = NULL forever,
-// indistinguishable from one that has never synced at all — the diagnostics report shows
-// lastSyncAgeSeconds: null for both, and any staleness alerting built on it false-positives.
-export async function stampLastSync(accountId) {
-  await query('UPDATE email_accounts SET last_sync = NOW() WHERE id = $1', [accountId]);
 }
 
 // Exponential backoff for consecutive connection refusals: 30s, 60s, 120s, 240s, 480s, …
@@ -907,11 +898,7 @@ const RELOCATE_MESSAGE_SQL = `
     AND message_id = $4::text
     AND (folder != $1::text OR uid != $2::bigint)
     AND 1 = (SELECT COUNT(*) FROM messages WHERE account_id = $3::uuid AND message_id = $4::text)
-    AND COALESCE((SELECT special_use FROM folders WHERE account_id = $3::uuid AND path = $1::text), '') NOT IN ('\\All', '\\Important')
-    -- Proton Bridge may expose All Mail without the expected \\All special-use flag.
-    -- Preserve its row and its physical-folder sibling during sync/backfill.
-    AND LOWER(messages.folder) <> 'all mail'
-    AND LOWER($1::text) <> 'all mail'`;
+    AND COALESCE((SELECT special_use FROM folders WHERE account_id = $3::uuid AND path = $1::text), '') NOT IN ('\\All', '\\Important')`;
 
 function relocateMessageParams(folder, parsed, accountId, msgId) {
   return [
@@ -1056,16 +1043,10 @@ async function ensureFreshToken(account) {
 // address set so DNS rebinding cannot change the target between validation and connect.
 // policy: result of getConnectionPolicy() — gates TLS verification override.
 export function makeClientCfg(account, resolved, { enableIdle = false, policy = {}, idleKeepaliveMs } = {}) {
-  // Proton Bridge provides explicit STARTTLS on its local 1143 port. Require the
-  // upgrade rather than treating it as an unencrypted legacy IMAP connection.
-  const protonBridgeStartTls = isProtonBridgeHost(account.imap_host) && Number(account.imap_port) === 1143;
-  if (!policy.allowInsecureTls && !account.imap_tls && !protonBridgeStartTls) {
+  if (!policy.allowInsecureTls && !account.imap_tls) {
     throw new Error('Plain-text IMAP is not allowed: admin must enable "Allow insecure TLS"');
   }
-  // Bridge generates a local self-signed certificate. This exception is limited
-  // to its exact host-gateway endpoint; every other IMAP server still requires a
-  // publicly trusted certificate unless an administrator explicitly opts out.
-  const skipTls = protonBridgeStartTls || (policy.allowInsecureTls && !!account.imap_skip_tls_verify);
+  const skipTls = policy.allowInsecureTls && !!account.imap_skip_tls_verify;
   const tlsOpts = { rejectUnauthorized: !skipTls };
   // Keep the original hostname for TLS authentication while Node connects only to the
   // prevalidated addresses and moves to the next candidate when one is unreachable.
@@ -1079,7 +1060,6 @@ export function makeClientCfg(account, resolved, { enableIdle = false, policy = 
     host: resolved.lookup && resolved.servername ? resolved.servername : resolved.host,
     port: account.imap_port,
     secure: account.imap_tls,
-    doSTARTTLS: protonBridgeStartTls || undefined,
     auth: { user: account.auth_user, pass: decrypt(account.auth_pass) },
     logger: false,
     tls: tlsOpts,
@@ -1309,42 +1289,6 @@ async function resolveServerFolderCasing(client, knownPath) {
   }
 }
 
-// Decide the outcome of a bulk move whose UIDPLUS map was unavailable, from what a follow-up
-// UID SEARCH found. `remainingUids` are the requested UIDs still present in the source after the
-// move; `destArrived` is the count of new UIDs that landed in the destination (null when that
-// check could not run). Returns which UIDs to treat as succeeded/failed, the inferred number of
-// stale UIDs, and whether the destination UIDs can be mapped 1:1 by sorted order.
-//
-// The #407 case: some servers (e.g. Dovecot/PurelyMail) return NO uidMap when the batch contains
-// a stale UID, so afterwards every requested UID is absent from the source — the moved ones
-// because they moved, the stale one because it was never there — and source-absence alone cannot
-// tell them apart. When fewer messages arrived in the destination than left the source, a stale
-// UID is in the batch, so the WHOLE batch is reported failed (nothing is deleted or misfiled
-// locally; the next sync reconciles) rather than guessing which UID was stale and losing the rest.
-export function classifyMoveBySearch(uids, remainingUids, destArrived) {
-  // Total in the non-array case as well. The caller guards this and logs, but search() can
-  // resolve to undefined or false rather than throwing, and this function moves mail: any
-  // future caller that forgets must not silently read a non-array as "the source is empty",
-  // which would mean the whole batch moved. Report everything failed and let the next sync
-  // reconcile, matching the caller's own failed-search path.
-  if (!Array.isArray(remainingUids)) {
-    return { succeeded: [], failed: uids.slice(), staleCount: null, mappable: false };
-  }
-  const remaining = new Set(remainingUids.map(Number));
-  const gone = uids.filter(u => !remaining.has(Number(u)));
-  const stillPresent = uids.filter(u => remaining.has(Number(u)));
-  if (!gone.length) {
-    return { succeeded: [], failed: uids.slice(), staleCount: 0, mappable: false };
-  }
-  if (destArrived == null) {
-    return { succeeded: gone, failed: stillPresent, staleCount: null, mappable: false };
-  }
-  if (destArrived < gone.length) {
-    return { succeeded: [], failed: uids.slice(), staleCount: gone.length - destArrived, mappable: false };
-  }
-  return { succeeded: gone, failed: stillPresent, staleCount: 0, mappable: destArrived === gone.length };
-}
-
 export class ImapManager {
   constructor(wss) {
     this.wss = wss;
@@ -1355,11 +1299,6 @@ export class ImapManager {
     this.backfillAllRunning = new Set(); // accountId — prevent concurrent full backfill sequences
     this._bgConnSem = createKeyedSemaphore(BACKGROUND_CONN_MAX_PER_HOST); // cap concurrent background IMAP conns (backfill + snippet indexer) per provider host
     this._connectCooldown = new Map(); // accountId -> { until: ms, failures: number } after connection refusals
-    // accountId -> the value last persisted to email_accounts.sync_error: a string (error is
-    // showing), null (known clear), or absent (unknown — e.g. just after a restart, where the
-    // DB may still hold a stale error, so the next call writes through unconditionally).
-    // Lets the success paths skip a redundant UPDATE on every sync tick.
-    this._syncErrorState = new Map();
     this.onDemandSyncing = new Set(); // `${accountId}:${folder}` — prevent duplicate on-demand syncs
     // Bounded engine facade handed to plugin hooks instead of `this` — plugins get only the reviewed
     // sync/label primitives (see mailEngineFacade), never the raw engine, its connections, or locks.
@@ -1609,7 +1548,6 @@ export class ImapManager {
             }
 
             console.warn(`Staleness check: ${logAccount(account)} server has ${missed} INBOX message(s) above synced UID ${maxUid} — persistent connection ${wasSyncing ? 'hung mid-sync' : 'missed mail'}, forcing reconnect`);
-            recordSyncSignal('staleness_missed_mail', { accountId, magnitude: missed });
             this.connections.delete(accountId);
             // close() (not logout()): logout() sends a LOGOUT command that itself hangs on a
             // half-open socket, so it would NOT promptly unhang a stuck sync. close() destroys
@@ -1885,7 +1823,7 @@ export class ImapManager {
       });
       this._attachIdleListeners(client, account);
       this.connections.set(account.id, client);
-      await this._clearAccountError(account);
+      await query('UPDATE email_accounts SET sync_error = NULL WHERE id = $1', [account.id]);
 
       // Decide whether to auto-backfill BEFORE the initial sync below runs. For providers
       // with autoBackfillExistingOnConnect:false (e.g. PurelyMail) the gate skips backfill
@@ -1960,7 +1898,8 @@ export class ImapManager {
       // stop hammering a provider that's at its limit. Other errors don't set a cooldown —
       // the health check retries them normally.
       if (isConnectionRefusal(detail)) this._noteConnectionRefusal(account);
-      await this._recordAccountError(account, detail);
+      await query('UPDATE email_accounts SET sync_error = $1 WHERE id = $2', [detail, account.id]);
+      this.broadcast({ type: 'account_error', accountId: account.id, error: detail }, account.user_id);
       return false;
     } finally {
       // Always release the in-progress lock so future attempts (e.g. manual reconnect) can proceed
@@ -1982,9 +1921,6 @@ export class ImapManager {
     this.syncThrottleSkips.delete(accountId);
     this.syncTickCount.delete(accountId);
     this.lastSyncOkAt.delete(accountId);
-    // Drop the cached sync_error state (NOT the refusal cooldown, which deliberately survives a
-    // disconnect) so a re-added account writes through instead of trusting a stale cache entry.
-    this._syncErrorState.delete(accountId);
     this._pendingFlagSync.delete(accountId);
     const flagTimer = this._flagDebounceTimers.get(accountId);
     if (flagTimer) { clearTimeout(flagTimer); this._flagDebounceTimers.delete(accountId); }
@@ -2022,7 +1958,7 @@ export class ImapManager {
   _startPollOnly(account) {
     this._pollOnlyAccounts.add(account.id);
     console.log(`Poll-only mode for ${logAccount(account)} — ${account.imap_host} at persistent-connection budget; polling INBOX on the interval instead of holding IDLE`);
-    this._clearAccountError(account).catch(() => {});
+    query('UPDATE email_accounts SET sync_error = NULL WHERE id = $1', [account.id]).catch(() => {});
     this.broadcast({ type: 'account_connected', accountId: account.id }, account.user_id);
     // Initial poll now, then on the interval. Stagger the first tick so many demoted accounts on one
     // host don't all open at the same instant (mirrors _startSyncInterval's jitter).
@@ -2076,19 +2012,13 @@ export class ImapManager {
       );
       this.lastSyncOkAt.set(account.id, Date.now());
       this._connectCooldown.delete(account.id);
-      await this._clearAccountError(account);
       if ((syncResult?.insertedCount || 0) > 0 && !syncResult?.broadcastedNewMessages) {
         this.broadcast({ type: 'sync_complete', accountId: account.id }, account.user_id);
       }
     } catch (err) {
       const detail = extractImapError(err);
-      const refused = isConnectionRefusal(detail);
-      if (refused) this._noteConnectionRefusal(account);
+      if (isConnectionRefusal(detail)) this._noteConnectionRefusal(account);
       console.warn(`Poll-only sync error for ${logAccount(account)}: ${detail}`);
-      // Surface only what we actually backed off on. Gated (unlike the connect paths, which
-      // record any failure) because this catch also fires on ordinary slow ticks, and one
-      // timed-out poll must not paint a working account red in the sidebar.
-      if (refused) await this._recordAccountError(account, detail);
     } finally {
       if (client) { try { await client.logout(); } catch { /* already closed */ } }
       if (slotHeld) this._bgConnSem.release(host);
@@ -2117,45 +2047,6 @@ export class ImapManager {
     this._connectCooldown.set(account.id, { until: Date.now() + ms, failures });
     console.warn(`Connection refused for ${logAccount(account)} — backing off ${Math.round(ms / 1000)}s (refusal #${failures})`);
     return ms;
-  }
-
-  // Persist an account failure so the UI can show it, and push it to the client live. Every path
-  // that gives up on an account routes through here — connect, reconnect, the persistent sync
-  // tick, and the poll-only tick — so a failure is visible whichever one hit it. Previously only
-  // connectAccount recorded, so which of two accounts on the same dead host showed an error came
-  // down to whether it happened to fail during a cold connect or a reconnect.
-  //
-  // De-duplicated against the last persisted value: a host that stays down re-enters this on
-  // every retry for as long as the outage lasts, and rewriting the same string each time is pure
-  // write amplification. Never throws — every caller is already inside an error path.
-  async _recordAccountError(account, detail) {
-    if (this._syncErrorState.get(account.id) === detail) return;
-    try {
-      await query('UPDATE email_accounts SET sync_error = $1 WHERE id = $2', [detail, account.id]);
-      this._syncErrorState.set(account.id, detail);
-      this.broadcast({ type: 'account_error', accountId: account.id, error: detail }, account.user_id);
-    } catch (err) {
-      // Leave _syncErrorState untouched so the next failure retries the write.
-      console.warn(`Could not record sync_error for ${logAccount(account)}: ${err.message}`);
-    }
-  }
-
-  // Clear a recorded failure on the success side of every path that can record one. Skipped when
-  // the account is already known-clear, so the sync tick doesn't issue a redundant UPDATE per
-  // account per tick (every 10s on freshInboxSync providers). Only broadcasts on a real
-  // error -> clear transition; the frontend maps 'account_connected' to clearing sync_error.
-  async _clearAccountError(account) {
-    const prev = this._syncErrorState.get(account.id);
-    if (prev === null) return;
-    try {
-      await query('UPDATE email_accounts SET sync_error = NULL WHERE id = $1', [account.id]);
-      this._syncErrorState.set(account.id, null);
-      if (typeof prev === 'string') {
-        this.broadcast({ type: 'account_connected', accountId: account.id }, account.user_id);
-      }
-    } catch (err) {
-      console.warn(`Could not clear sync_error for ${logAccount(account)}: ${err.message}`);
-    }
   }
 
   async _syncInboxWithFreshLogin(account) {
@@ -2257,18 +2148,13 @@ export class ImapManager {
           // Mirror connectAccount's success cleanup: clear the refusal backoff so the next
           // failure starts fresh, and clear the stale sync_error the UI is still showing.
           this._connectCooldown.delete(account.id);
-          await this._clearAccountError(account);
+          await query('UPDATE email_accounts SET sync_error = NULL WHERE id = $1', [account.id]);
           console.log(`Reconnected ${logAccount(syncAccount)}`);
         } catch (reconnErr) {
           const detail = extractImapError(reconnErr);
           // Back off on a connection-refusal so the interval stops hammering — mirrors connectAccount.
           if (isConnectionRefusal(detail)) this._noteConnectionRefusal(account);
           console.error(`Reconnect failed for ${logAccount(account)}:`, detail);
-          // A failed reconnect is the same class of failure as a failed first connect, so record
-          // it exactly as connectAccount does. This was the gap: an account whose host died
-          // mid-session only ever failed here, so it kept looking healthy in the sidebar while
-          // silently serving stale mail.
-          await this._recordAccountError(account, detail);
           // Force-close a client left mid-connect when the timeout fired so it doesn't
           // linger as an orphaned socket.
           if (pendingClient) pendingClient.logout().catch(() => {});
@@ -2306,7 +2192,6 @@ export class ImapManager {
       // Healthy again — clear any refusal backoff so the failure count resets and a later
       // refusal starts from the base delay rather than a still-escalated one. No-op when unset.
       this._connectCooldown.delete(account.id);
-      await this._clearAccountError(account);
       if ((syncResult?.insertedCount || 0) > 0 && !syncResult?.broadcastedNewMessages) {
         this.broadcast({ type: 'sync_complete', accountId: account.id }, account.user_id);
       }
@@ -2372,12 +2257,7 @@ export class ImapManager {
       // A refusal on the sync path (notably the fresh-login poll, which never reaches the
       // reconnect gate) must arm the same backoff the connect paths use — otherwise the poll
       // keeps hammering a provider that's refusing logins. Honored by the check above next tick.
-      if (isConnectionRefusal(detail)) {
-        this._noteConnectionRefusal(account);
-        // Surface what we backed off on, for the same reason as the poll-only tick: gated on the
-        // refusal so a one-off 'Sync wall-clock timeout' doesn't flag an otherwise healthy account.
-        await this._recordAccountError(account, detail);
-      }
+      if (isConnectionRefusal(detail)) this._noteConnectionRefusal(account);
       // Identity-guard: the staleness check may have deleted this connection out from
       // under a hung sync, and a fresh reconnect (health check / another tick) may already
       // occupy the map slot. Only tear down the client THIS tick owned — never a healthy
@@ -2670,14 +2550,7 @@ export class ImapManager {
       const lock = await client.getMailboxLock(folder);
       try {
         const mailbox = client.mailbox;
-        if (!mailbox || mailbox.exists === 0) {
-          // A mailbox the server reports as empty is a SUCCESSFUL sync, not a skipped one, so
-          // stamp it like any other. A missing mailbox object is a different thing entirely —
-          // an unknown state, not a confirmed-empty one — so it is deliberately left unstamped
-          // rather than recording a success that did not happen.
-          if (mailbox) await stampLastSync(account.id);
-          return { insertedCount: 0, broadcastedNewMessages: false };
-        }
+        if (!mailbox || mailbox.exists === 0) return { insertedCount: 0, broadcastedNewMessages: false };
 
         // UIDVALIDITY check — detects server-side mailbox rebuilds (migration, restore).
         // If UIDVALIDITY changed, all stored UIDs for this folder are invalid; purge them
@@ -2699,7 +2572,6 @@ export class ImapManager {
           storedModseq = foldRow.rows[0]?.highest_modseq ?? null;
           if (storedValidity !== null && storedValidity !== currentValidity) {
             uidValidityChanged = true;
-            recordSyncSignal('uidvalidity_change', { accountId: account.id });
             console.warn(`UIDVALIDITY changed for ${logAccount(account)}/${folder}: ${storedValidity} → ${currentValidity}. Purging stale messages and re-backfilling.`);
             const purged = await query('DELETE FROM messages WHERE account_id = $1 AND folder = $2', [account.id, folder]);
             // The stored modseq belongs to the OLD UIDVALIDITY epoch and is no longer
@@ -3228,7 +3100,7 @@ export class ImapManager {
            WHERE account_id = $1 AND path = $2`,
           [account.id, folder]
         );
-        await stampLastSync(account.id);
+        await query('UPDATE email_accounts SET last_sync = NOW() WHERE id = $1', [account.id]);
         return { insertedCount, broadcastedNewMessages };
       } finally {
         lock.release();
@@ -3396,15 +3268,6 @@ export class ImapManager {
       const existingUids = new Set(existingRows.rows.map(r => Number(r.uid)));
 
       // Step 3 — compute missing UIDs, newest-first so recent mail is accessible fast.
-      // Same non-array contract as the other search sites. Abandon this pass rather than
-      // treating it as an empty mailbox: an empty list reads as "nothing is missing", which
-      // would silently skip the backfill and write a 0 total_count over a folder that is not
-      // actually empty. The next scheduled backfill retries.
-      if (!Array.isArray(serverUids)) {
-        console.warn(`Backfill ${logAccount(account)}/${folder}: UID SEARCH returned ${serverUids} — skipping this pass`);
-        return;
-      }
-
       const missingUids = serverUids
         .filter(uid => !existingUids.has(uid))
         .sort((a, b) => b - a);
@@ -4979,108 +4842,108 @@ export class ImapManager {
       });
 
       if (serverUidMap) {
-        // #407 fix: report only what the server actually moved. A requested UID the server did
-        // NOT move (absent from the UIDPLUS map) is a row our local DB believed lived at that UID
-        // but the server no longer had there — a destructive op meeting stale identity (rapid
-        // re-archive, a concurrent move, or a UIDVALIDITY shift). The old code reported every UID
-        // as succeeded, which made callers delete the local source row for a message that was
-        // never moved (a transient wrong-deletion) and silently defeated inboxRules' failure
-        // guards. Returning it in `failed` leaves the local row for the next sync to reconcile.
-        // `stale_mutation_uid` also measures how often this race actually fires.
-        const succeeded = uids.filter(u => serverUidMap.has(Number(u)));
-        const failed = uids.filter(u => !serverUidMap.has(Number(u)));
-        if (failed.length) recordSyncSignal('stale_mutation_uid', { accountId: account.id, magnitude: failed.length });
-        return { uidMap: serverUidMap, succeeded, failed };
+        return { uidMap: serverUidMap, succeeded: uids, failed: [] };
       }
 
-      // Move succeeded but the server returned no UIDPLUS map. Some servers (e.g. Dovecot/
-      // PurelyMail) return an empty map precisely when the batch contains a stale UID — the #407
-      // case — so reconcile by UID SEARCH rather than blindly claiming success, which would delete
-      // local rows for messages that never moved and lose the destination UIDs of the ones that
-      // did. `stale_mutation_uid` records the inferred stale count.
-      const bySearch = await this._reconcileMoveBySearch(account, uids, fromFolder, toFolder, destUidNextBefore);
-      if (bySearch.staleCount) {
-        recordSyncSignal('stale_mutation_uid', { accountId: account.id, magnitude: bySearch.staleCount });
-        // The batch is reported all-failed, so the caller leaves local rows untouched. The
-        // genuinely-moved messages have already left the source (the server EXPUNGEd them, and the
-        // persistent IDLE connection reconciles the source shortly) but are not yet in the local
-        // destination. Pull the destination now so they reappear promptly instead of at the next
-        // periodic sync — the same on-demand resync the routes already do for non-UIDPLUS moves.
-        // Fire-and-forget; syncFolderOnDemand de-dups concurrent runs for the same folder.
-        if (toFolder !== fromFolder) {
-          this.syncFolderOnDemand(account, toFolder)
-            .catch(err => console.warn(`bulkMoveMessages: post-stale destination resync failed (${err.message})`));
-        }
-      }
-      return { uidMap: bySearch.uidMap, succeeded: bySearch.succeeded, failed: bySearch.failed };
+      // Move succeeded but server returned no uidMap (no UIDPLUS).
+      // Try to recover new UIDs via UIDNEXT scan so the DB stays accurate.
+      const uidMap = await this._reconcileMovedUids(account, uids, toFolder, destUidNextBefore);
+      return { uidMap, succeeded: uids, failed: [] };
 
     } catch (err) {
       console.warn(`bulkMoveMessages ${fromFolder} → ${toFolder}: batch failed (${err.message}), verifying via UID SEARCH`);
-      // A thrown move may have applied partway; reconcile by search to report what actually moved.
-      // Not counted as stale_mutation_uid — this is a move failure, not a stale-identity meeting.
-      const bySearch = await this._reconcileMoveBySearch(account, uids, fromFolder, toFolder, destUidNextBefore);
-      return { uidMap: bySearch.uidMap, succeeded: bySearch.succeeded, failed: bySearch.failed };
+      try {
+        const remaining = await withFreshClient(account, async (client) => {
+          const lock = await client.getMailboxLock(fromFolder);
+          try {
+            return await client.search({ uid: uids.join(',') }, { uid: true });
+          } finally {
+            lock.release();
+          }
+        });
+        const remainingSet = new Set(remaining.map(Number));
+        const succeeded = uids.filter(uid => !remainingSet.has(Number(uid)));
+        const failed    = uids.filter(uid =>  remainingSet.has(Number(uid)));
+
+        if (!succeeded.length) {
+          return { uidMap: new Map(), succeeded: [], failed: uids };
+        }
+
+        // Confirm that messages gone from source actually landed in destination
+        // before treating source-absence as proof of success.
+        if (destUidNextBefore !== null) {
+          try {
+            const destNewUids = await withFreshClient(account, async (client) => {
+              const lock = await client.getMailboxLock(toFolder);
+              try {
+                return await client.search({ uid: `${destUidNextBefore}:*` }, { uid: true });
+              } finally {
+                lock.release();
+              }
+            });
+            if (destNewUids.length < succeeded.length) {
+              console.warn(`bulkMoveMessages fallback: ${succeeded.length} UIDs gone from source but only ${destNewUids.length} new UIDs in destination — treating all as failed`);
+              return { uidMap: new Map(), succeeded: [], failed: uids };
+            }
+            // Destination count confirms the move; build uidMap if counts match exactly.
+            const uidMap = new Map();
+            if (destNewUids.length === succeeded.length) {
+              // IMAP MOVE assigns destination UIDs in ascending source-UID order, so BOTH
+              // sides must be sorted before zipping. `succeeded` is in arbitrary input
+              // order (not UID order), so zipping it against the sorted destination UIDs
+              // as-is would map each message to the wrong new UID.
+              const sortedSrc = succeeded.map(Number).sort((a, b) => a - b);
+              const sortedNew = [...destNewUids].sort((a, b) => a - b);
+              sortedSrc.forEach((uid, i) => uidMap.set(uid, sortedNew[i]));
+            }
+            console.log(`bulkMoveMessages: ${succeeded.length}/${uids.length} confirmed moved via UID SEARCH + dest verification`);
+            return { uidMap, succeeded, failed };
+          } catch (destErr) {
+            console.warn(`bulkMoveMessages: destination verification failed (${destErr.message}) — trusting source-absence`);
+          }
+        }
+
+        if (succeeded.length) {
+          console.log(`bulkMoveMessages: ${succeeded.length}/${uids.length} messages confirmed moved via UID SEARCH`);
+        }
+        return { uidMap: new Map(), succeeded, failed };
+      } catch (searchErr) {
+        console.error(`bulkMoveMessages: UID SEARCH verification failed: ${searchErr.message}`);
+        return { uidMap: new Map(), succeeded: [], failed: uids };
+      }
     }
   }
 
-  // Reconcile a move whose UIDPLUS map is unavailable — the server returned an empty map (some
-  // servers do this when the batch contains a stale UID, the #407 case), or the move threw partway.
-  // Determines succeeded/failed by which requested UIDs still remain in the source, and rebuilds a
-  // destination uidMap only when the counts line up exactly. The pure decision lives in
-  // classifyMoveBySearch; this method just does the two IMAP searches and the sorted-order mapping.
-  // Returns { uidMap, succeeded, failed, staleCount } (staleCount is the inferred stale-UID count,
-  // or null when it could not be determined).
-  async _reconcileMoveBySearch(account, uids, fromFolder, toFolder, destUidNextBefore) {
-    let remaining;
+  // After a successful move that returned no uidMap, scan the destination folder
+  // for UIDs >= destUidNextBefore and assign them to source UIDs in sorted order.
+  // Only commits the mapping when the count matches exactly (conservative).
+  async _reconcileMovedUids(account, sourceUids, toFolder, destUidNextBefore) {
+    if (destUidNextBefore === null) return new Map();
     try {
-      remaining = await withFreshClient(account, async (client) => {
-        const lock = await client.getMailboxLock(fromFolder);
-        try { return await client.search({ uid: uids.join(',') }, { uid: true }); }
-        finally { lock.release(); }
+      const newUids = await withFreshClient(account, async (client) => {
+        const lock = await client.getMailboxLock(toFolder);
+        try {
+          return await client.search({ uid: `${destUidNextBefore}:*` }, { uid: true });
+        } finally {
+          lock.release();
+        }
       });
-    } catch (searchErr) {
-      console.error(`bulkMoveMessages: source UID SEARCH failed (${searchErr.message}) — leaving all ${uids.length} for next sync`);
-      return { uidMap: new Map(), succeeded: [], failed: uids, staleCount: null };
-    }
-
-    let destArrived = null;
-    let destNew = [];
-    if (destUidNextBefore !== null) {
-      try {
-        destNew = await withFreshClient(account, async (client) => {
-          const lock = await client.getMailboxLock(toFolder);
-          try { return await client.search({ uid: `${destUidNextBefore}:*` }, { uid: true }); }
-          finally { lock.release(); }
-        });
-        destArrived = destNew.length;
-      } catch (destErr) {
-        console.warn(`bulkMoveMessages: destination verification failed (${destErr.message}) — trusting source-absence`);
+      if (newUids.length !== sourceUids.length) {
+        console.warn(`bulkMoveMessages reconcile: expected ${sourceUids.length} new UIDs in ${toFolder}, found ${newUids.length} — skipping UID update (will reconcile on next sync)`);
+        return new Map();
       }
-    }
-
-    // Same non-array contract as the other search sites: search() resolves undefined when no
-    // mailbox ended up selected and false when the SEARCH failed, neither of which throws, so
-    // the catch above never sees it and classifyMoveBySearch would die on remainingUids.map.
-    // Treat it exactly as a failed search: report everything failed and leave it for the next
-    // sync. Assuming an empty source would be the dangerous reading, since "no UIDs remain"
-    // means the entire batch moved successfully.
-    if (!Array.isArray(remaining)) {
-      console.error(`bulkMoveMessages: source UID SEARCH returned ${remaining} — leaving all ${uids.length} for next sync`);
-      return { uidMap: new Map(), succeeded: [], failed: uids, staleCount: null };
-    }
-    const c = classifyMoveBySearch(uids, remaining, destArrived);
-    if (c.staleCount) {
-      console.warn(`bulkMoveMessages ${fromFolder} → ${toFolder}: ${c.staleCount} stale UID(s) in batch — reporting all ${uids.length} failed for the next sync to reconcile`);
-    }
-    // IMAP MOVE assigns destination UIDs in ascending source-UID order, so sort both sides before
-    // zipping. Only mappable when exactly as many arrived as left the source.
-    const uidMap = new Map();
-    if (c.mappable) {
-      const sortedSrc = c.succeeded.map(Number).sort((a, b) => a - b);
-      const sortedNew = [...destNew].sort((a, b) => a - b);
+      // IMAP MOVE assigns destination UIDs in ascending source-UID order, so sort BOTH
+      // sides before zipping — sourceUids is in arbitrary input order.
+      const sortedSrc = sourceUids.map(Number).sort((a, b) => a - b);
+      const sortedNew = [...newUids].sort((a, b) => a - b);
+      const uidMap = new Map();
       sortedSrc.forEach((uid, i) => uidMap.set(uid, sortedNew[i]));
+      console.log(`bulkMoveMessages: reconciled ${uidMap.size} UIDs via destination UIDNEXT scan`);
+      return uidMap;
+    } catch (err) {
+      console.warn(`bulkMoveMessages: UID reconciliation failed (${err.message}) — UIDs will be updated on next sync`);
+      return new Map();
     }
-    return { uidMap, succeeded: c.succeeded, failed: c.failed, staleCount: c.staleCount };
   }
 
   // Permanently delete a batch of UIDs already in the given folder (two-step:
@@ -5105,14 +4968,6 @@ export class ImapManager {
             // No UIDPLUS: protect other \Deleted messages from the broad EXPUNGE.
             const ourSet = new Set(uids.map(Number));
             const allDeleted = await client.search({ deleted: true }, { uid: true });
-            // Without UIDPLUS the EXPUNGE below is mailbox-wide, so this search is the only
-            // thing protecting other messages that are already flagged for deletion. A
-            // non-array result (undefined: no mailbox selected, false: SEARCH failed) means
-            // we cannot know what to protect. Abort: carrying on with an empty list would
-            // read as "nothing else is flagged" and permanently destroy them.
-            if (!Array.isArray(allDeleted)) {
-              throw new Error(`deleted-flag SEARCH returned ${allDeleted} — cannot protect other flagged messages from a mailbox-wide EXPUNGE`);
-            }
             const othersDeleted = allDeleted.filter(uid => !ourSet.has(uid));
             if (othersDeleted.length > 0) {
               await client.messageFlagsRemove(othersDeleted.join(','), ['\\Deleted'], { uid: true });
@@ -5142,12 +4997,6 @@ export class ImapManager {
             lock.release();
           }
         });
-        // Same non-array contract as above. Throwing here lands in the catch below, which
-        // already reports every uid as failed — the conservative answer when we cannot tell
-        // what survived. This only replaces an opaque TypeError with a legible message.
-        if (!Array.isArray(remaining)) {
-          throw new Error(`verification SEARCH returned ${remaining}`, { cause: err });
-        }
         const remainingSet = new Set(remaining.map(Number));
         const succeeded = uids.filter(uid => !remainingSet.has(Number(uid)));
         const failed    = uids.filter(uid =>  remainingSet.has(Number(uid)));
@@ -5442,18 +5291,6 @@ export class ImapManager {
           } catch (err) {
             // Folder may no longer exist on server or be temporarily inaccessible — skip it.
             console.warn(`Reconcile: could not open ${logAccount(account)}/${folder}: ${extractImapError(err)}`);
-            continue;
-          }
-          // search() resolves rather than throws when it has nothing to report: undefined
-          // if no mailbox ended up selected, false if the SEARCH itself failed. Neither is
-          // iterable, so the catch above never sees it and new Set() threw here instead,
-          // surfacing as a bogus "connection error" that aborted the whole reconcile.
-          //
-          // Skip the folder rather than storing an empty set. Phase 2 only walks folders
-          // present in this map, so skipping leaves the folder untouched, whereas an empty
-          // set would mark every local row an orphan and delete the folder's contents.
-          if (!Array.isArray(serverUids)) {
-            console.warn(`Reconcile: no UID list for ${logAccount(account)}/${folder} (search returned ${serverUids}) — skipping folder`);
             continue;
           }
           serverUidsByFolder.set(folder, new Set(serverUids));

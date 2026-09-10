@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { cloneElement, useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
@@ -85,6 +85,36 @@ const ICONS = {
   ),
 };
 
+const FOLDER_COLOR_STORAGE_KEY = 'mailflow_folder_colors';
+const FOLDER_COLOR_PALETTE = [
+  '#5B8DEF', '#67B7E8', '#4FB7C5', '#55B89C',
+  '#69B96E', '#9DBE5B', '#D7B94E', '#D8A94F',
+  '#E79A55', '#E77D6B', '#E16D73', '#D97AA8',
+  '#C96B8F', '#9A78DF', '#737DD8', '#8A91A8',
+];
+
+function folderColorKey(accountId, path) {
+  return `${accountId}:${path}`;
+}
+
+function readFolderColors() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(FOLDER_COLOR_STORAGE_KEY) || '{}');
+    return saved && typeof saved === 'object' ? saved : {};
+  } catch {
+    return {};
+  }
+}
+
+function withFolderColor(icon, color) {
+  if (!color) return icon;
+  return cloneElement(icon, {
+    stroke: color,
+    fill: `color-mix(in srgb, ${color} 8%, var(--bg-secondary) 92%)`,
+    style: { ...(icon.props.style || {}), color },
+  });
+}
+
 function folderIcon(path, specialUse, folderMappings) {
   const p = (path || '').toLowerCase();
   const s = (specialUse || '').toLowerCase();
@@ -117,6 +147,7 @@ function SidebarCtxMenu({ x, y, items, title, subtitle, onClose }) {
   const menuRef = useRef(null);
   const uiScale = useUiScale();
   const [pos, setPos] = useState({ x, y });
+  const [submenu, setSubmenu] = useState(null);
 
   useEffect(() => {
     if (!menuRef.current) return;
@@ -191,8 +222,11 @@ function SidebarCtxMenu({ x, y, items, title, subtitle, onClose }) {
         </div>
       )}
 
-      <div style={{ padding: '4px 0' }}>
-        {items.map((item, i) => {
+      {submenu ? (
+        submenu(() => setSubmenu(null))
+      ) : (
+        <div style={{ padding: '4px 0' }}>
+          {items.map((item, i) => {
           if (item.separator) {
             return <div key={i} style={{ height: 1, background: 'var(--border-subtle)', margin: '3px 0' }} />;
           }
@@ -203,19 +237,25 @@ function SidebarCtxMenu({ x, y, items, title, subtitle, onClose }) {
               label={item.label}
               danger={item.danger}
               disabled={item.disabled}
+              hasSubmenu={Boolean(item.renderSubmenu)}
               onClick={() => {
-                item.action();
-                if (!item.keepOpen) onClose();
+                if (item.renderSubmenu) {
+                  setSubmenu(() => item.renderSubmenu);
+                } else {
+                  item.action();
+                  if (!item.keepOpen) onClose();
+                }
               }}
             />
           );
-        })}
-      </div>
+          })}
+        </div>
+      )}
     </div>
   );
 }
 
-function CtxMenuItem({ icon, label, onClick, danger, disabled }) {
+function CtxMenuItem({ icon, label, onClick, danger, disabled, hasSubmenu = false }) {
   const [hov, setHov] = useState(false);
   return (
     <div
@@ -239,8 +279,63 @@ function CtxMenuItem({ icon, label, onClick, danger, disabled }) {
       }}>
         {icon}
       </span>
-      {label}
+      <span style={{ flex: 1 }}>{label}</span>
+      {hasSubmenu && (
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="2" style={{ flexShrink: 0 }}>
+          <polyline points="9 18 15 12 9 6"/>
+        </svg>
+      )}
     </div>
+  );
+}
+
+function FolderColorPicker({ currentColor, onPick, onReset, onBack }) {
+  const customColorInputRef = useRef(null);
+  return (
+    <>
+      <CtxMenuItem
+        label="Color"
+        icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="15 18 9 12 15 6"/></svg>}
+        onClick={onBack}
+      />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 28px)', gap: 7, justifyContent: 'center', padding: '5px 10px 9px' }}>
+        {FOLDER_COLOR_PALETTE.map(color => (
+          <button
+            key={color}
+            type="button"
+            title={color}
+            aria-label={`Use ${color} for this folder`}
+            onClick={() => onPick(color)}
+            style={{
+              width: 28, height: 28, padding: 0, cursor: 'pointer', borderRadius: 7,
+              background: color,
+              border: currentColor?.toLowerCase() === color.toLowerCase() ? '2px solid var(--text-primary)' : '1px solid var(--border)',
+              boxShadow: currentColor?.toLowerCase() === color.toLowerCase() ? '0 0 0 2px var(--bg-elevated)' : 'none',
+            }}
+          />
+        ))}
+      </div>
+      <div style={{ height: 1, background: 'var(--border-subtle)', margin: '0 0 4px' }} />
+      <input
+        ref={customColorInputRef}
+        type="color"
+        value={currentColor || '#5B8DEF'}
+        aria-label="Custom folder color"
+        onChange={event => onPick(event.target.value)}
+        style={{ position: 'fixed', opacity: 0, pointerEvents: 'none' }}
+      />
+      <CtxMenuItem
+        label="Custom color..."
+        icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="12" cy="12" r="8"/></svg>}
+        onClick={() => customColorInputRef.current?.click()}
+      />
+      <CtxMenuItem
+        label="Reset color"
+        disabled={!currentColor}
+        icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M3 12a9 9 0 109-9 9.7 9.7 0 00-6.7 2.7L3 8"/><polyline points="3 3 3 8 8 8"/></svg>}
+        onClick={onReset}
+      />
+    </>
   );
 }
 
@@ -379,6 +474,22 @@ export default function Sidebar() {
   // Context menus
   const [folderCtxMenu, setFolderCtxMenu] = useState(null); // {x, y, accountId, folderObj}
   const [accountCtxMenu, setAccountCtxMenu] = useState(null); // {x, y, account}
+  const [folderColors, setFolderColors] = useState(readFolderColors);
+
+  const setFolderColor = useCallback((accountId, path, color) => {
+    setFolderColors(current => {
+      const next = { ...current };
+      const key = folderColorKey(accountId, path);
+      if (color) next[key] = color;
+      else delete next[key];
+      try {
+        localStorage.setItem(FOLDER_COLOR_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // A disabled or full localStorage must not prevent normal folder use.
+      }
+      return next;
+    });
+  }, []);
 
   // Inline rename (IMAP folder)
   const [renamingFolder, setRenamingFolder] = useState(null); // {accountId, path, value}
@@ -686,6 +797,24 @@ export default function Sidebar() {
           setRenamingFav({ accountId, path: folderObj.path, value: fav?.label || folderObj.name || folderObj.path.split('/').pop() || folderObj.path });
         },
       }] : []),
+      {
+        label: 'Color',
+        icon: <svg width="14" height="14" viewBox="0 0 24 24" fill={folderColors[folderColorKey(accountId, folderObj.path)] || 'none'} stroke={folderColors[folderColorKey(accountId, folderObj.path)] || 'currentColor'} strokeWidth="1.75"><circle cx="12" cy="12" r="7"/></svg>,
+        renderSubmenu: onBack => (
+          <FolderColorPicker
+            currentColor={folderColors[folderColorKey(accountId, folderObj.path)]}
+            onBack={onBack}
+            onPick={color => {
+              setFolderColor(accountId, folderObj.path, color);
+              setFolderCtxMenu(null);
+            }}
+            onReset={() => {
+              setFolderColor(accountId, folderObj.path, null);
+              setFolderCtxMenu(null);
+            }}
+          />
+        ),
+      },
       { separator: true },
       {
         label: t('sidebar.folderMenu.rename'),
@@ -1033,7 +1162,10 @@ export default function Sidebar() {
                       </span>
                     )}
                     <span style={{ color: 'var(--text-tertiary)', flexShrink: 0, display: 'flex' }}>
-                      {folderIcon(path, folderObj?.special_use, account.folder_mappings)}
+                      {withFolderColor(
+                        folderIcon(path, folderObj?.special_use, account.folder_mappings),
+                        folderColors[folderColorKey(accountId, path)],
+                      )}
                     </span>
                     {isRenamingThis ? (
                       <input
@@ -1406,7 +1538,10 @@ export default function Sidebar() {
                         )}
 
                         <span style={{ color: 'var(--text-tertiary)', flexShrink: 0, display: 'flex' }}>
-                          {folderIcon(folder.path, folder.special_use, account.folder_mappings)}
+                          {withFolderColor(
+                            folderIcon(folder.path, folder.special_use, account.folder_mappings),
+                            folderColors[folderColorKey(account.id, folder.path)],
+                          )}
                         </span>
 
                         {isRenaming ? (

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useCallback, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore, selectSelectedMessageMid } from '../store/index.js';
 import { api } from '../utils/api.js';
@@ -44,6 +44,40 @@ function FolderIcon({ specialUse, size = 13 }) {
   if (s.includes('draft'))  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>;
   if (s.includes('spam') || s.includes('junk')) return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3L4 7v5c0 5 3.5 9.3 8 10.3C16.5 21.3 20 17 20 12V7L12 3z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>;
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>;
+}
+
+// Visual-only list grouping. It deliberately derives a label from the already
+// rendered order and never reorders, filters, or mutates message rows.
+function dateGroupForMessage(message) {
+  const date = new Date(message?.date);
+  if (Number.isNaN(date.getTime())) return 'Older';
+  date.setHours(0, 0, 0, 0);
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (date.getTime() === today.getTime()) return 'Today';
+
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (date.getTime() === yesterday.getTime()) return 'Yesterday';
+
+  const weekStart = new Date(today);
+  const day = weekStart.getDay();
+  weekStart.setDate(weekStart.getDate() - (day === 0 ? 6 : day - 1));
+  return date >= weekStart && date < yesterday ? 'This Week' : 'Older';
+}
+
+function DateGroupHeader({ label }) {
+  return (
+    <div style={{
+      padding: '8px 12px 6px', fontSize: 11, fontWeight: 700,
+      textTransform: 'uppercase', letterSpacing: '0.04em',
+      color: 'var(--text-tertiary)', background: 'var(--bg-primary)',
+      borderBottom: '1px solid var(--border-subtle)',
+    }}>
+      {label}
+    </div>
+  );
 }
 
 
@@ -3641,13 +3675,16 @@ export default function MessageList() {
         )}
 
         {threadedView && !searchQuery.trim() ? (
-          displayMessages.map(message => {
+          displayMessages.map((message, index) => {
             const tid = message.thread_id || message.id;
             const swipeLeftAction = swipeActions?.left || 'archive';
             const swipeRightAction = swipeActions?.right || 'markRead';
+            const dateGroup = dateGroupForMessage(message);
+            const startsDateGroup = index === 0 || dateGroup !== dateGroupForMessage(displayMessages[index - 1]);
             return (
-              <ThreadRow
-                key={tid}
+              <Fragment key={tid}>
+                {startsDateGroup && <DateGroupHeader label={dateGroup} />}
+                <ThreadRow
                 message={message}
                 isExpanded={expandedThreadId === tid}
                 threadMsgs={threadMessages[tid] || null}
@@ -3682,16 +3719,20 @@ export default function MessageList() {
                 onToggleSelect={handleRowToggleSelect}
                 onRangeSelect={handleRangeSelect}
                 onLongPress={isMobile ? (id) => { setSelectionModeActive(true); toggleSelect(id); } : undefined}
-              />
+                />
+              </Fragment>
             );
           })
         ) : (
-          displayMessages.map(message => {
+          displayMessages.map((message, index) => {
             const swipeLeftAction = swipeActions?.left || 'archive';
             const swipeRightAction = swipeActions?.right || 'markRead';
+            const dateGroup = dateGroupForMessage(message);
+            const startsDateGroup = index === 0 || dateGroup !== dateGroupForMessage(displayMessages[index - 1]);
             return (
-              <MessageRow
-                key={message.id}
+              <Fragment key={message.id}>
+                {startsDateGroup && <DateGroupHeader label={dateGroup} />}
+                <MessageRow
                 message={message}
                 selected={isSelectedRow(message, selectedMessageId, selectedMid)}
                 lastViewed={lastViewedMessageId === message.id && selectedMessageId !== message.id}
@@ -3722,7 +3763,8 @@ export default function MessageList() {
                 onSwipeLeft={selectionMode || swipeLeftAction === 'disabled' ? undefined : (msg) => runSwipeAction(swipeLeftAction, msg)}
                 onSwipeRight={selectionMode || swipeRightAction === 'disabled' ? undefined : (msg) => runSwipeAction(swipeRightAction, msg)}
                 onLongPress={isMobile ? (id) => { setSelectionModeActive(true); toggleSelect(id); } : undefined}
-              />
+                />
+              </Fragment>
             );
           })
         )}

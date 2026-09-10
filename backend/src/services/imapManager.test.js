@@ -9,7 +9,10 @@ vi.mock('./encryption.js', () => ({ decrypt: vi.fn() }));
 vi.mock('./aiProvider.js', () => ({ getAiStatus: vi.fn(), completeText: vi.fn() }));
 vi.mock('./pushNotifications.js', () => ({ sendPushToUser: vi.fn() }));
 vi.mock('../utils/redact.js', () => ({ redactEmail: vi.fn() }));
-vi.mock('./hostValidation.js', () => ({ resolveForConnection: vi.fn() }));
+vi.mock('./hostValidation.js', () => ({
+  resolveForConnection: vi.fn(),
+  isProtonBridgeHost: vi.fn(host => host === '172.18.0.1'),
+}));
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
 
 import { ImapManager, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch } from './imapManager.js';
@@ -191,6 +194,17 @@ describe('relocateExemptGuard — label folder relocate exemption', () => {
 // ── makeClientCfg — TLS enforcement ──────────────────────────────────────────
 
 describe('makeClientCfg — TLS enforcement', () => {
+  it('requires STARTTLS for Proton Bridge on its local IMAP endpoint', () => {
+    const cfg = makeClientCfg(
+      { ...baseAccount, imap_host: '172.18.0.1', imap_port: 1143, imap_tls: false },
+      resolved,
+      { policy: { allowInsecureTls: false } }
+    );
+    expect(cfg.secure).toBe(false);
+    expect(cfg.doSTARTTLS).toBe(true);
+    expect(cfg.tls.rejectUnauthorized).toBe(false);
+  });
+
   it('throws for plain-text IMAP when allowInsecureTls is false', () => {
     expect(() =>
       makeClientCfg({ ...baseAccount, imap_tls: false }, resolved, { policy: { allowInsecureTls: false } })

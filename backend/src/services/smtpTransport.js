@@ -2,7 +2,7 @@ import nodemailer from 'nodemailer';
 import { refreshMicrosoftToken } from '../routes/oauth.js';
 import { decrypt } from './encryption.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
-import { resolveForConnection } from './hostValidation.js';
+import { isProtonBridgeHost, resolveForConnection } from './hostValidation.js';
 
 const SMTP_ATTEMPT_TIMEOUT_MS = 10_000;
 const SMTP_FAILOVER_BUDGET_MS = 45_000;
@@ -121,8 +121,14 @@ export async function createAccountSmtpTransport(inputAccount) {
     };
   }
 
+  // Bridge generates a local self-signed certificate. Limit the verification
+  // exception to its exact STARTTLS endpoint instead of weakening SMTP TLS
+  // verification globally.
+  const protonBridgeStartTls = isProtonBridgeHost(account.smtp_host)
+    && Number(account.smtp_port) === 1025
+    && account.smtp_tls === 'STARTTLS';
   const tls = {
-    rejectUnauthorized: !(policy.allowInsecureTls && account.imap_skip_tls_verify),
+    rejectUnauthorized: !(protonBridgeStartTls || (policy.allowInsecureTls && account.imap_skip_tls_verify)),
   };
   if (resolved.servername) tls.servername = resolved.servername;
   const secure = account.smtp_tls === 'SSL'

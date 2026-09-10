@@ -4,7 +4,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { imapManager } from '../index.js';
 import { encrypt } from '../services/encryption.js';
 import { sanitizeSignature } from '../services/emailSanitizer.js';
-import { validateHost } from '../services/hostValidation.js';
+import { isProtonBridgeHost, validateHost } from '../services/hostValidation.js';
 import { getConnectionPolicy } from '../services/connectionPolicy.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { createKeyedSerializer } from '../utils/keyedSerializer.js';
@@ -19,11 +19,19 @@ const reconnectQueue = createKeyedSerializer();
 const ALLOWED_IMAP_PORTS = new Set([143, 993]);
 const ALLOWED_SMTP_PORTS = new Set([465, 587]);
 
-function validatePort(port, allowed) {
+function isProtonBridgeEndpoint(host, port, protonBridgePort) {
+  return isProtonBridgeHost(host) && Number(port) === protonBridgePort;
+}
+
+function validatePort(port, allowed, { host, protonBridgePort } = {}) {
   const n = Number(port);
   if (!Number.isInteger(n) || n < 1 || n > 65535) {
     return `Port ${port} is not a valid port number`;
   }
+  // Proton Bridge runs on the Docker host in this deployment. Keep the exception
+  // coupled to its exact gateway and service ports, rather than allowing arbitrary
+  // non-standard ports on private addresses.
+  if (isProtonBridgeEndpoint(host, n, protonBridgePort)) return null;
   // When private/local hosts are explicitly allowed (e.g. Proton Mail Bridge on 1143/1025),
   // skip the whitelist — the operator has already opted into unrestricted host access.
   if (process.env.ALLOW_PRIVATE_IMAP_HOSTS === 'true') return null;
@@ -127,12 +135,12 @@ router.post('/', async (req, res) => {
 
   if (imap_host) {
     const err = (await validateHost(imap_host, { allowPrivate: policy.allowPrivateHosts }))
-      || (!policy.allowNonstandardPorts && validatePort(imap_port, ALLOWED_IMAP_PORTS));
+      || (!policy.allowNonstandardPorts && validatePort(imap_port, ALLOWED_IMAP_PORTS, { host: imap_host, protonBridgePort: 1143 }));
     if (err) return res.status(400).json({ error: `IMAP: ${err}` });
   }
   if (smtp_host) {
     const err = (await validateHost(smtp_host, { allowPrivate: policy.allowPrivateHosts }))
-      || (!policy.allowNonstandardPorts && validatePort(smtp_port, ALLOWED_SMTP_PORTS));
+      || (!policy.allowNonstandardPorts && validatePort(smtp_port, ALLOWED_SMTP_PORTS, { host: smtp_host, protonBridgePort: 1025 }));
     if (err) return res.status(400).json({ error: `SMTP: ${err}` });
   }
 
@@ -172,8 +180,9 @@ router.put('/:id', async (req, res) => {
   const updates = req.body;
 
   // Verify ownership.
-  const check = await query('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
+  const check = await query('SELECT id, imap_host, imap_port, smtp_host, smtp_port FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
+  const account = check.rows[0];
 
   if ('name' in updates && hasHeaderInjectionChars(updates.name)) {
     return res.status(400).json({ error: 'Name cannot contain control characters' });
@@ -187,9 +196,14 @@ router.put('/:id', async (req, res) => {
     const err = await validateHost(updates.imap_host, { allowPrivate: policy.allowPrivateHosts });
     if (err) return res.status(400).json({ error: `IMAP: ${err}` });
   }
-  if ('imap_port' in updates && updates.imap_port !== undefined && updates.imap_port !== null) {
+  if (('imap_host' in updates || 'imap_port' in updates)
+      && (updates.imap_port ?? account.imap_port) !== undefined
+      && (updates.imap_port ?? account.imap_port) !== null) {
     if (!policy.allowNonstandardPorts) {
-      const err = validatePort(updates.imap_port, ALLOWED_IMAP_PORTS);
+      const err = validatePort(updates.imap_port ?? account.imap_port, ALLOWED_IMAP_PORTS, {
+        host: updates.imap_host ?? account.imap_host,
+        protonBridgePort: 1143,
+      });
       if (err) return res.status(400).json({ error: `IMAP: ${err}` });
     }
   }
@@ -197,14 +211,22 @@ router.put('/:id', async (req, res) => {
     const err = await validateHost(updates.smtp_host, { allowPrivate: policy.allowPrivateHosts });
     if (err) return res.status(400).json({ error: `SMTP: ${err}` });
   }
-  if ('smtp_port' in updates && updates.smtp_port !== undefined && updates.smtp_port !== null) {
+  if (('smtp_host' in updates || 'smtp_port' in updates)
+      && (updates.smtp_port ?? account.smtp_port) !== undefined
+      && (updates.smtp_port ?? account.smtp_port) !== null) {
     if (!policy.allowNonstandardPorts) {
-      const err = validatePort(updates.smtp_port, ALLOWED_SMTP_PORTS);
+      const err = validatePort(updates.smtp_port ?? account.smtp_port, ALLOWED_SMTP_PORTS, {
+        host: updates.smtp_host ?? account.smtp_host,
+        protonBridgePort: 1025,
+      });
       if (err) return res.status(400).json({ error: `SMTP: ${err}` });
     }
   }
 
-  if ('imap_port' in updates) updates.imap_tls = Number(updates.imap_port) % 1000 === 993;
+  if ('imap_host' in updates || 'imap_port' in updates) {
+    const imapPort = updates.imap_port ?? account.imap_port;
+    updates.imap_tls = Number(imapPort) % 1000 === 993;
+  }
 
   // Let plugins validate the settings fields they own (GTD owns gtd_enabled/gtd_folders) before we
   // touch anything. A plugin may hard-reject the change (return an error response), report per-field

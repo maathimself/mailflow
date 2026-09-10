@@ -4,7 +4,10 @@ vi.mock('nodemailer', () => ({ default: { createTransport: vi.fn() } }));
 vi.mock('../routes/oauth.js', () => ({ refreshMicrosoftToken: vi.fn() }));
 vi.mock('./encryption.js', () => ({ decrypt: vi.fn(v => v) }));
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
-vi.mock('./hostValidation.js', () => ({ resolveForConnection: vi.fn() }));
+vi.mock('./hostValidation.js', () => ({
+  resolveForConnection: vi.fn(),
+  isProtonBridgeHost: vi.fn(host => host === '172.18.0.1'),
+}));
 
 const nodemailer = (await import('nodemailer')).default;
 const { refreshMicrosoftToken } = await import('../routes/oauth.js');
@@ -130,6 +133,21 @@ describe('createAccountSmtpTransport', () => {
         auth: { user: 'sender@example.com', pass: 'test-password' },
         secure: false,
       })
+    );
+  });
+
+  it('accepts Bridge\'s local self-signed certificate only on its STARTTLS endpoint', async () => {
+    const result = await createAccountSmtpTransport({
+      smtp_host: '172.18.0.1',
+      smtp_port: 1025,
+      smtp_tls: 'STARTTLS',
+      auth_user: 'sender@example.com',
+      auth_pass: 'test-password',
+    });
+    await result.transport.sendMail({ to: 'user@example.com' });
+
+    expect(nodemailer.createTransport).toHaveBeenCalledWith(
+      expect.objectContaining({ tls: expect.objectContaining({ rejectUnauthorized: false }) })
     );
   });
 

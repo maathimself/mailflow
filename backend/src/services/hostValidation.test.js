@@ -70,6 +70,11 @@ describe('validateHostLiteral', () => {
     expect(validateHostLiteral(ip)).toMatch(/private|reserved/i);
   });
 
+  it('allows only the Proton Bridge Docker-host address', () => {
+    expect(validateHostLiteral('172.18.0.1')).toBeNull();
+    expect(validateHostLiteral('172.18.0.2')).toMatch(/private|reserved/i);
+  });
+
   // Private IPv6
   it.each([
     ['::1'],              // loopback
@@ -132,6 +137,11 @@ describe('validateHost', () => {
     expect(dns.resolve4).not.toHaveBeenCalled();
   });
 
+  it('allows Proton Bridge as a literal without DNS', async () => {
+    expect(await validateHost('172.18.0.1')).toBeNull();
+    expect(dns.resolve4).not.toHaveBeenCalled();
+  });
+
   it('short-circuits on reserved hostname before DNS', async () => {
     expect(await validateHost('localhost')).not.toBeNull();
     expect(dns.resolve4).not.toHaveBeenCalled();
@@ -181,6 +191,12 @@ describe('resolveForConnection', () => {
   it('throws for a literal private IP', async () => {
     await expect(resolveForConnection('10.0.0.1')).rejects.toThrow(/private|reserved/i);
     expect(dns.resolve4).not.toHaveBeenCalled();
+  });
+
+  it('uses Proton Bridge as a literal connection target', async () => {
+    const result = await resolveForConnection('172.18.0.1');
+    expect(result.host).toBe('172.18.0.1');
+    expect(result.servername).toBeNull();
   });
 
   it('throws for a reserved hostname', async () => {
