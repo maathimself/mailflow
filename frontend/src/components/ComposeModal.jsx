@@ -178,6 +178,34 @@ function parseChips(val) {
   return parts;
 }
 
+const COMPOSE_RECT_KEY = 'mailflow_compose_rect';
+
+function readComposeRect() {
+  try {
+    // Keep the old size-only value as a migration fallback.
+    const saved = JSON.parse(localStorage.getItem(COMPOSE_RECT_KEY) || localStorage.getItem('mailflow_compose_size') || 'null');
+    if (!Number.isFinite(saved?.width) || !Number.isFinite(saved?.height)) return null;
+    const width = Math.min(Math.max(360, saved.width), window.innerWidth - 16);
+    const height = Math.min(Math.max(200, saved.height), window.innerHeight - 40);
+    const maxX = Math.max(0, window.innerWidth - width);
+    const maxY = Math.max(0, window.innerHeight - height);
+    return {
+      width,
+      height,
+      x: Number.isFinite(saved.x) ? Math.max(0, Math.min(maxX, saved.x)) : null,
+      y: Number.isFinite(saved.y) ? Math.max(0, Math.min(maxY, saved.y)) : null,
+    };
+  } catch { return null; }
+}
+
+function saveComposeRect({ x, y, width, height }) {
+  try {
+    localStorage.setItem(COMPOSE_RECT_KEY, JSON.stringify({ x, y, width, height }));
+    // Preserve the existing key for older app versions.
+    localStorage.setItem('mailflow_compose_size', JSON.stringify({ width, height }));
+  } catch { /* localStorage unavailable */ }
+}
+
 export default function ComposeModal() {
   const { t } = useTranslation();
   const { closeCompose, composeData, accounts, addNotification, setSelectedAccount, plaintextEmail, setThreadMessages } = useStore();
@@ -283,8 +311,16 @@ export default function ComposeModal() {
   const [priority, setPriority] = useState('normal');
   const [minimized, setMinimized] = useState(false);
   const [maximized, setMaximized] = useState(false);
-  const [pos, setPos] = useState(null);
+  const [initialComposeRect] = useState(readComposeRect);
+  const [pos, setPos] = useState(() => (
+    initialComposeRect?.x !== null && initialComposeRect?.y !== null
+      ? { x: initialComposeRect.x, y: initialComposeRect.y }
+      : null
+  ));
   const [customSize, setCustomSize] = useState(() => {
+    if (initialComposeRect) {
+      return { width: initialComposeRect.width, height: initialComposeRect.height };
+    }
     try {
       const saved = localStorage.getItem('mailflow_compose_size');
       if (!saved) return null;
@@ -533,7 +569,10 @@ export default function ComposeModal() {
       dragCleanupRef.current = null;
       // Commit final position to React state; React will reconcile to the same
       // pixel values already in the DOM so there is no visible jump.
-      if (commit) setPos({ x: curX, y: curY });
+      if (commit) {
+        setPos({ x: curX, y: curY });
+        saveComposeRect({ x: curX, y: curY, width: w, height: h });
+      }
     };
     const cleanupNoCommit = () => cleanup({ commit: false });
     dragCleanupRef.current = cleanup;
@@ -587,7 +626,7 @@ export default function ComposeModal() {
       dragCleanupRef.current = null;
       if (commit) {
         setCustomSize({ width: curW, height: curH });
-        try { localStorage.setItem('mailflow_compose_size', JSON.stringify({ width: curW, height: curH })); } catch { /* localStorage unavailable */ }
+        saveComposeRect({ x: rect.left, y: rect.top, width: curW, height: curH });
       }
     };
     const cleanupNoCommit = () => cleanup({ commit: false });
@@ -1705,7 +1744,7 @@ export default function ComposeModal() {
           padding: '10px 16px', cursor: 'pointer',
           display: 'flex', alignItems: 'center', gap: 10,
           color: 'var(--text-primary)', fontSize: 13, fontWeight: 500,
-          boxShadow: 'var(--shadow-soft)', zIndex: 1000,
+          boxShadow: 'var(--shadow-soft)', zIndex: 1999,
         }}
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2">
@@ -1723,7 +1762,7 @@ export default function ComposeModal() {
         <div
           onClick={() => setMaximized(false)}
           style={{
-            position: 'fixed', inset: 0, zIndex: 999,
+            position: 'fixed', inset: 0, zIndex: 1998,
             background: 'rgba(0,0,0,0.35)',
             backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)',
           }}
@@ -1737,7 +1776,7 @@ export default function ComposeModal() {
         position: 'fixed', top: 28, left: 28, right: 28, bottom: 28,
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
         borderRadius: 12, boxShadow: 'var(--shadow-modal)',
-        zIndex: 1000, display: 'flex', flexDirection: 'column',
+        zIndex: 1999, display: 'flex', flexDirection: 'column',
       } : pos ? {
         position: 'fixed', top: pos.y, left: pos.x,
         width: customSize?.width || 540,
@@ -1745,7 +1784,7 @@ export default function ComposeModal() {
         maxWidth: 'calc(100vw - 16px)',
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
         borderRadius: 10, boxShadow: 'var(--shadow-modal)',
-        zIndex: 1000, display: 'flex', flexDirection: 'column',
+        zIndex: 1999, display: 'flex', flexDirection: 'column',
       } : {
         position: 'fixed', bottom: 0, right: 24,
         width: customSize?.width || 540, maxWidth: 'calc(100vw - 48px)',
@@ -1753,7 +1792,7 @@ export default function ComposeModal() {
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
         borderRadius: 10,
         boxShadow: 'var(--shadow-modal)',
-        zIndex: 1000, display: 'flex', flexDirection: 'column',
+        zIndex: 1999, display: 'flex', flexDirection: 'column',
         animation: 'compose-enter var(--motion-normal) var(--ease-emphasized) backwards',
       }}
     >
@@ -3300,4 +3339,3 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
     </div>
   );
 }
-

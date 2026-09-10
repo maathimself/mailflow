@@ -83,6 +83,36 @@ function readGtdCollapsedSections() {
   return { someday: true };
 }
 
+const MESSAGE_WINDOW_RECT_KEY = 'mailflow_message_window_rect';
+
+// Treat malformed or stale localStorage data as absent and always clamp saved geometry
+// to the current viewport. New windows still cascade until the user has positioned one.
+function getMessageWindowRect(vw, vh, windowCount) {
+  const defaultWidth = Math.min(660, Math.max(380, vw - 80));
+  const defaultHeight = Math.min(740, Math.max(280, vh - 80));
+  const cascade = (windowCount % 6) * 28;
+  const defaultX = Math.max(12, Math.min(vw - defaultWidth - 12, Math.round((vw - defaultWidth) / 2) - 80 + cascade));
+  const defaultY = Math.max(12, Math.min(vh - defaultHeight - 12, 72 + cascade));
+  try {
+    const saved = JSON.parse(localStorage.getItem(MESSAGE_WINDOW_RECT_KEY) || 'null');
+    if (!Number.isFinite(saved?.width) || !Number.isFinite(saved?.height)) {
+      return { x: defaultX, y: defaultY, w: defaultWidth, h: defaultHeight };
+    }
+    const w = Math.min(Math.max(380, saved.width), Math.max(380, vw - 24));
+    const h = Math.min(Math.max(280, saved.height), Math.max(280, vh - 24));
+    const maxX = Math.max(12, vw - w - 12);
+    const maxY = Math.max(12, vh - h - 12);
+    return {
+      w,
+      h,
+      x: Number.isFinite(saved.x) ? Math.max(12, Math.min(maxX, saved.x)) : defaultX,
+      y: Number.isFinite(saved.y) ? Math.max(12, Math.min(maxY, saved.y)) : defaultY,
+    };
+  } catch {
+    return { x: defaultX, y: defaultY, w: defaultWidth, h: defaultHeight };
+  }
+}
+
 export const useStore = create((set, get) => ({
   // Auth
   user: null,
@@ -413,7 +443,16 @@ export const useStore = create((set, get) => ({
   },
   composing: false,
   composeData: null,
-  openCompose: (data = null) => set({ composing: true, composeData: data }),
+  openCompose: (data = null) => set(state => ({
+    composing: true,
+    composeData: data,
+    // A reply/forward launched from a detached message window replaces that window.
+    // Doing both updates in one store transaction avoids relying on component unmount
+    // timing while the compose modal is mounting above the window layer.
+    ...(data?.sourceMessageWindowId
+      ? { messageWindows: state.messageWindows.filter(w => w.messageId !== data.sourceMessageWindowId) }
+      : {}),
+  })),
   closeCompose: () => set({ composing: false, composeData: null }),
 
   // Detached message windows (#219): floating, draggable/resizable in-app windows
@@ -435,12 +474,7 @@ export const useStore = create((set, get) => ({
     }
     const vw = typeof window !== 'undefined' ? window.innerWidth : 1280;
     const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
-    const w = Math.min(660, Math.max(360, vw - 80));
-    const h = Math.min(740, Math.max(280, vh - 80));
-    // Cascade each new window down-right so they don't stack exactly on top.
-    const cascade = (state.messageWindows.length % 6) * 28;
-    const x = Math.max(12, Math.min(vw - w - 12, Math.round((vw - w) / 2) - 80 + cascade));
-    const y = Math.max(12, Math.min(vh - h - 12, 72 + cascade));
+    const { x, y, w, h } = getMessageWindowRect(vw, vh, state.messageWindows.length);
     return {
       _winSeq: seq,
       messageWindows: [...state.messageWindows, { winId: `mw-${seq}`, messageId, x, y, w, h, z: seq, minimized: false }],
@@ -465,9 +499,16 @@ export const useStore = create((set, get) => ({
         w.winId === winId ? { ...w, minimized, z: minimized ? w.z : seq } : w),
     };
   }),
-  updateMessageWindowRect: (winId, rect) => set(state => ({
-    messageWindows: state.messageWindows.map(w => w.winId === winId ? { ...w, ...rect } : w),
-  })),
+  updateMessageWindowRect: (winId, rect) => {
+    try {
+      localStorage.setItem(MESSAGE_WINDOW_RECT_KEY, JSON.stringify({
+        x: rect.x, y: rect.y, width: rect.w, height: rect.h,
+      }));
+    } catch { /* localStorage unavailable */ }
+    set(state => ({
+      messageWindows: state.messageWindows.map(w => w.winId === winId ? { ...w, ...rect } : w),
+    }));
+  },
   closeAllMessageWindows: () => set({ messageWindows: [] }),
   searchQuery: '',
   setSearchQuery: (q) => set({ searchQuery: q }),

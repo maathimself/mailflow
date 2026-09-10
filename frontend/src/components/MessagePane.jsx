@@ -1129,7 +1129,11 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       originalFrom: sender,
       allRecipients,
       threadId: message.thread_id,
+      sourceMessageWindowId: windowMode ? windowMessageId : null,
     });
+    // A detached message window sits behind the reply composer, so dismiss it
+    // once the composer is open. The main reading pane has no close callback.
+    closeWindowIfWindowed();
   };
 
   const handleForward = () => {
@@ -1155,6 +1159,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       quotedBodyHtml: fwdHtml,
       accountId: message.account_id,
       isForward: true,
+      sourceMessageWindowId: windowMode ? windowMessageId : null,
       forwardedAttachments: (body?.attachments || []).map(att => ({
         messageId: message.id,
         part: att.part,
@@ -1163,6 +1168,8 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         size: att.size || 0,
       })),
     });
+    // As with replies, only close the detached window that launched the composer.
+    closeWindowIfWindowed();
   };
 
   const handleStarToggle = async () => {
