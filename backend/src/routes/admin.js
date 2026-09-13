@@ -4,7 +4,7 @@ import { query } from '../services/db.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { decrypt, encrypt } from '../services/encryption.js';
 import { validateHost, resolveForConnection } from '../services/hostValidation.js';
-import { createSmtpTransport } from '../services/smtpTransport.js';
+import { createSmtpTransport, createAccountSmtpTransport } from '../services/smtpTransport.js';
 import { getConnectionPolicy, invalidateConnectionPolicyCache } from '../services/connectionPolicy.js';
 import { reloadAuthSettings } from '../services/authLimiter.js';
 import { imapManager } from '../index.js';
@@ -311,28 +311,15 @@ router.post('/invites', async (req, res) => {
       );
       if (accountResult.rows.length) {
         const account = accountResult.rows[0];
-        let smtpAuth;
-        if ((account.oauth_provider === 'microsoft' || account.oauth_provider === 'google')
-            && account.oauth_access_token) {
-          smtpAuth = {
-            type: 'OAuth2',
-            user: account.auth_user || account.email_address,
-            accessToken: decrypt(account.oauth_access_token),
-          };
+        // The shared account transport refreshes OAuth tokens through the token manager
+        // instead of using a possibly expired stored access token.
+        const smtp = await createAccountSmtpTransport(account);
+        if (smtp.error) {
+          emailError = smtp.error;
         } else {
-          smtpAuth = { user: account.auth_user, pass: decrypt(account.auth_pass) };
+          transport = smtp.transport;
+          fromHeader = `${account.name} <${account.email_address}>`;
         }
-        const policy = await getConnectionPolicy();
-        const acctResolved = await resolveForConnection(account.smtp_host, { allowPrivate: policy.allowPrivateHosts });
-        const acctTls = { rejectUnauthorized: policy.allowInsecureTls ? !account.imap_skip_tls_verify : true };
-        if (acctResolved.servername) acctTls.servername = acctResolved.servername;
-        transport = createSmtpTransport(acctResolved, {
-          port: account.smtp_port,
-          secure: account.smtp_port === 465,
-          auth: smtpAuth,
-          tls: acctTls,
-        });
-        fromHeader = `${account.name} <${account.email_address}>`;
       }
     }
 

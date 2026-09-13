@@ -1,8 +1,8 @@
 import nodemailer from 'nodemailer';
-import { refreshMicrosoftToken } from '../routes/oauth.js';
 import { decrypt } from './encryption.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { resolveForConnection } from './hostValidation.js';
+import { ensureFreshOAuthAccount } from './oauth/tokenManager.js';
 
 const SMTP_ATTEMPT_TIMEOUT_MS = 10_000;
 const SMTP_FAILOVER_BUDGET_MS = 45_000;
@@ -66,34 +66,84 @@ export function createSmtpTransport(resolved, transportOptions, createTransport 
   };
 }
 
+const OAUTH_PROVIDERS = new Set(['microsoft', 'google']);
+
+// A server rejection of the AUTH exchange. Nodemailer tags it EAUTH with the AUTH command;
+// EAUTH with command 'API' is a client-side credential problem that no refresh fixes.
+// AUTH runs before MAIL FROM, so a message rejected here was never accepted for delivery.
+export function isSmtpAuthRejection(err) {
+  return err?.code === 'EAUTH' && /^AUTH\b/i.test(String(err?.command || ''));
+}
+
+// Stable, secret-free results for token-manager failures before a transport exists.
+function oauthRefreshFailureResult(err) {
+  if (err?.code === 'oauth_reconnect_required') {
+    return {
+      status: 409,
+      code: 'oauth_reconnect_required',
+      error: 'Access to this account was revoked or has expired. Reconnect the account to send mail.',
+    };
+  }
+  if (err?.code === 'oauth_refresh_failed') {
+    return {
+      status: 503,
+      code: 'oauth_refresh_failed',
+      error: 'Could not renew access to this account. Please try again shortly.',
+    };
+  }
+  return null;
+}
+
+function oauthAuth(account) {
+  const accessToken = decrypt(account.oauth_access_token);
+  return accessToken ? { type: 'OAuth2', user: account.auth_user || account.email_address, accessToken } : null;
+}
+
+// OAuth transport: when the server rejects the token at AUTH (e.g. revoked early or clock
+// skew), force one refresh and repeat the operation once with the new token. A failure of
+// the forced refresh (including oauth_reconnect_required) propagates as the OAuthTokenError.
+function createOAuthSmtpTransport(account, resolved, transportOptions) {
+  const run = async (operation) => {
+    try {
+      return await operation(createSmtpTransport(resolved, transportOptions));
+    } catch (err) {
+      if (!isSmtpAuthRejection(err)) throw err;
+      const refreshed = await ensureFreshOAuthAccount(account, { force: true });
+      const auth = oauthAuth(refreshed);
+      if (!auth) throw err;
+      return await operation(createSmtpTransport(resolved, { ...transportOptions, auth }));
+    }
+  };
+  return {
+    sendMail: mailOptions => run(transport => transport.sendMail(mailOptions)),
+    verify: () => run(transport => transport.verify()),
+  };
+}
+
 export async function createAccountSmtpTransport(inputAccount) {
   let account = inputAccount;
-  if (account.oauth_provider === 'microsoft') {
-    const expiryMs = account.oauth_token_expiry
-      ? new Date(account.oauth_token_expiry).getTime()
-      : 0;
-    if (expiryMs - Date.now() < 5 * 60 * 1000) {
-      account = await refreshMicrosoftToken(account);
+  const isOAuth = OAUTH_PROVIDERS.has(account.oauth_provider);
+  if (isOAuth) {
+    // Single entry point for every provider: refreshes an expired token (with cross-process
+    // dedup) and returns the row whose token the transport must use.
+    try {
+      account = await ensureFreshOAuthAccount(account);
+    } catch (err) {
+      const result = oauthRefreshFailureResult(err);
+      if (result) return result;
+      throw err;
     }
   }
 
   let auth;
-  if (
-    (account.oauth_provider === 'microsoft' || account.oauth_provider === 'google')
-    && account.oauth_access_token
-  ) {
-    const accessToken = decrypt(account.oauth_access_token);
-    if (!accessToken) {
+  if (isOAuth && account.oauth_access_token) {
+    auth = oauthAuth(account);
+    if (!auth) {
       return {
         status: 502,
         error: 'OAuth access token is corrupted — please reconnect your account.',
       };
     }
-    auth = {
-      type: 'OAuth2',
-      user: account.auth_user || account.email_address,
-      accessToken,
-    };
   } else {
     // Separate SMTP credentials (issue #353): if the account has its own SMTP
     // username/password, use them; otherwise fall back to the IMAP login. Each
@@ -127,12 +177,15 @@ export async function createAccountSmtpTransport(inputAccount) {
   if (resolved.servername) tls.servername = resolved.servername;
   const secure = account.smtp_tls === 'SSL'
     || (account.smtp_tls !== 'none' && account.smtp_port === 465);
-  const transport = createSmtpTransport(resolved, {
+  const transportOptions = {
     port: account.smtp_port,
     secure,
     ...(account.smtp_tls === 'none' ? { ignoreTLS: true } : {}),
     auth,
     tls,
-  });
+  };
+  const transport = isOAuth
+    ? createOAuthSmtpTransport(account, resolved, transportOptions)
+    : createSmtpTransport(resolved, transportOptions);
   return { account, transport };
 }

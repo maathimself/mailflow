@@ -5,7 +5,7 @@ import { parseMessage, snippetFromBody, detectBulkFromParsedHeaders, parseHeader
 import { classifyMessage, loadSocialDomains, getGlobalCategorizationEnabled } from './categorizer.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { createPluginMailFacade } from '../plugins/mailEngineFacade.js';
-import { refreshMicrosoftToken } from '../routes/oauth.js';
+import { ensureFreshOAuthAccount, OAuthTokenError } from './oauth/tokenManager.js';
 import { sanitizeEmail } from './emailSanitizer.js';
 import { logger } from './logger.js';
 import { recordBroadcast, recordWarning, recordSyncSignal } from './diagnosticsRing.js';
@@ -68,7 +68,24 @@ const hostConnectSem = createKeyedSemaphore(CONNECT_CONCURRENCY_PER_HOST);
 // host, retry once forcing IPv4-only, which sidesteps the stalled IPv6 handshake. Only a timeout
 // triggers the retry — refusals / auth / cert errors are not a family problem, so they propagate
 // unchanged. Returns a connected client the caller owns (it attaches its own 'close'/idle listeners).
+//
+// OAuth accounts: when the server rejects the login (AUTHENTICATE failure, not a connection-limit
+// refusal) the token may have been revoked or rotated before its recorded expiry. Force exactly one
+// token refresh and retry the login once with the new token. If the retry is rejected too, that
+// error propagates and the caller arms the auth cooldown; a failed forced refresh propagates its
+// OAuthTokenError (oauth_reconnect_required or oauth_refresh_failed).
 async function connectImapClient(account, resolved, cfgOpts, timeoutMs, label) {
+  try {
+    return await connectImapClientOnce(account, resolved, cfgOpts, timeoutMs, label);
+  } catch (err) {
+    if (!isOAuthAccount(account) || isConnectionRefusal(extractImapError(err)) || !isImapAuthFailure(err)) throw err;
+    console.warn(`IMAP login rejected for ${logAccount(account)} (${label}); refreshing the OAuth token and retrying once`);
+    const refreshed = await ensureFreshToken(account, { force: true });
+    return await connectImapClientOnce(refreshed, resolved, cfgOpts, timeoutMs, `${label} token-retry`);
+  }
+}
+
+async function connectImapClientOnce(account, resolved, cfgOpts, timeoutMs, label) {
   const host = (account.imap_host || '').toLowerCase();
   let sawRefusal = false; // a provider refusal ('Connection not available' etc.) fired mid-attempt
   const attempt = async (res, tag) => {
@@ -1131,22 +1148,45 @@ async function computeThreadId(accountId, messageId, inReplyTo, references, subj
   return messageId;
 }
 
-// Ensure OAuth token is fresh before connecting
-async function ensureFreshToken(account) {
-  if (account.oauth_provider !== 'microsoft') return account;
-  if (!account.oauth_token_expiry) return account;
-  const expiry = new Date(account.oauth_token_expiry);
-  const now = new Date();
-  // Refresh if token expires within 5 minutes
-  if (expiry - now < 5 * 60 * 1000) {
-    console.log(`Refreshing Microsoft token for ${logAccount(account)}`);
-    try {
-      account = await refreshMicrosoftToken(account);
-    } catch (err) {
-      console.error(`Token refresh failed for ${logAccount(account)}:`, err.message);
-    }
+// Timeout budget for an OAuth token refresh on an IMAP path. The token manager's lock wait is
+// capped so lock wait (4 s) + the provider token call (10 s fetch timeout) + Redis/DB round trips
+// fit inside the 15 s bound: a busy lock is then reported by the token manager as a transient
+// `oauth_refresh_failed` instead of being cut off by the timeout. (Microsoft's one-off AADSTS90023
+// public-client self-heal makes two token calls and can exceed it; that also ends as transient.)
+export const TOKEN_REFRESH_TIMEOUT_MS = 15000;
+export const OAUTH_REFRESH_LOCK_WAIT_MS = 4000;
+
+const OAUTH_PROVIDERS = new Set(['google', 'microsoft']);
+const isOAuthAccount = (account) => OAUTH_PROVIDERS.has(account?.oauth_provider);
+
+// Return the account with an OAuth access token that is valid for the connection about to be
+// made. Every IMAP login goes through here: password accounts return unchanged without touching
+// the token manager; OAuth accounts refresh through ensureFreshOAuthAccount (single entry point,
+// cross-process dedup). `force` refreshes even inside the validity window, for a token the server
+// just rejected. Failures are not swallowed: they throw an OAuthTokenError whose `code` is
+// `oauth_reconnect_required` (revoked grant) or `oauth_refresh_failed` (transient, incl. timeout).
+async function ensureFreshToken(account, { force = false } = {}) {
+  if (!isOAuthAccount(account)) return account;
+  try {
+    return await raceTimeout(
+      ensureFreshOAuthAccount(account, { force, lockWaitMs: OAUTH_REFRESH_LOCK_WAIT_MS }),
+      TOKEN_REFRESH_TIMEOUT_MS,
+      'OAuth token refresh',
+    );
+  } catch (err) {
+    if (err instanceof OAuthTokenError) throw err;
+    // A timeout or an unexpected lock/DB error: nothing says the grant is gone, so retry later.
+    console.error(`OAuth token refresh for ${logAccount(account)} failed: ${err?.message || 'unknown error'}`);
+    throw new OAuthTokenError('oauth_refresh_failed');
   }
-  return account;
+}
+
+// OAuth refresh outcome of a failed IMAP operation: 'reconnect' when the grant is revoked (only a
+// new consent helps), 'transient' when the refresh itself failed and can heal, otherwise null.
+export function classifyOAuthRefreshError(err) {
+  if (err?.code === 'oauth_reconnect_required') return 'reconnect';
+  if (err?.code === 'oauth_refresh_failed') return 'transient';
+  return null;
 }
 
 // resolved comes from resolveForConnection(), which limits sockets to the validated
@@ -1498,10 +1538,11 @@ export class ImapManager {
     // active connection and no in-progress connect attempt, and reconnect them.
     // This recovers accounts that fail the startup connection silently (e.g. a slow
     // IMAP server that times out on the first attempt) without waiting for a manual sync.
+    // OAuth accounts flagged oauth_reconnect_required are left alone until reconsent.
     this._healthCheckTimer = setInterval(async () => {
       try {
         const result = await query(
-          "SELECT id, email_address FROM email_accounts WHERE enabled = true AND protocol = 'imap'"
+          "SELECT id, email_address FROM email_accounts WHERE enabled = true AND protocol = 'imap' AND oauth_reconnect_required = false"
         );
         for (const row of result.rows) {
           // A poll-only account (per-host budget) holds no persistent connection by design; while
@@ -1610,10 +1651,12 @@ export class ImapManager {
           const observed = this.connections.get(accountId);
           if (!observed) continue;
 
+          let probedAccount = null; // for the catch: a failed OAuth refresh is handled per account
           try {
             const acct = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
             const account = acct.rows[0];
             if (!account) continue;
+            probedAccount = account;
             // Our highest synced INBOX UID — the watermark for "have we seen the newest mail".
             const { rows: [w] } = await query(
               "SELECT MAX(uid)::bigint AS maxuid FROM messages WHERE account_id = $1 AND folder = 'INBOX'",
@@ -1631,7 +1674,7 @@ export class ImapManager {
               // the re-entrancy guard, silently freeze the check for ALL accounts. The
               // probe socket is created only AFTER those succeed, so the finally below
               // always has a real client to close (no post-timeout connection can escape).
-              const fresh = await raceTimeout(ensureFreshToken(account), 15000, 'Staleness token refresh');
+              const fresh = await ensureFreshToken(account);
               const { resolved, policy } = await raceTimeout(resolveAccountHost(fresh), 15000, 'Staleness host resolve');
               // Use the same admission control and IPv4 fallback as every other login.
               // Keep connection establishment outside the command deadline: otherwise
@@ -1715,6 +1758,7 @@ export class ImapManager {
           } catch (err) {
             recordWarning('staleness_error', accountId);
             console.warn(`Staleness check error for ${accountId}:`, err.message);
+            if (probedAccount) await this._handleOAuthRefreshFailure(probedAccount, err);
           }
         }
       } finally {
@@ -1905,9 +1949,17 @@ export class ImapManager {
     // is rejecting connections (per-IP/per-account limit, temporary lock) every health-check
     // tick is exactly what escalates to IP bans / account locks. The cooldown is cleared the
     // moment a connect succeeds (below), so a transient refusal recovers on its own.
+    // An OAuth grant that was revoked stays down until the user consents again: the consent
+    // callbacks reset the flag and reconnect with the fresh row.
+    if (account.oauth_reconnect_required) {
+      logger.debug(`connectAccount: ${logAccount(account)} skipped — OAuth reconnect required`);
+      return false;
+    }
     const cd = this._connectCooldown.get(account.id);
     if (cd && Date.now() < cd.until) {
-      logger.debug(`connectAccount: ${logAccount(account)} cooling down ${Math.round((cd.until - Date.now()) / 1000)}s after ${cd.failures} refusal(s)`);
+      logger.debug(cd.oauthReconnectRequired
+        ? `connectAccount: ${logAccount(account)} skipped — OAuth reconnect required`
+        : `connectAccount: ${logAccount(account)} cooling down ${Math.round((cd.until - Date.now()) / 1000)}s after ${cd.failures} refusal(s)`);
       return false;
     }
 
@@ -1942,11 +1994,12 @@ export class ImapManager {
       }
     }
 
-    // Refresh OAuth token if needed before connecting
-    account = await ensureFreshToken(account);
-    const { resolved, policy } = await resolveAccountHost(account);
     let client;
     try {
+      // Refresh the OAuth token if needed before connecting. Inside the try: a failed refresh or
+      // host resolution must still reach the finally that releases connectingAccounts.
+      account = await ensureFreshToken(account);
+      const { resolved, policy } = await resolveAccountHost(account);
       // Connect via the shared helper: it attaches the #360 handshake-error listener, races the
       // connect against a 30s timeout (client.connect() has none — a slow/unresponsive server like
       // purelymail on a cold start would otherwise hang forever, wedging retries while
@@ -2039,12 +2092,14 @@ export class ImapManager {
     } catch (err) {
       const detail = extractImapError(err);
       console.error(`Failed to connect ${logAccount(account)}:`, detail);
+      // A failed OAuth token refresh (revoked grant or transient) has its own handling.
+      if (await this._handleOAuthRefreshFailure(account, err)) return false;
       // On a connection-refusal/throttle, back this account off with growing delay so we
       // stop hammering a provider that's at its limit. A rejected credential gets the long
       // auth cooldown. Other errors don't set a cooldown — the health check retries them normally.
       if (isConnectionRefusal(detail)) this._noteConnectionRefusal(account);
-      // OAuth accounts share the password-account cooldown for now; OAuth-specific handling
-      // (forced refresh, reconnect-required) is owned by the token manager.
+      // For OAuth accounts this is reached only after connectImapClient's forced token refresh
+      // and single retry were rejected too, so the bounded auth cooldown applies as for passwords.
       else if (isImapAuthFailure(err)) this._noteAuthFailure(account);
       await this._recordAccountError(account, detail);
       return false;
@@ -2141,7 +2196,7 @@ export class ImapManager {
     try {
       await this._bgConnSem.acquire(host);
       slotHeld = true;
-      const fresh = await raceTimeout(ensureFreshToken(account), 15000, 'Poll-only token refresh');
+      const fresh = await ensureFreshToken(account);
       const { resolved, policy } = await raceTimeout(resolveAccountHost(fresh), 15000, 'Poll-only host resolve');
       client = await connectImapClient(fresh, resolved, { enableIdle: false, policy }, 30000, 'Poll-only connect');
 
@@ -2168,6 +2223,10 @@ export class ImapManager {
       }
     } catch (err) {
       const detail = extractImapError(err);
+      if (await this._handleOAuthRefreshFailure(account, err)) {
+        console.warn(`Poll-only sync error for ${logAccount(account)}: ${detail}`);
+        return;
+      }
       const refused = isConnectionRefusal(detail);
       const authFailed = !refused && isImapAuthFailure(err);
       if (refused) this._noteConnectionRefusal(account);
@@ -2199,12 +2258,47 @@ export class ImapManager {
   // Arm/extend an account's connection-refusal backoff. Shared by connectAccount, the
   // interval reconnect, AND the fresh-login sync path so all three back off identically
   // instead of hammering a provider that's at its connection limit. Returns the delay in ms.
-  _noteConnectionRefusal(account) {
+  _noteConnectionRefusal(account, reason = 'Connection refused') {
     const failures = (this._connectCooldown.get(account.id)?.failures || 0) + 1;
     const ms = connectCooldownMs(failures);
     this._connectCooldown.set(account.id, { until: Date.now() + ms, failures });
-    console.warn(`Connection refused for ${logAccount(account)} — backing off ${Math.round(ms / 1000)}s (refusal #${failures})`);
+    console.warn(`${reason} for ${logAccount(account)} — backing off ${Math.round(ms / 1000)}s (refusal #${failures})`);
     return ms;
+  }
+
+  // The OAuth grant is gone: the token manager flagged the account oauth_reconnect_required and only
+  // a new consent can fix it. So no expiring backoff that would retry on its own: record the stable
+  // code (pushed to clients as account_error like any other account failure), stop the account's
+  // connection and timers, and keep every in-memory connect gate closed. The consent callbacks lift
+  // the gate with clearConnectCooldown; the DB flag keeps the health check and startup from
+  // reconnecting the account after a restart.
+  async _noteOAuthReconnectRequired(account) {
+    await this._recordAccountError(account, 'oauth_reconnect_required');
+    const recorded = this._syncErrorState.get(account.id);
+    await this.disconnectAccount(account.id);
+    // disconnectAccount drops the sync_error cache; keep it so repeats are not rewritten.
+    if (recorded !== undefined) this._syncErrorState.set(account.id, recorded);
+    this._connectCooldown.set(account.id, { until: Infinity, failures: 0, oauthReconnectRequired: true });
+    console.warn(`OAuth access for ${logAccount(account)} was revoked or expired — not reconnecting until the account is reconnected`);
+  }
+
+  // First step of every connect-failure path. Handles a failed OAuth token refresh and returns true;
+  // returns false for anything else so the caller's refusal/auth handling runs as before.
+  // - oauth_reconnect_required: non-recoverable, see _noteOAuthReconnectRequired.
+  // - oauth_refresh_failed (network, provider 5xx, busy lock, timeout): recoverable. It takes the
+  //   refusal backoff and the same repeat threshold before it is surfaced, and never flags the account.
+  async _handleOAuthRefreshFailure(account, err) {
+    const kind = classifyOAuthRefreshError(err);
+    if (kind === 'reconnect') {
+      await this._noteOAuthReconnectRequired(account);
+      return true;
+    }
+    if (kind === 'transient') {
+      this._noteConnectionRefusal(account, 'OAuth token refresh failed');
+      await this._recordAccountError(account, err.message, { recoverable: true });
+      return true;
+    }
+    return false;
   }
 
   // Arm the long cooldown after the provider rejected the account's credentials. Same map (and
@@ -2234,16 +2328,18 @@ export class ImapManager {
   // De-duplicated against the last persisted value: a host that stays down re-enters this on
   // every retry for as long as the outage lasts, and rewriting the same string each time is pure
   // write amplification. Never throws — every caller is already inside an error path.
-  async _recordAccountError(account, detail) {
+  async _recordAccountError(account, detail, { recoverable = isConnectionRefusal(detail) } = {}) {
     if (this._syncErrorState.get(account.id) === detail) return;
     // Hold back a failure that is likely to heal itself. Only RECOVERABLE failures are
     // deferred: an authentication or configuration failure will never clear on its own and is
     // reported immediately, because it is the user who has to act on it. A recoverable failure
     // re-enters this method on each retry (see the reconnect path), so a host that stays down
     // crosses the threshold on its next attempt rather than being silently swallowed.
+    // Recoverable defaults to a connection refusal; callers pass it for other self-healing
+    // failures (a transient OAuth token refresh failure).
     const streak = (this._accountErrorStreak.get(account.id) || 0) + 1;
     this._accountErrorStreak.set(account.id, streak);
-    if (isConnectionRefusal(detail) && streak < ACCOUNT_ERROR_MIN_STREAK) return;
+    if (recoverable && streak < ACCOUNT_ERROR_MIN_STREAK) return;
     try {
       await query('UPDATE email_accounts SET sync_error = $1 WHERE id = $2', [detail, account.id]);
       this._syncErrorState.set(account.id, detail);
@@ -2279,7 +2375,7 @@ export class ImapManager {
   async _syncInboxWithFreshLogin(account) {
     let client = null;
     try {
-      const fresh = await raceTimeout(ensureFreshToken(account), 15000, 'Fresh sync token refresh');
+      const fresh = await ensureFreshToken(account);
       const { resolved, policy } = await raceTimeout(resolveAccountHost(fresh), 15000, 'Fresh sync host resolve');
       client = await connectImapClient(fresh, resolved, { policy }, 30000, 'Fresh sync connect');
       // syncMessages' own CONDSTORE modseq check is the "did anything change?" gate: it returns
@@ -2352,10 +2448,14 @@ export class ImapManager {
             // The staleness check schedules a reconnect via setTimeout that disconnectAccount
             // cannot cancel, so a user disabling a stuck account must not be silently revived.
             if (!accountResult.rows.length || !accountResult.rows[0].enabled) return null;
+            // Flagged elsewhere (e.g. by an SMTP send) while this connection was down.
+            if (accountResult.rows[0].oauth_reconnect_required) throw new OAuthTokenError('oauth_reconnect_required');
             const freshAccount = await ensureFreshToken(accountResult.rows[0]);
             const { resolved, policy } = await resolveAccountHost(freshAccount);
             return { freshAccount, resolved, policy };
-          })(), 20000, 'Reconnect setup');
+            // The token refresh is bounded by TOKEN_REFRESH_TIMEOUT_MS; 5 s more covers the DB read
+            // and host resolution.
+          })(), TOKEN_REFRESH_TIMEOUT_MS + 5000, 'Reconnect setup');
           if (!setup) return; // account deleted/disabled mid-reconnect
           pendingClient = await connectImapClient(setup.freshAccount, setup.resolved,
             { enableIdle: providerProfile(setup.freshAccount).usesIdle !== false, policy: setup.policy, idleKeepaliveMs: providerProfile(setup.freshAccount).idleKeepaliveMs },
@@ -2379,6 +2479,11 @@ export class ImapManager {
           console.log(`Reconnected ${logAccount(syncAccount)}`);
         } catch (reconnErr) {
           const detail = extractImapError(reconnErr);
+          if (await this._handleOAuthRefreshFailure(account, reconnErr)) {
+            console.error(`Reconnect failed for ${logAccount(account)}:`, detail);
+            if (pendingClient) { try { pendingClient.close(); } catch { /* already closed */ } }
+            return;
+          }
           // Back off on a connection-refusal so the interval stops hammering — mirrors connectAccount.
           if (isConnectionRefusal(detail)) this._noteConnectionRefusal(account);
           else if (isImapAuthFailure(reconnErr)) this._noteAuthFailure(account);
@@ -2491,7 +2596,10 @@ export class ImapManager {
       // A refusal on the sync path (notably the fresh-login poll, which never reaches the
       // reconnect gate) must arm the same backoff the connect paths use — otherwise the poll
       // keeps hammering a provider that's refusing logins. Honored by the check above next tick.
-      if (isConnectionRefusal(detail)) {
+      // The fresh-login poll refreshes the OAuth token too; a failed refresh is handled first.
+      if (await this._handleOAuthRefreshFailure(account, err)) {
+        // Handled: backoff armed, or the account was disconnected for reconnect-required.
+      } else if (isConnectionRefusal(detail)) {
         this._noteConnectionRefusal(account);
         // Surface what we backed off on, for the same reason as the poll-only tick: gated on the
         // refusal so a one-off 'Sync wall-clock timeout' doesn't flag an otherwise healthy account.
@@ -2745,12 +2853,14 @@ export class ImapManager {
       const cooldown = this._connectCooldown.get(account.id);
       if (cooldown && Date.now() < cooldown.until) throw new Error('Provider connection cooldown active');
       const { rows: [current] } = await query('SELECT * FROM email_accounts WHERE id=$1 AND enabled', [account.id]);
-      if (!current) return;
-      const fresh = await raceTimeout(ensureFreshToken(current), 15000, 'Count token refresh');
+      // A flagged OAuth account stays offline until reconsent (also after a restart).
+      if (!current || current.oauth_reconnect_required) return;
+      const fresh = await ensureFreshToken(current);
       const { resolved, policy } = await raceTimeout(resolveAccountHost(fresh), 15000, 'Count host resolve');
       client = await connectImapClient(fresh, resolved, { policy }, 25000, 'Folder status connect');
       return await fn(client);
     } catch (err) {
+      if (await this._handleOAuthRefreshFailure(account, err)) throw err;
       if (isConnectionRefusal(extractImapError(err))) this._noteConnectionRefusal(account);
       throw err;
     } finally {
@@ -3518,6 +3628,7 @@ export class ImapManager {
       // the user may disable the account while it waits. disconnectAccount doesn't cancel a
       // queued backfill, so without this a disabled account would still get a fresh connection.
       if (!row || !row.enabled) throw new Error('Account deleted or disabled');
+      if (row.oauth_reconnect_required) throw new OAuthTokenError('oauth_reconnect_required');
       const fresh = await ensureFreshToken(row);
       const { resolved, policy } = await resolveAccountHost(fresh);
       // if this throws, bfClient stays null (helper closes its own failed socket, #382 IPv4 fallback)
@@ -3666,6 +3777,7 @@ export class ImapManager {
             console.error(`Backfill reconnect failed for ${logAccount(account)}:`, detail);
             // Same handling as the initial login below: a refusal or rejected credentials will not
             // clear by retrying every errorDelay, so report it and let backfillAllFolders stop.
+            if (await this._handleOAuthRefreshFailure(account, reconnErr)) return { aborted: 'oauth' };
             if (isConnectionRefusal(detail)) {
               this._noteConnectionRefusal(account);
               return { aborted: 'refused' };
@@ -3888,6 +4000,7 @@ export class ImapManager {
       // Every folder opens its own login, so a provider refusing us (or rejecting the
       // credentials) would otherwise be hit once per remaining folder. Report it so
       // backfillAllFolders stops; a refusal also arms the account's shared backoff.
+      if (await this._handleOAuthRefreshFailure(account, err)) return { aborted: 'oauth' };
       if (isConnectionRefusal(detail)) {
         this._noteConnectionRefusal(account);
         return { aborted: 'refused' };
@@ -5783,9 +5896,10 @@ export class ImapManager {
     // Space out initial connects to stay under per-IP connection rate limits — wider for strict
     // providers (PurelyMail) and scaled by account count, so a large fleet doesn't storm the
     // server and trip an IP ban / account lock. (#218)
-    // Skip accounts already connected OR mid-connect (e.g. via the health check).
+    // Skip accounts already connected OR mid-connect (e.g. via the health check), and OAuth
+    // accounts whose grant was revoked: they wait for reconsent, which connects them itself.
     const eligible = result.rows.filter(a =>
-      !this.connections.has(a.id) && !this.connectingAccounts.has(a.id));
+      !this.connections.has(a.id) && !this.connectingAccounts.has(a.id) && !a.oauth_reconnect_required);
     if (eligible.length) {
       const staggers = eligible.map(a => connectStaggerFor(providerProfile(a), eligible.length));
       const min = Math.min(...staggers), max = Math.max(...staggers);

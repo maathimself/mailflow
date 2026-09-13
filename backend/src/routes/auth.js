@@ -7,7 +7,7 @@ import { imapManager } from '../index.js';
 import { decrypt, encrypt } from '../services/encryption.js';
 import { pushConfigured } from '../services/pushNotifications.js';
 import { validateHost, resolveForConnection } from '../services/hostValidation.js';
-import { createSmtpTransport } from '../services/smtpTransport.js';
+import { createSmtpTransport, createAccountSmtpTransport } from '../services/smtpTransport.js';
 import { getConnectionPolicy } from '../services/connectionPolicy.js';
 import { authLimiterConfig } from '../services/authLimiter.js';
 import { logAuthEvent } from '../services/authEvents.js';
@@ -1061,22 +1061,13 @@ router.post('/forgot-password', authLimiter, async (req, res) => {
         );
         if (accountResult.rows.length) {
           const acct = accountResult.rows[0];
-          let smtpAuth;
-          if ((acct.oauth_provider === 'microsoft' || acct.oauth_provider === 'google') && acct.oauth_access_token) {
-            smtpAuth = { type: 'OAuth2', user: acct.auth_user || acct.email_address, accessToken: decrypt(acct.oauth_access_token) };
-          } else {
-            smtpAuth = { user: acct.auth_user, pass: decrypt(acct.auth_pass) };
+          // The shared account transport refreshes OAuth tokens through the token manager
+          // instead of using a possibly expired stored access token.
+          const smtp = await createAccountSmtpTransport(acct);
+          if (!smtp.error) {
+            transport = smtp.transport;
+            fromHeader = `${acct.name} <${acct.email_address}>`;
           }
-          const policy = await getConnectionPolicy();
-          const acctResolved = await resolveForConnection(acct.smtp_host, { allowPrivate: policy.allowPrivateHosts });
-          const acctTls = { rejectUnauthorized: policy.allowInsecureTls ? !acct.imap_skip_tls_verify : true };
-          if (acctResolved.servername) acctTls.servername = acctResolved.servername;
-          transport = createSmtpTransport(acctResolved, {
-            port: acct.smtp_port,
-            secure: acct.smtp_port === 465,
-            auth: smtpAuth, tls: acctTls,
-          });
-          fromHeader = `${acct.name} <${acct.email_address}>`;
         }
       }
 
