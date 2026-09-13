@@ -1,5 +1,5 @@
 // Behavioral reference: pi-mono's MIT-licensed OpenAI Codex Responses adapter
-// (packages/ai/src/api/openai-codex-responses.ts). This Mailflow-specific
+// (packages/ai/src/api/openai-codex-responses.ts). This MailExpert-specific
 // implementation keeps only the text/SSE surface needed by the existing AI UI.
 
 import { createRequestSignal, readLimited, readSseData, sanitizeText } from './aiHttp.js';
@@ -10,7 +10,7 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 const ERROR_BODY_LIMIT_BYTES = 8 * 1024;
 const EVENT_LIMIT_BYTES = 256 * 1024;
 const OUTPUT_LIMIT_CHARS = 2 * 1024 * 1024;
-const MAILFLOW_INSTRUCTIONS = 'You are Mailflow, a helpful email assistant.';
+const MAILEXPERT_INSTRUCTIONS = 'You are MailExpert, a helpful email assistant.';
 
 export class CodexResponseError extends Error {
   constructor(message, { status, code } = {}) {
@@ -38,7 +38,7 @@ export function buildCodexRequest({ model, messages }) {
   if (!Array.isArray(messages) || messages.length === 0) throw new Error('messages array is required');
   return {
     model: model.trim(),
-    instructions: MAILFLOW_INSTRUCTIONS,
+    instructions: MAILEXPERT_INSTRUCTIONS,
     input: messages.map((message) => messageItem(message?.role, message?.content)),
     store: false,
     stream: true,
@@ -131,7 +131,7 @@ export async function* streamCodexResponses({
         Authorization: `Bearer ${accessToken}`,
         'chatgpt-account-id': accountId,
         'OpenAI-Beta': 'responses=experimental',
-        originator: 'mailflow',
+        originator: 'mailexpert',
         Accept: 'text/event-stream',
         'Content-Type': 'application/json',
       },

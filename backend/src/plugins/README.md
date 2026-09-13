@@ -1,6 +1,6 @@
-# MailFlow plugins
+# MailExpert plugins
 
-MailFlow features can live as **plugins**: self-contained modules that talk to core only through a
+MailExpert features can live as **plugins**: self-contained modules that talk to core only through a
 fixed, reviewed capability surface. **GTD** (`gtd/`) is the reference plugin and the first fully
 extracted one.
 

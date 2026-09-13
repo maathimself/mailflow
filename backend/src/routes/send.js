@@ -293,7 +293,7 @@ router.post('/send', async (req, res) => {
     const transport = smtp.transport;
 
     // Use a stable Message-ID so the SMTP copy and any IMAP APPEND reference the same message.
-    const domain = fromEmail.split('@')[1] || 'mailflow.local';
+    const domain = fromEmail.split('@')[1] || 'mailexpert.local';
     const mailOptions = {
       messageId: `<${randomBytes(16).toString('hex')}@${domain}>`,
       from: `${fromName} <${fromEmail}>`,

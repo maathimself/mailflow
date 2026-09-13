@@ -8,7 +8,7 @@ import { formatDate } from '../utils/formatDate.js';
 // replaces the message list (GtdTabList, roomier) and the denser right-sidebar
 // section rows (GtdSidebarContent). Both draw the same skeleton — a left border in
 // the row's state color, a header line (sender + optional Waiting aging pill + date),
-// the subject, and Mailflow's native gray preview line — so the markup lives here
+// the subject, and MailExpert's native gray preview line — so the markup lives here
 // once and each surface picks a size `variant` plus its own behavior.
 //
 // `variant` is the only style knob: it selects a byte-for-byte size table lifted
@@ -118,7 +118,7 @@ export default function GtdEntryRow({
       }}>
         {thread.subject || t('common.noSubject')}
       </div>
-      {/* Message preview: Mailflow's native inbox line — the gray one-liner under the
+      {/* Message preview: MailExpert's native inbox line — the gray one-liner under the
           subject — on every GTD row. A cached AI gist (Waiting rows) wins over the raw
           snippet. Always rendered (native parity): rows keep a constant height even when
           neither gist nor snippet is populated yet. */}

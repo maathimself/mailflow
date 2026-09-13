@@ -28,7 +28,7 @@ export default function DiagnosticsReportModal({ onClose }) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `mailflow-diagnostics-${state.report?.meta?.reportId || 'report'}.json`;
+    a.download = `mailexpert-diagnostics-${state.report?.meta?.reportId || 'report'}.json`;
     document.body.appendChild(a);
     a.click();
     a.remove();

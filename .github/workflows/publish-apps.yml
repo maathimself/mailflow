@@ -54,21 +54,21 @@ jobs:
         if: matrix.os == 'windows-latest' || matrix.os == 'macos-latest'
         shell: bash
         env:
-          MAILFLOW_WINDOWS_CSC_LINK: ${{ secrets.MAILFLOW_WINDOWS_CSC_LINK }}
-          MAILFLOW_WINDOWS_CSC_KEY_PASSWORD: ${{ secrets.MAILFLOW_WINDOWS_CSC_KEY_PASSWORD }}
-          MAILFLOW_MAC_CSC_LINK: ${{ secrets.MAILFLOW_MAC_CSC_LINK }}
-          MAILFLOW_MAC_CSC_KEY_PASSWORD: ${{ secrets.MAILFLOW_MAC_CSC_KEY_PASSWORD }}
+          MAILEXPERT_WINDOWS_CSC_LINK: ${{ secrets.MAILEXPERT_WINDOWS_CSC_LINK }}
+          MAILEXPERT_WINDOWS_CSC_KEY_PASSWORD: ${{ secrets.MAILEXPERT_WINDOWS_CSC_KEY_PASSWORD }}
+          MAILEXPERT_MAC_CSC_LINK: ${{ secrets.MAILEXPERT_MAC_CSC_LINK }}
+          MAILEXPERT_MAC_CSC_KEY_PASSWORD: ${{ secrets.MAILEXPERT_MAC_CSC_KEY_PASSWORD }}
         run: |
           missing=()
 
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            [ -n "$MAILFLOW_WINDOWS_CSC_LINK" ] || missing+=("MAILFLOW_WINDOWS_CSC_LINK")
-            [ -n "$MAILFLOW_WINDOWS_CSC_KEY_PASSWORD" ] || missing+=("MAILFLOW_WINDOWS_CSC_KEY_PASSWORD")
+            [ -n "$MAILEXPERT_WINDOWS_CSC_LINK" ] || missing+=("MAILEXPERT_WINDOWS_CSC_LINK")
+            [ -n "$MAILEXPERT_WINDOWS_CSC_KEY_PASSWORD" ] || missing+=("MAILEXPERT_WINDOWS_CSC_KEY_PASSWORD")
           fi
 
           if [ "${{ matrix.os }}" = "macos-latest" ]; then
-            [ -n "$MAILFLOW_MAC_CSC_LINK" ] || missing+=("MAILFLOW_MAC_CSC_LINK")
-            [ -n "$MAILFLOW_MAC_CSC_KEY_PASSWORD" ] || missing+=("MAILFLOW_MAC_CSC_KEY_PASSWORD")
+            [ -n "$MAILEXPERT_MAC_CSC_LINK" ] || missing+=("MAILEXPERT_MAC_CSC_LINK")
+            [ -n "$MAILEXPERT_MAC_CSC_KEY_PASSWORD" ] || missing+=("MAILEXPERT_MAC_CSC_KEY_PASSWORD")
           fi
 
           if [ "${#missing[@]}" -gt 0 ]; then
@@ -81,16 +81,16 @@ jobs:
         working-directory: frontend
         run: npm run electron:dist
         env:
-          CSC_LINK: ${{ secrets.MAILFLOW_WINDOWS_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAILFLOW_WINDOWS_CSC_KEY_PASSWORD }}
+          CSC_LINK: ${{ secrets.MAILEXPERT_WINDOWS_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAILEXPERT_WINDOWS_CSC_KEY_PASSWORD }}
 
       - name: Build signed macOS Electron package
         if: matrix.os == 'macos-latest'
         working-directory: frontend
         run: npm run electron:dist
         env:
-          CSC_LINK: ${{ secrets.MAILFLOW_MAC_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAILFLOW_MAC_CSC_KEY_PASSWORD }}
+          CSC_LINK: ${{ secrets.MAILEXPERT_MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAILEXPERT_MAC_CSC_KEY_PASSWORD }}
 
       - name: Build Linux x64 Electron packages
         if: matrix.os == 'ubuntu-latest'
@@ -114,7 +114,7 @@ jobs:
       - name: Upload Electron artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: mailflow-electron-${{ matrix.os }}
+          name: mailexpert-electron-${{ matrix.os }}
           if-no-files-found: error
           path: |
             frontend/packages/release/*.deb
@@ -164,35 +164,35 @@ jobs:
       - name: Prepare Android release signing
         shell: bash
         env:
-          MAILFLOW_ANDROID_KEYSTORE_BASE64: ${{ secrets.MAILFLOW_ANDROID_KEYSTORE_BASE64 }}
-          MAILFLOW_ANDROID_STORE_PASSWORD: ${{ secrets.MAILFLOW_ANDROID_STORE_PASSWORD }}
-          MAILFLOW_ANDROID_KEY_ALIAS: ${{ secrets.MAILFLOW_ANDROID_KEY_ALIAS }}
-          MAILFLOW_ANDROID_KEY_PASSWORD: ${{ secrets.MAILFLOW_ANDROID_KEY_PASSWORD }}
+          MAILEXPERT_ANDROID_KEYSTORE_BASE64: ${{ secrets.MAILEXPERT_ANDROID_KEYSTORE_BASE64 }}
+          MAILEXPERT_ANDROID_STORE_PASSWORD: ${{ secrets.MAILEXPERT_ANDROID_STORE_PASSWORD }}
+          MAILEXPERT_ANDROID_KEY_ALIAS: ${{ secrets.MAILEXPERT_ANDROID_KEY_ALIAS }}
+          MAILEXPERT_ANDROID_KEY_PASSWORD: ${{ secrets.MAILEXPERT_ANDROID_KEY_PASSWORD }}
         run: |
           missing=()
-          [ -n "$MAILFLOW_ANDROID_KEYSTORE_BASE64" ] || missing+=("MAILFLOW_ANDROID_KEYSTORE_BASE64")
-          [ -n "$MAILFLOW_ANDROID_STORE_PASSWORD" ] || missing+=("MAILFLOW_ANDROID_STORE_PASSWORD")
-          [ -n "$MAILFLOW_ANDROID_KEY_ALIAS" ] || missing+=("MAILFLOW_ANDROID_KEY_ALIAS")
-          [ -n "$MAILFLOW_ANDROID_KEY_PASSWORD" ] || missing+=("MAILFLOW_ANDROID_KEY_PASSWORD")
+          [ -n "$MAILEXPERT_ANDROID_KEYSTORE_BASE64" ] || missing+=("MAILEXPERT_ANDROID_KEYSTORE_BASE64")
+          [ -n "$MAILEXPERT_ANDROID_STORE_PASSWORD" ] || missing+=("MAILEXPERT_ANDROID_STORE_PASSWORD")
+          [ -n "$MAILEXPERT_ANDROID_KEY_ALIAS" ] || missing+=("MAILEXPERT_ANDROID_KEY_ALIAS")
+          [ -n "$MAILEXPERT_ANDROID_KEY_PASSWORD" ] || missing+=("MAILEXPERT_ANDROID_KEY_PASSWORD")
 
           if [ "${#missing[@]}" -gt 0 ]; then
             printf 'Android release signing secrets are required. Missing: %s\n' "${missing[*]}" >&2
             exit 1
           fi
 
-          if [ -n "$MAILFLOW_ANDROID_KEYSTORE_BASE64" ]; then
-            mkdir -p "$RUNNER_TEMP/mailflow-signing"
-            echo "$MAILFLOW_ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/mailflow-signing/release.keystore"
-            echo "MAILFLOW_ANDROID_STORE_FILE=$RUNNER_TEMP/mailflow-signing/release.keystore" >> "$GITHUB_ENV"
+          if [ -n "$MAILEXPERT_ANDROID_KEYSTORE_BASE64" ]; then
+            mkdir -p "$RUNNER_TEMP/mailexpert-signing"
+            echo "$MAILEXPERT_ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/mailexpert-signing/release.keystore"
+            echo "MAILEXPERT_ANDROID_STORE_FILE=$RUNNER_TEMP/mailexpert-signing/release.keystore" >> "$GITHUB_ENV"
           fi
 
       - name: Build Android package
         working-directory: frontend
         run: npm run android:dist
         env:
-          MAILFLOW_ANDROID_STORE_PASSWORD: ${{ secrets.MAILFLOW_ANDROID_STORE_PASSWORD }}
-          MAILFLOW_ANDROID_KEY_ALIAS: ${{ secrets.MAILFLOW_ANDROID_KEY_ALIAS }}
-          MAILFLOW_ANDROID_KEY_PASSWORD: ${{ secrets.MAILFLOW_ANDROID_KEY_PASSWORD }}
+          MAILEXPERT_ANDROID_STORE_PASSWORD: ${{ secrets.MAILEXPERT_ANDROID_STORE_PASSWORD }}
+          MAILEXPERT_ANDROID_KEY_ALIAS: ${{ secrets.MAILEXPERT_ANDROID_KEY_ALIAS }}
+          MAILEXPERT_ANDROID_KEY_PASSWORD: ${{ secrets.MAILEXPERT_ANDROID_KEY_PASSWORD }}
 
       - name: List Android release artifacts
         if: always()
@@ -202,7 +202,7 @@ jobs:
       - name: Upload Android artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mailflow-android
+          name: mailexpert-android
           if-no-files-found: error
           path: |
             frontend/packages/release/*.aab

@@ -1,4 +1,4 @@
-# Upstream MailFlow — pre-built baseline image install (does not contain MailExpert changes)
+# Upstream MailExpert — pre-built baseline image install (does not contain MailExpert changes)
 #
 # Quick start:
 #   curl -o docker-compose.yml https://raw.githubusercontent.com/maathimself/mailflow/main/docker-compose.ghcr.yml
@@ -6,8 +6,8 @@
 #   # edit .env, then:
 #   docker compose up -d
 #
-# To pin a specific version instead of latest, set MAILFLOW_VERSION in your .env:
-#   MAILFLOW_VERSION=1.0.0
+# To pin a specific version instead of latest, set MAILEXPERT_VERSION in your .env:
+#   MAILEXPERT_VERSION=1.0.0
 
 services:
 
@@ -15,8 +15,8 @@ services:
   # Exposes HTTPS on APP_PORT and HTTP on APP_HTTP_PORT.
   # HTTP is intended for use behind a reverse proxy that terminates TLS.
   frontend:
-    image: ghcr.io/maathimself/mailflow-frontend:${MAILFLOW_VERSION:-latest}
-    container_name: mailflow-frontend
+    image: ghcr.io/maathimself/mailflow-frontend:${MAILEXPERT_VERSION:-latest}
+    container_name: mailexpert-frontend
     restart: unless-stopped
     ports:
       - "${APP_PORT:-443}:443"
@@ -33,12 +33,12 @@ services:
       retries: 3
       start_period: 20s
     networks:
-      - mailflow
+      - mailexpert
 
   # ── Backend API ──────────────────────────────────────────────────────────────
   backend:
-    image: ghcr.io/maathimself/mailflow-backend:${MAILFLOW_VERSION:-latest}
-    container_name: mailflow-backend
+    image: ghcr.io/maathimself/mailflow-backend:${MAILEXPERT_VERSION:-latest}
+    container_name: mailexpert-backend
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
@@ -54,8 +54,8 @@ services:
       FRONTEND_URL: ${APP_URL:-}
       DB_HOST: ${DB_HOST:-postgres}
       DB_PORT: ${DB_PORT:-5432}
-      DB_NAME: ${DB_NAME:-mailflow}
-      DB_USER: ${DB_USER:-mailflow}
+      DB_NAME: ${DB_NAME:-mailexpert}
+      DB_USER: ${DB_USER:-mailexpert}
       DB_PASSWORD: ${DB_PASSWORD}
       REDIS_URL: redis://redis:6379
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
@@ -69,32 +69,32 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - mailflow
+      - mailexpert
 
   # ── PostgreSQL ───────────────────────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
-    container_name: mailflow-postgres
+    container_name: mailexpert-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${DB_NAME:-mailflow}
-      POSTGRES_USER: ${DB_USER:-mailflow}
+      POSTGRES_DB: ${DB_NAME:-mailexpert}
+      POSTGRES_USER: ${DB_USER:-mailexpert}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mailflow -d mailflow"]
+      test: ["CMD-SHELL", "pg_isready -U mailexpert -d mailexpert"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 20s
     networks:
-      - mailflow
+      - mailexpert
 
   # ── Redis (sessions + caching) ───────────────────────────────────────────────
   redis:
     image: redis:7-alpine
-    container_name: mailflow-redis
+    container_name: mailexpert-redis
     restart: unless-stopped
     command: redis-server --save 60 1 --loglevel warning
     volumes:
@@ -106,7 +106,7 @@ services:
       retries: 5
       start_period: 10s
     networks:
-      - mailflow
+      - mailexpert
 
   # ── Caddy (automatic HTTPS via Let's Encrypt — optional) ────────────────────
   # Use docker-compose.https.yml to avoid the port conflict with the frontend:
@@ -115,7 +115,7 @@ services:
   caddy:
     profiles: ["https"]
     image: caddy:2-alpine
-    container_name: mailflow-caddy
+    container_name: mailexpert-caddy
     restart: unless-stopped
     ports:
       - "80:80"
@@ -133,7 +133,7 @@ services:
     depends_on:
       - frontend
     networks:
-      - mailflow
+      - mailexpert
 
 volumes:
   postgres_data:
@@ -142,7 +142,7 @@ volumes:
   caddy_config:
 
 networks:
-  mailflow:
+  mailexpert:
     driver: bridge
 
 configs:

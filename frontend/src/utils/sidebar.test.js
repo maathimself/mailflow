@@ -195,7 +195,7 @@ describe('folder ordering', () => {
       }),
     };
     const messageTransfer = {
-      types: ['application/x-mailflow-message'],
+      types: ['application/x-mailexpert-message'],
       getData: () => JSON.stringify({ messageId: 'message-1' }),
     };
 

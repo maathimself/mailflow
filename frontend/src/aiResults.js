@@ -5,7 +5,7 @@
 //
 // Shape: { order: [messageId, ...oldest→newest], data: { [messageId]: { [actionKey]: { text, at, label } } } }
 
-const KEY = 'mailflow_ai_results';
+const KEY = 'mailexpert_ai_results';
 const MSG_CAP = 200;
 
 function read() {

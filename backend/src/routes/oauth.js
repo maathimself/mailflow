@@ -141,7 +141,7 @@ async function processMicrosoftTokens(userId, tokens, { tenantId, clientId, publ
       // For multi-tenant configs the issuer check is skipped above, so validate that
       // the iss claim matches the token's own tid.  This prevents cross-tenant identity
       // injection where an attacker creates a Microsoft tenant with the victim's email,
-      // obtains a JWT signed by Microsoft, and submits it to a MailFlow instance
+      // obtains a JWT signed by Microsoft, and submits it to a MailExpert instance
       // configured for 'common'.
       if (fixedTenants.has(tenantId) && payload.tid && payload.iss) {
         const expectedIss = `https://login.microsoftonline.com/${payload.tid}/v2.0`;

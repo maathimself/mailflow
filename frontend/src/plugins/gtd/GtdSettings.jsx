@@ -334,7 +334,7 @@ export default function GtdSettings({ initialSubTab }) {
   const { t } = useTranslation();
   const accounts = useStore(s => s.accounts);
   const [gtdRevealed, setGtdRevealed] = useState(() => {
-    const stored = localStorage.getItem('mailflow_gtd_settings_reveal');
+    const stored = localStorage.getItem('mailexpert_gtd_settings_reveal');
     if (stored === '1') return true;
     if (stored === '0') return false;
     return accounts.some(a => a.gtd_enabled);
@@ -353,7 +353,7 @@ export default function GtdSettings({ initialSubTab }) {
   // a manual choice nor revealed/collapsed the block this session.
   useEffect(() => {
     if (gtdRevealTouched.current) return;
-    if (localStorage.getItem('mailflow_gtd_settings_reveal') != null) return;
+    if (localStorage.getItem('mailexpert_gtd_settings_reveal') != null) return;
     if (accounts.length === 0) return;
     setGtdRevealed(accounts.some(a => a.gtd_enabled));
   }, [accounts]);
@@ -362,7 +362,7 @@ export default function GtdSettings({ initialSubTab }) {
     gtdRevealTouched.current = true;
     setGtdRevealed(prev => {
       const next = !prev;
-      localStorage.setItem('mailflow_gtd_settings_reveal', next ? '1' : '0');
+      localStorage.setItem('mailexpert_gtd_settings_reveal', next ? '1' : '0');
       return next;
     });
   };

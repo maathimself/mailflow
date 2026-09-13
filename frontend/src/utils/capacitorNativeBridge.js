@@ -6,7 +6,7 @@ let pluginUnavailable = false;
 
 function getPlugin() {
   if (plugin) return plugin;
-  plugin = registerNativePlugin('MailFlowNative');
+  plugin = registerNativePlugin('MailExpertNative');
   return plugin;
 }
 
@@ -14,8 +14,8 @@ async function callNative(method, args, fallback = null) {
   if (pluginUnavailable) return fallback;
 
   try {
-    const MailFlowNative = getPlugin();
-    return await MailFlowNative[method](args);
+    const MailExpertNative = getPlugin();
+    return await MailExpertNative[method](args);
   } catch (error) {
     if (String(error?.message || error).includes('not implemented')) {
       pluginUnavailable = true;
@@ -35,9 +35,9 @@ export async function installCapacitorNativeBridge() {
     if (!Capacitor.isNativePlatform()) return false;
     registerNativePlugin = registerPlugin;
 
-    const existingBridge = window.mailflowNative || {};
+    const existingBridge = window.mailexpertNative || {};
 
-    window.mailflowNative = {
+    window.mailexpertNative = {
       ...existingBridge,
       platform: 'android',
       getHost: async () => {
@@ -61,8 +61,8 @@ export async function installCapacitorNativeBridge() {
         openDownload: async () => callNative('openDownloadedUpdate'),
         onStatus: (callback) => {
           if (pluginUnavailable) return () => {};
-          const MailFlowNative = getPlugin();
-          const handlePromise = MailFlowNative.addListener('updateStatus', callback).catch(() => null);
+          const MailExpertNative = getPlugin();
+          const handlePromise = MailExpertNative.addListener('updateStatus', callback).catch(() => null);
           return () => {
             handlePromise.then((handle) => handle?.remove?.()).catch(() => {});
           };
@@ -90,8 +90,8 @@ export async function installCapacitorNativeBridge() {
         ack: async (id) => callNative('ackAction', { id }),
         onAction: (callback) => {
           if (pluginUnavailable) return () => {};
-          const MailFlowNative = getPlugin();
-          const handlePromise = MailFlowNative.addListener('nativeAction', callback).catch(() => null);
+          const MailExpertNative = getPlugin();
+          const handlePromise = MailExpertNative.addListener('nativeAction', callback).catch(() => null);
           return () => {
             handlePromise.then((handle) => handle?.remove?.()).catch(() => {});
           };

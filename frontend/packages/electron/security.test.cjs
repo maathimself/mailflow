@@ -70,22 +70,22 @@ test('navigation policy does not let renderer navigation extend an OIDC origin c
 test('Windows signature verification requires a valid matching publisher', () => {
   assert.equal(
     security.hasMatchingWindowsPublisher(
-      { status: 'Valid', subject: 'CN=MailFlow LLC' },
-      { status: 'Valid', subject: 'CN=MailFlow LLC' },
+      { status: 'Valid', subject: 'CN=MailExpert LLC' },
+      { status: 'Valid', subject: 'CN=MailExpert LLC' },
     ),
     true,
   );
   assert.equal(
     security.hasMatchingWindowsPublisher(
-      { status: 'Valid', subject: 'CN=MailFlow LLC' },
+      { status: 'Valid', subject: 'CN=MailExpert LLC' },
       { status: 'Valid', subject: 'CN=Other Publisher' },
     ),
     false,
   );
   assert.equal(
     security.hasMatchingWindowsPublisher(
-      { status: 'Valid', subject: 'CN=MailFlow LLC' },
-      { status: 'NotSigned', subject: 'CN=MailFlow LLC' },
+      { status: 'Valid', subject: 'CN=MailExpert LLC' },
+      { status: 'NotSigned', subject: 'CN=MailExpert LLC' },
     ),
     false,
   );
@@ -94,8 +94,8 @@ test('Windows signature verification requires a valid matching publisher', () =>
 test('macOS signature verification requires a matching TeamIdentifier', () => {
   assert.equal(
     security.hasMatchingMacTeam(
-      'Authority=Developer ID Application: MailFlow\nTeamIdentifier=ABC123',
-      'Authority=Developer ID Application: MailFlow\nTeamIdentifier=ABC123',
+      'Authority=Developer ID Application: MailExpert\nTeamIdentifier=ABC123',
+      'Authority=Developer ID Application: MailExpert\nTeamIdentifier=ABC123',
     ),
     true,
   );

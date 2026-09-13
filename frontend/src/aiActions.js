@@ -11,7 +11,7 @@ export const BUILTIN_SUMMARIZE = { id: 'summarize', prompt: SUMMARIZE_PROMPT, bu
 
 // The built-in Summarize prompt is uneditable, so (unlike custom actions, whose
 // authors can specify a language) it needs to follow the user's UI language
-// instead of defaulting to English (#255). Keyed by the i18n locale codes MailFlow
+// instead of defaulting to English (#255). Keyed by the i18n locale codes MailExpert
 // ships; English and any unknown locale keep the base prompt unchanged.
 const SUMMARIZE_LANGUAGE_NAMES = {
   es: 'Spanish', fr: 'French', de: 'German', it: 'Italian',

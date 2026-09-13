@@ -2,7 +2,7 @@
 #
 # Use this file alongside docker-compose.yml when running the "https" profile
 # so that Caddy owns ports 80 and 443 on the host and the frontend container
-# is only reachable internally via the mailflow Docker network.
+# is only reachable internally via the mailexpert Docker network.
 #
 # Usage:
 #   docker compose -f docker-compose.yml -f docker-compose.https.yml --profile https up -d --build

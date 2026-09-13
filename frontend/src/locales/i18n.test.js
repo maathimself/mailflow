@@ -132,7 +132,7 @@ const SAME_VALUE_ALLOWED = {
   'admin.integrations.microsoft.title':     'any', // Microsoft 365 / Outlook.com
   'admin.security.totpVerifyPh':            'any', // 000000
   'admin.sso.adminGroupClaimPh':            'any', // groups
-  'admin.sso.adminGroupValuePh':            'any', // mailflow-admins
+  'admin.sso.adminGroupValuePh':            'any', // mailexpert-admins
   'admin.sso.issuerUrlPh':                  'any', // https://accounts.google.com
   'admin.sso.scopesPh':                     'any', // openid email profile
   'login.totp.placeholder':                 'any', // 000000
@@ -430,7 +430,7 @@ const HARDCODED_OK = new Set([
   // Tooltip label for a rich-text editor colour input — purely visual affordance,
   // identical concept in all languages
   'Emoji',
-  // "MailFlow" brand name split into two spans for typography styling
+  // "MailExpert" brand name split into two spans for typography styling
   'Mail', 'Flow',
   // Email header labels inside the handlePrint() HTML template literal —
   // translating them requires passing t() results into the template string

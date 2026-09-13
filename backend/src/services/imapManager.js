@@ -4302,7 +4302,7 @@ export class ImapManager {
         await this.syncMessages(account, client, folder, 100, false, true);
       });
       console.log(`syncFolderOnDemand done: ${logAccount(account)}/${folder}`);
-      // sync_complete fires mailflow:refresh in the frontend, reloading the message list
+      // sync_complete fires mailexpert:refresh in the frontend, reloading the message list
       this.broadcast({ type: 'sync_complete', accountId: account.id }, account.user_id);
     } catch (err) {
       console.error(`On-demand sync error ${logAccount(account)}/${folder}:`, err.message);

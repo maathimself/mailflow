@@ -83,10 +83,10 @@
       const button = document.querySelector('#change-host-button');
 
       function installCapacitorNativeBridge() {
-        const plugin = window.Capacitor?.Plugins?.MailFlowNative;
-        if (!plugin || window.mailflowNative) return;
+        const plugin = window.Capacitor?.Plugins?.MailExpertNative;
+        if (!plugin || window.mailexpertNative) return;
 
-        window.mailflowNative = {
+        window.mailexpertNative = {
           resetHost: async () => plugin.resetHost(),
         };
       }
@@ -96,7 +96,7 @@
 
         try {
           installCapacitorNativeBridge();
-          await window.mailflowNative?.resetHost?.();
+          await window.mailexpertNative?.resetHost?.();
         } catch {
           button.disabled = false;
         }

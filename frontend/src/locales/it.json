@@ -1194,7 +1194,7 @@
       "gtdRevealDesc": "Mostra qui sotto le impostazioni GTD per ogni account; ogni account mantiene il proprio interruttore."
     },
     "gtd": {
-      "description": "Trasforma Mailflow in un sistema GTD. Attivalo per account, poi associa ogni stato alla cartella IMAP che contiene la sua etichetta.",
+      "description": "Trasforma MailExpert in un sistema GTD. Attivalo per account, poi associa ogni stato alla cartella IMAP che contiene la sua etichetta.",
       "noAccounts": "Aggiungi prima un account di posta per configurare GTD.",
       "enableDesc": "GTD è attivo. Le etichette si sincronizzano come cartelle e gli stati cambiano automaticamente.",
       "enableHint": "Attiva le etichette GTD e i cambi di stato automatici per questo account.",
@@ -1298,7 +1298,7 @@
       "adminGroupClaimPh": "groups",
       "adminGroupClaimDesc": "Nome del claim JWT contenente i gruppi dell'utente (es. groups). Lasciare vuoto per disabilitare l'assegnazione admin basata sui gruppi.",
       "adminGroupValue": "Valore gruppo amministratore",
-      "adminGroupValuePh": "mailflow-admins",
+      "adminGroupValuePh": "mailexpert-admins",
       "adminGroupValueDesc": "Il nome del gruppo che concede l'accesso amministratore. Gli utenti in questo gruppo diventano admin ad ogni accesso SSO; gli utenti non in questo gruppo perdono l'accesso admin.",
       "loginMatchClaim": "Abbina gli account esistenti tramite",
       "loginMatchClaimDesc": "Claim OIDC confrontato con il nome utente di ogni account MailExpert quando un accesso SSO viene collegato per la prima volta a un account esistente (modalità di provisioning «solo accesso ad account esistenti»). Il valore predefinito è email. Usa preferred_username, upn, ecc. per provider di identità i cui nomi utente non sono indirizzi e-mail, solo se il provider garantisce che il claim sia univoco e non modificabile dall’utente.",

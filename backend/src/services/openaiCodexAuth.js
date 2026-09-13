@@ -85,8 +85,8 @@ function responseErrorCode(body) {
 function authHeaders(contentType) {
   return {
     'Content-Type': contentType,
-    originator: 'mailflow',
-    'User-Agent': 'Mailflow',
+    originator: 'mailexpert',
+    'User-Agent': 'MailExpert',
   };
 }
 

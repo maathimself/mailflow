@@ -1515,7 +1515,7 @@ function LayoutsTab() {
   const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, senderFavicons, senderFaviconsSaving, setSenderFavicons, showMessagePreviews, setShowMessagePreviews, accounts, defaultSender, setDefaultSender } = useStore();
   const [senderFaviconsError, setSenderFaviconsError] = useState('');
 
-  // "Set MailFlow as your default email app": registerProtocolHandler is the
+  // "Set MailExpert as your default email app": registerProtocolHandler is the
   // cross-browser path (works in Firefox and non-installed Chromium) and must be
   // called from a user gesture, so it lives behind this button. Feature-detected in
   // the JSX; not available on iOS/Safari.
@@ -5253,7 +5253,7 @@ function NotificationsTab() {
           showAppBadge, setShowAppBadge, showFaviconBadge, setShowFaviconBadge } = useStore();
   const fileInputRef = useRef(null);
   const [customFileName, setCustomFileName] = useState(
-    () => localStorage.getItem('mailflow_custom_sound_name') || ''
+    () => localStorage.getItem('mailexpert_custom_sound_name') || ''
   );
   const [uploadError, setUploadError] = useState('');
 
@@ -5273,7 +5273,7 @@ function NotificationsTab() {
       const dataUrl = ev.target.result;
       setCustomSoundDataUrl(dataUrl);
       setCustomFileName(file.name);
-      localStorage.setItem('mailflow_custom_sound_name', file.name);
+      localStorage.setItem('mailexpert_custom_sound_name', file.name);
       setNotificationSound('custom');
       // Preview immediately so the user knows it worked.
       playCustomSound(dataUrl);
@@ -5699,8 +5699,8 @@ function AboutTab() {
     [t('admin.about.license'),       'AGPL-3.0'],
   ];
   const generalRows = [
-    [t('admin.about.website'),    'https://mailflow.sh'],
-    [t('admin.about.sourceCode'), 'https://github.com/maathimself/mailflow'],
+    [t('admin.about.website'),    'https://github.com/wyrtensi/MailExpert'],
+    [t('admin.about.sourceCode'), 'https://github.com/wyrtensi/MailExpert'],
   ];
   const supportRows = [
     [t('admin.about.kofi'),           'https://ko-fi.com/mailflow'],
@@ -5803,7 +5803,7 @@ function RulesTab() {
       // Rules may have moved messages between folders; tell the message list to re-run
       // any active search and refresh the folder view so affected messages leave stale
       // results (a search snapshot does not otherwise update on its own). Fixes #223.
-      window.dispatchEvent(new Event('mailflow:rules-ran'));
+      window.dispatchEvent(new Event('mailexpert:rules-ran'));
     } catch {
       setRunError(t('admin.rules.runError'));
     } finally {

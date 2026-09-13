@@ -1194,7 +1194,7 @@
       "gtdRevealDesc": "Reveal the per-account GTD settings below; each account keeps its own on/off toggle."
     },
     "gtd": {
-      "description": "Turn Mailflow into a GTD system. Enable it per account, then map each state to the IMAP folder that holds its label.",
+      "description": "Turn MailExpert into a GTD system. Enable it per account, then map each state to the IMAP folder that holds its label.",
       "noAccounts": "Add an email account first to configure GTD.",
       "enableDesc": "GTD is on. Labels sync as folders and states transition automatically.",
       "enableHint": "Turn on GTD labels and automatic state transitions for this account.",
@@ -1295,7 +1295,7 @@
       "adminGroupClaimPh": "groups",
       "adminGroupClaimDesc": "JWT claim name that contains the user's groups (e.g. groups). Leave blank to disable group-based admin assignment.",
       "adminGroupValue": "Admin group value",
-      "adminGroupValuePh": "mailflow-admins",
+      "adminGroupValuePh": "mailexpert-admins",
       "adminGroupValueDesc": "The group name that grants admin access. Users in this group become admins on every SSO login; users not in this group lose admin access.",
       "loginMatchClaim": "Match existing accounts by",
       "loginMatchClaimDesc": "OIDC claim matched against each MailExpert account’s username when an SSO login is first linked to an existing account (provisioning mode “login existing only”). Defaults to email. Use preferred_username, upn, etc. for identity providers where usernames are not email addresses — only if your provider guarantees the claim is unique and not user-editable.",

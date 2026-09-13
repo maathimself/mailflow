@@ -51,7 +51,7 @@ export default function WindowLayer() {
             return (
               <div
                 key={win.winId}
-                className="mailflow-window-min"
+                className="mailexpert-window-min"
                 onClick={() => setMinimized(win.winId, false)}
                 title={title}
                 style={{

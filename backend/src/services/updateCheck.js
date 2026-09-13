@@ -3,7 +3,7 @@
 // The BACKEND queries GitHub's releases API — host-pinned, no user input in the URL,
 // via safeFetch (blocks private/rebinding targets) — at most once per TTL and caches
 // the result. Users' browsers never contact GitHub and no user data leaves the server;
-// GitHub only sees that a MailFlow instance checked for an update. Set
+// GitHub only sees that a MailExpert instance checked for an update. Set
 // UPDATE_CHECK_DISABLED=true to turn the check off entirely (air-gapped deployments).
 import { safeFetch } from './safeFetch.js';
 

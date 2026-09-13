@@ -1194,7 +1194,7 @@
       "gtdRevealDesc": "在下方显示每个账户的 GTD 设置；每个账户仍由各自的开关控制。"
     },
     "gtd": {
-      "description": "把 Mailflow 变成一个 GTD 系统。按账户启用，然后将每个状态映射到存放其标签的 IMAP 文件夹。",
+      "description": "把 MailExpert 变成一个 GTD 系统。按账户启用，然后将每个状态映射到存放其标签的 IMAP 文件夹。",
       "noAccounts": "请先添加一个邮箱账户以配置 GTD。",
       "enableDesc": "GTD 已启用。标签会作为文件夹同步，状态会自动流转。",
       "enableHint": "为此账户启用 GTD 标签和自动状态流转。",
@@ -1298,7 +1298,7 @@
       "adminGroupClaimPh": "groups",
       "adminGroupClaimDesc": "包含用户组的 JWT 声明名称（例如 groups）。留空可禁用基于组的管理员分配。",
       "adminGroupValue": "管理员组值",
-      "adminGroupValuePh": "mailflow-admins",
+      "adminGroupValuePh": "mailexpert-admins",
       "adminGroupValueDesc": "授予管理员访问权限的组名。该组中的用户在每次 SSO 登录时成为管理员；不在该组中的用户将失去管理员权限。",
       "loginMatchClaim": "匹配现有账户所用声明",
       "loginMatchClaimDesc": "首次将 SSO 登录关联到现有账户时（预配模式“仅登录现有账户”），用于与每个 MailExpert 账户用户名进行匹配的 OIDC 声明（claim）。默认为 email。对于用户名不是电子邮件地址的身份提供商，可设置为 preferred_username、upn 等——但仅当您的提供商保证该声明唯一且用户不可自行修改时。",

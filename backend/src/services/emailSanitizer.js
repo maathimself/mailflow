@@ -90,7 +90,7 @@ function upgradeUrl(url) {
 
 // Normalise an anchor href value to an absolute https/mailto/tel URL, or return
 // null if the href cannot be safely resolved (relative paths, fragments, etc.).
-// Returns null for hrefs that would resolve against the mailflow origin in a
+// Returns null for hrefs that would resolve against the mailexpert origin in a
 // same-origin srcdoc iframe — callers should omit the href attribute entirely.
 function normalizeHref(href) {
   if (!href) return null;
@@ -256,7 +256,7 @@ export function sanitizeEmail(html) {
       // Ensure all links open safely.  Also normalise bare-domain hrefs like
       // "benchmade.com" → "https://benchmade.com" so they work as expected in
       // the sandboxed iframe, and strip relative/fragment hrefs that would
-      // otherwise resolve to the mailflow origin.
+      // otherwise resolve to the mailexpert origin.
       'a': (tagName, attribs) => {
         const out = { ...attribs, rel: 'noopener noreferrer' };
         if ('href' in out) {

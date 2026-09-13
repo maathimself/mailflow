@@ -66,7 +66,7 @@ async function getDiscovery(issuerUrl, allowInsecure = false) {
   const res = await fetchFn(wellKnown, fetchOpts);
   if (!res.ok) {
     if (res.status === 401 || res.status === 403) {
-      throw new Error(`OIDC discovery blocked (${res.status}): the server cannot reach ${wellKnown} — ensure the well-known endpoint is publicly accessible from the MailFlow server`);
+      throw new Error(`OIDC discovery blocked (${res.status}): the server cannot reach ${wellKnown} — ensure the well-known endpoint is publicly accessible from the MailExpert server`);
     }
     throw new Error(`OIDC discovery failed for ${issuerUrl}: ${res.status}`);
   }
@@ -120,7 +120,7 @@ function resolveAdminFromClaim(payload, provider) {
   return false;
 }
 
-// Resolve the value used to match an SSO login to an existing MailFlow account during the
+// Resolve the value used to match an SSO login to an existing MailExpert account during the
 // initial link (login_existing_only). The claim name is admin-configured (default 'email',
 // the historical behavior) and read from the *verified* id_token; the result is always matched
 // against users.username. An admin who selects a non-email claim (e.g. 'preferred_username' or
@@ -450,7 +450,7 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
       return res.redirect('/?oidc_success=linked');
     }
 
-    // ── Login action: find or provision a MailFlow user ───────────────────────
+    // ── Login action: find or provision a MailExpert user ───────────────────────
     const existingId = await client.query(
       'SELECT user_id FROM user_identities WHERE issuer = $1 AND subject = $2',
       [issuer, subject]
@@ -546,7 +546,7 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
     }
 
     if (mode === 'open') {
-      // Create a new MailFlow account from the SSO identity. An email is always
+      // Create a new MailExpert account from the SSO identity. An email is always
       // required; the *verified* requirement is opt-out via require_email_verified
       // (matching the login_existing_only and allowed_domains checks above).
       if (!email || (!emailVerified && provider.require_email_verified !== false)) {

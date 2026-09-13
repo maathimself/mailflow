@@ -1,4 +1,4 @@
-package sh.mailflow.app;
+package sh.mailexpert.app;
 
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -10,7 +10,7 @@ import androidx.work.NetworkType;
 import androidx.work.OneTimeWorkRequest;
 import androidx.work.WorkManager;
 
-public class MailFlowNotificationActionReceiver extends BroadcastReceiver {
+public class MailExpertNotificationActionReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent) {
         if (context == null || intent == null) return;
@@ -18,9 +18,9 @@ public class MailFlowNotificationActionReceiver extends BroadcastReceiver {
         String action = intent.getAction();
         String messageId = intent.getStringExtra("messageId");
         if (messageId == null || messageId.isEmpty()) return;
-        if (!MailFlowNativePlugin.isTrustedNativeIntent(context, intent)) return;
-        if (!MailFlowNativePlugin.ACTION_DELETE_MESSAGE.equals(action)
-            && !MailFlowNativePlugin.ACTION_STAR_MESSAGE.equals(action)) return;
+        if (!MailExpertNativePlugin.isTrustedNativeIntent(context, intent)) return;
+        if (!MailExpertNativePlugin.ACTION_DELETE_MESSAGE.equals(action)
+            && !MailExpertNativePlugin.ACTION_STAR_MESSAGE.equals(action)) return;
 
         int notificationId = intent.getIntExtra("notificationId", -1);
         if (notificationId != -1) {
@@ -31,10 +31,10 @@ public class MailFlowNotificationActionReceiver extends BroadcastReceiver {
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build();
         Data input = new Data.Builder()
-            .putString(MailFlowNotificationActionWorker.KEY_ACTION, action)
-            .putString(MailFlowNotificationActionWorker.KEY_MESSAGE_ID, messageId)
+            .putString(MailExpertNotificationActionWorker.KEY_ACTION, action)
+            .putString(MailExpertNotificationActionWorker.KEY_MESSAGE_ID, messageId)
             .build();
-        OneTimeWorkRequest request = new OneTimeWorkRequest.Builder(MailFlowNotificationActionWorker.class)
+        OneTimeWorkRequest request = new OneTimeWorkRequest.Builder(MailExpertNotificationActionWorker.class)
             .setInputData(input)
             .setConstraints(constraints)
             .build();

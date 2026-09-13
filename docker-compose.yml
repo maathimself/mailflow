@@ -11,7 +11,7 @@ services:
       args:
         VITE_BUILD_SHA: ${GIT_SHA:-dev}
         VITE_EMAIL_DIV_RENDER: ${VITE_EMAIL_DIV_RENDER:-false}
-    container_name: mailflow-frontend
+    container_name: mailexpert-frontend
     restart: unless-stopped
     ports:
       - "${APP_PORT:-443}:443"
@@ -28,7 +28,7 @@ services:
       retries: 3
       start_period: 20s
     networks:
-      - mailflow
+      - mailexpert
 
   # ── Backend API ──────────────────────────────────────────────────────────────
   backend:
@@ -37,7 +37,7 @@ services:
       dockerfile: backend/Dockerfile
       args:
         BUILD_SHA: ${GIT_SHA:-dev}
-    container_name: mailflow-backend
+    container_name: mailexpert-backend
     restart: unless-stopped
     environment:
       NODE_ENV: production
@@ -47,8 +47,8 @@ services:
       FRONTEND_URL: ${APP_URL:-}
       DB_HOST: ${DB_HOST:-postgres}
       DB_PORT: ${DB_PORT:-5432}
-      DB_NAME: ${DB_NAME:-mailflow}
-      DB_USER: ${DB_USER:-mailflow}
+      DB_NAME: ${DB_NAME:-mailexpert}
+      DB_USER: ${DB_USER:-mailexpert}
       DB_PASSWORD: ${DB_PASSWORD}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
@@ -68,36 +68,36 @@ services:
       retries: 3
       start_period: 30s
     networks:
-      - mailflow
+      - mailexpert
 
   # ── PostgreSQL ───────────────────────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
-    container_name: mailflow-postgres
+    container_name: mailexpert-postgres
     restart: unless-stopped
     # PUID/PGID default to 0:0 (root), identical to the image's normal behaviour.
     # Set them (e.g. 99:100 on Unraid) only when bind-mounting POSTGRES_DATA to a host
     # share, and chown that share to the same uid:gid first.
     user: "${PUID:-0}:${PGID:-0}"
     environment:
-      POSTGRES_DB: ${DB_NAME:-mailflow}
-      POSTGRES_USER: ${DB_USER:-mailflow}
+      POSTGRES_DB: ${DB_NAME:-mailexpert}
+      POSTGRES_USER: ${DB_USER:-mailexpert}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - ${POSTGRES_DATA:-postgres_data}:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mailflow -d mailflow"]
+      test: ["CMD-SHELL", "pg_isready -U mailexpert -d mailexpert"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 20s
     networks:
-      - mailflow
+      - mailexpert
 
   # ── Redis (sessions + caching) ───────────────────────────────────────────────
   redis:
     image: redis:7-alpine
-    container_name: mailflow-redis
+    container_name: mailexpert-redis
     restart: unless-stopped
     user: "${PUID:-0}:${PGID:-0}"
     command: redis-server --save 60 1 --loglevel warning
@@ -110,7 +110,7 @@ services:
       retries: 5
       start_period: 10s
     networks:
-      - mailflow
+      - mailexpert
 
   # ── Caddy (automatic HTTPS via Let's Encrypt — production only) ──────────────
   # Use docker-compose.https.yml to avoid the port conflict with the frontend:
@@ -119,7 +119,7 @@ services:
   caddy:
     profiles: ["https"]
     image: caddy:2-alpine
-    container_name: mailflow-caddy
+    container_name: mailexpert-caddy
     restart: unless-stopped
     ports:
       - "80:80"
@@ -135,7 +135,7 @@ services:
     depends_on:
       - frontend
     networks:
-      - mailflow
+      - mailexpert
 
 volumes:
   postgres_data:
@@ -144,5 +144,5 @@ volumes:
   caddy_config:
 
 networks:
-  mailflow:
+  mailexpert:
     driver: bridge

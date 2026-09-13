@@ -40,7 +40,7 @@
     "android:dist": "npm run android:sync && node packages/scripts/build-android.cjs && node packages/scripts/collect-android-artifacts.cjs"
   },
   "build": {
-    "appId": "sh.mailflow.app",
+    "appId": "sh.mailexpert.app",
     "productName": "MailExpert",
     "executableName": "MailExpert",
     "directories": {
@@ -116,10 +116,10 @@
       "packageCategory": "net",
       "synopsis": "A self-hosted, unified webmail client.",
       "fpm": [
-        "--replaces=mailflow-frontend",
-        "--conflicts=mailflow-frontend",
+        "--replaces=mailexpert-frontend",
+        "--conflicts=mailexpert-frontend",
         "packages/electron/package-type/deb=/opt/MailExpert/resources/package-type",
-        "packages/electron/metainfo/sh.mailflow.app.metainfo.xml=/usr/share/metainfo/sh.mailflow.app.metainfo.xml"
+        "packages/electron/metainfo/sh.mailexpert.app.metainfo.xml=/usr/share/metainfo/sh.mailexpert.app.metainfo.xml"
       ]
     },
     "rpm": {
@@ -129,7 +129,7 @@
         "libunity"
       ],
       "fpm": [
-        "--replaces=mailflow-frontend",
+        "--replaces=mailexpert-frontend",
         "packages/electron/package-type/rpm=/opt/MailExpert/resources/package-type"
       ]
     }

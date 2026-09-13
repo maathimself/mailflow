@@ -1,4 +1,4 @@
-// MailFlow Service Worker — handles Web Push and notification clicks.
+// MailExpert Service Worker — handles Web Push and notification clicks.
 // Intentionally minimal: no fetch interception, no caching strategy.
 // The sole purpose of this SW is push delivery and notification click handling.
 
@@ -62,9 +62,9 @@ self.addEventListener('push', (event) => {
             icon,
             badge: '/icon-512.png',
             data:  { url },
-            // Replace any existing MailFlow notification so rapid arrivals
+            // Replace any existing MailExpert notification so rapid arrivals
             // don't stack unboundedly in the notification center.
-            tag:      'mailflow-new-mail',
+            tag:      'mailexpert-new-mail',
             renotify: true,
           })
         );
@@ -85,7 +85,7 @@ function storePendingDeepLink(url) {
     let settled = false;
     const done = () => { if (!settled) { settled = true; resolve(); } };
     try {
-      const open = indexedDB.open('mailflow-nav', 1);
+      const open = indexedDB.open('mailexpert-nav', 1);
       open.onupgradeneeded = () => { try { open.result.createObjectStore('kv'); } catch (_) {} };
       open.onerror = done;
       open.onblocked = done;
@@ -118,7 +118,7 @@ self.addEventListener('notificationclick', (event) => {
         if (existing) {
           // Nudge the live client to consume the persisted deep-link immediately
           // (no reload). Harmless if nothing is listening.
-          if (deepLink) existing.postMessage({ type: 'mailflow_deeplink' });
+          if (deepLink) existing.postMessage({ type: 'mailexpert_deeplink' });
           return existing.focus();
         }
         // Cold/killed: openWindow's URL is honored on Chromium and ignored on iOS,

@@ -125,17 +125,17 @@
     </main>
 
     <script>
-      const STORAGE_KEY = 'mailflow.host';
+      const STORAGE_KEY = 'mailexpert.host';
       const form = document.querySelector('#setup-form');
       const input = document.querySelector('#host-input');
       const button = document.querySelector('#submit-button');
       const error = document.querySelector('#error');
 
       function installCapacitorNativeBridge() {
-        const plugin = window.Capacitor?.Plugins?.MailFlowNative;
-        if (!plugin || window.mailflowNative) return;
+        const plugin = window.Capacitor?.Plugins?.MailExpertNative;
+        if (!plugin || window.mailexpertNative) return;
 
-        window.mailflowNative = {
+        window.mailexpertNative = {
           getHost: async () => {
             const result = await plugin.getHost();
             return result?.host || null;
@@ -181,20 +181,20 @@
       }
 
       async function requestInitialNotificationPermission() {
-        if (!window.mailflowNative) return;
+        if (!window.mailexpertNative) return;
 
-        const permission = await window.mailflowNative.checkNotificationPermission();
+        const permission = await window.mailexpertNative.checkNotificationPermission();
         if (permission === 'default') {
-          await window.mailflowNative.requestNotificationPermission();
+          await window.mailexpertNative.requestNotificationPermission();
         }
       }
 
       async function restoreHost() {
         installCapacitorNativeBridge();
 
-        if (window.mailflowNative) {
+        if (window.mailexpertNative) {
           requestInitialNotificationPermission().catch(() => {});
-          const host = await window.mailflowNative.getHost();
+          const host = await window.mailexpertNative.getHost();
           if (host) loadHost(host);
           else showSetup();
           return;
@@ -213,8 +213,8 @@
         try {
           const host = normalizeHost(input.value);
 
-          if (window.mailflowNative) {
-            const savedHost = await window.mailflowNative.saveHost(host);
+          if (window.mailexpertNative) {
+            const savedHost = await window.mailexpertNative.saveHost(host);
             loadHost(savedHost || host);
           } else {
             localStorage.setItem(STORAGE_KEY, host);

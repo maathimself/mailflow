@@ -44,7 +44,7 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="mailflow" />
+                <data android:scheme="mailexpert" />
             </intent-filter>
 
         </activity>
@@ -60,7 +60,7 @@
         </provider>
 
         <receiver
-            android:name=".MailFlowNotificationActionReceiver"
+            android:name=".MailExpertNotificationActionReceiver"
             android:exported="false" />
     </application>
 

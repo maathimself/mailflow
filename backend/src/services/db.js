@@ -7,8 +7,8 @@ const { Pool } = pg;
 export const pool = new Pool({
   host: process.env.DB_HOST || 'postgres',
   port: parseInt(process.env.DB_PORT, 10) || 5432,
-  database: process.env.DB_NAME || 'mailflow',
-  user: process.env.DB_USER || 'mailflow',
+  database: process.env.DB_NAME || 'mailexpert',
+  user: process.env.DB_USER || 'mailexpert',
   password: process.env.DB_PASSWORD,
   max: 20,
   idleTimeoutMillis: 30000,

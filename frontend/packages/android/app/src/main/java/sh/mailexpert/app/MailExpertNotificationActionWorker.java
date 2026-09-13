@@ -1,4 +1,4 @@
-package sh.mailflow.app;
+package sh.mailexpert.app;
 
 import android.content.Context;
 import android.webkit.CookieManager;
@@ -9,11 +9,11 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 
-public class MailFlowNotificationActionWorker extends Worker {
+public class MailExpertNotificationActionWorker extends Worker {
     static final String KEY_ACTION = "action";
     static final String KEY_MESSAGE_ID = "messageId";
 
-    public MailFlowNotificationActionWorker(@NonNull Context context, @NonNull WorkerParameters params) {
+    public MailExpertNotificationActionWorker(@NonNull Context context, @NonNull WorkerParameters params) {
         super(context, params);
     }
 
@@ -21,7 +21,7 @@ public class MailFlowNotificationActionWorker extends Worker {
     @Override
     public Result doWork() {
         Context context = getApplicationContext();
-        String host = MailFlowNativePlugin.getSavedHost(context);
+        String host = MailExpertNativePlugin.getSavedHost(context);
         String action = getInputData().getString(KEY_ACTION);
         String messageId = getInputData().getString(KEY_MESSAGE_ID);
         if (host == null || host.isEmpty() || action == null || messageId == null || messageId.isEmpty()) {
@@ -32,9 +32,9 @@ public class MailFlowNotificationActionWorker extends Worker {
         if (cookie == null || cookie.trim().isEmpty()) return Result.failure();
 
         try {
-            if (MailFlowNativePlugin.ACTION_DELETE_MESSAGE.equals(action)) {
+            if (MailExpertNativePlugin.ACTION_DELETE_MESSAGE.equals(action)) {
                 request(host + "/api/mail/messages/" + messageId, "DELETE", cookie, null);
-            } else if (MailFlowNativePlugin.ACTION_STAR_MESSAGE.equals(action)) {
+            } else if (MailExpertNativePlugin.ACTION_STAR_MESSAGE.equals(action)) {
                 request(host + "/api/mail/messages/" + messageId + "/star", "PATCH", cookie, "{\"starred\":true}");
             } else {
                 return Result.failure();
@@ -67,7 +67,7 @@ public class MailFlowNotificationActionWorker extends Worker {
         int status = connection.getResponseCode();
         connection.disconnect();
         if (status < 200 || status >= 300) {
-            throw new IllegalStateException("MailFlow notification action failed: HTTP " + status);
+            throw new IllegalStateException("MailExpert notification action failed: HTTP " + status);
         }
     }
 }

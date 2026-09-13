@@ -23,7 +23,7 @@ import { JSDOM } from 'jsdom';
 // static imports here and is why the modules under test are pulled in with await import().
 const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
   pretendToBeVisual: true,
-  url: 'https://mailflow.test/',
+  url: 'https://mailexpert.test/',
 });
 const { window } = dom;
 

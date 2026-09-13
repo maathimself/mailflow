@@ -19,7 +19,7 @@ function memoryStorage(initial = {}) {
 describe('folderOrder store preference', () => {
   it('sanitizes the locally cached order during store initialization', () => {
     const storage = memoryStorage({
-      mailflow_folder_order: JSON.stringify({
+      mailexpert_folder_order: JSON.stringify({
         saved: ['INBOX', 'Archive', 'INBOX', 42],
         malformed: 'not-an-array',
       }),
@@ -45,7 +45,7 @@ describe('folderOrder store preference', () => {
     };
     assert.deepEqual(next, expected);
     assert.deepEqual(
-      JSON.parse(storage.value('mailflow_folder_order')),
+      JSON.parse(storage.value('mailexpert_folder_order')),
       expected,
     );
   });
@@ -62,14 +62,14 @@ describe('folderOrder store preference', () => {
     };
     assert.deepEqual(next, expected);
     assert.deepEqual(
-      JSON.parse(storage.value('mailflow_folder_order')),
+      JSON.parse(storage.value('mailexpert_folder_order')),
       expected,
     );
   });
 
   it('clears a previous user order when the server has no folderOrder preference', () => {
     const storage = memoryStorage({
-      mailflow_folder_order: JSON.stringify({
+      mailexpert_folder_order: JSON.stringify({
         'previous-user-account': ['Archive', 'INBOX'],
       }),
     });
@@ -78,7 +78,7 @@ describe('folderOrder store preference', () => {
 
     assert.deepEqual(next, {});
     assert.deepEqual(
-      JSON.parse(storage.value('mailflow_folder_order')),
+      JSON.parse(storage.value('mailexpert_folder_order')),
       {},
     );
   });

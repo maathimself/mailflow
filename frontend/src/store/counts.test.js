@@ -22,7 +22,7 @@ afterEach(() => { useStore.getState().setLocked(true); mock.timers.reset(); });
 test('actual store retires each account window on its own backstop when no observation arrives', () => {
   let refreshes = 0;
   const refresh = () => refreshes++;
-  window.addEventListener('mailflow:counts_refresh', refresh);
+  window.addEventListener('mailexpert:counts_refresh', refresh);
   const store = useStore.getState();
   store.decrementUnread('a');
   mock.timers.tick(4000);
@@ -35,7 +35,7 @@ test('actual store retires each account window on its own backstop when no obser
   assert.deepEqual(useStore.getState().pendingCounts,{});
   assert.equal(useStore.getState().unreadCounts.total,30,'adopts the server value it never heard back about');
   assert.equal(refreshes,2);
-  window.removeEventListener('mailflow:counts_refresh',refresh);
+  window.removeEventListener('mailexpert:counts_refresh',refresh);
 });
 
 test('actual store settles on the observation the mutation triggered, without a visible bounce', () => {
@@ -44,7 +44,7 @@ test('actual store settles on the observation the mutation triggered, without a 
   // badge reverted to the pre-read count for 1-2s on every read, move and archive.
   let refreshes = 0;
   const refresh = () => refreshes++;
-  window.addEventListener('mailflow:counts_refresh', refresh);
+  window.addEventListener('mailexpert:counts_refresh', refresh);
   const store = useStore.getState();
   store.decrementUnread('a');
   assert.equal(useStore.getState().unreadCounts.byAccount.a,9);
@@ -58,7 +58,7 @@ test('actual store settles on the observation the mutation triggered, without a 
   mock.timers.tick(PENDING_COUNT_MS * 2);
   assert.equal(useStore.getState().unreadCounts.byAccount.a,9,'and never bounces afterwards');
   assert.equal(refreshes,0,'a settled window must not leave its backstop timer armed');
-  window.removeEventListener('mailflow:counts_refresh',refresh);
+  window.removeEventListener('mailexpert:counts_refresh',refresh);
 });
 test('locking cancels pending work and rejects delayed snapshots', () => {
   useStore.getState().decrementUnread('a');

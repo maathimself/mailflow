@@ -14,17 +14,13 @@ const {
   normalizeHost,
 } = require('./security.cjs');
 
-const CONFIG_FILE = 'mailflow-host.json';
-const UPDATE_STATUS_CHANNEL = 'mailflow:updates:status';
+const CONFIG_FILE = 'mailexpert-host.json';
+const UPDATE_STATUS_CHANNEL = 'mailexpert:updates:status';
 const UPDATE_RELEASE_URL = 'https://api.github.com/repos/wyrtensi/MailExpert/releases/latest';
 
-/* Old dev fork url
-const UPDATE_RELEASE_URL = 'https://api.github.com/repos/dcoffin88/mailflow/releases/latest';
-*/
-
 const UPDATE_ERROR_MESSAGE = 'Could not check for MailExpert updates. Please visit the repository instead.';
-const NATIVE_ACTION_CHANNEL = 'mailflow:native-action';
-const NATIVE_ACTION_ARG = '--mailflow-action=';
+const NATIVE_ACTION_CHANNEL = 'mailexpert:native-action';
+const NATIVE_ACTION_ARG = '--mailexpert-action=';
 const NEW_MAIL_NOTIFICATION_MAX_LENGTH = 240;
 const MAILTO_PROTOCOL = 'mailto';
 const EXTERNAL_LINK_PROTOCOLS = new Set(['http:', 'https:', `${MAILTO_PROTOCOL}:`]);
@@ -34,10 +30,10 @@ const REWRITE_ERROR_PATTERNS = [
 ];
 const HOST_UNAVAILABLE_STATUS_CODES = new Set([404, 502, 503, 504]);
 const LINUX_BADGE_DESKTOP_IDS = [
-  'MailFlow.desktop',
-  'mailflow.desktop',
-  'sh.mailflow.app.desktop',
-  'mailflow-frontend.desktop',
+  'MailExpert.desktop',
+  'mailexpert.desktop',
+  'sh.mailexpert.app.desktop',
+  'mailexpert-frontend.desktop',
 ];
 
 let mainWindow;
@@ -59,12 +55,12 @@ function isAllowedExternalUrl(url) {
 const pendingNativeActions = new Map();
 const pendingProtocolUrls = [];
 
-app.setName('MailFlow');
+app.setName('MailExpert');
 if (process.platform === 'win32') {
-  app.setAppUserModelId('sh.mailflow.app');
+  app.setAppUserModelId('sh.mailexpert.app');
 }
 if (process.platform === 'linux' && typeof app.setDesktopName === 'function') {
-  app.setDesktopName('MailFlow.desktop');
+  app.setDesktopName('MailExpert.desktop');
 }
 
 if (process.platform === 'linux' && process.env.APPIMAGE) {
@@ -102,15 +98,15 @@ function registerWindowsMailtoCapabilities() {
     const exePath = process.execPath;
     const command = `"${exePath}" "%1"`;
 
-    writeCurrentUserRegValue('HKCU\\Software\\RegisteredApplications', 'MailFlow', 'Software\\Clients\\Mail\\MailFlow\\Capabilities');
-    writeCurrentUserRegValue('HKCU\\Software\\Clients\\Mail\\MailFlow', '', 'MailFlow');
-    writeCurrentUserRegValue('HKCU\\Software\\Clients\\Mail\\MailFlow\\Capabilities', 'ApplicationName', 'MailFlow');
-    writeCurrentUserRegValue('HKCU\\Software\\Clients\\Mail\\MailFlow\\Capabilities', 'ApplicationDescription', 'A self-hosted, unified webmail client.');
-    writeCurrentUserRegValue('HKCU\\Software\\Clients\\Mail\\MailFlow\\Capabilities\\URLAssociations', 'mailto', 'MailFlow.mailto');
-    writeCurrentUserRegValue('HKCU\\Software\\Classes\\MailFlow.mailto', '', 'URL:MailFlow MailTo Protocol');
-    writeCurrentUserRegValue('HKCU\\Software\\Classes\\MailFlow.mailto', 'URL Protocol', '');
-    writeCurrentUserRegValue('HKCU\\Software\\Classes\\MailFlow.mailto\\DefaultIcon', '', `${exePath},0`);
-    writeCurrentUserRegValue('HKCU\\Software\\Classes\\MailFlow.mailto\\shell\\open\\command', '', command);
+    writeCurrentUserRegValue('HKCU\\Software\\RegisteredApplications', 'MailExpert', 'Software\\Clients\\Mail\\MailExpert\\Capabilities');
+    writeCurrentUserRegValue('HKCU\\Software\\Clients\\Mail\\MailExpert', '', 'MailExpert');
+    writeCurrentUserRegValue('HKCU\\Software\\Clients\\Mail\\MailExpert\\Capabilities', 'ApplicationName', 'MailExpert');
+    writeCurrentUserRegValue('HKCU\\Software\\Clients\\Mail\\MailExpert\\Capabilities', 'ApplicationDescription', 'A self-hosted, unified webmail client.');
+    writeCurrentUserRegValue('HKCU\\Software\\Clients\\Mail\\MailExpert\\Capabilities\\URLAssociations', 'mailto', 'MailExpert.mailto');
+    writeCurrentUserRegValue('HKCU\\Software\\Classes\\MailExpert.mailto', '', 'URL:MailExpert MailTo Protocol');
+    writeCurrentUserRegValue('HKCU\\Software\\Classes\\MailExpert.mailto', 'URL Protocol', '');
+    writeCurrentUserRegValue('HKCU\\Software\\Classes\\MailExpert.mailto\\DefaultIcon', '', `${exePath},0`);
+    writeCurrentUserRegValue('HKCU\\Software\\Classes\\MailExpert.mailto\\shell\\open\\command', '', command);
 
     return true;
   } catch (error) {
@@ -283,7 +279,7 @@ function getInstalledLinuxPackageType() {
 function getLinuxPackageManagerVersion(packageType) {
   if (process.platform !== 'linux' || !['deb', 'rpm'].includes(packageType)) return null;
 
-  const packageNames = ['MailExpert', 'mailexpert', 'mailexpert-frontend', 'mailflow', 'MailFlow', 'mailflow-frontend'];
+  const packageNames = ['MailExpert', 'mailexpert', 'mailexpert-frontend', 'mailexpert', 'MailExpert', 'mailexpert-frontend'];
   for (const packageName of packageNames) {
     try {
       const args = packageType === 'rpm'
@@ -411,10 +407,10 @@ function showInAppNotification({ title = '', message = '', type = 'info', action
   const payload = JSON.stringify({ title, message, type, actionLabel, action, persistent });
   mainWindow.webContents.executeJavaScript(`
     (() => {
-      if (window.__mailflowNativeBridgeReady) return;
+      if (window.__mailexpertNativeBridgeReady) return;
 
       const notification = ${payload};
-      const id = 'mailflow-electron-toasts';
+      const id = 'mailexpert-electron-toasts';
       let root = document.getElementById(id);
 
       if (!root) {
@@ -510,9 +506,9 @@ function showInAppNotification({ title = '', message = '', type = 'info', action
         action.style.flex = '0 0 auto';
         action.addEventListener('click', () => {
           if (notification.action === 'install-update') {
-            window.mailflowNative?.updates?.installDownloaded?.();
+            window.mailexpertNative?.updates?.installDownloaded?.();
           } else if (notification.action === 'copy-update-command-and-quit') {
-            window.mailflowNative?.updates?.copyInstallCommandAndQuit?.();
+            window.mailexpertNative?.updates?.copyInstallCommandAndQuit?.();
           }
           dismiss();
         });
@@ -546,7 +542,7 @@ function showInAppNotification({ title = '', message = '', type = 'info', action
 function notifyUpdateStatus({ title, message, type = 'info' }) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   showInAppNotification({ title, message, type });
-  mainWindow.webContents.send('mailflow:notifications:push', { title, message, type });
+  mainWindow.webContents.send('mailexpert:notifications:push', { title, message, type });
 }
 
 function cleanNotificationText(value, fallback = '') {
@@ -558,7 +554,7 @@ function cleanNotificationText(value, fallback = '') {
   return `${text.slice(0, NEW_MAIL_NOTIFICATION_MAX_LENGTH - 1)}…`;
 }
 
-function requestMailFlowApi(url, { method, body } = {}) {
+function requestMailExpertApi(url, { method, body } = {}) {
   return session.defaultSession.cookies.get({ url: readHost() })
     .then((cookies) => new Promise((resolve, reject) => {
       const parsedUrl = new URL(url);
@@ -593,13 +589,13 @@ function runBackgroundMailAction(action, messageId) {
 
   const encodedMessageId = encodeURIComponent(messageId);
   if (action === 'delete-message') {
-    return requestMailFlowApi(`${host}/api/mail/messages/${encodedMessageId}`, {
+    return requestMailExpertApi(`${host}/api/mail/messages/${encodedMessageId}`, {
       method: 'DELETE',
     });
   }
 
   if (action === 'star-message') {
-    return requestMailFlowApi(`${host}/api/mail/messages/${encodedMessageId}/star`, {
+    return requestMailExpertApi(`${host}/api/mail/messages/${encodedMessageId}/star`, {
       method: 'PATCH',
       body: { starred: true },
     });
@@ -1219,7 +1215,7 @@ function nativeActionMenuItems() {
   ];
 }
 
-function changeMailFlowHost() {
+function changeMailExpertHost() {
   clearHost();
   showMainWindow();
   loadSetup();
@@ -1230,7 +1226,7 @@ function fileMenuItems() {
     {
       label: 'Change MailExpert Host',
       accelerator: 'CmdOrCtrl+,',
-      click: changeMailFlowHost,
+      click: changeMailExpertHost,
     },
   ];
 }
@@ -1322,7 +1318,7 @@ function buildDarwinMenuTemplate() {
         {
           label: 'Preferences',
           accelerator: 'Command+,',
-          click: changeMailFlowHost,
+          click: changeMailExpertHost,
         },
         { label: 'Services', role: 'services', submenu: [] },
         { type: 'separator' },
@@ -1738,9 +1734,9 @@ function scheduleStartupUpdateCheck() {
   check();
 }
 
-ipcMain.handle('mailflow:getHost', () => readHost());
+ipcMain.handle('mailexpert:getHost', () => readHost());
 
-ipcMain.handle('mailflow:saveHost', async (_event, host) => {
+ipcMain.handle('mailexpert:saveHost', async (_event, host) => {
   const normalized = normalizeHost(host);
   if (new URL(normalized).protocol === 'http:') {
     const result = await dialog.showMessageBox(mainWindow, {
@@ -1762,45 +1758,45 @@ ipcMain.handle('mailflow:saveHost', async (_event, host) => {
   return normalized;
 });
 
-ipcMain.handle('mailflow:resetHost', () => {
+ipcMain.handle('mailexpert:resetHost', () => {
   clearHost();
   loadSetup();
 });
 
-ipcMain.handle('mailflow:badge:set-unread-count', (_event, count) => {
+ipcMain.handle('mailexpert:badge:set-unread-count', (_event, count) => {
   const unreadCount = Math.max(0, Number.parseInt(count, 10) || 0);
   return setUnreadBadgeCount(unreadCount);
 });
 
-ipcMain.handle('mailflow:notification:new-mail', (_event, notification) => {
+ipcMain.handle('mailexpert:notification:new-mail', (_event, notification) => {
   return showNewMailNotification(notification);
 });
 
-ipcMain.handle('mailflow:updates:check', async (_event, { verbose } = {}) => {
+ipcMain.handle('mailexpert:updates:check', async (_event, { verbose } = {}) => {
   return checkForUpdates(verbose);
 });
 
-ipcMain.handle('mailflow:updates:install-downloaded', () => {
+ipcMain.handle('mailexpert:updates:install-downloaded', () => {
   return installDownloadedUpdate();
 });
 
-ipcMain.handle('mailflow:updates:install-auto', () => {
+ipcMain.handle('mailexpert:updates:install-auto', () => {
   return installDownloadedUpdate();
 });
 
-ipcMain.handle('mailflow:updates:copy-install-command-and-quit', (_event, options) => {
+ipcMain.handle('mailexpert:updates:copy-install-command-and-quit', (_event, options) => {
   return copyLinuxUpdateCommandAndQuit(options);
 });
 
-ipcMain.handle('mailflow:updates:open-download', () => {
+ipcMain.handle('mailexpert:updates:open-download', () => {
   openDownloadedUpdatePath();
 });
 
-ipcMain.handle('mailflow:native-actions:pending', () => {
+ipcMain.handle('mailexpert:native-actions:pending', () => {
   return Array.from(pendingNativeActions.values());
 });
 
-ipcMain.handle('mailflow:native-actions:ack', (_event, id) => {
+ipcMain.handle('mailexpert:native-actions:ack', (_event, id) => {
   pendingNativeActions.delete(id);
 });
 

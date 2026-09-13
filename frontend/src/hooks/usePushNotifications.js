@@ -42,7 +42,7 @@ export function usePushNotifications() {
     if (!ok) return;
 
     setPermission(Notification.permission);
-    window.mailflowNative?.notifications?.checkPermission?.()
+    window.mailexpertNative?.notifications?.checkPermission?.()
       .then((nativePermission) => setPermission(nativePermission || Notification.permission))
       .catch(() => {});
 
@@ -72,8 +72,8 @@ export function usePushNotifications() {
   const subscribe = async () => {
     setLoading(true);
     try {
-      const perm = window.mailflowNative?.notifications?.requestPermission
-        ? await window.mailflowNative.notifications.requestPermission()
+      const perm = window.mailexpertNative?.notifications?.requestPermission
+        ? await window.mailexpertNative.notifications.requestPermission()
         : await Notification.requestPermission();
       setPermission(perm);
       if (perm !== 'granted') return false;

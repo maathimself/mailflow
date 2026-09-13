@@ -8,6 +8,7 @@ const frontendRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = resolve(frontendRoot, '..');
 
 const read = (path) => readFileSync(path, 'utf8');
+const legacyBrandPattern = new RegExp(['Mail', 'Flow'].join(''), 'i');
 
 test('uses MailExpert in product-facing metadata and documentation', () => {
   const frontendPackage = JSON.parse(read(join(frontendRoot, 'package.json')));
@@ -28,13 +29,23 @@ test('uses MailExpert in product-facing metadata and documentation', () => {
   const nativeSetup = read(join(frontendRoot, 'packages', 'native-shell', 'index.html'));
   const nativeUnavailable = read(join(frontendRoot, 'packages', 'native-shell', 'host-unavailable.html'));
   const electronMain = read(join(frontendRoot, 'packages', 'electron', 'main.cjs'));
-  const androidPlugin = read(join(frontendRoot, 'packages', 'android', 'app', 'src', 'main', 'java', 'sh', 'mailflow', 'app', 'MailFlowNativePlugin.java'));
-  assert.doesNotMatch(nativeSetup, /<title>MailFlow|>Connect MailFlow<|your MailFlow server/);
-  assert.doesNotMatch(nativeUnavailable, /<title>MailFlow|alt="MailFlow"|>MailFlow could not/);
+  const androidPlugin = read(join(frontendRoot, 'packages', 'android', 'app', 'src', 'main', 'java', 'sh', 'mailexpert', 'app', 'MailExpertNativePlugin.java'));
+  const capacitorConfig = JSON.parse(read(join(frontendRoot, 'packages', 'capacitor.config.json')));
+  const compose = read(join(repositoryRoot, 'docker-compose.yml'));
+  const store = read(join(frontendRoot, 'src', 'store', 'index.js'));
+  const favicon = read(join(frontendRoot, 'public', 'favicon.svg'));
+  assert.doesNotMatch(nativeSetup, legacyBrandPattern);
+  assert.doesNotMatch(nativeUnavailable, legacyBrandPattern);
   assert.match(electronMain, /api\.github\.com\/repos\/wyrtensi\/MailExpert\/releases\/latest/);
   assert.match(androidPlugin, /api\.github\.com\/repos\/wyrtensi\/MailExpert\/releases\/latest/);
-  assert.doesNotMatch(electronMain, /api\.github\.com\/repos\/maathimself\/mailflow\/releases/);
-  assert.doesNotMatch(androidPlugin, /api\.github\.com\/repos\/maathimself\/mailflow\/releases/);
+  assert.equal(capacitorConfig.appId, 'sh.mailexpert.app');
+  assert.doesNotMatch(electronMain, legacyBrandPattern);
+  assert.doesNotMatch(androidPlugin, legacyBrandPattern);
+  assert.doesNotMatch(compose, legacyBrandPattern);
+  assert.doesNotMatch(store, legacyBrandPattern);
+  assert.match(favicon, /#1ea7ff/);
+  assert.match(favicon, /#e4002b/);
+  assert.doesNotMatch(favicon, legacyBrandPattern);
 });
 
 test('does not expose the upstream name in localized product copy', () => {
@@ -44,7 +55,7 @@ test('does not expose the upstream name in localized product copy', () => {
   for (const localeFile of localeFiles) {
     assert.doesNotMatch(
       read(join(localesDir, localeFile)),
-      /MailFlow/,
+      legacyBrandPattern,
       `${localeFile} still contains the upstream product name`,
     );
   }

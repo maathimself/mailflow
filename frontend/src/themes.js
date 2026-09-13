@@ -578,30 +578,8 @@ export const THEMES = {
 
 // ── Color helpers ────────────────────────────────────────────────────────────
 
-function hexToRgb(hex) {
-  return [
-    parseInt(hex.slice(1, 3), 16),
-    parseInt(hex.slice(3, 5), 16),
-    parseInt(hex.slice(5, 7), 16),
-  ];
-}
-
-function lighten(hex, t) {
-  return '#' + hexToRgb(hex)
-    .map(c => Math.min(255, Math.round(c + (255 - c) * t)).toString(16).padStart(2, '0'))
-    .join('');
-}
-
-function darken(hex, t) {
-  return '#' + hexToRgb(hex)
-    .map(c => Math.round(c * (1 - t)).toString(16).padStart(2, '0'))
-    .join('');
-}
-
 function buildFaviconSvg(accent, count = 0) {
-  const light = lighten(accent, 0.25);
-  const dark  = darken(accent, 0.30);
-  const [dr, dg, db] = hexToRgb(dark);
+  void accent;
 
   let badge = '';
   if (count > 0) {
@@ -617,26 +595,22 @@ function buildFaviconSvg(accent, count = 0) {
 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="${light}"/>
-      <stop offset="100%" stop-color="${dark}"/>
+    <linearGradient id="bg" x1="3" y1="2" x2="29" y2="30" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1ea7ff"/>
+      <stop offset="0.48" stop-color="#1261e8"/>
+      <stop offset="1" stop-color="#071b63"/>
     </linearGradient>
-    <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="rgba(255,255,255,0.14)"/>
-      <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
+    <linearGradient id="accent" x1="13" y1="17" x2="19" y2="21" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff7158"/>
+      <stop offset="1" stop-color="#e4002b"/>
     </linearGradient>
-    <clipPath id="ec">
-      <rect x="5" y="10.5" width="22" height="15" rx="2.5"/>
-    </clipPath>
   </defs>
-  <rect width="32" height="32" rx="7.5" fill="url(#bg)"/>
-  <rect width="32" height="16" rx="7.5" fill="url(#shine)"/>
-  <rect x="5" y="11.5" width="22" height="15" rx="2.5" fill="rgba(0,0,0,0.18)"/>
-  <rect x="5" y="10.5" width="22" height="15" rx="2.5" fill="white"/>
-  <path d="M5,10.5 L16,20.5 L27,10.5 Z" fill="rgba(${dr},${dg},${db},0.10)" clip-path="url(#ec)"/>
-  <path d="M5,10.5 L16,20.5 L27,10.5" fill="none" stroke="rgba(${dr},${dg},${db},0.38)" stroke-width="1.4" stroke-linejoin="round" clip-path="url(#ec)"/>
-  <line x1="5" y1="25.5" x2="13" y2="20" stroke="rgba(${dr},${dg},${db},0.16)" stroke-width="1.1"/>
-  <line x1="27" y1="25.5" x2="19" y2="20" stroke="rgba(${dr},${dg},${db},0.16)" stroke-width="1.1"/>
+  <rect x="1" y="1" width="30" height="30" rx="7.5" fill="url(#bg)"/>
+  <path d="M2.2 8.3C8.4 3.4 17.1 1.4 28.7 2.8C20.5 4.6 10.6 9 2 16.8V9.5C2 9.1 2.1 8.7 2.2 8.3Z" fill="white" opacity="0.09"/>
+  <rect x="5.5" y="10.2" width="21" height="14.4" rx="2.7" fill="white"/>
+  <path d="M5.8 11.1L16 19.3L26.2 11.1" fill="none" stroke="#cbdcf7" stroke-width="1.45" stroke-linejoin="round"/>
+  <path d="M5.8 23.8L13.1 18.1M26.2 23.8L18.9 18.1" fill="none" stroke="#dce8fa" stroke-width="1.1"/>
+  <path d="M13.1 17.1L16 19.3L18.9 17.1L16 21.1L13.1 17.1Z" fill="url(#accent)"/>
   ${badge}
 </svg>`;
 }
@@ -675,13 +649,13 @@ export function senderColor(email) {
 
 // ── Custom CSS injection ───────────────────────────────────────────────────────
 
-const CUSTOM_CSS_ID = 'mailflow-custom-css';
+const CUSTOM_CSS_ID = 'mailexpert-custom-css';
 
 export function applyCustomCss(css) {
   let el = document.getElementById(CUSTOM_CSS_ID);
   if (!css) {
     if (el) el.remove();
-    refreshAccentDerived(); // revert favicon/logo if the removed CSS was overriding --accent
+    refreshAccentDerived(); // revert favicon and browser theme color
     return;
   }
   if (!el) {
@@ -690,7 +664,7 @@ export function applyCustomCss(css) {
     document.head.appendChild(el);
   }
   el.textContent = css;
-  refreshAccentDerived(); // flow a custom --accent override through to favicon/logo
+  refreshAccentDerived(); // flow a custom --accent override through browser chrome
 }
 
 // ── Theme application ─────────────────────────────────────────────────────────
@@ -708,8 +682,7 @@ export function getInitialTheme() {
 // ── Effective accent (theme value, or a custom-CSS override of --accent) ───────
 
 // The accent actually in effect. A custom-CSS override of --accent wins over the
-// theme's declared value, so JS-driven chrome (favicon, PWA theme-color, the logo
-// mark) reads the *computed* value to match what var(--accent) resolves to in CSS.
+// theme's declared value, so JS-driven browser chrome reads the computed value.
 export function getEffectiveAccent(fallback = '#7c6af7') {
   try {
     const v = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
@@ -717,17 +690,8 @@ export function getEffectiveAccent(fallback = '#7c6af7') {
   } catch { return fallback; }
 }
 
-// Subscribers (e.g. the logo mark) notified when the effective accent changes, so
-// they update on a custom-CSS accent override too — not only on a theme switch.
-const _accentListeners = new Set();
-export function subscribeAccent(fn) {
-  _accentListeners.add(fn);
-  return () => { _accentListeners.delete(fn); };
-}
-
-// Recompute everything derived from the accent (favicon, PWA theme-color, logo)
-// from the *effective* accent. Called after both applyTheme and applyCustomCss so
-// the accent's source (preset theme or custom override) doesn't matter.
+// Recompute browser chrome from the effective accent. Called after both
+// applyTheme and applyCustomCss so the accent source does not matter.
 function refreshAccentDerived() {
   const accent = getEffectiveAccent();
   if (!accent.startsWith('#')) return; // favicon rasteriser + meta expect a hex colour
@@ -740,9 +704,6 @@ function refreshAccentDerived() {
   }
   _applyFavicon(accent);
   if (_badgeCount > 0) _warmBase(accent);
-  _accentListeners.forEach(fn => {
-    try { fn(accent); } catch { /* a listener error must not break theming */ }
-  });
 }
 
 export function applyTheme(themeName) {
@@ -751,22 +712,22 @@ export function applyTheme(themeName) {
   // Expose the active theme as an attribute so a theme can layer scoped skeuomorphic
   // chrome (beveled scrollbars, selection tint) via CSS in index.css without adding
   // structural tokens to every palette. Retro themes (winxp/win9x) use this.
-  document.documentElement.setAttribute('data-mailflow-theme', THEMES[themeName] ? themeName : 'dark');
+  document.documentElement.setAttribute('data-mailexpert-theme', THEMES[themeName] ? themeName : 'dark');
 
   // Inject vars via a <style> element rather than root.style.setProperty so
-  // that <style id="mailflow-custom-css"> (appended afterward) can override
+  // that <style id="mailexpert-custom-css"> (appended afterward) can override
   // theme variables at equal specificity using normal cascade source order.
-  let themeEl = document.getElementById('mailflow-theme');
+  let themeEl = document.getElementById('mailexpert-theme');
   if (!themeEl) {
     themeEl = document.createElement('style');
-    themeEl.id = 'mailflow-theme';
+    themeEl.id = 'mailexpert-theme';
     document.head.appendChild(themeEl);
   }
   themeEl.textContent = `:root {\n${
     Object.entries(theme.vars).map(([k, v]) => `  ${k}: ${v};`).join('\n')
   }\n}`;
 
-  // Recompute favicon + PWA theme-color + logo from the *effective* accent. If a
+  // Recompute favicon and PWA theme color from the effective accent. If a
   // custom-CSS override of --accent is present, getComputedStyle picks it up here;
   // applyCustomCss also re-runs this so an override applied afterwards is reflected.
   refreshAccentDerived();

@@ -24,7 +24,7 @@ const router = Router();
 
 // A precomputed valid bcrypt hash used to equalize login timing when the account
 // doesn't exist or is SSO-only, so response latency doesn't leak account existence.
-const DUMMY_PASSWORD_HASH = bcrypt.hashSync('mailflow-timing-equalizer', 12);
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync('mailexpert-timing-equalizer', 12);
 
 function maskEmail(email) {
   if (!email) return '';

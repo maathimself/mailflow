@@ -1,6 +1,6 @@
 import { sanitizeFolderOrder } from '../utils/sidebar.js';
 
-const STORAGE_KEY = 'mailflow_folder_order';
+const STORAGE_KEY = 'mailexpert_folder_order';
 
 export function cacheFolderOrder(value, storage = localStorage) {
   const clean = sanitizeFolderOrder(value);

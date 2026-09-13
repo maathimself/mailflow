@@ -28,7 +28,7 @@ async function fetchDomainList(url) {
     try {
       // safeFetch re-validates on every hop, so the refresh path (which doesn't
       // re-run validateSubscriptionUrl) and any redirect can't reach internal IPs.
-      res = await safeFetch(url, { signal: controller.signal, headers: { 'User-Agent': 'Mailflow/1.0' } });
+      res = await safeFetch(url, { signal: controller.signal, headers: { 'User-Agent': 'MailExpert/1.0' } });
     } finally {
       clearTimeout(timer);
     }

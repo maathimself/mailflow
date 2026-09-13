@@ -24,7 +24,7 @@ describe('shouldSyncFolder: the bug it exists to fix', () => {
 
 describe('shouldSyncFolder: the refresh loop it must not create', () => {
   test('refuses a second sync immediately after one', () => {
-    // A finished sync broadcasts sync_complete, which becomes mailflow:refresh, which
+    // A finished sync broadcasts sync_complete, which becomes mailexpert:refresh, which
     // re-runs the effect that triggered the sync. Returning true here would loop forever.
     assert.equal(shouldSyncFolder({ accountId: ACC, folder: 'Sent Items', lastSyncedAt: NOW, now: NOW }), false);
   });

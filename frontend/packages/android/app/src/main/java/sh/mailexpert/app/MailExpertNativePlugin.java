@@ -1,4 +1,4 @@
-package sh.mailflow.app;
+package sh.mailexpert.app;
 
 import android.Manifest;
 import android.app.AlertDialog;
@@ -49,24 +49,24 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 @CapacitorPlugin(
-    name = "MailFlowNative",
+    name = "MailExpertNative",
     permissions = {
         @Permission(alias = "notifications", strings = { Manifest.permission.POST_NOTIFICATIONS })
     }
 )
-public class MailFlowNativePlugin extends Plugin {
-    static final String ACTION_OPEN_MESSAGE = "sh.mailflow.app.OPEN_MESSAGE";
-    static final String ACTION_REPLY_MESSAGE = "sh.mailflow.app.REPLY_MESSAGE";
-    static final String ACTION_DELETE_MESSAGE = "sh.mailflow.app.DELETE_MESSAGE";
-    static final String ACTION_STAR_MESSAGE = "sh.mailflow.app.STAR_MESSAGE";
-    static final String ACTION_COMPOSE = "sh.mailflow.app.COMPOSE";
-    static final String ACTION_SYNC = "sh.mailflow.app.SYNC";
-    static final String ACTION_INSTALL_UPDATE = "sh.mailflow.app.INSTALL_UPDATE";
-    private static final String EXTRA_INTENT_SECRET = "sh.mailflow.app.INTENT_SECRET";
-    private static final String TAG = "MailFlowUpdater";
-    private static final String CHANNEL_NEW_MAIL = "mailflow_new_mail";
-    private static final String CHANNEL_UPDATES = "mailflow_updates";
-    private static final String PREFS_NAME = "mailflow-native";
+public class MailExpertNativePlugin extends Plugin {
+    static final String ACTION_OPEN_MESSAGE = "sh.mailexpert.app.OPEN_MESSAGE";
+    static final String ACTION_REPLY_MESSAGE = "sh.mailexpert.app.REPLY_MESSAGE";
+    static final String ACTION_DELETE_MESSAGE = "sh.mailexpert.app.DELETE_MESSAGE";
+    static final String ACTION_STAR_MESSAGE = "sh.mailexpert.app.STAR_MESSAGE";
+    static final String ACTION_COMPOSE = "sh.mailexpert.app.COMPOSE";
+    static final String ACTION_SYNC = "sh.mailexpert.app.SYNC";
+    static final String ACTION_INSTALL_UPDATE = "sh.mailexpert.app.INSTALL_UPDATE";
+    private static final String EXTRA_INTENT_SECRET = "sh.mailexpert.app.INTENT_SECRET";
+    private static final String TAG = "MailExpertUpdater";
+    private static final String CHANNEL_NEW_MAIL = "mailexpert_new_mail";
+    private static final String CHANNEL_UPDATES = "mailexpert_updates";
+    private static final String PREFS_NAME = "mailexpert-native";
     private static final String PREF_HOST = "host";
     private static final String PREF_INTENT_SECRET = "intent_secret";
     private static final String PREF_UPDATE_APK_PATH = "update_apk_path";
@@ -76,15 +76,11 @@ public class MailFlowNativePlugin extends Plugin {
     private static final String SETUP_URL = "file:///android_asset/public/index.html";
     private static final String UPDATE_RELEASE_URL = "https://api.github.com/repos/wyrtensi/MailExpert/releases/latest";
     
-    /* Old dev fork url
-    private static final String UPDATE_RELEASE_URL = "https://api.github.com/repos/dcoffin88/mailflow/releases/latest";
-    */
-    
     private static final String UPDATE_ERROR_MESSAGE = "Could not check for MailExpert updates. Please visit the repository instead.";
     private static final Pattern VERSION_PATTERN = Pattern.compile("\\d+(?:\\.\\d+){0,2}");
 
     private static final List<JSObject> pendingActions = new ArrayList<>();
-    private static MailFlowNativePlugin instance;
+    private static MailExpertNativePlugin instance;
     private ReleaseInfo updateInfo = null;
     private File downloadedUpdate = null;
     private boolean updateCheckStarted = false;
@@ -138,7 +134,7 @@ public class MailFlowNativePlugin extends Plugin {
         if (getActivity() instanceof MainActivity) {
             ((MainActivity) getActivity()).configureNativeMessageBridge(normalizedHost);
         }
-        MailFlowBackgroundSync.schedule(getContext());
+        MailExpertBackgroundSync.schedule(getContext());
 
         JSObject result = new JSObject();
         result.put("host", normalizedHost);
@@ -159,8 +155,8 @@ public class MailFlowNativePlugin extends Plugin {
     public void setUnreadCount(PluginCall call) {
         Integer count = call.getInt("count");
         if (count != null) {
-            MailFlowBackgroundWorker.updateUnreadBaseline(getContext(), count);
-            MailFlowBackgroundSync.schedule(getContext());
+            MailExpertBackgroundWorker.updateUnreadBaseline(getContext(), count);
+            MailExpertBackgroundSync.schedule(getContext());
         }
         call.resolve();
     }
@@ -372,7 +368,7 @@ public class MailFlowNativePlugin extends Plugin {
         boolean backgroundAction = ACTION_DELETE_MESSAGE.equals(action) || ACTION_STAR_MESSAGE.equals(action);
         Intent intent = new Intent(
             context,
-            backgroundAction ? MailFlowNotificationActionReceiver.class : MainActivity.class
+            backgroundAction ? MailExpertNotificationActionReceiver.class : MainActivity.class
         );
         intent.setAction(action);
         authenticateIntent(context, intent);
@@ -464,16 +460,16 @@ public class MailFlowNativePlugin extends Plugin {
 
         String actionJson = new JSArray(actions).toString();
         String script = "(function(actions){"
-            + "window.__mailflowPendingNativeActions=(window.__mailflowPendingNativeActions||[]).concat(actions);"
+            + "window.__mailexpertPendingNativeActions=(window.__mailexpertPendingNativeActions||[]).concat(actions);"
             + "var delivered=false;"
             + "var deliver=function(force){"
             + "if(delivered)return true;"
-            + "if(!force&&window.__mailflowNativeBridgeReady!==true)return false;"
+            + "if(!force&&window.__mailexpertNativeBridgeReady!==true)return false;"
             + "delivered=true;"
             + "actions.forEach(function(payload){"
-            + "window.dispatchEvent(new CustomEvent('mailflow:native-action',{detail:payload}));"
+            + "window.dispatchEvent(new CustomEvent('mailexpert:native-action',{detail:payload}));"
             + "});"
-            + "window.dispatchEvent(new CustomEvent('mailflow:native-actions-ready'));"
+            + "window.dispatchEvent(new CustomEvent('mailexpert:native-actions-ready'));"
             + "return true;"
             + "};"
             + "if(!deliver(false)){"
@@ -500,25 +496,25 @@ public class MailFlowNativePlugin extends Plugin {
             + "return true;"
             + "};"
             + "}"
-            + "var androidBridge=window.MailFlowAndroid;"
-            + "var nativeRequests=window.__mailflowAndroidRequests=window.__mailflowAndroidRequests||{};"
+            + "var androidBridge=window.MailExpertAndroid;"
+            + "var nativeRequests=window.__mailexpertAndroidRequests=window.__mailexpertAndroidRequests||{};"
             + "if(androidBridge&&typeof androidBridge.postMessage==='function'){androidBridge.onmessage=function(event){try{var response=JSON.parse(event.data||'{}');var resolve=nativeRequests[response.id];if(!resolve)return;delete nativeRequests[response.id];resolve(response.result||null);}catch(e){}};}"
             + "var nativeCall=function(method,args,fallback){if(!androidBridge||typeof androidBridge.postMessage!=='function')return Promise.resolve(fallback||null);return new Promise(function(resolve){var id=String(Date.now())+Math.random();nativeRequests[id]=resolve;androidBridge.postMessage(JSON.stringify({id:id,method:method,args:args||{}}));});};"
-            + "var plugin=function(){return window.Capacitor&&window.Capacitor.Plugins&&window.Capacitor.Plugins.MailFlowNative;};"
+            + "var plugin=function(){return window.Capacitor&&window.Capacitor.Plugins&&window.Capacitor.Plugins.MailExpertNative;};"
             + "var call=function(method,args,fallback){var p=plugin();if(!p||typeof p[method]!=='function')return Promise.resolve(fallback||null);return p[method](args||{}).catch(function(){return fallback||null;});};"
-            + "window.mailflowNative=window.mailflowNative||{};"
-            + "window.mailflowNative.platform='android';"
-            + "window.mailflowNative.updates=window.mailflowNative.updates||{};"
-            + "window.mailflowNative.updates.check=function(verbose){return call('checkForUpdates',{verbose:!!verbose});};"
-            + "window.mailflowNative.updates.installDownloaded=function(){return nativeCall('installDownloadedUpdate',{},null).then(function(result){return result||call('installDownloadedUpdate',{}, {installed:false,reason:'unavailable'});});};"
-            + "window.mailflowNative.updates.installAuto=window.mailflowNative.updates.installDownloaded;"
-            + "window.mailflowNative.updates.openDownload=function(){return call('openDownloadedUpdate',{});};"
-            + "window.mailflowNative.updates.onStatus=function(callback){if(typeof callback!=='function')return function(){};var handler=function(event){callback(event.detail);};window.addEventListener('mailflow:update-status',handler);return function(){window.removeEventListener('mailflow:update-status',handler);};};"
-            + "window.mailflowNative.notifications=window.mailflowNative.notifications||{};"
-            + "window.mailflowNative.notifications.showNewMail=function(notification){return nativeCall('showNewMail',notification||{},null).then(function(result){return result||call('showNewMail',notification||{});});};"
-            + "window.mailflowNative.notifications.checkPermission=function(){return call('checkNotificationPermission',{},{}).then(function(result){return result&&result.permission||'default';});};"
-            + "window.mailflowNative.notifications.requestPermission=function(){return call('requestNotificationPermission',{},{}).then(function(result){return result&&result.permission||'default';});};"
-            + "window.mailflowNative.notifications.openSettings=function(){return call('openNotificationSettings',{});};"
+            + "window.mailexpertNative=window.mailexpertNative||{};"
+            + "window.mailexpertNative.platform='android';"
+            + "window.mailexpertNative.updates=window.mailexpertNative.updates||{};"
+            + "window.mailexpertNative.updates.check=function(verbose){return call('checkForUpdates',{verbose:!!verbose});};"
+            + "window.mailexpertNative.updates.installDownloaded=function(){return nativeCall('installDownloadedUpdate',{},null).then(function(result){return result||call('installDownloadedUpdate',{}, {installed:false,reason:'unavailable'});});};"
+            + "window.mailexpertNative.updates.installAuto=window.mailexpertNative.updates.installDownloaded;"
+            + "window.mailexpertNative.updates.openDownload=function(){return call('openDownloadedUpdate',{});};"
+            + "window.mailexpertNative.updates.onStatus=function(callback){if(typeof callback!=='function')return function(){};var handler=function(event){callback(event.detail);};window.addEventListener('mailexpert:update-status',handler);return function(){window.removeEventListener('mailexpert:update-status',handler);};};"
+            + "window.mailexpertNative.notifications=window.mailexpertNative.notifications||{};"
+            + "window.mailexpertNative.notifications.showNewMail=function(notification){return nativeCall('showNewMail',notification||{},null).then(function(result){return result||call('showNewMail',notification||{});});};"
+            + "window.mailexpertNative.notifications.checkPermission=function(){return call('checkNotificationPermission',{},{}).then(function(result){return result&&result.permission||'default';});};"
+            + "window.mailexpertNative.notifications.requestPermission=function(){return call('requestNotificationPermission',{},{}).then(function(result){return result&&result.permission||'default';});};"
+            + "window.mailexpertNative.notifications.openSettings=function(){return call('openNotificationSettings',{});};"
             + "}catch(e){}})();";
 
         webView.post(() -> webView.evaluateJavascript(script, null));
@@ -1050,7 +1046,7 @@ public class MailFlowNativePlugin extends Plugin {
 
         if (getBridge() == null || getBridge().getWebView() == null) return;
         String script = "(function(status){"
-            + "window.dispatchEvent(new CustomEvent('mailflow:update-status',{detail:status}));"
+            + "window.dispatchEvent(new CustomEvent('mailexpert:update-status',{detail:status}));"
             + "})(" + status.toString() + ");";
         getBridge().getWebView().post(() -> getBridge().getWebView().evaluateJavascript(script, null));
     }

@@ -61,7 +61,7 @@ function unfold(raw) {
 
 /**
  * Parse a vCard 3.0 string and return a plain object with the fields
- * MailFlow cares about. Unknown properties are silently ignored.
+ * MailExpert cares about. Unknown properties are silently ignored.
  *
  * Returns: { uid, displayName, firstName, lastName, emails, phones, organization, notes, photoData }
  */

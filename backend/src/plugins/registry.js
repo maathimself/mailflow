@@ -1,4 +1,4 @@
-// Plugin registry — the backbone of the MailFlow plugin platform (v3.0).
+// Plugin registry — the backbone of the MailExpert plugin platform (v3.0).
 //
 // This module holds registered plugin manifests and exposes the primitives core
 // uses to consult them. It is intentionally inert until plugins are registered and

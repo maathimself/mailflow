@@ -1124,7 +1124,7 @@
       "gtdRevealDesc": "Blendet unten die GTD-Einstellungen pro Konto ein; jedes Konto behält seinen eigenen Schalter."
     },
     "gtd": {
-      "description": "Verwandeln Sie Mailflow in ein GTD-System. Aktivieren Sie es pro Konto und ordnen Sie jeden Zustand dem IMAP-Ordner zu, der sein Label enthält.",
+      "description": "Verwandeln Sie MailExpert in ein GTD-System. Aktivieren Sie es pro Konto und ordnen Sie jeden Zustand dem IMAP-Ordner zu, der sein Label enthält.",
       "noAccounts": "Fügen Sie zuerst ein E-Mail-Konto hinzu, um GTD einzurichten.",
       "enableDesc": "GTD ist aktiv. Labels werden als Ordner synchronisiert und Zustände wechseln automatisch.",
       "enableHint": "GTD-Labels und automatische Zustandswechsel für dieses Konto aktivieren.",
@@ -1237,7 +1237,7 @@
       "adminGroupClaimPh": "groups",
       "adminGroupClaimDesc": "Name des JWT-Claims, der die Gruppen des Benutzers enthält (z. B. groups). Leer lassen, um gruppenbasierte Admin-Zuweisung zu deaktivieren.",
       "adminGroupValue": "Admin-Gruppenwert",
-      "adminGroupValuePh": "mailflow-admins",
+      "adminGroupValuePh": "mailexpert-admins",
       "adminGroupValueDesc": "Der Gruppenname, der Admin-Zugriff gewährt. Benutzer in dieser Gruppe werden bei jeder SSO-Anmeldung zu Admins; Benutzer, die nicht in dieser Gruppe sind, verlieren den Admin-Zugriff.",
       "loginMatchClaim": "Bestehende Konten zuordnen über",
       "loginMatchClaimDesc": "OIDC-Claim, der mit dem Benutzernamen jedes MailExpert-Kontos abgeglichen wird, wenn eine SSO-Anmeldung erstmals mit einem bestehenden Konto verknüpft wird (Bereitstellungsmodus „Nur bei bestehenden Konten anmelden“). Standard ist email. Verwenden Sie preferred_username, upn usw. für Identitätsanbieter, deren Benutzernamen keine E-Mail-Adressen sind – nur wenn Ihr Anbieter garantiert, dass der Claim eindeutig und nicht vom Benutzer änderbar ist."

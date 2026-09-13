@@ -53,8 +53,8 @@ export default function TodoistTaskModal({ message, onClose }) {
       // moved to another folder (the row's UUID is regenerated on move/resync). Fall back to
       // the UUID for messages with no Message-ID. Both resolve via /resolve-message (#270).
       const linkRef = message?.message_id || message?.id;
-      const mailflowLink = linkRef ? `[View in MailExpert](${window.location.origin}/?m=${encodeURIComponent(linkRef)})` : '';
-      const fullDescription = [description.trim(), mailflowLink].filter(Boolean).join('\n\n');
+      const mailexpertLink = linkRef ? `[View in MailExpert](${window.location.origin}/?m=${encodeURIComponent(linkRef)})` : '';
+      const fullDescription = [description.trim(), mailexpertLink].filter(Boolean).join('\n\n');
       const task = await api.todoist.createTask({
         content: title.trim(),
         description: fullDescription,

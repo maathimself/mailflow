@@ -6,7 +6,7 @@ const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
 // subject must be either a mailto: or an https: URL identifying the sender
 const vapidSubject =
   process.env.VAPID_SUBJECT ||
-  (process.env.APP_URL ? process.env.APP_URL : 'mailto:admin@mailflow.local');
+  (process.env.APP_URL ? process.env.APP_URL : 'mailto:admin@mailexpert.local');
 
 export const pushConfigured = !!(vapidPublicKey && vapidPrivateKey);
 

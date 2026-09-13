@@ -1,20 +1,10 @@
-// Shared MailFlow logo mark — used in Sidebar and LoginPage.
-// Reads the *effective* accent hex (theme value, or a custom-CSS override of
-// --accent) so the SVG colour matches var(--accent) without relying on CSS
-// variable resolution inside SVG, and updates on theme AND custom-CSS changes.
-import { useState, useEffect } from 'react';
-import { getEffectiveAccent, subscribeAccent } from '../themes.js';
+import { useId } from 'react';
 
 export default function LogoMark({ size = 32 }) {
-  const [accent, setAccent] = useState(getEffectiveAccent);
-  useEffect(() => {
-    // Re-sync in case the accent changed between render and this effect, then
-    // subscribe for future theme/custom-CSS changes (cleanup unsubscribes).
-    setAccent(getEffectiveAccent());
-    return subscribeAccent(setAccent);
-  }, []);
+  const gradientId = useId().replaceAll(':', '');
+  const backgroundId = `mailexpert_bg_${gradientId}`;
+  const accentId = `mailexpert_accent_${gradientId}`;
 
-  const id = `lm_${size}`;
   return (
     <svg
       width={size}
@@ -22,57 +12,27 @@ export default function LogoMark({ size = 32 }) {
       viewBox="0 0 32 32"
       xmlns="http://www.w3.org/2000/svg"
       style={{ flexShrink: 0 }}
+      aria-hidden="true"
     >
       <defs>
-        {/* Tonal overlay: white top-left → dark bottom-right for depth */}
-        <linearGradient id={`tonal_${id}`} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%"   stopColor="rgba(255,255,255,0.22)"/>
-          <stop offset="100%" stopColor="rgba(0,0,0,0.28)"/>
+        <linearGradient id={backgroundId} x1="3" y1="2" x2="29" y2="30" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor="#1ea7ff" />
+          <stop offset="0.48" stopColor="#1261e8" />
+          <stop offset="1" stopColor="#071b63" />
         </linearGradient>
-        {/* Top-gloss highlight */}
-        <linearGradient id={`sh_${id}`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%"   stopColor="rgba(255,255,255,0.14)"/>
-          <stop offset="100%" stopColor="rgba(255,255,255,0)"/>
+        <linearGradient id={accentId} x1="13" y1="17" x2="19" y2="21" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor="#ff7158" />
+          <stop offset="1" stopColor="#e4002b" />
         </linearGradient>
-        <clipPath id={`ec_${id}`}>
-          <rect x="5" y="10.5" width="22" height="15" rx="2.5"/>
-        </clipPath>
       </defs>
 
-      {/* Background — accent hex passed directly, re-renders when theme changes */}
-      <rect width="32" height="32" rx="7.5" fill={accent}/>
-      {/* Tonal gradient overlay for depth */}
-      <rect width="32" height="32" rx="7.5" fill={`url(#tonal_${id})`}/>
-      {/* Top-gloss highlight */}
-      <rect width="32" height="16" rx="7.5" fill={`url(#sh_${id})`}/>
+      <rect x="1" y="1" width="30" height="30" rx="7.5" fill={`url(#${backgroundId})`} />
+      <path d="M2.2 8.3C8.4 3.4 17.1 1.4 28.7 2.8C20.5 4.6 10.6 9 2 16.8V9.5C2 9.1 2.1 8.7 2.2 8.3Z" fill="#ffffff" opacity="0.09" />
 
-      {/* Envelope drop shadow */}
-      <rect x="5" y="11.5" width="22" height="15" rx="2.5" fill="rgba(0,0,0,0.18)"/>
-      {/* Envelope body */}
-      <rect x="5" y="10.5" width="22" height="15" rx="2.5" fill="white"/>
-
-      {/* Flap fold — subtle triangle shading */}
-      <path
-        d="M5,10.5 L16,20.5 L27,10.5 Z"
-        fill="rgba(0,0,0,0.08)"
-        clipPath={`url(#ec_${id})`}
-      />
-      {/* Flap crease line */}
-      <path
-        d="M5,10.5 L16,20.5 L27,10.5"
-        fill="none"
-        stroke="rgba(0,0,0,0.28)"
-        strokeWidth="1.4"
-        strokeLinejoin="round"
-        clipPath={`url(#ec_${id})`}
-      />
-
-      {/* Bottom corner seam lines */}
-      {/* Masked so they stop at the envelope body bottom edge */}
-      <g clipPath={`url(#ec_${id})`}>
-        <line x1="5"  y1="25.5" x2="13" y2="20" stroke="rgba(0,0,0,0.14)" strokeWidth="1.1"/>
-        <line x1="27" y1="25.5" x2="19" y2="20" stroke="rgba(0,0,0,0.14)" strokeWidth="1.1"/>
-      </g>
+      <rect x="5.5" y="10.2" width="21" height="14.4" rx="2.7" fill="#ffffff" />
+      <path d="M5.8 11.1L16 19.3L26.2 11.1" fill="none" stroke="#cbdcf7" strokeWidth="1.45" strokeLinejoin="round" />
+      <path d="M5.8 23.8L13.1 18.1M26.2 23.8L18.9 18.1" fill="none" stroke="#dce8fa" strokeWidth="1.1" />
+      <path d="M13.1 17.1L16 19.3L18.9 17.1L16 21.1L13.1 17.1Z" fill={`url(#${accentId})`} />
     </svg>
   );
 }
