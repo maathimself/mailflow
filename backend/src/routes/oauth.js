@@ -207,6 +207,8 @@ async function processMicrosoftTokens(userId, tokens, { tenantId, clientId, publ
     return accountResult.rows[0];
   });
 
+  // Fresh tokens from a (re)consent: lift any auth cooldown left by the old, rejected grant.
+  imapManager.clearConnectCooldown(account.id);
   imapManager.connectAccount(account).catch(err =>
     console.error(`OAuth connect failed for ${redactEmail(email)}:`, err.message)
   );

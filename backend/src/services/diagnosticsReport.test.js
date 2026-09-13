@@ -63,6 +63,15 @@ describe('categorizeSyncError', () => {
     expect(categorizeSyncError('ECONNREFUSED 1.2.3.4:993')).toBe('connection');
     expect(categorizeSyncError('weird provider glitch')).toBe('other');
   });
+
+  it('categorizes the IMAP auth-stage texts extractImapError now reports (#433/#429)', () => {
+    // Before the extractor fix every one of these was stored as 'Command failed' -> 'other'.
+    expect(categorizeSyncError('Command failed')).toBe('other');
+    expect(categorizeSyncError('[AUTHENTICATIONFAILED] Invalid credentials (Failure) (oauth status 400)')).toBe('auth');
+    expect(categorizeSyncError('AUTHENTICATE failed.')).toBe('auth');
+    expect(categorizeSyncError('Authentication failed')).toBe('auth');
+    expect(categorizeSyncError('[LIMIT] Too many simultaneous connections')).toBe('connection');
+  });
 });
 
 describe('scrubReport (safety net)', () => {

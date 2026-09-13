@@ -230,6 +230,13 @@ export async function stampLastSync(accountId) {
   await query('UPDATE email_accounts SET last_sync = NOW() WHERE id = $1', [accountId]);
 }
 
+// Cooldown after the provider rejects an account's credentials. Retrying the same bad password or
+// revoked grant every 90s health-check tick only teaches the provider (one IP, many accounts) to
+// throttle us, so wait far longer than any refusal backoff. Bounded rather than permanent so a
+// transient provider-side auth hiccup still heals on its own; editing the account's credentials
+// or an explicit reconnect clears it immediately (clearConnectCooldown).
+export const AUTH_FAILURE_COOLDOWN_MS = 30 * 60 * 1000;
+
 // Exponential backoff for consecutive connection refusals: 30s, 60s, 120s, 240s, 480s, …
 // capped at CONNECT_COOLDOWN_MAX_MS.
 export function connectCooldownMs(failures) {
@@ -679,15 +686,68 @@ function walkNode(node, results) {
   }
 }
 
+// OAuth error statuses (from the decoded SASL challenge) safe to echo into logs and sync_error.
+// Anything else in oauthError (scope URLs, schemes, provider-specific fields) is dropped.
+const REPORTABLE_OAUTH_STATUSES = new Set(['400', '401', '403', '429', '500', '503']);
+
+// Defence in depth: the server's reply cannot contain the client's SASL payload, but a buggy or
+// hostile server could echo it back. Never let a bearer token through, and on auth-stage errors
+// no long base64-like blob either (outside auth, such runs are usually folder paths, so kept).
+function redactImapSecrets(text, authStage) {
+  const out = text.replace(/\bBearer\s+\S+/gi, 'Bearer [redacted]');
+  return authStage ? out.replace(/[A-Za-z0-9+/_-]{40,}={0,2}/g, '[redacted]') : out;
+}
+
 // Extract a human-readable message from an imapflow error.
-// imapflow command failures have a structured .response object; fall back to .message.
-function extractImapError(err) {
-  if (err.response && typeof err.response === 'object') {
-    const text = err.response.attributes?.find(a => a.type === 'TEXT')?.value;
-    if (text) return text;
-    if (err.response.command) return `${err.response.command}: ${err.message}`;
+// Every tagged NO/BAD rejects with message 'Command failed'; the server's words live elsewhere:
+// `responseText` (set on any NO/BAD that carried text), a parsed `response` object, or — after
+// LOGIN/AUTHENTICATE and most command modules run ImapFlow's enhanceCommandError — `response`
+// compiled to a string such as "A1 NO [LIMIT] Too many connections". Never reads
+// `executedCommand`, which holds the (masked, but still) client request.
+export function extractImapError(err) {
+  if (!err || typeof err !== 'object') return String(err);
+  let text = typeof err.responseText === 'string' ? err.responseText.trim() : '';
+  if (!text && err.response && typeof err.response === 'object') {
+    text = err.response.attributes?.find(a => a.type === 'TEXT')?.value || '';
+    if (!text && err.response.command) text = `${err.response.command}: ${err.message}`;
   }
-  return err.serverResponse || err.message || String(err);
+  if (!text && typeof err.response === 'string') {
+    text = err.response.replace(/^\S+\s+(?:NO|BAD|BYE)\b\s*/i, '').trim();
+  }
+  if (!text) text = err.message || String(err);
+
+  if (err.authenticationFailed === true && text === 'Command failed') text = 'Authentication failed';
+  const code = typeof err.serverResponseCode === 'string' ? err.serverResponseCode.toUpperCase() : '';
+  if (code && !text.toUpperCase().startsWith(`[${code}`)) text = `[${code}] ${text}`;
+  const oauthStatus = String(err.oauthError?.status ?? '');
+  if (REPORTABLE_OAUTH_STATUSES.has(oauthStatus)) text = `${text} (oauth status ${oauthStatus})`;
+  return redactImapSecrets(text, err.authenticationFailed === true);
+}
+
+// RFC 5530 response codes that mean the credentials themselves were rejected.
+const AUTH_FAILURE_CODES = new Set(['AUTHENTICATIONFAILED', 'AUTHORIZATIONFAILED', 'EXPIRED']);
+// Codes a server attaches when it refuses a login for load or availability reasons.
+const NON_AUTH_LOGIN_CODES = new Set(['LIMIT', 'UNAVAILABLE', 'INUSE', 'SERVERBUG']);
+
+// True when an IMAP error means the account's credentials (password or OAuth grant) were
+// rejected, i.e. retrying with the same credentials will not help.
+//
+// ImapFlow's `authenticationFailed` flag is NOT sufficient on its own: LOGIN/AUTHENTICATE set it
+// on every tagged NO — including "[LIMIT] Too many simultaneous connections" — and on transport
+// errors thrown mid-exchange. Those must stay on the short refusal backoff, so they are excluded
+// here rather than at each call site.
+export function isImapAuthFailure(err) {
+  if (!err || typeof err !== 'object') return false;
+  // Transport and client-side conditions (NoConnection, ETIMEOUT, ETHROTTLE, ...) carry a code.
+  if (err.code) return false;
+  const code = typeof err.serverResponseCode === 'string' ? err.serverResponseCode.toUpperCase() : '';
+  if (AUTH_FAILURE_CODES.has(code)) return true;
+  if (err.authenticationFailed !== true) return false;
+  // Thrown when the server already closed the session (e.g. a BYE at greeting) — no verdict.
+  if (!err.responseStatus && err.message === 'Already logged out') return false;
+  if (NON_AUTH_LOGIN_CODES.has(code)) return false;
+  if (isConnectionRefusal(extractImapError(err))) return false;
+  return true;
 }
 
 // Sanitize a date value — handles Go-style timestamps and other malformed dates
@@ -1980,9 +2040,12 @@ export class ImapManager {
       const detail = extractImapError(err);
       console.error(`Failed to connect ${logAccount(account)}:`, detail);
       // On a connection-refusal/throttle, back this account off with growing delay so we
-      // stop hammering a provider that's at its limit. Other errors don't set a cooldown —
-      // the health check retries them normally.
+      // stop hammering a provider that's at its limit. A rejected credential gets the long
+      // auth cooldown. Other errors don't set a cooldown — the health check retries them normally.
       if (isConnectionRefusal(detail)) this._noteConnectionRefusal(account);
+      // OAuth accounts share the password-account cooldown for now; OAuth-specific handling
+      // (forced refresh, reconnect-required) is owned by the token manager.
+      else if (isImapAuthFailure(err)) this._noteAuthFailure(account);
       await this._recordAccountError(account, detail);
       return false;
     } finally {
@@ -2106,12 +2169,14 @@ export class ImapManager {
     } catch (err) {
       const detail = extractImapError(err);
       const refused = isConnectionRefusal(detail);
+      const authFailed = !refused && isImapAuthFailure(err);
       if (refused) this._noteConnectionRefusal(account);
+      else if (authFailed) this._noteAuthFailure(account);
       console.warn(`Poll-only sync error for ${logAccount(account)}: ${detail}`);
       // Surface only what we actually backed off on. Gated (unlike the connect paths, which
       // record any failure) because this catch also fires on ordinary slow ticks, and one
       // timed-out poll must not paint a working account red in the sidebar.
-      if (refused) await this._recordAccountError(account, detail);
+      if (refused || authFailed) await this._recordAccountError(account, detail);
     } finally {
       if (client) { try { await client.logout(); } catch { /* already closed */ } }
       if (slotHeld) this._bgConnSem.release(host);
@@ -2140,6 +2205,24 @@ export class ImapManager {
     this._connectCooldown.set(account.id, { until: Date.now() + ms, failures });
     console.warn(`Connection refused for ${logAccount(account)} — backing off ${Math.round(ms / 1000)}s (refusal #${failures})`);
     return ms;
+  }
+
+  // Arm the long cooldown after the provider rejected the account's credentials. Same map (and
+  // therefore the same gates in connectAccount, the health check, the sync tick and backfill) as
+  // the refusal backoff, with a 30-minute floor instead of the escalating 30s-15min schedule.
+  _noteAuthFailure(account) {
+    const failures = (this._connectCooldown.get(account.id)?.failures || 0) + 1;
+    const ms = Math.max(AUTH_FAILURE_COOLDOWN_MS, connectCooldownMs(failures));
+    this._connectCooldown.set(account.id, { until: Date.now() + ms, failures });
+    console.warn(`Authentication rejected for ${logAccount(account)} — not retrying for ${Math.round(ms / 60000)}m unless its credentials change or it is reconnected manually`);
+    return ms;
+  }
+
+  // Lift any connect cooldown (refusal or auth) for an account. Called when the user changes the
+  // account's connection settings or explicitly asks to reconnect — the signal that a retry may
+  // now succeed — so that attempt is not silently skipped by the cooldown gate in connectAccount.
+  clearConnectCooldown(accountId) {
+    this._connectCooldown.delete(accountId);
   }
 
   // Persist an account failure so the UI can show it, and push it to the client live. Every path
@@ -2298,6 +2381,7 @@ export class ImapManager {
           const detail = extractImapError(reconnErr);
           // Back off on a connection-refusal so the interval stops hammering — mirrors connectAccount.
           if (isConnectionRefusal(detail)) this._noteConnectionRefusal(account);
+          else if (isImapAuthFailure(reconnErr)) this._noteAuthFailure(account);
           console.error(`Reconnect failed for ${logAccount(account)}:`, detail);
           // A failed reconnect is the same class of failure as a failed first connect, so record
           // it exactly as connectAccount does. This was the gap: an account whose host died
@@ -3784,7 +3868,16 @@ export class ImapManager {
       // on gtd_enabled + changedCount>0 only.
       await emitSectionsChanged(this.pluginFacade, account, backfilledRows);
     } catch (err) {
-      console.error(`Backfill failed for ${logAccount(account)}/${folder}:`, err.message);
+      const detail = extractImapError(err);
+      console.error(`Backfill failed for ${logAccount(account)}/${folder}:`, detail);
+      // Every folder opens its own login, so a provider refusing us (or rejecting the
+      // credentials) would otherwise be hit once per remaining folder. Report it so
+      // backfillAllFolders stops; a refusal also arms the account's shared backoff.
+      if (isConnectionRefusal(detail)) {
+        this._noteConnectionRefusal(account);
+        return { aborted: 'refused' };
+      }
+      if (isImapAuthFailure(err)) return { aborted: 'auth' };
     } finally {
       if (bfClient) { try { await bfClient.logout(); } catch { /* already disconnected */ } }
       this.backfillRunning.delete(backfillKey);
@@ -3924,22 +4017,52 @@ export class ImapManager {
       slotHeld = true;
       const { skipFolderPatterns, skipFolderNames } = providerProfile(account);
 
+      // Stop opening per-folder logins once the provider has refused us or rejected the
+      // credentials. The skipped folders are not lost: the UID-diff backfill is idempotent, so
+      // the next successful connect (or a manual reindex) runs the whole sequence again.
+      const coolingDown = () => {
+        const cd = this._connectCooldown.get(account.id);
+        return !!cd && Date.now() < cd.until;
+      };
+      const deferRest = (folders, reason) => {
+        if (folders.length) console.warn(`Backfill for ${logAccount(account)} stopped (${reason}); deferred until next connect: ${folders.join(', ')}`);
+      };
+
+      if (coolingDown()) {
+        deferRest(['all folders'], 'connect cooldown active');
+        return;
+      }
+
       // INBOX first — highest priority, existing behaviour
-      await this.backfillMessages(account, 'INBOX');
+      const inboxOutcome = await this.backfillMessages(account, 'INBOX');
+      if (inboxOutcome?.aborted) {
+        deferRest(['all non-INBOX folders'], `INBOX ${inboxOutcome.aborted}`);
+        return;
+      }
 
       // Then all other known folders (discovered at connect time by syncFolders)
       const folderResult = await query(
         "SELECT path FROM folders WHERE account_id = $1 AND path != 'INBOX' ORDER BY path",
         [account.id]
       );
-
-      for (const { path } of folderResult.rows) {
+      const folders = folderResult.rows.map(r => r.path).filter(path => {
         const pathLower = path.toLowerCase();
-        if (skipFolderPatterns.some(pat => pathLower.includes(pat))) continue;
-        if (skipFolderNames.includes(pathLower)) continue;
-        await this.backfillMessages(account, path).catch(err =>
+        return !skipFolderPatterns.some(pat => pathLower.includes(pat)) && !skipFolderNames.includes(pathLower);
+      });
+
+      for (let i = 0; i < folders.length; i++) {
+        const path = folders[i];
+        if (coolingDown()) {
+          deferRest(folders.slice(i), 'connect cooldown active');
+          return;
+        }
+        const outcome = await this.backfillMessages(account, path).catch(err =>
           console.warn(`Backfill skipped ${logAccount(account)}/${path}: ${err.message}`)
         );
+        if (outcome?.aborted) {
+          deferRest(folders.slice(i + 1), `${path} ${outcome.aborted}`);
+          return;
+        }
       }
 
     } finally {
