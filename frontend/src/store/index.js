@@ -76,7 +76,7 @@ let _gtdFetchTimer = null;
 
 function readGtdCollapsedSections() {
   try {
-    const raw = JSON.parse(localStorage.getItem('mailflow_gtd_collapsed_sections') || 'null');
+    const raw = JSON.parse(localStorage.getItem('mailexpert_gtd_collapsed_sections') || 'null');
     if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw;
   } catch { /* fall through to default */ }
   // Someday is collapsed by default — lowest-priority section, out of the way
@@ -97,7 +97,7 @@ function expirePendingCounts() {
     useStore.setState({ pendingCounts: pending,
       unreadCounts: displayCountSnapshot(state.serverUnreadCounts, pending, state.accounts) });
     if (Object.keys(pending).length) expirePendingCounts();
-    window.dispatchEvent(new CustomEvent('mailflow:counts_refresh'));
+    window.dispatchEvent(new CustomEvent('mailexpert:counts_refresh'));
   }, Math.max(1, Math.min(...deadlines) - Date.now()));
 }
 
@@ -140,20 +140,20 @@ export const useStore = create((set, get) => ({
   },
 
   // Todoist integration status (persisted across page loads via localStorage)
-  todoistConnected: localStorage.getItem('mailflow_todoist_connected') === '1',
+  todoistConnected: localStorage.getItem('mailexpert_todoist_connected') === '1',
   setTodoistConnected: (connected) => {
-    if (connected) localStorage.setItem('mailflow_todoist_connected', '1');
-    else localStorage.removeItem('mailflow_todoist_connected');
+    if (connected) localStorage.setItem('mailexpert_todoist_connected', '1');
+    else localStorage.removeItem('mailexpert_todoist_connected');
     set({ todoistConnected: connected });
   },
 
   // Lock screen
-  isLocked: localStorage.getItem('mailflow_locked') === '1',
+  isLocked: localStorage.getItem('mailexpert_locked') === '1',
   setLocked: (locked) => {
     if (locked) {
       const { selectedMessageId } = get();
-      if (selectedMessageId) localStorage.setItem('mailflow_locked_message', selectedMessageId);
-      localStorage.setItem('mailflow_locked', '1');
+      if (selectedMessageId) localStorage.setItem('mailexpert_locked_message', selectedMessageId);
+      localStorage.setItem('mailexpert_locked', '1');
       clearTimeout(pendingCountTimer);
       pendingCountTimer = null;
       set({
@@ -168,9 +168,9 @@ export const useStore = create((set, get) => ({
         gtdSections: null, categoryCounts: {}, activeGtdTab: null,
       });
     } else {
-      const restoredMessageId = localStorage.getItem('mailflow_locked_message') || null;
-      localStorage.removeItem('mailflow_locked_message');
-      localStorage.removeItem('mailflow_locked');
+      const restoredMessageId = localStorage.getItem('mailexpert_locked_message') || null;
+      localStorage.removeItem('mailexpert_locked_message');
+      localStorage.removeItem('mailexpert_locked');
       set({ isLocked: false, selectedMessageId: restoredMessageId });
     }
   },
@@ -200,8 +200,8 @@ export const useStore = create((set, get) => ({
     const reselected = selectedAccountId !== previous;
     if (reselected) {
       // Mirror setSelectedAccount's persistence so the fallback survives a reload.
-      localStorage.setItem('mailflow_selected_account', '');
-      localStorage.setItem('mailflow_selected_folder', 'INBOX');
+      localStorage.setItem('mailexpert_selected_account', '');
+      localStorage.setItem('mailexpert_selected_folder', 'INBOX');
     }
     set(state => ({
       accounts, accountsReady: true, selectedAccountId,
@@ -216,12 +216,12 @@ export const useStore = create((set, get) => ({
   }),
 
   // Navigation
-  selectedAccountId: localStorage.getItem('mailflow_selected_account') || null, // '' stored as null
-  selectedFolder: localStorage.getItem('mailflow_selected_folder') || 'INBOX',
+  selectedAccountId: localStorage.getItem('mailexpert_selected_account') || null, // '' stored as null
+  selectedFolder: localStorage.getItem('mailexpert_selected_folder') || 'INBOX',
   messagesRefreshToken: 0, // incremented on every nav click so the effect always re-fires
   setSelectedAccount: (accountId, folder = 'INBOX') => {
-    localStorage.setItem('mailflow_selected_account', accountId ?? '');
-    localStorage.setItem('mailflow_selected_folder', folder);
+    localStorage.setItem('mailexpert_selected_account', accountId ?? '');
+    localStorage.setItem('mailexpert_selected_folder', folder);
     return set(state => {
       // #221: auto-close a folder-scoped search when navigating to a different
       // folder/account. A scoped search (a specific account with "Search all folders"
@@ -368,84 +368,84 @@ export const useStore = create((set, get) => ({
   })),
 
   // UI state
-  sidebarCollapsed: localStorage.getItem('mailflow_sidebar_collapsed') === 'true',
+  sidebarCollapsed: localStorage.getItem('mailexpert_sidebar_collapsed') === 'true',
   toggleSidebar: () => set(state => {
     const next = !state.sidebarCollapsed;
-    localStorage.setItem('mailflow_sidebar_collapsed', String(next));
+    localStorage.setItem('mailexpert_sidebar_collapsed', String(next));
     return { sidebarCollapsed: next };
   }),
   sidebarWidth: (() => {
-    const n = parseInt(localStorage.getItem('mailflow_sidebar_width'));
+    const n = parseInt(localStorage.getItem('mailexpert_sidebar_width'));
     return (n >= 160 && n <= 400) ? n : 240;
   })(),
   setSidebarWidth: (w) => {
-    localStorage.setItem('mailflow_sidebar_width', String(w));
+    localStorage.setItem('mailexpert_sidebar_width', String(w));
     set({ sidebarWidth: w });
     schedulePrefSave({ sidebarWidth: String(w) });
   },
   isSidebarResizing: false,
   setIsSidebarResizing: (v) => set({ isSidebarResizing: v }),
-  pageSize: parseInt(localStorage.getItem('mailflow_page_size')) || 50,
+  pageSize: parseInt(localStorage.getItem('mailexpert_page_size')) || 50,
   setPageSize: (size) => {
-    localStorage.setItem('mailflow_page_size', String(size));
+    localStorage.setItem('mailexpert_page_size', String(size));
     set({ pageSize: size });
     schedulePrefSave({ pageSize: String(size) });
   },
-  scrollMode: localStorage.getItem('mailflow_scroll_mode') || 'infinite',
+  scrollMode: localStorage.getItem('mailexpert_scroll_mode') || 'infinite',
   setScrollMode: (mode) => {
-    localStorage.setItem('mailflow_scroll_mode', mode);
+    localStorage.setItem('mailexpert_scroll_mode', mode);
     set({ scrollMode: mode });
     schedulePrefSave({ scrollMode: mode });
   },
   // When true, search spans all folders instead of the current one (per device).
-  searchAllFolders: localStorage.getItem('mailflow_search_all_folders') === '1',
+  searchAllFolders: localStorage.getItem('mailexpert_search_all_folders') === '1',
   setSearchAllFolders: (v) => {
-    if (v) localStorage.setItem('mailflow_search_all_folders', '1');
-    else localStorage.removeItem('mailflow_search_all_folders');
+    if (v) localStorage.setItem('mailexpert_search_all_folders', '1');
+    else localStorage.removeItem('mailexpert_search_all_folders');
     set({ searchAllFolders: v });
   },
   swipeActions: (() => {
     try {
-      return JSON.parse(localStorage.getItem('mailflow_swipe_actions') || 'null') || { left: 'archive', right: 'markRead' };
+      return JSON.parse(localStorage.getItem('mailexpert_swipe_actions') || 'null') || { left: 'archive', right: 'markRead' };
     } catch {
       return { left: 'archive', right: 'markRead' };
     }
   })(),
   setSwipeAction: (direction, action) => set(state => {
     const next = { ...state.swipeActions, [direction]: action };
-    localStorage.setItem('mailflow_swipe_actions', JSON.stringify(next));
+    localStorage.setItem('mailexpert_swipe_actions', JSON.stringify(next));
     schedulePrefSave({ swipeActions: next });
     return { swipeActions: next };
   }),
-  syncInterval: parseInt(localStorage.getItem('mailflow_sync_interval')) || 60,
+  syncInterval: parseInt(localStorage.getItem('mailexpert_sync_interval')) || 60,
   setSyncInterval: (seconds) => {
-    localStorage.setItem('mailflow_sync_interval', String(seconds));
+    localStorage.setItem('mailexpert_sync_interval', String(seconds));
     set({ syncInterval: seconds });
     schedulePrefSave({ syncInterval: String(seconds) });
   },
   // Folder-structure sync cadence in seconds; 0 = never. Explicit Number.isFinite
   // check because 0 is a valid stored value that `|| default` would clobber.
   folderSyncInterval: (() => {
-    const v = parseInt(localStorage.getItem('mailflow_folder_sync_interval'));
+    const v = parseInt(localStorage.getItem('mailexpert_folder_sync_interval'));
     return Number.isFinite(v) ? v : 1800;
   })(),
   setFolderSyncInterval: (seconds) => {
-    localStorage.setItem('mailflow_folder_sync_interval', String(seconds));
+    localStorage.setItem('mailexpert_folder_sync_interval', String(seconds));
     set({ folderSyncInterval: seconds });
     schedulePrefSave({ folderSyncInterval: String(seconds) });
   },
-  notificationSound: localStorage.getItem('mailflow_notification_sound') || 'tritone',
+  notificationSound: localStorage.getItem('mailexpert_notification_sound') || 'tritone',
   setNotificationSound: (sound) => {
-    localStorage.setItem('mailflow_notification_sound', sound);
+    localStorage.setItem('mailexpert_notification_sound', sound);
     set({ notificationSound: sound });
     schedulePrefSave({ notificationSound: sound });
   },
-  customSoundDataUrl: localStorage.getItem('mailflow_custom_sound') || null,
+  customSoundDataUrl: localStorage.getItem('mailexpert_custom_sound') || null,
   setCustomSoundDataUrl: (dataUrl) => {
     if (dataUrl) {
-      localStorage.setItem('mailflow_custom_sound', dataUrl);
+      localStorage.setItem('mailexpert_custom_sound', dataUrl);
     } else {
-      localStorage.removeItem('mailflow_custom_sound');
+      localStorage.removeItem('mailexpert_custom_sound');
     }
     set({ customSoundDataUrl: dataUrl });
   },
@@ -549,26 +549,26 @@ export const useStore = create((set, get) => ({
   setMobileSidebarOpen: (v) => set({ mobileSidebarOpen: v }),
 
   // Language
-  language: localStorage.getItem('mailflow_language') || 'en',
+  language: localStorage.getItem('mailexpert_language') || 'en',
   setLanguage: (lng) => {
-    localStorage.setItem('mailflow_language', lng);
+    localStorage.setItem('mailexpert_language', lng);
     set({ language: lng });
     i18n.changeLanguage(lng);
     schedulePrefSave({ language: lng });
   },
 
   // Threaded view
-  threadedView: localStorage.getItem('mailflow_threaded_view') === 'true',
+  threadedView: localStorage.getItem('mailexpert_threaded_view') === 'true',
   setThreadedView: (val) => {
-    localStorage.setItem('mailflow_threaded_view', String(val));
+    localStorage.setItem('mailexpert_threaded_view', String(val));
     set({ threadedView: val, expandedThreadId: null, threadMessages: {} });
     schedulePrefSave({ threadedView: val });
   },
 
   // Compose format
-  plaintextEmail: localStorage.getItem('mailflow_plaintext_email') === 'true',
+  plaintextEmail: localStorage.getItem('mailexpert_plaintext_email') === 'true',
   setPlaintextEmail: (val) => {
-    localStorage.setItem('mailflow_plaintext_email', String(val));
+    localStorage.setItem('mailexpert_plaintext_email', String(val));
     set({ plaintextEmail: val });
     schedulePrefSave({ plaintextEmail: val });
   },
@@ -577,65 +577,65 @@ export const useStore = create((set, get) => ({
   // Holds a From selector value ('account:<id>' or 'alias:<aliasId>:<accountId>') so an
   // alias can be the default too. '' means "no preference", which keeps the previous
   // last-used-account behaviour. Validated at use, since accounts and aliases outlive it.
-  defaultSender: localStorage.getItem('mailflow_default_sender') || '',
+  defaultSender: localStorage.getItem('mailexpert_default_sender') || '',
   setDefaultSender: (val) => {
     const clean = typeof val === 'string' ? val : '';
-    localStorage.setItem('mailflow_default_sender', clean);
+    localStorage.setItem('mailexpert_default_sender', clean);
     set({ defaultSender: clean });
     schedulePrefSave({ defaultSender: clean });
   },
 
   // Message list quick actions
-  hoverQuickActions: localStorage.getItem('mailflow_hover_quick_actions') !== 'false',
+  hoverQuickActions: localStorage.getItem('mailexpert_hover_quick_actions') !== 'false',
   setHoverQuickActions: (val) => {
-    localStorage.setItem('mailflow_hover_quick_actions', String(val));
+    localStorage.setItem('mailexpert_hover_quick_actions', String(val));
     set({ hoverQuickActions: val });
     schedulePrefSave({ hoverQuickActions: val });
   },
 
   // Show sender avatars in the mobile message list (off by default — they cost row width
   // on a narrow screen; opt-in for users who prefer the scannability). Desktop always shows them.
-  showMobileAvatars: localStorage.getItem('mailflow_show_mobile_avatars') === 'true',
+  showMobileAvatars: localStorage.getItem('mailexpert_show_mobile_avatars') === 'true',
   setShowMobileAvatars: (val) => {
-    localStorage.setItem('mailflow_show_mobile_avatars', String(val));
+    localStorage.setItem('mailexpert_show_mobile_avatars', String(val));
     set({ showMobileAvatars: val });
     schedulePrefSave({ showMobileAvatars: val });
   },
 
   // Fetch sender avatars from Gravatar (off by default — opt-in third-party lookup, proxied
   // through the backend so the user's IP is never exposed). Falls back to initials on a miss.
-  gravatarAvatars: localStorage.getItem('mailflow_gravatar_avatars') === 'true',
+  gravatarAvatars: localStorage.getItem('mailexpert_gravatar_avatars') === 'true',
   setGravatarAvatars: (val) => {
-    localStorage.setItem('mailflow_gravatar_avatars', String(val));
+    localStorage.setItem('mailexpert_gravatar_avatars', String(val));
     set({ gravatarAvatars: val });
     schedulePrefSave({ gravatarAvatars: val });
   },
 
   // Show message preview snippets in the message list (on by default).
-  showMessagePreviews: localStorage.getItem('mailflow_show_message_previews') !== 'false',
+  showMessagePreviews: localStorage.getItem('mailexpert_show_message_previews') !== 'false',
   setShowMessagePreviews: (val) => {
-    localStorage.setItem('mailflow_show_message_previews', String(val));
+    localStorage.setItem('mailexpert_show_message_previews', String(val));
     set({ showMessagePreviews: val });
     schedulePrefSave({ showMessagePreviews: val });
   },
 
-  replyDefault: localStorage.getItem('mailflow_reply_default') || 'reply',
+  replyDefault: localStorage.getItem('mailexpert_reply_default') || 'reply',
   setReplyDefault: (val) => {
-    localStorage.setItem('mailflow_reply_default', val);
+    localStorage.setItem('mailexpert_reply_default', val);
     set({ replyDefault: val });
     schedulePrefSave({ replyDefault: val });
   },
 
-  markReadBehavior: localStorage.getItem('mailflow_mark_read_behavior') || 'immediate',
+  markReadBehavior: localStorage.getItem('mailexpert_mark_read_behavior') || 'immediate',
   setMarkReadBehavior: (val) => {
-    localStorage.setItem('mailflow_mark_read_behavior', val);
+    localStorage.setItem('mailexpert_mark_read_behavior', val);
     set({ markReadBehavior: val });
     schedulePrefSave({ markReadBehavior: val });
   },
-  markReadDelay: parseInt(localStorage.getItem('mailflow_mark_read_delay') || '1') || 1,
+  markReadDelay: parseInt(localStorage.getItem('mailexpert_mark_read_delay') || '1') || 1,
   setMarkReadDelay: (val) => {
     const n = Math.max(1, Math.min(10, parseInt(val) || 1));
-    localStorage.setItem('mailflow_mark_read_delay', String(n));
+    localStorage.setItem('mailexpert_mark_read_delay', String(n));
     set({ markReadDelay: n });
     schedulePrefSave({ markReadDelay: n });
   },
@@ -654,15 +654,15 @@ export const useStore = create((set, get) => ({
   setLoadingThread: (id) => set({ loadingThread: id }),
 
   // Theme
-  theme: localStorage.getItem('mailflow_theme') || getInitialTheme(),
+  theme: localStorage.getItem('mailexpert_theme') || getInitialTheme(),
   setTheme: (theme) => {
-    localStorage.setItem('mailflow_theme', theme);
+    localStorage.setItem('mailexpert_theme', theme);
     set({ theme });
     applyTheme(theme); // keep CSS vars + favicon in sync
     // If a retro font was left as the saved choice, a non-retro theme must not keep it —
     // normalise the stored choice so it can't "stick" (and the font picker stays honest).
     if (!THEME_FONT[theme] && isRetroFont(get().fontSet)) {
-      localStorage.setItem('mailflow_font', 'default');
+      localStorage.setItem('mailexpert_font', 'default');
       set({ fontSet: 'default' });
       schedulePrefSave({ font: 'default' });
     }
@@ -672,33 +672,33 @@ export const useStore = create((set, get) => ({
   },
 
   // Font
-  fontSet: localStorage.getItem('mailflow_font') || 'default',
+  fontSet: localStorage.getItem('mailexpert_font') || 'default',
   setFontSet: (fontSet) => {
-    localStorage.setItem('mailflow_font', fontSet);
+    localStorage.setItem('mailexpert_font', fontSet);
     set({ fontSet });
     // A retro theme's paired font still wins over an explicit pick while it's active.
     applyFontSet(effectiveFontSet(get().theme, fontSet));
     schedulePrefSave({ font: fontSet });
   },
 
-  fontSize: parseInt(localStorage.getItem('mailflow_font_size')) || 100,
+  fontSize: parseInt(localStorage.getItem('mailexpert_font_size')) || 100,
   setFontSize: (pct) => {
-    localStorage.setItem('mailflow_font_size', String(pct));
+    localStorage.setItem('mailexpert_font_size', String(pct));
     set({ fontSize: pct });
     applyFontSize(pct);
     schedulePrefSave({ fontSize: String(pct) });
   },
 
-  showAppBadge: localStorage.getItem('mailflow_app_badge') !== 'false',
+  showAppBadge: localStorage.getItem('mailexpert_app_badge') !== 'false',
   setShowAppBadge: (val) => {
-    localStorage.setItem('mailflow_app_badge', String(val));
+    localStorage.setItem('mailexpert_app_badge', String(val));
     set({ showAppBadge: val });
     schedulePrefSave({ showAppBadge: val });
   },
 
-  showFaviconBadge: localStorage.getItem('mailflow_favicon_badge') !== 'false',
+  showFaviconBadge: localStorage.getItem('mailexpert_favicon_badge') !== 'false',
   setShowFaviconBadge: (val) => {
-    localStorage.setItem('mailflow_favicon_badge', String(val));
+    localStorage.setItem('mailexpert_favicon_badge', String(val));
     set({ showFaviconBadge: val });
     schedulePrefSave({ showFaviconBadge: val });
   },
@@ -720,20 +720,20 @@ export const useStore = create((set, get) => ({
 
   // ── Right-sidebar layout ────────────────────────────────────────────────────
   // Independent column width (own var + handle, not --list-width).
-  rightSidebarWidth: clampRightSidebarWidth(localStorage.getItem('mailflow_right_sidebar_width')),
+  rightSidebarWidth: clampRightSidebarWidth(localStorage.getItem('mailexpert_right_sidebar_width')),
   setRightSidebarWidth: (w) => {
     const clamped = clampRightSidebarWidth(w);
-    localStorage.setItem('mailflow_right_sidebar_width', String(clamped));
+    localStorage.setItem('mailexpert_right_sidebar_width', String(clamped));
     set({ rightSidebarWidth: clamped });
     schedulePrefSave({ rightSidebarWidth: clamped });
   },
   isRightSidebarResizing: false,
   setIsRightSidebarResizing: (v) => set({ isRightSidebarResizing: v }),
 
-  rightSidebarHidden: localStorage.getItem('mailflow_right_sidebar_hidden') === 'true',
+  rightSidebarHidden: localStorage.getItem('mailexpert_right_sidebar_hidden') === 'true',
   toggleRightSidebarHidden: () => set(state => {
     const next = !state.rightSidebarHidden;
-    localStorage.setItem('mailflow_right_sidebar_hidden', String(next));
+    localStorage.setItem('mailexpert_right_sidebar_hidden', String(next));
     schedulePrefSave({ rightSidebarHidden: next });
     return { rightSidebarHidden: next };
   }),
@@ -743,7 +743,7 @@ export const useStore = create((set, get) => ({
   gtdCollapsedSections: readGtdCollapsedSections(),
   toggleGtdSection: (section) => set(state => {
     const next = { ...state.gtdCollapsedSections, [section]: !state.gtdCollapsedSections[section] };
-    localStorage.setItem('mailflow_gtd_collapsed_sections', JSON.stringify(next));
+    localStorage.setItem('mailexpert_gtd_collapsed_sections', JSON.stringify(next));
     schedulePrefSave({ gtdCollapsedSections: next });
     return { gtdCollapsedSections: next };
   }),
@@ -835,16 +835,16 @@ export const useStore = create((set, get) => ({
 
   // Layout
   layout: (() => {
-    const raw = localStorage.getItem('mailflow_layout');
+    const raw = localStorage.getItem('mailexpert_layout');
     const clean = normalizeLayout(raw);
     // Self-heal a stale/removed preset so it can never reach a consumer (#207).
-    if (raw && raw !== clean) localStorage.setItem('mailflow_layout', clean);
+    if (raw && raw !== clean) localStorage.setItem('mailexpert_layout', clean);
     return clean;
   })(),
   setLayout: (layout) => {
     const clean = normalizeLayout(layout);
-    localStorage.setItem('mailflow_layout', clean);
-    localStorage.removeItem('mailflow_list_width');
+    localStorage.setItem('mailexpert_layout', clean);
+    localStorage.removeItem('mailexpert_list_width');
     set({ layout: clean });
     applyLayout(clean);
     schedulePrefSave({ layout: clean });
@@ -943,46 +943,46 @@ export const useStore = create((set, get) => ({
 
   // Sidebar tree state — persisted so the tree looks the same after reload/re-login
   expandedAccounts: (() => {
-    try { return JSON.parse(localStorage.getItem('mailflow_expanded_accounts') || '{}'); }
+    try { return JSON.parse(localStorage.getItem('mailexpert_expanded_accounts') || '{}'); }
     catch { return {}; }
   })(),
   setExpandedAccounts: (updater) => {
     const next = typeof updater === 'function' ? updater(get().expandedAccounts) : updater;
-    localStorage.setItem('mailflow_expanded_accounts', JSON.stringify(next));
+    localStorage.setItem('mailexpert_expanded_accounts', JSON.stringify(next));
     set({ expandedAccounts: next });
     schedulePrefSave({ expandedAccounts: next });
   },
 
   // collapsedFolders stored as array of "accountId:path" keys (Set can't be JSON-serialised)
   collapsedFolders: (() => {
-    try { return JSON.parse(localStorage.getItem('mailflow_collapsed_folders') || '[]'); }
+    try { return JSON.parse(localStorage.getItem('mailexpert_collapsed_folders') || '[]'); }
     catch { return []; }
   })(),
   toggleCollapsedFolder: (accountId, path) => {
     const key = `${accountId}:${path}`;
     const prev = get().collapsedFolders;
     const next = prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key];
-    localStorage.setItem('mailflow_collapsed_folders', JSON.stringify(next));
+    localStorage.setItem('mailexpert_collapsed_folders', JSON.stringify(next));
     set({ collapsedFolders: next });
     schedulePrefSave({ collapsedFolders: next });
   },
 
   // Favorite folders — [{ accountId, path }, ...] ordered by insertion
   favoriteFolders: (() => {
-    try { return JSON.parse(localStorage.getItem('mailflow_favorite_folders') || '[]'); }
+    try { return JSON.parse(localStorage.getItem('mailexpert_favorite_folders') || '[]'); }
     catch { return []; }
   })(),
   addFavoriteFolder: ({ accountId, path }) => {
     const prev = get().favoriteFolders;
     if (prev.some(f => f.accountId === accountId && f.path === path)) return;
     const next = [...prev, { accountId, path }];
-    localStorage.setItem('mailflow_favorite_folders', JSON.stringify(next));
+    localStorage.setItem('mailexpert_favorite_folders', JSON.stringify(next));
     set({ favoriteFolders: next });
     schedulePrefSave({ favoriteFolders: next });
   },
   removeFavoriteFolder: ({ accountId, path }) => {
     const next = get().favoriteFolders.filter(f => !(f.accountId === accountId && f.path === path));
-    localStorage.setItem('mailflow_favorite_folders', JSON.stringify(next));
+    localStorage.setItem('mailexpert_favorite_folders', JSON.stringify(next));
     set({ favoriteFolders: next });
     schedulePrefSave({ favoriteFolders: next });
   },
@@ -993,26 +993,26 @@ export const useStore = create((set, get) => ({
       const { label: _old, ...base } = f;
       return label ? { ...base, label } : base;
     });
-    localStorage.setItem('mailflow_favorite_folders', JSON.stringify(next));
+    localStorage.setItem('mailexpert_favorite_folders', JSON.stringify(next));
     set({ favoriteFolders: next });
     schedulePrefSave({ favoriteFolders: next });
   },
   reorderFavoriteFolders: (next) => {
-    localStorage.setItem('mailflow_favorite_folders', JSON.stringify(next));
+    localStorage.setItem('mailexpert_favorite_folders', JSON.stringify(next));
     set({ favoriteFolders: next });
     schedulePrefSave({ favoriteFolders: next });
   },
 
   // Recent move-to folders — [{ accountId, path }, ...] most-recent first, capped at 5
   recentFolders: (() => {
-    try { return JSON.parse(localStorage.getItem('mailflow_recent_folders') || '[]'); }
+    try { return JSON.parse(localStorage.getItem('mailexpert_recent_folders') || '[]'); }
     catch { return []; }
   })(),
   recordRecentFolder: ({ accountId, path }) => {
     const prev = get().recentFolders;
     const deduped = prev.filter(f => !(f.accountId === accountId && f.path === path));
     const next = [{ accountId, path }, ...deduped].slice(0, 5);
-    localStorage.setItem('mailflow_recent_folders', JSON.stringify(next));
+    localStorage.setItem('mailexpert_recent_folders', JSON.stringify(next));
     set({ recentFolders: next });
     schedulePrefSave({ recentFolders: next });
   },
@@ -1029,12 +1029,12 @@ export const useStore = create((set, get) => ({
       // existing GTD users were grandfathered into ['gtd'] by migration 0042.
       set({ enabledPlugins: Array.isArray(prefs.enabledPlugins) ? prefs.enabledPlugins : [] });
       if (prefs.theme) {
-        localStorage.setItem('mailflow_theme', prefs.theme);
+        localStorage.setItem('mailexpert_theme', prefs.theme);
         set({ theme: prefs.theme });
         applyTheme(prefs.theme);
       }
       if (prefs.font) {
-        localStorage.setItem('mailflow_font', prefs.font);
+        localStorage.setItem('mailexpert_font', prefs.font);
         set({ fontSet: prefs.font });
       }
       // Apply the effective font once theme + font are both known, so a retro theme's
@@ -1042,32 +1042,32 @@ export const useStore = create((set, get) => ({
       applyFontSet(effectiveFontSet(get().theme, get().fontSet));
       if (prefs.fontSize) {
         const n = parseInt(prefs.fontSize) || 100;
-        localStorage.setItem('mailflow_font_size', String(n));
+        localStorage.setItem('mailexpert_font_size', String(n));
         set({ fontSize: n });
         applyFontSize(n);
       }
       if (prefs.layout) {
         const clean = normalizeLayout(prefs.layout);
         const prevLayout = get().layout;
-        localStorage.setItem('mailflow_layout', clean);
+        localStorage.setItem('mailexpert_layout', clean);
         set({ layout: clean });
-        if (clean !== prevLayout) localStorage.removeItem('mailflow_list_width');
+        if (clean !== prevLayout) localStorage.removeItem('mailexpert_list_width');
         const savedListWidth = clean !== prevLayout
           ? undefined
-          : (Number(localStorage.getItem('mailflow_list_width')) || undefined);
+          : (Number(localStorage.getItem('mailexpert_list_width')) || undefined);
         applyLayout(clean, savedListWidth);
       }
       if (prefs.notificationSound) {
-        localStorage.setItem('mailflow_notification_sound', prefs.notificationSound);
+        localStorage.setItem('mailexpert_notification_sound', prefs.notificationSound);
         set({ notificationSound: prefs.notificationSound });
       }
       if (prefs.pageSize) {
         const n = parseInt(prefs.pageSize) || 50;
-        localStorage.setItem('mailflow_page_size', String(n));
+        localStorage.setItem('mailexpert_page_size', String(n));
         set({ pageSize: n });
       }
       if (prefs.scrollMode) {
-        localStorage.setItem('mailflow_scroll_mode', prefs.scrollMode);
+        localStorage.setItem('mailexpert_scroll_mode', prefs.scrollMode);
         set({ scrollMode: prefs.scrollMode });
       }
       if (prefs.swipeActions) {
@@ -1075,18 +1075,18 @@ export const useStore = create((set, get) => ({
           left: prefs.swipeActions.left || 'archive',
           right: prefs.swipeActions.right || 'markRead',
         };
-        localStorage.setItem('mailflow_swipe_actions', JSON.stringify(swipeActions));
+        localStorage.setItem('mailexpert_swipe_actions', JSON.stringify(swipeActions));
         set({ swipeActions });
       }
       if (prefs.syncInterval) {
         const n = parseInt(prefs.syncInterval) || 60;
-        localStorage.setItem('mailflow_sync_interval', String(n));
+        localStorage.setItem('mailexpert_sync_interval', String(n));
         set({ syncInterval: n });
       }
       if (prefs.folderSyncInterval != null) {
         const n = parseInt(prefs.folderSyncInterval);
         if ([0, 900, 1800, 3600].includes(n)) {
-          localStorage.setItem('mailflow_folder_sync_interval', String(n));
+          localStorage.setItem('mailexpert_folder_sync_interval', String(n));
           set({ folderSyncInterval: n });
         }
       }
@@ -1117,80 +1117,80 @@ export const useStore = create((set, get) => ({
       if (prefs.hiddenFolders) set({ hiddenFolders: prefs.hiddenFolders });
       set({ folderOrder: cacheFolderOrderFromPreferences(prefs) });
       if (prefs.expandedAccounts && typeof prefs.expandedAccounts === 'object' && !Array.isArray(prefs.expandedAccounts)) {
-        localStorage.setItem('mailflow_expanded_accounts', JSON.stringify(prefs.expandedAccounts));
+        localStorage.setItem('mailexpert_expanded_accounts', JSON.stringify(prefs.expandedAccounts));
         set({ expandedAccounts: prefs.expandedAccounts });
       }
       if (Array.isArray(prefs.collapsedFolders)) {
-        localStorage.setItem('mailflow_collapsed_folders', JSON.stringify(prefs.collapsedFolders));
+        localStorage.setItem('mailexpert_collapsed_folders', JSON.stringify(prefs.collapsedFolders));
         set({ collapsedFolders: prefs.collapsedFolders });
       }
       if (Array.isArray(prefs.favoriteFolders)) {
-        localStorage.setItem('mailflow_favorite_folders', JSON.stringify(prefs.favoriteFolders));
+        localStorage.setItem('mailexpert_favorite_folders', JSON.stringify(prefs.favoriteFolders));
         set({ favoriteFolders: prefs.favoriteFolders });
       }
       if (Array.isArray(prefs.recentFolders)) {
-        localStorage.setItem('mailflow_recent_folders', JSON.stringify(prefs.recentFolders));
+        localStorage.setItem('mailexpert_recent_folders', JSON.stringify(prefs.recentFolders));
         set({ recentFolders: prefs.recentFolders });
       }
       if (prefs.language) {
-        localStorage.setItem('mailflow_language', prefs.language);
+        localStorage.setItem('mailexpert_language', prefs.language);
         set({ language: prefs.language });
         i18n.changeLanguage(prefs.language);
       }
       if (typeof prefs.threadedView === 'boolean') {
-        localStorage.setItem('mailflow_threaded_view', String(prefs.threadedView));
+        localStorage.setItem('mailexpert_threaded_view', String(prefs.threadedView));
         set({ threadedView: prefs.threadedView });
       }
       if (typeof prefs.plaintextEmail === 'boolean') {
-        localStorage.setItem('mailflow_plaintext_email', String(prefs.plaintextEmail));
+        localStorage.setItem('mailexpert_plaintext_email', String(prefs.plaintextEmail));
         set({ plaintextEmail: prefs.plaintextEmail });
       }
       if (typeof prefs.defaultSender === 'string') {
-        localStorage.setItem('mailflow_default_sender', prefs.defaultSender);
+        localStorage.setItem('mailexpert_default_sender', prefs.defaultSender);
         set({ defaultSender: prefs.defaultSender });
       }
       if (typeof prefs.hoverQuickActions === 'boolean') {
-        localStorage.setItem('mailflow_hover_quick_actions', String(prefs.hoverQuickActions));
+        localStorage.setItem('mailexpert_hover_quick_actions', String(prefs.hoverQuickActions));
         set({ hoverQuickActions: prefs.hoverQuickActions });
       }
       if (typeof prefs.showMobileAvatars === 'boolean') {
-        localStorage.setItem('mailflow_show_mobile_avatars', String(prefs.showMobileAvatars));
+        localStorage.setItem('mailexpert_show_mobile_avatars', String(prefs.showMobileAvatars));
         set({ showMobileAvatars: prefs.showMobileAvatars });
       }
       if (typeof prefs.gravatarAvatars === 'boolean') {
-        localStorage.setItem('mailflow_gravatar_avatars', String(prefs.gravatarAvatars));
+        localStorage.setItem('mailexpert_gravatar_avatars', String(prefs.gravatarAvatars));
         set({ gravatarAvatars: prefs.gravatarAvatars });
       }
       if (typeof prefs.showMessagePreviews === 'boolean') {
-        localStorage.setItem('mailflow_show_message_previews', String(prefs.showMessagePreviews));
+        localStorage.setItem('mailexpert_show_message_previews', String(prefs.showMessagePreviews));
         set({ showMessagePreviews: prefs.showMessagePreviews });
       }
       if (prefs.replyDefault === 'reply' || prefs.replyDefault === 'replyAll') {
-        localStorage.setItem('mailflow_reply_default', prefs.replyDefault);
+        localStorage.setItem('mailexpert_reply_default', prefs.replyDefault);
         set({ replyDefault: prefs.replyDefault });
       }
       if (prefs.markReadBehavior === 'immediate' || prefs.markReadBehavior === 'delay' || prefs.markReadBehavior === 'manual') {
-        localStorage.setItem('mailflow_mark_read_behavior', prefs.markReadBehavior);
+        localStorage.setItem('mailexpert_mark_read_behavior', prefs.markReadBehavior);
         set({ markReadBehavior: prefs.markReadBehavior });
       }
       if (prefs.markReadDelay) {
         const n = Math.max(1, Math.min(10, parseInt(prefs.markReadDelay) || 1));
-        localStorage.setItem('mailflow_mark_read_delay', String(n));
+        localStorage.setItem('mailexpert_mark_read_delay', String(n));
         set({ markReadDelay: n });
       }
       if (prefs.sidebarWidth) {
         const n = parseInt(prefs.sidebarWidth);
         if (n >= 160 && n <= 400) {
-          localStorage.setItem('mailflow_sidebar_width', String(n));
+          localStorage.setItem('mailexpert_sidebar_width', String(n));
           set({ sidebarWidth: n });
         }
       }
       if (typeof prefs.showAppBadge === 'boolean') {
-        localStorage.setItem('mailflow_app_badge', String(prefs.showAppBadge));
+        localStorage.setItem('mailexpert_app_badge', String(prefs.showAppBadge));
         set({ showAppBadge: prefs.showAppBadge });
       }
       if (typeof prefs.showFaviconBadge === 'boolean') {
-        localStorage.setItem('mailflow_favicon_badge', String(prefs.showFaviconBadge));
+        localStorage.setItem('mailexpert_favicon_badge', String(prefs.showFaviconBadge));
         set({ showFaviconBadge: prefs.showFaviconBadge });
       }
       if (typeof prefs.categorizationEnabled === 'boolean') {
@@ -1198,18 +1198,18 @@ export const useStore = create((set, get) => ({
       }
       if (prefs.rightSidebarWidth != null) {
         const n = clampRightSidebarWidth(prefs.rightSidebarWidth);
-        localStorage.setItem('mailflow_right_sidebar_width', String(n));
+        localStorage.setItem('mailexpert_right_sidebar_width', String(n));
         set({ rightSidebarWidth: n });
       }
       if (prefs.gtdCollapsedSections && typeof prefs.gtdCollapsedSections === 'object' && !Array.isArray(prefs.gtdCollapsedSections)) {
-        localStorage.setItem('mailflow_gtd_collapsed_sections', JSON.stringify(prefs.gtdCollapsedSections));
+        localStorage.setItem('mailexpert_gtd_collapsed_sections', JSON.stringify(prefs.gtdCollapsedSections));
         set({ gtdCollapsedSections: prefs.gtdCollapsedSections });
       }
       if (typeof prefs.gtdPetSlug === 'string') {
         set({ gtdPetSlug: prefs.gtdPetSlug || null });
       }
       if (typeof prefs.rightSidebarHidden === 'boolean') {
-        localStorage.setItem('mailflow_right_sidebar_hidden', String(prefs.rightSidebarHidden));
+        localStorage.setItem('mailexpert_right_sidebar_hidden', String(prefs.rightSidebarHidden));
         set({ rightSidebarHidden: prefs.rightSidebarHidden });
       }
       if (prefs.customCss) {

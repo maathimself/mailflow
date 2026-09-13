@@ -12,7 +12,7 @@ export function activateOnKey(activate) {
   };
 }
 
-export const FOLDER_ORDER_DRAG_TYPE = 'application/x-mailflow-folder-order';
+export const FOLDER_ORDER_DRAG_TYPE = 'application/x-mailexpert-folder-order';
 
 function delimiterFor(folders) {
   return folders.find(folder => (

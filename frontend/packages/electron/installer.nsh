@@ -1,19 +1,19 @@
 !macro customInstall
-  WriteRegStr SHCTX "Software\RegisteredApplications" "MailFlow" "Software\Clients\Mail\MailFlow\Capabilities"
+  WriteRegStr SHCTX "Software\RegisteredApplications" "MailExpert" "Software\Clients\Mail\MailExpert\Capabilities"
 
-  WriteRegStr SHCTX "Software\Clients\Mail\MailFlow" "" "MailFlow"
-  WriteRegStr SHCTX "Software\Clients\Mail\MailFlow\Capabilities" "ApplicationName" "MailFlow"
-  WriteRegStr SHCTX "Software\Clients\Mail\MailFlow\Capabilities" "ApplicationDescription" "A self-hosted, unified webmail client."
-  WriteRegStr SHCTX "Software\Clients\Mail\MailFlow\Capabilities\URLAssociations" "mailto" "MailFlow.mailto"
+  WriteRegStr SHCTX "Software\Clients\Mail\MailExpert" "" "MailExpert"
+  WriteRegStr SHCTX "Software\Clients\Mail\MailExpert\Capabilities" "ApplicationName" "MailExpert"
+  WriteRegStr SHCTX "Software\Clients\Mail\MailExpert\Capabilities" "ApplicationDescription" "A self-hosted, unified webmail client."
+  WriteRegStr SHCTX "Software\Clients\Mail\MailExpert\Capabilities\URLAssociations" "mailto" "MailExpert.mailto"
 
-  WriteRegStr SHCTX "Software\Classes\MailFlow.mailto" "" "URL:MailFlow MailTo Protocol"
-  WriteRegStr SHCTX "Software\Classes\MailFlow.mailto" "URL Protocol" ""
-  WriteRegStr SHCTX "Software\Classes\MailFlow.mailto\DefaultIcon" "" "$INSTDIR\MailFlow.exe,0"
-  WriteRegStr SHCTX "Software\Classes\MailFlow.mailto\shell\open\command" "" '"$INSTDIR\MailFlow.exe" "%1"'
+  WriteRegStr SHCTX "Software\Classes\MailExpert.mailto" "" "URL:MailExpert MailTo Protocol"
+  WriteRegStr SHCTX "Software\Classes\MailExpert.mailto" "URL Protocol" ""
+  WriteRegStr SHCTX "Software\Classes\MailExpert.mailto\DefaultIcon" "" "$INSTDIR\MailExpert.exe,0"
+  WriteRegStr SHCTX "Software\Classes\MailExpert.mailto\shell\open\command" "" '"$INSTDIR\MailExpert.exe" "%1"'
 !macroend
 
 !macro customUnInstall
-  DeleteRegValue SHCTX "Software\RegisteredApplications" "MailFlow"
-  DeleteRegKey SHCTX "Software\Clients\Mail\MailFlow"
-  DeleteRegKey SHCTX "Software\Classes\MailFlow.mailto"
+  DeleteRegValue SHCTX "Software\RegisteredApplications" "MailExpert"
+  DeleteRegKey SHCTX "Software\Clients\Mail\MailExpert"
+  DeleteRegKey SHCTX "Software\Classes\MailExpert.mailto"
 !macroend

@@ -83,7 +83,7 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
 
   // Stable Message-ID so the appended MIME and the local DB row reference the same
   // message (and a later sync reconciles cleanly).
-  const messageId = `<${randomBytes(16).toString('hex')}@${(fromEmail.split('@')[1] || 'mailflow.local')}>`;
+  const messageId = `<${randomBytes(16).toString('hex')}@${(fromEmail.split('@')[1] || 'mailexpert.local')}>`;
   const textBody = sigText ? `${bodyText}\n\n-- \n${sigText}${quotedBody || ''}` : `${bodyText}${quotedBody || ''}`;
 
   const mailOptions = {

@@ -370,14 +370,14 @@ body, #root {
 .ai-markdown th, .ai-markdown td { border: 1px solid var(--border); padding: 3px 8px; }
 .ai-markdown th { background: var(--bg-tertiary); }
 
-/* Email div renderer — resets MailFlow styles from the inner email root so email
+/* Email div renderer — resets MailExpert styles from the inner email root so email
    CSS starts from browser defaults. contain:layout style scopes position:fixed/
    absolute descendants and CSS counters. Paint containment is intentionally
    omitted: it clips rendering to the element's border-box, which on mobile
    (border-box == viewport width) silently hides the right side of wide emails
    before the scale-to-fit transform in applyScale() has a chance to shrink them.
    The parent card div carries contain:layout as a second layer of protection. */
-[data-mailflow-email] {
+[data-mailexpert-email] {
   all: revert;
   contain: layout style;
   overflow-x: auto;
@@ -386,34 +386,34 @@ body, #root {
 }
 
 /* ── Retro themes: skeuomorphic chrome ────────────────────────────────────────
-   Scoped by the data-mailflow-theme attribute (set in applyTheme). Only targets
+   Scoped by the data-mailexpert-theme attribute (set in applyTheme). Only targets
    surfaces that components DON'T set via inline styles — scrollbars and text
    selection — so it layers over the color-token palette without fighting inline
    component styles. The email body renders in a separate iframe document and is
    unaffected, so messages still display normally. */
 
 /* Windows XP — Luna: glossy blue scrollbars, blue selection */
-[data-mailflow-theme="winxp"] ::selection { background: #2a5fd8; color: #fff; }
-[data-mailflow-theme="winxp"] ::-webkit-scrollbar { width: 17px; height: 17px; }
-[data-mailflow-theme="winxp"] ::-webkit-scrollbar-track {
+[data-mailexpert-theme="winxp"] ::selection { background: #2a5fd8; color: #fff; }
+[data-mailexpert-theme="winxp"] ::-webkit-scrollbar { width: 17px; height: 17px; }
+[data-mailexpert-theme="winxp"] ::-webkit-scrollbar-track {
   background: #d6e2f5;
   box-shadow: inset 1px 0 0 #b9cdea;
 }
-[data-mailflow-theme="winxp"] ::-webkit-scrollbar-thumb {
+[data-mailexpert-theme="winxp"] ::-webkit-scrollbar-thumb {
   background: linear-gradient(180deg, #eaf1fc 0%, #b9d0ee 45%, #a3c1e8 100%);
   border: 1px solid #3a6ea5;
   border-radius: 3px;
 }
-[data-mailflow-theme="winxp"] ::-webkit-scrollbar-thumb:hover {
+[data-mailexpert-theme="winxp"] ::-webkit-scrollbar-thumb:hover {
   background: linear-gradient(180deg, #f4f8ff 0%, #c7dbf5 45%, #b0cbee 100%);
 }
-[data-mailflow-theme="winxp"] ::-webkit-scrollbar-corner { background: #d6e2f5; }
+[data-mailexpert-theme="winxp"] ::-webkit-scrollbar-corner { background: #d6e2f5; }
 
 /* Windows Classic — 95/98/2000: raised 3D grey scrollbars, navy selection */
-[data-mailflow-theme="win9x"] ::selection { background: #000080; color: #fff; }
-[data-mailflow-theme="win9x"] ::-webkit-scrollbar { width: 16px; height: 16px; }
-[data-mailflow-theme="win9x"] ::-webkit-scrollbar-track { background: #d4d0c8; }
-[data-mailflow-theme="win9x"] ::-webkit-scrollbar-thumb {
+[data-mailexpert-theme="win9x"] ::selection { background: #000080; color: #fff; }
+[data-mailexpert-theme="win9x"] ::-webkit-scrollbar { width: 16px; height: 16px; }
+[data-mailexpert-theme="win9x"] ::-webkit-scrollbar-track { background: #d4d0c8; }
+[data-mailexpert-theme="win9x"] ::-webkit-scrollbar-thumb {
   background: #c0c0c0;
   border: 0;
   border-radius: 0;
@@ -423,7 +423,7 @@ body, #root {
     inset  2px  2px 0 #dfdfdf,
     inset -2px -2px 0 #808080;
 }
-[data-mailflow-theme="win9x"] ::-webkit-scrollbar-corner { background: #d4d0c8; }
+[data-mailexpert-theme="win9x"] ::-webkit-scrollbar-corner { background: #d4d0c8; }
 
 /* ── Retro skeuomorphism: buttons, fields, focus ──────────────────────────────
    Broad element selectors with !important, scoped to the retro themes, reach the
@@ -434,8 +434,8 @@ body, #root {
    monochrome here — an authentic period trade-off for guaranteed text legibility. */
 
 /* ---- Windows Classic (95/98/2000): hard 3D chisel, aliased text ---- */
-[data-mailflow-theme="win9x"] { -webkit-font-smoothing: none; -moz-osx-font-smoothing: unset; }
-[data-mailflow-theme="win9x"] button {
+[data-mailexpert-theme="win9x"] { -webkit-font-smoothing: none; -moz-osx-font-smoothing: unset; }
+[data-mailexpert-theme="win9x"] button {
   background: #c0c0c0 !important;
   background-image: none !important;
   color: #000 !important;
@@ -448,20 +448,20 @@ body, #root {
     inset -2px -2px 0 0 #808080,
     inset  2px  2px 0 0 #dfdfdf !important;
 }
-[data-mailflow-theme="win9x"] button:active {
+[data-mailexpert-theme="win9x"] button:active {
   box-shadow:
     inset  1px  1px 0 0 #0a0a0a,
     inset -1px -1px 0 0 #ffffff,
     inset  2px  2px 0 0 #808080,
     inset -2px -2px 0 0 #dfdfdf !important;
 }
-[data-mailflow-theme="win9x"] button:focus-visible {
+[data-mailexpert-theme="win9x"] button:focus-visible {
   outline: 1px dotted #000 !important;
   outline-offset: -4px !important;
 }
-[data-mailflow-theme="win9x"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
-[data-mailflow-theme="win9x"] textarea,
-[data-mailflow-theme="win9x"] select {
+[data-mailexpert-theme="win9x"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+[data-mailexpert-theme="win9x"] textarea,
+[data-mailexpert-theme="win9x"] select {
   background: #ffffff !important;
   background-image: none !important;
   color: #000 !important;
@@ -475,7 +475,7 @@ body, #root {
 }
 
 /* ---- Windows XP (Luna): glossy gradient buttons, blue fields ---- */
-[data-mailflow-theme="winxp"] button {
+[data-mailexpert-theme="winxp"] button {
   background: #ece9d8 linear-gradient(180deg, #ffffff 0%, #f2f5fb 44%, #dbe4f2 52%, #e9eff7 100%) !important;
   color: #000 !important;
   border: 1px solid #003c74 !important;
@@ -483,21 +483,21 @@ body, #root {
   text-shadow: none !important;
   box-shadow: inset 0 0 0 1px rgba(255,255,255,0.65) !important;
 }
-[data-mailflow-theme="winxp"] button:hover {
+[data-mailexpert-theme="winxp"] button:hover {
   border-color: #e29500 !important;
   box-shadow: inset 0 0 0 1px rgba(255,255,255,0.65), 0 0 4px 1px rgba(240,180,0,0.55) !important;
 }
-[data-mailflow-theme="winxp"] button:active {
+[data-mailexpert-theme="winxp"] button:active {
   background: #d9e2ef linear-gradient(180deg, #cdd9ea 0%, #dde6f2 55%, #eef3fa 100%) !important;
   box-shadow: inset 1px 1px 2px rgba(0,0,60,0.25) !important;
 }
-[data-mailflow-theme="winxp"] button:focus-visible {
+[data-mailexpert-theme="winxp"] button:focus-visible {
   outline: 1px dotted #24417a !important;
   outline-offset: -4px !important;
 }
-[data-mailflow-theme="winxp"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
-[data-mailflow-theme="winxp"] textarea,
-[data-mailflow-theme="winxp"] select {
+[data-mailexpert-theme="winxp"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+[data-mailexpert-theme="winxp"] textarea,
+[data-mailexpert-theme="winxp"] select {
   background: #ffffff !important;
   background-image: none !important;
   color: #000 !important;
@@ -505,9 +505,9 @@ body, #root {
   border-radius: 0 !important;
   box-shadow: inset 1px 1px 1px rgba(0,0,0,0.07) !important;
 }
-[data-mailflow-theme="winxp"] input:focus,
-[data-mailflow-theme="winxp"] textarea:focus,
-[data-mailflow-theme="winxp"] select:focus {
+[data-mailexpert-theme="winxp"] input:focus,
+[data-mailexpert-theme="winxp"] textarea:focus,
+[data-mailexpert-theme="winxp"] select:focus {
   border-color: #5a8bd4 !important;
   box-shadow: 0 0 3px rgba(90,139,212,0.55) !important;
   outline: none !important;
@@ -516,14 +516,14 @@ body, #root {
 /* Compose Cc/Bcc quick-add: those buttons are borderless text links with 0 right
    padding, which reads as cramped once the retro bevel wraps them. Give them room
    and a gap only under the retro themes; normal themes keep the plain-link look. */
-[data-mailflow-theme="winxp"] .compose-ccbcc-quickadd,
-[data-mailflow-theme="win9x"] .compose-ccbcc-quickadd {
+[data-mailexpert-theme="winxp"] .compose-ccbcc-quickadd,
+[data-mailexpert-theme="win9x"] .compose-ccbcc-quickadd {
   gap: 5px;
   align-items: center;
   padding: 0 3px;
 }
-[data-mailflow-theme="winxp"] .compose-ccbcc-quickadd button,
-[data-mailflow-theme="win9x"] .compose-ccbcc-quickadd button {
+[data-mailexpert-theme="winxp"] .compose-ccbcc-quickadd button,
+[data-mailexpert-theme="win9x"] .compose-ccbcc-quickadd button {
   padding: 3px 9px !important;
 }
 
@@ -532,13 +532,13 @@ body, #root {
    message-pane notice banners (.msg-notice — unsubscribe, blocked-images) keep the modern
    rounded/flat look. Flatten them to match. These carry inline border-radius, so overrides need
    !important; bevels use box-shadow (no layout impact). */
-[data-mailflow-theme="win9x"] .nav-item { border-radius: 0 !important; }
-[data-mailflow-theme="win9x"] .nav-item-active {
+[data-mailexpert-theme="win9x"] .nav-item { border-radius: 0 !important; }
+[data-mailexpert-theme="win9x"] .nav-item-active {
   background: #000080 !important;   /* classic selected-item navy + white */
   color: #ffffff !important;
 }
-[data-mailflow-theme="win9x"] .msg-card,
-[data-mailflow-theme="win9x"] .msg-notice {
+[data-mailexpert-theme="win9x"] .msg-card,
+[data-mailexpert-theme="win9x"] .msg-notice {
   border-radius: 0 !important;
   border: 0 !important;
   box-shadow:                        /* sunken client edge, same as the retro fields */
@@ -548,13 +548,13 @@ body, #root {
     inset  2px  2px 0 0 #0a0a0a !important;
 }
 
-[data-mailflow-theme="winxp"] .nav-item { border-radius: 0 !important; }
-[data-mailflow-theme="winxp"] .nav-item-active {
+[data-mailexpert-theme="winxp"] .nav-item { border-radius: 0 !important; }
+[data-mailexpert-theme="winxp"] .nav-item-active {
   background: #316ac5 !important;    /* XP selection blue */
   color: #ffffff !important;
 }
-[data-mailflow-theme="winxp"] .msg-card,
-[data-mailflow-theme="winxp"] .msg-notice {
+[data-mailexpert-theme="winxp"] .msg-card,
+[data-mailexpert-theme="winxp"] .msg-notice {
   border-radius: 0 !important;
   border: 1px solid #7f9db9 !important;   /* XP field border */
   box-shadow: inset 1px 1px 1px rgba(0,0,0,0.07) !important;
@@ -562,7 +562,7 @@ body, #root {
 
 /* The compose window is a dialog/window, so it gets a RAISED (outset) frame that pops out, unlike
    the sunken content cards above. Keeps a soft drop shadow so it still separates from the app. */
-[data-mailflow-theme="win9x"] .compose-window {
+[data-mailexpert-theme="win9x"] .compose-window {
   border-radius: 0 !important;
   border: 0 !important;
   box-shadow:
@@ -572,7 +572,7 @@ body, #root {
     inset  2px  2px 0 0 #dfdfdf,
     3px 3px 10px rgba(0,0,0,0.35) !important;
 }
-[data-mailflow-theme="winxp"] .compose-window {
+[data-mailexpert-theme="winxp"] .compose-window {
   border-radius: 0 !important;
   border: 1px solid #0055ea !important;   /* XP window frame blue */
   box-shadow: 0 6px 22px rgba(0,0,0,0.4) !important;
@@ -582,7 +582,7 @@ body, #root {
    Square every corner inside it (period-authentic), give the desktop window a raised frame, and
    keep the tab / sub-tab buttons looking like nav — not the generic grey retro buttons — with a
    clear active state. .admin-window is desktop-only (the mobile panel is full-screen edge-to-edge). */
-[data-mailflow-theme="win9x"] .admin-window {
+[data-mailexpert-theme="win9x"] .admin-window {
   border-radius: 0 !important;
   border: 0 !important;
   box-shadow:                            /* raised window frame + soft drop shadow */
@@ -592,61 +592,61 @@ body, #root {
     inset  2px  2px 0 0 #dfdfdf,
     3px 3px 12px rgba(0,0,0,0.4) !important;
 }
-[data-mailflow-theme="winxp"] .admin-window {
+[data-mailexpert-theme="winxp"] .admin-window {
   border-radius: 0 !important;
   border: 1px solid #0055ea !important;
   box-shadow: 0 8px 26px rgba(0,0,0,0.45) !important;
 }
 
-[data-mailflow-theme="win9x"] .admin-panel *,
-[data-mailflow-theme="winxp"] .admin-panel * {
+[data-mailexpert-theme="win9x"] .admin-panel *,
+[data-mailexpert-theme="winxp"] .admin-panel * {
   border-radius: 0 !important;
 }
 
 /* Top-level tabs (menu items): flat nav; active = classic selection highlight. */
-[data-mailflow-theme="win9x"] .admin-panel .admin-tab,
-[data-mailflow-theme="winxp"] .admin-panel .admin-tab {
+[data-mailexpert-theme="win9x"] .admin-panel .admin-tab,
+[data-mailexpert-theme="winxp"] .admin-panel .admin-tab {
   background: transparent !important;
   box-shadow: none !important;
   border: 0 !important;
 }
-[data-mailflow-theme="win9x"] .admin-panel .admin-tab.admin-tab-active {
+[data-mailexpert-theme="win9x"] .admin-panel .admin-tab.admin-tab-active {
   background: #000080 !important;
   color: #ffffff !important;
 }
-[data-mailflow-theme="winxp"] .admin-panel .admin-tab.admin-tab-active {
+[data-mailexpert-theme="winxp"] .admin-panel .admin-tab.admin-tab-active {
   background: #316ac5 !important;
   color: #ffffff !important;
 }
 
 /* Sub-tabs (submenu items): flat; the active one gets a bottom-border underline + bold. */
-[data-mailflow-theme="win9x"] .admin-panel .admin-subtab,
-[data-mailflow-theme="winxp"] .admin-panel .admin-subtab {
+[data-mailexpert-theme="win9x"] .admin-panel .admin-subtab,
+[data-mailexpert-theme="winxp"] .admin-panel .admin-subtab {
   background: transparent !important;
   box-shadow: none !important;
   border: 0 !important;
 }
-[data-mailflow-theme="win9x"] .admin-panel .admin-subtab.admin-subtab-active,
-[data-mailflow-theme="winxp"] .admin-panel .admin-subtab.admin-subtab-active {
+[data-mailexpert-theme="win9x"] .admin-panel .admin-subtab.admin-subtab-active,
+[data-mailexpert-theme="winxp"] .admin-panel .admin-subtab.admin-subtab-active {
   box-shadow: inset 0 -2px 0 0 currentColor !important;
   font-weight: 700 !important;
 }
 
 /* ── Detached message windows (#219) ──────────────────────────────────────────
    Floating, draggable/resizable in-app windows that each show one message. */
-.mailflow-window-btn:hover {
+.mailexpert-window-btn:hover {
   background: var(--bg-hover, rgba(127, 127, 127, 0.15));
   color: var(--text-primary);
 }
-.mailflow-window-min:hover { border-color: var(--accent); }
-.mailflow-window-min button:hover {
+.mailexpert-window-min:hover { border-color: var(--accent); }
+.mailexpert-window-min button:hover {
   background: var(--bg-hover, rgba(127, 127, 127, 0.15));
   color: var(--text-primary);
 }
 
 /* Retro themes: give the window a raised era frame (matching .compose-window) and
    square every corner inside it, so it reads as a period window, not a modern card. */
-[data-mailflow-theme="win9x"] .mailflow-window {
+[data-mailexpert-theme="win9x"] .mailexpert-window {
   border-radius: 0 !important;
   border: 0 !important;
   box-shadow:
@@ -656,29 +656,29 @@ body, #root {
     inset  2px  2px 0 0 #dfdfdf,
     3px 3px 10px rgba(0,0,0,0.35) !important;
 }
-[data-mailflow-theme="winxp"] .mailflow-window {
+[data-mailexpert-theme="winxp"] .mailexpert-window {
   border-radius: 0 !important;
   border: 1px solid #0055ea !important;
   box-shadow: 0 6px 22px rgba(0,0,0,0.4) !important;
 }
-[data-mailflow-theme="win9x"] .mailflow-window *,
-[data-mailflow-theme="winxp"] .mailflow-window *,
-[data-mailflow-theme="win9x"] .mailflow-window-min,
-[data-mailflow-theme="winxp"] .mailflow-window-min {
+[data-mailexpert-theme="win9x"] .mailexpert-window *,
+[data-mailexpert-theme="winxp"] .mailexpert-window *,
+[data-mailexpert-theme="win9x"] .mailexpert-window-min,
+[data-mailexpert-theme="winxp"] .mailexpert-window-min {
   border-radius: 0 !important;
 }
 /* Active-window title bar accent in the era selection colors. */
-[data-mailflow-theme="win9x"] .mailflow-window-titlebar {
+[data-mailexpert-theme="win9x"] .mailexpert-window-titlebar {
   background: #000080 !important;
 }
-[data-mailflow-theme="win9x"] .mailflow-window-titlebar,
-[data-mailflow-theme="win9x"] .mailflow-window-titlebar .mailflow-window-btn {
+[data-mailexpert-theme="win9x"] .mailexpert-window-titlebar,
+[data-mailexpert-theme="win9x"] .mailexpert-window-titlebar .mailexpert-window-btn {
   color: #ffffff !important;
 }
-[data-mailflow-theme="winxp"] .mailflow-window-titlebar {
+[data-mailexpert-theme="winxp"] .mailexpert-window-titlebar {
   background: linear-gradient(#0055ea, #2f7bee) !important;
 }
-[data-mailflow-theme="winxp"] .mailflow-window-titlebar,
-[data-mailflow-theme="winxp"] .mailflow-window-titlebar .mailflow-window-btn {
+[data-mailexpert-theme="winxp"] .mailexpert-window-titlebar,
+[data-mailexpert-theme="winxp"] .mailexpert-window-titlebar .mailexpert-window-btn {
   color: #ffffff !important;
 }

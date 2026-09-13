@@ -414,8 +414,8 @@ router.get('/messages/:id/body', async (req, res) => {
     }
     // Normalise bare-domain hrefs (e.g. href="benchmade.com") cached before href
     // normalisation was added to sanitizeEmail().  Without this, clicking such links
-    // in the sandboxed iframe resolves them against the mailflow origin and opens a
-    // new mailflow tab instead of the sender's website.
+    // in the sandboxed iframe resolves them against the mailexpert origin and opens a
+    // new mailexpert tab instead of the sender's website.
     if (html && /<a\b[^>]*\shref=["'](?!https?:\/\/|mailto:|cid:|tel:|\/\/|[#/.])/i.test(html)) {
       const rewritten = rewriteAnchorHrefs(html);
       if (rewritten !== html) {
@@ -894,7 +894,7 @@ router.post('/folders', async (req, res) => {
   // delimiter and namespace, so a parent stored in native form (INBOX.Foo)
   // plus a new leaf lands at INBOX.Foo.Bar on a dot-delimited server. The raw
   // mailboxCreate this replaces ignored both, so a folder created through
-  // MailFlow could be stored under a path the server never had — and creating
+  // MailExpert could be stored under a path the server never had — and creating
   // a subfolder beneath such a ghost silently vanished on the next
   // folder-structure sync.
   const requested = parentPath ? `${parentPath}/${name.trim()}` : name.trim();
@@ -1732,7 +1732,7 @@ router.post('/messages/bulk-archive', async (req, res) => {
 // Snoozing a single message doesn't work on Gmail: Gmail groups the inbox by
 // conversation, so moving one message to Snoozed only strips \Inbox from that
 // message — its thread siblings keep \Inbox and the whole conversation stays in
-// the inbox (#271). MailFlow's own inbox is thread-grouped too. So we snooze the
+// the inbox (#271). MailExpert's own inbox is thread-grouped too. So we snooze the
 // entire conversation, but bounded to the RFC 5322 reply chain (Message-ID /
 // In-Reply-To / References links) rather than thread_id: thread_id falls back to
 // subject grouping and can lump hundreds of unrelated messages together (e.g.
@@ -2236,7 +2236,7 @@ router.post('/messages/:id/unsubscribe', async (req, res) => {
       // internal address. (The validateHost above stays as a fast pre-check.)
       const unsub = await safeFetch(httpsUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Mailflow/1.0' },
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'MailExpert/1.0' },
         body: 'List-Unsubscribe=One-Click',
         signal: AbortSignal.timeout(10000),
       });

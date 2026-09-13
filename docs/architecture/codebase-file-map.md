@@ -188,7 +188,7 @@ Google OAuth — не plugin уровня UI: он является credential p
 - `frontend/packages/native-shell/*` — страница выбора/ошибки сервера.
 - `frontend/packages/android/*` — Capacitor/Java bridge, background sync и notification actions.
 
-Пользовательское имя заменено на MailExpert, но внутренние IDs пока сохранены: `sh.mailflow.app`, Java package/class names, native plugin `MailFlowNative`, localStorage keys `mailflow_*`, Docker service/volume names. Это намеренная совместимость. Их переименование требует отдельной миграции installed app IDs, data directories, deep links и сохранённых browser preferences.
+Полный ребрендинг выполнен до начала продуктовой разработки: локальные IDs используют `sh.mailexpert.app`, Java-классы и native plugin — `MailExpertNative`, browser storage — `mailexpert_*`, Docker services/volumes и data paths — `mailexpert`. Это намеренно разрывает совместимость с ранними upstream-установками и исключает дальнейшее накопление legacy-идентификаторов.
 
 ## Проверки и quality gates
 

@@ -1,7 +1,7 @@
 // CardDAV *client* account management: connect/disconnect a remote CardDAV
-// server (e.g. Nextcloud) whose contacts are pulled into MailFlow. Credentials
+// server (e.g. Nextcloud) whose contacts are pulled into MailExpert. Credentials
 // live in user_integrations (provider='carddav'), password encrypted. This is
-// distinct from routes/carddav.js, which is the CardDAV *server* MailFlow exposes.
+// distinct from routes/carddav.js, which is the CardDAV *server* MailExpert exposes.
 
 import { Router } from 'express';
 import { query } from '../services/db.js';

@@ -268,7 +268,7 @@ describe('device authorization lifecycle', () => {
     expect(JSON.stringify(stored)).not.toContain('device-secret');
     expect(JSON.stringify(stored)).not.toContain('ABCD-EFGH');
     expect(fetchFn.mock.calls[0][1]).toMatchObject({
-      method: 'POST', headers: { 'Content-Type': 'application/json', originator: 'mailflow' },
+      method: 'POST', headers: { 'Content-Type': 'application/json', originator: 'mailexpert' },
     });
     expect(JSON.parse(fetchFn.mock.calls[0][1].body)).toEqual({ client_id: 'app_EMoamEEZ73f0CkXaXp7hrann' });
   });

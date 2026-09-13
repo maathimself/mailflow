@@ -1,5 +1,5 @@
 -- Instance-global ChatGPT/Codex subscription credentials and restart-safe
--- device authorization flows. All credential/code columns contain Mailflow's
+-- device authorization flows. All credential/code columns contain MailExpert's
 -- enc:v1 AES-GCM envelope; raw session IDs are represented only by SHA-256.
 
 CREATE TABLE IF NOT EXISTS ai_codex_credentials (

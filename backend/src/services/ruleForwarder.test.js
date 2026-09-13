@@ -352,7 +352,7 @@ describe('forwardRuleMessage', () => {
       expect(mail.html).not.toContain('<script');
       expect(mail.html).not.toContain('onclick=');
       expect(mail.html).not.toContain('data:image');
-      expect(mail.html).toMatch(/src="cid:img-[a-f0-9]+-0@mailflow"/);
+      expect(mail.html).toMatch(/src="cid:img-[a-f0-9]+-0@mailexpert"/);
       expect(mail.attachments).toEqual([
         expect.objectContaining({
           filename: 'image-0.png',

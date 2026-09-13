@@ -29,7 +29,7 @@ test('already-seen arrivals do not inflate badges; count events update without r
   const original = api.getUnreadCounts;
   api.getUnreadCounts = async () => ({ ...counts, byAccount: { a: 2 }, snapshots: { a: { ...counts.snapshots.a, revision: '2' } } });
   let listRefreshes = 0;
-  window.addEventListener('mailflow:refresh', () => listRefreshes++);
+  window.addEventListener('mailexpert:refresh', () => listRefreshes++);
   try {
     await React.act(async () => { root.render(React.createElement(App)); });
     await React.act(async () => { socket.onmessage({ data: JSON.stringify({ type: 'exists_hint', accountId: 'a', delta: 5 }) }); });

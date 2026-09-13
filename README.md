@@ -92,33 +92,6 @@ configurable per account, and accounts with GTD off behave exactly as before.
 
 ---
 
-## Screenshots
-
-<table>
-  <tr>
-    <td align="center"><img src="media/mailflow-ss-default.png" alt="Default dark theme"><br><sub>Default dark theme</sub></td>
-    <td align="center"><img src="media/mailflow-ss-light.png" alt="Light theme"><br><sub>Light theme</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="media/mailflow-ss-catppuccin.png" alt="Catppuccin theme"><br><sub>Catppuccin theme</sub></td>
-    <td align="center"><img src="media/mailflow-ss-gruvbox.png" alt="Gruvbox theme"><br><sub>Gruvbox theme</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="media/mailflow-ss-compose.png" alt="Compose window"><br><sub>Compose window</sub></td>
-    <td align="center"><img src="media/mailflow-ss-collapsed-sidebar.png" alt="Collapsed sidebar"><br><sub>Collapsed sidebar</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="media/mailflow-ss-accounts.png" alt="Account management"><br><sub>Account management</sub></td>
-    <td align="center"><img src="media/mailflow-ss-accounts-expanded.png" alt="Folder navigation"><br><sub>Folder navigation</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="media/mailflow-ss-layout.png" alt="Layout options"><br><sub>Layout options</sub></td>
-    <td align="center"><img src="media/mailflow-ss-appearance.png" alt="Appearance settings"><br><sub>Appearance settings</sub></td>
-  </tr>
-</table>
-
----
-
 ## Installation
 
 There are three ways to run MailExpert. Build from this repository to include the MailExpert changes. The upstream pre-built images are useful only as an unchanged MailFlow baseline.
@@ -195,7 +168,7 @@ docker compose pull
 docker compose up -d
 ```
 
-To pin to a specific version instead of `latest`, add `MAILFLOW_VERSION=2.7.0` to your `.env`.
+To pin to a specific version instead of `latest`, add `MAILEXPERT_VERSION=2.7.0` to your `.env`.
 
 ---
 
@@ -208,8 +181,8 @@ To pin to a specific version instead of `latest`, add `MAILFLOW_VERSION=2.7.0` t
 ### 1. Get the code
 
 ```bash
-git clone https://github.com/wyrtensi/MailExpert.git mailflow
-cd mailflow
+git clone https://github.com/wyrtensi/MailExpert.git mailexpert
+cd mailexpert
 ```
 
 ### 2. Configure environment
@@ -288,16 +261,16 @@ brew services start redis
 
 ```bash
 sudo -u postgres psql <<'SQL'
-CREATE USER mailflow WITH PASSWORD 'replace-with-a-strong-password';
-CREATE DATABASE mailflow OWNER mailflow;
+CREATE USER mailexpert WITH PASSWORD 'replace-with-a-strong-password';
+CREATE DATABASE mailexpert OWNER mailexpert;
 SQL
 ```
 
 ### 3. Get the code
 
 ```bash
-git clone https://github.com/wyrtensi/MailExpert.git /opt/mailflow
-cd /opt/mailflow
+git clone https://github.com/wyrtensi/MailExpert.git /opt/mailexpert
+cd /opt/mailexpert
 ```
 
 ### 4. Configure environment
@@ -314,8 +287,8 @@ Edit `.env`. In addition to the required secrets, set these for a native install
 | `SESSION_SECRET` | `openssl rand -hex 32` |
 | `DB_HOST` | `localhost` |
 | `DB_PORT` | `5432` — override for a Postgres server on a non-standard port |
-| `DB_NAME` | `mailflow` |
-| `DB_USER` | `mailflow` |
+| `DB_NAME` | `mailexpert` |
+| `DB_USER` | `mailexpert` |
 | `DB_PASSWORD` | password you set in step 2 |
 | `REDIS_URL` | `redis://localhost:6379` — or `redis+unix:///path/to/redis.sock` for a Unix socket |
 
@@ -325,16 +298,16 @@ For Docker installs, the bundled Postgres/Redis work out of the box. To point at
 ### 5. Build the frontend
 
 ```bash
-cd /opt/mailflow/frontend
+cd /opt/mailexpert/frontend
 npm ci
 npm run build
-# Built files are written to /opt/mailflow/frontend/dist
+# Built files are written to /opt/mailexpert/frontend/dist
 ```
 
 ### 6. Install backend dependencies
 
 ```bash
-cd /opt/mailflow/backend
+cd /opt/mailexpert/backend
 npm ci --omit=dev
 ```
 
@@ -344,25 +317,25 @@ A ready-to-use nginx config is provided in `contrib/nginx.conf`. Copy it, update
 
 ```bash
 sudo mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
-sudo cp /opt/mailflow/contrib/nginx.conf /etc/nginx/sites-available/mailflow
+sudo cp /opt/mailexpert/contrib/nginx.conf /etc/nginx/sites-available/mailexpert
 ```
 
-Open `/etc/nginx/sites-available/mailflow` and replace `/path/to/mailflow/frontend/dist` with `/opt/mailflow/frontend/dist`.
+Open `/etc/nginx/sites-available/mailexpert` and replace `/path/to/mailexpert/frontend/dist` with `/opt/mailexpert/frontend/dist`.
 
 The provided config listens on port 80 for use behind a TLS-terminating reverse proxy (Nginx/Caddy/Traefik). If you want nginx to terminate TLS directly, uncomment the HTTPS server block in the file and set your certificate paths. A quick self-signed cert:
 
 ```bash
-sudo mkdir -p /etc/ssl/mailflow
+sudo mkdir -p /etc/ssl/mailexpert
 sudo openssl req -x509 -nodes -newkey rsa:4096 -days 3650 \
-  -keyout /etc/ssl/mailflow/key.pem \
-  -out    /etc/ssl/mailflow/cert.pem \
-  -subj "/CN=mailflow"
+  -keyout /etc/ssl/mailexpert/key.pem \
+  -out    /etc/ssl/mailexpert/cert.pem \
+  -subj "/CN=mailexpert"
 ```
 
 Enable the site and reload nginx:
 
 ```bash
-sudo ln -sf /etc/nginx/sites-available/mailflow /etc/nginx/sites-enabled/mailflow
+sudo ln -sf /etc/nginx/sites-available/mailexpert /etc/nginx/sites-enabled/mailexpert
 sudo rm -f /etc/nginx/sites-enabled/default
 sudo nginx -t && sudo systemctl reload nginx
 ```
@@ -372,19 +345,19 @@ sudo nginx -t && sudo systemctl reload nginx
 **Option A — systemd (recommended for production):**
 
 ```bash
-sudo cp /opt/mailflow/contrib/mailflow.service /etc/systemd/system/mailflow.service
+sudo cp /opt/mailexpert/contrib/mailexpert.service /etc/systemd/system/mailexpert.service
 # Edit the service file if your install path or user differs from the defaults
 sudo systemctl daemon-reload
-sudo systemctl enable --now mailflow
-sudo systemctl status mailflow
+sudo systemctl enable --now mailexpert
+sudo systemctl status mailexpert
 ```
 
 **Option B — PM2:**
 
 ```bash
 sudo npm install -g pm2
-cd /opt/mailflow/backend
-pm2 start src/index.js --name mailflow
+cd /opt/mailexpert/backend
+pm2 start src/index.js --name mailexpert
 pm2 save
 pm2 startup   # follow the printed command to register auto-start on boot
 ```
@@ -392,7 +365,7 @@ pm2 startup   # follow the printed command to register auto-start on boot
 **Option C — foreground (testing only):**
 
 ```bash
-cd /opt/mailflow/backend
+cd /opt/mailexpert/backend
 node src/index.js
 ```
 
@@ -407,11 +380,11 @@ In the settings panel → Accounts → Add Account.
 ### Updating
 
 ```bash
-cd /opt/mailflow
+cd /opt/mailexpert
 git pull
 cd frontend && npm ci && npm run build && cd ..
 cd backend && npm ci --omit=dev && cd ..
-sudo systemctl restart mailflow   # or: pm2 restart mailflow
+sudo systemctl restart mailexpert   # or: pm2 restart mailexpert
 ```
 
 ---
@@ -492,7 +465,7 @@ Then follow the steps for your account type:
 **Work / school accounts (Microsoft 365)** (confidential client):
 
 1. In the Azure app, open **Authentication → Add a platform → Web**, and set the
-   redirect URI to `https://<your-mailflow-host>/oauth/microsoft/callback` (the exact
+   redirect URI to `https://<your-mailexpert-host>/oauth/microsoft/callback` (the exact
    value is shown on the Integrations screen).
 2. Under **Certificates & secrets → New client secret**, create a secret and copy its
    **Value** (not the Secret ID).
@@ -531,19 +504,19 @@ docker compose up -d --build
 git pull && \
   cd frontend && npm ci && npm run build && cd .. && \
   cd backend && npm ci --omit=dev && cd .. && \
-  sudo systemctl restart mailflow   # or: pm2 restart mailflow
+  sudo systemctl restart mailexpert   # or: pm2 restart mailexpert
 ```
 
 ## Backup and Restore
 
 ```bash
 # Backup database
-docker exec mailflow-postgres pg_dump -U mailflow mailflow \
-  > mailflow-$(date +%Y%m%d).sql
+docker exec mailexpert-postgres pg_dump -U mailexpert mailexpert \
+  > mailexpert-$(date +%Y%m%d).sql
 
 # Restore database
-cat mailflow-YYYYMMDD.sql | \
-  docker exec -i mailflow-postgres psql -U mailflow -d mailflow
+cat mailexpert-YYYYMMDD.sql | \
+  docker exec -i mailexpert-postgres psql -U mailexpert -d mailexpert
 ```
 
 ---
@@ -627,12 +600,6 @@ MailExpert builds on the open-source work of MailFlow. The following links suppo
 <!-- SPONSORS-START -->
 <a href="https://github.com/lindstrm" title="lindstrm"><img src="https://avatars.githubusercontent.com/u/321951?s=64&u=76e44fd34335455397911bf1e14e0d35a1053ec2&v=4" width="48" height="48" alt="lindstrm" style="border-radius:50%;margin:4px"></a>
 <!-- SPONSORS-END -->
-
----
-
-## Star History
-
-[![Stargazers over time](.github/assets/star-history.svg)](https://github.com/maathimself/mailflow/stargazers)
 
 ---
 

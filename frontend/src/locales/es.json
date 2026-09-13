@@ -1194,7 +1194,7 @@
       "gtdRevealDesc": "Muestra abajo los ajustes de GTD por cuenta; cada cuenta conserva su propio interruptor."
     },
     "gtd": {
-      "description": "Convierte Mailflow en un sistema GTD. Actívalo por cuenta y asigna cada estado a la carpeta IMAP que contiene su etiqueta.",
+      "description": "Convierte MailExpert en un sistema GTD. Actívalo por cuenta y asigna cada estado a la carpeta IMAP que contiene su etiqueta.",
       "noAccounts": "Añade primero una cuenta de correo para configurar GTD.",
       "enableDesc": "GTD está activado. Las etiquetas se sincronizan como carpetas y los estados cambian automáticamente.",
       "enableHint": "Activa las etiquetas GTD y los cambios de estado automáticos para esta cuenta.",
@@ -1298,7 +1298,7 @@
       "adminGroupClaimPh": "groups",
       "adminGroupClaimDesc": "Nombre del claim JWT que contiene los grupos del usuario (p. ej., groups). Dejar en blanco para desactivar la asignación de administrador basada en grupos.",
       "adminGroupValue": "Valor del grupo de administrador",
-      "adminGroupValuePh": "mailflow-admins",
+      "adminGroupValuePh": "mailexpert-admins",
       "adminGroupValueDesc": "El nombre del grupo que otorga acceso de administrador. Los usuarios de este grupo se convierten en administradores en cada inicio de sesión SSO; los usuarios que no están en este grupo pierden el acceso de administrador.",
       "loginMatchClaim": "Asociar cuentas existentes por",
       "loginMatchClaimDesc": "Reclamación (claim) de OIDC que se compara con el nombre de usuario de cada cuenta de MailExpert al vincular por primera vez un inicio de sesión SSO con una cuenta existente (modo de aprovisionamiento «solo iniciar sesión en cuentas existentes»). El valor predeterminado es email. Usa preferred_username, upn, etc. para proveedores de identidad cuyos nombres de usuario no son direcciones de correo, solo si tu proveedor garantiza que esa reclamación es única y no editable por el usuario.",

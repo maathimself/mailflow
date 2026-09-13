@@ -297,7 +297,7 @@ export default function Sidebar() {
   const handleMsgDrop = useCallback((e, targetFolder) => {
     e.preventDefault();
     setMsgDragTarget(null);
-    const raw = e.dataTransfer.getData('application/x-mailflow-message');
+    const raw = e.dataTransfer.getData('application/x-mailexpert-message');
     if (!raw) return;
     let payload;
     try { payload = JSON.parse(raw); } catch { return; }
@@ -474,11 +474,11 @@ export default function Sidebar() {
     // The keys below are mailbox/session state that can reference the previous user's
     // accounts or folders, so they are cleared on sign-out.
     [
-      'mailflow_notification_sound', 'mailflow_custom_sound', 'mailflow_custom_sound_name',
-      'mailflow_page_size', 'mailflow_scroll_mode', 'mailflow_sync_interval',
-      'mailflow_threaded_view', 'mailflow_plaintext_email',
-      'mailflow_hover_quick_actions', 'mailflow_swipe_actions',
-      'mailflow_expanded_accounts', 'mailflow_collapsed_folders',
+      'mailexpert_notification_sound', 'mailexpert_custom_sound', 'mailexpert_custom_sound_name',
+      'mailexpert_page_size', 'mailexpert_scroll_mode', 'mailexpert_sync_interval',
+      'mailexpert_threaded_view', 'mailexpert_plaintext_email',
+      'mailexpert_hover_quick_actions', 'mailexpert_swipe_actions',
+      'mailexpert_expanded_accounts', 'mailexpert_collapsed_folders',
     ].forEach(k => localStorage.removeItem(k));
     setUser(null);
     window.location.href = res?.endSessionUrl || '/login';
@@ -516,7 +516,7 @@ export default function Sidebar() {
   const handleMarkAllRead = async (accountId, folder) => {
     try {
       await api.markAllRead(accountId, folder);
-      window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+      window.dispatchEvent(new CustomEvent('mailexpert:refresh'));
       api.getUnreadCounts().then(counts => {
         useStore.getState().setUnreadCounts(counts);
       }).catch(() => {});
@@ -920,7 +920,7 @@ export default function Sidebar() {
                     className="no-callout"
                     onDragOver={e => {
                       e.preventDefault();
-                      if (e.dataTransfer.types.includes('application/x-mailflow-message')) {
+                      if (e.dataTransfer.types.includes('application/x-mailexpert-message')) {
                         e.dataTransfer.dropEffect = 'move';
                         setMsgDragTarget(`${accountId}:${path}`);
                       } else if (canDrag) {
@@ -931,7 +931,7 @@ export default function Sidebar() {
                       if (!e.currentTarget.contains(e.relatedTarget)) setMsgDragTarget(null);
                     }}
                     onDrop={e => {
-                      if (e.dataTransfer.types.includes('application/x-mailflow-message')) {
+                      if (e.dataTransfer.types.includes('application/x-mailexpert-message')) {
                         handleMsgDrop(e, path);
                         return;
                       }

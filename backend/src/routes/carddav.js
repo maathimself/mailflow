@@ -1,6 +1,6 @@
 // CardDAV server — supports Apple Contacts, Thunderbird, DAVx5 / Android.
 // Protocol: RFC 6352 (CardDAV), RFC 4918 (WebDAV).
-// Auth: HTTP Basic against the MailFlow users table via bcryptjs.
+// Auth: HTTP Basic against the MailExpert users table via bcryptjs.
 //
 // URL layout:
 //   /.well-known/carddav           → 301 to /carddav/
@@ -22,7 +22,7 @@ const router = Router();
 
 // Precomputed valid hash so a non-existent username takes the same time as a real
 // one (constant-time — closes the username-enumeration timing oracle).
-const DUMMY_PASSWORD_HASH = bcrypt.hashSync('mailflow-timing-equalizer', 12);
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync('mailexpert-timing-equalizer', 12);
 
 // ── Rate limiting (shared config, separate buckets from login) ────────────────
 

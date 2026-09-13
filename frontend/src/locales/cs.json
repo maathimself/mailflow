@@ -1414,7 +1414,7 @@
       "adminGroupClaimPh": "groups",
       "adminGroupClaimDesc": "Název atributu JWT obsahujícího skupiny uživatele (např. groups). Ponecháním prázdného pole vypnete přiřazování správce podle skupin.",
       "adminGroupValue": "Hodnota skupiny správců",
-      "adminGroupValuePh": "mailflow-admins",
+      "adminGroupValuePh": "mailexpert-admins",
       "adminGroupValueDesc": "Název skupiny udělující přístup správce. Uživatelé v této skupině se při každém přihlášení přes SSO stanou správci; ostatní přístup správce ztratí.",
       "loginMatchClaim": "Přiřazovat existující účty podle",
       "loginMatchClaimDesc": "Atribut OIDC porovnávaný s uživatelským jménem účtů MailExpert při prvním propojení přihlášení SSO s existujícím účtem (režim „pouze existující účty“). Výchozí je e-mail. U poskytovatelů, kde uživatelská jména nejsou e-mailové adresy, použijte preferred_username, upn apod. — pouze pokud poskytovatel zaručuje jedinečnost atributu a uživatel jej nemůže měnit.",

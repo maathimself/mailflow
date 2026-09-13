@@ -1,4 +1,4 @@
-package sh.mailflow.app;
+package sh.mailexpert.app;
 
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -14,11 +14,11 @@ import java.net.URL;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-public class MailFlowBackgroundWorker extends Worker {
-    private static final String PREFS_NAME = "mailflow-background-sync";
+public class MailExpertBackgroundWorker extends Worker {
+    private static final String PREFS_NAME = "mailexpert-background-sync";
     private static final String PREF_LAST_UNREAD_TOTAL = "lastUnreadTotal";
 
-    public MailFlowBackgroundWorker(@NonNull Context context, @NonNull WorkerParameters params) {
+    public MailExpertBackgroundWorker(@NonNull Context context, @NonNull WorkerParameters params) {
         super(context, params);
     }
 
@@ -35,7 +35,7 @@ public class MailFlowBackgroundWorker extends Worker {
     @Override
     public Result doWork() {
         Context context = getApplicationContext();
-        String host = MailFlowNativePlugin.getSavedHost(context);
+        String host = MailExpertNativePlugin.getSavedHost(context);
         if (host == null || host.isEmpty()) return Result.success();
 
         String cookie = CookieManager.getInstance().getCookie(host);
@@ -57,7 +57,7 @@ public class MailFlowBackgroundWorker extends Worker {
                 String accountId = latest.optString("account_id", null);
                 String folder = latest.optString("folder", "INBOX");
 
-                MailFlowNativePlugin.postNewMailNotification(
+                MailExpertNativePlugin.postNewMailNotification(
                     context,
                     title == null || title.isEmpty() ? "New mail" : title,
                     body == null || body.isEmpty() ? "You have new mail." : body,
@@ -98,7 +98,7 @@ public class MailFlowBackgroundWorker extends Worker {
         connection.disconnect();
 
         if (status < 200 || status >= 300) {
-            throw new IllegalStateException("MailFlow background check failed: HTTP " + status);
+            throw new IllegalStateException("MailExpert background check failed: HTTP " + status);
         }
 
         return new JSONObject(body);

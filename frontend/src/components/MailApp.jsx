@@ -25,14 +25,14 @@ const AdminPanel   = lazy(() => import('./AdminPanel.jsx'));
 const ElectronNotificationBridge = lazy(() => import('./ElectronNotificationBridge.jsx'));
 
 // Read + atomically clear the deep-link the service worker persisted on a
-// notification tap (shared IndexedDB store 'mailflow-nav'). Fully guarded so any
+// notification tap (shared IndexedDB store 'mailexpert-nav'). Fully guarded so any
 // storage error resolves to null instead of throwing.
 function takePendingDeepLink() {
   return new Promise((resolve) => {
     let settled = false;
     const done = (v) => { if (!settled) { settled = true; resolve(v); } };
     try {
-      const open = indexedDB.open('mailflow-nav', 1);
+      const open = indexedDB.open('mailexpert-nav', 1);
       open.onupgradeneeded = () => { try { open.result.createObjectStore('kv'); } catch { /* store already exists */ } };
       open.onerror = () => done(null);
       open.onblocked = () => done(null);
@@ -100,7 +100,7 @@ export default function MailApp() {
   }, [autoLockMinutes, lockScreen]);
 
   const scale = fontSize / 100;
-  const hasNativeBridge = Boolean(window.mailflowNative || window.Capacitor?.isNativePlatform?.());
+  const hasNativeBridge = Boolean(window.mailexpertNative || window.Capacitor?.isNativePlatform?.());
   const [vpSize, setVpSize] = useState({ w: window.innerWidth, h: window.innerHeight });
   useEffect(() => {
     const update = () => setVpSize({ w: window.innerWidth, h: window.innerHeight });
@@ -111,7 +111,7 @@ export default function MailApp() {
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState === 'visible') {
-        window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+        window.dispatchEvent(new CustomEvent('mailexpert:refresh'));
       }
     };
     document.addEventListener('visibilitychange', onVisible);
@@ -216,7 +216,7 @@ export default function MailApp() {
       document.removeEventListener('mouseup', onMouseUp);
       listResizeRef.current = null;
       const finalWidth = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--list-width'));
-      if (finalWidth) localStorage.setItem('mailflow_list_width', String(finalWidth));
+      if (finalWidth) localStorage.setItem('mailexpert_list_width', String(finalWidth));
     };
 
     listResizeRef.current = { onMouseMove, onMouseUp };
@@ -258,7 +258,7 @@ export default function MailApp() {
 
   // Push a history entry when an email is opened on mobile so that the browser's
   // native back gesture (iOS swipe, Android back button) pops an in-app state
-  // instead of leaving MailFlow entirely.
+  // instead of leaving MailExpert entirely.
   const prevMessageIdRef = useRef(selectedMessageId);
   const selectedMessageIdRef = useRef(selectedMessageId);
   useEffect(() => { selectedMessageIdRef.current = selectedMessageId; }, [selectedMessageId]);
@@ -268,7 +268,7 @@ export default function MailApp() {
     const prev = prevMessageIdRef.current;
     prevMessageIdRef.current = selectedMessageId;
     if (selectedMessageId && !prev) {
-      history.pushState({ mailflow: 'message' }, '', '/');
+      history.pushState({ mailexpert: 'message' }, '', '/');
     }
   }, [isMobile, selectedMessageId]);
 
@@ -278,16 +278,16 @@ export default function MailApp() {
     // startup so there is always at least one history entry above the baseline.
     // The handler re-pushes it after every popstate so back swipes always land
     // inside the app rather than exiting the PWA and showing a blank Safari page.
-    if (window.navigator.standalone && history.state?.mailflow !== 'guard') {
-      history.pushState({ mailflow: 'guard' }, '', '/');
+    if (window.navigator.standalone && history.state?.mailexpert !== 'guard') {
+      history.pushState({ mailexpert: 'guard' }, '', '/');
     }
     const handler = (event) => {
       if (selectedMessageIdRef.current) setSelectedMessage(null);
       // Backing out of a message lands on the existing guard entry. Re-pushing
       // during that popstate can make iOS PWA history gestures temporarily stop
       // delivering taps, so only re-arm when the user has backed past the guard.
-      if (window.navigator.standalone && event.state?.mailflow !== 'guard') {
-        history.pushState({ mailflow: 'guard' }, '', '/');
+      if (window.navigator.standalone && event.state?.mailexpert !== 'guard') {
+        history.pushState({ mailexpert: 'guard' }, '', '/');
       }
     };
     window.addEventListener('popstate', handler);
@@ -354,9 +354,9 @@ export default function MailApp() {
   // stored id, plus any target the SW persisted for a notification tap.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const deepLinkId = params.get('m') || sessionStorage.getItem('mailflow_deep_link_id');
+    const deepLinkId = params.get('m') || sessionStorage.getItem('mailexpert_deep_link_id');
     if (deepLinkId) {
-      sessionStorage.removeItem('mailflow_deep_link_id');
+      sessionStorage.removeItem('mailexpert_deep_link_id');
       history.replaceState(null, '', window.location.pathname);
       openDeepLinkMessage(deepLinkId);
     }
@@ -372,7 +372,7 @@ export default function MailApp() {
     let onSwMessage;
     if ('serviceWorker' in navigator) {
       onSwMessage = (event) => {
-        if (event.data && event.data.type === 'mailflow_deeplink') consumePendingDeepLink();
+        if (event.data && event.data.type === 'mailexpert_deeplink') consumePendingDeepLink();
       };
       navigator.serviceWorker.addEventListener('message', onSwMessage);
     }
@@ -454,7 +454,7 @@ export default function MailApp() {
     // counts, which are polled and pushed from more places, are already current — so the badge
     // says 2 and the list shows nothing unread, which reads as the unread count lying.
     //
-    // This deliberately reuses mailflow:refresh, the signal the socket-down fallback already
+    // This deliberately reuses mailexpert:refresh, the signal the socket-down fallback already
     // dispatches and MessageList already listens for, instead of adding a second reload path.
     // What counts as a resume, and collapsing the burst of signals one resume produces, lives
     // in utils/resumeRefresh.js with its tests.
@@ -464,15 +464,15 @@ export default function MailApp() {
       onResync: () => {
         refreshCounts();
         refreshFolders();
-        window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+        window.dispatchEvent(new CustomEvent('mailexpert:refresh'));
       },
     });
 
-    window.addEventListener('mailflow:counts_refresh', refreshCounts);
+    window.addEventListener('mailexpert:counts_refresh', refreshCounts);
     return () => {
       clearInterval(interval);
       stopResume();
-      window.removeEventListener('mailflow:counts_refresh', refreshCounts);
+      window.removeEventListener('mailexpert:counts_refresh', refreshCounts);
     };
   }, [setAccounts, setUnreadCounts, setTodoistConnected]);
 
@@ -484,7 +484,7 @@ export default function MailApp() {
     const ms = Math.max(15, syncInterval || 60) * 1000;
     const id = setInterval(() => {
       if (document.visibilityState === 'visible' && wsRef.current?.readyState !== WebSocket.OPEN) {
-        window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+        window.dispatchEvent(new CustomEvent('mailexpert:refresh'));
       }
     }, ms);
     return () => clearInterval(id);
@@ -504,7 +504,7 @@ export default function MailApp() {
       if (showAppBadge && total > 0) navigator.setAppBadge(total).catch(() => {});
       else navigator.clearAppBadge().catch(() => {});
     }
-    window.mailflowNative?.badges?.setUnreadCount?.(total).catch(() => {});
+    window.mailexpertNative?.badges?.setUnreadCount?.(total).catch(() => {});
   }, [unreadCounts, selectedAccountId, showAppBadge, showFaviconBadge]);
 
   // ── Global keyboard shortcut listener ──────────────────────────────────────
@@ -524,7 +524,7 @@ export default function MailApp() {
   useEffect(() => { paletteOpenRef.current = paletteOpen; }, [paletteOpen]);
 
   useEffect(() => {
-    window.__mailflowHandleAndroidBack = () => {
+    window.__mailexpertHandleAndroidBack = () => {
       if (composingRef.current) {
         useStore.getState().closeCompose();
         return true;
@@ -559,7 +559,7 @@ export default function MailApp() {
     };
 
     return () => {
-      if (window.__mailflowHandleAndroidBack) delete window.__mailflowHandleAndroidBack;
+      if (window.__mailexpertHandleAndroidBack) delete window.__mailexpertHandleAndroidBack;
     };
   }, [setMobileSidebarOpen, setSelectedMessage, setShowAdmin]);
 

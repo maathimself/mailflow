@@ -2,13 +2,13 @@
 //
 // The background sync only ever polls INBOX, and so does the manual "sync now" button.
 // Every other folder was populated once at backfill and then left alone, so anything that
-// arrived from outside MailFlow was invisible indefinitely: mail sent from another client
+// arrived from outside MailExpert was invisible indefinitely: mail sent from another client
 // landing in Sent, messages filed from a phone, server-side rules moving things. The
 // on-open sync that did exist only fired for a folder with NO local messages, so a folder
 // went permanently stale the moment it held one.
 //
 // Syncing on every open fixes that but cannot be done unconditionally: a completed sync
-// broadcasts sync_complete, which the client turns into mailflow:refresh, which re-runs the
+// broadcasts sync_complete, which the client turns into mailexpert:refresh, which re-runs the
 // very effect that triggered the sync. Without the interval below that is an unbounded
 // loop, so this guard is load-bearing rather than a politeness measure.
 

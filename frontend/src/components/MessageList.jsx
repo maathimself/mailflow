@@ -197,7 +197,7 @@ export default function MessageList() {
   const deferredRefreshTimerRef = useRef(null);
   // When each folder was last pulled from IMAP, keyed by account+folder. Drives the
   // interval in shouldSyncFolder, which is what stops an on-open sync looping against the
-  // mailflow:refresh that its own sync_complete triggers.
+  // mailexpert:refresh that its own sync_complete triggers.
   const folderSyncedAtRef = useRef(new Map());
 
   // Bulk selection state
@@ -224,8 +224,8 @@ export default function MessageList() {
     const markOpening = () => {
       recentMessageOpenUntilRef.current = Date.now() + 1500;
     };
-    window.addEventListener('mailflow:message-opening', markOpening);
-    return () => window.removeEventListener('mailflow:message-opening', markOpening);
+    window.addEventListener('mailexpert:message-opening', markOpening);
+    return () => window.removeEventListener('mailexpert:message-opening', markOpening);
   }, []);
   const searchTimer = useRef(null);
 
@@ -415,7 +415,7 @@ export default function MessageList() {
               lastSyncedAt: folderSyncedAtRef.current.get(syncKey),
             })) {
               // Stamped before the request rather than after: the sync broadcasts
-              // sync_complete, which becomes mailflow:refresh, which re-runs this effect.
+              // sync_complete, which becomes mailexpert:refresh, which re-runs this effect.
               // Stamping late would let that second pass start another sync, and so on.
               folderSyncedAtRef.current.set(syncKey, Date.now());
               setFolderSyncing(true);
@@ -520,9 +520,9 @@ export default function MessageList() {
         }
       }
     };
-    window.addEventListener('mailflow:refresh', handler);
+    window.addEventListener('mailexpert:refresh', handler);
     return () => {
-      window.removeEventListener('mailflow:refresh', handler);
+      window.removeEventListener('mailexpert:refresh', handler);
       clearTimeout(deferredRefreshTimerRef.current);
     };
   }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, searchQuery, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setHasMoreMessages, setMessages, setMessagesOffset, setMessagesTotal]);
@@ -559,17 +559,17 @@ export default function MessageList() {
   // Re-run an active search (and refresh the folder view) after inbox rules run, since
   // rules can move messages out of the searched folder and a search snapshot would
   // otherwise keep showing them. Scoped to the explicit rules-ran event rather than the
-  // frequent mailflow:refresh (which is intentionally ignored while searching to keep
+  // frequent mailexpert:refresh (which is intentionally ignored while searching to keep
   // results stable during background syncs). Fixes #223.
   useEffect(() => {
     const handler = () => {
       // Bumps the search effect if a query is active (it no-ops on an empty query);
       // the refresh event reloads the folder list when not searching.
       setSearchReloadToken(t => t + 1);
-      window.dispatchEvent(new Event('mailflow:refresh'));
+      window.dispatchEvent(new Event('mailexpert:refresh'));
     };
-    window.addEventListener('mailflow:rules-ran', handler);
-    return () => window.removeEventListener('mailflow:rules-ran', handler);
+    window.addEventListener('mailexpert:rules-ran', handler);
+    return () => window.removeEventListener('mailexpert:rules-ran', handler);
   }, []);
 
   const loadMoreSearch = useCallback(async () => {
@@ -675,7 +675,7 @@ export default function MessageList() {
           .catch(err => console.error('syncFolder failed:', err.message));
       }
       // The server will send sync_complete via WebSocket when done, which triggers
-      // mailflow:refresh (list reload) and mailflow:sync_done (spinner off).
+      // mailexpert:refresh (list reload) and mailexpert:sync_done (spinner off).
       // Safety fallback: stop spinner after 15s in case WS event never arrives.
       setTimeout(() => setSyncing(false), 15000);
     } catch (err) {
@@ -750,7 +750,7 @@ export default function MessageList() {
   }, [isMobile]);
 
   // Animate the sync icon on WS sync_complete — the actual list refresh is handled
-  // by the mailflow:refresh listener above (also fired on sync_complete), so this
+  // by the mailexpert:refresh listener above (also fired on sync_complete), so this
   // handler only needs to toggle the spinner. Having both handlers re-fetch the list
   // caused two concurrent setMessages() calls racing each other.
   useEffect(() => {
@@ -758,8 +758,8 @@ export default function MessageList() {
       setSyncing(true);
       setTimeout(() => setSyncing(false), 1200);
     };
-    window.addEventListener('mailflow:sync_done', handler);
-    return () => window.removeEventListener('mailflow:sync_done', handler);
+    window.addEventListener('mailexpert:sync_done', handler);
+    return () => window.removeEventListener('mailexpert:sync_done', handler);
   }, []);
 
   const isThreadListRow = useCallback((message) => {
@@ -1136,7 +1136,7 @@ export default function MessageList() {
             fetch('/api/mail/messages/bulk-delete', {
               method: 'POST',
               credentials: 'include',
-              headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'MailFlow' },
+              headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'MailExpert' },
               body: JSON.stringify({ ids: deleteIds }),
               keepalive: true,
             });
@@ -1144,7 +1144,7 @@ export default function MessageList() {
             fetch(`/api/mail/messages/${deleteIds[0]}`, {
               method: 'DELETE',
               credentials: 'include',
-              headers: { 'X-Requested-With': 'MailFlow' },
+              headers: { 'X-Requested-With': 'MailExpert' },
               keepalive: true,
             });
           }
@@ -1568,7 +1568,7 @@ export default function MessageList() {
     const payload = isMulti
       ? { messageIds: [...selectedIds], accountId: message.account_id }
       : { messageId: message.id, accountId: message.account_id };
-    e.dataTransfer.setData('application/x-mailflow-message', JSON.stringify(payload));
+    e.dataTransfer.setData('application/x-mailexpert-message', JSON.stringify(payload));
     e.dataTransfer.effectAllowed = 'move';
   }, []);
 
@@ -1658,7 +1658,7 @@ export default function MessageList() {
               .map(({ row }) => row);
             if (failedVisibleRows.length > 0) restoreMessagesIfViewCurrent(viewKey, archiveViewKeyRef, failedVisibleRows);
             unreadCountsByAccount(failedTargets).forEach((count, accountId) => incrementUnread(accountId, count));
-            window.dispatchEvent(new Event('mailflow:refresh'));
+            window.dispatchEvent(new Event('mailexpert:refresh'));
             if (!result.error && result.noArchiveFolder.length) {
               addNotification({ title: t('messageList.bulkArchived.noFolderTitle'), body: t('messageList.bulkArchived.noFolderBody') });
             } else {
@@ -1763,7 +1763,7 @@ export default function MessageList() {
       if (!archived.has(message.id)) {
         restoreMessagesIfViewCurrent(viewKey, archiveViewKeyRef, [message]);
       }
-      window.dispatchEvent(new Event('mailflow:refresh'));
+      window.dispatchEvent(new Event('mailexpert:refresh'));
       const noArchiveFolder = !result.error && result.noArchiveFolder.length > 0;
       addNotification({
         title: t(noArchiveFolder ? 'messageList.noArchiveFolder.title' : 'messageList.bulkArchived.failTitle'),

@@ -17,7 +17,7 @@ import { query } from '../services/db.js';
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const ACCOUNT_ROW = {
-  id: ACCOUNT_ID, email_address: 'matthias@mailflow.sh', name: 'Matt',
+  id: ACCOUNT_ID, email_address: 'matthias@mailexpert.test', name: 'Matt',
   sender_name: null, signature: null, folder_mappings: {},
 };
 
@@ -56,7 +56,7 @@ describe('POST /api/mail/draft — local row persistence', () => {
         accountId: ACCOUNT_ID,
         to: ['Mike Scanlan <mike@scanlan.ai>'],
         cc: [],
-        subject: 'Re: MailFlow hero',
+        subject: 'Re: MailExpert hero',
         body: 'hello mike',
         bodyIsHtml: false,
       }),
@@ -70,11 +70,11 @@ describe('POST /api/mail/draft — local row persistence', () => {
     expect(folder).toBe('Drafts');
     expect(uid).toBe(5);
     expect(meta.to).toEqual([{ name: 'Mike Scanlan', email: 'mike@scanlan.ai' }]);
-    expect(meta.subject).toBe('Re: MailFlow hero');
-    expect(meta.fromEmail).toBe('matthias@mailflow.sh');
+    expect(meta.subject).toBe('Re: MailExpert hero');
+    expect(meta.fromEmail).toBe('matthias@mailexpert.test');
     expect(meta.bodyHtml).toContain('hello mike');
     expect(meta.bodyText).toContain('hello mike');
-    expect(meta.messageId).toMatch(/^<[0-9a-f]+@mailflow\.sh>$/);
+    expect(meta.messageId).toMatch(/^<[0-9a-f]+@mailexpert\.test>$/);
   });
 
   it('still returns success if the local row persistence throws (append already stored it)', async () => {

@@ -92,20 +92,12 @@ jobs:
           }
           EOF
 
-      # The star chart is decorative — never let a transient API blip here fail the
-      # job and block the sponsors commit below. The script also retries internally.
-      - name: Generate star history chart
-        continue-on-error: true
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: node scripts/generate-star-chart.mjs
-
       - name: Commit and push if changed
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add README.md sponsors.json .github/assets/star-history.svg
+          git add README.md sponsors.json
           git diff --quiet --cached || (
-            git commit -m "chore: update sponsors and star chart" &&
+            git commit -m "chore: update sponsors" &&
             git push
           )

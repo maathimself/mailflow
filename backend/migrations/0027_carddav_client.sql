@@ -1,5 +1,5 @@
 -- CardDAV client: pull contacts from an external CardDAV server (e.g. Nextcloud)
--- into MailFlow. Synced contacts land in a dedicated, read-only address book per
+-- into MailExpert. Synced contacts land in a dedicated, read-only address book per
 -- remote collection. Email-uniqueness is moved from per-user to per-address-book
 -- so a synced contact can coexist with an auto-harvested or manually-added contact
 -- that shares an email address (the user chooses duplicate handling per connection).

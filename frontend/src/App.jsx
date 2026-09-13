@@ -26,21 +26,21 @@ export default function App() {
   useEffect(() => {
     const onExpired = () => { setUser(null); setLocked(false); };
     const onLocked = () => setLocked(true);
-    window.addEventListener('mailflow:session_expired', onExpired);
-    window.addEventListener('mailflow:locked', onLocked);
+    window.addEventListener('mailexpert:session_expired', onExpired);
+    window.addEventListener('mailexpert:locked', onLocked);
     return () => {
-      window.removeEventListener('mailflow:session_expired', onExpired);
-      window.removeEventListener('mailflow:locked', onLocked);
+      window.removeEventListener('mailexpert:session_expired', onExpired);
+      window.removeEventListener('mailexpert:locked', onLocked);
     };
   }, [setUser, setLocked]);
 
   useEffect(() => {
     // Apply localStorage immediately so there's no flash while we check auth
-    const bootTheme = localStorage.getItem('mailflow_theme') || getInitialTheme();
+    const bootTheme = localStorage.getItem('mailexpert_theme') || getInitialTheme();
     applyTheme(bootTheme);
-    applyFontSet(effectiveFontSet(bootTheme, localStorage.getItem('mailflow_font') || 'default'));
-    const savedListWidth = Number(localStorage.getItem('mailflow_list_width')) || undefined;
-    applyLayout(localStorage.getItem('mailflow_layout') || 'comfortable', savedListWidth);
+    applyFontSet(effectiveFontSet(bootTheme, localStorage.getItem('mailexpert_font') || 'default'));
+    const savedListWidth = Number(localStorage.getItem('mailexpert_list_width')) || undefined;
+    applyLayout(localStorage.getItem('mailexpert_layout') || 'comfortable', savedListWidth);
 
     // Handle OAuth popup callback
     const params = new URLSearchParams(window.location.search);
@@ -66,7 +66,7 @@ export default function App() {
           setLocked(true);
           return;
         }
-        if (localStorage.getItem('mailflow_locked') === '1') setLocked(false);
+        if (localStorage.getItem('mailexpert_locked') === '1') setLocked(false);
         // Load server preferences after confirming auth — overwrites localStorage so
         // settings survive cache clears and stay consistent across devices.
         await loadPreferences();
@@ -74,9 +74,9 @@ export default function App() {
       .catch(() => {
         const params = new URLSearchParams(window.location.search);
         const m = params.get('m');
-        if (m) sessionStorage.setItem('mailflow_deep_link_id', m);
+        if (m) sessionStorage.setItem('mailexpert_deep_link_id', m);
         const resetToken = params.get('reset_token');
-        if (resetToken) sessionStorage.setItem('mailflow_reset_token', resetToken);
+        if (resetToken) sessionStorage.setItem('mailexpert_reset_token', resetToken);
         setUser(null);
         // Clear any stale client lock so a locked session that has since expired
         // doesn't strand the user back on the lock screen after they re-login (#235).

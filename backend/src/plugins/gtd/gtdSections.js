@@ -118,7 +118,7 @@ export async function getGtdSections({ userId, accountId = null, limit } = {}) {
 
 // Broadcast gtd_sections_updated for an account IFF an ordinary mail mutation touched a
 // thread present in GTD section data. The periodic sync tick only re-emits when the IMAP
-// server's fingerprint moves, so a change Mailflow itself wrote to the DB (archive,
+// server's fingerprint moves, so a change MailExpert itself wrote to the DB (archive,
 // delete, move, snooze, spam/ham, read, star) never trips it and the data can lag a full
 // tick behind. A mutation is "relevant" when either of two things is true:
 //   1. One of the acted messages still shares its RFC Message-ID with a live row in one

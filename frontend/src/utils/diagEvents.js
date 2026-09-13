@@ -9,7 +9,7 @@
 // its own. Per-viewer, local-only.
 
 const CAP = 200;
-const STORE_KEY = 'mailflow_diag_events';
+const STORE_KEY = 'mailexpert_diag_events';
 
 let events = [];
 try {

@@ -1,11 +1,11 @@
 # MailExpert — systemd service for native installs
 #
 # Setup:
-#   1. Copy to /etc/systemd/system/mailflow.service
+#   1. Copy to /etc/systemd/system/mailexpert.service
 #   2. Edit WorkingDirectory and EnvironmentFile to match your install path
 #   3. Edit User to match the user who owns the files
 #   4. sudo systemctl daemon-reload
-#      sudo systemctl enable --now mailflow
+#      sudo systemctl enable --now mailexpert
 
 [Unit]
 Description=MailExpert backend
@@ -16,20 +16,20 @@ After=network.target postgresql.service redis.service
 Type=simple
 User=www-data
 Group=www-data
-WorkingDirectory=/opt/mailflow/backend
-EnvironmentFile=/opt/mailflow/.env
+WorkingDirectory=/opt/mailexpert/backend
+EnvironmentFile=/opt/mailexpert/.env
 ExecStart=/usr/bin/node src/index.js
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=mailflow
+SyslogIdentifier=mailexpert
 
 # Harden the service
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ReadWritePaths=/opt/mailflow
+ReadWritePaths=/opt/mailexpert
 
 [Install]
 WantedBy=multi-user.target

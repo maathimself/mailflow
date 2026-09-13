@@ -15,6 +15,6 @@ mkdir -p /etc/nginx/ssl
 openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
   -keyout "$KEY" \
   -out "$CERT" \
-  -subj "/C=US/ST=Local/L=Local/O=MailFlow/CN=localhost" \
+  -subj "/C=US/ST=Local/L=Local/O=MailExpert/CN=localhost" \
   -addext "subjectAltName=IP:127.0.0.1,DNS:localhost" 2>/dev/null
 echo "Self-signed certificate generated."

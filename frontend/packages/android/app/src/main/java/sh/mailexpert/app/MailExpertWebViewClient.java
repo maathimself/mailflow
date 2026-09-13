@@ -1,4 +1,4 @@
-package sh.mailflow.app;
+package sh.mailexpert.app;
 
 import android.content.ActivityNotFoundException;
 import android.content.Context;
@@ -11,12 +11,12 @@ import android.webkit.WebView;
 import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeWebViewClient;
 
-public class MailFlowWebViewClient extends BridgeWebViewClient {
+public class MailExpertWebViewClient extends BridgeWebViewClient {
     private static final String FALLBACK_URL = "file:///android_asset/public/host-unavailable.html";
     private final Context context;
     private boolean loadingFallback = false;
 
-    public MailFlowWebViewClient(Bridge bridge, Context context) {
+    public MailExpertWebViewClient(Bridge bridge, Context context) {
         super(bridge);
         this.context = context.getApplicationContext();
     }
@@ -73,8 +73,8 @@ public class MailFlowWebViewClient extends BridgeWebViewClient {
 
         if (!isConfiguredHost(url)) return;
 
-        MailFlowNativePlugin.injectCapacitorCompat(view);
-        MailFlowNativePlugin.injectPendingActions(view, context);
+        MailExpertNativePlugin.injectCapacitorCompat(view);
+        MailExpertNativePlugin.injectPendingActions(view, context);
 
         view.evaluateJavascript("(document.body ? document.body.innerText : '')", (text) -> {
             String bodyText = text == null ? "" : text.toLowerCase();
@@ -85,7 +85,7 @@ public class MailFlowWebViewClient extends BridgeWebViewClient {
     }
 
     private boolean isConfiguredHost(String url) {
-        String host = MailFlowNativePlugin.getSavedHost(context);
+        String host = MailExpertNativePlugin.getSavedHost(context);
         return host != null && NativeSecurity.isSameOrigin(host, url);
     }
 

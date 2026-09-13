@@ -94,7 +94,7 @@ export async function listThreadHeadsByLabels(accountId, { labels, labelFolders,
 }
 
 // Generic "did a mail mutation touch a labelled thread?" notify capability (v3.0 plugin
-// platform). An ordinary mutation Mailflow itself writes to the DB (archive, delete, move,
+// platform). An ordinary mutation MailExpert itself writes to the DB (archive, delete, move,
 // snooze, read, star) never trips the periodic sync tick — which only re-emits when the IMAP
 // server's fingerprint moves — so a label-driven feed can lag a full tick behind. This lets a
 // feature (and, later, a sandboxed plugin) ask core to broadcast a scoped refresh event to the

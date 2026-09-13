@@ -23,7 +23,7 @@ export function embedInlineDataImages(html) {
     if (!srcMatch) return match;
 
     const [, , mimeSubtype, b64] = srcMatch;
-    const cid = `img-${randomBytes(8).toString('hex')}-${index}@mailflow`;
+    const cid = `img-${randomBytes(8).toString('hex')}-${index}@mailexpert`;
 
     attachments.push({
       filename: `image-${index}.${mimeToExtension(mimeSubtype)}`,

@@ -16,7 +16,7 @@ import { pickReplyAlias } from '../utils/replyAlias.js';
 import { measureContentHeight, createHeightController, forceEagerImages } from '../utils/emailFrameHeight.js';
 import { copyToClipboard } from '../utils/clipboard.js';
 const USE_DIV_RENDER = import.meta.env.VITE_EMAIL_DIV_RENDER === 'true';
-const MESSAGE_OPENING_EVENT = 'mailflow:message-opening';
+const MESSAGE_OPENING_EVENT = 'mailexpert:message-opening';
 
 // Module-level regex so the spam-name heuristic isn't recompiled on every
 // render — same heuristic as ContextMenu.jsx, both files read this constant.
@@ -705,8 +705,8 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       rafId = requestAnimationFrame(setHeight);
 
       // Intercept all link clicks so they always open in a real browser tab.
-      // Without this, relative hrefs (e.g. href="/") resolve to the mailflow
-      // origin via allow-same-origin and open a new mailflow tab instead of
+      // Without this, relative hrefs (e.g. href="/") resolve to the mailexpert
+      // origin via allow-same-origin and open a new mailexpert tab instead of
       // the intended destination.  We read the raw attribute to bypass
       // browser resolution and only forward absolute http(s)/mailto links.
       // Tracked and removed like the contextmenu handler below — onLoaded can
@@ -2893,7 +2893,7 @@ ${bodyContent}
                 <div ref={scaleRef}>
                   <div
                     ref={innerRef}
-                    data-mailflow-email={prepared?.prefix}
+                    data-mailexpert-email={prepared?.prefix}
                     className={prepared?.prefix ?? ''}
                     dangerouslySetInnerHTML={prepared ? { __html: prepared.html } : undefined}
                   />

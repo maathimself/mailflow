@@ -1,4 +1,4 @@
-package sh.mailflow.app;
+package sh.mailexpert.app;
 
 import android.content.Intent;
 import android.net.Uri;
@@ -14,7 +14,7 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        registerPlugin(MailFlowNativePlugin.class);
+        registerPlugin(MailExpertNativePlugin.class);
         super.onCreate(savedInstanceState);
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
@@ -25,11 +25,11 @@ public class MainActivity extends BridgeActivity {
 
         if (bridge != null) {
             configureCookies();
-            bridge.setWebViewClient(new MailFlowWebViewClient(bridge, this));
-            String savedHost = MailFlowNativePlugin.getSavedHost(this);
+            bridge.setWebViewClient(new MailExpertWebViewClient(bridge, this));
+            String savedHost = MailExpertNativePlugin.getSavedHost(this);
             configureNativeMessageBridge(savedHost);
             if (savedHost != null) {
-                MailFlowBackgroundSync.schedule(this);
+                MailExpertBackgroundSync.schedule(this);
                 bridge.getWebView().post(() -> bridge.getWebView().loadUrl(savedHost));
             }
         }
@@ -46,13 +46,13 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onResume() {
         super.onResume();
-        MailFlowNativePlugin.resumePendingUpdateInstall();
+        MailExpertNativePlugin.resumePendingUpdateInstall();
     }
 
     @Override
     public void onStop() {
         flushCookies();
-        MailFlowBackgroundSync.schedule(this);
+        MailExpertBackgroundSync.schedule(this);
         super.onStop();
     }
 
@@ -78,7 +78,7 @@ public class MainActivity extends BridgeActivity {
         WebView webView = bridge.getWebView();
         webView.evaluateJavascript(
             "(function(){try{"
-                + "if(typeof window.__mailflowHandleAndroidBack==='function'){return !!window.__mailflowHandleAndroidBack();}"
+                + "if(typeof window.__mailexpertHandleAndroidBack==='function'){return !!window.__mailexpertHandleAndroidBack();}"
                 + "}catch(e){}"
                 + "return false;"
                 + "})()",
@@ -95,64 +95,64 @@ public class MainActivity extends BridgeActivity {
 
         String action = intent.getAction();
         Uri data = intent.getData();
-        if (MailFlowNativePlugin.isPrivilegedNativeAction(action)
-            && !MailFlowNativePlugin.isTrustedNativeIntent(this, intent)) return;
+        if (MailExpertNativePlugin.isPrivilegedNativeAction(action)
+            && !MailExpertNativePlugin.isTrustedNativeIntent(this, intent)) return;
         if (!markIntentHandled(intent)) return;
 
-        if (MailFlowNativePlugin.ACTION_OPEN_MESSAGE.equals(action)) {
-            MailFlowNativePlugin.sendOpenMessageAction(intent);
+        if (MailExpertNativePlugin.ACTION_OPEN_MESSAGE.equals(action)) {
+            MailExpertNativePlugin.sendOpenMessageAction(intent);
             return;
         }
 
-        if (MailFlowNativePlugin.ACTION_REPLY_MESSAGE.equals(action)) {
-            MailFlowNativePlugin.sendReplyMessageAction(intent);
+        if (MailExpertNativePlugin.ACTION_REPLY_MESSAGE.equals(action)) {
+            MailExpertNativePlugin.sendReplyMessageAction(intent);
             return;
         }
 
-        if (MailFlowNativePlugin.ACTION_DELETE_MESSAGE.equals(action)) {
-            MailFlowNativePlugin.sendDeleteMessageAction(intent);
+        if (MailExpertNativePlugin.ACTION_DELETE_MESSAGE.equals(action)) {
+            MailExpertNativePlugin.sendDeleteMessageAction(intent);
             return;
         }
 
-        if (MailFlowNativePlugin.ACTION_STAR_MESSAGE.equals(action)) {
-            MailFlowNativePlugin.sendStarMessageAction(intent);
+        if (MailExpertNativePlugin.ACTION_STAR_MESSAGE.equals(action)) {
+            MailExpertNativePlugin.sendStarMessageAction(intent);
             return;
         }
 
-        if (MailFlowNativePlugin.ACTION_COMPOSE.equals(action)) {
-            MailFlowNativePlugin.sendComposeAction();
+        if (MailExpertNativePlugin.ACTION_COMPOSE.equals(action)) {
+            MailExpertNativePlugin.sendComposeAction();
             return;
         }
 
-        if (MailFlowNativePlugin.ACTION_SYNC.equals(action)) {
-            MailFlowNativePlugin.sendSyncAction();
+        if (MailExpertNativePlugin.ACTION_SYNC.equals(action)) {
+            MailExpertNativePlugin.sendSyncAction();
             return;
         }
 
-        if (MailFlowNativePlugin.ACTION_INSTALL_UPDATE.equals(action)) {
-            MailFlowNativePlugin.installDownloadedUpdateFromIntent();
+        if (MailExpertNativePlugin.ACTION_INSTALL_UPDATE.equals(action)) {
+            MailExpertNativePlugin.installDownloadedUpdateFromIntent();
             return;
         }
 
-        if (Intent.ACTION_VIEW.equals(action) && data != null && "mailflow".equalsIgnoreCase(data.getScheme())) {
+        if (Intent.ACTION_VIEW.equals(action) && data != null && "mailexpert".equalsIgnoreCase(data.getScheme())) {
             String route = data.getHost();
             if (route == null || route.isEmpty()) {
                 route = data.getPath() == null ? "" : data.getPath().replaceFirst("^/", "");
             }
 
             if ("compose".equalsIgnoreCase(route)) {
-                MailFlowNativePlugin.sendComposeAction();
+                MailExpertNativePlugin.sendComposeAction();
                 return;
             }
 
             if ("sync".equalsIgnoreCase(route)) {
-                MailFlowNativePlugin.sendSyncAction();
+                MailExpertNativePlugin.sendSyncAction();
                 return;
             }
         }
 
         if ((Intent.ACTION_SENDTO.equals(action) || Intent.ACTION_VIEW.equals(action)) && data != null && "mailto".equalsIgnoreCase(data.getScheme())) {
-            MailFlowNativePlugin.sendMailtoAction(data);
+            MailExpertNativePlugin.sendMailtoAction(data);
         }
     }
 
@@ -177,7 +177,7 @@ public class MainActivity extends BridgeActivity {
 
     void configureNativeMessageBridge(String configuredHost) {
         if (bridge == null || bridge.getWebView() == null) return;
-        MailFlowNativeMessageBridge.configure(bridge.getWebView(), this, configuredHost);
+        MailExpertNativeMessageBridge.configure(bridge.getWebView(), this, configuredHost);
     }
 
     private void flushCookies() {

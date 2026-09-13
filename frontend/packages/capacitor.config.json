@@ -1,5 +1,5 @@
 {
-  "appId": "sh.mailflow.app",
+  "appId": "sh.mailexpert.app",
   "appName": "MailExpert",
   "webDir": "../dist",
   "android": {

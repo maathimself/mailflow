@@ -17,7 +17,7 @@ registerHooks({
 });
 
 globalThis.localStorage = (() => {
-  let values = { mailflow_theme: 'dark' };
+  let values = { mailexpert_theme: 'dark' };
   return {
     getItem: key => values[key] ?? null,
     setItem: (key, value) => { values[key] = String(value); },

@@ -177,7 +177,7 @@ router.get('/gravatar', async (req, res) => {
     const url = `https://www.gravatar.com/avatar/${hash}?d=404&s=80&r=g`;
     const resp = await safeFetch(url, {
       signal: AbortSignal.timeout(6000),
-      headers: { 'User-Agent': 'Mailflow/1.0' },
+      headers: { 'User-Agent': 'MailExpert/1.0' },
     });
     if (resp.status === 404) {
       gravatarCacheSet(hash, { miss: true, expires: now + GRAVATAR_MISS_TTL_MS });

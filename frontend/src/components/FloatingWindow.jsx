@@ -140,7 +140,7 @@ export default function FloatingWindow({
   return (
     <div
       ref={elRef}
-      className="mailflow-window"
+      className="mailexpert-window"
       onPointerDownCapture={onFocus}
       style={{
         // left/top/width/height are applied imperatively (see layout effect above) so
@@ -157,7 +157,7 @@ export default function FloatingWindow({
     >
       {/* Title bar — drag handle */}
       <div
-        className="mailflow-window-titlebar"
+        className="mailexpert-window-titlebar"
         onPointerDown={beginTitleDrag}
         style={{
           display: 'flex', alignItems: 'center', gap: 8,
@@ -183,7 +183,7 @@ export default function FloatingWindow({
           onClick={onMinimize}
           title={minimizeLabel}
           aria-label={minimizeLabel}
-          className="mailflow-window-btn"
+          className="mailexpert-window-btn"
           style={winBtnStyle}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -195,7 +195,7 @@ export default function FloatingWindow({
           onClick={onClose}
           title={closeLabel}
           aria-label={closeLabel}
-          className="mailflow-window-btn"
+          className="mailexpert-window-btn"
           style={winBtnStyle}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">

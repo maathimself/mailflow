@@ -10,7 +10,7 @@ import zhCN from './locales/zhCN.json';
 import pl from './locales/pl.json';
 import cs from './locales/cs.json';
 
-const savedLng = localStorage.getItem('mailflow_language') || 'en';
+const savedLng = localStorage.getItem('mailexpert_language') || 'en';
 
 i18n
   .use(initReactI18next)

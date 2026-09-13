@@ -5,7 +5,7 @@ const BASE = '/api';
 // triggers a CORS preflight the server rejects. Any raw fetch() to /api elsewhere
 // in the app must include this same header (see CSRF_HEADER).
 export const CSRF_HEADER = 'X-Requested-With';
-export const CSRF_VALUE = 'MailFlow';
+export const CSRF_VALUE = 'MailExpert';
 const messageBodyRequests = new Map();
 
 async function request(method, path, body, extraHeaders) {
@@ -22,10 +22,10 @@ async function request(method, path, body, extraHeaders) {
   if (!res.ok) {
     if (res.status === 423) {
       // Server-enforced screen lock (#235) — surface the lock overlay from any call.
-      window.dispatchEvent(new CustomEvent('mailflow:locked'));
+      window.dispatchEvent(new CustomEvent('mailexpert:locked'));
     }
     if (res.status === 401 && !path.startsWith('/auth/')) {
-      window.dispatchEvent(new CustomEvent('mailflow:session_expired'));
+      window.dispatchEvent(new CustomEvent('mailexpert:session_expired'));
     }
     const err = await res.json().catch(() => ({ error: 'Request failed' }));
     throw new Error(err.error || 'Request failed');
@@ -135,7 +135,7 @@ export const api = {
     const data = await res.json().catch(() => ({}));
     if (res.ok) return data;
     if (data.signedOut) {
-      window.dispatchEvent(new CustomEvent('mailflow:session_expired'));
+      window.dispatchEvent(new CustomEvent('mailexpert:session_expired'));
       const e = new Error('signed_out'); e.signedOut = true; throw e;
     }
     throw new Error(data.error || 'Incorrect PIN');

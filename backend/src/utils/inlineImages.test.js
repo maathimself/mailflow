@@ -10,7 +10,7 @@ describe('embedInlineDataImages', () => {
     expect(out).not.toContain('data:image/png');
     expect(out).toContain('test');
     expect(attachments).toHaveLength(1);
-    expect(attachments[0].cid).toMatch(/^img-[a-f0-9]+-0@mailflow$/);
+    expect(attachments[0].cid).toMatch(/^img-[a-f0-9]+-0@mailexpert$/);
     expect(attachments[0].filename).toBe('image-0.png');
     expect(attachments[0].contentDisposition).toBe('inline');
     expect(attachments[0].contentType).toBe('image/png');
@@ -31,9 +31,9 @@ describe('embedInlineDataImages', () => {
     ].join('');
     const { html: out, attachments } = embedInlineDataImages(html);
     expect(attachments).toHaveLength(2);
-    expect(attachments[0].cid).toMatch(/^img-[a-f0-9]+-0@mailflow$/);
+    expect(attachments[0].cid).toMatch(/^img-[a-f0-9]+-0@mailexpert$/);
     expect(attachments[0].filename).toBe('image-0.png');
-    expect(attachments[1].cid).toMatch(/^img-[a-f0-9]+-1@mailflow$/);
+    expect(attachments[1].cid).toMatch(/^img-[a-f0-9]+-1@mailexpert$/);
     expect(attachments[1].filename).toBe('image-1.jpg');
     expect(attachments[0].cid).not.toBe(attachments[1].cid);
     expect(out.match(/src="cid:/g)).toHaveLength(2);

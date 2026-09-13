@@ -247,7 +247,7 @@ export default function ComposeModal() {
     composeData,
     selectedAccountId: useStore.getState().selectedAccountId,
     defaultSender: useStore.getState().defaultSender,
-    lastUsedAccountId: localStorage.getItem('mailflow_last_from_account'),
+    lastUsedAccountId: localStorage.getItem('mailexpert_last_from_account'),
     accounts,
   });
   const [fromValue, setFromValue] = useState(initialFromValue);
@@ -286,7 +286,7 @@ export default function ComposeModal() {
   const [pos, setPos] = useState(null);
   const [customSize, setCustomSize] = useState(() => {
     try {
-      const saved = localStorage.getItem('mailflow_compose_size');
+      const saved = localStorage.getItem('mailexpert_compose_size');
       if (!saved) return null;
       const { width, height } = JSON.parse(saved);
       return {
@@ -385,8 +385,8 @@ export default function ComposeModal() {
 
   useEffect(() => {
     if (!editor || isReply || isForward) return;
-    const size = localStorage.getItem('mailflow_compose_font_size') || DEFAULT_FONT_SIZE;
-    const family = localStorage.getItem('mailflow_compose_font_family');
+    const size = localStorage.getItem('mailexpert_compose_font_size') || DEFAULT_FONT_SIZE;
+    const family = localStorage.getItem('mailexpert_compose_font_family');
     editor.commands.setFontSize(size);
     if (family) editor.commands.setFontFamily(family);
   }, [editor, isReply, isForward]);
@@ -587,7 +587,7 @@ export default function ComposeModal() {
       dragCleanupRef.current = null;
       if (commit) {
         setCustomSize({ width: curW, height: curH });
-        try { localStorage.setItem('mailflow_compose_size', JSON.stringify({ width: curW, height: curH })); } catch { /* localStorage unavailable */ }
+        try { localStorage.setItem('mailexpert_compose_size', JSON.stringify({ width: curW, height: curH })); } catch { /* localStorage unavailable */ }
       }
     };
     const cleanupNoCommit = () => cleanup({ commit: false });
@@ -745,7 +745,7 @@ export default function ComposeModal() {
       }
     }
 
-    localStorage.setItem('mailflow_last_from_account', accountId);
+    localStorage.setItem('mailexpert_last_from_account', accountId);
     setSending(true);
     setError('');
     const bodyToSend = plaintextEmail ? body : (htmlMode ? htmlSource : (editor?.getHTML() ?? ''));
@@ -2689,7 +2689,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
       <div ref={desktopBarRef} style={{ borderBottom: '1px solid var(--border-subtle)', display: 'flex', gap: 2, padding: '4px 10px', flexWrap: 'wrap', alignItems: 'center' }}>
         {/* Font picker */}
         <select
-          value={es.fontFamily || localStorage.getItem('mailflow_compose_font_family') || ''}
+          value={es.fontFamily || localStorage.getItem('mailexpert_compose_font_family') || ''}
           onMouseDown={() => {
             const { from, to } = editor.state.selection;
             savedSelectionRef.current = { from, to };
@@ -2697,8 +2697,8 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
           onChange={e => {
             const family = e.target.value;
             const sel = savedSelectionRef.current;
-            if (family) { editor.chain().focus().setTextSelection(sel ?? editor.state.selection).setFontFamily(family).run(); localStorage.setItem('mailflow_compose_font_family', family); }
-            else { editor.chain().focus().setTextSelection(sel ?? editor.state.selection).unsetFontFamily().run(); localStorage.removeItem('mailflow_compose_font_family'); }
+            if (family) { editor.chain().focus().setTextSelection(sel ?? editor.state.selection).setFontFamily(family).run(); localStorage.setItem('mailexpert_compose_font_family', family); }
+            else { editor.chain().focus().setTextSelection(sel ?? editor.state.selection).unsetFontFamily().run(); localStorage.removeItem('mailexpert_compose_font_family'); }
           }}
           style={{
             background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
@@ -2716,7 +2716,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
 
         {/* Font size picker */}
         <select
-          value={es.fontSize || localStorage.getItem('mailflow_compose_font_size') || DEFAULT_FONT_SIZE}
+          value={es.fontSize || localStorage.getItem('mailexpert_compose_font_size') || DEFAULT_FONT_SIZE}
           onMouseDown={() => {
             const { from, to } = editor.state.selection;
             savedSelectionRef.current = { from, to };
@@ -2725,7 +2725,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
             const size = e.target.value;
             const sel = savedSelectionRef.current;
             editor.chain().focus().setTextSelection(sel ?? editor.state.selection).setFontSize(size).run();
-            localStorage.setItem('mailflow_compose_font_size', size);
+            localStorage.setItem('mailexpert_compose_font_size', size);
           }}
           style={{
             background: 'var(--bg-tertiary)', border: '1px solid var(--border)',

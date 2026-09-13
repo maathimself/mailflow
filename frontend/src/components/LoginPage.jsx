@@ -76,9 +76,9 @@ export default function LoginPage() {
 
     // Handle password reset link: ?reset_token= in URL or sessionStorage (set by App.jsx
     // when the user was not logged in and the URL contained a reset token)
-    const resetTokenParam = params.get('reset_token') || sessionStorage.getItem('mailflow_reset_token');
+    const resetTokenParam = params.get('reset_token') || sessionStorage.getItem('mailexpert_reset_token');
     if (resetTokenParam) {
-      sessionStorage.removeItem('mailflow_reset_token');
+      sessionStorage.removeItem('mailexpert_reset_token');
       window.history.replaceState({}, '', '/login');
       setResetToken(resetTokenParam);
       setMode('reset');

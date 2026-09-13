@@ -486,7 +486,7 @@ router.delete('/system-email', async (req, res) => {
 // ── OIDC providers ─────────────────────────────────────────────────────────────
 
 // login_match_claim is the OIDC claim name (from the verified id_token) used to match an SSO
-// login to an existing MailFlow account (matched against users.username). Restrict to a safe
+// login to an existing MailExpert account (matched against users.username). Restrict to a safe
 // claim-name charset. Returns the trimmed value, or null if it is not a valid claim name.
 function validateMatchClaim(v) {
   const c = String(v).trim();

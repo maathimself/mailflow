@@ -1,4 +1,4 @@
-package sh.mailflow.app;
+package sh.mailexpert.app;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -71,15 +71,15 @@ public class NativeSecurityTest {
 
     @Test
     public void onlyInternalCustomActionsRequireIntentAuthentication() {
-        assertTrue(MailFlowNativePlugin.isPrivilegedNativeAction(
-            MailFlowNativePlugin.ACTION_OPEN_MESSAGE
+        assertTrue(MailExpertNativePlugin.isPrivilegedNativeAction(
+            MailExpertNativePlugin.ACTION_OPEN_MESSAGE
         ));
-        assertTrue(MailFlowNativePlugin.isPrivilegedNativeAction(
-            MailFlowNativePlugin.ACTION_INSTALL_UPDATE
+        assertTrue(MailExpertNativePlugin.isPrivilegedNativeAction(
+            MailExpertNativePlugin.ACTION_INSTALL_UPDATE
         ));
-        assertFalse(MailFlowNativePlugin.isPrivilegedNativeAction(
+        assertFalse(MailExpertNativePlugin.isPrivilegedNativeAction(
             "android.intent.action.VIEW"
         ));
-        assertFalse(MailFlowNativePlugin.isPrivilegedNativeAction(null));
+        assertFalse(MailExpertNativePlugin.isPrivilegedNativeAction(null));
     }
 }

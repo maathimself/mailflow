@@ -221,7 +221,7 @@ app.all('/.well-known/carddav', (req, res) => res.redirect(308, '/carddav/'));
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 app.get('/api/version', (_req, res) => res.json({ version: APP_VERSION, sha: process.env.BUILD_SHA || 'dev' }));
 // Server-side update check (#261). Cached in updateCheck.js so repeated hits never
-// re-query GitHub; the browser only talks to MailFlow. Never throws into the response.
+// re-query GitHub; the browser only talks to MailExpert. Never throws into the response.
 app.get('/api/update', async (_req, res) => {
   try { res.json(await getUpdateStatus(APP_VERSION)); }
   catch { res.json({ current: APP_VERSION, latest: null, updateAvailable: false, disabled: false }); }

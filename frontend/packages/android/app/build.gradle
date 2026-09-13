@@ -1,24 +1,24 @@
 apply plugin: 'com.android.application'
 
 def releaseSigningEnv = [
-    "MAILFLOW_ANDROID_STORE_FILE",
-    "MAILFLOW_ANDROID_STORE_PASSWORD",
-    "MAILFLOW_ANDROID_KEY_ALIAS",
-    "MAILFLOW_ANDROID_KEY_PASSWORD"
+    "MAILEXPERT_ANDROID_STORE_FILE",
+    "MAILEXPERT_ANDROID_STORE_PASSWORD",
+    "MAILEXPERT_ANDROID_KEY_ALIAS",
+    "MAILEXPERT_ANDROID_KEY_PASSWORD"
 ]
 def missingReleaseSigningEnv = releaseSigningEnv.findAll { !System.getenv(it) }
 def hasReleaseSigning = missingReleaseSigningEnv.isEmpty()
-def releaseStoreFile = System.getenv("MAILFLOW_ANDROID_STORE_FILE")
-def releaseStorePassword = System.getenv("MAILFLOW_ANDROID_STORE_PASSWORD")
-def releaseKeyAlias = System.getenv("MAILFLOW_ANDROID_KEY_ALIAS")
-def releaseKeyPassword = System.getenv("MAILFLOW_ANDROID_KEY_PASSWORD")
+def releaseStoreFile = System.getenv("MAILEXPERT_ANDROID_STORE_FILE")
+def releaseStorePassword = System.getenv("MAILEXPERT_ANDROID_STORE_PASSWORD")
+def releaseKeyAlias = System.getenv("MAILEXPERT_ANDROID_KEY_ALIAS")
+def releaseKeyPassword = System.getenv("MAILEXPERT_ANDROID_KEY_PASSWORD")
 
 android {
-    namespace = "sh.mailflow.app"
+    namespace = "sh.mailexpert.app"
     compileSdk = rootProject.ext.compileSdkVersion
 
     defaultConfig {
-        applicationId "sh.mailflow.app"
+        applicationId "sh.mailexpert.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

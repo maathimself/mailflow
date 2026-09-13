@@ -1314,7 +1314,7 @@
       "adminGroupClaimPh": "grupy",
       "adminGroupClaimDesc": "Nazwa claimu JWT zawierającego grupy użytkownika (np. groups). Pozostaw puste, aby wyłączyć nadawanie uprawnień administratora na podstawie grupy.",
       "adminGroupValue": "Wartość grupy administratorów",
-      "adminGroupValuePh": "mailflow-admins",
+      "adminGroupValuePh": "mailexpert-admins",
       "adminGroupValueDesc": "Nazwa grupy nadającej uprawnienia administratora. Użytkownicy w tej grupie zostają administratorami przy każdym logowaniu SSO; użytkownicy spoza niej tracą uprawnienia administratora.",
       "loginMatchClaim": "Dopasuj istniejące konta według",
       "loginMatchClaimDesc": "Oświadczenie (claim) OIDC porównywane z nazwą użytkownika każdego konta MailExpert przy pierwszym powiązaniu logowania SSO z istniejącym kontem (tryb udostępniania „tylko logowanie do istniejących kont”). Wartość domyślna to email. Użyj preferred_username, upn itp. dla dostawców tożsamości, których nazwy użytkowników nie są adresami e-mail — tylko jeśli dostawca gwarantuje, że oświadczenie jest unikalne i nie może być edytowane przez użytkownika.",
