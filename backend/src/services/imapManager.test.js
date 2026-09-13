@@ -1819,7 +1819,7 @@ describe('_recordAccountError / _clearAccountError', () => {
     expect(m.broadcast).not.toHaveBeenCalled();
     await m._recordAccountError(acct, 'IMAP connect timeout (30000ms)');
     expect(query).toHaveBeenCalledWith(
-      'UPDATE email_accounts SET sync_error = $1 WHERE id = $2',
+      expect.stringMatching(/^UPDATE email_accounts SET sync_error = \$1\s+WHERE id = \$2 AND \(oauth_reconnect_required = false OR \$1 = 'oauth_reconnect_required'\)$/),
       ['IMAP connect timeout (30000ms)', 'a1'],
     );
     expect(m.broadcast).toHaveBeenCalledWith(

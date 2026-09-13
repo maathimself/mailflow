@@ -2346,7 +2346,15 @@ export class ImapManager {
     this._accountErrorStreak.set(account.id, streak);
     if (recoverable && streak < ACCOUNT_ERROR_MIN_STREAK) return;
     try {
-      await query('UPDATE email_accounts SET sync_error = $1 WHERE id = $2', [detail, account.id]);
+      // While oauth_reconnect_required is set, sync_error must keep its stable code: only that code
+      // itself may be written. A path running on a stale, unflagged copy of the row (the live sync
+      // tick after an SMTP send flagged the account) records nothing, so nothing is cached or pushed.
+      const result = await query(
+        `UPDATE email_accounts SET sync_error = $1
+         WHERE id = $2 AND (oauth_reconnect_required = false OR $1 = 'oauth_reconnect_required')`,
+        [detail, account.id],
+      );
+      if (result?.rowCount === 0) return;
       this._syncErrorState.set(account.id, detail);
       this.broadcast({ type: 'account_error', accountId: account.id, error: detail }, account.user_id);
     } catch (err) {
