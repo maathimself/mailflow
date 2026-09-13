@@ -42,15 +42,16 @@ export default function App() {
     const savedListWidth = Number(localStorage.getItem('mailexpert_list_width')) || undefined;
     applyLayout(localStorage.getItem('mailexpert_layout') || 'comfortable', savedListWidth);
 
-    // Handle OAuth popup callback
+    // Handle OAuth popup callback. Google adds oauth_result on success and
+    // oauth_provider on error; Microsoft sends neither, so both stay undefined.
     const params = new URLSearchParams(window.location.search);
     const oauthSuccess = params.get('oauth_success');
     const oauthError = params.get('oauth_error');
     if ((oauthSuccess || oauthError) && window.opener) {
       if (oauthSuccess) {
-        window.opener.postMessage({ type: 'oauth_success', provider: oauthSuccess }, window.location.origin);
+        window.opener.postMessage({ type: 'oauth_success', provider: oauthSuccess, result: params.get('oauth_result') || undefined }, window.location.origin);
       } else {
-        window.opener.postMessage({ type: 'oauth_error', error: oauthError }, window.location.origin);
+        window.opener.postMessage({ type: 'oauth_error', error: oauthError, provider: params.get('oauth_provider') || undefined }, window.location.origin);
       }
       window.close();
       return;

@@ -29,6 +29,8 @@ import { NOTIFICATION_SOUNDS, playNotificationSound, playCustomSound, warmUpAudi
 import { usePushNotifications } from '../hooks/usePushNotifications.js';
 import SignatureEditor from './SignatureEditor.jsx';
 import DiagnosticsReportModal from './DiagnosticsReportModal.jsx';
+import GoogleIntegrationSection, { openGoogleOAuth } from './GoogleIntegrationSection.jsx';
+import { isGoogleReconnectRequired } from '../utils/googleOAuth.js';
 import { getEffectiveShortcuts, getGroupedActions, ACTION_DEFS, SPECIAL_KEY_LABELS, parseModKey, modLabel } from '../utils/defaultShortcuts.js';
 import { isValidForwardAddress } from '../utils/ruleActions.js';
 
@@ -975,7 +977,9 @@ function AccountsTab() {
                 {account.email_address}
               </div>
               <div style={{ fontSize: 11, marginTop: 3, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                {account.sync_error ? (
+                {isGoogleReconnectRequired(account) ? (
+                  <span style={{ color: 'var(--red)' }}>⚠ {t('admin.accounts.oauthReconnectRequired')}</span>
+                ) : account.sync_error ? (
                   <span style={{
                     color: 'var(--red)',
                     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -991,7 +995,15 @@ function AccountsTab() {
               </div>
             </div>
             <div style={{ display: 'flex', gap: 6, flexShrink: 0, marginLeft: 'auto' }}>
-              {account.sync_error && (
+              {isGoogleReconnectRequired(account) && (
+                <button onClick={() => openGoogleOAuth({ loginHint: account.email_address })} style={{
+                  padding: '5px 10px', background: 'var(--accent)', border: 'none', borderRadius: 6,
+                  color: 'var(--accent-text)', cursor: 'pointer', fontSize: 12, fontWeight: 500,
+                }}>
+                  {t('admin.accounts.reconnectGmail')}
+                </button>
+              )}
+              {account.sync_error && !isGoogleReconnectRequired(account) && (
                 <IconBtn onClick={() => handleReconnect(account.id)} title={t('sidebar.accountMenu.reconnect')}>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <polyline points="23 4 23 10 17 10"/>
@@ -2408,7 +2420,8 @@ function IntegrationsTab() {
         // getIntegrations is admin-only; non-admins already have the capability status.
         if (isAdmin) api.getIntegrations().then(setConfigs).catch(console.error);
         api.getAccounts().then(setAccounts).catch(console.error);
-      } else if (e.data?.type === 'oauth_error') {
+      } else if (e.data?.type === 'oauth_error' && (!e.data?.provider || e.data.provider === 'microsoft')) {
+        // Google errors carry provider 'google' and are announced by MailApp.
         setSaveMsg('Error: ' + e.data.error);
         setConnectingMs(false);
       }
@@ -2863,6 +2876,8 @@ function IntegrationsTab() {
               </div>
             )}
           </div>
+
+          <GoogleIntegrationSection isAdmin={isAdmin} />
         </div>
       )}
         </div>
@@ -8240,6 +8255,7 @@ function makeSearchIndex(t) {
     { label: t('admin.appearance.typography'), keywords: ['font', 'typography', 'typeface', 'serif', 'sans', 'monospace', 'reading font'], tab: 'appearance', subtab: 'fonts', breadcrumb: fontsCrumb },
     // Integrations
     { label: t('admin.integrations.microsoft.title'), keywords: ['microsoft', 'outlook', '365', 'oauth', 'azure', 'client id', 'tenant', 'ms365', 'office'], tab: 'integrations', breadcrumb: tabLabel('integrations') },
+    { label: t('admin.integrations.google.title'), keywords: ['google', 'gmail', 'oauth', 'client id', 'workspace'], tab: 'integrations', breadcrumb: tabLabel('integrations') },
     { label: t('admin.ai.title'), keywords: ['ai', 'artificial intelligence', 'chatgpt', 'ollama', 'llm', 'language model', 'summarize', 'draft', 'compose assistant', 'openai', 'local ai', 'inference', 'gpt'], tab: 'ai', adminOnly: true, breadcrumb: tabLabel('ai') },
     { label: t('admin.plugins.title'), keywords: ['plugin', 'plugins', 'extension', 'extensions', 'add-on', 'addon', 'gtd', 'activate', 'enable feature', 'modules'], tab: 'plugins', breadcrumb: tabLabel('plugins') },
     { label: t('admin.categories.title'), keywords: ['categories', 'categorize', 'newsletter', 'promotion', 'social', 'automated', 'inbox tabs', 'sort emails', 'classify'], tab: 'categories', breadcrumb: tabLabel('categories') },
