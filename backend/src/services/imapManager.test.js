@@ -1847,7 +1847,7 @@ describe('_recordAccountError / _clearAccountError', () => {
     m.broadcast.mockClear();
     await m._clearAccountError(acct);
     expect(query).toHaveBeenLastCalledWith(
-      'UPDATE email_accounts SET sync_error = NULL WHERE id = $1', ['a1'],
+      'UPDATE email_accounts SET sync_error = NULL WHERE id = $1 AND oauth_reconnect_required = false', ['a1'],
     );
     expect(m.broadcast).toHaveBeenCalledWith({ type: 'account_connected', accountId: 'a1' }, 'u1');
   });

@@ -2260,6 +2260,8 @@ export class ImapManager {
   // interval reconnect, AND the fresh-login sync path so all three back off identically
   // instead of hammering a provider that's at its connection limit. Returns the delay in ms.
   _noteConnectionRefusal(account, reason = 'Connection refused') {
+    // A late refusal must not replace the non-expiring reconnect-required gate with a finite backoff.
+    if (this._connectCooldown.get(account.id)?.oauthReconnectRequired) return 0;
     const failures = (this._connectCooldown.get(account.id)?.failures || 0) + 1;
     const ms = connectCooldownMs(failures);
     this._connectCooldown.set(account.id, { until: Date.now() + ms, failures });
@@ -2306,6 +2308,8 @@ export class ImapManager {
   // therefore the same gates in connectAccount, the health check, the sync tick and backfill) as
   // the refusal backoff, with a 30-minute floor instead of the escalating 30s-15min schedule.
   _noteAuthFailure(account) {
+    // A late failure must not replace the non-expiring reconnect-required gate with a finite cooldown.
+    if (this._connectCooldown.get(account.id)?.oauthReconnectRequired) return 0;
     const failures = (this._connectCooldown.get(account.id)?.failures || 0) + 1;
     const ms = Math.max(AUTH_FAILURE_COOLDOWN_MS, connectCooldownMs(failures));
     this._connectCooldown.set(account.id, { until: Date.now() + ms, failures });
@@ -2363,7 +2367,14 @@ export class ImapManager {
     const prev = this._syncErrorState.get(account.id);
     if (prev === null) return;
     try {
-      await query('UPDATE email_accounts SET sync_error = NULL WHERE id = $1', [account.id]);
+      // While oauth_reconnect_required is set, sync_error must keep its stable code: a success path
+      // running on a stale, unflagged copy of the row must not erase it. Nothing was cleared then,
+      // so there is no clear state to cache and no transition to announce.
+      const result = await query(
+        'UPDATE email_accounts SET sync_error = NULL WHERE id = $1 AND oauth_reconnect_required = false',
+        [account.id],
+      );
+      if (result?.rowCount === 0) return;
       this._syncErrorState.set(account.id, null);
       if (typeof prev === 'string') {
         this.broadcast({ type: 'account_connected', accountId: account.id }, account.user_id);

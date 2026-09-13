@@ -315,6 +315,47 @@ describe('oauth_reconnect_required', () => {
 
     expect(tokensUsed()).toEqual(['consent-at']);
   });
+
+  it('keeps the stable code in sync_error when a success path clears errors for a flagged account', async () => {
+    const acct = gmailAccount();
+    rows.set(acct.id, { ...acct, oauth_reconnect_required: true, sync_error: 'oauth_reconnect_required' });
+    // Apply the clear the way Postgres would, honouring any flag condition in the WHERE clause.
+    query.mockImplementation(async (sql, params = []) => {
+      if (sql.startsWith('UPDATE email_accounts SET sync_error = NULL')) {
+        const row = rows.get(params[0]);
+        if (!row || (/oauth_reconnect_required\s*=\s*false|NOT oauth_reconnect_required/.test(sql) && row.oauth_reconnect_required)) {
+          return { rows: [], rowCount: 0 };
+        }
+        rows.set(row.id, { ...row, sync_error: null });
+        return { rows: [], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 0 };
+    });
+    const mgr = newManager();
+    mgr._syncErrorState.set(acct.id, 'IMAP connect timeout (30000ms)');
+
+    // A stale, unflagged copy of the row reaches a success path (connect, poll-only start, sync tick).
+    await mgr._clearAccountError(acct);
+
+    expect(rows.get(acct.id).sync_error).toBe('oauth_reconnect_required');
+    expect(mgr.broadcast).not.toHaveBeenCalledWith({ type: 'account_connected', accountId: acct.id }, 'u1');
+  });
+
+  it('does not let a late refusal or auth failure replace the reconnect-required gate', async () => {
+    const acct = gmailAccount();
+    rows.set(acct.id, acct);
+    refreshGoogleToken.mockRejectedValue(invalidGrant());
+    const mgr = newManager();
+    await mgr.connectAccount(acct);
+    const gate = { until: Infinity, failures: 0, oauthReconnectRequired: true };
+    expect(mgr._connectCooldown.get(acct.id)).toEqual(gate);
+
+    // An in-flight backfill or sync that fails after the account was flagged.
+    mgr._noteConnectionRefusal(acct);
+    expect(mgr._connectCooldown.get(acct.id)).toEqual(gate);
+    mgr._noteAuthFailure(acct);
+    expect(mgr._connectCooldown.get(acct.id)).toEqual(gate);
+  });
 });
 
 describe('transient refresh failures take the recoverable path', () => {
