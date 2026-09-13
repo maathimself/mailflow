@@ -1,9 +1,9 @@
-# Карта кодовой базы MailExp
+# Карта кодовой базы MailExpert
 
 ## Снимок анализа
 
 - Основа: upstream `maathimself/mailflow`, commit `543a049cd085306af095a5e244a26722544432af`.
-- Форк: `wyrtensi/MailExp`.
+- Форк: `wyrtensi/MailExpert`.
 - Версия исходного приложения: 3.3.0.
 - Проанализировано: 1012 tracked-файлов.
 - Текстовые исходники и конфигурация: 452 файла, около 132 500 строк и 5,88 млн символов.
@@ -37,19 +37,19 @@ Frontend не ходит к Gmail напрямую. Он обращается к
 
 ## Корень репозитория
 
-| Файл | Назначение | Что учитывать в MailExp |
+| Файл | Назначение | Что учитывать в MailExpert |
 | --- | --- | --- |
 | `README.md` | Установка, функции и эксплуатация | Содержит upstream-инструкции; дополнен ссылкой на эту карту |
 | `.env.example` | Все runtime-переменные | Здесь появятся Google OAuth, лимиты IMAP и production-настройки |
 | `docker-compose.yml` | Локальный HTTP/HTTPS stack | Backend, frontend, PostgreSQL и Redis на одном сервере |
 | `docker-compose.https.yml` | Профиль с публичным TLS | Для production всё равно предпочтителен внешний reverse proxy/Cloudflare Access |
-| `docker-compose.ghcr.yml` | Запуск готовых upstream images | После появления MailExp images должен указывать на наш registry |
+| `docker-compose.ghcr.yml` | Запуск готовых upstream images | После появления MailExpert images должен указывать на наш registry |
 | `Caddyfile` | TLS/reverse proxy | Не смешивать с OAuth-логикой |
 | `.github/workflows/*` | CI, release, images, native builds | После первого push проверить, что actions разрешены в форке |
 | `LICENSE` | AGPL-3.0 | Изменения сетевого сервиса должны быть доступны пользователям сервиса |
-| `LICENSE-COMMERCIAL` | Уведомление о коммерческой лицензии upstream | Не является автоматической коммерческой лицензией на изменения MailExp |
+| `LICENSE-COMMERCIAL` | Уведомление о коммерческой лицензии upstream | Не является автоматической коммерческой лицензией на изменения MailExpert |
 | `CLA.md`, `CONTRIBUTING.md` | Правила upstream contributions | Перед внешними PR решить, сохраняем ли upstream CLA для собственного проекта |
-| `ROADMAP.md` | Upstream roadmap | Не считать утверждённым roadmap MailExp без отдельной маркировки |
+| `ROADMAP.md` | Upstream roadmap | Не считать утверждённым roadmap MailExpert без отдельной маркировки |
 
 ## Backend
 
@@ -68,7 +68,7 @@ Frontend не ходит к Gmail напрямую. Он обращается к
 | `routes/auth.js` | Регистрация, login, MFA enrolment, password reset, preferences и сессии |
 | `routes/totp.js` | Отдельные TOTP-операции |
 | `routes/oauth.js` | Текущий Microsoft OAuth/device code и refresh; главный кандидат на декомпозицию перед Google OAuth |
-| `routes/oidc.js` | Вход пользователей MailExp через внешний OIDC/SSO; не путать с OAuth почтового аккаунта |
+| `routes/oidc.js` | Вход пользователей MailExpert через внешний OIDC/SSO; не путать с OAuth почтового аккаунта |
 | `routes/integrations.js` | Глобальные секреты/настройки интеграций |
 | `routes/mail.js` | Чтение, папки, move/delete/archive/snooze и вложения; 2286 строк |
 | `routes/send.js` | Отправка, reply/forward, MIME и Sent APPEND |
@@ -78,7 +78,7 @@ Frontend не ходит к Gmail напрямую. Он обращается к
 | `routes/blockList.js` | Пользовательский blacklist |
 | `routes/categories.js` | Категории сообщений |
 | `routes/contacts.js` | Внутренние контакты |
-| `routes/carddav.js` | CardDAV server, который MailExp предоставляет клиентам |
+| `routes/carddav.js` | CardDAV server, который MailExpert предоставляет клиентам |
 | `routes/carddavAccount.js` | Подключение внешнего CardDAV source |
 | `routes/diagnostics.js` | Безопасный диагностический отчёт |
 | `routes/ai.js` | AI provider/actions |
@@ -168,7 +168,7 @@ Google OAuth — не plugin уровня UI: он является credential p
 
 `src/utils/*` содержит account scope, optimistic guards, folder ordering, reply alias selection, message identity/deduplication, draft autosave, diagnostics, security policy native actions и UI helpers. Это наиболее удобное место для чистых функций с быстрыми `node --test` тестами.
 
-Для MailExp важны:
+Для MailExpert важны:
 
 - `accountScope.js` — выбранный аккаунт против общей области;
 - `defaultSender.js`, `replyAlias.js` — правильный From;
@@ -188,7 +188,7 @@ Google OAuth — не plugin уровня UI: он является credential p
 - `frontend/packages/native-shell/*` — страница выбора/ошибки сервера.
 - `frontend/packages/android/*` — Capacitor/Java bridge, background sync и notification actions.
 
-Пользовательское имя заменено на MailExp, но внутренние IDs пока сохранены: `sh.mailflow.app`, Java package/class names, native plugin `MailFlowNative`, localStorage keys `mailflow_*`, Docker service/volume names. Это намеренная совместимость. Их переименование требует отдельной миграции installed app IDs, data directories, deep links и сохранённых browser preferences.
+Пользовательское имя заменено на MailExpert, но внутренние IDs пока сохранены: `sh.mailflow.app`, Java package/class names, native plugin `MailFlowNative`, localStorage keys `mailflow_*`, Docker service/volume names. Это намеренная совместимость. Их переименование требует отдельной миграции installed app IDs, data directories, deep links и сохранённых browser preferences.
 
 ## Проверки и quality gates
 
@@ -215,7 +215,7 @@ npm run build
 
 Baseline на commit `543a049`: backend 1333/1333 тестов, frontend 1864/1864 тестов.
 
-После baseline в MailExp перенесены upstream PR #425 и #420. Они добавили `messageParser.attachments.test.js` и `mail.createFolder.test.js`; целевой прогон трёх связанных test-файлов после переноса дал 243/243.
+После baseline в MailExpert перенесены upstream PR #425 и #420. Они добавили `messageParser.attachments.test.js` и `mail.createFolder.test.js`; целевой прогон трёх связанных test-файлов после переноса дал 243/243.
 
 Итоговый gate bootstrap выполнен и локально на Node 24.19.0, и в чистых `node:22-bookworm-slim` контейнерах:
 

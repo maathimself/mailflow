@@ -1,6 +1,6 @@
 {
-  "name": "MailExp",
-  "short_name": "MailExp",
+  "name": "MailExpert",
+  "short_name": "MailExpert",
   "description": "Shared access to multiple mailboxes",
   "start_url": "/",
   "display": "standalone",

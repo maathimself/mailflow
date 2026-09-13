@@ -907,7 +907,7 @@
     },
     "folderMappings": {
       "title": "Mapování složek",
-      "description": "Přiřaďte jednotlivé role pošty ke konkrétním složkám. Výběrem Automaticky umožníte MailExp použít složku, kterou pro danou roli označil váš server.",
+      "description": "Přiřaďte jednotlivé role pošty ke konkrétním složkám. Výběrem Automaticky umožníte MailExpert použít složku, kterou pro danou roli označil váš server.",
       "loading": "Načítání složek…",
       "autoDetect": "Automaticky",
       "autoDetectNone": "Automaticky (nic nenalezeno)",
@@ -921,7 +921,7 @@
     },
     "aliases": {
       "title": "Aliasy",
-      "description": "Aliasy umožňují odesílat pomocí přihlašovacích údajů SMTP tohoto účtu pod jiným jménem nebo adresou. Při psaní zprávy vyberte alias v poli Od. Pokud byla zpráva adresována aliasu, MailExp z něj automaticky také odpoví.",
+      "description": "Aliasy umožňují odesílat pomocí přihlašovacích údajů SMTP tohoto účtu pod jiným jménem nebo adresou. Při psaní zprávy vyberte alias v poli Od. Pokud byla zpráva adresována aliasu, MailExpert z něj automaticky také odpoví.",
       "addButton": "Přidat alias",
       "empty": "Zatím žádné aliasy",
       "newTitle": "Nový alias",
@@ -1047,7 +1047,7 @@
     },
     "push": {
       "title": "Push oznámení",
-      "description": "Dostávejte systémová oznámení o nové poště, i když MailExp není otevřený.",
+      "description": "Dostávejte systémová oznámení o nové poště, i když MailExpert není otevřený.",
       "enable": "Zapnout",
       "disable": "Vypnout",
       "statusOn": "Push oznámení jsou zapnutá",
@@ -1055,7 +1055,7 @@
       "statusDenied": "Oprávnění zamítnuto",
       "permissionDenied": "Oprávnění k oznámením bylo zamítnuto. Povolte je v nastavení prohlížeče nebo systému.",
       "notSupported": "Tento prohlížeč push oznámení nepodporuje.",
-      "iosHint": "Chcete-li dostávat push oznámení v iOS, nejprve přidejte MailExp na plochu: klepněte na Sdílet a potom na „Přidat na plochu“.",
+      "iosHint": "Chcete-li dostávat push oznámení v iOS, nejprve přidejte MailExpert na plochu: klepněte na Sdílet a potom na „Přidat na plochu“.",
       "notConfigured": "Push oznámení nejsou na tomto serveru nastavená. Zapnete je přidáním klíčů VAPID do souboru .env.",
       "loading": "Zpracování…"
     },
@@ -1108,9 +1108,9 @@
       "swipeDisabled": "Vypnuto",
       "swipeDisabledDesc": "Vypnout tento směr přejetí",
       "syncFrequency": "Frekvence synchronizace e-mailů",
-      "syncFrequencyDesc": "Jak často MailExp kontroluje nové e-maily",
+      "syncFrequencyDesc": "Jak často MailExpert kontroluje nové e-maily",
       "folderSyncFrequency": "Frekvence synchronizace struktury složek",
-      "folderSyncFrequencyDesc": "Jak často MailExp načte ze serveru aktuální seznam složek jednotlivých účtů (včetně složek vytvořených v jiných aplikacích)",
+      "folderSyncFrequencyDesc": "Jak často MailExpert načte ze serveru aktuální seznam složek jednotlivých účtů (včetně složek vytvořených v jiných aplikacích)",
       "threadingMode": "Seskupování do konverzací",
       "threadingOff": "Vypnuto",
       "threadingOffDesc": "Každá zpráva se zobrazuje samostatně",
@@ -1137,8 +1137,8 @@
       "markReadManual": "Ručně",
       "markReadManualDesc": "Nikdy neoznačovat e-maily automaticky jako přečtené. Použijte příslušné tlačítko.",
       "defaultMailApp": "Výchozí e-mailová aplikace",
-      "defaultMailAppDesc": "Nastavte MailExp pro otevírání odkazů mailto: v tomto prohlížeči. Prohlížeč vás požádá o potvrzení. Funguje ve Firefoxu a Chrome/Edge; není dostupné v iOS.",
-      "defaultMailAppBtn": "Zaregistrovat MailExp",
+      "defaultMailAppDesc": "Nastavte MailExpert pro otevírání odkazů mailto: v tomto prohlížeči. Prohlížeč vás požádá o potvrzení. Funguje ve Firefoxu a Chrome/Edge; není dostupné v iOS.",
+      "defaultMailAppBtn": "Zaregistrovat MailExpert",
       "defaultMailAppOk": "Dokončete nastavení potvrzením výzvy v prohlížeči.",
       "defaultMailAppError": "Prohlížeč požadavek zablokoval.",
       "markReadDelayLabel": "Prodleva",
@@ -1169,7 +1169,7 @@
       "gravatarOnDesc": "Načítat fotografie odesílatelů z Gravataru — sdílí hashované adresy odesílatelů s třetí stranou."
     },
     "gtd": {
-      "description": "Proměňte MailExp v systém GTD. Zapněte jej pro jednotlivé účty a potom přiřaďte každý stav ke složce IMAP, která obsahuje jeho štítek.",
+      "description": "Proměňte MailExpert v systém GTD. Zapněte jej pro jednotlivé účty a potom přiřaďte každý stav ke složce IMAP, která obsahuje jeho štítek.",
       "noAccounts": "Pro nastavení GTD nejprve přidejte e-mailový účet.",
       "enableDesc": "GTD je zapnuté. Štítky se synchronizují jako složky a stavy se mění automaticky.",
       "enableHint": "Zapnout štítky GTD a automatické přechody stavů pro tento účet.",
@@ -1401,7 +1401,7 @@
       "domainsPh": "example.com, firma.example.com",
       "provisioning": "Režim zřizování účtů",
       "provisioningDisabled": "Vypnuto — existující propojené identity se mohou přihlásit, nová propojení však nevzniknou",
-      "provisioningExisting": "Přiřadit existující — propojit s účtem MailExp se shodným e-mailem",
+      "provisioningExisting": "Přiřadit existující — propojit s účtem MailExpert se shodným e-mailem",
       "provisioningOpen": "Otevřené — při prvním přihlášení přes SSO automaticky vytvořit nový účet",
       "enabled": "Poskytovatel zapnut",
       "requireEmailVerified": "Vyžadovat ověřený e-mail",
@@ -1409,7 +1409,7 @@
       "allowInsecure": "Povolit místní připojení / certifikáty podepsané svým držitelem",
       "allowInsecureDesc": "Vynechá kontrolu serveru a certifikátu TLS. Používejte pouze pro poskytovatele dostupné jen v LAN (např. pocketid.internal). Nedoporučuje se pro instalace dostupné z internetu.",
       "rpLogout": "Odhlášení SSO (iniciované klientem)",
-      "rpLogoutDesc": "Při odhlášení také ukončit relaci u tohoto poskytovatele přesměrováním na jeho koncový bod pro ukončení relace, nikoli pouze vymazat cookie MailExp. Poskytovatel musí zveřejňovat end_session_endpoint a mít přihlašovací URL MailExp (…/login) zaregistrovanou jako URI přesměrování po odhlášení.",
+      "rpLogoutDesc": "Při odhlášení také ukončit relaci u tohoto poskytovatele přesměrováním na jeho koncový bod pro ukončení relace, nikoli pouze vymazat cookie MailExpert. Poskytovatel musí zveřejňovat end_session_endpoint a mít přihlašovací URL MailExpert (…/login) zaregistrovanou jako URI přesměrování po odhlášení.",
       "adminGroupClaim": "Atribut skupiny správců",
       "adminGroupClaimPh": "groups",
       "adminGroupClaimDesc": "Název atributu JWT obsahujícího skupiny uživatele (např. groups). Ponecháním prázdného pole vypnete přiřazování správce podle skupin.",
@@ -1417,7 +1417,7 @@
       "adminGroupValuePh": "mailflow-admins",
       "adminGroupValueDesc": "Název skupiny udělující přístup správce. Uživatelé v této skupině se při každém přihlášení přes SSO stanou správci; ostatní přístup správce ztratí.",
       "loginMatchClaim": "Přiřazovat existující účty podle",
-      "loginMatchClaimDesc": "Atribut OIDC porovnávaný s uživatelským jménem účtů MailExp při prvním propojení přihlášení SSO s existujícím účtem (režim „pouze existující účty“). Výchozí je e-mail. U poskytovatelů, kde uživatelská jména nejsou e-mailové adresy, použijte preferred_username, upn apod. — pouze pokud poskytovatel zaručuje jedinečnost atributu a uživatel jej nemůže měnit.",
+      "loginMatchClaimDesc": "Atribut OIDC porovnávaný s uživatelským jménem účtů MailExpert při prvním propojení přihlášení SSO s existujícím účtem (režim „pouze existující účty“). Výchozí je e-mail. U poskytovatelů, kde uživatelská jména nejsou e-mailové adresy, použijte preferred_username, upn apod. — pouze pokud poskytovatel zaručuje jedinečnost atributu a uživatel jej nemůže měnit.",
       "save": "Uložit",
       "editButton": "Upravit",
       "deleteButton": "Smazat",
@@ -1475,7 +1475,7 @@
         "deviceCodeTitle": "Připojit pomocí kódu zařízení",
         "deviceCodeNote": "Není potřeba URI přesměrování ani tajný klíč klienta. V Azure přejděte do Ověřování a nastavte Povolit toky veřejného klienta na Ano. Nejvhodnější pro osobní účty Outlook.com / Hotmail.",
         "deviceCodeStart": "Spustit přihlášení pomocí kódu zařízení",
-        "deviceCodeInstructions": "Na libovolném zařízení otevřete níže uvedený odkaz a zadáním kódu povolte MailExp:",
+        "deviceCodeInstructions": "Na libovolném zařízení otevřete níže uvedený odkaz a zadáním kódu povolte MailExpert:",
         "deviceCodeVisit": "Navštivte:",
         "deviceCodeEnter": "Zadejte kód:",
         "deviceCodeWaiting": "Čekání na autorizaci…",
@@ -1521,7 +1521,7 @@
         "lastSync": "Poslední synchronizace: {{when}}",
         "summary": "{{contacts}} kontaktů v {{books}} adresářích",
         "syncFailed": "Poslední synchronizace selhala: {{error}}",
-        "help": "Použijte heslo pro aplikaci Nextcloud, nikoli přihlašovací heslo — uživatelé SSO si je musí vytvořit v Nastavení → Zabezpečení. Kontakty se synchronizují jednosměrně a v MailExp jsou jen pro čtení."
+        "help": "Použijte heslo pro aplikaci Nextcloud, nikoli přihlašovací heslo — uživatelé SSO si je musí vytvořit v Nastavení → Zabezpečení. Kontakty se synchronizují jednosměrně a v MailExpert jsou jen pro čtení."
       }
     },
     "ai": {

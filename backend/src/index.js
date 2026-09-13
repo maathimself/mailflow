@@ -302,7 +302,7 @@ try {
 
 const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => {
-  console.log(`MailExp backend running on port ${PORT}`);
+  console.log(`MailExpert backend running on port ${PORT}`);
 });
 
 process.on('SIGTERM', () => {

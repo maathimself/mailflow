@@ -17,9 +17,9 @@ function escapeXml(value) {
 }
 
 const releaseDate = new Date().toISOString().slice(0, 10);
-const productName = packageJson.productName || 'MailExp';
+const productName = packageJson.productName || 'MailExpert';
 const description = packageJson.description || 'A self-hosted, unified webmail client.';
-const homepage = packageJson.homepage || 'https://github.com/wyrtensi/MailExp';
+const homepage = packageJson.homepage || 'https://github.com/wyrtensi/MailExpert';
 const license = packageJson.license || 'GPL-3.0';
 
 const metainfo = `<?xml version="1.0" encoding="UTF-8"?>

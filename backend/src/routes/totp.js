@@ -40,7 +40,7 @@ router.get('/setup', async (req, res) => {
   const username = userResult.rows[0]?.username || 'user';
 
   const secret = authenticator.generateSecret(20);
-  const otpauthUrl = authenticator.keyuri(username, 'MailExp', secret);
+  const otpauthUrl = authenticator.keyuri(username, 'MailExpert', secret);
   const qrCode = await QRCode.toDataURL(otpauthUrl);
 
   // Hold the secret in the session until the user verifies it (10 min TTL)

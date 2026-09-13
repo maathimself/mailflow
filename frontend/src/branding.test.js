@@ -9,28 +9,30 @@ const repositoryRoot = resolve(frontendRoot, '..');
 
 const read = (path) => readFileSync(path, 'utf8');
 
-test('uses MailExp in product-facing metadata and documentation', () => {
+test('uses MailExpert in product-facing metadata and documentation', () => {
   const frontendPackage = JSON.parse(read(join(frontendRoot, 'package.json')));
   const backendPackage = JSON.parse(read(join(repositoryRoot, 'backend', 'package.json')));
   const manifest = JSON.parse(read(join(frontendRoot, 'public', 'manifest.json')));
 
-  assert.equal(frontendPackage.name, 'mailexp-frontend');
-  assert.equal(frontendPackage.productName, 'MailExp');
-  assert.equal(frontendPackage.bugs.url, 'https://github.com/wyrtensi/MailExp/issues');
-  assert.equal(backendPackage.name, 'mailexp-backend');
-  assert.equal(manifest.name, 'MailExp');
-  assert.equal(manifest.short_name, 'MailExp');
-  assert.match(read(join(frontendRoot, 'index.html')), /<title>MailExp<\/title>/);
-  assert.match(read(join(repositoryRoot, 'README.md')), /^# MailExp\b/m);
-  assert.match(read(join(repositoryRoot, '.env.example')), /^# MailExp — Environment Configuration$/m);
+  assert.equal(frontendPackage.name, 'mailexpert-frontend');
+  assert.equal(frontendPackage.productName, 'MailExpert');
+  assert.equal(frontendPackage.bugs.url, 'https://github.com/wyrtensi/MailExpert/issues');
+  assert.equal(backendPackage.name, 'mailexpert-backend');
+  assert.equal(manifest.name, 'MailExpert');
+  assert.equal(manifest.short_name, 'MailExpert');
+  assert.match(read(join(frontendRoot, 'index.html')), /<title>MailExpert<\/title>/);
+  const readme = read(join(repositoryRoot, 'README.md'));
+  assert.match(readme, /<h1 align="center">MailExpert<\/h1>/);
+  assert.match(readme, /media\/mailexpert-logo\.png/);
+  assert.match(read(join(repositoryRoot, '.env.example')), /^# MailExpert — Environment Configuration$/m);
   const nativeSetup = read(join(frontendRoot, 'packages', 'native-shell', 'index.html'));
   const nativeUnavailable = read(join(frontendRoot, 'packages', 'native-shell', 'host-unavailable.html'));
   const electronMain = read(join(frontendRoot, 'packages', 'electron', 'main.cjs'));
   const androidPlugin = read(join(frontendRoot, 'packages', 'android', 'app', 'src', 'main', 'java', 'sh', 'mailflow', 'app', 'MailFlowNativePlugin.java'));
   assert.doesNotMatch(nativeSetup, /<title>MailFlow|>Connect MailFlow<|your MailFlow server/);
   assert.doesNotMatch(nativeUnavailable, /<title>MailFlow|alt="MailFlow"|>MailFlow could not/);
-  assert.match(electronMain, /api\.github\.com\/repos\/wyrtensi\/MailExp\/releases\/latest/);
-  assert.match(androidPlugin, /api\.github\.com\/repos\/wyrtensi\/MailExp\/releases\/latest/);
+  assert.match(electronMain, /api\.github\.com\/repos\/wyrtensi\/MailExpert\/releases\/latest/);
+  assert.match(androidPlugin, /api\.github\.com\/repos\/wyrtensi\/MailExpert\/releases\/latest/);
   assert.doesNotMatch(electronMain, /api\.github\.com\/repos\/maathimself\/mailflow\/releases/);
   assert.doesNotMatch(androidPlugin, /api\.github\.com\/repos\/maathimself\/mailflow\/releases/);
 });

@@ -1,6 +1,6 @@
 {
   "appId": "sh.mailflow.app",
-  "appName": "MailExp",
+  "appName": "MailExpert",
   "webDir": "../dist",
   "android": {
     "path": "android"
