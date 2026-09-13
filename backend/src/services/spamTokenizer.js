@@ -53,6 +53,23 @@ const URL_RE = /https?:\/\/[^\s<>"')\]]+/gi;
 const MIN_TOKEN_LENGTH = 2;
 const MAX_TOKEN_LENGTH = 30;
 
+// Hard caps on the work a single message can cause. The ingest hook is
+// fire-and-forget, so without these a pathological message (multi-MB body,
+// huge HTML, or a single never-ending word run) would do unbounded synchronous
+// work in the tokenizer — and the same caps apply on the training path, so the
+// features stored at mark time (Solution C) match what inference sees.
+//
+// MAX_BODY_CHARS is applied to the RAW field before HTML parsing (the parser
+// itself is the expensive step); MAX_TOKENS bounds the token stream. Subject
+// tokens are pushed first, so they always survive the token cap.
+export const MAX_BODY_CHARS = 64_000;
+export const MAX_TOKENS = 2_000;
+
+function capChars(value) {
+  if (typeof value !== 'string') return '';
+  return value.length > MAX_BODY_CHARS ? value.slice(0, MAX_BODY_CHARS) : value;
+}
+
 /**
  * Strip HTML to visible text using htmlparser2 (already a backend
  * dependency). Script/style/head contents are dropped.
@@ -110,15 +127,14 @@ function decodeEntities(text) {
  *   Subject tokens are weighted ~x1.5 by duplication (subject is the most
  *   discriminative field; the design doc's "x1.5 via duplicazione" is
  *   implemented as subject appearing twice in the token stream).
- * @returns {string[]} tokens (lowercase, stop-word-free, length-capped)
+ * @returns {string[]} tokens (lowercase, stop-word-free, length-capped).
+ *   Input is capped at MAX_BODY_CHARS per field (before HTML parsing) and the
+ *   output at MAX_TOKENS tokens — see the constants above.
  */
 export function tokenize(message) {
-  const subject = cleanText(message?.subject || '');
-  const body = message?.body
-    ? cleanText(message.body)
-    : message?.bodyHtml
-      ? cleanText(message.bodyHtml)
-      : '';
+  const subject = cleanText(capChars(message?.subject));
+  const rawBody = message?.body || message?.bodyHtml || '';
+  const body = rawBody ? cleanText(capChars(rawBody)) : '';
 
   const tokens = [];
   // Subject weighted x2 (equivalent to the x1.5 duplication in the design;
@@ -133,7 +149,7 @@ export function tokenize(message) {
     if (host) tokens.push(normalizeToken(host));
   }
 
-  return tokens.filter(Boolean);
+  return tokens.filter(Boolean).slice(0, MAX_TOKENS);
 }
 
 function pushTokenRuns(out, text) {
@@ -193,7 +209,9 @@ export function extractFlagFeatures(message) {
     authFlags[`${method}_pass`] = value === null ? null : value === 'pass' ? 1 : 0;
   }
 
-  const subject = message?.subject || '';
+  // Same size cap as tokenize(): the ratio below is scale-invariant, but the
+  // subject must not become an unbounded regex input.
+  const subject = capChars(message?.subject);
   const attachments = Array.isArray(message?.attachments) ? message.attachments : [];
 
   const letters = (subject.match(/\p{L}/gu) || []).length;

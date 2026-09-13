@@ -6,6 +6,8 @@ import {
   extractFlagFeatures,
   tokenFingerprint,
   EXECUTABLE_EXTENSIONS,
+  MAX_BODY_CHARS,
+  MAX_TOKENS,
 } from './spamTokenizer.js';
 
 describe('cleanText', () => {
@@ -98,6 +100,46 @@ describe('tokenize', () => {
     const tokens = tokenize({ subject: 'note', bodyHtml: '<p>urgent invoice</p>' });
     expect(tokens).toContain('urgent');
     expect(tokens).toContain('invoice');
+  });
+});
+
+describe('tokenize — size caps', () => {
+  it('truncates the raw body to MAX_BODY_CHARS before parsing', () => {
+    // A marker beyond the cap must not contribute tokens.
+    const body = `${'alpha '.repeat(12_000)} zzmarkerzz`; // ~72k chars, marker past 64k
+    expect(body.length).toBeGreaterThan(MAX_BODY_CHARS);
+
+    const tokens = tokenize({ subject: 'ok', body });
+    expect(tokens).toContain('alpha');
+    expect(tokens).not.toContain('zzmarkerzz');
+  });
+
+  it('caps the token stream at MAX_TOKENS', () => {
+    const body = Array.from({ length: MAX_TOKENS + 500 }, (_, i) => `w${i}`).join(' ');
+    const tokens = tokenize({ subject: 'subject', body });
+    expect(tokens.length).toBe(MAX_TOKENS);
+  });
+
+  it('keeps the subject tokens when the body alone would exhaust the cap', () => {
+    const body = Array.from({ length: MAX_TOKENS + 500 }, (_, i) => `w${i}`).join(' ');
+    const tokens = tokenize({ subject: 'urgentpayment', body });
+    // Subject is pushed first (twice), so it survives the cap.
+    expect(tokens.filter(t => t === 'urgentpayment').length).toBe(2);
+  });
+
+  it('does not leak skipped-tag content when the cap truncates HTML mid-tag', () => {
+    // <script> opens well before the cap and is never closed (the cap cuts it),
+    // so the whole tail must still be treated as script content and dropped.
+    const html = `<p>hello</p><script>${'x'.repeat(MAX_BODY_CHARS * 2)}`;
+    const tokens = tokenize({ subject: 'ok', bodyHtml: html });
+    expect(tokens).toContain('hello');
+    expect(tokens.some(t => /^x+$/.test(t))).toBe(false);
+  });
+
+  it('caps an over-long subject too', () => {
+    const subject = `${'y'.repeat(MAX_BODY_CHARS + 100)}`;
+    const tokens = tokenize({ subject, body: '' });
+    expect(tokens.length).toBeLessThanOrEqual(MAX_TOKENS);
   });
 });
 
