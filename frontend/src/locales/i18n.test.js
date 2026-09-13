@@ -130,6 +130,8 @@ const SAME_VALUE_ALLOWED = {
   'admin.appearance.customCssPlaceholder':   'any', // CSS code snippet, same in all locales
   'admin.integrations.microsoft.clientIdPh':'any', // xxxxxxxx-xxxx-…
   'admin.integrations.microsoft.title':     'any', // Microsoft 365 / Outlook.com
+  'admin.integrations.google.title':        'any', // Google / Gmail — brand names
+  'admin.integrations.google.clientIdPh':   'any', // 1234567890-abc123.apps.googleusercontent.com
   'admin.security.totpVerifyPh':            'any', // 000000
   'admin.sso.adminGroupClaimPh':            'any', // groups
   'admin.sso.adminGroupValuePh':            'any', // mailexpert-admins
@@ -645,6 +647,21 @@ describe('i18n locale files', () => {
       }
       assert.equal(missing.length, 0,
         `Literal source translation keys missing from locale files:\n${missing.join('\n')}`);
+    });
+
+    it('every OAuth result key mapped in utils/googleOAuth.js exists in every locale', () => {
+      // parseOAuthResult returns keys that are later passed to t() through a variable,
+      // so they are collected from the string literals of the mapping module.
+      const source = readFileSync(resolve(dir, '../utils/googleOAuth.js'), 'utf8');
+      const keys = [...new Set([...source.matchAll(/'(admin\.integrations\.[\w.]+)'/g)].map(m => m[1]))];
+      assert.ok(keys.length >= 12, `expected the Google result/error keys, found ${keys.length}`);
+      const missing = [];
+      for (const lang of langs) {
+        for (const key of keys) {
+          if (typeof locales[lang][key] !== 'string' || !locales[lang][key]) missing.push(`  - ${lang}: ${key}`);
+        }
+      }
+      assert.equal(missing.length, 0, `OAuth result keys missing from locale files:\n${missing.join('\n')}`);
     });
   });
 

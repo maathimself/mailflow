@@ -8,6 +8,7 @@ import { LAYOUTS } from '../layouts.js';
 import { updateFaviconBadge } from '../themes.js';
 import { installResumeRefresh } from '../utils/resumeRefresh.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
+import { oauthMessageToSearchParams, parseOAuthResult } from '../utils/googleOAuth.js';
 import { setPending, pendingMarkReadMap, completedMarkReadMap } from '../utils/pendingReads.js';
 import { buildKeyMap, buildModKeyMap, getEffectiveShortcuts, getGroupedActions, parseModKey, modLabel, SPECIAL_KEYS, SPECIAL_KEY_LABELS } from '../utils/defaultShortcuts.js';
 import Sidebar from './Sidebar.jsx';
@@ -699,16 +700,25 @@ export default function MailApp() {
     const oauthError = params.get('oauth_error');
     const oidcSuccess = params.get('oidc_success');
     const oidcError = params.get('oidc_error');
+    // Google results get a localized toast; the raw query values are never rendered.
+    const oauthResult = parseOAuthResult(params);
+    if (oauthResult?.provider === 'google') {
+      addNotification({
+        type: oauthResult.status === 'error' ? 'error' : 'info',
+        title: t('admin.integrations.google.title'),
+        body: t(oauthResult.messageKey),
+      });
+    }
 
-    if (provider) {
+    if (oauthError) {
+      window.history.replaceState({}, '', '/');
+    } else if (provider) {
       window.history.replaceState({}, '', '/');
       api.getAccounts()
         .then(accounts => { setAccounts(accounts); })
         .catch(console.error);
       setAdminTab('accounts');
       setShowAdmin(true);
-    } else if (oauthError) {
-      window.history.replaceState({}, '', '/');
     } else if (oidcSuccess) {
       window.history.replaceState({}, '', '/');
       if (oidcSuccess === 'linked') {
@@ -719,6 +729,28 @@ export default function MailApp() {
       addNotification({ type: 'error', title: t('admin.ssoError.title'), body: oidcError });
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Google OAuth results posted back by a popup (App.jsx forwards them). MailApp is
+  // mounted wherever the flow was started (Integrations card or a "Reconnect Gmail"
+  // action), so the toast and account refresh live here exactly once. Microsoft
+  // popup messages stay with the Integrations tab listener.
+  useEffect(() => {
+    const handleMessage = (e) => {
+      if (e.origin !== window.location.origin) return;
+      const result = parseOAuthResult(oauthMessageToSearchParams(e.data));
+      if (result?.provider !== 'google') return;
+      addNotification({
+        type: result.status === 'error' ? 'error' : 'info',
+        title: t('admin.integrations.google.title'),
+        body: t(result.messageKey),
+      });
+      if (result.status === 'success') {
+        api.getAccounts().then(setAccounts).catch(console.error);
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [addNotification, setAccounts, t]);
 
   return (
     <div style={{
