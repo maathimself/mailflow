@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>MailExp Setup</title>
+    <title>MailExpert Setup</title>
     <style>
       :root {
         color-scheme: dark light;
@@ -104,12 +104,12 @@
   </head>
   <body class="setup-pending">
     <main>
-      <h1>Connect MailExp</h1>
-      <p>Enter the host for your MailExp server.</p>
+      <h1>Connect MailExpert</h1>
+      <p>Enter the host for your MailExpert server.</p>
 
       <form id="setup-form">
         <label>
-          MailExp host
+          MailExpert host
           <input
             id="host-input"
             name="host"
@@ -221,7 +221,7 @@
             loadHost(host);
           }
         } catch (err) {
-          error.textContent = err.message || 'Enter a valid MailExp host.';
+          error.textContent = err.message || 'Enter a valid MailExpert host.';
           button.disabled = false;
         }
       });

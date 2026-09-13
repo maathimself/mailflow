@@ -24,6 +24,6 @@ export async function sendSystemEmail({ to, subject, text, html }) {
     auth: { user: cfg.user, pass },
     tls,
   });
-  const from = `${cfg.fromName || 'MailExp'} <${cfg.fromEmail || cfg.user}>`;
+  const from = `${cfg.fromName || 'MailExpert'} <${cfg.fromEmail || cfg.user}>`;
   await transport.sendMail({ from, to, subject, text, html });
 }

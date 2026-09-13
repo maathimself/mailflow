@@ -296,7 +296,7 @@ router.post('/invites', async (req, res) => {
             auth: { user: cfg.user, pass },
             tls: sysTls,
           });
-          fromHeader = `${cfg.fromName || 'MailExp'} <${cfg.fromEmail || cfg.user}>`;
+          fromHeader = `${cfg.fromName || 'MailExpert'} <${cfg.fromEmail || cfg.user}>`;
         }
       } catch { /* fall through to personal account */ }
     }
@@ -340,9 +340,9 @@ router.post('/invites', async (req, res) => {
       await transport.sendMail({
         from: fromHeader,
         to: email,
-        subject: 'You\'ve been invited to MailExp',
+        subject: 'You\'ve been invited to MailExpert',
         text: [
-          `You've been invited to join MailExp.`,
+          `You've been invited to join MailExpert.`,
           ``,
           `Click the link below to create your account:`,
           `${inviteUrl}`,
@@ -356,7 +356,7 @@ router.post('/invites', async (req, res) => {
             </div>
             <h2 style="margin: 0 0 12px; font-size: 18px; font-weight: 600;">You've been invited</h2>
             <p style="color: #555; line-height: 1.6; margin: 0 0 24px;">
-              You've been invited to join MailExp. Click the button below to create your account.
+              You've been invited to join MailExpert. Click the button below to create your account.
             </p>
             <a href="${inviteUrl}" style="display: inline-block; padding: 12px 24px; background: #7c6af7; color: white; text-decoration: none; border-radius: 8px; font-weight: 500; font-size: 14px;">
               Accept Invite
@@ -433,7 +433,7 @@ router.post('/system-email', async (req, res) => {
     tls: tls || 'STARTTLS',
     user: user.trim(),
     pass: encryptedPass,
-    fromName: (fromName || '').trim() || 'MailExp',
+    fromName: (fromName || '').trim() || 'MailExpert',
     fromEmail: (fromEmail || '').trim() || user.trim(),
   };
 

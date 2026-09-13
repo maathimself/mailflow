@@ -414,7 +414,7 @@ async function sendEmailOtpCode(userId, toEmail) {
 
   await sendSystemEmail({
     to: toEmail,
-    subject: 'Your MailExp sign-in code',
+    subject: 'Your MailExpert sign-in code',
     text: `Your sign-in code is: ${code}\n\nThis code expires in 10 minutes.\n\nIf you did not request this code, you can ignore this email.`,
     html: `
       <div style="font-family:-apple-system,Arial,sans-serif;max-width:480px;margin:0 auto;padding:32px;color:#1a1a1a;">
@@ -422,7 +422,7 @@ async function sendEmailOtpCode(userId, toEmail) {
           <span style="font-size:22px;font-weight:700;color:#1a1a1a;">Mail</span><span style="font-size:22px;font-weight:600;color:#7c6af7;">Flow</span>
         </div>
         <h2 style="margin:0 0 12px;font-size:18px;font-weight:600;">Your sign-in code</h2>
-        <p style="color:#555;line-height:1.6;margin:0 0 24px;">Use the code below to sign in to MailExp. It expires in 10 minutes.</p>
+        <p style="color:#555;line-height:1.6;margin:0 0 24px;">Use the code below to sign in to MailExpert. It expires in 10 minutes.</p>
         <div style="font-size:36px;font-weight:700;letter-spacing:0.2em;text-align:center;padding:20px;background:#f5f4ff;border-radius:8px;color:#7c6af7;margin-bottom:24px;">${code}</div>
         <p style="color:#999;font-size:12px;margin:0;">If you did not request this code, you can ignore this email.</p>
       </div>
@@ -527,7 +527,7 @@ router.get('/2fa/enrollment/setup', async (req, res) => {
   const username = userResult.rows[0]?.username || 'user';
 
   const secret = authenticator.generateSecret(20);
-  const otpauthUrl = authenticator.keyuri(username, 'MailExp', secret);
+  const otpauthUrl = authenticator.keyuri(username, 'MailExpert', secret);
   const qrCode = await QRCode.toDataURL(otpauthUrl);
 
   req.session.pendingTOTPSecret = secret;
@@ -1008,8 +1008,8 @@ router.post('/forgot-password', authLimiter, async (req, res) => {
       // Send the email before persisting the token. If delivery fails, nothing is
       // saved and the user can retry cleanly.
       // Transport preference: system SMTP → account owner's first personal SMTP account.
-      const emailSubject = 'Reset your MailExp password';
-      const emailText = `You requested a password reset for your MailExp account.\n\nClick the link below to set a new password. This link expires in 1 hour.\n\n${resetUrl}\n\nIf you did not request this, you can ignore this email.`;
+      const emailSubject = 'Reset your MailExpert password';
+      const emailText = `You requested a password reset for your MailExpert account.\n\nClick the link below to set a new password. This link expires in 1 hour.\n\n${resetUrl}\n\nIf you did not request this, you can ignore this email.`;
       const emailHtml = `
         <div style="font-family:-apple-system,Arial,sans-serif;max-width:480px;margin:0 auto;padding:32px;color:#1a1a1a;">
           <div style="margin-bottom:24px;">
@@ -1041,7 +1041,7 @@ router.post('/forgot-password', authLimiter, async (req, res) => {
               secure: (cfg.port || 587) === 465,
               auth: { user: cfg.user, pass }, tls: sysTls,
             });
-            fromHeader = `${cfg.fromName || 'MailExp'} <${cfg.fromEmail || cfg.user}>`;
+            fromHeader = `${cfg.fromName || 'MailExpert'} <${cfg.fromEmail || cfg.user}>`;
           }
         }
       } catch { /* fall through to personal account */ }

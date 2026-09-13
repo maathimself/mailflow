@@ -3,22 +3,22 @@
 ## Снимок
 
 - Источник: `maathimself/mailflow`, открытые pull request на 13 сентября 2026 года.
-- Целевая ветка MailExp: `codex/mailexp-bootstrap`, база `543a049cd085306af095a5e244a26722544432af`.
+- Целевая ветка MailExpert: `codex/mailexpert-bootstrap`, база `543a049cd085306af095a5e244a26722544432af`.
 - Всего рассмотрено 20 открытых PR.
-- Upstream ранее переписал историю `main`, поэтому у веток PR нет общего Git merge-base с текущей веткой. Статус GitHub `MERGEABLE` означает только результат серверного пробного слияния, а не безопасный перенос истории в MailExp.
-- В MailExp перенесены только два небольших исправления с зелёным CI, чисто применимым патчем и непосредственной пользой для IMAP-клиента: #425 и #420.
+- Upstream ранее переписал историю `main`, поэтому у веток PR нет общего Git merge-base с текущей веткой. Статус GitHub `MERGEABLE` означает только результат серверного пробного слияния, а не безопасный перенос истории в MailExpert.
+- В MailExpert перенесены только два небольших исправления с зелёным CI, чисто применимым патчем и непосредственной пользой для IMAP-клиента: #425 и #420.
 
 ## Итоговая таблица
 
-| PR | Объём | Состояние на момент анализа | Значение для MailExp | Решение |
+| PR | Объём | Состояние на момент анализа | Значение для MailExpert | Решение |
 | --- | ---: | --- | --- | --- |
 | [#439 Template Builder](https://github.com/maathimself/mailflow/pull/439) | +5758/−104, 46 файлов | Behind | Большой самостоятельный plugin, не нужен Gmail/EOP MVP | Отложить |
 | [#430 Attachment-only body](https://github.com/maathimself/mailflow/pull/430) | +46/−4, 2 файла | Conflicting, CI failed | Полезное исправление отображения писем только с вложением | Не переносить сейчас; дождаться зелёного исправленного патча или воспроизвести тестом |
 | [#426 Background rules](https://github.com/maathimself/mailflow/pull/426) | +169/−13, 13 файлов | Behind | Может уменьшить задержки inbox rules, но меняет фоновые процессы | Отложить до нагрузочных измерений |
-| [#425 Named text attachments](https://github.com/maathimself/mailflow/pull/425) | +151/−21, 4 файла | Mergeable, CI passed | Исправляет потерю `.html`/`.txt`-вложений, размеченных inline | **Перенесён**, commit MailExp `df5851e` |
+| [#425 Named text attachments](https://github.com/maathimself/mailflow/pull/425) | +151/−21, 4 файла | Mergeable, CI passed | Исправляет потерю `.html`/`.txt`-вложений, размеченных inline | **Перенесён**, commit MailExpert `df5851e` |
 | [#422 Nginx base override](https://github.com/maathimself/mailflow/pull/422) | +15/−1, 3 файла | Mergeable, CI passed | Нужен в основном старым NAS/kernel с несовместимым Alpine | Не нужен целевому Ubuntu 24.04; оставить доступным при появлении такого хоста |
 | [#421 Search error feedback](https://github.com/maathimself/mailflow/pull/421) | +41/−7, 11 файлов | Mergeable, CI passed | Улучшает UX, но одновременно меняет rate limit 20→60/мин | Отдельный продуктовый PR после базового bootstrap |
-| [#420 Real folder path](https://github.com/maathimself/mailflow/pull/420) | +106/−16, 3 файла | Mergeable, CI passed | Исправляет создание папок на IMAP с namespace и нестандартным delimiter | **Перенесён**, commit MailExp `72cf470` |
+| [#420 Real folder path](https://github.com/maathimself/mailflow/pull/420) | +106/−16, 3 файла | Mergeable, CI passed | Исправляет создание папок на IMAP с namespace и нестандартным delimiter | **Перенесён**, commit MailExpert `72cf470` |
 | [#419 Subfolder input](https://github.com/maathimself/mailflow/pull/419) | +13/−6, 1 файл | Behind | Парный UI-fix к созданию подпапок | Проверить вручную после #420; переносить только при воспроизводимом дефекте |
 | [#414 Rule destination paths](https://github.com/maathimself/mailflow/pull/414) | +220/−33, 8 файлов | Conflicting | Удобство выбора вложенных папок в правилах | Отложить |
 | [#411 Hover-scroll move picker](https://github.com/maathimself/mailflow/pull/411) | +243/−29, 7 файлов | Conflicting | Косметика длинных путей папок | Отложить |
@@ -57,7 +57,7 @@
 - сохраняет delimiter аккаунта;
 - добавляет route-тесты для prefixed namespace, root folder и IMAP failure.
 
-Оба коммита прошли полный набор MailExp-проверок вместе с ребрендингом: backend 1345/1345, frontend 1866/1866, backend/frontend ESLint, plugin-boundary lint и production build на Node 22.
+Оба коммита прошли полный набор MailExpert-проверок вместе с ребрендингом: backend 1345/1345, frontend 1866/1866, backend/frontend ESLint, plugin-boundary lint и production build на Node 22.
 
 ## Почему Google OAuth PR #359 не переносится напрямую
 
@@ -78,7 +78,7 @@ PR содержит полезный рабочий набросок:
 4. Pending OAuth state держится только в session state без отдельного ограниченного TTL-хранилища.
 5. Проверка `email_verified` допускает значение, отличное от явного `false`; новая реализация должна принимать только `true`.
 6. Refresh нужно объединить для IMAP и SMTP в provider-neutral token manager, а не размножать условные ветки.
-7. Для сценария MailExp новый Gmail должен по умолчанию получать `include_in_unified_inbox=false`.
+7. Для сценария MailExpert новый Gmail должен по умолчанию получать `include_in_unified_inbox=false`.
 
 Решение: реализовать Google provider заново поверх текущей ветки, используя PR #359 как анализ поведения, а не как источник для слепого копирования.
 
@@ -90,9 +90,9 @@ PR содержит полезный рабочий набросок:
 - Диапазон: `128816eb0e90de1c513be51f967732e3edcaea69` → `cd06efaa1d3c199e89d651aacd0cb62ee8064338`.
 - Проверено 15 изменённых исходных файлов и `.env.example`.
 - Подтверждённых reportable security vulnerabilities: 0.
-- Missing PKCE и fail-open форма `email_verified` классифицированы как hardening/design gaps без подтверждённого практического exploit в указанной confidential web-client модели. Это не отменяет их обязательного исправления в MailExp.
+- Missing PKCE и fail-open форма `email_verified` классифицированы как hardening/design gaps без подтверждённого практического exploit в указанной confidential web-client модели. Это не отменяет их обязательного исправления в MailExpert.
 
-Локальный отчёт сканирования не входит в Git-репозиторий и указан в `agent-changes/2026-09-13-mailexp-bootstrap.md`.
+Локальный отчёт сканирования не входит в Git-репозиторий и указан в `agent-changes/2026-09-13-mailexpert-bootstrap.md`.
 
 ## Правило дальнейшего переноса upstream PR
 

@@ -96,8 +96,8 @@ export default function ElectronNotificationBridge() {
         type: 'success',
         title: 'Update ready',
         body: manualInstall
-          ? `MailExp downloaded and verified the update.${installCommand ? ` Install it from a terminal with:\n${installCommand}` : ''}`
-          : 'MailExp downloaded the update.',
+          ? `MailExpert downloaded and verified the update.${installCommand ? ` Install it from a terminal with:\n${installCommand}` : ''}`
+          : 'MailExpert downloaded the update.',
         allowWrap: true,
         persistent: true,
         actionLabel: manualInstall ? 'Copy & Quit' : 'Install',
@@ -122,7 +122,7 @@ export default function ElectronNotificationBridge() {
             addNotification({
               type: 'success',
               title: 'Update ready',
-              body: `MailExp downloaded and verified the update. Install it from a terminal with:\n${result.installCommand}`,
+              body: `MailExpert downloaded and verified the update. Install it from a terminal with:\n${result.installCommand}`,
               allowWrap: true,
               persistent: true,
               actionLabel: 'Copy & Quit',
@@ -283,7 +283,7 @@ export default function ElectronNotificationBridge() {
             addNotification({
               type: 'info',
               title: 'Sync started',
-              body: 'MailExp is checking for new mail.',
+              body: 'MailExpert is checking for new mail.',
             });
             await api.syncNow();
           } catch (error) {

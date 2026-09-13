@@ -45,14 +45,14 @@ fs.mkdirSync(releaseDir, { recursive: true });
 
 for (const apk of apks) {
   const suffix = apks.length === 1 ? '' : `-${path.basename(apk, '.apk')}`;
-  const target = path.join(releaseDir, `MailExp-${packageJson.version}${suffix}.apk`);
+  const target = path.join(releaseDir, `MailExpert-${packageJson.version}${suffix}.apk`);
   fs.copyFileSync(apk, target);
   console.log(`Copied ${path.relative(root, apk)} -> ${path.relative(root, target)}`);
 }
 
 for (const bundle of bundles) {
   const suffix = bundles.length === 1 ? '' : `-${path.basename(bundle, '.aab')}`;
-  const target = path.join(releaseDir, `MailExp-${packageJson.version}${suffix}.aab`);
+  const target = path.join(releaseDir, `MailExpert-${packageJson.version}${suffix}.aab`);
   fs.copyFileSync(bundle, target);
   console.log(`Copied ${path.relative(root, bundle)} -> ${path.relative(root, target)}`);
 }

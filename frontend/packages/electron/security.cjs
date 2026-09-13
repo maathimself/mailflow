@@ -32,7 +32,7 @@ function normalizeHost(value) {
     throw new Error('Host must start with https:// or http://');
   }
   if (url.protocol === 'http:' && !isAllowedCleartextHostname(url.hostname)) {
-    throw new Error('Public MailExp hosts must use https://');
+    throw new Error('Public MailExpert hosts must use https://');
   }
 
   url.username = '';
