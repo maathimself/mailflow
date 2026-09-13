@@ -13,6 +13,7 @@ const {
   isSameOrigin,
   normalizeHost,
 } = require('./security.cjs');
+const { writeClipboardText } = require('./clipboardText.cjs');
 
 const CONFIG_FILE = 'mailexpert-host.json';
 const UPDATE_STATUS_CHANNEL = 'mailexpert:updates:status';
@@ -1067,7 +1068,7 @@ function installDownloadedUpdate() {
   });
 }
 
-function copyLinuxUpdateCommandAndQuit({ installCommand, filePath } = {}) {
+async function copyLinuxUpdateCommandAndQuit({ installCommand, filePath } = {}) {
   const linuxInstallCommand = getLinuxUpdateInstallCommand(downloadedUpdate)
     || getLinuxUpdateInstallCommand(filePath);
   if (!linuxInstallCommand) {
@@ -1077,7 +1078,11 @@ function copyLinuxUpdateCommandAndQuit({ installCommand, filePath } = {}) {
   const requestedCommand = typeof installCommand === 'string' ? installCommand.trim() : '';
   const commandToCopy = requestedCommand === linuxInstallCommand ? requestedCommand : linuxInstallCommand;
 
-  clipboard.writeText(commandToCopy);
+  // Only quit once the command is really on the clipboard; otherwise the user
+  // would be left without the install command.
+  if (!await writeClipboardText(clipboard, commandToCopy)) {
+    return { copied: false, reason: 'clipboard-failed', installCommand: commandToCopy };
+  }
   isQuitting = true;
   setTimeout(() => app.quit(), 1250);
   return { copied: true, installCommand: commandToCopy };
@@ -1420,7 +1425,7 @@ function showContextMenu(webContents, params) {
         },
         {
           label: 'Copy Link',
-          click: () => clipboard.writeText(params.linkURL),
+          click: () => { writeClipboardText(clipboard, params.linkURL); },
         },
       );
     }
@@ -1429,7 +1434,7 @@ function showContextMenu(webContents, params) {
       if (template.length > 0) template.push({ type: 'separator' });
       template.push({
         label: 'Copy Image Address',
-        click: () => clipboard.writeText(params.srcURL),
+        click: () => { writeClipboardText(clipboard, params.srcURL); },
       });
     }
 
