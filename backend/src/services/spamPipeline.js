@@ -21,6 +21,7 @@
 import { query } from './db.js';
 import { tokenize, extractFlagFeatures } from './spamTokenizer.js';
 import { scoreRules } from './spamRules.js';
+import { extractAuthservIds, normalizeAuthservId } from './spamParser.js';
 import { getModelForUser } from './spamModelStore.js';
 import {
   classifyMessage,
@@ -51,7 +52,7 @@ const round = (n, places = 3) => Math.round(n * 10 ** places) / 10 ** places;
 export async function classifyAndTagMessage(messageId, opts = {}) {
   const data = await query(`
     SELECT m.*, a.user_id AS owner_id, a.email_address AS account_email,
-           a.antispam_enabled, a.folder_mappings,
+           a.antispam_enabled, a.folder_mappings, a.trusted_authserv_id,
            u.preferences->>'spamEnabled' AS master_spam_enabled
     FROM messages m
     JOIN email_accounts a ON m.account_id = a.id
@@ -81,11 +82,21 @@ export async function classifyAndTagMessage(messageId, opts = {}) {
     headers: opts.headers || [],
   };
 
+  // Authentication-Results is only honored when its authserv-id is the one this
+  // account trusts (email_accounts.trusted_authserv_id). With none configured,
+  // the auth signal is neutral — a forged header can neither add pass weights
+  // nor silence the AUTH_*_FAIL rules (PR review, 2026-08-25).
+  const trustedAuthservId = normalizeAuthservId(row.trusted_authserv_id);
+  const observedAuthservIds = extractAuthservIds(msg.headers);
+
   const tokens = tokenize(msg);
-  const flagFeatures = extractFlagFeatures(msg);
+  const flagFeatures = extractFlagFeatures(msg, { trustedAuthservIds: trustedAuthservId });
 
   // Layer 1: rules — always evaluated, sole scorer below 50 records.
-  const rules = scoreRules(msg, { userContacts: new Set() });
+  const rules = scoreRules(msg, {
+    userContacts: new Set(),
+    trustedAuthservIds: trustedAuthservId,
+  });
 
   // Layer 2: per-user MNB model when mature enough.
   const model = await getModelForUser(row.owner_id);
@@ -117,6 +128,13 @@ export async function classifyAndTagMessage(messageId, opts = {}) {
       token: t.token,
       contribution: round(t.contribution),
     })),
+    // Auth provenance, for the "Why?" modal and the trusted-authserv-id helper
+    // in the account form. `authservIds` lists what the headers actually said;
+    // `trustedAuthservId` is the id that was honored (null = none, so the auth
+    // signal was treated as absent) and `authTrusted` reflects that decision.
+    authservIds: observedAuthservIds,
+    trustedAuthservId,
+    authTrusted: trustedAuthservId !== null && observedAuthservIds.includes(trustedAuthservId),
   };
 
   await query(

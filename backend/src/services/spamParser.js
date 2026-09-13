@@ -45,9 +45,17 @@ export function extractAuthResultHeaders(headers) {
     const value = headers['authentication-results'] ?? headers['Authentication-Results'];
     if (value === undefined) return [];
     const raw = Array.isArray(value) ? value : [value];
-    // Values are usually already unfolded; normalize any embedded newlines.
-    return raw
-      .map(v => String(v).replace(/\r?\n[\t ]+/g, ' ').trim())
+    // The ingestion parser (messageParser.parseHeadersInput) keys headers by
+    // lowercase name and joins repeated instances with '\n', so one map value
+    // can hold several Authentication-Results headers (and folded
+    // continuations). Split on newlines and unfold, exactly like the raw-line
+    // path, so each header keeps its own authserv-id for the trust gate.
+    const lines = [];
+    for (const v of raw) {
+      for (const line of String(v).replace(/\r\n/g, '\n').split('\n')) lines.push(line);
+    }
+    return unfoldHeaderLines(lines)
+      .map(line => line.replace(/^authentication-results\s*:\s*/i, '').trim())
       .filter(v => v.length > 0);
   }
   return [];
@@ -68,19 +76,109 @@ function unfoldHeaderLines(lines) {
   return result;
 }
 
+// Trust gate (PR review, 2026-08-25). An Authentication-Results header is only
+// meaningful when it was written by a mail system the account owner trusts: a
+// sender can add their own `Authentication-Results: x; dkim=pass; spf=pass;
+// dmarc=pass`, and because RFC 7601 permits multiple such headers (and 'pass'
+// wins across them in this parser), an untrusted header could both earn the
+// pass weights and silence the AUTH_*_FAIL rules. Callers therefore pass the
+// authserv-id(s) they trust (`email_accounts.trusted_authserv_id`); with no
+// trusted id configured, NO header is honored and the auth signal is neutral.
+
 /**
- * Parse all Authentication-Results headers into a single result set.
+ * Extract the authserv-id of one Authentication-Results payload — the first
+ * token before the first ';' (RFC 8601 §2.2: "authserv-id [authserv-id-version]").
+ * Parenthesised comments are dropped and an authserv-id-version suffix after
+ * '/' is tolerated (seen in the wild as "example.com/1").
+ *
+ * @param {string} payload e.g. "mx.google.com 1; dkim=pass ..."
+ * @returns {string|null} lowercase authserv-id, or null when there is none
+ */
+export function extractAuthservId(payload) {
+  const first = String(payload ?? '').split(';')[0];
+  const stripped = first.replace(/\([^)]*\)/g, ' ').trim();
+  const token = stripped.split(/\s+/)[0] || '';
+  const id = token.split('/')[0].trim().toLowerCase();
+  return id || null;
+}
+
+/** Normalize a user-configured trusted authserv-id for comparison. */
+export function normalizeAuthservId(value) {
+  if (typeof value !== 'string') return null;
+  const id = value.trim().toLowerCase().split('/')[0].trim();
+  return id || null;
+}
+
+/**
+ * Every distinct authserv-id seen across the Authentication-Results headers,
+ * in header order. Used by the "detected values" helper in the account form and
+ * recorded in spam_details for diagnostics — never for scoring by itself.
  *
  * @param {Array<string>|Object} headers — see extractAuthResultHeaders.
+ * @returns {Array<string>} lowercase authserv-ids (deduplicated)
+ */
+export function extractAuthservIds(headers) {
+  const seen = [];
+  for (const payload of extractAuthResultHeaders(headers)) {
+    const id = extractAuthservId(payload);
+    if (id && !seen.includes(id)) seen.push(id);
+  }
+  return seen;
+}
+
+/**
+ * Normalize the trusted-id option into a Set of lowercase ids.
+ * Accepts a string, an array, or nothing.
+ */
+function trustedSet(trustedAuthservIds) {
+  const list = Array.isArray(trustedAuthservIds)
+    ? trustedAuthservIds
+    : trustedAuthservIds == null ? [] : [trustedAuthservIds];
+  return new Set(list.map(normalizeAuthservId).filter(Boolean));
+}
+
+/**
+ * True when the message carries at least one Authentication-Results header
+ * written by a trusted authserv-id. The rules engine uses this (instead of
+ * "any Authentication-Results header exists") so an untrusted header is treated
+ * exactly like an absent one — neutral, never firing AUTH_*_FAIL.
+ */
+export function hasTrustedAuthResults(headers, trustedAuthservIds) {
+  const trusted = trustedSet(trustedAuthservIds);
+  if (trusted.size === 0) return false;
+  return extractAuthResultHeaders(headers).some(payload => {
+    const id = extractAuthservId(payload);
+    return id !== null && trusted.has(id);
+  });
+}
+
+/**
+ * Parse all Authentication-Results headers into a single result set, honoring
+ * only the headers written by a trusted authserv-id.
+ *
+ * @param {Array<string>|Object} headers — see extractAuthResultHeaders.
+ * @param {Object} [opts]
+ *   @param {string|Array<string>} [opts.trustedAuthservIds] — authserv-id(s)
+ *     this account trusts. Empty/absent means "trust nothing": every method is
+ *     returned as null (no signal) rather than trusting whatever arrived.
  * @returns {{ dkim: string|null, spf: string|null, dmarc: string|null }}
  *   One of: 'pass' | 'fail' | 'softfail' | 'neutral' | 'none' |
- *   'temperror' | 'permerror' | null (header absent).
+ *   'temperror' | 'permerror' | null (header absent or untrusted).
  *   When multiple signatures exist for one method, 'pass' wins over any
  *   other value (at least one signature verified), otherwise the first
  *   value seen is kept.
  */
-export function parseAuthResults(headers) {
-  const payloads = extractAuthResultHeaders(headers);
+export function parseAuthResults(headers, opts = {}) {
+  const trusted = trustedSet(opts.trustedAuthservIds);
+  const result = { dkim: null, spf: null, dmarc: null };
+  if (trusted.size === 0) return result;
+
+  const payloads = extractAuthResultHeaders(headers).filter(payload => {
+    const id = extractAuthservId(payload);
+    return id !== null && trusted.has(id);
+  });
+  if (payloads.length === 0) return result;
+
   const byMethod = new Map(); // method -> first value seen (excluding pass)
   const passed = new Set();
 
@@ -100,7 +198,6 @@ export function parseAuthResults(headers) {
     }
   }
 
-  const result = { dkim: null, spf: null, dmarc: null };
   for (const method of KNOWN_METHODS) {
     if (passed.has(method)) {
       result[method] = 'pass';

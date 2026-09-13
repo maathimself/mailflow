@@ -127,7 +127,7 @@ describe('scoreRules — individual rules', () => {
     const { fired } = scoreRules({
       ...baseEmail,
       headers: ['Authentication-Results: mx.com; dkim=fail header.d=x.com'],
-    });
+    }, { trustedAuthservIds: 'mx.com' });
     expect(fired.some(r => r.name === 'AUTH_DKIM_FAIL')).toBe(true);
   });
 
@@ -135,8 +135,40 @@ describe('scoreRules — individual rules', () => {
     const { fired } = scoreRules({
       ...baseEmail,
       headers: ['Authentication-Results: mx.com; spf=neutral smtp.mailfrom=x.com'],
-    });
+    }, { trustedAuthservIds: 'mx.com' });
     expect(fired.some(r => r.name === 'AUTH_SPF_FAIL')).toBe(false);
+  });
+
+  // The forgery this guards against: a sender adds their own
+  // Authentication-Results with all-pass results, hoping to silence the
+  // AUTH_*_FAIL rules and earn the pass weights. Only the receiving MTA's
+  // header (the trusted authserv-id) may be honored.
+  describe('authserv-id trust gate', () => {
+    const forged = [
+      'Authentication-Results: mx.example.com; dkim=fail header.d=spoof.com; spf=fail smtp.mailfrom=spoof.com',
+      'Authentication-Results: attacker.invalid; dkim=pass header.d=spoof.com; spf=pass smtp.mailfrom=spoof.com',
+    ];
+
+    it('honors the trusted header and ignores a forged all-pass one', () => {
+      const { fired } = scoreRules({ ...baseEmail, headers: forged }, {
+        trustedAuthservIds: 'mx.example.com',
+      });
+      expect(fired.some(r => r.name === 'AUTH_DKIM_FAIL')).toBe(true);
+      expect(fired.some(r => r.name === 'AUTH_SPF_FAIL')).toBe(true);
+    });
+
+    it('stays neutral when no authserv-id is trusted', () => {
+      const { fired } = scoreRules({ ...baseEmail, headers: forged });
+      expect(fired.some(r => r.name.startsWith('AUTH_'))).toBe(false);
+    });
+
+    it('matches the trusted id case-insensitively', () => {
+      const { fired } = scoreRules({
+        ...baseEmail,
+        headers: ['Authentication-Results: MX.Example.COM; dkim=fail header.d=spoof.com'],
+      }, { trustedAuthservIds: 'mx.example.com' });
+      expect(fired.some(r => r.name === 'AUTH_DKIM_FAIL')).toBe(true);
+    });
   });
 
   it('MAILING_LIST_HEADERS fires with List-Id + List-Unsubscribe', () => {
@@ -175,7 +207,7 @@ describe('scoreRules — combined scoring', () => {
       replyTo: 'other@evil.com',
       attachments: [{ filename: 'invoice.pdf.exe' }],
       headers: ['Authentication-Results: mx.com; dkim=fail; spf=fail; dmarc=fail'],
-    });
+    }, { trustedAuthservIds: 'mx.com' });
     expect(worst.score).toBeGreaterThanOrEqual(0);
     expect(worst.score).toBeLessThanOrEqual(1);
     expect(worst.score).toBe(1); // several rules stacked clamp at 1

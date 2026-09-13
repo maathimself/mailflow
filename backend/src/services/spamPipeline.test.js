@@ -218,6 +218,63 @@ describe('classifyAndTagMessage — scenario 5: blend weights shift with trainin
   });
 });
 
+describe('classifyAndTagMessage — Authentication-Results trust gate', () => {
+  // A sender can inject their own Authentication-Results header. Fetch the real
+  // MTA's header plus a forged all-pass one and check that only the trusted
+  // authserv-id is honored (PR review, 2026-08-25).
+  const FORGED = 'Authentication-Results: attacker.invalid; dkim=pass; spf=pass; dmarc=pass';
+  const REAL = 'Authentication-Results: mx.example.com; dkim=fail header.d=spoof.com; spf=fail smtp.mailfrom=spoof.com';
+  const headers = [FORGED, REAL];
+
+  function persistedDetails() {
+    const update = query.mock.calls.find(([sql]) => sql.includes('UPDATE messages SET'));
+    return JSON.parse(update[1][2]);
+  }
+
+  it('honors the trusted header and ignores the forged pass', async () => {
+    getModelForUser.mockResolvedValue(null); // rules-only: deterministic
+    query.mockResolvedValueOnce({
+      rows: [messageRow({ trusted_authserv_id: 'mx.example.com' })],
+    });
+
+    await classifyAndTagMessage(MESSAGE_ID, { headers });
+
+    const details = persistedDetails();
+    const fired = details.rulesFired.map(r => r.name);
+    expect(fired).toContain('AUTH_DKIM_FAIL');
+    expect(fired).toContain('AUTH_SPF_FAIL');
+    expect(details.authservIds).toEqual(['attacker.invalid', 'mx.example.com']);
+    expect(details.trustedAuthservId).toBe('mx.example.com');
+    expect(details.authTrusted).toBe(true);
+  });
+
+  it('stays neutral when the account trusts no authserv-id (default)', async () => {
+    getModelForUser.mockResolvedValue(null);
+    query.mockResolvedValueOnce({ rows: [messageRow()] }); // trusted_authserv_id: null
+
+    await classifyAndTagMessage(MESSAGE_ID, { headers });
+
+    const details = persistedDetails();
+    expect(details.rulesFired.map(r => r.name).some(n => n.startsWith('AUTH_'))).toBe(false);
+    expect(details.trustedAuthservId).toBeNull();
+    expect(details.authTrusted).toBe(false);
+    // The ids actually seen are still recorded for the setup helper.
+    expect(details.authservIds).toEqual(['attacker.invalid', 'mx.example.com']);
+  });
+
+  it('records no authserv-ids when the message carries none', async () => {
+    getModelForUser.mockResolvedValue(null);
+    query.mockResolvedValueOnce({ rows: [messageRow()] });
+
+    await classifyAndTagMessage(MESSAGE_ID, { headers: ['Subject: hi'] });
+
+    const details = persistedDetails();
+    expect(details.authservIds).toEqual([]);
+    expect(details.trustedAuthservId).toBeNull();
+    expect(details.authTrusted).toBe(false);
+  });
+});
+
 describe('autoMove — non-UIDPLUS destination guard (mirrors the manual /spam path)', () => {
   const spamMessage = {
     subject: 'CHEAP VIAGRA!!! WIN $$$',

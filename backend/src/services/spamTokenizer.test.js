@@ -155,13 +155,30 @@ describe('extractFlagFeatures', () => {
     const pass = extractFlagFeatures({
       subject: 'hi',
       headers: ['Authentication-Results: mx.com; dkim=pass header.d=x.com'],
-    });
+    }, { trustedAuthservIds: 'mx.com' });
     expect(pass.dkim_pass).toBe(1);
     const fail = extractFlagFeatures({
       subject: 'hi',
       headers: ['Authentication-Results: mx.com; dkim=fail header.d=x.com'],
-    });
+    }, { trustedAuthservIds: 'mx.com' });
     expect(fail.dkim_pass).toBe(0);
+  });
+
+  it('leaves the auth flags null when the header is not from a trusted authserv-id', () => {
+    const flags = extractFlagFeatures({
+      subject: 'hi',
+      headers: ['Authentication-Results: attacker.invalid; dkim=pass; spf=pass; dmarc=pass'],
+    }, { trustedAuthservIds: 'mx.example.com' });
+    expect(flags.dkim_pass).toBeNull();
+    expect(flags.spf_pass).toBeNull();
+    expect(flags.dmarc_pass).toBeNull();
+
+    // And with no trusted id configured at all (the default).
+    const untrusted = extractFlagFeatures({
+      subject: 'hi',
+      headers: ['Authentication-Results: mx.example.com; dkim=pass'],
+    });
+    expect(untrusted.dkim_pass).toBeNull();
   });
 
   it('detects executable attachments', () => {

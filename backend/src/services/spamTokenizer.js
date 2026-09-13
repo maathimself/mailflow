@@ -196,10 +196,16 @@ function extractUrlHost(url) {
  *   { subject, from?, replyTo?, headers?, attachments? }
  *   - headers: raw header lines (array) or lowercase-name map (see spamParser)
  *   - attachments: [{ filename?, contentType? }]
+ * @param {Object} [opts]
+ *   @param {string|Array<string>} [opts.trustedAuthservIds] — authserv-id(s)
+ *     whose Authentication-Results headers are honored (see spamParser). With
+ *     none, the three auth flags are null: no trusted signal.
  * @returns {Object} flag feature object (schema of spam_training_log.flag_features)
  */
-export function extractFlagFeatures(message) {
-  const auth = parseAuthResults(message?.headers || []);
+export function extractFlagFeatures(message, opts = {}) {
+  const auth = parseAuthResults(message?.headers || [], {
+    trustedAuthservIds: opts.trustedAuthservIds,
+  });
 
   // dkim_pass / spf_pass / dmarc_pass: 1 on pass, 0 on fail-like results,
   // null when the header is absent (excluded from scoring, §6.1).

@@ -9,7 +9,7 @@
 // scoreRules() returns a single number in [0, 1] (raw weighted sum clamped).
 // explainRules() returns per-rule detail for the "Why?" modal.
 
-import { parseAuthResults } from './spamParser.js';
+import { parseAuthResults, hasTrustedAuthResults } from './spamParser.js';
 import { EXECUTABLE_EXTENSIONS } from './spamTokenizer.js';
 
 // ---------------------------------------------------------------------------
@@ -215,13 +215,14 @@ function listOfHeaders(headers) {
   return map;
 }
 
-// True when at least one Authentication-Results header exists. When it is
-// entirely absent (a server that does not evaluate auth), the AUTH_*_FAIL
-// rules stay neutral instead of firing on every message (a client-side
-// mailbox would otherwise score +1.2 on everything and clamp to 1.0).
-function hasAuthHeader(headers) {
-  const map = listOfHeaders(headers);
-  return Boolean((map['authentication-results'] || '').trim());
+// True when at least one Authentication-Results header written by a TRUSTED
+// authserv-id exists. When it is entirely absent — or present but from an
+// untrusted source (a sender can forge the header) — the AUTH_*_FAIL rules stay
+// neutral instead of firing on every message (a client-side mailbox would
+// otherwise score +1.2 on everything and clamp to 1.0), and an untrusted header
+// can never earn the pass weights either (PR review, 2026-08-25).
+function hasAuthHeader(headers, trustedAuthservIds) {
+  return hasTrustedAuthResults(headers || [], trustedAuthservIds);
 }
 
 function hasMailingListHeaders(headers) {
@@ -404,17 +405,22 @@ const ATTACHMENT_RULES = new Set(['ATTACHMENT_EXECUTABLE', 'ATTACHMENT_DOUBLE_EX
  * @param {Object} email
  *   { subject, body, from?, replyTo?, attachments?, headers? }
  * @param {Object} [ctx]
- *   { userContacts?: Set<string> } — normalized addresses, built once per
- *   classification call by the caller (contactsService).
+ *   { userContacts?: Set<string>, trustedAuthservIds?: string|Array<string> }
+ *   — normalized addresses, built once per classification call by the caller
+ *   (contactsService), and the authserv-id(s) whose Authentication-Results
+ *   headers this account trusts (email_accounts.trusted_authserv_id). With no
+ *   trusted id the auth signal is neutral: an untrusted header is treated
+ *   exactly like an absent one.
  * @returns {{ score: number, fired: Array<{name, weight}> }}
  *   score in [0, 1]; fired rules in evaluation order.
  */
 export function scoreRules(email, ctx = {}) {
+  const headers = email.headers || [];
   const fullCtx = {
-    authResults: parseAuthResults(email.headers || []),
-    authHeaderPresent: hasAuthHeader(email.headers || []),
+    authResults: parseAuthResults(headers, { trustedAuthservIds: ctx.trustedAuthservIds }),
+    authHeaderPresent: hasAuthHeader(headers, ctx.trustedAuthservIds),
     userContacts: ctx.userContacts || new Set(),
-    headers: email.headers || [],
+    headers,
   };
 
   const fired = RULES.filter(rule => rule.test(email, fullCtx));
@@ -441,11 +447,12 @@ export function scoreRules(email, ctx = {}) {
  * @returns {Array<{name: string, weight: number, fired: boolean}>}
  */
 export function explainRules(email, ctx = {}) {
+  const headers = email.headers || [];
   const fullCtx = {
-    authResults: parseAuthResults(email.headers || []),
-    authHeaderPresent: hasAuthHeader(email.headers || []),
+    authResults: parseAuthResults(headers, { trustedAuthservIds: ctx.trustedAuthservIds }),
+    authHeaderPresent: hasAuthHeader(headers, ctx.trustedAuthservIds),
     userContacts: ctx.userContacts || new Set(),
-    headers: email.headers || [],
+    headers,
   };
   return RULES.map(rule => ({
     name: rule.name,
