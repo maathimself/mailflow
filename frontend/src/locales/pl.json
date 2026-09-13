@@ -806,6 +806,12 @@
       "antispamSection": "Antyspam",
       "antispamEnabled": "Włącz antyspam dla tego konta",
       "antispamEnabledDesc": "Przychodzące wiadomości są klasyfikowane automatycznie; spam o wysokiej pewności jest przenoszony do folderu Junk.",
+      "trustedAuthservLabel": "Zaufany identyfikator Authentication-Results",
+      "trustedAuthservPlaceholder": "mx.example.com",
+      "trustedAuthservDesc": "Uwzględniane są tylko nagłówki Authentication-Results zapisane przez ten identyfikator. Pozostaw puste, aby ignorować wszystkie — niezaufany nagłówek może twierdzić dowolny wynik, także pass.",
+      "trustedAuthservDetected": "Widziane w ostatnich wiadomościach (kliknij, aby użyć):",
+      "trustedAuthservDetectedNone": "Brak danych — wiadomości są analizowane, gdy antyspam jest włączony dla tego konta.",
+      "trustedAuthservWarn": "Ufaj tylko identyfikatorowi, który rozpoznajesz jako serwer odbierający Twojego dostawcy.",
       "enabledGlobally": "Włączone globalnie"
     },
     "folderMappings": {

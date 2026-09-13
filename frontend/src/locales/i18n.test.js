@@ -186,6 +186,8 @@ const SAME_VALUE_ALLOWED = {
   'spam.maturity.fresh':          [['es', 'it']],
   // "Spam" — capitalized loanword shared in en, it, de, es, fr, cs, pl
   'spam.verdict.spam':            [['en', 'it', 'de', 'es', 'fr', 'cs', 'pl']],
+  // authserv-id example — a literal hostname, identical in every locale
+  'admin.accounts.trustedAuthservPlaceholder': 'any',
   'admin.privacy.addSenderPh': [['en', 'ru', 'zhCN']],
   'admin.aliases.replyToLabel': [['en', 'pl']],
 

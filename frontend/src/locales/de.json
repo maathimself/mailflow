@@ -719,6 +719,12 @@
       "antispamSection": "Antispam",
       "antispamEnabled": "Antispam für dieses Konto aktivieren",
       "antispamEnabledDesc": "Eingehende Nachrichten werden automatisch klassifiziert; Spam mit hoher Konfidenz wird in den Junk-Ordner verschoben.",
+      "trustedAuthservLabel": "Vertrauenswürdige Authentication-Results-ID",
+      "trustedAuthservPlaceholder": "mx.example.com",
+      "trustedAuthservDesc": "Nur Authentication-Results-Header, die von dieser ID geschrieben wurden, werden berücksichtigt. Leer lassen, um alle zu ignorieren — ein nicht vertrauenswürdiger Header kann jedes Ergebnis behaupten, auch ein Pass.",
+      "trustedAuthservDetected": "In Ihren letzten Nachrichten gesehen (zum Übernehmen klicken):",
+      "trustedAuthservDetectedNone": "Noch keine Daten — Nachrichten werden geprüft, sobald Antispam für dieses Konto aktiv ist.",
+      "trustedAuthservWarn": "Vertrauen Sie nur einer ID, die Sie als empfangenden Server Ihres Anbieters erkennen.",
       "enabledGlobally": "Global aktiviert"
     },
     "folderMappings": {

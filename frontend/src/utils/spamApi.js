@@ -36,4 +36,6 @@ export const spamApi = {
   resetTrainingAll: () => request('POST', '/reset-training-all', { confirm: true }),
   getDeletions: () => request('GET', '/deletions'),
   explain: (messageId) => request('GET', `/explain?messageId=${encodeURIComponent(messageId)}`),
+  // Setup helper for the account form's trusted-authserv-id field (admin only).
+  getAuthservIds: (accountId) => request('GET', `/authserv-ids?accountId=${encodeURIComponent(accountId)}`),
 };

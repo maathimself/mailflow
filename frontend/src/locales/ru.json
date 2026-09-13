@@ -790,6 +790,12 @@
       "antispamSection": "Антиспам",
       "antispamEnabled": "Включить антиспам для этого аккаунта",
       "antispamEnabledDesc": "Входящие сообщения классифицируются автоматически; спам с высокой уверенностью перемещается в папку Junk.",
+      "trustedAuthservLabel": "Доверенный ID Authentication-Results",
+      "trustedAuthservPlaceholder": "mx.example.com",
+      "trustedAuthservDesc": "Учитываются только заголовки Authentication-Results, записанные этим ID. Оставьте пустым, чтобы игнорировать все: недоверенный заголовок может заявить любой результат, включая pass.",
+      "trustedAuthservDetected": "Встречались в ваших последних письмах (нажмите, чтобы использовать):",
+      "trustedAuthservDetectedNone": "Данных пока нет — письма анализируются, когда антиспам включён для этого аккаунта.",
+      "trustedAuthservWarn": "Доверяйте только тому ID, который вы узнаёте как принимающий сервер вашего провайдера.",
       "enabledGlobally": "Включено глобально"
     },
     "folderMappings": {

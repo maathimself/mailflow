@@ -967,6 +967,12 @@
       "antispamSection": "Antispam",
       "antispamEnabled": "Zapnout antispam pro tento účet",
       "antispamEnabledDesc": "Příchozí zprávy se klasifikují automaticky; spam s vysokou jistotou se přesune do složky Junk.",
+      "trustedAuthservLabel": "Důvěryhodné ID Authentication-Results",
+      "trustedAuthservPlaceholder": "mx.example.com",
+      "trustedAuthservDesc": "Důvěryhodné jsou pouze hlavičky Authentication-Results zapsané tímto ID. Ponechte prázdné pro ignorování všech — nedůvěryhodná hlavička může tvrdit jakýkoli výsledek, včetně pass.",
+      "trustedAuthservDetected": "Viděno ve vašich nedávných zprávách (kliknutím použijete):",
+      "trustedAuthservDetectedNone": "Zatím žádná data — zprávy se kontrolují, jakmile je pro tento účet zapnutý antispam.",
+      "trustedAuthservWarn": "Důvěřujte pouze ID, které znáte jako přijímající server vašeho poskytovatele.",
       "enabledGlobally": "Globálně zapnuto"
     },
     "folderMappings": {

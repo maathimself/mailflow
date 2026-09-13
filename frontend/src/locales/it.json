@@ -790,6 +790,12 @@
       "antispamSection": "Antispam",
       "antispamEnabled": "Abilita antispam per questo account",
       "antispamEnabledDesc": "I nuovi messaggi vengono classificati automaticamente; lo spam ad alta confidenza viene spostato nella cartella Junk.",
+      "trustedAuthservLabel": "ID Authentication-Results attendibile",
+      "trustedAuthservPlaceholder": "mx.example.com",
+      "trustedAuthservDesc": "Sono considerati attendibili solo gli header Authentication-Results scritti da questo ID. Lascia vuoto per ignorarli tutti: un header non attendibile può dichiarare qualsiasi risultato, anche un pass.",
+      "trustedAuthservDetected": "Visti sui messaggi recenti (clicca per usare):",
+      "trustedAuthservDetectedNone": "Nessun dato ancora: i messaggi vengono esaminati quando l'antispam è attivo per questo account.",
+      "trustedAuthservWarn": "Considera attendibile solo un ID che riconosci come il server di ricezione del tuo provider.",
       "enabledGlobally": "Abilitato globalmente"
     },
     "folderMappings": {

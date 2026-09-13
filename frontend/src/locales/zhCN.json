@@ -790,6 +790,12 @@
       "antispamSection": "反垃圾邮件",
       "antispamEnabled": "为此账户启用反垃圾邮件",
       "antispamEnabledDesc": "自动分类新邮件；高置信度的垃圾邮件将移至 Junk 文件夹。",
+      "trustedAuthservLabel": "受信任的 Authentication-Results ID",
+      "trustedAuthservPlaceholder": "mx.example.com",
+      "trustedAuthservDesc": "仅信任由该 ID 写入的 Authentication-Results 头。留空表示全部忽略——不可信的头可以声称任何结果，包括 pass。",
+      "trustedAuthservDetected": "在您最近的邮件中出现过（点击使用）：",
+      "trustedAuthservDetectedNone": "暂无数据——为该账户启用反垃圾邮件后才会分析邮件。",
+      "trustedAuthservWarn": "只信任您确认为邮件服务商接收服务器的 ID。",
       "enabledGlobally": "已全局启用"
     },
     "folderMappings": {

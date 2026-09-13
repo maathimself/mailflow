@@ -6,6 +6,7 @@ import { PluginSlot } from '../plugins/PluginSlot.jsx';
 import { newAiAction, AI_ACTION_LIMITS } from '../aiActions.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { api } from '../utils/api.js';
+import { spamApi } from '../utils/spamApi.js';
 import { copyToClipboard } from '../utils/clipboard.js';
 import { isValidFromValue } from '../utils/defaultSender.js';
 import {
@@ -86,9 +87,14 @@ function AccountForm({ initial, onSave, onCancel }) {
     smtp_host: '', smtp_port: 587, smtp_tls: 'STARTTLS',
     smtp_auth_user: '', smtp_auth_pass: '',
     auth_user: '', auth_pass: '', categorization_enabled: false, antispam_enabled: false,
+    trusted_authserv_id: '',
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // Detected Authentication-Results authserv-ids for this account (setup helper
+  // for the trusted-authserv-id field). Fetched only for an existing account
+  // with antispam on, since that is when the backend classifies and records them.
+  const [detectedAuthservIds, setDetectedAuthservIds] = useState(null);
   const [showPass, setShowPass] = useState(false);
   const [showSmtpPass, setShowSmtpPass] = useState(false);
   const [selectedPreset, setSelectedPreset] = useState(null);
@@ -103,6 +109,21 @@ function AccountForm({ initial, onSave, onCancel }) {
       }))
       .catch(() => {});
   }, []);
+
+  // Setup helper: which authserv-ids this account's mail actually carries. The
+  // backend records them when it classifies, so the hint is only meaningful for
+  // an existing account with antispam on (and it fills in as mail arrives).
+  useEffect(() => {
+    if (!isEdit || !form.antispam_enabled) {
+      setDetectedAuthservIds(null);
+      return undefined;
+    }
+    let cancelled = false;
+    spamApi.getAuthservIds(initial.id)
+      .then(d => { if (!cancelled) setDetectedAuthservIds(d); })
+      .catch(() => { if (!cancelled) setDetectedAuthservIds(null); });
+    return () => { cancelled = true; };
+  }, [isEdit, form.antispam_enabled, initial?.id]);
 
   const set = (key, val) => setForm(f => ({ ...f, [key]: val }));
 
@@ -442,6 +463,59 @@ function AccountForm({ initial, onSave, onCancel }) {
               </div>
             </div>
           </div>
+
+          {/* Trusted Authentication-Results authserv-id: only headers written by
+              this id are honored; empty means "trust none" (the auth signal is
+              then ignored rather than trusted blindly). */}
+          {form.antispam_enabled && (
+            <div style={{ marginTop: 14 }}>
+              <Field label={t('admin.accounts.trustedAuthservLabel')}>
+                <input
+                  value={form.trusted_authserv_id || ''}
+                  onChange={e => set('trusted_authserv_id', e.target.value)}
+                  placeholder={t('admin.accounts.trustedAuthservPlaceholder')}
+                  style={inputStyle}
+                />
+              </Field>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: -8, lineHeight: 1.5 }}>
+                {t('admin.accounts.trustedAuthservDesc')}
+              </div>
+
+              {detectedAuthservIds && detectedAuthservIds.analyzed > 0 && detectedAuthservIds.detected.length > 0 && (
+                <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-secondary)' }}>
+                  <div>{t('admin.accounts.trustedAuthservDetected')}</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                    {detectedAuthservIds.detected.map(d => (
+                      <button
+                        key={d.id}
+                        type="button"
+                        onClick={() => set('trusted_authserv_id', d.id)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 6,
+                          padding: '4px 10px', borderRadius: 14, fontSize: 11,
+                          border: '1px solid var(--border)', background: 'var(--bg-secondary)',
+                          color: 'var(--text-secondary)', cursor: 'pointer',
+                        }}
+                      >
+                        <span style={{ fontFamily: 'monospace' }}>{d.id}</span>
+                        <span style={{ color: 'var(--text-tertiary)' }}>
+                          {d.count}/{detectedAuthservIds.analyzed}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ marginTop: 8, color: 'var(--text-tertiary)', lineHeight: 1.5 }}>
+                    {t('admin.accounts.trustedAuthservWarn')}
+                  </div>
+                </div>
+              )}
+              {detectedAuthservIds && (detectedAuthservIds.analyzed === 0 || detectedAuthservIds.detected.length === 0) && (
+                <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-tertiary)', lineHeight: 1.5 }}>
+                  {t('admin.accounts.trustedAuthservDetectedNone')}
+                </div>
+              )}
+            </div>
+          )}
         </>
       )}
 
@@ -503,7 +577,7 @@ function AccountsTab() {
   };
 
   const handleEdit = async (form) => {
-    const updates = { name: form.name, sender_name: form.sender_name || null, color: form.color, imap_host: form.imap_host, imap_port: form.imap_port, imap_skip_tls_verify: !!form.imap_skip_tls_verify, smtp_host: form.smtp_host, smtp_port: form.smtp_port, smtp_tls: form.smtp_tls, signature: form.signature || null, categorization_enabled: !!form.categorization_enabled, antispam_enabled: !!form.antispam_enabled, include_in_unified_inbox: form.include_in_unified_inbox !== false };
+    const updates = { name: form.name, sender_name: form.sender_name || null, color: form.color, imap_host: form.imap_host, imap_port: form.imap_port, imap_skip_tls_verify: !!form.imap_skip_tls_verify, smtp_host: form.smtp_host, smtp_port: form.smtp_port, smtp_tls: form.smtp_tls, signature: form.signature || null, categorization_enabled: !!form.categorization_enabled, antispam_enabled: !!form.antispam_enabled, trusted_authserv_id: (form.trusted_authserv_id || '').trim() || null, include_in_unified_inbox: form.include_in_unified_inbox !== false };
     if (form.auth_pass) updates.auth_pass = form.auth_pass;
     if (form.auth_user) updates.auth_user = form.auth_user;
     // Separate SMTP credentials (optional). A username sends both (a blank password on

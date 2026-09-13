@@ -790,6 +790,12 @@
       "antispamSection": "Antispam",
       "antispamEnabled": "Activer l'antispam pour ce compte",
       "antispamEnabledDesc": "Les messages entrants sont classés automatiquement ; le spam à haute confiance est déplacé vers le dossier Junk.",
+      "trustedAuthservLabel": "ID Authentication-Results de confiance",
+      "trustedAuthservPlaceholder": "mx.example.com",
+      "trustedAuthservDesc": "Seuls les en-têtes Authentication-Results écrits par cet ID sont pris en compte. Laissez vide pour les ignorer tous : un en-tête non fiable peut annoncer n'importe quel résultat, même un pass.",
+      "trustedAuthservDetected": "Vus dans vos messages récents (cliquez pour utiliser) :",
+      "trustedAuthservDetectedNone": "Pas encore de données : les messages sont analysés lorsque l'antispam est actif pour ce compte.",
+      "trustedAuthservWarn": "Ne faites confiance qu'à un ID que vous reconnaissez comme le serveur de réception de votre fournisseur.",
       "enabledGlobally": "Activé globalement"
     },
     "folderMappings": {

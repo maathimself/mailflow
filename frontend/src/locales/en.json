@@ -790,6 +790,12 @@
       "antispamSection": "Antispam",
       "antispamEnabled": "Enable antispam for this account",
       "antispamEnabledDesc": "Incoming messages are classified automatically; high-confidence spam is moved to the Junk folder.",
+      "trustedAuthservLabel": "Trusted Authentication-Results ID",
+      "trustedAuthservPlaceholder": "mx.example.com",
+      "trustedAuthservDesc": "Only Authentication-Results headers written by this ID are trusted. Leave empty to ignore them all — an untrusted header can claim any result, including a pass.",
+      "trustedAuthservDetected": "Seen on your recent mail (click to use):",
+      "trustedAuthservDetectedNone": "No data yet — messages are inspected once antispam is enabled for this account.",
+      "trustedAuthservWarn": "Only trust an ID you recognize as your mail provider's receiving server.",
       "enabledGlobally": "Enabled globally"
     },
     "folderMappings": {
