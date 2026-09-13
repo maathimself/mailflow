@@ -44,11 +44,16 @@ export function needsTokenRefresh(account, now = Date.now()) {
   return expiryMs - now < TOKEN_REFRESH_SKEW_MS;
 }
 
-async function markReconnectRequired(accountId) {
-  await query(
-    `UPDATE email_accounts SET oauth_reconnect_required = true, sync_error = 'oauth_reconnect_required' WHERE id = $1`,
-    [accountId],
+// Compare-and-set on the refresh token the provider rejected: a reconsent may commit new
+// tokens while the refresh is in flight, and those must not be flagged. Returns false when
+// the stored refresh token changed meanwhile.
+async function markReconnectRequired(accountId, rejectedRefreshToken) {
+  const result = await query(
+    `UPDATE email_accounts SET oauth_reconnect_required = true, sync_error = 'oauth_reconnect_required'
+     WHERE id = $1 AND oauth_refresh_token IS NOT DISTINCT FROM $2`,
+    [accountId, rejectedRefreshToken ?? null],
   );
+  return result?.rowCount !== 0;
 }
 
 // Refresh through the provider module, then normalize failures. Provider modules persist
@@ -65,7 +70,11 @@ export async function refreshOAuthToken(account) {
     return await refresh(account);
   } catch (err) {
     if (RECONNECT_OAUTH_ERRORS.has(err?.oauthError)) {
-      await markReconnectRequired(account.id);
+      if (!(await markReconnectRequired(account.id, account.oauth_refresh_token))) {
+        // The grant was replaced during the provider call; the caller retries with the new row.
+        console.error(`OAuth refresh for account ${account.id} (${account.oauth_provider}) raced a token update`);
+        throw new OAuthTokenError('oauth_refresh_failed');
+      }
       console.error(`OAuth refresh for account ${account.id} (${account.oauth_provider}) needs reconnect`);
       throw new OAuthTokenError('oauth_reconnect_required');
     }
