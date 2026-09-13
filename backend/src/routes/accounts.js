@@ -51,7 +51,7 @@ const SAFE_FIELDS = [
   'id', 'name', 'sender_name', 'email_address', 'color', 'protocol',
   'imap_host', 'imap_port', 'imap_skip_tls_verify',
   'smtp_host', 'smtp_port', 'smtp_tls',
-  'auth_user', 'smtp_auth_user', 'oauth_provider', 'enabled',
+  'auth_user', 'smtp_auth_user', 'oauth_provider', 'oauth_reconnect_required', 'enabled',
   'include_in_unified_inbox',
   'last_sync', 'sync_error', 'sort_order', 'folder_mappings',
   'signature', 'created_at', 'categorization_enabled',
@@ -66,7 +66,7 @@ function safeAccount(row) {
 router.get('/', async (req, res) => {
   const result = await query(
     `SELECT id, name, sender_name, email_address, color, protocol, imap_host, imap_port, imap_tls, imap_skip_tls_verify,
-            smtp_host, smtp_port, smtp_tls, auth_user, smtp_auth_user, oauth_provider, enabled,
+            smtp_host, smtp_port, smtp_tls, auth_user, smtp_auth_user, oauth_provider, oauth_reconnect_required, enabled,
             include_in_unified_inbox,
             last_sync, sync_error, sort_order, folder_mappings, signature, created_at,
             categorization_enabled

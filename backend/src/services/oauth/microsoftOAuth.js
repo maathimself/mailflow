@@ -29,7 +29,12 @@ async function doRefreshMicrosoftToken(account) {
   const { clientId, clientSecret, tenantId } = getMsConfig();
 
   const storedRefreshToken = decrypt(account.oauth_refresh_token);
-  if (!storedRefreshToken) throw new Error('OAuth refresh token is missing or corrupted — please reconnect your account');
+  if (!storedRefreshToken) {
+    const err = new Error('OAuth refresh token is missing or corrupted — please reconnect your account');
+    // Machine-readable marker: without a refresh token only a new consent helps.
+    err.oauthError = 'missing_refresh_token';
+    throw err;
+  }
 
   // Public clients (device-code flow — personal Outlook.com/Hotmail) must NOT send a
   // client_secret on refresh: Microsoft rejects it with AADSTS90023 ("Public clients
@@ -68,7 +73,13 @@ async function doRefreshMicrosoftToken(account) {
     becamePublic = tokenRes.ok;
   }
 
-  if (!tokenRes.ok) throw new Error(tokens.error_description || 'Token refresh failed');
+  if (!tokenRes.ok) {
+    const err = new Error(tokens.error_description || 'Token refresh failed');
+    // Keep the provider's OAuth error code (e.g. invalid_grant) so the token manager
+    // can classify the failure without parsing the human-readable description.
+    if (typeof tokens.error === 'string') err.oauthError = tokens.error;
+    throw err;
+  }
 
   const { access_token, refresh_token, expires_in } = tokens;
   const refreshExpiresInSecs = Number.isFinite(expires_in) && expires_in > 0 ? expires_in : 3600;

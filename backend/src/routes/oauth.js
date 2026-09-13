@@ -6,6 +6,7 @@ import { imapManager } from '../index.js';
 import { encrypt } from '../services/encryption.js';
 import { MICROSOFT_AUTH_URL, getMsConfig, refreshMicrosoftToken } from '../services/oauth/microsoftOAuth.js';
 import { redactEmail } from '../utils/redact.js';
+import googleOAuthRoutes from './oauthGoogle.js';
 
 // Cache JWKS fetchers per tenant — createRemoteJWKSet handles caching internally.
 const jwksCache = new Map();
@@ -19,6 +20,9 @@ function getMsJwks(tenantId) {
 }
 
 const router = Router();
+
+// Google authorization-code + PKCE flow: GET /oauth/google and /oauth/google/callback.
+router.use('/google', googleOAuthRoutes);
 
 // In-memory store for pending device code flows — keyed by userId.
 // Device codes expire in 15 minutes so no persistence is needed.

@@ -111,4 +111,19 @@ describe('Microsoft token refresh — public (device-code) vs confidential (auth
       .rejects.toThrow(/refresh token expired/);
     expect(fetchMock).toHaveBeenCalledTimes(1); // no retry on a non-AADSTS90023 error
   });
+
+  it('exposes the provider OAuth error code for classification (invalid_grant)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(res(false, { error: 'invalid_grant', error_description: 'AADSTS700082: refresh token expired.' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const err = await refreshMicrosoftToken({ id: 'a8', oauth_refresh_token: 'stored-rt', oauth_public_client: true })
+      .catch(e => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err.oauthError).toBe('invalid_grant');
+  });
+
+  it('marks a missing refresh token as requiring a new consent', async () => {
+    const err = await refreshMicrosoftToken({ id: 'a9', oauth_refresh_token: null }).catch(e => e);
+    expect(err.oauthError).toBe('missing_refresh_token');
+  });
 });
