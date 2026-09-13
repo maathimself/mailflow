@@ -302,7 +302,13 @@ router.put('/:id', async (req, res) => {
     reconnectQueue(id, () =>
       imapManager.disconnectAccount(id)
         .then(() => query('SELECT * FROM email_accounts WHERE id = $1', [id]))
-        .then(r => { if (r.rows.length) return imapManager.connectAccount(r.rows[0]); })
+        .then(r => {
+          if (!r.rows.length) return;
+          // New credentials/host may cure an auth failure or refusal — don't let the old
+          // cooldown silently swallow this reconnect.
+          imapManager.clearConnectCooldown(id);
+          return imapManager.connectAccount(r.rows[0]);
+        })
     ).catch(err => console.error(`Failed to reconnect account ${id} after update:`, err.message));
   }
 });
@@ -332,6 +338,8 @@ router.post('/:id/reconnect', async (req, res) => {
   const result = await query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
   if (!result.rows.length) return res.status(404).json({ error: 'Account not found' });
 
+  // An explicit user request overrides any refusal/auth cooldown for one attempt.
+  imapManager.clearConnectCooldown(id);
   imapManager.connectAccount(result.rows[0]).catch(console.error);
   res.json({ ok: true });
 });
