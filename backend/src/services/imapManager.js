@@ -1486,8 +1486,9 @@ export class ImapManager {
       enqueueSync: (account, path, status) => this._queueObservedFolder(account, path, status),
       broadcast: (event, userId) => this.broadcast(event, userId),
     });
+    // OAuth accounts waiting for reconsent are skipped: they cannot log in.
     this._folderStatusTimer = setInterval(() => {
-      query("SELECT * FROM email_accounts WHERE enabled AND protocol='imap'")
+      query("SELECT * FROM email_accounts WHERE enabled AND protocol='imap' AND oauth_reconnect_required = false")
         .then(({ rows }) => { for (const account of rows) this.folderStatusMonitor.refresh(account).catch(() => {}); })
         .catch(err => console.warn('Folder status scheduler:', err.message));
     }, 10000);
@@ -2839,7 +2840,7 @@ export class ImapManager {
     if (!accountId || this._statusAccountTimers.has(accountId)) return;
     this._statusAccountTimers.set(accountId, setTimeout(() => {
       this._statusAccountTimers.delete(accountId);
-      query("SELECT * FROM email_accounts WHERE id=$1 AND enabled AND protocol='imap'", [accountId])
+      query("SELECT * FROM email_accounts WHERE id=$1 AND enabled AND protocol='imap' AND oauth_reconnect_required = false", [accountId])
         .then(({ rows }) => { if (rows[0]) return this.folderStatusMonitor.refresh(rows[0], { force: true }); })
         .catch(err => console.warn('Post-mutation count refresh:', err.message));
     }, 5000));

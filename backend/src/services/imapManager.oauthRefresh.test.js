@@ -276,6 +276,22 @@ describe('oauth_reconnect_required', () => {
     expect(refreshGoogleToken).not.toHaveBeenCalled();
   });
 
+  it('leaves flagged accounts out of the folder-status scheduler', async () => {
+    const flagged = gmailAccount({ oauth_reconnect_required: true });
+    const healthy = gmailAccount();
+    const mgr = newManager();
+    const scheduler = intervalSpy.mock.calls.find(([, ms]) => ms === 10000)[0];
+    const refresh = vi.spyOn(mgr.folderStatusMonitor, 'refresh').mockResolvedValue(undefined);
+    query.mockImplementation(async (sql) => ({
+      rows: [flagged, healthy].filter(r => !/oauth_reconnect_required\s*=\s*false|NOT oauth_reconnect_required/.test(sql) || !r.oauth_reconnect_required),
+    }));
+
+    scheduler();
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalled());
+
+    expect(refresh.mock.calls.map(([a]) => a.id)).toEqual([healthy.id]);
+  });
+
   it('does not connect a flagged row handed to connectAccount directly', async () => {
     const flagged = gmailAccount({ oauth_reconnect_required: true, oauth_token_expiry: inMinutes(50) });
     rows.set(flagged.id, flagged);
