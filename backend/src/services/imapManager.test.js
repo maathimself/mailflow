@@ -1317,6 +1317,49 @@ describe('walkStructure attachment classification', () => {
     expect(results.attachments).toHaveLength(1);
     expect(results.attachments[0].filename).toBe('invoice.pdf');
   });
+
+  it('treats an inline-disposed named HTML file alongside a body as an attachment', () => {
+    const results = walk({
+      type: 'multipart/mixed',
+      childNodes: [
+        { part: '1', type: 'text/html', encoding: 'quoted-printable' },
+        {
+          part: '2', type: 'text/html', encoding: 'base64', size: 4096,
+          disposition: 'inline', dispositionParameters: { filename: 'report.html' },
+        },
+      ],
+    });
+    expect(results.textParts.map(p => p.part)).toEqual(['1']);
+    expect(results.attachments).toHaveLength(1);
+    expect(results.attachments[0]).toMatchObject({
+      part: '2', filename: 'report.html', type: 'text/html', encoding: 'base64', size: 4096,
+    });
+  });
+
+  it('treats an undisposed text part named via Content-Type as an attachment', () => {
+    const results = walk({
+      type: 'multipart/mixed',
+      childNodes: [
+        { part: '1', type: 'text/plain', encoding: '7bit' },
+        { part: '2', type: 'text/plain', encoding: '7bit', parameters: { name: 'server.log' } },
+      ],
+    });
+    expect(results.textParts.map(p => p.part)).toEqual(['1']);
+    expect(results.attachments.map(a => a.filename)).toEqual(['server.log']);
+    expect(results.attachments[0].encoding).toBe('7bit');
+  });
+
+  it('keeps named text parts as body when no unnamed body part exists', () => {
+    const results = walk({
+      type: 'multipart/alternative',
+      childNodes: [
+        { part: '1', type: 'text/plain', encoding: '7bit', parameters: { name: 'body.txt' } },
+        { part: '2', type: 'text/html', encoding: '7bit', parameters: { name: 'body.html' } },
+      ],
+    });
+    expect(results.textParts.map(p => p.type)).toEqual(['text/plain', 'text/html']);
+    expect(results.attachments).toHaveLength(0);
+  });
 });
 
 // ── _shouldAutoBackfillOnConnect — auto-backfill gate (#354) ──────────────────

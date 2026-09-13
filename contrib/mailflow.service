@@ -1,4 +1,4 @@
-# MailFlow — systemd service for native installs
+# MailExp — systemd service for native installs
 #
 # Setup:
 #   1. Copy to /etc/systemd/system/mailflow.service
@@ -8,8 +8,8 @@
 #      sudo systemctl enable --now mailflow
 
 [Unit]
-Description=MailFlow backend
-Documentation=https://github.com/maathimself/mailflow
+Description=MailExp backend
+Documentation=https://github.com/wyrtensi/MailExp
 After=network.target postgresql.service redis.service
 
 [Service]

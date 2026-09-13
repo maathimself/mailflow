@@ -5,7 +5,7 @@
 
 export const FONT_SETS = {
   default: {
-    label: 'MailFlow Default',
+    label: 'MailExp Default',
     description: 'DM Sans × Fraunces — refined and contemporary',
     preview: { heading: 'Fraunces', body: 'DM Sans', mono: 'JetBrains Mono' },
     vars: {

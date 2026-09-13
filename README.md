@@ -1,28 +1,37 @@
+# MailExp
+
 <p align="center">
-  <img src="media/mailflow-logo.png" width="200" alt="MailFlow Logo">
+  <img src="media/mailflow-logo.png" width="200" alt="MailExp logo">
 </p>
 
 <p align="center">
-  A self-hosted, unified webmail client. Connect multiple IMAP/SMTP accounts and manage them all in one clean interface.
+  A self-hosted webmail workspace for connecting and operating many IMAP/SMTP accounts from one interface.
 </p>
 
 <p align="center">
   <a href="#installation">Quick Start</a> ·
   <a href="#email-provider-setup">Setup Guide</a> ·
-  <a href="https://mailflow.sh/#supporters">Contributing</a> ·
-  <a href="https://mailflow.sh/#roadmap">Roadmap</a>
+  <a href="CONTRIBUTING.md">Upstream contribution guide</a> ·
+  <a href="ROADMAP.md">Upstream roadmap</a> ·
+  <a href="docs/architecture/codebase-file-map.md">Codebase map</a>
 </p>
 
-## Licensing
+## Licensing and upstream
 
-MailFlow is dual-licensed:
+MailExp is a fork of [MailFlow](https://github.com/maathimself/mailflow). The fork keeps the upstream copyright and attribution and is distributed under [AGPL-3.0](LICENSE). Deploying a modified network service under the AGPL requires making the corresponding source available to its users.
 
-- **[AGPL-3.0](LICENSE)** — free for personal use, self-hosting, and open-source projects. If you modify and distribute or host MailFlow, you must publish your changes under the same license.
-- **[Commercial License](LICENSE-COMMERCIAL)** — $500 per installation, one-time. For businesses or deployments where AGPL obligations cannot be met. [Purchase here](https://mailflow.sh/#pricing).
+The upstream project also offers its own commercial licence. `LICENSE-COMMERCIAL` is retained as an upstream notice; it does not by itself grant a separate commercial licence for MailExp changes.
 
-**Personal self-hosting is free and always will be.** This licensing model exists to protect the project from commercial exploitation while keeping MailFlow freely available to individuals and families.
+`CLA.md` and `CONTRIBUTING.md` are retained from upstream for provenance. MailExp-specific contribution terms must be defined before accepting external contributions.
 
-If you contribute code, please read the [Contributor License Agreement](CLA.md). By submitting a pull request you agree to its terms.
+## Development status
+
+The current bootstrap keeps the MailFlow 3.3.0 mail-client behavior and applies the MailExp product name. Google OAuth for Gmail, dependency modernization, the shared-account mailbox workflow, and the later Postfix/Dovecot/EOP mail node are planned work and are not yet implemented.
+
+- [Codebase map](docs/architecture/codebase-file-map.md)
+- [Target architecture](docs/architecture/team-mail-system-handoff.md)
+- [Upstream PR assessment](docs/architecture/upstream-pr-assessment.md)
+- [Gmail MVP implementation plan](docs/superpowers/plans/2026-09-11-mailexp-shared-gmail-mvp.md)
 
 
 ## Features
@@ -56,10 +65,10 @@ If you contribute code, please read the [Contributor License Agreement](CLA.md).
 - **Password recovery** — recover your account via a recovery email address configured in profile settings
 - **User management** — admin panel, invite-only registration, invite emails
 - **Two-factor authentication** — TOTP (any authenticator app), email OTP fallback, persistent device trust; admin-configurable enforcement policy
-- **SSO / OIDC** — single sign-on via any OpenID Connect provider; group claims from the IdP can be mapped to the MailFlow admin role, with optional RP-initiated (end-session) logout to sign out of the provider too
+- **SSO / OIDC** — single sign-on via any OpenID Connect provider; group claims from the IdP can be mapped to the MailExp admin role, with optional RP-initiated (end-session) logout to sign out of the provider too
 - **Microsoft 365 / OAuth2** — work accounts via Azure App Registration; personal Outlook.com via device code flow
 - **Todoist integration** — create tasks directly from emails; tasks include a deep link back to the original message
-- **CardDAV** — expose your MailFlow contacts as a CardDAV address book for sync with phone and desktop contact apps; contact photos sync and appear as sender avatars in the message list
+- **CardDAV** — expose your MailExp contacts as a CardDAV address book for sync with phone and desktop contact apps; contact photos sync and appear as sender avatars in the message list
 - **GTD workflow** — optional Getting-Things-Done rail: label threads Todo / Watch / Delegated / Someday / Reference (each backed by a real IMAP folder) with the t / w / d keys; opt in per account, see below
 
 ---
@@ -69,7 +78,7 @@ If you contribute code, please read the [Contributor License Agreement](CLA.md).
 An optional Getting-Things-Done workflow, off by default and enabled per account
 under Settings → Categories → GTD. When on, a rail beside the message list
 groups threads into five states, each backed by a real IMAP folder — so the labels
-are just server-side folders that sync to every mail client and survive MailFlow
+are just server-side folders that sync to every mail client and survive MailExp
 itself:
 
 - **Todo** / **Someday** — things you need to act on; the label clears itself once you reply.
@@ -112,13 +121,13 @@ configurable per account, and accounts with GTD off behave exactly as before.
 
 ## Installation
 
-There are three ways to run MailFlow. The pre-built image method is recommended for most users.
+There are three ways to run MailExp. Build from this repository to include the MailExp changes. The upstream pre-built images are useful only as an unchanged MailFlow baseline.
 
 ---
 
-## Option A — Pre-built images (recommended)
+## Option A — Upstream pre-built images (MailFlow baseline only)
 
-No cloning or building required. Docker pulls the pre-built images directly from GHCR.
+No cloning or building is required, but Docker pulls the original MailFlow images from GHCR. They do not contain the MailExp rebrand or later MailExp features.
 
 ### Prerequisites
 
@@ -148,7 +157,7 @@ Edit `.env` — the required fields are:
 docker compose up -d
 ```
 
-MailFlow will be available on port 443 (HTTPS, self-signed certificate) and port 80 (HTTP).
+MailExp will be available on port 443 (HTTPS, self-signed certificate) and port 80 (HTTP).
 
 **Ports are configurable in `.env`:**
 
@@ -190,7 +199,7 @@ To pin to a specific version instead of `latest`, add `MAILFLOW_VERSION=2.7.0` t
 
 ---
 
-## Option B — Build from source
+## Option B — Build MailExp from source (recommended)
 
 ### Prerequisites
 
@@ -199,7 +208,7 @@ To pin to a specific version instead of `latest`, add `MAILFLOW_VERSION=2.7.0` t
 ### 1. Get the code
 
 ```bash
-git clone https://github.com/maathimself/mailflow.git mailflow
+git clone https://github.com/wyrtensi/MailExp.git mailflow
 cd mailflow
 ```
 
@@ -224,7 +233,7 @@ Edit `.env` — the required fields are:
 docker compose up -d --build
 ```
 
-First build takes 2–3 minutes. MailFlow will be available on port 443 (HTTPS, self-signed certificate) and port 80 (HTTP).
+First build takes 2–3 minutes. MailExp will be available on port 443 (HTTPS, self-signed certificate) and port 80 (HTTP).
 
 **Optional — automatic HTTPS via Let's Encrypt:** set `DOMAIN` and `ACME_EMAIL` in `.env`, then start with the HTTPS overlay (requires Docker Compose 2.21+):
 
@@ -249,7 +258,7 @@ Select a preset (Gmail, iCloud) or Custom for any IMAP server.
 
 ## Option C — Native install (no Docker)
 
-Run MailFlow directly on any Linux, macOS, or BSD machine using Node.js, PostgreSQL, and Redis.
+Run MailExp directly on any Linux, macOS, or BSD machine using Node.js, PostgreSQL, and Redis.
 No container runtime required. The steps below use Ubuntu/Debian; adapt package manager commands for other platforms.
 
 ### Prerequisites
@@ -287,7 +296,7 @@ SQL
 ### 3. Get the code
 
 ```bash
-git clone https://github.com/maathimself/mailflow.git /opt/mailflow
+git clone https://github.com/wyrtensi/MailExp.git /opt/mailflow
 cd /opt/mailflow
 ```
 
@@ -411,12 +420,12 @@ sudo systemctl restart mailflow   # or: pm2 restart mailflow
 
 ### Gmail
 
-Gmail requires an **App Password** (not your normal password):
+The current upstream-derived account form uses an **App Password** (not your normal password). MailExp's required Google OAuth flow is specified in the implementation plan but is not available in this bootstrap yet.
 
 1. Enable 2-step verification on your Google account
 2. Go to [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)
-3. Create a new App Password — name it "MailFlow"
-4. Use the 16-character password in the MailFlow account form
+3. Create a new App Password — name it "MailExp"
+4. Use the 16-character password in the MailExp account form
 
 | Setting | Value |
 |---|---|
@@ -429,7 +438,7 @@ Gmail requires an **App Password** (not your normal password):
 ### iCloud / Apple Mail
 
 1. Go to [appleid.apple.com](https://appleid.apple.com) → Sign-In and Security → App-Specific Passwords
-2. Generate a password — name it "MailFlow"
+2. Generate a password — name it "MailExp"
 
 | Setting | Value |
 |---|---|
@@ -476,7 +485,7 @@ Then follow the steps for your account type:
    to **Yes**. No client secret or redirect URI is needed.
 2. In Integrations → Microsoft 365, enter the **Client ID** and **Tenant ID**
    (`common`), leave Client Secret and Redirect URI blank, then save.
-3. Start the device-code flow shown there. MailFlow displays a short code; visit
+3. Start the device-code flow shown there. MailExp displays a short code; visit
    [microsoft.com/devicelogin](https://microsoft.com/devicelogin) and enter it to
    authorise.
 
@@ -590,14 +599,14 @@ nginx  (frontend container — internal only)
 
 ## Desktop and Android apps
 
-MailFlow remains a self-hosted web app, but the repository includes native wrappers for users who prefer an installed desktop or mobile application:
+MailExp remains a self-hosted web app, but the repository includes native wrappers for users who prefer an installed desktop or mobile application:
 
 - Windows, macOS, and Linux use Electron-based packages.
 - Android uses a Capacitor WebView wrapper.
-- On first launch, the native wrapper prompts for the MailFlow server URL, such as `https://mail.your-domain.com`, stores it locally, and connects to that server.
+- On first launch, the native wrapper prompts for the MailExp server URL, such as `https://mail.your-domain.com`, stores it locally, and connects to that server.
 - Native package sources live under `frontend/packages`.
 
-> **Note:** Prebuilt, signed native apps are not published yet — they are in development and will be attached to a future MailFlow release. For now you can build them locally from source:
+> **Note:** Prebuilt, signed native apps are not published yet — they are in development and will be attached to a future MailExp release. For now you can build them locally from source:
 
 ```bash
 cd frontend
@@ -606,9 +615,9 @@ npm run electron:dist   # desktop installers (.exe / .dmg / .deb / .rpm)
 npm run android:dist    # Android package (.apk / .aab)
 ```
 
-## Supporters
+## Upstream supporters
 
-MailFlow is free and open source. If it's useful to you, consider supporting development:
+MailExp builds on the open-source work of MailFlow. The following links support the original upstream maintainer:
 
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-Support_MailFlow-FF5E5B?logo=ko-fi&logoColor=white&style=for-the-badge)](https://ko-fi.com/mailflow)
 [![GitHub Sponsors](https://img.shields.io/badge/GitHub_Sponsors-Sponsor-ea4aaa?logo=github-sponsors&logoColor=white&style=for-the-badge)](https://github.com/sponsors/maathimself)

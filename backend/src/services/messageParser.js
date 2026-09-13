@@ -673,11 +673,26 @@ export async function parseMessage(msg) {
   };
 }
 
-function detectAttachments(structure) {
+// Mirrors walkStructure's classification (imapManager.js) so the paperclip flag
+// agrees with the attachment list: an explicit attachment disposition anywhere,
+// or a text part carrying a filename alongside an unnamed text part serving as
+// the body (an inline .html report or .txt log the sender didn't dispose as an
+// attachment). Exported for tests.
+export function detectAttachments(structure) {
   if (!structure) return false;
-  if (structure.disposition === 'attachment') return true;
-  if (structure.childNodes) {
-    return structure.childNodes.some(child => detectAttachments(child));
-  }
-  return false;
+  let explicit = false;
+  let namedText = 0;
+  let unnamedText = 0;
+  const visit = (node) => {
+    if (!node) return;
+    if (node.disposition === 'attachment') { explicit = true; return; }
+    if (node.childNodes?.length) { node.childNodes.forEach(visit); return; }
+    const type = (node.type || '').toLowerCase();
+    if (type === 'text/plain' || type === 'text/html' || type === 'application/xhtml+xml') {
+      if (node.dispositionParameters?.filename || node.parameters?.name) namedText += 1;
+      else unnamedText += 1;
+    }
+  };
+  visit(structure);
+  return explicit || (namedText > 0 && unnamedText > 0);
 }

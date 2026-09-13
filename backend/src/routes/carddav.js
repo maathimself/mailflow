@@ -60,14 +60,14 @@ function cardavRateLimit(req, res, next) {
 async function cardavAuth(req, res, next) {
   const auth = req.headers['authorization'] || '';
   if (!auth.startsWith('Basic ')) {
-    res.setHeader('WWW-Authenticate', 'Basic realm="MailFlow CardDAV"');
+    res.setHeader('WWW-Authenticate', 'Basic realm="MailExp CardDAV"');
     return res.status(401).end();
   }
 
   const decoded = Buffer.from(auth.slice(6), 'base64').toString('utf8');
   const colon   = decoded.indexOf(':');
   if (colon < 0) {
-    res.setHeader('WWW-Authenticate', 'Basic realm="MailFlow CardDAV"');
+    res.setHeader('WWW-Authenticate', 'Basic realm="MailExp CardDAV"');
     return res.status(401).end();
   }
 
@@ -85,7 +85,7 @@ async function cardavAuth(req, res, next) {
     const authFail = async () => {
       const { limited } = await rlConsume(`auth:${req.ip}`, authLimiterConfig.maxRequests, authLimiterConfig.windowMs);
       logAuthEvent('carddav_auth_fail', { username: username || null, ip: req.ip, success: false });
-      res.setHeader('WWW-Authenticate', 'Basic realm="MailFlow CardDAV"');
+      res.setHeader('WWW-Authenticate', 'Basic realm="MailExp CardDAV"');
       return res.status(limited ? 429 : 401).end();
     };
     if (!user || !user.password_hash) {
