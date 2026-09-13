@@ -2928,6 +2928,38 @@ export class ImapManager {
   // noBodyParts: skip ALL body part fetches (uid/flags/envelope/bodyStructure only).
   // Used for the periodic sync interval so slow servers like purelymail.com don't time out
   // fetching 3+ body parts × 50 messages.  Snippets come from backfill or on-demand fetches.
+
+  /**
+   * v0.2 antispam: hand a freshly-inserted message to the classification
+   * pipeline. Fire-and-forget — the sync/backfill loop must never be blocked by
+   * a classifier failure, and only accounts with antispam_enabled take part
+   * (the pipeline re-checks the per-user master switch as well).
+   *
+   * Shared by BOTH ingest paths: syncMessages (new mail via IDLE/poll, with the
+   * body) and backfillMessages (initial population, manual reindex, UIDVALIDITY
+   * recovery — subject/attachment signals only, since the backfill may not have
+   * fetched bodies). Without the backfill call site a reindex-classified mailbox
+   * silently skipped classification entirely.
+   *
+   * @param {Object} account — the account row (needs id + antispam_enabled)
+   * @param {string} messageId — messages.id of the inserted row
+   * @param {Object} parsed — parsed message (parsedHeaders feed the auth gate)
+   */
+  maybeClassifyNewMessage(account, messageId, parsed) {
+    if (!account?.antispam_enabled) return;
+    classifyAndTagMessage(messageId, {
+      headers: parsed?.parsedHeaders || [],
+      imap: {
+        moveMessage: (...args) => this.moveMessage(...args),
+        broadcast: (...args) => this.broadcast(...args),
+        _guardMoveUid: (...args) => this._guardMoveUid(...args),
+        _unguardMoveUid: (...args) => this._unguardMoveUid(...args),
+      },
+    }).catch(err => {
+      console.warn(`spam auto-classification failed (msg ${messageId}):`, err.message);
+    });
+  }
+
   async syncMessages(account, client, folder = 'INBOX', limit = 50, prefetchBody = true, noBodyParts = false) {
     const provider = providerProfile(account);
 
@@ -3194,22 +3226,7 @@ export class ImapManager {
               if (!parsed.isRead) {
                 newMessages.push({ ...parsed, id: result.rows[0].id, accountId: account.id, folder });
               }
-              // v0.2: anti-spam auto-classification. Fire-and-forget so the sync
-              // loop is never blocked; failures only log. Only runs for accounts
-              // with antispam_enabled (checked inside the pipeline).
-              if (account.antispam_enabled) {
-                classifyAndTagMessage(result.rows[0].id, {
-                  headers: parsed.parsedHeaders || [],
-                  imap: {
-                    moveMessage: (...args) => this.moveMessage(...args),
-                    broadcast: (...args) => this.broadcast(...args),
-                    _guardMoveUid: (...args) => this._guardMoveUid(...args),
-                    _unguardMoveUid: (...args) => this._unguardMoveUid(...args),
-                  },
-                }).catch(err => {
-                  console.warn(`spam auto-classification failed (msg ${result.rows[0].id}):`, err.message);
-                });
-              }
+              this.maybeClassifyNewMessage(account, result.rows[0].id, parsed);
             }
             // Propagate resolved thread_id to any earlier messages that used this
             // message as a provisional thread root (out-of-order delivery / sync).
@@ -3737,7 +3754,7 @@ export class ImapManager {
                   } catch { /* non-fatal */ }
                 }
 
-                await query(`
+                const bfInsert = await query(`
                   INSERT INTO messages (
                     account_id, uid, folder, message_id, subject,
                     from_name, from_email, to_addresses, cc_addresses,
@@ -3804,6 +3821,7 @@ export class ImapManager {
                       delivery_addresses = COALESCE(messages.delivery_addresses, EXCLUDED.delivery_addresses),
                       sender_name = COALESCE(EXCLUDED.sender_name, messages.sender_name),
                       sender_email = COALESCE(EXCLUDED.sender_email, messages.sender_email)
+                  RETURNING id, (xmax = 0) as is_new
                 `, [
                   account.id, parsed.uid, folder,
                   bfMsgId, sanitizeStr(parsed.subject),
@@ -3821,6 +3839,14 @@ export class ImapManager {
                   sanitizeStr(parsed.senderName), sanitizeStr(parsed.senderEmail),
                 ]);
                 backfilledRows++;
+                // v0.2 antispam: classify genuinely-new rows — the same hook the
+                // sync path uses, so a manual reindex (or the initial population
+                // of a mailbox that just enabled antispam) is classified too.
+                // The backfill may not have fetched the body, in which case the
+                // classifier works from the subject/flag signals it does have.
+                if (bfInsert?.rows[0]?.is_new) {
+                  this.maybeClassifyNewMessage(account, bfInsert.rows[0].id, parsed);
+                }
                 if (bfThreadId && bfThreadId !== bfMsgId) {
                   await query(
                     `UPDATE messages SET thread_id = $1
