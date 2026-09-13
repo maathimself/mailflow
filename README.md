@@ -31,7 +31,7 @@ The current bootstrap keeps the MailFlow 3.3.0 mail-client behavior and applies 
 - [Codebase map](docs/architecture/codebase-file-map.md)
 - [Target architecture](docs/architecture/team-mail-system-handoff.md)
 - [Upstream PR assessment](docs/architecture/upstream-pr-assessment.md)
-- [Gmail MVP implementation plan](docs/superpowers/plans/2026-09-11-mailflow-shared-gmail-mvp.md)
+- [Gmail MVP implementation plan](docs/superpowers/plans/2026-09-11-mailexp-shared-gmail-mvp.md)
 
 
 ## Features
