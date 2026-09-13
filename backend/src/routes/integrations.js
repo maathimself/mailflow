@@ -2,8 +2,27 @@ import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { encrypt, decrypt, isEncrypted } from '../services/encryption.js';
+import { isGoogleConfigured } from '../services/oauth/googleOAuth.js';
 
 const router = Router();
+
+// Google config fields and the env vars the OAuth routes read them from.
+const GOOGLE_ENV = {
+  clientId: 'GOOGLE_CLIENT_ID',
+  clientSecret: 'GOOGLE_CLIENT_SECRET',
+  redirectUri: 'GOOGLE_REDIRECT_URI',
+};
+
+// Mirror a stored Google config into process.env. Unset fields clear their env var so
+// /status never reports a half-removed config as ready.
+function applyGoogleEnv(config) {
+  for (const [field, envName] of Object.entries(GOOGLE_ENV)) {
+    const value = field === 'clientSecret' ? decrypt(config?.[field]) : config?.[field];
+    if (value) process.env[envName] = value;
+    else delete process.env[envName];
+  }
+}
+
 router.use(requireAuth);
 
 // Get all integration configs (secrets redacted) — admin only (exposes OAuth client IDs)
@@ -33,16 +52,27 @@ router.get('/status', async (req, res) => {
     microsoft: {
       configured: !!process.env.MS_CLIENT_ID,
     },
+    google: {
+      configured: isGoogleConfigured(),
+    },
   });
 });
 
 // Save/update integration config — admin only (writes affect global OAuth env vars)
 router.post('/:provider', requireAdmin, async (req, res) => {
   const { provider } = req.params;
-  const allowed = ['microsoft'];
+  const allowed = ['microsoft', 'google'];
   if (!allowed.includes(provider)) return res.status(400).json({ error: 'Unknown provider' });
 
-  const config = req.body;
+  let config = req.body;
+  if (provider === 'google') {
+    // Store only the documented fields; string values only.
+    const body = req.body || {};
+    config = {};
+    for (const field of Object.keys(GOOGLE_ENV)) {
+      if (typeof body[field] === 'string' && body[field].trim()) config[field] = body[field].trim();
+    }
+  }
 
   // If clientSecret is redacted, keep the existing stored value (already encrypted or legacy plaintext)
   if (config.clientSecret === '••••••••') {
@@ -75,6 +105,8 @@ router.post('/:provider', requireAdmin, async (req, res) => {
     if (config.clientSecret) process.env.MS_CLIENT_SECRET = decrypt(config.clientSecret);
     if (config.tenantId) process.env.MS_TENANT_ID = config.tenantId;
     if (config.redirectUri) process.env.MS_REDIRECT_URI = config.redirectUri;
+  } else if (provider === 'google') {
+    applyGoogleEnv(config);
   }
 
   res.json({ ok: true });
@@ -91,6 +123,8 @@ router.delete('/:provider', requireAdmin, async (req, res) => {
     delete process.env.MS_CLIENT_SECRET;
     delete process.env.MS_TENANT_ID;
     delete process.env.MS_REDIRECT_URI;
+  } else if (req.params.provider === 'google') {
+    applyGoogleEnv(null);
   }
   res.json({ ok: true });
 });
@@ -107,6 +141,8 @@ export async function loadIntegrationConfigs() {
         if (c.clientSecret) process.env.MS_CLIENT_SECRET = decrypt(c.clientSecret);
         if (c.tenantId) process.env.MS_TENANT_ID = c.tenantId;
         if (c.redirectUri) process.env.MS_REDIRECT_URI = c.redirectUri;
+      } else if (row.provider === 'google') {
+        applyGoogleEnv(row.config);
       }
     }
     console.log('Integration configs loaded');

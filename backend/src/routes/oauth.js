@@ -1,10 +1,12 @@
 import { randomBytes } from 'crypto';
 import { Router } from 'express';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
-import { query, withTransaction } from '../services/db.js';
+import { withTransaction } from '../services/db.js';
 import { imapManager } from '../index.js';
-import { encrypt, decrypt } from '../services/encryption.js';
+import { encrypt } from '../services/encryption.js';
+import { MICROSOFT_AUTH_URL, getMsConfig, refreshMicrosoftToken } from '../services/oauth/microsoftOAuth.js';
 import { redactEmail } from '../utils/redact.js';
+import googleOAuthRoutes from './oauthGoogle.js';
 
 // Cache JWKS fetchers per tenant — createRemoteJWKSet handles caching internally.
 const jwksCache = new Map();
@@ -19,20 +21,12 @@ function getMsJwks(tenantId) {
 
 const router = Router();
 
-const MICROSOFT_AUTH_URL = 'https://login.microsoftonline.com';
+// Google authorization-code + PKCE flow: GET /oauth/google and /oauth/google/callback.
+router.use('/google', googleOAuthRoutes);
 
 // In-memory store for pending device code flows — keyed by userId.
 // Device codes expire in 15 minutes so no persistence is needed.
 const deviceFlows = new Map();
-
-function getMsConfig() {
-  return {
-    clientId: process.env.MS_CLIENT_ID,
-    clientSecret: process.env.MS_CLIENT_SECRET,
-    tenantId: process.env.MS_TENANT_ID || 'common',
-    redirectUri: process.env.MS_REDIRECT_URI,
-  };
-}
 
 // Step 1: redirect user to Microsoft login
 router.get('/microsoft', async (req, res) => {
@@ -175,10 +169,12 @@ async function processMicrosoftTokens(userId, tokens, { tenantId, clientId, publ
     let accountId;
     if (existing.rows.length) {
       accountId = existing.rows[0].id;
+      // A fresh consent clears a reconnect flag set by the token manager on invalid_grant;
+      // otherwise the flag would refuse every later refresh of the new refresh token.
       await client.query(`
         UPDATE email_accounts SET
           oauth_access_token = $1, oauth_refresh_token = $2, oauth_token_expiry = $3,
-          name = $4, oauth_public_client = $5, sync_error = NULL
+          name = $4, oauth_public_client = $5, oauth_reconnect_required = false, sync_error = NULL
         WHERE id = $6
       `, [encrypt(access_token), encrypt(refresh_token), expiry, displayName || email, publicClient, accountId]);
     } else {
@@ -306,80 +302,8 @@ router.get('/microsoft/device/poll', async (req, res) => {
   }
 });
 
-// Serialize refreshes per account so concurrent callers share one token-endpoint
-// call — AAD rotates the refresh token on each refresh, and two racing refreshes
-// would strand a superseded refresh token and lock the account out.
-const inFlightMsRefresh = new Map(); // accountId -> Promise
-export function refreshMicrosoftToken(account) {
-  const existing = inFlightMsRefresh.get(account.id);
-  if (existing) return existing;
-  const p = doRefreshMicrosoftToken(account).finally(() => inFlightMsRefresh.delete(account.id));
-  inFlightMsRefresh.set(account.id, p);
-  return p;
-}
-
-// Refresh an expired Microsoft token
-async function doRefreshMicrosoftToken(account) {
-  const { clientId, clientSecret, tenantId } = getMsConfig();
-
-  const storedRefreshToken = decrypt(account.oauth_refresh_token);
-  if (!storedRefreshToken) throw new Error('OAuth refresh token is missing or corrupted — please reconnect your account');
-
-  // Public clients (device-code flow — personal Outlook.com/Hotmail) must NOT send a
-  // client_secret on refresh: Microsoft rejects it with AADSTS90023 ("Public clients
-  // can't send a client secret"). Confidential clients (auth-code flow) must send it.
-  // Key this on the account's recorded flow, not on whether a secret is configured
-  // globally, since one instance can host both kinds. (#216)
-  const tokenUrl = `${MICROSOFT_AUTH_URL}/${tenantId}/oauth2/v2.0/token`;
-  const postRefresh = (withSecret) => {
-    const params = new URLSearchParams({
-      client_id: clientId,
-      refresh_token: storedRefreshToken,
-      grant_type: 'refresh_token',
-      scope: 'https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send offline_access',
-    });
-    if (withSecret) params.set('client_secret', clientSecret);
-    return fetch(tokenUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: params,
-      signal: AbortSignal.timeout(10000),
-    });
-  };
-
-  const sendSecret = !!clientSecret && !account.oauth_public_client;
-  let tokenRes = await postRefresh(sendSecret);
-  let tokens = await tokenRes.json();
-  let becamePublic = false;
-
-  // Self-heal accounts predating the oauth_public_client column: if we sent a secret
-  // and Microsoft says a public client can't (AADSTS90023), this is really a public
-  // (device-code) client — retry without the secret and record it so future refreshes
-  // skip the secret straight away.
-  if (!tokenRes.ok && sendSecret && /AADSTS90023/i.test(tokens.error_description || tokens.error || '')) {
-    tokenRes = await postRefresh(false);
-    tokens = await tokenRes.json();
-    becamePublic = tokenRes.ok;
-  }
-
-  if (!tokenRes.ok) throw new Error(tokens.error_description || 'Token refresh failed');
-
-  const { access_token, refresh_token, expires_in } = tokens;
-  const refreshExpiresInSecs = Number.isFinite(expires_in) && expires_in > 0 ? expires_in : 3600;
-  const expiry = new Date(Date.now() + refreshExpiresInSecs * 1000);
-  const isPublic = !!account.oauth_public_client || becamePublic;
-
-  await query(`
-    UPDATE email_accounts SET
-      oauth_access_token = $1,
-      oauth_refresh_token = COALESCE($2, oauth_refresh_token),
-      oauth_token_expiry = $3,
-      oauth_public_client = $4
-    WHERE id = $5
-  `, [encrypt(access_token), refresh_token ? encrypt(refresh_token) : null, expiry, isPublic, account.id]);
-
-  // Return plaintext tokens so callers can use them immediately without decrypting
-  return { ...account, oauth_access_token: access_token, oauth_token_expiry: expiry, oauth_public_client: isPublic };
-}
+// Re-exported so existing transport imports keep working; the implementation lives
+// in services/oauth/microsoftOAuth.js next to the other OAuth provider modules.
+export { refreshMicrosoftToken };
 
 export default router;

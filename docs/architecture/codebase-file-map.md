@@ -67,7 +67,8 @@ Frontend не ходит к Gmail напрямую. Он обращается к
 | `routes/admin.js` | Пользователи, приглашения, системная почта и административные операции |
 | `routes/auth.js` | Регистрация, login, MFA enrolment, password reset, preferences и сессии |
 | `routes/totp.js` | Отдельные TOTP-операции |
-| `routes/oauth.js` | Текущий Microsoft OAuth/device code и refresh; главный кандидат на декомпозицию перед Google OAuth |
+| `routes/oauth.js` | Microsoft OAuth/device code; монтирует `routes/oauthGoogle.js` и реэкспортирует `refreshMicrosoftToken` из `services/oauth/microsoftOAuth.js` |
+| `routes/oauthGoogle.js` | Google OAuth: `GET /oauth/google` (state + PKCE в Redis) и callback с upsert Gmail-аккаунта |
 | `routes/oidc.js` | Вход пользователей MailExpert через внешний OIDC/SSO; не путать с OAuth почтового аккаунта |
 | `routes/integrations.js` | Глобальные секреты/настройки интеграций |
 | `routes/mail.js` | Чтение, папки, move/delete/archive/snooze и вложения; 2286 строк |
