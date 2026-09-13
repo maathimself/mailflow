@@ -1451,6 +1451,83 @@ describe("connectAccount attaches 'error' before connect (#360)", () => {
   });
 });
 
+describe('account error reporting: transient failures must not paint the account red', () => {
+  const account = { id: 'acct-1', user_id: 'u1', email_address: 'a@example.com' };
+  const ctx = () => ({ _syncErrorState: new Map(), _accountErrorStreak: new Map(), broadcast: vi.fn() });
+
+  beforeEach(() => { query.mockReset(); query.mockResolvedValue({ rows: [] }); });
+
+  it('says nothing on a single connection refusal', async () => {
+    // The defect: a provider that refuses every few minutes and reconnects 45s later left the
+    // account showing a connection error 10-15% of the time, permanently, for something the
+    // user could do nothing about and that always healed itself.
+    const self = ctx();
+    await ImapManager.prototype._recordAccountError.call(self, account, 'Connection not available');
+    expect(query).not.toHaveBeenCalled();
+    expect(self.broadcast).not.toHaveBeenCalled();
+  });
+
+  it('reports once a refusal repeats, because that is a real outage', async () => {
+    const self = ctx();
+    await ImapManager.prototype._recordAccountError.call(self, account, 'Connection not available');
+    await ImapManager.prototype._recordAccountError.call(self, account, 'Connection not available');
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(self.broadcast).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'account_error', accountId: 'acct-1' }), 'u1');
+  });
+
+  it('a success between refusals resets the run, so routine pushback never accumulates', async () => {
+    // Without this an account that refuses once an hour would surface an error on the second
+    // hour, having been perfectly healthy in between.
+    const self = ctx();
+    await ImapManager.prototype._recordAccountError.call(self, account, 'Connection not available');
+    await ImapManager.prototype._clearAccountError.call(self, account);
+    await ImapManager.prototype._recordAccountError.call(self, account, 'Connection not available');
+    expect(self.broadcast).not.toHaveBeenCalled();
+  });
+
+  it('clearing resets the run even when nothing was ever surfaced', async () => {
+    const self = ctx();
+    await ImapManager.prototype._recordAccountError.call(self, account, 'Connection not available');
+    expect(self._accountErrorStreak.get('acct-1')).toBe(1);
+    await ImapManager.prototype._clearAccountError.call(self, account);
+    expect(self._accountErrorStreak.has('acct-1')).toBe(false);
+  });
+
+  it.each([
+    'Invalid credentials',
+    'AUTHENTICATIONFAILED',
+    'getaddrinfo ENOTFOUND imap.example.com',
+    'certificate has expired',
+  ])('reports %s immediately, because it will never heal on its own', async detail => {
+    const self = ctx();
+    await ImapManager.prototype._recordAccountError.call(self, account, detail);
+    expect(self.broadcast).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'account_error', error: detail }), 'u1');
+  });
+
+  it('still de-duplicates once an error has been surfaced', async () => {
+    const self = ctx();
+    for (let i = 0; i < 4; i++) {
+      await ImapManager.prototype._recordAccountError.call(self, account, 'Connection not available');
+    }
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(self.broadcast).toHaveBeenCalledTimes(1);
+  });
+
+  it('a persistent outage surfaces within one retry, not never', async () => {
+    // The deferral must not be able to swallow a genuine failure: every retry re-enters here.
+    const self = ctx();
+    let surfaced = 0;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await ImapManager.prototype._recordAccountError.call(self, account, 'Connection not available');
+      surfaced = self.broadcast.mock.calls.length;
+      if (attempt === 1) expect(surfaced).toBe(0);
+    }
+    expect(surfaced).toBe(1);
+  });
+});
+
 describe('reconcileDeletes folder source', () => {
   it('considers only folders the server still advertises', async () => {
     // Second line of defence for the same loop: a stranded message row must not be able to
@@ -1726,8 +1803,14 @@ describe('_recordAccountError / _clearAccountError', () => {
 
   afterEach(() => vi.restoreAllMocks());
 
-  it('persists the error and broadcasts it', async () => {
+  it('persists the error and broadcasts it once a recoverable failure repeats', async () => {
     const m = mgr();
+    // A connect timeout is recoverable, so the first is deliberately held back: providers that
+    // refuse and accept again moments later must not paint the account red. The second, after a
+    // backoff has elapsed without success, is a real outage and has to reach the UI.
+    await m._recordAccountError(acct, 'IMAP connect timeout (30000ms)');
+    expect(query).not.toHaveBeenCalled();
+    expect(m.broadcast).not.toHaveBeenCalled();
     await m._recordAccountError(acct, 'IMAP connect timeout (30000ms)');
     expect(query).toHaveBeenCalledWith(
       'UPDATE email_accounts SET sync_error = $1 WHERE id = $2',
