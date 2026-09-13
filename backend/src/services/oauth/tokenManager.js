@@ -121,7 +121,7 @@ async function refreshUnderLock(account, options) {
   }
 }
 
-const inFlightRefresh = new Map(); // accountId -> Promise
+const inFlightRefresh = new Map(); // accountId -> { promise, force }
 
 // Return an account whose OAuth access token is valid for at least the skew window.
 // Non-OAuth and still-fresh accounts are returned unchanged. The returned access token
@@ -130,16 +130,25 @@ const inFlightRefresh = new Map(); // accountId -> Promise
 // caller holds (IMAP AUTHENTICATE or SMTP AUTH failure).
 export function ensureFreshOAuthAccount(account, options = {}) {
   if (!account || !OAUTH_PROVIDERS.has(account.oauth_provider)) return Promise.resolve(account);
-  if (!options.force && !needsTokenRefresh(account)) return Promise.resolve(account);
+  const force = !!options.force;
+  if (!force && !needsTokenRefresh(account)) return Promise.resolve(account);
 
   const existing = inFlightRefresh.get(account.id);
-  if (existing) return existing;
+  if (existing) {
+    if (!force || existing.force) return existing.promise;
+    // A non-forced refresh may resolve to the stored row without calling the provider, and that
+    // row can hold the very token this caller just had rejected. Take its result only when it is
+    // newer than the rejected token; otherwise run a forced refresh once it has settled.
+    return existing.promise.then((row) => (
+      expiryTime(row) > expiryTime(account) ? row : ensureFreshOAuthAccount(account, options)
+    ));
+  }
 
-  const p = refreshUnderLock(account, {
-    force: !!options.force,
+  const promise = refreshUnderLock(account, {
+    force,
     lockWaitMs: options.lockWaitMs ?? DEFAULT_LOCK_WAIT_MS,
     lockPollMs: options.lockPollMs ?? DEFAULT_LOCK_POLL_MS,
   }).finally(() => inFlightRefresh.delete(account.id));
-  inFlightRefresh.set(account.id, p);
-  return p;
+  inFlightRefresh.set(account.id, { promise, force });
+  return promise;
 }
