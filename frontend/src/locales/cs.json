@@ -738,7 +738,8 @@
     "explainConfidence": "Jistota",
     "verdict": {
       "spam": "Spam",
-      "ham": "Není spam"
+      "ham": "Není spam",
+      "unsure": "Nejisté"
     },
     "method": {
       "rules": "Pravidla",

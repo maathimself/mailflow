@@ -62,6 +62,12 @@ function imapFacade() {
   };
 }
 
+// The verdict value handed to the UPDATE that persists the classification.
+function persistedVerdict() {
+  const update = query.mock.calls.find(([sql]) => sql.includes('UPDATE messages SET'));
+  return update ? update[1][0] : undefined;
+}
+
 beforeEach(() => {
   query.mockReset();
   getModelForUser.mockReset();
@@ -170,7 +176,7 @@ describe('classifyAndTagMessage — scenario 2: active user moves spam', () => {
   });
 });
 
-describe('classifyAndTagMessage — scenario 3: borderline stays ham/uncertain', () => {
+describe('classifyAndTagMessage — scenario 3: borderline stays ham/unsure', () => {
   it('does not flag a normal message', async () => {
     getModelForUser.mockResolvedValue(trainedModel(200));
     query.mockResolvedValueOnce({
@@ -185,6 +191,41 @@ describe('classifyAndTagMessage — scenario 3: borderline stays ham/uncertain',
     expect(result.verdict).toBe('ham');
     expect(result.shouldMove).toBe(false);
     expect(imap.moveMessage).not.toHaveBeenCalled();
+  });
+
+  it('persists the ambiguous middle band as unsure (the schema vocabulary)', async () => {
+    // A single 0.4-weight rule (AUTH_DKIM_FAIL, with spf/dmarc passing so no
+    // other auth rule fires) lands in [0.3, 0.85): the persisted value must be
+    // 'unsure' — the CHECK on messages.spam_verdict (migration 0021) allows
+    // spam|ham|unsure|pending, and 'uncertain' would be rejected, silently
+    // dropping the verdict on the UPDATE.
+    getModelForUser.mockResolvedValue(null);
+    query.mockResolvedValueOnce({ rows: [messageRow({ trusted_authserv_id: 'mx.example.com' })] });
+
+    const result = await classifyAndTagMessage(MESSAGE_ID, {
+      headers: ['Authentication-Results: mx.example.com; dkim=fail header.d=x.example;'
+        + ' spf=pass smtp.mailfrom=x.example; dmarc=pass header.from=x.example'],
+    });
+
+    expect(result.verdict).toBe('unsure');
+    expect(persistedVerdict()).toBe('unsure');
+  });
+
+  it('never writes a verdict outside the schema vocabulary', async () => {
+    const ALLOWED = ['spam', 'ham', 'unsure', 'pending'];
+    const cases = [
+      { subject: 'CHEAP VIAGRA!!! BUY NOW', body_text: 'Click here, buy now, free pills, limited offer', from_email: 'a@spoof.net' },
+      { subject: 'Meeting agenda', body_text: 'Please review the attached document.', from_email: 'b@corp.example' },
+      { subject: 'Cheap offer today', body_text: 'Limited offer, buy now.', from_email: 'promo@shop.example' },
+    ];
+    for (const c of cases) {
+      query.mockClear();
+      query.mockResolvedValue({ rows: [messageRow(c)] });
+      getModelForUser.mockResolvedValue(null);
+      const result = await classifyAndTagMessage(MESSAGE_ID, {});
+      expect(ALLOWED).toContain(result.verdict);
+      expect(ALLOWED).toContain(persistedVerdict());
+    }
   });
 });
 

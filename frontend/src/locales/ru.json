@@ -1554,7 +1554,8 @@
     "explainConfidence": "Уверенность",
     "verdict": {
       "spam": "Спам",
-      "ham": "Не спам"
+      "ham": "Не спам",
+      "unsure": "Неясно"
     },
     "method": {
       "rules": "Правила",

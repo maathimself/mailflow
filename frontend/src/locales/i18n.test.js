@@ -451,6 +451,7 @@ const DYNAMIC_KEYS = new Set([
   'spam.deleteScope.all',
   'spam.verdict.spam',
   'spam.verdict.ham',
+  'spam.verdict.unsure',
   'spam.method.rules',
   'spam.method.blended',
 ]);

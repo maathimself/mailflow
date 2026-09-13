@@ -1573,7 +1573,8 @@
     "explainConfidence": "Pewność",
     "verdict": {
       "spam": "Spam",
-      "ham": "Nie spam"
+      "ham": "Nie spam",
+      "unsure": "Niepewne"
     },
     "method": {
       "rules": "Reguły",

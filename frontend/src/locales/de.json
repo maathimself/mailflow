@@ -1554,7 +1554,8 @@
     "explainConfidence": "Konfidenz",
     "verdict": {
       "spam": "Spam",
-      "ham": "Kein Spam"
+      "ham": "Kein Spam",
+      "unsure": "Unsicher"
     },
     "method": {
       "rules": "Regeln",

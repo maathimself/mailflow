@@ -115,7 +115,11 @@ export async function classifyAndTagMessage(messageId, opts = {}) {
     method = 'blended';
   }
 
-  const verdict = blended >= SPAM_THRESHOLD ? 'spam' : blended < 0.3 ? 'ham' : 'uncertain';
+  // Persisted verdicts must use the vocabulary the schema already defines
+  // (migration 0021 CHECK): spam | ham | unsure | pending. The ambiguous middle
+  // band is therefore 'unsure', not 'uncertain' — writing 'uncertain' violated
+  // the constraint and silently dropped the verdict on the UPDATE.
+  const verdict = blended >= SPAM_THRESHOLD ? 'spam' : blended < 0.3 ? 'ham' : 'unsure';
 
   const details = {
     method,

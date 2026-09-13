@@ -153,6 +153,9 @@ function vocabSize(model) {
  *             confidence: number, method: 'ml' }}
  *   probability = sigmoid(logOdds) in [0,1]; confidence = |logOdds|
  *   (design §6.2); verdict = 'uncertain' on a zero-training model.
+ *   NOTE: this verdict is internal to the model — the pipeline derives the
+ *   verdict it persists from the blended score and uses the vocabulary the
+ *   messages.spam_verdict CHECK defines (spam|ham|unsure|pending).
  */
 export function classifyMessage(model, tokens, flagFeatures) {
   if (!model || model.trainingRecords === 0) {

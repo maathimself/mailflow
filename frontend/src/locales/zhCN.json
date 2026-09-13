@@ -1554,7 +1554,8 @@
     "explainConfidence": "置信度",
     "verdict": {
       "spam": "垃圾邮件",
-      "ham": "非垃圾"
+      "ham": "非垃圾",
+      "unsure": "不确定"
     },
     "method": {
       "rules": "规则",
