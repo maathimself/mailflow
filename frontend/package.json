@@ -155,7 +155,7 @@
     "emoji-mart": "^5.6.0",
     "i18next": "^26.4.2",
     "marked": "^18.0.13",
-    "postcss": "^8.4.35",
+    "postcss": "^8.5.28",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-i18next": "^17.0.14",
@@ -165,15 +165,15 @@
   "devDependencies": {
     "@capacitor/cli": "^8.5.2",
     "@eslint/js": "^10.0.1",
-    "@vitejs/plugin-react": "^6.0.2",
-    "autoprefixer": "^10.4.18",
+    "@vitejs/plugin-react": "^6.1.1",
+    "autoprefixer": "^10.6.0",
     "electron": "^42.1.0",
     "electron-builder": "^26.8.1",
-    "eslint": "^10.4.1",
+    "eslint": "^10.10.0",
     "eslint-plugin-react-hooks": "^7.1.1",
-    "globals": "^17.6.0",
+    "globals": "^17.12.0",
     "jsdom": "^30.0.1",
     "tailwindcss": "^3.4.1",
-    "vite": "^8.0.16"
+    "vite": "^8.3.0"
   }
 }
