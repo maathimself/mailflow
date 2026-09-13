@@ -73,3 +73,91 @@
 - Дополнительно на хосте: `npm run audit:redos` — чисто.
 
 Живой smoke на Node 22 с PostgreSQL 16 и Redis 7 совпадает с исходной линией по всем проверкам. Проверялись: старт с 51 миграцией, `/api/health`, `/api/version`, регистрация и `me` с cookie сессии, выход, 404, 413 на крупное тело, `POST /api/mail/sync` без тела, CardDAV OPTIONS, `.well-known` → 308, TTL сессии 604800 и SIGTERM с кодом выхода 0.
+
+## Frontend
+
+Ветка `chore/frontend-deps-2026-09` от `main` 7a6ab4b. Каждая группа обновлялась отдельным коммитом, после каждой проверялись `npm test`, `npm run lint` и `npm run build`.
+
+### Исходное состояние
+
+- `npm test` — 1866 тестов, все проходят.
+- `npm run lint` — без ошибок и предупреждений.
+- `npm run build` — сборка успешна, Vite предупреждает о чанках больше 500 kB: `ComposeModal` 558 kB, `index` 689 kB, `store` 733 kB.
+- `npm audit` — 2 moderate в `react-router` / `react-router-dom` 6.30.6 (GHSA-wrjc-x8rr-h8h6, GHSA-337j-9hxr-rhxg).
+
+### Версии
+
+| Пакет | Было | Стало |
+|---|---|---|
+| react, react-dom | 18.3.1 | 19.3.0 |
+| react-router-dom | 6.30.6 | удалён, заменён на `react-router` |
+| react-router | 6.30.6 (транзитивно) | 7.18.3 |
+| zustand | 4.5.7 | 5.0.15 |
+| date-fns | 3.6.0 | 4.4.0 |
+| @emoji-mart/react | 1.1.1 | удалён |
+| emoji-mart | 5.6.0 (транзитивно) | 5.6.0 (прямая зависимость) |
+| @capacitor/android, core, cli | 8.3.4 | 8.5.2 |
+| dompurify | 3.4.13 | 3.4.15 |
+| i18next | 26.0.8 | 26.4.2 |
+| react-i18next | 17.0.6 | 17.0.14 |
+| marked | 18.0.6 | 18.0.13 |
+| postcss | 8.5.26 | 8.5.28 |
+| autoprefixer | 10.5.0 | удалён (Tailwind 4 сам добавляет префиксы) |
+| tailwindcss | 3.4.19 | 4.3.3 |
+| @tailwindcss/vite | — | 4.3.3 |
+| vite | 8.1.5 | 8.3.0 |
+| @vitejs/plugin-react | 6.0.3 | 6.1.1 |
+| eslint | 10.7.0 | 10.10.0 |
+| globals | 17.7.0 | 17.12.0 |
+| electron | 42.8.1 | 44.3.0 |
+| electron-builder | 26.15.3 | 26.15.3 (диапазон поднят до `^26.15.3`) |
+
+Без изменений, уже последние версии: `@tiptap/*` 3.31.3, `@emoji-mart/data` 1.2.1, `@eslint/js` 10.0.1, `eslint-plugin-react-hooks` 7.1.1, `jsdom` 30.0.1.
+
+### Решения по миграции
+
+**React 19.** `ReactDOM.render`, string refs, `defaultProps` у функций, `propTypes`, legacy context и классовых компонентов в коде нет, точка входа уже на `createRoot`. `forwardRef` в `ComposeModal` устарел, но работает. Хук `useWebSocket` при каждом монтировании заново выставляет `mountedRef`, поэтому двойные эффекты StrictMode ему не мешают. Единственный блокер — `@emoji-mart/react` 1.1.1: его peer-диапазон заканчивается на React 18, и `npm ci` падает с ERESOLVE. `overrides` peer-диапазон не меняют, а `legacy-peer-deps` ослабил бы проверку во всём проекте. Поэтому обёртку заменили своим компонентом `src/components/EmojiPicker.jsx`. Он построен на публичном `Picker` из `emoji-mart`, логика жизненного цикла вынесена в `src/utils/emojiPicker.js`. Отличия от старой обёртки: `update()` вызывается в эффекте, а не во время рендера, и при размонтировании элемент picker удаляется. Отдельный lazy-чанк `EmojiPicker` в сборке сохранился. Тест `src/utils/emojiPicker.test.js` проверяет монтирование, обновление props, размонтирование и StrictMode.
+
+**React Router 7.** Роутер используют только `main.jsx` (`BrowserRouter`) и `App.jsx` (`Routes`, `Route`, `Navigate`). Импорты переведены на пакет `react-router`, как рекомендует документация v7, а `react-router-dom` удалён из зависимостей. Таблица маршрутов не менялась: `/login`, `/register`, `/*`. OAuth-callback (`?oauth_success` / `?oauth_error`), deep link `?m=` и `?reset_token=` читаются из `window.location` ещё до рендера маршрутов, поэтому их поведение осталось прежним. Future-флаги v6 в проекте не включались. Их поведение касается относительных ссылок в splat-маршрутах, `startTransition` и fetchers, а `Link`, `useNavigate` и вложенных `Routes` в коде нет. Отдельной проверкой в jsdom подтверждено: редиректы `Navigate replace` не добавляют записей в историю, `/register?invite=` сохраняется, прямые `history.pushState` в `MailApp` и `popstate` работают как раньше. После обновления `npm audit` не показывает уязвимостей в React Router.
+
+**Zustand 5.** Импорт `create` не менялся, `equalityFn` и `zustand/shallow` в коде не используются. Zustand 5 сравнивает результат селектора по ссылке через `useSyncExternalStore`. Два селектора — `ContextMenu.jsx` и `MessagePane.jsx` — возвращали `s.folders[id] || []`, то есть новый массив при каждом вызове. В zustand 5 это даёт бесконечный цикл: «Maximum update depth exceeded», проверено отдельно. Оба переведены на `selectAccountFolders(s, accountId)` в `store/index.js` с общим замороженным пустым массивом. `useShallow` не понадобился. Тест: `src/store/accountFolders.test.js`.
+
+**date-fns 4.** Функции `format`, `isToday`, `isYesterday` и `isThisYear` и токены форматов не изменились. Добавлен тест `src/utils/formatDate.test.js`.
+
+**Electron 44.** Изучены breaking changes 43 и 44. Код затрагивает одно изменение: `clipboard.writeText()` в main-процессе теперь возвращает Promise. Запись идёт через `packages/electron/clipboardText.cjs`: помощник дожидается записи и возвращает признак успеха. Действие «скопировать команду установки и выйти» (Linux-обновление) закрывает приложение только после успешной записи. При ошибке возвращается `{ copied: false, reason: 'clipboard-failed' }`. Тест: `packages/electron/clipboardText.test.cjs`. Остальные изменения на код не влияют. Clipboard в renderer не используется: там `navigator.clipboard`, а окна с `sandbox: true`. Frameless-окон нет, `select-client-certificate`, `net.request`, login items и `app.isUnityRunning()` не используются. Unity-бейдж отправляется через `gdbus`, это не зависит от Electron. Electron 44 не поддерживает macOS 12, Windows ia32 и Linux armv7l. Цели сборки MailExpert (Windows x64, macOS universal, Linux x64/arm64) это не затрагивает, но минимальная версия macOS для desktop-приложения теперь 13.
+
+**Tailwind 4.** Utility-классы Tailwind в разметке не используются, все 62 `className` — собственные классы из `index.css`. Tailwind даёт только Preflight и несколько случайных utility из строк в коде, как и в v3. Официальный `npx @tailwindcss/upgrade` упал на шаге разрешения `tailwindcss`, но успел переписать `index.css`. В его варианте был `@theme { --font-sans: var(--font-sans), ... }` — ссылка переменной на саму себя, ведь `fonts.js` выставляет те же `--font-sans` / `--font-mono` на `<html>`. Изменения инструмента откатили и повторили миграцию вручную:
+- `@import 'tailwindcss'` вместо трёх `@tailwind`;
+- плагин `@tailwindcss/vite` в `vite.config.js`, `postcss.config.js` и `tailwind.config.js` удалены, `autoprefixer` удалён;
+- `@theme` со статическими значениями `--font-sans: 'DM Sans'` и `--font-mono: 'JetBrains Mono'`, как fallback из старого конфига. `--font-display` Tailwind не использует, он не нужен;
+- блок совместимости из официального руководства, чтобы сохранить поведение Preflight v3: цвет рамки по умолчанию gray-200, цвет placeholder gray-400, `cursor: pointer` у кнопок.
+
+Пакет `postcss` остался: его использует `src/utils/scopeEmailCss.js`. Итоговый CSS: 21.6 kB → 26.3 kB. Страницу входа сравнили в браузере — исходный CSS v3 против нового v4 на той же сборке. Позиции и размеры элементов, шрифты, цвета, радиусы и курсор совпали.
+
+Места с видимым риском, которые не покрыты визуальными тестами:
+- Preflight v4 сбрасывает `margin`/`padding` у всех элементов и задаёт `border-radius: 0` и прозрачный фон для `input`, `select` и `textarea`. Поля без явного inline-фона станут прозрачными вместо белых.
+- `ol`, `ul`, `menu` без маркеров, `img`/`svg`/`video` — `display: block`. Так было и в v3.
+- Utility `ring` теперь 1px и `currentcolor`, а не 3px синего цвета. `shrink` и `!visible` исчезли, появилась `row-0`. Эти классы в разметке не встречаются.
+- Минимальные браузеры Tailwind 4: Chrome 111, Safari 16.4, Firefox 128. Preflight лежит в `@layer`, поэтому Android System WebView старше Chrome 99 не применит его вовсе. Для Capacitor-оболочки на устаревших WebView это видимый риск. Electron 44 не затронут.
+
+### Исключения
+
+- **React Router 8.3.1** — есть в npm, но задача ограничена v7. Для v8 нужны Node ≥ 22.22 и React ≥ 19.2.7. Оставлен на отдельное решение.
+- **@emoji-mart/react** — пакет не поддерживает React 19 и заменён собственным компонентом, подробности выше. `overrides` и `legacy-peer-deps` не добавлялись.
+
+### Остаточные риски npm audit
+
+- `npm audit --omit=dev --audit-level=high` — 0 уязвимостей.
+- Полный `npm audit` — 3 moderate в dev-цепочке `@capacitor/cli` 8.5.x → `xcode` 3.0.1 → `uuid` 7.0.3 (GHSA-w5hq-g745-h8pq). npm предлагает откат `@capacitor/cli` до 8.4.3 через `--force`. Не исправлялось: пакет только для разработки, `xcode` нужен для iOS-проектов, а их в MailExpert нет. Уязвимость срабатывает только при передаче `buf` в `uuid` v3/v5/v6, а `xcode` вызывает `uuid.v4()` без буфера. `overrides` не добавлялись.
+
+### Чанки Vite
+
+Предупреждение о чанках больше 500 kB осталось и сознательно не исправлялось: `ComposeModal` 559 kB, `index` 790 kB (было 689 kB — выросли React DOM 19 и Router 7), `store` 732 kB.
+
+### Проверки
+
+- Локально (Windows, Node 24.19.0 / npm 11.17.0): после чистого `npm ci` — `npm test` 1879 из 1879, `npm run lint` без ошибок и предупреждений, `npm run build` успешен.
+- Docker Node 22 gate: `node:22-bookworm-slim` (Node 22.23.2, npm 10.9.8) на `git archive HEAD` — `npm ci`, `npm run lint`, `npm run build`, `npm test` (1879 из 1879), `npm audit --omit=dev --audit-level=high` (0 уязвимостей). Код выхода 0.
+- Дополнительно `node:22-alpine`, как в `frontend/Dockerfile`: `npm ci` и `npm run build` проходят, нативные бинарники Tailwind/lightningcss для musl есть в lockfile.
+- Android Gradle на этом хосте не запускался: нет Android SDK. `packages/android/variables.gradle` (compile/target SDK 36, min SDK 24) совпадает со значениями по умолчанию в Capacitor 8.5.2, но реальная сборка APK не проверена.
+- Бинарник Electron 44 не скачивался (`ELECTRON_SKIP_BINARY_DOWNLOAD=1`): изменения main-процесса проверены статически, `node --check` и unit-тестами.
