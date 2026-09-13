@@ -156,7 +156,8 @@ describe('ensureFreshOAuthAccount', () => {
     expect(result.oauth_access_token).toBe('new-at');
     const [lockKey, , lockOpts] = redisClient.set.mock.calls[0];
     expect(lockKey).toBe('oauth:refresh-lock:acc-g');
-    expect(lockOpts).toMatchObject({ NX: true });
+    // The TTL outlives the Microsoft worst case (two 10 s token calls plus DB) with margin.
+    expect(lockOpts).toMatchObject({ NX: true, EX: 60 });
     expect(query.mock.calls[0][0]).toMatch(/SELECT \* FROM email_accounts WHERE id = \$1/);
     // Refresh ran with the re-read row, and the lock was released afterwards.
     expect(refreshGoogleToken).toHaveBeenCalledWith(stale);
@@ -198,7 +199,8 @@ describe('ensureFreshOAuthAccount', () => {
     query.mockImplementation(async () => ({ rows: [row] }));
 
     const pending = ensureFreshOAuthAccount(stale, { lockPollMs: 5, lockWaitMs: 1000 });
-    await new Promise((r) => setTimeout(r, 30));
+    // Wait until the lock has been polled again, not for a wall-clock interval.
+    await vi.waitFor(() => expect(redisClient.set.mock.calls.length).toBeGreaterThanOrEqual(2));
     expect(refreshGoogleToken).not.toHaveBeenCalled();
     // The other process finishes: persists fresh tokens and releases its lock.
     row = googleAccount({ oauth_access_token: 'peer-at', oauth_token_expiry: expiresIn(60 * MINUTE) });
@@ -217,6 +219,53 @@ describe('ensureFreshOAuthAccount', () => {
     expect(refreshGoogleToken).not.toHaveBeenCalled();
     // A lock owned by someone else is never deleted.
     expect(locks.get('oauth:refresh-lock:acc-g')).toBe('stuck-process');
+  });
+
+  it('gives up on a held lock within 10 s by default, inside the 15 s IMAP refresh timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      const account = googleAccount({ id: 'acc-default-wait' });
+      locks.set('oauth:refresh-lock:acc-default-wait', 'stuck-process');
+      mockDb({ row: account });
+      let settled = null;
+      ensureFreshOAuthAccount(account).then(
+        () => { settled = 'resolved'; },
+        (e) => { settled = e.code; },
+      );
+
+      await vi.advanceTimersByTimeAsync(9000);
+      expect(settled).toBeNull();
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(settled).toBe('oauth_refresh_failed');
+      expect(refreshGoogleToken).not.toHaveBeenCalled();
+    } finally {
+      // Let any still-polling wait run out so no pending refresh leaks into later tests.
+      await vi.advanceTimersByTimeAsync(60000);
+      vi.useRealTimers();
+    }
+  });
+
+  it('lets callers that can wait longer extend the lock wait', async () => {
+    vi.useFakeTimers();
+    try {
+      const account = googleAccount({ id: 'acc-long-wait' });
+      locks.set('oauth:refresh-lock:acc-long-wait', 'stuck-process');
+      mockDb({ row: account });
+      let settled = null;
+      ensureFreshOAuthAccount(account, { lockWaitMs: 30000 }).then(
+        () => { settled = 'resolved'; },
+        (e) => { settled = e.code; },
+      );
+
+      await vi.advanceTimersByTimeAsync(20000);
+      expect(settled).toBeNull();
+      await vi.advanceTimersByTimeAsync(11000);
+      expect(settled).toBe('oauth_refresh_failed');
+    } finally {
+      // Let any still-polling wait run out so no pending refresh leaks into later tests.
+      await vi.advanceTimersByTimeAsync(60000);
+      vi.useRealTimers();
+    }
   });
 
   it('does not call the provider for an account already flagged for reconnect', async () => {

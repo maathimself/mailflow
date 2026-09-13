@@ -9,9 +9,14 @@ import { refreshGoogleToken } from './googleOAuth.js';
 export const TOKEN_REFRESH_SKEW_MS = 5 * 60 * 1000;
 
 // Cross-process refresh lock. The TTL outlives the slowest refresh (Microsoft may make
-// two 10 s token calls) so a crashed holder cannot block the account for long.
-const LOCK_TTL_SECONDS = 30;
-const DEFAULT_LOCK_WAIT_MS = 25000;
+// two 10 s token calls plus DB writes) with a wide margin, so a stalled holder does not
+// let a peer refresh with a superseded refresh token; a crashed holder still frees the
+// account within a minute.
+const LOCK_TTL_SECONDS = 60;
+// The default wait stays under the 15 s timeouts that imapManager wraps token refreshes
+// in, so the wait ends before the caller gives up. Callers with a longer budget pass
+// `lockWaitMs`.
+const DEFAULT_LOCK_WAIT_MS = 10000;
 const DEFAULT_LOCK_POLL_MS = 200;
 const RELEASE_LOCK_SCRIPT = `if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end`;
 
