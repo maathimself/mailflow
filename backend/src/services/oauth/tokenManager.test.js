@@ -286,6 +286,90 @@ describe('ensureFreshOAuthAccount', () => {
     expect(locks.size).toBe(0);
   });
 
+  describe('force (the provider rejected the token the caller holds)', () => {
+    it('refreshes a token that is still inside its validity window', async () => {
+      const rejected = googleAccount({ id: 'acc-force', oauth_token_expiry: expiresIn(40 * MINUTE) });
+      mockDb({ row: rejected });
+      refreshGoogleToken.mockResolvedValue({ ...rejected, oauth_access_token: 'forced-at', oauth_token_expiry: expiresIn(60 * MINUTE) });
+
+      const result = await ensureFreshOAuthAccount(rejected, { force: true });
+
+      expect(refreshGoogleToken).toHaveBeenCalledTimes(1);
+      expect(result.oauth_access_token).toBe('forced-at');
+      expect(locks.size).toBe(0);
+    });
+
+    it('reuses a newer token another process stored instead of refreshing again', async () => {
+      const rejected = googleAccount({ id: 'acc-force-peer', oauth_token_expiry: expiresIn(40 * MINUTE) });
+      const peer = googleAccount({ id: 'acc-force-peer', oauth_access_token: 'peer-at', oauth_token_expiry: expiresIn(59 * MINUTE) });
+      mockDb({ row: peer });
+
+      const result = await ensureFreshOAuthAccount(rejected, { force: true });
+
+      expect(refreshGoogleToken).not.toHaveBeenCalled();
+      expect(result.oauth_access_token).toBe('peer-at');
+    });
+
+    it('does not hand back the rejected token by joining a non-forced refresh already in flight', async () => {
+      // The DB row still holds the token the provider just rejected (inside its validity window).
+      const rejected = googleAccount({ id: 'acc-force-race', oauth_access_token: 'rejected-at', oauth_token_expiry: expiresIn(40 * MINUTE) });
+      // A path holding an older, long-expired copy of the row starts a non-forced refresh first:
+      // it re-reads the DB, finds the row fresh enough and returns it without a provider call.
+      const staleCopy = googleAccount({ id: 'acc-force-race', oauth_access_token: 'old-at', oauth_token_expiry: expiresIn(-30 * MINUTE) });
+      mockDb({ row: rejected });
+      refreshGoogleToken.mockResolvedValue({ ...rejected, oauth_access_token: 'forced-at', oauth_token_expiry: expiresIn(60 * MINUTE) });
+
+      const nonForced = ensureFreshOAuthAccount(staleCopy);
+      const forced = ensureFreshOAuthAccount(rejected, { force: true });
+
+      expect((await nonForced).oauth_access_token).toBe('rejected-at');
+      expect((await forced).oauth_access_token).toBe('forced-at');
+      expect(refreshGoogleToken).toHaveBeenCalledTimes(1);
+      expect(locks.size).toBe(0);
+    });
+
+    it('lets the forced caller reuse a non-forced in-flight refresh that did produce a newer token', async () => {
+      const rejected = googleAccount({ id: 'acc-force-join', oauth_access_token: 'rejected-at', oauth_token_expiry: expiresIn(-MINUTE) });
+      mockDb({ row: rejected });
+      refreshGoogleToken.mockResolvedValue({ ...rejected, oauth_access_token: 'new-at', oauth_token_expiry: expiresIn(60 * MINUTE) });
+
+      const nonForced = ensureFreshOAuthAccount(rejected);
+      const forced = ensureFreshOAuthAccount(rejected, { force: true });
+
+      expect((await nonForced).oauth_access_token).toBe('new-at');
+      expect((await forced).oauth_access_token).toBe('new-at');
+      expect(refreshGoogleToken).toHaveBeenCalledTimes(1);
+    });
+
+    it('shares one refresh between concurrent forced callers', async () => {
+      const rejected = googleAccount({ id: 'acc-force-share', oauth_token_expiry: expiresIn(40 * MINUTE) });
+      mockDb({ row: rejected });
+      refreshGoogleToken.mockResolvedValue({ ...rejected, oauth_access_token: 'forced-at', oauth_token_expiry: expiresIn(60 * MINUTE) });
+
+      const results = await Promise.all([
+        ensureFreshOAuthAccount(rejected, { force: true }),
+        ensureFreshOAuthAccount(rejected, { force: true }),
+      ]);
+
+      expect(results.map(r => r.oauth_access_token)).toEqual(['forced-at', 'forced-at']);
+      expect(refreshGoogleToken).toHaveBeenCalledTimes(1);
+    });
+
+    it('still refuses a flagged account without calling the provider', async () => {
+      const flagged = googleAccount({ id: 'acc-force-flag', oauth_token_expiry: expiresIn(40 * MINUTE), oauth_reconnect_required: true });
+      mockDb({ row: flagged });
+      const err = await ensureFreshOAuthAccount(flagged, { force: true }).catch(e => e);
+      expect(err.code).toBe('oauth_reconnect_required');
+      expect(refreshGoogleToken).not.toHaveBeenCalled();
+    });
+
+    it('never touches the token manager state for non-OAuth accounts', async () => {
+      const account = { id: 'p-force', oauth_provider: null };
+      expect(await ensureFreshOAuthAccount(account, { force: true })).toBe(account);
+      expect(query).not.toHaveBeenCalled();
+    });
+  });
+
   it('fails when the account no longer exists', async () => {
     mockDb({ row: null });
     const err = await ensureFreshOAuthAccount(googleAccount()).catch(e => e);

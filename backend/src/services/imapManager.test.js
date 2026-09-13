@@ -3,7 +3,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 vi.mock('imapflow', () => ({ ImapFlow: vi.fn() }));
 vi.mock('./db.js', () => ({ query: vi.fn() }));
 vi.mock('./messageParser.js', () => ({ parseMessage: vi.fn(), buildSnippetFromHtml: vi.fn(), snippetFromBody: vi.fn(), decodeMimeWords: vi.fn(), detectBulkFromParsedHeaders: vi.fn(), parseRawHeaders: vi.fn(), enrichParsedMetadata: vi.fn((parsed) => parsed) }));
-vi.mock('../routes/oauth.js', () => ({ refreshMicrosoftToken: vi.fn() }));
+// IMAP refreshes through the token manager (single entry point). Keep its real OAuthTokenError and
+// pass accounts through unchanged unless a test scripts a refresh.
+vi.mock('./oauth/tokenManager.js', async (importOriginal) => ({
+  OAuthTokenError: (await importOriginal()).OAuthTokenError,
+  ensureFreshOAuthAccount: vi.fn(async account => account),
+}));
 vi.mock('./emailSanitizer.js', () => ({ sanitizeEmail: vi.fn() }));
 vi.mock('./encryption.js', () => ({ decrypt: vi.fn() }));
 vi.mock('./aiProvider.js', () => ({ getAiStatus: vi.fn(), completeText: vi.fn() }));
@@ -17,6 +22,7 @@ import { pluginRegistry } from '../plugins/registry.js';
 import { EventEmitter } from 'node:events';
 import { ImapFlow } from 'imapflow';
 import { query } from './db.js';
+import { ensureFreshOAuthAccount } from './oauth/tokenManager.js';
 import { resolveForConnection } from './hostValidation.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { invalidateGtdConfigCache } from '../plugins/gtd/gtdConfig.js';
@@ -1841,7 +1847,7 @@ describe('_recordAccountError / _clearAccountError', () => {
     m.broadcast.mockClear();
     await m._clearAccountError(acct);
     expect(query).toHaveBeenLastCalledWith(
-      'UPDATE email_accounts SET sync_error = NULL WHERE id = $1', ['a1'],
+      'UPDATE email_accounts SET sync_error = NULL WHERE id = $1 AND oauth_reconnect_required = false', ['a1'],
     );
     expect(m.broadcast).toHaveBeenCalledWith({ type: 'account_connected', accountId: 'a1' }, 'u1');
   });
@@ -2539,11 +2545,13 @@ describe('connect paths back off on IMAP authentication failure', () => {
     expect(syncErrorWrites()).toHaveLength(0);
   });
 
-  it('treats an OAuth account like a password account for now', async () => {
+  it('gives an OAuth account the same cooldown once its forced token refresh and single retry were rejected', async () => {
     const mgr = newManager();
     const oauthAcct = { ...acct, id: 'oauth-acct', oauth_provider: 'google', oauth_access_token: 'enc' };
     const before = Date.now();
     await mgr.connectAccount(oauthAcct);
+    expect(ensureFreshOAuthAccount.mock.calls.filter(([, opts]) => opts?.force)).toHaveLength(1);
+    expect(ImapFlow).toHaveBeenCalledTimes(2);
     expect(mgr._connectCooldown.get(oauthAcct.id).until).toBeGreaterThanOrEqual(before + AUTH_FAILURE_COOLDOWN_MS);
   });
 
@@ -2601,6 +2609,8 @@ describe('backfill stops on a provider refusal (#433)', () => {
       broadcast: vi.fn(),
       pluginFacade: {},
       _noteConnectionRefusal: vi.fn(),
+      // Real first step of every backfill failure catch; it returns false for non-OAuth errors.
+      _handleOAuthRefreshFailure: ImapManager.prototype._handleOAuthRefreshFailure,
     };
   }
   function rejectConnectWith(makeErr) {

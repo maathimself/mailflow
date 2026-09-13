@@ -75,3 +75,35 @@ describe('send failure semantics', () => {
     expect(redisClient.del).not.toHaveBeenCalled();
   });
 });
+describe('OAuth reconnect-required on send', () => {
+  const reconnectResult = {
+    status: 409,
+    code: 'oauth_reconnect_required',
+    error: 'Access to this account was revoked or has expired. Reconnect the account to send mail.',
+  };
+  it('returns the stable code before reserving or delivering', async () => {
+    createAccountSmtpTransport.mockResolvedValueOnce(reconnectResult);
+    const res = await post();
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.code).toBe('oauth_reconnect_required');
+    expect(sendMail).not.toHaveBeenCalled();
+    expect(redisClient.set).not.toHaveBeenCalled();
+  });
+  it('maps a forced refresh that needs reconnect during the send to the stable code and frees the reservation', async () => {
+    const tokenErr = Object.assign(new Error('OAuth access was revoked or expired — reconnect the account'), { name: 'OAuthTokenError', code: 'oauth_reconnect_required' });
+    sendMail.mockRejectedValueOnce(tokenErr);
+    const res = await post();
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body).toEqual({ error: expect.any(String), code: 'oauth_reconnect_required' });
+    expect(redisClient.del).toHaveBeenCalledWith('send_idem:u1:send1');
+  });
+  it('maps a transient refresh failure during the send to a retryable status', async () => {
+    sendMail.mockRejectedValueOnce(Object.assign(new Error('OAuth token refresh failed: oauth_refresh_failed'), { name: 'OAuthTokenError', code: 'oauth_refresh_failed' }));
+    const res = await post();
+    expect(res.status).toBe(503);
+    expect((await res.json()).code).toBe('oauth_refresh_failed');
+    expect(redisClient.del).toHaveBeenCalledWith('send_idem:u1:send1');
+  });
+});

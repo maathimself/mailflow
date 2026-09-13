@@ -6,7 +6,12 @@ import net from 'node:net';
 // LOGIN/AUTHENTICATE error shape fails here instead of silently reverting to 'Command failed'.
 vi.mock('./db.js', () => ({ query: vi.fn() }));
 vi.mock('./messageParser.js', () => ({ parseMessage: vi.fn(), buildSnippetFromHtml: vi.fn(), snippetFromBody: vi.fn(), decodeMimeWords: vi.fn(), detectBulkFromParsedHeaders: vi.fn(), parseRawHeaders: vi.fn(), enrichParsedMetadata: vi.fn((parsed) => parsed) }));
-vi.mock('../routes/oauth.js', () => ({ refreshMicrosoftToken: vi.fn() }));
+// IMAP refreshes through the token manager (single entry point). Keep its real OAuthTokenError and
+// pass accounts through unchanged unless a test scripts a refresh.
+vi.mock('./oauth/tokenManager.js', async (importOriginal) => ({
+  OAuthTokenError: (await importOriginal()).OAuthTokenError,
+  ensureFreshOAuthAccount: vi.fn(async account => account),
+}));
 vi.mock('./emailSanitizer.js', () => ({ sanitizeEmail: vi.fn() }));
 vi.mock('./encryption.js', () => ({ decrypt: vi.fn() }));
 vi.mock('./aiProvider.js', () => ({ getAiStatus: vi.fn(), completeText: vi.fn() }));

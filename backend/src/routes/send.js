@@ -21,6 +21,19 @@ function escapeHtml(str) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// Token-manager failures raised while sending (see createAccountSmtpTransport), keyed by their
+// stable code. Statuses match the transport's pre-send results for the same codes.
+const OAUTH_SEND_FAILURES = {
+  oauth_reconnect_required: {
+    status: 409,
+    error: 'Access to this account was revoked or has expired. Reconnect the account to send mail.',
+  },
+  oauth_refresh_failed: {
+    status: 503,
+    error: 'Could not renew access to this account. Please try again shortly.',
+  },
+};
+
 // Map SMTP/connection errors to user-friendly messages that don't expose server internals.
 function sanitizeSmtpError(err) {
   const msg = err.message || '';
@@ -289,7 +302,9 @@ router.post('/send', async (req, res) => {
   let delivered = false; // true once transport.sendMail has actually handed off the message
   try {
     const smtp = await createAccountSmtpTransport(account);
-    if (smtp.error) return res.status(smtp.status).json({ error: smtp.error });
+    if (smtp.error) {
+      return res.status(smtp.status).json(smtp.code ? { error: smtp.error, code: smtp.code } : { error: smtp.error });
+    }
     account = smtp.account;
     const transport = smtp.transport;
 
@@ -552,6 +567,10 @@ router.post('/send', async (req, res) => {
     console.error('Send failed:', err.message);
     // A failure before reservation must not delete a concurrent request's lock.
     if (idemKeyRedis && reservationAcquired) redisClient.del(idemKeyRedis).catch(() => {});
+    // The transport's forced token refresh after an SMTP AUTH rejection failed. AUTH precedes
+    // MAIL FROM, so nothing was delivered; answer with the token manager's stable code only.
+    const oauthFailure = OAUTH_SEND_FAILURES[err?.code];
+    if (oauthFailure) return res.status(oauthFailure.status).json({ error: oauthFailure.error, code: err.code });
     res.status(500).json({ error: sanitizeSmtpError(err) });
   }
 });
