@@ -1,6 +1,42 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+
+/*
+  Tailwind's own font tokens are also named --font-sans / --font-mono, and
+  fonts.js sets those same variables inline on <html> at runtime. Keep the
+  static defaults from the former tailwind.config.js here (never var(--font-sans)
+  itself, which would be a self-reference) so the pre-JS paint matches v3.
+*/
+@theme {
+  --font-sans: 'DM Sans', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+/*
+  Tailwind v4 Preflight compatibility with v3, from the official upgrade guide:
+  - the default border color changed from gray-200 to currentcolor;
+  - input placeholders changed from gray-400 to the current text color at 50%;
+  - buttons lost `cursor: pointer`.
+  MailExpert has no visual tests, so the v3 defaults are kept explicitly.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--color-gray-400);
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+}
 
 :root {
   --sat: env(safe-area-inset-top, 0px);

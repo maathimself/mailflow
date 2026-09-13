@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router';
 import { useStore } from './store/index.js';
 import { api } from './utils/api.js';
 import { applyTheme, getInitialTheme } from './themes.js';
