@@ -2554,7 +2554,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
     if (emojiPos) { setEmojiPos(null); return; }
     if (!emojiPickerRef.current) {
       const [{ default: Picker }, { default: data }] = await Promise.all([
-        import('@emoji-mart/react'),
+        import('./EmojiPicker.jsx'),
         import('@emoji-mart/data'),
       ]);
       emojiPickerRef.current = { Picker, data };
