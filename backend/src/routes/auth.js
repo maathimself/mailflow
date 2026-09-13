@@ -48,9 +48,10 @@ function getTrustDurationMs(setting) {
 // Delete every server-side session belonging to a user (Redis-backed store, keys
 // prefixed "sess:"). Used after a password reset so a pre-existing session can't
 // outlive a credential change. Best-effort — never throws to the caller.
-async function destroyUserSessions(userId) {
+export async function destroyUserSessions(userId) {
   try {
-    let cursor = 0;
+    // The redis client (v5+) takes and returns the SCAN cursor as a string; '0' ends the scan.
+    let cursor = '0';
     do {
       const res = await redisClient.scan(cursor, { MATCH: 'sess:*', COUNT: 200 });
       cursor = res.cursor;
@@ -59,7 +60,7 @@ async function destroyUserSessions(userId) {
         if (!raw) continue;
         try { if (JSON.parse(raw).userId === userId) await redisClient.del(key); } catch { /* not this user / unparsable */ }
       }
-    } while (cursor !== 0);
+    } while (cursor !== '0');
   } catch (err) {
     console.error('destroyUserSessions failed:', err.message);
   }

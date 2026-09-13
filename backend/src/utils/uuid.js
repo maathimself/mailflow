@@ -2,7 +2,7 @@
 //
 // Several routes take a UUID path param (:id, :aliasId, ...) and pass it straight into a
 // uuid-typed SQL comparison. Without validation a malformed value raises a Postgres cast
-// error that surfaces as a 500 (via express-async-errors) instead of a clean 400. Registering
+// error that surfaces as a 500 (via Express 5's async error forwarding) instead of a clean 400. Registering
 // `router.param('id', uuidParam('id'))` converts that into a 400 before any query runs.
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

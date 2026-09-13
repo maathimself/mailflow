@@ -19,7 +19,6 @@ vi.mock('../middleware/auth.js', () => ({
   requireAdmin: (_req, res) => res.status(403).json({ error: 'Admin access required' }),
 }));
 
-import 'express-async-errors';
 import express from 'express';
 import integrationsRoutes from './integrations.js';
 

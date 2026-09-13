@@ -9,9 +9,8 @@ vi.mock('../middleware/auth.js', () => ({
 }));
 vi.mock('../index.js', () => ({ imapManager: {} }));
 
-// index.js normally installs this Express 4 patch before mounting routes. Because index.js is
-// mocked above, install it explicitly and give rejected async handlers the same 500 boundary.
-import 'express-async-errors';
+// Express 5 forwards rejected async handlers to the error middleware natively; the harness
+// gives them the same 500 boundary that index.js installs.
 import express from 'express';
 import { query } from '../services/db.js';
 import { pluginRegistry } from '../plugins/registry.js';
