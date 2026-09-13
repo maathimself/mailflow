@@ -1221,6 +1221,15 @@ export const useStore = create((set, get) => ({
 
 // The RFC message_id of the currently selected message, resolved from the same pools the
 // reading pane uses: the active folder/search list, then any stashed thread — including the
+// Shared, frozen fallback for accounts without a folder list. zustand 5 compares
+// selector results by reference (useSyncExternalStore), so a selector that returns
+// a fresh `[]` on every call makes the subscribed component re-render forever.
+const NO_FOLDERS = Object.freeze([]);
+
+export function selectAccountFolders(s, accountId) {
+  return s.folders[accountId] || NO_FOLDERS;
+}
+
 // __dl_ deep-link stash written by GTD sidebar selection. Returns null when nothing is selected
 // or the selected row has no message_id. Lets the GTD sidebar and message list highlight every
 // copy of the open message by identity (not just the exact DB row that was clicked). A plain selector, not

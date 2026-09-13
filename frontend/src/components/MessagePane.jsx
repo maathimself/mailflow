@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useStore } from '../store/index.js';
+import { useStore, selectAccountFolders } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { format } from 'date-fns';
 import { shortcutBus } from '../utils/shortcutBus.js';
@@ -239,7 +239,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   // Antispam (v0.1) — toolbar visibility for the spam / ham buttons.
   // Mirrors the heuristic in ContextMenu.jsx so the toolbar matches the menu.
   const account = accounts.find(a => a.id === message?.account_id);
-  const accountFolders = useStore(s => s.folders[message?.account_id] || []);
+  const accountFolders = useStore(s => selectAccountFolders(s, message?.account_id));
   const spamFolderPaths = (() => {
     const mapped = account?.folder_mappings?.spam;
     if (mapped) return new Set([mapped]);

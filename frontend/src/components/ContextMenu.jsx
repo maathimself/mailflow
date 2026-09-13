@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { copyToClipboard } from '../utils/clipboard.js';
-import { useStore } from '../store/index.js';
+import { useStore, selectAccountFolders } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { getContextMenuPolicy, resolveContextMenuMessage } from '../utils/contextMenuPolicy.js';
 import { usePluginCollected } from '../plugins/PluginSlot.jsx';
@@ -29,7 +29,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
   // Pull the current account so we can render the spam/ham visibility based on
   // folder_mappings.spam + special_use heuristics instead of a fragile name match.
   const account = useStore(s => s.accounts.find(a => a.id === message.account_id));
-  const accountFolders = useStore(s => s.folders[message.account_id] || []);
+  const accountFolders = useStore(s => selectAccountFolders(s, message.account_id));
   const categorizationEnabled = useStore(s => s.categorizationEnabled);
   const categorizationActive = categorizationEnabled || !!account?.categorization_enabled;
   const menuRef = useRef(null);
