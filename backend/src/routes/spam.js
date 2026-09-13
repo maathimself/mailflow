@@ -16,6 +16,7 @@ import { scoreRules } from '../services/spamRules.js';
 import { classifyMessage, extractTopTokens } from '../services/spamModel.js';
 import { getModelForUser, invalidateModelCache } from '../services/spamModelStore.js';
 import { runFullRetrain } from '../services/spamScheduler.js';
+import { detectAuthservIds } from '../services/spamAuthservIds.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -209,6 +210,33 @@ router.get('/deletions', async (req, res, next) => {
       [req.session.userId],
     );
     res.json(result.rows);
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/spam/authserv-ids?accountId=… (admin) ──────────────────────────
+// Setup helper for the account form's trusted-authserv-id field: the
+// Authentication-Results authserv-ids actually observed on this account's
+// recently classified mail, most frequent first. Nothing is trusted
+// automatically — the admin picks a value (and can see how dominant it is).
+router.get('/authserv-ids', requireAdmin, async (req, res, next) => {
+  try {
+    const { accountId } = req.query;
+    if (!accountId || !UUID_RE.test(accountId)) {
+      return res.status(400).json({ error: 'Invalid accountId' });
+    }
+    const owned = await query(
+      'SELECT id, trusted_authserv_id FROM email_accounts WHERE id = $1 AND user_id = $2',
+      [accountId, req.session.userId],
+    );
+    if (!owned.rows.length) return res.status(404).json({ error: 'Account not found' });
+
+    const { analyzed, detected } = await detectAuthservIds(accountId);
+    res.json({
+      accountId,
+      trustedAuthservId: owned.rows[0].trusted_authserv_id ?? null,
+      analyzed,
+      detected,
+    });
   } catch (err) { next(err); }
 });
 

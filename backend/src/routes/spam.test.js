@@ -31,6 +31,9 @@ vi.mock('../services/spamModelStore.js', () => ({
 vi.mock('../services/spamScheduler.js', () => ({
   runFullRetrain: vi.fn(),
 }));
+vi.mock('../services/spamAuthservIds.js', () => ({
+  detectAuthservIds: vi.fn(),
+}));
 
 import express from 'express';
 import spamRoutes, { accountSpamRouter } from './spam.js';
@@ -40,6 +43,7 @@ import { scoreRules } from '../services/spamRules.js';
 import { classifyMessage, extractTopTokens } from '../services/spamModel.js';
 import { getModelForUser, invalidateModelCache } from '../services/spamModelStore.js';
 import { runFullRetrain } from '../services/spamScheduler.js';
+import { detectAuthservIds } from '../services/spamAuthservIds.js';
 
 const USER_ID = 'user-1';
 const ACCOUNT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -71,6 +75,7 @@ beforeEach(() => {
   getModelForUser.mockReset();
   invalidateModelCache.mockReset();
   runFullRetrain.mockReset();
+  detectAuthservIds.mockReset();
 
   query.mockResolvedValue({ rows: [] });
   tokenize.mockReturnValue(['viagra']);
@@ -264,6 +269,42 @@ describe('GET /api/spam/deletions', () => {
     await new Promise((r) => server.close(r));
     expect(body).toHaveLength(1);
     expect(body[0].scope).toBe('all');
+  });
+});
+
+describe('GET /api/spam/authserv-ids (trusted authserv-id setup helper)', () => {
+  it('reports the trusted value and the ids observed on the account', async () => {
+    query.mockResolvedValueOnce({ rows: [{ id: ACCOUNT_ID, trusted_authserv_id: 'mx.example.com' }] });
+    detectAuthservIds.mockResolvedValue({
+      analyzed: 120,
+      detected: [{ id: 'mx.example.com', count: 118 }, { id: 'attacker.invalid', count: 2 }],
+    });
+
+    const { server, base } = await startServer();
+    const res = await fetch(`${base}/api/spam/authserv-ids?accountId=${ACCOUNT_ID}`);
+    const body = await res.json();
+    await new Promise((r) => server.close(r));
+
+    expect(res.status).toBe(200);
+    expect(body.trustedAuthservId).toBe('mx.example.com');
+    expect(body.analyzed).toBe(120);
+    expect(body.detected[0]).toEqual({ id: 'mx.example.com', count: 118 });
+  });
+
+  it('rejects a malformed accountId', async () => {
+    const { server, base } = await startServer();
+    const res = await fetch(`${base}/api/spam/authserv-ids?accountId=nope`);
+    await new Promise((r) => server.close(r));
+    expect(res.status).toBe(400);
+  });
+
+  it('404s for an account the caller does not own', async () => {
+    query.mockResolvedValueOnce({ rows: [] });
+    const { server, base } = await startServer();
+    const res = await fetch(`${base}/api/spam/authserv-ids?accountId=${ACCOUNT_ID}`);
+    await new Promise((r) => server.close(r));
+    expect(res.status).toBe(404);
+    expect(detectAuthservIds).not.toHaveBeenCalled();
   });
 });
 
