@@ -269,6 +269,9 @@ export default function ComposeModal() {
   const fromSignature = fromAlias
     ? (fromAlias.signature !== null && fromAlias.signature !== undefined ? fromAlias.signature : fromAccount?.signature || null)
     : (fromAccount?.signature || null);
+  // Signature split out of a reopened draft (#432). It takes the place of the identity's
+  // signature until the From identity changes, so saving never stacks a second copy.
+  const [draftSignature, setDraftSignature] = useState(() => composeData?.draftSignature ?? null);
 
   const getSuggestions = useCallback(async (q) => {
     try {
@@ -318,7 +321,10 @@ export default function ComposeModal() {
   posRef.current = pos;
   customSizeRef.current = customSize;
 
-  const [plainSig, setPlainSig] = useState(() => fromSignature ? stripHtml(fromSignature) : '');
+  const [plainSig, setPlainSig] = useState(() => {
+    const signature = draftSignature ?? fromSignature;
+    return signature ? stripHtml(signature) : '';
+  });
   // Tracks the user's current (possibly edited) rich-text signature; kept current by onInput.
   const signatureContentRef = useRef('');
   // Prevents the signature from being reset by a store refresh (same fromValue, accounts updated).
@@ -609,18 +615,20 @@ export default function ComposeModal() {
     if (fromValueChanged) {
       prevFromValueRef.current = fromValue;
       signatureInitializedRef.current = false;
+      if (draftSignature != null) setDraftSignature(null);
     }
-    if (!signatureInitializedRef.current && fromSignature != null) {
+    const signature = fromValueChanged ? fromSignature : (draftSignature ?? fromSignature);
+    if (!signatureInitializedRef.current && signature != null) {
       signatureInitializedRef.current = true;
-      const sanitized = DOMPurify.sanitize(fromSignature);
+      const sanitized = DOMPurify.sanitize(signature);
       if (signatureRef.current) signatureRef.current.innerHTML = sanitized;
       signatureContentRef.current = sanitized;
-      setPlainSig(stripHtml(fromSignature));
+      setPlainSig(stripHtml(signature));
     } else if (fromValueChanged && fromSignature == null) {
       signatureContentRef.current = '';
       setPlainSig('');
     }
-  }, [fromValue, fromSignature]);
+  }, [fromValue, fromSignature, draftSignature]);
 
   // Initialise quoted HTML contentEditable once on mount (ref-based to avoid React cursor conflicts)
   useEffect(() => {
@@ -1410,7 +1418,7 @@ export default function ComposeModal() {
           )}
 
           {/* Signature */}
-          {fromSignature && (
+          {(fromSignature || draftSignature != null) && (
             <div style={{ padding: '0 16px 12px' }}>
               <div style={{ fontSize: 11, color: 'var(--text-tertiary)', margin: '8px 0 6px', userSelect: 'none' }}>
                 -- signature
@@ -2058,7 +2066,7 @@ export default function ComposeModal() {
           </div>
         )}
 
-        {fromSignature ? (
+        {(fromSignature || draftSignature != null) ? (
           <div style={{ padding: '0 14px 10px' }}>
             <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 6, userSelect: 'none' }}>
               -- signature

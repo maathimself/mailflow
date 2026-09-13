@@ -6,6 +6,7 @@ import { requireAuth } from '../middleware/auth.js';
 import sanitizeHtml from 'sanitize-html';
 import { sanitizeSignature, sanitizeComposeBody } from '../services/emailSanitizer.js';
 import { embedInlineDataImages } from '../utils/inlineImages.js';
+import { wrapSignatureHtml } from '../utils/signatureWrapper.js';
 import { redisClient } from '../services/redis.js';
 import { redactEmail } from '../utils/redact.js';
 import { resolveSentFolder } from '../utils/mailUtils.js';
@@ -312,7 +313,7 @@ router.post('/send', async (req, res) => {
     if (!plaintextEmail) {
       const rawHtml = bodyToHtml(body, bodyIsHtml) +
         (effectiveSignature
-          ? '<div style="margin-top:16px;color:#555;font-size:13px">' + effectiveSignature + '</div>'
+          ? wrapSignatureHtml(effectiveSignature)
           : '') +
         (quotedBodyHtml || (quotedBody ? textToHtml(quotedBody) : ''));
       const embedded = embedInlineDataImages(rawHtml);

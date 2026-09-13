@@ -21,6 +21,7 @@ import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFr
 import SenderAvatarImage from './SenderAvatarImage.jsx';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { createLatestRequest } from '../utils/latestRequest.js';
+import { draftComposeFields } from '../utils/draftSignature.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
 import { applyDeleteGuard, clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete, threadDeleteGuardKey } from '../utils/pendingDeletes.js';
 import {
@@ -2313,8 +2314,9 @@ export default function MessageList() {
           to: formatAddressArray(message.to_addresses),
           cc: formatAddressArray(message.cc_addresses),
           subject: message.subject || '',
-          body: bodyData.html || bodyData.text || '',
-          bodyIsHtml: !!bodyData.html,
+          // Split the stored signature out of the body so the composer does not add a second
+          // copy (#432); draftSignature seeds the composer's signature editor instead.
+          ...draftComposeFields(bodyData, { plaintext: useStore.getState().plaintextEmail }),
         });
       } catch (err) {
         console.error('Failed to open draft:', err.message);

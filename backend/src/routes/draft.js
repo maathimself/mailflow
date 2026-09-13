@@ -6,6 +6,7 @@ import { requireAuth } from '../middleware/auth.js';
 import sanitizeHtml from 'sanitize-html';
 import { sanitizeSignature, sanitizeComposeBody } from '../services/emailSanitizer.js';
 import { embedInlineDataImages } from '../utils/inlineImages.js';
+import { wrapSignatureHtml } from '../utils/signatureWrapper.js';
 import { imapManager } from '../index.js';
 
 const router = Router();
@@ -77,7 +78,7 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
     : textToHtml(body || '');
 
   const rawHtml = bodyHtml +
-    (effectiveSignature ? `<div style="margin-top:16px;color:#555;font-size:13px">${effectiveSignature}</div>` : '') +
+    (effectiveSignature ? wrapSignatureHtml(effectiveSignature) : '') +
     (quotedBodyHtml || (quotedBody ? textToHtml(quotedBody) : ''));
   const { html: draftHtml, attachments: inlineImageAttachments } = embedInlineDataImages(rawHtml);
 
