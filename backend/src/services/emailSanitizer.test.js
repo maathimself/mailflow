@@ -232,6 +232,20 @@ describe('sanitizeEmail — CSS upgrades', () => {
   });
 });
 
+describe('sanitizeEmail — draft signature wrapper (#432)', () => {
+  // A draft re-fetched from IMAP goes through sanitizeEmail before the composer reopens
+  // it. The frontend splitter needs the wrapper to come back unchanged to find it.
+  it('keeps the marked signature wrapper byte-for-byte', () => {
+    const wrapper = '<div class="mailexpert-signature" style="margin-top:16px;color:#555;font-size:13px"><b>Sig</b></div>';
+    expect(sanitizeEmail(`<p>hello</p>${wrapper}<div>quote</div>`)).toBe(`<p>hello</p>${wrapper}<div>quote</div>`);
+  });
+
+  it('keeps the legacy unmarked wrapper style byte-for-byte', () => {
+    const legacy = '<div style="margin-top:16px;color:#555;font-size:13px"><b>Sig</b></div>';
+    expect(sanitizeEmail(`<p>hello</p>${legacy}`)).toBe(`<p>hello</p>${legacy}`);
+  });
+});
+
 // ── hasRemoteImages ────────────────────────────────────────────────────────
 
 describe('hasRemoteImages', () => {

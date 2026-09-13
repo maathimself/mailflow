@@ -99,3 +99,54 @@ describe('POST /api/mail/draft — local row persistence', () => {
     expect(imapManager.upsertDraftMessageRecord).not.toHaveBeenCalled();
   });
 });
+
+describe('POST /api/mail/draft — signature wrapper (#432)', () => {
+  let server, base;
+  beforeAll(async () => {
+    await new Promise(r => { server = buildApp().listen(0, r); });
+    base = `http://127.0.0.1:${server.address().port}`;
+  });
+  afterAll(async () => { await new Promise(r => server.close(r)); });
+  beforeEach(() => {
+    query.mockReset();
+    imapManager.appendToFolder.mockReset();
+    imapManager.upsertDraftMessageRecord.mockReset();
+    // 1) owner check, 2) buildRawDraft account load (with a signature), 3) Drafts folder lookup
+    query.mockResolvedValueOnce({ rows: [{ id: ACCOUNT_ID }] });
+    query.mockResolvedValueOnce({ rows: [{ ...ACCOUNT_ROW, signature: '<b>Sig</b>' }] });
+    query.mockResolvedValueOnce({ rows: [{ path: 'Drafts' }] });
+    imapManager.appendToFolder.mockResolvedValue({ uid: 7, folder: 'Drafts' });
+    imapManager.upsertDraftMessageRecord.mockResolvedValue(undefined);
+  });
+
+  const save = async (extra) => {
+    const res = await fetch(`${base}/api/mail/draft`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ accountId: ACCOUNT_ID, to: ['a@b.com'], subject: 'x', body: '<p>hello</p>', bodyIsHtml: true, ...extra }),
+    });
+    expect(res.status).toBe(200);
+    return imapManager.upsertDraftMessageRecord.mock.calls[0][3];
+  };
+
+  it('stores the account signature once inside a marked wrapper', async () => {
+    const meta = await save({});
+    expect(meta.bodyHtml.match(/class="mailexpert-signature"/g)).toHaveLength(1);
+    expect(meta.bodyHtml).toContain(
+      '<div class="mailexpert-signature" style="margin-top:16px;color:#555;font-size:13px"><b>Sig</b></div>'
+    );
+    expect(meta.bodyText.match(/\n\n-- \nSig/g)).toHaveLength(1);
+  });
+
+  it('uses the edited signature inside the wrapper', async () => {
+    const meta = await save({ editedSignature: '<i>Edited</i>' });
+    expect(meta.bodyHtml).toContain('<div class="mailexpert-signature" style="margin-top:16px;color:#555;font-size:13px"><i>Edited</i></div>');
+    expect(meta.bodyHtml).not.toContain('<b>Sig</b>');
+  });
+
+  it('writes no wrapper when the edited signature is empty', async () => {
+    const meta = await save({ editedSignature: '' });
+    expect(meta.bodyHtml).not.toContain('mailexpert-signature');
+    expect(meta.bodyText).not.toContain('-- \n');
+  });
+});
