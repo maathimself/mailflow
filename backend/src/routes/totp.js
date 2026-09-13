@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticator } from 'otplib';
+import { generateTotpSecret, totpKeyUri, verifyTotp } from '../services/totp.js';
 import QRCode from 'qrcode';
 import bcrypt from 'bcryptjs';
 import { query } from '../services/db.js';
@@ -39,8 +39,8 @@ router.get('/setup', async (req, res) => {
   const userResult = await query('SELECT username FROM users WHERE id = $1', [req.session.userId]);
   const username = userResult.rows[0]?.username || 'user';
 
-  const secret = authenticator.generateSecret(20);
-  const otpauthUrl = authenticator.keyuri(username, 'MailExpert', secret);
+  const secret = generateTotpSecret();
+  const otpauthUrl = totpKeyUri(username, secret);
   const qrCode = await QRCode.toDataURL(otpauthUrl);
 
   // Hold the secret in the session until the user verifies it (10 min TTL)
@@ -64,7 +64,7 @@ router.post('/enable', totpLimiter, async (req, res) => {
     return res.status(400).json({ error: 'Setup session expired. Start over.' });
   }
 
-  if (!authenticator.verify({ token: String(code).replace(/\s/g, ''), secret })) {
+  if (!(await verifyTotp(String(code).replace(/\s/g, ''), secret))) {
     return res.status(400).json({ error: 'Invalid code — check your device clock and try again.' });
   }
 

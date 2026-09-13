@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
-import { authenticator } from 'otplib';
 import QRCode from 'qrcode';
 import { query, pool } from '../services/db.js';
 import { imapManager } from '../index.js';
@@ -18,6 +17,7 @@ import { invalidateGlobalCategorizationCache } from '../services/categorizer.js'
 import { sanitizeGtdPrefs } from '../utils/gtdPrefs.js';
 import { sanitizeRightSidebarPrefs } from '../utils/rightSidebarPrefs.js';
 import { redisClient } from '../services/redis.js';
+import { generateTotpSecret, totpKeyUri, verifyTotp } from '../services/totp.js';
 import { consume as rlConsume, reset as rlReset } from '../services/rateLimiter.js';
 
 const router = Router();
@@ -48,9 +48,10 @@ function getTrustDurationMs(setting) {
 // Delete every server-side session belonging to a user (Redis-backed store, keys
 // prefixed "sess:"). Used after a password reset so a pre-existing session can't
 // outlive a credential change. Best-effort — never throws to the caller.
-async function destroyUserSessions(userId) {
+export async function destroyUserSessions(userId) {
   try {
-    let cursor = 0;
+    // The redis client (v5+) takes and returns the SCAN cursor as a string; '0' ends the scan.
+    let cursor = '0';
     do {
       const res = await redisClient.scan(cursor, { MATCH: 'sess:*', COUNT: 200 });
       cursor = res.cursor;
@@ -59,7 +60,7 @@ async function destroyUserSessions(userId) {
         if (!raw) continue;
         try { if (JSON.parse(raw).userId === userId) await redisClient.del(key); } catch { /* not this user / unparsable */ }
       }
-    } while (cursor !== 0);
+    } while (cursor !== '0');
   } catch (err) {
     console.error('destroyUserSessions failed:', err.message);
   }
@@ -367,7 +368,7 @@ router.post('/2fa/challenge', authLimiter, async (req, res) => {
   }
 
   const normalizedCode = String(code).replace(/\s/g, '');
-  if (!authenticator.verify({ token: normalizedCode, secret: decrypt(user.totp_secret) })) {
+  if (!(await verifyTotp(normalizedCode, decrypt(user.totp_secret)))) {
     logAuthEvent('totp_fail', { username: user.username, userId: user.id, ip: req.ip, success: false });
     return res.status(401).json({ error: 'Invalid code' });
   }
@@ -526,8 +527,8 @@ router.get('/2fa/enrollment/setup', async (req, res) => {
   const userResult = await query('SELECT username FROM users WHERE id = $1', [req.session.pendingUserId]);
   const username = userResult.rows[0]?.username || 'user';
 
-  const secret = authenticator.generateSecret(20);
-  const otpauthUrl = authenticator.keyuri(username, 'MailExpert', secret);
+  const secret = generateTotpSecret();
+  const otpauthUrl = totpKeyUri(username, secret);
   const qrCode = await QRCode.toDataURL(otpauthUrl);
 
   req.session.pendingTOTPSecret = secret;
@@ -559,7 +560,7 @@ router.post('/2fa/enrollment/enable', authLimiter, async (req, res) => {
   }
 
   const secret = req.session.pendingTOTPSecret;
-  if (!authenticator.verify({ token: String(code).replace(/\s/g, ''), secret })) {
+  if (!(await verifyTotp(String(code).replace(/\s/g, ''), secret))) {
     return res.status(400).json({ error: 'Invalid code — check your device clock and try again.' });
   }
 

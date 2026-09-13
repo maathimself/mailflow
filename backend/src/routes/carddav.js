@@ -185,7 +185,7 @@ function rawBody(req) {
 
 // ── OPTIONS (broadcast CardDAV support) ──────────────────────────────────────
 
-router.options('*', (req, res) => {
+router.options('/{*path}', (req, res) => {
   res.set({
     'Allow': 'OPTIONS, GET, PUT, DELETE, PROPFIND, REPORT',
     'DAV': '1, 2, 3, addressbook',

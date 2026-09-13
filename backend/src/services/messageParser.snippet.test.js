@@ -34,6 +34,16 @@ describe('buildSnippetFromHtml', () => {
     expect(buildSnippetFromHtml(html)).toBe('Visible content');
   });
 
+  it('drops raw-text fallback content of iframe, noembed and noframes', () => {
+    const html = '<iframe src="https://example.com"><p>Fallback &amp; text</p></iframe>'
+      + '<noembed><b>no embed</b></noembed><noframes><i>no frames</i></noframes><p>Hello world</p>';
+    expect(buildSnippetFromHtml(html)).toBe('Hello world');
+  });
+
+  it('decodes entities inside textarea like title', () => {
+    expect(buildSnippetFromHtml('<p>Note</p><textarea>a &amp; b</textarea>')).toBe('Note a & b');
+  });
+
   it('strips ordinary HTML tags', () => {
     const html = '<section><p>Hello <strong>ordinary</strong> markup</p><br></section>';
     expect(buildSnippetFromHtml(html)).toBe('Hello ordinary markup');

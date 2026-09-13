@@ -1,6 +1,6 @@
 import { createClient } from 'redis';
 
-// The redis v4 client's parseURL only accepts redis:// and rediss:// schemes.
+// The redis client's parseURL only accepts redis:// and rediss:// schemes.
 // Unix socket connections require socket: { path } instead of a URL.
 // This helper routes socket URIs (redis+unix://, unix://, redis+socket://)
 // and bare absolute paths to socket.path; everything else passes through as-is.

@@ -8,7 +8,6 @@ vi.mock('../plugins/activation.js', () => ({
   setPluginActivated: vi.fn(),
 }));
 
-import 'express-async-errors';
 import express from 'express';
 import { pluginRegistry } from '../plugins/registry.js';
 import { getActivatedPlugins, setPluginActivated } from '../plugins/activation.js';

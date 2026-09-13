@@ -1,12 +1,11 @@
 import express from 'express';
-import 'express-async-errors'; // route a rejected async handler to the error middleware (Express 4 doesn't)
 import session from 'express-session';
 import cors from 'cors';
 import { createServer } from 'http';
 import { readFileSync } from 'fs';
 import { WebSocketServer } from 'ws';
-import RedisStore from 'connect-redis';
-import 'dotenv/config';
+import { RedisStore } from 'connect-redis';
+import './loadEnv.js';
 import { redisClient } from './services/redis.js';
 
 import sendRoutes from './routes/send.js';
@@ -43,6 +42,7 @@ import { setupWebSocket } from './services/websocket.js';
 import { ImapManager } from './services/imapManager.js';
 import { getUpdateStatus } from './services/updateCheck.js';
 import { recordHttp } from './services/performanceMetrics.js';
+import { defaultEmptyBody } from './middleware/defaultEmptyBody.js';
 
 const packageMeta = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
 let buildMeta = {};
@@ -138,6 +138,8 @@ app.use('/api/mail/draft', express.json({ limit: '35mb' }));
 // enforced after decode in gtdPet.importPet), so it needs more than the global 1 MB.
 app.use('/api/gtd/pet/import', express.json({ limit: '8mb' }));
 app.use(express.json({ limit: '1mb' }));
+// Express 5 leaves req.body undefined when no parser ran; handlers destructure it directly.
+app.use(defaultEmptyBody);
 // Return a clean JSON error when the body parser rejects an oversized payload.
 app.use((err, req, res, next) => {
   if (err.type === 'entity.too.large') {
@@ -228,8 +230,7 @@ app.get('/api/update', async (_req, res) => {
 });
 
 // Catch unhandled errors thrown (or rejected) inside async route handlers.
-// The `express-async-errors` import above patches Express 4 to forward async
-// rejections here; without both pieces, a thrown DB error hangs the request.
+// Express 5 forwards a rejected async handler here natively.
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, _next) => {
   console.error('Unhandled route error:', err);
@@ -308,7 +309,8 @@ httpServer.listen(PORT, () => {
 process.on('SIGTERM', () => {
   console.log('SIGTERM received — shutting down gracefully');
   httpServer.close(async () => {
-    try { await redisClient.quit(); } catch { /* ignore */ }
+    // close() lets pending commands finish before the connection is shut down.
+    try { await redisClient.close(); } catch { /* ignore */ }
     process.exit(0);
   });
   // Force exit if graceful shutdown takes more than 10 s
