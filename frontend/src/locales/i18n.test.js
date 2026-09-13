@@ -171,19 +171,21 @@ const SAME_VALUE_ALLOWED = {
   'admin.privacy.addDomainPh': [['cs', 'de', 'en', 'pl', 'ru', 'zhCN']],
 
   // ── Antispam v0.2 ──────────────────────────────────────────────────────────
-  // "Antispam" — international loanword, same spelling in en, it, de, es, fr
-  'admin.tabs.antispam':          [['en', 'it', 'de', 'es', 'fr']],
-  'admin.accounts.antispamSection': [['en', 'it', 'de', 'es', 'fr']],
-  'spam.title':                   [['en', 'it', 'de', 'es', 'fr']],
-  // "spam" — lowercase loanword shared in en, es, fr, it (de capitalizes: "Spam")
-  'spam.badgeLabel':              [['en', 'es', 'fr', 'it']],
+  // "Antispam" — international loanword, same spelling in en, it, de, es, fr, cs
+  'admin.tabs.antispam':          [['en', 'it', 'de', 'es', 'fr', 'cs']],
+  'admin.accounts.antispamSection': [['en', 'it', 'de', 'es', 'fr', 'cs']],
+  'spam.title':                   [['en', 'it', 'de', 'es', 'fr', 'cs']],
+  // "spam" — lowercase loanword shared in en, es, fr, it, cs, pl (de capitalizes: "Spam")
+  'spam.badgeLabel':              [['en', 'es', 'fr', 'it', 'cs', 'pl']],
   // "Verdict" / "Mature" — same spelling in en and fr
   'spam.explainVerdict':          [['en', 'fr']],
+  // "Metoda" — same spelling in cs and pl
+  'spam.explainMethod':           [['cs', 'pl']],
   'spam.maturity.mature':         [['en', 'fr']],
   // "Fresco" — same spelling in es and it
   'spam.maturity.fresh':          [['es', 'it']],
-  // "Spam" — capitalized loanword shared in en, it, de, es, fr
-  'spam.verdict.spam':            [['en', 'it', 'de', 'es', 'fr']],
+  // "Spam" — capitalized loanword shared in en, it, de, es, fr, cs, pl
+  'spam.verdict.spam':            [['en', 'it', 'de', 'es', 'fr', 'cs', 'pl']],
   'admin.privacy.addSenderPh': [['en', 'ru', 'zhCN']],
   'admin.aliases.replyToLabel': [['en', 'pl']],
 
