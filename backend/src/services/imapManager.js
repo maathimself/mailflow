@@ -3653,9 +3653,24 @@ export class ImapManager {
 
         // Periodically reconnect to keep connections fresh and pick up refreshed OAuth tokens
         if (batchesOnConn >= cfg.batchesPerConn) {
+          // Another path (connectAccount, the sync tick) armed a refusal or auth cooldown while this
+          // folder was running: do not keep logging in behind its back.
+          const cd = this._connectCooldown.get(account.id);
+          if (cd && Date.now() < cd.until) {
+            console.warn(`Backfill for ${logAccount(account)}/${folder} stopped: connect cooldown active`);
+            return { aborted: 'cooldown' };
+          }
           try { await openBfClient(); }
           catch (reconnErr) {
-            console.error(`Backfill reconnect failed for ${logAccount(account)}:`, reconnErr.message);
+            const detail = extractImapError(reconnErr);
+            console.error(`Backfill reconnect failed for ${logAccount(account)}:`, detail);
+            // Same handling as the initial login below: a refusal or rejected credentials will not
+            // clear by retrying every errorDelay, so report it and let backfillAllFolders stop.
+            if (isConnectionRefusal(detail)) {
+              this._noteConnectionRefusal(account);
+              return { aborted: 'refused' };
+            }
+            if (isImapAuthFailure(reconnErr)) return { aborted: 'auth' };
             await new Promise(r => setTimeout(r, cfg.errorDelay));
             continue; // retry same batch after delay
           }

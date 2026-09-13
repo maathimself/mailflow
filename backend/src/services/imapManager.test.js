@@ -2628,6 +2628,109 @@ describe('backfill stops on a provider refusal (#433)', () => {
     expect(mgr._noteConnectionRefusal).not.toHaveBeenCalled();
   });
 
+  // Mid-folder reconnect: the first login succeeds and the first batch fails, which forces the
+  // periodic openBfClient() reconnect after errorDelay. Later logins use `reconnect`.
+  describe('mid-folder reconnect', () => {
+    const { errorDelay } = providerProfile(acct);
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      query.mockImplementation(async (sql) => {
+        if (sql.startsWith('SELECT * FROM email_accounts')) return { rows: [acct] };
+        if (sql.startsWith('SELECT id FROM email_accounts')) return { rows: [{ id: acct.id }] };
+        if (sql.startsWith('SELECT COUNT(*)')) return { rows: [{ count: '0', max_uid: '0' }] };
+        return { rows: [] };
+      });
+    });
+    afterEach(() => { vi.useRealTimers(); });
+
+    function connectOnceThen(reconnect) {
+      let logins = 0;
+      ImapFlow.mockImplementation(function () {
+        logins++;
+        if (logins > 1) {
+          return Object.assign(new EventEmitter(), { connect: vi.fn(() => reconnect()), close: vi.fn(), logout: vi.fn() });
+        }
+        let locks = 0;
+        return Object.assign(new EventEmitter(), {
+          connect: vi.fn().mockResolvedValue(),
+          close: vi.fn(),
+          logout: vi.fn().mockResolvedValue(),
+          mailbox: { exists: 3 },
+          getMailboxLock: vi.fn(async () => {
+            if (++locks > 1) throw new Error('Connection closed');
+            return { release: vi.fn() };
+          }),
+          search: vi.fn().mockResolvedValue([1, 2, 3]),
+        });
+      });
+    }
+
+    it('stops after one refused reconnect instead of retrying every errorDelay', async () => {
+      connectOnceThen(() => Promise.reject(loginLimitRefusal()));
+      const mgr = backfillManager();
+      const p = ImapManager.prototype.backfillMessages.call(mgr, acct, 'Sent');
+      await vi.advanceTimersByTimeAsync(errorDelay);
+      await vi.advanceTimersByTimeAsync(errorDelay);
+      await vi.advanceTimersByTimeAsync(errorDelay);
+      expect(ImapFlow).toHaveBeenCalledTimes(2);
+      expect(await p).toEqual({ aborted: 'refused' });
+      expect(mgr._noteConnectionRefusal).toHaveBeenCalledTimes(1);
+      const logged = console.error.mock.calls.map(args => args.join(' ')).join('\n');
+      expect(logged).toContain('[LIMIT] Too many simultaneous connections');
+      expect(logged).not.toContain('Command failed');
+      expect(mgr.backfillRunning.size).toBe(0);
+    });
+
+    it('reports an auth outcome when the reconnect login is rejected', async () => {
+      connectOnceThen(() => Promise.reject(gmailXoauthFailure()));
+      const mgr = backfillManager();
+      const p = ImapManager.prototype.backfillMessages.call(mgr, acct, 'Sent');
+      await vi.advanceTimersByTimeAsync(errorDelay);
+      await vi.advanceTimersByTimeAsync(errorDelay);
+      await vi.advanceTimersByTimeAsync(errorDelay);
+      expect(ImapFlow).toHaveBeenCalledTimes(2);
+      expect(await p).toEqual({ aborted: 'auth' });
+      expect(mgr._noteConnectionRefusal).not.toHaveBeenCalled();
+      const logged = console.error.mock.calls.map(args => args.join(' ')).join('\n');
+      expect(logged).toContain('[AUTHENTICATIONFAILED] Invalid credentials (Failure)');
+    });
+
+    it('does not log in again while a connect cooldown is active', async () => {
+      const reconnect = vi.fn(() => Promise.reject(loginLimitRefusal()));
+      connectOnceThen(reconnect);
+      const mgr = backfillManager();
+      const p = ImapManager.prototype.backfillMessages.call(mgr, acct, 'Sent');
+      // Armed elsewhere (e.g. connectAccount) while this folder is mid-backfill.
+      mgr._connectCooldown.set(acct.id, { until: Date.now() + AUTH_FAILURE_COOLDOWN_MS, failures: 1 });
+      await vi.advanceTimersByTimeAsync(errorDelay);
+      await vi.advanceTimersByTimeAsync(errorDelay);
+      expect(ImapFlow).toHaveBeenCalledTimes(1);
+      expect(await p).toEqual({ aborted: 'cooldown' });
+      expect(reconnect).not.toHaveBeenCalled();
+      expect(mgr.backfillRunning.size).toBe(0);
+    });
+
+    it('still retries a transient reconnect failure after errorDelay', async () => {
+      let attempts = 0;
+      connectOnceThen(() => (++attempts === 1 ? Promise.reject(new Error('Socket timeout')) : Promise.reject(loginLimitRefusal())));
+      const mgr = backfillManager();
+      const p = ImapManager.prototype.backfillMessages.call(mgr, acct, 'Sent');
+      await vi.advanceTimersByTimeAsync(errorDelay);
+      await vi.advanceTimersByTimeAsync(errorDelay);
+      await vi.advanceTimersByTimeAsync(errorDelay);
+      expect(await p).toEqual({ aborted: 'refused' });
+      expect(ImapFlow).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  it('stops the folder loop on a cooldown outcome', async () => {
+    query.mockImplementation(async () => ({ rows: [{ path: 'A' }, { path: 'B' }] }));
+    const mgr = allFoldersManager(async (_m, folder) => (folder === 'A' ? { aborted: 'cooldown' } : undefined));
+    await ImapManager.prototype.backfillAllFolders.call(mgr, acct);
+    expect(mgr.backfillMessages.mock.calls.map(c => c[1])).toEqual(['INBOX', 'A']);
+  });
+
   function allFoldersManager(backfillImpl) {
     const mgr = {
       backfillAllRunning: new Set(),
