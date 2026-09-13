@@ -159,7 +159,7 @@ router.post('/send', async (req, res) => {
     let cached;
     try { cached = await redisClient.get(idemKeyRedis); }
     catch { return res.status(503).json({ error: 'Sending is temporarily unavailable. Please try again shortly.' }); }
-    if (cached === '__inflight__') return res.status(409).json({ error: 'This message is already being sent.' });
+    if (cached === '__inflight__') return res.status(409).json({ error: 'This message is already being sent.', code: 'send_in_progress' });
     if (cached) return res.json(JSON.parse(cached));
   }
 
@@ -388,7 +388,7 @@ router.post('/send', async (req, res) => {
       let reserved;
       try { reserved = await redisClient.set(idemKeyRedis, '__inflight__', { NX: true, EX: 300 }); }
       catch { return res.status(503).json({ error: 'Sending is temporarily unavailable. Please try again shortly.' }); }
-      if (reserved !== 'OK') return res.status(409).json({ error: 'This message is already being sent.' });
+      if (reserved !== 'OK') return res.status(409).json({ error: 'This message is already being sent.', code: 'send_in_progress' });
       reservationAcquired = true;
     }
 

@@ -70,9 +70,19 @@ describe('send failure semantics', () => {
   });
   it('blocks a concurrent submission', async () => {
     redisClient.set.mockResolvedValueOnce(null);
-    expect((await post()).status).toBe(409);
+    const res = await post();
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: 'This message is already being sent.', code: 'send_in_progress' });
     expect(sendMail).not.toHaveBeenCalled();
     expect(redisClient.del).not.toHaveBeenCalled();
+  });
+  it('reports a submission whose key is already in flight with the stable code', async () => {
+    redisClient.get.mockResolvedValueOnce('__inflight__');
+    const res = await post();
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: 'This message is already being sent.', code: 'send_in_progress' });
+    expect(createAccountSmtpTransport).not.toHaveBeenCalled();
+    expect(sendMail).not.toHaveBeenCalled();
   });
 });
 describe('OAuth reconnect-required on send', () => {
