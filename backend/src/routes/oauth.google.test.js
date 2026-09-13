@@ -6,6 +6,7 @@ vi.mock('../index.js', () => ({
   imapManager: {
     connectAccount: vi.fn(async () => true),
     disconnectAccount: vi.fn(async () => {}),
+    clearConnectCooldown: vi.fn(),
   },
 }));
 vi.mock('../services/db.js', () => ({ query: vi.fn(), withTransaction: vi.fn() }));
@@ -110,6 +111,7 @@ beforeEach(() => {
   withTransaction.mockReset();
   imapManager.connectAccount.mockClear();
   imapManager.disconnectAccount.mockClear();
+  imapManager.clearConnectCooldown.mockClear();
   installDb();
   logSpies = ['log', 'warn', 'error', 'info'].map((m) => vi.spyOn(console, m).mockImplementation(() => {}));
 });
@@ -179,6 +181,13 @@ describe('GET /oauth/google', () => {
 describe('GET /oauth/google/callback', () => {
   const callback = (params, opts) => get(`/oauth/google/callback?${new URLSearchParams(params)}`, opts);
   const errorLocation = (code) => `/?oauth_error=${code}&oauth_provider=google`;
+  // A (re)consent brings fresh tokens, so any auth cooldown from the old grant must be
+  // lifted before the connect attempt or the gate in connectAccount would skip it.
+  const expectCooldownClearedBeforeConnect = (id) => {
+    expect(imapManager.clearConnectCooldown).toHaveBeenCalledWith(id);
+    expect(imapManager.clearConnectCooldown.mock.invocationCallOrder[0])
+      .toBeLessThan(imapManager.connectAccount.mock.invocationCallOrder[0]);
+  };
 
   it('creates a Gmail account with fixed hosts, encrypted tokens and unified inbox off', async () => {
     mockSuccessfulGoogle();
@@ -208,6 +217,7 @@ describe('GET /oauth/google/callback', () => {
     expect(insertParams).not.toContain('refresh-tok');
 
     expect(imapManager.connectAccount).toHaveBeenCalledWith(expect.objectContaining({ id: 'new-acc' }));
+    expectCooldownClearedBeforeConnect('new-acc');
   });
 
   it('updates an existing account, keeps the stored refresh token and clears the reconnect flag', async () => {
@@ -229,6 +239,8 @@ describe('GET /oauth/google/callback', () => {
     expect(updateParams[0]).toBe('enc(access-tok)');
     expect(updateParams[1]).toBeNull();
     expect(sqlCall(/^\s*INSERT INTO email_accounts/)).toBeUndefined();
+    await vi.waitFor(() => expect(imapManager.connectAccount).toHaveBeenCalled());
+    expectCooldownClearedBeforeConnect('acc-1');
   });
 
   it('rejects a new account when Google returned no refresh token', async () => {

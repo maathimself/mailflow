@@ -161,7 +161,11 @@ async function upsertGoogleAccount(userId, identity, tokens) {
 // Bring the mailbox online with the new tokens. An updated account may still hold a
 // connection built from the old (possibly revoked) token, so restart it.
 function reconnectAccount(account, result) {
-  const connect = () => imapManager.connectAccount(account);
+  const connect = () => {
+    // Fresh tokens from a (re)consent: lift any auth cooldown left by the old, rejected grant.
+    imapManager.clearConnectCooldown(account.id);
+    return imapManager.connectAccount(account);
+  };
   const run = result === 'updated'
     ? Promise.resolve(imapManager.disconnectAccount(account.id)).catch(() => {}).then(connect)
     : connect();

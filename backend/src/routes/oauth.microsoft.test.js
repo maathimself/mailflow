@@ -2,7 +2,10 @@ import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } 
 
 // oauth.js imports imapManager from ../index.js (heavy load-time side effects).
 vi.mock('../index.js', () => ({
-  imapManager: { connectAccount: vi.fn(async () => true) },
+  imapManager: {
+    connectAccount: vi.fn(async () => true),
+    clearConnectCooldown: vi.fn(),
+  },
 }));
 vi.mock('../services/db.js', () => ({ query: vi.fn(), withTransaction: vi.fn() }));
 vi.mock('../services/encryption.js', () => ({
@@ -18,6 +21,7 @@ vi.mock('jose', () => ({
 
 import express from 'express';
 import oauthRoutes from './oauth.js';
+import { imapManager } from '../index.js';
 import { withTransaction } from '../services/db.js';
 
 const USER_ID = '22222222-2222-2222-2222-222222222222';
@@ -69,6 +73,14 @@ function installDb() {
 }
 const updateSql = () => dbCalls.find(([sql]) => /^\s*UPDATE email_accounts/.test(sql))?.[0];
 
+// Reconsent must lift the auth cooldown left by the old grant before reconnecting.
+function expectCooldownClearedBeforeConnect() {
+  expect(imapManager.clearConnectCooldown).toHaveBeenCalledWith('ms-acc');
+  expect(imapManager.connectAccount).toHaveBeenCalledWith(expect.objectContaining({ id: 'ms-acc' }));
+  expect(imapManager.clearConnectCooldown.mock.invocationCallOrder[0])
+    .toBeLessThan(imapManager.connectAccount.mock.invocationCallOrder[0]);
+}
+
 // Requests to the test server go through; Microsoft endpoints get canned responses.
 function stubMicrosoft(handler) {
   vi.stubGlobal('fetch', vi.fn(async (url, init) => {
@@ -86,6 +98,8 @@ beforeEach(() => {
   process.env.MS_TENANT_ID = TENANT_ID;
   process.env.MS_REDIRECT_URI = 'https://mail.example.com/oauth/microsoft/callback';
   withTransaction.mockReset();
+  imapManager.connectAccount.mockClear();
+  imapManager.clearConnectCooldown.mockClear();
   installDb();
   logSpies = ['log', 'warn', 'error', 'info'].map((m) => vi.spyOn(console, m).mockImplementation(() => {}));
 });
@@ -98,7 +112,7 @@ afterEach(() => {
   logSpies.forEach((s) => s.mockRestore());
 });
 
-describe('Microsoft reconsent clears the reconnect flag', () => {
+describe('Microsoft reconsent clears the reconnect flag and connect cooldown', () => {
   it('auth-code callback resets oauth_reconnect_required and sync_error on an existing account', async () => {
     stubMicrosoft(() => json(true, TOKENS));
 
@@ -112,6 +126,7 @@ describe('Microsoft reconsent clears the reconnect flag', () => {
     const sql = updateSql();
     expect(sql).toMatch(/oauth_reconnect_required\s*=\s*false/);
     expect(sql).toMatch(/sync_error\s*=\s*NULL/);
+    expectCooldownClearedBeforeConnect();
   });
 
   it('device-code poll resets oauth_reconnect_required and sync_error on an existing account', async () => {
@@ -128,5 +143,6 @@ describe('Microsoft reconsent clears the reconnect flag', () => {
     const sql = updateSql();
     expect(sql).toMatch(/oauth_reconnect_required\s*=\s*false/);
     expect(sql).toMatch(/sync_error\s*=\s*NULL/);
+    expectCooldownClearedBeforeConnect();
   });
 });
