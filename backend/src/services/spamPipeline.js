@@ -167,11 +167,25 @@ async function autoMove(row, spamFolder, imap, messageId) {
         'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 AND id != $4',
         [row.account_id, newUid, spamFolder, messageId],
       );
+      await query(
+        'UPDATE messages SET folder = $1, uid = $2 WHERE id = $3',
+        [spamFolder, newUid, messageId],
+      );
+    } else {
+      // Non-UIDPLUS server: DB holds the stale source UID at the destination.
+      // Guard it so reconcileDeletes does not treat it as an orphan before the
+      // next sync corrects it — the same guard the manual /spam path applies in
+      // routes/mail.js, mirrored here so an auto-moved verdict survives reconcile.
+      imap._guardMoveUid?.(row.account_id, spamFolder, row.uid);
+      await query(
+        'UPDATE messages SET folder = $1 WHERE id = $2',
+        [spamFolder, messageId],
+      );
+      setTimeout(
+        () => imap._unguardMoveUid?.(row.account_id, spamFolder, row.uid),
+        10_000,
+      );
     }
-    await query(
-      'UPDATE messages SET folder = $1, uid = $2 WHERE id = $3',
-      [spamFolder, newUid ?? row.uid, messageId],
-    );
     imap.broadcast?.(
       { type: 'folder_updated', folder: spamFolder, accountId: row.account_id },
       row.owner_id,

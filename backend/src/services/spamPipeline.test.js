@@ -218,6 +218,72 @@ describe('classifyAndTagMessage — scenario 5: blend weights shift with trainin
   });
 });
 
+describe('autoMove — non-UIDPLUS destination guard (mirrors the manual /spam path)', () => {
+  const spamMessage = {
+    subject: 'CHEAP VIAGRA!!! WIN $$$',
+    body_text: 'Click here. Buy now. Limited time offer, act now!',
+    from_email: 'spammer@spoof.biz',
+    replyTo: 'other@evil.com',
+    attachments: [{ filename: 'invoice.exe' }],
+  };
+
+  it('guards the destination UID and keeps the stale source UID when the server has no UIDPLUS', async () => {
+    vi.useFakeTimers();
+    try {
+      getModelForUser.mockResolvedValue(trainedModel(200));
+      query.mockResolvedValueOnce({ rows: [messageRow(spamMessage)] });
+
+      const imap = imapFacade();
+      imap.moveMessage.mockResolvedValue(null); // non-UIDPLUS: no new UID returned
+
+      const result = await classifyAndTagMessage(MESSAGE_ID, { imap });
+      expect(result.moved).toBe(true);
+
+      // Source guarded before the move, destination guarded after it.
+      expect(imap._guardMoveUid).toHaveBeenCalledWith(ACCOUNT_ID, 'INBOX', 100);
+      expect(imap._guardMoveUid).toHaveBeenCalledWith(ACCOUNT_ID, 'Junk', 100);
+
+      // The row moves to the destination keeping the (stale) source UID.
+      const update = query.mock.calls.find(
+        ([sql]) => sql.includes('UPDATE messages SET folder = $1 WHERE id = $2'),
+      );
+      expect(update[1]).toEqual(['Junk', MESSAGE_ID]);
+      // No re-keying UPDATE is issued on this branch.
+      expect(query.mock.calls.some(
+        ([sql]) => sql.includes('UPDATE messages SET folder = $1, uid = $2'),
+      )).toBe(false);
+
+      // The destination guard is held for the 10s grace period, then released.
+      expect(imap._unguardMoveUid).not.toHaveBeenCalledWith(ACCOUNT_ID, 'Junk', 100);
+      vi.advanceTimersByTime(10_000);
+      expect(imap._unguardMoveUid).toHaveBeenCalledWith(ACCOUNT_ID, 'Junk', 100);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not guard the destination on a UIDPLUS move', async () => {
+    getModelForUser.mockResolvedValue(trainedModel(200));
+    query.mockResolvedValueOnce({ rows: [messageRow(spamMessage)] });
+
+    const imap = imapFacade();
+    imap.moveMessage.mockResolvedValue(500); // UIDPLUS: server re-keyed the message
+
+    const result = await classifyAndTagMessage(MESSAGE_ID, { imap });
+    expect(result.moved).toBe(true);
+
+    expect(imap._guardMoveUid).toHaveBeenCalledWith(ACCOUNT_ID, 'INBOX', 100);
+    expect(imap._guardMoveUid).not.toHaveBeenCalledWith(ACCOUNT_ID, 'Junk', 100);
+    expect(imap._unguardMoveUid).not.toHaveBeenCalledWith(ACCOUNT_ID, 'Junk', 100);
+
+    // The row is re-keyed to the UID the server assigned in the destination.
+    const update = query.mock.calls.find(
+      ([sql]) => sql.includes('UPDATE messages SET folder = $1, uid = $2'),
+    );
+    expect(update[1]).toEqual(['Junk', 500, MESSAGE_ID]);
+  });
+});
+
 describe('classifyAndTagMessage — auto-move failure does not throw', () => {
   it('logs and keeps the verdict when the IMAP move fails', async () => {
       getModelForUser.mockResolvedValue(trainedModel(200));
