@@ -186,6 +186,19 @@ export function createKeyedSemaphore(limit) {
 // providers/accounts are unaffected. See _bgConnSem.
 const BACKGROUND_CONN_MAX_PER_HOST = 2;
 
+// Consecutive recoverable failures before an account is shown as broken in the UI.
+//
+// A provider that refuses a connection and accepts one again moments later does not need the
+// user to do anything, so it must not paint their account red. Measured against a provider that
+// refuses roughly every six minutes: 104 of 104 refusals recovered, median 45s, and the refusal
+// counter never once reached 2. Reporting each one left that account displaying a connection
+// error 10-15% of the time, permanently, for a condition that always healed itself.
+//
+// 2 is deliberately the smallest value that achieves this. A second consecutive refusal means
+// the first backoff has already elapsed without success, which is a real outage rather than
+// routine provider pushback, and it surfaces within about a minute.
+const ACCOUNT_ERROR_MIN_STREAK = 2;
+
 // Connection-refusal cooldown. When a provider refuses a NEW connection (per-IP/per-account
 // limit, "try again later", temporary lock, throttling), back that account off with growing
 // delay instead of retrying it every health-check tick — repeated refusals are exactly what
@@ -1390,6 +1403,7 @@ export class ImapManager {
     // DB may still hold a stale error, so the next call writes through unconditionally).
     // Lets the success paths skip a redundant UPDATE on every sync tick.
     this._syncErrorState = new Map();
+    this._accountErrorStreak = new Map(); // accountId -> consecutive recoverable failures not yet surfaced
     this.onDemandSyncing = new Set(); // `${accountId}:${folder}` — prevent duplicate on-demand syncs
     // Bounded engine facade handed to plugin hooks instead of `this` — plugins get only the reviewed
     // sync/label primitives (see mailEngineFacade), never the raw engine, its connections, or locks.
@@ -2139,6 +2153,14 @@ export class ImapManager {
   // write amplification. Never throws — every caller is already inside an error path.
   async _recordAccountError(account, detail) {
     if (this._syncErrorState.get(account.id) === detail) return;
+    // Hold back a failure that is likely to heal itself. Only RECOVERABLE failures are
+    // deferred: an authentication or configuration failure will never clear on its own and is
+    // reported immediately, because it is the user who has to act on it. A recoverable failure
+    // re-enters this method on each retry (see the reconnect path), so a host that stays down
+    // crosses the threshold on its next attempt rather than being silently swallowed.
+    const streak = (this._accountErrorStreak.get(account.id) || 0) + 1;
+    this._accountErrorStreak.set(account.id, streak);
+    if (isConnectionRefusal(detail) && streak < ACCOUNT_ERROR_MIN_STREAK) return;
     try {
       await query('UPDATE email_accounts SET sync_error = $1 WHERE id = $2', [detail, account.id]);
       this._syncErrorState.set(account.id, detail);
@@ -2154,6 +2176,10 @@ export class ImapManager {
   // account per tick (every 10s on freshInboxSync providers). Only broadcasts on a real
   // error -> clear transition; the frontend maps 'account_connected' to clearing sync_error.
   async _clearAccountError(account) {
+    // Reset the streak before the early return: a success ends the run of failures whether or
+    // not one of them was ever surfaced, otherwise deferred failures accumulate across hours of
+    // healthy operation and the next isolated refusal reports immediately.
+    this._accountErrorStreak.delete(account.id);
     const prev = this._syncErrorState.get(account.id);
     if (prev === null) return;
     try {
