@@ -22,6 +22,7 @@ function applyGoogleEnv(config) {
     else delete process.env[envName];
   }
 }
+
 router.use(requireAuth);
 
 // Get all integration configs (secrets redacted) — admin only (exposes OAuth client IDs)

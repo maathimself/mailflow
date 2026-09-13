@@ -3,9 +3,9 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 // The /status capability endpoint (#315) must be reachable by any authenticated user,
 // NOT just admins: a non-admin needs to learn that Microsoft OAuth is configured so the
 // connect buttons enable, without ever seeing the credentials. These tests mount the real
-// integrations router with a requireAdmin stub that ALWAYS rejects, proving /status does
-// not sit behind the admin gate while GET / still does. db/encryption are stubbed since the
-// status route touches neither.
+// integrations router with a requireAdmin stub that rejects unless a test explicitly opts in,
+// proving /status does not sit behind the admin gate while GET / still does. db/encryption are
+// stubbed; the admin config tests at the bottom use them to check redaction and encryption.
 import { vi } from 'vitest';
 vi.mock('../services/db.js', () => ({ query: vi.fn(async () => ({ rows: [] })) }));
 vi.mock('../services/encryption.js', () => ({
