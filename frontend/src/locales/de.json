@@ -718,7 +718,7 @@
     },
     "folderMappings": {
       "title": "Ordnerzuordnungen",
-      "description": "Jeder Mail-Rolle einen bestimmten Ordner zuweisen. „Automatisch erkennen” auswählen, damit MailFlow den vom Server markierten Ordner verwendet.",
+      "description": "Jeder Mail-Rolle einen bestimmten Ordner zuweisen. „Automatisch erkennen” auswählen, damit MailExp den vom Server markierten Ordner verwendet.",
       "loading": "Ordner werden geladen…",
       "autoDetect": "Automatisch erkennen",
       "autoDetectNone": "Automatisch erkennen (keiner gefunden)",
@@ -732,7 +732,7 @@
     },
     "aliases": {
       "title": "Aliasse",
-      "description": "Aliasse ermöglichen das Senden von einem anderen Namen oder einer anderen Adresse über die SMTP-Zugangsdaten dieses Kontos. Im Von-Feld beim Verfassen einen Alias auswählen. MailFlow antwortet automatisch über einen Alias, wenn eine Nachricht an diesen gerichtet war.",
+      "description": "Aliasse ermöglichen das Senden von einem anderen Namen oder einer anderen Adresse über die SMTP-Zugangsdaten dieses Kontos. Im Von-Feld beim Verfassen einen Alias auswählen. MailExp antwortet automatisch über einen Alias, wenn eine Nachricht an diesen gerichtet war.",
       "addButton": "Alias hinzufügen",
       "empty": "Noch keine Aliasse",
       "newTitle": "Neuer Alias",
@@ -805,9 +805,9 @@
       "swipeDisabled": "Deaktiviert",
       "swipeDisabledDesc": "Diese Wischrichtung deaktivieren",
       "syncFrequency": "E-Mail-Synchronisierungshäufigkeit",
-      "syncFrequencyDesc": "Wie oft MailFlow auf neue E-Mails prüft",
+      "syncFrequencyDesc": "Wie oft MailExp auf neue E-Mails prüft",
       "folderSyncFrequency": "Synchronisierungshäufigkeit der Ordnerstruktur",
-      "folderSyncFrequencyDesc": "Wie oft MailFlow die Ordnerliste jedes Kontos vom Server aktualisiert (in anderen Apps erstellte Ordner)",
+      "folderSyncFrequencyDesc": "Wie oft MailExp die Ordnerliste jedes Kontos vom Server aktualisiert (in anderen Apps erstellte Ordner)",
       "threadingMode": "Gesprächs-Threading",
       "threadingOff": "Aus",
       "threadingOffDesc": "Jede Nachricht einzeln angezeigt",
@@ -854,8 +854,8 @@
       "markReadManual": "Manuell",
       "markReadManualDesc": "E-Mails niemals automatisch als gelesen markieren. Schaltfläche \"Als gelesen markieren\" verwenden.",
       "defaultMailApp": "Standard-E-Mail-App",
-      "defaultMailAppDesc": "MailFlow in diesem Browser mailto:-Links öffnen lassen. Der Browser fragt zur Bestätigung nach. Funktioniert in Firefox und Chrome/Edge; unter iOS nicht verfügbar.",
-      "defaultMailAppBtn": "MailFlow registrieren",
+      "defaultMailAppDesc": "MailExp in diesem Browser mailto:-Links öffnen lassen. Der Browser fragt zur Bestätigung nach. Funktioniert in Firefox und Chrome/Edge; unter iOS nicht verfügbar.",
+      "defaultMailAppBtn": "MailExp registrieren",
       "defaultMailAppOk": "Bestätigen Sie die Abfrage im Browser, um abzuschließen.",
       "defaultMailAppError": "Ihr Browser hat die Anfrage blockiert.",
       "markReadDelayLabel": "Verzögerung",
@@ -883,7 +883,7 @@
     },
     "push": {
       "title": "Push-Benachrichtigungen",
-      "description": "Native Benachrichtigungen für neue E-Mails erhalten, auch wenn MailFlow nicht geöffnet ist.",
+      "description": "Native Benachrichtigungen für neue E-Mails erhalten, auch wenn MailExp nicht geöffnet ist.",
       "enable": "Aktivieren",
       "disable": "Deaktivieren",
       "statusOn": "Push-Benachrichtigungen aktiviert",
@@ -891,7 +891,7 @@
       "statusDenied": "Berechtigung verweigert",
       "permissionDenied": "Benachrichtigungsberechtigung wurde verweigert. Bitte in den Browser- oder Systemeinstellungen aktivieren.",
       "notSupported": "Push-Benachrichtigungen werden in diesem Browser nicht unterstützt.",
-      "iosHint": "Um Push-Benachrichtigungen auf iOS zu erhalten, MailFlow zuerst zum Home-Bildschirm hinzufügen: Teilen-Schaltfläche antippen, dann „Zum Home-Bildschirm”.",
+      "iosHint": "Um Push-Benachrichtigungen auf iOS zu erhalten, MailExp zuerst zum Home-Bildschirm hinzufügen: Teilen-Schaltfläche antippen, dann „Zum Home-Bildschirm”.",
       "notConfigured": "Push-Benachrichtigungen sind auf diesem Server nicht konfiguriert. VAPID-Schlüssel zur .env-Datei hinzufügen, um sie zu aktivieren.",
       "loading": "Bitte warten…"
     },
@@ -1212,7 +1212,7 @@
       "domainsPh": "example.com, corp.example.com",
       "provisioning": "Provisionierungsmodus",
       "provisioningDisabled": "Deaktiviert — bestehende verknüpfte Identitäten können sich noch anmelden, aber keine neuen Verknüpfungen",
-      "provisioningExisting": "Bestehendem zuordnen — mit einem MailFlow-Konto mit übereinstimmender E-Mail verknüpfen",
+      "provisioningExisting": "Bestehendem zuordnen — mit einem MailExp-Konto mit übereinstimmender E-Mail verknüpfen",
       "provisioningOpen": "Offen — beim ersten SSO-Login automatisch ein neues Konto erstellen",
       "enabled": "Anbieter aktiviert",
       "requireEmailVerified": "Bestätigte E-Mail erforderlich",
@@ -1232,7 +1232,7 @@
       "allowInsecure": "Lokale / selbstsignierte Verbindungen erlauben",
       "allowInsecureDesc": "Umgeht die Host-Validierung und TLS-Zertifikatsprüfungen. Nur für LAN-seitige Anbieter (z. B. pocketid.internal) verwenden. Nicht empfohlen für internetfähige Deployments.",
       "rpLogout": "SSO-Abmeldung (RP-initiated)",
-      "rpLogoutDesc": "Beim Abmelden wird die Sitzung auch bei diesem Anbieter beendet, indem zu dessen end-session endpoint weitergeleitet wird, nicht nur das MailFlow-Cookie. Erfordert, dass der Anbieter einen end_session_endpoint bereitstellt und dass die MailFlow-Anmelde-URL (…/login) als post-logout redirect URI registriert ist.",
+      "rpLogoutDesc": "Beim Abmelden wird die Sitzung auch bei diesem Anbieter beendet, indem zu dessen end-session endpoint weitergeleitet wird, nicht nur das MailExp-Cookie. Erfordert, dass der Anbieter einen end_session_endpoint bereitstellt und dass die MailExp-Anmelde-URL (…/login) als post-logout redirect URI registriert ist.",
       "adminGroupClaim": "Admin-Gruppenanspruch",
       "adminGroupClaimPh": "groups",
       "adminGroupClaimDesc": "Name des JWT-Claims, der die Gruppen des Benutzers enthält (z. B. groups). Leer lassen, um gruppenbasierte Admin-Zuweisung zu deaktivieren.",
@@ -1240,7 +1240,7 @@
       "adminGroupValuePh": "mailflow-admins",
       "adminGroupValueDesc": "Der Gruppenname, der Admin-Zugriff gewährt. Benutzer in dieser Gruppe werden bei jeder SSO-Anmeldung zu Admins; Benutzer, die nicht in dieser Gruppe sind, verlieren den Admin-Zugriff.",
       "loginMatchClaim": "Bestehende Konten zuordnen über",
-      "loginMatchClaimDesc": "OIDC-Claim, der mit dem Benutzernamen jedes MailFlow-Kontos abgeglichen wird, wenn eine SSO-Anmeldung erstmals mit einem bestehenden Konto verknüpft wird (Bereitstellungsmodus „Nur bei bestehenden Konten anmelden“). Standard ist email. Verwenden Sie preferred_username, upn usw. für Identitätsanbieter, deren Benutzernamen keine E-Mail-Adressen sind – nur wenn Ihr Anbieter garantiert, dass der Claim eindeutig und nicht vom Benutzer änderbar ist."
+      "loginMatchClaimDesc": "OIDC-Claim, der mit dem Benutzernamen jedes MailExp-Kontos abgeglichen wird, wenn eine SSO-Anmeldung erstmals mit einem bestehenden Konto verknüpft wird (Bereitstellungsmodus „Nur bei bestehenden Konten anmelden“). Standard ist email. Verwenden Sie preferred_username, upn usw. für Identitätsanbieter, deren Benutzernamen keine E-Mail-Adressen sind – nur wenn Ihr Anbieter garantiert, dass der Claim eindeutig und nicht vom Benutzer änderbar ist."
     },
     "integrations": {
       "title": "Integrationen",
@@ -1279,7 +1279,7 @@
         "deviceCodeTitle": "Mit Gerätecode verbinden",
         "deviceCodeNote": "Keine Weiterleitungs-URI oder Client-Secret erforderlich. In Azure unter Authentifizierung 'Öffentliche Clientflows zulassen' auf Ja setzen. Ideal für persönliche Outlook.com / Hotmail-Konten.",
         "deviceCodeStart": "Gerätecode-Flow starten",
-        "deviceCodeInstructions": "Besuche den Link unten auf einem beliebigen Gerät und gib den Code ein, um MailFlow zu autorisieren:",
+        "deviceCodeInstructions": "Besuche den Link unten auf einem beliebigen Gerät und gib den Code ein, um MailExp zu autorisieren:",
         "deviceCodeVisit": "Besuche:",
         "deviceCodeEnter": "Code eingeben:",
         "deviceCodeWaiting": "Warte auf Autorisierung…",
@@ -1325,7 +1325,7 @@
         "lastSync": "Letzte Sync: {{when}}",
         "summary": "{{contacts}} Kontakte in {{books}} Adressbüchern",
         "syncFailed": "Letzte Sync fehlgeschlagen: {{error}}",
-        "help": "Verwenden Sie ein Nextcloud-App-Passwort, nicht Ihr Login-Passwort – SSO-Nutzer erstellen es unter Einstellungen → Sicherheit. Kontakte werden einseitig synchronisiert und sind in MailFlow schreibgeschützt."
+        "help": "Verwenden Sie ein Nextcloud-App-Passwort, nicht Ihr Login-Passwort – SSO-Nutzer erstellen es unter Einstellungen → Sicherheit. Kontakte werden einseitig synchronisiert und sind in MailExp schreibgeschützt."
       }
     },
     "ssoLinked": {

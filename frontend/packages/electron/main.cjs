@@ -16,13 +16,13 @@ const {
 
 const CONFIG_FILE = 'mailflow-host.json';
 const UPDATE_STATUS_CHANNEL = 'mailflow:updates:status';
-const UPDATE_RELEASE_URL = 'https://api.github.com/repos/maathimself/mailflow/releases/latest';
+const UPDATE_RELEASE_URL = 'https://api.github.com/repos/wyrtensi/MailExp/releases/latest';
 
 /* Old dev fork url
 const UPDATE_RELEASE_URL = 'https://api.github.com/repos/dcoffin88/mailflow/releases/latest';
 */
 
-const UPDATE_ERROR_MESSAGE = 'Could not check for MailFlow updates. Please visit the website instead.';
+const UPDATE_ERROR_MESSAGE = 'Could not check for MailExp updates. Please visit the repository instead.';
 const NATIVE_ACTION_CHANNEL = 'mailflow:native-action';
 const NATIVE_ACTION_ARG = '--mailflow-action=';
 const NEW_MAIL_NOTIFICATION_MAX_LENGTH = 240;
@@ -172,7 +172,7 @@ function requestJson(url) {
     const request = https.get(url, {
       headers: {
         Accept: 'application/vnd.github+json',
-        'User-Agent': `MailFlow/${app.getVersion()}`,
+        'User-Agent': `MailExp/${app.getVersion()}`,
       },
     }, (response) => {
       if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
@@ -283,7 +283,7 @@ function getInstalledLinuxPackageType() {
 function getLinuxPackageManagerVersion(packageType) {
   if (process.platform !== 'linux' || !['deb', 'rpm'].includes(packageType)) return null;
 
-  const packageNames = ['mailflow', 'MailFlow', 'mailflow-frontend'];
+  const packageNames = ['MailExp', 'mailexp', 'mailexp-frontend', 'mailflow', 'MailFlow', 'mailflow-frontend'];
   for (const packageName of packageNames) {
     try {
       const args = packageType === 'rpm'
@@ -674,7 +674,7 @@ function notifyCheckingUpdate(verbose) {
   sendUpdateStatus({ type: 'checking' });
   notifyUpdateStatus({
     title: 'Checking for update',
-    message: 'Checking for new MailFlow updates.',
+    message: 'Checking for new MailExp updates.',
   });
 }
 
@@ -693,7 +693,7 @@ function notifyUpToDate(verbose) {
   sendUpdateStatus({ type: 'up-to-date' });
   notifyUpdateStatus({
     title: 'Up to date',
-    message: 'Your version of MailFlow is up to date.',
+    message: 'Your version of MailExp is up to date.',
     type: 'positive',
   });
 }
@@ -714,7 +714,7 @@ function notifyUpdateAvailable(verbose = true) {
 
   notifyUpdateStatus({
     title: 'Update Available',
-    message: 'MailFlow is downloading the newest version for you.',
+    message: 'MailExp is downloading the newest version for you.',
   });
 }
 
@@ -722,7 +722,7 @@ function notifyUpdateDownloaded() {
   const linuxInstallCommand = getLinuxUpdateInstallCommand(downloadedUpdate);
   const isLinuxManualInstall = Boolean(linuxInstallCommand);
   const linuxInstallMessage = linuxInstallCommand
-    ? `MailFlow downloaded and verified the update. Install it from a terminal with:\n${linuxInstallCommand}`
+    ? `MailExp downloaded and verified the update. Install it from a terminal with:\n${linuxInstallCommand}`
     : null;
 
   sendUpdateStatus({
@@ -740,7 +740,7 @@ function notifyUpdateDownloaded() {
   });
   showInAppNotification({
     title: 'Update Ready',
-    message: linuxInstallMessage || 'MailFlow downloaded the update.',
+    message: linuxInstallMessage || 'MailExp downloaded the update.',
     type: 'positive',
     actionLabel: isLinuxManualInstall ? 'Copy & Quit' : 'Install',
     action: isLinuxManualInstall ? 'copy-update-command-and-quit' : 'install-update',
@@ -870,7 +870,7 @@ function verifyPlatformSignature(filePath) {
     const installed = readWindowsSignature(process.execPath);
     const downloaded = readWindowsSignature(filePath);
     if (!hasMatchingWindowsPublisher(installed, downloaded)) {
-      throw new Error('The update is not signed by the installed MailFlow publisher.');
+      throw new Error('The update is not signed by the installed MailExp publisher.');
     }
     return;
   }
@@ -889,7 +889,7 @@ function verifyPlatformSignature(filePath) {
     const installed = readMacSignatureDetails(process.execPath);
     const downloaded = readMacSignatureDetails(filePath);
     if (!hasMatchingMacTeam(installed, downloaded)) {
-      throw new Error('The update is not signed by the installed MailFlow team.');
+      throw new Error('The update is not signed by the installed MailExp team.');
     }
   }
 }
@@ -976,7 +976,7 @@ async function checkForUpdates(verbose = false) {
     }
 
     if (!asset) {
-      notifyUpdateError('A MailFlow update is available, but no installer was found for this platform.');
+      notifyUpdateError('A MailExp update is available, but no installer was found for this platform.');
       return { updateAvailable: true, downloadAvailable: false };
     }
 
@@ -1064,7 +1064,7 @@ function installDownloadedUpdate() {
 
         console.error('Could not launch downloaded update:', launchError);
         shell.showItemInFolder(downloadedUpdate);
-        notifyUpdateError('The update was downloaded, but MailFlow could not start the installer.');
+        notifyUpdateError('The update was downloaded, but MailExp could not start the installer.');
         resolve({ installed: false, reason: 'launch-failed', error: launchError.message });
       }
     });
@@ -1228,7 +1228,7 @@ function changeMailFlowHost() {
 function fileMenuItems() {
   return [
     {
-      label: 'Change MailFlow Host',
+      label: 'Change MailExp Host',
       accelerator: 'CmdOrCtrl+,',
       click: changeMailFlowHost,
     },
@@ -1291,16 +1291,16 @@ function helpMenuItems() {
   return [
     {
       label: 'Learn More',
-      click: () => shell.openExternal('https://mailflow.sh'),
+      click: () => shell.openExternal('https://github.com/wyrtensi/MailExp'),
     },
     { type: 'separator' },
     {
       label: 'Help',
-      click: () => shell.openExternal('https://mailflow.sh/docs'),
+      click: () => shell.openExternal('https://github.com/wyrtensi/MailExp#readme'),
     },
     {
       label: 'Report Issue',
-      click: () => shell.openExternal('https://github.com/maathimself/mailflow/issues'),
+      click: () => shell.openExternal('https://github.com/wyrtensi/MailExp/issues'),
     },
     { type: 'separator' },
     {
@@ -1518,7 +1518,7 @@ function refreshTrayMenu() {
     ...nativeActionMenuItems(),
     { type: 'separator' },
     {
-      label: isWindowVisible ? 'Hide MailFlow' : 'Show MailFlow',
+      label: isWindowVisible ? 'Hide MailExp' : 'Show MailExp',
       click: () => {
         if (isWindowVisible) {
           saveWindowBounds();
@@ -1530,7 +1530,7 @@ function refreshTrayMenu() {
     },
     { type: 'separator' },
     {
-      label: 'Change MailFlow Host',
+      label: 'Change MailExp Host',
       click: () => {
         clearHost();
         showMainWindow();
@@ -1552,7 +1552,7 @@ function createTray() {
   if (trayIcon.isEmpty()) return;
 
   tray = new Tray(trayIcon);
-  tray.setToolTip('MailFlow');
+  tray.setToolTip('MailExp');
   tray.on('click', () => {
     refreshTrayMenu();
     showMainWindow({ reload: true });
@@ -1575,7 +1575,7 @@ function setupTaskbarTasks() {
       iconPath: getWindowIconPath(),
       iconIndex: 0,
       title: 'New Mail',
-      description: 'Compose a new MailFlow message',
+      description: 'Compose a new MailExp message',
     },
     {
       program: process.execPath,
@@ -1583,7 +1583,7 @@ function setupTaskbarTasks() {
       iconPath: getWindowIconPath(),
       iconIndex: 0,
       title: 'Sync',
-      description: 'Sync MailFlow mail',
+      description: 'Sync MailExp mail',
     },
   ]);
 }
@@ -1593,7 +1593,7 @@ function createWindow() {
     ...getDefaultWindowBounds(),
     ...getSavedWindowBounds(),
     show: false,
-    title: 'MailFlow',
+    title: 'MailExp',
     icon: getWindowIconPath(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -1749,12 +1749,12 @@ ipcMain.handle('mailflow:saveHost', async (_event, host) => {
       defaultId: 1,
       cancelId: 1,
       noLink: true,
-      title: 'Unencrypted MailFlow connection',
-      message: 'Traffic to this MailFlow server is not encrypted.',
+      title: 'Unencrypted MailExp connection',
+      message: 'Traffic to this MailExp server is not encrypted.',
       detail: 'Your session cookie and email data can be read or changed by anyone who can observe this network. Continue only on a private network you trust.',
     });
     if (result.response !== 0) {
-      throw new Error('The unencrypted MailFlow host was not saved.');
+      throw new Error('The unencrypted MailExp host was not saved.');
     }
   }
 

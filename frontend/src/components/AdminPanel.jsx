@@ -4517,7 +4517,7 @@ function SystemEmailSection() {
   const { t } = useTranslation();
   const [config, setConfig] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState({ host: '', port: '587', tls: 'STARTTLS', user: '', pass: '', fromName: 'MailFlow', fromEmail: '' });
+  const [form, setForm] = useState({ host: '', port: '587', tls: 'STARTTLS', user: '', pass: '', fromName: 'MailExp', fromEmail: '' });
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -4527,7 +4527,7 @@ function SystemEmailSection() {
       .then(({ config: cfg }) => {
         if (cfg) {
           setConfig(cfg);
-          setForm({ host: cfg.host || '', port: String(cfg.port || 587), tls: cfg.tls || 'STARTTLS', user: cfg.user || '', pass: cfg.pass || '', fromName: cfg.fromName || 'MailFlow', fromEmail: cfg.fromEmail || '' });
+          setForm({ host: cfg.host || '', port: String(cfg.port || 587), tls: cfg.tls || 'STARTTLS', user: cfg.user || '', pass: cfg.pass || '', fromName: cfg.fromName || 'MailExp', fromEmail: cfg.fromEmail || '' });
         }
       })
       .catch(console.error)
@@ -4559,7 +4559,7 @@ function SystemEmailSection() {
   const handleRemove = async () => {
     await api.admin.deleteSystemEmail();
     setConfig(null);
-    setForm({ host: '', port: '587', tls: 'STARTTLS', user: '', pass: '', fromName: 'MailFlow', fromEmail: '' });
+    setForm({ host: '', port: '587', tls: 'STARTTLS', user: '', pass: '', fromName: 'MailExp', fromEmail: '' });
     setMsg({ type: 'ok', text: t('admin.systemEmail.removed') });
   };
 
@@ -4626,7 +4626,7 @@ function SystemEmailSection() {
         {field(t('admin.systemEmail.password'), 'pass', 'password', config ? t('admin.systemEmail.passPlaceholder') : '')}
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 12px' }}>
-          <div>{field(t('admin.systemEmail.fromName'), 'fromName', 'text', 'MailFlow')}</div>
+          <div>{field(t('admin.systemEmail.fromName'), 'fromName', 'text', 'MailExp')}</div>
           <div>{field(t('admin.systemEmail.fromEmail'), 'fromEmail', 'text', t('admin.systemEmail.fromEmailPh'))}</div>
         </div>
 
@@ -5716,7 +5716,7 @@ function AboutTab() {
   return (
     <div style={{ maxWidth: 420 }}>
       <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
-        MailFlow
+        MailExp
       </div>
       <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 24 }}>
         {t('admin.about.subtitle')}

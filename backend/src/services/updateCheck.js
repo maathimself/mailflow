@@ -7,7 +7,7 @@
 // UPDATE_CHECK_DISABLED=true to turn the check off entirely (air-gapped deployments).
 import { safeFetch } from './safeFetch.js';
 
-const REPO = (process.env.UPDATE_CHECK_REPO || 'maathimself/mailflow').replace(/[^\w./-]/g, '');
+const REPO = (process.env.UPDATE_CHECK_REPO || 'wyrtensi/MailExp').replace(/[^\w./-]/g, '');
 const RELEASES_URL = `https://api.github.com/repos/${REPO}/releases/latest`;
 export const RELEASES_PAGE = `https://github.com/${REPO}/releases`;
 
@@ -34,7 +34,7 @@ function isNewer(latest, current) {
 
 async function refresh() {
   const res = await safeFetch(RELEASES_URL, {
-    headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'MailFlow-update-check' },
+    headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'MailExp-update-check' },
     signal: AbortSignal.timeout(5000),
   });
   if (!res.ok) throw new Error(`GitHub ${res.status}`);

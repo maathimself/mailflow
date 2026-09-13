@@ -25,7 +25,7 @@ self.addEventListener('push', (event) => {
   }
 
   const {
-    title       = 'MailFlow',
+    title       = 'MailExp',
     body        = 'New message',
     icon        = '/icon-512.png',
     url         = '/',

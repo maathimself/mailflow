@@ -1,4 +1,4 @@
-# MailFlow — pre-built image install
+# Upstream MailFlow — pre-built baseline image install (does not contain MailExp changes)
 #
 # Quick start:
 #   curl -o docker-compose.yml https://raw.githubusercontent.com/maathimself/mailflow/main/docker-compose.ghcr.yml
