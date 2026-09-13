@@ -1,8 +1,6 @@
 import { STATUS_STALE_MS } from '../services/folderStatus.js';
 import { Router } from 'express';
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
-const archiver = require('archiver');
+import { ZipArchive } from 'archiver';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { imapManager } from '../index.js';
@@ -616,7 +614,7 @@ router.get('/messages/:id/attachments.zip', async (req, res) => {
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', attachmentDisposition(zipName));
 
-    const archive = archiver('zip', { zlib: { level: 6 } });
+    const archive = new ZipArchive({ zlib: { level: 6 } });
     archive.on('error', err => {
       console.error('ZIP archive error:', err.message);
       if (!res.headersSent) res.status(500).json({ error: 'Failed to create ZIP' });

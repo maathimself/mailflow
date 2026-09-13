@@ -157,7 +157,9 @@ export function snippetFromBody(text, html) {
 // work on multi-MB bodies. Note: an unclosed <style>/<script> is raw-text-to-EOF per the
 // HTML spec (a browser renders nothing after it), so any trailing visible text is dropped —
 // matching how the message actually renders, unlike the old head-first regex strip.
-const SNIPPET_SKIP_TAGS = new Set(['script', 'style', 'head', 'title', 'noscript']);
+// iframe/noembed/noframes hold raw text since htmlparser2 12 (WHATWG), so their fallback
+// markup would otherwise reach the snippet verbatim; a browser does not render it either.
+const SNIPPET_SKIP_TAGS = new Set(['script', 'style', 'head', 'title', 'noscript', 'iframe', 'noembed', 'noframes']);
 const SNIPPET_VISIBLE_CAP = 260; // stop after this many visible chars — comfortably over the 200-char snippet
 
 function extractHtmlSnippetText(html) {
