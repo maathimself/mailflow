@@ -169,10 +169,12 @@ async function processMicrosoftTokens(userId, tokens, { tenantId, clientId, publ
     let accountId;
     if (existing.rows.length) {
       accountId = existing.rows[0].id;
+      // A fresh consent clears a reconnect flag set by the token manager on invalid_grant;
+      // otherwise the flag would refuse every later refresh of the new refresh token.
       await client.query(`
         UPDATE email_accounts SET
           oauth_access_token = $1, oauth_refresh_token = $2, oauth_token_expiry = $3,
-          name = $4, oauth_public_client = $5, sync_error = NULL
+          name = $4, oauth_public_client = $5, oauth_reconnect_required = false, sync_error = NULL
         WHERE id = $6
       `, [encrypt(access_token), encrypt(refresh_token), expiry, displayName || email, publicClient, accountId]);
     } else {
