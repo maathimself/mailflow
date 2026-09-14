@@ -433,7 +433,7 @@ const HARDCODED_OK = new Set([
   // identical concept in all languages
   'Emoji',
   // "MailExpert" brand name split into two spans for typography styling
-  'Mail', 'Flow',
+  'Mail', 'Expert',
   // Email header labels inside the handlePrint() HTML template literal —
   // translating them requires passing t() results into the template string
   'From:', 'Date:',
