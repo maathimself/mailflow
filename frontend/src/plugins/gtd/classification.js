@@ -1,10 +1,19 @@
-export async function classifyWithUndo(messageId, state, {
+import {
+  invalidateGtdMetadata,
+  patchGtdMetadata,
+  removeGtdMetadataState,
+} from './metadataStore.js';
+
+export async function classifyWithUndo(message, state, {
   api,
   store,
   t,
 }) {
+  const messageId = typeof message === 'string' ? message : message?.id;
   try {
     const result = await api.gtdClassify(messageId, state);
+    patchGtdMetadata(message, state, typeof message === 'object' ? message.date : null);
+    invalidateGtdMetadata();
     store.scheduleGtdSectionsFetch();
 
     const notification = {
@@ -20,6 +29,8 @@ export async function classifyWithUndo(messageId, state, {
         consumed = true;
         try {
           await api.gtdUndoClassify(result.undoToken);
+          removeGtdMetadataState(message, state);
+          invalidateGtdMetadata();
           store.scheduleGtdSectionsFetch();
           return true;
         } catch (err) {

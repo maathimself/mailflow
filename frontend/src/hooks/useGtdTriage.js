@@ -9,6 +9,7 @@ import {
 import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
 import { resolveContextMenuMessage } from '../utils/contextMenuPolicy.js';
 import { doneGtdRow } from '../utils/gtdDone.js';
+import { invalidateGtdMetadata } from '../plugins/gtd/metadataStore.js';
 
 // One pending delayed auto-read across ALL GTD surfaces (module scope, not per hook
 // instance): the sidebar and the tab browse list are mounted together in desktop row
@@ -88,6 +89,7 @@ export function useGtdTriage() {
       removeGtdThread,
       restoreGtdThread,
       addNotification,
+      invalidateGtdMetadata,
       scheduleGtdSectionsFetch,
       t,
     });

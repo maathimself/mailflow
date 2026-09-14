@@ -9,6 +9,7 @@ export async function doneGtdRow(thread, states, {
   removeGtdThread,
   restoreGtdThread,
   addNotification,
+  invalidateGtdMetadata,
   scheduleGtdSectionsFetch,
   t,
 }) {
@@ -19,6 +20,7 @@ export async function doneGtdRow(thread, states, {
   try {
     const result = await gtdDone(thread.id, states);
     setCompletedGtdRemoval(identity, states);
+    invalidateGtdMetadata?.();
     if (result?.archiveFailed) {
       addNotification({ title: t('gtd.doneArchiveFailed'), body: thread.subject || t('common.noSubject') });
     }

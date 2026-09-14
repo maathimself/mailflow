@@ -99,4 +99,14 @@ describe('doneGtdRow', () => {
     ]);
     assert.equal(completedGtdRemovalMap.size, 1);
   });
+
+  it('invalidates visible GTD metadata after a successful mutation', async () => {
+    const calls = [];
+    await doneGtdRow(thread, states, deps({
+      invalidateGtdMetadata: () => calls.push('invalidate'),
+      scheduleGtdSectionsFetch: () => calls.push('schedule'),
+    }));
+
+    assert.deepEqual(calls, ['invalidate', 'schedule']);
+  });
 });
