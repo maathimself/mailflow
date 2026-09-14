@@ -696,3 +696,208 @@ export function detectAttachments(structure) {
   visit(structure);
   return explicit || (namedText > 0 && unnamedText > 0);
 }
+
+// ── Calendar invite rendering ────────────────────────────────────────────────
+// Outlook "forward meeting" emails are often a single text/calendar part with
+// no text/html or text/plain alternative, which used to render as raw
+// VCALENDAR source. Renders a readable invite instead: a summary card
+// (what/when/where/organizer) followed by the event description, preferring
+// Outlook's X-ALT-DESC HTML form of the description when present. The
+// returned html goes through the same sanitizer as any email HTML.
+
+// RFC 5545 line unfolding: a line starting with space or tab continues the
+// previous line (the leading whitespace char itself is discarded).
+function unfoldIcsLines(raw) {
+  const lines = [];
+  for (const line of String(raw || '').split(/\r?\n/)) {
+    if ((line.startsWith(' ') || line.startsWith('\t')) && lines.length) {
+      lines[lines.length - 1] += line.slice(1);
+    } else {
+      lines.push(line);
+    }
+  }
+  return lines;
+}
+
+// Splits a content line into name, parameters and value. Parameter values may
+// be quoted and contain ':' or ';' (TZID="(UTC-05:00) Eastern Time"), so only
+// separators outside quotes count. Returns null for a line with no value.
+function parseIcsLine(line) {
+  const segments = [];
+  let from = 0;
+  let inQuote = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') { inQuote = !inQuote; continue; }
+    if (inQuote || (c !== ';' && c !== ':')) continue;
+    segments.push(line.slice(from, i));
+    from = i + 1;
+    if (c === ':') {
+      const [name, ...paramParts] = segments;
+      const params = {};
+      for (const p of paramParts) {
+        const eq = p.indexOf('=');
+        if (eq > 0) params[p.slice(0, eq).trim().toUpperCase()] = p.slice(eq + 1).replace(/^"|"$/g, '');
+      }
+      return { name: name.trim().toUpperCase(), params, value: line.slice(from) };
+    }
+  }
+  return null;
+}
+
+// RFC 5545 TEXT unescaping in a single pass: \n or \N is a line break and \\ \;
+// \, are the literal character, so an escaped backslash before "n" stays "\n".
+function unescapeIcsText(value) {
+  return String(value || '').replace(/\\([nN\\;,])/g, (_, c) => (c === 'n' || c === 'N' ? '\n' : c));
+}
+
+function escapeHtml(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+const ICS_DT_RE = /^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2}))?/;
+
+function formatIcsTime(h, m) {
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  return `${hour12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+}
+
+// "20260901T140000" → "Tuesday, September 1, 2026, 2:00 PM". The wall-clock
+// value is shown as-is (the TZID param is appended by the caller); a trailing
+// Z is labeled UTC. Date-only values render without a time.
+function formatIcsDate(value) {
+  const m = ICS_DT_RE.exec(value || '');
+  if (!m) return value || '';
+  const [, y, mo, d, hh, mm] = m;
+  const day = new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d)));
+  const datePart = day.toLocaleDateString('en-US', {
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC',
+  });
+  if (hh === undefined) return datePart;
+  return `${datePart}, ${formatIcsTime(Number(hh), Number(mm))}${/Z$/i.test(value) ? ' UTC' : ''}`;
+}
+
+// The day before a date-only value ("20260902" → "20260901").
+function previousIcsDay(value) {
+  const m = ICS_DT_RE.exec(value || '');
+  if (!m) return value || '';
+  const day = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) - 1));
+  return day.toISOString().slice(0, 10).replace(/-/g, '');
+}
+
+const ICS_METHOD_LABELS = {
+  REQUEST: 'Meeting invitation',
+  CANCEL: 'Meeting cancelled',
+  REPLY: 'Meeting response',
+};
+
+// Parses the first VEVENT of an iCalendar text and renders { html, text },
+// or null when the input is not a usable VCALENDAR.
+export function renderCalendarInvite(ics) {
+  if (!/BEGIN:VCALENDAR/i.test(ics || '')) return null;
+
+  const props = Object.create(null);
+  let method = '';
+  let inEvent = false;
+  let eventDone = false;
+  let nested = 0; // depth of sub-components (VALARM) inside the VEVENT
+  for (const line of unfoldIcsLines(ics)) {
+    const prop = parseIcsLine(line);
+    if (!prop) continue;
+    const { name, params, value } = prop;
+    if (name === 'BEGIN' || name === 'END') {
+      const component = value.trim().toUpperCase();
+      if (component === 'VEVENT') {
+        if (name === 'BEGIN') {
+          if (eventDone) break;
+          inEvent = true;
+        } else if (inEvent) {
+          inEvent = false;
+          eventDone = true;
+        }
+        nested = 0;
+      } else if (inEvent) {
+        nested = Math.max(0, nested + (name === 'BEGIN' ? 1 : -1));
+      }
+      continue;
+    }
+    if (!inEvent) {
+      if (name === 'METHOD' && !method) method = value.trim().toUpperCase();
+      continue;
+    }
+    // A VALARM's properties are not the event's (its DESCRIPTION is usually
+    // just "REMINDER"); within the event itself the first occurrence wins.
+    if (nested > 0 || name in props) continue;
+    props[name] = { value, params };
+  }
+  if (!eventDone) return null;
+
+  const summary = unescapeIcsText(props.SUMMARY?.value || '').trim();
+  const location = unescapeIcsText(props.LOCATION?.value || '').trim();
+  const organizerName = unescapeIcsText(props.ORGANIZER?.params?.CN || '').trim();
+  const organizerMail = (props.ORGANIZER?.value || '').replace(/^mailto:/i, '').trim();
+  const organizer = organizerName
+    ? organizerMail ? `${organizerName} <${organizerMail}>` : organizerName
+    : organizerMail;
+
+  let when = '';
+  const start = props.DTSTART;
+  const end = props.DTEND;
+  if (start?.value) {
+    when = formatIcsDate(start.value);
+    const startDt = ICS_DT_RE.exec(start.value);
+    const endDt = ICS_DT_RE.exec(end?.value || '');
+    if (startDt && endDt && startDt[4] === undefined && endDt[4] === undefined) {
+      // All-day events: a date-only DTEND is exclusive, so show through the
+      // day before it, and give a one-day event a single date.
+      const lastDay = previousIcsDay(end.value);
+      if (lastDay > start.value.slice(0, 8)) when += ` – ${formatIcsDate(lastDay)}`;
+    } else if (end?.value) {
+      const sameDay = start.value.slice(0, 8) === end.value.slice(0, 8);
+      when += sameDay && endDt?.[4] !== undefined
+        ? ` – ${formatIcsTime(Number(endDt[4]), Number(endDt[5]))}`
+        : ` – ${formatIcsDate(end.value)}`;
+    }
+    // Exchange TZIDs can carry their own parentheses: "(UTC-05:00) Eastern Time".
+    const tzid = (start.params?.TZID || '').trim();
+    if (tzid) when += tzid.startsWith('(') ? ` ${tzid}` : ` (${tzid})`;
+  }
+
+  const methodLabel = ICS_METHOD_LABELS[method] || '';
+  const rows = [];
+  if (when) rows.push(['When', when]);
+  if (location) rows.push(['Where', location]);
+  if (organizer) rows.push(['Organizer', organizer]);
+  if (!summary && !rows.length) return null;
+
+  const card =
+    '<div style="border:1px solid #d0d0d0;border-radius:8px;padding:12px 16px;margin:0 0 16px;font-family:sans-serif">'
+    + (methodLabel ? `<div style="font-size:12px;color:#777;margin-bottom:4px">${escapeHtml(methodLabel)}</div>` : '')
+    + (summary ? `<div style="font-size:16px;font-weight:600;margin-bottom:8px">${escapeHtml(summary)}</div>` : '')
+    + rows.map(([k, v]) => `<div style="font-size:13px;margin:2px 0"><b>${k}:</b> ${escapeHtml(v)}</div>`).join('')
+    + '</div>';
+
+  // Outlook ships an HTML form of the description in X-ALT-DESC — prefer it;
+  // otherwise render the plain DESCRIPTION preserving its line breaks.
+  const altDesc = props['X-ALT-DESC'];
+  const altHtml = (altDesc?.params?.FMTTYPE || '').toLowerCase() === 'text/html'
+    ? unescapeIcsText(altDesc.value).trim()
+    : '';
+  const description = unescapeIcsText(props.DESCRIPTION?.value || '').trim();
+  const bodyHtml = altHtml
+    || (description
+      ? `<div style="font-family:sans-serif;font-size:13px;white-space:pre-wrap">${escapeHtml(description)}</div>`
+      : '');
+
+  const text = [
+    methodLabel,
+    summary,
+    ...rows.map(([k, v]) => `${k}: ${v}`),
+    '',
+    description,
+  ].filter(Boolean).join('\n');
+
+  return { html: card + bodyHtml, text };
+}

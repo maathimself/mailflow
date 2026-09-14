@@ -1395,6 +1395,43 @@ describe('attachment-only messages have no body', () => {
   });
 });
 
+describe('calendar-only messages', () => {
+  const calendarRoot = {
+    part: '1', type: 'text/calendar', encoding: '7bit',
+    parameters: { charset: 'utf-8', method: 'REQUEST' },
+  };
+  const ics = 'BEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nSUMMARY:Planning\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n';
+
+  it('collects a bare text/calendar root as a calendar part, not body text', () => {
+    const results = { textParts: [], attachments: [] };
+    walkStructure(calendarRoot, results);
+    expect(results.textParts).toHaveLength(0);
+    expect(results.calendarParts.map(p => p.part)).toEqual(['1']);
+    expect(bodyFallbackApplies(results)).toBe(false);
+  });
+
+  it('does not store raw VCALENDAR source as the synced body', () => {
+    const msg = { bodyStructure: calendarRoot, bodyParts: new Map([['1', Buffer.from(ics)]]) };
+    const body = extractBodyFromMsg(msg);
+    expect(body.text).toBeNull();
+    expect(body.html).toBeNull();
+  });
+
+  it('keeps the html alternative of a multipart invite as its body', () => {
+    const msg = {
+      bodyStructure: {
+        type: 'multipart/alternative',
+        childNodes: [
+          { part: '1', type: 'text/html', encoding: '7bit', parameters: { charset: 'utf-8' } },
+          { ...calendarRoot, part: '2' },
+        ],
+      },
+      bodyParts: new Map([['1', Buffer.from('<p>Invite</p>')], ['2', Buffer.from(ics)]]),
+    };
+    expect(extractBodyFromMsg(msg).html).toBe('<p>Invite</p>');
+  });
+});
+
 // ── _shouldAutoBackfillOnConnect — auto-backfill gate (#354) ──────────────────
 // The gate itself was always correct; #354 was the connect flow evaluating it
 // AFTER the initial INBOX sync inserted rows. These lock the gate contract:

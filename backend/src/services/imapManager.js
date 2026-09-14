@@ -1,7 +1,7 @@
 import { FolderStatusMonitor, checkpointFolderStatus } from './folderStatus.js';
 import { ImapFlow } from 'imapflow';
 import { query } from './db.js';
-import { parseMessage, snippetFromBody, detectBulkFromParsedHeaders, parseHeadersInput, headersToRawString, decodeMimeWords, enrichParsedMetadata } from './messageParser.js';
+import { parseMessage, snippetFromBody, detectBulkFromParsedHeaders, parseHeadersInput, headersToRawString, decodeMimeWords, enrichParsedMetadata, renderCalendarInvite } from './messageParser.js';
 import { classifyMessage, loadSocialDomains, getGlobalCategorizationEnabled } from './categorizer.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { createPluginMailFacade } from '../plugins/mailEngineFacade.js';
@@ -597,9 +597,12 @@ function decodeAttachmentBuffer(buf, encoding) {
 // does not recognize. When the walk filed parts as attachments and found no
 // text, the message simply has no body (e.g. a DMARC report that is just an
 // application/zip, or a multipart/mixed holding only a file) — re-serving the
-// first part as text/plain rendered decoded binary as the message.
+// first part as text/plain rendered decoded binary as the message. A collected
+// text/calendar part is not an unrecognized root either: fetchMessageBody
+// renders it as an invite card, and promoting it here served raw VCALENDAR
+// source as the message text.
 export function bodyFallbackApplies(results) {
-  return !(results.attachments || []).length;
+  return !(results.attachments || []).length && !(results.calendarParts || []).length;
 }
 
 export function walkStructure(node, results) {
@@ -664,6 +667,16 @@ function walkNode(node, results) {
         size: node.dispositionParameters?.size ? parseInt(node.dispositionParameters.size) : node.size || 0,
         disposition,
       } : {}),
+    });
+  } else if (type === 'text/calendar') {
+    // Meeting invites (e.g. an Outlook forwarded meeting) can be the only
+    // body part — collected separately so fetchMessageBody can render a
+    // readable invite when no text/html or text/plain alternative exists.
+    results.calendarParts = results.calendarParts || [];
+    results.calendarParts.push({
+      part: node.part || '1',
+      encoding: node.encoding || '',
+      charset: node.parameters?.charset || 'utf-8',
     });
   } else if (type.startsWith('image/') && node.id && disposition !== 'attachment') {
     // Inline image referenced via cid: in the HTML body
@@ -4533,7 +4546,7 @@ export class ImapManager {
           throw new Error('Command failed');
         }
 
-        const results = { textParts: [], attachments: [], inlineImages: [] };
+        const results = { textParts: [], attachments: [], inlineImages: [], calendarParts: [] };
         walkStructure(structure, results);
 
         // Handle single-part root node (no childNodes, type is the content type)
@@ -4549,11 +4562,16 @@ export class ImapManager {
 
         attachments = results.attachments;
 
+        // Calendar parts are only fetched when the message has no ordinary body —
+        // a multipart/alternative invite keeps its normal text/html rendering.
+        const calendarParts = results.textParts.length === 0 ? results.calendarParts : [];
+
         // Fetch any text/image parts not already obtained from the speculative fetch
         const inlineImages = results.inlineImages || [];
         const needed = [
           ...new Set([
             ...results.textParts.map(p => p.part),
+            ...calendarParts.map(p => p.part),
             ...inlineImages.map(p => p.part),
           ])
         ].filter(p => !prefetched.has(p));
@@ -4607,6 +4625,21 @@ export class ImapManager {
           const decoded = decodeBody(buf, part.encoding, part.charset);
           if (part.type === 'text/html' && !html) html = decoded;
           else if (part.type === 'text/plain' && !text) text = decoded;
+        }
+
+        // Calendar-only message (e.g. an Outlook forwarded meeting request):
+        // render a readable invite card instead of raw VCALENDAR source. The
+        // html rides the normal sanitizer path like any email HTML. Calendar
+        // data with no renderable VEVENT is shown raw rather than as nothing.
+        if (!html && !text && calendarParts.length) {
+          for (const part of calendarParts) {
+            const buf = prefetched.get(part.part);
+            if (!buf) continue;
+            const decoded = decodeBody(buf, part.encoding, part.charset);
+            const invite = renderCalendarInvite(decoded);
+            if (invite) { html = invite.html; text = invite.text; break; }
+            if (!text) text = decoded;
+          }
         }
 
         // Step 3: replace cid: references in HTML with data: URIs so inline
