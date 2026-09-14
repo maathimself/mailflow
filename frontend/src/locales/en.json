@@ -328,6 +328,7 @@
     "releaseToSync": "Release to sync",
     "noSearchResults": "No results found",
     "noSearchResultsDesc": "No results for {{query}}",
+    "searchFailed": "Search failed",
     "clearSearch": "Clear search",
     "searchHelp": {
       "title": "Search operators",

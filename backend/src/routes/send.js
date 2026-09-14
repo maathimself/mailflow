@@ -142,7 +142,9 @@ router.post('/send', async (req, res) => {
     : null;
   const idemKeyRedis = idempotencyKey ? `send_idem:${req.session.userId}:${idempotencyKey}` : null;
   if (idemKeyRedis) {
-    const cached = await redisClient.get(idemKeyRedis).catch(() => null);
+    let cached;
+    try { cached = await redisClient.get(idemKeyRedis); }
+    catch { return res.status(503).json({ error: 'Sending is temporarily unavailable. Please try again shortly.' }); }
     if (cached === '__inflight__') return res.status(409).json({ error: 'This message is already being sent.' });
     if (cached) return res.json(JSON.parse(cached));
   }
@@ -282,6 +284,7 @@ router.post('/send', async (req, res) => {
     }
   }
 
+  let reservationAcquired = false;
   let delivered = false; // true once transport.sendMail has actually handed off the message
   try {
     const smtp = await createAccountSmtpTransport(account);
@@ -366,8 +369,11 @@ router.post('/send', async (req, res) => {
     if (idemKeyRedis) {
       // TTL comfortably above the worst-case send (large attachment over a slow SMTP
       // server) so the in-flight guard cannot lapse while this request is still running.
-      const reserved = await redisClient.set(idemKeyRedis, '__inflight__', { NX: true, EX: 300 }).catch(() => 'OK');
-      if (reserved === null) return res.status(409).json({ error: 'This message is already being sent.' });
+      let reserved;
+      try { reserved = await redisClient.set(idemKeyRedis, '__inflight__', { NX: true, EX: 300 }); }
+      catch { return res.status(503).json({ error: 'Sending is temporarily unavailable. Please try again shortly.' }); }
+      if (reserved !== 'OK') return res.status(409).json({ error: 'This message is already being sent.' });
+      reservationAcquired = true;
     }
 
     await transport.sendMail(mailOptions);
@@ -534,20 +540,17 @@ router.post('/send', async (req, res) => {
     if (idemKeyRedis) redisClient.set(idemKeyRedis, JSON.stringify(sendResult), { EX: 86400 }).catch(() => {});
     res.json(sendResult);
   } catch (err) {
-    console.error('Send failed:', err.message);
-    if (idemKeyRedis) {
-      if (delivered) {
-        // The message WAS delivered but a later step threw. Persist a DURABLE success
-        // result (not just the short-lived reservation) so a retry at ANY time returns it
-        // instead of re-running transport.sendMail — otherwise the reservation would lapse
-        // and the same key could deliver a second copy.
-        redisClient.set(idemKeyRedis, JSON.stringify({ ok: true }), { EX: 86400 }).catch(() => {});
-      } else {
-        // Delivery never happened — release so a genuine retry after a pre-send failure
-        // can proceed immediately.
-        redisClient.del(idemKeyRedis).catch(() => {});
-      }
+    if (delivered) {
+      // SMTP already accepted this message. A Sent-folder or metadata failure
+      // must not invite the user to send it again.
+      console.error('Post-send processing failed:', err.message);
+      const sendResult = { ok: true, sentCopySaved: false };
+      if (idemKeyRedis) redisClient.set(idemKeyRedis, JSON.stringify(sendResult), { EX: 86400 }).catch(() => {});
+      return res.json(sendResult);
     }
+    console.error('Send failed:', err.message);
+    // A failure before reservation must not delete a concurrent request's lock.
+    if (idemKeyRedis && reservationAcquired) redisClient.del(idemKeyRedis).catch(() => {});
     res.status(500).json({ error: sanitizeSmtpError(err) });
   }
 });

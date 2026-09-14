@@ -328,6 +328,7 @@
     "releaseToSync": "Отпустите для синхронизации",
     "noSearchResults": "Результаты не найдены",
     "noSearchResultsDesc": "Ничего не найдено по запросу {{query}}",
+    "searchFailed": "Ошибка поиска",
     "clearSearch": "Очистить поиск",
     "searchHelp": {
       "title": "Операторы поиска",

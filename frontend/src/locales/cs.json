@@ -241,6 +241,7 @@
     "releaseToSync": "Uvolněním synchronizujete",
     "noSearchResults": "Nebyly nalezeny žádné výsledky",
     "noSearchResultsDesc": "Žádné výsledky pro {{query}}",
+    "searchFailed": "Hledání se nezdařilo",
     "clearSearch": "Vymazat hledání",
     "searchHelp": {
       "title": "Operátory vyhledávání",

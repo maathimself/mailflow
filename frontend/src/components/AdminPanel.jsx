@@ -30,7 +30,6 @@ import { usePushNotifications } from '../hooks/usePushNotifications.js';
 import SignatureEditor from './SignatureEditor.jsx';
 import DiagnosticsReportModal from './DiagnosticsReportModal.jsx';
 import { getEffectiveShortcuts, getGroupedActions, ACTION_DEFS, SPECIAL_KEY_LABELS, parseModKey, modLabel } from '../utils/defaultShortcuts.js';
-import { unifiedUnreadTotal } from '../utils/unifiedInbox.js';
 import { isValidForwardAddress } from '../utils/ruleActions.js';
 
 // ─── Shared field component ───────────────────────────────────────────────────
@@ -449,7 +448,7 @@ function AccountForm({ initial, onSave, onCancel }) {
 // ─── Accounts Tab ─────────────────────────────────────────────────────────────
 function AccountsTab() {
   const { t } = useTranslation();
-  const { accounts, setAccounts, updateAccount, unreadCounts, setUnreadCounts, addNotification, backfillProgress } = useStore();
+  const { accounts, setAccounts, updateAccount, setUnreadCounts, addNotification, backfillProgress } = useStore();
   const [subview, setSubview] = useState('list'); // 'list' | 'add' | 'edit' | 'folders' | 'aliases'
   const [editTarget, setEditTarget] = useState(null);
   const [folderMappings, setFolderMappings] = useState({});
@@ -485,14 +484,7 @@ function AccountsTab() {
       updates.smtp_auth_pass = null;
     }
     const updated = await api.updateAccount(editTarget.id, updates);
-    const nextAccounts = accounts.map(account => account.id === editTarget.id
-      ? { ...account, ...updated }
-      : account);
     updateAccount(editTarget.id, updated);
-    setUnreadCounts({
-      total: unifiedUnreadTotal(unreadCounts.byAccount, nextAccounts),
-      byAccount: unreadCounts.byAccount,
-    });
     api.getUnreadCounts().then(setUnreadCounts).catch(console.error);
     setSubview('list');
     setEditTarget(null);
