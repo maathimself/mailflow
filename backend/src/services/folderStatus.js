@@ -19,6 +19,9 @@ export function folderStaleMs(selectableFolders) {
   const cycles = Math.max(1, Math.ceil(others / rotating));
   return Math.max(STATUS_STALE_MS, cycles * STATUS_INTERVAL_MS * 1.5);
 }
+// Membership verification (full flag snapshot plus UID SEARCH) of an unchanged folder.
+export const FOLDER_VERIFY_MS = 15 * 60000;
+export const FOLDER_VERIFY_CONDSTORE_MS = 6 * 3600000;
 export const STATUS_QUERY = { messages: true, unseen: true, uidNext: true, uidValidity: true, highestModseq: true };
 
 export function validFolderStatus(s) {
@@ -36,7 +39,11 @@ export function folderNeedsSync(row, s, now = Date.now()) {
   if (s.highestModseq != null && String(row.status_synced_modseq) !== String(s.highestModseq)) return true;
   // UIDNEXT cannot detect expunges/flags, and equal counts cannot prove equal UID sets.
   // Periodically verify membership even with CONDSTORE (repairs old cache holes too).
-  return now - new Date(row.status_synced_at).getTime() >= 15 * 60000;
+  // With CONDSTORE every flag change already moves HIGHESTMODSEQ and an expunge moves the
+  // message count, so the periodic pass only has to catch old holes. It re-fetches the flags
+  // of the whole folder, which is what 100 accounts on one IP cannot afford every 15 minutes.
+  const verifyMs = s.highestModseq != null ? FOLDER_VERIFY_CONDSTORE_MS : FOLDER_VERIFY_MS;
+  return now - new Date(row.status_synced_at).getTime() >= verifyMs;
 }
 
 export async function observeFolder(client, accountId, path) {

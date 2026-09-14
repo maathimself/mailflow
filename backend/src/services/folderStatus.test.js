@@ -50,8 +50,19 @@ describe('completed sync checkpoints', () => {
     { ...good, messages: 9 }, { ...good, highestModseq: 9007199254740994n },
   ])('notices arrivals, rebuilds, flags, expunges, and exact modseq changes', status => expect(folderNeedsSync(row, status, 1)).toBe(true));
   it('periodically verifies equal-count membership and retries uncompleted ingestion', () => {
-    expect(folderNeedsSync(row, good, 15*60000)).toBe(true);
+    expect(folderNeedsSync(row, good, 6*3600000)).toBe(true);
     expect(folderNeedsSync({ ...row, status_synced_at: null }, good, 1)).toBe(true);
+  });
+  it('verifies an unchanged CONDSTORE folder every six hours instead of every 15 minutes', () => {
+    expect(folderNeedsSync(row, good, 15*60000)).toBe(false);
+    expect(folderNeedsSync(row, good, 5*3600000)).toBe(false);
+    expect(folderNeedsSync(row, good, 7*3600000)).toBe(true);
+  });
+  it('keeps the 15-minute verification on servers without CONDSTORE', () => {
+    const plain = { ...good, highestModseq: undefined };
+    const plainRow = { ...row, status_synced_modseq: null };
+    expect(folderNeedsSync(plainRow, plain, 14*60000)).toBe(false);
+    expect(folderNeedsSync(plainRow, plain, 16*60000)).toBe(true);
   });
   it('does not present cache counts as verified server counts', () => {
     expect(publicFolderCounts({ total_count: 10, unread_count: 4 }, 0)).toMatchObject({ total_count: null, unread_count: null, cached_total_count: 10, counts_known: false, counts_stale: true });
