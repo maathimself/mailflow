@@ -5638,10 +5638,6 @@ function AboutTab() {
     [t('admin.about.website'),    'https://github.com/wyrtensi/MailExpert'],
     [t('admin.about.sourceCode'), 'https://github.com/wyrtensi/MailExpert'],
   ];
-  const supportRows = [
-    [t('admin.about.kofi'),           'https://ko-fi.com/mailflow'],
-    [t('admin.about.githubSponsors'), 'https://github.com/sponsors/maathimself'],
-  ];
 
   const rowStyle = (last) => ({
     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -5675,20 +5671,6 @@ function AboutTab() {
           </div>
         ))}
       </div>
-      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 8px 4px' }}>
-        {t('admin.about.sponsor')}
-      </div>
-      <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border-subtle)' }}>
-        {supportRows.map(([label, href], i) => (
-          <div key={label} style={rowStyle(i === supportRows.length - 1)}>
-            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{label}</span>
-            <a href={href} target="_blank" rel="noopener noreferrer"
-              style={{ fontSize: 13, color: 'var(--accent)', textDecoration: 'none' }}
-            >{href.replace('https://', '')}</a>
-          </div>
-        ))}
-      </div>
-
       <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '18px 0 8px 4px' }}>
         {t('diagnostics.section')}
       </div>

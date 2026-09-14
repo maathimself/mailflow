@@ -831,10 +831,7 @@
       "frontendBuild": "Sestavení frontendu",
       "license": "Licence",
       "website": "Web",
-      "sourceCode": "Zdrojový kód",
-      "sponsor": "Podpořit vývoj",
-      "kofi": "Ko-fi",
-      "githubSponsors": "GitHub Sponsors"
+      "sourceCode": "Zdrojový kód"
     },
     "appearance": {
       "title": "Vzhled",
