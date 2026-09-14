@@ -1,3 +1,4 @@
+import { STATUS_STALE_MS } from '../services/folderStatus.js';
 import { Router } from 'express';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
@@ -117,6 +118,9 @@ function snippetIsGarbled(s) {
 // and folder are captured before a move/delete can drop them; the hook swallows per-plugin
 // errors, so a completed mutation is never turned into a 500.
 function notifyMailMutation(rows, userId) {
+  for (const accountId of new Set(rows.map(m => m.account_id).filter(Boolean))) {
+    imapManager.scheduleCountRefresh?.(accountId);
+  }
   const byAccount = new Map();
   for (const m of rows) {
     if (!m.message_id) continue;
@@ -318,30 +322,27 @@ router.get('/thread/:threadId', async (req, res) => {
   }
 });
 
-// Unread counts
-// Reads directly from the messages table (source of truth) rather than the
-// folders.unread_count cache. The cache is updated at the START of each sync
-// cycle, before new messages are inserted, so it lags by one full sync interval
-// (~60 s) after new mail arrives. Querying messages directly means the count
-// returned immediately after the new_messages WS event is always authoritative.
+// Counts are snapshots independently measured on the IMAP server, never cache tallies.
 router.get('/unread-counts', async (req, res) => {
-  const result = await query(`
-    SELECT m.account_id, a.include_in_unified_inbox, COUNT(*) AS count
-    FROM messages m
-    JOIN email_accounts a ON a.id = m.account_id
-    WHERE a.user_id = $1 AND a.enabled = true
-      AND m.folder = 'INBOX' AND m.is_read = false AND m.is_deleted = false
-    GROUP BY m.account_id, a.include_in_unified_inbox
-  `, [req.session.userId]);
-
-  const byAccount = {};
-  let total = 0;
+  const result = await query(`SELECT a.id AS account_id, a.include_in_unified_inbox,
+      f.server_unread_count AS count, f.server_total_count, f.server_counts_at, f.server_count_revision, f.status_attempt_revision, f.status_error
+    FROM email_accounts a LEFT JOIN folders f ON f.account_id=a.id AND f.path='INBOX'
+    WHERE a.user_id=$1 AND a.enabled`, [req.session.userId]);
+  const byAccount = {}, snapshots = {};
+  let total = 0, complete = true;
   for (const row of result.rows) {
-    byAccount[row.account_id] = parseInt(row.count);
-    if (row.include_in_unified_inbox !== false) total += parseInt(row.count);
+    const known = row.count != null && row.server_counts_at != null;
+    const count = known ? Number(row.count) : null;
+    byAccount[row.account_id] = count;
+    const stale = !known || !!row.status_error || Date.now() - new Date(row.server_counts_at).getTime() > STATUS_STALE_MS;
+    snapshots[row.account_id] = { totalCount: known && row.server_total_count != null ? Number(row.server_total_count) : null, revision: row.server_count_revision || '0', attemptRevision: row.status_attempt_revision || row.server_count_revision || '0', observedAt: row.server_counts_at || null, stale, known };
+    if (row.include_in_unified_inbox !== false) {
+      if (known) total += count;
+      if (stale) complete = false;
+    }
   }
   res.set('Cache-Control', 'no-store');
-  res.json({ total, byAccount });
+  res.json({ total, byAccount, snapshots, complete });
 });
 
 // Hard cap on a live IMAP body fetch. Connection acquisition is already bounded at 30s
@@ -874,6 +875,7 @@ router.post('/mark-all-read', async (req, res) => {
   imapManager.markAllReadImap(check.rows[0], folder).catch(err =>
     console.warn('markAllReadImap failed:', err.message)
   );
+  imapManager.scheduleCountRefresh?.(accountId);
   imapManager.broadcast({ type: 'sync_complete', accountId }, check.rows[0].user_id);
   res.json({ ok: true });
 });

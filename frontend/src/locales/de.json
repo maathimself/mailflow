@@ -328,6 +328,7 @@
     "releaseToSync": "Loslassen zum Synchronisieren",
     "noSearchResults": "Keine Ergebnisse gefunden",
     "noSearchResultsDesc": "Keine Treffer für {{query}}",
+    "searchFailed": "Suche fehlgeschlagen",
     "clearSearch": "Suche löschen",
     "searchHelp": {
       "title": "Suchoperatoren",
@@ -1387,6 +1388,7 @@
       "runButton": "Regeln auf Posteingang anwenden",
       "running": "Wird ausgeführt…",
       "runResult": "Fertig — {{matched}} von {{processed}} Nachrichten abgeglichen",
+      "runStarted": "Läuft im Hintergrund – Sie werden benachrichtigt, sobald es fertig ist",
       "runError": "Fehler beim Ausführen der Regeln",
       "formTitleEdit": "Regel bearbeiten",
       "fieldTo": "An",

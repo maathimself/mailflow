@@ -30,7 +30,6 @@ import { usePushNotifications } from '../hooks/usePushNotifications.js';
 import SignatureEditor from './SignatureEditor.jsx';
 import DiagnosticsReportModal from './DiagnosticsReportModal.jsx';
 import { getEffectiveShortcuts, getGroupedActions, ACTION_DEFS, SPECIAL_KEY_LABELS, parseModKey, modLabel } from '../utils/defaultShortcuts.js';
-import { unifiedUnreadTotal } from '../utils/unifiedInbox.js';
 import { isValidForwardAddress } from '../utils/ruleActions.js';
 
 // ─── Shared field component ───────────────────────────────────────────────────
@@ -449,7 +448,7 @@ function AccountForm({ initial, onSave, onCancel }) {
 // ─── Accounts Tab ─────────────────────────────────────────────────────────────
 function AccountsTab() {
   const { t } = useTranslation();
-  const { accounts, setAccounts, updateAccount, unreadCounts, setUnreadCounts, addNotification, backfillProgress } = useStore();
+  const { accounts, setAccounts, updateAccount, setUnreadCounts, addNotification, backfillProgress } = useStore();
   const [subview, setSubview] = useState('list'); // 'list' | 'add' | 'edit' | 'folders' | 'aliases'
   const [editTarget, setEditTarget] = useState(null);
   const [folderMappings, setFolderMappings] = useState({});
@@ -485,14 +484,7 @@ function AccountsTab() {
       updates.smtp_auth_pass = null;
     }
     const updated = await api.updateAccount(editTarget.id, updates);
-    const nextAccounts = accounts.map(account => account.id === editTarget.id
-      ? { ...account, ...updated }
-      : account);
     updateAccount(editTarget.id, updated);
-    setUnreadCounts({
-      total: unifiedUnreadTotal(unreadCounts.byAccount, nextAccounts),
-      byAccount: unreadCounts.byAccount,
-    });
     api.getUnreadCounts().then(setUnreadCounts).catch(console.error);
     setSubview('list');
     setEditTarget(null);
@@ -5806,18 +5798,26 @@ function RulesTab() {
     setRunResult(null);
     setRunError('');
     try {
-      const result = await api.runRules();
-      setRunResult(result);
-      // Rules may have moved messages between folders; tell the message list to re-run
-      // any active search and refresh the folder view so affected messages leave stale
-      // results (a search snapshot does not otherwise update on its own). Fixes #223.
-      window.dispatchEvent(new Event('mailflow:rules-ran'));
-    } catch {
-      setRunError(t('admin.rules.runError'));
-    } finally {
+      // 202: the sweep runs in the background. The rules_run_complete WebSocket event
+      // (useWebSocket.js) toasts the result, refreshes the views, and reaches this panel
+      // via the mailflow:rules-run-complete window event below.
+      await api.runRules();
+    } catch (err) {
+      setRunError(err.message || t('admin.rules.runError'));
       setRunningRules(false);
     }
   }
+
+  useEffect(() => {
+    const onRunComplete = (event) => {
+      const detail = event.detail || {};
+      if (detail.ok === false) setRunError(t('admin.rules.runError'));
+      else setRunResult({ processed: detail.processed, matched: detail.matched });
+      setRunningRules(false);
+    };
+    window.addEventListener('mailflow:rules-run-complete', onRunComplete);
+    return () => window.removeEventListener('mailflow:rules-run-complete', onRunComplete);
+  }, [t]);
 
   useEffect(() => {
     api.getRules()
@@ -6328,6 +6328,11 @@ function RulesTab() {
         </div>
       </div>
 
+      {runningRules && (
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12 }}>
+          {t('admin.rules.runStarted')}
+        </div>
+      )}
       {runResult && (
         <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12 }}>
           {t('admin.rules.runResult', { matched: runResult.matched, processed: runResult.processed })}

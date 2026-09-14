@@ -328,6 +328,7 @@
     "releaseToSync": "Soltar para sincronizar",
     "noSearchResults": "No se encontraron resultados",
     "noSearchResultsDesc": "Sin resultados para {{query}}",
+    "searchFailed": "Error en la búsqueda",
     "clearSearch": "Limpiar búsqueda",
     "searchHelp": {
       "title": "Operadores de búsqueda",
@@ -705,6 +706,7 @@
       "runButton": "Aplicar reglas a la bandeja de entrada",
       "running": "Ejecutando…",
       "runResult": "Listo — {{matched}} de {{processed}} mensajes coincidieron",
+      "runStarted": "Ejecutándose en segundo plano — se le avisará cuando termine",
       "runError": "Error al ejecutar las reglas",
       "fieldBody": "Cuerpo",
       "fieldHeader": "Encabezado",

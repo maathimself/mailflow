@@ -241,6 +241,7 @@
     "releaseToSync": "Uvolněním synchronizujete",
     "noSearchResults": "Nebyly nalezeny žádné výsledky",
     "noSearchResultsDesc": "Žádné výsledky pro {{query}}",
+    "searchFailed": "Hledání se nezdařilo",
     "clearSearch": "Vymazat hledání",
     "searchHelp": {
       "title": "Operátory vyhledávání",
@@ -1010,6 +1011,7 @@
       "runButton": "Spustit pravidla v Doručené poště",
       "running": "Probíhá…",
       "runResult": "Hotovo — odpovídalo {{matched}} z {{processed}} zpráv",
+      "runStarted": "Běží na pozadí — po dokončení budete upozorněni",
       "runError": "Pravidla se nepodařilo spustit"
     },
     "privacy": {
