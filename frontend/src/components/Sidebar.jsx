@@ -12,6 +12,7 @@ import {
   resolveFolderOrderDrop,
 } from '../utils/sidebar.js';
 import { useMobile } from '../hooks/useMobile.js';
+import { PluginSlot } from '../plugins/PluginSlot.jsx';
 import LogoMark from './LogoMark.jsx';
 import ProfileModal from './ProfileModal.jsx';
 import { useUiScale, descale } from '../hooks/useUiScale.js';
@@ -264,6 +265,7 @@ export default function Sidebar() {
     sidebarWidth,
     isSidebarResizing,
     showContacts, setShowContacts,
+    activePluginView, setActivePluginView,
   } = useStore();
 
   const isMobile = useMobile();
@@ -1763,7 +1765,7 @@ export default function Sidebar() {
         </div>
       ) : (
         <>
-          <div style={{ padding: '4px 8px', display: 'flex', justifyContent: sidebarCollapsed ? 'center' : 'flex-start' }}>
+          <div style={{ padding: '4px 8px', display: 'flex', flexDirection: sidebarCollapsed ? 'column' : 'row', alignItems: 'center', gap: 4 }}>
             <button
               onClick={() => { setShowContacts(!showContacts); if (isMobile) setMobileSidebarOpen(false); }}
               title={t('contacts.title')}
@@ -1774,12 +1776,17 @@ export default function Sidebar() {
                 background: showContacts ? 'var(--bg-hover)' : 'transparent',
                 color: showContacts ? 'var(--accent)' : 'var(--text-tertiary)',
                 transition: 'background 0.1s, color 0.1s',
+                flexShrink: 0,
               }}
               onMouseEnter={e => { if (!showContacts) { e.currentTarget.style.background = 'var(--bg-tertiary)'; e.currentTarget.style.color = 'var(--text-secondary)'; } }}
               onMouseLeave={e => { if (!showContacts) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-tertiary)'; } }}
             >
               {ICONS.contacts}
             </button>
+            <PluginSlot
+              name="sidebar-nav-item"
+              ctx={{ collapsed: sidebarCollapsed, activePluginView, setActivePluginView, isMobile, setMobileSidebarOpen }}
+            />
           </div>
           <div style={{ padding: '8px', borderTop: '1px solid var(--border-subtle)' }}>
           <div

@@ -20,6 +20,8 @@ import { TableCell } from '@tiptap/extension-table-cell';
 import { ComposerLink } from '../utils/editorLink.js';
 import { copyToClipboard } from '../utils/clipboard.js';
 import { resolveInitialFrom } from '../utils/defaultSender.js';
+import { PluginSlot } from '../plugins/PluginSlot.jsx';
+import { getEditorExtensions } from '../plugins/registry.js';
 
 // Resize an image blob/file to max maxW pixels wide, preserving aspect ratio.
 // Returns a Promise<string> of a base64 data URL.
@@ -351,6 +353,7 @@ export default function ComposeModal() {
       TableHeader,
       TableCell,
       Placeholder.configure({ placeholder: t('compose.bodyPh') }),
+      ...getEditorExtensions().map(c => c.extension),
     ],
     content: composeData?.body || '',
     // Records edit time in a ref only. Deliberately does not touch state: this fires on every
@@ -2693,6 +2696,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
                     style={{ background: htmlMode ? 'var(--accent-dim)' : 'none', border: 'none', borderRadius: 4, padding: '6px 10px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', color: htmlMode ? 'var(--accent)' : 'var(--text-secondary)', fontFamily: 'monospace', fontSize: 11, fontWeight: 600, letterSpacing: '-0.5px', WebkitTapHighlightColor: 'transparent' }}>{'</>'}</button>
                 </>
               )}
+              <PluginSlot name="composer-toolbar" ctx={{ insertHtml: (html) => editor?.chain().focus().insertContent(html).run() }} />
             </div>
           )}
         </>
@@ -2856,6 +2860,8 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
             </button>
           </>
         )}
+
+        <PluginSlot name="composer-toolbar" ctx={{ insertHtml: (html) => editor?.chain().focus().insertContent(html).run() }} />
 
       </div>
       )}

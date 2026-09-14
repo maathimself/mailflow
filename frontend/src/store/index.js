@@ -250,6 +250,7 @@ export const useStore = create((set, get) => ({
         expandedThreadId: null,
         threadMessages: {},
         showContacts: false,
+        activePluginView: null,
         ...(navChanged && wasScopedSearch ? { searchQuery: '' } : {}),
       };
     });
@@ -543,7 +544,11 @@ export const useStore = create((set, get) => ({
 
   // Contacts view
   showContacts: false,
-  setShowContacts: (v) => set({ showContacts: v }),
+  setShowContacts: (v) => set({ showContacts: v, activePluginView: null }),
+
+  // Plugin main-view — id da view de plugin ativa (string | null)
+  activePluginView: null,
+  setActivePluginView: (id) => set({ activePluginView: id, showContacts: false }),
   rulesPreFill: null, // { fromEmail, fromName, subject } — transient, set by context menu
   setRulesPreFill: (v) => set({ rulesPreFill: v }),
 

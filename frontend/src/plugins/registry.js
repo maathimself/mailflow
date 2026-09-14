@@ -68,3 +68,13 @@ export function registerCollector(name, contribution) {
 export function getCollectors(name) {
   return collectors.get(name) || [];
 }
+
+const editorExtensions = [];
+
+export function registerEditorExtension(pluginId, extension) {
+  editorExtensions.push({ pluginId, extension });
+}
+
+export function getEditorExtensions() {
+  return editorExtensions;
+}

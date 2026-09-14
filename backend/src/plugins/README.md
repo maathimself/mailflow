@@ -2,7 +2,8 @@
 
 MailFlow features can live as **plugins**: self-contained modules that talk to core only through a
 fixed, reviewed capability surface. **GTD** (`gtd/`) is the reference plugin and the first fully
-extracted one.
+extracted one; **Template Builder** (`template-builder/`) is the second Tier-1 plugin and the first
+to ship both a REST router and frontend Tiptap editor extensions.
 
 The point of the boundary is trust: a plugin **cannot** reach into core, the mail engine, the
 database, the network, or other users' data — so a plugin change can be reviewed for *feature
