@@ -6,6 +6,7 @@ import { applyTheme, applyCustomCss, getInitialTheme } from '../themes.js';
 import { applyFontSet, applyFontSize, effectiveFontSet, isRetroFont, THEME_FONT } from '../fonts.js';
 import { applyLayout, normalizeLayout } from '../layouts.js';
 import { DEFAULT_AI_ACTIONS } from '../aiActions.js';
+import { abortAllRuns } from '../aiRuns.js';
 import {
   removeGtdThreadFromSections,
   restoreGtdThreadRemoval,
@@ -109,6 +110,9 @@ export const useStore = create((set, get) => ({
     // flush so the previous user's debounce can't save into the new/absent session.
     if (get().user?.id !== user?.id) {
       cancelPendingPrefSave();
+      // Background AI runs (#428) belong to the previous session; never let them
+      // finish and persist a result after the identity changed.
+      abortAllRuns();
       clearTimeout(pendingCountTimer);
       pendingCountTimer = null;
     }
