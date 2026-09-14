@@ -3,10 +3,10 @@ import { randomBytes, createHash, randomUUID } from 'crypto';
 import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
-import sanitizeHtml from 'sanitize-html';
 import { sanitizeSignature, sanitizeComposeBody } from '../services/emailSanitizer.js';
 import { embedInlineDataImages } from '../utils/inlineImages.js';
 import { wrapSignatureHtml } from '../utils/signatureWrapper.js';
+import { htmlToText } from '../utils/htmlToText.js';
 import { redisClient } from '../services/redis.js';
 import { redactEmail } from '../utils/redact.js';
 import { resolveSentFolder } from '../utils/mailUtils.js';
@@ -124,12 +124,12 @@ function textToHtml(text) {
 }
 
 function sigToPlainText(html) {
-  return sanitizeHtml(html, { allowedTags: [], allowedAttributes: {} }).trim();
+  return htmlToText(html).trim();
 }
 
 function bodyToPlain(body, isHtml) {
   if (!isHtml) return body;
-  return sanitizeHtml(body, { allowedTags: [], allowedAttributes: {} });
+  return htmlToText(body);
 }
 
 function bodyToHtml(body, isHtml) {

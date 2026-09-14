@@ -3,10 +3,10 @@ import { randomBytes } from 'crypto';
 import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
-import sanitizeHtml from 'sanitize-html';
 import { sanitizeSignature, sanitizeComposeBody } from '../services/emailSanitizer.js';
 import { embedInlineDataImages } from '../utils/inlineImages.js';
 import { wrapSignatureHtml } from '../utils/signatureWrapper.js';
+import { htmlToText } from '../utils/htmlToText.js';
 import { imapManager } from '../index.js';
 
 const router = Router();
@@ -66,11 +66,11 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
   const effectiveSignature = rawSignature ? sanitizeSignature(rawSignature) : null;
 
   const sigText = effectiveSignature
-    ? sanitizeHtml(effectiveSignature, { allowedTags: [], allowedAttributes: {} }).trim()
+    ? htmlToText(effectiveSignature).trim()
     : null;
 
   const bodyText = bodyIsHtml
-    ? sanitizeHtml(body || '', { allowedTags: [], allowedAttributes: {} })
+    ? htmlToText(body || '')
     : (body || '');
 
   const bodyHtml = bodyIsHtml
