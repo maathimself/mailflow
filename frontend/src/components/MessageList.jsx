@@ -7,6 +7,7 @@ import { senderColor } from '../themes.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { isAccountInUnifiedInbox } from '../utils/unifiedInbox.js';
 import { shouldSyncFolder, folderSyncKey } from '../utils/folderSync.js';
+import { resolveThreadMessages } from '../utils/threadActions.js';
 import { useSwipeRow } from '../hooks/useSwipeRow.js';
 import ContextMenu from './ContextMenu.jsx';
 import RowHoverActions from './RowHoverActions.jsx';
@@ -296,6 +297,9 @@ export default function MessageList() {
   // Bumped to force the search effect to re-run (e.g. after rules move messages) so an
   // active search snapshot drops messages that no longer match. See #223.
   const [searchReloadToken, setSearchReloadToken] = useState(0);
+  // Server/network failure of the active search (e.g. rate-limit 429). Shown in
+  // the empty state instead of a misleading "no results".
+  const [searchError, setSearchError] = useState(null);
 
   // Ref that always holds the latest values needed by shortcut handlers.
   // Updated synchronously on every render so handlers are never stale.
@@ -535,11 +539,13 @@ export default function MessageList() {
       setIsSearching(false);
       setSearchResults([]);
       setSearchHasMore(false);
+      setSearchError(null);
       searchFetchedOffsetRef.current = 0;
       return;
     }
     setIsSearching(true);
     setSearchHasMore(false);
+    setSearchError(null);
     const seq = ++searchSeq.current;
     searchTimer.current = setTimeout(async () => {
       try {
@@ -549,7 +555,15 @@ export default function MessageList() {
         setSearchResults(applyReadGuard(data.messages));
         setSearchHasMore(data.messages.length === searchPageSize);
       } catch (err) {
-        if (searchSeq.current === seq) console.error('Search failed:', err);
+        if (searchSeq.current === seq) {
+          console.error('Search failed:', err);
+          // Clear instead of leaving a previous query's results standing under
+          // the new query text, and surface the failure (a swallowed rate-limit
+          // 429 otherwise reads as "no results").
+          setSearchResults([]);
+          searchFetchedOffsetRef.current = 0;
+          setSearchError(err.message || 'Search failed');
+        }
       } finally {
         if (searchSeq.current === seq) setIsSearching(false);
       }
@@ -768,15 +782,20 @@ export default function MessageList() {
     return threadedView && !searchQuery.trim() && message.thread_id && messageCount > 1;
   }, [threadedView, searchQuery]);
 
-  const resolveMessagesForThreadAction = useCallback(async (message, { forceRefresh = false } = {}) => {
+  // Resolves the sub-messages a thread-wide action applies to. Defaults to the server rather
+  // than the expansion-time cache: a thread gains messages while you look at it, and acting on
+  // the snapshot left newer ones unread (unreachable, since the row then rendered as read) or,
+  // on the delete and move paths, silently untouched. See utils/threadActions.js.
+  const resolveMessagesForThreadAction = useCallback(async (message, { allowCache = false } = {}) => {
     const tid = message.thread_id || message.id;
-    if (!isThreadListRow(message)) return [message];
-    if (!forceRefresh && Array.isArray(threadMessages[tid]) && threadMessages[tid].length > 0) {
-      return threadMessages[tid];
-    }
     const effectiveFolder = selectedAccountId ? selectedFolder : 'INBOX';
-    const data = await api.getThread(tid, effectiveFolder, isUnified);
-    return data.messages?.length ? data.messages : [message];
+    return resolveThreadMessages({
+      message,
+      isThreadRow: isThreadListRow(message),
+      cached: threadMessages[tid],
+      allowCache,
+      fetchThread: () => api.getThread(tid, effectiveFolder, isUnified),
+    });
   }, [isThreadListRow, threadMessages, selectedAccountId, selectedFolder, isUnified]);
 
   const invalidateThreadCache = useCallback((threadId) => {
@@ -1611,7 +1630,7 @@ export default function MessageList() {
         try {
           groups = await archiveTargetGroupsForRows(
             msgs,
-            message => resolveMessagesForThreadAction(message, { forceRefresh: true }),
+            message => resolveMessagesForThreadAction(message),
             activeFolder,
             isThreadListRow,
             selectedAccountId,
@@ -1723,7 +1742,7 @@ export default function MessageList() {
 
     let targets;
     try {
-      const resolved = await resolveMessagesForThreadAction(message, { forceRefresh: true });
+      const resolved = await resolveMessagesForThreadAction(message);
       targets = archiveTargetsForFolder(message, resolved, activeFolder, threadRow, selectedAccountId);
 
       const resolvedUnreadByAccount = unreadCountsByAccount(targets);
@@ -3328,10 +3347,12 @@ export default function MessageList() {
           <EmptyState
             folderSyncing={folderSyncing}
             searchQuery={searchQuery}
+            searchError={searchError}
             unreadOnly={unreadOnly}
             selectedFolder={selectedFolder}
             accounts={accounts}
             onClearSearch={() => { setSearchQuery(''); }}
+            onRetrySearch={() => setSearchReloadToken(token => token + 1)}
             onShowAll={() => setUnreadOnly(false)}
             onCompose={() => openCompose({ accountId: selectedAccountId || undefined })}
           />
@@ -3990,7 +4011,7 @@ function UndoBar({ notification, onDismiss, showTopBorder }) {
   );
 }
 
-function EmptyState({ folderSyncing, searchQuery, unreadOnly, selectedFolder, accounts, onClearSearch, onShowAll, onCompose }) {
+function EmptyState({ folderSyncing, searchQuery, searchError, unreadOnly, selectedFolder, accounts, onClearSearch, onRetrySearch, onShowAll, onCompose }) {
   const { t } = useTranslation();
 
   if (folderSyncing) {
@@ -4018,10 +4039,18 @@ function EmptyState({ folderSyncing, searchQuery, unreadOnly, selectedFolder, ac
             <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
           </svg>
         </div>
-        <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 6 }}>{t('messageList.noSearchResults')}</div>
-        <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 20 }}>
-          {t('messageList.noSearchResultsDesc', { query: searchQuery })}
+        <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 6 }}>
+          {searchError ? t('messageList.searchFailed') : t('messageList.noSearchResults')}
         </div>
+        <div style={{ fontSize: 13, color: searchError ? 'var(--red)' : 'var(--text-tertiary)', marginBottom: 20 }}>
+          {searchError || t('messageList.noSearchResultsDesc', { query: searchQuery })}
+        </div>
+        {searchError && (
+          <button onClick={onRetrySearch} style={{
+            padding: '7px 18px', borderRadius: 8, border: 'none', marginRight: 8,
+            background: 'var(--accent)', color: 'var(--accent-text)', cursor: 'pointer', fontSize: 13,
+          }}>{t('common.retry')}</button>
+        )}
         <button onClick={onClearSearch} style={{
           padding: '7px 18px', borderRadius: 8, border: '1px solid var(--border)',
           background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13,

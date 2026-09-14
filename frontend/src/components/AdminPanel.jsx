@@ -5734,18 +5734,26 @@ function RulesTab() {
     setRunResult(null);
     setRunError('');
     try {
-      const result = await api.runRules();
-      setRunResult(result);
-      // Rules may have moved messages between folders; tell the message list to re-run
-      // any active search and refresh the folder view so affected messages leave stale
-      // results (a search snapshot does not otherwise update on its own). Fixes #223.
-      window.dispatchEvent(new Event('mailexpert:rules-ran'));
-    } catch {
-      setRunError(t('admin.rules.runError'));
-    } finally {
+      // 202: the sweep runs in the background. The rules_run_complete WebSocket event
+      // (useWebSocket.js) toasts the result, refreshes the views, and reaches this panel
+      // via the mailexpert:rules-run-complete window event below.
+      await api.runRules();
+    } catch (err) {
+      setRunError(err.message || t('admin.rules.runError'));
       setRunningRules(false);
     }
   }
+
+  useEffect(() => {
+    const onRunComplete = (event) => {
+      const detail = event.detail || {};
+      if (detail.ok === false) setRunError(t('admin.rules.runError'));
+      else setRunResult({ processed: detail.processed, matched: detail.matched });
+      setRunningRules(false);
+    };
+    window.addEventListener('mailexpert:rules-run-complete', onRunComplete);
+    return () => window.removeEventListener('mailexpert:rules-run-complete', onRunComplete);
+  }, [t]);
 
   useEffect(() => {
     api.getRules()
@@ -6256,6 +6264,11 @@ function RulesTab() {
         </div>
       </div>
 
+      {runningRules && (
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12 }}>
+          {t('admin.rules.runStarted')}
+        </div>
+      )}
       {runResult && (
         <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12 }}>
           {t('admin.rules.runResult', { matched: runResult.matched, processed: runResult.processed })}

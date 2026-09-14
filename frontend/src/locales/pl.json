@@ -342,6 +342,7 @@
     "releaseToSync": "Puść, aby zsynchronizować",
     "noSearchResults": "Nie znaleziono wyników",
     "noSearchResultsDesc": "Brak wyników dla {{query}}",
+    "searchFailed": "Wyszukiwanie nie powiodło się",
     "clearSearch": "Wyczyść wyszukiwanie",
     "searchHelp": {
       "title": "Operatory wyszukiwania",
@@ -744,6 +745,7 @@
       "runButton": "Uruchom reguły na skrzynce odbiorczej",
       "running": "Uruchamianie…",
       "runResult": "Gotowe — {{matched}} z {{processed}} wiadomości pasuje",
+      "runStarted": "Działa w tle — otrzymasz powiadomienie po zakończeniu",
       "runError": "Nie udało się uruchomić reguł"
     },
     "blockList": {

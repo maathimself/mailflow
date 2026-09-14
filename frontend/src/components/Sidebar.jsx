@@ -723,6 +723,10 @@ export default function Sidebar() {
           setCreatingFolder({ accountId, parentPath: folderObj.path });
           setCreateName('');
           if (!expandedAccounts[accountId]) setExpandedAccounts(prev => ({ ...prev, [accountId]: true }));
+          // Un-collapse the target folder so the input isn't hidden with it.
+          if (collapsedFolders.includes(`${accountId}:${folderObj.path}`)) {
+            toggleCollapsedFolder(accountId, folderObj.path);
+          }
         },
       },
       { separator: true },
@@ -1335,7 +1339,9 @@ export default function Sidebar() {
                     display: 'flex', alignItems: 'center', gap: 8,
                     padding: `6px 10px 6px ${indent}px`, borderRadius: 7,
                   }}>
-                    <span style={{ color: 'var(--text-tertiary)', flexShrink: 0, display: 'flex' }}>{ICONS.folder}</span>
+                    {/* No folder icon here: at deep indents its footprint squeezes
+                        the input to a sliver, and the indent alone already places
+                        the row among its future siblings. */}
                     <input
                       ref={createInputRef}
                       value={createName}
@@ -1568,12 +1574,13 @@ export default function Sidebar() {
 
                       {/* Children — shown when expanded */}
                       {hasChildren && isExpanded && (
-                        <>
-                          {visibleChildren.map(child => renderNode(child, depth + 1, visibleChildren))}
-                          {creatingFolder?.accountId === account.id && creatingFolder?.parentPath === folder.path &&
-                            createFolderInput(BASE_INDENT + (depth + 1) * DEPTH_INDENT)}
-                        </>
+                        visibleChildren.map(child => renderNode(child, depth + 1, visibleChildren))
                       )}
+                      {/* Subfolder-create input — outside the children block so it
+                          also renders on leaf folders (gated inside it, "New
+                          subfolder" on a childless folder silently did nothing). */}
+                      {creatingFolder?.accountId === account.id && creatingFolder?.parentPath === folder.path &&
+                        createFolderInput(BASE_INDENT + (depth + 1) * DEPTH_INDENT)}
                     </div>
                   );
                 };
