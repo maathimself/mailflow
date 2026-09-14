@@ -17,7 +17,7 @@ vi.mock('../utils/redact.js', () => ({ redactEmail: vi.fn() }));
 vi.mock('./hostValidation.js', () => ({ resolveForConnection: vi.fn(), createPinnedLookup: vi.fn() }));
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
 
-import { ImapManager, countMissingInboxCopies, fetchBackfillBatch, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, extractImapError, isImapAuthFailure, AUTH_FAILURE_COOLDOWN_MS, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch } from './imapManager.js';
+import { ImapManager, countMissingInboxCopies, fetchBackfillBatch, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, extractImapError, isImapAuthFailure, AUTH_FAILURE_COOLDOWN_MS, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, planBodyParts, extractBodyFromMsg, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch } from './imapManager.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { EventEmitter } from 'node:events';
 import { ImapFlow } from 'imapflow';
@@ -1366,6 +1366,152 @@ describe('walkStructure attachment classification', () => {
     expect(results.textParts.map(p => p.type)).toEqual(['text/plain', 'text/html']);
     expect(results.attachments).toHaveLength(0);
   });
+
+  it('records an unnamed single-part text/calendar root as a calendar part, not body text (#423)', () => {
+    const results = walk({ type: 'text/calendar', encoding: '7bit', parameters: { method: 'REQUEST', charset: 'utf-8' } });
+    expect(results.textParts).toHaveLength(0);
+    expect(results.attachments).toHaveLength(0);
+    expect(results.calendarParts).toEqual([{ part: '1', encoding: '7bit', charset: 'utf-8' }]);
+  });
+
+  it('keeps a named text/calendar part as an attachment and also records it as a calendar part (#423)', () => {
+    const results = walk({
+      type: 'text/calendar', encoding: 'base64', parameters: { method: 'REQUEST', name: 'meeting.ics' },
+    });
+    expect(results.attachments).toHaveLength(1);
+    expect(results.attachments[0]).toMatchObject({ part: '1', filename: 'meeting.ics', type: 'text/calendar', encoding: 'base64' });
+    expect(results.calendarParts.map(p => p.part)).toEqual(['1']);
+  });
+
+  it('does not treat an attachment-disposed text/calendar part as a calendar body candidate (#423)', () => {
+    const results = walk({
+      type: 'multipart/mixed',
+      childNodes: [
+        { part: '1', type: 'text/plain', encoding: '7bit' },
+        { part: '2', type: 'text/calendar', encoding: 'base64', disposition: 'attachment', dispositionParameters: { filename: 'invite.ics' } },
+      ],
+    });
+    expect(results.calendarParts).toBeUndefined();
+    expect(results.attachments.map(a => a.filename)).toEqual(['invite.ics']);
+  });
+});
+
+describe('planBodyParts — body part selection (#423)', () => {
+  it('uses html/plain parts and ignores the calendar part for a Google Calendar invite', () => {
+    const plan = planBodyParts({
+      type: 'multipart/mixed',
+      childNodes: [
+        {
+          part: '1', type: 'multipart/alternative',
+          childNodes: [
+            { part: '1.1', type: 'text/plain', encoding: '7bit', parameters: { charset: 'UTF-8' } },
+            { part: '1.2', type: 'text/html', encoding: 'quoted-printable', parameters: { charset: 'UTF-8' } },
+            { part: '1.3', type: 'text/calendar', encoding: '7bit', parameters: { charset: 'UTF-8', method: 'REQUEST' } },
+          ],
+        },
+        { part: '2', type: 'application/ics', encoding: 'base64', disposition: 'attachment', dispositionParameters: { filename: 'invite.ics' } },
+      ],
+    });
+    expect(plan.textParts.map(p => [p.part, p.type])).toEqual([['1.1', 'text/plain'], ['1.2', 'text/html']]);
+    expect(plan.attachments.map(a => a.filename)).toEqual(['invite.ics']);
+  });
+
+  it('plans the calendar part with its own encoding when there is no text body', () => {
+    const plan = planBodyParts({
+      type: 'multipart/mixed',
+      childNodes: [
+        { part: '1', type: 'text/calendar', encoding: 'base64', parameters: { charset: 'utf-8', method: 'REQUEST' } },
+        { part: '2', type: 'application/ics', encoding: 'base64', disposition: 'attachment', dispositionParameters: { filename: 'invite.ics' } },
+      ],
+    });
+    expect(plan.textParts).toEqual([{ part: '1', type: 'text/calendar', encoding: 'base64', charset: 'utf-8' }]);
+  });
+
+  it('serves a multipart root without text or calendar parts using the first leaf encoding, not the root', () => {
+    const plan = planBodyParts({
+      type: 'multipart/mixed',
+      childNodes: [
+        { part: '1', type: 'application/octet-stream', encoding: 'base64', parameters: { charset: 'windows-1252' } },
+        { part: '2', type: 'image/png', encoding: 'base64', disposition: 'attachment', dispositionParameters: { filename: 'a.png' } },
+      ],
+    });
+    expect(plan.textParts).toEqual([{ part: '1', type: 'text/plain', encoding: 'base64', charset: 'windows-1252' }]);
+  });
+
+  it('keeps the single-part root fallback for an attachment-disposed html root', () => {
+    const plan = planBodyParts({ type: 'text/html', encoding: 'quoted-printable', disposition: 'attachment', parameters: { charset: 'iso-8859-1' } });
+    expect(plan.textParts).toEqual([{ part: '1', type: 'text/html', encoding: 'quoted-printable', charset: 'iso-8859-1' }]);
+  });
+});
+
+describe('extractBodyFromMsg — calendar-only invites (#423)', () => {
+  const OUTLOOK_FORWARD_ICS = [
+    'BEGIN:VCALENDAR',
+    'METHOD:REQUEST',
+    'BEGIN:VEVENT',
+    'ORGANIZER;CN=Jane Roe:mailto:jane@example.com',
+    'SUMMARY:Design review',
+    'DTSTART;TZID=W. Europe Standard Time:20260915T100000',
+    'DTEND;TZID=W. Europe Standard Time:20260915T110000',
+    'LOCATION:Microsoft Teams Meeting',
+    'DESCRIPTION:Join the meeting:\\nhttps://teams.microsoft.com/l/meetup-join/19%3ameeting',
+    'END:VEVENT',
+    'END:VCALENDAR',
+    '',
+  ].join('\r\n');
+
+  it('renders a base64 calendar-only message as an invite card instead of raw VCALENDAR', () => {
+    const body = extractBodyFromMsg({
+      bodyStructure: {
+        type: 'multipart/mixed',
+        childNodes: [
+          { part: '1', type: 'text/calendar', encoding: 'base64', parameters: { charset: 'utf-8', method: 'REQUEST' } },
+          { part: '2', type: 'application/ics', encoding: 'base64', disposition: 'attachment', dispositionParameters: { filename: 'invite.ics' } },
+        ],
+      },
+      bodyParts: new Map([['1', Buffer.from(Buffer.from(OUTLOOK_FORWARD_ICS).toString('base64').replace(/.{76}/g, '$&\r\n'))]]),
+    });
+    expect(body.html).toContain('Design review');
+    expect(body.html).toContain('https://teams.microsoft.com/l/meetup-join/19%3ameeting');
+    expect(body.html).not.toContain('BEGIN:VEVENT');
+    expect(body.text).toContain('Design review');
+    expect(body.text).not.toContain('BEGIN:VCALENDAR');
+    expect(body.attachments.map(a => a.filename)).toEqual(['invite.ics']);
+  });
+
+  it('falls back to the raw calendar text when the part has no VEVENT', () => {
+    const raw = 'BEGIN:VCALENDAR\r\nBEGIN:VTODO\r\nSUMMARY:Todo\r\nEND:VTODO\r\nEND:VCALENDAR\r\n';
+    const body = extractBodyFromMsg({
+      bodyStructure: { type: 'text/calendar', encoding: '7bit', parameters: { charset: 'utf-8' } },
+      bodyParts: new Map([['1', Buffer.from(raw)]]),
+    });
+    expect(body.html).toBeNull();
+    expect(body.text).toBe(raw);
+  });
+
+  it('falls back to the raw calendar text when rendering throws', async () => {
+    const icsInvite = await import('./icsInvite.js');
+    const spy = vi.spyOn(icsInvite, 'renderInviteHtml').mockImplementation(() => { throw new RangeError('Invalid time value'); });
+    const raw = 'BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nSUMMARY:x\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n';
+    try {
+      const body = extractBodyFromMsg({
+        bodyStructure: { type: 'text/calendar', encoding: '7bit', parameters: { charset: 'utf-8' } },
+        bodyParts: new Map([['1', Buffer.from(raw)]]),
+      });
+      expect(body.html).toBeNull();
+      expect(body.text).toBe(raw);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('leaves the body empty when the calendar part was not prefetched so on-demand fetch runs', () => {
+    const body = extractBodyFromMsg({
+      bodyStructure: { type: 'text/calendar', encoding: '7bit' },
+      bodyParts: new Map(),
+    });
+    expect(body).toEqual({ html: null, text: null, attachments: [] });
+  });
 });
 
 // ── _shouldAutoBackfillOnConnect — auto-backfill gate (#354) ──────────────────
@@ -2396,6 +2542,36 @@ describe('extractImapError', () => {
     expect(body).toEqual({ html: null, text: null, attachments: [] });
     expect(clients).toHaveLength(2); // pooled attempt, then the fresh-login retry
     vi.restoreAllMocks();
+  });
+
+  it('fetchMessageBody renders a calendar-only message as an invite card (#423)', async () => {
+    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: true });
+    resolveForConnection.mockResolvedValue({ host: '127.0.0.1', addresses: ['127.0.0.1'] });
+    const ics = 'BEGIN:VCALENDAR\r\nMETHOD:CANCEL\r\nBEGIN:VEVENT\r\nSUMMARY:Standup\r\nDTSTART:20260915T080000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n';
+    const requested = [];
+    ImapFlow.mockImplementation(function () {
+      return Object.assign(new EventEmitter(), {
+        connect: vi.fn().mockResolvedValue(),
+        close: vi.fn(),
+        logout: vi.fn().mockResolvedValue(),
+        getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
+        fetch: vi.fn(async function* (_uid, q) {
+          if (q.bodyStructure) {
+            yield { uid: 7, bodyStructure: { type: 'text/calendar', encoding: 'quoted-printable', parameters: { charset: 'utf-8', method: 'CANCEL', name: 'invite.ics' } } };
+            return;
+          }
+          requested.push(...q.bodyParts);
+          yield { uid: 7, bodyParts: new Map(q.bodyParts.map(p => [p, Buffer.from(ics)])) };
+        }),
+      });
+    });
+    const gmail = { id: 'body-fetch-ics', user_id: 'u1', imap_host: 'imap.gmail.com', imap_tls: true };
+    const body = await ImapManager.prototype.fetchMessageBody.call({}, gmail, 7, 'INBOX');
+    expect(requested).toContain('1');
+    expect(body.html).toMatch(/<s>Standup<\/s>/);
+    expect(body.html).toContain('2026-09-15 08:00 (UTC)');
+    expect(body.text).toBe('❌ Standup\n🗓 2026-09-15 08:00 (UTC)');
+    expect(body.attachments.map(a => a.filename)).toEqual(['invite.ics']);
   });
 
   it('returns plain transport errors as-is', () => {
