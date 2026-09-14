@@ -3,6 +3,7 @@ import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { installCapacitorNativeBridge } from '../utils/capacitorNativeBridge.js';
 import { createBoundedActionIdTracker, isTrustedNativeMessage } from '../utils/nativeActionSecurity.js';
+import { copyInstallCommandAndQuitOrWarn } from '../utils/updateInstall.js';
 
 function linuxInstructionPath(filePath) {
   const normalized = String(filePath || '').replace(/\\/g, '/');
@@ -103,17 +104,11 @@ export default function ElectronNotificationBridge() {
         actionLabel: manualInstall ? 'Copy & Quit' : 'Install',
         onAction: async () => {
           if (manualInstall) {
-            const result = await window.mailexpertNative?.updates?.copyInstallCommandAndQuit?.({
-              installCommand,
-              filePath,
-            });
-            if (!result?.copied) {
-              addNotification({
-                type: 'error',
-                title: 'Copy failed',
-                body: 'The update command could not be copied.',
-              });
-            }
+            await copyInstallCommandAndQuitOrWarn(
+              window.mailexpertNative?.updates,
+              { installCommand, filePath },
+              addNotification,
+            );
             return;
           }
 
@@ -127,10 +122,11 @@ export default function ElectronNotificationBridge() {
               persistent: true,
               actionLabel: 'Copy & Quit',
               onAction: async () => {
-                await window.mailexpertNative?.updates?.copyInstallCommandAndQuit?.({
-                  installCommand: result.installCommand,
-                  filePath,
-                });
+                await copyInstallCommandAndQuitOrWarn(
+                  window.mailexpertNative?.updates,
+                  { installCommand: result.installCommand, filePath },
+                  addNotification,
+                );
               },
             });
             return;
