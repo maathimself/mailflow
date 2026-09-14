@@ -5,8 +5,8 @@
   "description": "A self-hosted, unified webmail client.",
   "homepage": "https://github.com/wyrtensi/MailExpert",
   "author": {
-    "name": "maathimself",
-    "email": "matthias@mailflow.sh"
+    "name": "wyrtensi",
+    "email": "wyrtensi@users.noreply.github.com"
   },
   "type": "module",
   "main": "packages/electron/main.cjs",
@@ -111,8 +111,8 @@
     "deb": {
       "packageName": "mailexpert",
       "artifactName": "${productName}-${version}-${arch}.${ext}",
-      "maintainer": "maathimself <matthias@mailflow.sh>",
-      "vendor": "maathimself",
+      "maintainer": "wyrtensi <wyrtensi@users.noreply.github.com>",
+      "vendor": "wyrtensi",
       "packageCategory": "net",
       "synopsis": "A self-hosted, unified webmail client.",
       "fpm": [
