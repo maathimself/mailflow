@@ -3360,3 +3360,51 @@ describe('rerootThreadChildren', () => {
     expect(params).toEqual(['<root@x>', 'acct-1', '<child@x>']);
   });
 });
+describe('Gmail profile for many accounts on one server', () => {
+  const gmail = { id: 'gmail-scale', user_id: 'u1', enabled: true, imap_host: 'imap.gmail.com', imap_tls: true };
+  const stopTimers = mgr => { for (const key of ['_healthCheckTimer', '_snippetSchedulerTimer', '_stalenessCheckTimer', '_flagPushReconcilerTimer', '_folderStatusTimer']) clearInterval(mgr[key]); };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: true });
+    resolveForConnection.mockResolvedValue({ host: '127.0.0.1', addresses: ['127.0.0.1'] });
+    query.mockReset();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('turns off the staleness probe and the reconnect backfill, and widens the background budget', () => {
+    const p = providerProfile(gmail);
+    expect(p.stalenessProbe).toBe(false);
+    expect(p.autoBackfillExistingOnConnect).toBe(false);
+    expect(p.maxBackgroundConnections).toBe(6);
+  });
+
+  it('gives imap.gmail.com six background connections', () => {
+    const mgr = new ImapManager(null);
+    stopTimers(mgr);
+    for (let i = 0; i < 6; i++) expect(mgr._bgConnSem.tryAcquire('imap.gmail.com')).toBe(true);
+    expect(mgr._bgConnSem.tryAcquire('imap.gmail.com')).toBe(false);
+  });
+
+  it('backfills an empty Gmail account on connect but not one that already has mail', async () => {
+    const gate = acct => ImapManager.prototype._shouldAutoBackfillOnConnect.call({}, acct);
+    query.mockResolvedValueOnce({ rows: [] });
+    expect(await gate(gmail)).toBe(true);
+    query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] });
+    expect(await gate(gmail)).toBe(false);
+  });
+
+  it('does not open a staleness-probe login for a Gmail account', async () => {
+    const interval = vi.spyOn(globalThis, 'setInterval');
+    const mgr = new ImapManager(null);
+    const probeCycle = interval.mock.calls.find(([, ms]) => ms === 180000)[0];
+    stopTimers(mgr);
+    mgr.connections.set(gmail.id, { close: vi.fn() });
+    query.mockImplementation(async sql => ({ rows: sql.includes('MAX(uid)') ? [{ maxuid: 100 }] : [gmail] }));
+    await probeCycle();
+    expect(ImapFlow).not.toHaveBeenCalled();
+    expect(query.mock.calls.some(([sql]) => sql.includes('MAX(uid)'))).toBe(false);
+  });
+});
