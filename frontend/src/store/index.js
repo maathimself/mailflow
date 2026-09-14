@@ -111,7 +111,8 @@ export const useStore = create((set, get) => ({
     if (get().user?.id !== user?.id) {
       cancelPendingPrefSave();
       // Background AI runs (#428) belong to the previous session; never let them
-      // finish and persist a result after the identity changed.
+      // finish and persist a result after the identity changed. Selecting another
+      // mailbox of the same user is not an identity change and keeps runs alive.
       abortAllRuns();
       clearTimeout(pendingCountTimer);
       pendingCountTimer = null;
