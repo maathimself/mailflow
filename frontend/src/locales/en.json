@@ -729,6 +729,7 @@
       "runButton": "Run rules on inbox",
       "running": "Running…",
       "runResult": "Done — {{matched}} of {{processed}} messages matched",
+      "runStarted": "Running in the background — you'll be notified when it finishes",
       "runError": "Failed to run rules"
     },
     "blockList": {

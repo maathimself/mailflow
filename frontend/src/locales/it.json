@@ -720,6 +720,7 @@
       "runButton": "Applica regole alla posta in arrivo",
       "running": "In esecuzione…",
       "runResult": "Fatto — {{matched}} su {{processed}} messaggi corrispondono",
+      "runStarted": "In esecuzione in background — riceverai una notifica al termine",
       "runError": "Errore durante l'esecuzione delle regole",
       "fieldBody": "Corpo",
       "fieldHeader": "Intestazione",

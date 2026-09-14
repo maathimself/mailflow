@@ -720,6 +720,7 @@
       "runButton": "Aplicar reglas a la bandeja de entrada",
       "running": "Ejecutando…",
       "runResult": "Listo — {{matched}} de {{processed}} mensajes coincidieron",
+      "runStarted": "Ejecutándose en segundo plano — se le avisará cuando termine",
       "runError": "Error al ejecutar las reglas",
       "fieldBody": "Cuerpo",
       "fieldHeader": "Encabezado",

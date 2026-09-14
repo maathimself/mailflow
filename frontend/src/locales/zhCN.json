@@ -722,6 +722,7 @@
       "runButton": "对收件箱运行规则",
       "running": "运行中…",
       "runResult": "完成 — {{processed}} 封邮件中有 {{matched}} 封匹配",
+      "runStarted": "正在后台运行 — 完成后将通知您",
       "runError": "运行规则失败",
       "fieldBody": "正文",
       "fieldHeader": "邮件头",

@@ -720,6 +720,7 @@
       "runButton": "Appliquer les règles à la boîte de réception",
       "running": "En cours…",
       "runResult": "Terminé — {{matched}} message(s) sur {{processed}} ont correspondu",
+      "runStarted": "Exécution en arrière-plan — vous serez averti une fois terminée",
       "runError": "Échec de l'application des règles",
       "fieldBody": "Corps",
       "fieldHeader": "En-tête",

@@ -1450,6 +1450,7 @@
       "runButton": "Regeln auf Posteingang anwenden",
       "running": "Wird ausgeführt…",
       "runResult": "Fertig — {{matched}} von {{processed}} Nachrichten abgeglichen",
+      "runStarted": "Läuft im Hintergrund – Sie werden benachrichtigt, sobald es fertig ist",
       "runError": "Fehler beim Ausführen der Regeln",
       "formTitleEdit": "Regel bearbeiten",
       "fieldTo": "An",
