@@ -387,6 +387,15 @@
       "placeholder": "查找邮箱…",
       "noMatch": "没有匹配的邮箱"
     },
+    "health": {
+      "healthy": "已连接，正在同步",
+      "stale": "最近 15 分钟未同步",
+      "failed": "同步失败",
+      "failedDetail": "同步失败：{{detail}}",
+      "reconnectRequired": "登录已过期，需要重新连接",
+      "reconnectAccount": "重新连接 {{email}}",
+      "disabled": "邮箱已停用"
+    },
     "folderMenu": {
       "markAllRead": "全部标为已读",
       "syncFolder": "同步此文件夹",

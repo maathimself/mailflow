@@ -133,6 +133,15 @@
       "placeholder": "Najít schránku…",
       "noMatch": "Žádné schránky neodpovídají"
     },
+    "health": {
+      "healthy": "Připojeno a synchronizuje se",
+      "stale": "Žádná synchronizace za posledních 15 minut",
+      "failed": "Synchronizace selhala",
+      "failedDetail": "Synchronizace selhala: {{detail}}",
+      "reconnectRequired": "Přihlášení vypršelo, je nutné znovu připojit",
+      "reconnectAccount": "Znovu připojit {{email}}",
+      "disabled": "Schránka je vypnutá"
+    },
     "folderMenu": {
       "markAllRead": "Označit vše jako přečtené",
       "syncFolder": "Synchronizovat složku",

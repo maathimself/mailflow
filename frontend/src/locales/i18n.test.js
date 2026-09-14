@@ -693,6 +693,22 @@ describe('i18n locale files', () => {
       }
       assert.equal(missing.length, 0, `Mailbox filter keys missing from locale files:\n${missing.join('\n')}`);
     });
+
+    it('every account health key in utils/accountHealth.js and Sidebar.jsx exists in every locale', () => {
+      // Health labels are looked up through HEALTH_LABEL_KEYS, so the literals of the
+      // mapping module are collected together with the direct t() calls in the sidebar.
+      const sources = ['../utils/accountHealth.js', '../components/Sidebar.jsx']
+        .map(file => readFileSync(resolve(dir, file), 'utf8')).join('\n');
+      const keys = [...new Set([...sources.matchAll(/'(sidebar\.health\.[\w.]+)'/g)].map(m => m[1]))];
+      assert.ok(keys.length >= 7, `expected the account health keys, found ${keys.length}`);
+      const missing = [];
+      for (const lang of langs) {
+        for (const key of keys) {
+          if (typeof locales[lang][key] !== 'string' || !locales[lang][key]) missing.push(`  - ${lang}: ${key}`);
+        }
+      }
+      assert.equal(missing.length, 0, `Account health keys missing from locale files:\n${missing.join('\n')}`);
+    });
   });
 
   describe('key coverage — every key must appear in every locale', () => {

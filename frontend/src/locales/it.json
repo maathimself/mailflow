@@ -387,6 +387,15 @@
       "placeholder": "Trova una casella…",
       "noMatch": "Nessuna casella corrispondente"
     },
+    "health": {
+      "healthy": "Connesso e in sincronizzazione",
+      "stale": "Nessuna sincronizzazione negli ultimi 15 minuti",
+      "failed": "Sincronizzazione non riuscita",
+      "failedDetail": "Sincronizzazione non riuscita: {{detail}}",
+      "reconnectRequired": "Accesso scaduto, è necessario riconnettere",
+      "reconnectAccount": "Riconnetti {{email}}",
+      "disabled": "Casella disattivata"
+    },
     "folderMenu": {
       "markAllRead": "Segna tutto come letto",
       "syncFolder": "Sincronizza cartella",

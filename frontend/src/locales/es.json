@@ -387,6 +387,15 @@
       "placeholder": "Buscar un buzón…",
       "noMatch": "Ningún buzón coincide"
     },
+    "health": {
+      "healthy": "Conectado y sincronizando",
+      "stale": "Sin sincronizar en los últimos 15 minutos",
+      "failed": "Error de sincronización",
+      "failedDetail": "Error de sincronización: {{detail}}",
+      "reconnectRequired": "Sesión caducada, hay que volver a conectar",
+      "reconnectAccount": "Volver a conectar {{email}}",
+      "disabled": "Buzón desactivado"
+    },
     "folderMenu": {
       "markAllRead": "Marcar todo como leído",
       "syncFolder": "Sincronizar carpeta",

@@ -1,0 +1,22 @@
+{
+  "staleAfterMs": 900000,
+  "now": 1789000000000,
+  "cases": [
+    { "name": "enabled, synced a minute ago", "account": { "enabled": true, "oauth_reconnect_required": false, "sync_error": null, "lastSyncAgeMs": 60000 }, "expected": "healthy" },
+    { "name": "synced exactly at the threshold", "account": { "enabled": true, "oauth_reconnect_required": false, "sync_error": null, "lastSyncAgeMs": 900000 }, "expected": "healthy" },
+    { "name": "synced one millisecond past the threshold", "account": { "enabled": true, "oauth_reconnect_required": false, "sync_error": null, "lastSyncAgeMs": 900001 }, "expected": "stale" },
+    { "name": "never synced", "account": { "enabled": true, "oauth_reconnect_required": false, "sync_error": null, "lastSyncAgeMs": null }, "expected": "stale" },
+    { "name": "unparseable last_sync", "account": { "enabled": true, "oauth_reconnect_required": false, "sync_error": null, "last_sync": "not a date" }, "expected": "stale" },
+    { "name": "last_sync slightly in the future (clock skew)", "account": { "enabled": true, "oauth_reconnect_required": false, "sync_error": null, "lastSyncAgeMs": -5000 }, "expected": "healthy" },
+    { "name": "sync error on a recently synced account", "account": { "enabled": true, "oauth_reconnect_required": false, "sync_error": "Connection refused", "lastSyncAgeMs": 60000 }, "expected": "failed" },
+    { "name": "sync error beats stale", "account": { "enabled": true, "oauth_reconnect_required": false, "sync_error": "Authentication failed", "lastSyncAgeMs": null }, "expected": "failed" },
+    { "name": "empty sync_error string is not a failure", "account": { "enabled": true, "oauth_reconnect_required": false, "sync_error": "", "lastSyncAgeMs": 60000 }, "expected": "healthy" },
+    { "name": "reconnect flag beats sync error", "account": { "enabled": true, "oauth_reconnect_required": true, "sync_error": "oauth_reconnect_required", "lastSyncAgeMs": 60000 }, "expected": "oauth_reconnect_required" },
+    { "name": "reconnect flag without a recorded error", "account": { "enabled": true, "oauth_reconnect_required": true, "sync_error": null, "lastSyncAgeMs": null }, "expected": "oauth_reconnect_required" },
+    { "name": "reconnect code pushed over WebSocket before the flag is refreshed", "account": { "enabled": true, "oauth_reconnect_required": false, "sync_error": "oauth_reconnect_required", "lastSyncAgeMs": 60000 }, "expected": "oauth_reconnect_required" },
+    { "name": "missing reconnect flag is treated as false", "account": { "enabled": true, "sync_error": null, "lastSyncAgeMs": 60000 }, "expected": "healthy" },
+    { "name": "disabled beats everything", "account": { "enabled": false, "oauth_reconnect_required": true, "sync_error": "oauth_reconnect_required", "lastSyncAgeMs": null }, "expected": "disabled" },
+    { "name": "disabled healthy account", "account": { "enabled": false, "oauth_reconnect_required": false, "sync_error": null, "lastSyncAgeMs": 60000 }, "expected": "disabled" },
+    { "name": "missing enabled flag is treated as enabled", "account": { "oauth_reconnect_required": false, "sync_error": null, "lastSyncAgeMs": 60000 }, "expected": "healthy" }
+  ]
+}

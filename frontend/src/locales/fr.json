@@ -387,6 +387,15 @@
       "placeholder": "Trouver une boîte…",
       "noMatch": "Aucune boîte aux lettres ne correspond"
     },
+    "health": {
+      "healthy": "Connecté et synchronisé",
+      "stale": "Aucune synchronisation depuis 15 minutes",
+      "failed": "Échec de la synchronisation",
+      "failedDetail": "Échec de la synchronisation : {{detail}}",
+      "reconnectRequired": "Connexion expirée, reconnexion nécessaire",
+      "reconnectAccount": "Reconnecter {{email}}",
+      "disabled": "Boîte aux lettres désactivée"
+    },
     "folderMenu": {
       "markAllRead": "Tout marquer comme lu",
       "syncFolder": "Synchroniser le dossier",

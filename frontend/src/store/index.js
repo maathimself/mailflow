@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { api } from '../utils/api.js';
 import { mergeCountSnapshots, adjustCountPending, expireCountPending, settleCountPending, displayCountSnapshot, mergeFolderSnapshots } from '../utils/countSnapshots.js';
 import { resolveSelectedAccount, pruneFolders } from '../utils/accountScope.js';
+import { withProvisionalHealth } from '../utils/accountHealth.js';
 import { applyTheme, applyCustomCss, getInitialTheme } from '../themes.js';
 import { applyFontSet, applyFontSize, effectiveFontSet, isRetroFont, THEME_FONT } from '../fonts.js';
 import { applyLayout, normalizeLayout } from '../layouts.js';
@@ -216,7 +217,9 @@ export const useStore = create((set, get) => ({
     }));
   },
   updateAccount: (id, updates) => set(state => {
-    const accounts = state.accounts.map(a => a.id === id ? { ...a, ...updates } : a);
+    // WebSocket account events patch sync_error here; recompute a provisional health code
+    // until the next GET /api/accounts returns the server's (see utils/accountHealth.js).
+    const accounts = state.accounts.map(a => a.id === id ? withProvisionalHealth(a, updates) : a);
     return { accounts, unreadCounts: displayCountSnapshot(state.serverUnreadCounts, state.pendingCounts, accounts) };
   }),
   // Sidebar mailbox filter. In memory only: not persisted and not sent to the server,
