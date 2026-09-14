@@ -1238,6 +1238,24 @@ export function makeClientCfg(account, resolved, { enableIdle = false, policy = 
   return cfg;
 }
 
+// The pool and fresh-login helpers below are module-level, so no ImapManager is in scope there, yet a
+// revoked grant they hit must take effect at once (account_error push, disconnect, timers stopped)
+// rather than on the next health or sync tick. The manager registers itself here when constructed:
+// the process runs a single one (index.js); in tests the most recently constructed one receives it.
+let oauthFailureManager = null;
+
+// Apply reconnect-required through the manager when a helper's token refresh reports a revoked
+// grant. The caller still rethrows the original error, so a user request gets the stable code.
+// Transient refresh failures are left to the caller unchanged.
+async function applyHelperOAuthFailure(account, err) {
+  if (classifyOAuthRefreshError(err) !== 'reconnect' || !oauthFailureManager) return;
+  try {
+    await oauthFailureManager._noteOAuthReconnectRequired(account);
+  } catch (noteErr) {
+    console.error(`Applying reconnect-required for ${logAccount(account)} failed: ${noteErr?.message || 'unknown error'}`);
+  }
+}
+
 function drainWaiters(pool) {
   while (pool.waiters.length > 0) {
     const free = pool.clients.find(c => !pool.inUse.has(c));
@@ -1265,11 +1283,17 @@ async function acquirePooledClient(account) {
 
   // Grow pool if under limit — refresh token before creating a new connection
   if (pool.clients.length < POOL_SIZE) {
-    const freshAccount = await ensureFreshToken(account);
-    const { resolved, policy } = await resolveAccountHost(freshAccount);
-    // Connect with the shared IPv4-fallback helper (#382); it attaches the #360 handshake-error
-    // listener and recovers from a stalled IPv6 handshake by retrying IPv4-only.
-    const client = await connectImapClient(freshAccount, resolved, { policy }, 30000, 'IMAP pool connect');
+    let client;
+    try {
+      const freshAccount = await ensureFreshToken(account);
+      const { resolved, policy } = await resolveAccountHost(freshAccount);
+      // Connect with the shared IPv4-fallback helper (#382); it attaches the #360 handshake-error
+      // listener and recovers from a stalled IPv6 handshake by retrying IPv4-only.
+      client = await connectImapClient(freshAccount, resolved, { policy }, 30000, 'IMAP pool connect');
+    } catch (err) {
+      await applyHelperOAuthFailure(account, err);
+      throw err;
+    }
     // Remove from pool immediately when the server closes the socket, then
     // wake any waiters so they can claim another idle connection if one exists.
     client.on('close', () => {
@@ -1296,6 +1320,7 @@ async function acquirePooledClient(account) {
         const tmp = await connectImapClient(freshAccount, resolved, { policy }, 30000, 'IMAP temp connect');
         resolve(tmp);
       } catch (err) {
+        await applyHelperOAuthFailure(account, err);
         reject(err);
       }
     }, 10000);
@@ -1356,9 +1381,15 @@ async function withFreshClient(account, fn) {
 // fresh. Not pooled itself — a body fetch is user-initiated and infrequent, so the
 // one-off login cost is acceptable for guaranteed correctness.
 async function withFreshLogin(account, fn) {
-  const fresh = await ensureFreshToken(account);
-  const { resolved, policy } = await resolveAccountHost(fresh);
-  const client = await connectImapClient(fresh, resolved, { policy }, 30000, 'IMAP fresh-login connect');
+  let client;
+  try {
+    const fresh = await ensureFreshToken(account);
+    const { resolved, policy } = await resolveAccountHost(fresh);
+    client = await connectImapClient(fresh, resolved, { policy }, 30000, 'IMAP fresh-login connect');
+  } catch (err) {
+    await applyHelperOAuthFailure(account, err);
+    throw err;
+  }
   try {
     return await fn(client);
   } finally {
@@ -1480,6 +1511,7 @@ export function classifyMoveBySearch(uids, remainingUids, destArrived) {
 export class ImapManager {
   constructor(wss) {
     this.wss = wss;
+    oauthFailureManager = this; // see applyHelperOAuthFailure
     this._statusSyncRunning = new Set();
     this._statusSyncBackoff = new Map();
     this._statusAccountTimers = new Map();
@@ -4150,6 +4182,11 @@ export class ImapManager {
         }
         console.log(`Bulk flag refresh: ${updates.length}/${msgs.length} updated in ${folder} for ${logAccount(account)}`);
       } catch (err) {
+        // A revoked grant fails every remaining folder the same way: apply it now and stop.
+        if (classifyOAuthRefreshError(err) === 'reconnect') {
+          await this._noteOAuthReconnectRequired(account);
+          return;
+        }
         console.warn(`Bulk flag refresh error for ${logAccount(account)}/${folder}: ${err.message}`);
       } finally {
         if (client) { try { await client.logout(); } catch { /* ignore */ } }
@@ -4326,6 +4363,8 @@ export class ImapManager {
           // Reconnect periodically to keep the connection fresh
           if (batchCount > 0 && batchCount % 20 === 0) {
             await openClient().catch(err => {
+              // A revoked grant ends the run (outer catch); other reconnect failures surface as batch errors.
+              if (classifyOAuthRefreshError(err) === 'reconnect') throw err;
               console.error(`Snippet indexer reconnect failed: ${err.message}`);
             });
           }
@@ -4416,6 +4455,12 @@ export class ImapManager {
 
       console.log(`Snippet indexer complete for ${logAccount(account)} (${batchCount} batches)`);
     } catch (err) {
+      // A revoked grant is an account problem, not a host one: apply it without setting `failed`,
+      // which would trip the host-level backoff for every account on this provider.
+      if (classifyOAuthRefreshError(err) === 'reconnect') {
+        await this._noteOAuthReconnectRequired(account);
+        return;
+      }
       failed = true;
       console.error(`Snippet indexer error ${logAccount(account)}:`, err.message);
     } finally {

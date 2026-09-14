@@ -36,6 +36,7 @@ vi.mock('./redis.js', () => ({
 
 import { ImapFlow } from 'imapflow';
 import { query } from './db.js';
+import { redisClient } from './redis.js';
 import { resolveForConnection } from './hostValidation.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { refreshGoogleToken } from './oauth/googleOAuth.js';
@@ -593,5 +594,173 @@ describe('IMAP AUTHENTICATE failure on an OAuth account', () => {
 
     expect(refreshGoogleToken).not.toHaveBeenCalled();
     expect(ImapFlow).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('reconnect-required on paths other than connect', () => {
+  const transientError = () => Object.assign(new Error('fetch failed'), { code: 'ECONNRESET' });
+
+  // A live account: persistent connection and periodic timer, both of which a revoked grant must stop.
+  function liveManager(acct) {
+    const mgr = newManager();
+    const live = { timer: setInterval(() => {}, 60000), client: { close: vi.fn(), logout: vi.fn(() => Promise.resolve()) } };
+    mgr.syncIntervals.set(acct.id, live.timer);
+    mgr.connections.set(acct.id, live.client);
+    return { mgr, live };
+  }
+
+  function expectReconnectRequiredApplied(mgr, acct, live) {
+    expect(rows.get(acct.id).oauth_reconnect_required).toBe(true);
+    expect(syncErrorWrites(acct.id)).toEqual(['oauth_reconnect_required']);
+    expect(mgr.broadcast).toHaveBeenCalledWith({ type: 'account_error', accountId: acct.id, error: 'oauth_reconnect_required' }, 'u1');
+    expect(mgr._connectCooldown.get(acct.id)?.until).toBe(Infinity);
+    expect(mgr.syncIntervals.has(acct.id)).toBe(false);
+    expect(mgr.connections.has(acct.id)).toBe(false);
+    expect(live.client.close).toHaveBeenCalled();
+    clearInterval(live.timer);
+  }
+
+  function expectTransientUnchanged(mgr, acct, live) {
+    expect(rows.get(acct.id).oauth_reconnect_required).toBe(false);
+    expect(syncErrorWrites(acct.id)).toEqual([]);
+    expect(mgr.broadcast).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'account_error' }), 'u1');
+    expect(mgr._connectCooldown.has(acct.id)).toBe(false);
+    expect(mgr.connections.get(acct.id)).toBe(live.client);
+    expect(live.client.close).not.toHaveBeenCalled();
+    clearInterval(live.timer);
+  }
+
+  // Serve extra queries on top of the account-row database.
+  function extendDb(handler) {
+    const base = query.getMockImplementation();
+    query.mockImplementation(async (sql, params = []) => (await handler(sql, params)) ?? base(sql, params));
+  }
+
+  describe('pooled client (acquirePooledClient)', () => {
+    it('applies reconnect-required at once, surfaces the stable error and does not retry', async () => {
+      const acct = gmailAccount();
+      rows.set(acct.id, acct);
+      refreshGoogleToken.mockRejectedValue(invalidGrant());
+      const { mgr, live } = liveManager(acct);
+
+      await expect(mgr.syncFolderViaPool(acct, 'INBOX')).rejects.toMatchObject({ code: 'oauth_reconnect_required' });
+
+      expectReconnectRequiredApplied(mgr, acct, live);
+      await expect(mgr.syncFolderViaPool(acct, 'INBOX')).rejects.toMatchObject({ code: 'oauth_reconnect_required' });
+      expect(refreshGoogleToken).toHaveBeenCalledTimes(1);
+      expect(ImapFlow).not.toHaveBeenCalled();
+    });
+
+    it('leaves a transient refresh failure to the caller as before', async () => {
+      const acct = gmailAccount();
+      rows.set(acct.id, acct);
+      refreshGoogleToken.mockRejectedValue(transientError());
+      const { mgr, live } = liveManager(acct);
+
+      await expect(mgr.syncFolderViaPool(acct, 'INBOX')).rejects.toMatchObject({ code: 'oauth_refresh_failed' });
+
+      expectTransientUnchanged(mgr, acct, live);
+    });
+  });
+
+  describe('fresh login (withFreshLogin)', () => {
+    // preferFreshBodyFetch providers take the fresh-login path on the first body fetch.
+    const freshLoginAccount = () => gmailAccount({ imap_host: 'mailserver.purelymail.com' });
+
+    it('applies reconnect-required at once and still rejects the request', async () => {
+      const acct = freshLoginAccount();
+      rows.set(acct.id, acct);
+      refreshGoogleToken.mockRejectedValue(invalidGrant());
+      const { mgr, live } = liveManager(acct);
+
+      await expect(mgr.fetchMessageBody(acct, 1, 'INBOX')).rejects.toThrow();
+
+      expectReconnectRequiredApplied(mgr, acct, live);
+      expect(refreshGoogleToken).toHaveBeenCalledTimes(1);
+      expect(ImapFlow).not.toHaveBeenCalled();
+    });
+
+    it('leaves a transient refresh failure to the caller as before', async () => {
+      const acct = freshLoginAccount();
+      rows.set(acct.id, acct);
+      refreshGoogleToken.mockRejectedValue(transientError());
+      const { mgr, live } = liveManager(acct);
+
+      await expect(mgr.fetchMessageBody(acct, 1, 'INBOX')).rejects.toThrow();
+
+      expectTransientUnchanged(mgr, acct, live);
+    });
+  });
+
+  describe('bulk flag refresh', () => {
+    const twoFolders = () => extendDb((sql) => (sql.includes('SELECT id, uid, folder FROM messages')
+      ? { rows: [{ id: 'm1', uid: 1, folder: 'INBOX' }, { id: 'm2', uid: 2, folder: 'Archive' }] }
+      : undefined));
+
+    it('applies reconnect-required at once and stops instead of retrying per folder', async () => {
+      const acct = gmailAccount();
+      rows.set(acct.id, acct);
+      twoFolders();
+      refreshGoogleToken.mockRejectedValue(invalidGrant());
+      const { mgr, live } = liveManager(acct);
+
+      await mgr.refreshBulkFlags(acct);
+
+      expectReconnectRequiredApplied(mgr, acct, live);
+      expect(redisClient.set).toHaveBeenCalledTimes(1);
+      expect(refreshGoogleToken).toHaveBeenCalledTimes(1);
+      expect(ImapFlow).not.toHaveBeenCalled();
+    });
+
+    it('keeps going folder by folder on a transient refresh failure, as before', async () => {
+      const acct = gmailAccount();
+      rows.set(acct.id, acct);
+      twoFolders();
+      refreshGoogleToken.mockRejectedValue(transientError());
+      const { mgr, live } = liveManager(acct);
+
+      await mgr.refreshBulkFlags(acct);
+
+      expectTransientUnchanged(mgr, acct, live);
+      expect(refreshGoogleToken).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('snippet indexer', () => {
+    // Gmail disables the snippet indexer; Microsoft runs it through the same token manager.
+    const microsoftAccount = () => gmailAccount({ oauth_provider: 'microsoft', imap_host: 'outlook.office365.com' });
+    const pendingSnippets = () => extendDb((sql) => (sql.startsWith('SELECT count(*) FROM messages')
+      ? { rows: [{ count: '5' }] }
+      : undefined));
+
+    it('applies reconnect-required at once without backing off the whole host', async () => {
+      const acct = microsoftAccount();
+      rows.set(acct.id, acct);
+      pendingSnippets();
+      refreshMicrosoftToken.mockRejectedValue(invalidGrant());
+      const { mgr, live } = liveManager(acct);
+
+      await mgr.startSnippetIndexer(acct);
+
+      expectReconnectRequiredApplied(mgr, acct, live);
+      expect(mgr.snippetBackoff.has('outlook.office365.com')).toBe(false);
+      expect(mgr.snippetIndexerRunning.has(acct.id)).toBe(false);
+      expect(refreshMicrosoftToken).toHaveBeenCalledTimes(1);
+      expect(ImapFlow).not.toHaveBeenCalled();
+    });
+
+    it('keeps the host backoff for a transient refresh failure, as before', async () => {
+      const acct = microsoftAccount();
+      rows.set(acct.id, acct);
+      pendingSnippets();
+      refreshMicrosoftToken.mockRejectedValue(transientError());
+      const { mgr, live } = liveManager(acct);
+
+      await mgr.startSnippetIndexer(acct);
+
+      expectTransientUnchanged(mgr, acct, live);
+      expect(mgr.snippetBackoff.get('outlook.office365.com')?.failures).toBe(1);
+      expect(mgr.snippetIndexerRunning.has(acct.id)).toBe(false);
+    });
   });
 });
