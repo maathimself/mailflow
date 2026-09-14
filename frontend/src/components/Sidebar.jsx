@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { unreadBadge } from '../utils/unreadBadge.js';
 import { filterAccounts } from '../utils/accountFilter.js';
-import { HEALTH_LABEL_KEYS, computeAccountHealth, reconnectUrlFor } from '../utils/accountHealth.js';
+import { HEALTH_LABEL_KEYS, computeAccountHealth, reconnectMenuAction, reconnectUrlFor } from '../utils/accountHealth.js';
 import { openOAuthWindow } from '../utils/oauthWindow.js';
 import { api } from '../utils/api.js';
 import {
@@ -804,7 +804,12 @@ export default function Sidebar() {
       {
         label: t('sidebar.accountMenu.reconnect'),
         icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>,
-        action: () => api.reconnectAccount(account.id).catch(console.error),
+        action: () => {
+          const health = HEALTH_LABEL_KEYS[account.health] ? account.health : computeAccountHealth(account);
+          const reconnect = reconnectMenuAction({ ...account, health });
+          if (reconnect.kind === 'oauth') openOAuthWindow(reconnect.url);
+          else api.reconnectAccount(account.id).catch(console.error);
+        },
       },
     );
     return items;

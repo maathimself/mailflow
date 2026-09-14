@@ -7,7 +7,9 @@ import {
   HEALTH_LABEL_KEYS,
   MICROSOFT_OAUTH_PATH,
   STALE_AFTER_MS,
+  accountEventPatch,
   computeAccountHealth,
+  reconnectMenuAction,
   reconnectUrlFor,
   withProvisionalHealth,
 } from './accountHealth.js';
@@ -72,6 +74,13 @@ describe('withProvisionalHealth', () => {
     assert.equal(merged.health, 'stale');
   });
 
+  it('never newly produces stale from an aging client last_sync', () => {
+    const old = new Date(now - 20 * 60 * 1000).toISOString();
+    assert.equal(withProvisionalHealth({ ...base, last_sync: old }, { sync_error: null }, now).health, 'healthy');
+    assert.equal(withProvisionalHealth({ ...base, last_sync: old, sync_error: 'x', health: 'failed' }, { sync_error: null }, now).health, 'healthy');
+    assert.equal(withProvisionalHealth({ ...base, last_sync: old, health: 'stale' }, { sync_error: null }, now).health, 'stale');
+  });
+
   it('lets an explicit health in the patch win', () => {
     assert.equal(withProvisionalHealth(base, { sync_error: 'boom', health: 'healthy' }, now).health, 'healthy');
   });
@@ -96,5 +105,36 @@ describe('reconnectUrlFor', () => {
     assert.equal(reconnectUrlFor({ oauth_provider: null, email_address: 'a@b.c' }), null);
     assert.equal(reconnectUrlFor({ email_address: 'a@b.c' }), null);
     assert.equal(reconnectUrlFor(null), null);
+  });
+});
+
+describe('accountEventPatch', () => {
+  it('clears the failure and the reconnect flag on account_connected', () => {
+    assert.deepEqual(accountEventPatch('account_connected', { accountId: 'a1' }),
+      { sync_error: null, oauth_reconnect_required: false });
+  });
+
+  it('carries the error and sets the flag only for the stable reconnect code', () => {
+    assert.deepEqual(accountEventPatch('account_error', { error: 'Connection refused' }), { sync_error: 'Connection refused' });
+    assert.deepEqual(accountEventPatch('account_error', { error: 'oauth_reconnect_required' }),
+      { sync_error: 'oauth_reconnect_required', oauth_reconnect_required: true });
+  });
+
+  it('returns null for unrelated events', () => {
+    assert.equal(accountEventPatch('folder_counts', {}), null);
+  });
+});
+
+describe('reconnectMenuAction', () => {
+  it('offers the OAuth consent flow for a reconnect-required OAuth account', () => {
+    const google = { oauth_provider: 'google', email_address: 'a@gmail.com', health: 'oauth_reconnect_required' };
+    assert.deepEqual(reconnectMenuAction(google), { kind: 'oauth', url: reconnectUrlFor(google) });
+    const microsoft = { oauth_provider: 'microsoft', health: 'oauth_reconnect_required' };
+    assert.deepEqual(reconnectMenuAction(microsoft), { kind: 'oauth', url: MICROSOFT_OAUTH_PATH });
+  });
+
+  it('keeps the IMAP reconnect for every other account', () => {
+    assert.deepEqual(reconnectMenuAction({ oauth_provider: 'google', health: 'failed' }), { kind: 'imap' });
+    assert.deepEqual(reconnectMenuAction({ oauth_provider: null, health: 'oauth_reconnect_required' }), { kind: 'imap' });
   });
 });

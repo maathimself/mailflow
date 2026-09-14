@@ -12,6 +12,7 @@ globalThis.localStorage = {
   removeItem: k => store_.delete(k),
 };
 const { useStore } = await import('./index.js');
+const { accountEventPatch } = await import('../utils/accountHealth.js');
 globalThis.window = new EventTarget();
 
 const account = (overrides) => ({
@@ -47,4 +48,21 @@ test('a patch that does not touch a health field keeps the server code', () => {
   useStore.getState().setAccounts([account({ last_sync: null, health: 'stale' })]);
   useStore.getState().updateAccount('a1', { name: 'Renamed' });
   assert.equal(health(), 'stale');
+});
+
+test('an account_connected patch on a page open past the stale window never marks a healthy account stale', () => {
+  const oldSync = new Date(Date.now() - 20 * 60 * 1000).toISOString();
+  useStore.getState().setAccounts([account({ last_sync: oldSync, health: 'healthy' })]);
+  useStore.getState().updateAccount('a1', accountEventPatch('account_connected', { accountId: 'a1' }));
+  assert.equal(health(), 'healthy');
+});
+
+test('an account_connected patch clears reconnect-required in other browsers', () => {
+  useStore.getState().setAccounts([account({
+    oauth_reconnect_required: true, sync_error: 'oauth_reconnect_required', health: 'oauth_reconnect_required',
+  })]);
+  useStore.getState().updateAccount('a1', accountEventPatch('account_connected', { accountId: 'a1' }));
+  const a = useStore.getState().accounts.find(x => x.id === 'a1');
+  assert.equal(a.oauth_reconnect_required, false);
+  assert.equal(a.health, 'healthy');
 });

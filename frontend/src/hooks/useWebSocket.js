@@ -5,6 +5,7 @@ import { api } from '../utils/api.js';
 import { installCapacitorNativeBridge } from '../utils/capacitorNativeBridge.js';
 import { playNotificationSound } from '../utils/notificationSounds.js';
 import { accountAffectsUnifiedInbox } from '../utils/unifiedInbox.js';
+import { accountEventPatch } from '../utils/accountHealth.js';
 import { dispatchPluginWsMessage, dispatchPluginReconnect } from '../plugins/events.js';
 import { recordDiagEvent } from '../utils/diagEvents.js';
 
@@ -191,7 +192,7 @@ export function useWebSocket() {
         break;
 
       case 'account_connected': {
-        updateAccount(data.accountId, { sync_error: null });
+        updateAccount(data.accountId, accountEventPatch('account_connected', data));
         break;
       }
 
@@ -205,7 +206,7 @@ export function useWebSocket() {
       }
 
       case 'account_error': {
-        updateAccount(data.accountId, { sync_error: data.error });
+        updateAccount(data.accountId, accountEventPatch('account_error', data));
         break;
       }
 

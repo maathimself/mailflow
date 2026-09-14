@@ -40,13 +40,30 @@ export function computeAccountHealth(account, now = Date.now()) {
 }
 
 // Merges a store patch into an account and recomputes `health` only when the patch
-// changes a field the rule reads. Recomputing on unrelated patches would turn a healthy
-// account "stale" purely because the client's copy of last_sync ages while the page is open.
+// changes a field the rule reads. The provisional code never newly becomes "stale":
+// the client's copy of last_sync only refreshes with GET /api/accounts, so it ages
+// while the page is open and would mark healthy accounts stale after any WS event.
+// Only a server response sets "stale"; an existing server "stale" is kept.
 export function withProvisionalHealth(account, updates, now = Date.now()) {
   const merged = { ...account, ...updates };
   if (updates && Object.hasOwn(updates, 'health')) return merged;
   if (!updates || !HEALTH_FIELDS.some(field => Object.hasOwn(updates, field))) return merged;
-  return { ...merged, health: computeAccountHealth(merged, now) };
+  const next = computeAccountHealth(merged, now);
+  if (next !== 'stale') return { ...merged, health: next };
+  return { ...merged, health: account?.health === 'stale' ? 'stale' : 'healthy' };
+}
+
+// Store patch for a WebSocket account event, or null for unrelated events.
+// account_connected implies the reconnect flag is cleared: the backend refuses to
+// connect an account while oauth_reconnect_required is set.
+export function accountEventPatch(type, data) {
+  if (type === 'account_connected') return { sync_error: null, oauth_reconnect_required: false };
+  if (type === 'account_error') {
+    return data?.error === 'oauth_reconnect_required'
+      ? { sync_error: data.error, oauth_reconnect_required: true }
+      : { sync_error: data?.error ?? null };
+  }
+  return null;
 }
 
 // Same-origin URL that re-runs the provider consent flow for a reconnect-required
@@ -55,4 +72,11 @@ export function reconnectUrlFor(account) {
   if (account?.oauth_provider === 'google') return buildGoogleConnectUrl({ loginHint: account.email_address });
   if (account?.oauth_provider === 'microsoft') return MICROSOFT_OAUTH_PATH;
   return null;
+}
+
+// What the account context menu's "Reconnect" item does. An IMAP reconnect cannot
+// fix a revoked grant, so reconnect-required OAuth accounts re-run consent instead.
+export function reconnectMenuAction(account) {
+  const url = account?.health === 'oauth_reconnect_required' ? reconnectUrlFor(account) : null;
+  return url ? { kind: 'oauth', url } : { kind: 'imap' };
 }
