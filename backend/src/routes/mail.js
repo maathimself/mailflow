@@ -389,7 +389,13 @@ router.get('/messages/:id/body', async (req, res) => {
     // CSS url(http://) in inline style attributes or <style> blocks
     /url\(\s*['"]?http:\/\//i.test(message.body_html)
   );
-  if ((message.body_html || message.body_text) && !hasCidRefs && !hasHttpImgs) {
+  // Calendar-only invites cached before they were rendered as a card (#423) hold
+  // raw VCALENDAR text and no HTML. Re-fetch them once; the fetch stores the card.
+  // Requiring a VEVENT keeps calendar data the renderer cannot parse from being
+  // re-fetched on every open.
+  const hasRawInvite = !message.body_html && typeof message.body_text === 'string'
+    && /^\s*BEGIN:VCALENDAR/i.test(message.body_text) && /^BEGIN:VEVENT/im.test(message.body_text);
+  if ((message.body_html || message.body_text) && !hasCidRefs && !hasHttpImgs && !hasRawInvite) {
     const attachments = message.attachments
       ? (typeof message.attachments === 'string' ? JSON.parse(message.attachments) : message.attachments)
       : [];

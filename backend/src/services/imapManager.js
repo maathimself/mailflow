@@ -8,6 +8,7 @@ import { createPluginMailFacade } from '../plugins/mailEngineFacade.js';
 import { ensureFreshOAuthAccount, OAuthTokenError } from './oauth/tokenManager.js';
 import { isOAuthAccount, OAUTH_REFRESH_MAX_TOKEN_CALLS, PROVIDER_FETCH_TIMEOUT_MS } from './oauth/constants.js';
 import { sanitizeEmail } from './emailSanitizer.js';
+import { renderInviteHtml } from './icsInvite.js';
 import { logger } from './logger.js';
 import { recordBroadcast, recordWarning, recordSyncSignal } from './diagnosticsRing.js';
 import { decrypt } from './encryption.js';
@@ -436,27 +437,70 @@ const BIDI_OVERRIDE_RE = new RegExp(
   'g'
 );
 
-// Extract html/text/attachments from an already-fetched msg (no extra IMAP round-trip)
-function extractBodyFromMsg(msg) {
-  if (!msg.bodyStructure) return { html: null, text: null, attachments: [] };
-  const results = { textParts: [], attachments: [] };
-  walkStructure(msg.bodyStructure, results);
-  if (results.textParts.length === 0) {
-    const rootType = (msg.bodyStructure.type || '').toLowerCase();
-    results.textParts.push({
-      part: msg.bodyStructure.part || '1',
-      type: (rootType === 'text/html' || rootType === 'text/plain') ? rootType : 'text/plain',
-      encoding: msg.bodyStructure.encoding || '',
-    });
+function firstLeaf(node) {
+  while (node?.childNodes?.length) node = node.childNodes[0];
+  return node;
+}
+
+// Walk a BODYSTRUCTURE and decide which parts make up the displayed body.
+// Normally those are the text/html and text/plain parts. A calendar-only
+// message (#423) has none, so its first calendar part is planned instead and
+// rendered as an invite card. Anything else falls back to serving the root as
+// text; for a multipart root that is its first leaf, with the leaf's own
+// transfer encoding and charset (the multipart root has neither).
+export function planBodyParts(structure) {
+  const results = { textParts: [], attachments: [], inlineImages: [] };
+  walkStructure(structure, results);
+  if (results.textParts.length > 0) return results;
+
+  const calendar = results.calendarParts?.[0];
+  if (calendar) {
+    results.textParts.push({ ...calendar, type: 'text/calendar' });
+    return results;
   }
+
+  const leaf = firstLeaf(structure) || structure;
+  const leafType = (leaf.type || '').toLowerCase();
+  results.textParts.push({
+    part: leaf.part || '1',
+    type: (leafType === 'text/html' || leafType === 'application/xhtml+xml') ? 'text/html' : 'text/plain',
+    encoding: leaf.encoding || '',
+    charset: leaf.parameters?.charset || 'utf-8',
+  });
+  return results;
+}
+
+// Decode the planned body parts into { html, text }. getPart returns the raw
+// Buffer for a part number, or nothing when it was not fetched.
+function assembleBody(textParts, getPart) {
   let html = null, text = null;
-  for (const part of results.textParts) {
-    const buf = msg.bodyParts?.get(part.part);
+  for (const part of textParts) {
+    const buf = getPart(part.part);
     if (!buf) continue;
     const decoded = decodeBody(buf, part.encoding, part.charset);
-    if (part.type === 'text/html' && !html) html = decoded;
+    if (part.type === 'text/calendar') {
+      // The ICS is untrusted input: a parser bug must degrade to raw text, never
+      // break the body fetch or the sync that called us.
+      let invite = null;
+      try { invite = renderInviteHtml(decoded); } catch { /* fall back to raw text */ }
+      if (invite) {
+        html = html || invite.html;
+        text = text || invite.text;
+      } else if (!text) {
+        // Unparseable calendar data: keep showing it as plain text.
+        text = decoded;
+      }
+    } else if (part.type === 'text/html' && !html) html = decoded;
     else if (part.type === 'text/plain' && !text) text = decoded;
   }
+  return { html, text };
+}
+
+// Extract html/text/attachments from an already-fetched msg (no extra IMAP round-trip)
+export function extractBodyFromMsg(msg) {
+  if (!msg.bodyStructure) return { html: null, text: null, attachments: [] };
+  const results = planBodyParts(msg.bodyStructure);
+  const { html, text } = assembleBody(results.textParts, p => msg.bodyParts?.get(p));
   return { html, text, attachments: results.attachments };
 }
 
@@ -651,6 +695,17 @@ function walkNode(node, results) {
   const disposition = (node.disposition || '').toLowerCase();
   const rawFilename = node.dispositionParameters?.filename || node.parameters?.name || null;
   const filename = rawFilename ? rawFilename.replace(BIDI_OVERRIDE_RE, '').trim() || 'attachment' : null;
+  // A calendar part is a body candidate for calendar-only messages (#423). It is
+  // recorded on the side so the classification below is unchanged: a named .ics
+  // still lands in the attachment list as a downloadable file.
+  if (type === 'text/calendar' && disposition !== 'attachment') {
+    results.calendarParts = results.calendarParts || [];
+    results.calendarParts.push({
+      part: node.part || '1',
+      encoding: node.encoding || '',
+      charset: node.parameters?.charset || 'utf-8',
+    });
+  }
   // A part explicitly marked Content-Disposition: attachment is an attachment
   // no matter its MIME type. Checking the text/* types first used to absorb
   // attached .html/.txt files into the message body: the paperclip showed
@@ -4798,8 +4853,8 @@ export class ImapManager {
     // login (withFreshLogin) so a frozen/half-open pooled connection can't hang or return
     // a blank body for recently-arrived mail.
     const doFetch = (acquire) => acquire(account, async (client) => {
-      let html = null;
-      let text = null;
+      let html;
+      let text;
       let attachments;
       // Always address by UID string with uid:true option — direct UID FETCH avoids
       // the two-step SEARCH+FETCH path that object-range syntax triggers, which can
@@ -4851,19 +4906,7 @@ export class ImapManager {
           throw new Error('Command failed');
         }
 
-        const results = { textParts: [], attachments: [], inlineImages: [] };
-        walkStructure(structure, results);
-
-        // Handle single-part root node (no childNodes, type is the content type)
-        if (results.textParts.length === 0) {
-          const rootType = (structure.type || '').toLowerCase();
-          results.textParts.push({
-            part: structure.part || '1',
-            type: (rootType === 'text/html' || rootType === 'text/plain' || rootType === 'application/xhtml+xml') ? 'text/html' : 'text/plain',
-            encoding: structure.encoding || '',
-            charset: structure.parameters?.charset || 'utf-8',
-          });
-        }
+        const results = planBodyParts(structure);
 
         attachments = results.attachments;
 
@@ -4919,13 +4962,7 @@ export class ImapManager {
           } catch { /* keep the batched value if the direct retry fails */ }
         }
 
-        for (const part of results.textParts) {
-          const buf = prefetched.get(part.part);
-          if (!buf) continue;
-          const decoded = decodeBody(buf, part.encoding, part.charset);
-          if (part.type === 'text/html' && !html) html = decoded;
-          else if (part.type === 'text/plain' && !text) text = decoded;
-        }
+        ({ html, text } = assembleBody(results.textParts, p => prefetched.get(p)));
 
         // Step 3: replace cid: references in HTML with data: URIs so inline
         // images render inside the sandboxed srcdoc iframe
