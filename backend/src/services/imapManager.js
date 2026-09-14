@@ -3772,7 +3772,10 @@ export class ImapManager {
   //      quickly even on a fresh account with tens of thousands of messages.
   //   4. For non-Gmail providers also store body_html/body_text during backfill so
   //      clicking an old email never needs a live IMAP round-trip.
-  async backfillMessages(account, folder = 'INBOX') {
+  // session: optional { client, batchesOnConn } shared by consecutive folders (backfillAllFolders),
+  // so a run logs in once instead of once per folder. The caller owns a shared session and logs it
+  // out; without one this call opens and closes its own connection.
+  async backfillMessages(account, folder = 'INBOX', session = null) {
     const backfillKey = `${account.id}:${folder}`;
     if (this.backfillRunning.has(backfillKey)) return;
     this.backfillRunning.add(backfillKey);
@@ -3782,40 +3785,56 @@ export class ImapManager {
     const cfg = { ...providerProfile(account) };
 
     // Dedicated connection managed here — completely independent of the shared pool
-    // so backfilling never blocks the user from opening emails.
-    let bfClient = null;
-    let batchesOnConn = 0;
+    // so backfilling never blocks the user from opening emails. The batch counter lives with
+    // the connection, so batchesPerConn rotation counts batches across folders.
+    const sess = session ?? { client: null, batchesOnConn: 0 };
+    const ownsSession = !session;
 
-    const openBfClient = async () => {
-      // Always clean up any existing client before creating a new one
-      if (bfClient) { try { await bfClient.logout(); } catch { /* already disconnected */ } bfClient = null; }
+    const dropBfClient = async () => {
+      if (!sess.client) return;
+      const client = sess.client;
+      sess.client = null;
+      try { await client.logout(); } catch { /* already disconnected */ }
+    };
+
+    // Re-check the account on every call, then log in only when there is no usable connection.
+    const ensureBfClient = async () => {
       const row = (await query('SELECT * FROM email_accounts WHERE id = $1', [account.id])).rows[0];
       // Re-check enabled here: a backfill can sit queued behind the per-host semaphore, and
       // the user may disable the account while it waits. disconnectAccount doesn't cancel a
       // queued backfill, so without this a disabled account would still get a fresh connection.
       if (!row || !row.enabled) throw Object.assign(new Error('Account deleted or disabled'), { accountUnavailable: true });
       if (row.oauth_reconnect_required) throw new OAuthTokenError('oauth_reconnect_required');
+      // A server can close a shared connection between folders; ImapFlow then rejects every
+      // mailbox lock, which would fail the whole folder.
+      if (sess.client && sess.client.usable === false) await dropBfClient();
+      if (sess.client) return;
       const fresh = await ensureFreshToken(row);
       const { resolved, policy } = await resolveAccountHost(fresh);
-      // if this throws, bfClient stays null (helper closes its own failed socket, #382 IPv4 fallback)
-      const newClient = await connectImapClient(fresh, resolved, { policy }, 30000, 'Backfill connect');
-      bfClient = newClient;
-      batchesOnConn = 0;
+      // if this throws, sess.client stays null (helper closes its own failed socket, #382 IPv4 fallback)
+      sess.client = await connectImapClient(fresh, resolved, { policy }, 30000, 'Backfill connect');
+      sess.batchesOnConn = 0;
+    };
+
+    // Periodic rotation: log out the current connection and log in again.
+    const openBfClient = async () => {
+      await dropBfClient();
+      await ensureBfClient();
     };
 
     try {
       // Always diff authoritative UID membership. Cached count equality cannot prove completeness.
       console.log(`Starting backfill for ${logAccount(account)}/${folder} (batch=${cfg.batchSize}, delay=${cfg.batchDelay}ms, fetchBody=${cfg.fetchBody})`);
-      await openBfClient();
+      await ensureBfClient();
 
       // Step 1 — ask the server for every UID in the mailbox.
       // UID SEARCH ALL is a single lightweight command that returns a flat list of
       // integers — no message data transferred, even for 50 000-message mailboxes.
       let serverUids;
       {
-        const lock = await bfClient.getMailboxLock(folder);
+        const lock = await sess.client.getMailboxLock(folder);
         try {
-          const totalExists = bfClient.mailbox?.exists || 0;
+          const totalExists = sess.client.mailbox?.exists || 0;
           if (totalExists === 0) {
             logger.debug(`Backfill ${logAccount(account)}: mailbox empty`);
             await query(
@@ -3824,11 +3843,11 @@ export class ImapManager {
             ).catch(() => {});
             return;
           }
-          serverUids = await bfClient.search({ all: true }, { uid: true });
+          serverUids = await sess.client.search({ all: true }, { uid: true });
 
           // UIDVALIDITY check — if this backfill connection sees a different epoch than
           // what is stored, purge stale rows so the diff below re-fetches everything.
-          const currentValidity = bfClient.mailbox?.uidValidity ? Number(bfClient.mailbox.uidValidity) : null;
+          const currentValidity = sess.client.mailbox?.uidValidity ? Number(sess.client.mailbox.uidValidity) : null;
           if (currentValidity) {
             const foldRow = await query(
               'SELECT uid_validity FROM folders WHERE account_id = $1 AND path = $2',
@@ -3935,7 +3954,7 @@ export class ImapManager {
         }
 
         // Periodically reconnect to keep connections fresh and pick up refreshed OAuth tokens
-        if (batchesOnConn >= cfg.batchesPerConn) {
+        if (sess.batchesOnConn >= cfg.batchesPerConn) {
           // Another path (connectAccount, the sync tick) armed a refusal or auth cooldown while this
           // folder was running: do not keep logging in behind its back.
           const cd = this._connectCooldown.get(account.id);
@@ -3968,7 +3987,7 @@ export class ImapManager {
         const batch = missingUids.slice(i, i + cfg.batchSize);
 
         try {
-          const lock = await bfClient.getMailboxLock(folder);
+          const lock = await sess.client.getMailboxLock(folder);
           try {
             // Third arg { uid: true } issues UID FETCH instead of sequence FETCH.
             // bodyParts omitted for Gmail (empty array) — metadata only, no throttling.
@@ -3980,7 +3999,7 @@ export class ImapManager {
             };
             if (bodyParts.length > 0) bfQuery.bodyParts = bodyParts;
 
-            for await (const msg of fetchBackfillBatch(bfClient, batch, bfQuery)) {
+            for await (const msg of fetchBackfillBatch(sess.client, batch, bfQuery)) {
               try {
                 const parsed = await parseMessage(msg);
                 enrichParsedMetadata(parsed, {
@@ -4117,11 +4136,11 @@ export class ImapManager {
           }
 
           i += batch.length;
-          batchesOnConn++;
+          sess.batchesOnConn++;
           consecutiveErrors = 0;
 
           // Log progress every 10 batches to avoid log spam
-          if (batchesOnConn % 10 === 1 || i >= missingUids.length) {
+          if (sess.batchesOnConn % 10 === 1 || i >= missingUids.length) {
             console.log(`Backfill ${logAccount(account)}: ${i}/${missingUids.length} UID candidates processed; ${backfilledRows} messages saved`);
             this.broadcast({
               type: 'backfill_progress', accountId: account.id,
@@ -4135,8 +4154,8 @@ export class ImapManager {
           consecutiveErrors++;
           const detail = extractImapError(err);
           // Discard the broken connection — openBfClient will reconnect next iteration
-          if (bfClient) { try { await bfClient.logout(); } catch { /* already disconnected */ } bfClient = null; }
-          batchesOnConn = cfg.batchesPerConn; // force reconnect
+          await dropBfClient();
+          sess.batchesOnConn = cfg.batchesPerConn; // force reconnect
 
           if (consecutiveErrors >= 3) {
             // Persistent failures — halve the batch size to reduce load on the server
@@ -4174,8 +4193,15 @@ export class ImapManager {
     } catch (err) {
       const detail = extractImapError(err);
       console.error(`Backfill failed for ${logAccount(account)}/${folder}:`, detail);
-      // Every folder opens its own login, so a provider refusing us (or rejecting the
-      // credentials) would otherwise be hit once per remaining folder. Report it so
+      // The next folder starts on a clean socket, as it did when every folder logged in on its
+      // own. close() (not logout()) so a wedged connection cannot hang the run.
+      if (!ownsSession && sess.client) {
+        const broken = sess.client;
+        sess.client = null;
+        try { broken.close(); } catch { /* already closed */ }
+      }
+      // After a failure the next folder logs in again, so a provider refusing us (or rejecting
+      // the credentials) would otherwise be hit once per remaining folder. Report it so
       // backfillAllFolders stops; a refusal also arms the account's shared backoff.
       if (await this._handleOAuthRefreshFailure(account, err)) return { aborted: 'oauth' };
       if (isConnectionRefusal(detail)) {
@@ -4184,7 +4210,7 @@ export class ImapManager {
       }
       if (isImapAuthFailure(err)) return { aborted: 'auth' };
     } finally {
-      if (bfClient) { try { await bfClient.logout(); } catch { /* already disconnected */ } }
+      if (ownsSession) await dropBfClient();
       this.backfillRunning.delete(backfillKey);
     }
   }
@@ -4322,6 +4348,8 @@ export class ImapManager {
     // matching backfill_all_complete always fires from the finally, so the pair stays balanced.
     this.broadcast({ type: 'backfill_all_start', accountId: account.id }, account.user_id);
     let slotHeld = false;
+    // One backfill connection for the whole run: folders reuse it instead of logging in each time.
+    const session = { client: null, batchesOnConn: 0 };
     try {
       // Draw from the per-host background-connection budget (shared with the snippet indexer):
       // a user with many accounts on one provider would otherwise open a background connection
@@ -4348,7 +4376,7 @@ export class ImapManager {
       }
 
       // INBOX first — highest priority, existing behaviour
-      const inboxOutcome = await this.backfillMessages(account, 'INBOX');
+      const inboxOutcome = await this.backfillMessages(account, 'INBOX', session);
       if (inboxOutcome?.aborted) {
         deferRest(['all non-INBOX folders'], `INBOX ${inboxOutcome.aborted}`);
         return;
@@ -4370,7 +4398,7 @@ export class ImapManager {
           deferRest(folders.slice(i), 'connect cooldown active');
           return;
         }
-        const outcome = await this.backfillMessages(account, path).catch(err =>
+        const outcome = await this.backfillMessages(account, path, session).catch(err =>
           console.warn(`Backfill skipped ${logAccount(account)}/${path}: ${err.message}`)
         );
         if (outcome?.aborted) {
@@ -4380,6 +4408,7 @@ export class ImapManager {
       }
 
     } finally {
+      if (session.client) { try { await session.client.logout(); } catch { /* already disconnected */ } }
       if (slotHeld) this._bgConnSem.release(host); // free the per-host slot for the next background job
       this.backfillAllRunning.delete(account.id);
       this.broadcast({ type: 'backfill_all_complete', accountId: account.id }, account.user_id);
