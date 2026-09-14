@@ -119,6 +119,46 @@ describe('renderInviteHtml', () => {
     expect(html).not.toContain('plain body');
   });
 
+  it('keeps an Exchange-style X-ALT-DESC document body and its join link through sanitizeEmail', () => {
+    const { html } = renderInviteHtml(ics(
+      'BEGIN:VCALENDAR', 'METHOD:REQUEST', 'BEGIN:VEVENT',
+      'SUMMARY:Sync',
+      'DESCRIPTION:Join: https://teams.microsoft.com/l/meetup-join/plain',
+      'X-ALT-DESC;FMTTYPE=text/html:<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//E',
+      ' N">\\n<HTML>\\n<HEAD>\\n<META NAME="Generator" CONTENT="MS Exchange Server">\\n<TITLE></TITLE>',
+      ' \\n</HEAD>\\n<BODY>\\n<P>Agenda</P><A HREF="https://teams.microsoft.com/l/meetup-join/rich">J',
+      ' oin</A>\\n</BODY>\\n</HTML>',
+      'END:VEVENT', 'END:VCALENDAR',
+    ));
+    expect(html).not.toMatch(/<!DOCTYPE|<html|<head|<title|<body/i);
+    const safe = sanitizeEmail(html);
+    expect(safe).toContain('Agenda');
+    expect(safe).toContain('href="https://teams.microsoft.com/l/meetup-join/rich"');
+  });
+
+  it('handles pathological X-ALT-DESC markup in linear time', () => {
+    const hostile = '<!doctype '.repeat(20000) + '<a href='.repeat(20000);
+    const started = performance.now();
+    const result = renderInviteHtml(ics(
+      'BEGIN:VCALENDAR', 'BEGIN:VEVENT', 'SUMMARY:S',
+      `X-ALT-DESC;FMTTYPE=text/html:${hostile}`,
+      'END:VEVENT', 'END:VCALENDAR',
+    ));
+    expect(performance.now() - started).toBeLessThan(1000);
+    expect(result.html).toContain('S');
+  });
+
+  it('falls back to DESCRIPTION when X-ALT-DESC has no visible content', () => {
+    const { html } = renderInviteHtml(ics(
+      'BEGIN:VCALENDAR', 'BEGIN:VEVENT',
+      'SUMMARY:S',
+      'DESCRIPTION:Join: https://zoom.us/j/123',
+      'X-ALT-DESC;FMTTYPE=text/html:<!DOCTYPE html><html><head><title>x</title></head><body> <br> </body></html>',
+      'END:VEVENT', 'END:VCALENDAR',
+    ));
+    expect(sanitizeEmail(html)).toContain('href="https://zoom.us/j/123"');
+  });
+
   it('flags Z times as UTC', () => {
     const { html } = renderInviteHtml(ics(
       'BEGIN:VCALENDAR', 'BEGIN:VEVENT',

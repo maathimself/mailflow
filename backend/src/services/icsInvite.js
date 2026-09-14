@@ -212,6 +212,53 @@ function plainToHtml(text) {
   return out.replace(/\r?\n/g, '<br>');
 }
 
+// Exchange/Outlook put a whole HTML document into X-ALT-DESC. A DOCTYPE or
+// <html>/<head> nested inside the card makes sanitizeEmail drop everything after
+// it, so keep only the body content. Returns null when nothing visible remains,
+// letting the caller fall back to the plain DESCRIPTION.
+function extractAltDescBody(html) {
+  const lower = html.toLowerCase();
+  const bodyOpen = lower.indexOf('<body');
+  let body;
+  if (bodyOpen !== -1) {
+    const contentStart = lower.indexOf('>', bodyOpen);
+    const bodyClose = lower.lastIndexOf('</body');
+    body = contentStart === -1
+      ? ''
+      : html.slice(contentStart + 1, bodyClose > contentStart ? bodyClose : undefined);
+  } else {
+    body = rewriteTags(html, (tag) => (DOCUMENT_WRAPPER_TAG_RE.test(tag) ? '' : tag));
+  }
+  body = body.trim();
+  let hasLink = false;
+  const visibleText = rewriteTags(body, (tag) => {
+    if (/^<a\s/i.test(tag) && tag.toLowerCase().includes('href=')) hasLink = true;
+    return '';
+  }).replace(/&nbsp;/gi, ' ').trim();
+  return visibleText || hasLink ? body : null;
+}
+
+const DOCUMENT_WRAPPER_TAG_RE = /^<\/?(?:!doctype|html|head|meta|title)\b/i;
+
+// Replaces every `<...>` tag with mapTag(tag) in a single left-to-right pass.
+// indexOf-based on purpose: regex tag matching on sender-controlled HTML can
+// backtrack quadratically. Text after an unterminated `<` is kept as is.
+function rewriteTags(html, mapTag) {
+  let out = '';
+  let pos = 0;
+  while (pos < html.length) {
+    const lt = html.indexOf('<', pos);
+    const gt = lt === -1 ? -1 : html.indexOf('>', lt + 1);
+    if (gt === -1) {
+      out += html.slice(pos);
+      break;
+    }
+    out += html.slice(pos, lt) + mapTag(html.slice(lt, gt + 1));
+    pos = gt + 1;
+  }
+  return out;
+}
+
 // Returns { html, text } for the first VEVENT of an ICS payload, or null when
 // the payload has no VEVENT (the caller then keeps the raw text).
 export function renderInviteHtml(ics) {
@@ -237,10 +284,11 @@ export function renderInviteHtml(ics) {
     textLines.push(`${icon} ${value}`);
   }
   // Nothing displayable: let the caller keep the raw text rather than show an empty card.
-  if (!htmlRows.length && !ev.description && !ev.altDescHtml) return null;
+  const altDescBody = ev.altDescHtml ? extractAltDescBody(ev.altDescHtml) : null;
+  if (!htmlRows.length && !ev.description && !altDescBody) return null;
 
   let html = `<div style="${CARD_STYLE}">${htmlRows.join('')}</div>`;
-  if (ev.altDescHtml) html += `<div style="${DESCRIPTION_STYLE}">${ev.altDescHtml}</div>`;
+  if (altDescBody) html += `<div style="${DESCRIPTION_STYLE}">${altDescBody}</div>`;
   else if (ev.description) html += `<div style="${DESCRIPTION_STYLE}">${plainToHtml(ev.description)}</div>`;
 
   if (ev.description) textLines.push('', ev.description);
