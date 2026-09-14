@@ -2346,7 +2346,15 @@ export class ImapManager {
     this._accountErrorStreak.set(account.id, streak);
     if (recoverable && streak < ACCOUNT_ERROR_MIN_STREAK) return;
     try {
-      await query('UPDATE email_accounts SET sync_error = $1 WHERE id = $2', [detail, account.id]);
+      // While oauth_reconnect_required is set, sync_error must keep its stable code: only that code
+      // itself may be written. A path running on a stale, unflagged copy of the row (the live sync
+      // tick after an SMTP send flagged the account) records nothing, so nothing is cached or pushed.
+      const result = await query(
+        `UPDATE email_accounts SET sync_error = $1
+         WHERE id = $2 AND (oauth_reconnect_required = false OR $1 = 'oauth_reconnect_required')`,
+        [detail, account.id],
+      );
+      if (result?.rowCount === 0) return;
       this._syncErrorState.set(account.id, detail);
       this.broadcast({ type: 'account_error', accountId: account.id, error: detail }, account.user_id);
     } catch (err) {
@@ -3639,7 +3647,7 @@ export class ImapManager {
       // Re-check enabled here: a backfill can sit queued behind the per-host semaphore, and
       // the user may disable the account while it waits. disconnectAccount doesn't cancel a
       // queued backfill, so without this a disabled account would still get a fresh connection.
-      if (!row || !row.enabled) throw new Error('Account deleted or disabled');
+      if (!row || !row.enabled) throw Object.assign(new Error('Account deleted or disabled'), { accountUnavailable: true });
       if (row.oauth_reconnect_required) throw new OAuthTokenError('oauth_reconnect_required');
       const fresh = await ensureFreshToken(row);
       const { resolved, policy } = await resolveAccountHost(fresh);
@@ -3767,11 +3775,17 @@ export class ImapManager {
       let backfilledRows = 0;
 
       while (i < missingUids.length) {
-        // Stop immediately if the account was deleted while backfilling
-        const accountCheck = await query('SELECT id FROM email_accounts WHERE id = $1', [account.id]);
+        // Stop immediately if the account was deleted or disabled while backfilling. A disabled
+        // account must end the loop too: every retry would fail in openBfClient, and the caller
+        // holds a per-host background slot for as long as this loop runs.
+        const accountCheck = await query('SELECT id, enabled FROM email_accounts WHERE id = $1', [account.id]);
         if (!accountCheck.rows.length) {
           console.log(`Backfill stopping — account ${logAccount(account)} was deleted`);
           return;
+        }
+        if (!accountCheck.rows[0].enabled) {
+          console.log(`Backfill stopping — account ${logAccount(account)} was disabled`);
+          return { aborted: 'disabled' };
         }
 
         // Periodically reconnect to keep connections fresh and pick up refreshed OAuth tokens
@@ -3785,6 +3799,11 @@ export class ImapManager {
           }
           try { await openBfClient(); }
           catch (reconnErr) {
+            // Deleted or disabled between the loop-top check and this reconnect: not transient.
+            if (reconnErr?.accountUnavailable) {
+              console.log(`Backfill stopping — account ${logAccount(account)} was deleted or disabled`);
+              return { aborted: 'disabled' };
+            }
             const detail = extractImapError(reconnErr);
             console.error(`Backfill reconnect failed for ${logAccount(account)}:`, detail);
             // Same handling as the initial login below: a refusal or rejected credentials will not

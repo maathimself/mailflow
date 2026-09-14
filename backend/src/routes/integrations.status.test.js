@@ -144,6 +144,24 @@ describe('Google integration config (admin)', () => {
     expect(process.env.GOOGLE_CLIENT_SECRET).toBe('stored-secret');
   });
 
+  it.each(['google', 'microsoft'])('rejects a %s client secret that mixes the redaction placeholder with other text', async (provider) => {
+    authState.admin = true;
+    process.env.MS_CLIENT_ID = 'unchanged';
+    for (const clientSecret of ['••••••••abc', 'abc••••••••', '•••']) {
+      const res = await fetch(`${base}/api/integrations/${provider}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId: 'gid', clientSecret, redirectUri: 'https://x/cb' }),
+      });
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body).toEqual({ error: 'Client secret contains the redaction placeholder; enter the full secret', code: 'client_secret_redacted' });
+    }
+    expect(query).not.toHaveBeenCalled();
+    expect(process.env.MS_CLIENT_ID).toBe('unchanged');
+    expect(process.env.GOOGLE_CLIENT_ID).toBeUndefined();
+  });
+
   it('clears env vars for fields removed from the saved config', async () => {
     authState.admin = true;
     process.env.GOOGLE_REDIRECT_URI = 'https://stale/cb';

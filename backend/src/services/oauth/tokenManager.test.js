@@ -105,7 +105,23 @@ describe('refreshOAuthToken', () => {
     const flag = query.mock.calls.find(([sql]) => /oauth_reconnect_required = true/.test(sql));
     expect(flag).toBeTruthy();
     expect(flag[0]).toMatch(/sync_error = 'oauth_reconnect_required'/);
-    expect(flag[1]).toEqual(['acc-g']);
+    expect(flag[0]).toMatch(/oauth_refresh_token IS NOT DISTINCT FROM \$2/);
+    expect(flag[1]).toEqual(['acc-g', 'enc-rt']);
+  });
+
+  it('does not flag an account whose refresh token was replaced while the refresh was in flight', async () => {
+    // A reconsent committed new tokens during the provider call: the rejected token is no longer
+    // stored, so the compare-and-set matches no row and the failure stays transient.
+    refreshGoogleToken.mockRejectedValue(providerError('invalid_grant'));
+    query.mockResolvedValue({ rows: [], rowCount: 0 });
+
+    const err = await refreshOAuthToken(googleAccount()).catch(e => e);
+
+    expect(err.code).toBe('oauth_refresh_failed');
+    expect(err.message).not.toMatch(/secret-refresh-token|provider said/);
+    const flag = query.mock.calls.find(([sql]) => /oauth_reconnect_required = true/.test(sql));
+    expect(flag[1]).toEqual(['acc-g', 'enc-rt']);
+    expect(JSON.stringify(errorSpy.mock.calls)).not.toMatch(/enc-rt|secret-refresh-token/);
   });
 
   it('treats a missing refresh token as requiring reconnect', async () => {

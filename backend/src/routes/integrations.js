@@ -6,6 +6,9 @@ import { isGoogleConfigured } from '../services/oauth/googleOAuth.js';
 
 const router = Router();
 
+// Placeholder sent instead of a stored client secret; posting it back keeps the stored value.
+const REDACTED_SECRET = '••••••••';
+
 // Google config fields and the env vars the OAuth routes read them from.
 const GOOGLE_ENV = {
   clientId: 'GOOGLE_CLIENT_ID',
@@ -35,7 +38,7 @@ router.get('/', requireAdmin, async (req, res) => {
   const configs = {};
   for (const row of result.rows) {
     const cfg = { ...row.config };
-    if (cfg.clientSecret) cfg.clientSecret = '••••••••';
+    if (cfg.clientSecret) cfg.clientSecret = REDACTED_SECRET;
     configs[row.provider] = { ...cfg, updated_at: row.updated_at };
   }
   res.json(configs);
@@ -74,8 +77,19 @@ router.post('/:provider', requireAdmin, async (req, res) => {
     }
   }
 
+  // A secret that contains the redaction bullet but is not exactly the placeholder was typed into
+  // (or around) the redacted field; storing it would silently replace the real secret with junk.
+  if (typeof config.clientSecret === 'string'
+    && config.clientSecret !== REDACTED_SECRET
+    && config.clientSecret.includes('•')) {
+    return res.status(400).json({
+      error: 'Client secret contains the redaction placeholder; enter the full secret',
+      code: 'client_secret_redacted',
+    });
+  }
+
   // If clientSecret is redacted, keep the existing stored value (already encrypted or legacy plaintext)
-  if (config.clientSecret === '••••••••') {
+  if (config.clientSecret === REDACTED_SECRET) {
     const existing = await query(
       'SELECT config FROM integration_config WHERE provider = $1',
       [provider]

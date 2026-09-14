@@ -3,10 +3,10 @@ import { randomBytes, createHash, randomUUID } from 'crypto';
 import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
-import sanitizeHtml from 'sanitize-html';
 import { sanitizeSignature, sanitizeComposeBody } from '../services/emailSanitizer.js';
 import { embedInlineDataImages } from '../utils/inlineImages.js';
 import { wrapSignatureHtml } from '../utils/signatureWrapper.js';
+import { htmlToText } from '../utils/htmlToText.js';
 import { redisClient } from '../services/redis.js';
 import { redactEmail } from '../utils/redact.js';
 import { resolveSentFolder } from '../utils/mailUtils.js';
@@ -124,12 +124,12 @@ function textToHtml(text) {
 }
 
 function sigToPlainText(html) {
-  return sanitizeHtml(html, { allowedTags: [], allowedAttributes: {} }).trim();
+  return htmlToText(html).trim();
 }
 
 function bodyToPlain(body, isHtml) {
   if (!isHtml) return body;
-  return sanitizeHtml(body, { allowedTags: [], allowedAttributes: {} });
+  return htmlToText(body);
 }
 
 function bodyToHtml(body, isHtml) {
@@ -159,7 +159,7 @@ router.post('/send', async (req, res) => {
     let cached;
     try { cached = await redisClient.get(idemKeyRedis); }
     catch { return res.status(503).json({ error: 'Sending is temporarily unavailable. Please try again shortly.' }); }
-    if (cached === '__inflight__') return res.status(409).json({ error: 'This message is already being sent.' });
+    if (cached === '__inflight__') return res.status(409).json({ error: 'This message is already being sent.', code: 'send_in_progress' });
     if (cached) return res.json(JSON.parse(cached));
   }
 
@@ -388,7 +388,7 @@ router.post('/send', async (req, res) => {
       let reserved;
       try { reserved = await redisClient.set(idemKeyRedis, '__inflight__', { NX: true, EX: 300 }); }
       catch { return res.status(503).json({ error: 'Sending is temporarily unavailable. Please try again shortly.' }); }
-      if (reserved !== 'OK') return res.status(409).json({ error: 'This message is already being sent.' });
+      if (reserved !== 'OK') return res.status(409).json({ error: 'This message is already being sent.', code: 'send_in_progress' });
       reservationAcquired = true;
     }
 

@@ -138,6 +138,16 @@ describe('POST /api/mail/draft — signature wrapper (#432)', () => {
     expect(meta.bodyText.match(/\n\n-- \nSig/g)).toHaveLength(1);
   });
 
+  it('keeps ampersands and angle brackets unescaped in the draft text part', async () => {
+    const meta = await save({ body: '<p>R&amp;D a &lt; b</p>', editedSignature: '<b>R&amp;D &lt;team&gt;</b>' });
+    expect(meta.bodyText).toBe('R&D a < b\n\n-- \nR&D <team>');
+    // The appended MIME's text/plain part (the HTML part legitimately keeps &amp;).
+    const raw = imapManager.appendToFolder.mock.calls[0][2].toString();
+    const textPart = raw.split('Content-Type: text/plain')[1].split('----_')[0];
+    expect(textPart).toContain('R&D a < b');
+    expect(textPart).not.toContain('&amp;');
+  });
+
   it('uses the edited signature inside the wrapper', async () => {
     const meta = await save({ editedSignature: '<i>Edited</i>' });
     expect(meta.bodyHtml).toContain('<div class="mailexpert-signature" style="margin-top:16px;color:#555;font-size:13px"><i>Edited</i></div>');

@@ -98,6 +98,17 @@ function installDb() {
       if (row) rows.set(row.id, { ...row, oauth_reconnect_required: true, sync_error: 'oauth_reconnect_required' });
       return { rows: [], rowCount: 1 };
     }
+    // Apply sync_error writes the way Postgres would, honouring the flag guard in the WHERE clause.
+    if (sql.startsWith('UPDATE email_accounts SET sync_error = $1')) {
+      const [detail, id] = params;
+      const row = rows.get(id);
+      const guarded = /oauth_reconnect_required = false OR \$1 = 'oauth_reconnect_required'/.test(sql);
+      if (!row || (guarded && row.oauth_reconnect_required && detail !== 'oauth_reconnect_required')) {
+        return { rows: [], rowCount: 0 };
+      }
+      rows.set(id, { ...row, sync_error: detail });
+      return { rows: [], rowCount: 1 };
+    }
     return { rows: [], rowCount: 0 };
   });
 }
@@ -339,6 +350,34 @@ describe('oauth_reconnect_required', () => {
 
     expect(rows.get(acct.id).sync_error).toBe('oauth_reconnect_required');
     expect(mgr.broadcast).not.toHaveBeenCalledWith({ type: 'account_connected', accountId: acct.id }, 'u1');
+  });
+
+  it('keeps the stable code in sync_error when a refusal streak is recorded for a flagged account', async () => {
+    const acct = gmailAccount();
+    // Flagged elsewhere (an SMTP send) while the live IMAP session keeps syncing on its stale row.
+    rows.set(acct.id, { ...acct, oauth_reconnect_required: true, sync_error: 'oauth_reconnect_required' });
+    const mgr = newManager();
+
+    await mgr._recordAccountError(acct, 'Too many requests, throttled');
+    await mgr._recordAccountError(acct, 'Too many requests, throttled');
+
+    expect(syncErrorWrites(acct.id)).toHaveLength(1);
+    expect(rows.get(acct.id).sync_error).toBe('oauth_reconnect_required');
+    expect(mgr._syncErrorState.has(acct.id)).toBe(false);
+    expect(mgr.broadcast).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'account_error' }), 'u1');
+  });
+
+  it('still records the stable code itself for a flagged account', async () => {
+    const acct = gmailAccount();
+    rows.set(acct.id, { ...acct, oauth_reconnect_required: true, sync_error: 'Too many requests, throttled' });
+    const mgr = newManager();
+
+    await mgr._noteOAuthReconnectRequired(acct);
+
+    expect(rows.get(acct.id).sync_error).toBe('oauth_reconnect_required');
+    expect(mgr._syncErrorState.get(acct.id)).toBe('oauth_reconnect_required');
+    expect(mgr.broadcast).toHaveBeenCalledWith(
+      { type: 'account_error', accountId: acct.id, error: 'oauth_reconnect_required' }, 'u1');
   });
 
   it('does not let a late refusal or auth failure replace the reconnect-required gate', async () => {

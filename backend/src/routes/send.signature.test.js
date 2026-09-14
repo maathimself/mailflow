@@ -48,6 +48,12 @@ describe('send signature wrapper (#432)', () => {
     expect(mail.text.match(/\n-- \n/g)).toHaveLength(1);
   });
 
+  it('keeps ampersands and angle brackets unescaped in the text part', async () => {
+    expect((await post({ body: '<p>R&amp;D a &lt; b</p>', editedSignature: '<b>R&amp;D &lt;team&gt;</b>' })).status).toBe(200);
+    const mail = sendMail.mock.calls[0][0];
+    expect(mail.text).toBe('R&D a < b\n\n-- \nR&D <team>');
+  });
+
   it('wraps an edited signature and omits the wrapper for an empty one', async () => {
     await post({ editedSignature: '<i>Edited</i>' });
     expect(sendMail.mock.calls[0][0].html).toContain(wrapSignatureHtml('<i>Edited</i>'));
