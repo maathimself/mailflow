@@ -20,6 +20,8 @@ import { formatDate } from '../utils/formatDate.js';
 import { advanceSelectionAfterRemoval } from '../utils/listSelection.js';
 import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
 import SenderAvatarImage from './SenderAvatarImage.jsx';
+import FolderPathLabel from './FolderPathLabel.jsx';
+import { folderMatchesQuery } from '../utils/folderDisplay.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { createLatestRequest } from '../utils/latestRequest.js';
 import { draftComposeFields } from '../utils/draftSignature.js';
@@ -3479,7 +3481,7 @@ export default function MessageList() {
                       {(() => {
                         const q = pickerSearch.trim().toLowerCase();
                         const displayed = pickerFolders
-                          .filter(f => f.path !== selectedFolder && (!q || f.name.toLowerCase().includes(q)));
+                          .filter(f => f.path !== selectedFolder && (!q || folderMatchesQuery(f, q)));
                         return displayed.length === 0 ? (
                           <div style={{ padding: '12px 12px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12 }}>
                             {t('contextMenu.folders.empty')}
@@ -3509,9 +3511,7 @@ export default function MessageList() {
                                 <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}>
                                   <FolderIcon specialUse={f.special_use} />
                                 </span>
-                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                  {f.name}
-                                </span>
+                                <FolderPathLabel folder={f} />
                               </button>
                             ))}
                           </>
@@ -3576,7 +3576,7 @@ export default function MessageList() {
                       ) : (() => {
                         const q = pickerSearch.trim().toLowerCase();
                         const displayed = pickerFolders
-                          .filter(f => f.path !== selectedFolder && (!q || f.name.toLowerCase().includes(q)));
+                          .filter(f => f.path !== selectedFolder && (!q || folderMatchesQuery(f, q)));
                         return displayed.length === 0 ? (
                           <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
                             {t('contextMenu.folders.empty')}
@@ -3598,9 +3598,7 @@ export default function MessageList() {
                             <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}>
                               <FolderIcon specialUse={f.special_use} />
                             </span>
-                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {f.name}
-                            </span>
+                            <FolderPathLabel folder={f} />
                           </button>
                         ));
                       })()}
