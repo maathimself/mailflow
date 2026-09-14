@@ -2062,7 +2062,7 @@ describe('Gmail label memberships (#418)', () => {
     query.mockReset();
     query.mockImplementation(async (sql, params = []) => {
       const local = rows.filter(r => r.folder === params[1]);
-      if (sql.includes('SELECT * FROM email_accounts') || sql.includes('SELECT id FROM email_accounts')) return { rows: [acct] };
+      if (sql.includes('SELECT * FROM email_accounts') || sql.includes('SELECT id, enabled FROM email_accounts')) return { rows: [acct] };
       if (sql.includes('SELECT uid_validity, total_count')) return { rows: [{ uid_validity: 1, total_count: local.length }] };
       if (sql.includes('SELECT uid_validity')) return { rows: [{ uid_validity: 1 }] };
       if (sql.includes('COUNT(*) as count')) return { rows: [{ count: local.length, max_uid: Math.max(0, ...local.map(r => r.uid)) }] };
@@ -2647,7 +2647,7 @@ describe('backfill stops on a provider refusal (#433)', () => {
       vi.useFakeTimers();
       query.mockImplementation(async (sql) => {
         if (sql.startsWith('SELECT * FROM email_accounts')) return { rows: [acct] };
-        if (sql.startsWith('SELECT id FROM email_accounts')) return { rows: [{ id: acct.id }] };
+        if (sql.startsWith('SELECT id, enabled FROM email_accounts')) return { rows: [{ id: acct.id, enabled: true }] };
         if (sql.startsWith('SELECT COUNT(*)')) return { rows: [{ count: '0', max_uid: '0' }] };
         return { rows: [] };
       });
@@ -2731,6 +2731,75 @@ describe('backfill stops on a provider refusal (#433)', () => {
       await vi.advanceTimersByTimeAsync(errorDelay);
       expect(await p).toEqual({ aborted: 'refused' });
       expect(ImapFlow).toHaveBeenCalledTimes(3);
+    });
+
+    // Disabled while a folder is mid-backfill: the loop must end instead of retrying forever
+    // behind the per-host background slot.
+    function disableAfterFirstLogin({ loopTopSeesDisabled }) {
+      let rowReads = 0;
+      query.mockImplementation(async (sql) => {
+        if (sql.startsWith('SELECT * FROM email_accounts')) {
+          return { rows: [{ ...acct, enabled: ++rowReads === 1 }] };
+        }
+        if (/^SELECT id\b.* FROM email_accounts/.test(sql)) {
+          return { rows: [{ id: acct.id, enabled: !loopTopSeesDisabled }] };
+        }
+        if (sql.startsWith('SELECT COUNT(*)')) return { rows: [{ count: '0', max_uid: '0' }] };
+        return { rows: [] };
+      });
+    }
+    async function settleWithin(p, steps) {
+      let settled = false;
+      let value;
+      p.then(v => { settled = true; value = v; });
+      for (let n = 0; n < steps && !settled; n++) await vi.advanceTimersByTimeAsync(errorDelay * 6);
+      return { settled, value };
+    }
+
+    it('stops with a disabled outcome when the loop-top check sees the account disabled', async () => {
+      disableAfterFirstLogin({ loopTopSeesDisabled: true });
+      connectOnceThen(() => Promise.resolve());
+      const mgr = backfillManager();
+      const p = ImapManager.prototype.backfillMessages.call(mgr, acct, 'Sent');
+      const { settled, value } = await settleWithin(p, 5);
+      expect(settled).toBe(true);
+      expect(value).toEqual({ aborted: 'disabled' });
+      expect(ImapFlow).toHaveBeenCalledTimes(1);
+      expect(mgr.backfillRunning.size).toBe(0);
+    });
+
+    it('stops with a disabled outcome when the mid-folder reconnect finds the account disabled', async () => {
+      disableAfterFirstLogin({ loopTopSeesDisabled: false });
+      connectOnceThen(() => Promise.resolve());
+      const mgr = backfillManager();
+      const p = ImapManager.prototype.backfillMessages.call(mgr, acct, 'Sent');
+      const { settled, value } = await settleWithin(p, 5);
+      expect(settled).toBe(true);
+      expect(value).toEqual({ aborted: 'disabled' });
+      expect(ImapFlow).toHaveBeenCalledTimes(1);
+      expect(mgr._noteConnectionRefusal).not.toHaveBeenCalled();
+      expect(mgr.backfillRunning.size).toBe(0);
+    });
+
+    it('releases the per-host slot and running flags when an account is disabled mid-backfill', async () => {
+      disableAfterFirstLogin({ loopTopSeesDisabled: false });
+      connectOnceThen(() => Promise.resolve());
+      const mgr = {
+        ...backfillManager(),
+        backfillAllRunning: new Set(),
+        _bgConnSem: createKeyedSemaphore(2),
+        refreshBulkFlags: vi.fn().mockResolvedValue(),
+        startSnippetIndexer: vi.fn().mockResolvedValue(),
+      };
+      mgr.backfillMessages = vi.fn(ImapManager.prototype.backfillMessages);
+      const p = ImapManager.prototype.backfillAllFolders.call(mgr, acct);
+      const { settled } = await settleWithin(p, 5);
+      expect(settled).toBe(true);
+      expect(mgr.backfillMessages.mock.calls.map(c => c[1])).toEqual(['INBOX']);
+      expect(mgr._bgConnSem.activeCount('imap.mail.yahoo.com')).toBe(0);
+      expect(mgr.backfillRunning.size).toBe(0);
+      expect(mgr.backfillAllRunning.has(acct.id)).toBe(false);
+      expect(mgr.broadcast).toHaveBeenCalledWith({ type: 'backfill_all_complete', accountId: acct.id }, acct.user_id);
     });
   });
 
