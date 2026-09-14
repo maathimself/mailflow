@@ -382,6 +382,20 @@
     "lock": "Lock",
     "signOut": "Sign out",
     "connectionError": "Connection error",
+    "accountFilter": {
+      "label": "Filter mailboxes by name or email",
+      "placeholder": "Find a mailbox…",
+      "noMatch": "No mailboxes match"
+    },
+    "health": {
+      "healthy": "Connected and syncing",
+      "stale": "No sync in the last 15 minutes",
+      "failed": "Sync failed",
+      "failedDetail": "Sync failed: {{detail}}",
+      "reconnectRequired": "Sign-in expired, reconnect required",
+      "reconnectAccount": "Reconnect {{email}}",
+      "disabled": "Mailbox disabled"
+    },
     "folderMenu": {
       "markAllRead": "Mark all as read",
       "syncFolder": "Sync folder",

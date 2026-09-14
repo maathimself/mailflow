@@ -7,6 +7,7 @@ import { encrypt } from '../services/encryption.js';
 import { sanitizeSignature } from '../services/emailSanitizer.js';
 import { validateHost } from '../services/hostValidation.js';
 import { getConnectionPolicy } from '../services/connectionPolicy.js';
+import { computeAccountHealth } from '../services/accountHealth.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { createKeyedSerializer } from '../utils/keyedSerializer.js';
 import { uuidParam } from '../utils/uuid.js';
@@ -89,6 +90,9 @@ router.get('/', async (req, res) => {
     }
   }
 
+  // One clock for the whole list so every account's stale check uses the same instant.
+  const now = Date.now();
+
   // Let plugins re-attach their own account-scoped fields (GTD: gtd_enabled/gtd_folders, no longer
   // columns) so the client sees them as before. Each enrichAccount handler returns a field patch.
   const enriched = await Promise.all(result.rows.map(async (a) => {
@@ -97,6 +101,8 @@ router.get('/', async (req, res) => {
       ...a,
       ...Object.assign({}, ...patches),
       signature: a.signature ? sanitizeSignature(a.signature) : a.signature,
+      // Stable code only (see services/accountHealth.js); sync_error stays the sole error text.
+      health: computeAccountHealth(a, now),
       aliases: (aliasMap[a.id] || []).map(alias => ({
         ...alias,
         signature: alias.signature ? sanitizeSignature(alias.signature) : alias.signature,

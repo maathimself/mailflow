@@ -31,6 +31,8 @@ import SignatureEditor from './SignatureEditor.jsx';
 import DiagnosticsReportModal from './DiagnosticsReportModal.jsx';
 import ConfirmOverlay from './ConfirmOverlay.jsx';
 import GoogleIntegrationSection, { openGoogleOAuth } from './GoogleIntegrationSection.jsx';
+import { openOAuthWindow } from '../utils/oauthWindow.js';
+import { MICROSOFT_OAUTH_PATH } from '../utils/accountHealth.js';
 import { isGoogleReconnectRequired } from '../utils/googleOAuth.js';
 import { getEffectiveShortcuts, getGroupedActions, ACTION_DEFS, SPECIAL_KEY_LABELS, parseModKey, modLabel } from '../utils/defaultShortcuts.js';
 import { isValidForwardAddress } from '../utils/ruleActions.js';
@@ -2496,15 +2498,9 @@ function IntegrationsTab() {
 
   const handleConnectMs = () => {
     setConnectingMs(true);
-    // Use a real anchor click so the browser treats it as a normal navigation
-    // window.open gets intercepted by some browser extensions (e.g. claude.ai in Zen)
-    const a = document.createElement('a');
-    a.href = '/oauth/microsoft';
-    a.target = '_blank';
-    a.rel = 'opener';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    // Real anchor click in a new tab: window.open gets intercepted by some browser
+    // extensions (e.g. claude.ai in Zen). The sidebar Reconnect action uses the same entry.
+    openOAuthWindow(MICROSOFT_OAUTH_PATH);
     setTimeout(() => setConnectingMs(false), 5000);
   };
 

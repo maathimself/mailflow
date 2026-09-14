@@ -398,6 +398,20 @@
     "lock": "Zablokuj",
     "signOut": "Wyloguj się",
     "connectionError": "Błąd połączenia",
+    "accountFilter": {
+      "label": "Filtruj skrzynki według nazwy lub adresu e-mail",
+      "placeholder": "Znajdź skrzynkę…",
+      "noMatch": "Brak pasujących skrzynek"
+    },
+    "health": {
+      "healthy": "Połączono, synchronizacja działa",
+      "stale": "Brak synchronizacji od 15 minut",
+      "failed": "Synchronizacja nie powiodła się",
+      "failedDetail": "Synchronizacja nie powiodła się: {{detail}}",
+      "reconnectRequired": "Logowanie wygasło, wymagane ponowne połączenie",
+      "reconnectAccount": "Połącz ponownie {{email}}",
+      "disabled": "Skrzynka wyłączona"
+    },
     "folderMenu": {
       "markAllRead": "Oznacz wszystkie jako przeczytane",
       "syncFolder": "Synchronizuj folder",

@@ -382,6 +382,20 @@
     "lock": "Sperren",
     "signOut": "Abmelden",
     "connectionError": "Verbindungsfehler",
+    "accountFilter": {
+      "label": "Postfächer nach Name oder E-Mail filtern",
+      "placeholder": "Postfach suchen…",
+      "noMatch": "Keine passenden Postfächer"
+    },
+    "health": {
+      "healthy": "Verbunden und synchronisiert",
+      "stale": "Keine Synchronisierung in den letzten 15 Minuten",
+      "failed": "Synchronisierung fehlgeschlagen",
+      "failedDetail": "Synchronisierung fehlgeschlagen: {{detail}}",
+      "reconnectRequired": "Anmeldung abgelaufen, erneute Verbindung erforderlich",
+      "reconnectAccount": "{{email}} erneut verbinden",
+      "disabled": "Postfach deaktiviert"
+    },
     "folderMenu": {
       "markAllRead": "Alle als gelesen markieren",
       "syncFolder": "Ordner synchronisieren",

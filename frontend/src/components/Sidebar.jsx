@@ -1,7 +1,10 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { unreadBadge } from '../utils/unreadBadge.js';
+import { filterAccounts } from '../utils/accountFilter.js';
+import { HEALTH_LABEL_KEYS, computeAccountHealth, reconnectMenuAction, reconnectUrlFor } from '../utils/accountHealth.js';
+import { openOAuthWindow } from '../utils/oauthWindow.js';
 import { api } from '../utils/api.js';
 import {
   activateOnKey,
@@ -245,6 +248,15 @@ function CtxMenuItem({ icon, label, onClick, danger, disabled }) {
   );
 }
 
+// Theme variables per health code, so the indicator follows light and dark themes.
+const HEALTH_COLORS = {
+  healthy: 'var(--green)',
+  stale: 'var(--amber)',
+  failed: 'var(--red)',
+  oauth_reconnect_required: 'var(--red)',
+  disabled: 'var(--text-tertiary)',
+};
+
 // ─── Main Sidebar ─────────────────────────────────────────────────────────────
 export default function Sidebar() {
   const { t } = useTranslation();
@@ -264,11 +276,21 @@ export default function Sidebar() {
     sidebarWidth,
     isSidebarResizing,
     showContacts, setShowContacts,
+    accountFilter, setAccountFilter,
   } = useStore();
 
   const isMobile = useMobile();
   // On mobile the sidebar is always expanded (shown as an overlay drawer)
   const sidebarCollapsed = isMobile ? false : sidebarCollapsedPref;
+
+  // The mailbox filter is only offered with two or more accounts in the expanded sidebar.
+  // While the input is hidden the filter is not applied either, so a leftover query can
+  // never hide an account the user has no way to bring back.
+  const showAccountFilter = accounts.length > 1 && !sidebarCollapsed;
+  const visibleAccounts = useMemo(
+    () => (showAccountFilter ? filterAccounts(accounts, accountFilter) : accounts),
+    [showAccountFilter, accounts, accountFilter],
+  );
 
   // Close the mobile drawer whenever the user navigates to a different folder/account
   useEffect(() => {
@@ -782,7 +804,12 @@ export default function Sidebar() {
       {
         label: t('sidebar.accountMenu.reconnect'),
         icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>,
-        action: () => api.reconnectAccount(account.id).catch(console.error),
+        action: () => {
+          const health = HEALTH_LABEL_KEYS[account.health] ? account.health : computeAccountHealth(account);
+          const reconnect = reconnectMenuAction({ ...account, health });
+          if (reconnect.kind === 'oauth') openOAuthWindow(reconnect.url);
+          else api.reconnectAccount(account.id).catch(console.error);
+        },
       },
     );
     return items;
@@ -1101,8 +1128,43 @@ export default function Sidebar() {
           );
         })()}
 
+        {/* Mailbox filter: narrows only the rendered rows below, never the store's accounts,
+            the selection or unread counts. */}
+        {showAccountFilter && (
+          <div style={{ position: 'relative', margin: '2px 2px 6px' }}>
+            <input
+              type="search"
+              value={accountFilter}
+              onChange={e => setAccountFilter(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  setAccountFilter('');
+                }
+                e.stopPropagation();
+              }}
+              placeholder={t('sidebar.accountFilter.placeholder')}
+              aria-label={t('sidebar.accountFilter.label')}
+              title={t('sidebar.accountFilter.label')}
+              spellCheck={false}
+              autoComplete="off"
+              style={{
+                width: '100%', boxSizing: 'border-box', fontSize: 12,
+                background: 'var(--bg-primary)', color: 'var(--text-primary)',
+                border: '1px solid var(--border-subtle)', borderRadius: 6,
+                padding: '5px 8px', outline: 'none',
+              }}
+            />
+          </div>
+        )}
+
         {/* Per-account */}
-        {accounts.map(account => {
+        {showAccountFilter && visibleAccounts.length === 0 && (
+          <div role="status" style={{ fontSize: 12, color: 'var(--text-tertiary)', padding: '6px 10px' }}>
+            {t('sidebar.accountFilter.noMatch')}
+          </div>
+        )}
+        {visibleAccounts.map(account => {
           const countSnapshot = unreadCounts.snapshots?.[account.id];
           const accountBadge = unreadBadge({ count: unreadCounts.byAccount[account.id],
             known: Number.isFinite(unreadCounts.byAccount[account.id]) && countSnapshot?.known !== false,
@@ -1112,7 +1174,22 @@ export default function Sidebar() {
           const accountFolders = folders[account.id] || [];
 
           const selectInbox = () => setSelectedAccount(account.id, 'INBOX');
-          const rowLabel = collapsedTooltip(account.email_address, sidebarCollapsed);
+          // The server sends `health`; an account patched before that (or by an older
+          // backend) falls back to the same rule computed locally.
+          const health = HEALTH_LABEL_KEYS[account.health] ? account.health : computeAccountHealth(account);
+          const needsReconnect = health === 'oauth_reconnect_required';
+          const hasProblem = health === 'failed' || needsReconnect;
+          const reconnectUrl = needsReconnect ? reconnectUrlFor(account) : null;
+          const healthLabel = t(HEALTH_LABEL_KEYS[health]);
+          // Raw sync_error text is shown only for a plain failure; a reconnect-required
+          // account carries a stable code there and gets the fixed label instead.
+          const healthTitle = health === 'failed' && account.sync_error
+            ? t('sidebar.health.failedDetail', { detail: account.sync_error })
+            : healthLabel;
+          const rowLabel = collapsedTooltip(
+            health === 'healthy' ? account.email_address : `${account.email_address} — ${healthLabel}`,
+            sidebarCollapsed,
+          );
 
           return (
             <div key={account.id}>
@@ -1153,7 +1230,7 @@ export default function Sidebar() {
                     flexShrink: 0,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     fontSize: 12, fontWeight: 600, color: account.color,
-                    outline: account.sync_error ? '2px solid rgba(248,113,113,0.5)' : 'none',
+                    outline: health === 'healthy' ? 'none' : `2px solid ${HEALTH_COLORS[health]}`,
                     userSelect: 'none',
                   }}>
                     {(account.name || account.email_address || '?').charAt(0).toUpperCase()}
@@ -1162,7 +1239,6 @@ export default function Sidebar() {
                   <div style={{
                     width: 8, height: 8, borderRadius: '50%',
                     background: account.color, flexShrink: 0,
-                    boxShadow: account.sync_error ? '0 0 0 2px rgba(248,113,113,0.4)' : 'none',
                   }} />
                 )}
 
@@ -1176,7 +1252,7 @@ export default function Sidebar() {
                       }}>
                         {account.name}
                       </div>
-                      {!account.sync_error && (
+                      {!hasProblem && (
                         <div style={{
                           fontSize: 11, color: 'var(--text-tertiary)',
                           whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
@@ -1184,13 +1260,42 @@ export default function Sidebar() {
                           {account.email_address}
                         </div>
                       )}
-                      {account.sync_error && (
-                        <div style={{ fontSize: 11, color: 'var(--red)' }}>
-                          {t('sidebar.connectionError')}
+                      {hasProblem && (
+                        <div style={{
+                          fontSize: 11, color: 'var(--red)',
+                          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                        }}>
+                          {needsReconnect ? healthLabel : t('sidebar.connectionError')}
                         </div>
                       )}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                      {reconnectUrl && (
+                        <button
+                          type="button"
+                          onClick={e => { e.stopPropagation(); openOAuthWindow(reconnectUrl); }}
+                          onKeyDown={e => e.stopPropagation()}
+                          aria-label={t('sidebar.health.reconnectAccount', { email: account.email_address })}
+                          title={t('sidebar.health.reconnectAccount', { email: account.email_address })}
+                          style={{
+                            fontSize: 11, fontWeight: 500, lineHeight: 1.4,
+                            padding: '1px 6px', borderRadius: 5, cursor: 'pointer',
+                            background: 'var(--accent)', color: 'var(--accent-text)', border: 'none',
+                          }}
+                        >
+                          {t('sidebar.accountMenu.reconnect')}
+                        </button>
+                      )}
+                      <span
+                        role="img"
+                        aria-label={healthTitle}
+                        title={healthTitle}
+                        style={{
+                          width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+                          background: HEALTH_COLORS[health],
+                          opacity: health === 'healthy' ? 0.7 : 1,
+                        }}
+                      />
                       {accountBadge && (
                         <span title={accountBadge.title} style={{
                           fontSize: 11, fontWeight: 600, color: 'white',

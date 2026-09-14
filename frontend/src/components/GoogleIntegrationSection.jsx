@@ -9,6 +9,7 @@ import {
   secretFieldOnBlur,
   secretFieldOnFocus,
 } from '../utils/googleOAuth.js';
+import { openOAuthWindow } from '../utils/oauthWindow.js';
 import ConfirmOverlay from './ConfirmOverlay.jsx';
 
 const EMPTY_FORM = { clientId: '', clientSecret: '', redirectUri: '' };
@@ -49,17 +50,9 @@ function GoogleIcon({ size = 20 }) {
   );
 }
 
-// Opens the server-side Google consent flow in a new tab. A real anchor click is
-// used (like the Microsoft flow) because window.open gets intercepted by some
-// browser extensions. rel="opener" lets App.jsx post the result back.
+// Opens the server-side Google consent flow in a new tab (see utils/oauthWindow.js).
 export function openGoogleOAuth({ loginHint } = {}) {
-  const a = document.createElement('a');
-  a.href = buildGoogleConnectUrl({ loginHint });
-  a.target = '_blank';
-  a.rel = 'opener';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
+  openOAuthWindow(buildGoogleConnectUrl({ loginHint }));
 }
 
 // Google (Gmail) OAuth card for Settings → Integrations. Admins configure the
