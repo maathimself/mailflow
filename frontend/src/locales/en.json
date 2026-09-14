@@ -1384,6 +1384,8 @@
         "removedNote": "Google configuration removed.",
         "saveError": "Could not save the Google configuration. Check the values and try again.",
         "removeError": "Could not remove the Google configuration. Please try again.",
+        "removeConfirm": "Remove the Google OAuth configuration? Gmail connections will stop working until it is configured again.",
+        "clientSecretInvalid": "The client secret still contains the hidden placeholder. Clear the field and type the new secret.",
         "requiredFields": "Client ID, client secret and redirect URI are all required.",
         "connect": "Connect Gmail",
         "redirecting": "Redirecting…",

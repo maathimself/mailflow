@@ -1510,6 +1510,8 @@
         "removedNote": "Nastavení Google bylo odebráno.",
         "saveError": "Nastavení Google se nepodařilo uložit. Zkontrolujte hodnoty a zkuste to znovu.",
         "removeError": "Nastavení Google se nepodařilo odebrat. Zkuste to znovu.",
+        "removeConfirm": "Odebrat konfiguraci Google OAuth? Připojení Gmailu přestanou fungovat, dokud nebude znovu nastavena.",
+        "clientSecretInvalid": "Tajný klíč klienta stále obsahuje skrytý zástupný text. Vymažte pole a zadejte nový klíč.",
         "requiredFields": "ID klienta, tajný klíč klienta a URI přesměrování jsou povinné.",
         "connect": "Připojit Gmail",
         "redirecting": "Přesměrování…",

@@ -1384,6 +1384,8 @@
         "removedNote": "Google 配置已移除。",
         "saveError": "无法保存 Google 配置。请检查填写的值后重试。",
         "removeError": "无法移除 Google 配置。请重试。",
+        "removeConfirm": "要移除 Google OAuth 配置吗？在重新配置之前，Gmail 连接将无法使用。",
+        "clientSecretInvalid": "客户端密钥仍包含隐藏的占位符。请清空该字段并输入新的密钥。",
         "requiredFields": "客户端 ID、客户端密钥和重定向 URI 均为必填项。",
         "connect": "连接 Gmail",
         "redirecting": "跳转中…",

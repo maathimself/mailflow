@@ -2,11 +2,15 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   GOOGLE_OAUTH_PATH,
+  REDACTED_CLIENT_SECRET,
   buildGoogleConnectUrl,
   buildGoogleRedirectUri,
   isGoogleReconnectRequired,
   oauthMessageToSearchParams,
   parseOAuthResult,
+  resolveClientSecretForSave,
+  secretFieldOnBlur,
+  secretFieldOnFocus,
 } from './googleOAuth.js';
 
 const params = (query) => new URLSearchParams(query);
@@ -182,5 +186,40 @@ describe('oauthMessageToSearchParams', () => {
     for (const data of [null, undefined, 'oauth_success', {}, { type: 'other', provider: 'google' }, { type: 'oauth_success', provider: { a: 1 } }]) {
       assert.equal(parseOAuthResult(oauthMessageToSearchParams(data)), null, JSON.stringify(data));
     }
+  });
+});
+
+describe('client secret field', () => {
+  it('uses the backend redaction sentinel', () => {
+    assert.equal(REDACTED_CLIENT_SECRET, '•'.repeat(8));
+  });
+
+  it('clears the redacted sentinel on focus and remembers it was redacted', () => {
+    assert.deepEqual(secretFieldOnFocus(REDACTED_CLIENT_SECRET), { value: '', wasRedacted: true });
+  });
+
+  it('leaves a typed or empty value untouched on focus', () => {
+    assert.deepEqual(secretFieldOnFocus('typed-secret'), { value: 'typed-secret', wasRedacted: false });
+    assert.deepEqual(secretFieldOnFocus(''), { value: '', wasRedacted: false });
+  });
+
+  it('restores the sentinel on blur only when a redacted field was left empty', () => {
+    assert.equal(secretFieldOnBlur('', true), REDACTED_CLIENT_SECRET);
+    assert.equal(secretFieldOnBlur('new-secret', true), 'new-secret');
+    assert.equal(secretFieldOnBlur('', false), '');
+    assert.equal(secretFieldOnBlur('abc', false), 'abc');
+  });
+
+  it('accepts the exact sentinel and plain secrets for save', () => {
+    assert.deepEqual(resolveClientSecretForSave(REDACTED_CLIENT_SECRET), { ok: true, value: REDACTED_CLIENT_SECRET });
+    assert.deepEqual(resolveClientSecretForSave('GOCSPX-abc'), { ok: true, value: 'GOCSPX-abc' });
+  });
+
+  it('rejects empty values and values mixing the sentinel with other characters', () => {
+    for (const value of ['', null, undefined, `${REDACTED_CLIENT_SECRET}abc`, `abc${REDACTED_CLIENT_SECRET}`, '•abc']) {
+      assert.equal(resolveClientSecretForSave(value).ok, false, JSON.stringify(value));
+    }
+    assert.equal(resolveClientSecretForSave(`${REDACTED_CLIENT_SECRET}abc`).reason, 'invalid');
+    assert.equal(resolveClientSecretForSave('').reason, 'required');
   });
 });

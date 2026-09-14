@@ -10,6 +10,10 @@
 export const GOOGLE_OAUTH_PATH = '/oauth/google';
 export const GOOGLE_OAUTH_CALLBACK_PATH = '/oauth/google/callback';
 
+// Placeholder the backend returns instead of the stored client secret. Sending it
+// back unchanged keeps the stored value (same contract as Microsoft).
+export const REDACTED_CLIENT_SECRET = '•'.repeat(8);
+
 // Stable success results from the contract. Keys are spelled out literally so
 // the i18n source-coverage test can find them.
 const GOOGLE_SUCCESS_KEYS = {
@@ -98,4 +102,25 @@ export function oauthMessageToSearchParams(data) {
     if (str(data.provider)) out.set('oauth_provider', data.provider);
   }
   return out;
+}
+
+// Client secret input handling. Selecting the redacted sentinel on focus is not
+// reliable (a mouseup can collapse the selection and typing appends to it), so
+// the field is cleared on focus and the sentinel restored if left empty.
+export function secretFieldOnFocus(value) {
+  if (value === REDACTED_CLIENT_SECRET) return { value: '', wasRedacted: true };
+  return { value, wasRedacted: false };
+}
+
+export function secretFieldOnBlur(value, wasRedacted) {
+  return wasRedacted && value === '' ? REDACTED_CLIENT_SECRET : value;
+}
+
+// Validates the secret before save. Only the exact sentinel may carry the
+// redaction character; anything mixing it with other text is never sent.
+export function resolveClientSecretForSave(value) {
+  if (typeof value !== 'string' || value === '') return { ok: false, reason: 'required' };
+  if (value === REDACTED_CLIENT_SECRET) return { ok: true, value };
+  if (value.includes('•')) return { ok: false, reason: 'invalid' };
+  return { ok: true, value };
 }

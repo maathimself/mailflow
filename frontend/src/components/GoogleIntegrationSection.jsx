@@ -1,11 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../utils/api.js';
-import { buildGoogleConnectUrl, buildGoogleRedirectUri } from '../utils/googleOAuth.js';
-
-// Placeholder the backend returns instead of the stored client secret. Sending it
-// back unchanged keeps the stored value (same contract as Microsoft).
-const REDACTED_SECRET = '••••••••';
+import {
+  REDACTED_CLIENT_SECRET,
+  buildGoogleConnectUrl,
+  buildGoogleRedirectUri,
+  resolveClientSecretForSave,
+  secretFieldOnBlur,
+  secretFieldOnFocus,
+} from '../utils/googleOAuth.js';
+import ConfirmOverlay from './ConfirmOverlay.jsx';
 
 const EMPTY_FORM = { clientId: '', clientSecret: '', redirectUri: '' };
 
@@ -72,6 +76,9 @@ export default function GoogleIntegrationSection({ isAdmin }) {
   const [removing, setRemoving] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [notice, setNotice] = useState(null); // { tone: 'ok' | 'error', key }
+  const [confirmDialog, setConfirmDialog] = useState(null);
+  // True while the focused secret field was cleared from the redacted placeholder.
+  const secretWasRedacted = useRef(false);
 
   const suggestedRedirectUri = buildGoogleRedirectUri(window.location);
 
@@ -117,16 +124,21 @@ export default function GoogleIntegrationSection({ isAdmin }) {
     const clientId = form.clientId.trim();
     const redirectUri = form.redirectUri.trim();
     // google.configured needs all three values; an unchanged redacted secret keeps the stored one.
-    if (!clientId || !form.clientSecret || !redirectUri) {
+    const secret = resolveClientSecretForSave(form.clientSecret);
+    if (!clientId || !redirectUri || (!secret.ok && secret.reason === 'required')) {
       setNotice({ tone: 'error', key: 'admin.integrations.google.requiredFields' });
+      return;
+    }
+    if (!secret.ok) {
+      setNotice({ tone: 'error', key: 'admin.integrations.google.clientSecretInvalid' });
       return;
     }
     setSaving(true);
     setNotice(null);
     try {
-      await api.saveIntegration('google', { clientId, clientSecret: form.clientSecret, redirectUri });
+      await api.saveIntegration('google', { clientId, clientSecret: secret.value, redirectUri });
       // Never keep a typed secret in state after save; show only that one is stored.
-      setForm({ clientId, clientSecret: REDACTED_SECRET, redirectUri });
+      setForm({ clientId, clientSecret: REDACTED_CLIENT_SECRET, redirectUri });
       setHasStoredConfig(true);
       await refreshStatus();
       setNotice({ tone: 'ok', key: 'admin.integrations.google.savedNote' });
@@ -137,20 +149,30 @@ export default function GoogleIntegrationSection({ isAdmin }) {
     }
   };
 
-  const handleRemove = async () => {
+  const removeConfig = async () => {
     setRemoving(true);
     setNotice(null);
     try {
       await api.deleteIntegration('google');
-      setForm({ ...EMPTY_FORM, redirectUri: suggestedRedirectUri });
-      setHasStoredConfig(false);
-      await refreshStatus();
-      setNotice({ tone: 'ok', key: 'admin.integrations.google.removedNote' });
     } catch {
-      setNotice({ tone: 'error', key: 'admin.integrations.google.removeError' });
+      // Rethrow a localized message so the confirm dialog stays open and shows it.
+      throw new Error(t('admin.integrations.google.removeError'));
     } finally {
       setRemoving(false);
     }
+    setForm({ ...EMPTY_FORM, redirectUri: suggestedRedirectUri });
+    setHasStoredConfig(false);
+    await refreshStatus();
+    setNotice({ tone: 'ok', key: 'admin.integrations.google.removedNote' });
+  };
+
+  const handleRemove = () => {
+    setConfirmDialog({
+      title: t('admin.integrations.google.title'),
+      message: t('admin.integrations.google.removeConfirm'),
+      confirmLabel: t('admin.integrations.google.remove'),
+      onConfirm: removeConfig,
+    });
   };
 
   const handleConnect = () => {
@@ -213,6 +235,8 @@ export default function GoogleIntegrationSection({ isAdmin }) {
         </div>
       </div>
 
+      <ConfirmOverlay dialog={confirmDialog} onClose={() => setConfirmDialog(null)} />
+
       {expanded && (
         <div style={{ padding: '16px', borderTop: '1px solid var(--border-subtle)' }}>
           {isAdmin && (<>
@@ -237,14 +261,25 @@ export default function GoogleIntegrationSection({ isAdmin }) {
             </Field>
 
             <Field label={t('admin.integrations.google.clientSecret')} required>
-              {/* Focusing selects the redacted placeholder so typing replaces it with a new secret. */}
+              {/* Focusing clears the redacted placeholder (selecting it is unreliable and typing
+                  could append to it); leaving the field empty restores it and keeps the stored secret. */}
               <input type="password" autoComplete="new-password" value={form.clientSecret}
                 onChange={e => setForm(f => ({ ...f, clientSecret: e.target.value }))}
-                onFocus={e => { e.target.style.borderColor = 'var(--accent)'; if (form.clientSecret === REDACTED_SECRET) e.target.select(); }}
-                onBlur={focusBorder.onBlur}
+                onFocus={e => {
+                  focusBorder.onFocus(e);
+                  const next = secretFieldOnFocus(form.clientSecret);
+                  secretWasRedacted.current = next.wasRedacted;
+                  if (next.wasRedacted) setForm(f => ({ ...f, clientSecret: next.value }));
+                }}
+                onBlur={e => {
+                  focusBorder.onBlur(e);
+                  const restored = secretFieldOnBlur(form.clientSecret, secretWasRedacted.current);
+                  secretWasRedacted.current = false;
+                  if (restored !== form.clientSecret) setForm(f => ({ ...f, clientSecret: restored }));
+                }}
                 placeholder={t('admin.integrations.google.clientSecretPh')}
                 style={inputStyle} />
-              {hasStoredConfig && form.clientSecret === REDACTED_SECRET && (
+              {hasStoredConfig && (form.clientSecret === REDACTED_CLIENT_SECRET || (secretWasRedacted.current && form.clientSecret === '')) && (
                 <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 5 }}>
                   {t('admin.integrations.google.clientSecretStoredNote')}
                 </div>
