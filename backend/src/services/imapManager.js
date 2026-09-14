@@ -881,10 +881,24 @@ function safeDate(d) {
 // maxBackgroundConnections: background connections per provider host (backfill, snippet
 //                       indexer, folder status, bulk flags, staleness probe). Omitted →
 //                       BACKGROUND_CONN_MAX_PER_HOST, and the staleness probe stays ungated.
+// stalenessProbe:       false turns off the periodic fresh-login staleness probe.
+// autoBackfillExistingOnConnect: false backfills on connect only an account with no cached mail.
 const PROVIDERS = {
   google: {
     // Gmail folders are label memberships; matching Message-IDs are not proof of a move.
     labelStore: true,
+    // Many Gmail accounts on one server. Gmail limits sessions per account (15), not per host,
+    // but every fresh login from one IP is a sign-in event, so background work avoids them:
+    //   stalenessProbe:false — the probe (one login per account every 3 min) exists for
+    //     PurelyMail's deaf IDLE; the folder status monitor already sees UIDNEXT move and syncs.
+    //   autoBackfillExistingOnConnect:false — a restart or health-check reconnect no longer
+    //     re-runs the full UID diff of every folder; the folder status monitor and integrity
+    //     sync repair gaps. An empty account still backfills on connect.
+    //   maxBackgroundConnections:6 — shared by every Gmail account on this server; the
+    //     database, not Gmail, bounds concurrent backfills. Tune it in the scale test.
+    stalenessProbe: false,
+    autoBackfillExistingOnConnect: false,
+    maxBackgroundConnections: 6,
     // Large batches, short delay: Gmail only throttles BODY[] not envelope/flags/uid.
     // Backfills 30k+ messages in ~2 min instead of 12+ hours.
     batchSize: 500, batchDelay: 2000, errorDelay: 30000, batchesPerConn: 10,
@@ -1808,6 +1822,7 @@ export class ImapManager {
             const acct = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
             const account = acct.rows[0];
             if (!account) continue;
+            if (providerProfile(account).stalenessProbe === false) continue;
             probedAccount = account;
             // Our highest synced INBOX UID — the watermark for "have we seen the newest mail".
             const { rows: [w] } = await query(
