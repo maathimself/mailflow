@@ -2961,8 +2961,8 @@ export class ImapManager {
         // Inbox-ingest facts core hands to plugins after this batch (via the `inboxIngest` hook):
         //   • newInboxIds — the id of every row this sync newly inserts into INBOX, read or unread.
         //     Kept separate from `newMessages` (which is unread-only for notifications) because an
-        //     inbound reply already \Seen on another device must still let a plugin re-evaluate its
-        //     thread (e.g. clear a GTD Watch/Delegated label).
+        //     inbound message already \Seen on another device must still let a plugin re-evaluate
+        //     its thread according to the plugin's current policy.
         //   • ingestDeletedIds — only the ids the block-list / inbox rules genuinely DELETED
         //     (expunged / dropped) from INBOX, so a plugin can exclude them; a rule-MOVED reply is
         //     intentionally kept — its thread still needs re-evaluating even though it was filed
@@ -3283,9 +3283,9 @@ export class ImapManager {
             }
             // Any unread candidate no longer in `newMessages` was moved out of / deleted from
             // INBOX by the block-list or a rule. Only genuinely-DELETED ones are excluded from
-            // the ingest re-eval: a rule that merely MOVED an inbound reply (its row still lives,
-            // in another folder) must still let the plugin re-evaluate the thread so a self-reply's
-            // Watch/Delegated label clears. Distinguish the two by a single is_deleted probe over
+            // the ingest re-eval: a rule that merely MOVED an inbound message (its row still lives,
+            // in another folder) must still let the plugin re-evaluate the thread. Distinguish the
+            // two by a single is_deleted probe over
             // the removed ids — a moved row survives (is_deleted = false), a deleted one does not.
             if (unreadBeforeRules) {
               const survivingIds = new Set(newMessages.map(m => m.id));

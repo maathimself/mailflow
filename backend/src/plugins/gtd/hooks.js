@@ -16,10 +16,10 @@ import { logger, getThreadKeyForUid, listUserAccounts, getAccountConfig, setAcco
 
 // Choose the INBOX message ids to run GTD transitions over after a sync batch completes.
 //   newInboxIds — the id of every row the sync newly inserted into INBOX, collected REGARDLESS
-//     of read state. An inbound reply that arrived already \Seen (read on another device before
-//     this sync landed) must still clear its thread's Watch/Delegated label, yet such a row never
-//     enters the unread-gated notification list — so that list cannot be reused as the candidate
-//     set. Read state is deliberately not consulted here.
+//     of read state. An inbound message that arrived already \Seen (read on another device before
+//     this sync landed) must still let GTD re-evaluate the thread, yet such a row never enters the
+//     unread-gated notification list — so that list cannot be reused as the candidate set. Read
+//     state is deliberately not consulted here.
 //   deletedIds — ids the block-list / inbox rules genuinely DELETED (expunged / dropped) from
 //     INBOX; those threads lost this arrival entirely, so they are excluded. A rule-MOVED reply
 //     is NOT in this set — its row still lives (in another folder) and its thread must still be
@@ -57,8 +57,8 @@ export async function sectionsChanged({ mgr, account, changedCount }) {
 }
 
 // runHook('inboxIngest'): core hands over the ids this sync newly inserted into INBOX plus the
-// ids its rules genuinely deleted. Re-evaluate the affected threads so a self-reply strips its
-// thread's Watch/Delegated label, an inbound reply re-opens a snoozed thread, etc. Registered
+// ids its rules genuinely deleted. Re-evaluate the affected threads so the shared transition
+// policy sees every arrival, including messages that rules moved elsewhere. Registered
 // with a per-hook isActive gate (account.gtd_enabled) so core only collects candidates and
 // dispatches this when GTD is on for the account — a non-GTD account issues zero extra queries.
 // Never throws into core; a transition failure degrades to a logged skip (the tick reconciles).
@@ -280,8 +280,7 @@ export async function persistAccountSettings({ accountId, updates }) {
 }
 
 // runHook('onAccountIdentityChanged'): the account's aliases/identity changed — invalidate the
-// owner-address cache the GTD delegation detector uses to tell "the owner replied" apart from an
-// inbound reply.
+// owner-address cache the GTD transition engine uses to recognize owner-authored replies.
 export async function onAccountIdentityChanged({ accountId }) {
   invalidateOwnerAddressesCache(accountId);
 }

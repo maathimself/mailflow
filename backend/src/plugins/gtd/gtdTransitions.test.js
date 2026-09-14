@@ -94,31 +94,35 @@ describe('runGtdTransitions', () => {
     resolveAllDraftsPaths.mockResolvedValue(new Set(['Drafts']));
   });
 
-  it('strips Todo when the last message is from the owner, leaving Watch', async () => {
+  it('strips Todo and Someday when the last message is from the owner, leaving waiting labels', async () => {
     mockQuery({ rows: [
-      { thread_key: 't1', uid: 10, folder: 'INBOX', from_email: 'me@example.com', date: '2026-07-09T10:00:00Z', id: 'r1' },
-      { thread_key: 't1', uid: 11, folder: 'Todo',  from_email: 'me@example.com', date: '2026-07-09T10:00:00Z', id: 'r2' },
-      { thread_key: 't1', uid: 12, folder: 'Watch', from_email: 'me@example.com', date: '2026-07-09T10:00:00Z', id: 'r3' },
+      { thread_key: 't1', uid: 10, folder: 'INBOX',     from_email: 'me@example.com', date: '2026-07-09T10:00:00Z', id: 'r1' },
+      { thread_key: 't1', uid: 11, folder: 'Todo',      from_email: 'me@example.com', date: '2026-07-09T10:00:00Z', id: 'r2' },
+      { thread_key: 't1', uid: 12, folder: 'Someday',   from_email: 'me@example.com', date: '2026-07-09T10:00:00Z', id: 'r3' },
+      { thread_key: 't1', uid: 13, folder: 'Watch',     from_email: 'me@example.com', date: '2026-07-09T10:00:00Z', id: 'r4' },
+      { thread_key: 't1', uid: 14, folder: 'Delegated', from_email: 'me@example.com', date: '2026-07-09T10:00:00Z', id: 'r5' },
     ] });
     const mgr = fakeManager();
     await runGtdTransitions(mgr, account, ['t1']);
     expect(mgr.removeMessageCopy).toHaveBeenCalledWith('acct-1', 11, 'Todo');
-    expect(mgr.removeMessageCopy).not.toHaveBeenCalledWith('acct-1', 12, 'Watch');
+    expect(mgr.removeMessageCopy).toHaveBeenCalledWith('acct-1', 12, 'Someday');
+    expect(mgr.removeMessageCopy).not.toHaveBeenCalledWith('acct-1', 13, 'Watch');
+    expect(mgr.removeMessageCopy).not.toHaveBeenCalledWith('acct-1', 14, 'Delegated');
     expect(mgr.broadcast).toHaveBeenCalledWith({ type: 'gtd_sections_updated', accountId: 'acct-1' }, 'user-1');
   });
 
-  it('strips Watch and Delegated when the last message is not from the owner, leaving Todo', async () => {
+  it('keeps every GTD label when the last message is not from the owner', async () => {
     mockQuery({ rows: [
       { thread_key: 't1', uid: 20, folder: 'INBOX',     from_email: 'them@other.com', date: '2026-07-09T12:00:00Z', id: 'r1' },
       { thread_key: 't1', uid: 21, folder: 'Todo',      from_email: 'them@other.com', date: '2026-07-09T12:00:00Z', id: 'r2' },
-      { thread_key: 't1', uid: 22, folder: 'Watch',     from_email: 'them@other.com', date: '2026-07-09T12:00:00Z', id: 'r3' },
-      { thread_key: 't1', uid: 23, folder: 'Delegated', from_email: 'them@other.com', date: '2026-07-09T12:00:00Z', id: 'r4' },
+      { thread_key: 't1', uid: 22, folder: 'Someday',   from_email: 'them@other.com', date: '2026-07-09T12:00:00Z', id: 'r3' },
+      { thread_key: 't1', uid: 23, folder: 'Watch',     from_email: 'them@other.com', date: '2026-07-09T12:00:00Z', id: 'r4' },
+      { thread_key: 't1', uid: 24, folder: 'Delegated', from_email: 'them@other.com', date: '2026-07-09T12:00:00Z', id: 'r5' },
     ] });
     const mgr = fakeManager();
     await runGtdTransitions(mgr, account, ['t1']);
-    expect(mgr.removeMessageCopy).toHaveBeenCalledWith('acct-1', 22, 'Watch');
-    expect(mgr.removeMessageCopy).toHaveBeenCalledWith('acct-1', 23, 'Delegated');
-    expect(mgr.removeMessageCopy).not.toHaveBeenCalledWith('acct-1', 21, 'Todo');
+    expect(mgr.removeMessageCopy).not.toHaveBeenCalled();
+    expect(mgr.broadcast).not.toHaveBeenCalled();
   });
 
   it('treats an alias sender as the owner (self-strips Todo)', async () => {
@@ -147,7 +151,7 @@ describe('runGtdTransitions', () => {
     expect(mgr.removeMessageCopy).not.toHaveBeenCalledWith('acct-1', 33, 'Watch');
   });
 
-  it('strips Watch when the newest message is from an external address instead', async () => {
+  it('keeps Watch when the newest message is from an external address', async () => {
     mockQuery({
       owner: [{ addr: 'me@example.com' }, { addr: 'masked@user.masked.fastmail.com' }],
       rows: [
@@ -157,7 +161,7 @@ describe('runGtdTransitions', () => {
     });
     const mgr = fakeManager();
     await runGtdTransitions(mgr, account, ['t1']);
-    expect(mgr.removeMessageCopy).toHaveBeenCalledWith('acct-1', 35, 'Watch');
+    expect(mgr.removeMessageCopy).not.toHaveBeenCalledWith('acct-1', 35, 'Watch');
   });
 
   it('never strips Reference, whoever sent last', async () => {
@@ -181,16 +185,16 @@ describe('runGtdTransitions', () => {
     expect(mgr.removeMessageCopy).not.toHaveBeenCalled();
   });
 
-  it('ignores draft rows when choosing the newest message', async () => {
+  it('does not let a newer owner-authored draft clear Todo or Someday', async () => {
     mockQuery({ rows: [
-      { thread_key: 't1', uid: 50, folder: 'INBOX',  from_email: 'them@other.com', date: '2026-07-09T12:00:00Z', id: 'r1' },
-      { thread_key: 't1', uid: 51, folder: 'Watch',  from_email: 'them@other.com', date: '2026-07-09T12:00:00Z', id: 'r2' },
-      // A newer DRAFT from me must NOT flip the verdict to self and spare Watch.
-      { thread_key: 't1', uid: 52, folder: 'Drafts', from_email: 'me@example.com',  date: '2026-07-09T15:00:00Z', id: 'r3' },
+      { thread_key: 't1', uid: 50, folder: 'INBOX',   from_email: 'them@other.com', date: '2026-07-09T12:00:00Z', id: 'r1' },
+      { thread_key: 't1', uid: 51, folder: 'Todo',    from_email: 'them@other.com', date: '2026-07-09T12:00:00Z', id: 'r2' },
+      { thread_key: 't1', uid: 52, folder: 'Someday', from_email: 'them@other.com', date: '2026-07-09T12:00:00Z', id: 'r3' },
+      { thread_key: 't1', uid: 53, folder: 'Drafts',  from_email: 'me@example.com',  date: '2026-07-09T15:00:00Z', id: 'r4' },
     ] });
     const mgr = fakeManager();
     await runGtdTransitions(mgr, account, ['t1']);
-    expect(mgr.removeMessageCopy).toHaveBeenCalledWith('acct-1', 51, 'Watch');
+    expect(mgr.removeMessageCopy).not.toHaveBeenCalled();
   });
 
   it('is fully inert when GTD is disabled — no rows query, no strips, no broadcast', async () => {
@@ -229,6 +233,23 @@ describe('runGtdTransitions', () => {
     expect(mgr.broadcast).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps Watch and Delegated through subsequent transition reconciliation', async () => {
+    const waitingRows = [
+      { thread_key: 't1', uid: 62, folder: 'INBOX',     from_email: 'them@other.com', date: '2026-07-09T10:00:00Z', id: 'r1' },
+      { thread_key: 't1', uid: 63, folder: 'Watch',     from_email: 'them@other.com', date: '2026-07-09T10:00:00Z', id: 'r2' },
+      { thread_key: 't1', uid: 64, folder: 'Delegated', from_email: 'them@other.com', date: '2026-07-09T10:00:00Z', id: 'r3' },
+    ];
+    const mgr = fakeManager();
+
+    mockQuery({ rows: waitingRows });
+    await runGtdTransitions(mgr, account, ['t1']);
+    mockQuery({ rows: waitingRows });
+    await runGtdTransitions(mgr, account, ['t1']);
+
+    expect(mgr.removeMessageCopy).not.toHaveBeenCalled();
+    expect(mgr.broadcast).not.toHaveBeenCalled();
+  });
+
   it('tolerates a removeMessageCopy rejection (concurrent external strip) as success', async () => {
     mockQuery({ rows: [
       { thread_key: 't1', uid: 70, folder: 'INBOX', from_email: 'me@example.com', date: '2026-07-09T10:00:00Z', id: 'r1' },
@@ -263,14 +284,17 @@ describe('runTransitionsForSentMessage', () => {
     expect(mgr.broadcast).not.toHaveBeenCalled();
   });
 
-  it('resolves the sent thread by Message-ID (both bracket forms) and strips Todo on a self-reply', async () => {
+  it('strips Todo and Someday on a self-reply while keeping Watch and Delegated', async () => {
     mockQuery({
       sent: [{ thread_key: 't1' }],
       rows: [
         { thread_key: 't1', uid: 80, folder: 'INBOX', from_email: 'them@other.com', date: '2026-07-09T10:00:00Z', id: 'r1' },
         { thread_key: 't1', uid: 81, folder: 'Todo',  from_email: 'them@other.com', date: '2026-07-09T10:00:00Z', id: 'r2' },
+        { thread_key: 't1', uid: 82, folder: 'Someday', from_email: 'them@other.com', date: '2026-07-09T10:00:00Z', id: 'r3' },
+        { thread_key: 't1', uid: 83, folder: 'Watch', from_email: 'them@other.com', date: '2026-07-09T10:00:00Z', id: 'r4' },
+        { thread_key: 't1', uid: 84, folder: 'Delegated', from_email: 'them@other.com', date: '2026-07-09T10:00:00Z', id: 'r5' },
         // My just-sent reply, now synced into Sent — the newest non-draft message.
-        { thread_key: 't1', uid: 82, folder: 'Sent',  from_email: 'me@example.com',  date: '2026-07-09T11:00:00Z', id: 'r3' },
+        { thread_key: 't1', uid: 85, folder: 'Sent',  from_email: 'me@example.com',  date: '2026-07-09T11:00:00Z', id: 'r6' },
       ],
     });
     const mgr = fakeManager();
@@ -279,6 +303,9 @@ describe('runTransitionsForSentMessage', () => {
     const midCall = query.mock.calls.find(([sql]) => sql.includes('message_id = ANY'));
     expect(midCall[1]).toEqual(['acct-1', ['abc@example.com', '<abc@example.com>']]);
     expect(mgr.removeMessageCopy).toHaveBeenCalledWith('acct-1', 81, 'Todo');
+    expect(mgr.removeMessageCopy).toHaveBeenCalledWith('acct-1', 82, 'Someday');
+    expect(mgr.removeMessageCopy).not.toHaveBeenCalledWith('acct-1', 83, 'Watch');
+    expect(mgr.removeMessageCopy).not.toHaveBeenCalledWith('acct-1', 84, 'Delegated');
     expect(mgr.broadcast).toHaveBeenCalledWith({ type: 'gtd_sections_updated', accountId: 'acct-1' }, 'user-1');
   });
 
