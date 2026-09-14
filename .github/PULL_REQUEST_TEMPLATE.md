@@ -1,22 +1,20 @@
 ## Summary
 
-<!-- Describe what this PR does and why. -->
+<!-- What does this PR change and why? -->
 
 ## Changes
 
-<!-- List the key changes made. -->
+<!-- The key changes. -->
 
 ## Testing
 
-<!-- How did you test this? -->
+<!-- Which tests were added or run, and the results. -->
 
 ---
 
-### Contributor License Agreement
+### Checklist
 
-By submitting this pull request I confirm that:
-
-- [ ] I have read and agree to the [Contributor License Agreement](../CLA.md).
-- [ ] My contribution is my own original work (or I have identified any
-      third-party material and confirmed it is compatible with the CLA).
-- [ ] I have the right to submit this contribution under the terms of the CLA.
+- [ ] Backend and/or frontend checks from [CONTRIBUTING.md](../CONTRIBUTING.md) pass locally.
+- [ ] New behaviour is covered by tests; no existing test was weakened or removed.
+- [ ] No secrets, tokens or mail passwords can reach logs, URLs, responses or error messages.
+- [ ] Upstream ports are cherry-picked with `-x` and keep MailExpert names.

@@ -11,6 +11,8 @@
 <p align="center">
   <a href="#installation">Quick Start</a> ·
   <a href="#email-provider-setup">Setup Guide</a> ·
+  <a href="ROADMAP.md">Roadmap</a> ·
+  <a href="CONTRIBUTING.md">Contributing</a> ·
   <a href="docs/architecture/codebase-file-map.md">Codebase map</a>
 </p>
 
@@ -18,9 +20,9 @@
 
 MailExpert is a fork of [MailFlow](https://github.com/maathimself/mailflow). The fork keeps the upstream copyright and attribution and is distributed under [AGPL-3.0](LICENSE). Deploying a modified network service under the AGPL requires making the corresponding source available to its users.
 
-The upstream project also offers its own commercial licence. `LICENSE-COMMERCIAL` is retained as an upstream notice; it does not by itself grant a separate commercial licence for MailExpert changes.
+MailExpert is available only under AGPL-3.0. The commercial licence that the MailFlow author sells covers MailFlow itself and does not apply to MailExpert.
 
-MailExpert-specific contribution terms must be defined before accepting external contributions.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how changes are made; external pull requests are not accepted until contribution terms are defined.
 
 ## Development status
 

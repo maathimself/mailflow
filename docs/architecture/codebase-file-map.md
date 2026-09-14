@@ -46,9 +46,8 @@ Frontend не ходит к Gmail напрямую. Он обращается к
 | `Caddyfile` | TLS/reverse proxy | Не смешивать с OAuth-логикой |
 | `.github/workflows/*` | CI, release, images, native builds | После первого push проверить, что actions разрешены в форке |
 | `LICENSE` | AGPL-3.0 | Изменения сетевого сервиса должны быть доступны пользователям сервиса |
-| `LICENSE-COMMERCIAL` | Уведомление о коммерческой лицензии upstream | Не является автоматической коммерческой лицензией на изменения MailExpert |
-| `CLA.md`, `CONTRIBUTING.md` | Правила upstream contributions | Перед внешними PR решить, сохраняем ли upstream CLA для собственного проекта |
-| `ROADMAP.md` | Upstream roadmap | Не считать утверждённым roadmap MailExpert без отдельной маркировки |
+| `CONTRIBUTING.md` | Правила разработки MailExpert | Внешние PR не принимаются, пока не определены условия участия |
+| `ROADMAP.md` | Roadmap MailExpert (Now / Next / Later) | Детали и критерии приёмки — в плане `docs/superpowers/plans` |
 
 ## Backend
 
