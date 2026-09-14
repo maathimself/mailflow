@@ -231,7 +231,7 @@ Baseline на commit `543a049`: backend 1333/1333 тестов, frontend 1864/18
 
 Production build предупреждает о нескольких chunks больше 500 kB. Крупнейшие — `store` (~733 kB), основной `index` (~690 kB) и `ComposeModal` (~558 kB) до gzip. Это performance debt для отдельной задачи по code splitting, а не ошибка bootstrap.
 
-Текущий `npm audit` показывает один moderate advisory backend в transitive `qs`, для которого доступно обычное исправление, и два связанных moderate advisory frontend в `react-router`/`react-router-dom`, для которых npm предлагает major-обновление. Они входят в первый dependency-модернизационный этап и не исправляются принудительным `npm audit fix --force` внутри ребрендинга.
+На момент ребрендинга `npm audit` показывал один moderate advisory backend в transitive `qs`, для которого было доступно обычное исправление, и два связанных moderate advisory frontend в `react-router`/`react-router-dom`, для которых npm предлагал major-обновление. Они входили в первый dependency-модернизационный этап и не исправлялись принудительным `npm audit fix --force` внутри ребрендинга. Обновление зависимостей в сентябре 2026 года закрыло оба advisory: `qs` ушёл вместе с Express 4, а `react-router-dom` удалён и заменён на `react-router` 7. Подробности — в [dependency-upgrade-2026-09.md](../operations/dependency-upgrade-2026-09.md).
 
 ## Главные технические риски
 
