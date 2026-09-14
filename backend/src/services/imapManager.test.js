@@ -3238,3 +3238,110 @@ describe('Yahoo connection budget (#433)', () => {
     expect(mgr._bgConnSem.activeCount(yahooHost)).toBe(0);
   });
 });
+
+describe('backfillAllFolders reuses one connection across folders', () => {
+  const acct = { id: 'bf-shared', user_id: 'u1', enabled: true, imap_host: 'imap.example.com', imap_tls: true };
+  // INBOX is complete (its only UID is cached) and A/B are empty: both early exits of backfillMessages.
+  const exists = { INBOX: 1, A: 0, B: 0 };
+  let clients;
+  let lockFailure;
+
+  function trackClients({ dropAfterInbox = false } = {}) {
+    clients = [];
+    ImapFlow.mockImplementation(function () {
+      const client = Object.assign(new EventEmitter(), {
+        usable: true,
+        mailbox: null,
+        connect: vi.fn().mockResolvedValue(),
+        close: vi.fn(function () { this.usable = false; }),
+        logout: vi.fn(async function () { this.usable = false; }),
+        getMailboxLock: vi.fn(async function (path) {
+          if (lockFailure?.(path)) throw new Error('Command failed');
+          this.mailbox = { path, exists: exists[path], uidValidity: 1 };
+          return { release: vi.fn(() => { if (dropAfterInbox && path === 'INBOX') this.usable = false; }) };
+        }),
+        search: vi.fn().mockResolvedValue([1]),
+      });
+      clients.push(client);
+      return client;
+    });
+  }
+
+  function manager() {
+    const mgr = {
+      backfillRunning: new Set(),
+      backfillAllRunning: new Set(),
+      _bgConnSem: createKeyedSemaphore(2),
+      _connectCooldown: new Map(),
+      broadcast: vi.fn(),
+      pluginFacade: {},
+      _noteConnectionRefusal: vi.fn(),
+      _handleOAuthRefreshFailure: ImapManager.prototype._handleOAuthRefreshFailure,
+      refreshBulkFlags: vi.fn().mockResolvedValue(),
+      startSnippetIndexer: vi.fn().mockResolvedValue(),
+    };
+    mgr.backfillMessages = vi.fn(ImapManager.prototype.backfillMessages);
+    return mgr;
+  }
+  const lockedPaths = client => client.getMailboxLock.mock.calls.map(c => c[0]);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lockFailure = null;
+    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: true });
+    resolveForConnection.mockResolvedValue({ host: '127.0.0.1', addresses: ['127.0.0.1'] });
+    query.mockReset();
+    query.mockImplementation(async (sql) => {
+      if (sql.startsWith('SELECT * FROM email_accounts')) return { rows: [acct] };
+      if (sql.startsWith('SELECT path FROM folders')) return { rows: [{ path: 'A' }, { path: 'B' }] };
+      if (sql.startsWith('SELECT COUNT(*)')) return { rows: [{ count: '1', max_uid: '1' }] };
+      if (sql.startsWith('SELECT uid FROM messages')) return { rows: [{ uid: '1' }] };
+      return { rows: [] };
+    });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('logs in once for every folder and logs out once at the end', async () => {
+    trackClients();
+    const mgr = manager();
+    await ImapManager.prototype.backfillAllFolders.call(mgr, acct);
+    expect(mgr.backfillMessages.mock.calls.map(c => c[1])).toEqual(['INBOX', 'A', 'B']);
+    expect(clients).toHaveLength(1);
+    expect(lockedPaths(clients[0])).toEqual(['INBOX', 'A', 'B']);
+    expect(clients[0].logout).toHaveBeenCalledTimes(1);
+    expect(mgr._bgConnSem.activeCount('imap.example.com')).toBe(0);
+  });
+
+  it('drops the connection after a failed folder and continues on a new login', async () => {
+    trackClients();
+    lockFailure = path => path === 'A';
+    const mgr = manager();
+    await ImapManager.prototype.backfillAllFolders.call(mgr, acct);
+    expect(mgr.backfillMessages.mock.calls.map(c => c[1])).toEqual(['INBOX', 'A', 'B']);
+    expect(clients).toHaveLength(2);
+    expect(lockedPaths(clients[0])).toEqual(['INBOX', 'A']);
+    expect(clients[0].close).toHaveBeenCalled();
+    expect(lockedPaths(clients[1])).toEqual(['B']);
+    expect(clients[1].logout).toHaveBeenCalledTimes(1);
+  });
+
+  it('logs in again instead of skipping a folder when the server closed the connection in between', async () => {
+    trackClients({ dropAfterInbox: true });
+    const mgr = manager();
+    await ImapManager.prototype.backfillAllFolders.call(mgr, acct);
+    expect(clients).toHaveLength(2);
+    expect(lockedPaths(clients[0])).toEqual(['INBOX']);
+    expect(lockedPaths(clients[1])).toEqual(['A', 'B']);
+  });
+
+  it('still owns and closes its connection when a single folder is backfilled on its own', async () => {
+    trackClients();
+    const mgr = manager();
+    await ImapManager.prototype.backfillMessages.call(mgr, acct, 'A');
+    expect(clients).toHaveLength(1);
+    expect(clients[0].logout).toHaveBeenCalledTimes(1);
+  });
+});
