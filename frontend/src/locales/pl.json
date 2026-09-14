@@ -342,6 +342,7 @@
     "releaseToSync": "Puść, aby zsynchronizować",
     "noSearchResults": "Nie znaleziono wyników",
     "noSearchResultsDesc": "Brak wyników dla {{query}}",
+    "searchFailed": "Wyszukiwanie nie powiodło się",
     "clearSearch": "Wyczyść wyszukiwanie",
     "searchHelp": {
       "title": "Operatory wyszukiwania",

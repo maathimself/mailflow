@@ -328,6 +328,7 @@
     "releaseToSync": "松开以同步",
     "noSearchResults": "未找到结果",
     "noSearchResultsDesc": "未找到与 {{query}} 相关的结果",
+    "searchFailed": "搜索失败",
     "clearSearch": "清除搜索",
     "searchHelp": {
       "title": "搜索操作符",

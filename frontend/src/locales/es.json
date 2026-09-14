@@ -328,6 +328,7 @@
     "releaseToSync": "Soltar para sincronizar",
     "noSearchResults": "No se encontraron resultados",
     "noSearchResultsDesc": "Sin resultados para {{query}}",
+    "searchFailed": "Error en la búsqueda",
     "clearSearch": "Limpiar búsqueda",
     "searchHelp": {
       "title": "Operadores de búsqueda",
