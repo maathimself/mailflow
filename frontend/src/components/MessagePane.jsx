@@ -10,7 +10,8 @@ import { clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDel
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
 import DOMPurify from 'dompurify';
 import { BUILTIN_SUMMARIZE, summarizePromptForLocale } from '../aiActions.js';
-import { getResults, saveResult, removeResult } from '../aiResults.js';
+import { getResults, removeResult } from '../aiResults.js';
+import { startRun, cancelRun, getAiState, subscribeRuns } from '../aiRuns.js';
 import { renderMarkdown } from '../utils/renderMarkdown.js';
 import { pickReplyAlias } from '../utils/replyAlias.js';
 import { measureContentHeight, createHeightController, forceEagerImages } from '../utils/emailFrameHeight.js';
@@ -204,17 +205,13 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   }, [selectedMessageId]);
 
   useEffect(() => {
-    // Abort any actions still streaming for the previous message.
-    Object.values(aiAbortRefs.current).forEach(c => c?.abort());
-    aiAbortRefs.current = {};
     setShowAiMenu(false);
-    // Restore persisted results (#204) so they reappear instead of vanishing.
-    const saved = getResults(selectedMessageId);
-    const restored = {};
-    for (const [key, r] of Object.entries(saved)) {
-      restored[key] = { status: 'done', text: r.text, label: r.label };
-    }
-    setAiResults(restored);
+    // Show persisted results (#204) plus any run still streaming or queued for this
+    // message (#428). Runs for the previous message keep going in the background;
+    // the subscription is scoped to this message id, so they can't paint into it.
+    const sync = () => setAiResults(getAiState(selectedMessageId));
+    sync();
+    return subscribeRuns(selectedMessageId, sync);
   }, [selectedMessageId]);
 
   const allMessages = searchQuery.trim() ? searchResults : messages;
@@ -315,7 +312,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const [showTodoistModal, setShowTodoistModal] = useState(false);
   const [aiStatus, setAiStatus] = useState(null);
   // Per-action results for the current message: { [actionKey]: { status, text, label } }.
-  // status: 'loading' | 'done' | 'error'. Restored from localStorage on message change.
+  // status: 'loading' | 'done' | 'error'. Mirrors getAiState() for the selected message.
   const [aiResults, setAiResults] = useState({});
   const [showAiMenu, setShowAiMenu] = useState(false);
   const [aiClassifying, setAiClassifying] = useState(false);
@@ -323,8 +320,6 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const moveBtnRef = useRef(null);
   const moreMenuRef = useRef(null);
   const aiMenuRef = useRef(null);
-  // One AbortController per in-flight action, keyed by action key.
-  const aiAbortRefs = useRef({});
   const scrollContainerRef = useRef(null);
   const iframeRef = useRef(null);
   const roRef = useRef(null);
@@ -1233,7 +1228,7 @@ ${bodyContent}
 
   // Run an AI action against the current message and stream the result into a
   // pinned box. Cached results are shown instantly unless force=true (Regenerate).
-  const runAiAction = async (action, { force = false } = {}) => {
+  const runAiAction = (action, { force = false } = {}) => {
     if (!action?.id) return;
     const key = action.id;
     setShowAiMenu(false);
@@ -1254,38 +1249,26 @@ ${bodyContent}
     if (!textContent) return;
 
     const label = aiActionLabel(key, action.label);
-    aiAbortRefs.current[key]?.abort();
-    const ctrl = new AbortController();
-    aiAbortRefs.current[key] = ctrl;
-    const msgId = selectedMessageId;
-    setAiResults(r => ({ ...r, [key]: { status: 'loading', text: '', label } }));
     // The built-in Summarize prompt is uneditable, so steer its output to the
     // user's UI language (#255). Custom actions keep their author's prompt as-is.
     const promptText = action.builtin ? summarizePromptForLocale(i18n.language) : action.prompt;
-    try {
-      const fullText = await api.ai.chat([{
-        role: 'user',
-        content: `${promptText}\n\n${textContent.slice(0, 6000)}`,
-      }], {
-        signal: ctrl.signal,
-        onDelta: (text) => {
-          setAiResults(r => ({ ...r, [key]: { status: 'loading', text, label } }));
-        },
-      });
-      setAiResults(r => ({ ...r, [key]: { status: 'done', text: fullText, label } }));
-      // Persist only completed results, keyed to the message it ran against.
-      if (fullText) saveResult(msgId, key, fullText, label);
-    } catch (err) {
-      if (err.name === 'AbortError') return;
-      setAiResults(r => ({ ...r, [key]: { status: 'error', text: err.message, label } }));
-    }
+    const content = `${promptText}\n\n${textContent.slice(0, 6000)}`;
+    // The run lives in the background registry keyed to this message (#428): it
+    // survives navigating away, and its result is persisted when it completes.
+    startRun({
+      messageId: selectedMessageId,
+      key,
+      label,
+      force,
+      run: (signal, onDelta) => api.ai.chat([{ role: 'user', content }], { signal, onDelta }),
+    });
   };
 
-  // Dismiss a pinned result box and drop its cached copy.
+  // Dismiss a pinned result box: cancel its run and drop its cached copy.
   const dismissAiResult = (key) => {
-    aiAbortRefs.current[key]?.abort();
     removeResult(selectedMessageId, key);
-    setAiResults(r => { const next = { ...r }; delete next[key]; return next; });
+    cancelRun(selectedMessageId, key);
+    setAiResults(getAiState(selectedMessageId));
   };
 
   // A single row in the AI actions dropdown. Shows an accent dot when a result
@@ -1342,7 +1325,6 @@ ${bodyContent}
 
   useEffect(() => {
     api.ai.status().then(setAiStatus).catch(() => {});
-    return () => { Object.values(aiAbortRefs.current).forEach(c => c?.abort()); };
   }, []);
 
   const handleDownload = async (messageId, part, filename) => {

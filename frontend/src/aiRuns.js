@@ -1,0 +1,172 @@
+// Background registry for AI action runs (#428). A run belongs to the message it
+// was started on, not to the MessagePane that started it: switching messages,
+// switching layouts or closing a pop-out no longer aborts it. When a run
+// finishes its result is persisted through aiResults.js whether or not any pane
+// is still mounted, so it shows up the next time the message is opened.
+//
+// Runs are keyed by (messageId, actionKey). At most MAX_CONCURRENT_RUNS stream
+// at once; further starts wait in a FIFO queue and read as "loading" meanwhile.
+// Listeners subscribe per message id, so progress for one message can never be
+// painted into another.
+
+import { getResults, saveResult } from './aiResults.js';
+
+export const MAX_CONCURRENT_RUNS = 3;
+
+// id -> { messageId, key, label, run, status: 'queued'|'loading'|'done'|'error', text, ctrl, holdsSlot }
+// Successful runs with text leave the registry (the persisted cache takes over);
+// errors and empty completions stay until restarted, dismissed or aborted.
+const runs = new Map();
+const queue = [];
+let active = 0;
+// messageId -> Set<subscription token>
+const listeners = new Map();
+
+const runId = (messageId, key) => `${messageId}\u0000${key}`;
+
+function notify(messageId) {
+  const set = listeners.get(messageId);
+  if (!set) return;
+  for (const listener of [...set]) {
+    try { listener(); } catch { /* a broken listener must not stall the registry */ }
+  }
+}
+
+function release(entry) {
+  if (!entry.holdsSlot) return;
+  entry.holdsSlot = false;
+  active--;
+  pump();
+}
+
+function pump() {
+  while (active < MAX_CONCURRENT_RUNS && queue.length) {
+    launch(queue.shift());
+  }
+}
+
+function launch(entry) {
+  const id = runId(entry.messageId, entry.key);
+  const current = () => runs.get(id) === entry;
+  active++;
+  entry.holdsSlot = true;
+  entry.status = 'loading';
+  entry.ctrl = new AbortController();
+  const onDelta = (text) => {
+    if (!current()) return;
+    entry.text = text;
+    notify(entry.messageId);
+  };
+  Promise.resolve()
+    .then(() => entry.run(entry.ctrl.signal, onDelta))
+    .then((fullText) => {
+      if (!current()) return;
+      if (fullText) {
+        // Persist only completed results, keyed to the message the run started on.
+        saveResult(entry.messageId, entry.key, fullText, entry.label);
+        runs.delete(id);
+      } else {
+        entry.status = 'done';
+        entry.text = '';
+      }
+      notify(entry.messageId);
+    }, (err) => {
+      if (!current()) return;
+      if (err?.name === 'AbortError') {
+        runs.delete(id);
+      } else {
+        entry.status = 'error';
+        entry.text = err?.message || String(err);
+      }
+      notify(entry.messageId);
+    })
+    .finally(() => release(entry));
+}
+
+// Drop an entry from the registry and the queue, aborting it if it is streaming.
+function discard(entry) {
+  runs.delete(runId(entry.messageId, entry.key));
+  const queued = queue.indexOf(entry);
+  if (queued !== -1) queue.splice(queued, 1);
+  entry.ctrl?.abort();
+  release(entry);
+}
+
+// Start an AI run for a message. run(signal, onDelta) must resolve with the full
+// text. A queued or streaming run for the same (messageId, key) is reused unless
+// force is set (Regenerate), which aborts it and starts over.
+export function startRun({ messageId, key, label, run, force = false }) {
+  if (!messageId || !key || typeof run !== 'function') return;
+  const existing = runs.get(runId(messageId, key));
+  if (existing && !force && (existing.status === 'queued' || existing.status === 'loading')) return;
+  if (existing) discard(existing);
+  const entry = { messageId, key, label, run, status: 'queued', text: '', ctrl: null, holdsSlot: false };
+  runs.set(runId(messageId, key), entry);
+  queue.push(entry);
+  pump();
+  notify(messageId);
+}
+
+// Cancel a run (Dismiss). Nothing is persisted for it.
+export function cancelRun(messageId, key) {
+  const entry = runs.get(runId(messageId, key));
+  if (!entry) return;
+  discard(entry);
+  notify(messageId);
+}
+
+// Abort everything, e.g. when the signed-in user changes.
+export function abortAllRuns() {
+  const touched = new Set();
+  // Empty the queue first so freeing an active slot cannot launch a queued run.
+  queue.length = 0;
+  for (const entry of [...runs.values()]) {
+    discard(entry);
+    touched.add(entry.messageId);
+  }
+  touched.forEach(notify);
+}
+
+// Registry entries for a message: { [key]: { status, text, label } }. A queued
+// run reports 'loading' so the pane shows the usual pending state.
+export function getRuns(messageId) {
+  const out = {};
+  if (!messageId) return out;
+  for (const entry of runs.values()) {
+    if (entry.messageId !== messageId) continue;
+    out[entry.key] = {
+      status: entry.status === 'queued' ? 'loading' : entry.status,
+      text: entry.text,
+      label: entry.label,
+    };
+  }
+  return out;
+}
+
+// What a pane should render for a message: persisted results overlaid with any
+// registry entries for the same message.
+export function getAiState(messageId) {
+  if (!messageId) return {};
+  const state = {};
+  for (const [key, r] of Object.entries(getResults(messageId))) {
+    state[key] = { status: 'done', text: r.text, label: r.label };
+  }
+  return { ...state, ...getRuns(messageId) };
+}
+
+// Listen for changes to one message's runs. Returns an unsubscribe function.
+export function subscribeRuns(messageId, listener) {
+  if (!messageId || typeof listener !== 'function') return () => {};
+  // Each subscription gets its own token, so a repeated or stale unsubscribe
+  // (StrictMode double effects) never removes a newer subscription.
+  const token = () => listener();
+  let set = listeners.get(messageId);
+  if (!set) { set = new Set(); listeners.set(messageId, set); }
+  set.add(token);
+  return () => {
+    const current = listeners.get(messageId);
+    if (!current) return;
+    current.delete(token);
+    if (current.size === 0) listeners.delete(messageId);
+  };
+}
