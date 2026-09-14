@@ -158,14 +158,25 @@ export function shouldRetryIPv4(errMessage, addresses, sawRefusal = false) {
 // await FIFO until a holder releases. Used to cap concurrent IMAP backfills per provider
 // host so a user with many accounts on one provider doesn't open a backfill connection for
 // every account at once (which trips per-IP/per-account connection limits, bans, locks).
-// Every acquire() MUST be paired with exactly one release(key) in a finally.
+// `limit` is a number or a function of the key, for keys (hosts) with their own limit.
+// Every acquire() and every successful tryAcquire() MUST be paired with exactly one
+// release(key) in a finally.
 export function createKeyedSemaphore(limit) {
   const slots = new Map(); // key -> { active: number, waiters: (() => void)[] }
+  const limitFor = typeof limit === 'function' ? limit : () => limit;
   return {
+    // Take a free slot without waiting; false when the key is at its limit.
+    tryAcquire(key) {
+      const s = slots.get(key);
+      if (!s) { slots.set(key, { active: 1, waiters: [] }); return true; }
+      if (s.active >= limitFor(key) || s.waiters.length) return false;
+      s.active++;
+      return true;
+    },
     async acquire(key, { timeoutMs = 0 } = {}) {
       let s = slots.get(key);
       if (!s) { s = { active: 0, waiters: [] }; slots.set(key, s); }
-      if (s.active < limit) { s.active++; return; }
+      if (s.active < limitFor(key)) { s.active++; return; }
       // At capacity — wait to be handed a slot by a future release (active is not
       // incremented here; release hands its own slot over without changing the count).
       await new Promise((resolve, reject) => {
@@ -236,8 +247,11 @@ const CONNECT_COOLDOWN_MAX_MS = 15 * 60 * 1000;  // capped at 15 min
 // A mid-operation "Socket timeout" is deliberately NOT matched — it isn't specific to a
 // connection limit and can fire on ordinary slow responses, where a backoff would only
 // delay recovery.
+//
+// extractImapError prefixes the RFC 5530 response code, so a server that refuses with [LIMIT],
+// [UNAVAILABLE] or [INUSE] is recognised whatever text follows (Yahoo: "[LIMIT] LOGIN error").
 export function isConnectionRefusal(detail) {
-  return /connection not available|too many|maximum number|number of connections|rate.?limit|temporarily|try again|connection limit|over quota|throttl|connect timeout/i.test(String(detail || ''));
+  return /connection not available|too many|maximum number|number of connections|rate.?limit|temporarily|try again|connection limit|over quota|throttl|connect timeout|^\[(?:LIMIT|UNAVAILABLE|INUSE)\]/i.test(String(detail || ''));
 }
 
 // Stamp an account's last successful sync. Shared by both exits of syncMessages so they cannot
@@ -863,6 +877,10 @@ function safeDate(d) {
 // connectStaggerMs:     base gap between successive account connects at startup, to keep the
 //                       initial burst under a provider's per-IP connection rate limit.
 //                       Omitted → 200ms default. See connectStaggerFor(). (#218)
+// poolSize:             body-fetch pool connections per account. Omitted → POOL_SIZE.
+// maxBackgroundConnections: background connections per provider host (backfill, snippet
+//                       indexer, folder status, bulk flags, staleness probe). Omitted →
+//                       BACKGROUND_CONN_MAX_PER_HOST, and the staleness probe stays ungated.
 const PROVIDERS = {
   google: {
     // Gmail folders are label memberships; matching Message-IDs are not proof of a move.
@@ -880,7 +898,15 @@ const PROVIDERS = {
     skipFolderNames: ['[gmail]'],
   },
   yahoo: {
-    batchSize: 100, batchDelay: 2000, errorDelay: 30000, batchesPerConn: 10,
+    // Yahoo accepts about three simultaneous sessions per account: a fourth login gets
+    // "[LIMIT] Rate limit hit" and existing sessions are dropped (#433; Mozilla bugs 1727971,
+    // 1595169). Budget: the IDLE connection + one pooled connection + one background connection.
+    // Longer backfill connections mean fewer logins. IDLE is re-issued every 4 minutes because
+    // Yahoo drops connections it considers inactive after about 5.
+    batchSize: 100, batchDelay: 2000, errorDelay: 30000, batchesPerConn: 50,
+    poolSize: 1,
+    maxBackgroundConnections: 1,
+    idleKeepaliveMs: 4 * 60 * 1000,
     fetchBody: false,
     pushesFlags: true,
     snippetIndex: true,
@@ -1125,6 +1151,15 @@ export function connectStaggerFor(profile, accountCount) {
 const connectionPools = new Map(); // accountId -> { clients: [], waiting: [] }
 const POOL_SIZE = 2;
 
+export function poolSizeFor(account) {
+  return providerProfile(account).poolSize ?? POOL_SIZE;
+}
+
+// Background connection limit for a provider host (see _bgConnSem).
+function backgroundConnectionLimit(host) {
+  return providerProfile({ imap_host: host }).maxBackgroundConnections ?? BACKGROUND_CONN_MAX_PER_HOST;
+}
+
 // Retained as a plugin compatibility helper. Ordinary ingestion never relocates a
 // cached row by Message-ID; explicit move operations use confirmed folder/UID mappings.
 export async function collectRelocateExemptFolders(account) {
@@ -1349,7 +1384,7 @@ async function acquirePooledClient(account) {
   }
 
   // Grow pool if under limit — refresh token before creating a new connection
-  if (pool.clients.length < POOL_SIZE) {
+  if (pool.clients.length < poolSizeFor(account)) {
     let client;
     try {
       const freshAccount = await ensureFreshToken(account);
@@ -1598,7 +1633,9 @@ export class ImapManager {
     this.pluginSyncIntervals = new Map(); // `${accountId}::${pluginId}` -> timer for a plugin's periodic sync tick
     this.backfillRunning = new Set(); // `${accountId}:${folder}` — prevent duplicate folder backfills
     this.backfillAllRunning = new Set(); // accountId — prevent concurrent full backfill sequences
-    this._bgConnSem = createKeyedSemaphore(BACKGROUND_CONN_MAX_PER_HOST); // cap concurrent background IMAP conns (backfill + snippet indexer) per provider host
+    // Cap concurrent background IMAP connections (backfill, snippet indexer, folder status, bulk
+    // flags) per provider host; a provider profile may set a tighter host limit.
+    this._bgConnSem = createKeyedSemaphore(host => backgroundConnectionLimit(host));
     this._connectCooldown = new Map(); // accountId -> { until: ms, failures: number } after connection refusals
     // accountId -> the value last persisted to email_accounts.sync_error: a string (error is
     // showing), null (known clear), or absent (unknown — e.g. just after a restart, where the
@@ -1769,6 +1806,13 @@ export class ImapManager {
 
             let missed = 0;
             let probe = null;
+            // On a host with its own background budget (a provider with a per-account session
+            // limit, e.g. Yahoo) the probe is one more login, so it takes a background slot and
+            // skips this cycle when none is free. Elsewhere it stays ungated: it must run even
+            // during a long backfill to recover a deaf IDLE connection.
+            const probeHost = (account.imap_host || '').toLowerCase();
+            const probeBudgeted = providerProfile(account).maxBackgroundConnections != null;
+            if (probeBudgeted && !this._bgConnSem.tryAcquire(probeHost)) continue;
             try {
               // Genuinely fresh login — NOT withFreshClient/pool, which can share the
               // frozen mailbox view. Token refresh and host/DNS resolution are bounded
@@ -1811,6 +1855,7 @@ export class ImapManager {
               // connect() left running by the race timeout, so a slow login can't leak an
               // authenticated session that lingers on a connection-limited server.
               if (probe) { try { probe.close(); } catch { /* already closed */ } }
+              if (probeBudgeted) this._bgConnSem.release(probeHost);
             }
 
             if (missed === 0) continue;
@@ -4211,8 +4256,11 @@ export class ImapManager {
 
     console.log(`Bulk flag refresh: ${nullResult.rows.length} unevaluated messages for ${logAccount(account)}`);
 
+    const host = (account.imap_host || '').toLowerCase();
     for (const [folder, msgs] of byFolder) {
       let client = null;
+      // A background connection like backfill and the snippet indexer, which start alongside it.
+      await this._bgConnSem.acquire(host);
       try {
         const row = (await query('SELECT * FROM email_accounts WHERE id = $1', [account.id])).rows[0];
         if (!row) return;
@@ -4257,6 +4305,7 @@ export class ImapManager {
         console.warn(`Bulk flag refresh error for ${logAccount(account)}/${folder}: ${err.message}`);
       } finally {
         if (client) { try { await client.logout(); } catch { /* ignore */ } }
+        this._bgConnSem.release(host);
       }
     }
   }

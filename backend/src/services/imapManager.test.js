@@ -17,7 +17,7 @@ vi.mock('../utils/redact.js', () => ({ redactEmail: vi.fn() }));
 vi.mock('./hostValidation.js', () => ({ resolveForConnection: vi.fn(), createPinnedLookup: vi.fn() }));
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
 
-import { ImapManager, countMissingInboxCopies, fetchBackfillBatch, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, extractImapError, isImapAuthFailure, AUTH_FAILURE_COOLDOWN_MS, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, planBodyParts, extractBodyFromMsg, bodyFallbackApplies, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch } from './imapManager.js';
+import { ImapManager, countMissingInboxCopies, fetchBackfillBatch, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, extractImapError, isImapAuthFailure, AUTH_FAILURE_COOLDOWN_MS, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, planBodyParts, extractBodyFromMsg, bodyFallbackApplies, poolSizeFor, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch } from './imapManager.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { EventEmitter } from 'node:events';
 import { ImapFlow } from 'imapflow';
@@ -54,6 +54,15 @@ describe('providerProfile — host detection', () => {
     expect(providerProfile(account(host)).speculativeFetch).toBe(false);
     expect(providerProfile(account(host)).pushesFlags).toBe(true);
     expect(providerProfile(account(host)).snippetIndex).toBe(true);
+  });
+
+  it('keeps a Yahoo account within its ~3 simultaneous sessions (#433)', () => {
+    const p = providerProfile(account('imap.mail.yahoo.com'));
+    // IDLE + one pooled connection + one background connection.
+    expect(p.poolSize).toBe(1);
+    expect(p.maxBackgroundConnections).toBe(1);
+    expect(p.idleKeepaliveMs).toBe(4 * 60 * 1000);
+    expect(p.batchesPerConn).toBe(50);
   });
 
   it.each([
@@ -698,6 +707,30 @@ describe('createKeyedSemaphore', () => {
     const sem = createKeyedSemaphore(1);
     expect(() => sem.release('never-acquired')).not.toThrow();
   });
+
+  it('resolves the limit per key when given a function', async () => {
+    const sem = createKeyedSemaphore(key => (key === 'tight' ? 1 : 2));
+    await sem.acquire('tight');
+    let entered = false;
+    const waiting = sem.acquire('tight').then(() => { entered = true; });
+    await sem.acquire('wide');
+    await sem.acquire('wide');
+    await Promise.resolve();
+    expect(entered).toBe(false);
+    expect(sem.activeCount('wide')).toBe(2);
+    sem.release('tight');
+    await waiting;
+    expect(entered).toBe(true);
+  });
+
+  it('tryAcquire takes a free slot and refuses a full key without queueing', async () => {
+    const sem = createKeyedSemaphore(1);
+    expect(sem.tryAcquire('h')).toBe(true);
+    expect(sem.tryAcquire('h')).toBe(false);
+    expect(sem.waitingCount('h')).toBe(0);
+    sem.release('h');
+    expect(sem.activeCount('h')).toBe(0);
+  });
 });
 
 // ── connection-refusal cooldown ───────────────────────────────────────────────
@@ -712,12 +745,18 @@ describe('isConnectionRefusal', () => {
     'THROTTLED: too many requests',
     'rate limit exceeded',
     'Fresh sync connect timeout (30000ms)',
+    // RFC 5530 codes that refuse for load or availability, whatever text the server adds (#433).
+    '[LIMIT] LOGIN error',
+    '[UNAVAILABLE] LOGIN failure. Server error',
+    '[INUSE] Mailbox is locked',
   ])('flags a refusal: %s', (msg) => {
     expect(isConnectionRefusal(msg)).toBe(true);
   });
 
   it.each([
     ['Invalid credentials'],
+    ['[AUTHENTICATIONFAILED] Invalid credentials (Failure)'],
+    ['[NONEXISTENT] Unknown Mailbox: Archive'],
     ['Mailbox does not exist'],
     ['ECONNRESET'],
     // Mid-operation timeouts are NOT connection-limit signals — must stay retry-normal.
@@ -2840,6 +2879,22 @@ describe('backfill stops on a provider refusal (#433)', () => {
     expect(mgr.backfillRunning.size).toBe(0);
   });
 
+  it('treats a code-only availability refusal as a refusal, not as a folder to skip', async () => {
+    // Without matching text the refusal used to fall through, and backfillAllFolders logged in to
+    // the next folder straight away.
+    rejectConnectWith(() => imapErr({
+      response: '1 NO [UNAVAILABLE] LOGIN failure. Server error',
+      responseStatus: 'NO',
+      responseText: 'LOGIN failure. Server error',
+      serverResponseCode: 'UNAVAILABLE',
+      authenticationFailed: true,
+    }));
+    const mgr = backfillManager();
+    const outcome = await ImapManager.prototype.backfillMessages.call(mgr, acct, 'Sent');
+    expect(outcome).toEqual({ aborted: 'refused' });
+    expect(mgr._noteConnectionRefusal).toHaveBeenCalledTimes(1);
+  });
+
   it('reports an auth outcome without arming the refusal backoff', async () => {
     rejectConnectWith(gmailXoauthFailure);
     const mgr = backfillManager();
@@ -3070,5 +3125,116 @@ describe('backfill stops on a provider refusal (#433)', () => {
     const mgr = allFoldersManager(async () => undefined);
     await ImapManager.prototype.backfillAllFolders.call(mgr, acct);
     expect(mgr.backfillMessages.mock.calls.map(c => c[1])).toEqual(['INBOX', 'A', 'B']);
+  });
+});
+
+describe('Yahoo connection budget (#433)', () => {
+  // Yahoo accepts about three simultaneous sessions per account; a fourth login is refused with
+  // "[LIMIT] Rate limit hit" and existing sessions are dropped.
+  const yahoo = { id: 'yahoo-budget', user_id: 'u1', enabled: true, imap_host: 'imap.mail.yahoo.com', imap_tls: true };
+  const yahooHost = 'imap.mail.yahoo.com';
+
+  function newManager() {
+    const mgr = new ImapManager(null);
+    for (const key of ['_healthCheckTimer', '_snippetSchedulerTimer', '_stalenessCheckTimer', '_flagPushReconcilerTimer', '_folderStatusTimer']) clearInterval(mgr[key]);
+    mgr.broadcast = vi.fn();
+    return mgr;
+  }
+  function trackedClients() {
+    const clients = [];
+    ImapFlow.mockImplementation(function () {
+      const client = Object.assign(new EventEmitter(), {
+        connect: vi.fn().mockResolvedValue(),
+        close: vi.fn(),
+        logout: vi.fn().mockResolvedValue(),
+        getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
+        search: vi.fn().mockResolvedValue([]),
+        fetch: vi.fn(async function* () {}),
+      });
+      clients.push(client);
+      return client;
+    });
+    return clients;
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: true });
+    resolveForConnection.mockResolvedValue({ host: '127.0.0.1', addresses: ['127.0.0.1'] });
+    query.mockReset();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('gives a Yahoo host one background connection and leaves other hosts at two', () => {
+    const mgr = newManager();
+    expect(mgr._bgConnSem.tryAcquire(yahooHost)).toBe(true);
+    expect(mgr._bgConnSem.tryAcquire(yahooHost)).toBe(false);
+    expect(mgr._bgConnSem.tryAcquire('imap.example.com')).toBe(true);
+    expect(mgr._bgConnSem.tryAcquire('imap.example.com')).toBe(true);
+    expect(mgr._bgConnSem.tryAcquire('imap.example.com')).toBe(false);
+  });
+
+  it('sizes the body-fetch pool from the provider profile', () => {
+    expect(poolSizeFor(yahoo)).toBe(1);
+    expect(poolSizeFor({ imap_host: 'imap.example.com' })).toBe(2);
+  });
+
+  it('skips the staleness probe while the Yahoo background connection is busy', async () => {
+    const interval = vi.spyOn(globalThis, 'setInterval');
+    const mgr = new ImapManager(null);
+    const probeCycle = interval.mock.calls.find(([, ms]) => ms === 180000)[0];
+    for (const key of ['_healthCheckTimer', '_snippetSchedulerTimer', '_stalenessCheckTimer', '_flagPushReconcilerTimer', '_folderStatusTimer']) clearInterval(mgr[key]);
+    mgr.connections.set(yahoo.id, { close: vi.fn() });
+    query.mockImplementation(async sql => ({ rows: sql.includes('MAX(uid)') ? [{ maxuid: 100 }] : [yahoo] }));
+    const clients = trackedClients();
+
+    await mgr._bgConnSem.acquire(yahooHost); // e.g. a backfill holds it
+    await probeCycle();
+    expect(clients).toHaveLength(0);
+
+    mgr._bgConnSem.release(yahooHost);
+    await probeCycle();
+    expect(clients).toHaveLength(1);
+    expect(clients[0].close).toHaveBeenCalledOnce();
+    expect(mgr._bgConnSem.activeCount(yahooHost)).toBe(0);
+  });
+
+  it('still probes an account on a host without a background budget', async () => {
+    const interval = vi.spyOn(globalThis, 'setInterval');
+    const mgr = new ImapManager(null);
+    const probeCycle = interval.mock.calls.find(([, ms]) => ms === 180000)[0];
+    for (const key of ['_healthCheckTimer', '_snippetSchedulerTimer', '_stalenessCheckTimer', '_flagPushReconcilerTimer', '_folderStatusTimer']) clearInterval(mgr[key]);
+    const generic = { ...yahoo, id: 'generic-probe', imap_host: 'imap.example.com' };
+    mgr.connections.set(generic.id, { close: vi.fn() });
+    query.mockImplementation(async sql => ({ rows: sql.includes('MAX(uid)') ? [{ maxuid: 100 }] : [generic] }));
+    const clients = trackedClients();
+
+    await mgr._bgConnSem.acquire('imap.example.com');
+    await mgr._bgConnSem.acquire('imap.example.com');
+    await probeCycle();
+    expect(clients).toHaveLength(1);
+    expect(mgr._bgConnSem.activeCount('imap.example.com')).toBe(2);
+  });
+
+  it('waits for a background connection before refreshing bulk flags', async () => {
+    const mgr = newManager();
+    query.mockImplementation(async sql => {
+      if (sql.includes('is_bulk IS NULL')) return { rows: [{ id: 'm1', uid: '7', folder: 'INBOX' }] };
+      if (sql.startsWith('SELECT * FROM email_accounts')) return { rows: [yahoo] };
+      return { rows: [] };
+    });
+    const clients = trackedClients();
+
+    await mgr._bgConnSem.acquire(yahooHost);
+    const refresh = mgr.refreshBulkFlags(yahoo);
+    await new Promise(r => setTimeout(r, 0));
+    expect(clients).toHaveLength(0);
+
+    mgr._bgConnSem.release(yahooHost);
+    await refresh;
+    expect(clients).toHaveLength(1);
+    expect(mgr._bgConnSem.activeCount(yahooHost)).toBe(0);
   });
 });

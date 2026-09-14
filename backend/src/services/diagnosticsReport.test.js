@@ -71,6 +71,9 @@ describe('categorizeSyncError', () => {
     expect(categorizeSyncError('AUTHENTICATE failed.')).toBe('auth');
     expect(categorizeSyncError('Authentication failed')).toBe('auth');
     expect(categorizeSyncError('[LIMIT] Too many simultaneous connections')).toBe('connection');
+    // Yahoo names the refused command, so "LOGIN" must not turn a provider limit into an auth error.
+    expect(categorizeSyncError('[LIMIT] LOGIN Rate limit hit.')).toBe('connection');
+    expect(categorizeSyncError('[UNAVAILABLE] LOGIN failure. Server error')).toBe('connection');
   });
 });
 
