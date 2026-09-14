@@ -21,6 +21,12 @@ export const pool = new Pool({
   options: '-c statement_timeout=30000',
 });
 
+// pg removes failed idle clients itself, then emits on the pool. Without a
+// listener, a database restart throws an uncaught error and kills the API.
+pool.on('error', err => {
+  console.error('Idle PostgreSQL connection error:', err.message);
+});
+
 export async function query(text, params) {
   // Time the query for the performance baseline (behavior-neutral). This is the
   // single top-level DB chokepoint; transaction clients (withTransaction) are not

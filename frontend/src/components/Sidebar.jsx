@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
+import { unreadBadge } from '../utils/unreadBadge.js';
 import { api } from '../utils/api.js';
 import {
   activateOnKey,
@@ -517,7 +518,7 @@ export default function Sidebar() {
       await api.markAllRead(accountId, folder);
       window.dispatchEvent(new CustomEvent('mailflow:refresh'));
       api.getUnreadCounts().then(counts => {
-        useStore.setState({ unreadCounts: counts });
+        useStore.getState().setUnreadCounts(counts);
       }).catch(() => {});
       api.getFolders(accountId).then(f => setFolders(accountId, f)).catch(() => {});
     } catch (err) { console.error('markAllRead failed:', err.message); }
@@ -886,6 +887,7 @@ export default function Sidebar() {
             active={isUnified && !showContacts}
             collapsed={sidebarCollapsed}
             badge={unreadCounts.total}
+            badgeStale={!unreadCounts.complete}
             onClick={() => setSelectedAccount(null, 'INBOX')}
           />
         )}
@@ -906,7 +908,8 @@ export default function Sidebar() {
                 const accountFolders = folders[accountId] || [];
                 const folderObj = accountFolders.find(f => f.path === path);
                 const isActive = selectedAccountId === accountId && selectedFolder === path;
-                const unreadCount = folderObj?.unread_count || 0;
+                const favBadge = unreadBadge({ count: folderObj?.unread_count, known: folderObj?.counts_known !== false,
+                  stale: folderObj?.counts_stale, observedAt: folderObj?.server_counts_at });
                 const isRenamingThis = renamingFav?.accountId === accountId && renamingFav?.path === path;
                 const isDragging = favDragIdx === idx;
                 const isDropTarget = favDropIdx === idx && favDragIdx !== null && favDragIdx !== idx;
@@ -1062,9 +1065,9 @@ export default function Sidebar() {
                       </span>
                     )}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
-                      {unreadCount > 0 && (
-                        <span style={{ fontSize: 10, color: 'var(--text-tertiary)', background: 'var(--bg-elevated)', padding: '1px 5px', borderRadius: 8 }}>
-                          {unreadCount}
+                      {favBadge && (
+                        <span title={favBadge.title} style={{ fontSize: 10, color: 'var(--text-tertiary)', background: 'var(--bg-elevated)', padding: '1px 5px', borderRadius: 8 }}>
+                          {favBadge.text}
                         </span>
                       )}
                       <div style={{ width: 6, height: 6, borderRadius: '50%', background: account.color, flexShrink: 0 }} />
@@ -1100,7 +1103,10 @@ export default function Sidebar() {
 
         {/* Per-account */}
         {accounts.map(account => {
-          const unread = unreadCounts.byAccount[account.id] || 0;
+          const countSnapshot = unreadCounts.snapshots?.[account.id];
+          const accountBadge = unreadBadge({ count: unreadCounts.byAccount[account.id],
+            known: Number.isFinite(unreadCounts.byAccount[account.id]) && countSnapshot?.known !== false,
+            stale: countSnapshot?.stale, observedAt: countSnapshot?.observedAt, max: 999 });
           const expanded = expandedAccounts[account.id];
           const isSelected = selectedAccountId === account.id;
           const accountFolders = folders[account.id] || [];
@@ -1166,7 +1172,7 @@ export default function Sidebar() {
                       <div style={{
                         fontSize: 13, color: 'var(--text-primary)',
                         whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                        fontWeight: unread > 0 ? 500 : 400,
+                        fontWeight: accountBadge ? 500 : 400,
                       }}>
                         {account.name}
                       </div>
@@ -1185,13 +1191,13 @@ export default function Sidebar() {
                       )}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-                      {unread > 0 && (
-                        <span style={{
+                      {accountBadge && (
+                        <span title={accountBadge.title} style={{
                           fontSize: 11, fontWeight: 600, color: 'white',
                           background: account.color, padding: '1px 6px',
                           borderRadius: 10, minWidth: 20, textAlign: 'center',
                         }}>
-                          {unread > 999 ? '999+' : unread}
+                          {accountBadge.text}
                         </span>
                       )}
                       {/* Expand toggle */}
@@ -1443,11 +1449,15 @@ export default function Sidebar() {
                             <button onClick={() => setRenamingFolder(null)} style={{ background: 'var(--bg-tertiary)', border: 'none', borderRadius: 4, color: 'var(--text-secondary)', padding: '2px 6px', cursor: 'pointer', fontSize: 11 }}>✕</button>
                           </div>
                         ) : (
-                          folder.unread_count > 0 && (
-                            <span style={{ fontSize: 10, color: 'var(--text-tertiary)', background: 'var(--bg-elevated)', padding: '1px 5px', borderRadius: 8, flexShrink: 0 }}>
-                              {folder.unread_count}
-                            </span>
-                          )
+                          !folder.no_select && (() => {
+                            const b = unreadBadge({ count: folder.unread_count, known: folder.counts_known !== false,
+                              stale: folder.counts_stale, observedAt: folder.server_counts_at });
+                            return b && (
+                              <span title={b.title} style={{ fontSize: 10, color: 'var(--text-tertiary)', background: 'var(--bg-elevated)', padding: '1px 5px', borderRadius: 8, flexShrink: 0 }}>
+                                {b.text}
+                              </span>
+                            );
+                          })()
                         )}
                       </div>
 
@@ -1989,7 +1999,8 @@ export default function Sidebar() {
   );
 }
 
-function NavItem({ icon, label, active, collapsed, badge, onClick }) {
+function NavItem({ icon, label, active, collapsed, badge, badgeStale = false, onClick }) {
+  const navBadge = unreadBadge({ count: badge, stale: badgeStale, max: 999 });
   return (
     <div
       className={active ? 'nav-item nav-item-active' : 'nav-item'}
@@ -2020,18 +2031,18 @@ function NavItem({ icon, label, active, collapsed, badge, onClick }) {
       {!collapsed && (
         <>
           <span style={{ fontSize: 13, fontWeight: active ? 500 : 400, flex: 1 }}>{label}</span>
-          {badge > 0 && (
-            <span style={{
+          {navBadge && (
+            <span title={navBadge.title} style={{
               fontSize: 11, fontWeight: 600, color: 'var(--accent-text)',
               background: 'var(--accent)', padding: '1px 7px',
               borderRadius: 10, minWidth: 20, textAlign: 'center',
             }}>
-              {badge > 999 ? '999+' : badge}
+              {navBadge.text}
             </span>
           )}
         </>
       )}
-      {collapsed && badge > 0 && (
+      {collapsed && navBadge && (
         <div style={{
           position: 'absolute', top: 6, right: 6,
           width: 7, height: 7, borderRadius: '50%',

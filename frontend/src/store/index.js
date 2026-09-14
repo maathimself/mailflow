@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { api } from '../utils/api.js';
-import { accountAffectsUnifiedInbox } from '../utils/unifiedInbox.js';
+import { mergeCountSnapshots, adjustCountPending, expireCountPending, settleCountPending, displayCountSnapshot, mergeFolderSnapshots } from '../utils/countSnapshots.js';
+import { resolveSelectedAccount, pruneFolders } from '../utils/accountScope.js';
 import { applyTheme, applyCustomCss, getInitialTheme } from '../themes.js';
 import { applyFontSet, applyFontSize, effectiveFontSet, isRetroFont, THEME_FONT } from '../fonts.js';
 import { applyLayout, normalizeLayout } from '../layouts.js';
@@ -83,16 +84,39 @@ function readGtdCollapsedSections() {
   return { someday: true };
 }
 
+let pendingCountTimer;
+function expirePendingCounts() {
+  clearTimeout(pendingCountTimer);
+  const deadlines = Object.values(useStore.getState().pendingCounts).map(p => p.expiresAt);
+  if (!deadlines.length) { pendingCountTimer = null; return; }
+  pendingCountTimer = setTimeout(() => {
+    pendingCountTimer = null;
+    const state = useStore.getState();
+    if (state.isLocked) return;
+    const pending = expireCountPending(state.pendingCounts);
+    useStore.setState({ pendingCounts: pending,
+      unreadCounts: displayCountSnapshot(state.serverUnreadCounts, pending, state.accounts) });
+    if (Object.keys(pending).length) expirePendingCounts();
+    window.dispatchEvent(new CustomEvent('mailflow:counts_refresh'));
+  }, Math.max(1, Math.min(...deadlines) - Date.now()));
+}
+
 export const useStore = create((set, get) => ({
   // Auth
   user: null,
   setUser: (user) => {
     // On a real identity change (login, logout, account switch) drop any queued preference
     // flush so the previous user's debounce can't save into the new/absent session.
-    if (get().user?.id !== user?.id) cancelPendingPrefSave();
+    if (get().user?.id !== user?.id) {
+      cancelPendingPrefSave();
+      clearTimeout(pendingCountTimer);
+      pendingCountTimer = null;
+    }
     set(state => ({
       user,
       ...(state.user?.id !== user?.id ? {
+        serverUnreadCounts: { total: 0, byAccount: {}, snapshots: {} }, pendingCounts: {},
+        unreadCounts: { total: 0, byAccount: {}, snapshots: {}, complete: false },
         senderFaviconsLoaded: false,
         senderFavicons: false,
         senderFaviconsSaving: false,
@@ -130,7 +154,10 @@ export const useStore = create((set, get) => ({
       const { selectedMessageId } = get();
       if (selectedMessageId) localStorage.setItem('mailflow_locked_message', selectedMessageId);
       localStorage.setItem('mailflow_locked', '1');
+      clearTimeout(pendingCountTimer);
+      pendingCountTimer = null;
       set({
+        serverUnreadCounts: { total: 0, byAccount: {}, snapshots: {} }, pendingCounts: {},
         isLocked: true,
         messages: [], searchResults: [], searchQuery: '',
         accounts: [], accountsReady: false,
@@ -164,10 +191,29 @@ export const useStore = create((set, get) => ({
   // Accounts
   accounts: [],
   accountsReady: false, // true once the initial getAccounts() call has resolved
-  setAccounts: (accounts) => set({ accounts, accountsReady: true }),
-  updateAccount: (id, updates) => set(state => ({
-    accounts: state.accounts.map(a => a.id === id ? { ...a, ...updates } : a)
-  })),
+  setAccounts: (accounts) => {
+    // Every refresh of the account list is also the moment to notice that the selected
+    // account has been deleted. Without this the client stays pinned to a dead id forever,
+    // because localStorage restores it on every load. See utils/accountScope.js.
+    const previous = get().selectedAccountId;
+    const selectedAccountId = resolveSelectedAccount(accounts, previous);
+    const reselected = selectedAccountId !== previous;
+    if (reselected) {
+      // Mirror setSelectedAccount's persistence so the fallback survives a reload.
+      localStorage.setItem('mailflow_selected_account', '');
+      localStorage.setItem('mailflow_selected_folder', 'INBOX');
+    }
+    set(state => ({
+      accounts, accountsReady: true, selectedAccountId,
+      ...(reselected ? { selectedFolder: 'INBOX' } : {}),
+      folders: pruneFolders(state.folders, accounts),
+      unreadCounts: displayCountSnapshot(state.serverUnreadCounts, state.pendingCounts, accounts),
+    }));
+  },
+  updateAccount: (id, updates) => set(state => {
+    const accounts = state.accounts.map(a => a.id === id ? { ...a, ...updates } : a);
+    return { accounts, unreadCounts: displayCountSnapshot(state.serverUnreadCounts, state.pendingCounts, accounts) };
+  }),
 
   // Navigation
   selectedAccountId: localStorage.getItem('mailflow_selected_account') || null, // '' stored as null
@@ -285,49 +331,41 @@ export const useStore = create((set, get) => ({
   lastViewedMessageId: null,
   setSelectedMessage: (id) => set(id ? { selectedMessageId: id, lastViewedMessageId: id } : { selectedMessageId: null }),
 
-  // Unread counts
-  unreadCounts: { total: 0, byAccount: {} },
-  setUnreadCounts: (counts) => set({ unreadCounts: counts }),
-  decrementUnread: (accountId, count = 1) => set(state => {
-    const byAccount = { ...state.unreadCounts.byAccount };
-    byAccount[accountId] = Math.max(0, (byAccount[accountId] || 0) - count);
-    const total = accountAffectsUnifiedInbox(state.accounts, accountId)
-      ? Math.max(0, state.unreadCounts.total - count)
-      : state.unreadCounts.total;
-    return { unreadCounts: { total, byAccount } };
+  // Server snapshots are retained separately from a bounded optimistic window.
+  serverUnreadCounts: { total: 0, byAccount: {}, snapshots: {} },
+  pendingCounts: {},
+  unreadCounts: { total: 0, byAccount: {}, snapshots: {}, complete: false },
+  setUnreadCounts: (counts) => set(state => {
+    if (state.isLocked) return {};
+    const server = mergeCountSnapshots(state.serverUnreadCounts, counts);
+    // Retire windows the server has now had a chance to observe, rather than waiting for the
+    // backstop to expire them: the timer alone reverted the badge ~1-2s before the replacement
+    // observation landed, which read as the count bouncing back on every read or move.
+    const pending = settleCountPending(state.pendingCounts, server);
+    if (!Object.keys(pending).length) { clearTimeout(pendingCountTimer); pendingCountTimer = null; }
+    return { serverUnreadCounts: server, pendingCounts: pending,
+      unreadCounts: displayCountSnapshot(server, pending, state.accounts) };
   }),
-  incrementUnread: (accountId, count = 1) => set(state => {
-    const byAccount = { ...state.unreadCounts.byAccount };
-    byAccount[accountId] = (byAccount[accountId] || 0) + count;
-    const total = accountAffectsUnifiedInbox(state.accounts, accountId)
-      ? state.unreadCounts.total + count
-      : state.unreadCounts.total;
-    return { unreadCounts: { total, byAccount } };
-  }),
-
-  // Folders
-  folders: {}, // accountId -> folders[]
-  setFolders: (accountId, folders) => set(state => ({
-    folders: { ...state.folders, [accountId]: folders }
-  })),
-  // Increment/decrement the unread_count of a single folder in one account's
-  // list. Used for optimistic UI updates when marking messages as read/spam/ham
-  // so the sidebar badge updates without waiting for a full folder sync.
-  // We clamp at 0 to avoid negative counters when the optimistic guess was off.
-  adjustFolderUnread: (accountId, folderPath, delta) => set(state => {
-    const accountFolders = state.folders[accountId];
-    if (!accountFolders) return {};
-    let changed = false;
-    const next = accountFolders.map(f => {
-      if (f.path === folderPath && Number.isFinite(f.unread_count)) {
-        const updated = Math.max(0, f.unread_count + delta);
-        if (updated !== f.unread_count) { changed = true; return { ...f, unread_count: updated }; }
-      }
-      return f;
+  adjustUnread: (accountId, delta) => {
+    set(state => {
+      if (state.isLocked) return {};
+      const displayed = displayCountSnapshot(state.serverUnreadCounts, state.pendingCounts, state.accounts);
+      const pending = adjustCountPending(state.pendingCounts, displayed, accountId, delta);
+      return { pendingCounts: pending,
+        unreadCounts: displayCountSnapshot(state.serverUnreadCounts, pending, state.accounts) };
     });
-    if (!changed) return {};
-    return { folders: { ...state.folders, [accountId]: next } };
-  }),
+    // Do not reset this timer on subsequent clicks: continuous activity cannot freeze counts.
+    if (!pendingCountTimer) expirePendingCounts();
+  },
+  decrementUnread: (accountId, count = 1) => get().adjustUnread(accountId, -count),
+  incrementUnread: (accountId, count = 1) => get().adjustUnread(accountId, count),
+
+  // Folder badges always show observed server values. Row-level read/move optimism
+  // remains immediate; aggregate thread estimates must not overwrite these snapshots.
+  folders: {},
+  setFolders: (accountId, folders) => set(state => state.isLocked ? {} : ({
+    folders: { ...state.folders, [accountId]: mergeFolderSnapshots(state.folders[accountId], folders) }
+  })),
 
   // UI state
   sidebarCollapsed: localStorage.getItem('mailflow_sidebar_collapsed') === 'true',
