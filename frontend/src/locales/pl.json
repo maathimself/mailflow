@@ -1403,6 +1403,8 @@
         "removedNote": "Konfiguracja Google została usunięta.",
         "saveError": "Nie udało się zapisać konfiguracji Google. Sprawdź wartości i spróbuj ponownie.",
         "removeError": "Nie udało się usunąć konfiguracji Google. Spróbuj ponownie.",
+        "removeConfirm": "Usunąć konfigurację Google OAuth? Połączenia Gmail przestaną działać, dopóki nie zostanie ponownie skonfigurowana.",
+        "clientSecretInvalid": "Klucz tajny klienta nadal zawiera ukryty symbol zastępczy. Wyczyść pole i wpisz nowy klucz.",
         "requiredFields": "Identyfikator klienta, sekret klienta i URI przekierowania są wymagane.",
         "connect": "Połącz Gmail",
         "redirecting": "Przekierowywanie…",

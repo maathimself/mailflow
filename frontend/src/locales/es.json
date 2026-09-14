@@ -1384,6 +1384,8 @@
         "removedNote": "Configuración de Google eliminada.",
         "saveError": "No se pudo guardar la configuración de Google. Revisa los valores e inténtalo de nuevo.",
         "removeError": "No se pudo eliminar la configuración de Google. Inténtalo de nuevo.",
+        "removeConfirm": "¿Eliminar la configuración de OAuth de Google? Las conexiones de Gmail dejarán de funcionar hasta que se vuelva a configurar.",
+        "clientSecretInvalid": "El secreto de cliente todavía contiene el marcador oculto. Vacía el campo y escribe el nuevo secreto.",
         "requiredFields": "El ID de cliente, el secreto de cliente y el URI de redirección son obligatorios.",
         "connect": "Conectar Gmail",
         "redirecting": "Redirigiendo…",

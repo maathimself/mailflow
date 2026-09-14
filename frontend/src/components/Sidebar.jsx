@@ -826,7 +826,7 @@ export default function Sidebar() {
                 color: 'var(--accent)',
                 letterSpacing: '-0.02em', whiteSpace: 'nowrap',
               }}>
-                Flow
+                Expert
               </span>
             </span>
           </div>

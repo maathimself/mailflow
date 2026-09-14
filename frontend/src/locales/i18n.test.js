@@ -433,7 +433,7 @@ const HARDCODED_OK = new Set([
   // identical concept in all languages
   'Emoji',
   // "MailExpert" brand name split into two spans for typography styling
-  'Mail', 'Flow',
+  'Mail', 'Expert',
   // Email header labels inside the handlePrint() HTML template literal —
   // translating them requires passing t() results into the template string
   'From:', 'Date:',
@@ -662,6 +662,21 @@ describe('i18n locale files', () => {
         }
       }
       assert.equal(missing.length, 0, `OAuth result keys missing from locale files:\n${missing.join('\n')}`);
+    });
+
+    it('every Google integration key used in GoogleIntegrationSection.jsx exists in every locale', () => {
+      // Notice keys are stored in state and translated later, so every quoted literal
+      // is collected, not only direct t() calls.
+      const source = readFileSync(resolve(dir, '../components/GoogleIntegrationSection.jsx'), 'utf8');
+      const keys = [...new Set([...source.matchAll(/'(admin\.integrations\.google\.[\w.]+)'/g)].map(m => m[1]))];
+      assert.ok(keys.length >= 20, `expected the Google section keys, found ${keys.length}`);
+      const missing = [];
+      for (const lang of langs) {
+        for (const key of keys) {
+          if (typeof locales[lang][key] !== 'string' || !locales[lang][key]) missing.push(`  - ${lang}: ${key}`);
+        }
+      }
+      assert.equal(missing.length, 0, `Google integration keys missing from locale files:\n${missing.join('\n')}`);
     });
   });
 

@@ -28,7 +28,10 @@ async function request(method, path, body, extraHeaders) {
       window.dispatchEvent(new CustomEvent('mailexpert:session_expired'));
     }
     const err = await res.json().catch(() => ({ error: 'Request failed' }));
-    throw new Error(err.error || 'Request failed');
+    const e = new Error(err.error || 'Request failed');
+    // Stable machine-readable code (e.g. send_in_progress) for callers that branch on it.
+    if (err.code) e.code = err.code;
+    throw e;
   }
   return res.json();
 }

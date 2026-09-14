@@ -1314,6 +1314,8 @@
         "removedNote": "Google-Konfiguration entfernt.",
         "saveError": "Die Google-Konfiguration konnte nicht gespeichert werden. Werte prüfen und erneut versuchen.",
         "removeError": "Die Google-Konfiguration konnte nicht entfernt werden. Bitte erneut versuchen.",
+        "removeConfirm": "Google-OAuth-Konfiguration entfernen? Gmail-Verbindungen funktionieren erst wieder, wenn sie erneut eingerichtet wird.",
+        "clientSecretInvalid": "Das Client-Geheimnis enthält noch den verborgenen Platzhalter. Leeren Sie das Feld und geben Sie das neue Geheimnis ein.",
         "requiredFields": "Client-ID, Clientgeheimnis und Weiterleitungs-URI sind Pflichtfelder.",
         "connect": "Gmail verbinden",
         "redirecting": "Weiterleitung…",
