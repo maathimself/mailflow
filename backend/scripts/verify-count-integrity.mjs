@@ -1,0 +1,48 @@
+// Run only against an isolated disposable PostgreSQL database; never production.
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { pool, query } from '../src/services/db.js';
+import { runMigrations } from '../src/services/migrations.js';
+import { observeFolder, checkpointFolderStatus, FolderStatusMonitor, publicFolderCounts } from '../src/services/folderStatus.js';
+if (process.env.DB_NAME !== 'count_integrity_test') throw new Error('Requires disposable count_integrity_test database');
+try {
+  await query(await readFile(new URL('../migrations/0001_baseline.sql', import.meta.url), 'utf8'));
+  const user = (await query("INSERT INTO users (username) VALUES ('count-fixture') RETURNING id")).rows[0].id;
+  const account = (await query("INSERT INTO email_accounts (user_id,name,email_address) VALUES ($1,'fixture','fixture@example.invalid') RETURNING *", [user])).rows[0];
+  await query("INSERT INTO folders (account_id,path,name,total_count,unread_count,uid_validity) VALUES ($1,'INBOX','INBOX',40,9,8)", [account.id]);
+  await query("INSERT INTO messages (account_id,uid,subject) VALUES ($1,1,'fixture')", [account.id]);
+  await runMigrations();
+  const row = () => query('SELECT * FROM folders WHERE account_id=$1 AND path=$2', [account.id, 'INBOX']).then(r => r.rows[0]);
+  assert.equal((await row()).total_count, 40);
+  assert.equal(publicFolderCounts(await row()).unread_count, null);
+  const good = { messages: 10, unseen: 3, uidNext: 50, uidValidity: 8n, highestModseq: 9007199254740993n };
+  await observeFolder({ status: async () => good }, account.id, 'INBOX');
+  assert.equal((await row()).server_highest_modseq, '9007199254740993');
+  assert.equal((await row()).status_synced_at, null);
+  let finishOld, beganOld;
+  const started = new Promise(resolve => { beganOld = resolve; });
+  const older = observeFolder({ status: () => { beganOld(); return new Promise(resolve => { finishOld = resolve; }); } }, account.id, 'INBOX');
+  await started;
+  await observeFolder({ status: async () => ({ ...good, unseen: 2 }) }, account.id, 'INBOX');
+  finishOld(good);
+  assert.equal(await older, null);
+  assert.equal((await row()).server_unread_count, '2');
+  await assert.rejects(observeFolder({ status: async () => false }, account.id, 'INBOX'));
+  assert.equal((await row()).server_unread_count, '2');
+  assert.equal(publicFolderCounts(await row()).counts_stale, true);
+  await observeFolder({ status: async () => ({ ...good, messages: 0, unseen: 0 }) }, account.id, 'INBOX');
+  assert.equal((await row()).server_total_count, '0');
+  assert.equal((await row()).total_count, 40);
+  assert.equal((await query('SELECT count(*) FROM messages')).rows[0].count, '1');
+  await checkpointFolderStatus(account.id, 'INBOX', good);
+  assert.equal((await row()).status_synced_uid_next, '50');
+  await query('UPDATE folders SET uid_validity=9 WHERE account_id=$1', [account.id]);
+  await checkpointFolderStatus(account.id, 'INBOX', { ...good, uidNext: 999 });
+  assert.equal((await row()).status_synced_uid_next, '50');
+  let queued = 0;
+  const monitor = new FolderStatusMonitor({ withClient: async (_a, fn) => fn({ status: async () => good }), enqueueSync: () => { queued++; return true; }, broadcast: () => {} });
+  await monitor.refresh(account);
+  assert.equal(queued, 1);
+  await runMigrations();
+  console.log('Count integrity database verification passed: migration preservation, rerun, ordering, false/zero responses, precision, checkpoint epoch, monitor query.');
+} finally { await pool.end(); }
