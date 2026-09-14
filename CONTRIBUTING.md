@@ -1,64 +1,64 @@
-# Contributing to MailFlow
+# Contributing to MailExpert
 
-Thank you for your interest in MailFlow. Please read this before opening a pull request — it will save your time and mine.
+MailExpert is developed by its maintainer as a fork of [MailFlow](https://github.com/maathimself/mailflow).
+Terms for external contributions are not defined yet, so pull requests from outside the
+project are not accepted for now. Bug reports and feature requests are welcome in the
+[issue tracker](https://github.com/wyrtensi/MailExpert/issues).
 
-## How MailFlow is built
-
-MailFlow is a personal, vision-led project. I build most of it myself and intend to keep doing so, because a single coherent hand keeps the product consistent and the codebase maintainable. That shapes what contributions fit:
-
-- **Bug reports and small, focused fixes are very welcome.** A real bug, a translation, a typo, a small correctness or quality fix — these are easy to review and I'm glad to take them.
-- **For anything larger — a new feature, a refactor, a new dependency, a change to core behaviour — open an issue to discuss it first, before writing any code.** I'll tell you honestly whether it fits and whether I'd merge it.
-- **Unsolicited large pull requests will usually be declined, regardless of quality.** Not because the work isn't good, but because large changes have to fit a direction I'm holding, and reviewing a big PR I didn't plan for is costly whether or not it lands. Please check first so your effort isn't wasted.
-- A "no" is about scope and direction, not about you or your code. I appreciate every bit of interest in the project.
-
-If you want to build something bigger, MailFlow's plugin system and its AGPL licence give you room to do that in a plugin or your own fork, without needing it merged here.
-
-## Before You Start
-
-- Search the [issue tracker](https://github.com/maathimself/mailflow/issues) — the problem or feature may already be discussed.
-- For anything beyond a small fix, open an issue first to align on the approach (see above).
-- All contributions require agreement to the [Contributor License Agreement](CLA.md).
+The rest of this document describes how changes are made inside the project.
 
 ## Workflow
 
-1. Fork the repository and create a branch from `main`.
-2. Name your branch descriptively: `fix/describe-the-fix` or `feat/describe-the-feature`.
-3. Keep the scope focused — one fix or feature per PR.
-4. Open a pull request against `main` and fill out the PR template completely.
+1. Create a branch from `main`: `feat/…`, `fix/…`, `refactor/…`, `docs/…`, `chore/…`, or `sync/upstream-YYYY-MM-DD` for upstream ports.
+2. Keep one fix or feature per branch; no unrelated cleanup in the same pull request.
+3. Open a pull request against `main`. It is merged only when CI is green.
 
-## Commit Messages
+## Commit messages
 
-Follow [Conventional Commits](https://www.conventionalcommits.org/):
+Use [Conventional Commits](https://www.conventionalcommits.org/): `fix: …`, `feat: …`,
+`refactor: …`, `docs: …`, `chore: …`, `test: …`. Imperative mood, subject under 72
+characters, no trailing period. Explain the reason for the change in the body when it
+is not obvious.
 
+## Code rules
+
+- Match the style of the surrounding code.
+- Code comments are written in English, and only when the reason behind the code would surprise a reader.
+- Write the failing test first, then the implementation.
+- Do not weaken, skip or delete existing tests to make a change pass.
+- No monkey-patching of dependencies, `patch-package` or shims around library internals; adapt MailExpert code instead.
+- OAuth codes, access and refresh tokens, client secrets and mail passwords must never reach logs, URLs, API responses or error messages.
+- Keep TLS verification enabled.
+- Do not add dependencies without a clear need; never use `npm audit fix --force`.
+
+## Checks before a pull request
+
+Runtime: Node.js 22.19+ (see `backend/package.json`), PostgreSQL 16+, Redis 7+.
+
+```bash
+cd backend
+npm ci
+npm test
+npm run lint
+npm run lint:plugins
+
+cd ../frontend
+npm ci
+npm test
+npm run lint
+npm run build
 ```
-fix: short description of what was fixed
-feat: short description of what was added
-chore: dependency updates, config changes, etc.
-```
 
-- Use the imperative mood ("add support for" not "adds support for")
-- Keep the subject line under 72 characters
-- No trailing period
+CI runs the same steps on Node.js 22 together with `npm audit --omit=dev --audit-level=high`.
 
-## Pull Request Requirements
+## Porting changes from upstream MailFlow
 
-- CI must pass (backend and frontend checks)
-- The PR template must be filled out, including the CLA checkbox
-- Keep changes minimal and focused — no unrelated cleanup in the same PR
-- Large PRs opened without a prior issue may be closed with a pointer back to this document
+- Cherry-pick with `git cherry-pick -x` so the original author and upstream commit stay recorded.
+- Resolve conflicts in favour of MailExpert names: containers, storage keys, `mailexpert:` window events.
+- Do not port changes MailExpert already implements differently (for example Google OAuth); record the decision in [docs/architecture/upstream-pr-assessment.md](docs/architecture/upstream-pr-assessment.md).
+- Run the full checks after the port.
 
-## Code Style
+## Reporting security issues
 
-- Match the style of the surrounding code
-- Default to no comments — only add one when the reason behind something would genuinely surprise a future reader
-- No half-finished implementations or feature flags for hypothetical future use
-- Backend: Node/Express with async/await; avoid adding new dependencies without discussion
-- Frontend: React with hooks; Tailwind for styling; avoid unnecessary abstraction
-
-## Reporting Bugs
-
-Use the [bug report template](https://github.com/maathimself/mailflow/issues/new?template=bug_report.md). Include steps to reproduce, expected behaviour, and actual behaviour. Screenshots or logs help.
-
-## Requesting Features
-
-Use the [feature request template](https://github.com/maathimself/mailflow/issues/new?template=feature_request.md). Explain the problem you are trying to solve, not just the solution. This is also the right place to propose something before writing code.
+Do not open a public issue for a vulnerability. Contact the maintainer privately through
+the GitHub profile of the repository owner.
