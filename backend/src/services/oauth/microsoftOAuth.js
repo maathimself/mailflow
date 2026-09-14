@@ -1,5 +1,6 @@
 import { query } from '../db.js';
 import { encrypt, decrypt } from '../encryption.js';
+import { PROVIDER_FETCH_TIMEOUT_MS } from './constants.js';
 
 export const MICROSOFT_AUTH_URL = 'https://login.microsoftonline.com';
 
@@ -54,7 +55,7 @@ async function doRefreshMicrosoftToken(account) {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: params,
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(PROVIDER_FETCH_TIMEOUT_MS),
     });
   };
 

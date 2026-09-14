@@ -22,3 +22,11 @@ export const OAUTH_SEND_FAILURES = Object.freeze({
     error: 'Could not renew access to this account. Please try again shortly.',
   }),
 });
+
+// Timeout of a single provider token-endpoint call (fetch AbortSignal) in googleOAuth.js and
+// microsoftOAuth.js.
+export const PROVIDER_FETCH_TIMEOUT_MS = 10000;
+
+// Worst-case token-endpoint calls in one refresh. Microsoft's AADSTS90023 public-client self-heal
+// repeats the call without the client secret; Google always makes one call.
+export const OAUTH_REFRESH_MAX_TOKEN_CALLS = Object.freeze({ google: 1, microsoft: 2 });

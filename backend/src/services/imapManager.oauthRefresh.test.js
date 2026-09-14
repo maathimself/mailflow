@@ -41,13 +41,14 @@ import { getConnectionPolicy } from './connectionPolicy.js';
 import { refreshGoogleToken } from './oauth/googleOAuth.js';
 import { refreshMicrosoftToken } from './oauth/microsoftOAuth.js';
 import {
-  ImapManager, AUTH_FAILURE_COOLDOWN_MS, connectCooldownMs, TOKEN_REFRESH_TIMEOUT_MS, OAUTH_REFRESH_LOCK_WAIT_MS,
+  ImapManager, AUTH_FAILURE_COOLDOWN_MS, connectCooldownMs, tokenRefreshTimeoutMs, OAUTH_REFRESH_LOCK_WAIT_MS,
 } from './imapManager.js';
+// The provider modules are mocked here; their fetch timeout and call counts live in the shared
+// constants module they import, so the budget checks track the real values.
+import { PROVIDER_FETCH_TIMEOUT_MS, OAUTH_REFRESH_MAX_TOKEN_CALLS } from './oauth/constants.js';
 
 const MINUTE = 60 * 1000;
 const inMinutes = (n) => new Date(Date.now() + n * MINUTE);
-// Provider token call timeout used by googleOAuth.js and microsoftOAuth.js (AbortSignal.timeout).
-const PROVIDER_FETCH_TIMEOUT_MS = 10000;
 
 const imapErr = (props) => Object.assign(new Error(props.message || 'Command failed'), props);
 const gmailXoauthFailure = () => imapErr({
@@ -398,8 +399,18 @@ describe('oauth_reconnect_required', () => {
 });
 
 describe('transient refresh failures take the recoverable path', () => {
-  it(`keeps the lock wait plus the provider call inside the ${TOKEN_REFRESH_TIMEOUT_MS} ms refresh budget`, async () => {
-    expect(OAUTH_REFRESH_LOCK_WAIT_MS + PROVIDER_FETCH_TIMEOUT_MS).toBeLessThan(TOKEN_REFRESH_TIMEOUT_MS);
+  it.each(['google', 'microsoft'])('fits the lock wait plus the worst-case %s token calls inside its refresh budget', (provider) => {
+    const worstCase = OAUTH_REFRESH_LOCK_WAIT_MS + OAUTH_REFRESH_MAX_TOKEN_CALLS[provider] * PROVIDER_FETCH_TIMEOUT_MS;
+    expect(worstCase).toBeLessThan(tokenRefreshTimeoutMs({ oauth_provider: provider }));
+  });
+
+  it('keeps the Google refresh budget at 15 s and gives Microsoft room for its second token call', () => {
+    expect(OAUTH_REFRESH_MAX_TOKEN_CALLS).toEqual({ google: 1, microsoft: 2 });
+    expect(tokenRefreshTimeoutMs({ oauth_provider: 'google' })).toBe(15000);
+    expect(tokenRefreshTimeoutMs({ oauth_provider: 'microsoft' })).toBe(25000);
+  });
+
+  it('lets the token manager give up on a busy lock before the refresh budget runs out', async () => {
 
     vi.useFakeTimers();
     const acct = gmailAccount();
@@ -451,12 +462,59 @@ describe('transient refresh failures take the recoverable path', () => {
     let result = 'pending';
     mgr.connectAccount(acct).then((r) => { result = r; });
 
-    await vi.advanceTimersByTimeAsync(TOKEN_REFRESH_TIMEOUT_MS + 100);
+    await vi.advanceTimersByTimeAsync(tokenRefreshTimeoutMs(acct) - 100);
+    expect(result).toBe('pending');
+    await vi.advanceTimersByTimeAsync(200);
 
     expect(result).toBe(false);
     expect(mgr._connectCooldown.get(acct.id).until).toBeLessThan(Date.now() + AUTH_FAILURE_COOLDOWN_MS);
     expect(rows.get(acct.id).oauth_reconnect_required).toBe(false);
     expect(mgr.connectingAccounts.has(acct.id)).toBe(false);
+  });
+
+  it('lets a Microsoft refresh that needs both token calls finish instead of counting it as a failure', async () => {
+    vi.useFakeTimers();
+    const acct = gmailAccount({ oauth_provider: 'microsoft', imap_host: 'outlook.office365.com' });
+    rows.set(acct.id, acct);
+    // AADSTS90023 self-heal: the first call with the secret and the retry without it both run
+    // to their full fetch timeout before the second one succeeds.
+    refreshMicrosoftToken.mockImplementation((account) => new Promise((resolve) => {
+      setTimeout(() => {
+        const fresh = { ...account, oauth_access_token: `fresh-ms-${account.id}`, oauth_token_expiry: inMinutes(60) };
+        rows.set(account.id, fresh);
+        resolve(fresh);
+      }, OAUTH_REFRESH_MAX_TOKEN_CALLS.microsoft * PROVIDER_FETCH_TIMEOUT_MS);
+    }));
+    const mgr = newManager();
+    let result = 'pending';
+    mgr.connectAccount(acct).then((r) => { result = r; });
+
+    await vi.advanceTimersByTimeAsync(OAUTH_REFRESH_MAX_TOKEN_CALLS.microsoft * PROVIDER_FETCH_TIMEOUT_MS + 100);
+    await vi.waitFor(() => expect(result).not.toBe('pending'));
+
+    expect(tokensUsed()).toEqual([`fresh-ms-${acct.id}`]);
+    const logged = console.error.mock.calls.flat().join('\n');
+    expect(logged).not.toContain('oauth_refresh_failed');
+    expect(logged).not.toMatch(/OAuth token refresh timeout/);
+  });
+
+  it('still cuts off a hung Microsoft refresh at its own budget as a transient failure', async () => {
+    vi.useFakeTimers();
+    const acct = gmailAccount({ oauth_provider: 'microsoft', imap_host: 'outlook.office365.com' });
+    rows.set(acct.id, acct);
+    refreshMicrosoftToken.mockImplementation(() => new Promise(() => {}));
+    const mgr = newManager();
+    let result = 'pending';
+    mgr.connectAccount(acct).then((r) => { result = r; });
+
+    await vi.advanceTimersByTimeAsync(tokenRefreshTimeoutMs(acct) - 100);
+    expect(result).toBe('pending');
+    await vi.advanceTimersByTimeAsync(200);
+
+    expect(result).toBe(false);
+    expect(ImapFlow).not.toHaveBeenCalled();
+    expect(mgr._connectCooldown.get(acct.id).until).toBeLessThan(Date.now() + AUTH_FAILURE_COOLDOWN_MS);
+    expect(rows.get(acct.id).oauth_reconnect_required).toBe(false);
   });
 });
 

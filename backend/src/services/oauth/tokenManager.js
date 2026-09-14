@@ -9,14 +9,14 @@ import { OAUTH_RECONNECT_REQUIRED_MESSAGE, isOAuthAccount } from './constants.js
 // token about to lapse mid-session.
 export const TOKEN_REFRESH_SKEW_MS = 5 * 60 * 1000;
 
-// Cross-process refresh lock. The TTL outlives the slowest refresh (Microsoft may make
-// two 10 s token calls plus DB writes) with a wide margin, so a stalled holder does not
-// let a peer refresh with a superseded refresh token; a crashed holder still frees the
-// account within a minute.
+// Cross-process refresh lock. The TTL outlives the slowest refresh (Microsoft may make two
+// token calls of up to PROVIDER_FETCH_TIMEOUT_MS each, plus DB writes) with a wide margin, so
+// a stalled holder does not let a peer refresh with a superseded refresh token; a crashed
+// holder still frees the account within a minute.
 const LOCK_TTL_SECONDS = 60;
 // Default wait for callers without a tighter deadline (SMTP send, routes). Callers that race
 // the refresh against a timeout (imapManager) pass a shorter `lockWaitMs` so the wait plus the
-// 10 s provider token call still fits inside their budget.
+// provider's token calls still fit inside their budget.
 const DEFAULT_LOCK_WAIT_MS = 10000;
 const DEFAULT_LOCK_POLL_MS = 200;
 const RELEASE_LOCK_SCRIPT = `if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end`;

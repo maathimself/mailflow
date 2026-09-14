@@ -6,7 +6,7 @@ import { classifyMessage, loadSocialDomains, getGlobalCategorizationEnabled } fr
 import { pluginRegistry } from '../plugins/registry.js';
 import { createPluginMailFacade } from '../plugins/mailEngineFacade.js';
 import { ensureFreshOAuthAccount, OAuthTokenError } from './oauth/tokenManager.js';
-import { isOAuthAccount } from './oauth/constants.js';
+import { isOAuthAccount, OAUTH_REFRESH_MAX_TOKEN_CALLS, PROVIDER_FETCH_TIMEOUT_MS } from './oauth/constants.js';
 import { sanitizeEmail } from './emailSanitizer.js';
 import { logger } from './logger.js';
 import { recordBroadcast, recordWarning, recordSyncSignal } from './diagnosticsRing.js';
@@ -1149,13 +1149,18 @@ async function computeThreadId(accountId, messageId, inReplyTo, references, subj
   return messageId;
 }
 
-// Timeout budget for an OAuth token refresh on an IMAP path. The token manager's lock wait is
-// capped so lock wait (4 s) + the provider token call (10 s fetch timeout) + Redis/DB round trips
-// fit inside the 15 s bound: a busy lock is then reported by the token manager as a transient
-// `oauth_refresh_failed` instead of being cut off by the timeout. (Microsoft's one-off AADSTS90023
-// public-client self-heal makes two token calls and can exceed it; that also ends as transient.)
-export const TOKEN_REFRESH_TIMEOUT_MS = 15000;
+// Timeout budget for an OAuth token refresh on an IMAP path, per provider: the capped lock wait
+// (4 s) + the provider's worst-case token calls, each bounded by PROVIDER_FETCH_TIMEOUT_MS (10 s),
+// + 1 s for Redis/DB round trips. Google makes one call (15 s); Microsoft's AADSTS90023
+// public-client self-heal makes two (25 s). A busy lock is then reported by the token manager as a
+// transient `oauth_refresh_failed` instead of being cut off by the timeout, and a slow double call
+// completes instead of ending as a transient failure.
 export const OAUTH_REFRESH_LOCK_WAIT_MS = 4000;
+const OAUTH_REFRESH_DB_ROUND_TRIPS_MS = 1000;
+export function tokenRefreshTimeoutMs(account) {
+  const tokenCalls = OAUTH_REFRESH_MAX_TOKEN_CALLS[account?.oauth_provider] ?? 1;
+  return OAUTH_REFRESH_LOCK_WAIT_MS + tokenCalls * PROVIDER_FETCH_TIMEOUT_MS + OAUTH_REFRESH_DB_ROUND_TRIPS_MS;
+}
 
 // Return the account with an OAuth access token that is valid for the connection about to be
 // made. Every IMAP login goes through here: password accounts return unchanged without touching
@@ -1168,7 +1173,7 @@ async function ensureFreshToken(account, { force = false } = {}) {
   try {
     return await raceTimeout(
       ensureFreshOAuthAccount(account, { force, lockWaitMs: OAUTH_REFRESH_LOCK_WAIT_MS }),
-      TOKEN_REFRESH_TIMEOUT_MS,
+      tokenRefreshTimeoutMs(account),
       'OAuth token refresh',
     );
   } catch (err) {
@@ -2470,9 +2475,9 @@ export class ImapManager {
             const freshAccount = await ensureFreshToken(accountResult.rows[0]);
             const { resolved, policy } = await resolveAccountHost(freshAccount);
             return { freshAccount, resolved, policy };
-            // The token refresh is bounded by TOKEN_REFRESH_TIMEOUT_MS; 5 s more covers the DB read
+            // The token refresh is bounded by tokenRefreshTimeoutMs; 5 s more covers the DB read
             // and host resolution.
-          })(), TOKEN_REFRESH_TIMEOUT_MS + 5000, 'Reconnect setup');
+          })(), tokenRefreshTimeoutMs(account) + 5000, 'Reconnect setup');
           if (!setup) return; // account deleted/disabled mid-reconnect
           pendingClient = await connectImapClient(setup.freshAccount, setup.resolved,
             { enableIdle: providerProfile(setup.freshAccount).usesIdle !== false, policy: setup.policy, idleKeepaliveMs: providerProfile(setup.freshAccount).idleKeepaliveMs },
