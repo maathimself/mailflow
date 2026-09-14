@@ -1,4 +1,4 @@
-import { folderParentLabel } from '../utils/folderDisplay';
+import { folderParentLabel } from '../utils/folderDisplay.js';
 
 // Folder name prefixed with its muted ancestor path ("Personal / Insurance"),
 // used by every move-to-folder picker so duplicate names under different
