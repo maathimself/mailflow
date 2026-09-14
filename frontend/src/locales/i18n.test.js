@@ -678,6 +678,21 @@ describe('i18n locale files', () => {
       }
       assert.equal(missing.length, 0, `Google integration keys missing from locale files:\n${missing.join('\n')}`);
     });
+
+    it('every sidebar mailbox filter key used in Sidebar.jsx exists in every locale', () => {
+      // A t() call with a key absent from every locale is not caught by the unused-key
+      // scan above, so the filter keys are checked against the source explicitly.
+      const source = readFileSync(resolve(dir, '../components/Sidebar.jsx'), 'utf8');
+      const keys = [...new Set([...source.matchAll(/'(sidebar\.accountFilter\.[\w.]+)'/g)].map(m => m[1]))];
+      assert.ok(keys.length >= 3, `expected the mailbox filter keys, found ${keys.length}`);
+      const missing = [];
+      for (const lang of langs) {
+        for (const key of keys) {
+          if (typeof locales[lang][key] !== 'string' || !locales[lang][key]) missing.push(`  - ${lang}: ${key}`);
+        }
+      }
+      assert.equal(missing.length, 0, `Mailbox filter keys missing from locale files:\n${missing.join('\n')}`);
+    });
   });
 
   describe('key coverage — every key must appear in every locale', () => {

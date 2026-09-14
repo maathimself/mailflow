@@ -382,6 +382,11 @@
     "lock": "Lock",
     "signOut": "Sign out",
     "connectionError": "Connection error",
+    "accountFilter": {
+      "label": "Filter mailboxes by name or email",
+      "placeholder": "Find a mailbox…",
+      "noMatch": "No mailboxes match"
+    },
     "folderMenu": {
       "markAllRead": "Mark all as read",
       "syncFolder": "Sync folder",

@@ -382,6 +382,11 @@
     "lock": "Bloquear",
     "signOut": "Cerrar sesión",
     "connectionError": "Error de conexión",
+    "accountFilter": {
+      "label": "Filtrar buzones por nombre o correo",
+      "placeholder": "Buscar un buzón…",
+      "noMatch": "Ningún buzón coincide"
+    },
     "folderMenu": {
       "markAllRead": "Marcar todo como leído",
       "syncFolder": "Sincronizar carpeta",

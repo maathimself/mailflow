@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { unreadBadge } from '../utils/unreadBadge.js';
+import { filterAccounts } from '../utils/accountFilter.js';
 import { api } from '../utils/api.js';
 import {
   activateOnKey,
@@ -264,11 +265,21 @@ export default function Sidebar() {
     sidebarWidth,
     isSidebarResizing,
     showContacts, setShowContacts,
+    accountFilter, setAccountFilter,
   } = useStore();
 
   const isMobile = useMobile();
   // On mobile the sidebar is always expanded (shown as an overlay drawer)
   const sidebarCollapsed = isMobile ? false : sidebarCollapsedPref;
+
+  // The mailbox filter is only offered with two or more accounts in the expanded sidebar.
+  // While the input is hidden the filter is not applied either, so a leftover query can
+  // never hide an account the user has no way to bring back.
+  const showAccountFilter = accounts.length > 1 && !sidebarCollapsed;
+  const visibleAccounts = useMemo(
+    () => (showAccountFilter ? filterAccounts(accounts, accountFilter) : accounts),
+    [showAccountFilter, accounts, accountFilter],
+  );
 
   // Close the mobile drawer whenever the user navigates to a different folder/account
   useEffect(() => {
@@ -1101,8 +1112,43 @@ export default function Sidebar() {
           );
         })()}
 
+        {/* Mailbox filter: narrows only the rendered rows below, never the store's accounts,
+            the selection or unread counts. */}
+        {showAccountFilter && (
+          <div style={{ position: 'relative', margin: '2px 2px 6px' }}>
+            <input
+              type="search"
+              value={accountFilter}
+              onChange={e => setAccountFilter(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  setAccountFilter('');
+                }
+                e.stopPropagation();
+              }}
+              placeholder={t('sidebar.accountFilter.placeholder')}
+              aria-label={t('sidebar.accountFilter.label')}
+              title={t('sidebar.accountFilter.label')}
+              spellCheck={false}
+              autoComplete="off"
+              style={{
+                width: '100%', boxSizing: 'border-box', fontSize: 12,
+                background: 'var(--bg-primary)', color: 'var(--text-primary)',
+                border: '1px solid var(--border-subtle)', borderRadius: 6,
+                padding: '5px 8px', outline: 'none',
+              }}
+            />
+          </div>
+        )}
+
         {/* Per-account */}
-        {accounts.map(account => {
+        {showAccountFilter && visibleAccounts.length === 0 && (
+          <div role="status" style={{ fontSize: 12, color: 'var(--text-tertiary)', padding: '6px 10px' }}>
+            {t('sidebar.accountFilter.noMatch')}
+          </div>
+        )}
+        {visibleAccounts.map(account => {
           const countSnapshot = unreadCounts.snapshots?.[account.id];
           const accountBadge = unreadBadge({ count: unreadCounts.byAccount[account.id],
             known: Number.isFinite(unreadCounts.byAccount[account.id]) && countSnapshot?.known !== false,

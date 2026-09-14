@@ -219,6 +219,10 @@ export const useStore = create((set, get) => ({
     const accounts = state.accounts.map(a => a.id === id ? { ...a, ...updates } : a);
     return { accounts, unreadCounts: displayCountSnapshot(state.serverUnreadCounts, state.pendingCounts, accounts) };
   }),
+  // Sidebar mailbox filter. In memory only: not persisted and not sent to the server,
+  // so each manager sharing the login keeps their own filter in their own browser.
+  accountFilter: '',
+  setAccountFilter: (accountFilter) => set({ accountFilter: typeof accountFilter === 'string' ? accountFilter : '' }),
 
   // Navigation
   selectedAccountId: localStorage.getItem('mailexpert_selected_account') || null, // '' stored as null

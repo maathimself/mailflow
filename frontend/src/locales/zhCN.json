@@ -382,6 +382,11 @@
     "lock": "锁定",
     "signOut": "退出登录",
     "connectionError": "连接错误",
+    "accountFilter": {
+      "label": "按名称或邮箱地址筛选邮箱",
+      "placeholder": "查找邮箱…",
+      "noMatch": "没有匹配的邮箱"
+    },
     "folderMenu": {
       "markAllRead": "全部标为已读",
       "syncFolder": "同步此文件夹",

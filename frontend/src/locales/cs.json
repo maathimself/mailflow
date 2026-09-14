@@ -128,6 +128,11 @@
     "lock": "Uzamknout",
     "signOut": "Odhlásit se",
     "connectionError": "Chyba připojení",
+    "accountFilter": {
+      "label": "Filtrovat schránky podle názvu nebo e-mailu",
+      "placeholder": "Najít schránku…",
+      "noMatch": "Žádné schránky neodpovídají"
+    },
     "folderMenu": {
       "markAllRead": "Označit vše jako přečtené",
       "syncFolder": "Synchronizovat složku",

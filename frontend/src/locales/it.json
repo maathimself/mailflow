@@ -382,6 +382,11 @@
     "lock": "Blocca schermo",
     "signOut": "Esci",
     "connectionError": "Errore di connessione",
+    "accountFilter": {
+      "label": "Filtra le caselle per nome o email",
+      "placeholder": "Trova una casella…",
+      "noMatch": "Nessuna casella corrispondente"
+    },
     "folderMenu": {
       "markAllRead": "Segna tutto come letto",
       "syncFolder": "Sincronizza cartella",

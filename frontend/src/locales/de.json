@@ -382,6 +382,11 @@
     "lock": "Sperren",
     "signOut": "Abmelden",
     "connectionError": "Verbindungsfehler",
+    "accountFilter": {
+      "label": "Postfächer nach Name oder E-Mail filtern",
+      "placeholder": "Postfach suchen…",
+      "noMatch": "Keine passenden Postfächer"
+    },
     "folderMenu": {
       "markAllRead": "Alle als gelesen markieren",
       "syncFolder": "Ordner synchronisieren",

@@ -398,6 +398,11 @@
     "lock": "Zablokuj",
     "signOut": "Wyloguj się",
     "connectionError": "Błąd połączenia",
+    "accountFilter": {
+      "label": "Filtruj skrzynki według nazwy lub adresu e-mail",
+      "placeholder": "Znajdź skrzynkę…",
+      "noMatch": "Brak pasujących skrzynek"
+    },
     "folderMenu": {
       "markAllRead": "Oznacz wszystkie jako przeczytane",
       "syncFolder": "Synchronizuj folder",

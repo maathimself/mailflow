@@ -382,6 +382,11 @@
     "lock": "Verrouiller",
     "signOut": "Se déconnecter",
     "connectionError": "Erreur de connexion",
+    "accountFilter": {
+      "label": "Filtrer les boîtes aux lettres par nom ou e-mail",
+      "placeholder": "Trouver une boîte…",
+      "noMatch": "Aucune boîte aux lettres ne correspond"
+    },
     "folderMenu": {
       "markAllRead": "Tout marquer comme lu",
       "syncFolder": "Synchroniser le dossier",
