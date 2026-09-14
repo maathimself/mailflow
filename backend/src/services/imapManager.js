@@ -6,6 +6,7 @@ import { classifyMessage, loadSocialDomains, getGlobalCategorizationEnabled } fr
 import { pluginRegistry } from '../plugins/registry.js';
 import { createPluginMailFacade } from '../plugins/mailEngineFacade.js';
 import { ensureFreshOAuthAccount, OAuthTokenError } from './oauth/tokenManager.js';
+import { isOAuthAccount } from './oauth/constants.js';
 import { sanitizeEmail } from './emailSanitizer.js';
 import { logger } from './logger.js';
 import { recordBroadcast, recordWarning, recordSyncSignal } from './diagnosticsRing.js';
@@ -1156,9 +1157,6 @@ async function computeThreadId(accountId, messageId, inReplyTo, references, subj
 export const TOKEN_REFRESH_TIMEOUT_MS = 15000;
 export const OAUTH_REFRESH_LOCK_WAIT_MS = 4000;
 
-const OAUTH_PROVIDERS = new Set(['google', 'microsoft']);
-const isOAuthAccount = (account) => OAUTH_PROVIDERS.has(account?.oauth_provider);
-
 // Return the account with an OAuth access token that is valid for the connection about to be
 // made. Every IMAP login goes through here: password accounts return unchanged without touching
 // the token manager; OAuth accounts refresh through ensureFreshOAuthAccount (single entry point,
@@ -1226,8 +1224,7 @@ export function makeClientCfg(account, resolved, { enableIdle = false, policy = 
   // 25-min default or the socket goes half-open ("deaf"); idleKeepaliveMs overrides it.
   if (enableIdle) cfg.maxIdleTime = idleKeepaliveMs || 25 * 60 * 1000;
   // OAuth2 XOAUTH2 for Gmail and Microsoft
-  if ((account.oauth_provider === 'google' || account.oauth_provider === 'microsoft')
-      && account.oauth_access_token) {
+  if (isOAuthAccount(account) && account.oauth_access_token) {
     cfg.auth = {
       user: account.auth_user || account.email_address,
       accessToken: decrypt(account.oauth_access_token),

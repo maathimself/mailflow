@@ -3,6 +3,7 @@ import { query } from '../db.js';
 import { redisClient } from '../redis.js';
 import { refreshMicrosoftToken } from './microsoftOAuth.js';
 import { refreshGoogleToken } from './googleOAuth.js';
+import { OAUTH_RECONNECT_REQUIRED_MESSAGE, isOAuthAccount } from './constants.js';
 
 // Refresh tokens that expire within this window so a connection never starts with a
 // token about to lapse mid-session.
@@ -28,14 +29,12 @@ const RECONNECT_OAUTH_ERRORS = new Set(['invalid_grant', 'missing_refresh_token'
 export class OAuthTokenError extends Error {
   constructor(code) {
     super(code === 'oauth_reconnect_required'
-      ? 'OAuth access was revoked or expired — reconnect the account'
+      ? OAUTH_RECONNECT_REQUIRED_MESSAGE
       : `OAuth token refresh failed: ${code}`);
     this.name = 'OAuthTokenError';
     this.code = code;
   }
 }
-
-const OAUTH_PROVIDERS = new Set(['microsoft', 'google']);
 
 export function needsTokenRefresh(account, now = Date.now()) {
   if (!account.oauth_access_token || !account.oauth_token_expiry) return true;
@@ -138,7 +137,7 @@ const inFlightRefresh = new Map(); // accountId -> { promise, force }
 // `force: true` bypasses the skew window; pass it when the provider rejected the token the
 // caller holds (IMAP AUTHENTICATE or SMTP AUTH failure).
 export function ensureFreshOAuthAccount(account, options = {}) {
-  if (!account || !OAUTH_PROVIDERS.has(account.oauth_provider)) return Promise.resolve(account);
+  if (!isOAuthAccount(account)) return Promise.resolve(account);
   const force = !!options.force;
   if (!force && !needsTokenRefresh(account)) return Promise.resolve(account);
 
