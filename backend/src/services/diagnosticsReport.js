@@ -64,6 +64,8 @@ export function deriveProvider(imapHost, oauthProvider) {
 export function categorizeSyncError(err) {
   if (!err) return 'none';
   const s = String(err).toLowerCase();
+  // Provider limits first: servers name the refused command ("[LIMIT] LOGIN Rate limit hit.").
+  if (/^\[(limit|unavailable|inuse)\]|rate.?limit/.test(s)) return 'connection';
   if (/auth|login|password|credential|invalid.*(user|pass)|xoauth|token|535|534/.test(s)) return 'auth';
   if (/timeout|timed out|etimedout/.test(s)) return 'timeout';
   if (/enotfound|getaddrinfo|eai_again|\bdns\b/.test(s)) return 'dns';

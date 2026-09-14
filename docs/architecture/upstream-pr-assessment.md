@@ -117,6 +117,7 @@ PR содержит полезный рабочий набросок:
 | `93499d9` стили frontend в CONTRIBUTING | Правило добавлено в CONTRIBUTING MailExpert | #23 |
 | `1a31e5a` (#432), `dfd8659`, `6eba4ae` | Не переносятся: у MailExpert свои исправления тех же дефектов (#7, #15) | — |
 | `23f9e8f` CONTRIBUTING о мейнтейнерах, `fa2affa` версия 3.4.2 | Не переносятся | — |
+| Issue #433 Yahoo синхронизирует только INBOX | Исправлено в MailExpert: для Yahoo не больше 3 сессий на аккаунт (IDLE + пул 1 + фоновое 1), отказ по кодам `[LIMIT]`/`[UNAVAILABLE]`/`[INUSE]`. В upstream исправления нет. Не проверено на живом аккаунте Yahoo | #24 |
 
 Открытые крупные PR (#439 Template Builder, #388 ML antispam, GTD, MCP, темы писем, conversation pane) по-прежнему не переносятся по причинам из таблицы выше.
 
