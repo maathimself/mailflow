@@ -23,6 +23,7 @@ is not obvious.
 ## Code rules
 
 - Match the style of the surrounding code.
+- Frontend styling uses the hand-written classes in `frontend/src/index.css` and inline style objects. Tailwind is installed, but components do not use its utility classes; do not introduce them into a component that has none.
 - Code comments are written in English, and only when the reason behind the code would surprise a reader.
 - Write the failing test first, then the implementation.
 - Do not weaken, skip or delete existing tests to make a change pass.

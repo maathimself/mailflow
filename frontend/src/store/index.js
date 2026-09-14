@@ -162,6 +162,9 @@ export const useStore = create((set, get) => ({
       localStorage.setItem('mailexpert_locked', '1');
       clearTimeout(pendingCountTimer);
       pendingCountTimer = null;
+      // Locking is the user stepping away: a background AI run must not finish and
+      // land its result in this device's cache behind the lock screen.
+      abortAllRuns();
       set({
         serverUnreadCounts: { total: 0, byAccount: {}, snapshots: {} }, pendingCounts: {},
         isLocked: true,

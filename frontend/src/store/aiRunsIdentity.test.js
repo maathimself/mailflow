@@ -21,7 +21,7 @@ function pendingRun(signals) {
   return (signal) => { signals.push(signal); return new Promise(() => {}); };
 }
 
-beforeEach(() => { useStore.getState().setUser({ id: 'u1' }); });
+beforeEach(() => { useStore.getState().setUser({ id: 'u1' }); useStore.getState().setLocked(false); });
 afterEach(() => { abortAllRuns(); store_.clear(); });
 
 test('logout aborts every background AI run', async () => {
@@ -42,6 +42,15 @@ test('switching to another user aborts every background AI run', async () => {
   await new Promise(r => setTimeout(r, 0));
   useStore.getState().setUser({ id: 'u2' });
   assert.ok(signals[0].aborted);
+});
+
+test('locking the screen aborts every background AI run', async () => {
+  const signals = [];
+  startRun({ messageId: 'm1', key: 'summarize', label: 'Summary', run: pendingRun(signals) });
+  await new Promise(r => setTimeout(r, 0));
+  useStore.getState().setLocked(true);
+  assert.ok(signals[0].aborted);
+  assert.deepEqual(getRuns('m1'), {});
 });
 
 test('refreshing the same user keeps background AI runs alive', async () => {

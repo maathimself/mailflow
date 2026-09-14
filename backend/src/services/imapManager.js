@@ -445,7 +445,8 @@ function firstLeaf(node) {
 // Walk a BODYSTRUCTURE and decide which parts make up the displayed body.
 // Normally those are the text/html and text/plain parts. A calendar-only
 // message (#423) has none, so its first calendar part is planned instead and
-// rendered as an invite card. Anything else falls back to serving the root as
+// rendered as an invite card. A message whose parts were all filed as
+// attachments has no body. Anything else falls back to serving the root as
 // text; for a multipart root that is its first leaf, with the leaf's own
 // transfer encoding and charset (the multipart root has neither).
 export function planBodyParts(structure) {
@@ -458,6 +459,8 @@ export function planBodyParts(structure) {
     results.textParts.push({ ...calendar, type: 'text/calendar' });
     return results;
   }
+
+  if (!bodyFallbackApplies(results)) return results;
 
   const leaf = firstLeaf(structure) || structure;
   const leafType = (leaf.type || '').toLowerCase();
@@ -660,6 +663,15 @@ function decodeAttachmentBuffer(buf, encoding) {
   }
   // 7bit / 8bit / binary — raw bytes, no decoding needed
   return Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
+}
+
+// The single-part body fallback exists for a bare root whose type walkStructure
+// does not recognize. When the walk filed parts as attachments and found no
+// text, the message simply has no body (e.g. a DMARC report that is just an
+// application/zip, or a multipart/mixed holding only a file) — re-serving the
+// first part as text/plain rendered decoded binary as the message.
+export function bodyFallbackApplies(results) {
+  return !(results.attachments || []).length;
 }
 
 export function walkStructure(node, results) {

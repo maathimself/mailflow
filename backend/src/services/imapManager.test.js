@@ -17,7 +17,7 @@ vi.mock('../utils/redact.js', () => ({ redactEmail: vi.fn() }));
 vi.mock('./hostValidation.js', () => ({ resolveForConnection: vi.fn(), createPinnedLookup: vi.fn() }));
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
 
-import { ImapManager, countMissingInboxCopies, fetchBackfillBatch, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, extractImapError, isImapAuthFailure, AUTH_FAILURE_COOLDOWN_MS, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, planBodyParts, extractBodyFromMsg, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch } from './imapManager.js';
+import { ImapManager, countMissingInboxCopies, fetchBackfillBatch, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, extractImapError, isImapAuthFailure, AUTH_FAILURE_COOLDOWN_MS, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, planBodyParts, extractBodyFromMsg, bodyFallbackApplies, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch } from './imapManager.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { EventEmitter } from 'node:events';
 import { ImapFlow } from 'imapflow';
@@ -1432,15 +1432,16 @@ describe('planBodyParts — body part selection (#423)', () => {
       type: 'multipart/mixed',
       childNodes: [
         { part: '1', type: 'application/octet-stream', encoding: 'base64', parameters: { charset: 'windows-1252' } },
-        { part: '2', type: 'image/png', encoding: 'base64', disposition: 'attachment', dispositionParameters: { filename: 'a.png' } },
+        { part: '2', type: 'application/pgp-signature', encoding: '7bit' },
       ],
     });
     expect(plan.textParts).toEqual([{ part: '1', type: 'text/plain', encoding: 'base64', charset: 'windows-1252' }]);
   });
 
-  it('keeps the single-part root fallback for an attachment-disposed html root', () => {
+  it('plans no body when every part was filed as an attachment', () => {
     const plan = planBodyParts({ type: 'text/html', encoding: 'quoted-printable', disposition: 'attachment', parameters: { charset: 'iso-8859-1' } });
-    expect(plan.textParts).toEqual([{ part: '1', type: 'text/html', encoding: 'quoted-printable', charset: 'iso-8859-1' }]);
+    expect(plan.textParts).toEqual([]);
+    expect(plan.attachments.map(a => [a.part, a.type])).toEqual([['1', 'text/html']]);
   });
 });
 
@@ -1511,6 +1512,39 @@ describe('extractBodyFromMsg — calendar-only invites (#423)', () => {
       bodyParts: new Map(),
     });
     expect(body).toEqual({ html: null, text: null, attachments: [] });
+  });
+});
+
+describe('attachment-only messages have no body', () => {
+  const zipRoot = {
+    part: '1', type: 'application/zip', encoding: 'base64', size: 1024,
+    disposition: 'attachment',
+    dispositionParameters: { filename: 'google.com!example.com!1.zip' },
+  };
+
+  it('does not serve a single-part attachment root as the message text', () => {
+    // A DMARC aggregate report: the whole message is one application/zip part.
+    const msg = { bodyStructure: zipRoot, bodyParts: new Map([['1', Buffer.from('UEsDBBQ=')]]) };
+    const body = extractBodyFromMsg(msg);
+    expect(body.html).toBeNull();
+    expect(body.text).toBeNull();
+    expect(body.attachments.map(a => a.filename)).toEqual(['google.com!example.com!1.zip']);
+  });
+
+  it('does not fall back to the first part of a multipart holding only a file', () => {
+    const results = { textParts: [], attachments: [] };
+    walkStructure({ type: 'multipart/mixed', childNodes: [zipRoot] }, results);
+    expect(results.textParts).toHaveLength(0);
+    expect(bodyFallbackApplies(results)).toBe(false);
+  });
+
+  it('still promotes a bare unrecognized single part to text', () => {
+    const msg = {
+      bodyStructure: { part: '1', type: 'text/plain', encoding: '7bit', parameters: { charset: 'utf-8' } },
+      bodyParts: new Map([['1', Buffer.from('hello')]]),
+    };
+    expect(extractBodyFromMsg(msg).text).toBe('hello');
+    expect(bodyFallbackApplies({ textParts: [], attachments: [] })).toBe(true);
   });
 });
 
