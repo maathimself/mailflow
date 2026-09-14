@@ -1193,6 +1193,19 @@ function normalizeSubject(subject) {
   return s.toLowerCase();
 }
 
+// Propagate a resolved thread_id to earlier messages that used this message as a provisional
+// thread root (out-of-order delivery, newest-first backfill). The is_deleted predicate lets
+// Postgres use the partial idx_messages_thread_id; without it every call scanned all rows of the
+// account (40k rows: 12 ms vs 0.5 ms). Soft-deleted rows are never restored, so skipping them
+// changes nothing visible.
+export async function rerootThreadChildren(accountId, threadId, messageId) {
+  await query(
+    `UPDATE messages SET thread_id = $1
+     WHERE account_id = $2 AND thread_id = $3 AND message_id != $3 AND is_deleted = false`,
+    [threadId, accountId, messageId]
+  );
+}
+
 // Compute the thread_id for an incoming message.
 // Primary: RFC 5322 References / In-Reply-To header chain.
 // Fallback: subject normalization when headers are absent (e.g. Outlook RE: replies).
@@ -3466,11 +3479,7 @@ export class ImapManager {
             // Propagate resolved thread_id to any earlier messages that used this
             // message as a provisional thread root (out-of-order delivery / sync).
             if (threadId && threadId !== msgId) {
-              await query(
-                `UPDATE messages SET thread_id = $1
-                 WHERE account_id = $2 AND thread_id = $3 AND message_id != $3`,
-                [threadId, account.id, msgId]
-              );
+              await rerootThreadChildren(account.id, threadId, msgId);
             }
           } catch (parseErr) {
             console.error('Message sync parse error:', parseErr.message);
@@ -4121,11 +4130,7 @@ export class ImapManager {
                 ]);
                 backfilledRows++;
                 if (bfThreadId && bfThreadId !== bfMsgId) {
-                  await query(
-                    `UPDATE messages SET thread_id = $1
-                     WHERE account_id = $2 AND thread_id = $3 AND message_id != $3`,
-                    [bfThreadId, account.id, bfMsgId]
-                  );
+                  await rerootThreadChildren(account.id, bfThreadId, bfMsgId);
                 }
               } catch (parseErr) {
                 console.error('Backfill parse error:', parseErr.message);
