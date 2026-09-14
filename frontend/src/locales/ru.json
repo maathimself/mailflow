@@ -1474,10 +1474,7 @@
       "frontendBuild": "Сборка фронтенда",
       "license": "Лицензия",
       "website": "Веб-сайт",
-      "sourceCode": "Исходный код",
-      "sponsor": "Поддержать разработку",
-      "kofi": "Ko-fi",
-      "githubSponsors": "GitHub Sponsors"
+      "sourceCode": "Исходный код"
     },
     "search": {
       "placeholder": "Поиск настроек…",

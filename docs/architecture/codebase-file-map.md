@@ -43,7 +43,6 @@ Frontend не ходит к Gmail напрямую. Он обращается к
 | `.env.example` | Все runtime-переменные | Здесь появятся Google OAuth, лимиты IMAP и production-настройки |
 | `docker-compose.yml` | Локальный HTTP/HTTPS stack | Backend, frontend, PostgreSQL и Redis на одном сервере |
 | `docker-compose.https.yml` | Профиль с публичным TLS | Для production всё равно предпочтителен внешний reverse proxy/Cloudflare Access |
-| `docker-compose.ghcr.yml` | Запуск готовых upstream images | После появления MailExpert images должен указывать на наш registry |
 | `Caddyfile` | TLS/reverse proxy | Не смешивать с OAuth-логикой |
 | `.github/workflows/*` | CI, release, images, native builds | После первого push проверить, что actions разрешены в форке |
 | `LICENSE` | AGPL-3.0 | Изменения сетевого сервиса должны быть доступны пользователям сервиса |

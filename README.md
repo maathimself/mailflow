@@ -11,8 +11,6 @@
 <p align="center">
   <a href="#installation">Quick Start</a> ·
   <a href="#email-provider-setup">Setup Guide</a> ·
-  <a href="CONTRIBUTING.md">Upstream contribution guide</a> ·
-  <a href="ROADMAP.md">Upstream roadmap</a> ·
   <a href="docs/architecture/codebase-file-map.md">Codebase map</a>
 </p>
 
@@ -22,11 +20,11 @@ MailExpert is a fork of [MailFlow](https://github.com/maathimself/mailflow). The
 
 The upstream project also offers its own commercial licence. `LICENSE-COMMERCIAL` is retained as an upstream notice; it does not by itself grant a separate commercial licence for MailExpert changes.
 
-`CLA.md` and `CONTRIBUTING.md` are retained from upstream for provenance. MailExpert-specific contribution terms must be defined before accepting external contributions.
+MailExpert-specific contribution terms must be defined before accepting external contributions.
 
 ## Development status
 
-The current bootstrap keeps the MailFlow 3.3.0 mail-client behavior and applies the MailExpert product name. Google OAuth for Gmail, dependency modernization, the shared-account mailbox workflow, and the later Postfix/Dovecot/EOP mail node are planned work and are not yet implemented.
+Implemented: full dependency modernization (Express 5, ImapFlow 2, Nodemailer 10, React 19 and more), Google OAuth 2.0 for Gmail with automatic token refresh on every IMAP/SMTP path, a mailbox filter and per-mailbox connection health in the sidebar. Still planned: deployment and Google OAuth runbooks, the 100-mailbox Gmail scale test, and the later Postfix/Dovecot/EOP mail node.
 
 - [Codebase map](docs/architecture/codebase-file-map.md)
 - [Target architecture](docs/architecture/team-mail-system-handoff.md)
@@ -94,85 +92,11 @@ configurable per account, and accounts with GTD off behave exactly as before.
 
 ## Installation
 
-There are three ways to run MailExpert. Build from this repository to include the MailExpert changes. The upstream pre-built images are useful only as an unchanged MailFlow baseline.
+There are two ways to run MailExpert: build the Docker images from this repository, or install natively.
 
 ---
 
-## Option A — Upstream pre-built images (MailFlow baseline only)
-
-No cloning or building is required, but Docker pulls the original MailFlow images from GHCR. They do not contain the MailExpert rebrand or later MailExpert features.
-
-### Prerequisites
-
-- A server with Docker and Docker Compose installed
-
-### 1. Download the compose file and default config
-
-```bash
-curl -o docker-compose.yml https://raw.githubusercontent.com/maathimself/mailflow/main/docker-compose.ghcr.yml
-curl -o .env               https://raw.githubusercontent.com/maathimself/mailflow/main/.env.example
-```
-
-### 2. Configure environment
-
-Edit `.env` — the required fields are:
-
-| Variable | Description |
-|---|---|
-| `APP_URL` | Full URL, e.g. `https://mail.example.com` |
-| `SESSION_SECRET` | `openssl rand -hex 32` |
-| `DB_PASSWORD` | `openssl rand -hex 16` |
-| `ENCRYPTION_KEY` | `openssl rand -hex 32` |
-
-### 3. Start
-
-```bash
-docker compose up -d
-```
-
-MailExpert will be available on port 443 (HTTPS, self-signed certificate) and port 80 (HTTP).
-
-**Ports are configurable in `.env`:**
-
-| Variable | Default | Description |
-|---|---|---|
-| `APP_PORT` | `443` | HTTPS port |
-| `APP_HTTP_PORT` | `80` | HTTP port |
-
-**Optional — automatic HTTPS via Let's Encrypt:** set `DOMAIN` and `ACME_EMAIL` in `.env`, download the HTTPS overlay, then restart:
-
-```bash
-curl -o docker-compose.https.yml https://raw.githubusercontent.com/maathimself/mailflow/main/docker-compose.https.yml
-docker compose -f docker-compose.yml -f docker-compose.https.yml --profile https up -d
-```
-
-This adds a Caddy reverse proxy that handles certificate issuance and renewal automatically. Requires Docker Compose 2.21+, a public domain with DNS pointing at the server, and ports 80/443 open.
-
-**Optional — behind your own reverse proxy:** point your proxy at port 80. Set `APP_HTTP_PORT` in `.env` if you need a different host port. Your proxy should forward `X-Forwarded-Proto: https` so that session cookies are marked Secure correctly.
-
-### 4. Create your admin account
-
-Open `https://your-domain.com` in a browser. The **first account registered becomes
-the admin**. After registering, you can close registration and manage users from the
-settings panel → Users tab.
-
-### 5. Add your email accounts
-
-In the settings panel → Accounts → Add Account.
-Select a preset (Gmail, iCloud) or Custom for any IMAP server.
-
-### Updating
-
-```bash
-docker compose pull
-docker compose up -d
-```
-
-To pin to a specific version instead of `latest`, add `MAILEXPERT_VERSION=2.7.0` to your `.env`.
-
----
-
-## Option B — Build MailExpert from source (recommended)
+## Option A — Build MailExpert from source (recommended)
 
 ### Prerequisites
 
@@ -208,6 +132,13 @@ docker compose up -d --build
 
 First build takes 2–3 minutes. MailExpert will be available on port 443 (HTTPS, self-signed certificate) and port 80 (HTTP).
 
+**Ports are configurable in `.env`:**
+
+| Variable | Default | Description |
+|---|---|---|
+| `APP_PORT` | `443` | HTTPS port |
+| `APP_HTTP_PORT` | `80` | HTTP port |
+
 **Optional — automatic HTTPS via Let's Encrypt:** set `DOMAIN` and `ACME_EMAIL` in `.env`, then start with the HTTPS overlay (requires Docker Compose 2.21+):
 
 ```bash
@@ -229,7 +160,7 @@ Select a preset (Gmail, iCloud) or Custom for any IMAP server.
 
 ---
 
-## Option C — Native install (no Docker)
+## Option B — Native install (no Docker)
 
 Run MailExpert directly on any Linux, macOS, or BSD machine using Node.js, PostgreSQL, and Redis.
 No container runtime required. The steps below use Ubuntu/Debian; adapt package manager commands for other platforms.
@@ -494,9 +425,6 @@ docker compose down
 # Stop and delete all data (destructive)
 docker compose down -v
 
-# Update to latest images (pre-built install)
-docker compose pull && docker compose up -d
-
 # Rebuild after a code change (Docker build-from-source install)
 docker compose up -d --build
 
@@ -588,58 +516,9 @@ npm run electron:dist   # desktop installers (.exe / .dmg / .deb / .rpm)
 npm run android:dist    # Android package (.apk / .aab)
 ```
 
-## Upstream supporters
-
-MailExpert builds on the open-source work of MailFlow. The following links support the original upstream maintainer:
-
-[![Ko-fi](https://img.shields.io/badge/Ko--fi-Support_MailFlow-FF5E5B?logo=ko-fi&logoColor=white&style=for-the-badge)](https://ko-fi.com/mailflow)
-[![GitHub Sponsors](https://img.shields.io/badge/GitHub_Sponsors-Sponsor-ea4aaa?logo=github-sponsors&logoColor=white&style=for-the-badge)](https://github.com/sponsors/maathimself)
-
-### GitHub Sponsors
-
-<!-- SPONSORS-START -->
-<a href="https://github.com/lindstrm" title="lindstrm"><img src="https://avatars.githubusercontent.com/u/321951?s=64&u=76e44fd34335455397911bf1e14e0d35a1053ec2&v=4" width="48" height="48" alt="lindstrm" style="border-radius:50%;margin:4px"></a>
-<!-- SPONSORS-END -->
-
----
-
 ## Upgrading
 
-### GTD
-
-GTD is opt-in per account (**Settings → Categories → GTD**). Migrations for the new schema are additive and apply automatically on first startup. No operator action needed.
-
-### v2.5.0 – v2.7.0
-
-No manual migration steps required. All schema changes apply automatically on first startup.
-
-### v2.2.0 – v2.4.1
-
-No manual migration steps required. All schema changes apply automatically on first startup.
-
-### v2.1.0
-
-No manual migration steps required. All schema changes apply automatically on first startup.
-
-### v2.0.0
-
-No manual migration steps required. All schema changes apply automatically on first startup.
-
-`ENCRYPTION_KEY` is now required at startup. The server will refuse to start if the variable is missing or not exactly 64 hex characters. Generate one with `openssl rand -hex 32` before upgrading if you have not already set this.
-
-### v1.9.0
-
-Two database migrations (`0019_user_integrations`, `0020_mfa_device_trust`) run automatically on startup. No manual steps required.
-
-2FA is off by default. Existing users are unaffected unless an admin enables enforcement under **Settings → Security**.
-
-### Mail Server Connection Policy (earlier releases)
-
-**Breaking change for accounts with "Skip TLS verification" enabled.**
-
-An earlier release introduced an admin-controlled connection policy (Settings → Security → Mail Server Connection Policy). TLS verification is now enforced by default at the server level.
-
-If any accounts were configured with **Skip TLS verification** (e.g. for a self-signed certificate on a local IMAP server), those accounts will stop syncing after upgrading from an older version. To restore connectivity, an admin must enable **Allow insecure TLS** in Settings → Security before or immediately after deploying.
+Database migrations apply automatically on startup. MailExpert renamed the internal MailFlow identifiers (containers, volumes, database defaults, storage keys), so an existing MailFlow installation cannot be upgraded in place; migrate its data explicitly.
 
 ---
 

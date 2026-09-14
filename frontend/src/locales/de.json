@@ -1404,10 +1404,7 @@
       "frontendBuild": "Frontend-Build",
       "license": "Lizenz",
       "website": "Website",
-      "sourceCode": "Quellcode",
-      "sponsor": "Entwicklung unterstützen",
-      "kofi": "Ko-fi",
-      "githubSponsors": "GitHub Sponsors"
+      "sourceCode": "Quellcode"
     },
     "rules": {
       "conditionLogicOr": "eine Bedingung (ODER)",

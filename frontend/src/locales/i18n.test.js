@@ -116,8 +116,6 @@ const dir = dirname(fileURLToPath(import.meta.url));
 // Any unlisted pair will still fail.
 const SAME_VALUE_ALLOWED = {
   // ── Universal placeholders / brand names (all locales share) ───────────────
-  'admin.about.kofi':                       'any', // Ko-fi — brand name, same everywhere
-  'admin.about.githubSponsors':             'any', // GitHub Sponsors — product name, same everywhere
   'admin.ai.subscriptionProviderChatgpt':    'any', // ChatGPT Plus/Pro (Codex Subscription) — product name, same everywhere
   'admin.categories.gtdReveal':             'any', // "GTD" — brand-like acronym, same everywhere
   'admin.accounts.imapHostPh':              'any', // imap.gmail.com
