@@ -7,6 +7,7 @@ import { senderColor } from '../themes.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { isAccountInUnifiedInbox } from '../utils/unifiedInbox.js';
 import { shouldSyncFolder, folderSyncKey } from '../utils/folderSync.js';
+import { resolveThreadMessages } from '../utils/threadActions.js';
 import { useSwipeRow } from '../hooks/useSwipeRow.js';
 import ContextMenu from './ContextMenu.jsx';
 import RowHoverActions from './RowHoverActions.jsx';
@@ -781,15 +782,20 @@ export default function MessageList() {
     return threadedView && !searchQuery.trim() && message.thread_id && messageCount > 1;
   }, [threadedView, searchQuery]);
 
-  const resolveMessagesForThreadAction = useCallback(async (message, { forceRefresh = false } = {}) => {
+  // Resolves the sub-messages a thread-wide action applies to. Defaults to the server rather
+  // than the expansion-time cache: a thread gains messages while you look at it, and acting on
+  // the snapshot left newer ones unread (unreachable, since the row then rendered as read) or,
+  // on the delete and move paths, silently untouched. See utils/threadActions.js.
+  const resolveMessagesForThreadAction = useCallback(async (message, { allowCache = false } = {}) => {
     const tid = message.thread_id || message.id;
-    if (!isThreadListRow(message)) return [message];
-    if (!forceRefresh && Array.isArray(threadMessages[tid]) && threadMessages[tid].length > 0) {
-      return threadMessages[tid];
-    }
     const effectiveFolder = selectedAccountId ? selectedFolder : 'INBOX';
-    const data = await api.getThread(tid, effectiveFolder, isUnified);
-    return data.messages?.length ? data.messages : [message];
+    return resolveThreadMessages({
+      message,
+      isThreadRow: isThreadListRow(message),
+      cached: threadMessages[tid],
+      allowCache,
+      fetchThread: () => api.getThread(tid, effectiveFolder, isUnified),
+    });
   }, [isThreadListRow, threadMessages, selectedAccountId, selectedFolder, isUnified]);
 
   const invalidateThreadCache = useCallback((threadId) => {
@@ -1624,7 +1630,7 @@ export default function MessageList() {
         try {
           groups = await archiveTargetGroupsForRows(
             msgs,
-            message => resolveMessagesForThreadAction(message, { forceRefresh: true }),
+            message => resolveMessagesForThreadAction(message),
             activeFolder,
             isThreadListRow,
             selectedAccountId,
@@ -1736,7 +1742,7 @@ export default function MessageList() {
 
     let targets;
     try {
-      const resolved = await resolveMessagesForThreadAction(message, { forceRefresh: true });
+      const resolved = await resolveMessagesForThreadAction(message);
       targets = archiveTargetsForFolder(message, resolved, activeFolder, threadRow, selectedAccountId);
 
       const resolvedUnreadByAccount = unreadCountsByAccount(targets);
