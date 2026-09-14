@@ -211,6 +211,18 @@ async function processMicrosoftTokens(userId, tokens, { tenantId, clientId, publ
   return email;
 }
 
+// Device-code failures reach the browser only as these stable messages: Microsoft's
+// error_description (AADSTS text, trace IDs) is provider text and is never echoed.
+const DEVICE_START_FAILED = { error: 'Failed to start device code flow', code: 'device_code_start_failed' };
+const DEVICE_TOKEN_FAILED = { status: 'error', error: 'Token exchange failed', code: 'device_code_token_failed' };
+
+// Log detail for a thrown device-code error. A JSON parse error quotes the start of the
+// response body, so only its type is logged.
+function deviceErrorDetail(err) {
+  if (err instanceof SyntaxError) return 'unparseable provider response';
+  return err?.cause?.code ? `${err.message} (${err.cause.code})` : err?.message;
+}
+
 // Step 1: initiate device code flow — returns user_code + verification_uri to the frontend.
 router.post('/microsoft/device', async (req, res) => {
   if (!req.session?.userId) return res.status(401).json({ error: 'Not authenticated' });
@@ -231,7 +243,8 @@ router.post('/microsoft/device', async (req, res) => {
     });
     const dc = await dcRes.json();
     if (!dcRes.ok) {
-      throw new Error(dc.error_description || dc.error || 'Failed to start device code flow');
+      console.error(`Device code init rejected: HTTP ${dcRes.status}, error=${dc.error || 'unknown'}`);
+      return res.status(500).json(DEVICE_START_FAILED);
     }
 
     deviceFlows.set(req.session.userId, {
@@ -248,8 +261,8 @@ router.post('/microsoft/device', async (req, res) => {
       interval: dc.interval || 5,
     });
   } catch (err) {
-    console.error('Device code init error:', err.message);
-    res.status(500).json({ error: err.message });
+    console.error('Device code init error:', deviceErrorDetail(err));
+    res.status(500).json(DEVICE_START_FAILED);
   }
 });
 
@@ -287,7 +300,8 @@ router.get('/microsoft/device/poll', async (req, res) => {
     }
     if (!tokenRes.ok) {
       deviceFlows.delete(req.session.userId);
-      return res.json({ status: 'error', error: tokens.error_description || tokens.error || 'Token exchange failed' });
+      console.error(`Device code token exchange rejected: HTTP ${tokenRes.status}, error=${tokens.error || 'unknown'}`);
+      return res.json(DEVICE_TOKEN_FAILED);
     }
 
     deviceFlows.delete(req.session.userId);
@@ -296,9 +310,9 @@ router.get('/microsoft/device/poll', async (req, res) => {
     await processMicrosoftTokens(req.session.userId, tokens, { tenantId: flow.tenantId, clientId: flow.clientId, publicClient: true });
     res.json({ status: 'success' });
   } catch (err) {
-    console.error('Device code poll error:', err.message);
+    console.error('Device code poll error:', deviceErrorDetail(err));
     deviceFlows.delete(req.session.userId);
-    res.json({ status: 'error', error: err.message });
+    res.json(DEVICE_TOKEN_FAILED);
   }
 });
 

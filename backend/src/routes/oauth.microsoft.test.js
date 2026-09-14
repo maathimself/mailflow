@@ -146,3 +146,44 @@ describe('Microsoft reconsent clears the reconnect flag and connect cooldown', (
     expectCooldownClearedBeforeConnect();
   });
 });
+
+describe('Microsoft device-code errors never echo provider text', () => {
+  const PROVIDER_TEXT = 'AADSTS700016: Application with identifier ms-client was not found. Trace ID: abc';
+  const headers = { 'x-test-user': USER_ID };
+  const loggedText = () => logSpies.flatMap((s) => s.mock.calls.flat()).map(String).join('\n');
+  const startOk = () => json(true, { device_code: 'dc-secret', user_code: 'UC', verification_uri: 'https://microsoft.com/devicelogin', expires_in: 900 });
+
+  it('start returns a stable error when Microsoft rejects the device-code request', async () => {
+    stubMicrosoft(() => json(false, { error: 'unauthorized_client', error_description: PROVIDER_TEXT }));
+    const res = await fetch(`${base}/oauth/microsoft/device`, { method: 'POST', headers });
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: 'Failed to start device code flow', code: 'device_code_start_failed' });
+    expect(loggedText()).not.toContain('AADSTS700016');
+  });
+
+  it('start returns a stable error when the request throws', async () => {
+    stubMicrosoft(() => { throw new Error(`connect ECONNREFUSED ${PROVIDER_TEXT}`); });
+    const res = await fetch(`${base}/oauth/microsoft/device`, { method: 'POST', headers });
+    expect(await res.json()).toEqual({ error: 'Failed to start device code flow', code: 'device_code_start_failed' });
+  });
+
+  it('poll returns a stable error when the token exchange is rejected', async () => {
+    stubMicrosoft((href) => (href.endsWith('/devicecode')
+      ? startOk()
+      : json(false, { error: 'invalid_grant', error_description: PROVIDER_TEXT })));
+    expect((await fetch(`${base}/oauth/microsoft/device`, { method: 'POST', headers })).status).toBe(200);
+    const poll = await fetch(`${base}/oauth/microsoft/device/poll`, { headers });
+    expect(await poll.json()).toEqual({ status: 'error', error: 'Token exchange failed', code: 'device_code_token_failed' });
+    expect(loggedText()).not.toContain('AADSTS700016');
+  });
+
+  it('poll returns a stable error when processing the tokens throws', async () => {
+    stubMicrosoft((href) => (href.endsWith('/devicecode') ? startOk() : json(true, TOKENS)));
+    withTransaction.mockImplementation(async () => { throw new Error(`db exploded ${PROVIDER_TEXT}`); });
+    expect((await fetch(`${base}/oauth/microsoft/device`, { method: 'POST', headers })).status).toBe(200);
+    const poll = await fetch(`${base}/oauth/microsoft/device/poll`, { headers });
+    expect(await poll.json()).toEqual({ status: 'error', error: 'Token exchange failed', code: 'device_code_token_failed' });
+    expect(loggedText()).not.toContain('ms-at');
+    expect(loggedText()).not.toContain('dc-secret');
+  });
+});
