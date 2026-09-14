@@ -6,6 +6,7 @@ import { classifyMessage, loadSocialDomains, getGlobalCategorizationEnabled } fr
 import { pluginRegistry } from '../plugins/registry.js';
 import { createPluginMailFacade } from '../plugins/mailEngineFacade.js';
 import { ensureFreshOAuthAccount, OAuthTokenError } from './oauth/tokenManager.js';
+import { isOAuthAccount, OAUTH_REFRESH_MAX_TOKEN_CALLS, PROVIDER_FETCH_TIMEOUT_MS } from './oauth/constants.js';
 import { sanitizeEmail } from './emailSanitizer.js';
 import { logger } from './logger.js';
 import { recordBroadcast, recordWarning, recordSyncSignal } from './diagnosticsRing.js';
@@ -1148,16 +1149,18 @@ async function computeThreadId(accountId, messageId, inReplyTo, references, subj
   return messageId;
 }
 
-// Timeout budget for an OAuth token refresh on an IMAP path. The token manager's lock wait is
-// capped so lock wait (4 s) + the provider token call (10 s fetch timeout) + Redis/DB round trips
-// fit inside the 15 s bound: a busy lock is then reported by the token manager as a transient
-// `oauth_refresh_failed` instead of being cut off by the timeout. (Microsoft's one-off AADSTS90023
-// public-client self-heal makes two token calls and can exceed it; that also ends as transient.)
-export const TOKEN_REFRESH_TIMEOUT_MS = 15000;
+// Timeout budget for an OAuth token refresh on an IMAP path, per provider: the capped lock wait
+// (4 s) + the provider's worst-case token calls, each bounded by PROVIDER_FETCH_TIMEOUT_MS (10 s),
+// + 1 s for Redis/DB round trips. Google makes one call (15 s); Microsoft's AADSTS90023
+// public-client self-heal makes two (25 s). A busy lock is then reported by the token manager as a
+// transient `oauth_refresh_failed` instead of being cut off by the timeout, and a slow double call
+// completes instead of ending as a transient failure.
 export const OAUTH_REFRESH_LOCK_WAIT_MS = 4000;
-
-const OAUTH_PROVIDERS = new Set(['google', 'microsoft']);
-const isOAuthAccount = (account) => OAUTH_PROVIDERS.has(account?.oauth_provider);
+const OAUTH_REFRESH_DB_ROUND_TRIPS_MS = 1000;
+export function tokenRefreshTimeoutMs(account) {
+  const tokenCalls = OAUTH_REFRESH_MAX_TOKEN_CALLS[account?.oauth_provider] ?? 1;
+  return OAUTH_REFRESH_LOCK_WAIT_MS + tokenCalls * PROVIDER_FETCH_TIMEOUT_MS + OAUTH_REFRESH_DB_ROUND_TRIPS_MS;
+}
 
 // Return the account with an OAuth access token that is valid for the connection about to be
 // made. Every IMAP login goes through here: password accounts return unchanged without touching
@@ -1170,7 +1173,7 @@ async function ensureFreshToken(account, { force = false } = {}) {
   try {
     return await raceTimeout(
       ensureFreshOAuthAccount(account, { force, lockWaitMs: OAUTH_REFRESH_LOCK_WAIT_MS }),
-      TOKEN_REFRESH_TIMEOUT_MS,
+      tokenRefreshTimeoutMs(account),
       'OAuth token refresh',
     );
   } catch (err) {
@@ -1226,14 +1229,31 @@ export function makeClientCfg(account, resolved, { enableIdle = false, policy = 
   // 25-min default or the socket goes half-open ("deaf"); idleKeepaliveMs overrides it.
   if (enableIdle) cfg.maxIdleTime = idleKeepaliveMs || 25 * 60 * 1000;
   // OAuth2 XOAUTH2 for Gmail and Microsoft
-  if ((account.oauth_provider === 'google' || account.oauth_provider === 'microsoft')
-      && account.oauth_access_token) {
+  if (isOAuthAccount(account) && account.oauth_access_token) {
     cfg.auth = {
       user: account.auth_user || account.email_address,
       accessToken: decrypt(account.oauth_access_token),
     };
   }
   return cfg;
+}
+
+// The pool and fresh-login helpers below are module-level, so no ImapManager is in scope there, yet a
+// revoked grant they hit must take effect at once (account_error push, disconnect, timers stopped)
+// rather than on the next health or sync tick. The manager registers itself here when constructed:
+// the process runs a single one (index.js); in tests the most recently constructed one receives it.
+let oauthFailureManager = null;
+
+// Apply reconnect-required through the manager when a helper's token refresh reports a revoked
+// grant. The caller still rethrows the original error, so a user request gets the stable code.
+// Transient refresh failures are left to the caller unchanged.
+async function applyHelperOAuthFailure(account, err) {
+  if (classifyOAuthRefreshError(err) !== 'reconnect' || !oauthFailureManager) return;
+  try {
+    await oauthFailureManager._noteOAuthReconnectRequired(account);
+  } catch (noteErr) {
+    console.error(`Applying reconnect-required for ${logAccount(account)} failed: ${noteErr?.message || 'unknown error'}`);
+  }
 }
 
 function drainWaiters(pool) {
@@ -1263,11 +1283,17 @@ async function acquirePooledClient(account) {
 
   // Grow pool if under limit — refresh token before creating a new connection
   if (pool.clients.length < POOL_SIZE) {
-    const freshAccount = await ensureFreshToken(account);
-    const { resolved, policy } = await resolveAccountHost(freshAccount);
-    // Connect with the shared IPv4-fallback helper (#382); it attaches the #360 handshake-error
-    // listener and recovers from a stalled IPv6 handshake by retrying IPv4-only.
-    const client = await connectImapClient(freshAccount, resolved, { policy }, 30000, 'IMAP pool connect');
+    let client;
+    try {
+      const freshAccount = await ensureFreshToken(account);
+      const { resolved, policy } = await resolveAccountHost(freshAccount);
+      // Connect with the shared IPv4-fallback helper (#382); it attaches the #360 handshake-error
+      // listener and recovers from a stalled IPv6 handshake by retrying IPv4-only.
+      client = await connectImapClient(freshAccount, resolved, { policy }, 30000, 'IMAP pool connect');
+    } catch (err) {
+      await applyHelperOAuthFailure(account, err);
+      throw err;
+    }
     // Remove from pool immediately when the server closes the socket, then
     // wake any waiters so they can claim another idle connection if one exists.
     client.on('close', () => {
@@ -1294,6 +1320,7 @@ async function acquirePooledClient(account) {
         const tmp = await connectImapClient(freshAccount, resolved, { policy }, 30000, 'IMAP temp connect');
         resolve(tmp);
       } catch (err) {
+        await applyHelperOAuthFailure(account, err);
         reject(err);
       }
     }, 10000);
@@ -1354,9 +1381,15 @@ async function withFreshClient(account, fn) {
 // fresh. Not pooled itself — a body fetch is user-initiated and infrequent, so the
 // one-off login cost is acceptable for guaranteed correctness.
 async function withFreshLogin(account, fn) {
-  const fresh = await ensureFreshToken(account);
-  const { resolved, policy } = await resolveAccountHost(fresh);
-  const client = await connectImapClient(fresh, resolved, { policy }, 30000, 'IMAP fresh-login connect');
+  let client;
+  try {
+    const fresh = await ensureFreshToken(account);
+    const { resolved, policy } = await resolveAccountHost(fresh);
+    client = await connectImapClient(fresh, resolved, { policy }, 30000, 'IMAP fresh-login connect');
+  } catch (err) {
+    await applyHelperOAuthFailure(account, err);
+    throw err;
+  }
   try {
     return await fn(client);
   } finally {
@@ -1478,6 +1511,7 @@ export function classifyMoveBySearch(uids, remainingUids, destArrived) {
 export class ImapManager {
   constructor(wss) {
     this.wss = wss;
+    oauthFailureManager = this; // see applyHelperOAuthFailure
     this._statusSyncRunning = new Set();
     this._statusSyncBackoff = new Map();
     this._statusAccountTimers = new Map();
@@ -2473,9 +2507,9 @@ export class ImapManager {
             const freshAccount = await ensureFreshToken(accountResult.rows[0]);
             const { resolved, policy } = await resolveAccountHost(freshAccount);
             return { freshAccount, resolved, policy };
-            // The token refresh is bounded by TOKEN_REFRESH_TIMEOUT_MS; 5 s more covers the DB read
+            // The token refresh is bounded by tokenRefreshTimeoutMs; 5 s more covers the DB read
             // and host resolution.
-          })(), TOKEN_REFRESH_TIMEOUT_MS + 5000, 'Reconnect setup');
+          })(), tokenRefreshTimeoutMs(account) + 5000, 'Reconnect setup');
           if (!setup) return; // account deleted/disabled mid-reconnect
           pendingClient = await connectImapClient(setup.freshAccount, setup.resolved,
             { enableIdle: providerProfile(setup.freshAccount).usesIdle !== false, policy: setup.policy, idleKeepaliveMs: providerProfile(setup.freshAccount).idleKeepaliveMs },
@@ -4148,6 +4182,11 @@ export class ImapManager {
         }
         console.log(`Bulk flag refresh: ${updates.length}/${msgs.length} updated in ${folder} for ${logAccount(account)}`);
       } catch (err) {
+        // A revoked grant fails every remaining folder the same way: apply it now and stop.
+        if (classifyOAuthRefreshError(err) === 'reconnect') {
+          await this._noteOAuthReconnectRequired(account);
+          return;
+        }
         console.warn(`Bulk flag refresh error for ${logAccount(account)}/${folder}: ${err.message}`);
       } finally {
         if (client) { try { await client.logout(); } catch { /* ignore */ } }
@@ -4324,6 +4363,8 @@ export class ImapManager {
           // Reconnect periodically to keep the connection fresh
           if (batchCount > 0 && batchCount % 20 === 0) {
             await openClient().catch(err => {
+              // A revoked grant ends the run (outer catch); other reconnect failures surface as batch errors.
+              if (classifyOAuthRefreshError(err) === 'reconnect') throw err;
               console.error(`Snippet indexer reconnect failed: ${err.message}`);
             });
           }
@@ -4414,6 +4455,12 @@ export class ImapManager {
 
       console.log(`Snippet indexer complete for ${logAccount(account)} (${batchCount} batches)`);
     } catch (err) {
+      // A revoked grant is an account problem, not a host one: apply it without setting `failed`,
+      // which would trip the host-level backoff for every account on this provider.
+      if (classifyOAuthRefreshError(err) === 'reconnect') {
+        await this._noteOAuthReconnectRequired(account);
+        return;
+      }
       failed = true;
       console.error(`Snippet indexer error ${logAccount(account)}:`, err.message);
     } finally {

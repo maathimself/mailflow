@@ -1,6 +1,7 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { query } from '../db.js';
 import { encrypt, decrypt } from '../encryption.js';
+import { PROVIDER_FETCH_TIMEOUT_MS } from './constants.js';
 
 export const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 export const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -78,7 +79,7 @@ async function postToken(params) {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: params,
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(PROVIDER_FETCH_TIMEOUT_MS),
     });
     body = await res.json().catch(() => ({}));
   } catch {

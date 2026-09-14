@@ -3,19 +3,20 @@ import { query } from '../db.js';
 import { redisClient } from '../redis.js';
 import { refreshMicrosoftToken } from './microsoftOAuth.js';
 import { refreshGoogleToken } from './googleOAuth.js';
+import { OAUTH_RECONNECT_REQUIRED_MESSAGE, isOAuthAccount } from './constants.js';
 
 // Refresh tokens that expire within this window so a connection never starts with a
 // token about to lapse mid-session.
 export const TOKEN_REFRESH_SKEW_MS = 5 * 60 * 1000;
 
-// Cross-process refresh lock. The TTL outlives the slowest refresh (Microsoft may make
-// two 10 s token calls plus DB writes) with a wide margin, so a stalled holder does not
-// let a peer refresh with a superseded refresh token; a crashed holder still frees the
-// account within a minute.
+// Cross-process refresh lock. The TTL outlives the slowest refresh (Microsoft may make two
+// token calls of up to PROVIDER_FETCH_TIMEOUT_MS each, plus DB writes) with a wide margin, so
+// a stalled holder does not let a peer refresh with a superseded refresh token; a crashed
+// holder still frees the account within a minute.
 const LOCK_TTL_SECONDS = 60;
 // Default wait for callers without a tighter deadline (SMTP send, routes). Callers that race
 // the refresh against a timeout (imapManager) pass a shorter `lockWaitMs` so the wait plus the
-// 10 s provider token call still fits inside their budget.
+// provider's token calls still fit inside their budget.
 const DEFAULT_LOCK_WAIT_MS = 10000;
 const DEFAULT_LOCK_POLL_MS = 200;
 const RELEASE_LOCK_SCRIPT = `if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end`;
@@ -28,14 +29,12 @@ const RECONNECT_OAUTH_ERRORS = new Set(['invalid_grant', 'missing_refresh_token'
 export class OAuthTokenError extends Error {
   constructor(code) {
     super(code === 'oauth_reconnect_required'
-      ? 'OAuth access was revoked or expired — reconnect the account'
+      ? OAUTH_RECONNECT_REQUIRED_MESSAGE
       : `OAuth token refresh failed: ${code}`);
     this.name = 'OAuthTokenError';
     this.code = code;
   }
 }
-
-const OAUTH_PROVIDERS = new Set(['microsoft', 'google']);
 
 export function needsTokenRefresh(account, now = Date.now()) {
   if (!account.oauth_access_token || !account.oauth_token_expiry) return true;
@@ -138,7 +137,7 @@ const inFlightRefresh = new Map(); // accountId -> { promise, force }
 // `force: true` bypasses the skew window; pass it when the provider rejected the token the
 // caller holds (IMAP AUTHENTICATE or SMTP AUTH failure).
 export function ensureFreshOAuthAccount(account, options = {}) {
-  if (!account || !OAUTH_PROVIDERS.has(account.oauth_provider)) return Promise.resolve(account);
+  if (!isOAuthAccount(account)) return Promise.resolve(account);
   const force = !!options.force;
   if (!force && !needsTokenRefresh(account)) return Promise.resolve(account);
 

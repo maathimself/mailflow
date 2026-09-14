@@ -14,25 +14,13 @@ import { generateVCard } from '../utils/vcard.js';
 import { createAccountSmtpTransport } from '../services/smtpTransport.js';
 import { imapManager } from '../index.js';
 import { pluginRegistry } from '../plugins/registry.js';
+import { OAUTH_SEND_FAILURES } from '../services/oauth/constants.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function escapeHtml(str) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
-
-// Token-manager failures raised while sending (see createAccountSmtpTransport), keyed by their
-// stable code. Statuses match the transport's pre-send results for the same codes.
-const OAUTH_SEND_FAILURES = {
-  oauth_reconnect_required: {
-    status: 409,
-    error: 'Access to this account was revoked or has expired. Reconnect the account to send mail.',
-  },
-  oauth_refresh_failed: {
-    status: 503,
-    error: 'Could not renew access to this account. Please try again shortly.',
-  },
-};
 
 // Map SMTP/connection errors to user-friendly messages that don't expose server internals.
 function sanitizeSmtpError(err) {
@@ -569,7 +557,7 @@ router.post('/send', async (req, res) => {
     if (idemKeyRedis && reservationAcquired) redisClient.del(idemKeyRedis).catch(() => {});
     // The transport's forced token refresh after an SMTP AUTH rejection failed. AUTH precedes
     // MAIL FROM, so nothing was delivered; answer with the token manager's stable code only.
-    const oauthFailure = OAUTH_SEND_FAILURES[err?.code];
+    const oauthFailure = Object.hasOwn(OAUTH_SEND_FAILURES, err?.code) ? OAUTH_SEND_FAILURES[err.code] : null;
     if (oauthFailure) return res.status(oauthFailure.status).json({ error: oauthFailure.error, code: err.code });
     res.status(500).json({ error: sanitizeSmtpError(err) });
   }
