@@ -11,6 +11,7 @@ services:
       args:
         VITE_BUILD_SHA: ${GIT_SHA:-dev}
         VITE_EMAIL_DIV_RENDER: ${VITE_EMAIL_DIV_RENDER:-false}
+        NGINX_BASE: ${NGINX_BASE:-nginx:alpine}
     container_name: mailflow-frontend
     restart: unless-stopped
     ports:

@@ -1,3 +1,8 @@
+# Overridable nginx base for hosts whose older kernels cannot exec binaries from
+# the newest Alpine package repo (e.g. some NAS units) — set to an older tag like
+# nginx:1.27-alpine via the NGINX_BASE build arg.
+ARG NGINX_BASE=nginx:alpine
+
 FROM --platform=$BUILDPLATFORM node:22-alpine AS builder
 
 WORKDIR /app
@@ -19,7 +24,7 @@ ENV VITE_EMAIL_DIV_RENDER=${VITE_EMAIL_DIV_RENDER:-false}
 
 RUN npm run build
 
-FROM nginx:alpine
+FROM ${NGINX_BASE}
 
 RUN apk add --no-cache openssl
 

@@ -328,6 +328,7 @@
     "releaseToSync": "松开以同步",
     "noSearchResults": "未找到结果",
     "noSearchResultsDesc": "未找到与 {{query}} 相关的结果",
+    "searchFailed": "搜索失败",
     "clearSearch": "清除搜索",
     "searchHelp": {
       "title": "搜索操作符",
@@ -707,6 +708,7 @@
       "runButton": "对收件箱运行规则",
       "running": "运行中…",
       "runResult": "完成 — {{processed}} 封邮件中有 {{matched}} 封匹配",
+      "runStarted": "正在后台运行 — 完成后将通知您",
       "runError": "运行规则失败",
       "fieldBody": "正文",
       "fieldHeader": "邮件头",

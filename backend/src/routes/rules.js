@@ -111,6 +111,36 @@ router.post('/run', async (req, res) => {
     return res.status(500).json({ error: 'Failed to run rules' });
   }
 
+  // The sweep can take minutes on a large mailbox — well past any proxy
+  // timeout, which used to surface as a 504 while the run kept going
+  // server-side. Respond immediately and run in the background; the
+  // rules_run_complete WebSocket event delivers the result. One run per user
+  // at a time.
+  const userId = req.session.userId;
+  if (runInFlight.has(userId)) return res.status(409).json({ error: 'Rules are already running' });
+  runInFlight.add(userId);
+  res.status(202).json({ ok: true, started: true });
+
+  (async () => {
+    try {
+      const { processed, matched } = await runRulesSweep(userId, accountIds, imapMgr);
+      imapMgr?.broadcast?.({ type: 'rules_run_complete', ok: true, processed, matched }, userId);
+    } catch (err) {
+      console.error('POST /rules/run sweep error:', err.message);
+      imapMgr?.broadcast?.({ type: 'rules_run_complete', ok: false }, userId);
+    } finally {
+      runInFlight.delete(userId);
+    }
+  })();
+});
+
+// Users with a background "Run rules on inbox" sweep in flight.
+const runInFlight = new Set();
+
+// Applies the user's rules to every INBOX message of the given accounts, in
+// batches. Per-account failures are logged and skipped so one bad account
+// never aborts the rest. Returns the totals for the completion notice.
+async function runRulesSweep(userId, accountIds, imapMgr) {
   let processed = 0;
   let matched = 0;
 
@@ -118,7 +148,7 @@ router.post('/run', async (req, res) => {
     try {
       const rulesCheck = await query(
         'SELECT COUNT(*) AS cnt FROM inbox_rules WHERE user_id = $1 AND enabled = true AND (account_id IS NULL OR account_id = $2)',
-        [req.session.userId, acctId]
+        [userId, acctId]
       );
       if (parseInt(rulesCheck.rows[0].cnt, 10) === 0) continue;
 
@@ -178,12 +208,12 @@ router.post('/run', async (req, res) => {
         if (msgResult.rows.length < BATCH) break;
       }
     } catch (err) {
-      console.error(`POST /rules/run error for account ${acctId}:`, err.message);
+      console.error(`Rules sweep error for account ${acctId}:`, err.message);
     }
   }
 
-  res.json({ processed, matched });
-});
+  return { processed, matched };
+}
 
 router.post('/', async (req, res) => {
   const { name, accountId, conditionLogic, conditions, actions, enabled, stopProcessing } = req.body;

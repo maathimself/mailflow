@@ -6,7 +6,9 @@ import { resolveAccountScope } from '../services/unifiedInbox.js';
 const router = Router();
 router.use(requireAuth);
 
-// Simple in-memory rate limiter: 20 searches per minute per user.
+// Simple in-memory rate limiter: 60 searches per minute per user. Typed search
+// fires a debounced request per pause, so a user exploring several queries can
+// legitimately issue dozens of requests in a minute.
 const searchBuckets = new Map();
 setInterval(() => {
   const now = Date.now();
@@ -23,7 +25,7 @@ function searchLimiter(req, res, next) {
     searchBuckets.set(key, { count: 1, resetAt: now + 60_000 });
     return next();
   }
-  if (b.count >= 20) {
+  if (b.count >= 60) {
     res.setHeader('Retry-After', Math.ceil((b.resetAt - now) / 1000));
     return res.status(429).json({ error: 'Too many search requests. Try again shortly.' });
   }

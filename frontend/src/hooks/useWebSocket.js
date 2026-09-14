@@ -4,56 +4,12 @@ import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { installCapacitorNativeBridge } from '../utils/capacitorNativeBridge.js';
 import { playNotificationSound } from '../utils/notificationSounds.js';
-import { pendingMarkReadMap } from '../utils/pendingReads.js';
-import { updateFaviconBadge } from '../themes.js';
-import { dispatchPluginWsMessage, dispatchPluginReconnect } from '../plugins/events.js';
 import { accountAffectsUnifiedInbox } from '../utils/unifiedInbox.js';
+import { dispatchPluginWsMessage, dispatchPluginReconnect } from '../plugins/events.js';
 import { recordDiagEvent } from '../utils/diagEvents.js';
 
-// Compute the correct favicon count given unread counts and the currently
-// selected account. Reads selectedAccountId from the store directly so this
-// can be called outside React's render cycle.
-function _faviconCount(counts) {
-  const { selectedAccountId } = useStore.getState();
-  return selectedAccountId ? (counts.byAccount[selectedAccountId] ?? 0) : counts.total;
-}
-
-// Apply a fresh server count, guarding against double-adjustment of in-flight
-// mark-read operations.
-//
-// Since /unread-counts now queries messages directly, the DB reflects a
-// mark-read as soon as the PATCH's UPDATE commits — which happens well before
-// IMAP flag work finishes and before the HTTP response returns. This means
-// pendingMarkReadMap can lag the DB by hundreds of milliseconds, and naively
-// subtracting it from the server count would undercount by one per in-flight read.
-//
-// Guard: only subtract pending reads when the server count is still at least
-// (current optimistic + pending size). If the server count is already lower,
-// the DB has applied those reads and subtracting again would double-count.
 function _applyServerCounts(counts) {
-  const _before = useStore.getState().unreadCounts.total;
-  if (pendingMarkReadMap.size > 0) {
-    const state = useStore.getState();
-    const current = state.unreadCounts;
-    const pendingUnifiedCount = [...pendingMarkReadMap.values()]
-      .filter(accountId => accountAffectsUnifiedInbox(state.accounts, accountId))
-      .length;
-    if (counts.total >= current.total + pendingUnifiedCount) {
-      // Server hasn't incorporated in-flight reads yet — subtract them.
-      const byAccount = { ...counts.byAccount };
-      for (const accountId of pendingMarkReadMap.values()) {
-        if (byAccount[accountId] > 0) byAccount[accountId]--;
-      }
-      const total = Math.max(0, counts.total - pendingUnifiedCount);
-      useStore.setState({ unreadCounts: { total, byAccount } });
-    } else {
-      // DB already applied the reads — use the authoritative count directly.
-      useStore.setState({ unreadCounts: counts });
-    }
-  } else {
-    useStore.setState({ unreadCounts: counts });
-  }
-  recordDiagEvent({ category: 'unread', cause: 'server_counts', beforeTotal: _before, afterTotal: useStore.getState().unreadCounts.total });
+  useStore.getState().setUnreadCounts(counts);
 }
 
 async function _forwardNativeNewMailNotification(notification) {
@@ -127,7 +83,7 @@ export function useWebSocket() {
         recordDiagEvent({ category: 'ws', type: 'reconnect' });
         window.dispatchEvent(new CustomEvent('mailflow:refresh'));
         api.getUnreadCounts().then(counts => {
-          useStore.setState({ unreadCounts: counts });
+          useStore.getState().setUnreadCounts(counts);
         }).catch(() => {});
         // A plugin's rail/derived data can drift during the outage — events fired while the socket
         // was down are lost, not buffered. Let each activated plugin resync (GTD refetches its
@@ -215,36 +171,24 @@ export function useWebSocket() {
           }
         }
 
-        // Refresh unread counts from the server. Messages are fully inserted in the
-        // DB by the time new_messages fires, so this returns the authoritative count
-        // and corrects any optimistic delta that exists_hint applied earlier.
-        // Also handles periodic syncs that have no preceding exists_hint.
+        // Fetch the latest independently observed server count.
         if (isInbox) {
           api.getUnreadCounts().then(_applyServerCounts).catch(() => {});
         }
         break;
       }
 
-      case 'exists_hint': {
-        // Optimistic unread increment: fired immediately when the IMAP server
-        // signals new mail, before the full fetch+insert cycle completes.
-        // The subsequent new_messages event will correct the count to the
-        // authoritative server value.
-        const { accountId, delta } = data;
-        const counts = useStore.getState().unreadCounts;
-        const byAccount = { ...counts.byAccount };
-        byAccount[accountId] = (byAccount[accountId] || 0) + delta;
-        const total = accountAffectsUnifiedInbox(useStore.getState().accounts, accountId)
-          ? counts.total + delta
-          : counts.total;
-        const newCounts = { total, byAccount };
-        useStore.setState({ unreadCounts: newCounts });
-        recordDiagEvent({ category: 'unread', cause: 'exists_hint', accountId, delta, beforeTotal: counts.total, afterTotal: total });
-        // Update favicon immediately — do not wait for React's render cycle.
-        // With a pre-cached base this is synchronous (no image load round-trip).
-        updateFaviconBadge(_faviconCount(newCounts));
+      case 'exists_hint':
+        // EXISTS reports membership, not UNSEEN. The status observer supplies badges.
         break;
-      }
+
+      case 'folder_counts':
+        api.getUnreadCounts().then(_applyServerCounts).catch(() => {});
+        if (useStore.getState().folders[data.accountId]) {
+          api.getFolders(data.accountId)
+            .then(f => useStore.getState().setFolders(data.accountId, f)).catch(() => {});
+        }
+        break;
 
       case 'account_connected': {
         updateAccount(data.accountId, { sync_error: null });
@@ -345,10 +289,25 @@ export function useWebSocket() {
         break;
       }
 
+      case 'rules_run_complete': {
+        // Background "Run rules on inbox" finished (see rules.js /run). Toast the outcome,
+        // hand the counts to the settings panel if it is open, and refresh views and
+        // counts — rules move messages between folders.
+        addNotification({
+          title: data.ok === false
+            ? t('admin.rules.runError')
+            : t('admin.rules.runResult', { matched: data.matched, processed: data.processed }),
+        });
+        window.dispatchEvent(new CustomEvent('mailflow:rules-run-complete', { detail: data }));
+        window.dispatchEvent(new Event('mailflow:rules-ran'));
+        api.getUnreadCounts().then(_applyServerCounts).catch(() => {});
+        break;
+      }
+
       case 'snooze_wakeup': {
         window.dispatchEvent(new CustomEvent('mailflow:refresh'));
         api.getUnreadCounts().then(counts => {
-          useStore.setState({ unreadCounts: counts });
+          useStore.getState().setUnreadCounts(counts);
         }).catch(() => {});
         break;
       }

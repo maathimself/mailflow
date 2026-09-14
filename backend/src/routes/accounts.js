@@ -1,3 +1,4 @@
+import { publicFolderCounts } from '../services/folderStatus.js';
 import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -420,7 +421,9 @@ router.get('/:id/folders', async (req, res) => {
     'SELECT * FROM folders WHERE account_id = $1 ORDER BY path',
     [id]
   );
-  res.json(result.rows);
+  // Freshness depends on how long this account's rotation takes, so every row needs the count.
+  const selectableFolders = result.rows.filter(row => !row.no_select).length;
+  res.json(result.rows.map(row => publicFolderCounts(row, Date.now(), { selectableFolders })));
 });
 
 router.post('/:id/reindex', async (req, res) => {
