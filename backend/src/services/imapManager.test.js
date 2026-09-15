@@ -12,7 +12,7 @@ vi.mock('../utils/redact.js', () => ({ redactEmail: vi.fn() }));
 vi.mock('./hostValidation.js', () => ({ resolveForConnection: vi.fn(), createPinnedLookup: vi.fn() }));
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
 
-import { ImapManager, countMissingInboxCopies, fetchBackfillBatch, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, extractBodyFromMsg, bodyFallbackApplies, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch } from './imapManager.js';
+import { ImapManager, MIN_SYNC_INTERVAL_MS, AUTO_IDLE_DELAY_MS, countMissingInboxCopies, fetchBackfillBatch, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, extractBodyFromMsg, bodyFallbackApplies, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch } from './imapManager.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { EventEmitter } from 'node:events';
 import { ImapFlow } from 'imapflow';
@@ -185,6 +185,45 @@ describe('relocateExemptGuard — label folder relocate exemption', () => {
     const { clause } = relocateExemptGuard(['Todo'], 7);
     expect(clause).toContain('$7::text[]');
     expect(clause).not.toContain('$5');
+  });
+});
+
+// ── makeClientCfg — auto-IDLE arming ─────────────────────────────────────────
+//
+// Regression cover for the bug where IDLE never started on ANY account. ImapFlow arms IDLE
+// only after autoIdleDelay of quiet; its default is 15000ms, which is exactly the fastest sync
+// interval the settings UI offers. A 15s tick left the connection quiet for ~14.9s and cleared
+// the arming timer ~100ms before it fired, so every provider silently degraded to polling.
+// The first test is the one that matters: it fails if those two values are ever equal again.
+
+describe('makeClientCfg — auto-IDLE arming', () => {
+  it('arms IDLE strictly faster than the fastest possible sync tick', () => {
+    // The invariant. If this fails, IDLE cannot start before the next tick interrupts it.
+    expect(AUTO_IDLE_DELAY_MS).toBeLessThan(MIN_SYNC_INTERVAL_MS);
+  });
+
+  it('leaves enough delay not to inject IDLE between one sync\'s own commands', () => {
+    // The opposite failure: too small a value means every command is followed by an IDLE the
+    // next command must break, costing two extra round trips each time.
+    expect(AUTO_IDLE_DELAY_MS).toBeGreaterThanOrEqual(1000);
+  });
+
+  it('sets autoIdleDelay whenever IDLE is enabled', () => {
+    const cfg = makeClientCfg(baseAccount, resolved, { enableIdle: true });
+    expect(cfg.autoIdleDelay).toBe(AUTO_IDLE_DELAY_MS);
+  });
+
+  it('does not set autoIdleDelay on non-IDLE connections (pool/backfill clients)', () => {
+    const cfg = makeClientCfg(baseAccount, resolved, { enableIdle: false });
+    expect(cfg.autoIdleDelay).toBeUndefined();
+  });
+
+  it('sets autoIdleDelay independently of idleKeepaliveMs', () => {
+    // maxIdleTime governs how long an IDLE lasts; autoIdleDelay governs whether it starts.
+    // Conflating the two is what let this bug survive the PurelyMail IDLE work.
+    const cfg = makeClientCfg(baseAccount, resolved, { enableIdle: true, idleKeepaliveMs: 4 * 60 * 1000 });
+    expect(cfg.maxIdleTime).toBe(4 * 60 * 1000);
+    expect(cfg.autoIdleDelay).toBe(AUTO_IDLE_DELAY_MS);
   });
 });
 
