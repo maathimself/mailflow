@@ -17,6 +17,12 @@
 // IMPORTANT: auto-classified verdicts NEVER write to spam_training_log. Only
 // explicit user feedback (/spam, /ham) trains the model — auto-verdicts fed
 // back would poison it (see reports.md V2-5 note).
+//
+// Auto-move: skipped entirely when the caller defers it (`deferAutoMove`, used by
+// the backfill path). A reindex classifies a whole mailbox at once, and that many
+// concurrent moves would fight over the pooled connections the rest of the app
+// uses — each 10s overflow loser opening a fresh login at the provider. The
+// deferred intent is recorded in spam_details (PR review, 2026-09-15).
 
 import { query } from './db.js';
 import { tokenize, extractFlagFeatures } from './spamTokenizer.js';
@@ -43,6 +49,9 @@ const round = (n, places = 3) => Math.round(n * 10 ** places) / 10 ** places;
  * @param {Object} [opts]
  *   @param {Object} [opts.headers] — raw headers from the parsed message
  *     (Authentication-Results etc.); optional, auth flags stay neutral.
+ *   @param {boolean} [opts.deferAutoMove=false] — tag only: compute the verdict and
+ *     record whether a move was warranted, but never move. Set by the backfill path,
+ *     which classifies a whole mailbox at once (see the auto-move note below).
  *   @param {Object} [opts.imap] — injected imapManager facade for the
  *     auto-move: moveMessage(account, uid, fromFolder, toFolder),
  *     _guardMoveUid(accountId, folder, uid), _unguardMoveUid(...),
@@ -121,6 +130,25 @@ export async function classifyAndTagMessage(messageId, opts = {}) {
   // the constraint and silently dropped the verdict on the UPDATE.
   const verdict = blended >= SPAM_THRESHOLD ? 'spam' : blended < 0.3 ? 'ham' : 'unsure';
 
+  const spamFolder = row.folder_mappings?.spam || null;
+
+  // Auto-move ONLY on very high confidence AND with a configured spam folder.
+  // Computed before `details` so the deferred intent is recorded alongside the verdict.
+  const wouldAutoMove = verdict === 'spam'
+    && blended >= AUTO_MOVE_THRESHOLD
+    && mlActive
+    && Boolean(spamFolder)
+    && row.folder !== spamFolder;
+
+  // When the caller defers the move (the backfill path), the message is TAGGED but
+  // never moved: a reindex classifies a whole mailbox at once, and that many
+  // concurrent moves would fight over the 2 pooled connections, each 10s overflow
+  // loser opening a fresh login (PR review, 2026-09-15). The verdict, the score and
+  // `autoMoveDeferred` are all persisted, so the intent is not lost — moving stays a
+  // property of normal ingest, where messages arrive a few at a time.
+  const deferAutoMove = Boolean(opts.deferAutoMove);
+  const shouldMove = wouldAutoMove && !deferAutoMove;
+
   const details = {
     method,
     blendedScore: round(blended),
@@ -139,6 +167,10 @@ export async function classifyAndTagMessage(messageId, opts = {}) {
     authservIds: observedAuthservIds,
     trustedAuthservId,
     authTrusted: trustedAuthservId !== null && observedAuthservIds.includes(trustedAuthservId),
+    // True when this message WOULD have been auto-moved but the caller deferred it
+    // (backfill). Lets the "Why?" view and a future deliberate catch-up pass tell a
+    // deferred decision apart from one that was never eligible.
+    autoMoveDeferred: wouldAutoMove && deferAutoMove,
   };
 
   await query(
@@ -147,15 +179,6 @@ export async function classifyAndTagMessage(messageId, opts = {}) {
      WHERE id = $4`,
     [verdict, mlProbability ?? rules.score, JSON.stringify(details), messageId],
   );
-
-  const spamFolder = row.folder_mappings?.spam || null;
-
-  // Auto-move ONLY on very high confidence AND with a configured spam folder.
-  const shouldMove = verdict === 'spam'
-    && blended >= AUTO_MOVE_THRESHOLD
-    && mlActive
-    && Boolean(spamFolder)
-    && row.folder !== spamFolder;
 
   let moved = false;
   if (shouldMove && opts.imap) {
@@ -173,6 +196,7 @@ export async function classifyAndTagMessage(messageId, opts = {}) {
     mlProbability,
     shouldMove,
     moved,
+    autoMoveDeferred: wouldAutoMove && deferAutoMove,
     skipped: null,
   };
 }

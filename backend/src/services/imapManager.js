@@ -187,6 +187,23 @@ export function createKeyedSemaphore(limit) {
 // providers/accounts are unaffected. See _bgConnSem.
 const BACKGROUND_CONN_MAX_PER_HOST = 2;
 
+// Concurrent auto-moves (spamPipeline's move to the spam folder) allowed per account.
+//
+// The classification itself is cheap and stays concurrent; only the IMAP move is queued. A move
+// goes through the pooled connection (POOL_SIZE = 2) and each loser of its 10s overflow timeout
+// opens a FRESH login, so a burst of classifications used to fan out that many concurrent moves
+// and fresh logins on a single account — the connection-storm pattern providers throttle accounts
+// for. Bursts are real: an ingest pass classifies up to 100 new messages at once on the
+// folder-status/reindex-driven paths. Serializing per account keeps at most one auto-move in
+// flight, with the rest queued FIFO on the same connection budget the user's own work uses.
+// PR review, 2026-09-15.
+const AUTO_MOVE_MAX_CONCURRENT_PER_ACCOUNT = 1;
+
+// How long a queued auto-move waits for its per-account slot before giving up. The verdict is
+// already persisted by then, so a timeout only means "tagged, not moved" — the message keeps its
+// badge and stays where it is rather than the queue growing without bound behind a stuck move.
+const AUTO_MOVE_QUEUE_TIMEOUT_MS = 120 * 1000;
+
 // Consecutive recoverable failures before an account is shown as broken in the UI.
 //
 // A provider that refuses a connection and accepts one again moments later does not need the
@@ -1458,6 +1475,9 @@ export class ImapManager {
     this.backfillRunning = new Set(); // `${accountId}:${folder}` — prevent duplicate folder backfills
     this.backfillAllRunning = new Set(); // accountId — prevent concurrent full backfill sequences
     this._bgConnSem = createKeyedSemaphore(BACKGROUND_CONN_MAX_PER_HOST); // cap concurrent background IMAP conns (backfill + snippet indexer) per provider host
+    // Serializes antispam auto-moves per account (keyed by account id) — see
+    // AUTO_MOVE_MAX_CONCURRENT_PER_ACCOUNT. Classification stays concurrent.
+    this._autoMoveSem = createKeyedSemaphore(AUTO_MOVE_MAX_CONCURRENT_PER_ACCOUNT);
     this._connectCooldown = new Map(); // accountId -> { until: ms, failures: number } after connection refusals
     // accountId -> the value last persisted to email_accounts.sync_error: a string (error is
     // showing), null (known clear), or absent (unknown — e.g. just after a restart, where the
@@ -2941,16 +2961,37 @@ export class ImapManager {
    * fetched bodies). Without the backfill call site a reindex-classified mailbox
    * silently skipped classification entirely.
    *
+   * The backfill passes `deferAutoMove`, so a reindex tags its whole history
+   * without moving any of it: hundreds of concurrent moves would compete for the
+   * 2 pooled connections (each overflow loser opening a fresh login). The verdict
+   * and the deferred intent are persisted; the move stays a property of normal
+   * ingest. PR review, 2026-09-15.
+   *
    * @param {Object} account — the account row (needs id + antispam_enabled)
    * @param {string} messageId — messages.id of the inserted row
    * @param {Object} parsed — parsed message (parsedHeaders feed the auth gate)
+   * @param {Object} [opts]
+   *   @param {boolean} [opts.deferAutoMove=false] — tag only, never move (backfill)
    */
-  maybeClassifyNewMessage(account, messageId, parsed) {
+  maybeClassifyNewMessage(account, messageId, parsed, { deferAutoMove = false } = {}) {
     if (!account?.antispam_enabled) return;
     classifyAndTagMessage(messageId, {
       headers: parsed?.parsedHeaders || [],
+      deferAutoMove,
       imap: {
-        moveMessage: (...args) => this.moveMessage(...args),
+        // Serialized per account (AUTO_MOVE_MAX_CONCURRENT_PER_ACCOUNT): the
+        // classification above keeps running concurrently, only the IMAP move is
+        // queued, so a burst of classified messages cannot fan out that many
+        // moves — and fresh overflow logins — at the provider.
+        moveMessage: async (acct, uid, fromFolder, toFolder) => {
+          const key = acct?.id || account.id;
+          await this._autoMoveSem.acquire(key, { timeoutMs: AUTO_MOVE_QUEUE_TIMEOUT_MS });
+          try {
+            return await this.moveMessage(acct, uid, fromFolder, toFolder);
+          } finally {
+            this._autoMoveSem.release(key);
+          }
+        },
         broadcast: (...args) => this.broadcast(...args),
         _guardMoveUid: (...args) => this._guardMoveUid(...args),
         _unguardMoveUid: (...args) => this._unguardMoveUid(...args),
@@ -3844,8 +3885,10 @@ export class ImapManager {
                 // of a mailbox that just enabled antispam) is classified too.
                 // The backfill may not have fetched the body, in which case the
                 // classifier works from the subject/flag signals it does have.
+                // deferAutoMove: a reindex classifies the WHOLE mailbox at once,
+                // so moving is left to normal ingest — see maybeClassifyNewMessage.
                 if (bfInsert?.rows[0]?.is_new) {
-                  this.maybeClassifyNewMessage(account, bfInsert.rows[0].id, parsed);
+                  this.maybeClassifyNewMessage(account, bfInsert.rows[0].id, parsed, { deferAutoMove: true });
                 }
                 if (bfThreadId && bfThreadId !== bfMsgId) {
                   await query(

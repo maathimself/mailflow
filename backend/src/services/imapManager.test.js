@@ -2447,4 +2447,66 @@ describe('maybeClassifyNewMessage — antispam ingest hook', () => {
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
   });
+
+  it('does not defer the auto-move on normal ingest (the sync path)', () => {
+    const mgr = new ImapManager(null);
+    classifyAndTagMessage.mockResolvedValue({ verdict: 'spam' });
+    mgr.maybeClassifyNewMessage({ id: 'acct', antispam_enabled: true }, 'msg-4', {});
+    expect(classifyAndTagMessage.mock.calls[0][1].deferAutoMove).toBe(false);
+  });
+
+  it('forwards deferAutoMove for the backfill path', () => {
+    const mgr = new ImapManager(null);
+    classifyAndTagMessage.mockResolvedValue({ verdict: 'spam' });
+    mgr.maybeClassifyNewMessage(
+      { id: 'acct', antispam_enabled: true }, 'msg-5', {}, { deferAutoMove: true },
+    );
+    expect(classifyAndTagMessage.mock.calls[0][1].deferAutoMove).toBe(true);
+  });
+
+  it('serializes auto-moves per account — one in flight, the rest queued', async () => {
+    const mgr = new ImapManager(null);
+    let releaseFirst;
+    const firstStarted = new Promise(resolve => { releaseFirst = resolve; });
+    const started = [];
+    const move = vi.spyOn(mgr, 'moveMessage').mockImplementation(async (_acct, uid) => {
+      started.push(uid);
+      if (uid === 1) await firstStarted;
+      return uid + 1000;
+    });
+    classifyAndTagMessage.mockResolvedValue({ verdict: 'spam' });
+    mgr.maybeClassifyNewMessage({ id: 'acct', antispam_enabled: true }, 'msg-6', {});
+    mgr.maybeClassifyNewMessage({ id: 'acct', antispam_enabled: true }, 'msg-7', {});
+    const facades = classifyAndTagMessage.mock.calls.map(call => call[1].imap);
+
+    const p1 = facades[0].moveMessage({ id: 'acct' }, 1, 'INBOX', 'Junk');
+    const p2 = facades[1].moveMessage({ id: 'acct' }, 2, 'INBOX', 'Junk');
+    await new Promise(r => setTimeout(r, 0));
+    // Only the first move reached the pool: the second is waiting for the slot, so a
+    // burst of classified messages cannot fan out concurrent moves (and overflow logins).
+    expect(started).toEqual([1]);
+
+    releaseFirst();
+    await expect(p1).resolves.toBe(1001);
+    await expect(p2).resolves.toBe(1002);
+    expect(started).toEqual([1, 2]);
+    expect(mgr._autoMoveSem.activeCount('acct')).toBe(0);
+    move.mockRestore();
+  });
+
+  it('releases the per-account slot after a failed move', async () => {
+    const mgr = new ImapManager(null);
+    const move = vi.spyOn(mgr, 'moveMessage')
+      .mockRejectedValueOnce(new Error('IMAP down'))
+      .mockResolvedValue(42);
+    classifyAndTagMessage.mockResolvedValue({ verdict: 'spam' });
+    mgr.maybeClassifyNewMessage({ id: 'acct', antispam_enabled: true }, 'msg-8', {});
+    const { imap } = classifyAndTagMessage.mock.calls[0][1];
+
+    await expect(imap.moveMessage({ id: 'acct' }, 1, 'INBOX', 'Junk')).rejects.toThrow('IMAP down');
+    expect(mgr._autoMoveSem.activeCount('acct')).toBe(0);
+    // A failed move must not wedge the account: the next one goes through.
+    await expect(imap.moveMessage({ id: 'acct' }, 2, 'INBOX', 'Junk')).resolves.toBe(42);
+    move.mockRestore();
+  });
 });

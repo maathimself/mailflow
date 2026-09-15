@@ -382,6 +382,68 @@ describe('autoMove — non-UIDPLUS destination guard (mirrors the manual /spam p
   });
 });
 
+describe('classifyAndTagMessage — deferAutoMove (backfill path)', () => {
+  // A message the model scores above the auto-move threshold, so the ONLY reason it
+  // is not moved is the defer flag.
+  const spamMessage = {
+    subject: 'CHEAP VIAGRA!!! WIN $$$',
+    body_text: 'Click here. Buy now. Limited time offer, act now!',
+    from_email: 'spammer@spoof.biz',
+    replyTo: 'other@evil.com',
+    attachments: [{ filename: 'invoice.exe' }],
+  };
+
+  function persistedDetails() {
+    const update = query.mock.calls.find(([sql]) => sql.includes('UPDATE messages SET'));
+    return JSON.parse(update[1][2]);
+  }
+
+  it('tags without moving, keeping the verdict and the deferred intent', async () => {
+    getModelForUser.mockResolvedValue(trainedModel(200));
+    query.mockResolvedValueOnce({ rows: [messageRow(spamMessage)] });
+
+    const imap = imapFacade();
+    const result = await classifyAndTagMessage(MESSAGE_ID, { imap, deferAutoMove: true });
+
+    expect(result.verdict).toBe('spam');
+    expect(result.moved).toBe(false);
+    expect(result.shouldMove).toBe(false);
+    expect(result.autoMoveDeferred).toBe(true);
+    expect(imap.moveMessage).not.toHaveBeenCalled();
+    expect(imap._guardMoveUid).not.toHaveBeenCalled();
+
+    // The verdict and the deferred intent are still persisted for the badge/explain.
+    const update = query.mock.calls.find(([sql]) => sql.includes('UPDATE messages SET'));
+    expect(update[1][0]).toBe('spam');
+    expect(persistedDetails().autoMoveDeferred).toBe(true);
+  });
+
+  it('does not claim a deferred move for a message that was never eligible', async () => {
+    getModelForUser.mockResolvedValue(trainedModel(200));
+    query.mockResolvedValueOnce({ rows: [messageRow({ ...spamMessage, folder_mappings: {} })] });
+
+    const result = await classifyAndTagMessage(MESSAGE_ID, { imap: imapFacade(), deferAutoMove: true });
+
+    expect(result.verdict).toBe('spam');
+    expect(result.autoMoveDeferred).toBe(false); // no spam folder configured
+    expect(persistedDetails().autoMoveDeferred).toBe(false);
+  });
+
+  it('still moves on normal ingest, and records no deferred intent', async () => {
+    getModelForUser.mockResolvedValue(trainedModel(200));
+    query.mockResolvedValueOnce({ rows: [messageRow(spamMessage)] });
+
+    const imap = imapFacade();
+    const result = await classifyAndTagMessage(MESSAGE_ID, { imap });
+
+    expect(result.shouldMove).toBe(true);
+    expect(result.moved).toBe(true);
+    expect(result.autoMoveDeferred).toBe(false);
+    expect(imap.moveMessage).toHaveBeenCalledTimes(1);
+    expect(persistedDetails().autoMoveDeferred).toBe(false);
+  });
+});
+
 describe('classifyAndTagMessage — auto-move failure does not throw', () => {
   it('logs and keeps the verdict when the IMAP move fails', async () => {
       getModelForUser.mockResolvedValue(trainedModel(200));
