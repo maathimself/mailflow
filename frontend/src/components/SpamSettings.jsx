@@ -150,7 +150,11 @@ export default function SpamSettings() {
       await refresh();
       notifyOk(t('spam.retrainDone', { n: res.usersProcessed ?? 0 }));
     } catch (err) {
-      notifyErr(err);
+      // 409: a retrain is already running (the hourly job, or another tab/session). The
+      // server refuses a duplicate rather than queueing one — report it as such instead
+      // of showing a failure the user cannot act on.
+      if (err?.message === 'retrain_in_progress') notifyOk(t('spam.retrainBusy'));
+      else notifyErr(err);
     } finally {
       setBusy(false);
     }

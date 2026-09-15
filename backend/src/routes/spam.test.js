@@ -210,6 +210,19 @@ describe('POST /api/spam/retrain-now', () => {
     expect(body).toMatchObject({ ok: true, usersProcessed: 3 });
     expect(runFullRetrain).toHaveBeenCalledTimes(1);
   });
+
+  it('answers 409 when a retrain is already in flight (single-flight guard)', async () => {
+    runFullRetrain.mockResolvedValue({
+      ok: false, reason: 'already_running', runningKind: 'bucket',
+      usersProcessed: 0, usersTimedOut: 0, totalDuration_ms: 0,
+    });
+    const { server, base } = await startServer();
+    const res = await fetch(`${base}/api/spam/retrain-now`, { method: 'POST' });
+    const body = await res.json();
+    await new Promise((r) => server.close(r));
+    expect(res.status).toBe(409);
+    expect(body).toMatchObject({ error: 'retrain_in_progress', runningKind: 'bucket' });
+  });
 });
 
 describe('POST /api/spam/enable', () => {

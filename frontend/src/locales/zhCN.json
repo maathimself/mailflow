@@ -1510,6 +1510,7 @@
     "saved": "设置已保存",
     "resetAllDone": "训练数据已重置 — 删除 {{n}} 条记录",
     "retrainDone": "重训练完成 — 处理 {{n}} 个用户",
+    "retrainBusy": "重新训练已在进行中——它会自行完成",
     "statusTitle": "模型状态",
     "statusHelp": "模型按用户划分，在所有账户间共享。训练记录少于 50 条时仅使用内置规则。",
     "statMaturity": "成熟度",

@@ -694,6 +694,7 @@
     "saved": "Nastavení uloženo",
     "resetAllDone": "Trénovací data smazána — odstraněno {{n}} záznamů",
     "retrainDone": "Přeškolení dokončeno — zpracováno {{n}} uživatelů",
+    "retrainBusy": "Přeučení už probíhá — dokončí se samo",
     "statusTitle": "Stav modelu",
     "statusHelp": "Model je určen pro jednoho uživatele a sdílí se mezi jeho účty. Při méně než 50 trénovacích záznamech se používají jen vestavěná pravidla.",
     "statMaturity": "Vyspělost",

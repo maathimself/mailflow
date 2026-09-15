@@ -1510,6 +1510,7 @@
     "saved": "Einstellungen gespeichert",
     "resetAllDone": "Trainingdaten zurückgesetzt — {{n}} Datensätze gelöscht",
     "retrainDone": "Neutraining abgeschlossen — {{n}} Benutzer verarbeitet",
+    "retrainBusy": "Ein Retrain läuft bereits — er wird von selbst abgeschlossen",
     "statusTitle": "Modellstatus",
     "statusHelp": "Das Modell ist pro Benutzer und über alle Konten geteilt. Unter 50 Trainingdatensätzen werden nur die eingebauten Regeln verwendet.",
     "statMaturity": "Reifegrad",

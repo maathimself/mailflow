@@ -1510,6 +1510,7 @@
     "saved": "Ajustes guardados",
     "resetAllDone": "Datos de entrenamiento restablecidos — {{n}} registros eliminados",
     "retrainDone": "Reentrenamiento completado — {{n}} usuarios procesados",
+    "retrainBusy": "Ya hay un reentrenamiento en curso — terminará por sí solo",
     "statusTitle": "Estado del modelo",
     "statusHelp": "El modelo es por usuario y compartido entre cuentas. Con menos de 50 registros de entrenamiento solo se usan las reglas integradas.",
     "statMaturity": "Madurez",

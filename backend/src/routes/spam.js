@@ -154,6 +154,16 @@ router.patch('/decay-threshold', async (req, res, next) => {
 router.post('/retrain-now', requireAdmin, async (req, res, next) => {
   try {
     const result = await runFullRetrain();
+    // A run already in flight (the hourly bucket, or another admin request) is
+    // refused rather than queued: it would retrain the same users concurrently and
+    // write the same model rows twice over. Same 409 the inbox-rules sweep returns
+    // for its single-flight guard.
+    if (result.ok === false && result.reason === 'already_running') {
+      return res.status(409).json({
+        error: 'retrain_in_progress',
+        runningKind: result.runningKind ?? null,
+      });
+    }
     res.json({ ok: true, ...result });
   } catch (err) { next(err); }
 });

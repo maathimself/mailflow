@@ -1510,6 +1510,7 @@
     "saved": "Settings saved",
     "resetAllDone": "Training data reset — {{n}} records deleted",
     "retrainDone": "Retrain finished — {{n}} user(s) processed",
+    "retrainBusy": "A retrain is already running — it will finish on its own",
     "statusTitle": "Model status",
     "statusHelp": "The model is per-user and shared across your accounts. Below 50 training records only the built-in rules are used.",
     "statMaturity": "Maturity",

@@ -1510,6 +1510,7 @@
     "saved": "Paramètres enregistrés",
     "resetAllDone": "Données d'entraînement réinitialisées — {{n}} enregistrements supprimés",
     "retrainDone": "Réentraînement terminé — {{n}} utilisateur(s) traités",
+    "retrainBusy": "Un réentraînement est déjà en cours — il se terminera tout seul",
     "statusTitle": "État du modèle",
     "statusHelp": "Le modèle est par utilisateur et partagé entre les comptes. Sous 50 enregistrements, seules les règles intégrées sont utilisées.",
     "statMaturity": "Maturité",

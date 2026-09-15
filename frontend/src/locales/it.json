@@ -1510,6 +1510,7 @@
     "saved": "Impostazioni salvate",
     "resetAllDone": "Dati di training azzerati — {{n}} record eliminati",
     "retrainDone": "Riaddestramento completato — {{n}} utenti processati",
+    "retrainBusy": "Un retrain è già in corso — lo spostamento verrà completato da solo",
     "statusTitle": "Stato del modello",
     "statusHelp": "Il modello è per utente e condiviso tra le caselle. Con meno di 50 record di training vengono usate solo le regole integrate.",
     "statMaturity": "Livello",

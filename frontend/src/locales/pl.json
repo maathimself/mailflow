@@ -1529,6 +1529,7 @@
     "saved": "Ustawienia zapisane",
     "resetAllDone": "Dane treningowe wyczyszczone — usunięto {{n}} rekordów",
     "retrainDone": "Ponowne trenowanie zakończone — przetworzono {{n}} użytkowników",
+    "retrainBusy": "Ponowne uczenie już trwa — zakończy się samo",
     "statusTitle": "Stan modelu",
     "statusHelp": "Model jest przypisany do użytkownika i współdzielony między jego kontami. Poniżej 50 rekordów treningowych używane są tylko wbudowane reguły.",
     "statMaturity": "Dojrzałość",
