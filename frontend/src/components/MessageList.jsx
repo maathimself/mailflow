@@ -1406,6 +1406,12 @@ export default function MessageList() {
   })();
   // Keep scRef in sync so scheduleDelete can read displayMessages without a stale closure
   scRef.current.displayMessages = displayMessages;
+  // Same reason for the drag source: dragstart is synchronous and handleRowDragStart is
+  // registered once ([] deps), so it reads the thread predicate and the fetch context from
+  // here rather than closing over values that would be stale the moment the folder changes.
+  scRef.current.isThreadListRow = isThreadListRow;
+  scRef.current.threadFetchFolder = selectedAccountId ? selectedFolder : 'INBOX';
+  scRef.current.threadFetchUnified = isUnified;
 
   // Arrow-key navigation: intercepts ArrowDown/ArrowUp when the list container has focus.
   const handleListKeyDown = useCallback((e) => {
@@ -1585,11 +1591,21 @@ export default function MessageList() {
   }, []);
 
   const handleRowDragStart = useCallback((e, message) => {
-    const { selectedIds } = scRef.current;
+    const { selectedIds, isThreadListRow: isThreadRow, threadFetchFolder, threadFetchUnified } = scRef.current;
     const isMulti = selectedIds.size > 1 && selectedIds.has(message.id);
     const payload = isMulti
       ? { messageIds: [...selectedIds], accountId: message.account_id }
       : { messageId: message.id, accountId: message.account_id };
+    // A thread row stands for messages the client may never have loaded, so send the thread id
+    // and the context needed to fetch it rather than the one visible message: dropping it would
+    // otherwise move only the newest reply and leave the rest of the conversation behind.
+    // Multi-select keeps the plain per-message payload — a checkbox selection is explicit about
+    // what it covers, and silently widening it to whole threads would be worse than literal.
+    if (!isMulti && isThreadRow?.(message)) {
+      payload.threadId = message.thread_id || message.id;
+      payload.threadFolder = threadFetchFolder;
+      payload.threadUnified = threadFetchUnified;
+    }
     e.dataTransfer.setData('application/x-mailflow-message', JSON.stringify(payload));
     e.dataTransfer.effectAllowed = 'move';
   }, []);
@@ -3667,6 +3683,7 @@ export default function MessageList() {
                   setContextMenu({ x: e.clientX, y: e.clientY, message: msg });
                 }}
                 onMove={handleRowMove}
+                onDragStart={handleRowDragStart}
                 isMobile={isMobile}
                 swipeLeftAction={swipeLeftAction}
                 swipeRightAction={swipeRightAction}
@@ -4141,7 +4158,7 @@ function EmptyState({ folderSyncing, searchQuery, searchError, unreadOnly, selec
   );
 }
 
-function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, lastViewedMessageId, showAccount, isNarrow, onThreadClick, onThreadToggle, showMobileAvatars, showMessagePreviews, onSelect, onOpenWindow, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress }) {
+function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, lastViewedMessageId, showAccount, isNarrow, onThreadClick, onThreadToggle, showMobileAvatars, showMessagePreviews, onSelect, onOpenWindow, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const messageCount = message.message_count || 1;
@@ -4188,6 +4205,13 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
       <div
         ref={isMobile ? contentRef : undefined}
         className={isMobile ? 'no-callout' : undefined}
+        // Drag-to-folder (#130). Threading renders every row through ThreadRow, which never
+        // had drag wired up — so with conversations on, no row was draggable and the browser
+        // fell back to selecting the row's text. Never a regression: the two features simply
+        // never worked together. The payload carries the thread id so the drop resolves the
+        // whole conversation from the server; see handleRowDragStart.
+        draggable={!isMobile}
+        onDragStart={!isMobile && onDragStart ? (e) => onDragStart(e, message) : undefined}
         onMouseEnter={() => !isMobile && setHovered(true)}
         onMouseLeave={() => !isMobile && setHovered(false)}
         onClick={selectionMode ? (e) => {

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { unreadBadge } from '../utils/unreadBadge.js';
 import { api } from '../utils/api.js';
+import { resolveThreadMessages } from '../utils/threadActions.js';
 import {
   activateOnKey,
   buildFolderTree,
@@ -294,7 +295,7 @@ export default function Sidebar() {
     return () => document.removeEventListener('dragend', clear);
   }, [clearFolderDrag]);
 
-  const handleMsgDrop = useCallback((e, targetFolder) => {
+  const handleMsgDrop = useCallback(async (e, targetFolder) => {
     e.preventDefault();
     setMsgDragTarget(null);
     const raw = e.dataTransfer.getData('application/x-mailflow-message');
@@ -303,28 +304,68 @@ export default function Sidebar() {
     try { payload = JSON.parse(raw); } catch { return; }
     const state = useStore.getState();
     const pool = [...state.messages, ...state.searchResults];
-    const ids = payload.messageIds ?? [payload.messageId];
-    const msgs = ids
-      .map(id => pool.find(m => m.id === id))
-      .filter(m => m != null && m.folder !== targetFolder);
+
+    // `msgs` are the rows the list hides and puts back; `movedIds` are what the server is asked
+    // to move. They are the same thing for ordinary rows and deliberately differ for a thread:
+    // one visible row stands for messages that were never loaded, so the ids come from the
+    // server while the row is the only thing there is to restore.
+    let msgs;
+    let movedIds;
+    if (payload.threadId) {
+      const row = pool.find(m => m.id === payload.messageId);
+      if (!row) return;
+      let threadMsgs;
+      try {
+        // The server decides what a thread contains, never the expansion-time cache — a thread
+        // gains messages while you look at it, and a stale list moves some and strands the rest.
+        // See utils/threadActions.js.
+        threadMsgs = await resolveThreadMessages({
+          message: row,
+          isThreadRow: true,
+          fetchThread: () => api.getThread(payload.threadId, payload.threadFolder, payload.threadUnified),
+        });
+      } catch (err) {
+        console.error('Failed to load thread for move:', err.message);
+        state.addNotification({ title: t('message.moved.failTitle'), body: t('message.moved.failBody') });
+        return;
+      }
+      // A folder path is account-specific, and a thread can span accounts (and always includes
+      // Sent copies), so scope the move to the dragged row's account exactly as the context-menu
+      // move does — the server silently skips messages whose account lacks the destination.
+      movedIds = [...new Set(
+        threadMsgs.filter(m => m?.account_id === row.account_id).map(m => m.id).filter(Boolean)
+      )];
+      if (!movedIds.length) movedIds = [row.id];
+      msgs = [row];
+    } else {
+      const ids = payload.messageIds ?? [payload.messageId];
+      msgs = ids
+        .map(id => pool.find(m => m.id === id))
+        .filter(m => m != null && m.folder !== targetFolder);
+      movedIds = msgs.map(m => m.id);
+    }
     if (!msgs.length) return;
     msgs.forEach(msg => {
       state.removeMessage(msg.id);
       if (!msg.is_read) state.decrementUnread(msg.account_id);
     });
-    const movedIds = msgs.map(m => m.id);
     let undone = false;
     const timer = setTimeout(async () => {
       if (undone) return;
       try {
         const result = await api.bulkMove(movedIds, targetFolder);
         const movedSet = new Set(result.moved ?? []);
-        const failedMsgs = msgs.filter(m => !movedSet.has(m.id));
+        const failedIds = movedIds.filter(id => !movedSet.has(id));
+        // A thread's single row stands for every id in the move, so any failure puts that row
+        // back. Ordinary rows still restore only the ones that actually failed.
+        const failedMsgs = payload.threadId
+          ? (failedIds.length > 0 ? msgs : [])
+          : msgs.filter(m => !movedSet.has(m.id));
         const s = useStore.getState();
         if (failedMsgs.length > 0) {
           s.restoreMessages(failedMsgs);
           failedMsgs.forEach(m => { if (!m.is_read) s.incrementUnread(m.account_id); });
-          s.addNotification({ title: t('messageList.bulkMoved.failTitle'), body: t('messageList.bulkMoved.failBody', { count: failedMsgs.length }) });
+          s.addNotification({ title: t('messageList.bulkMoved.failTitle'), body: t('messageList.bulkMoved.failBody', { count: failedIds.length }) });
         } else {
           s.recordRecentFolder({ accountId: msgs[0].account_id, path: targetFolder });
         }

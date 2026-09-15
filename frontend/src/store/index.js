@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { api } from '../utils/api.js';
 import { mergeCountSnapshots, adjustCountPending, expireCountPending, settleCountPending, displayCountSnapshot, mergeFolderSnapshots } from '../utils/countSnapshots.js';
 import { resolveSelectedAccount, pruneFolders } from '../utils/accountScope.js';
+import { aiRuns } from '../utils/aiRunRegistry.js';
 import { applyTheme, applyCustomCss, getInitialTheme } from '../themes.js';
 import { applyFontSet, applyFontSize, effectiveFontSet, isRetroFont, THEME_FONT } from '../fonts.js';
 import { applyLayout, normalizeLayout } from '../layouts.js';
@@ -111,6 +112,10 @@ export const useStore = create((set, get) => ({
       cancelPendingPrefSave();
       clearTimeout(pendingCountTimer);
       pendingCountTimer = null;
+      // AI runs deliberately outlive the message pane, so nothing else would stop one here. A
+      // run that outlived a logout would finish and write the previous user's result into this
+      // device's cache, under their message id, for whoever signs in next.
+      aiRuns.abortAll();
     }
     set(state => ({
       user,
@@ -156,6 +161,9 @@ export const useStore = create((set, get) => ({
       localStorage.setItem('mailflow_locked', '1');
       clearTimeout(pendingCountTimer);
       pendingCountTimer = null;
+      // Same reasoning as an identity change: locking is the user stepping away, and a result
+      // landing in the cache behind the lock screen is the thing the lock exists to prevent.
+      aiRuns.abortAll();
       set({
         serverUnreadCounts: { total: 0, byAccount: {}, snapshots: {} }, pendingCounts: {},
         isLocked: true,

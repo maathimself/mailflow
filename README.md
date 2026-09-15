@@ -72,9 +72,9 @@ groups threads into five states, each backed by a real IMAP folder — so the la
 are just server-side folders that sync to every mail client and survive MailFlow
 itself:
 
-- **Todo** / **Someday** — things you need to act on; the label clears itself once you reply.
-- **Watch** / **Delegated** — things you're waiting on; the label clears itself once the other party replies.
-- **Reference** — kept until you remove it by hand.
+- **Todo** / **Someday** — things you need to act on; the label clears itself once your latest non-draft reply is sent.
+- **Watch** / **Delegated** — things you're waiting on; kept until you remove the label or mark the thread done.
+- **Reference** — kept until you remove the label or mark the thread done.
 
 Label the selected thread from the keyboard — **t** for Todo, **w** for Watch,
 **d** for Delegated (all remappable in the keyboard-shortcut settings) — or from the

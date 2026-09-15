@@ -2,19 +2,16 @@ import { getGtdConfig } from './gtdConfig.js';
 import { resolveAllDraftsPaths, logger, getAccountAddresses, getThreadKeysForMessageIds as _threadKeysForIds, getThreadKeysInFolders as _threadKeysInFolders, getThreadKeysForMessageIdHeaders, getMessagesByThreadKeys } from '../api.js';
 
 // Transition rules for auto-stripping a GTD label once a thread's state has moved on,
-// evaluated per thread against its LAST non-draft message. Designed to match the
-// behavior of an external labeling automation some accounts run concurrently, so a
-// thread's state converges the same way regardless of which side strips it first:
+// evaluated per thread against its LAST non-draft message:
 //   'self'  → strip when that message is FROM the account owner   (Todo/Someday: I've
 //             handled it, so it drops off my action list)
-//   'other' → strip when that message is NOT from the owner       (Watch/Delegated: the
-//             ball is back in my court once they reply, so the waiting state clears)
-//   null    → never auto-strip                                    (Reference: manual only)
+//   null    → never auto-strip                                    (Watch/Delegated/Reference:
+//             explicit removal or a done action only)
 const STRIP_RULE = {
   todo: 'self',
   someday: 'self',
-  watch: 'other',
-  delegated: 'other',
+  watch: null,
+  delegated: null,
   reference: null,
 };
 
@@ -24,7 +21,8 @@ const STRIP_RULE = {
 // lowercase addr-spec. Account-alias routes invalidate the short-lived cache after every
 // successful create/update/delete so a newly configured Fastmail masked sender is recognized
 // before the next GTD transition tick evaluates a just-ingested message; a stale owner set
-// would misclassify that self-sent message and strip its Watch copy for up to the full TTL.
+// would misclassify that self-sent message and delay stripping its Todo/Someday copies for up
+// to the full TTL.
 const ownerCache = new Map(); // accountId -> { value: Set<string>, expiry: number }
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -73,10 +71,9 @@ export const threadKeysInFolders = (accountId, folders) => _threadKeysInFolders(
 // Apply the GTD Labeler rules to a set of threads for one account.
 //
 // Per thread, the verdict is decided against the newest NON-DRAFT message across all of
-// the thread's folders: from the owner → strip Todo/Someday; from anyone else → strip
-// Watch/Delegated; Reference is never touched. Stripping a state removes that thread's
-// rows from the state's designated folder via imapManager.removeMessageCopy — mirroring
-// how an external labeling automation drops a label from every message in a thread at once.
+// the thread's folders: from the owner → strip Todo/Someday. Watch, Delegated, and
+// Reference are never touched automatically. Stripping a state removes that thread's
+// rows from the state's designated folder via imapManager.removeMessageCopy.
 //
 // Loop safety: a strip deletes label-folder rows but changes no message's date or sender,
 // so re-running over the same threads yields the same verdict with nothing left to strip
@@ -136,7 +133,7 @@ export async function runGtdTransitions(imapManager, account, threadKeys) {
 
     for (const [state, folder] of Object.entries(stateFolder)) {
       const rule = STRIP_RULE[state];
-      const shouldStrip = rule === 'self' ? isSelf : rule === 'other' ? !isSelf : false;
+      const shouldStrip = rule === 'self' && isSelf;
       if (!shouldStrip) continue;
 
       for (const copy of threadRows.filter((r) => r.folder === folder)) {

@@ -367,6 +367,23 @@ const SNIPPET_BACKOFF_MAX_MS = 2 * 60 * 60 * 1000;
 // deliberately deferred until the mechanism is confirmed from these logs.
 const STALE_SYNC_WARN_MS = 5 * 60 * 1000;
 
+// The fastest sync interval the settings UI offers (AdminPanel's 15s/30s/60s/2min selector)
+// and the floor connectAllForUser accepts from user preferences. Anything that must not
+// collide with a sync tick is defined against this.
+export const MIN_SYNC_INTERVAL_MS = 15 * 1000;
+
+// How long ImapFlow waits for a quiet connection before starting IDLE. Its own default is
+// 15000ms, which exactly equals MIN_SYNC_INTERVAL_MS — a tick every 15s cleared the arming
+// timer ~100ms before it could fire, so IDLE never started. Kept well below the minimum tick
+// so IDLE engages in every configuration, and above the sub-second gaps a single sync leaves
+// between its own commands so we don't inject IDLE/DONE round trips mid-sequence.
+export const AUTO_IDLE_DELAY_MS = 3000;
+
+// Consecutive health checks (90s apart) an IDLE-capable account may be observed NOT idling
+// before we warn. IDLE covers all but a moment of each cycle, so three straight misses means
+// push is not running and the account has silently degraded to polling.
+const IDLE_MISS_WARN_STREAK = 3;
+
 // How often to actively probe each connected account for a "deaf" sync connection —
 // one that still passes commands but has stopped reflecting new mail (the ~60-min
 // delay we observed). A fresh connection's UID SEARCH is authoritative; if the server
@@ -729,7 +746,13 @@ function safeDate(d) {
 // fetchBody:           store body_html/body_text during backfill/sync.
 //                      Disabled for providers that throttle BODY[] fetches at scale.
 // usesIdle:            keep the persistent sync connection in IMAP IDLE for push events.
-// maxSyncIntervalMs:   clamp the user's sync interval for providers whose IDLE is unreliable.
+// maxSyncIntervalMs:   CEILING on the tick value — Math.min, so it can only make the tick
+//                      FASTER. Intended for providers whose IDLE is unreliable and therefore
+//                      must not be left on a slow tick. NB: it cannot express "poll slowly
+//                      because IDLE handles delivery" — that needs a floor (Math.max), which
+//                      does not exist yet. PurelyMail's 120000 was added meaning the latter
+//                      (see #299) and so has never had any effect: every value the settings UI
+//                      offers is <= 120000, making Math.min a no-op for all of them.
 // pushesFlags:         server pushes flag changes via IDLE; false = poll every sync tick.
 // flagPollEveryTicks:  for non-push flag providers, poll flags every N successful sync ticks.
 // snippetIndex:        run the background snippet indexer after backfill.
@@ -815,7 +838,12 @@ const PROVIDERS = {
     preferFreshBodyFetch: true,
     freshInboxSync: false,          // IDLE push + backstop poll on the persistent connection replaces fresh-login-per-tick
     autoBackfillExistingOnConnect: false,
-    maxSyncIntervalMs: 120000,      // IDLE pushes new mail instantly; the periodic tick is now a light ~2-min backstop
+    // INERT — see the maxSyncIntervalMs note above. This was added to make the tick a light
+    // ~2-min backstop now that IDLE pushes mail, but the field is a Math.min ceiling, so on a
+    // 15s user interval it resolves to 15s and the backstop never happened. Left in place
+    // rather than silently changed: making it a floor would also stretch the flag poll
+    // (flagPollEveryTicks: 6) from 90s to 12 minutes, which is a product decision, not a bugfix.
+    maxSyncIntervalMs: 120000,
     flagPollEveryTicks: 6,
     prefetchNewBodies: true,
     prefetchNewBodiesLimit: 1, // warm only the newest arrival; avoids BODY[] bursts while
@@ -1149,6 +1177,14 @@ export function makeClientCfg(account, resolved, { enableIdle = false, policy = 
   // Connection-sensitive providers (e.g. PurelyMail) need IDLE re-issued more often than the
   // 25-min default or the socket goes half-open ("deaf"); idleKeepaliveMs overrides it.
   if (enableIdle) cfg.maxIdleTime = idleKeepaliveMs || 25 * 60 * 1000;
+  // maxIdleTime governs how long an IDLE lasts once started; autoIdleDelay governs whether it
+  // starts at all. ImapFlow arms IDLE only after this much quiet, and its default is 15000ms —
+  // exactly the fastest sync interval the settings UI offers. On a 15s interval each tick left
+  // the connection quiet for ~14.9s, clearing the arming timer ~100ms before it fired, so IDLE
+  // never started on ANY account and every provider was silently reduced to polling. (Zoho was
+  // the only one to complain: it drops a non-IDLE session after ~295s, producing an endless
+  // reconnect loop.) MUST stay below MIN_SYNC_INTERVAL_MS — see the makeClientCfg tests.
+  if (enableIdle) cfg.autoIdleDelay = AUTO_IDLE_DELAY_MS;
   // OAuth2 XOAUTH2 for Gmail and Microsoft
   if ((account.oauth_provider === 'google' || account.oauth_provider === 'microsoft')
       && account.oauth_access_token) {
@@ -1440,6 +1476,7 @@ export class ImapManager {
     this.userFolderSyncIntervalMs = new Map(); // userId -> folder-structure sync ms (0 = never)
     this.lastFolderSyncAt = new Map(); // accountId -> last folder-structure sync timestamp
     this._pollOnlyAccounts = new Set(); // accountId — demoted to poll-only (no persistent IDLE) by the per-host connection budget (#379)
+    this._idleMissStreak = new Map(); // accountId -> consecutive health checks seen NOT idling despite IDLE being enabled
     this.snippetIndexerRunning = new Set(); // accountId — prevent duplicate snippet-index runs
     this.snippetBackoff = new Map();        // imap_host -> { failures, until } circuit breaker (host-level: a per-host connection limit hits every account on that host, so back them all off together)
     this.lastUserActivity = new Map();      // accountId -> ms timestamp of last live body fetch
@@ -1465,7 +1502,9 @@ export class ImapManager {
     this._healthCheckTimer = setInterval(async () => {
       try {
         const result = await query(
-          "SELECT id, email_address FROM email_accounts WHERE enabled = true AND protocol = 'imap'"
+          // imap_host/oauth_provider are needed for providerProfile() in the IDLE-invariant
+          // check below; they are not credentials, so this stays a cheap non-secret query.
+          "SELECT id, email_address, imap_host, oauth_provider FROM email_accounts WHERE enabled = true AND protocol = 'imap'"
         );
         for (const row of result.rows) {
           // A poll-only account (per-host budget) holds no persistent connection by design; while
@@ -1495,6 +1534,26 @@ export class ImapManager {
             if (last && Date.now() - last > STALE_SYNC_WARN_MS) {
               const mins = Math.round((Date.now() - last) / 60000);
               console.warn(`Health check: ${logAccount(row)} connected but no successful sync in ${mins}m — possible stale connection`);
+            }
+            // Assert the IDLE invariant. An account configured for push that is never observed
+            // idling is silently degraded to polling: mail still arrives, so nothing else in the
+            // system notices, and the only visible symptom is provider-specific (Zoho drops a
+            // non-IDLE session after ~295s). This exact state ran unnoticed on every account
+            // until it was found by reading raw IMAP traffic; the check below makes it say so.
+            // Poll-only accounts hold no IDLE connection by design and are exempt.
+            const client = this.connections.get(row.id);
+            if (client && !this._pollOnlyAccounts.has(row.id) && providerProfile(row).usesIdle !== false) {
+              if (client.idling) {
+                this._idleMissStreak.delete(row.id);
+              } else {
+                const misses = (this._idleMissStreak.get(row.id) || 0) + 1;
+                this._idleMissStreak.set(row.id, misses);
+                // Warn once on crossing the threshold, not every cycle: the condition persists
+                // until reconnect, and a per-cycle warning would drown the log it belongs in.
+                if (misses === IDLE_MISS_WARN_STREAK) {
+                  console.warn(`Health check: ${logAccount(row)} has IDLE enabled but has not been idling for ${misses} consecutive checks — push is inactive, this account is polling only`);
+                }
+              }
             }
           }
         }
@@ -1828,7 +1887,11 @@ export class ImapManager {
         );
       }
       if (this.syncingAccounts.has(account.id)) return;
-      console.log(`IMAP IDLE: new mail for ${logAccount(account)} (${prevCount} → ${count})`);
+      // Named for the IMAP response that fired it, NOT for IDLE. An untagged EXISTS arrives
+      // during IDLE *or* as an unsolicited response to any polled command, so the old
+      // "IMAP IDLE:" prefix asserted push was working on connections that were only polling —
+      // which is precisely how a total absence of IDLE stayed invisible for months.
+      console.log(`IMAP EXISTS: new mail for ${logAccount(account)} (${prevCount} → ${count})`);
       this._syncTick(account).catch(err =>
         console.warn(`IDLE-triggered sync error for ${logAccount(account)}:`, err.message)
       );
@@ -1841,7 +1904,8 @@ export class ImapManager {
       if (existing) clearTimeout(existing);
       this._flagDebounceTimers.set(account.id, setTimeout(() => {
         this._flagDebounceTimers.delete(account.id);
-        console.log(`IMAP IDLE: flag change for ${logAccount(account)}, syncing flags`);
+        // As above: an unsolicited FETCH is not proof of IDLE. Name the response, not the mode.
+        console.log(`IMAP FETCH: flag change for ${logAccount(account)}, syncing flags`);
         this._syncFlagsForRange(account).catch(err =>
           console.warn(`Flag-triggered sync error for ${logAccount(account)}:`, err.message)
         );
@@ -2029,6 +2093,9 @@ export class ImapManager {
     this.syncThrottleSkips.delete(accountId);
     this.syncTickCount.delete(accountId);
     this.lastSyncOkAt.delete(accountId);
+    // The streak describes one client's IDLE state; a reconnect gets a fresh client and must
+    // start from zero, or a warning could carry over and fire against a healthy connection.
+    this._idleMissStreak.delete(accountId);
     // Drop the cached sync_error state (NOT the refusal cooldown, which deliberately survives a
     // disconnect) so a re-added account writes through instead of trusting a stale cache entry.
     this._syncErrorState.delete(accountId);
@@ -2974,8 +3041,8 @@ export class ImapManager {
         // Inbox-ingest facts core hands to plugins after this batch (via the `inboxIngest` hook):
         //   • newInboxIds — the id of every row this sync newly inserts into INBOX, read or unread.
         //     Kept separate from `newMessages` (which is unread-only for notifications) because an
-        //     inbound reply already \Seen on another device must still let a plugin re-evaluate its
-        //     thread (e.g. clear a GTD Watch/Delegated label).
+        //     inbound message already \Seen on another device must still let a plugin re-evaluate
+        //     its thread according to the plugin's current policy.
         //   • ingestDeletedIds — only the ids the block-list / inbox rules genuinely DELETED
         //     (expunged / dropped) from INBOX, so a plugin can exclude them; a rule-MOVED reply is
         //     intentionally kept — its thread still needs re-evaluating even though it was filed
@@ -3296,9 +3363,9 @@ export class ImapManager {
             }
             // Any unread candidate no longer in `newMessages` was moved out of / deleted from
             // INBOX by the block-list or a rule. Only genuinely-DELETED ones are excluded from
-            // the ingest re-eval: a rule that merely MOVED an inbound reply (its row still lives,
-            // in another folder) must still let the plugin re-evaluate the thread so a self-reply's
-            // Watch/Delegated label clears. Distinguish the two by a single is_deleted probe over
+            // the ingest re-eval: a rule that merely MOVED an inbound message (its row still lives,
+            // in another folder) must still let the plugin re-evaluate the thread. Distinguish the
+            // two by a single is_deleted probe over
             // the removed ids — a moved row survives (is_deleted = false), a deleted one does not.
             if (unreadBeforeRules) {
               const survivingIds = new Set(newMessages.map(m => m.id));
@@ -5671,7 +5738,10 @@ export class ImapManager {
       const prefResult = await query('SELECT preferences FROM users WHERE id = $1', [userId]);
       const prefs = prefResult.rows[0]?.preferences || {};
       const sec = parseInt(prefs.syncInterval);
-      if (sec >= 15 && sec <= 120) {
+      // Bounded by MIN_SYNC_INTERVAL_MS rather than a bare 15 so the floor stays tied to the
+      // constant AUTO_IDLE_DELAY_MS is checked against — raising one without the other is what
+      // would silently disable IDLE again.
+      if (sec * 1000 >= MIN_SYNC_INTERVAL_MS && sec <= 120) {
         this.userSyncIntervalMs.set(userId, sec * 1000);
       }
       const folderSec = parseInt(prefs.folderSyncInterval);

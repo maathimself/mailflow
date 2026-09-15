@@ -4,10 +4,10 @@ Thank you for your interest in MailFlow. Please read this before opening a pull 
 
 ## How MailFlow is built
 
-MailFlow is a personal, vision-led project. I build most of it myself and intend to keep doing so, because a single coherent hand keeps the product consistent and the codebase maintainable. That shapes what contributions fit:
+MailFlow is a vision-led project. I hold the direction, because a single coherent hand keeps the product consistent and the codebase maintainable, and I write a lot of it. I am no longer trying to write all of it: the project has outgrown what I can review quickly, and a fix waiting a week on me helps nobody. I am open to trusted contributors taking on review and merge rights, earned through a track record of focused, well-judged changes. That shapes what contributions fit:
 
-- **Bug reports and small, focused fixes are very welcome.** A real bug, a translation, a typo, a small correctness or quality fix — these are easy to review and I'm glad to take them.
-- **For anything larger — a new feature, a refactor, a new dependency, a change to core behaviour — open an issue to discuss it first, before writing any code.** I'll tell you honestly whether it fits and whether I'd merge it.
+- **Bug reports and small, focused fixes are very welcome.** A real bug, a translation, a typo, a small correctness or quality fix — these are easy to review and usually merge quickly.
+- **For anything larger — a new feature, a refactor, a new dependency, a change to core behaviour — open an issue to discuss it first, before writing any code.** You'll get an honest answer on whether it fits and whether we'd merge it.
 - **Unsolicited large pull requests will usually be declined, regardless of quality.** Not because the work isn't good, but because large changes have to fit a direction I'm holding, and reviewing a big PR I didn't plan for is costly whether or not it lands. Please check first so your effort isn't wasted.
 - A "no" is about scope and direction, not about you or your code. I appreciate every bit of interest in the project.
 
@@ -43,6 +43,7 @@ chore: dependency updates, config changes, etc.
 ## Pull Request Requirements
 
 - CI must pass (backend and frontend checks)
+- At least one approving review from a maintainer before merge
 - The PR template must be filled out, including the CLA checkbox
 - Keep changes minimal and focused — no unrelated cleanup in the same PR
 - Large PRs opened without a prior issue may be closed with a pointer back to this document
@@ -53,7 +54,7 @@ chore: dependency updates, config changes, etc.
 - Default to no comments — only add one when the reason behind something would genuinely surprise a future reader
 - No half-finished implementations or feature flags for hypothetical future use
 - Backend: Node/Express with async/await; avoid adding new dependencies without discussion
-- Frontend: React with hooks; Tailwind for styling; avoid unnecessary abstraction
+- Frontend: React with hooks; styling is inline `style={{...}}` objects plus a few shared classes in `index.css` (Tailwind is configured but is not the prevailing convention); avoid unnecessary abstraction
 
 ## Reporting Bugs
 
