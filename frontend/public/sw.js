@@ -28,6 +28,7 @@ self.addEventListener('push', (event) => {
     title       = 'MailFlow',
     body        = 'New message',
     icon        = '/icon-512.png',
+    badge       = '/badge-96.png',
     url         = '/',
     unreadCount,          // intentionally no default — undefined means "don't touch badge"
   } = data;
@@ -60,7 +61,7 @@ self.addEventListener('push', (event) => {
           self.registration.showNotification(title, {
             body,
             icon,
-            badge: '/icon-512.png',
+            badge,
             data:  { url },
             // Replace any existing MailFlow notification so rapid arrivals
             // don't stack unboundedly in the notification center.
