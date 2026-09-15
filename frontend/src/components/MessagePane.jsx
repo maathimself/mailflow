@@ -18,6 +18,8 @@ import { measureContentHeight, createHeightController, forceEagerImages } from '
 import { copyToClipboard } from '../utils/clipboard.js';
 import { folderMatchesQuery } from '../utils/folderDisplay.js';
 import FolderPathLabel from './FolderPathLabel.jsx';
+import SpamBadge from './SpamBadge.jsx';
+import SpamExplainModal from './SpamExplainModal.jsx';
 const USE_DIV_RENDER = import.meta.env.VITE_EMAIL_DIV_RENDER === 'true';
 const MESSAGE_OPENING_EVENT = 'mailflow:message-opening';
 
@@ -312,6 +314,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const [moveSearch, setMoveSearch] = useState('');
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [contextMenu, setContextMenu] = useState(null);
+  const [spamExplainMessageId, setSpamExplainMessageId] = useState(null);
   const [findDialogOpen, setFindDialogOpen] = useState(false);
   const [findQuery, setFindQuery] = useState('');
   const [findMatchCase, setFindMatchCase] = useState(false);
@@ -2486,12 +2489,17 @@ ${bodyContent}
             color: 'var(--text-primary)', lineHeight: 1.3,
             fontFamily: 'var(--font-display)',
           }}>
-            {(() => {
-              const paneSubject = resolvedSubject || message.subject;
-              return (paneSubject && paneSubject !== '(no subject)')
-                ? paneSubject
-                : t('message.noSubject');
-            })()}
+            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+              <span>
+                {(() => {
+                  const paneSubject = resolvedSubject || message.subject;
+                  return (paneSubject && paneSubject !== '(no subject)')
+                    ? paneSubject
+                    : t('message.noSubject');
+                })()}
+              </span>
+              <SpamBadge message={message} onClick={(m) => setSpamExplainMessageId(m.id)} />
+            </div>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 16px' }}>
@@ -3280,6 +3288,13 @@ ${bodyContent}
             setResolvedSubject(s);
             updateMessage(message.id, { subject: s });
           }}
+        />
+      )}
+
+      {spamExplainMessageId && (
+        <SpamExplainModal
+          messageId={spamExplainMessageId}
+          onClose={() => setSpamExplainMessageId(null)}
         />
       )}
 

@@ -7,6 +7,7 @@ import { encrypt } from '../services/encryption.js';
 import { sanitizeSignature } from '../services/emailSanitizer.js';
 import { validateHost } from '../services/hostValidation.js';
 import { getConnectionPolicy } from '../services/connectionPolicy.js';
+import { normalizeAuthservId } from '../services/spamParser.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { createKeyedSerializer } from '../utils/keyedSerializer.js';
 import { uuidParam } from '../utils/uuid.js';
@@ -54,7 +55,8 @@ const SAFE_FIELDS = [
   'auth_user', 'smtp_auth_user', 'oauth_provider', 'enabled',
   'include_in_unified_inbox',
   'last_sync', 'sync_error', 'sort_order', 'folder_mappings',
-  'signature', 'created_at', 'categorization_enabled',
+  'signature', 'created_at', 'categorization_enabled', 'antispam_enabled',
+  'trusted_authserv_id',
 ];
 function safeAccount(row) {
   const obj = Object.fromEntries(SAFE_FIELDS.map(k => [k, row[k]]));
@@ -69,7 +71,7 @@ router.get('/', async (req, res) => {
             smtp_host, smtp_port, smtp_tls, auth_user, smtp_auth_user, oauth_provider, enabled,
             include_in_unified_inbox,
             last_sync, sync_error, sort_order, folder_mappings, signature, created_at,
-            categorization_enabled
+            categorization_enabled, antispam_enabled
      FROM email_accounts WHERE user_id = $1 ORDER BY sort_order, created_at`,
     [req.session.userId]
   );
@@ -207,6 +209,24 @@ router.put('/:id', async (req, res) => {
 
   if ('imap_port' in updates) updates.imap_tls = Number(updates.imap_port) % 1000 === 993;
 
+  // Trusted Authentication-Results authserv-id: store the normalized token, or
+  // NULL to trust nothing (the default). Reject junk before it reaches the DB —
+  // the value is only ever compared against a header token, so a strict shape is
+  // enough (letters/digits plus the hostname punctuation seen in the wild).
+  if ('trusted_authserv_id' in updates) {
+    const rawId = updates.trusted_authserv_id;
+    if (rawId === null || rawId === undefined || String(rawId).trim() === '') {
+      updates.trusted_authserv_id = null;
+    } else if (typeof rawId !== 'string' || rawId.trim().length > 255
+      || !/^[A-Za-z0-9._:/-]+$/.test(rawId.trim())) {
+      return res.status(400).json({
+        error: 'trusted_authserv_id must be a single hostname-like token (letters, digits, ".", "-", "_", "/", ":")',
+      });
+    } else {
+      updates.trusted_authserv_id = normalizeAuthservId(rawId);
+    }
+  }
+
   // Let plugins validate the settings fields they own (GTD owns gtd_enabled/gtd_folders) before we
   // touch anything. A plugin may hard-reject the change (return an error response), report per-field
   // sub-values it reset to defaults, and flag whether its change requires a reconnect. The actual
@@ -224,7 +244,7 @@ router.put('/:id', async (req, res) => {
     if (r.requiresReconnect) pluginRequiresReconnect = true;
   }
 
-  const allowed = ['name', 'sender_name', 'color', 'enabled', 'include_in_unified_inbox', 'auth_user', 'auth_pass', 'sort_order', 'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify', 'smtp_host', 'smtp_port', 'smtp_tls', 'smtp_auth_user', 'smtp_auth_pass', 'folder_mappings', 'signature', 'categorization_enabled'];
+  const allowed = ['name', 'sender_name', 'color', 'enabled', 'include_in_unified_inbox', 'auth_user', 'auth_pass', 'sort_order', 'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify', 'smtp_host', 'smtp_port', 'smtp_tls', 'smtp_auth_user', 'smtp_auth_pass', 'folder_mappings', 'signature', 'categorization_enabled', 'antispam_enabled', 'trusted_authserv_id'];
   const sets = [];
   const values = [];
   let i = 1;
