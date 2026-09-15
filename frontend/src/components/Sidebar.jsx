@@ -10,6 +10,7 @@ import {
   collapsedTooltip,
   FOLDER_ORDER_DRAG_TYPE,
   folderDropPosition,
+  hasRenderedInbox,
   resolveFolderOrderDrop,
 } from '../utils/sidebar.js';
 import { useMobile } from '../hooks/useMobile.js';
@@ -1155,9 +1156,18 @@ export default function Sidebar() {
           const expanded = expandedAccounts[account.id];
           const isSelected = selectedAccountId === account.id;
           const accountFolders = folders[account.id] || [];
+          const accountHiddenPaths = hiddenFolders[account.id] || [];
+          const showingHidden = showHiddenFor.has(account.id);
 
           const selectInbox = () => setSelectedAccount(account.id, 'INBOX');
           const rowLabel = collapsedTooltip(account.email_address, sidebarCollapsed);
+          const hasInbox = hasRenderedInbox(accountFolders, {
+            expanded,
+            sidebarCollapsed,
+            hiddenPaths: accountHiddenPaths,
+            showingHidden,
+          });
+          const isAccountActive = isSelected && selectedFolder === 'INBOX' && !hasInbox;
 
           return (
             <div key={account.id}>
@@ -1168,17 +1178,17 @@ export default function Sidebar() {
                   display: 'flex', alignItems: 'center', gap: 8,
                   padding: sidebarCollapsed ? '8px' : '7px 10px',
                   borderRadius: 7, cursor: 'pointer',
-                  background: isSelected && selectedFolder === 'INBOX'
-                    ? 'var(--bg-hover)' : 'transparent',
+                  background: isAccountActive ? 'var(--bg-hover)' : 'transparent',
                   transition: 'background 0.1s',
                   justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+                  margin: '1px 0',
                 }}
                 onMouseEnter={e => {
-                  if (!(isSelected && selectedFolder === 'INBOX'))
+                  if (!isAccountActive)
                     e.currentTarget.style.background = 'var(--bg-tertiary)';
                 }}
                 onMouseLeave={e => {
-                  if (!(isSelected && selectedFolder === 'INBOX'))
+                  if (!isAccountActive)
                     e.currentTarget.style.background = 'transparent';
                 }}
                 onClick={selectInbox}
@@ -1274,6 +1284,7 @@ export default function Sidebar() {
                   <div style={{
                     display: 'flex', alignItems: 'center', gap: 8,
                     padding: `6px 10px 6px ${indent}px`, borderRadius: 7,
+                    margin: '1px 0',
                   }}>
                     {/* No folder icon here: at deep indents its footprint squeezes
                         the input to a sliver, and the indent alone already places
@@ -1300,9 +1311,6 @@ export default function Sidebar() {
                     </div>
                   </div>
                 );
-
-                const accountHiddenPaths = hiddenFolders[account.id] || [];
-                const showingHidden = showHiddenFor.has(account.id);
 
                 const handleFolderOrderDragStart = (event, path) => {
                   event.stopPropagation();
@@ -1383,6 +1391,7 @@ export default function Sidebar() {
                         style={{
                           display: 'flex', alignItems: 'center', gap: 6,
                           padding: `6px 10px 6px ${indent}px`, borderRadius: 7,
+                          margin: '1px 0',
                           cursor: isRenaming ? 'default' : 'pointer',
                           background: (msgDragTarget === `${account.id}:${folder.path}`) ? 'var(--accent-dim)' : isFolderSelected ? 'var(--bg-hover)' : 'transparent',
                           transition: 'background 0.1s',
@@ -1526,7 +1535,7 @@ export default function Sidebar() {
                   ? tree
                   : tree.filter(node => !accountHiddenPaths.includes(node.path));
                 return (
-                  <div>
+                  <div style={{ marginTop: 2 }}>
                     {visibleTree.map(node => renderNode(node, 0, visibleTree))}
                     {/* Show/hide hidden folders toggle */}
                     {accountHiddenPaths.length > 0 && (
@@ -1535,6 +1544,7 @@ export default function Sidebar() {
                         style={{
                           display: 'flex', alignItems: 'center', gap: 6,
                           padding: '4px 10px 4px 26px', borderRadius: 7,
+                          margin: '1px 0',
                           background: 'none', border: 'none', cursor: 'pointer',
                           color: showingHidden ? 'var(--accent)' : 'var(--text-tertiary)',
                           fontSize: 11, width: '100%', transition: 'color 0.1s',
@@ -1560,6 +1570,7 @@ export default function Sidebar() {
                           style={{
                             display: 'flex', alignItems: 'center', gap: 8,
                             padding: '5px 10px 5px 26px', borderRadius: 7,
+                            margin: '1px 0',
                             background: 'none', border: 'none', cursor: 'pointer',
                             color: 'var(--text-tertiary)', fontSize: 11, width: '100%',
                             transition: 'color 0.1s',
