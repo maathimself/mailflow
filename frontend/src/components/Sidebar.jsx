@@ -1272,6 +1272,7 @@ export default function Sidebar() {
 
                 const createFolderInput = (indent) => (
                   <div style={{
+                    pointerEvents: 'auto',
                     display: 'flex', alignItems: 'center', gap: 8,
                     padding: `6px 10px 6px ${indent}px`, borderRadius: 7,
                   }}>
@@ -1378,9 +1379,15 @@ export default function Sidebar() {
                   ) ? folderDropTarget.position : null;
 
                   return (
-                    <div key={folder.path} style={isHidden ? { opacity: 0.45 } : undefined}>
+                    // The wrapper takes no pointer events of its own. Under fractional display
+                    // scaling (a 175% Windows desktop) row boundaries land on fractional pixels,
+                    // and at that seam this element, which has no drag handling, won the hit
+                    // test: a one-frame "cannot drop" while dragging past. Its interactive
+                    // descendants opt back in.
+                    <div key={folder.path} style={{ pointerEvents: 'none', ...(isHidden ? { opacity: 0.45 } : null) }}>
                       <div
                         style={{
+                          pointerEvents: 'auto',
                           display: 'flex', alignItems: 'center', gap: 6,
                           padding: `6px 10px 6px ${indent}px`, borderRadius: 7,
                           cursor: isRenaming ? 'default' : 'pointer',
