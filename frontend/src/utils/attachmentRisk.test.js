@@ -36,6 +36,19 @@ describe('classifyAttachmentRisk', () => {
     assert.equal(classifyAttachmentRisk('report.docm').doubleExt, null);
   });
 
+  it('does not call a word-processing document saved as RTF a disguise', () => {
+    const letter = classifyAttachmentRisk('Letter.doc.rtf', 'application/rtf');
+    assert.equal(letter.level, 'warn');
+    assert.equal(letter.doubleExt, null);
+    assert.equal(classifyAttachmentRisk('Minutes.docx.rtf').doubleExt, null);
+    assert.equal(classifyAttachmentRisk('Letter.odt.rtf').doubleExt, null);
+    // A PDF, picture or plain-text name in front of .rtf is still a lure.
+    assert.equal(classifyAttachmentRisk('invoice.pdf.rtf').doubleExt, 'pdf.rtf');
+    assert.equal(classifyAttachmentRisk('holiday.jpg.rtf').doubleExt, 'jpg.rtf');
+    assert.equal(classifyAttachmentRisk('readme.txt.rtf').doubleExt, 'txt.rtf');
+    assert.equal(classifyAttachmentRisk('statement.pdf.html').doubleExt, 'pdf.html');
+  });
+
   it('does not mistake a dotted date or version number for a hidden extension', () => {
     // Only a real document or media type counts as the fake half of a disguise.
     const statement = classifyAttachmentRisk('Statement 09.15.2026.html', 'text/html');
