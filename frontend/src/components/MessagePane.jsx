@@ -23,6 +23,8 @@ import SpamExplainModal from './SpamExplainModal.jsx';
 import { classifyAttachmentRisk } from '../utils/attachmentRisk.js';
 const USE_DIV_RENDER = import.meta.env.VITE_EMAIL_DIV_RENDER === 'true';
 const MESSAGE_OPENING_EVENT = 'mailflow:message-opening';
+// riskArmed value for the "Download all" link. Attachment parts are dotted numbers, so it cannot collide.
+const DOWNLOAD_ALL = 'all';
 
 // Module-level regex so the spam-name heuristic isn't recompiled on every
 // render — same heuristic as ContextMenu.jsx, both files read this constant.
@@ -1364,7 +1366,7 @@ ${bodyContent}
   }, []);
 
   // riskArmed: a risky attachment needs a second click to download; the first
-  // arms the button and shows why.
+  // arms the button and shows why. Holds the attachment's part, or DOWNLOAD_ALL.
   const [riskArmed, setRiskArmed] = useState(null);
   useEffect(() => { setRiskArmed(null); }, [selectedMessageId]);
 
@@ -1951,6 +1953,23 @@ ${bodyContent}
   })();
 
   const attachments = body?.attachments || [];
+  // "Download all" hands over every file at once, so it asks first whenever one of them would. While
+  // it does, the link has no href, so a right-click "Save link as", a middle click or a long press has
+  // nothing to fetch; the confirming click starts the download itself.
+  const anyRiskyAttachment = attachments.some(att =>
+    ['block', 'warn'].includes(classifyAttachmentRisk(att.filename, att.type).level));
+  const downloadAllArmed = riskArmed === DOWNLOAD_ALL;
+  const downloadAllUrl = message ? `/api/mail/messages/${message.id}/attachments.zip` : '';
+  const confirmDownloadAll = () => {
+    if (!downloadAllArmed) { setRiskArmed(DOWNLOAD_ALL); return; }
+    setRiskArmed(null);
+    const a = document.createElement('a');
+    a.href = downloadAllUrl;
+    a.download = '';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
 
   return (
     <div
@@ -2640,11 +2659,15 @@ ${bodyContent}
               </div>
               {attachments.length > 1 && (
                 <a
-                  href={`/api/mail/messages/${message.id}/attachments.zip`}
-                  download
+                  {...(anyRiskyAttachment ? {
+                    role: 'button',
+                    tabIndex: 0,
+                    onClick: confirmDownloadAll,
+                    onKeyDown: e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); confirmDownloadAll(); } },
+                  } : { href: downloadAllUrl, download: true })}
                   style={{
-                    fontSize: 12, color: 'var(--accent)', textDecoration: 'none',
-                    display: 'flex', alignItems: 'center', gap: 4,
+                    fontSize: 12, color: downloadAllArmed ? 'var(--red)' : 'var(--accent)', textDecoration: 'none',
+                    display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer',
                   }}
                 >
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -2653,6 +2676,7 @@ ${bodyContent}
                     <line x1="12" y1="15" x2="12" y2="3"/>
                   </svg>
                   {t('message.downloadAll')}
+                  {downloadAllArmed && ` — ${t('message.attachmentRisk.confirm')}`}
                 </a>
               )}
             </div>

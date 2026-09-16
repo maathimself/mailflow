@@ -116,3 +116,117 @@ describe('MessagePane leaves in-flight AI runs alone (#428)', () => {
     root = createRoot(document.getElementById('root'));
   });
 });
+
+describe('Download all asks first when an attachment is risky', () => {
+  const MSG_BLOCK = { ...MSG_A, id: 'c3', uid: 3, subject: 'Invoice' };
+  const MSG_SAFE = { ...MSG_A, id: 'd4', uid: 4, subject: 'Photos' };
+  const MSG_WARN = { ...MSG_A, id: 'e5', uid: 5, subject: 'Login page' };
+  const ATTACHMENTS = {
+    c3: [
+      { filename: 'invoice.pdf', type: 'application/pdf', part: '2', size: 10 },
+      { filename: 'invoice.pdf.exe', type: 'application/octet-stream', part: '3', size: 10 },
+    ],
+    d4: [
+      { filename: 'rink-1.jpg', type: 'image/jpeg', part: '2', size: 10 },
+      { filename: 'rink-2.jpg', type: 'image/jpeg', part: '3', size: 10 },
+    ],
+    e5: [
+      { filename: 'photo.jpg', type: 'image/jpeg', part: '2', size: 10 },
+      { filename: 'account-login.html', type: 'text/html', part: '3', size: 10 },
+    ],
+  };
+  const downloads = [];
+  let originalFetch, originalClick;
+  before(() => {
+    // Rendering a body measures it on the next frame, which jsdom does not provide.
+    globalThis.requestAnimationFrame ??= cb => setTimeout(() => cb(Date.now()), 0);
+    globalThis.cancelAnimationFrame ??= id => clearTimeout(id);
+    dom.window.requestAnimationFrame ??= globalThis.requestAnimationFrame;
+    dom.window.cancelAnimationFrame ??= globalThis.cancelAnimationFrame;
+    originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      const id = /\/messages\/([^/]+)\/body/.exec(String(url))?.[1];
+      const json = ATTACHMENTS[id] ? { html: '<p>hi</p>', text: 'hi', attachments: ATTACHMENTS[id] } : {};
+      return { ok: true, status: 200, json: async () => json, text: async () => '' };
+    };
+    // jsdom cannot download. Record the downloads the component starts itself instead.
+    originalClick = dom.window.HTMLAnchorElement.prototype.click;
+    dom.window.HTMLAnchorElement.prototype.click = function () { downloads.push(this.getAttribute('href')); };
+    useStore.getState().setMessages?.([MSG_A, MSG_B, MSG_BLOCK, MSG_SAFE, MSG_WARN]);
+  });
+  after(() => {
+    globalThis.fetch = originalFetch;
+    dom.window.HTMLAnchorElement.prototype.click = originalClick;
+  });
+
+  async function open(id) {
+    await React.act(async () => {
+      useStore.getState().setSelectedMessage(id);
+      root.render(React.createElement(MessagePane));
+    });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 0)); });
+  }
+
+  const downloadAllLink = () => {
+    const link = [...document.querySelectorAll('a')].find(a => a.textContent.includes('message.downloadAll'));
+    assert.ok(link, 'the Download all link is rendered');
+    return link;
+  };
+
+  async function fire(event) {
+    const link = downloadAllLink();
+    await React.act(async () => { link.dispatchEvent(event); });
+    return downloadAllLink();
+  }
+  const click = () => fire(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+  const armedNote = /message\.attachmentRisk\.confirm/;
+
+  test('with a blocked file, the link has nothing to fetch until a second click downloads', async () => {
+    await open('c3');
+    // No href means a right-click "Save link as", a middle click or a long press cannot get the zip either.
+    assert.equal(downloadAllLink().hasAttribute('href'), false);
+    downloads.length = 0;
+
+    const armed = await click();
+    assert.match(armed.textContent, armedNote);
+    assert.equal(armed.hasAttribute('href'), false, 'arming does not expose the zip');
+    assert.deepEqual(downloads, [], 'the first click must not download');
+
+    const done = await click();
+    assert.deepEqual(downloads, ['/api/mail/messages/c3/attachments.zip'], 'the second click downloads once');
+    assert.doesNotMatch(done.textContent, armedNote, 'and the link asks again next time');
+  });
+
+  test('a warn-level file alone is enough to ask, and Enter arms it like a click', async () => {
+    await open('e5');
+    const link = downloadAllLink();
+    assert.equal(link.hasAttribute('href'), false);
+    assert.equal(link.getAttribute('role'), 'button');
+    downloads.length = 0;
+    const armed = await fire(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    assert.match(armed.textContent, armedNote);
+    assert.deepEqual(downloads, []);
+  });
+
+  test('switching messages drops a half-confirmed Download all', async () => {
+    await open('c3');
+    assert.match((await click()).textContent, armedNote);
+    await open('d4');
+    await open('c3');
+    assert.doesNotMatch(downloadAllLink().textContent, armedNote);
+  });
+
+  test('with only safe attachments, it stays a plain download link', async () => {
+    await open('d4');
+    const link = downloadAllLink();
+    assert.equal(link.getAttribute('href'), '/api/mail/messages/d4/attachments.zip');
+    assert.equal(link.hasAttribute('download'), true);
+    let cancelled;
+    const record = e => { cancelled = e.defaultPrevented; e.preventDefault(); };
+    document.addEventListener('click', record);
+    const after = await click();
+    document.removeEventListener('click', record);
+    assert.equal(cancelled, false, 'the first click downloads');
+    assert.doesNotMatch(after.textContent, armedNote);
+  });
+});
