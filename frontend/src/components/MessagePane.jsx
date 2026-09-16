@@ -20,6 +20,7 @@ import { folderMatchesQuery } from '../utils/folderDisplay.js';
 import FolderPathLabel from './FolderPathLabel.jsx';
 import SpamBadge from './SpamBadge.jsx';
 import SpamExplainModal from './SpamExplainModal.jsx';
+import { classifyAttachmentRisk } from '../utils/attachmentRisk.js';
 const USE_DIV_RENDER = import.meta.env.VITE_EMAIL_DIV_RENDER === 'true';
 const MESSAGE_OPENING_EVENT = 'mailflow:message-opening';
 
@@ -1362,6 +1363,11 @@ ${bodyContent}
     // instead, from the store, where logout and account switch are actually known about.
   }, []);
 
+  // riskArmed: a risky attachment needs a second click to download; the first
+  // arms the button and shows why.
+  const [riskArmed, setRiskArmed] = useState(null);
+  useEffect(() => { setRiskArmed(null); }, [selectedMessageId]);
+
   const handleDownload = async (messageId, part, filename) => {
     setDownloadingPart(part);
     try {
@@ -2651,16 +2657,25 @@ ${bodyContent}
               )}
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {attachments.map((att, i) => (
+              {attachments.map((att, i) => {
+                const risk = classifyAttachmentRisk(att.filename, att.type);
+                const risky = risk.level === 'block' || risk.level === 'warn';
+                const riskColor = risk.level === 'block' ? 'var(--red)' : risk.level === 'warn' ? 'var(--amber)' : 'var(--text-tertiary)';
+                const armed = riskArmed === att.part;
+                return (
                 <button
                   key={i}
-                  onClick={() => handleDownload(message.id, att.part, att.filename)}
+                  onClick={() => {
+                    if (risky && !armed) { setRiskArmed(att.part); return; }
+                    setRiskArmed(null);
+                    handleDownload(message.id, att.part, att.filename);
+                  }}
                   disabled={downloadingPart === att.part}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 8,
                     padding: '8px 12px', borderRadius: 8,
                     background: 'var(--bg-secondary)',
-                    border: '1px solid var(--border)',
+                    border: `1px solid ${risky ? riskColor : 'var(--border)'}`,
                     cursor: downloadingPart === att.part ? 'wait' : 'pointer',
                     color: 'var(--text-primary)',
                     transition: 'background 0.1s',
@@ -2680,6 +2695,14 @@ ${bodyContent}
                     <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
                       {downloadingPart === att.part ? t('message.downloading') : formatBytes(att.size)}
                     </div>
+                    {risk.level !== 'ok' && (
+                      <div style={{ fontSize: 11, color: riskColor, fontWeight: risk.level === 'block' ? 600 : 400, whiteSpace: 'normal' }}>
+                        {risk.doubleExt
+                          ? t('message.attachmentRisk.doubleExt', { ext: risk.doubleExt })
+                          : t(`message.attachmentRisk.${risk.level}`, { ext: risk.ext })}
+                        {armed && ` — ${t('message.attachmentRisk.confirm')}`}
+                      </div>
+                    )}
                   </div>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
                     stroke="var(--text-tertiary)" strokeWidth="2" style={{ flexShrink: 0 }}>
@@ -2688,7 +2711,8 @@ ${bodyContent}
                     <line x1="12" y1="15" x2="12" y2="3"/>
                   </svg>
                 </button>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}

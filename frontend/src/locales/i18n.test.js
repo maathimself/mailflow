@@ -454,6 +454,9 @@ const DYNAMIC_KEYS = new Set([
   'spam.verdict.unsure',
   'spam.method.rules',
   'spam.method.blended',
+  // Attachment risk badges (MessagePane): t(`message.attachmentRisk.${risk.level}`),
+  // where the level comes from classifyAttachmentRisk.
+  'message.attachmentRisk.block', 'message.attachmentRisk.warn', 'message.attachmentRisk.notice',
 ]);
 
 // JSX attribute names whose values must never be plain strings — always t().

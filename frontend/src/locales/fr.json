@@ -202,6 +202,13 @@
     "allowSender": "Toujours autoriser depuis {{email}}",
     "allowDomain": "Toujours autoriser depuis @{{domain}}",
     "downloading": "Téléchargement…",
+    "attachmentRisk": {
+      "block": "Type de fichier dangereux (.{{ext}}) — peut exécuter du code sur votre ordinateur",
+      "warn": "Type de fichier risqué (.{{ext}}) — peut contenir des macros ou une fausse page de connexion",
+      "notice": "Archive — le contenu ne peut pas être inspecté",
+      "doubleExt": "Extension masquée : .{{ext}} — le vrai type est le dernier",
+      "confirm": "cliquez à nouveau pour télécharger quand même"
+    },
     "downloadAll": "Tout télécharger",
     "reply": "Répondre",
     "replyAll": "Répondre à tous",
