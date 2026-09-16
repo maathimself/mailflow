@@ -1,7 +1,7 @@
 {
   "name": "mailflow-frontend",
   "productName": "MailFlow",
-  "version": "3.4.2",
+  "version": "3.5.0",
   "description": "A self-hosted, unified webmail client.",
   "homepage": "https://mailflow.sh",
   "author": {

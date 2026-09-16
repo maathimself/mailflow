@@ -16,6 +16,20 @@ export function activateOnKey(activate) {
   };
 }
 
+export function hasRenderedInbox(folders, {
+  expanded = false,
+  sidebarCollapsed = false,
+  hiddenPaths = [],
+  showingHidden = false,
+} = {}) {
+  if (sidebarCollapsed || !expanded) return false;
+  if (!Array.isArray(folders) || !folders.some(folder => folder?.path === 'INBOX')) {
+    return false;
+  }
+  const isHidden = Array.isArray(hiddenPaths) && hiddenPaths.includes('INBOX');
+  return !isHidden || Boolean(showingHidden);
+}
+
 export const FOLDER_ORDER_DRAG_TYPE = 'application/x-mailflow-folder-order';
 
 function delimiterFor(folders) {

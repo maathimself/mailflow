@@ -202,6 +202,13 @@
     "allowSender": "Always allow from {{email}}",
     "allowDomain": "Always allow from @{{domain}}",
     "downloading": "Downloading…",
+    "attachmentRisk": {
+      "block": "Dangerous file type (.{{ext}}) — can run code on your computer",
+      "warn": "Risky file type (.{{ext}}) — may contain macros or a fake login page",
+      "notice": "Archive — contents cannot be inspected",
+      "doubleExt": "Hidden extension: .{{ext}} — the real type is the last one",
+      "confirm": "click again to download anyway"
+    },
     "downloadAll": "Download all",
     "reply": "Reply",
     "replyAll": "Reply All",
