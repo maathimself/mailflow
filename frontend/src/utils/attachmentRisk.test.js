@@ -36,6 +36,17 @@ describe('classifyAttachmentRisk', () => {
     assert.equal(classifyAttachmentRisk('report.docm').doubleExt, null);
   });
 
+  it('does not mistake a dotted date or version number for a hidden extension', () => {
+    // Only a real document or media type counts as the fake half of a disguise.
+    const statement = classifyAttachmentRisk('Statement 09.15.2026.html', 'text/html');
+    assert.equal(statement.level, 'warn');
+    assert.equal(statement.doubleExt, null);
+    const workbook = classifyAttachmentRisk('Rink P&L v2.1.xlsm');
+    assert.equal(workbook.level, 'warn');
+    assert.equal(workbook.doubleExt, null);
+    assert.equal(classifyAttachmentRisk('holiday.jpg.scr').doubleExt, 'jpg.scr');
+  });
+
   it('falls back to the declared MIME type when the extension is missing', () => {
     assert.equal(classifyAttachmentRisk('payload', 'application/x-msdownload').level, 'block');
     assert.equal(classifyAttachmentRisk('page', 'text/html').level, 'warn');
