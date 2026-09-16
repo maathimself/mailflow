@@ -5,13 +5,18 @@ import { classifyAttachmentRisk } from './attachmentRisk.js';
 
 describe('classifyAttachmentRisk', () => {
   it('blocks executables, scripts, installers, images and shortcuts by extension', () => {
-    for (const f of ['setup.exe', 'run.bat', 'thing.js', 'x.lnk', 'disk.iso', 'app.msi', 'macro.hta', 'lib.dll']) {
-      assert.equal(classifyAttachmentRisk(f, 'application/octet-stream').level, 'block', f);
-    }
+    const names = ['setup.exe', 'run.bat', 'thing.js', 'x.lnk', 'disk.iso', 'app.msi', 'macro.hta', 'lib.dll',
+      'console.msc', 'addin.xll', 'tool.py', 'tool.pyw', 'tool.pyz', 'tool.pyzw', 'tool.pyc', 'tool.pyo', 'tool.pl',
+      'run.ksh', 'run.csh', 'launch.jnlp', 'viewer.app', 'viewer.appref-ms', 'patch.msu', 'fix.diagcab', 'x.sct',
+      'x.wsc', 'x.settingcontent-ms', 'x.search-ms', 'x.library-ms', 'portal.website', 'connect.rdp'];
+    // Every miss at once, rather than stopping at the first.
+    assert.deepEqual(names.filter(f => classifyAttachmentRisk(f, 'application/octet-stream').level !== 'block'), []);
   });
 
   it('warns on macro-enabled Office and web pages', () => {
     assert.equal(classifyAttachmentRisk('report.docm').level, 'warn');
+    // A binary workbook can carry macros; the extension catches it when the declared type is generic.
+    assert.equal(classifyAttachmentRisk('Q3 numbers.xlsb', 'application/octet-stream').level, 'warn');
     assert.equal(classifyAttachmentRisk('login.html', 'text/html').level, 'warn');
     assert.equal(classifyAttachmentRisk('logo.svg', 'image/svg+xml').level, 'warn');
   });

@@ -8,8 +8,10 @@
 
 const BLOCK = new Set(['exe', 'scr', 'com', 'pif', 'bat', 'cmd', 'ps1', 'psm1', 'vbs', 'vbe', 'js', 'jse', 'wsf', 'wsh',
   'msi', 'msp', 'mst', 'jar', 'hta', 'cpl', 'reg', 'lnk', 'iso', 'img', 'vhd', 'vhdx', 'dll', 'apk', 'application', 'appx',
-  'sh', 'run', 'dmg', 'pkg', 'deb', 'rpm', 'chm', 'inf', 'scf', 'url', 'ade', 'adp', 'gadget', 'ws']);
-const WARN = new Set(['docm', 'xlsm', 'pptm', 'xlam', 'dotm', 'xltm', 'potm', 'ppam', 'sldm', 'html', 'htm', 'shtml', 'xhtml', 'svg', 'mht', 'mhtml', 'one', 'pub', 'rtf']);
+  'sh', 'run', 'dmg', 'pkg', 'deb', 'rpm', 'chm', 'inf', 'scf', 'url', 'ade', 'adp', 'gadget', 'ws',
+  'msc', 'xll', 'py', 'pyw', 'pyz', 'pyzw', 'pyc', 'pyo', 'pl', 'ksh', 'csh', 'jnlp', 'app', 'appref-ms', 'msu',
+  'diagcab', 'sct', 'wsc', 'settingcontent-ms', 'search-ms', 'library-ms', 'website', 'rdp']);
+const WARN = new Set(['docm', 'xlsm', 'xlsb', 'pptm', 'xlam', 'dotm', 'xltm', 'potm', 'ppam', 'sldm', 'html', 'htm', 'shtml', 'xhtml', 'svg', 'mht', 'mhtml', 'one', 'pub', 'rtf']);
 const NOTICE = new Set(['zip', 'rar', '7z', 'gz', 'tgz', 'tar', 'bz2', 'xz', 'z', 'cab', 'arj', 'ace', 'lz', 'lzh']);
 // The ordinary document and media types a disguise borrows. Only these count as the
 // fake half of a double extension, so a dotted date or version number in a name
