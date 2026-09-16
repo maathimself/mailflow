@@ -29,9 +29,21 @@ FROM ${NGINX_BASE}
 RUN apk add --no-cache openssl
 
 COPY --from=builder /app/dist /usr/share/nginx/html
+
+# The config is baked in, NOT rendered at runtime. 3.4.3 made it an envsubst template to get
+# the resolver right on non-Docker runtimes (#448), but that made /etc/nginx/conf.d a startup
+# write and broke read-only root filesystems (#453) — the image's entrypoint runs under
+# `set -e`, so the failed write stopped nginx booting at all.
+#
+# Only one marked line is rewritten now, in place, and failing to rewrite it is survivable:
+# 16-detect-resolver.sh corrects the resolver from the container's real /etc/resolv.conf when
+# it can, and leaves the shipped Docker default when it cannot. Read-only filesystems start
+# either way. The resolver is NOT an include — `resolve` requires one, so a glob that matched
+# nothing would stop nginx booting.
 COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
+COPY frontend/detect-resolver.sh /docker-entrypoint.d/16-detect-resolver.sh
 COPY frontend/generate-cert.sh /docker-entrypoint.d/10-generate-cert.sh
-RUN chmod +x /docker-entrypoint.d/10-generate-cert.sh
+RUN chmod +x /docker-entrypoint.d/10-generate-cert.sh /docker-entrypoint.d/16-detect-resolver.sh
 
 EXPOSE 80 443
 

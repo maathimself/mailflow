@@ -6,6 +6,7 @@ import { PluginSlot } from '../plugins/PluginSlot.jsx';
 import { newAiAction, AI_ACTION_LIMITS } from '../aiActions.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { api } from '../utils/api.js';
+import { spamApi } from '../utils/spamApi.js';
 import { copyToClipboard } from '../utils/clipboard.js';
 import { isValidFromValue } from '../utils/defaultSender.js';
 import {
@@ -32,6 +33,7 @@ import DiagnosticsReportModal from './DiagnosticsReportModal.jsx';
 import { getEffectiveShortcuts, getGroupedActions, ACTION_DEFS, SPECIAL_KEY_LABELS, parseModKey, modLabel } from '../utils/defaultShortcuts.js';
 import { isValidForwardAddress } from '../utils/ruleActions.js';
 import { folderParentLabel } from '../utils/folderDisplay.js';
+import SpamSettings from './SpamSettings.jsx';
 
 // ─── Shared field component ───────────────────────────────────────────────────
 function Field({ label, required, children }) {
@@ -84,10 +86,15 @@ function AccountForm({ initial, onSave, onCancel }) {
     imap_host: '', imap_port: 993, imap_skip_tls_verify: false,
     smtp_host: '', smtp_port: 587, smtp_tls: 'STARTTLS',
     smtp_auth_user: '', smtp_auth_pass: '',
-    auth_user: '', auth_pass: '', categorization_enabled: false,
+    auth_user: '', auth_pass: '', categorization_enabled: false, antispam_enabled: false,
+    trusted_authserv_id: '',
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // Detected Authentication-Results authserv-ids for this account (setup helper
+  // for the trusted-authserv-id field). Fetched only for an existing account
+  // with antispam on, since that is when the backend classifies and records them.
+  const [detectedAuthservIds, setDetectedAuthservIds] = useState(null);
   const [showPass, setShowPass] = useState(false);
   const [showSmtpPass, setShowSmtpPass] = useState(false);
   const [selectedPreset, setSelectedPreset] = useState(null);
@@ -102,6 +109,21 @@ function AccountForm({ initial, onSave, onCancel }) {
       }))
       .catch(() => {});
   }, []);
+
+  // Setup helper: which authserv-ids this account's mail actually carries. The
+  // backend records them when it classifies, so the hint is only meaningful for
+  // an existing account with antispam on (and it fills in as mail arrives).
+  useEffect(() => {
+    if (!isEdit || !form.antispam_enabled) {
+      setDetectedAuthservIds(null);
+      return undefined;
+    }
+    let cancelled = false;
+    spamApi.getAuthservIds(initial.id)
+      .then(d => { if (!cancelled) setDetectedAuthservIds(d); })
+      .catch(() => { if (!cancelled) setDetectedAuthservIds(null); });
+    return () => { cancelled = true; };
+  }, [isEdit, form.antispam_enabled, initial?.id]);
 
   const set = (key, val) => setForm(f => ({ ...f, [key]: val }));
 
@@ -411,6 +433,89 @@ function AccountForm({ initial, onSave, onCancel }) {
               </div>
             </div>
           </div>
+
+          <div style={{ height: 1, background: 'var(--border-subtle)', margin: '16px 0' }} />
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 10, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+            {t('admin.accounts.antispamSection')}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+            <button
+              type="button"
+              onClick={() => set('antispam_enabled', !form.antispam_enabled)}
+              style={{
+                width: 36, height: 20, borderRadius: 10, border: 'none',
+                cursor: 'pointer', padding: 0,
+                background: form.antispam_enabled ? 'var(--accent)' : TOGGLE_OFF_BACKGROUND,
+                position: 'relative', transition: 'background 0.2s', flexShrink: 0, marginTop: 1,
+              }}
+            >
+              <span style={{
+                position: 'absolute', top: 2,
+                left: form.antispam_enabled ? 18 : 2,
+                width: 16, height: 16,
+                borderRadius: '50%', background: 'white', transition: 'left 0.2s',
+              }} />
+            </button>
+            <div>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{t('admin.accounts.antispamEnabled')}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>
+                {t('admin.accounts.antispamEnabledDesc')}
+              </div>
+            </div>
+          </div>
+
+          {/* Trusted Authentication-Results authserv-id: only headers written by
+              this id are honored; empty means "trust none" (the auth signal is
+              then ignored rather than trusted blindly). */}
+          {form.antispam_enabled && (
+            <div style={{ marginTop: 14 }}>
+              <Field label={t('admin.accounts.trustedAuthservLabel')}>
+                <input
+                  value={form.trusted_authserv_id || ''}
+                  onChange={e => set('trusted_authserv_id', e.target.value)}
+                  placeholder={t('admin.accounts.trustedAuthservPlaceholder')}
+                  style={inputStyle}
+                />
+              </Field>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: -8, lineHeight: 1.5 }}>
+                {t('admin.accounts.trustedAuthservDesc')}
+              </div>
+
+              {detectedAuthservIds && detectedAuthservIds.analyzed > 0 && detectedAuthservIds.detected.length > 0 && (
+                <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-secondary)' }}>
+                  <div>{t('admin.accounts.trustedAuthservDetected')}</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                    {detectedAuthservIds.detected.map(d => (
+                      <button
+                        key={d.id}
+                        type="button"
+                        onClick={() => set('trusted_authserv_id', d.id)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 6,
+                          padding: '4px 10px', borderRadius: 14, fontSize: 11,
+                          border: '1px solid var(--border)', background: 'var(--bg-secondary)',
+                          color: 'var(--text-secondary)', cursor: 'pointer',
+                        }}
+                      >
+                        <span style={{ fontFamily: 'monospace' }}>{d.id}</span>
+                        <span style={{ color: 'var(--text-tertiary)' }}>
+                          {d.count}/{detectedAuthservIds.analyzed}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ marginTop: 8, color: 'var(--text-tertiary)', lineHeight: 1.5 }}>
+                    {t('admin.accounts.trustedAuthservWarn')}
+                  </div>
+                </div>
+              )}
+              {detectedAuthservIds && (detectedAuthservIds.analyzed === 0 || detectedAuthservIds.detected.length === 0) && (
+                <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-tertiary)', lineHeight: 1.5 }}>
+                  {t('admin.accounts.trustedAuthservDetectedNone')}
+                </div>
+              )}
+            </div>
+          )}
         </>
       )}
 
@@ -472,7 +577,7 @@ function AccountsTab() {
   };
 
   const handleEdit = async (form) => {
-    const updates = { name: form.name, sender_name: form.sender_name || null, color: form.color, imap_host: form.imap_host, imap_port: form.imap_port, imap_skip_tls_verify: !!form.imap_skip_tls_verify, smtp_host: form.smtp_host, smtp_port: form.smtp_port, smtp_tls: form.smtp_tls, signature: form.signature || null, categorization_enabled: !!form.categorization_enabled, include_in_unified_inbox: form.include_in_unified_inbox !== false };
+    const updates = { name: form.name, sender_name: form.sender_name || null, color: form.color, imap_host: form.imap_host, imap_port: form.imap_port, imap_skip_tls_verify: !!form.imap_skip_tls_verify, smtp_host: form.smtp_host, smtp_port: form.smtp_port, smtp_tls: form.smtp_tls, signature: form.signature || null, categorization_enabled: !!form.categorization_enabled, antispam_enabled: !!form.antispam_enabled, trusted_authserv_id: (form.trusted_authserv_id || '').trim() || null, include_in_unified_inbox: form.include_in_unified_inbox !== false };
     if (form.auth_pass) updates.auth_pass = form.auth_pass;
     if (form.auth_user) updates.auth_user = form.auth_user;
     // Separate SMTP credentials (optional). A username sends both (a blank password on
@@ -6965,7 +7070,7 @@ function MailboxCleanupTab() {
 }
 
 const TAB_GROUPS = [
-  { id: 'account-mail', labelKey: 'admin.tabs.groupAccountMail', tabIds: ['accounts', 'notifications', 'rules', 'categories', 'cleanup'] },
+  { id: 'account-mail', labelKey: 'admin.tabs.groupAccountMail', tabIds: ['accounts', 'notifications', 'rules', 'categories', 'cleanup', 'antispam'] },
   { id: 'display', labelKey: 'admin.tabs.groupDisplay', tabIds: ['appearance', 'shortcuts'] },
   { id: 'security-integrations', labelKey: 'admin.tabs.groupSecurityIntegrations', tabIds: ['security', 'integrations', 'ai', 'ai-actions', 'plugins'] },
   { id: 'admin', labelKey: 'admin.tabs.groupAdmin', tabIds: ['users', 'sso'] },
@@ -6992,6 +7097,10 @@ const TABS = [
   {
     id: 'cleanup', labelKey: 'admin.tabs.cleanup', beta: true,
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M19 3l-6 6"/><path d="M14 4l6 6"/><path d="M11 8l-7 7c-1 1-1 3 0 4s3 1 4 0l7-7"/><path d="M6 20l-3-3"/></svg>,
+  },
+  {
+    id: 'antispam', labelKey: 'admin.tabs.antispam',
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z"/><path d="M19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8L19 14z"/><path d="M5 15l.6 1.8L7.5 17l-1.9.7L5 19.5l-.6-1.8L2.5 17l1.9-.7L5 15z"/></svg>,
   },
   // Display
   {
@@ -8639,6 +8748,7 @@ export default function AdminPanel() {
   const tabContent = (
     <>
       {adminTab === 'accounts' && <AccountsTab />}
+      {adminTab === 'antispam' && <SpamSettings />}
       {adminTab === 'rules' && <RulesAndBlockListTab initialSubTab={pendingSubTab} />}
       {adminTab === 'categories' && <CategoriesSection initialSubTab={pendingSubTab} />}
       {adminTab === 'cleanup' && <MailboxCleanupTab />}

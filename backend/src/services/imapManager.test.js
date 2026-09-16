@@ -11,6 +11,7 @@ vi.mock('./pushNotifications.js', () => ({ sendPushToUser: vi.fn() }));
 vi.mock('../utils/redact.js', () => ({ redactEmail: vi.fn() }));
 vi.mock('./hostValidation.js', () => ({ resolveForConnection: vi.fn(), createPinnedLookup: vi.fn() }));
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
+vi.mock('./spamPipeline.js', () => ({ classifyAndTagMessage: vi.fn() }));
 
 import { ImapManager, MIN_SYNC_INTERVAL_MS, AUTO_IDLE_DELAY_MS, countMissingInboxCopies, fetchBackfillBatch, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, extractBodyFromMsg, bodyFallbackApplies, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch } from './imapManager.js';
 import { pluginRegistry } from '../plugins/registry.js';
@@ -21,6 +22,7 @@ import { resolveForConnection } from './hostValidation.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { invalidateGtdConfigCache } from '../plugins/gtd/gtdConfig.js';
 import { parseMessage } from './messageParser.js';
+import { classifyAndTagMessage } from './spamPipeline.js';
 
 const account = (imap_host, oauth_provider = null) => ({ imap_host, oauth_provider });
 
@@ -2398,5 +2400,113 @@ describe('backfill optional metadata fallback', () => {
     const client = { fetch: vi.fn(async function* () { yield {uid:1}; throw new Error('Disconnected'); }) };
     await expect(collect(fetchBackfillBatch(client,[1,2],query))).rejects.toThrow('Disconnected');
     expect(client.fetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── v0.2 antispam ingest hook (shared by syncMessages and backfillMessages) ──
+
+describe('maybeClassifyNewMessage — antispam ingest hook', () => {
+  beforeEach(() => { classifyAndTagMessage.mockReset(); });
+
+  it('does nothing for accounts with antispam disabled', () => {
+    const mgr = new ImapManager(null);
+    mgr.maybeClassifyNewMessage({ id: 'acct', antispam_enabled: false }, 'msg-1', { parsedHeaders: {} });
+    expect(classifyAndTagMessage).not.toHaveBeenCalled();
+  });
+
+  it('hands the new message to the pipeline with headers and the imap facade', () => {
+    const mgr = new ImapManager(null);
+    classifyAndTagMessage.mockResolvedValue({ verdict: 'spam' });
+    mgr.maybeClassifyNewMessage(
+      { id: 'acct', antispam_enabled: true }, 'msg-1',
+      { parsedHeaders: { 'authentication-results': 'mx.example.com; dkim=fail' } },
+    );
+    expect(classifyAndTagMessage).toHaveBeenCalledTimes(1);
+    const [messageId, opts] = classifyAndTagMessage.mock.calls[0];
+    expect(messageId).toBe('msg-1');
+    expect(opts.headers).toEqual({ 'authentication-results': 'mx.example.com; dkim=fail' });
+    expect(typeof opts.imap.moveMessage).toBe('function');
+    expect(typeof opts.imap.broadcast).toBe('function');
+    expect(typeof opts.imap._guardMoveUid).toBe('function');
+    expect(typeof opts.imap._unguardMoveUid).toBe('function');
+  });
+
+  it('defaults to an empty header list when the parsed message has none', () => {
+    const mgr = new ImapManager(null);
+    classifyAndTagMessage.mockResolvedValue(null);
+    mgr.maybeClassifyNewMessage({ id: 'acct', antispam_enabled: 1 }, 'msg-2', undefined);
+    expect(classifyAndTagMessage).toHaveBeenCalledWith('msg-2', expect.objectContaining({ headers: [] }));
+  });
+
+  it('swallows pipeline failures — sync must never break on classification', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const mgr = new ImapManager(null);
+    classifyAndTagMessage.mockRejectedValue(new Error('boom'));
+    expect(() => mgr.maybeClassifyNewMessage({ id: 'acct', antispam_enabled: true }, 'msg-3', {})).not.toThrow();
+    await new Promise(r => setTimeout(r, 0));
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('does not defer the auto-move on normal ingest (the sync path)', () => {
+    const mgr = new ImapManager(null);
+    classifyAndTagMessage.mockResolvedValue({ verdict: 'spam' });
+    mgr.maybeClassifyNewMessage({ id: 'acct', antispam_enabled: true }, 'msg-4', {});
+    expect(classifyAndTagMessage.mock.calls[0][1].deferAutoMove).toBe(false);
+  });
+
+  it('forwards deferAutoMove for the backfill path', () => {
+    const mgr = new ImapManager(null);
+    classifyAndTagMessage.mockResolvedValue({ verdict: 'spam' });
+    mgr.maybeClassifyNewMessage(
+      { id: 'acct', antispam_enabled: true }, 'msg-5', {}, { deferAutoMove: true },
+    );
+    expect(classifyAndTagMessage.mock.calls[0][1].deferAutoMove).toBe(true);
+  });
+
+  it('serializes auto-moves per account — one in flight, the rest queued', async () => {
+    const mgr = new ImapManager(null);
+    let releaseFirst;
+    const firstStarted = new Promise(resolve => { releaseFirst = resolve; });
+    const started = [];
+    const move = vi.spyOn(mgr, 'moveMessage').mockImplementation(async (_acct, uid) => {
+      started.push(uid);
+      if (uid === 1) await firstStarted;
+      return uid + 1000;
+    });
+    classifyAndTagMessage.mockResolvedValue({ verdict: 'spam' });
+    mgr.maybeClassifyNewMessage({ id: 'acct', antispam_enabled: true }, 'msg-6', {});
+    mgr.maybeClassifyNewMessage({ id: 'acct', antispam_enabled: true }, 'msg-7', {});
+    const facades = classifyAndTagMessage.mock.calls.map(call => call[1].imap);
+
+    const p1 = facades[0].moveMessage({ id: 'acct' }, 1, 'INBOX', 'Junk');
+    const p2 = facades[1].moveMessage({ id: 'acct' }, 2, 'INBOX', 'Junk');
+    await new Promise(r => setTimeout(r, 0));
+    // Only the first move reached the pool: the second is waiting for the slot, so a
+    // burst of classified messages cannot fan out concurrent moves (and overflow logins).
+    expect(started).toEqual([1]);
+
+    releaseFirst();
+    await expect(p1).resolves.toBe(1001);
+    await expect(p2).resolves.toBe(1002);
+    expect(started).toEqual([1, 2]);
+    expect(mgr._autoMoveSem.activeCount('acct')).toBe(0);
+    move.mockRestore();
+  });
+
+  it('releases the per-account slot after a failed move', async () => {
+    const mgr = new ImapManager(null);
+    const move = vi.spyOn(mgr, 'moveMessage')
+      .mockRejectedValueOnce(new Error('IMAP down'))
+      .mockResolvedValue(42);
+    classifyAndTagMessage.mockResolvedValue({ verdict: 'spam' });
+    mgr.maybeClassifyNewMessage({ id: 'acct', antispam_enabled: true }, 'msg-8', {});
+    const { imap } = classifyAndTagMessage.mock.calls[0][1];
+
+    await expect(imap.moveMessage({ id: 'acct' }, 1, 'INBOX', 'Junk')).rejects.toThrow('IMAP down');
+    expect(mgr._autoMoveSem.activeCount('acct')).toBe(0);
+    // A failed move must not wedge the account: the next one goes through.
+    await expect(imap.moveMessage({ id: 'acct' }, 2, 'INBOX', 'Junk')).resolves.toBe(42);
+    move.mockRestore();
   });
 });
