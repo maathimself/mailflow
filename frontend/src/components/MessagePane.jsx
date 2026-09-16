@@ -2287,10 +2287,10 @@ ${bodyContent}
                     onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
                     onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                   >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round">
-                      <path d="M22,9v9c0,1.1-.9,2-2,2H4c-1.1,0-2-.9-2-2V9"/>
-                      <polyline points="22 9 12 16 2 9"/>
-                      <polyline points="22 9 12 2 22 9"/>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+                      <path style={{strokeLinecap: 'round'}} d="M22,10.91v7.09c0,1.1-.9,2-2,2H4c-1.1,0-2-.9-2-2V6c0-1.1.9-2,2-2h11"/>
+                      <polyline style={{strokeLinecap: 'round'} } points="16.36 9.95 12 13 2 6"/>
+                      <circle style={{strokeMiterlimit: 10, fill: 'currentColor'}} cx="19.96" cy="6" r="3"/>
                     </svg>
                     {t('contextMenu.markUnread')}
                   </div>
@@ -2420,10 +2420,10 @@ ${bodyContent}
             )}
             {message.is_read && (
               <PaneBtn onClick={handleMarkUnread} title={t('contextMenu.markUnread')}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round">
-                  <path d="M22,9v9c0,1.1-.9,2-2,2H4c-1.1,0-2-.9-2-2V9"/>
-                  <polyline points="22 9 12 16 2 9"/>
-                  <polyline points="22 9 12 2 22 9"/>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+                  <path style={{strokeLinecap: 'round'}} d="M22,10.91v7.09c0,1.1-.9,2-2,2H4c-1.1,0-2-.9-2-2V6c0-1.1.9-2,2-2h11"/>
+                  <polyline style={{strokeLinecap: 'round'} } points="16.36 9.95 12 13 2 6"/>
+                  <circle style={{strokeMiterlimit: 10, fill: 'currentColor'}} cx="19.96" cy="6" r="3"/>
                 </svg>
               </PaneBtn>
             )}
