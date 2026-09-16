@@ -19,7 +19,7 @@ const DECOY = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt'
   'jpg', 'jpeg', 'png', 'gif', 'mp3', 'mp4', 'mov', 'avi', 'wav']);
 
 export function classifyAttachmentRisk(filename, mimeType = '') {
-  const name = String(filename || '').trim().toLowerCase();
+  const name = stripTrailingDotsAndSpaces(String(filename || '').trim()).toLowerCase();
   const parts = name.split('.');
   const ext = parts.length > 1 ? parts[parts.length - 1] : '';
   const prevExt = parts.length > 2 ? parts[parts.length - 2] : '';
@@ -38,4 +38,14 @@ export function classifyAttachmentRisk(filename, mimeType = '') {
     return { level: 'notice', ext, doubleExt };
   }
   return { level: 'ok', ext, doubleExt: null };
+}
+
+// Windows, and browsers such as Firefox, drop trailing dots and spaces from a saved file name, so
+// "invoice.exe." can land on disk as invoice.exe. U+180E is included because \s no longer matches it
+// but download sanitizers may still strip it. A loop rather than /[.\s]+$/, which backtracks
+// quadratically on a long run of dots or spaces in the middle of a name.
+function stripTrailingDotsAndSpaces(name) {
+  let end = name.length;
+  while (end > 0 && /[.\s\u180E]/.test(name[end - 1])) end--;
+  return name.slice(0, end);
 }

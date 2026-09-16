@@ -55,4 +55,24 @@ describe('classifyAttachmentRisk', () => {
   it('is case-insensitive', () => {
     assert.equal(classifyAttachmentRisk('SETUP.EXE').level, 'block');
   });
+
+  it('ignores trailing dots and spaces, which can be dropped when the file is saved', () => {
+    assert.equal(classifyAttachmentRisk('invoice.exe.').level, 'block');
+    assert.equal(classifyAttachmentRisk('invoice.exe . .').level, 'block');
+    assert.equal(classifyAttachmentRisk('report.docm...').level, 'warn');
+    const disguised = classifyAttachmentRisk('invoice.pdf.exe.');
+    assert.equal(disguised.ext, 'exe');
+    assert.equal(disguised.doubleExt, 'pdf.exe');
+    assert.equal(classifyAttachmentRisk('...').level, 'ok');
+    assert.equal(classifyAttachmentRisk('invoice.exe\u180E').level, 'block');
+    // A name that is nothing but dots still falls back to its declared type.
+    assert.equal(classifyAttachmentRisk('.', 'application/x-msdownload').level, 'block');
+  });
+
+  it('classifies a name with a long run of dots or spaces quickly', () => {
+    const started = Date.now();
+    assert.equal(classifyAttachmentRisk('invoice' + ' '.repeat(100_000) + '.pdf').level, 'ok');
+    assert.equal(classifyAttachmentRisk('setup' + '.'.repeat(100_000) + 'exe').level, 'block');
+    assert.ok(Date.now() - started < 1000, `took ${Date.now() - started} ms`);
+  });
 });
