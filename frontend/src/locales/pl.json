@@ -204,6 +204,13 @@
     "allowSender": "Zawsze zezwalaj nadawcy {{email}}",
     "allowDomain": "Zawsze zezwalaj domenie @{{domain}}",
     "downloading": "Pobieranie…",
+    "attachmentRisk": {
+      "block": "Niebezpieczny typ pliku (.{{ext}}) — może uruchomić kod na komputerze",
+      "warn": "Ryzykowny typ pliku (.{{ext}}) — może zawierać makra lub fałszywą stronę logowania",
+      "notice": "Archiwum — zawartości nie można sprawdzić",
+      "doubleExt": "Ukryte rozszerzenie: .{{ext}} — prawdziwy typ to ostatni",
+      "confirm": "kliknij ponownie, aby mimo to pobrać"
+    },
     "downloadAll": "Pobierz wszystko",
     "reply": "Odpowiedz",
     "replyAll": "Odpowiedz wszystkim",

@@ -7,6 +7,7 @@ import {
   collapsedTooltip,
   FOLDER_ORDER_DRAG_TYPE,
   folderDropPosition,
+  hasRenderedInbox,
   normalizeFolderOrder,
   reorderFolderPaths,
   resolveFolderOrderDrop,
@@ -68,6 +69,66 @@ describe('activateOnKey', () => {
       assert.equal(activated, 0, `expected ${JSON.stringify(key)} to be ignored`);
       assert.equal(event.prevented, false, `expected ${JSON.stringify(key)} to pass through`);
     }
+  });
+});
+
+describe('hasRenderedInbox', () => {
+  it('returns false when the sidebar rail is collapsed', () => {
+    assert.equal(hasRenderedInbox(folders, {
+      expanded: true,
+      sidebarCollapsed: true,
+    }), false);
+  });
+
+  it('returns false when the account tree is folded', () => {
+    assert.equal(hasRenderedInbox(folders, {
+      expanded: false,
+      sidebarCollapsed: false,
+    }), false);
+  });
+
+  it('returns true when expanded with a visible INBOX folder', () => {
+    assert.equal(hasRenderedInbox(folders, {
+      expanded: true,
+      sidebarCollapsed: false,
+    }), true);
+  });
+
+  it('returns false when account folders are not loaded yet or missing', () => {
+    assert.equal(hasRenderedInbox([], {
+      expanded: true,
+      sidebarCollapsed: false,
+    }), false);
+    assert.equal(hasRenderedInbox(null, {
+      expanded: true,
+      sidebarCollapsed: false,
+    }), false);
+    assert.equal(hasRenderedInbox(undefined, {
+      expanded: true,
+      sidebarCollapsed: false,
+    }), false);
+    assert.equal(hasRenderedInbox([{ path: 'Archive' }], {
+      expanded: true,
+      sidebarCollapsed: false,
+    }), false);
+  });
+
+  it('returns false when INBOX is hidden and hidden folders are not toggled visible', () => {
+    assert.equal(hasRenderedInbox(folders, {
+      expanded: true,
+      sidebarCollapsed: false,
+      hiddenPaths: ['INBOX'],
+      showingHidden: false,
+    }), false);
+  });
+
+  it('returns true when INBOX is hidden but hidden folders are toggled visible', () => {
+    assert.equal(hasRenderedInbox(folders, {
+      expanded: true,
+      sidebarCollapsed: false,
+      hiddenPaths: ['INBOX'],
+      showingHidden: true,
+    }), true);
   });
 });
 

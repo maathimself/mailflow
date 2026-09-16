@@ -296,6 +296,13 @@
     "allowSender": "Vždy povolit od {{email}}",
     "allowDomain": "Vždy povolit z @{{domain}}",
     "downloading": "Stahování…",
+    "attachmentRisk": {
+      "block": "Nebezpečný typ souboru (.{{ext}}) – může spustit kód v počítači",
+      "warn": "Rizikový typ souboru (.{{ext}}) – může obsahovat makra nebo falešnou přihlašovací stránku",
+      "notice": "Archiv – obsah nelze zkontrolovat",
+      "doubleExt": "Skrytá přípona: .{{ext}} – skutečný typ je ten poslední",
+      "confirm": "kliknutím znovu přesto stáhnete"
+    },
     "downloadAll": "Stáhnout vše",
     "reply": "Odpovědět",
     "replyAll": "Odpovědět všem",

@@ -202,6 +202,13 @@
     "allowSender": "Consenti sempre da {{email}}",
     "allowDomain": "Consenti sempre da @{{domain}}",
     "downloading": "Download in corso…",
+    "attachmentRisk": {
+      "block": "Tipo di file pericoloso (.{{ext}}): può eseguire codice sul computer",
+      "warn": "Tipo di file rischioso (.{{ext}}): può contenere macro o una pagina di accesso falsa",
+      "notice": "Archivio: il contenuto non può essere ispezionato",
+      "doubleExt": "Estensione nascosta: .{{ext}} — il tipo reale è l'ultimo",
+      "confirm": "fai di nuovo clic per scaricare comunque"
+    },
     "downloadAll": "Scarica tutto",
     "reply": "Rispondi",
     "replyAll": "Rispondi a tutti",
