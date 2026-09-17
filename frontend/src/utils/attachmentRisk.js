@@ -19,14 +19,19 @@ const NOTICE = new Set(['zip', 'rar', '7z', 'gz', 'tgz', 'tar', 'bz2', 'xz', 'z'
 // list as PRESENTATION_EXTENSIONS behind the backend's ATTACHMENT_DOUBLE_EXT rule.
 const DECOY = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'rtf', 'odt', 'ods', 'odp',
   'jpg', 'jpeg', 'png', 'gif', 'mp3', 'mp4', 'mov', 'avi', 'wav']);
+// Word-processing formats a document is converted from when it goes out as RTF under its old name
+// ("Letter.doc.rtf"). The hidden .rtf opens in the same kind of program the visible half promises, so
+// that is not reported as a disguise; a PDF, picture or media name in front of .rtf still is.
+const RTF_SOURCES = new Set(['doc', 'docx', 'odt']);
 
 export function classifyAttachmentRisk(filename, mimeType = '') {
-  const name = String(filename || '').trim().toLowerCase();
+  const name = stripTrailingDotsAndSpaces(String(filename || '').trim()).toLowerCase();
   const parts = name.split('.');
   const ext = parts.length > 1 ? parts[parts.length - 1] : '';
   const prevExt = parts.length > 2 ? parts[parts.length - 2] : '';
   // ".pdf.exe": an innocent-looking extension right before the real one
-  const disguised = (BLOCK.has(ext) || WARN.has(ext)) && DECOY.has(prevExt);
+  const disguised = (BLOCK.has(ext) || WARN.has(ext)) && DECOY.has(prevExt)
+    && !(ext === 'rtf' && RTF_SOURCES.has(prevExt));
   const doubleExt = disguised ? `${prevExt}.${ext}` : null;
 
   const mime = String(mimeType || '').toLowerCase();
@@ -40,4 +45,14 @@ export function classifyAttachmentRisk(filename, mimeType = '') {
     return { level: 'notice', ext, doubleExt };
   }
   return { level: 'ok', ext, doubleExt: null };
+}
+
+// Windows, and browsers such as Firefox, drop trailing dots and spaces from a saved file name, so
+// "invoice.exe." can land on disk as invoice.exe. U+180E is included because \s no longer matches it
+// but download sanitizers may still strip it. A loop rather than /[.\s]+$/, which backtracks
+// quadratically on a long run of dots or spaces in the middle of a name.
+function stripTrailingDotsAndSpaces(name) {
+  let end = name.length;
+  while (end > 0 && /[.\s\u180E]/.test(name[end - 1])) end--;
+  return name.slice(0, end);
 }
