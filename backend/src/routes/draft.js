@@ -7,6 +7,7 @@ import sanitizeHtml from 'sanitize-html';
 import { sanitizeSignature, sanitizeComposeBody } from '../services/emailSanitizer.js';
 import { embedInlineDataImages } from '../utils/inlineImages.js';
 import { imapManager } from '../index.js';
+import { resolveAllDraftsPaths } from '../utils/mailUtils.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -129,6 +130,21 @@ async function resolveDraftsFolder(account) {
   return result.rows[0]?.path || null;
 }
 
+// These routes permanently expunge, so they may only touch a Drafts folder: the canonical set; the
+// folder this file appends drafts to (resolveDraftsFolder trusts the raw mapping, and a save must
+// always be able to replace its own previous copy); and the server's own \Drafts folder, which the
+// message list still opens as Drafts when the mapping points somewhere else.
+async function isDraftsPath(account, folder, draftsFolder) {
+  if (typeof folder !== 'string' || !folder) return false;
+  if (folder === (draftsFolder ?? await resolveDraftsFolder(account))) return true;
+  if ((await resolveAllDraftsPaths(account.id, account.folder_mappings)).has(folder)) return true;
+  const specialUse = await query(
+    "SELECT 1 FROM folders WHERE account_id = $1 AND path = $2 AND special_use = '\\Drafts' LIMIT 1",
+    [account.id, folder]
+  );
+  return specialUse.rows.length > 0;
+}
+
 router.post('/draft', async (req, res) => {
   const { accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, editedSignature, existingUid, existingFolder } = req.body;
   if (!accountId) return res.status(400).json({ error: 'accountId required' });
@@ -169,14 +185,21 @@ router.post('/draft', async (req, res) => {
       }
     }
 
-    // Delete the old draft only after the new one is safely stored
+    // Delete the old draft only after the new one is safely stored, and only a single numeric uid
+    // in a Drafts folder: the uid goes to IMAP as a UID set, so "1:*" would expunge the folder.
     if (existingUid && existingFolder) {
       try {
-        await imapManager.permanentDeleteMessage(account, existingUid, existingFolder);
-        await query(
-          'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3',
-          [account.id, existingUid, existingFolder]
-        );
+        const oldUid = (typeof existingUid === 'number' || typeof existingUid === 'string')
+          && /^[1-9]\d*$/.test(String(existingUid)) ? Number(existingUid) : null;
+        if (!oldUid || !(await isDraftsPath(account, existingFolder, draftsFolder))) {
+          console.error(`Draft: refusing to delete old uid=${JSON.stringify(existingUid)} in folder ${JSON.stringify(existingFolder)}: not a single uid in a Drafts folder`);
+        } else {
+          await imapManager.permanentDeleteMessage(account, oldUid, existingFolder);
+          await query(
+            'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3',
+            [account.id, oldUid, existingFolder]
+          );
+        }
       } catch (delErr) {
         console.error(`Draft: failed to delete old uid=${existingUid}: ${delErr.message}`);
       }
@@ -204,6 +227,9 @@ router.delete('/draft/:uid', async (req, res) => {
 
   try {
     const account = ownerCheck.rows[0];
+    if (!(await isDraftsPath(account, folder))) {
+      return res.status(400).json({ error: 'Folder is not a Drafts folder' });
+    }
     await imapManager.permanentDeleteMessage(account, uid, folder);
     await query(
       'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3',
