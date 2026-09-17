@@ -46,3 +46,12 @@ export async function getBlob(pluginId, key) {
 export async function del(pluginId, key) {
   await query(`DELETE FROM plugin_data WHERE plugin_id = $1 AND key = $2`, [pluginId, key]);
 }
+
+// All records for a plugin scoped to one owner, ordered by key. Returns metadata only (no blob).
+export async function listByOwner(pluginId, ownerId) {
+  const { rows } = await query(
+    `SELECT key, owner_id, value, visibility FROM plugin_data WHERE plugin_id = $1 AND owner_id = $2 ORDER BY key`,
+    [pluginId, ownerId]
+  );
+  return { rows };
+}

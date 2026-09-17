@@ -15,7 +15,7 @@ import MessageList from './MessageList.jsx';
 import MessagePane from './MessagePane.jsx';
 import NotificationToasts from './NotificationToasts.jsx';
 import CommandPalette from './CommandPalette.jsx';
-import { usePluginSlot, PluginRuntime } from '../plugins/PluginSlot.jsx';
+import { usePluginSlot, PluginRuntime, PluginSlot } from '../plugins/PluginSlot.jsx';
 
 const ContactsPage = lazy(() => import('./ContactsPage.jsx'));
 const WindowLayer  = lazy(() => import('./WindowLayer.jsx'));
@@ -68,7 +68,7 @@ export default function MailApp() {
     mobileSidebarOpen, setMobileSidebarOpen, addNotification,
     fontSize, showAppBadge, showFaviconBadge,
     sidebarWidth, setSidebarWidth, setIsSidebarResizing,
-    showContacts, setTodoistConnected,
+    showContacts, activePluginView, setTodoistConnected,
     accounts, rightSidebarWidth, setRightSidebarWidth, isRightSidebarResizing, setIsRightSidebarResizing,
     rightSidebarHidden, toggleRightSidebarHidden,
   } = useStore();
@@ -778,10 +778,13 @@ export default function MailApp() {
           <div style={{ flex: 1, overflow: 'hidden', height: '100%', display: showContacts ? 'flex' : 'none' }}>
             <Suspense fallback={lazyFallback}><ContactsPage /></Suspense>
           </div>
-          <div style={{ flex: 1, display: !showContacts && !selectedMessageId ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
+          <div style={{ flex: 1, overflow: 'hidden', height: '100%', display: activePluginView ? 'flex' : 'none' }}>
+            <PluginSlot name="main-view" ctx={{ viewId: activePluginView }} />
+          </div>
+          <div style={{ flex: 1, display: !showContacts && !activePluginView && !selectedMessageId ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
             <MessageList />
           </div>
-          <div style={{ flex: 1, display: !showContacts && selectedMessageId ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
+          <div style={{ flex: 1, display: !showContacts && !activePluginView && selectedMessageId ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
             <MessagePane />
           </div>
         </>
@@ -810,7 +813,10 @@ export default function MailApp() {
             <div style={{ display: showContacts ? 'flex' : 'none', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
               <Suspense fallback={lazyFallback}><ContactsPage /></Suspense>
             </div>
-            <div style={{ display: showContacts ? 'none' : 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', flexDirection: currentLayout.direction }}>
+            <div style={{ display: activePluginView ? 'flex' : 'none', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
+              <PluginSlot name="main-view" ctx={{ viewId: activePluginView }} />
+            </div>
+            <div style={{ display: !showContacts && !activePluginView ? 'flex' : 'none', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', flexDirection: currentLayout.direction }}>
               <MessageList />
               {currentLayout.direction === 'row' && (
                 <div
