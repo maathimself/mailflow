@@ -2452,6 +2452,74 @@ function Sep() {
   return <span style={{ width: 1, background: 'var(--border-subtle)', margin: '2px 4px', alignSelf: 'stretch' }} />;
 }
 
+function ColorMenuSection({ title, colors, activeColor, onColor, onClear, clearLabel, showNoColor, showClear = true }) {
+  const customInputRef = useRef(null);
+  const customColor = /^#[0-9a-f]{6}$/i.test(activeColor || '') ? activeColor : '#000000';
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ fontSize: 12, color: 'var(--text-primary)', fontWeight: 500 }}>{title}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 18px)', gap: 5 }}>
+        {colors.map(c => (
+          <button key={`${title}-${c}`} onMouseDown={e => { e.preventDefault(); onColor(c); }}
+            title={c}
+            style={{
+              width: 18, height: 18, borderRadius: 2, background: c,
+              border: c === '#ffffff' || c === '#f5f5f5' ? '1px solid var(--border)' : '1px solid transparent',
+              cursor: 'pointer', padding: 0,
+              outline: activeColor === c ? '2px solid var(--accent)' : 'none', outlineOffset: 1,
+            }}>
+            {activeColor === c && (
+              <span style={{
+                display: 'block', width: 10, height: 10, margin: 3,
+                border: c === '#000000' || c === '#222222' || c === '#0c343d' || c === '#073763' || c === '#20124d' || c === '#4c1130'
+                  ? '2px solid white'
+                  : '2px solid #111',
+                borderTop: 'none', borderLeft: 'none', transform: 'rotate(45deg)',
+              }} />
+            )}
+          </button>
+        ))}
+      </div>
+      <button onMouseDown={e => { e.preventDefault(); customInputRef.current?.click(); }}
+        style={{
+          alignSelf: 'flex-start', background: 'none', border: 'none', color: 'var(--accent)',
+          fontSize: 12, padding: '2px 0', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5,
+        }}>
+        <span style={{ width: 16, height: 16, background: customColor, border: '1px solid var(--border)', display: 'inline-block' }} />
+        Custom color...
+      </button>
+      <input ref={customInputRef} type="color" value={customColor}
+        onChange={e => onColor(e.target.value)}
+        style={{ position: 'absolute', opacity: 0, pointerEvents: 'none', width: 1, height: 1 }} />
+      {showNoColor && (
+        <button onMouseDown={e => { e.preventDefault(); onClear(); }}
+          title={clearLabel}
+          style={{
+            alignSelf: 'flex-start', background: 'none', border: 'none', color: 'var(--accent)',
+            fontSize: 12, padding: '0 0 2px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5,
+          }}>
+          <span style={{
+            width: 16, height: 16, border: '1px solid var(--border)', display: 'inline-block',
+            background: 'linear-gradient(to bottom right, transparent calc(50% - 1px), #e03131 calc(50% - 1px), #e03131 calc(50% + 1px), transparent calc(50% + 1px))',
+          }} />
+          No color
+        </button>
+      )}
+      {showClear && !showNoColor && (
+        <button onMouseDown={e => { e.preventDefault(); onClear(); }}
+          title={clearLabel}
+          style={{
+            alignSelf: 'flex-start', background: 'none', border: 'none', color: 'var(--accent)',
+            fontSize: 12, padding: '0 0 2px', cursor: 'pointer',
+          }}>
+          Remove color
+        </button>
+      )}
+    </div>
+  );
+}
+
 function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, isMobile, aiEnabled, onAiAction, aiPanelOpen }) {
   const { t } = useTranslation();
   const uiScale = useUiScale();
@@ -2459,21 +2527,18 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
   const [aiMenuPos, setAiMenuPos] = useState(null);
   const aiBtnRef = useRef(null);
   const aiMenuRef = useRef(null);
-  const [colorPos, setColorPos] = useState(null);
-  const [highlightPos, setHighlightPos] = useState(null);
+  const [typeMenuPos, setTypeMenuPos] = useState(null);
   const [emojiPos, setEmojiPos] = useState(null);
   const emojiPickerRef = useRef(null);
   const [linkPos, setLinkPos] = useState(null);
   const [tablePos, setTablePos] = useState(null);
   const [linkUrl, setLinkUrl] = useState('');
-  const colorBtnRef = useRef(null);
-  const highlightBtnRef = useRef(null);
+  const typeMenuBtnRef = useRef(null);
   const emojiBtnRef = useRef(null);
   const linkBtnRef = useRef(null);
   const tableBtnRef = useRef(null);
   const tablePopRef = useRef(null);
-  const colorPopRef = useRef(null);
-  const highlightPopRef = useRef(null);
+  const typeMenuRef = useRef(null);
   const emojiPopRef = useRef(null);
   const linkPopRef = useRef(null);
   const linkInputRef = useRef(null);
@@ -2505,10 +2570,9 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
   }, [linkPos]);
 
   useEffect(() => {
-    if (!colorPos && !highlightPos && !emojiPos && !linkPos && !tablePos && !aiMenuPos) return;
+    if (!typeMenuPos && !emojiPos && !linkPos && !tablePos && !aiMenuPos) return;
     const handler = (e) => {
-      if (colorPos && colorBtnRef.current && !colorBtnRef.current.contains(e.target) && colorPopRef.current && !colorPopRef.current.contains(e.target)) setColorPos(null);
-      if (highlightPos && highlightBtnRef.current && !highlightBtnRef.current.contains(e.target) && highlightPopRef.current && !highlightPopRef.current.contains(e.target)) setHighlightPos(null);
+      if (typeMenuPos && typeMenuBtnRef.current && !typeMenuBtnRef.current.contains(e.target) && typeMenuRef.current && !typeMenuRef.current.contains(e.target)) setTypeMenuPos(null);
       if (emojiPos && emojiBtnRef.current && !emojiBtnRef.current.contains(e.target) && emojiPopRef.current && !emojiPopRef.current.contains(e.target)) setEmojiPos(null);
       if (linkPos && linkBtnRef.current && !linkBtnRef.current.contains(e.target) && linkPopRef.current && !linkPopRef.current.contains(e.target)) setLinkPos(null);
       if (tablePos && tableBtnRef.current && !tableBtnRef.current.contains(e.target) && tablePopRef.current && !tablePopRef.current.contains(e.target)) setTablePos(null);
@@ -2520,7 +2584,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
       document.removeEventListener('mousedown', handler);
       document.removeEventListener('touchstart', handler);
     };
-  }, [colorPos, highlightPos, emojiPos, linkPos, tablePos, aiMenuPos]);
+  }, [typeMenuPos, emojiPos, linkPos, tablePos, aiMenuPos]);
 
   const es = useEditorState({
     editor,
@@ -2544,21 +2608,21 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
 
   if (!editor) return null;
 
-  const openColor = (e) => {
-    e.preventDefault();
-    if (colorPos) { setColorPos(null); return; }
-    const r = colorBtnRef.current.getBoundingClientRect();
-    const left = Math.max(4, Math.min(r.left, window.innerWidth - 140));
-    setColorPos({ top: r.bottom + 4, left });
-    setHighlightPos(null); setEmojiPos(null); setLinkPos(null);
+  const saveSelection = () => {
+    const { from, to } = editor.state.selection;
+    savedSelectionRef.current = { from, to };
   };
-  const openHighlight = (e) => {
+  const restoreSelection = () => savedSelectionRef.current ?? editor.state.selection;
+
+  const openTypeMenu = (e) => {
     e.preventDefault();
-    if (highlightPos) { setHighlightPos(null); return; }
-    const r = highlightBtnRef.current.getBoundingClientRect();
-    const left = Math.max(4, Math.min(r.left, window.innerWidth - 140));
-    setHighlightPos({ top: r.bottom + 4, left });
-    setColorPos(null); setEmojiPos(null); setLinkPos(null);
+    if (typeMenuPos) { setTypeMenuPos(null); return; }
+    saveSelection();
+    const r = typeMenuBtnRef.current.getBoundingClientRect();
+    const width = isMobile ? Math.min(268, window.innerWidth - 8) : 236;
+    const left = Math.max(4, Math.min(r.left, window.innerWidth - width - 4));
+    setTypeMenuPos({ top: r.bottom + 4, left, width });
+    setEmojiPos(null); setLinkPos(null); setTablePos(null);
   };
   const openEmoji = async (e) => {
     e.preventDefault();
@@ -2578,7 +2642,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
       ? { top: r.bottom + 4, left }
       : { bottom: window.innerHeight - r.top + 4, left };
     setEmojiPos(pos);
-    setColorPos(null); setHighlightPos(null); setLinkPos(null);
+    setTypeMenuPos(null); setLinkPos(null);
   };
   const openLink = (e) => {
     e.preventDefault();
@@ -2586,7 +2650,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
     const r = linkBtnRef.current.getBoundingClientRect();
     const left = Math.max(4, Math.min(r.left, window.innerWidth - 300));
     setLinkPos({ top: r.bottom + 4, left });
-    setColorPos(null); setHighlightPos(null); setEmojiPos(null);
+    setTypeMenuPos(null); setEmojiPos(null);
     setLinkUrl(editor.getAttributes('link').href || '');
   };
   const submitLink = () => {
@@ -2615,7 +2679,36 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
     const r = tableBtnRef.current.getBoundingClientRect();
     const left = Math.max(4, Math.min(r.left, window.innerWidth - 200));
     setTablePos({ top: r.bottom + 4, left });
-    setColorPos(null); setHighlightPos(null); setEmojiPos(null); setLinkPos(null);
+    setTypeMenuPos(null); setEmojiPos(null); setLinkPos(null);
+  };
+
+  const applyFontFamily = (family) => {
+    const sel = restoreSelection();
+    if (family) {
+      editor.chain().focus().setTextSelection(sel).setFontFamily(family).run();
+      localStorage.setItem('mailflow_compose_font_family', family);
+    } else {
+      editor.chain().focus().setTextSelection(sel).unsetFontFamily().run();
+      localStorage.removeItem('mailflow_compose_font_family');
+    }
+  };
+
+  const applyFontSize = (size) => {
+    const sel = restoreSelection();
+    editor.chain().focus().setTextSelection(sel).setFontSize(size).run();
+    localStorage.setItem('mailflow_compose_font_size', size);
+  };
+
+  const applyTextColor = (color) => {
+    const chain = editor.chain().focus().setTextSelection(restoreSelection());
+    if (color) chain.setColor(color).run();
+    else chain.unsetColor().run();
+  };
+
+  const applyBackgroundColor = (color) => {
+    const chain = editor.chain().focus().setTextSelection(restoreSelection());
+    if (color) chain.setBackgroundColor(color).run();
+    else chain.unsetBackgroundColor().run();
   };
 
   const tb = (active, title, onMD, children) => (
@@ -2670,14 +2763,15 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
           </div>
           {showMobileMore && (
             <div ref={mobileMoreRef} style={{ borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', padding: '2px 0', flexWrap: 'wrap' }}>
-              <button ref={colorBtnRef} title={t('compose.toolbar.textColor')} onMouseDown={openColor}
-                style={{ background: 'none', border: 'none', borderRadius: 4, padding: '6px 10px', cursor: 'pointer', display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 1, WebkitTapHighlightColor: 'transparent' }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-secondary)', lineHeight: 1 }}>A</span>
-                <span style={{ width: 14, height: 3, borderRadius: 1, background: es.color || 'var(--text-primary)' }} />
-              </button>
-              <button ref={highlightBtnRef} title={t('compose.toolbar.highlight')} onMouseDown={openHighlight}
-                style={{ background: 'none', border: 'none', borderRadius: 4, padding: '6px 10px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', WebkitTapHighlightColor: 'transparent' }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: '#1a1a1a', lineHeight: 1, background: es.backgroundColor || '#ffd43b', padding: '0 2px', borderRadius: 2, border: '1px solid rgba(0,0,0,0.2)' }}>A</span>
+              <button ref={typeMenuBtnRef} title={t('compose.toolbar.typography')} onMouseDown={openTypeMenu}
+                style={{ background: typeMenuPos ? 'var(--bg-hover)' : 'none', border: 'none', borderRadius: 4, padding: '6px 10px', cursor: 'pointer', display: 'inline-flex', flexDirection: 'row', alignItems: 'center', gap: 6, color: typeMenuPos ? 'var(--accent)' : 'var(--text-secondary)', WebkitTapHighlightColor: 'transparent' }}>
+                <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-secondary)', lineHeight: 1 }}>A</span>
+                  <span style={{ width: 14, height: 3, borderRadius: 1, background: es.color || 'var(--text-primary)' }} />
+                </span>
+                <svg width="9" height="9" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                  <path d="M5.2 7.4 10 12.2l4.8-4.8 1.1 1.2L10 14.5 4.1 8.6z"/>
+                </svg>
               </button>
               <Sep />
               {mtb(es.alignLeft, 'Align left', e => { e.preventDefault(); editor.chain().focus().setTextAlign('left').run(); }, <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>)}
@@ -2698,55 +2792,6 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
         </>
       ) : (
       <div ref={desktopBarRef} style={{ borderBottom: '1px solid var(--border-subtle)', display: 'flex', gap: 2, padding: '4px 10px', flexWrap: 'wrap', alignItems: 'center' }}>
-        {/* Font picker */}
-        <select
-          value={es.fontFamily || localStorage.getItem('mailflow_compose_font_family') || ''}
-          onMouseDown={() => {
-            const { from, to } = editor.state.selection;
-            savedSelectionRef.current = { from, to };
-          }}
-          onChange={e => {
-            const family = e.target.value;
-            const sel = savedSelectionRef.current;
-            if (family) { editor.chain().focus().setTextSelection(sel ?? editor.state.selection).setFontFamily(family).run(); localStorage.setItem('mailflow_compose_font_family', family); }
-            else { editor.chain().focus().setTextSelection(sel ?? editor.state.selection).unsetFontFamily().run(); localStorage.removeItem('mailflow_compose_font_family'); }
-          }}
-          style={{
-            background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
-            borderRadius: 4, color: 'var(--text-secondary)', fontSize: 11,
-            padding: '2px 4px', cursor: 'pointer', outline: 'none', maxWidth: 100,
-          }}
-        >
-          <option value="">{t('compose.toolbar.fontDefault')}</option>
-          {FONT_GROUPS.map(g => (
-            <optgroup key={g.label} label={g.label}>
-              {g.fonts.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
-            </optgroup>
-          ))}
-        </select>
-
-        {/* Font size picker */}
-        <select
-          value={es.fontSize || localStorage.getItem('mailflow_compose_font_size') || DEFAULT_FONT_SIZE}
-          onMouseDown={() => {
-            const { from, to } = editor.state.selection;
-            savedSelectionRef.current = { from, to };
-          }}
-          onChange={e => {
-            const size = e.target.value;
-            const sel = savedSelectionRef.current;
-            editor.chain().focus().setTextSelection(sel ?? editor.state.selection).setFontSize(size).run();
-            localStorage.setItem('mailflow_compose_font_size', size);
-          }}
-          style={{
-            background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
-            borderRadius: 4, color: 'var(--text-secondary)', fontSize: 11,
-            padding: '2px 4px', cursor: 'pointer', outline: 'none', width: 50,
-          }}
-        >
-          {FONT_SIZES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-        </select>
-
         {onAttach && (
           <button title={t('compose.toolbar.attachFile')} onMouseDown={e => { e.preventDefault(); onAttach(); }}
             style={{ background: 'none', border: 'none', borderRadius: 4, padding: '3px 6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', color: 'var(--text-secondary)' }}>
@@ -2764,18 +2809,18 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
         {tb(es.strike, 'Strikethrough', e => { e.preventDefault(); editor.chain().focus().toggleStrike().run(); }, <s>S</s>)}
 
         <Sep />
-
-        <button ref={colorBtnRef} title={t('compose.toolbar.textColor')} onMouseDown={openColor}
-          style={{ background: 'none', border: 'none', borderRadius: 4, padding: '3px 6px', cursor: 'pointer', display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
-          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', lineHeight: 1 }}>A</span>
-          <span style={{ width: 12, height: 3, borderRadius: 1, background: es.color || 'var(--text-primary)' }} />
+        
+        <button ref={typeMenuBtnRef} title={t('compose.toolbar.typography')} onMouseDown={openTypeMenu}
+          style={{ background: typeMenuPos ? 'var(--bg-hover)' : 'none', border: 'none', borderRadius: 4, padding: '3px 6px', cursor: 'pointer', display: 'inline-flex', flexDirection: 'row', alignItems: 'center', gap: 1, color: typeMenuPos ? 'var(--accent)' : 'var(--text-secondary)' }}>
+          <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', lineHeight: 1 }}>A</span>
+            <span style={{ width: 12, height: 3, borderRadius: 1, background: es.color || 'var(--text-primary)' }} />
+          </span>
+          <svg width="9" height="9" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+            <path d="M5.2 7.4 10 12.2l4.8-4.8 1.1 1.2L10 14.5 4.1 8.6z"/>
+          </svg>
         </button>
-
-        <button ref={highlightBtnRef} title={t('compose.toolbar.highlight')} onMouseDown={openHighlight}
-          style={{ background: 'none', border: 'none', borderRadius: 4, padding: '3px 6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}>
-          <span style={{ fontSize: 12, fontWeight: 700, color: '#1a1a1a', lineHeight: 1, background: es.backgroundColor || '#ffd43b', padding: '0 2px', borderRadius: 2, border: '1px solid rgba(0,0,0,0.2)' }}>A</span>
-        </button>
-
+        
         <Sep />
 
         {tb(es.alignLeft, 'Align left', e => { e.preventDefault(); editor.chain().focus().setTextAlign('left').run(); },
@@ -2861,41 +2906,63 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
       )}
 
       {/* Popups — position:fixed so they escape any overflow clipping */}
-      {colorPos && (
-        <div ref={colorPopRef} style={{
-          position: 'fixed', top: descale(colorPos.top, uiScale), left: descale(colorPos.left, uiScale), zIndex: 9900,
+      {typeMenuPos && (
+        <div ref={typeMenuRef} style={{
+          position: 'fixed', top: descale(typeMenuPos.top, uiScale), left: descale(typeMenuPos.left, uiScale), zIndex: 9900,
+          width: typeMenuPos.width, boxSizing: 'border-box',
           background: 'var(--bg-elevated)', border: '1px solid var(--border)',
-          borderRadius: 8, padding: 8, boxShadow: 'var(--shadow-popover)',
-          display: 'flex', flexWrap: 'wrap', gap: 4, width: 136,
+          borderRadius: 8, padding: '10px 12px', boxShadow: 'var(--shadow-popover)',
+          display: 'flex', flexDirection: 'column', gap: 10,
         }}>
-          {COLORS.map(c => (
-            <button key={c} onMouseDown={e => { e.preventDefault(); editor.chain().focus().setColor(c).run(); setColorPos(null); }}
-              style={{ width: 18, height: 18, borderRadius: 4, background: c, border: '1px solid var(--border)', cursor: 'pointer', padding: 0,
-                outline: editor.isActive('textStyle', { color: c }) ? '2px solid var(--accent)' : 'none', outlineOffset: 1 }} />
-          ))}
-          <button onMouseDown={e => { e.preventDefault(); editor.chain().focus().unsetColor().run(); setColorPos(null); }}
-            title={t('compose.toolbar.removeColor')}
-            style={{ width: 18, height: 18, borderRadius: 4, border: '1px solid var(--border)', cursor: 'pointer', padding: 0,
-              background: 'linear-gradient(to bottom right, white calc(50% - 1px), #e03131 calc(50% - 1px), #e03131 calc(50% + 1px), white calc(50% + 1px))' }} />
-        </div>
-      )}
-
-      {highlightPos && (
-        <div ref={highlightPopRef} style={{
-          position: 'fixed', top: descale(highlightPos.top, uiScale), left: descale(highlightPos.left, uiScale), zIndex: 9900,
-          background: 'var(--bg-elevated)', border: '1px solid var(--border)',
-          borderRadius: 8, padding: 8, boxShadow: 'var(--shadow-popover)',
-          display: 'flex', flexWrap: 'wrap', gap: 4, width: 136,
-        }}>
-          {HIGHLIGHT_COLORS.map(c => (
-            <button key={c} onMouseDown={e => { e.preventDefault(); editor.chain().focus().setBackgroundColor(c).run(); setHighlightPos(null); }}
-              style={{ width: 18, height: 18, borderRadius: 4, background: c, border: '1px solid var(--border)', cursor: 'pointer', padding: 0,
-                outline: editor.isActive('textStyle', { backgroundColor: c }) ? '2px solid var(--accent)' : 'none', outlineOffset: 1 }} />
-          ))}
-          <button onMouseDown={e => { e.preventDefault(); editor.chain().focus().unsetBackgroundColor().run(); setHighlightPos(null); }}
-            title={t('compose.toolbar.removeHighlight')}
-            style={{ width: 18, height: 18, borderRadius: 4, border: '1px solid var(--border)', cursor: 'pointer', padding: 0,
-              background: 'linear-gradient(to bottom right, white calc(50% - 1px), #e03131 calc(50% - 1px), #e03131 calc(50% + 1px), white calc(50% + 1px))' }} />
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 68px', gap: 8 }}>
+            <select
+              value={es.fontFamily || localStorage.getItem('mailflow_compose_font_family') || ''}
+              onMouseDown={saveSelection}
+              onChange={e => applyFontFamily(e.target.value)}
+              style={{
+                minWidth: 0, background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+                borderRadius: 5, color: 'var(--text-primary)', fontSize: 12,
+                padding: '5px 8px', cursor: 'pointer', outline: 'none',
+              }}
+            >
+              <option value="">{t('compose.toolbar.fontDefault')}</option>
+              {FONT_GROUPS.map(g => (
+                <optgroup key={g.label} label={g.label}>
+                  {g.fonts.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+                </optgroup>
+              ))}
+            </select>
+            <select
+              value={es.fontSize || localStorage.getItem('mailflow_compose_font_size') || DEFAULT_FONT_SIZE}
+              onMouseDown={saveSelection}
+              onChange={e => applyFontSize(e.target.value)}
+              style={{
+                minWidth: 0, background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+                borderRadius: 5, color: 'var(--text-primary)', fontSize: 12,
+                padding: '5px 6px', cursor: 'pointer', outline: 'none',
+              }}
+            >
+              {FONT_SIZES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+            </select>
+          </div>
+          <ColorMenuSection
+            title={t('compose.toolbar.textColor')}
+            colors={COLORS}
+            activeColor={es.color}
+            onColor={applyTextColor}
+            onClear={() => applyTextColor(null)}
+            clearLabel={t('compose.toolbar.removeColor')}
+            showClear={false}
+          />
+          <ColorMenuSection
+            title={t('compose.toolbar.highlight')}
+            colors={HIGHLIGHT_COLORS}
+            activeColor={es.backgroundColor}
+            onColor={applyBackgroundColor}
+            onClear={() => applyBackgroundColor(null)}
+            clearLabel={t('compose.toolbar.removeHighlight')}
+            showNoColor
+          />
         </div>
       )}
 

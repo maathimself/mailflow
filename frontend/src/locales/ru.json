@@ -144,6 +144,7 @@
     },
     "toolbar": {
       "removeTable": "Удалить таблицу",
+      "typography": "Типографика",
       "textColor": "Цвет текста",
       "removeColor": "Убрать цвет",
       "insertImage": "Вставить изображение",

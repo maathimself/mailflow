@@ -144,6 +144,7 @@
     },
     "toolbar": {
       "removeTable": "Usuń tabelę",
+      "typography": "Typografia",
       "textColor": "Kolor tekstu",
       "removeColor": "Usuń kolor",
       "insertImage": "Wstaw obraz",

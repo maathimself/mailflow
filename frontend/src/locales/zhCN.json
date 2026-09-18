@@ -144,6 +144,7 @@
     },
     "toolbar": {
       "removeTable": "删除表格",
+      "typography": "排版",
       "textColor": "文字颜色",
       "removeColor": "移除颜色",
       "insertImage": "插入图片",
