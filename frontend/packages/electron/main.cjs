@@ -11,6 +11,7 @@ const {
   hasMatchingMacTeam,
   hasMatchingWindowsPublisher,
   isSameOrigin,
+  macTeamIdentifier,
   normalizeHost,
 } = require('./security.cjs');
 
@@ -46,6 +47,7 @@ let isQuitting = false;
 let updateInfo = null;
 let downloadedUpdate = null;
 let pendingUpdateDownloadUrl = null;
+let lastNotifiedManualUpdateVersion = null;
 let updateDownloadsInitialized = false;
 let nextNativeActionId = 1;
 
@@ -405,10 +407,10 @@ function sendUpdateStatus(payload) {
   mainWindow.webContents.send(UPDATE_STATUS_CHANNEL, payload);
 }
 
-function showInAppNotification({ title = '', message = '', type = 'info', actionLabel = '', action = '', persistent = false }) {
+function showInAppNotification({ title = '', message = '', type = 'info', actionLabel = '', action = '', actionUrl = '', persistent = false }) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
 
-  const payload = JSON.stringify({ title, message, type, actionLabel, action, persistent });
+  const payload = JSON.stringify({ title, message, type, actionLabel, action, actionUrl, persistent });
   mainWindow.webContents.executeJavaScript(`
     (() => {
       if (window.__mailflowNativeBridgeReady) return;
@@ -513,6 +515,8 @@ function showInAppNotification({ title = '', message = '', type = 'info', action
             window.mailflowNative?.updates?.installDownloaded?.();
           } else if (notification.action === 'copy-update-command-and-quit') {
             window.mailflowNative?.updates?.copyInstallCommandAndQuit?.();
+          } else if (notification.action === 'open-update-release' && notification.actionUrl) {
+            window.open(notification.actionUrl, '_blank');
           }
           dismiss();
         });
@@ -698,17 +702,46 @@ function notifyUpToDate(verbose) {
   });
 }
 
-function notifyUpdateAvailable(verbose = true) {
+function notifyUpdateAvailable(verbose = true, { autoDownload = true } = {}) {
   sendUpdateStatus({
     type: 'available',
     data: {
       releaseNotes: updateInfo.releaseNotes,
       releaseName: updateInfo.releaseName,
       releaseDate: updateInfo.releaseDate,
+      releaseUrl: updateInfo.releaseUrl,
       updateUrl: updateInfo.updateUrl,
       manual: true,
+      // False when this install cannot verify what it downloads, so the renderer offers a
+      // link to the release rather than waiting for a download that will never arrive.
+      canAutoInstall: autoDownload,
     },
   });
+
+  // An install that cannot verify a download gets a notification carrying a link to the
+  // release, because there is nothing else it can offer. This runs even when the check was
+  // not user-initiated: the renderer only reacts to `downloaded`, so a background check
+  // would otherwise be silent and the user would never learn an update exists.
+  if (!autoDownload) {
+    const releaseVersion = updateInfo?.releaseVersion;
+
+    // Background checks notify once per release. A user-requested check always answers.
+    if (verbose || releaseVersion !== lastNotifiedManualUpdateVersion) {
+      showInAppNotification({
+        title: 'Update Available',
+        message: 'A new version of MailFlow is available.',
+        type: 'info',
+        actionLabel: 'View Release',
+        action: 'open-update-release',
+        actionUrl: updateInfo.releaseUrl,
+        persistent: true,
+      });
+
+      lastNotifiedManualUpdateVersion = releaseVersion;
+    }
+
+    return;
+  }
 
   if (!verbose) return;
 
@@ -833,9 +866,14 @@ async function verifyExpectedDigest(filePath) {
   }
 }
 
+// The path goes through the environment, not as an argument. Windows PowerShell 5.1 treats
+// everything after -Command as part of the script, so a trailing argument is appended to the
+// script text rather than bound to $args[0], which is then $null. That made this throw for
+// every file since #323, and the failure was invisible because callers treat a throw as
+// "unsigned".
 function readWindowsSignature(filePath) {
   const script = [
-    '$signature = Get-AuthenticodeSignature -LiteralPath $args[0]',
+    '$signature = Get-AuthenticodeSignature -LiteralPath $env:MAILFLOW_SIGNATURE_PATH',
     '[pscustomobject]@{',
     '  status = [string]$signature.Status',
     '  subject = [string]$signature.SignerCertificate.Subject',
@@ -847,10 +885,13 @@ function readWindowsSignature(filePath) {
     '-NonInteractive',
     '-Command',
     script,
-    filePath,
   ], {
     encoding: 'utf8',
     windowsHide: true,
+    env: {
+      ...process.env,
+      MAILFLOW_SIGNATURE_PATH: filePath,
+    },
   });
   return JSON.parse(output);
 }
@@ -897,6 +938,46 @@ function verifyPlatformSignature(filePath) {
 async function verifyDownloadedUpdate(filePath) {
   await verifyExpectedDigest(filePath);
   verifyPlatformSignature(filePath);
+}
+
+// Whether this install can auto-download and install its own updates.
+//
+// Auto-install depends on verifyPlatformSignature pinning the download to the installed
+// app's own publisher. An UNSIGNED build has no publisher to pin to, so that check can
+// never pass: every auto-downloaded update would be fetched and then discarded as
+// unverifiable. Rather than relax signature checking for an app that holds mail
+// credentials, unsigned builds notify and link to the release instead. The user still
+// stops hand-building every version (#441), and verification stays strict for everyone
+// who does have a signed install.
+//
+// This has to cover macOS as well as Windows. The darwin branch of
+// verifyPlatformSignature runs `spctl --assess`, which an unsigned or ad-hoc signed app
+// fails by definition, so without this check an unsigned Mac install would download every
+// update, fail verification and silently discard it, with no link offered.
+//
+// Linux is unaffected: verifyPlatformSignature has no Linux branch, so those updates are
+// gated by the SHA-256 digest from the release metadata and auto-install normally.
+function canAutoInstallUpdates() {
+  try {
+    if (process.platform === 'win32') {
+      const installed = readWindowsSignature(process.execPath);
+      return installed?.status === 'Valid' && Boolean(installed.subject);
+    }
+
+    if (process.platform === 'darwin') {
+      // A real Developer ID signature carries a team identifier; an ad-hoc or unsigned
+      // build reports "not set", which macTeamIdentifier returns as null.
+      return Boolean(macTeamIdentifier(readMacSignatureDetails(process.execPath)));
+    }
+
+    return true;
+  } catch (error) {
+    // Cannot read our own signature — treat as unsigned and link out rather than
+    // download something we will not be able to verify. Logged because silence here hid a
+    // broken readWindowsSignature for months.
+    console.error('Could not determine whether this install supports automatic updates:', error);
+    return false;
+  }
 }
 
 function isUpdateDownloadItem(item) {
@@ -985,9 +1066,19 @@ async function checkForUpdates(verbose = false) {
       assetName: asset.name || '',
       releaseNotes: release.body || '',
       releaseName: release.name || release.tag_name,
+      releaseVersion: release.tag_name,
       releaseDate: release.published_at,
+      releaseUrl: release.html_url || null,
       updateUrl: asset.browser_download_url,
     };
+
+    // An unsigned install cannot verify what it downloads, so it links to the release
+    // rather than fetching an installer it would have to throw away. See
+    // canAutoInstallUpdates.
+    if (!canAutoInstallUpdates()) {
+      notifyUpdateAvailable(verbose, { autoDownload: false });
+      return { updateAvailable: true, downloadAvailable: false, manual: true };
+    }
 
     notifyUpdateAvailable(verbose);
     downloadUpdate(asset.browser_download_url);

@@ -107,3 +107,17 @@ test('macOS signature verification requires a matching TeamIdentifier', () => {
     false,
   );
 });
+
+test('an unsigned build reports no team rather than the literal "not set"', () => {
+  // codesign prints this for an ad-hoc or unsigned binary. Treating it as a real team
+  // would let two unsigned builds compare equal and pass as the same publisher.
+  assert.equal(security.macTeamIdentifier('TeamIdentifier=not set'), null);
+  assert.equal(security.macTeamIdentifier('TeamIdentifier=NOT SET'), null);
+  assert.equal(security.macTeamIdentifier('TeamIdentifier=ABC123'), 'ABC123');
+  assert.equal(security.macTeamIdentifier(''), null);
+
+  assert.equal(
+    security.hasMatchingMacTeam('TeamIdentifier=not set', 'TeamIdentifier=not set'),
+    false,
+  );
+});

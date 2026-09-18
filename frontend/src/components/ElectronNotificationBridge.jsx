@@ -81,6 +81,26 @@ export default function ElectronNotificationBridge() {
   useEffect(() => {
     if (!nativeBridgeReady) return undefined;
     const unsubscribe = window.mailflowNative?.updates?.onStatus?.((status) => {
+      // An install that cannot verify a download has nothing to install, so it is offered the
+      // release page instead. This has to be handled here: the main process has a fallback
+      // toast, but it deliberately does nothing once this bridge is mounted, so without this
+      // branch the check is silent and the user never learns an update exists.
+      if (status?.type === 'available' && status?.data?.canAutoInstall === false) {
+        const releaseUrl = status?.data?.releaseUrl;
+        addNotification({
+          type: 'info',
+          title: 'Update available',
+          body: 'A new version of MailFlow is available to download.',
+          persistent: true,
+          ...(releaseUrl ? {
+            actionLabel: 'View Release',
+            // Electron's window-open handler sends an https URL to the default browser.
+            onAction: () => window.open(releaseUrl, '_blank'),
+          } : {}),
+        });
+        return;
+      }
+
       if (status?.type !== 'downloaded') return;
 
       const platform = window.mailflowNative?.platform;

@@ -1,29 +1,119 @@
 name: Publish Apps
 
-# Manual-only until the native apps are release-ready: signing secrets must be
-# configured and the deferred native security items resolved before this ships.
-# Re-add the `push.tags` trigger to publish native builds automatically on a tag.
+# Builds the native apps for a published release and attaches them to it.
+#
+# Signing is optional on every platform, so the same file works before and after any
+# certificate is bought. Without a certificate Windows ships unsigned and macOS ships ad-hoc
+# signed, and both cost the user an install-time warning.
+#
+# macOS is ad-hoc signed rather than left unsigned. Skipping signing entirely leaves
+# Electron's prebuilt linker signatures, which do not seal the bundle. An ad-hoc build has
+# been installed on an Apple Silicon M1 from a browser download, so genuinely quarantined:
+# the first launch is refused, and allowing it once under System Settings >
+# Privacy & Security runs it normally thereafter.
+#
+# An install that cannot verify a download declines to auto-update, because
+# verifyPlatformSignature cannot pin the download to a publisher it does not have. Those
+# installs get a notification linking to the release. See canAutoInstallUpdates in
+# packages/electron/main.cjs.
+#
+# Linux always ships and verifies updates by SHA-256 digest. Android ships when a keystore
+# is configured, and is skipped rather than failing the whole run when it is not.
+#
+# This runs on `release: published`, not on the tag push, so it attaches to the release
+# after its notes exist. Triggering on the tag would race the release being created and
+# leave an empty one behind.
+#
+# The native security items from #301 landed in #323 and #346.
 on:
+  release:
+    types: [published]
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Release tag to build and attach to, for example v3.5.2."
+        required: true
+        type: string
 
+# One build per release. A re-run supersedes an in-flight one rather than racing it to
+# upload assets to the same release.
+concurrency:
+  group: publish-apps-${{ github.event.release.tag_name || github.event.inputs.version }}
+  cancel-in-progress: true
+
+# Least-privilege (#301 item 7): only the release job needs to write to the repo.
+# The build jobs just check out code and upload artifacts, so they get read.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
+  # Every desktop platform is always built. Signing only changes the install experience,
+  # so an unsigned artifact is still worth publishing.
+  #
+  # Android is different: an APK cannot be installed at all without a signature, and the
+  # keystore is ours to generate rather than to buy. Whether one is configured is resolved
+  # here because the secrets context is not available in a job-level `if`.
+  setup:
+    name: Resolve build scope
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.os }}
+      android: ${{ steps.matrix.outputs.android }}
+    steps:
+      # A mistyped version would otherwise be created as a brand new release by
+      # action-gh-release at the end, published as Latest, which every desktop install polls.
+      # Failing here costs one job; getting it wrong reroutes everyone's updater.
+      - name: Verify release exists
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ github.event.release.tag_name || github.event.inputs.version }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$VERSION" --repo "$GH_REPO" >/dev/null; then
+            echo "::error::GitHub release '$VERSION' does not exist in '$GH_REPO'. Publish the release before running this workflow."
+            exit 1
+          fi
+          echo "Release '$VERSION' exists."
+
+      - id: matrix
+        shell: bash
+        env:
+          MAILFLOW_ANDROID_KEYSTORE_BASE64: ${{ secrets.MAILFLOW_ANDROID_KEYSTORE_BASE64 }}
+          MAILFLOW_ANDROID_STORE_PASSWORD: ${{ secrets.MAILFLOW_ANDROID_STORE_PASSWORD }}
+          MAILFLOW_ANDROID_KEY_ALIAS: ${{ secrets.MAILFLOW_ANDROID_KEY_ALIAS }}
+          MAILFLOW_ANDROID_KEY_PASSWORD: ${{ secrets.MAILFLOW_ANDROID_KEY_PASSWORD }}
+        run: |
+          echo 'os=["windows-latest","macos-latest","ubuntu-latest"]' >> "$GITHUB_OUTPUT"
+
+          if [ -n "$MAILFLOW_ANDROID_KEYSTORE_BASE64" ] \
+            && [ -n "$MAILFLOW_ANDROID_STORE_PASSWORD" ] \
+            && [ -n "$MAILFLOW_ANDROID_KEY_ALIAS" ] \
+            && [ -n "$MAILFLOW_ANDROID_KEY_PASSWORD" ]; then
+            echo "android=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "android=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::No Android keystore configured — skipping the Android build. The desktop artifacts are still published."
+          fi
+
   desktop:
     name: Electron (${{ matrix.os }})
+    needs: setup
     runs-on: ${{ matrix.os }}
 
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - windows-latest
-          - macos-latest
-          - ubuntu-latest
+        os: ${{ fromJSON(needs.setup.outputs.matrix) }}
 
     steps:
+      # The tag, not the branch the dispatch was launched from. Without this a manual run
+      # builds main HEAD, stamps it with the release version and uploads it over that
+      # release's assets.
       - uses: actions/checkout@v6
+        with:
+          ref: refs/tags/${{ github.event.release.tag_name || github.event.inputs.version }}
 
       - uses: actions/setup-node@v6
         with:
@@ -50,47 +140,128 @@ jobs:
         working-directory: frontend
         run: npm run app:version -- "${{ steps.app-version.outputs.version }}" "${{ github.run_number }}"
 
-      - name: Validate desktop release signing
-        if: matrix.os == 'windows-latest' || matrix.os == 'macos-latest'
+      # Signing is optional rather than required: with no certificate configured the
+      # Windows job produces a correct but UNSIGNED installer. That is a deliberate
+      # trade — since March 2024 SmartScreen reputation is earned by download volume for
+      # OV and EV alike, so buying a certificate does not by itself remove the warning,
+      # and an unsigned build is a smaller compromise than it once was. Unsigned installs
+      # do not auto-update: the app links to the release instead (see
+      # canAutoInstallUpdates in packages/electron/main.cjs).
+      #
+      # Add MAILFLOW_WINDOWS_CSC_LINK and MAILFLOW_WINDOWS_CSC_KEY_PASSWORD and this step
+      # flips the same build to signed with no other change.
+      - name: Resolve desktop signing mode
+        id: signing
+        if: matrix.os == 'windows-latest'
         shell: bash
         env:
           MAILFLOW_WINDOWS_CSC_LINK: ${{ secrets.MAILFLOW_WINDOWS_CSC_LINK }}
           MAILFLOW_WINDOWS_CSC_KEY_PASSWORD: ${{ secrets.MAILFLOW_WINDOWS_CSC_KEY_PASSWORD }}
-          MAILFLOW_MAC_CSC_LINK: ${{ secrets.MAILFLOW_MAC_CSC_LINK }}
-          MAILFLOW_MAC_CSC_KEY_PASSWORD: ${{ secrets.MAILFLOW_MAC_CSC_KEY_PASSWORD }}
         run: |
-          missing=()
-
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            [ -n "$MAILFLOW_WINDOWS_CSC_LINK" ] || missing+=("MAILFLOW_WINDOWS_CSC_LINK")
-            [ -n "$MAILFLOW_WINDOWS_CSC_KEY_PASSWORD" ] || missing+=("MAILFLOW_WINDOWS_CSC_KEY_PASSWORD")
-          fi
-
-          if [ "${{ matrix.os }}" = "macos-latest" ]; then
-            [ -n "$MAILFLOW_MAC_CSC_LINK" ] || missing+=("MAILFLOW_MAC_CSC_LINK")
-            [ -n "$MAILFLOW_MAC_CSC_KEY_PASSWORD" ] || missing+=("MAILFLOW_MAC_CSC_KEY_PASSWORD")
-          fi
-
-          if [ "${#missing[@]}" -gt 0 ]; then
-            printf 'Desktop release signing secrets are required for %s. Missing: %s\n' "${{ matrix.os }}" "${missing[*]}" >&2
+          if [ -n "$MAILFLOW_WINDOWS_CSC_LINK" ] && [ -n "$MAILFLOW_WINDOWS_CSC_KEY_PASSWORD" ]; then
+            echo "windows=signed" >> "$GITHUB_OUTPUT"
+            echo "Windows installer will be SIGNED."
+          elif [ -n "$MAILFLOW_WINDOWS_CSC_LINK" ] || [ -n "$MAILFLOW_WINDOWS_CSC_KEY_PASSWORD" ]; then
+            # One half of a pair is a misconfiguration, not a choice — fail rather than
+            # silently shipping unsigned when someone believed they had set signing up.
+            echo 'Only one of MAILFLOW_WINDOWS_CSC_LINK / MAILFLOW_WINDOWS_CSC_KEY_PASSWORD is set. Set both, or neither.' >&2
             exit 1
+          else
+            echo "windows=unsigned" >> "$GITHUB_OUTPUT"
+            echo "::warning::No Windows signing certificate configured — publishing an UNSIGNED installer. Users will see a SmartScreen warning and the app will link to the release instead of auto-updating."
           fi
 
-      - name: Build signed Windows Electron package
+      - name: Build Windows Electron package
         if: matrix.os == 'windows-latest'
         working-directory: frontend
         run: npm run electron:dist
         env:
-          CSC_LINK: ${{ secrets.MAILFLOW_WINDOWS_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAILFLOW_WINDOWS_CSC_KEY_PASSWORD }}
+          # Empty when unsigned; electron-builder then skips signing rather than failing.
+          CSC_LINK: ${{ steps.signing.outputs.windows == 'signed' && secrets.MAILFLOW_WINDOWS_CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ steps.signing.outputs.windows == 'signed' && secrets.MAILFLOW_WINDOWS_CSC_KEY_PASSWORD || '' }}
+          # Without this, electron-builder hunts the runner for any certificate it can
+          # find and may sign with something unintended.
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ steps.signing.outputs.windows == 'signed' && 'true' || 'false' }}
 
-      - name: Build signed macOS Electron package
+      # macOS mirrors Windows: signed when a Developer ID certificate is configured,
+      # otherwise built unsigned and still published. An unsigned .dmg installs behind a
+      # "cannot be verified" prompt; it is not refused outright. The unsigned install
+      # declines to auto-update, which canAutoInstallUpdates handles.
+      - name: Resolve macOS signing mode
+        id: mac-signing
         if: matrix.os == 'macos-latest'
+        shell: bash
+        env:
+          MAILFLOW_MAC_CSC_LINK: ${{ secrets.MAILFLOW_MAC_CSC_LINK }}
+          MAILFLOW_MAC_CSC_KEY_PASSWORD: ${{ secrets.MAILFLOW_MAC_CSC_KEY_PASSWORD }}
+        run: |
+          if [ -n "$MAILFLOW_MAC_CSC_LINK" ] && [ -n "$MAILFLOW_MAC_CSC_KEY_PASSWORD" ]; then
+            echo "mac=signed" >> "$GITHUB_OUTPUT"
+            echo "macOS package will be SIGNED."
+          elif [ -n "$MAILFLOW_MAC_CSC_LINK" ] || [ -n "$MAILFLOW_MAC_CSC_KEY_PASSWORD" ]; then
+            # Same reasoning as Windows: half a pair is a misconfiguration, not a choice.
+            echo 'Only one of MAILFLOW_MAC_CSC_LINK / MAILFLOW_MAC_CSC_KEY_PASSWORD is set. Set both, or neither.' >&2
+            exit 1
+          else
+            echo "mac=unsigned" >> "$GITHUB_OUTPUT"
+            echo "::warning::No macOS signing certificate configured — publishing an UNSIGNED .dmg. Users will see a Gatekeeper prompt and the app will link to the release instead of auto-updating."
+          fi
+
+      # electron-builder passes APPLE_API_KEY straight through to @electron/notarize, which
+      # documents it as a FILE SYSTEM PATH to the .p8 key, not the key's contents. The
+      # secret holds the contents, so it has to be written out and the path exported.
+      # The emptiness test lives in the script, not in `if:`, because the secrets context is
+      # not available to a step-level condition.
+      - name: Stage App Store Connect API key
+        if: matrix.os == 'macos-latest' && steps.mac-signing.outputs.mac == 'signed'
+        shell: bash
+        env:
+          APPLE_API_KEY_CONTENTS: ${{ secrets.APPLE_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$APPLE_API_KEY_CONTENTS" ]; then
+            echo "::notice::No App Store Connect API key configured — the macOS build will be signed but NOT notarized."
+            exit 0
+          fi
+          KEY_DIR="$RUNNER_TEMP/mailflow-asc"
+          mkdir -p "$KEY_DIR"
+          printf '%s\n' "$APPLE_API_KEY_CONTENTS" > "$KEY_DIR/AuthKey.p8"
+          chmod 600 "$KEY_DIR/AuthKey.p8"
+          echo "APPLE_API_KEY=$KEY_DIR/AuthKey.p8" >> "$GITHUB_ENV"
+
+      # hardenedRuntime defaults to true and notarize activates automatically once the
+      # APPLE_* credentials are present, so no build config changes are needed. The API-key
+      # form is used rather than an Apple ID and app-specific password because it does not
+      # break when a password or 2FA setting changes — electron-builder recommends it.
+      - name: Build signed macOS Electron package
+        if: matrix.os == 'macos-latest' && steps.mac-signing.outputs.mac == 'signed'
         working-directory: frontend
         run: npm run electron:dist
         env:
           CSC_LINK: ${{ secrets.MAILFLOW_MAC_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.MAILFLOW_MAC_CSC_KEY_PASSWORD }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+
+      # Ad-hoc signed (`identity=-`), NOT unsigned. `identity=null` makes electron-builder skip
+      # signing entirely, leaving Electron's prebuilt linker signatures, which do not seal the
+      # bundle. A quarantined build like that reports "is damaged and can't be opened" on Apple
+      # Silicon, with no Open Anyway, so it is worse than useless. An ad-hoc signature seals the
+      # bundle and should give the milder "cannot be verified" prompt instead.
+      #
+      # Hardened runtime is off for this path: it is only required for notarization, which an
+      # ad-hoc build cannot have, and this is the configuration that has actually been built.
+      # Both flags are scoped to this step rather than package.json, so the signed path keeps
+      # the real identity and the hardened runtime that notarization requires.
+      #
+      # Confirmed on Apple Silicon rather than assumed: dcoffin88's v3.5.1-beta8 dmg, built
+      # from exactly this configuration, installs on an M1 after a browser download.
+      - name: Build ad-hoc signed macOS Electron package
+        if: matrix.os == 'macos-latest' && steps.mac-signing.outputs.mac == 'unsigned'
+        working-directory: frontend
+        run: npm run electron:dist -- -c.mac.identity=- -c.mac.hardenedRuntime=false
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
       - name: Build Linux x64 Electron packages
         if: matrix.os == 'ubuntu-latest'
@@ -122,12 +293,21 @@ jobs:
             frontend/packages/release/*.exe
             frontend/packages/release/*.rpm
 
+  # Skipped, not failed, when no keystore is configured. The release job treats a skipped
+  # Android build as acceptable so the desktop artifacts still publish.
   android:
     name: Android
+    needs: setup
+    if: needs.setup.outputs.android == 'true'
     runs-on: ubuntu-latest
 
     steps:
+      # The tag, not the branch the dispatch was launched from. Without this a manual run
+      # builds main HEAD, stamps it with the release version and uploads it over that
+      # release's assets.
       - uses: actions/checkout@v6
+        with:
+          ref: refs/tags/${{ github.event.release.tag_name || github.event.inputs.version }}
 
       - uses: actions/setup-node@v6
         with:
@@ -140,7 +320,10 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - uses: android-actions/setup-android@v3
+      # `packages` is required by v3; without it the action fails every run.
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          packages: 'platform-tools'
 
       - name: Install dependencies
         working-directory: frontend
@@ -210,10 +393,18 @@ jobs:
 
   release:
     name: Attach to GitHub Release
+    permissions:
+      contents: write
     needs:
       - desktop
       - android
-    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+    # `always()` is needed so a skipped Android build does not skip this job with it, but it
+    # also defeats the implicit "only if the dependencies succeeded", so both results are
+    # checked explicitly. A failed desktop build must still stop the release.
+    if: >-
+      !cancelled()
+      && needs.desktop.result == 'success'
+      && (needs.android.result == 'success' || needs.android.result == 'skipped')
     runs-on: ubuntu-latest
 
     steps:
@@ -234,7 +425,7 @@ jobs:
           path: artifacts
 
       - name: Publish release files
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ steps.app-version.outputs.version }}
           files: |

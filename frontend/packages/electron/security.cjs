@@ -124,8 +124,13 @@ function hasMatchingWindowsPublisher(installed, downloaded) {
     && installed.subject === downloaded.subject;
 }
 
+// codesign prints "TeamIdentifier=not set" for an ad-hoc or unsigned build rather than
+// omitting the line, so the literal string has to be rejected here. Without this, two
+// unsigned builds both report "not set" and compare equal, which would let an unsigned
+// download pass as the same publisher as an unsigned install.
 function macTeamIdentifier(output) {
-  return String(output || '').match(/^TeamIdentifier=(.+)$/m)?.[1]?.trim() || null;
+  const team = String(output || '').match(/^TeamIdentifier=(.+)$/m)?.[1]?.trim() || null;
+  return team && team.toLowerCase() !== 'not set' ? team : null;
 }
 
 function hasMatchingMacTeam(installedOutput, downloadedOutput) {
@@ -139,5 +144,6 @@ module.exports = {
   hasMatchingWindowsPublisher,
   isAllowedCleartextHostname,
   isSameOrigin,
+  macTeamIdentifier,
   normalizeHost,
 };
