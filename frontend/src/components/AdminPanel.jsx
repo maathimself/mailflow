@@ -5897,6 +5897,7 @@ const LANGUAGES = [
   { code: 'zhCN', nativeName: '简体中文'},
   { code: 'pl', nativeName: 'Polski' },
   { code: 'cs', nativeName: 'Čeština' },
+  { code: 'ptBR', nativeName: 'Português (Brasil)' },
 ];
 
 function LanguageTab() {
@@ -8606,7 +8607,7 @@ function makeSearchIndex(t) {
     { label: t('admin.messageList.defaultReplyAction'), keywords: ['reply', 'reply all', 'default reply'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.markReadBehavior'), keywords: ['mark read', 'mark as read', 'read delay', 'auto read', 'manual read', 'unread'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     // Appearance > Fonts & Language
-    { label: t('admin.appearance.language'), keywords: ['language', 'locale', 'french', 'english', 'spanish', 'german', 'deutsch', 'russian', 'chinese', 'italian', 'czech', 'čeština', 'français', 'español'], tab: 'appearance', subtab: 'fonts', breadcrumb: fontsCrumb },
+    { label: t('admin.appearance.language'), keywords: ['language', 'locale', 'french', 'english', 'spanish', 'german', 'deutsch', 'russian', 'chinese', 'italian', 'czech', 'čeština', 'portuguese', 'português', 'brasil', 'français', 'español'], tab: 'appearance', subtab: 'fonts', breadcrumb: fontsCrumb },
     { label: t('admin.appearance.fontSize'), keywords: ['font size', 'text size', 'zoom', 'scale', 'accessibility', 'larger text'], tab: 'appearance', subtab: 'fonts', breadcrumb: fontsCrumb },
     { label: t('admin.appearance.typography'), keywords: ['font', 'typography', 'typeface', 'serif', 'sans', 'monospace', 'reading font'], tab: 'appearance', subtab: 'fonts', breadcrumb: fontsCrumb },
     // Integrations
