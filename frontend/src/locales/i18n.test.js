@@ -144,25 +144,25 @@ const SAME_VALUE_ALLOWED = {
   // "Version" — same spelling in de, en, fr
   'admin.about.version': [['de', 'en', 'fr']],
   // "via" (on-behalf-of sender, #366) — identical preposition in en and fr
-  'message.via': [['en', 'fr']],
+  'message.via': [['en', 'fr', 'ptBR']],
   // "Account" — identical in en/it; "Konto" — identical in de/pl
   'admin.cleanup.account': [['en', 'it'], ['de', 'pl']],
   // "{{n}} min" — the "min" abbreviation is shared in en, es, fr, it
-  'admin.lock.autoLockMin': [['cs', 'en', 'es', 'fr', 'it', 'pl']],
+  'admin.lock.autoLockMin': [['cs', 'en', 'es', 'fr', 'it', 'pl', 'ptBR']],
 
   // "Website" — international term, same in de and en
   'admin.about.website': [['de', 'en']],
 
   // "Plugins" — loanword, same spelling in de and en (it uses singular "Plugin")
-  'admin.tabs.plugins':  [['de', 'en']],
-  'admin.plugins.title': [['de', 'en']],
+  'admin.tabs.plugins':  [['de', 'en', 'ptBR']],
+  'admin.plugins.title': [['de', 'en', 'ptBR']],
 
   // "Alias" — Latin origin, same spelling in es, fr, it
   'admin.accounts.aliases': [['es', 'fr', 'it'], ['cs', 'pl']],
   'admin.aliases.title':     [['es', 'fr', 'it'], ['cs', 'pl']],
 
   // "ID client" — the OAuth term "client" is left untranslated in both fr and it
-  'admin.integrations.google.clientId': [['fr', 'it']],
+  'admin.integrations.google.clientId': [['fr', 'it'], ['en', 'ptBR']],
 
 
   // email placeholder — example.com address looks the same in en, ru, zhCN
@@ -172,20 +172,20 @@ const SAME_VALUE_ALLOWED = {
 
   // ── Antispam v0.2 ──────────────────────────────────────────────────────────
   // "Antispam" — international loanword, same spelling in en, it, de, es, fr, cs
-  'admin.tabs.antispam':          [['en', 'it', 'de', 'es', 'fr', 'cs']],
-  'admin.accounts.antispamSection': [['en', 'it', 'de', 'es', 'fr', 'cs']],
-  'spam.title':                   [['en', 'it', 'de', 'es', 'fr', 'cs']],
+  'admin.tabs.antispam':          [['cs', 'de', 'en', 'es', 'fr', 'it', 'ptBR']],
+  'admin.accounts.antispamSection': [['cs', 'de', 'en', 'es', 'fr', 'it', 'ptBR']],
+  'spam.title':                   [['cs', 'de', 'en', 'es', 'fr', 'it', 'ptBR']],
   // "spam" — lowercase loanword shared in en, es, fr, it, cs, pl (de capitalizes: "Spam")
   'spam.badgeLabel':              [['en', 'es', 'fr', 'it', 'cs', 'pl']],
   // "Verdict" / "Mature" — same spelling in en and fr
   'spam.explainVerdict':          [['en', 'fr']],
   // "Metoda" — same spelling in cs and pl
-  'spam.explainMethod':           [['cs', 'pl']],
-  'spam.maturity.mature':         [['en', 'fr']],
+  'spam.explainMethod':           [['cs', 'pl'], ['es', 'ptBR']],
+  'spam.maturity.mature':         [['en', 'fr'], ['es', 'ptBR']],
   // "Fresco" — same spelling in es and it
   'spam.maturity.fresh':          [['es', 'it']],
   // "Spam" — capitalized loanword shared in en, it, de, es, fr, cs, pl
-  'spam.verdict.spam':            [['en', 'it', 'de', 'es', 'fr', 'cs', 'pl']],
+  'spam.verdict.spam':            [['cs', 'de', 'en', 'es', 'fr', 'it', 'pl', 'ptBR']],
   // authserv-id example — a literal hostname, identical in every locale
   'admin.accounts.trustedAuthservPlaceholder': 'any',
   'admin.privacy.addSenderPh': [['en', 'ru', 'zhCN']],
@@ -199,9 +199,9 @@ const SAME_VALUE_ALLOWED = {
   'compose.toPh':              [['en', 'ru', 'zhCN']],
 
   // "Port" — universal technical term, same in de, en, fr
-  'admin.accounts.imapPort':  [['cs', 'de', 'en', 'fr']],
-  'admin.accounts.smtpPort':  [['cs', 'de', 'en', 'fr']],
-  'admin.systemEmail.port':   [['cs', 'de', 'en', 'fr']],
+  'admin.accounts.imapPort':  [['cs', 'de', 'en', 'fr'], ['it', 'ptBR']],
+  'admin.accounts.smtpPort':  [['cs', 'de', 'en', 'fr'], ['it', 'ptBR']],
+  'admin.systemEmail.port':   [['cs', 'de', 'en', 'fr'], ['it', 'ptBR']],
 
   // "Signature" (en/fr) and "Firma" (es/it) — two separate legitimate groups
   'admin.accounts.signatureSection': [['en', 'fr'], ['es', 'it'], ['cs', 'pl']],
@@ -209,13 +209,13 @@ const SAME_VALUE_ALLOWED = {
 
 
   // "Layout" — international term, same in de, en, it
-  'admin.appearance.layout': [['de', 'en', 'it']],
+  'admin.appearance.layout': [['de', 'en', 'it', 'ptBR']],
 
   // "Display" — typography term, same in en and it
   'admin.appearance.typographyDisplay': [['en', 'it']],
 
   // "Mono" — typography abbreviation, same in de, en, es, fr, it
-  'admin.appearance.typographyMono': [['de', 'en', 'es', 'fr', 'it', 'pl']],
+  'admin.appearance.typographyMono': [['de', 'en', 'es', 'fr', 'it', 'pl', 'ptBR']],
 
   // "Archive" — same spelling in en and fr
   'admin.folderMappings.archive': [['en', 'fr'], ['cs', 'de']],
@@ -224,7 +224,7 @@ const SAME_VALUE_ALLOWED = {
   'admin.folderMappings.spam': [['de', 'en']],
 
   // "QR code" — same in en and es; de "QR-Code", fr "code QR", it "codice QR", ru "QR-код", zhCN "QR码"
-  'admin.security.qrCodeAlt': [['en', 'es']],
+  'admin.security.qrCodeAlt': [['en', 'es', 'ptBR']],
 
   // "Visita:" — "Visit:" translates identically in es and it (Romance languages)
   'admin.integrations.microsoft.deviceCodeVisit': [['es', 'it']],
@@ -245,20 +245,20 @@ const SAME_VALUE_ALLOWED = {
   'admin.rules.conditionsLabel': [['en', 'fr']],
 
   // "De" — "From" translates identically in es and fr
-  'admin.rules.fieldFrom': [['es', 'fr'], ['cs', 'pl']],
-  'compose.from':          [['es', 'fr'], ['cs', 'pl']],
+  'admin.rules.fieldFrom': [['es', 'fr', 'ptBR'], ['cs', 'pl']],
+  'compose.from':          [['es', 'fr', 'ptBR'], ['cs', 'pl']],
 
   // "contiene" / "Evento" / "Manualmente" — Romance languages share the same word
   'admin.rules.opContains':          [['es', 'it']],
-  'admin.security.activityColEvent': [['es', 'it']],
-  'admin.messageList.markReadManual': [['es', 'it']],
+  'admin.security.activityColEvent': [['es', 'it', 'ptBR']],
+  'admin.messageList.markReadManual': [['es', 'it', 'ptBR']],
 
   // "Status" — same spelling in de and en
-  'admin.security.activityColStatus': [['de', 'en']],
+  'admin.security.activityColStatus': [['de', 'en', 'ptBR']],
 
   // "ID client" — fr and it share the same OAuth term
-  'admin.sso.clientId':   [['fr', 'it']],
-  'admin.sso.clientIdPh': [['fr', 'it']],
+  'admin.sso.clientId':   [['fr', 'it'], ['en', 'ptBR']],
+  'admin.sso.clientIdPh': [['fr', 'it'], ['en', 'ptBR']],
 
   // "Scopes" — OAuth technical term, same in de and en
   'admin.sso.scopes': [['de', 'en']],
@@ -267,7 +267,7 @@ const SAME_VALUE_ALLOWED = {
   'admin.sso.title': [['de', 'en', 'it']],
 
   // "SSO" — acronym, same in de, en, es, fr, it, ru
-  'admin.tabs.sso': [['cs', 'de', 'en', 'es', 'fr', 'it', 'pl', 'ru']],
+  'admin.tabs.sso': [['cs', 'de', 'en', 'es', 'fr', 'it', 'pl', 'ptBR', 'ru']],
 
   // "Telefon" / "Projekt" — established Polish/German technical loanwords
   'contacts.fields.phone': [['cs', 'de', 'pl']],
@@ -278,23 +278,23 @@ const SAME_VALUE_ALLOWED = {
   'login.password':                  [['en', 'it']],
 
   // "Tema" — "Theme" translates identically in es and it
-  'admin.tabs.theme': [['es', 'it']],
+  'admin.tabs.theme': [['es', 'it', 'ptBR']],
 
   // "Administration" — same spelling in de, en, fr
   'admin.tabs.groupAdmin': [['de', 'en', 'fr']],
 
   // "Admin" — used as-is in de, en, es, fr, it
-  'admin.users.adminBadge': [['de', 'en', 'es', 'fr', 'it']],
+  'admin.users.adminBadge': [['de', 'en', 'es', 'fr', 'it', 'ptBR']],
 
   // "Error: {{message}}" — "Error" is the same word in en and es
   'common.error': [['en', 'es']],
 
   // "Cc" / "Bcc" — email header abbreviations used internationally
-  'compose.cc':  [['de', 'en', 'es', 'fr', 'it']],
-  'compose.bcc': [['de', 'en', 'it']],
+  'compose.cc':  [['de', 'en', 'es', 'fr', 'it', 'ptBR']],
+  'compose.bcc': [['de', 'en', 'it'], ['es', 'ptBR']],
 
   // "Normal" — loanword, same spelling in de, en, es, fr
-  'compose.priorityNormal': [['de', 'en', 'es', 'fr']],
+  'compose.priorityNormal': [['de', 'en', 'es', 'fr', 'ptBR']],
 
   // "{{count}} message(s)" — identical spelling in en and fr
   'thread.messages_one':   [['en', 'fr']],
@@ -307,7 +307,7 @@ const SAME_VALUE_ALLOWED = {
   'contacts.count': [['en', 'fr']],
   'contacts.title': [['en', 'fr'], ['cs', 'pl']],
   // "Email" — international term used as-is in en, es, it, ru, zhCN
-  'contacts.fields.email': [['en', 'es', 'it', 'ru', 'zhCN'], ['cs', 'fr']],
+  'contacts.fields.email': [['en', 'es', 'it', 'ru', 'zhCN'], ['cs', 'fr', 'ptBR']],
   // "Notes" — same spelling in English and French
   'contacts.fields.notes': [['en', 'fr']],
   // "Organisation" — same spelling in German and French
@@ -320,9 +320,9 @@ const SAME_VALUE_ALLOWED = {
 
   // ── MFA / 2FA ─────────────────────────────────────────────────────────────
   // "Optional" — same spelling in de and en
-  'admin.security.mfaEnforcementOff': [['de', 'en']],
+  'admin.security.mfaEnforcementOff': [['de', 'en'], ['es', 'ptBR']],
   // "Permanent" — same in en and fr; "Permanente" same in es and it
-  'admin.security.mfaDeviceTrustForever': [['en', 'fr'], ['es', 'it']],
+  'admin.security.mfaDeviceTrustForever': [['en', 'fr'], ['es', 'it', 'ptBR']],
   // email placeholder — en and ru share same format
   'admin.security.recoveryEmailPh': [['en', 'ru', 'zhCN']],
 
@@ -330,13 +330,13 @@ const SAME_VALUE_ALLOWED = {
   // URL placeholder — identical in all locales
   'admin.categories.urlSubPh': 'any',
   // "Primary" — "Principal" in both es and fr
-  'messageList.categories.primary': [['es', 'fr']],
+  'messageList.categories.primary': [['es', 'fr', 'ptBR']],
   // "Newsletter(s)" — en and fr both use "Newsletters"; de and it both use "Newsletter"
-  'messageList.categories.newsletter': [['en', 'fr'], ['de', 'it'], ['cs', 'pl']],
+  'messageList.categories.newsletter': [['en', 'fr', 'ptBR'], ['de', 'it'], ['cs', 'pl']],
   // "Promotions" — same spelling in en and fr
   'messageList.categories.promotion': [['en', 'fr']],
   // "Social" — international term used as-is in en, es, and it
-  'messageList.categories.social': [['en', 'es', 'it']],
+  'messageList.categories.social': [['en', 'es', 'it', 'ptBR']],
 
   // ── GTD ────────────────────────────────────────────────────────────────────
   // "GTD" — acronym (Getting Things Done), same in every locale
@@ -354,25 +354,168 @@ const SAME_VALUE_ALLOWED = {
   // "Description" — same spelling in en and fr
   'todoist.description': [['en', 'fr']],
   // "Labels" — international loanword, same in de and en
-  'todoist.labels': [['de', 'en']],
+  'todoist.labels': [['de', 'en'], ['es', 'ptBR']],
   // "Urgent" — same in en and fr; "Urgente" same in es and it (Romance languages)
-  'todoist.priorityUrgent': [['en', 'fr'], ['es', 'it']],
+  'todoist.priorityUrgent': [['en', 'fr'], ['es', 'it', 'ptBR']],
   // "Alta" — "High" translates identically in es and it (Romance languages)
-  'todoist.priorityHigh': [['es', 'it']],
+  'todoist.priorityHigh': [['es', 'it', 'ptBR']],
   // "Media" — "Medium" translates identically in es and it (Romance languages)
   'todoist.priorityMedium': [['es', 'it']],
 
   // ── Czech ────────────────────────────────────────────────────────────────
   'admin.about.license': [['cs', 'fr']],
   'admin.ai.chatgptModel': [['cs', 'pl']],
-  'admin.ai.model': [['cs', 'en']],
-  'admin.appearance.typography': [['cs', 'de']],
+  'admin.ai.model': [['cs', 'en'], ['es', 'ptBR']],
+  'admin.appearance.typography': [['cs', 'de'], ['it', 'ptBR']],
   'admin.integrations.carddav.serverPh': 'any',
   'admin.integrations.carddav.title': [['cs', 'pl']],
-  'admin.messageList.markReadDelaySeconds': [['cs', 'pl']],
-  'admin.messageList.markReadDelaySeconds_other': [['cs', 'pl']],
+  'admin.messageList.markReadDelaySeconds': [['cs', 'pl'], ['es', 'ptBR']],
+  'admin.messageList.markReadDelaySeconds_other': [['cs', 'pl'], ['es', 'ptBR']],
   'admin.tabs.categories': [['cs', 'pl']],
   'gtd.state.reference': [['cs', 'en']],
+
+  // ── Brazilian Portuguese (ptBR) ────────────────────────────────────────────
+  // Portuguese shares a large vocabulary with Spanish (and some with Italian),
+  // so short UI labels — Responder, Cancelar, Enviar, Copiar… — are spelled the
+  // same. Each pair below was checked: the ptBR value is a real translation.
+  'admin.accounts.connected':                        [['es', 'ptBR']], // "Conectada"
+  'admin.accounts.imapHost':                         [['es', 'ptBR']], // "Servidor IMAP"
+  'admin.accounts.presetCustom':                     [['es', 'ptBR']], // "Personalizado"
+  'admin.accounts.smtpHost':                         [['es', 'ptBR']], // "Servidor SMTP"
+  'admin.ai.cancelling':                             [['es', 'ptBR']], // "Cancelando…"
+  'admin.ai.connect':                                [['es', 'ptBR']], // "Conectar ChatGPT"
+  'admin.ai.connectedAs':                            [['es', 'ptBR']], // "Conectado como {{account}}"
+  'admin.ai.connecting':                             [['es', 'ptBR']], // "Iniciando…"
+  'admin.ai.copied':                                 [['es', 'ptBR']], // "Copiado"
+  'admin.ai.copyCode':                               [['es', 'ptBR']], // "Copiar código"
+  'admin.ai.disconnect':                             [['es', 'ptBR']], // "Desconectar"
+  'admin.ai.disconnecting':                          [['es', 'ptBR']], // "Desconectando…"
+  'admin.ai.statusConnected':                        [['es', 'ptBR']], // "Conectado"
+  'admin.appearance.customCss':                      [['es', 'ptBR']], // "CSS personalizado"
+  'admin.appearance.language':                       [['es', 'ptBR']], // "Idioma"
+  'admin.blockList.addButton':                       [['es', 'ptBR']], // "Bloquear"
+  'admin.categories.recategorize':                   [['es', 'ptBR']], // "Recategorizar"
+  'admin.folderMappings.sent':                       [['es', 'ptBR']], // "Enviados"
+  'admin.gtd.pet.import':                            [['es', 'ptBR']], // "Importar"
+  'admin.gtd.pet.importing':                         [['es', 'ptBR']], // "Importando…"
+  'admin.integrations.carddav.connect':              [['es', 'ptBR']], // "Conectar"
+  'admin.integrations.carddav.connected':            [['es', 'ptBR']], // "Conectado"
+  'admin.integrations.carddav.connecting':           [['es', 'ptBR']], // "Conectando…"
+  'admin.integrations.carddav.disconnect':           [['es', 'ptBR']], // "Desconectar"
+  'admin.integrations.carddav.syncing':              [['es', 'ptBR']], // "Sincronizando…"
+  'admin.integrations.google.configured':            [['es', 'ptBR']], // "Configurado"
+  'admin.integrations.microsoft.configured':         [['es', 'ptBR']], // "Configurado"
+  'admin.integrations.microsoft.deviceCodeCancel':   [['es', 'ptBR']], // "Cancelar"
+  'admin.integrations.tabApps':                      [['en', 'ptBR']], // "Apps"
+  'admin.integrations.todoist.connect':              [['es', 'ptBR']], // "Conectar"
+  'admin.integrations.todoist.connected':            [['es', 'ptBR']], // "Conectado"
+  'admin.integrations.todoist.connecting':           [['es', 'ptBR']], // "Conectando..."
+  'admin.integrations.todoist.disconnect':           [['es', 'ptBR']], // "Desconectar"
+  'admin.lock.confirmPin':                           [['es', 'ptBR']], // "Confirmar PIN"
+  'admin.messageList.defaultReply':                  [['es', 'ptBR']], // "Responder"
+  'admin.messageList.defaultReplyAll':               [['es', 'ptBR']], // "Responder a todos"
+  'admin.messageList.paginated':                     [['es', 'ptBR']], // "Paginado"
+  'admin.messageList.swipeReply':                    [['es', 'ptBR']], // "Responder"
+  'admin.messageList.swipeReplyAll':                 [['es', 'ptBR']], // "Responder a todos"
+  'admin.notifications.custom':                      [['es', 'ptBR']], // "Personalizado"
+  'admin.rules.accountLabel':                        [['es', 'ptBR']], // "Aplicar a"
+  'admin.rules.editButton':                          [['es', 'ptBR']], // "Editar"
+  'admin.rules.fieldBody':                           [['it', 'ptBR']], // "Corpo"
+  'admin.rules.fieldTo':                             [['es', 'ptBR']], // "Para"
+  'admin.security.activityAllowed':                  [['es', 'ptBR']], // "Permitido"
+  'admin.security.activityBlocked':                  [['es', 'ptBR']], // "Bloqueado"
+  'admin.security.activityColTime':                  [['es', 'ptBR']], // "Hora"
+  'admin.security.eventLoginSuccess':                [['en', 'ptBR']], // "Login"
+  'admin.security.eventTotpSuccess':                 [['es', 'ptBR']], // "2FA verificado"
+  'admin.security.mfaDeviceTrustNever':              [['es', 'ptBR']], // "Nunca"
+  'admin.security.ssoLink':                          [['es', 'ptBR']], // "Vincular {{provider}}"
+  'admin.security.ssoUnlink':                        [['es', 'ptBR']], // "Desvincular"
+  'admin.security.ssoUnlinkConfirm':                 [['es', 'ptBR']], // "Desvincular"
+  'admin.security.totpSetup':                        [['es', 'ptBR']], // "Configurar"
+  'admin.security.totpVerifyLoading':                [['es', 'ptBR']], // "Verificando…"
+  'admin.sso.clientSecretNew':                       [['en', 'ptBR']], // "Client Secret"
+  'admin.sso.clientSecretPhNew':                     [['en', 'ptBR']], // "Client secret"
+  'admin.sso.copiedUri':                             [['es', 'ptBR']], // "Copiado"
+  'admin.sso.copyUri':                               [['es', 'ptBR']], // "Copiar"
+  'admin.sso.editButton':                            [['es', 'ptBR']], // "Editar"
+  'admin.sso.editTitle':                             [['es', 'ptBR']], // "Editar: {{name}}"
+  'admin.systemEmail.host':                          [['es', 'ptBR']], // "Servidor SMTP"
+  'admin.users.inviteSending':                       [['es', 'ptBR']], // "Enviando…"
+  'blockList.blocked':                               [['es', 'ptBR']], // "Bloqueado"
+  'commandPalette.hint.navigate':                    [['es', 'ptBR']], // "navegar"
+  'common.cancel':                                   [['es', 'ptBR']], // "Cancelar"
+  'common.copy':                                     [['es', 'ptBR']], // "Copiar"
+  'common.edit':                                     [['es', 'ptBR']], // "Editar"
+  'common.never':                                    [['es', 'ptBR']], // "Nunca"
+  'common.view':                                     [['es', 'ptBR']], // "Ver"
+  'compose.closeDraft.discard':                      [['es', 'ptBR']], // "Descartar"
+  'compose.discard':                                 [['es', 'ptBR']], // "Descartar"
+  'compose.discardDraft.discard':                    [['es', 'ptBR']], // "Descartar"
+  'compose.emptySubject.cancel':                     [['es', 'ptBR']], // "Cancelar"
+  'compose.forgottenAttachment.cancel':              [['es', 'ptBR']], // "Cancelar"
+  'compose.reply':                                   [['es', 'ptBR']], // "Responder"
+  'compose.replyAll':                                [['es', 'ptBR']], // "Responder a todos"
+  'compose.send':                                    [['es', 'ptBR']], // "Enviar"
+  'compose.sending':                                 [['es', 'ptBR']], // "Enviando…"
+  'compose.sent.action':                             [['es', 'ptBR']], // "Ver"
+  'compose.to':                                      [['es', 'ptBR']], // "Para"
+  'compose.toolbar.aiApply':                         [['es', 'ptBR']], // "Aplicar"
+  'compose.toolbar.apply':                           [['es', 'ptBR']], // "Aplicar"
+  'compose.toolbar.maximize':                        [['es', 'ptBR']], // "Maximizar"
+  'compose.toolbar.minimize':                        [['es', 'ptBR']], // "Minimizar"
+  'compose.toolbar.restore':                         [['es', 'ptBR']], // "Restaurar"
+  'contacts.fields.firstName':                       [['it', 'ptBR']], // "Nome"
+  'contextMenu.categorize':                          [['es', 'ptBR']], // "Categorizar como…"
+  'contextMenu.headers.copied':                      [['es', 'ptBR']], // "✓ Copiado"
+  'contextMenu.moveToFolder':                        [['es', 'ptBR']], // "Mover"
+  'contextMenu.open':                                [['es', 'ptBR']], // "Abrir"
+  'contextMenu.reply':                               [['es', 'ptBR']], // "Responder"
+  'contextMenu.replyAll':                            [['es', 'ptBR']], // "Responder a todos"
+  'contextMenu.snooze.custom':                       [['es', 'ptBR']], // "Personalizado..."
+  'diagnostics.section':                             [['es', 'ptBR']], // "Diagnóstico"
+  'gtd.classified':                                  [['es', 'ptBR']], // "Etiqueta aplicada"
+  'gtd.inboxZero':                                   [['en', 'ptBR']], // "Inbox Zero ✓"
+  'gtd.showLess':                                    [['es', 'ptBR']], // "Mostrar menos"
+  'gtd.showSome':                                    [['es', 'ptBR']], // "Mostrar {{available}} de {{total}}"
+  'gtd.toggleSection':                               [['es', 'ptBR']], // "Alternar {{section}}"
+  'lockScreen.unlockButton':                         [['es', 'ptBR']], // "Desbloquear"
+  'lockScreen.unlocking':                            [['es', 'ptBR']], // "Desbloqueando…"
+  'login.emailOtp.codePh':                           [['es', 'ptBR']], // "Código de 6 dígitos"
+  'login.emailOtp.resend':                           [['es', 'ptBR']], // "Reenviar código"
+  'login.emailOtp.sending':                          [['es', 'ptBR']], // "Enviando…"
+  'login.emailOtp.verify':                           [['es', 'ptBR']], // "Verificar"
+  'login.emailOtp.verifying':                        [['es', 'ptBR']], // "Verificando…"
+  'login.forgotPassword.sending':                    [['es', 'ptBR']], // "Enviando…"
+  'login.totp.verify':                               [['es', 'ptBR']], // "Verificar"
+  'login.totp.verifying':                            [['es', 'ptBR']], // "Verificando…"
+  'message.aiCopied':                                [['es', 'ptBR']], // "Copiado"
+  'message.aiCopy':                                  [['es', 'ptBR']], // "Copiar"
+  'message.aiExpand':                                [['es', 'ptBR']], // "Expandir"
+  'message.find.previous':                           [['es', 'ptBR']], // "Anterior"
+  'message.print':                                   [['es', 'ptBR']], // "Imprimir"
+  'message.reply':                                   [['es', 'ptBR']], // "Responder"
+  'message.replyAll':                                [['es', 'ptBR']], // "Responder a todos"
+  'message.summarize':                               [['es', 'ptBR']], // "Resumir"
+  'message.to':                                      [['es', 'ptBR']], // "Para:"
+  'messageList.moveToFolder':                        [['es', 'ptBR']], // "Mover"
+  'messageList.pageOf':                              [['es', 'ptBR']], // "Página {{current}} de {{total}}"
+  'messageList.sync':                                [['es', 'ptBR']], // "Sincronizar"
+  'profile.editProfile':                             [['es', 'ptBR']], // "Editar perfil"
+  'profile.title':                                   [['es', 'ptBR']], // "Editar perfil"
+  'shortcuts.actions.printMessage.label':            [['es', 'ptBR']], // "Imprimir"
+  'shortcuts.actions.reply.label':                   [['es', 'ptBR']], // "Responder"
+  'shortcuts.actions.replyAll.label':                [['es', 'ptBR']], // "Responder a todos"
+  'sidebar.accountMenu.reconnect':                   [['es', 'ptBR']], // "Reconectar"
+  'sidebar.lock':                                    [['es', 'ptBR']], // "Bloquear"
+  'sidebar.toggleSidebar':                           [['es', 'ptBR']], // "Alternar barra lateral"
+  'signatureEditor.sourceMode':                      [['es', 'ptBR']], // "Editar código HTML"
+  'signatureEditor.strikethrough':                   [['es', 'ptBR']], // "Tachado"
+  'signatureEditor.visualMode':                      [['es', 'ptBR']], // "Editor visual"
+  'spam.maturity.insufficient':                      [['es', 'ptBR']], // "Insuficiente"
+  'spam.never':                                      [['es', 'ptBR']], // "nunca"
+  'spam.records':                                    [['es', 'ptBR']], // "registros"
+  'spam.verdict.unsure':                             [['it', 'ptBR']], // "Incerto"
+  'window.minimize':                                 [['es', 'ptBR']], // "Minimizar"
 };
 
 // Locale-specific plural forms are allowed per locale. A locale may add forms

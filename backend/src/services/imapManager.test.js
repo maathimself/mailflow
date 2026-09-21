@@ -2675,6 +2675,55 @@ describe('computeThreadId subject fallback requires a shared correspondent (#468
     expect(id).toBe('<new@other.com>'); // a new thread, not paypal-thread
   });
 
+  it('does not treat a shared recipient as a shared correspondent', async () => {
+    // The hole in the first version of this fix. Both messages are addressed to the same
+    // third party, here a forwarding address that is neither the account login nor an alias.
+    // Two unrelated senders writing to it have it in common, which is not correspondence:
+    // forwarded mail, catch-all domains, mailing lists and BCC all produce this.
+    const FWD_ACCOUNT = 'acct-forwarded';
+    getAccountAddresses.mockResolvedValue(['simanoom@gmail.com']);
+    query.mockResolvedValueOnce({
+      rows: [{
+        thread_id: 'storage-alert-thread',
+        from_email: 'alert-3385@lxisa.zub',
+        to_addresses: [{ email: 'me@aol.com' }],
+        cc_addresses: [],
+      }],
+    });
+
+    const id = await computeThreadId(FWD_ACCOUNT, '<second@yxcoi.isj>', ...noHeaders, 'Action required: storage 100% full', {
+      fromEmail: 'alert-6476@yxcoi.isj',
+      to: [{ email: 'me@aol.com' }],
+      cc: [],
+      own: 'simanoom@gmail.com',
+    });
+
+    expect(id).toBe('<second@yxcoi.isj>'); // its own thread, not the first sender's
+  });
+
+  it('threads a reply because the other party sent one and received the other', async () => {
+    const REPLY_ACCOUNT = 'acct-reply-direction';
+    getAccountAddresses.mockResolvedValue([OWNER]);
+    query.mockResolvedValueOnce({
+      rows: [{
+        thread_id: 'anna-thread',
+        from_email: 'anna@partner.com',
+        to_addresses: [{ email: OWNER }],
+        cc_addresses: [],
+      }],
+    });
+
+    // Our own reply to Anna, headers stripped: she is our recipient and their sender.
+    const id = await computeThreadId(REPLY_ACCOUNT, '<mine@example.com>', ...noHeaders, 'RE: Status', {
+      fromEmail: OWNER,
+      to: [{ email: 'anna@partner.com' }],
+      cc: [],
+      own: OWNER,
+    });
+
+    expect(id).toBe('anna-thread');
+  });
+
   it('never reaches the fallback when the message carries threading headers', async () => {
     query.mockResolvedValueOnce({ rows: [{ message_id: '<root@x.com>', thread_id: 'header-thread' }] });
 

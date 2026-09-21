@@ -16,6 +16,7 @@ export const BUILTIN_SUMMARIZE = { id: 'summarize', prompt: SUMMARIZE_PROMPT, bu
 const SUMMARIZE_LANGUAGE_NAMES = {
   es: 'Spanish', fr: 'French', de: 'German', it: 'Italian',
   pl: 'Polish', ru: 'Russian', zhCN: 'Simplified Chinese', cs: 'Czech',
+  ptBR: 'Brazilian Portuguese',
 };
 
 export function summarizePromptForLocale(locale) {
