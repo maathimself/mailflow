@@ -83,6 +83,59 @@ configurable per account, and accounts with GTD off behave exactly as before.
 
 ---
 
+## Template Builder
+
+A visual email template editor with drag-and-drop blocks, built on top of the
+composer's native Tiptap nodes. Off by default and enabled per account under
+**Settings → Categories → Templates**. When on, a Templates icon appears in the
+left sidebar next to the contacts button (side-by-side when the sidebar is expanded,
+stacked vertically when collapsed), and a **Template** button appears in the
+composer toolbar.
+
+Templates are stored per-user in the plugin's `plugin_data` store and compiled to
+email-safe HTML by the backend via MJML, so the output works in Gmail, Outlook,
+and the ~40 other clients MJML targets.
+
+### What you can build
+
+- **Text** — headings and paragraphs with font size, bold, italic, color, and alignment
+- **Image** — upload images, set links, adjust width
+- **Button** — styled buttons with background color, text color, custom label, and URL
+- **Columns** — split content into 2–4 equal columns
+- **Divider** — horizontal lines with customizable width and color
+- **Spacer** — add consistent vertical spacing
+- **Social** — social media links with icons (Facebook, Twitter, Instagram, LinkedIn,
+  YouTube, Email, Website) and optional labels
+- **List** — bullet or numbered lists
+
+### How it works
+
+1. **Create** a template in the Templates panel — drag blocks up/down, remove, and
+   reorder them.
+2. **Insert** into an email — open the **Template** button in the composer toolbar,
+   pick a template, and it's injected into the editor as native Tiptap nodes.
+3. **Send** — the editor renders the same nodes you built, and the backend compiles
+   the blocks to MJML → email-safe HTML before sending.
+
+The preview in the Templates panel uses the same CSS classes as the composer
+(`tiptap-compose .ProseMirror`), so what you see in the editor is exactly what the
+recipient will receive.
+
+### Block types
+
+| Block | Description |
+|---|---|
+| Text | Headings (h1–h3) and paragraphs with bold, italic, font size, color, alignment |
+| Image | Upload images, set links, adjust width |
+| Button | Styled buttons with background color, text color, custom label, and URL |
+| Columns | Split content into 2–4 equal columns |
+| Divider | Horizontal lines with customizable width and color |
+| Spacer | Add consistent vertical spacing |
+| Social | Social media links with icons and optional labels |
+| List | Bullet or numbered lists |
+
+---
+
 ## Screenshots
 
 <table>
