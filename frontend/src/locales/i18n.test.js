@@ -293,6 +293,9 @@ const SAME_VALUE_ALLOWED = {
   'compose.cc':  [['de', 'en', 'es', 'fr', 'it', 'ptBR']],
   'compose.bcc': [['de', 'en', 'it'], ['es', 'ptBR']],
 
+  // "Tipografia" — Italian and Portuguese spell this identically
+  'compose.toolbar.typography': [['it', 'ptBR']],
+
   // "Normal" — loanword, same spelling in de, en, es, fr
   'compose.priorityNormal': [['de', 'en', 'es', 'fr', 'ptBR']],
 
