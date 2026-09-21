@@ -1692,5 +1692,13 @@
     "copyFailed": "Copy failed",
     "generating": "Generating report…",
     "error": "Could not generate the report."
+  },
+  "folders": {
+    "inbox": "Inbox",
+    "sent": "Sent",
+    "drafts": "Drafts",
+    "trash": "Trash",
+    "spam": "Spam",
+    "archive": "Archive"
   }
 }

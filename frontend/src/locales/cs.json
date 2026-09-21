@@ -1711,5 +1711,13 @@
     "copyFailed": "Kopírování selhalo",
     "generating": "Generuji zprávu…",
     "error": "Zprávu se nepodařilo vytvořit."
+  },
+  "folders": {
+    "inbox": "Doručená pošta",
+    "sent": "Odeslané",
+    "drafts": "Koncepty",
+    "trash": "Koš",
+    "spam": "Spam",
+    "archive": "Archiv"
   }
 }

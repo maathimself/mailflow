@@ -519,6 +519,12 @@ const SAME_VALUE_ALLOWED = {
   'spam.records':                                    [['es', 'ptBR']], // "registros"
   'spam.verdict.unsure':                             [['it', 'ptBR']], // "Incerto"
   'window.minimize':                                 [['es', 'ptBR']], // "Minimizar"
+
+  // ── Special-use folder labels (sidebar / pickers) ───────────────────────────
+  // "Spam" is the same loanword nearly everywhere; "Enviados" es/ptBR; "Archiv" de/cs
+  'folders.spam':    [['cs', 'de', 'en', 'es', 'it', 'pl', 'ptBR']],
+  'folders.sent':    [['es', 'ptBR']],
+  'folders.archive': [['cs', 'de']],
 };
 
 // Locale-specific plural forms are allowed per locale. A locale may add forms

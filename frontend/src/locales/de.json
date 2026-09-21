@@ -1692,5 +1692,13 @@
     "copyFailed": "Kopieren fehlgeschlagen",
     "generating": "Bericht wird erstellt…",
     "error": "Bericht konnte nicht erstellt werden."
+  },
+  "folders": {
+    "inbox": "Posteingang",
+    "sent": "Gesendet",
+    "drafts": "Entwürfe",
+    "trash": "Papierkorb",
+    "spam": "Spam",
+    "archive": "Archiv"
   }
 }

@@ -1692,5 +1692,13 @@
     "copyFailed": "Error al copiar",
     "generating": "Generando informe…",
     "error": "No se pudo generar el informe."
+  },
+  "folders": {
+    "inbox": "Bandeja de entrada",
+    "sent": "Enviados",
+    "drafts": "Borradores",
+    "trash": "Papelera",
+    "spam": "Spam",
+    "archive": "Archivo"
   }
 }

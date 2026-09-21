@@ -22,7 +22,7 @@ import { advanceSelectionAfterRemoval } from '../utils/listSelection.js';
 import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
 import SenderAvatarImage from './SenderAvatarImage.jsx';
 import FolderPathLabel from './FolderPathLabel.jsx';
-import { folderMatchesQuery } from '../utils/folderDisplay.js';
+import { folderDisplayName, folderMatchesQuery } from '../utils/folderDisplay.js';
 import SpamBadge from './SpamBadge.jsx';
 import SpamExplainModal from './SpamExplainModal.jsx';
 import { shortcutBus } from '../utils/shortcutBus.js';
@@ -3320,7 +3320,7 @@ export default function MessageList() {
                   </svg>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {folder.name || folder.path}
+                      {folderDisplayName(folder, t)}
                     </div>
                     {folder.accountName && (
                       <div style={{ fontSize: 11, color: 'var(--text-tertiary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>

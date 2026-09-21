@@ -1692,5 +1692,13 @@
     "copyFailed": "Copia non riuscita",
     "generating": "Generazione del report…",
     "error": "Impossibile generare il report."
+  },
+  "folders": {
+    "inbox": "Posta in arrivo",
+    "sent": "Inviati",
+    "drafts": "Bozze",
+    "trash": "Cestino",
+    "spam": "Spam",
+    "archive": "Archivio"
   }
 }

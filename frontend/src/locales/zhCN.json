@@ -1692,5 +1692,13 @@
     "copyFailed": "复制失败",
     "generating": "正在生成报告…",
     "error": "无法生成报告。"
+  },
+  "folders": {
+    "inbox": "收件箱",
+    "sent": "已发送",
+    "drafts": "草稿箱",
+    "trash": "已删除",
+    "spam": "垃圾邮件",
+    "archive": "归档"
   }
 }

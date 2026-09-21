@@ -1711,5 +1711,13 @@
     "copyFailed": "Kopiowanie nie powiodło się",
     "generating": "Generowanie raportu…",
     "error": "Nie udało się wygenerować raportu."
+  },
+  "folders": {
+    "inbox": "Odebrane",
+    "sent": "Wysłane",
+    "drafts": "Szkice",
+    "trash": "Kosz",
+    "spam": "Spam",
+    "archive": "Archiwum"
   }
 }

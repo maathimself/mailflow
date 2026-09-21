@@ -6,6 +6,8 @@ import {
   folderMatchesQuery,
   folderParentLabel,
   folderParentPath,
+  folderDisplayName,
+  folderRole,
 } from './folderDisplay.js';
 
 describe('folderDelimiter', () => {
@@ -107,5 +109,44 @@ describe('folderMatchesQuery', () => {
     assert.equal(folderMatchesQuery(slashed, 'a/b'), true);
     assert.equal(folderMatchesQuery(slashed, 'inbox.a'), true);
     assert.equal(folderParentLabel(slashed), 'INBOX');
+  });
+});
+
+describe('folderDisplayName', () => {
+  const t = key => ({
+    'folders.inbox': 'Caixa de entrada', 'folders.sent': 'Enviados', 'folders.drafts': 'Rascunhos',
+    'folders.trash': 'Lixeira', 'folders.spam': 'Spam', 'folders.archive': 'Arquivo',
+  })[key] ?? key;
+
+  it('translates special-use folders by role, not by server name', () => {
+    assert.equal(folderDisplayName({ path: 'Sent', name: 'Sent', special_use: '\\Sent' }, t), 'Enviados');
+    assert.equal(folderDisplayName({ path: 'Junk', name: 'Junk', special_use: '\\Junk' }, t), 'Spam');
+    assert.equal(folderDisplayName({ path: 'Papierkorb', name: 'Papierkorb', special_use: '\\Trash' }, t), 'Lixeira');
+    assert.equal(folderDisplayName({ path: '[Gmail]/All Mail', name: 'All Mail', special_use: '\\All' }, t), 'All Mail');
+  });
+
+  it('recognizes INBOX by name even without a special-use flag', () => {
+    assert.equal(folderDisplayName({ path: 'INBOX', name: 'INBOX' }, t), 'Caixa de entrada');
+    assert.equal(folderDisplayName({ path: 'inbox', name: 'inbox' }, t), 'Caixa de entrada');
+    assert.equal(folderDisplayName({ path: 'INBOX/Work', name: 'Work' }, t), 'Work');
+  });
+
+  it('falls back to the account folder mappings when the server sets no flag', () => {
+    const mappings = { archive: 'Archives', trash: 'Deleted Items' };
+    assert.equal(folderDisplayName({ path: 'Archives', name: 'Archives' }, t, mappings), 'Arquivo');
+    assert.equal(folderDisplayName({ path: 'Deleted Items', name: 'Deleted Items' }, t, mappings), 'Lixeira');
+    assert.equal(folderDisplayName({ path: 'Notes', name: 'Notes' }, t, mappings), 'Notes');
+  });
+
+  it('keeps the server name when no translation exists or t is missing', () => {
+    assert.equal(folderDisplayName({ path: 'Sent', name: 'Sent', special_use: '\\Sent' }, key => key), 'Sent');
+    assert.equal(folderDisplayName({ path: 'Sent', name: 'Sent', special_use: '\\Sent' }), 'Sent');
+    assert.equal(folderDisplayName({ path: 'Sent', special_use: '\\Sent' }, undefined), 'Sent');
+  });
+
+  it('exposes the role for callers that only need it', () => {
+    assert.equal(folderRole({ path: 'Drafts', special_use: '\\Drafts' }), 'drafts');
+    assert.equal(folderRole({ path: 'Projects' }), null);
+    assert.equal(folderRole({}), null);
   });
 });

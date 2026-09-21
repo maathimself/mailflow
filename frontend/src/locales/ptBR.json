@@ -1692,5 +1692,13 @@
     "copyFailed": "Falha ao copiar",
     "generating": "Gerando relatório…",
     "error": "Não foi possível gerar o relatório."
+  },
+  "folders": {
+    "inbox": "Caixa de entrada",
+    "sent": "Enviados",
+    "drafts": "Rascunhos",
+    "trash": "Lixeira",
+    "spam": "Spam",
+    "archive": "Arquivo"
   }
 }
