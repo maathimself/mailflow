@@ -1124,9 +1124,9 @@ export async function computeThreadId(accountId, messageId, inReplyTo, reference
   // Subject alone is not enough. Two unrelated automated notifications that happen to share
   // a subject ("Security alert", "Your login") were being merged into one thread (#468), and
   // the same weakness lets a single subject collect hundreds of messages. So a candidate
-  // must also share a correspondent: some participant other than this account's own address.
-  // A reply from the other party still matches, because that party is on both messages;
-  // two senders who have only the account owner in common no longer do.
+  // must also share a correspondent: the same sender, or one wrote to the other's sender.
+  // A reply from the other party still matches, because that party sent one message and
+  // received the other. Two senders who merely wrote to the same address do not.
   //
   // Candidates are scanned oldest first and capped. Finding no match simply starts a new
   // thread, which is the safe direction to fail in: a thread that did not merge is a much
@@ -1135,8 +1135,9 @@ export async function computeThreadId(accountId, messageId, inReplyTo, reference
   const own = normalized && participants
     ? await ownAddressesFor(accountId, participants.own)
     : new Set();
-  const mine = participantSet(participants, own);
-  if (normalized && mine.size > 0) {
+  const mine = messageParties(participants, own);
+  // Nothing to match on when the only party is the account itself.
+  if (normalized && (mine.sender || mine.recipients.size > 0)) {
     const candidates = await query(
       `SELECT thread_id, from_email, to_addresses, cc_addresses FROM messages
        WHERE account_id = $1
@@ -1150,14 +1151,12 @@ export async function computeThreadId(accountId, messageId, inReplyTo, reference
       [accountId, messageId, normalized, SUBJECT_THREAD_CANDIDATE_LIMIT]
     );
     for (const row of candidates.rows) {
-      const theirs = participantSet({
+      const theirs = messageParties({
         fromEmail: row.from_email,
         to: parseAddressColumn(row.to_addresses),
         cc: parseAddressColumn(row.cc_addresses),
       }, own);
-      for (const p of theirs) {
-        if (mine.has(p)) return row.thread_id;
-      }
+      if (sharesCorrespondent(mine, theirs)) return row.thread_id;
     }
   }
 
@@ -1168,21 +1167,41 @@ export async function computeThreadId(accountId, messageId, inReplyTo, reference
 // messages than this is an automated notification, not a conversation.
 const SUBJECT_THREAD_CANDIDATE_LIMIT = 200;
 
-// Addresses on a message other than the account's own, lowercased. The account's own
-// addresses are excluded because they appear on every message in the mailbox and so cannot
-// distinguish one correspondent from another.
-function participantSet(msg, ownAddresses) {
-  const out = new Set();
-  if (!msg) return out;
-  const add = (entry) => {
-    const email = typeof entry === 'string' ? entry : entry?.email;
-    const v = String(email || '').trim().toLowerCase();
-    if (v && !ownAddresses.has(v)) out.add(v);
-  };
-  add(msg.fromEmail);
-  for (const a of Array.isArray(msg.to) ? msg.to : []) add(a);
-  for (const a of Array.isArray(msg.cc) ? msg.cc : []) add(a);
-  return out;
+function normalizeAddress(entry) {
+  const email = typeof entry === 'string' ? entry : entry?.email;
+  return String(email || '').trim().toLowerCase();
+}
+
+// The sender, and everyone the message was addressed to, with the account's own addresses
+// removed. Own addresses appear on everything in the mailbox and so cannot tell one
+// correspondent from another.
+function messageParties(msg, ownAddresses) {
+  const sender = normalizeAddress(msg?.fromEmail);
+  const recipients = new Set();
+  for (const a of Array.isArray(msg?.to) ? msg.to : []) {
+    const v = normalizeAddress(a);
+    if (v && !ownAddresses.has(v)) recipients.add(v);
+  }
+  for (const a of Array.isArray(msg?.cc) ? msg.cc : []) {
+    const v = normalizeAddress(a);
+    if (v && !ownAddresses.has(v)) recipients.add(v);
+  }
+  return { sender: sender && !ownAddresses.has(sender) ? sender : '', recipients };
+}
+
+// Whether two messages are part of the same correspondence: same sender, or one wrote to the
+// other's sender.
+//
+// A shared RECIPIENT deliberately does not count. Two unrelated senders writing to the same
+// third-party address have that address in common, and that happens constantly: mail
+// forwarded from an old address, a catch-all domain, a mailing list, anything BCC'd. Treating
+// it as a link is what let four unrelated "storage full" notices, all addressed to the same
+// forwarded address, stay in one thread even after #468 was supposedly fixed.
+function sharesCorrespondent(a, b) {
+  if (a.sender && b.sender && a.sender === b.sender) return true;
+  if (a.sender && b.recipients.has(a.sender)) return true;
+  if (b.sender && a.recipients.has(b.sender)) return true;
+  return false;
 }
 
 // "Own" has to include the account's aliases, not just its login address. An alias is
