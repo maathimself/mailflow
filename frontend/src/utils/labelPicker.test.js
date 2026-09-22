@@ -65,3 +65,19 @@ test('thread copy keeps account scope, skips existing target copies, and copies 
     { path: 'Projects' }, api);
   assert.deepEqual(copied, [['m1', 'Projects'], ['m2', 'Projects']]);
 });
+
+test('GTD choice classifies every distinct message in the captured account thread', async () => {
+  const classified = [];
+  const api = {
+    getThread: async () => ({ messages: [
+      { id: 'm1', account_id: 'a1', folder: 'INBOX', message_id: '<one>' },
+      { id: 'dup', account_id: 'a1', folder: 'Sent', message_id: '<one>' },
+      { id: 'm2', account_id: 'a1', folder: 'INBOX', message_id: '<two>' },
+      { id: 'foreign', account_id: 'a2', folder: 'INBOX', message_id: '<three>' },
+    ] }),
+    gtdClassify: async (...args) => classified.push(args),
+  };
+  await executeLabelChoice({ id: 'm1', account_id: 'a1', folder: 'INBOX', thread_id: 't1', message_count: 4 },
+    { path: 'Action', state: 'todo' }, api);
+  assert.deepEqual(classified, [['m1', 'todo'], ['m2', 'todo']]);
+});

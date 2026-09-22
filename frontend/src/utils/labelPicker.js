@@ -47,9 +47,11 @@ export function pickerNavigationDirection(event) {
 
 export async function executeLabelChoice(message, choice, api) {
   if (!message || !choice) return;
-  if (choice.state) return api.gtdClassify(message.id, choice.state);
+  const apply = row => choice.state
+    ? api.gtdClassify(row.id, choice.state)
+    : api.copyMessage(row.id, choice.path);
   if (!message.thread_id || Number(message.message_count) <= 1 || !api.getThread) {
-    return api.copyMessage(message.id, choice.path);
+    return apply(message);
   }
   const { messages = [] } = await api.getThread(message.thread_id, message.folder, false);
   const seen = new Set();
@@ -60,8 +62,8 @@ export async function executeLabelChoice(message, choice, api) {
     seen.add(key);
     return true;
   });
-  if (!targets.length) targets.push(message);
-  for (const row of targets) await api.copyMessage(row.id, choice.path);
+  if (!targets.length && !messages.length && message.folder !== choice.path) targets.push(message);
+  for (const row of targets) await apply(row);
 }
 
 export async function copyMessageToFolder(id, folder) {
