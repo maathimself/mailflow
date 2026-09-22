@@ -10,6 +10,21 @@ import {
 } from './rules.js';
 
 describe('validateConditions', () => {
+  it('accepts a bounded Jev question and inclusive threshold', () => {
+    expect(validateConditions([{ field: 'jev', question: 'Is this an invoice?', threshold: 0 }])).toBeNull();
+    expect(validateConditions([{ field: 'jev', question: 'Is this an invoice?', threshold: 1 }])).toBeNull();
+    expect(validateConditions([{ field: 'jev', question: 'Is this an invoice?' }])).toBeNull();
+  });
+
+  it.each([NaN, -0.01, 1.01, '0.8', null])('rejects invalid Jev threshold %s', threshold => {
+    expect(validateConditions([{ field: 'jev', question: 'Invoice?', threshold }])).toBeTruthy();
+  });
+
+  it('rejects blank, oversized, and operator-bearing Jev conditions', () => {
+    expect(validateConditions([{ field: 'jev', question: '  ' }])).toBeTruthy();
+    expect(validateConditions([{ field: 'jev', question: 'x'.repeat(501) }])).toBeTruthy();
+    expect(validateConditions([{ field: 'jev', question: 'Invoice?', operator: 'regex' }])).toBeTruthy();
+  });
   it('returns null for a well-formed condition', () => {
     expect(validateConditions([{ field: 'subject', operator: 'contains', value: 'invoice' }])).toBeNull();
   });

@@ -10,6 +10,7 @@ vi.mock('../utils/mailUtils.js', () => ({
   adjustFolderCounts: vi.fn(),
 }));
 vi.mock('./ruleForwarder.js', () => ({ forwardRuleMessage: vi.fn() }));
+vi.mock('./jev.js', () => ({ getJevKey: vi.fn(), evaluateJev: vi.fn() }));
 
 const { query } = await import('./db.js');
 const {
@@ -21,7 +22,8 @@ const {
   adjustFolderCounts,
 } = await import('../utils/mailUtils.js');
 const { forwardRuleMessage } = await import('./ruleForwarder.js');
-import { applyInboxRules } from './inboxRules.js';
+const { getJevKey, evaluateJev } = await import('./jev.js');
+import { applyInboxRules, clearJevBackoff } from './inboxRules.js';
 
 const account = { id: 'acc-1', user_id: 'user-1', folder_mappings: {} };
 
@@ -50,6 +52,82 @@ const mockImap = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  query.mockReset();
+  clearJevBackoff();
+  getJevKey.mockResolvedValue('test-key');
+  evaluateJev.mockResolvedValue({ available: true, probability: 0.8 });
+});
+
+describe('Jev rule evaluation', () => {
+  const jev = { field: 'jev', question: 'Is this an invoice?', threshold: 0.8 };
+  const bodyRow = { rows: [{ body_text: 'Invoice number 42', body_html: null }] };
+  const testRule = (conditions, logic = 'AND') => mkRule([{ type: 'mark_read' }], { conditions, condition_logic: logic });
+
+  it('matches at the threshold and fails below it', async () => {
+    query.mockResolvedValueOnce({ rows: [testRule([jev])] }).mockResolvedValueOnce(bodyRow).mockResolvedValue({ rows: [] });
+    mockImap.setFlag.mockResolvedValue();
+    await applyInboxRules([mkMsg()], account, mockImap);
+    expect(mockImap.setFlag).toHaveBeenCalledOnce();
+    vi.clearAllMocks();
+    getJevKey.mockResolvedValue('test-key');
+    evaluateJev.mockResolvedValue({ available: true, probability: 0.799 });
+    query.mockResolvedValueOnce({ rows: [testRule([jev])] }).mockResolvedValueOnce(bodyRow);
+    await applyInboxRules([mkMsg()], account, mockImap);
+    expect(mockImap.setFlag).not.toHaveBeenCalled();
+  });
+
+  it('short-circuits local OR and AND before contacting Jev', async () => {
+    const local = { field: 'subject', operator: 'contains', value: 'Test' };
+    query.mockResolvedValueOnce({ rows: [testRule([local, jev], 'OR'), testRule([{ ...local, value: 'absent' }, jev], 'AND')] }).mockResolvedValue({ rows: [] });
+    mockImap.setFlag.mockResolvedValue();
+    await applyInboxRules([mkMsg()], account, mockImap);
+    expect(evaluateJev).not.toHaveBeenCalled();
+    expect(mockImap.setFlag).toHaveBeenCalledOnce();
+  });
+
+  it('lets a local OR match survive provider failure, but AND fails closed', async () => {
+    evaluateJev.mockResolvedValue({ available: false, probability: null });
+    const local = { field: 'subject', operator: 'contains', value: 'Test' };
+    query.mockResolvedValueOnce({ rows: [testRule([jev, local], 'OR'), testRule([jev, local], 'AND')] }).mockResolvedValue(bodyRow);
+    mockImap.setFlag.mockResolvedValue();
+    await applyInboxRules([mkMsg()], account, mockImap);
+    expect(mockImap.setFlag).toHaveBeenCalledOnce();
+  });
+
+  it('fetches missing lazy body on demand and extracts HTML-only text', async () => {
+    query.mockResolvedValueOnce({ rows: [testRule([jev])] }).mockResolvedValueOnce({ rows: [{ body_text: null, body_html: null }] }).mockResolvedValue({ rows: [] });
+    mockImap.fetchMessageBody = vi.fn().mockResolvedValue({ html: '<p>Invoice &amp; receipt</p>', text: null });
+    mockImap.setFlag.mockResolvedValue();
+    await applyInboxRules([mkMsg()], account, mockImap);
+    expect(evaluateJev).toHaveBeenCalledWith('test-key', jev.question, expect.objectContaining({ body: 'Invoice & receipt' }), expect.anything());
+  });
+
+  it('does not classify missing body or call provider without a user key', async () => {
+    query.mockResolvedValueOnce({ rows: [testRule([jev])] }).mockResolvedValueOnce({ rows: [{ body_text: null, body_html: null }] });
+    mockImap.fetchMessageBody = vi.fn().mockResolvedValue({ html: null, text: null });
+    await applyInboxRules([mkMsg()], account, mockImap);
+    expect(evaluateJev).not.toHaveBeenCalled();
+    vi.clearAllMocks();
+    getJevKey.mockResolvedValue(null);
+    query.mockResolvedValueOnce({ rows: [testRule([jev])] }).mockResolvedValueOnce(bodyRow);
+    await applyInboxRules([mkMsg()], account, mockImap);
+    expect(evaluateJev).not.toHaveBeenCalled();
+  });
+
+  it('backs off a 500-message outage while preserving local rule work', async () => {
+    evaluateJev.mockResolvedValue({ available: false, probability: null });
+    const local = testRule([{ field: 'subject', operator: 'contains', value: 'Test' }]);
+    query.mockImplementation(async sql => {
+      if (sql.includes('FROM inbox_rules')) return { rows: [testRule([jev]), local] };
+      if (sql.includes('body_text')) return bodyRow;
+      return { rows: [] };
+    });
+    mockImap.setFlag.mockResolvedValue();
+    const messages = Array.from({ length: 500 }, (_, i) => mkMsg({ id: `msg-${i}` }));
+    await applyInboxRules(messages, account, mockImap);
+    expect(evaluateJev.mock.calls.length).toBeLessThanOrEqual(2);
+    expect(mockImap.setFlag).toHaveBeenCalledTimes(500);
+  });
 });
 
 describe('applyInboxRules — forwarding', () => {

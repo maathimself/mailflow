@@ -20,6 +20,15 @@ export function validateConditions(conditions) {
     if (!cond || typeof cond.field !== 'string') {
       return 'Each condition must have a valid field';
     }
+    if (cond.field === 'jev') {
+      if (typeof cond.question !== 'string' || !cond.question.trim() || cond.question.length > 500 ||
+          cond.operator !== undefined || cond.value !== undefined ||
+          (cond.threshold !== undefined &&
+            (typeof cond.threshold !== 'number' || !Number.isFinite(cond.threshold) || cond.threshold < 0 || cond.threshold > 1))) {
+        return 'Jev condition requires a question and a threshold between 0 and 1';
+      }
+      continue;
+    }
     if (FIELDS_REQUIRING_VALUE.has(cond.field) && !String(cond.value || '').trim()) {
       return 'Condition value cannot be empty';
     }

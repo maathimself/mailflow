@@ -1,5 +1,72 @@
 import { query } from './db.js';
 import { resolveArchiveFolder, isAllMailFolder, resolveTrashFolder, resolveAllTrashPaths, getDeleteStrategy, adjustFolderCounts } from '../utils/mailUtils.js';
+import { cleanText } from './spamTokenizer.js';
+import { getJevKey, evaluateJev } from './jev.js';
+
+const JEV_BATCH_BUDGET_MS = 10_000;
+const JEV_BACKOFF_MS = 60_000;
+const JEV_MAX_CONCURRENT = 2;
+const jevBackoff = new Map();
+let activeJevCalls = 0;
+
+export function clearJevBackoff() { jevBackoff.clear(); }
+
+export function createJevContext(account, imapManager, budgetMs = JEV_BATCH_BUDGET_MS) {
+  return { account, imapManager, deadline: Date.now() + budgetMs, keyPromise: null };
+}
+
+async function resolveJevBody(msg, context) {
+  if (msg._jevBody !== undefined) return msg._jevBody;
+  let text = msg._bodyText || msg.bodyText || '';
+  let html = msg.bodyHtml || '';
+  if (!text && !html) {
+    try {
+      const result = await query('SELECT body_text, body_html FROM messages WHERE id = $1 AND account_id = $2', [msg.id, context.account.id]);
+      text = result.rows[0]?.body_text || '';
+      html = result.rows[0]?.body_html || '';
+    } catch { /* Body unavailable; fail closed. */ }
+  }
+  if (!text && !html && context.imapManager?.fetchMessageBody && Date.now() < context.deadline) {
+    let timer;
+    try {
+      const left = Math.min(2_000, context.deadline - Date.now());
+      const fetched = await Promise.race([
+        context.imapManager.fetchMessageBody(context.account, msg.uid, msg.folder),
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('body timeout')), left); }),
+      ]);
+      text = fetched?.text || '';
+      html = fetched?.html || '';
+      if (text || html) {
+        await query('UPDATE messages SET body_text = COALESCE(body_text, $1), body_html = COALESCE(body_html, $2) WHERE id = $3 AND account_id = $4',
+          [text || null, html || null, msg.id, context.account.id]);
+      }
+    } catch { /* Body unavailable; fail closed. */ }
+    finally { clearTimeout(timer); }
+  }
+  msg._jevBody = (text || cleanText(html.slice(0, 64_000))).trim();
+  return msg._jevBody;
+}
+
+export async function evaluateJevCondition(cond, msg, context) {
+  const unavailable = { available: false, probability: null, match: false };
+  if (!context || Date.now() >= context.deadline || jevBackoff.get(context.account.user_id) > Date.now()) return unavailable;
+  const body = await resolveJevBody(msg, context);
+  if (!body || Date.now() >= context.deadline) return unavailable;
+  if (!context.keyPromise) context.keyPromise = getJevKey(context.account.user_id).catch(() => null);
+  const key = await context.keyPromise;
+  if (!key || Date.now() >= context.deadline || activeJevCalls >= JEV_MAX_CONCURRENT) return unavailable;
+  activeJevCalls++;
+  let result;
+  try {
+    result = await evaluateJev(key, cond.question, { ...msg, body }, { timeoutMs: Math.min(3_000, context.deadline - Date.now()) });
+  } catch {
+    result = unavailable;
+  } finally {
+    activeJevCalls--;
+  }
+  if (!result.available) jevBackoff.set(context.account.user_id, Date.now() + JEV_BACKOFF_MS);
+  return { ...result, match: !!result.available && result.probability >= (cond.threshold ?? 0.8) };
+}
 
 async function getRulesForAccount(userId, accountId) {
   const result = await query(
@@ -132,13 +199,18 @@ function evaluateCondition(cond, msg) {
   }
 }
 
-function evaluateRule(rule, msg) {
+async function evaluateRule(rule, msg, context) {
   const conditions = Array.isArray(rule.conditions) ? rule.conditions : [];
   if (conditions.length === 0) return false;
-  if (rule.condition_logic === 'OR') {
-    return conditions.some(c => evaluateCondition(c, msg));
+  const isOr = rule.condition_logic === 'OR';
+  for (const condition of conditions) {
+    const matched = condition?.field === 'jev'
+      ? (await evaluateJevCondition(condition, msg, context)).match
+      : evaluateCondition(condition, msg);
+    if (isOr && matched) return true;
+    if (!isOr && !matched) return false;
   }
-  return conditions.every(c => evaluateCondition(c, msg));
+  return !isOr;
 }
 
 // Applies inbox rules to a batch of new INBOX messages. Returns { remaining, mutedIds }:
@@ -190,6 +262,7 @@ export async function applyInboxRules(messages, account, imapManager) {
   // inside applyAction so resolvers are never called for actions that are deduped or
   // skipped, but results are reused across messages to avoid N+1 DB queries.
   const resolverCache = {};
+  const jevContext = createJevContext(account, imapManager);
 
   const remaining = [...messages];
   const removedIds = new Set();
@@ -244,7 +317,7 @@ export async function applyInboxRules(messages, account, imapManager) {
       const rule = rules[ruleIndex];
       let matches;
       try {
-        matches = evaluateRule(rule, msg);
+        matches = await evaluateRule(rule, msg, jevContext);
       } catch (err) {
         console.error(`inboxRules: rule ${rule.id} evaluation error for msg ${msg.id}:`, err.message);
         if (!forwardBarrierPassed && ruleIndex === lastForwardRuleIndex) {
