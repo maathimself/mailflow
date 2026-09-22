@@ -12,7 +12,7 @@ import { adjustFolderCounts } from '../utils/mailUtils.js';
 import { archiveInboxCopy } from './archiveInbox.js';
 
 const account = { id: 'account-1', folder_mappings: {} };
-const inboxCopy = { id: 'message-1', uid: 42 };
+const inboxCopy = { id: 'message-1', uid: 42, message_id: '<mail@example>' };
 
 describe('archiveInboxCopy Gmail All Mail', () => {
   beforeEach(() => { query.mockReset(); adjustFolderCounts.mockReset(); });
@@ -20,12 +20,32 @@ describe('archiveInboxCopy Gmail All Mail', () => {
   it('repoints the Inbox row to the synced All Mail folder and updates both counts', async () => {
     const manager = { _guardMoveUid: vi.fn(), _unguardMoveUid: vi.fn(),
       moveMessage: vi.fn(async () => 101) };
-    query.mockResolvedValueOnce({ rowCount: 1 });
+    query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rowCount: 1 });
     const result = await archiveInboxCopy(manager, account, inboxCopy);
     expect(result.archived).toBe(true);
-    expect(query.mock.calls[0][0]).toMatch(/^UPDATE messages SET folder = \$1, uid = \$2/);
-    expect(query.mock.calls[0][1]).toEqual(['[Gmail]/All Mail', 101, 'message-1']);
+    expect(query.mock.calls[1][0]).toMatch(/^UPDATE messages SET folder = \$1, uid = \$2/);
+    expect(query.mock.calls[1][1]).toEqual(['[Gmail]/All Mail', 101, 'message-1']);
     expect(adjustFolderCounts).toHaveBeenCalledWith('account-1', 'INBOX', -1, 0);
     expect(adjustFolderCounts).toHaveBeenCalledWith('account-1', '[Gmail]/All Mail', 1, 0);
+  });
+
+  it('removes only the Inbox copy when All Mail is already indexed', async () => {
+    const manager = { _guardMoveUid: vi.fn(), _unguardMoveUid: vi.fn(), moveMessage: vi.fn(async () => 101) };
+    query.mockResolvedValueOnce({ rows: [{ id: 'all-mail-copy' }] }).mockResolvedValueOnce({ rowCount: 1 });
+    expect((await archiveInboxCopy(manager, account, inboxCopy)).archived).toBe(true);
+    expect(query.mock.calls[1][0]).toMatch(/^DELETE FROM messages WHERE id = \$1 AND folder = 'INBOX'/);
+    expect(query.mock.calls[1][1]).toEqual(['message-1']);
+    expect(adjustFolderCounts).toHaveBeenCalledWith('account-1', 'INBOX', -1, 0);
+    expect(adjustFolderCounts).not.toHaveBeenCalledWith('account-1', '[Gmail]/All Mail', 1, 0);
+  });
+
+  it('removes the Inbox copy when a destination sync wins after lookup', async () => {
+    const manager = { _guardMoveUid: vi.fn(), _unguardMoveUid: vi.fn(), moveMessage: vi.fn(async () => 101) };
+    query.mockResolvedValueOnce({ rows: [] })
+      .mockRejectedValueOnce(Object.assign(new Error('duplicate copy'), { code: '23505' }))
+      .mockResolvedValueOnce({ rowCount: 1 });
+    expect((await archiveInboxCopy(manager, account, inboxCopy)).archived).toBe(true);
+    expect(query.mock.calls[2][0]).toMatch(/^DELETE FROM messages WHERE id = \$1 AND folder = 'INBOX'/);
+    expect(adjustFolderCounts).toHaveBeenCalledTimes(1);
   });
 });
