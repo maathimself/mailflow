@@ -8,8 +8,8 @@ import { LAYOUTS } from '../layouts.js';
 import { updateFaviconBadge } from '../themes.js';
 import { installResumeRefresh } from '../utils/resumeRefresh.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
-import { runMailboxShortcut, canRunMailboxShortcut } from '../utils/visibleMailboxes.js';
-import { canRunSelectedAction } from '../utils/shortcutApplicability.js';
+import { runMailboxShortcut, canRunMailboxShortcut, browserMailboxFallback } from '../utils/visibleMailboxes.js';
+import { canRunSelectedAction, canRunGlobalAction } from '../utils/shortcutApplicability.js';
 import { selectedPickerMessage } from '../utils/labelPicker.js';
 import { applyMarkRead } from '../utils/markRead.js';
 import { buildKeyMap, resolveShortcutAction, getEffectiveShortcuts, getGroupedActions, parseModKey, modLabel, SPECIAL_KEYS, SPECIAL_KEY_LABELS } from '../utils/defaultShortcuts.js';
@@ -560,7 +560,7 @@ export default function MailApp() {
     // Keys that are prefixes of two-key sequences (e.g. 'g' for 'gi').
     // Special keys like 'Delete' have length > 1 but are single keypresses — exclude them.
     const prefixKeys = new Set(
-      Object.keys(keyMap).filter(k => k.length > 1 && !SPECIAL_KEYS.has(k)).map(k => k[0])
+      [...Object.keys(keyMap).filter(k => k.length > 1 && !SPECIAL_KEYS.has(k)).map(k => k[0]), 'g']
     );
 
     let pendingKey   = null;
@@ -572,6 +572,7 @@ export default function MailApp() {
     };
 
     const canRun = (action) => {
+      if (!canRunGlobalAction(action, { rightSidebarApplicable })) return false;
       if (!canRunSelectedAction(action, useStore.getState())) return false;
       if (action === 'toggleLeftSidebar' || action === 'goAllMail' || /^goVisibleMailbox[1-9]$/.test(action)) {
         return canRunMailboxShortcut(action, document.querySelector('[data-mailbox-sidebar]'));
@@ -609,7 +610,7 @@ export default function MailApp() {
       // Check the keymap first — bound actions take priority, including special
       // keys like Delete that would otherwise be skipped below.
       const action = resolved.length > 1 && !SPECIAL_KEYS.has(resolved)
-        ? keyMap[resolved] : resolveShortcutAction(e, shortcuts);
+        ? keyMap[resolved] || browserMailboxFallback(resolved) : resolveShortcutAction(e, shortcuts);
       if (action && canRun(action)) {
         e.preventDefault();
         shortcutBus.emit(action);
@@ -642,7 +643,7 @@ export default function MailApp() {
       document.removeEventListener('keydown', handler);
       clearPending();
     };
-  }, [shortcuts, isMobile]); // Re-build key map only when shortcuts or device type changes
+  }, [shortcuts, isMobile, rightSidebarApplicable]);
 
   // Subscribe to global actions that MailApp owns
   useEffect(() => {
@@ -1023,6 +1024,9 @@ function ShortcutHelpOverlay({ shortcuts, onClose }) {
           ))}
         </div>
 
+        <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-tertiary)', textAlign: 'center' }}>
+          {t('shortcuts.browserMailboxFallback', { defaultValue: 'In a browser: g then 0 opens All Mail; g then 1–9 opens a visible mailbox.' })}
+        </div>
         <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-tertiary)', textAlign: 'center' }}>
           {t('shortcuts.customizeHint')} &nbsp;·&nbsp; {t('shortcuts.closeHint')}
         </div>

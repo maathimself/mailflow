@@ -19,6 +19,12 @@ export function canRunMailboxShortcut(action, root) {
   return match ? Boolean(visibleMailboxRows(root)[Number(match[1]) - 1]) : false;
 }
 
+export function browserMailboxFallback(sequence) {
+  const match = /^g([0-9])$/.exec(sequence);
+  if (!match) return null;
+  return match[1] === '0' ? 'goAllMail' : `goVisibleMailbox${match[1]}`;
+}
+
 export function runMailboxShortcut(action, store, root) {
   if (action === 'toggleLeftSidebar') {
     store.toggleSidebar();

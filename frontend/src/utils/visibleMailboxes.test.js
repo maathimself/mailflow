@@ -1,6 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { visibleMailboxRows, navigateVisibleMailbox, runMailboxShortcut, canRunMailboxShortcut } from './visibleMailboxes.js';
+import { visibleMailboxRows, navigateVisibleMailbox, runMailboxShortcut, canRunMailboxShortcut, browserMailboxFallback } from './visibleMailboxes.js';
+
+test('browser mailbox fallback uses g0–g9 without intercepting other sequences', () => {
+  assert.equal(browserMailboxFallback('g0'), 'goAllMail');
+  assert.equal(browserMailboxFallback('g1'), 'goVisibleMailbox1');
+  assert.equal(browserMailboxFallback('g9'), 'goVisibleMailbox9');
+  assert.equal(browserMailboxFallback('gi'), null);
+  assert.equal(browserMailboxFallback('g#'), null);
+});
 
 test('numbered mailbox navigation follows rendered rows and ignores unavailable rows', () => {
   const clicked = [];

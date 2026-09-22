@@ -5,6 +5,10 @@ const SELECTED_ACTIONS = new Set([
   'loadRemoteImages', 'openLabelPicker',
 ]);
 
+export function canRunGlobalAction(action, { rightSidebarApplicable }) {
+  return action !== 'toggleRightSidebar' || Boolean(rightSidebarApplicable);
+}
+
 export function canRunSelectedAction(action, state) {
   if (!SELECTED_ACTIONS.has(action) && !action.startsWith('gtd')) return true;
   const message = selectedPickerMessage(state);
