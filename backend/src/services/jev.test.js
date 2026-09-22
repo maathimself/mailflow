@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('./db.js', () => ({ query: vi.fn() }));
-vi.mock('./encryption.js', () => ({ encrypt: vi.fn(v => `enc:${v}`), decrypt: vi.fn(v => v?.replace(/^enc:/, '')) }));
+vi.mock('./encryption.js', () => ({ encrypt: vi.fn(v => `enc:v1:${v}`), decrypt: vi.fn(v => v?.replace(/^enc:v1:/, '')), isEncrypted: vi.fn(v => v?.startsWith('enc:v1:')) }));
 
 import { query } from './db.js';
 import { encrypt } from './encryption.js';
@@ -11,9 +11,9 @@ beforeEach(() => { vi.clearAllMocks(); vi.stubGlobal('fetch', vi.fn()); });
 
 describe('per-user Jev credential', () => {
   it('saves encrypted only, replaces by user/provider, and redacts status', async () => {
-    query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ config: { apiKey: 'enc:secret' } }] });
+    query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ config: { apiKey: 'enc:v1:secret' } }] });
     await saveJevKey('user-a', 'secret');
-    expect(query.mock.calls[0][1]).toEqual(['user-a', { apiKey: 'enc:secret' }]);
+    expect(query.mock.calls[0][1]).toEqual(['user-a', { apiKey: 'enc:v1:secret' }]);
     expect(query.mock.calls[0][0]).toContain('ON CONFLICT (user_id, provider)');
     const status = await getJevStatus('user-a');
     expect(status).toEqual({ configured: true });
@@ -27,11 +27,18 @@ describe('per-user Jev credential', () => {
   });
 
   it('loads only the owning user key and removal has no fallback', async () => {
-    query.mockResolvedValueOnce({ rows: [{ config: { apiKey: 'enc:secret' } }] }).mockResolvedValueOnce({ rows: [] });
+    query.mockResolvedValueOnce({ rows: [{ config: { apiKey: 'enc:v1:secret' } }] }).mockResolvedValueOnce({ rows: [] });
     expect(await getJevKey('user-a')).toBe('secret');
     await removeJevKey('user-a');
     expect(query.mock.calls[1][1]).toEqual(['user-a']);
     query.mockResolvedValueOnce({ rows: [] });
+    expect(await getJevKey('user-a')).toBeNull();
+  });
+
+  it('rejects malformed or plaintext stored credentials', async () => {
+    query.mockResolvedValueOnce({ rows: [{ config: { apiKey: 'enc:garbage' } }] })
+      .mockResolvedValueOnce({ rows: [{ config: { apiKey: 'plaintext' } }] });
+    expect(await getJevKey('user-a')).toBeNull();
     expect(await getJevKey('user-a')).toBeNull();
   });
 });

@@ -1,5 +1,5 @@
 import { query } from './db.js';
-import { decrypt, encrypt } from './encryption.js';
+import { decrypt, encrypt, isEncrypted } from './encryption.js';
 
 const ENDPOINT = 'https://api.typesafe.ai/v1/systemone';
 const MAX_REQUEST_BYTES = 16_384;
@@ -27,7 +27,7 @@ export async function removeJevKey(userId) {
 export async function getJevKey(userId) {
   const result = await query("SELECT config FROM user_integrations WHERE user_id = $1 AND provider = 'jev'", [userId]);
   const stored = result.rows[0]?.config?.apiKey;
-  if (typeof stored !== 'string' || !stored.startsWith('enc:')) return null;
+  if (typeof stored !== 'string' || !isEncrypted(stored)) return null;
   return decrypt(stored) || null;
 }
 
