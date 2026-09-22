@@ -82,3 +82,22 @@ test('rule tester selects recent messages, shows probabilities and never sends a
     { condition: { field: 'jev', question: 'Invoice?', threshold: 0.9 }, accountId: 'a1' })));
   assert.doesNotMatch(container.textContent, /0\.91/);
 });
+
+test('rule tester ignores a pending result after the condition changes', async () => {
+  let finishTest;
+  globalThis.fetch = async url => {
+    if (url.includes('jev-samples')) return { ok: true, json: async () => ({ messages: [{ id: 'm1', subject: 'Question', fromEmail: 'a@example.org' }] }) };
+    if (url.endsWith('/rules/test-jev')) return new Promise(resolve => { finishTest = resolve; });
+    return { ok: true, json: async () => ({ configured: true }) };
+  };
+  await act(async () => root.render(React.createElement(JevRuleTester,
+    { condition: { field: 'jev', question: 'Old?', threshold: 0.8 }, accountId: 'a1' })));
+  await act(async () => click('admin.rules.jev.loadSamples'));
+  await act(async () => container.querySelector('input[type=checkbox]').click());
+  act(() => click('admin.rules.jev.test'));
+  assert.equal(typeof finishTest, 'function');
+  await act(async () => root.render(React.createElement(JevRuleTester,
+    { condition: { field: 'jev', question: 'New?', threshold: 0.8 }, accountId: 'a1' })));
+  await act(async () => finishTest({ ok: true, json: async () => ({ results: [{ id: 'm1', probability: 0.91, match: true, available: true }] }) }));
+  assert.doesNotMatch(container.textContent, /0\.91/);
+});

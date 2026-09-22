@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../utils/api.js';
 
@@ -10,6 +10,11 @@ export default function JevRuleTester({ condition, accountId }) {
   const [results, setResults] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const conditionKey = JSON.stringify([accountId, condition?.question, condition?.threshold]);
+  const latestConditionKey = useRef(conditionKey);
+  latestConditionKey.current = conditionKey;
+  const latestAccountId = useRef(accountId);
+  latestAccountId.current = accountId;
 
   useEffect(() => {
     let active = true;
@@ -20,11 +25,12 @@ export default function JevRuleTester({ condition, accountId }) {
   useEffect(() => { setResults([]); }, [condition?.question, condition?.threshold]);
 
   async function loadSamples() {
+    const requestedAccountId = accountId;
     setBusy(true); setError(''); setResults([]); setSelected([]);
     try {
       const data = await api.getJevSamples(accountId);
-      setSamples(data.messages || []);
-    } catch { setError(t('admin.rules.jev.errorSamples')); }
+      if (latestAccountId.current === requestedAccountId) setSamples(data.messages || []);
+    } catch { if (latestAccountId.current === requestedAccountId) setError(t('admin.rules.jev.errorSamples')); }
     finally { setBusy(false); }
   }
 
@@ -35,11 +41,12 @@ export default function JevRuleTester({ condition, accountId }) {
 
   async function testCondition() {
     if (!selected.length || !condition?.question?.trim() || busy) return;
+    const requestedConditionKey = conditionKey;
     setBusy(true); setError(''); setResults([]);
     try {
       const data = await api.testJevCondition(condition, selected);
-      setResults(data.results || []);
-    } catch { setError(t('admin.rules.jev.errorTest')); }
+      if (latestConditionKey.current === requestedConditionKey) setResults(data.results || []);
+    } catch { if (latestConditionKey.current === requestedConditionKey) setError(t('admin.rules.jev.errorTest')); }
     finally { setBusy(false); }
   }
 

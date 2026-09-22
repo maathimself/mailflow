@@ -32,6 +32,7 @@ import SignatureEditor from './SignatureEditor.jsx';
 import DiagnosticsReportModal from './DiagnosticsReportModal.jsx';
 import { getEffectiveShortcuts, getGroupedActions, ACTION_DEFS, SPECIAL_KEY_LABELS, parseModKey, modLabel } from '../utils/defaultShortcuts.js';
 import { isValidForwardAddress } from '../utils/ruleActions.js';
+import { normalizeJevConditions } from '../utils/jevConditions.js';
 import { folderParentLabel } from '../utils/folderDisplay.js';
 import SpamSettings from './SpamSettings.jsx';
 import JevSettingsCard from './JevSettingsCard.jsx';
@@ -6265,11 +6266,12 @@ function RulesTab() {
 
   async function handleSave() {
     const { name, conditionLogic, conditions, actions, accountId, enabled, stopProcessing } = formData;
+    const normalizedConditions = normalizeJevConditions(conditions);
     if (!name.trim() || conditions.length === 0 || actions.length === 0) {
       setFormError(t('admin.rules.errorRequired'));
       return;
     }
-    if (conditions.some(cond => cond.field === 'jev' &&
+    if (normalizedConditions.some(cond => cond.field === 'jev' &&
       (!cond.question?.trim() || typeof cond.threshold !== 'number' ||
        !Number.isFinite(cond.threshold) || cond.threshold < 0 || cond.threshold > 1))) {
       setFormError(t('admin.rules.jev.invalidCondition'));
@@ -6292,7 +6294,7 @@ function RulesTab() {
         name: name.trim(),
         accountId: accountId || null,
         conditionLogic,
-        conditions,
+        conditions: normalizedConditions,
         actions,
         enabled,
         stopProcessing,
