@@ -1,5 +1,5 @@
 import { query } from './db.js';
-import { resolveArchiveFolder, adjustFolderCounts } from '../utils/mailUtils.js';
+import { resolveArchiveFolder, isAllMailFolder, adjustFolderCounts } from '../utils/mailUtils.js';
 
 // Archive a single INBOX copy of a message: the one guarded per-copy archive move, shared
 // by any route that needs "move this INBOX row to the account's Archive and repoint the DB".
@@ -19,8 +19,9 @@ import { resolveArchiveFolder, adjustFolderCounts } from '../utils/mailUtils.js'
 //     'INBOX' and its rowCount is the authority: the loser of that race applies nothing, so
 //     we skip the count adjustments and return archived:false rather than double-decrementing
 //     INBOX.
-//   • Gmail's All Mail is synced and indexed. Archiving there repoints the row
-//     to that folder and updates its count, like any other archive destination.
+//   • Gmail's All Mail is synced and indexed. Its pre-existing copy survives an
+//     INBOX-label removal; ordinary IMAP Archive moves create a new destination
+//     copy and must repoint the INBOX row even if a copy was already there.
 //   • IMAP move / DB write failures THROW. The caller maps that to its own failure contract
 //     (in /done: HTTP 200 { archived:false, archiveFailed:true } so a mostly-successful action
 //     isn't misreported as a 500 and the id stays retryable).
@@ -36,19 +37,20 @@ export async function archiveInboxCopy(imapManager, account, inboxCopy) {
   const accountId = account.id;
   const archiveFolder = await resolveArchiveFolder(accountId, account.folder_mappings);
   if (!archiveFolder) return { archived: false, noArchiveFolder: true };
+  const archiveIsAllMail = await isAllMailFolder(accountId, archiveFolder);
 
   imapManager._guardMoveUid(accountId, 'INBOX', inboxCopy.uid);
   let destGuardHeld = false;
   try {
     const newUid = await imapManager.moveMessage(account, inboxCopy.uid, 'INBOX', archiveFolder);
-    const existing = await query(`
+    const existing = archiveIsAllMail ? await query(`
       SELECT id FROM messages WHERE account_id = $1 AND folder = $2 AND id != $3
         AND (($4::bigint IS NOT NULL AND uid = $4)
           OR ($5::text IS NOT NULL AND message_id = $5)) LIMIT 1
-    `, [accountId, archiveFolder, inboxCopy.id, newUid ?? null, inboxCopy.message_id || null]);
+    `, [accountId, archiveFolder, inboxCopy.id, newUid ?? null, inboxCopy.message_id || null]) : null;
     let applied;
     let addedDestination = false;
-    if (existing.rows.length) {
+    if (existing?.rows.length) {
       const deleted = await query("DELETE FROM messages WHERE id = $1 AND folder = 'INBOX'", [inboxCopy.id]);
       applied = deleted.rowCount > 0;
     } else {
@@ -69,7 +71,7 @@ export async function archiveInboxCopy(imapManager, account, inboxCopy) {
         addedDestination = applied;
       } catch (error) {
         // A concurrent destination sync may insert this copy after the preflight.
-        if (error.code !== '23505') throw error;
+        if (!archiveIsAllMail || error.code !== '23505') throw error;
         const deleted = await query("DELETE FROM messages WHERE id = $1 AND folder = 'INBOX'", [inboxCopy.id]);
         applied = deleted.rowCount > 0;
       }
