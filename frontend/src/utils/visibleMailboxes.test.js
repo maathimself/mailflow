@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { visibleMailboxRows, navigateVisibleMailbox, runMailboxShortcut } from './visibleMailboxes.js';
+import { visibleMailboxRows, navigateVisibleMailbox, runMailboxShortcut, canRunMailboxShortcut } from './visibleMailboxes.js';
 
 test('numbered mailbox navigation follows rendered rows and ignores unavailable rows', () => {
   const clicked = [];
@@ -13,6 +13,8 @@ test('numbered mailbox navigation follows rendered rows and ignores unavailable 
   assert.deepEqual(visibleMailboxRows(root), [rows[0], rows[1], rows[3], rows[4]]);
   assert.equal(navigateVisibleMailbox(root, 3), true);
   assert.equal(navigateVisibleMailbox(root, 9), false);
+  assert.equal(canRunMailboxShortcut('goVisibleMailbox9', root), false);
+  assert.equal(canRunMailboxShortcut('goVisibleMailbox3', root), true);
   assert.deepEqual(clicked, ['account']);
 });
 

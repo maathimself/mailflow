@@ -8,9 +8,11 @@ import { LAYOUTS } from '../layouts.js';
 import { updateFaviconBadge } from '../themes.js';
 import { installResumeRefresh } from '../utils/resumeRefresh.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
-import { runMailboxShortcut } from '../utils/visibleMailboxes.js';
+import { runMailboxShortcut, canRunMailboxShortcut } from '../utils/visibleMailboxes.js';
+import { canRunSelectedAction } from '../utils/shortcutApplicability.js';
+import { selectedPickerMessage } from '../utils/labelPicker.js';
 import { applyMarkRead } from '../utils/markRead.js';
-import { buildKeyMap, buildModKeyMap, getEffectiveShortcuts, getGroupedActions, parseModKey, modLabel, SPECIAL_KEYS, SPECIAL_KEY_LABELS } from '../utils/defaultShortcuts.js';
+import { buildKeyMap, resolveShortcutAction, getEffectiveShortcuts, getGroupedActions, parseModKey, modLabel, SPECIAL_KEYS, SPECIAL_KEY_LABELS } from '../utils/defaultShortcuts.js';
 import Sidebar from './Sidebar.jsx';
 import MessageList from './MessageList.jsx';
 import ReadingPane from './ReadingPane.jsx';
@@ -121,6 +123,9 @@ export default function MailApp() {
 
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [labelPickerMessage, setLabelPickerMessage] = useState(null);
+  const labelPickerRef = useRef(null);
+  useEffect(() => { labelPickerRef.current = labelPickerMessage; }, [labelPickerMessage]);
   const isMobile = useMobile();
   const sidebarDragRef = useRef(null);
   const sidebarResizeRef = useRef(null);
@@ -552,7 +557,6 @@ export default function MailApp() {
   useEffect(() => {
     if (isMobile) return;
     const keyMap    = buildKeyMap(shortcuts);
-    const modKeyMap = buildModKeyMap(shortcuts);
     // Keys that are prefixes of two-key sequences (e.g. 'g' for 'gi').
     // Special keys like 'Delete' have length > 1 but are single keypresses — exclude them.
     const prefixKeys = new Set(
@@ -567,18 +571,25 @@ export default function MailApp() {
       if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null; }
     };
 
+    const canRun = (action) => {
+      if (!canRunSelectedAction(action, useStore.getState())) return false;
+      if (action === 'toggleLeftSidebar' || action === 'goAllMail' || /^goVisibleMailbox[1-9]$/.test(action)) {
+        return canRunMailboxShortcut(action, document.querySelector('[data-mailbox-sidebar]'));
+      }
+      return true;
+    };
+
     const handler = (e) => {
       // Never intercept when the compose modal or admin panel is open, or an input is focused
-      if (composingRef.current || showAdminRef.current) return;
+      if (composingRef.current || showAdminRef.current || paletteOpenRef.current) return;
       const tag = e.target.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
-      // Modifier combos: emit registered actions, pass everything else through
-      if (e.ctrlKey || e.metaKey) {
-        const action = modKeyMap[e.key.toLowerCase()];
-        if (action) { e.preventDefault(); shortcutBus.emit(action); }
+      // The registry resolves the exact modifier set, including shifted punctuation.
+      if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) {
+        const action = resolveShortcutAction(e, shortcuts);
+        if (action && canRun(action)) { e.preventDefault(); shortcutBus.emit(action); }
         return;
       }
-      if (e.altKey) return;
 
       const key = e.key;
 
@@ -597,8 +608,9 @@ export default function MailApp() {
 
       // Check the keymap first — bound actions take priority, including special
       // keys like Delete that would otherwise be skipped below.
-      const action = keyMap[resolved];
-      if (action) {
+      const action = resolved.length > 1 && !SPECIAL_KEYS.has(resolved)
+        ? keyMap[resolved] : resolveShortcutAction(e, shortcuts);
+      if (action && canRun(action)) {
         e.preventDefault();
         shortcutBus.emit(action);
         return;
@@ -657,6 +669,17 @@ export default function MailApp() {
   }, [rightSidebarApplicable, toggleRightSidebarHidden]);
 
   useEffect(() => {
+    const openPicker = () => {
+      const message = selectedPickerMessage(useStore.getState());
+      if (!message) return;
+      setLabelPickerMessage(message);
+      setPaletteOpen(true);
+    };
+    shortcutBus.on('openLabelPicker', openPicker);
+    return () => shortcutBus.off('openLabelPicker', openPicker);
+  }, []);
+
+  useEffect(() => {
     const actions = ['toggleLeftSidebar', 'goAllMail', ...Array.from({ length: 9 }, (_, i) => `goVisibleMailbox${i + 1}`)];
     const handlers = actions.map(action => {
       const handler = () => runMailboxShortcut(action, useStore.getState(), document.querySelector('[data-mailbox-sidebar]'));
@@ -677,7 +700,10 @@ export default function MailApp() {
   // Cmd+K / Ctrl+K opens command palette
   useEffect(() => {
     const handler = (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      if (e.defaultPrevented || composingRef.current || showAdminRef.current || labelPickerRef.current) return;
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target?.tagName) || e.target?.isContentEditable) return;
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k'
+          && !resolveShortcutAction(e, useStore.getState().shortcuts)) {
         e.preventDefault();
         setPaletteOpen(v => !v);
       }
@@ -891,7 +917,8 @@ export default function MailApp() {
       <Suspense fallback={null}>{hasNativeBridge && <ElectronNotificationBridge />}</Suspense>
       <NotificationToasts />
       <PluginRuntime />
-      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+      <CommandPalette open={paletteOpen} labelPickerMessage={labelPickerMessage}
+        onClose={() => { setPaletteOpen(false); setLabelPickerMessage(null); }} />
 
       {/* Keyboard shortcut help overlay — toggled by the '?' key */}
       {showShortcutHelp && (

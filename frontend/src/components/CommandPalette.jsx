@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { THEMES } from '../themes.js';
+import { api } from '../utils/api.js';
+import { labelPickerOptions, pickerNavigationDirection, executeLabelChoice, copyMessageToFolder } from '../utils/labelPicker.js';
 
 const THEME_NAMES = Object.keys(THEMES);
 
@@ -59,17 +61,28 @@ function buildActions({ t, openCompose, setSelectedAccount, setShowAdmin, setAdm
   return actions;
 }
 
-export default function CommandPalette({ open, onClose }) {
+export default function CommandPalette({ open, onClose, labelPickerMessage = null }) {
   const { t } = useTranslation();
   const isMobile = useMobile();
-  const { openCompose, setSelectedAccount, setShowAdmin, setAdminTab, theme, setTheme, accounts, selectedAccountId } = useStore();
+  const { openCompose, setSelectedAccount, setShowAdmin, setAdminTab, theme, setTheme,
+    accounts, selectedAccountId, folders, enabledPlugins, addNotification } = useStore();
   const [query, setQuery] = useState('');
   const [activeIdx, setActiveIdx] = useState(0);
   const [listScrolled, setListScrolled] = useState(false);
   const inputRef = useRef(null);
   const listRef = useRef(null);
 
-  const actions = buildActions({ t, openCompose, setSelectedAccount, setShowAdmin, setAdminTab, theme, setTheme, accounts, selectedAccountId });
+  const pickerAccount = accounts.find(account => account.id === labelPickerMessage?.account_id);
+  const actions = labelPickerMessage
+    ? labelPickerOptions(folders[labelPickerMessage.account_id], pickerAccount, enabledPlugins, labelPickerMessage.folder)
+      .map(choice => ({
+        id: `label:${choice.path}`,
+        label: choice.state ? `Label as ${choice.label}` : `Copy to ${choice.label}`,
+        icon: <span style={{ width: 15, textAlign: 'center' }}>◇</span>,
+        run: () => executeLabelChoice(labelPickerMessage, choice,
+          { gtdClassify: api.gtdClassify, getThread: api.getThread, copyMessage: copyMessageToFolder }),
+      }))
+    : buildActions({ t, openCompose, setSelectedAccount, setShowAdmin, setAdminTab, theme, setTheme, accounts, selectedAccountId });
 
   const filtered = query.trim()
     ? actions.filter(a => a.label.toLowerCase().includes(query.toLowerCase()))
@@ -85,22 +98,33 @@ export default function CommandPalette({ open, onClose }) {
 
   useEffect(() => { setActiveIdx(0); }, [query]);
 
-  const runAction = useCallback((action) => {
-    action.run();
-    onClose();
-  }, [onClose]);
+  const runAction = useCallback(async (action) => {
+    try {
+      await action.run();
+      onClose();
+    } catch (error) {
+      addNotification({ title: 'Could not label message', body: error.message });
+    }
+  }, [onClose, addNotification]);
 
   const handleKeyDown = (e) => {
-    if (e.key === 'ArrowDown') {
+    const direction = labelPickerMessage ? pickerNavigationDirection(e) :
+      e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0;
+    if (direction > 0) {
       e.preventDefault();
-      setActiveIdx(i => Math.min(i + 1, filtered.length - 1));
-    } else if (e.key === 'ArrowUp') {
+      e.stopPropagation();
+      setActiveIdx(i => Math.min(i + 1, Math.max(0, filtered.length - 1)));
+    } else if (direction < 0) {
       e.preventDefault();
+      e.stopPropagation();
       setActiveIdx(i => Math.max(i - 1, 0));
     } else if (e.key === 'Enter') {
       e.preventDefault();
+      e.stopPropagation();
       if (filtered[activeIdx]) runAction(filtered[activeIdx]);
     } else if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
       onClose();
     }
   };
@@ -146,7 +170,7 @@ export default function CommandPalette({ open, onClose }) {
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={t('commandPalette.placeholder')}
+            placeholder={labelPickerMessage ? 'Copy or label selected message…' : t('commandPalette.placeholder')}
             style={{
               flex: 1, background: 'none', border: 'none', outline: 'none',
               color: 'var(--text-primary)', fontSize: 15,

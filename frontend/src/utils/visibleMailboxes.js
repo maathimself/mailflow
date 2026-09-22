@@ -13,6 +13,12 @@ export function navigateVisibleMailbox(root, number) {
   return true;
 }
 
+export function canRunMailboxShortcut(action, root) {
+  if (action === 'toggleLeftSidebar' || action === 'goAllMail') return true;
+  const match = /^goVisibleMailbox([1-9])$/.exec(action);
+  return match ? Boolean(visibleMailboxRows(root)[Number(match[1]) - 1]) : false;
+}
+
 export function runMailboxShortcut(action, store, root) {
   if (action === 'toggleLeftSidebar') {
     store.toggleSidebar();
