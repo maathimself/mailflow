@@ -6,7 +6,7 @@ const selected = { selectedMessageId: 'm1', messages: [{ id: 'm1', account_id: '
   accounts: [{ id: 'a1', enabled: true, gtd_enabled: true }], enabledPlugins: ['gtd'] };
 
 test('selected-row actions leave browser behavior alone without a selection', () => {
-  for (const action of ['markUnread', 'forward', 'replyAllFromSelection', 'unsubscribe', 'loadRemoteImages', 'openLabelPicker', 'gtdDone']) {
+  for (const action of ['markUnread', 'forward', 'replyAllFromSelection', 'unsubscribe', 'loadRemoteImages', 'openLabelPicker', 'reply', 'replyAll', 'toggleStar', 'printMessage', 'toggleRead', 'selectMessage', 'gtdDone']) {
     assert.equal(canRunSelectedAction(action, { ...selected, selectedMessageId: null }), false, action);
     assert.equal(canRunSelectedAction(action, selected), true, action);
   }

@@ -2,7 +2,8 @@ import { selectedPickerMessage } from './labelPicker.js';
 
 const SELECTED_ACTIONS = new Set([
   'markUnread', 'forward', 'replyAllFromSelection', 'unsubscribe',
-  'loadRemoteImages', 'openLabelPicker',
+  'loadRemoteImages', 'openLabelPicker', 'reply', 'replyAll',
+  'toggleStar', 'printMessage', 'toggleRead', 'selectMessage',
 ]);
 
 export function canRunGlobalAction(action, { rightSidebarApplicable }) {
