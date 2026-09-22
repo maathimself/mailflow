@@ -17,6 +17,7 @@ export default function JevRuleTester({ condition, accountId }) {
     return () => { active = false; };
   }, []);
   useEffect(() => { setSamples([]); setSelected([]); setResults([]); }, [accountId]);
+  useEffect(() => { setResults([]); }, [condition?.question, condition?.threshold]);
 
   async function loadSamples() {
     setBusy(true); setError(''); setResults([]); setSelected([]);

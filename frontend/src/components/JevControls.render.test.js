@@ -78,4 +78,7 @@ test('rule tester selects recent messages, shows probabilities and never sends a
   const request = calls.find(c => c.url.endsWith('/rules/test-jev'));
   assert.deepEqual(JSON.parse(request.options.body), { condition: { field: 'jev', question: 'Needs reply?', threshold: 0.8 }, messageIds: ['m1'] });
   assert.ok(calls.every(c => !c.url.endsWith('/rules/run')));
+  await act(async () => root.render(React.createElement(JevRuleTester,
+    { condition: { field: 'jev', question: 'Invoice?', threshold: 0.9 }, accountId: 'a1' })));
+  assert.doesNotMatch(container.textContent, /0\.91/);
 });
