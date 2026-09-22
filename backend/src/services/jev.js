@@ -6,8 +6,7 @@ const MAX_REQUEST_BYTES = 16_384;
 const CALL_TIMEOUT_MS = 3_000;
 
 export async function getJevStatus(userId) {
-  const result = await query("SELECT config FROM user_integrations WHERE user_id = $1 AND provider = 'jev'", [userId]);
-  return { configured: !!result.rows[0]?.config?.apiKey };
+  return { configured: !!(await getJevKey(userId)) };
 }
 
 export async function saveJevKey(userId, apiKey) {
@@ -48,7 +47,7 @@ function boundedState(message, question) {
   return Buffer.byteLength(body) <= MAX_REQUEST_BYTES ? body : null;
 }
 
-export async function evaluateJev(apiKey, question, message, { timeoutMs = CALL_TIMEOUT_MS } = {}) {
+export async function evaluateJev(apiKey, question, message, { timeoutMs = CALL_TIMEOUT_MS, onUnavailable } = {}) {
   const unavailable = { probability: null, available: false };
   if (!apiKey || typeof question !== 'string' || !question.trim() || !message?.body?.trim()) return unavailable;
   const body = boundedState(message, question);
@@ -60,13 +59,20 @@ export async function evaluateJev(apiKey, question, message, { timeoutMs = CALL_
       body,
       signal: AbortSignal.timeout(Math.min(timeoutMs, CALL_TIMEOUT_MS)),
     });
-    if (!response.ok) return unavailable;
+    if (!response.ok) {
+      onUnavailable?.(`HTTP ${Number.isInteger(response.status) ? response.status : 'error'}`);
+      return unavailable;
+    }
     const data = await response.json();
     const answer = data?.answers?.match;
     if (answer?.type !== 'noul' || typeof answer.noul !== 'number' ||
-        !Number.isFinite(answer.noul) || answer.noul < 0 || answer.noul > 1) return unavailable;
+        !Number.isFinite(answer.noul) || answer.noul < 0 || answer.noul > 1) {
+      onUnavailable?.('invalid provider response');
+      return unavailable;
+    }
     return { probability: answer.noul, available: true };
   } catch {
+    onUnavailable?.('network or timeout');
     return unavailable;
   }
 }

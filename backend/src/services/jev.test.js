@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('./db.js', () => ({ query: vi.fn() }));
-vi.mock('./encryption.js', () => ({ encrypt: vi.fn(v => `enc:v1:${v}`), decrypt: vi.fn(v => v?.replace(/^enc:v1:/, '')), isEncrypted: vi.fn(v => v?.startsWith('enc:v1:')) }));
+vi.mock('./encryption.js', () => ({ encrypt: vi.fn(v => `enc:v1:${v}`), decrypt: vi.fn(v => v === 'enc:v1:garbage' ? null : v?.replace(/^enc:v1:/, '')), isEncrypted: vi.fn(v => v?.startsWith('enc:v1:')) }));
 
 import { query } from './db.js';
 import { encrypt } from './encryption.js';
@@ -41,6 +41,13 @@ describe('per-user Jev credential', () => {
     expect(await getJevKey('user-a')).toBeNull();
     expect(await getJevKey('user-a')).toBeNull();
   });
+
+  it('reports malformed stored credentials as not configured', async () => {
+    query.mockResolvedValueOnce({ rows: [{ config: { apiKey: 'plaintext' } }] })
+      .mockResolvedValueOnce({ rows: [{ config: { apiKey: 'enc:v1:garbage' } }] });
+    expect(await getJevStatus('user-a')).toEqual({ configured: false });
+    expect(await getJevStatus('user-a')).toEqual({ configured: false });
+  });
 });
 
 describe('TypeSafe client', () => {
@@ -66,5 +73,15 @@ describe('TypeSafe client', () => {
   it('treats timeout and provider errors as unavailable', async () => {
     fetch.mockRejectedValue(new Error('timeout'));
     expect(await evaluateJev('secret', 'Question?', { body: 'hello' })).toEqual({ probability: null, available: false });
+  });
+
+  it('reports a safe failure reason without exposing provider response or key', async () => {
+    const onUnavailable = vi.fn();
+    fetch.mockResolvedValueOnce({ ok: false, status: 401, text: async () => 'secret response' });
+    expect(await evaluateJev('secret', 'Question?', { body: 'hello' }, { onUnavailable })).toEqual({ probability: null, available: false });
+    expect(onUnavailable).toHaveBeenCalledWith('HTTP 401');
+    fetch.mockRejectedValueOnce(new Error('secret network details'));
+    await evaluateJev('secret', 'Question?', { body: 'hello' }, { onUnavailable });
+    expect(onUnavailable).toHaveBeenLastCalledWith('network or timeout');
   });
 });

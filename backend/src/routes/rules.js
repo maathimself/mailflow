@@ -8,6 +8,7 @@ router.use(requireAuth);
 
 const DESTINATION_ACTIONS = new Set(['move', 'archive', 'delete']);
 const FORWARD_EMAIL_RE = /^[^\s@<>(),;:]+@[^\s@<>(),;:]+\.[^\s@<>(),;:]+$/;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Fields where the condition value must be a non-empty string.
 // has_attachment has no value; all others are string-match conditions.
@@ -97,7 +98,7 @@ router.get('/', async (req, res) => {
 
 router.get('/jev-samples', async (req, res) => {
   const accountId = req.query.accountId;
-  if (accountId && (typeof accountId !== 'string' || accountId.length > 64)) {
+  if (accountId && (typeof accountId !== 'string' || !UUID_RE.test(accountId))) {
     return res.status(400).json({ error: 'Invalid account' });
   }
   try {
@@ -121,7 +122,7 @@ router.post('/test-jev', async (req, res) => {
   const { condition, messageIds } = req.body || {};
   if (condition?.field !== 'jev' || validateConditions([condition]) || !Array.isArray(messageIds) ||
       messageIds.length < 1 || messageIds.length > 3 || new Set(messageIds).size !== messageIds.length ||
-      messageIds.some(id => typeof id !== 'string' || !id || id.length > 64)) {
+      messageIds.some(id => typeof id !== 'string' || !UUID_RE.test(id))) {
     return res.status(400).json({ error: 'Invalid Jev test request' });
   }
   try {

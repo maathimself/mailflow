@@ -8,9 +8,17 @@ const JEV_BATCH_BUDGET_MS = 10_000;
 const JEV_BACKOFF_MS = 60_000;
 const JEV_MAX_CONCURRENT = 2;
 const jevBackoff = new Map();
+const jevWarningAt = new Map();
 let activeJevCalls = 0;
 
-export function clearJevBackoff() { jevBackoff.clear(); }
+export function clearJevBackoff() { jevBackoff.clear(); jevWarningAt.clear(); }
+
+function warnJevUnavailable(userId, reason) {
+  const now = Date.now();
+  if ((jevWarningAt.get(userId) || 0) > now) return;
+  jevWarningAt.set(userId, now + JEV_BACKOFF_MS);
+  console.warn(`inboxRules: Jev unavailable for user ${userId}: ${reason}`);
+}
 
 export function createJevContext(account, imapManager, budgetMs = JEV_BATCH_BUDGET_MS) {
   return { account, imapManager, deadline: Date.now() + budgetMs, keyPromise: null };
@@ -53,19 +61,33 @@ export async function evaluateJevCondition(cond, msg, context) {
   if (!context || Date.now() >= context.deadline || jevBackoff.get(context.account.user_id) > Date.now()) return unavailable;
   const body = await resolveJevBody(msg, context);
   if (!body || Date.now() >= context.deadline) return unavailable;
-  if (!context.keyPromise) context.keyPromise = getJevKey(context.account.user_id).catch(() => null);
+  if (!context.keyPromise) context.keyPromise = getJevKey(context.account.user_id).catch(() => {
+    warnJevUnavailable(context.account.user_id, 'credential lookup failed');
+    return null;
+  });
   const key = await context.keyPromise;
-  if (!key || Date.now() >= context.deadline || activeJevCalls >= JEV_MAX_CONCURRENT) return unavailable;
+  if (!key) {
+    warnJevUnavailable(context.account.user_id, 'missing or unreadable key');
+    return unavailable;
+  }
+  if (Date.now() >= context.deadline || activeJevCalls >= JEV_MAX_CONCURRENT) return unavailable;
   activeJevCalls++;
   let result;
+  let failureReason = 'provider unavailable';
   try {
-    result = await evaluateJev(key, cond.question, { ...msg, body }, { timeoutMs: Math.min(3_000, context.deadline - Date.now()) });
+    result = await evaluateJev(key, cond.question, { ...msg, body }, {
+      timeoutMs: Math.min(3_000, context.deadline - Date.now()),
+      onUnavailable: reason => { failureReason = reason; },
+    });
   } catch {
     result = unavailable;
   } finally {
     activeJevCalls--;
   }
-  if (!result.available) jevBackoff.set(context.account.user_id, Date.now() + JEV_BACKOFF_MS);
+  if (!result.available) {
+    jevBackoff.set(context.account.user_id, Date.now() + JEV_BACKOFF_MS);
+    warnJevUnavailable(context.account.user_id, failureReason);
+  }
   return { ...result, match: !!result.available && result.probability >= (cond.threshold ?? 0.8) };
 }
 

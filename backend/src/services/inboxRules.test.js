@@ -142,6 +142,23 @@ describe('Jev rule evaluation', () => {
     expect(evaluateJev.mock.calls.length).toBeLessThanOrEqual(2);
     expect(mockImap.setFlag).toHaveBeenCalledTimes(500);
   });
+
+  it('warns once per backoff window with a safe provider failure reason', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      evaluateJev.mockImplementation(async (_key, _question, _message, options) => {
+        options.onUnavailable('HTTP 401');
+        return { available: false, probability: null };
+      });
+      query.mockImplementation(async sql => sql.includes('FROM inbox_rules')
+        ? { rows: [testRule([jev])] } : bodyRow);
+      await applyInboxRules([mkMsg()], account, mockImap);
+      await applyInboxRules([mkMsg({ id: 'msg-2' })], account, mockImap);
+      expect(warning).toHaveBeenCalledTimes(1);
+      expect(warning.mock.calls[0][0]).toContain('HTTP 401');
+      expect(warning.mock.calls[0][0]).not.toContain('test-key');
+    } finally { warning.mockRestore(); }
+  });
 });
 
 describe('applyInboxRules — forwarding', () => {

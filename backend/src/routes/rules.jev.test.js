@@ -16,7 +16,7 @@ import { applyInboxRules, evaluateJevCondition } from '../services/inboxRules.js
 let server;
 let base;
 const condition = { field: 'jev', question: 'Does it need a reply?', threshold: 0.8 };
-const message = { id: 'message-a', account_id: 'account-a', subject: 'Question', from_email: 'a@example.org', body_text: 'Please reply', account: { id: 'account-a', user_id: 'owner' } };
+const message = { id: '11111111-1111-4111-8111-111111111111', account_id: '22222222-2222-4222-8222-222222222222', subject: 'Question', from_email: 'a@example.org', body_text: 'Please reply', account: { id: '22222222-2222-4222-8222-222222222222', user_id: 'owner' } };
 const post = (body) => fetch(`${base}/api/rules/test-jev`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
 beforeAll(async () => {
@@ -32,16 +32,16 @@ describe('no-action Jev test mode', () => {
     query.mockResolvedValue({ rows: [message] });
     const response = await fetch(`${base}/api/rules/jev-samples`);
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ messages: [{ id: 'message-a', subject: 'Question', fromEmail: 'a@example.org', accountId: 'account-a' }] });
+    expect(await response.json()).toEqual({ messages: [{ id: '11111111-1111-4111-8111-111111111111', subject: 'Question', fromEmail: 'a@example.org', accountId: '22222222-2222-4222-8222-222222222222' }] });
     expect(query.mock.calls[0][0]).toContain('a.user_id = $1');
     expect(query.mock.calls[0][0]).toContain('LIMIT 5');
   });
 
   it('tests a disabled unsaved condition on selected owned messages without applying actions', async () => {
     query.mockResolvedValue({ rows: [message] });
-    const response = await post({ condition, messageIds: ['message-a'] });
+    const response = await post({ condition, messageIds: ['11111111-1111-4111-8111-111111111111'] });
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ results: [{ id: 'message-a', subject: 'Question', probability: 0.91, match: true, available: true }] });
+    expect(await response.json()).toEqual({ results: [{ id: '11111111-1111-4111-8111-111111111111', subject: 'Question', probability: 0.91, match: true, available: true }] });
     expect(evaluateJevCondition).toHaveBeenCalledOnce();
     expect(applyInboxRules).not.toHaveBeenCalled();
     expect(query.mock.calls[0][0]).toContain('a.user_id = $2');
@@ -52,16 +52,22 @@ describe('no-action Jev test mode', () => {
     expect(oversized.status).toBe(400);
     expect(query).not.toHaveBeenCalled();
     query.mockResolvedValue({ rows: [] });
-    const foreign = await post({ condition, messageIds: ['foreign'] });
+    const foreign = await post({ condition, messageIds: ['33333333-3333-4333-8333-333333333333'] });
     expect(foreign.status).toBe(404);
     expect(evaluateJevCondition).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed UUIDs before Postgres casts them', async () => {
+    expect((await fetch(`${base}/api/rules/jev-samples?accountId=abc`)).status).toBe(400);
+    expect((await post({ condition, messageIds: ['abc'] })).status).toBe(400);
+    expect(query).not.toHaveBeenCalled();
   });
 
   it('returns unavailable without action when the key is missing', async () => {
     query.mockResolvedValue({ rows: [message] });
     evaluateJevCondition.mockResolvedValueOnce({ available: false, probability: null, match: false });
-    const response = await post({ condition, messageIds: ['message-a'] });
-    expect(await response.json()).toEqual({ results: [{ id: 'message-a', subject: 'Question', probability: null, match: false, available: false }] });
+    const response = await post({ condition, messageIds: ['11111111-1111-4111-8111-111111111111'] });
+    expect(await response.json()).toEqual({ results: [{ id: '11111111-1111-4111-8111-111111111111', subject: 'Question', probability: null, match: false, available: false }] });
     expect(applyInboxRules).not.toHaveBeenCalled();
   });
 });
