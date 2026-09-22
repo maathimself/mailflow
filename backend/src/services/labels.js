@@ -102,7 +102,7 @@ export async function ensureLabelFolders(imapManager, account, folderPaths) {
 // `message` needs { account_id, message_id }.
 export async function markThreadRead(imapManager, account, message) {
   const { rows } = await query(
-    'SELECT id, uid, is_read FROM messages WHERE account_id = $1 AND folder = $2 AND message_id = $3 AND is_deleted = false LIMIT 1',
+    'SELECT id, uid, is_read, message_id FROM messages WHERE account_id = $1 AND folder = $2 AND message_id = $3 AND is_deleted = false LIMIT 1',
     [message.account_id, 'INBOX', message.message_id]
   );
   const inboxCopy = rows[0] || null;

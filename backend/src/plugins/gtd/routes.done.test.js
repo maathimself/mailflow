@@ -51,7 +51,7 @@ const ACCT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 // moves. is_read true on both keeps the mark-read path off the IMAP setFlag mock.
 const msg = { id: MSG_ID, account_id: ACCT_ID, uid: 10, folder: 'Watch', message_id: '<m@x>', is_read: true };
 const account = { id: ACCT_ID, user_id: 'u1', folder_mappings: {} };
-const inboxCopy = { id: 'ib-1', uid: 77, is_read: true };
+const inboxCopy = { id: 'ib-1', uid: 77, is_read: true, message_id: '<m@x>' };
 
 function buildApp() {
   const app = express();
@@ -66,7 +66,7 @@ function stubQueries({ inbox = inboxCopy, archiveWrite = { rowCount: 1 } } = {})
   query.mockImplementation(async (sql) => {
     if (sql.includes('FROM messages m') && sql.includes('JOIN email_accounts')) return { rows: [msg] };
     if (sql.startsWith('SELECT * FROM email_accounts')) return { rows: [account] };
-    if (sql.startsWith('SELECT id, uid, is_read FROM messages')) return { rows: inbox ? [inbox] : [] };
+    if (sql.startsWith('SELECT id, uid, is_read, message_id FROM messages')) return { rows: inbox ? [inbox] : [] };
     if (sql.startsWith('SELECT uid FROM messages')) return { rows: [{ uid: 10 }] };
     if (sql.startsWith('DELETE FROM messages') || sql.startsWith('UPDATE messages SET folder')) return archiveWrite;
     return { rows: [] };
@@ -145,7 +145,7 @@ describe('POST /api/gtd/done — strip-ok + archive-fail', () => {
     query.mockImplementation(async (sql) => {
       if (sql.includes('FROM messages m') && sql.includes('JOIN email_accounts')) return { rows: [msg] };
       if (sql.startsWith('SELECT * FROM email_accounts')) return { rows: [account] };
-      if (sql.startsWith('SELECT id, uid, is_read FROM messages')) return { rows: [inboxCopy] };
+      if (sql.startsWith('SELECT id, uid, is_read, message_id FROM messages')) return { rows: [inboxCopy] };
       if (sql.startsWith('SELECT uid FROM messages')) return { rows: [{ uid: 10 }] };
       if (sql.startsWith('UPDATE messages SET folder')) throw new Error('archive write failed');
       return { rows: [] };
