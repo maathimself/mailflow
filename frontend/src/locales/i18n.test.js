@@ -525,6 +525,12 @@ const SAME_VALUE_ALLOWED = {
   'folders.spam':    [['cs', 'de', 'en', 'es', 'it', 'pl', 'ptBR']],
   'folders.sent':    [['es', 'ptBR']],
   'folders.archive': [['cs', 'de']],
+
+  // ── Layout preset names ────────────────────────────────────────────────────
+  // "Compact" is spelled the same in en/fr and "Compacto" in es/ptBR; "Largo"
+  // is the natural word for the wide preset in both Italian and Portuguese.
+  'messageList.layouts.compact.label': [['en', 'fr'], ['es', 'ptBR']],
+  'messageList.layouts.wide.label':    [['it', 'ptBR']],
 };
 
 // Locale-specific plural forms are allowed per locale. A locale may add forms
@@ -609,6 +615,17 @@ const DYNAMIC_KEYS = new Set([
   // Attachment risk badges (MessagePane): t(`message.attachmentRisk.${risk.level}`),
   // where the level comes from classifyAttachmentRisk.
   'message.attachmentRisk.block', 'message.attachmentRisk.warn', 'message.attachmentRisk.notice',
+  // t(def.labelKey) / t(l.descriptionKey) — keys come from LAYOUTS in layouts.js
+  'messageList.layouts.focused.label',
+  'messageList.layouts.focused.description',
+  'messageList.layouts.compact.label',
+  'messageList.layouts.compact.description',
+  'messageList.layouts.comfortable.label',
+  'messageList.layouts.comfortable.description',
+  'messageList.layouts.wide.label',
+  'messageList.layouts.wide.description',
+  'messageList.layouts.vertical.label',
+  'messageList.layouts.vertical.description',
 ]);
 
 // JSX attribute names whose values must never be plain strings — always t().

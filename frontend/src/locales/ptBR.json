@@ -370,6 +370,29 @@
       "promotion": "Promoções",
       "automated": "Automáticos",
       "social": "Social"
+    },
+    "changeLayout": "Alterar layout",
+    "layouts": {
+      "focused": {
+        "label": "Focado",
+        "description": "Painel de lista mínimo, área de leitura máxima"
+      },
+      "compact": {
+        "label": "Compacto",
+        "description": "Linhas densas — mostra mais mensagens de uma vez"
+      },
+      "comfortable": {
+        "label": "Confortável",
+        "description": "Linhas espaçosas, com bastante respiro para leitura"
+      },
+      "wide": {
+        "label": "Largo",
+        "description": "Lista ampla mostra assuntos e prévias mais longos"
+      },
+      "vertical": {
+        "label": "Divisão vertical",
+        "description": "Lista de mensagens acima do painel de leitura"
+      }
     }
   },
   "lockScreen": {

@@ -1,11 +1,16 @@
 // Each layout defines the structural arrangement of the three-pane mail UI.
+// labelKey / descriptionKey are the i18n keys the UI renders; label and
+// description stay as the English fallback for any caller without a translate
+// function (and for i18next's own fallback path).
 // direction: 'row' = list beside reading pane; 'column' = list above reading pane
 // listWidth: px width of the message list in row mode (null for column mode)
 // rowPy / rowPx: vertical / horizontal padding inside each message row
 
 export const LAYOUTS = {
   focused: {
+    labelKey: 'messageList.layouts.focused.label',
     label: 'Focused',
+    descriptionKey: 'messageList.layouts.focused.description',
     description: 'Minimal list panel, maximum reading area',
     direction: 'row',
     listWidth: 210,
@@ -14,7 +19,9 @@ export const LAYOUTS = {
   },
 
   compact: {
+    labelKey: 'messageList.layouts.compact.label',
     label: 'Compact',
+    descriptionKey: 'messageList.layouts.compact.description',
     description: 'Dense rows — fit more messages at once',
     direction: 'row',
     listWidth: 300,
@@ -23,7 +30,9 @@ export const LAYOUTS = {
   },
 
   comfortable: {
+    labelKey: 'messageList.layouts.comfortable.label',
     label: 'Comfortable',
+    descriptionKey: 'messageList.layouts.comfortable.description',
     description: 'Spacious rows with generous padding for easy scanning',
     direction: 'row',
     listWidth: 360,
@@ -32,7 +41,9 @@ export const LAYOUTS = {
   },
 
   wide: {
+    labelKey: 'messageList.layouts.wide.label',
     label: 'Wide',
+    descriptionKey: 'messageList.layouts.wide.description',
     description: 'Broad list shows longer subjects and previews',
     direction: 'row',
     listWidth: 560,
@@ -41,7 +52,9 @@ export const LAYOUTS = {
   },
 
   vertical: {
+    labelKey: 'messageList.layouts.vertical.label',
     label: 'Vertical Split',
+    descriptionKey: 'messageList.layouts.vertical.description',
     description: 'Message list stacked above the reading pane',
     direction: 'column',
     listWidth: null,

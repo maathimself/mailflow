@@ -1723,7 +1723,7 @@ function LayoutsTab() {
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
                 }}>
                   <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
-                    {l.label}
+                    {t(l.labelKey, l.label)}
                   </div>
                   {isActive && (
                     <div style={{
@@ -1738,7 +1738,7 @@ function LayoutsTab() {
                   )}
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4, lineHeight: 1.4 }}>
-                  {l.description}
+                  {t(l.descriptionKey, l.description)}
                 </div>
               </div>
             </button>

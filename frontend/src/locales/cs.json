@@ -270,6 +270,29 @@
       "promotion": "Propagace",
       "automated": "Automatické",
       "social": "Sociální sítě"
+    },
+    "changeLayout": "Změnit rozvržení",
+    "layouts": {
+      "focused": {
+        "label": "Soustředěné",
+        "description": "Minimální panel se seznamem, maximum prostoru pro čtení"
+      },
+      "compact": {
+        "label": "Kompaktní",
+        "description": "Husté řádky — více zpráv najednou"
+      },
+      "comfortable": {
+        "label": "Pohodlné",
+        "description": "Prostorné řádky s velkorysým odsazením"
+      },
+      "wide": {
+        "label": "Široké",
+        "description": "Široký seznam ukáže delší předměty a náhledy"
+      },
+      "vertical": {
+        "label": "Svislé rozdělení",
+        "description": "Seznam zpráv nad čtecím podoknem"
+      }
     }
   },
   "message": {

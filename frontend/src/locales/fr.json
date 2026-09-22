@@ -370,6 +370,29 @@
       "promotion": "Promotions",
       "automated": "Automatisé",
       "social": "Réseaux sociaux"
+    },
+    "changeLayout": "Changer la disposition",
+    "layouts": {
+      "focused": {
+        "label": "Concentré",
+        "description": "Panneau de liste minimal, zone de lecture maximale"
+      },
+      "compact": {
+        "label": "Compact",
+        "description": "Lignes denses — plus de messages à la fois"
+      },
+      "comfortable": {
+        "label": "Confortable",
+        "description": "Lignes aérées avec des marges généreuses"
+      },
+      "wide": {
+        "label": "Large",
+        "description": "Liste large affichant des objets et aperçus plus longs"
+      },
+      "vertical": {
+        "label": "Division verticale",
+        "description": "Liste des messages au-dessus du volet de lecture"
+      }
     }
   },
   "lockScreen": {

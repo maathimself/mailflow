@@ -384,6 +384,29 @@
       "promotion": "Promocje",
       "automated": "Automatyczne",
       "social": "Społecznościowe"
+    },
+    "changeLayout": "Zmień układ",
+    "layouts": {
+      "focused": {
+        "label": "Skupiony",
+        "description": "Minimalny panel listy, maksymalny obszar czytania"
+      },
+      "compact": {
+        "label": "Kompaktowy",
+        "description": "Gęste wiersze — więcej wiadomości naraz"
+      },
+      "comfortable": {
+        "label": "Wygodny",
+        "description": "Przestronne wiersze z dużymi odstępami"
+      },
+      "wide": {
+        "label": "Szeroki",
+        "description": "Szeroka lista pokazuje dłuższe tematy i podglądy"
+      },
+      "vertical": {
+        "label": "Podział pionowy",
+        "description": "Lista wiadomości nad panelem czytania"
+      }
     }
   },
   "lockScreen": {

@@ -370,6 +370,29 @@
       "promotion": "促销",
       "automated": "自动邮件",
       "social": "社交"
+    },
+    "changeLayout": "更改布局",
+    "layouts": {
+      "focused": {
+        "label": "专注",
+        "description": "列表面板最小，阅读区域最大"
+      },
+      "compact": {
+        "label": "紧凑",
+        "description": "行距紧密——一次显示更多邮件"
+      },
+      "comfortable": {
+        "label": "舒适",
+        "description": "行距宽松，便于浏览"
+      },
+      "wide": {
+        "label": "宽幅",
+        "description": "宽列表可显示更长的主题和预览"
+      },
+      "vertical": {
+        "label": "上下分栏",
+        "description": "邮件列表位于阅读窗格上方"
+      }
     }
   },
   "lockScreen": {

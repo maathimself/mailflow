@@ -370,6 +370,29 @@
       "promotion": "Werbung",
       "automated": "Automatisch",
       "social": "Sozial"
+    },
+    "changeLayout": "Layout ändern",
+    "layouts": {
+      "focused": {
+        "label": "Fokussiert",
+        "description": "Minimale Listenspalte, maximaler Lesebereich"
+      },
+      "compact": {
+        "label": "Kompakt",
+        "description": "Dichte Zeilen — mehr Nachrichten auf einmal"
+      },
+      "comfortable": {
+        "label": "Komfortabel",
+        "description": "Großzügige Zeilen mit viel Abstand zum Überfliegen"
+      },
+      "wide": {
+        "label": "Breit",
+        "description": "Breite Liste zeigt längere Betreffs und Vorschauen"
+      },
+      "vertical": {
+        "label": "Vertikale Teilung",
+        "description": "Nachrichtenliste über dem Lesebereich"
+      }
     }
   },
   "lockScreen": {

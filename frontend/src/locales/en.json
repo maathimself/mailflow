@@ -370,6 +370,29 @@
       "promotion": "Promotions",
       "automated": "Automated",
       "social": "Social"
+    },
+    "changeLayout": "Change layout",
+    "layouts": {
+      "focused": {
+        "label": "Focused",
+        "description": "Minimal list panel, maximum reading area"
+      },
+      "compact": {
+        "label": "Compact",
+        "description": "Dense rows — fit more messages at once"
+      },
+      "comfortable": {
+        "label": "Comfortable",
+        "description": "Spacious rows with generous padding for easy scanning"
+      },
+      "wide": {
+        "label": "Wide",
+        "description": "Broad list shows longer subjects and previews"
+      },
+      "vertical": {
+        "label": "Vertical Split",
+        "description": "Message list stacked above the reading pane"
+      }
     }
   },
   "lockScreen": {
