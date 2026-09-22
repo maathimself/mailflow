@@ -185,6 +185,7 @@ export default function MessageList() {
   const [syncing, setSyncing] = useState(false);
   const [folderSyncing, setFolderSyncing] = useState(false);
   const [allMailComplete, setAllMailComplete] = useState(false);
+  useEffect(() => { setAllMailComplete(false); }, [selectedAccountId, selectedFolder]);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [listScrolled, setListScrolled] = useState(false);
   const [fabVisible, setFabVisible] = useState(true);
