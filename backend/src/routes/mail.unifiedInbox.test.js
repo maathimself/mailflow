@@ -105,4 +105,17 @@ describe('GET /api/mail/unread-counts unified total', () => {
     expect(response.status).toBe(200);
     expect(query.mock.calls[1][1][0]).toEqual(['included']);
   });
+
+  it('expands an All Mail thread across every enabled owned account', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [
+        { id: 'included', include_in_unified_inbox: true },
+        { id: 'opted-out', include_in_unified_inbox: false },
+      ] })
+      .mockResolvedValueOnce({ rows: [] });
+    const response = await fetch(`${base}/api/mail/thread/thread-1?unified=true&folder=ALL_MAIL`);
+    expect(response.status).toBe(200);
+    expect(query.mock.calls[1][1][0]).toEqual(['included', 'opted-out']);
+    expect(query.mock.calls[1][0]).toContain('m.snippet');
+  });
 });

@@ -1,11 +1,11 @@
 import { query } from './db.js';
-import { resolveArchiveFolder, isAllMailFolder, adjustFolderCounts } from '../utils/mailUtils.js';
+import { resolveArchiveFolder, adjustFolderCounts } from '../utils/mailUtils.js';
 
 // Archive a single INBOX copy of a message: the one guarded per-copy archive move, shared
 // by any route that needs "move this INBOX row to the account's Archive and repoint the DB".
 // The GTD /done handler owns the surrounding orchestration (mark-read → strip labels →
 // archive, plus the partial-success response contract); this primitive owns ONLY the archive
-// move itself so that archive semantics — the guard protocol, the Gmail All-Mail branch, the
+// move itself so that archive semantics — the guard protocol, the Gmail All-Mail row, the
 // race-safe DB repoint, and the count adjustments — live in exactly one place.
 //
 // Contract, mirroring the move paths in mail.js and imapManager.js:
@@ -19,9 +19,8 @@ import { resolveArchiveFolder, isAllMailFolder, adjustFolderCounts } from '../ut
 //     'INBOX' and its rowCount is the authority: the loser of that race applies nothing, so
 //     we skip the count adjustments and return archived:false rather than double-decrementing
 //     INBOX.
-//   • Gmail's All Mail is excluded from sync/backfill and the relocate guard, so archiving
-//     there just strips the INBOX row from our view: DELETE, not move+repoint, and no
-//     destination count (All Mail counts aren't tracked).
+//   • Gmail's All Mail is synced and indexed. Archiving there repoints the row
+//     to that folder and updates its count, like any other archive destination.
 //   • IMAP move / DB write failures THROW. The caller maps that to its own failure contract
 //     (in /done: HTTP 200 { archived:false, archiveFailed:true } so a mostly-successful action
 //     isn't misreported as a 500 and the id stays retryable).
@@ -38,16 +37,12 @@ export async function archiveInboxCopy(imapManager, account, inboxCopy) {
   const archiveFolder = await resolveArchiveFolder(accountId, account.folder_mappings);
   if (!archiveFolder) return { archived: false, noArchiveFolder: true };
 
-  const allMail = await isAllMailFolder(accountId, archiveFolder);
   imapManager._guardMoveUid(accountId, 'INBOX', inboxCopy.uid);
   let destGuardHeld = false;
   try {
     const newUid = await imapManager.moveMessage(account, inboxCopy.uid, 'INBOX', archiveFolder);
     let applied;
-    if (allMail) {
-      const del = await query("DELETE FROM messages WHERE id = $1 AND folder = 'INBOX'", [inboxCopy.id]);
-      applied = del.rowCount > 0;
-    } else if (newUid != null) {
+    if (newUid != null) {
       const upd = await query("UPDATE messages SET folder = $1, uid = $2 WHERE id = $3 AND folder = 'INBOX'", [archiveFolder, newUid, inboxCopy.id]);
       applied = upd.rowCount > 0;
     } else {
@@ -64,7 +59,7 @@ export async function archiveInboxCopy(imapManager, account, inboxCopy) {
     if (applied) {
       // Counts: the caller has already marked the thread read, so both sides move zero unread.
       adjustFolderCounts(accountId, 'INBOX', -1, 0);
-      if (!allMail) adjustFolderCounts(accountId, archiveFolder, 1, 0);
+      adjustFolderCounts(accountId, archiveFolder, 1, 0);
     }
     return { archived: applied, noArchiveFolder: false };
   } finally {

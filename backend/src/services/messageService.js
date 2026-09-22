@@ -1,11 +1,93 @@
 import { query } from './db.js';
 import { resolveAccountScope } from './unifiedInbox.js';
 
+// Choose one local copy before pagination. Gmail All Mail and label folders are
+// real IMAP mailboxes, so a page-level collapse would lose rows at boundaries.
+const ALL_MAIL_CTE = `
+  WITH eligible AS (
+    SELECT m.*, a.name AS account_name, a.email_address AS account_email,
+           a.color AS account_color,
+           (co.id IS NOT NULL) AS has_contact_photo,
+           ROW_NUMBER() OVER (
+             PARTITION BY m.account_id,
+               COALESCE(NULLIF(m.message_id, ''), 'fallback:' || md5(concat_ws('|',
+                 m.thread_key, m.date::text, m.from_email, m.subject, m.snippet)))
+             ORDER BY (m.folder = 'INBOX') DESC,
+                      (replace(lower(COALESCE(f.special_use, '')), chr(92), '') = 'all') DESC,
+                      m.date DESC NULLS LAST, m.id
+           ) AS copy_rank
+    FROM messages m
+    JOIN email_accounts a ON a.id = m.account_id
+    JOIN folders f ON f.account_id = m.account_id AND f.path = m.folder
+    LEFT JOIN contacts co ON co.user_id = a.user_id
+      AND co.primary_email = lower(m.from_email) AND co.photo_data IS NOT NULL
+    WHERE m.account_id = ANY($1) AND m.is_deleted = false AND f.no_select = false
+      AND replace(lower(COALESCE(f.special_use, '')), chr(92), '')
+          NOT IN ('drafts', 'trash', 'junk', 'spam', 'flagged')
+      AND lower(f.name) NOT IN ('drafts', 'trash', 'spam', 'junk', 'starred', 'important')
+      AND m.folder IS DISTINCT FROM a.folder_mappings->>'drafts'
+      AND m.folder IS DISTINCT FROM a.folder_mappings->>'trash'
+      AND m.folder IS DISTINCT FROM a.folder_mappings->>'spam'
+      AND NOT (m.message_id IS NULL AND (m.subject IS NULL OR m.subject = '(no subject)')
+               AND COALESCE(m.snippet, '') = '')
+  ), deduped AS (SELECT * FROM eligible WHERE copy_rank = 1)`;
+
+async function listAllMail({ accountIds, limit, offset, unreadOnly, threaded }) {
+  const safeLimit = Math.min(Math.max(parseInt(limit) || 50, 1), 500);
+  const safeOffset = Math.max(parseInt(offset) || 0, 0);
+  const unread = unreadOnly === true || unreadOnly === 'true';
+  const filter = unread ? 'WHERE is_read = false' : '';
+  const grouped = threaded === true || threaded === 'true';
+  const source = grouped
+    ? `SELECT DISTINCT ON (thread_key) *,
+         COUNT(*) OVER (PARTITION BY thread_key)::int AS message_count
+       FROM deduped ${filter}
+       ORDER BY thread_key, date DESC NULLS LAST, id`
+    : `SELECT * FROM deduped ${filter}`;
+  const countSql = `${ALL_MAIL_CTE}, listed AS (${source})
+    SELECT COUNT(*)::int AS total,
+      COALESCE((SELECT bool_and(f.status_synced_at IS NOT NULL
+                    AND f.server_counts_at IS NOT NULL
+                    AND f.status_synced_at >= f.server_counts_at
+                    AND f.status_error IS NULL)
+                       AND COUNT(DISTINCT f.account_id) = cardinality($1::uuid[])
+        FROM folders f
+        JOIN email_accounts a ON a.id = f.account_id
+        WHERE f.account_id = ANY($1) AND f.no_select = false
+          AND replace(lower(COALESCE(f.special_use, '')), chr(92), '')
+              NOT IN ('drafts', 'trash', 'junk', 'spam', 'flagged')
+          AND lower(f.name) NOT IN ('drafts', 'trash', 'spam', 'junk', 'starred', 'important')
+          AND f.path IS DISTINCT FROM a.folder_mappings->>'drafts'
+          AND f.path IS DISTINCT FROM a.folder_mappings->>'trash'
+          AND f.path IS DISTINCT FROM a.folder_mappings->>'spam'), false) AS complete
+    FROM listed`;
+  const pageSql = `${ALL_MAIL_CTE}, listed AS (${source})
+    SELECT id, uid, folder, message_id, thread_key AS thread_id, subject,
+           from_name, from_email, to_addresses, cc_addresses, reply_to, in_reply_to,
+           date, snippet, is_read, is_starred, has_attachments, account_id,
+           category, list_unsubscribe, list_unsubscribe_post, delivery_addresses,
+           spam_verdict, spam_user_override, spam_score_ml,
+           account_name, account_email, account_color, has_contact_photo
+           ${grouped ? ', message_count' : ''}
+    FROM listed ORDER BY date DESC NULLS LAST, id LIMIT $2 OFFSET $3`;
+  const [count, page] = await Promise.all([
+    query(countSql, [accountIds]), query(pageSql, [accountIds, safeLimit, safeOffset]),
+  ]);
+  return { messages: page.rows, total: count.rows[0]?.total ?? 0,
+    ...(grouped ? { threaded: true } : {}), resolvedAccountId: null,
+    complete: count.rows[0]?.complete === true };
+}
+
 export async function listMessages({ userId, accountId, folder = 'INBOX', limit = 50, offset = 0, unreadOnly, threaded, category }) {
   const accountsResult = await query(
     'SELECT id, include_in_unified_inbox FROM email_accounts WHERE user_id = $1 AND enabled = true',
     [userId]
   );
+  if (folder === 'ALL_MAIL') {
+    const accountIds = accountsResult.rows.map(a => a.id);
+    if (!accountIds.length) return { messages: [], total: 0, complete: false };
+    return listAllMail({ accountIds, limit, offset, unreadOnly, threaded });
+  }
   const {
     accountIds: scopedAccountIds,
     resolvedAccountId,

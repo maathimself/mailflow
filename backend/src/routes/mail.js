@@ -10,8 +10,9 @@ import { extractImapError } from '../services/imapError.js';
 import { isConnectionRefusal } from '../services/imapManager.js';
 import { sanitizeEmail, stripEmailHead, hasRemoteImages, blockRemoteImages, rewriteEbayImageserUrls, rewriteAnchorHrefs } from '../services/emailSanitizer.js';
 import { snippetFromBody, decodeMimeWords, parseRawHeaders, buildHeadersFromMessage } from '../services/messageParser.js';
-import { resolveTrashFolder, resolveAllTrashPaths, resolveAllDraftsPaths, resolveArchiveFolder, isAllMailFolder, resolveSpamFolder, resolveAllSpamPaths, getDeleteStrategy, adjustFolderCounts, fanOutReadToSiblings, fanOutStarToSiblings, fanOutBulkReadToSiblings } from '../utils/mailUtils.js';
+import { resolveTrashFolder, resolveAllTrashPaths, resolveAllDraftsPaths, resolveArchiveFolder, resolveSpamFolder, resolveAllSpamPaths, getDeleteStrategy, adjustFolderCounts, fanOutReadToSiblings, fanOutStarToSiblings, fanOutBulkReadToSiblings } from '../utils/mailUtils.js';
 import { pluginRegistry } from '../plugins/registry.js';
+import { getGtdConfig } from '../plugins/gtd/gtdConfig.js';
 import { listMessages } from '../services/messageService.js';
 import { recordSyncSignal } from '../services/diagnosticsRing.js';
 import { resolveAccountScope } from '../services/unifiedInbox.js';
@@ -151,7 +152,7 @@ router.get('/messages', async (req, res) => {
   const VALID_CATEGORIES = new Set(['primary', 'newsletter', 'promotion', 'automated', 'social']);
   const safeCategory = VALID_CATEGORIES.has(category) ? category : undefined;
 
-  const { messages, total, threaded: isThreaded, resolvedAccountId } = await listMessages({
+  const { messages, total, threaded: isThreaded, resolvedAccountId, complete } = await listMessages({
     userId: req.session.userId,
     accountId,
     folder,
@@ -176,7 +177,8 @@ router.get('/messages', async (req, res) => {
     if (ghosts > 0) recordSyncSignal('ghost_rows_served', { accountId: resolvedAccountId, magnitude: ghosts });
   }
 
-  res.json({ messages, total, ...(isThreaded ? { threaded: true } : {}) });
+  res.json({ messages, total, ...(isThreaded ? { threaded: true } : {}),
+    ...(folder === 'ALL_MAIL' ? { complete: complete === true } : {}) });
 });
 
 router.get('/messages/:id', async (req, res) => {
@@ -290,26 +292,19 @@ router.get('/thread/:threadId', async (req, res) => {
       'SELECT id, include_in_unified_inbox FROM email_accounts WHERE user_id = $1 AND enabled = true',
       [req.session.userId]
     );
-    const accountIds = req.query.unified === 'true'
+    const accountIds = req.query.unified === 'true' && req.query.folder !== 'ALL_MAIL'
       ? resolveAccountScope(accountsResult.rows).accountIds
       : accountsResult.rows.map(row => row.id);
     if (!accountIds.length) return res.json({ messages: [] });
 
     // Show all non-deleted messages in the thread regardless of folder. This includes
     // Sent replies (which have distinct message_ids) alongside received messages.
-    // DISTINCT ON deduplicates the same message appearing in multiple folders (e.g. Gmail's
-    // All Mail), preferring the INBOX copy.
-    //
-    // The key is scoped to the account. One email delivered to two connected accounts is two
-    // separate mailbox items sharing a Message-ID, and a bare message_id key dropped one of
-    // them: the copy vanished from the conversation as well as from the grouped list, so in
-    // conversation mode it was not reachable anywhere in the UI (#476). Thunderbird puts both
-    // copies in the one thread here, keyed by Message-ID and explicitly folder- and
-    // account-agnostic for THREADING while still listing each copy, which is the behavior this
-    // matches. Same-account duplicates (All Mail, the Sent twin) still collapse.
+    // Deduplicate copies within each account, preserving copies delivered to
+    // different accounts in the same conversation.
     const result = await query(`
       WITH deduped AS (
-        SELECT DISTINCT ON (m.account_id, m.message_id)
+        SELECT DISTINCT ON (m.account_id, COALESCE(NULLIF(m.message_id, ''),
+          'fallback:' || md5(concat_ws('|', m.thread_key, m.date::text, m.from_email, m.subject, m.snippet))))
                m.id, m.uid, m.folder, m.message_id, m.thread_id, m.subject,
                m.from_name, m.from_email, m.to_addresses, m.cc_addresses,
                m.reply_to, m.in_reply_to,
@@ -322,8 +317,14 @@ router.get('/thread/:threadId', async (req, res) => {
         WHERE m.is_deleted = false
           AND m.account_id = ANY($1)
           AND m.thread_key = $2
-        ORDER BY m.account_id,
-                 m.message_id,
+          ${req.query.folder === 'ALL_MAIL' ? `AND NOT EXISTS (
+            SELECT 1 FROM folders f WHERE f.account_id = m.account_id AND f.path = m.folder
+              AND (replace(lower(COALESCE(f.special_use, '')), chr(92), '')
+                   IN ('drafts', 'trash', 'junk', 'spam', 'flagged')
+                   OR lower(f.name) IN ('drafts', 'trash', 'spam', 'junk', 'starred', 'important'))
+          )` : ''}
+        ORDER BY m.account_id, COALESCE(NULLIF(m.message_id, ''),
+          'fallback:' || md5(concat_ws('|', m.thread_key, m.date::text, m.from_email, m.subject, m.snippet))),
                  CASE WHEN m.folder = 'INBOX' THEN 0 ELSE 1 END,
                  m.date ASC
       )
@@ -1600,6 +1601,48 @@ router.post('/messages/bulk-move', async (req, res) => {
   }
 });
 
+// Copy into an ordinary account-owned folder. GTD state folders go through the
+// classification route so its per-thread bookkeeping and undo data stay intact.
+router.post('/messages/:id/copy', async (req, res) => {
+  const { id } = req.params;
+  const { folder } = req.body || {};
+  if (!areValidUUIDs([id]) || !isValidFolderName(folder)) {
+    return res.status(400).json({ error: 'Invalid message or folder' });
+  }
+  const source = await query(`
+    SELECT m.id, m.account_id, m.uid, m.folder, a.folder_mappings
+    FROM messages m JOIN email_accounts a ON a.id = m.account_id
+    WHERE m.id = $1 AND a.user_id = $2 AND a.enabled = true AND m.is_deleted = false
+  `, [id, req.session.userId]);
+  const message = source.rows[0];
+  if (!message) return res.status(404).json({ error: 'Message not found' });
+  const destination = await query(`
+    SELECT path, name, special_use FROM folders
+    WHERE account_id = $1 AND path = $2 AND no_select = false
+  `, [message.account_id, folder]);
+  const target = destination.rows[0];
+  if (!target || message.folder === folder) return res.status(400).json({ error: 'Folder is not a copy target' });
+  const special = String(target.special_use || '').replaceAll('\\', '').toLowerCase();
+  const system = new Set(['inbox', 'sent', 'drafts', 'trash', 'junk', 'spam', 'archive', 'all', 'flagged']);
+  const names = new Set(['inbox', 'sent', 'drafts', 'trash', 'spam', 'junk', 'archive', 'all mail', 'starred', 'important']);
+  const mapped = Object.values(message.folder_mappings || {}).includes(folder);
+  if (system.has(special) || names.has(String(target.name || '').toLowerCase()) || mapped) {
+    return res.status(400).json({ error: 'System folder is not a label target' });
+  }
+  const gtd = await getGtdConfig(message.account_id);
+  if (gtd.enabled && Object.values(gtd.folders).includes(folder)) {
+    return res.status(400).json({ error: 'Use GTD classification for this folder' });
+  }
+  try {
+    const uid = await imapManager.copyMessage(message.account_id, message.uid, message.folder, folder);
+    imapManager.broadcast?.({ type: 'folder_updated', folder, accountId: message.account_id }, req.session.userId);
+    res.json({ ok: true, uid });
+  } catch (error) {
+    console.error('Message copy failed:', error.message);
+    res.status(502).json({ error: 'Could not copy message' });
+  }
+});
+
 // Bulk archive — moves messages to the archive folder for each account
 router.post('/messages/bulk-archive', async (req, res) => {
   const { ids } = req.body;
@@ -1641,19 +1684,11 @@ router.post('/messages/bulk-archive', async (req, res) => {
     const archivedIds = [];
     const noArchiveFolder = [];
     const accountsById = {};
-    // Archive-folder paths that resolved to Gmail's All Mail (special_use '\All').
-    // All Mail is excluded from sync/backfill and the relocate guard (imapManager.js),
-    // so messages archived there get their DB row deleted below instead of re-homed.
-    const allMailDestFolders = new Set();
-
     for (const [accountId, msgs] of Object.entries(byAccount)) {
       const archiveFolder = await resolveArchiveFolder(accountId, msgs[0].folder_mappings);
       if (!archiveFolder) {
         noArchiveFolder.push(accountId);
         continue;
-      }
-      if (await isAllMailFolder(accountId, archiveFolder)) {
-        allMailDestFolders.add(archiveFolder);
       }
 
       const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
@@ -1674,19 +1709,13 @@ router.post('/messages/bulk-archive', async (req, res) => {
       }
     }
 
-    // Update DB: same CTE DELETE+INSERT pattern as bulk-move — except when the
-    // destination is Gmail's All Mail, where the message just vanishes from our view
-    // (see allMailDestFolders above), so a plain DELETE with no reinsert is correct.
+    // Update DB from confirmed IMAP UID mappings, including Gmail All Mail.
     const byFolder = {};
     for (const { id, folder, newUid } of archivedIds) {
       (byFolder[folder] = byFolder[folder] || []).push({ id, newUid });
     }
     for (const [archiveFolder, entries] of Object.entries(byFolder)) {
       const allIds  = entries.map(e => e.id);
-      if (allMailDestFolders.has(archiveFolder)) {
-        await query('DELETE FROM messages WHERE id = ANY($1::uuid[])', [allIds]);
-        continue;
-      }
       const withUid = entries.filter(e => e.newUid != null);
       await query(`
         WITH deleted AS (
@@ -1708,7 +1737,6 @@ router.post('/messages/bulk-archive', async (req, res) => {
     const needResync = new Map(); // accountId -> Set<archiveFolder>
     for (const e of archivedIds) {
       if (e.newUid) continue;
-      if (allMailDestFolders.has(e.folder)) continue; // no DB row there to keep fresh
       if (!needResync.has(e.accountId)) needResync.set(e.accountId, new Set());
       needResync.get(e.accountId).add(e.folder);
     }
@@ -1733,7 +1761,6 @@ router.post('/messages/bulk-archive', async (req, res) => {
         if (!folderDeltas[srcKey]) folderDeltas[srcKey] = { accountId: msg.account_id, path: msg.folder, totalDelta: 0, unreadDelta: 0 };
         folderDeltas[srcKey].totalDelta--;
         folderDeltas[srcKey].unreadDelta -= wasUnread;
-        if (allMailDestFolders.has(dest)) continue; // All Mail counts aren't tracked
         const dstKey = `${msg.account_id}:${dest}`;
         if (!folderDeltas[dstKey]) folderDeltas[dstKey] = { accountId: msg.account_id, path: dest, totalDelta: 0, unreadDelta: 0 };
         folderDeltas[dstKey].totalDelta++;
@@ -1743,7 +1770,7 @@ router.post('/messages/bulk-archive', async (req, res) => {
         adjustFolderCounts(accountId, path, totalDelta, unreadDelta);
       }
       // Notify clients viewing each destination folder to refresh silently.
-      const destFolders = [...new Set(archivedIds.map(a => a.folder))].filter(f => !allMailDestFolders.has(f));
+      const destFolders = [...new Set(archivedIds.map(a => a.folder))];
       for (const dest of destFolders) {
         const accountIds = [...new Set(archivedIds.filter(a => a.folder === dest).map(a => {
           const msg = owned.find(m => m.id === a.id);

@@ -870,7 +870,7 @@ const PROVIDERS = {
     pushesFlags: false,
     snippetIndex: false,
     speculativeFetch: false,
-    skipFolderPatterns: ['all mail', '[gmail]/starred', '[gmail]/important'],
+    skipFolderPatterns: ['[gmail]/starred', '[gmail]/important'],
     // [Gmail] is a namespace container — not a selectable mailbox. It must be
     // matched exactly so that real subfolders like [Gmail]/Drafts are not skipped.
     skipFolderNames: ['[gmail]'],
@@ -4635,8 +4635,7 @@ export class ImapManager {
   }
 
   // Runs backfillMessages for every folder: INBOX first, then all others sequentially.
-  // Skips provider-specific duplicate-view folders (e.g. Gmail's All Mail, Starred, Important)
-  // to avoid storing tens of thousands of duplicate message rows.
+  // Gmail's All Mail must be indexed so archived messages remain visible.
   async backfillAllFolders(account) {
     if (this.backfillAllRunning.has(account.id)) return;
     this.backfillAllRunning.add(account.id);
@@ -5858,7 +5857,14 @@ export class ImapManager {
     // forget, so this never blocks or breaks the copy.
     await pluginRegistry.runHook('afterLabelCopy', { mgr: this.pluginFacade, account, toFolder, fromFolder, srcUid: uid, newUid });
 
-    if (newUid == null) return null;
+    if (newUid == null) {
+      // Servers without UIDPLUS confirm COPY but cannot name its destination UID.
+      // Pull the target so ordinary folders (which have no label plugin hook)
+      // gain their local sibling row without waiting for the next backfill.
+      this.syncFolderOnDemand(account, toFolder)
+        .catch(err => console.warn(`Post-copy folder sync failed: ${err.message}`));
+      return null;
+    }
 
     await insertCopiedSibling(accountId, uid, fromFolder, toFolder, newUid);
     return newUid;
