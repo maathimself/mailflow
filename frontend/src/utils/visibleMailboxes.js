@@ -19,7 +19,8 @@ export function canRunMailboxShortcut(action, root) {
   return match ? Boolean(visibleMailboxRows(root)[Number(match[1]) - 1]) : false;
 }
 
-export function browserMailboxFallback(sequence) {
+export function browserShortcutFallback(sequence) {
+  if (sequence === 'gl') return 'openLabelPicker';
   const match = /^g([0-9])$/.exec(sequence);
   if (!match) return null;
   return match[1] === '0' ? 'goAllMail' : `goVisibleMailbox${match[1]}`;

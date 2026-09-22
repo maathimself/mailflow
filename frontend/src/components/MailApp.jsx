@@ -8,7 +8,7 @@ import { LAYOUTS } from '../layouts.js';
 import { updateFaviconBadge } from '../themes.js';
 import { installResumeRefresh } from '../utils/resumeRefresh.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
-import { runMailboxShortcut, canRunMailboxShortcut, browserMailboxFallback } from '../utils/visibleMailboxes.js';
+import { runMailboxShortcut, canRunMailboxShortcut, browserShortcutFallback } from '../utils/visibleMailboxes.js';
 import { canRunSelectedAction, canRunGlobalAction } from '../utils/shortcutApplicability.js';
 import { selectedPickerMessage } from '../utils/labelPicker.js';
 import { applyMarkRead } from '../utils/markRead.js';
@@ -610,7 +610,7 @@ export default function MailApp() {
       // Check the keymap first — bound actions take priority, including special
       // keys like Delete that would otherwise be skipped below.
       const action = resolved.length > 1 && !SPECIAL_KEYS.has(resolved)
-        ? keyMap[resolved] || browserMailboxFallback(resolved) : resolveShortcutAction(e, shortcuts);
+        ? keyMap[resolved] || browserShortcutFallback(resolved) : resolveShortcutAction(e, shortcuts);
       if (action && canRun(action)) {
         e.preventDefault();
         shortcutBus.emit(action);
@@ -1025,7 +1025,7 @@ function ShortcutHelpOverlay({ shortcuts, onClose }) {
         </div>
 
         <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-tertiary)', textAlign: 'center' }}>
-          {t('shortcuts.browserMailboxFallback', { defaultValue: 'In a browser: g then 0 opens All Mail; g then 1–9 opens a visible mailbox.' })}
+          {t('shortcuts.browserMailboxFallback', { defaultValue: 'In a browser: g then 0 opens All Mail; g then 1–9 opens a visible mailbox; g then l opens the label picker.' })}
         </div>
         <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-tertiary)', textAlign: 'center' }}>
           {t('shortcuts.customizeHint')} &nbsp;·&nbsp; {t('shortcuts.closeHint')}
