@@ -5,6 +5,11 @@ import { gtdActiveForContext } from '../../utils/gtd.js';
 import { api } from '../../utils/api.js';
 import { shortcutBus } from '../../utils/shortcutBus.js';
 import { classifyWithUndo, undoLatestGtdNotification } from './classification.js';
+import { runGtdHotkey } from './hotkeys.js';
+import { doneInboxGtdMessage } from './inboxDone.js';
+import { doneGtdRow } from '../../utils/gtdDone.js';
+import { advanceSelectionAfterRemoval } from '../../utils/listSelection.js';
+import { cancelAutoMarkReadFor } from '../../hooks/useGtdTriage.js';
 
 // GTD's headless runtime: the single owner of the GTD sections fetch. Reloads whenever the context
 // (unified vs a single account) changes and GTD is active there; both the rail and the tab list read
@@ -24,26 +29,38 @@ export default function GtdRuntime() {
     if (gtdActive) fetchGtdSections();
   }, [gtdActive, selectedAccountId, gtdEnabledKey, fetchGtdSections]);
 
-  // GTD classify keys (t/w/d): COPY the selected message into a state's label folder. Silent no-op
+  // GTD classify keys: COPY the selected message into a state's label folder. Silent no-op
   // unless the selected message's account has GTD enabled. Only wired while GTD is activated (this
   // runtime mounts only then) — replaces the former inline handling in MessageList.
   useEffect(() => {
-    const classifySelected = (state) => () => {
-      const { messages, searchResults, searchQuery, selectedMessageId, accounts: accts, scheduleGtdSectionsFetch, addNotification } = useStore.getState();
-      if (!selectedMessageId) return;
-      const pool = searchQuery.trim() ? searchResults : messages;
-      const msg = pool.find(m => m.id === selectedMessageId);
-      if (!msg) return;
-      if (!accts.find(a => a.id === msg.account_id)?.gtd_enabled) return;
-      void classifyWithUndo(msg.id, state, {
-        api,
-        store: { addNotification, scheduleGtdSectionsFetch },
-        t,
+    const handleAction = action => () => {
+      const st = useStore.getState();
+      void runGtdHotkey(action, st, {
+        classify: (id, state) => classifyWithUndo(id, state, {
+          api, store: { addNotification: st.addNotification, scheduleGtdSectionsFetch: st.scheduleGtdSectionsFetch }, t,
+        }),
+        doneMain: message => doneInboxGtdMessage(message, {
+          advance: advanceSelectionAfterRemoval, remove: st.removeMessage,
+          restore: st.restoreMessages, decrementUnread: st.decrementUnread,
+          incrementUnread: st.incrementUnread, gtdDone: api.gtdDone,
+          notify: st.addNotification, t,
+        }),
+        doneRail: (thread, states) => {
+          cancelAutoMarkReadFor(thread);
+          return doneGtdRow(thread, states, {
+            gtdDone: api.gtdDone, removeGtdThread: st.removeGtdThread,
+            restoreGtdThread: st.restoreGtdThread, addNotification: st.addNotification,
+            scheduleGtdSectionsFetch: st.scheduleGtdSectionsFetch, t,
+          });
+        },
       });
     };
-    const onTodo = classifySelected('todo');
-    const onWatch = classifySelected('watch');
-    const onDelegated = classifySelected('delegated');
+    const onTodo = handleAction('gtdTodo');
+    const onWatch = handleAction('gtdWatch');
+    const onDelegated = handleAction('gtdDelegated');
+    const onReference = handleAction('gtdReference');
+    const onSomeday = handleAction('gtdSomeday');
+    const onDone = handleAction('gtdDone');
     const onUndo = () => {
       const { notifications, removeNotification } = useStore.getState();
       undoLatestGtdNotification(notifications, removeNotification);
@@ -51,11 +68,17 @@ export default function GtdRuntime() {
     shortcutBus.on('gtdTodo', onTodo);
     shortcutBus.on('gtdWatch', onWatch);
     shortcutBus.on('gtdDelegated', onDelegated);
+    shortcutBus.on('gtdReference', onReference);
+    shortcutBus.on('gtdSomeday', onSomeday);
+    shortcutBus.on('gtdDone', onDone);
     shortcutBus.on('gtdUndo', onUndo);
     return () => {
       shortcutBus.off('gtdTodo', onTodo);
       shortcutBus.off('gtdWatch', onWatch);
       shortcutBus.off('gtdDelegated', onDelegated);
+      shortcutBus.off('gtdReference', onReference);
+      shortcutBus.off('gtdSomeday', onSomeday);
+      shortcutBus.off('gtdDone', onDone);
       shortcutBus.off('gtdUndo', onUndo);
     };
   }, [t]);

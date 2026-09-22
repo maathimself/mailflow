@@ -696,6 +696,15 @@
         "label": "Označit Delegováno",
         "description": "Zařadit vybranou zprávu jako Delegováno"
       },
+      "gtdReference": {
+        "description": "Zařadit vybranou zprávu jako Podklady"
+      },
+      "gtdSomeday": {
+        "description": "Zařadit vybranou zprávu jako Někdy"
+      },
+      "gtdDone": {
+        "description": "Dokončit vybranou zprávu GTD"
+      },
       "toggleRightSidebar": {
         "label": "Pravý postranní panel",
         "description": "Skrýt nebo zobrazit pravý postranní panel"

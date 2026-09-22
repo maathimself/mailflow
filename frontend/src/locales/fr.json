@@ -620,6 +620,15 @@
       "gtdUndo": {
         "description": "Annuler le dernier classement GTD"
       },
+      "gtdReference": {
+        "description": "Classer le message sélectionné en Référence"
+      },
+      "gtdSomeday": {
+        "description": "Classer le message sélectionné en Un jour"
+      },
+      "gtdDone": {
+        "description": "Terminer le message GTD sélectionné"
+      },
       "toggleRightSidebar": {
         "label": "Afficher ou masquer la barre latérale droite",
         "description": "Masquer ou afficher la barre latérale droite"

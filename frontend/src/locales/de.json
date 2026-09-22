@@ -620,6 +620,15 @@
       "gtdUndo": {
         "description": "Letzte GTD-Einordnung rückgängig machen"
       },
+      "gtdReference": {
+        "description": "Ausgewählte Nachricht als Referenz einordnen"
+      },
+      "gtdSomeday": {
+        "description": "Ausgewählte Nachricht als Irgendwann einordnen"
+      },
+      "gtdDone": {
+        "description": "Ausgewählte GTD-Nachricht abschließen"
+      },
       "toggleRightSidebar": {
         "label": "Rechte Seitenleiste umschalten",
         "description": "Rechte Seitenleiste aus- oder einblenden"

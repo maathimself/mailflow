@@ -60,6 +60,9 @@ export const ACTION_DEFS = {
   gtdTodo:       { groupKey: 'shortcuts.groups.gtd',            labelKey: 'shortcuts.actions.gtdTodo.label',       descriptionKey: 'shortcuts.actions.gtdTodo.description',       defaultKey: 't' },
   gtdWatch:      { groupKey: 'shortcuts.groups.gtd',            labelKey: 'shortcuts.actions.gtdWatch.label',      descriptionKey: 'shortcuts.actions.gtdWatch.description',      defaultKey: 'w' },
   gtdDelegated:  { groupKey: 'shortcuts.groups.gtd',            labelKey: 'shortcuts.actions.gtdDelegated.label',  descriptionKey: 'shortcuts.actions.gtdDelegated.description',  defaultKey: 'd' },
+  gtdReference: { groupKey: 'shortcuts.groups.gtd', labelKey: 'gtd.state.reference', descriptionKey: 'shortcuts.actions.gtdReference.description', defaultKey: 'v' },
+  gtdSomeday: { groupKey: 'shortcuts.groups.gtd', labelKey: 'gtd.state.someday', descriptionKey: 'shortcuts.actions.gtdSomeday.description', defaultKey: 'b' },
+  gtdDone: { groupKey: 'shortcuts.groups.gtd', labelKey: 'gtd.done', descriptionKey: 'shortcuts.actions.gtdDone.description', defaultKey: 'ctrl+shift+e' },
   gtdUndo:       { groupKey: 'shortcuts.groups.gtd',            labelKey: 'common.undo',                            descriptionKey: 'shortcuts.actions.gtdUndo.description',       defaultKey: 'ctrl+z' },
 };
 

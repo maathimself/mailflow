@@ -32,7 +32,7 @@ const cancelAutoMarkRead = () => {
 // (is_read=false) readThread later revert it or fire a spurious bulkRead — but the same
 // action on a DIFFERENT visible row (rapid triage) must leave that other row's
 // still-legitimate pending read running.
-const cancelAutoMarkReadFor = (thread) => {
+export const cancelAutoMarkReadFor = (thread) => {
   const identity = thread.message_id || thread.id;
   if (autoMarkRead.identity != null && autoMarkRead.identity === identity) {
     cancelAutoMarkRead();

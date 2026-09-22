@@ -620,6 +620,15 @@
       "gtdUndo": {
         "description": "Undo the latest GTD classification"
       },
+      "gtdReference": {
+        "description": "Classify the selected message as Reference"
+      },
+      "gtdSomeday": {
+        "description": "Classify the selected message as Someday"
+      },
+      "gtdDone": {
+        "description": "Mark the selected GTD message done"
+      },
       "toggleRightSidebar": {
         "label": "Toggle right sidebar",
         "description": "Hide or show the right sidebar"
