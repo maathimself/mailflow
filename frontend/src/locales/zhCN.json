@@ -585,6 +585,15 @@
       "gtdUndo": {
         "description": "撤销最近的 GTD 分类"
       },
+      "gtdReference": {
+        "description": "将所选邮件归类为参考资料"
+      },
+      "gtdSomeday": {
+        "description": "将所选邮件归类为将来再办"
+      },
+      "gtdDone": {
+        "description": "将所选 GTD 邮件标记为完成"
+      },
       "toggleRightSidebar": {
         "label": "切换右侧边栏",
         "description": "隐藏或显示右侧边栏"

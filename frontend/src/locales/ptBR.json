@@ -585,6 +585,15 @@
       "gtdUndo": {
         "description": "Desfazer a última classificação GTD"
       },
+      "gtdReference": {
+        "description": "Classificar a mensagem selecionada como Referência"
+      },
+      "gtdSomeday": {
+        "description": "Classificar a mensagem selecionada como Algum dia"
+      },
+      "gtdDone": {
+        "description": "Concluir a mensagem GTD selecionada"
+      },
       "toggleRightSidebar": {
         "label": "Alternar barra lateral direita",
         "description": "Ocultar ou mostrar a barra lateral direita"

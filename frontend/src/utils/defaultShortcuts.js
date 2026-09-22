@@ -30,6 +30,17 @@ export const ACTION_DEFS = {
   prevMessage:   { groupKey: 'shortcuts.groups.navigation',     labelKey: 'shortcuts.actions.prevMessage.label',   descriptionKey: 'shortcuts.actions.prevMessage.description',   defaultKey: 'k'  },
   openMessage:   { groupKey: 'shortcuts.groups.navigation',     labelKey: 'shortcuts.actions.openMessage.label',   descriptionKey: 'shortcuts.actions.openMessage.description',   defaultKey: 'o'  },
   goInbox:       { groupKey: 'shortcuts.groups.navigation',     labelKey: 'shortcuts.actions.goInbox.label',       descriptionKey: 'shortcuts.actions.goInbox.description',       defaultKey: 'gi' },
+<<<<<<< HEAD
+=======
+  toggleLeftSidebar: { groupKey: 'shortcuts.groups.navigation', labelKey: 'shortcuts.actions.toggleLeftSidebar.label', descriptionKey: 'shortcuts.actions.toggleLeftSidebar.description', defaultKey: 'ctrl+\\' },
+  goAllMail: { groupKey: 'shortcuts.groups.navigation', labelKey: 'shortcuts.actions.goAllMail.label', descriptionKey: 'shortcuts.actions.goAllMail.description', defaultKey: 'ctrl+0' },
+  ...Object.fromEntries(Array.from({ length: 9 }, (_, i) => {
+    const n = i + 1;
+    const action = `goVisibleMailbox${n}`;
+    return [action, { groupKey: 'shortcuts.groups.navigation', labelKey: 'shortcuts.actions.goVisibleMailbox.label', descriptionKey: 'shortcuts.actions.goVisibleMailbox.description', defaultKey: `ctrl+${n}` }];
+  })),
+  openLabelPicker: { groupKey: 'shortcuts.groups.navigation', labelKey: 'shortcuts.actions.openLabelPicker.label', descriptionKey: 'shortcuts.actions.openLabelPicker.description', defaultKey: 'ctrl+l' },
+>>>>>>> 55e0a26 (feat(gtd): add classification and done shortcuts)
   toggleRightSidebar: { groupKey: 'shortcuts.groups.navigation', labelKey: 'shortcuts.actions.toggleRightSidebar.label', descriptionKey: 'shortcuts.actions.toggleRightSidebar.description', defaultKey: 'ctrl+/' },
 
   // ── Message actions ────────────────────────────────────────────────────────
@@ -49,6 +60,9 @@ export const ACTION_DEFS = {
   gtdTodo:       { groupKey: 'shortcuts.groups.gtd',            labelKey: 'shortcuts.actions.gtdTodo.label',       descriptionKey: 'shortcuts.actions.gtdTodo.description',       defaultKey: 't' },
   gtdWatch:      { groupKey: 'shortcuts.groups.gtd',            labelKey: 'shortcuts.actions.gtdWatch.label',      descriptionKey: 'shortcuts.actions.gtdWatch.description',      defaultKey: 'w' },
   gtdDelegated:  { groupKey: 'shortcuts.groups.gtd',            labelKey: 'shortcuts.actions.gtdDelegated.label',  descriptionKey: 'shortcuts.actions.gtdDelegated.description',  defaultKey: 'd' },
+  gtdReference: { groupKey: 'shortcuts.groups.gtd', labelKey: 'gtd.state.reference', descriptionKey: 'shortcuts.actions.gtdReference.description', defaultKey: 'v' },
+  gtdSomeday: { groupKey: 'shortcuts.groups.gtd', labelKey: 'gtd.state.someday', descriptionKey: 'shortcuts.actions.gtdSomeday.description', defaultKey: 'b' },
+  gtdDone: { groupKey: 'shortcuts.groups.gtd', labelKey: 'gtd.done', descriptionKey: 'shortcuts.actions.gtdDone.description', defaultKey: 'ctrl+shift+e' },
   gtdUndo:       { groupKey: 'shortcuts.groups.gtd',            labelKey: 'common.undo',                            descriptionKey: 'shortcuts.actions.gtdUndo.description',       defaultKey: 'ctrl+z' },
 };
 

@@ -598,6 +598,15 @@
         "label": "Oznacz jako Delegowane",
         "description": "Sklasyfikuj zaznaczoną wiadomość jako delegowane"
       },
+      "gtdReference": {
+        "description": "Oznacz wybraną wiadomość jako Materiały"
+      },
+      "gtdSomeday": {
+        "description": "Oznacz wybraną wiadomość jako Kiedyś"
+      },
+      "gtdDone": {
+        "description": "Ukończ wybraną wiadomość GTD"
+      },
       "toggleRightSidebar": {
         "label": "Przełącz prawy panel",
         "description": "Ukryj lub pokaż prawy panel boczny"
