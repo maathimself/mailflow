@@ -8,6 +8,7 @@ import { LAYOUTS } from '../layouts.js';
 import { updateFaviconBadge } from '../themes.js';
 import { installResumeRefresh } from '../utils/resumeRefresh.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
+import { runMailboxShortcut } from '../utils/visibleMailboxes.js';
 import { applyMarkRead } from '../utils/markRead.js';
 import { buildKeyMap, buildModKeyMap, getEffectiveShortcuts, getGroupedActions, parseModKey, modLabel, SPECIAL_KEYS, SPECIAL_KEY_LABELS } from '../utils/defaultShortcuts.js';
 import Sidebar from './Sidebar.jsx';
@@ -654,6 +655,16 @@ export default function MailApp() {
     shortcutBus.on('toggleRightSidebar', onToggleRightSidebar);
     return () => shortcutBus.off('toggleRightSidebar', onToggleRightSidebar);
   }, [rightSidebarApplicable, toggleRightSidebarHidden]);
+
+  useEffect(() => {
+    const actions = ['toggleLeftSidebar', 'goAllMail', ...Array.from({ length: 9 }, (_, i) => `goVisibleMailbox${i + 1}`)];
+    const handlers = actions.map(action => {
+      const handler = () => runMailboxShortcut(action, useStore.getState(), document.querySelector('[data-mailbox-sidebar]'));
+      shortcutBus.on(action, handler);
+      return [action, handler];
+    });
+    return () => handlers.forEach(([action, handler]) => shortcutBus.off(action, handler));
+  }, []);
 
   // Close help overlay on Escape
   useEffect(() => {
