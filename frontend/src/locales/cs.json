@@ -1038,6 +1038,7 @@
       "errorAdd": "Přidání na seznam blokovaných se nezdařilo"
     },
     "rules": {
+      "jev": {"field": "Jev (přirozený jazyk)", "questionPlaceholder": "Položte otázku k této zprávě", "questionLabel": "Otázka Jev", "thresholdLabel": "Práh pravděpodobnosti (0–1)", "testDisclosure": "Test odesílá vybrané zprávy službě TypeSafe a může být zpoplatněn. Akce pravidel se nespustí.", "missingKey": "Pro získání výsledku přidejte klíč API Jev v Integracích.", "loadSamples": "Vybrat nedávné zprávy", "test": "Otestovat podmínku", "match": "Shoda", "noMatch": "Bez shody", "unavailable": "Nedostupné — podmínka přeskočena", "errorSamples": "Nedávné zprávy se nepodařilo načíst.", "errorTest": "Podmínku se nepodařilo otestovat.", "invalidCondition": "Zadejte otázku a práh od 0 do 1."},
       "title": "Pravidla Doručené pošty",
       "newButton": "Nové pravidlo",
       "empty": "Zatím žádná pravidla. Pravidla automaticky filtrují příchozí poštu.",
@@ -1529,6 +1530,7 @@
       "body": "Váš účet je nyní propojen s poskytovatelem SSO."
     },
     "integrations": {
+      "jev": {"title": "Pravidla Jev", "disclosure": "Aktivní pravidla Jev odesílají obsah možných zpráv službě TypeSafe ještě před zjištěním shody. Testy také odesílají vybrané zprávy. Poskytovatel může účtovat poplatky; při nedostupnosti se podmínka Jev přeskočí.", "configured": "Klíč API je nastaven", "notConfigured": "Klíč API není nastaven", "keyLabel": "Váš klíč API Jev", "keyPlaceholder": "Vložte nový klíč API", "save": "Uložit klíč", "remove": "Odebrat klíč", "errorStatus": "Stav klíče se nepodařilo načíst.", "errorSave": "Klíč se nepodařilo uložit.", "errorRemove": "Klíč se nepodařilo odebrat."},
       "title": "Integrace",
       "loading": "Načítání…",
       "tabEmailProviders": "Poskytovatelé e-mailu",

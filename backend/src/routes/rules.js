@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
-import { applyInboxRules, isDangerousRegex } from '../services/inboxRules.js';
+import { applyInboxRules, isDangerousRegex, createJevContext, evaluateJevCondition } from '../services/inboxRules.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -95,6 +95,70 @@ router.get('/', async (req, res) => {
   }
 });
 
+router.get('/jev-samples', async (req, res) => {
+  const accountId = req.query.accountId;
+  if (accountId && (typeof accountId !== 'string' || accountId.length > 64)) {
+    return res.status(400).json({ error: 'Invalid account' });
+  }
+  try {
+    const result = await query(
+      `SELECT m.id, m.subject, m.from_email, m.account_id
+       FROM messages m JOIN email_accounts a ON a.id = m.account_id
+       WHERE a.user_id = $1 AND m.is_deleted = false
+         AND ($2::uuid IS NULL OR a.id = $2::uuid)
+       ORDER BY m.date DESC NULLS LAST, m.id DESC LIMIT 5`,
+      [req.session.userId, accountId || null]
+    );
+    res.json({ messages: result.rows.map(row => ({
+      id: row.id, subject: row.subject, fromEmail: row.from_email, accountId: row.account_id,
+    })) });
+  } catch {
+    res.status(500).json({ error: 'Failed to load sample messages' });
+  }
+});
+
+router.post('/test-jev', async (req, res) => {
+  const { condition, messageIds } = req.body || {};
+  if (condition?.field !== 'jev' || validateConditions([condition]) || !Array.isArray(messageIds) ||
+      messageIds.length < 1 || messageIds.length > 3 || new Set(messageIds).size !== messageIds.length ||
+      messageIds.some(id => typeof id !== 'string' || !id || id.length > 64)) {
+    return res.status(400).json({ error: 'Invalid Jev test request' });
+  }
+  try {
+    const result = await query(
+      `SELECT m.id, m.uid, m.folder, m.account_id, m.subject, m.from_email, m.from_name,
+              m.to_addresses, m.body_text, m.body_html, to_jsonb(a) AS account
+       FROM messages m JOIN email_accounts a ON a.id = m.account_id
+       WHERE m.id = ANY($1::uuid[]) AND a.user_id = $2 AND m.is_deleted = false`,
+      [messageIds, req.session.userId]
+    );
+    if (result.rows.length !== messageIds.length) return res.status(404).json({ error: 'Message not found' });
+    const byId = new Map(result.rows.map(row => [row.id, row]));
+    const contexts = new Map();
+    const results = [];
+    for (const id of messageIds) {
+      const row = byId.get(id);
+      if (!row) return res.status(404).json({ error: 'Message not found' });
+      let context = contexts.get(row.account_id);
+      if (!context) {
+        context = createJevContext(row.account, req.app.get('imapManager'), 6_000);
+        contexts.set(row.account_id, context);
+      }
+      const msg = {
+        id: row.id, uid: row.uid, folder: row.folder, fromEmail: row.from_email,
+        fromName: row.from_name, to: row.to_addresses, subject: row.subject,
+        bodyText: row.body_text, bodyHtml: row.body_html,
+      };
+      const decision = await evaluateJevCondition(condition, msg, context);
+      results.push({ id: id, subject: row.subject, probability: decision.probability,
+        match: decision.match, available: decision.available });
+    }
+    res.json({ results });
+  } catch {
+    res.status(500).json({ error: 'Failed to test Jev condition' });
+  }
+});
+
 router.post('/run', async (req, res) => {
   const imapMgr = req.app.get('imapManager');
   const { accountId } = req.body;
@@ -172,7 +236,7 @@ async function runRulesSweep(userId, accountIds, imapMgr) {
       let lastId = null;
       while (true) {
         const msgResult = await query(
-          `SELECT id, uid, folder, from_email, from_name, to_addresses, subject, has_attachments, is_read
+          `SELECT id, uid, folder, message_id, from_email, from_name, to_addresses, subject, has_attachments, is_read
            FROM messages
            WHERE account_id = $1 AND lower(folder) = 'inbox'
              ${lastId ? 'AND id > $3' : ''}
@@ -198,6 +262,7 @@ async function runRulesSweep(userId, accountIds, imapMgr) {
             id: row.id,
             uid: row.uid,
             folder: row.folder,
+            messageId: row.message_id,
             fromEmail: row.from_email || '',
             fromName: row.from_name || '',
             to: toArr,

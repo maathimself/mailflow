@@ -671,6 +671,7 @@
       "plugins": "Plugins"
     },
     "rules": {
+      "jev": {"field": "Jev (linguagem natural)", "questionPlaceholder": "Faça uma pergunta sobre este email", "questionLabel": "Pergunta Jev", "thresholdLabel": "Limite de probabilidade (0–1)", "testDisclosure": "O teste envia os emails selecionados à TypeSafe e pode gerar custos. Nenhuma ação da regra é executada.", "missingKey": "Adicione sua chave de API Jev em Integrações para obter um resultado.", "loadSamples": "Escolher emails recentes", "test": "Testar condição", "match": "Corresponde", "noMatch": "Não corresponde", "unavailable": "Indisponível — condição ignorada", "errorSamples": "Não foi possível carregar os emails recentes.", "errorTest": "Não foi possível testar esta condição.", "invalidCondition": "Digite uma pergunta e um limite entre 0 e 1."},
       "title": "Regras da caixa de entrada",
       "newButton": "Nova regra",
       "empty": "Nenhuma regra ainda. As regras filtram automaticamente os e-mails recebidos.",
@@ -1341,6 +1342,7 @@
       "errorSecretRequired": "O client secret é obrigatório."
     },
     "integrations": {
+      "jev": {"title": "Filtros inteligentes Jev", "disclosure": "As regras Jev ativadas enviam o conteúdo dos emails candidatos à TypeSafe antes de saber se há correspondência. Os testes também enviam os emails selecionados. O provedor pode cobrar; se estiver indisponível, a condição Jev será ignorada.", "configured": "Chave de API configurada", "notConfigured": "Nenhuma chave de API configurada", "keyLabel": "Sua chave de API Jev", "keyPlaceholder": "Cole uma nova chave de API", "save": "Salvar chave", "remove": "Remover chave", "errorStatus": "Não foi possível carregar o status da chave.", "errorSave": "Não foi possível salvar a chave.", "errorRemove": "Não foi possível remover a chave."},
       "title": "Integrações",
       "loading": "Carregando…",
       "tabEmailProviders": "Provedores de e-mail",

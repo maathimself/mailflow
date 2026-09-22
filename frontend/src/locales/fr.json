@@ -671,6 +671,7 @@
       "plugins": "Extensions"
     },
     "rules": {
+      "jev": {"field": "Jev (langage naturel)", "questionPlaceholder": "Posez une question sur ce courriel", "questionLabel": "Question Jev", "thresholdLabel": "Seuil de probabilité (0–1)", "testDisclosure": "Le test envoie les courriels choisis à TypeSafe et peut entraîner des frais. Aucune action de règle ne sera exécutée.", "missingKey": "Ajoutez votre clé API Jev dans Intégrations pour obtenir un résultat.", "loadSamples": "Choisir des courriels récents", "test": "Tester la condition", "match": "Correspond", "noMatch": "Ne correspond pas", "unavailable": "Indisponible — condition ignorée", "errorSamples": "Impossible de charger les courriels récents.", "errorTest": "Impossible de tester cette condition.", "invalidCondition": "Saisissez une question et un seuil entre 0 et 1."},
       "title": "Règles de boîte de réception",
       "newButton": "Nouvelle règle",
       "empty": "Aucune règle pour l'instant. Les règles filtrent automatiquement le courrier entrant.",
@@ -1341,6 +1342,7 @@
       "passwordLoginEnabled": "La connexion par mot de passe est activée"
     },
     "integrations": {
+      "jev": {"title": "Filtres Jev", "disclosure": "Les règles Jev actives envoient le contenu des courriels candidats à TypeSafe avant de connaître le résultat. Les tests envoient aussi les courriels choisis. Des frais peuvent s’appliquer ; si le service est indisponible, la condition Jev est ignorée.", "configured": "Clé API configurée", "notConfigured": "Aucune clé API configurée", "keyLabel": "Votre clé API Jev", "keyPlaceholder": "Collez une nouvelle clé API", "save": "Enregistrer la clé", "remove": "Supprimer la clé", "errorStatus": "Impossible de charger l’état de la clé.", "errorSave": "Impossible d’enregistrer la clé.", "errorRemove": "Impossible de supprimer la clé."},
       "title": "Intégrations",
       "loading": "Chargement…",
       "tabEmailProviders": "Fournisseurs de messagerie",

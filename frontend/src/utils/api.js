@@ -277,6 +277,9 @@ export const api = {
   // Integrations
   getIntegrations: () => request('GET', '/integrations'),
   getIntegrationsStatus: () => request('GET', '/integrations/status'),
+  getJevStatus: () => request('GET', '/jev'),
+  saveJevKey: (apiKey) => request('PUT', '/jev', { apiKey }),
+  removeJevKey: () => request('DELETE', '/jev'),
   saveIntegration: (provider, config) => request('POST', `/integrations/${provider}`, config),
   deleteIntegration: (provider) => request('DELETE', `/integrations/${provider}`),
   startMsDeviceFlow: async () => {
@@ -351,6 +354,8 @@ export const api = {
   deleteRule:  (id)       => request('DELETE', `/rules/${id}`),
   reorderRules:(ids)      => request('PATCH',  '/rules/reorder', { ids }),
   runRules:    (accountId) => request('POST',  '/rules/run', accountId ? { accountId } : {}),
+  getJevSamples: (accountId) => request('GET', `/rules/jev-samples${accountId ? `?accountId=${encodeURIComponent(accountId)}` : ''}`),
+  testJevCondition: (condition, messageIds) => request('POST', '/rules/test-jev', { condition, messageIds }),
 
   // Drafts
   saveDraft:   (data)              => request('POST',   '/mail/draft', data),

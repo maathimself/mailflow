@@ -671,6 +671,7 @@
       "plugins": "Complementos"
     },
     "rules": {
+      "jev": {"field": "Jev (lenguaje natural)", "questionPlaceholder": "Haz una pregunta sobre este correo", "questionLabel": "Pregunta de Jev", "thresholdLabel": "Umbral de probabilidad (0–1)", "testDisclosure": "La prueba envía los correos seleccionados a TypeSafe y puede generar costes. No se ejecutan acciones de reglas.", "missingKey": "Añade tu clave API de Jev en Integraciones para obtener resultados.", "loadSamples": "Elegir correos recientes", "test": "Probar condición", "match": "Coincide", "noMatch": "No coincide", "unavailable": "No disponible — condición omitida", "errorSamples": "No se pudieron cargar los correos recientes.", "errorTest": "No se pudo probar esta condición.", "invalidCondition": "Escribe una pregunta y un umbral entre 0 y 1."},
       "title": "Reglas de bandeja de entrada",
       "newButton": "Nueva regla",
       "empty": "No hay reglas aún. Las reglas filtran automáticamente el correo entrante.",
@@ -1341,6 +1342,7 @@
       "passwordLoginEnabled": "El inicio de sesión con contraseña está habilitado"
     },
     "integrations": {
+      "jev": {"title": "Filtros Jev", "disclosure": "Las reglas Jev activas envían el contenido de los correos candidatos a TypeSafe antes de conocer la coincidencia. Las pruebas también envían los correos seleccionados. Puede haber costes del proveedor; si no está disponible, se omite la condición Jev.", "configured": "Clave API configurada", "notConfigured": "No hay clave API configurada", "keyLabel": "Tu clave API de Jev", "keyPlaceholder": "Pega una nueva clave API", "save": "Guardar clave", "remove": "Eliminar clave", "errorStatus": "No se pudo cargar el estado de la clave.", "errorSave": "No se pudo guardar la clave.", "errorRemove": "No se pudo eliminar la clave."},
       "title": "Integraciones",
       "loading": "Cargando…",
       "tabEmailProviders": "Proveedores de correo",

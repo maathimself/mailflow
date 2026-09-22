@@ -34,6 +34,8 @@ import { getEffectiveShortcuts, getGroupedActions, ACTION_DEFS, SPECIAL_KEY_LABE
 import { isValidForwardAddress } from '../utils/ruleActions.js';
 import { folderParentLabel } from '../utils/folderDisplay.js';
 import SpamSettings from './SpamSettings.jsx';
+import JevSettingsCard from './JevSettingsCard.jsx';
+import JevRuleTester from './JevRuleTester.jsx';
 
 // ─── Shared field component ───────────────────────────────────────────────────
 function Field({ label, required, children }) {
@@ -3209,6 +3211,7 @@ function IntegrationsTab() {
 
       {subTab === 'apps' && (
         <div>
+          <JevSettingsCard />
           {/* Todoist */}
           <div style={{
             border: '1px solid var(--border-subtle)', borderRadius: 12,
@@ -6266,6 +6269,12 @@ function RulesTab() {
       setFormError(t('admin.rules.errorRequired'));
       return;
     }
+    if (conditions.some(cond => cond.field === 'jev' &&
+      (!cond.question?.trim() || typeof cond.threshold !== 'number' ||
+       !Number.isFinite(cond.threshold) || cond.threshold < 0 || cond.threshold > 1))) {
+      setFormError(t('admin.rules.jev.invalidCondition'));
+      return;
+    }
     const moveAction = actions.find(a => a.type === 'move');
     if (moveAction && !moveAction.value?.trim()) {
       setFormError(t('admin.rules.errorMoveFolder'));
@@ -6364,6 +6373,7 @@ function RulesTab() {
     if (!conds.length) return '—';
     return conds.slice(0, 2).map(c => {
       if (c.field === 'has_attachment') return t('admin.rules.fieldHasAttachment');
+      if (c.field === 'jev') return `${t('admin.rules.jev.field')}: "${c.question}" (${c.threshold ?? 0.8})`;
       if (c.field === 'read_status') return c.value === 'read' ? t('admin.rules.readStatusRead') : t('admin.rules.readStatusUnread');
       return `${c.field} ${c.operator} "${c.value}"`;
     }).join(` ${rule.condition_logic} `) + (conds.length > 2 ? ` +${conds.length - 2}` : '');
@@ -6387,6 +6397,7 @@ function RulesTab() {
     { value: 'header',         label: t('admin.rules.fieldHeader') },
     { value: 'has_attachment', label: t('admin.rules.fieldHasAttachment') },
     { value: 'read_status',    label: t('admin.rules.fieldReadStatus') },
+    { value: 'jev',            label: t('admin.rules.jev.field') },
   ];
   const OPERATORS = [
     { value: 'contains',     label: t('admin.rules.opContains') },
@@ -6478,12 +6489,23 @@ function RulesTab() {
                         if (i !== idx) return c;
                         const next = { ...c, field: newField };
                         if (newField !== 'header') delete next.headerName;
-                        if (newField === 'has_attachment') { delete next.operator; delete next.value; }
+                        if (newField === 'has_attachment') {
+                          delete next.operator; delete next.value; delete next.question; delete next.threshold;
+                        }
+                        else if (newField === 'jev') {
+                          delete next.operator; delete next.value;
+                          next.question = next.question || '';
+                          next.threshold = next.threshold ?? 0.8;
+                        }
                         else if (newField === 'read_status') {
                           delete next.operator;
+                          delete next.question; delete next.threshold;
                           if (next.value !== 'read' && next.value !== 'unread') next.value = 'unread';
                         }
-                        else if (!next.operator) next.operator = 'contains';
+                        else {
+                          delete next.question; delete next.threshold;
+                          if (!next.operator) next.operator = 'contains';
+                        }
                         return next;
                       });
                       return { ...prev, conditions };
@@ -6492,7 +6514,7 @@ function RulesTab() {
                 >
                   {FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
                 </select>
-                {cond.field !== 'has_attachment' && cond.field !== 'read_status' && (
+                {cond.field !== 'has_attachment' && cond.field !== 'read_status' && cond.field !== 'jev' && (
                   <>
                     <select
                       style={{ ...inputStyle, width: 'auto', flex: '0 0 auto' }}
@@ -6520,6 +6542,21 @@ function RulesTab() {
                     <option value="read">{t('admin.rules.readStatusRead')}</option>
                     <option value="unread">{t('admin.rules.readStatusUnread')}</option>
                   </select>
+                )}
+                {cond.field === 'jev' && (
+                  <div style={{ width: '100%', marginTop: 8 }}>
+                    <input style={inputStyle} value={cond.question || ''} maxLength={500}
+                      onChange={event => setCondition(idx, 'question', event.target.value)}
+                      placeholder={t('admin.rules.jev.questionPlaceholder')}
+                      aria-label={t('admin.rules.jev.questionLabel')} />
+                    <label style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
+                      {t('admin.rules.jev.thresholdLabel')}
+                      <input type="number" min="0" max="1" step="0.01" style={{ ...inputStyle, width: 100, marginLeft: 8 }}
+                        value={cond.threshold ?? 0.8}
+                        onChange={event => setCondition(idx, 'threshold', event.target.value === '' ? '' : Number(event.target.value))} />
+                    </label>
+                    <JevRuleTester condition={cond} accountId={fd.accountId} />
+                  </div>
                 )}
                 <button
                   onClick={() => removeCondition(idx)}

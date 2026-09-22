@@ -1270,6 +1270,7 @@
       "loginMatchClaimDesc": "OIDC-Claim, der mit dem Benutzernamen jedes MailFlow-Kontos abgeglichen wird, wenn eine SSO-Anmeldung erstmals mit einem bestehenden Konto verknüpft wird (Bereitstellungsmodus „Nur bei bestehenden Konten anmelden“). Standard ist email. Verwenden Sie preferred_username, upn usw. für Identitätsanbieter, deren Benutzernamen keine E-Mail-Adressen sind – nur wenn Ihr Anbieter garantiert, dass der Claim eindeutig und nicht vom Benutzer änderbar ist."
     },
     "integrations": {
+      "jev": {"title": "Jev-Filter", "disclosure": "Aktive Jev-Regeln senden Inhalte möglicher E-Mails an TypeSafe, bevor ein Treffer feststeht. Tests senden ebenfalls ausgewählte E-Mails. Es können Anbieterkosten entstehen; bei Ausfall wird die Jev-Bedingung übersprungen.", "configured": "API-Schlüssel eingerichtet", "notConfigured": "Kein API-Schlüssel eingerichtet", "keyLabel": "Dein Jev-API-Schlüssel", "keyPlaceholder": "Neuen API-Schlüssel einfügen", "save": "Schlüssel speichern", "remove": "Schlüssel entfernen", "errorStatus": "Schlüsselstatus konnte nicht geladen werden.", "errorSave": "Schlüssel konnte nicht gespeichert werden.", "errorRemove": "Schlüssel konnte nicht entfernt werden."},
       "title": "Integrationen",
       "loading": "Lädt…",
       "tabEmailProviders": "E-Mail-Anbieter",
@@ -1401,6 +1402,7 @@
       "githubSponsors": "GitHub Sponsors"
     },
     "rules": {
+      "jev": {"field": "Jev (natürliche Sprache)", "questionPlaceholder": "Stelle eine Frage zu dieser E-Mail", "questionLabel": "Jev-Frage", "thresholdLabel": "Trefferwahrscheinlichkeit (0–1)", "testDisclosure": "Der Test sendet ausgewählte E-Mails an TypeSafe und kann Kosten verursachen. Regelaktionen werden nicht ausgeführt.", "missingKey": "Trage deinen Jev-API-Schlüssel unter Integrationen ein, um Ergebnisse zu erhalten.", "loadSamples": "Neueste E-Mails auswählen", "test": "Bedingung testen", "match": "Treffer", "noMatch": "Kein Treffer", "unavailable": "Nicht verfügbar — Bedingung übersprungen", "errorSamples": "Neueste E-Mails konnten nicht geladen werden.", "errorTest": "Bedingung konnte nicht getestet werden.", "invalidCondition": "Gib eine Frage und einen Schwellenwert von 0 bis 1 ein."},
       "conditionLogicOr": "eine Bedingung (ODER)",
       "accountAll": "Alle Konten",
       "actionsLabel": "Aktionen",

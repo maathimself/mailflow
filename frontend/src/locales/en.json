@@ -671,6 +671,7 @@
       "plugins": "Plugins"
     },
     "rules": {
+      "jev": {"field": "Jev (natural language)", "questionPlaceholder": "Ask a plain-English question about this email", "questionLabel": "Jev question", "thresholdLabel": "Match probability threshold (0–1)", "testDisclosure": "Testing sends selected email content to TypeSafe and may incur provider costs. No rule actions run.", "missingKey": "Add your Jev API key in Integrations to get a result.", "loadSamples": "Choose recent messages", "test": "Test condition", "match": "Match", "noMatch": "No match", "unavailable": "Unavailable — condition skipped", "errorSamples": "Could not load recent messages.", "errorTest": "Could not test this condition.", "invalidCondition": "Enter a question and a threshold from 0 to 1."},
       "title": "Inbox rules",
       "newButton": "New rule",
       "empty": "No rules yet. Rules automatically filter incoming mail.",
@@ -1341,6 +1342,7 @@
       "errorSecretRequired": "Client secret is required."
     },
     "integrations": {
+      "jev": {"title": "Jev filters", "disclosure": "Enabled Jev rules send candidate email content to TypeSafe before a match is known. Testing also sends selected email content. Provider costs may apply; unavailable results skip the Jev condition.", "configured": "API key configured", "notConfigured": "No API key configured", "keyLabel": "Your Jev API key", "keyPlaceholder": "Paste a new API key", "save": "Save key", "remove": "Remove key", "errorStatus": "Could not load key status.", "errorSave": "Could not save the key.", "errorRemove": "Could not remove the key."},
       "title": "Integrations",
       "loading": "Loading…",
       "tabEmailProviders": "Email Providers",

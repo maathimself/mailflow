@@ -671,6 +671,7 @@
       "plugins": "Plugin"
     },
     "rules": {
+      "jev": {"field": "Jev (linguaggio naturale)", "questionPlaceholder": "Fai una domanda su questa email", "questionLabel": "Domanda Jev", "thresholdLabel": "Soglia di probabilità (0–1)", "testDisclosure": "Il test invia le email selezionate a TypeSafe e può comportare costi. Non viene eseguita alcuna azione.", "missingKey": "Aggiungi la chiave API Jev in Integrazioni per ottenere un risultato.", "loadSamples": "Scegli email recenti", "test": "Prova condizione", "match": "Corrisponde", "noMatch": "Non corrisponde", "unavailable": "Non disponibile — condizione ignorata", "errorSamples": "Impossibile caricare le email recenti.", "errorTest": "Impossibile provare questa condizione.", "invalidCondition": "Inserisci una domanda e una soglia tra 0 e 1."},
       "title": "Regole posta in arrivo",
       "newButton": "Nuova regola",
       "empty": "Nessuna regola ancora. Le regole filtrano automaticamente la posta in arrivo.",
@@ -1341,6 +1342,7 @@
       "passwordLoginEnabled": "L'accesso con password è abilitato"
     },
     "integrations": {
+      "jev": {"title": "Filtri Jev", "disclosure": "Le regole Jev attive inviano il contenuto delle email candidate a TypeSafe prima di conoscere l’esito. Anche i test inviano le email selezionate. Potrebbero esserci costi del fornitore; se non disponibile, la condizione Jev viene ignorata.", "configured": "Chiave API configurata", "notConfigured": "Nessuna chiave API configurata", "keyLabel": "La tua chiave API Jev", "keyPlaceholder": "Incolla una nuova chiave API", "save": "Salva chiave", "remove": "Rimuovi chiave", "errorStatus": "Impossibile caricare lo stato della chiave.", "errorSave": "Impossibile salvare la chiave.", "errorRemove": "Impossibile rimuovere la chiave."},
       "title": "Integrazioni",
       "loading": "Caricamento…",
       "tabEmailProviders": "Provider email",

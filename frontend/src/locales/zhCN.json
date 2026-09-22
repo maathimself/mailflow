@@ -671,6 +671,7 @@
       "plugins": "插件"
     },
     "rules": {
+      "jev": {"field": "Jev（自然语言）", "questionPlaceholder": "针对这封邮件提出问题", "questionLabel": "Jev 问题", "thresholdLabel": "匹配概率阈值（0–1）", "testDisclosure": "测试会将选中的邮件发送给 TypeSafe，可能产生费用。不会执行规则操作。", "missingKey": "请在“集成”中添加 Jev API 密钥以获取结果。", "loadSamples": "选择近期邮件", "test": "测试条件", "match": "匹配", "noMatch": "不匹配", "unavailable": "不可用——已跳过条件", "errorSamples": "无法加载近期邮件。", "errorTest": "无法测试此条件。", "invalidCondition": "请输入问题和 0 到 1 之间的阈值。"},
       "title": "收件箱规则",
       "newButton": "新建规则",
       "empty": "暂无规则。规则可自动过滤收件箱中的邮件。",
@@ -1341,6 +1342,7 @@
       "passwordLoginEnabled": "密码登录已启用"
     },
     "integrations": {
+      "jev": {"title": "Jev 过滤器", "disclosure": "已启用的 Jev 规则会在确定是否匹配之前，将候选邮件内容发送给 TypeSafe。测试也会发送选中的邮件内容。服务商可能收费；服务不可用时会跳过 Jev 条件。", "configured": "已配置 API 密钥", "notConfigured": "未配置 API 密钥", "keyLabel": "你的 Jev API 密钥", "keyPlaceholder": "粘贴新的 API 密钥", "save": "保存密钥", "remove": "移除密钥", "errorStatus": "无法加载密钥状态。", "errorSave": "无法保存密钥。", "errorRemove": "无法移除密钥。"},
       "title": "集成",
       "loading": "加载中…",
       "tabEmailProviders": "邮件提供商",
