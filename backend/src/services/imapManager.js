@@ -244,6 +244,11 @@ const CONNECT_COOLDOWN_MAX_MS = 15 * 60 * 1000;  // capped at 15 min
 // A mid-operation "Socket timeout" is deliberately NOT matched — it isn't specific to a
 // connection limit and can fire on ordinary slow responses, where a backoff would only
 // delay recovery.
+// Consecutive body-prefetch failures tolerated before abandoning the run. Matches the
+// snippet indexer's threshold, for the same reason: two failures can be one bad message,
+// three in a row means the provider or the connection is the problem.
+export const PREFETCH_MAX_CONSECUTIVE_ERRORS = 3;
+
 export function isConnectionRefusal(detail) {
   // \[LIMIT\] is RFC 9051's response code for "ran up against an implementation limit".
   // It is generic rather than connection-specific, but backing off is the right answer to
@@ -1712,6 +1717,17 @@ export class ImapManager {
     // AUTO_MOVE_MAX_CONCURRENT_PER_ACCOUNT. Classification stays concurrent.
     this._autoMoveSem = createKeyedSemaphore(AUTO_MOVE_MAX_CONCURRENT_PER_ACCOUNT);
     this._connectCooldown = new Map(); // accountId -> { until: ms, failures: number } after connection refusals
+    // Refusals seen on SECONDARY connections (the folder-status counter, background body
+    // prefetch) are tracked apart from _connectCooldown, which live sync owns.
+    //
+    // Both were one counter, and a provider that accepts the sync connection while refusing
+    // additional concurrent logins could never escalate past the base delay: the folder
+    // status connect was refused and armed 30s, then the next successful sync tick cleared
+    // the counter as "healthy again", so the next refusal was once more refusal #1. #474
+    // shows the loop verbatim, reconnect, refusal #1, 30s, repeat, never reaching a delay
+    // long enough for the provider to recover. A successful sync is not evidence that
+    // secondary connections are welcome, so it no longer speaks for them.
+    this._secondaryCooldown = new Map(); // accountId -> { until: ms, failures: number }
     // accountId -> the value last persisted to email_accounts.sync_error: a string (error is
     // showing), null (known clear), or absent (unknown — e.g. just after a restart, where the
     // DB may still hold a stale error, so the next call writes through unconditionally).
@@ -1991,7 +2007,10 @@ export class ImapManager {
             else reconnect();
           } catch (err) {
             recordWarning('staleness_error', accountId);
-            console.warn(`Staleness check error for ${accountId}:`, err.message);
+            // extractImapError, not err.message: this runs IMAP commands, so a rejection is
+            // the generic 'Command failed' until the server's own text is pulled out. #474
+            // reported this exact line as bare 'Command failed' after v3.5.3.
+            console.warn(`Staleness check error for ${accountId}:`, extractImapError(err));
           }
         }
       } finally {
@@ -2299,7 +2318,10 @@ export class ImapManager {
       // backfillAllFolders runs INBOX first, then all other known folders sequentially.
       if (shouldBackfill) {
         this.backfillAllFolders(account).catch(err =>
-          console.error(`Backfill error for ${logAccount(account)}:`, err.message)
+          // Same reason as the per-folder catch below: an IMAP rejection arriving here would
+          // otherwise read 'Command failed'. extractImapError falls back to err.message, so
+          // the non-IMAP errors that usually land here are unchanged.
+          console.error(`Backfill error for ${logAccount(account)}:`, extractImapError(err))
         );
       } else {
         logger.debug(`Backfill deferred on connect for ${logAccount(account)} — account already has cached mail`);
@@ -2503,6 +2525,39 @@ export class ImapManager {
   // instead of waiting out a cooldown that may be hours long.
   clearConnectCooldown(accountId) {
     this._connectCooldown.delete(accountId);
+    // The secondary backoff goes too. This is the explicit human action (editing the account,
+    // pressing Reconnect), and leaving folder counts and prefetch frozen for up to the 15
+    // minute cap after the user has asked for a retry makes the button look broken.
+    this._secondaryCooldown.delete(accountId);
+  }
+
+  // Arm/extend the backoff for secondary connections. Same ladder as _noteConnectionRefusal,
+  // deliberately a different map: only a successful secondary connection clears this, so a
+  // provider that keeps refusing them climbs 30s, 60s, 120s, ... instead of oscillating at the
+  // base delay forever. Live sync is unaffected and keeps its own cooldown.
+  _noteSecondaryRefusal(account) {
+    const failures = (this._secondaryCooldown.get(account.id)?.failures || 0) + 1;
+    const ms = connectCooldownMs(failures);
+    this._secondaryCooldown.set(account.id, { until: Date.now() + ms, failures });
+    console.warn(`Secondary connection refused for ${logAccount(account)}: backing off ${Math.round(ms / 1000)}s (refusal #${failures})`);
+    return ms;
+  }
+
+  // Cleared only by a secondary connection that actually succeeded.
+  _clearSecondaryCooldown(accountId) {
+    this._secondaryCooldown.delete(accountId);
+  }
+
+  // Is either backoff currently holding this account's secondary connections shut? Secondary
+  // work honors the live-sync cooldown too: if the provider is refusing the sync connection,
+  // opening a background one on top of it is the last thing that helps.
+  _secondaryConnectBlocked(accountId) {
+    const now = Date.now();
+    for (const map of [this._connectCooldown, this._secondaryCooldown]) {
+      const cd = map.get(accountId);
+      if (cd && now < cd.until) return cd;
+    }
+    return null;
   }
 
   _noteConnectionRefusal(account) {
@@ -3036,18 +3091,35 @@ export class ImapManager {
     await this._bgConnSem.acquire(host, { timeoutMs: 30000 });
     let client;
     try {
-      const cooldown = this._connectCooldown.get(account.id);
-      if (cooldown && Date.now() < cooldown.until) throw new Error('Provider connection cooldown active');
+      const cooldown = this._secondaryConnectBlocked(account.id);
+      if (cooldown) throw new Error('Provider connection cooldown active');
       const { rows: [current] } = await query('SELECT * FROM email_accounts WHERE id=$1 AND enabled', [account.id]);
       if (!current) return;
       const fresh = await raceTimeout(ensureFreshToken(current), 15000, 'Count token refresh');
       const { resolved, policy } = await raceTimeout(resolveAccountHost(fresh), 15000, 'Count host resolve');
       client = await connectImapClient(fresh, resolved, { policy }, 25000, 'Folder status connect');
+      // Cleared here rather than after fn: the provider accepting the LOGIN is the whole
+      // signal this backoff tracks. Work failing afterwards (an integrity pass, a mailbox
+      // that will not open) says nothing about whether secondary connections are welcome,
+      // and clearing later would leave the backoff armed after a login that plainly worked.
+      this._clearSecondaryCooldown(account.id);
       return await fn(client);
     } catch (err) {
       const countDetail = extractImapError(err);
-      if (isAuthFailure(countDetail)) this._noteAuthFailure(account);
-      else if (isConnectionRefusal(countDetail)) this._noteConnectionRefusal(account);
+      // Both an outright refusal and a rejected AUTHENTICATE take the SECONDARY ladder.
+      //
+      // A genuinely wrong password is not missed by this: connectAccount, the reconnect path
+      // and the poll-only tick all call _noteAuthFailure themselves, and they own the long
+      // 5m-to-6h ladder because they are the account's real login. Routing a secondary
+      // failure there instead would let one refused background connection pause periodic sync
+      // for at least five minutes, escalating toward hours, on an account whose own login is
+      // working. Yahoo answers a burst of concurrent logins with [AUTHENTICATIONFAILED]
+      // Invalid credentials on exactly such an account (#474), so that is not a theoretical
+      // case, and it is the reverse of what this backoff is for: hold back the background
+      // work, never the user's mail.
+      if (isAuthFailure(countDetail) || isConnectionRefusal(countDetail)) {
+        this._noteSecondaryRefusal(account);
+      }
       throw err;
     } finally {
       if (client) { try { client.close(); } catch { /* already closed */ } }
@@ -3073,7 +3145,9 @@ export class ImapManager {
       })
       .catch(err => {
         this._noteIntegrityRetry(key);
-        console.warn(`Folder integrity sync failed for account ${account.id}: ${err.message}`);
+        // extractImapError, not err.message: this path runs IMAP commands, so a rejection is
+        // the generic 'Command failed' until the server's own text is pulled out.
+        console.warn(`Folder integrity sync failed for account ${account.id}: ${extractImapError(err)}`);
       })
       .finally(() => this._statusSyncRunning.delete(key));
     return true;
@@ -4392,7 +4466,12 @@ export class ImapManager {
       // on gtd_enabled + changedCount>0 only.
       await emitSectionsChanged(this.pluginFacade, account, backfilledRows);
     } catch (err) {
-      console.error(`Backfill failed for ${logAccount(account)}/${folder}:`, err.message);
+      // extractImapError, not err.message: everything in this try block runs IMAP commands
+      // (mailbox open, UID search, fetch), and imapflow rejects all of them with the same
+      // Error('Command failed'). #474 reported screens of exactly that from this line, with
+      // the server's own explanation discarded. Reported again after v3.5.3, because this
+      // site was missed when the other log sites were converted.
+      console.error(`Backfill failed for ${logAccount(account)}/${folder}:`, extractImapError(err));
     } finally {
       if (bfClient) { try { bfClient.close(); } catch { /* already disconnected */ } }
       this.backfillRunning.delete(backfillKey);
@@ -5042,6 +5121,16 @@ export class ImapManager {
     );
     if (!uncachedResult.rows.length) return;
 
+    // Background work, so it honors the secondary backoff before opening anything. Without
+    // this the loop would start a fresh run on every folder view while the provider is still
+    // refusing, which is how #474's account kept paying for connections it could not get.
+    const blocked = this._secondaryConnectBlocked(accountId);
+    if (blocked) {
+      logger.debug(`Body prefetch skipped for ${logAccount(account)}: backing off ${Math.round((blocked.until - Date.now()) / 1000)}s`);
+      return;
+    }
+
+    let consecutiveErrors = 0;
     for (const msg of uncachedResult.rows) {
       const quietFor = Date.now() - (this.lastUserActivity.get(accountId) || 0);
       if (quietFor < QUIET_WINDOW_MS) {
@@ -5068,8 +5157,51 @@ export class ImapManager {
           );
         }
       } catch (err) {
-        console.warn(`Folder body prefetch failed for uid ${msg.uid}:`, err.message);
+        const detail = extractImapError(err);
+        console.warn(`Folder body prefetch failed for uid ${msg.uid}:`, detail);
+
+        // Stop the run instead of walking the rest of the list. Each iteration draws its own
+        // connection, so against a provider that is refusing, continuing turns one refusal
+        // into one more for every remaining message and consumes the account's connection
+        // budget. #474 reported that after v3.5.3: prefetch failures across a folder's UIDs,
+        // then 'IMAP connections busy' on unrelated work like deleting mail, because this
+        // loop had taken the pool.
+        //
+        // Two guards, matching the thresholds the snippet indexer uses:
+        //  - an explicit refusal stops the run at the first one, rather than waiting for the
+        //    consecutive count, because the provider has already said it is at its limit;
+        //  - any three consecutive failures stop it too, which covers a provider whose
+        //    refusal is not phrased as one (Yahoo answers a burst with [AUTHENTICATIONFAILED]
+        //    Invalid credentials on an account whose credentials are fine).
+        //
+        // The refusal is recorded on the SECONDARY backoff, never on the account's connect
+        // cooldown: that map gates connectAccount, the health-check reconnect and the
+        // poll-only tick, so arming it here would delay live sync recovery because a
+        // best-effort prefetch was refused. Back off the background work to protect live
+        // sync, not the reverse.
+        // Prefetch is best-effort anyway. Bodies are fetched on demand when the message is
+        // opened, and the next folder view re-runs this for whatever is still uncached.
+        // A refusal, or a rejected AUTHENTICATE, stops the run at the first one AND arms the
+        // backoff. Arming is what stops the next folder view from paying for the same
+        // failures again: without it this loop is re-entered on every GET /messages and
+        // spends another handful of logins before giving up. Yahoo's throttle arrives as
+        // [AUTHENTICATIONFAILED] rather than a refusal (#474), so matching only the refusal
+        // wording would leave exactly that case hammering, three logins per view.
+        if (isConnectionRefusal(detail) || isAuthFailure(detail)) {
+          this._noteSecondaryRefusal(account);
+          console.log(`Body prefetch stopping for ${logAccount(account)}: provider is refusing connections`);
+          return;
+        }
+        // Anything else is about the messages, not the connection (an expunged UID, a body
+        // that will not parse). Stop the run so one bad stretch does not grind on, but arm
+        // nothing: there is no reason to hold back the next folder view.
+        if (++consecutiveErrors >= PREFETCH_MAX_CONSECUTIVE_ERRORS) {
+          console.log(`Body prefetch stopping for ${logAccount(account)} after ${consecutiveErrors} consecutive errors`);
+          return;
+        }
+        continue;
       }
+      consecutiveErrors = 0;
     }
   }
 
