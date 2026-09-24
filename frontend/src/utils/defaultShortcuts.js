@@ -30,17 +30,6 @@ export const ACTION_DEFS = {
   prevMessage:   { groupKey: 'shortcuts.groups.navigation',     labelKey: 'shortcuts.actions.prevMessage.label',   descriptionKey: 'shortcuts.actions.prevMessage.description',   defaultKey: 'k'  },
   openMessage:   { groupKey: 'shortcuts.groups.navigation',     labelKey: 'shortcuts.actions.openMessage.label',   descriptionKey: 'shortcuts.actions.openMessage.description',   defaultKey: 'o'  },
   goInbox:       { groupKey: 'shortcuts.groups.navigation',     labelKey: 'shortcuts.actions.goInbox.label',       descriptionKey: 'shortcuts.actions.goInbox.description',       defaultKey: 'gi' },
-<<<<<<< HEAD
-=======
-  toggleLeftSidebar: { groupKey: 'shortcuts.groups.navigation', labelKey: 'shortcuts.actions.toggleLeftSidebar.label', descriptionKey: 'shortcuts.actions.toggleLeftSidebar.description', defaultKey: 'ctrl+\\' },
-  goAllMail: { groupKey: 'shortcuts.groups.navigation', labelKey: 'shortcuts.actions.goAllMail.label', descriptionKey: 'shortcuts.actions.goAllMail.description', defaultKey: 'ctrl+0' },
-  ...Object.fromEntries(Array.from({ length: 9 }, (_, i) => {
-    const n = i + 1;
-    const action = `goVisibleMailbox${n}`;
-    return [action, { groupKey: 'shortcuts.groups.navigation', labelKey: 'shortcuts.actions.goVisibleMailbox.label', descriptionKey: 'shortcuts.actions.goVisibleMailbox.description', defaultKey: `ctrl+${n}` }];
-  })),
-  openLabelPicker: { groupKey: 'shortcuts.groups.navigation', labelKey: 'shortcuts.actions.openLabelPicker.label', descriptionKey: 'shortcuts.actions.openLabelPicker.description', defaultKey: 'ctrl+l' },
->>>>>>> 55e0a26 (feat(gtd): add classification and done shortcuts)
   toggleRightSidebar: { groupKey: 'shortcuts.groups.navigation', labelKey: 'shortcuts.actions.toggleRightSidebar.label', descriptionKey: 'shortcuts.actions.toggleRightSidebar.description', defaultKey: 'ctrl+/' },
 
   // ── Message actions ────────────────────────────────────────────────────────
