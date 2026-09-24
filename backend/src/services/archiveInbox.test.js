@@ -11,7 +11,7 @@ vi.mock('../utils/mailUtils.js', () => ({
 import { query } from './db.js';
 import { adjustFolderCounts, resolveArchiveFolder, isAllMailFolder } from '../utils/mailUtils.js';
 import { markThreadRead } from './labels.js';
-import { archiveInboxCopy } from './archiveInbox.js';
+import { archiveInboxCopy, archiveMessageCopy } from './archiveInbox.js';
 
 const account = { id: 'account-1', folder_mappings: {} };
 const inboxCopy = { id: 'message-1', uid: 42, message_id: '<mail@example>' };
@@ -33,7 +33,8 @@ describe('archiveInboxCopy Gmail All Mail', () => {
       { account_id: account.id, message_id: inboxCopy.message_id });
     expect((await archiveInboxCopy(manager, account, returned)).archived).toBe(true);
     expect(query.mock.calls[1][1]).toEqual([account.id, '[Gmail]/All Mail', inboxCopy.id, 101, inboxCopy.message_id]);
-    expect(query.mock.calls[2][0]).toMatch(/^DELETE FROM messages WHERE id = \$1 AND folder = 'INBOX'/);
+    expect(query.mock.calls[2][0]).toMatch(/^DELETE FROM messages WHERE id = \$1 AND folder = \$2/);
+    expect(query.mock.calls[2][1]).toEqual([inboxCopy.id, 'INBOX']);
   });
 
   it('repoints the Inbox row to the synced All Mail folder and updates both counts', async () => {
@@ -43,7 +44,7 @@ describe('archiveInboxCopy Gmail All Mail', () => {
     const result = await archiveInboxCopy(manager, account, inboxCopy);
     expect(result.archived).toBe(true);
     expect(query.mock.calls[1][0]).toMatch(/^UPDATE messages SET folder = \$1, uid = \$2/);
-    expect(query.mock.calls[1][1]).toEqual(['[Gmail]/All Mail', 101, 'message-1']);
+    expect(query.mock.calls[1][1]).toEqual(['[Gmail]/All Mail', 101, 'message-1', 'INBOX']);
     expect(adjustFolderCounts).toHaveBeenCalledWith('account-1', 'INBOX', -1, 0);
     expect(adjustFolderCounts).toHaveBeenCalledWith('account-1', '[Gmail]/All Mail', 1, 0);
   });
@@ -52,8 +53,8 @@ describe('archiveInboxCopy Gmail All Mail', () => {
     const manager = { _guardMoveUid: vi.fn(), _unguardMoveUid: vi.fn(), moveMessage: vi.fn(async () => 101) };
     query.mockResolvedValueOnce({ rows: [{ id: 'all-mail-copy' }] }).mockResolvedValueOnce({ rowCount: 1 });
     expect((await archiveInboxCopy(manager, account, inboxCopy)).archived).toBe(true);
-    expect(query.mock.calls[1][0]).toMatch(/^DELETE FROM messages WHERE id = \$1 AND folder = 'INBOX'/);
-    expect(query.mock.calls[1][1]).toEqual(['message-1']);
+    expect(query.mock.calls[1][0]).toMatch(/^DELETE FROM messages WHERE id = \$1 AND folder = \$2/);
+    expect(query.mock.calls[1][1]).toEqual(['message-1', 'INBOX']);
     expect(adjustFolderCounts).toHaveBeenCalledWith('account-1', 'INBOX', -1, 0);
     expect(adjustFolderCounts).not.toHaveBeenCalledWith('account-1', '[Gmail]/All Mail', 1, 0);
   });
@@ -64,7 +65,7 @@ describe('archiveInboxCopy Gmail All Mail', () => {
       .mockRejectedValueOnce(Object.assign(new Error('duplicate copy'), { code: '23505' }))
       .mockResolvedValueOnce({ rowCount: 1 });
     expect((await archiveInboxCopy(manager, account, inboxCopy)).archived).toBe(true);
-    expect(query.mock.calls[2][0]).toMatch(/^DELETE FROM messages WHERE id = \$1 AND folder = 'INBOX'/);
+    expect(query.mock.calls[2][0]).toMatch(/^DELETE FROM messages WHERE id = \$1 AND folder = \$2/);
     expect(adjustFolderCounts).toHaveBeenCalledTimes(1);
   });
 });
@@ -79,7 +80,7 @@ describe('archiveInboxCopy ordinary Archive', () => {
   it('repoints the moved Inbox row even when Archive already holds a copy of its Message-ID', async () => {
     const manager = { _guardMoveUid: vi.fn(), _unguardMoveUid: vi.fn(), moveMessage: vi.fn(async () => 101) };
     query.mockResolvedValueOnce({ rowCount: 1 });
-    expect((await archiveInboxCopy(manager, account, inboxCopy)).archived).toBe(true);
+    expect(await archiveInboxCopy(manager, account, inboxCopy)).toEqual({ archived: true, noArchiveFolder: false });
     expect(query).toHaveBeenCalledTimes(1);
     expect(query.mock.calls[0][0]).toMatch(/^UPDATE messages SET folder = \$1, uid = \$2/);
     expect(adjustFolderCounts).toHaveBeenCalledWith(account.id, 'INBOX', -1, 0);
@@ -112,5 +113,25 @@ describe('archiveInboxCopy ordinary Archive', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('archiveMessageCopy options for inbox rules', () => {
+  beforeEach(() => { query.mockReset(); adjustFolderCounts.mockReset(); });
+
+  it('uses the caller source folder, move adapter, and unread count', async () => {
+    const manager = { _guardMoveUid: vi.fn(), _unguardMoveUid: vi.fn() };
+    const moveUid = vi.fn(async () => 301);
+    query.mockResolvedValueOnce({ rowCount: 1 });
+    const result = await archiveMessageCopy(manager, account, inboxCopy, {
+      sourceFolder: 'Rules', archiveFolder: 'Archive', archiveIsAllMail: false,
+      unreadDelta: 1, moveUid,
+    });
+    expect(result).toEqual({ archived: true, noArchiveFolder: false, newUid: 301 });
+    expect(moveUid).toHaveBeenCalledWith('Archive');
+    expect(query.mock.calls[0][1]).toEqual(['Archive', 301, inboxCopy.id, 'Rules']);
+    expect(manager._guardMoveUid).toHaveBeenCalledWith(account.id, 'Rules', inboxCopy.uid);
+    expect(adjustFolderCounts).toHaveBeenCalledWith(account.id, 'Rules', -1, -1);
+    expect(adjustFolderCounts).toHaveBeenCalledWith(account.id, 'Archive', 1, 1);
   });
 });

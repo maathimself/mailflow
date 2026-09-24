@@ -1,4 +1,5 @@
 import { query } from './db.js';
+import { archiveMessageCopy } from './archiveInbox.js';
 import { resolveArchiveFolder, isAllMailFolder, resolveTrashFolder, resolveAllTrashPaths, getDeleteStrategy, adjustFolderCounts } from '../utils/mailUtils.js';
 
 async function getRulesForAccount(userId, accountId) {
@@ -516,56 +517,20 @@ async function applyAction(action, msg, account, imapManager, ruleId, resolverCa
       if (!archiveFolder) return false;
       const srcFolder = msg.folder;
       const srcUid = msg.uid;
-      imapManager._guardMoveUid(account.id, srcFolder, srcUid);
-      let destGuardHeld = false;
-      try {
-        const archiveResult = await imapManager.bulkMoveMessages(account, [srcUid], srcFolder, archiveFolder);
-        if (archiveResult.failed?.length) throw new Error(`IMAP archive failed for uid ${srcUid}`);
-        const newArchiveUid = archiveResult.uidMap?.get(Number(srcUid));
-        const wasUnread = !(msg.isRead ?? msg.is_read);
-        const existing = resolverCache.archiveIsAllMail ? await query(`
-          SELECT id FROM messages WHERE account_id = $1 AND folder = $2 AND id != $3
-            AND (($4::bigint IS NOT NULL AND uid = $4)
-              OR ($5::text IS NOT NULL AND message_id = $5)) LIMIT 1
-        `, [account.id, archiveFolder, msg.id, newArchiveUid ?? null, msg.messageId || msg.message_id || null]) : null;
-        let applied = false;
-        let addedDestination = false;
-        if (existing?.rows.length) {
-          const deleted = await query('DELETE FROM messages WHERE id = $1 AND folder = $2', [msg.id, srcFolder]);
-          applied = deleted.rowCount > 0;
-        } else {
-          try {
-            if (newArchiveUid != null) {
-              const updated = await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3 AND folder = $4',
-                [archiveFolder, newArchiveUid, msg.id, srcFolder]);
-              applied = updated.rowCount > 0;
-            } else {
-              imapManager._guardMoveUid(account.id, archiveFolder, srcUid);
-              destGuardHeld = true;
-              const updated = await query('UPDATE messages SET folder = $1 WHERE id = $2 AND folder = $3',
-                [archiveFolder, msg.id, srcFolder]);
-              applied = updated.rowCount > 0;
-              if (applied) setTimeout(() => imapManager._unguardMoveUid(account.id, archiveFolder, srcUid), 10_000);
-              else imapManager._unguardMoveUid(account.id, archiveFolder, srcUid);
-              destGuardHeld = false;
-            }
-            addedDestination = applied;
-          } catch (error) {
-            if (!resolverCache.archiveIsAllMail || error.code !== '23505') throw error;
-            const deleted = await query('DELETE FROM messages WHERE id = $1 AND folder = $2', [msg.id, srcFolder]);
-            applied = deleted.rowCount > 0;
-          }
-        }
-        if (applied) {
-          adjustFolderCounts(account.id, srcFolder, -1, wasUnread ? -1 : 0);
-          if (addedDestination) adjustFolderCounts(account.id, archiveFolder, 1, wasUnread ? 1 : 0);
-        }
-        msg.folder = archiveFolder;
-        msg.uid = newArchiveUid || srcUid;
-      } finally {
-        imapManager._unguardMoveUid(account.id, srcFolder, srcUid);
-        if (destGuardHeld) imapManager._unguardMoveUid(account.id, archiveFolder, srcUid);
-      }
+      const wasUnread = !(msg.isRead ?? msg.is_read);
+      const result = await archiveMessageCopy(imapManager, account, msg, {
+        sourceFolder: srcFolder,
+        archiveFolder,
+        archiveIsAllMail: resolverCache.archiveIsAllMail,
+        unreadDelta: wasUnread ? 1 : 0,
+        moveUid: async () => {
+          const moved = await imapManager.bulkMoveMessages(account, [srcUid], srcFolder, archiveFolder);
+          if (moved.failed?.length) throw new Error(`IMAP archive failed for uid ${srcUid}`);
+          return moved.uidMap?.get(Number(srcUid)) ?? null;
+        },
+      });
+      msg.folder = archiveFolder;
+      msg.uid = result.newUid || srcUid;
       return true;
     }
 
