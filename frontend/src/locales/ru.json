@@ -196,6 +196,7 @@
     "noSubject": "(без темы)",
     "to": "Кому:",
     "via": "через",
+    "forwardedFrom": "Исходный отправитель (по данным {{service}}):",
     "attachment_one": "{{count}} вложение",
     "attachment_other": "{{count}} вложений",
     "loadingError": "Не удалось загрузить тело сообщения",

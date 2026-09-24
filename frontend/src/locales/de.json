@@ -196,6 +196,7 @@
     "noSubject": "(kein Betreff)",
     "to": "An:",
     "via": "über",
+    "forwardedFrom": "Ursprünglicher Absender (laut {{service}}):",
     "attachment_one": "{{count}} Anhang",
     "attachment_other": "{{count}} Anhänge",
     "loadingError": "Nachrichteninhalt konnte nicht geladen werden",

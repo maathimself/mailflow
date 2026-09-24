@@ -3,7 +3,7 @@ import { extractImapError } from './imapError.js';
 import { recordUnfetchable, suppressedUids, clearUnfetchable, hasRealGap } from './unfetchableUids.js';
 import { ImapFlow } from 'imapflow';
 import { query } from './db.js';
-import { parseMessage, snippetFromBody, detectBulkFromParsedHeaders, parseHeadersInput, headersToRawString, decodeMimeWords, enrichParsedMetadata, renderCalendarInvite } from './messageParser.js';
+import { parseMessage, snippetFromBody, detectBulkFromParsedHeaders, ALIAS_FORWARDER_HEADERS, parseHeadersInput, headersToRawString, decodeMimeWords, enrichParsedMetadata, renderCalendarInvite } from './messageParser.js';
 import { classifyMessage, loadSocialDomains, getGlobalCategorizationEnabled } from './categorizer.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { createPluginMailFacade } from '../plugins/mailEngineFacade.js';
@@ -1011,7 +1011,8 @@ export async function insertCopiedSibling(accountId, uid, fromFolder, toFolder, 
       thread_references, thread_id, is_bulk,
       read_changed_at, star_changed_at, spam_score_sa, spam_score_ml,
       spam_verdict, spam_analyzed_at, spam_details, spam_user_override,
-      category, list_unsubscribe, list_unsubscribe_post, unsubscribed_at, delivery_addresses, sender_name, sender_email
+      category, list_unsubscribe, list_unsubscribe_post, unsubscribed_at, delivery_addresses, sender_name, sender_email,
+      forwarded_from_name, forwarded_from_email, forwarded_via
     )
     SELECT
       account_id, $4, $5, message_id, subject,
@@ -1021,7 +1022,8 @@ export async function insertCopiedSibling(accountId, uid, fromFolder, toFolder, 
       thread_references, thread_id, is_bulk,
       read_changed_at, star_changed_at, spam_score_sa, spam_score_ml,
       spam_verdict, spam_analyzed_at, spam_details, spam_user_override,
-      category, list_unsubscribe, list_unsubscribe_post, unsubscribed_at, delivery_addresses, sender_name, sender_email
+      category, list_unsubscribe, list_unsubscribe_post, unsubscribed_at, delivery_addresses, sender_name, sender_email,
+      forwarded_from_name, forwarded_from_email, forwarded_via
     FROM messages
     WHERE account_id = $1 AND folder = $2 AND uid = $3
     ON CONFLICT (account_id, uid, folder) DO NOTHING
@@ -3674,8 +3676,9 @@ export class ImapManager {
                 body_html, body_text, attachments,
                 thread_references, thread_id, is_bulk, category,
                 list_unsubscribe, list_unsubscribe_post, delivery_addresses,
-                sender_name, sender_email
-              ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
+                sender_name, sender_email,
+                forwarded_from_name, forwarded_from_email, forwarded_via
+              ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32)
               ON CONFLICT (account_id, uid, folder) DO UPDATE
               SET subject = CASE
                     WHEN EXCLUDED.subject IS NOT NULL
@@ -3733,7 +3736,10 @@ export class ImapManager {
                   list_unsubscribe_post = COALESCE(messages.list_unsubscribe_post, EXCLUDED.list_unsubscribe_post),
                   delivery_addresses = COALESCE(messages.delivery_addresses, EXCLUDED.delivery_addresses),
                   sender_name = COALESCE(EXCLUDED.sender_name, messages.sender_name),
-                  sender_email = COALESCE(EXCLUDED.sender_email, messages.sender_email)
+                  sender_email = COALESCE(EXCLUDED.sender_email, messages.sender_email),
+                  forwarded_from_name = COALESCE(EXCLUDED.forwarded_from_name, messages.forwarded_from_name),
+                  forwarded_from_email = COALESCE(EXCLUDED.forwarded_from_email, messages.forwarded_from_email),
+                  forwarded_via = COALESCE(EXCLUDED.forwarded_via, messages.forwarded_via)
               RETURNING id, (xmax = 0) as is_new
             `, [
               account.id, parsed.uid, folder,
@@ -3750,6 +3756,7 @@ export class ImapManager {
               sanitizeStr(decodeMimeWords(parsed.parsedHeaders?.['list-unsubscribe-post'] ?? null)),
               JSON.stringify(parsed.deliveryAddresses || []),
               sanitizeStr(parsed.senderName), sanitizeStr(parsed.senderEmail),
+              sanitizeStr(parsed.forwardedFromName), sanitizeStr(parsed.forwardedFromEmail), sanitizeStr(parsed.forwardedVia),
             ]);
             if (result.rows[0]?.is_new) {
               insertedCount++;
@@ -4336,8 +4343,9 @@ export class ImapManager {
                     body_html, body_text, attachments,
                     thread_references, thread_id, is_bulk, category,
                     list_unsubscribe, list_unsubscribe_post, delivery_addresses,
-                    sender_name, sender_email
-                  ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
+                    sender_name, sender_email,
+                    forwarded_from_name, forwarded_from_email, forwarded_via
+                  ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32)
                   ON CONFLICT (account_id, uid, folder) DO UPDATE
                   SET subject = CASE
                         WHEN EXCLUDED.subject IS NOT NULL
@@ -4393,7 +4401,10 @@ export class ImapManager {
                       list_unsubscribe_post = COALESCE(messages.list_unsubscribe_post, EXCLUDED.list_unsubscribe_post),
                       delivery_addresses = COALESCE(messages.delivery_addresses, EXCLUDED.delivery_addresses),
                       sender_name = COALESCE(EXCLUDED.sender_name, messages.sender_name),
-                      sender_email = COALESCE(EXCLUDED.sender_email, messages.sender_email)
+                      sender_email = COALESCE(EXCLUDED.sender_email, messages.sender_email),
+                      forwarded_from_name = COALESCE(EXCLUDED.forwarded_from_name, messages.forwarded_from_name),
+                      forwarded_from_email = COALESCE(EXCLUDED.forwarded_from_email, messages.forwarded_from_email),
+                      forwarded_via = COALESCE(EXCLUDED.forwarded_via, messages.forwarded_via)
                   RETURNING id, (xmax = 0) as is_new
                 `, [
                   account.id, parsed.uid, folder,
@@ -4410,6 +4421,7 @@ export class ImapManager {
                   sanitizeStr(decodeMimeWords(parsed.parsedHeaders?.['list-unsubscribe-post'] ?? null)),
                   JSON.stringify(parsed.deliveryAddresses || []),
                   sanitizeStr(parsed.senderName), sanitizeStr(parsed.senderEmail),
+                  sanitizeStr(parsed.forwardedFromName), sanitizeStr(parsed.forwardedFromEmail), sanitizeStr(parsed.forwardedVia),
                 ]);
                 backfilledRows++;
                 // v0.2 antispam: classify genuinely-new rows — the same hook the
@@ -4606,7 +4618,9 @@ export class ImapManager {
           const uidSet = msgs.map(m => m.uid).join(',');
           for await (const msg of client.fetch(uidSet, {
             uid: true,
-            headers: ['list-unsubscribe', 'list-id', 'list-post', 'precedence'],
+            // From + the forwarders' recipient headers so an alias-forwarder's own List-Unsubscribe
+            // is recognised and not taken as a bulk signal (#475).
+            headers: ['list-unsubscribe', 'list-id', 'list-post', 'precedence', ...ALIAS_FORWARDER_HEADERS],
           }, { uid: true })) {
             const dbId = uidToId.get(msg.uid);
             if (dbId == null) continue;

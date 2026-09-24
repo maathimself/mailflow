@@ -196,6 +196,7 @@
     "noSubject": "(brak tematu)",
     "to": "Do:",
     "via": "przez",
+    "forwardedFrom": "Pierwotny nadawca (według {{service}}):",
     "attachment_one": "{{count}} załącznik",
     "attachment_few": "{{count}} załączniki",
     "attachment_many": "{{count}} załączników",

@@ -196,6 +196,7 @@
     "noSubject": "(no subject)",
     "to": "To:",
     "via": "via",
+    "forwardedFrom": "Original sender (per {{service}}):",
     "attachment_one": "{{count}} attachment",
     "attachment_other": "{{count}} attachments",
     "loadingError": "Unable to load message body",

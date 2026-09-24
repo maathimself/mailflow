@@ -196,6 +196,7 @@
     "noSubject": "（无主题）",
     "to": "收件人：",
     "via": "经由",
+    "forwardedFrom": "原始发件人（据 {{service}}）：",
     "attachment_one": "{{count}} 个附件",
     "attachment_other": "{{count}} 个附件",
     "loadingError": "无法加载邮件正文",

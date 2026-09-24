@@ -196,6 +196,7 @@
     "noSubject": "(nessun oggetto)",
     "to": "A:",
     "via": "tramite",
+    "forwardedFrom": "Mittente originale (secondo {{service}}):",
     "attachment_one": "{{count}} allegato",
     "attachment_other": "{{count}} allegati",
     "loadingError": "Impossibile caricare il corpo del messaggio",
