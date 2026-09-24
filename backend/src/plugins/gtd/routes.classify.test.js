@@ -229,6 +229,29 @@ describe('POST /api/gtd/classify — apply a GTD label (COPY)', () => {
     expect(imapManager.removeMessageCopy).toHaveBeenNthCalledWith(2, ACCT_ID, 77, 'Watch');
   });
 
+  it('removes the selected old-state row last so a failed switch remains retryable', async () => {
+    stubQueries({ msg: { ...inboxMsg, folder: 'Todo' }, threadCopies: [
+      { uid: 10, folder: 'Todo' },
+      { uid: 98, folder: 'Reference' },
+    ] });
+    imapManager.removeMessageCopy.mockRejectedValueOnce(new Error('cannot remove Reference'));
+    const res = await classify({ messageId: MSG_ID, state: 'watch' });
+
+    expect(res.status).toBe(500);
+    expect(imapManager.removeMessageCopy).toHaveBeenNthCalledWith(1, ACCT_ID, 98, 'Reference');
+    expect(imapManager.removeMessageCopy).not.toHaveBeenCalledWith(ACCT_ID, 10, 'Todo');
+  });
+
+  it('rolls back a fresh target UID when the source has no Message-ID', async () => {
+    stubQueries({ msg: { ...inboxMsg, folder: 'Todo', message_id: null } });
+    imapManager.removeMessageCopy.mockRejectedValueOnce(new Error('cannot remove Todo'));
+    const res = await classify({ messageId: MSG_ID, state: 'watch' });
+
+    expect(res.status).toBe(500);
+    expect(imapManager.removeMessageCopy).toHaveBeenNthCalledWith(1, ACCT_ID, 10, 'Todo');
+    expect(imapManager.removeMessageCopy).toHaveBeenNthCalledWith(2, ACCT_ID, 77, 'Watch');
+  });
+
   it("404s a message the caller doesn't own (the email_accounts join returns nothing)", async () => {
     stubQueries({ msg: null });
     const res = await classify({ messageId: MSG_ID, state: 'todo' });

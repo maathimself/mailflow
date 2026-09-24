@@ -184,6 +184,14 @@ router.post('/classify', async (req, res) => {
         .map(folder => ({ message: msg, folder }));
     }
 
+    // A failed later removal must leave the selected message id available for
+    // retry. The selected old-state row is the last copy we strip.
+    const isSelectedCopy = copy => copy.folder === msg.folder && copy.message.uid === msg.uid;
+    oldCopies = [
+      ...oldCopies.filter(copy => !isSelectedCopy(copy)),
+      ...oldCopies.filter(isSelectedCopy),
+    ];
+
     result = await applyLabel(account, msg, toFolder);
     try {
       for (const copy of oldCopies) {
@@ -193,9 +201,10 @@ router.post('/classify', async (req, res) => {
     } catch (err) {
       // If stripping a prior state fails, undo a newly created target copy so
       // the request does not leave two GTD states behind.
-      if (result.applied && result.uid != null && msg.message_id) {
+      if (result.applied && result.uid != null) {
         try {
-          await removeExactLabelCopy(msg, toFolder, result.uid);
+          if (msg.message_id) await removeExactLabelCopy(msg, toFolder, result.uid);
+          else await removeLabel({ account_id: msg.account_id, uid: result.uid, folder: toFolder }, toFolder);
         } catch (rollbackErr) {
           console.error(`GTD classify rollback failed for message ${messageId}:`, rollbackErr.message);
         }
