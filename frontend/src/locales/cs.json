@@ -112,8 +112,6 @@
   },
   "sidebar": {
     "allInboxes": "Všechny doručené",
-    "allMail": "Veškerá pošta",
-    "allMailSyncing": "Veškerá pošta (synchronizace)",
     "compose": "Napsat",
     "toggleSidebar": "Zobrazit nebo skrýt postranní panel",
     "newFolder": "Nová složka",

@@ -14,25 +14,21 @@ export function navigateVisibleMailbox(root, number) {
 }
 
 export function canRunMailboxShortcut(action, root) {
-  if (action === 'toggleLeftSidebar' || action === 'goAllMail') return true;
+  if (action === 'toggleLeftSidebar') return true;
   const match = /^goVisibleMailbox([1-9])$/.exec(action);
   return match ? Boolean(visibleMailboxRows(root)[Number(match[1]) - 1]) : false;
 }
 
 export function browserShortcutFallback(sequence) {
   if (sequence === 'gl') return 'openLabelPicker';
-  const match = /^g([0-9])$/.exec(sequence);
+  const match = /^g([1-9])$/.exec(sequence);
   if (!match) return null;
-  return match[1] === '0' ? 'goAllMail' : `goVisibleMailbox${match[1]}`;
+  return `goVisibleMailbox${match[1]}`;
 }
 
 export function runMailboxShortcut(action, store, root) {
   if (action === 'toggleLeftSidebar') {
     store.toggleSidebar();
-    return true;
-  }
-  if (action === 'goAllMail') {
-    store.setSelectedAccount(null, 'ALL_MAIL');
     return true;
   }
   const match = /^goVisibleMailbox([1-9])$/.exec(action);

@@ -162,22 +162,6 @@ describe('archiveTargetsForFolder', () => {
 });
 
 describe('archiveTargetGroupsForRows', () => {
-  it('uses each visible row folder in a mixed-folder All Mail selection', async () => {
-    const rows = [
-      { id: 'inbox-head', account_id: 'a', folder: 'INBOX', message_count: 2 },
-      { id: 'sent-head', account_id: 'a', folder: 'Sent', message_count: 2 },
-    ];
-    const groups = await threadedArchive.archiveTargetGroupsForRows(
-      rows,
-      row => [row,
-        { id: `${row.id}-same`, account_id: 'a', folder: row.folder },
-        { id: `${row.id}-other`, account_id: 'a', folder: row.folder === 'INBOX' ? 'Sent' : 'INBOX' }],
-      row => row.folder,
-      () => true,
-    );
-    assert.deepEqual(groups.map(group => group.targets.map(target => target.id)),
-      [['inbox-head', 'inbox-head-same'], ['sent-head', 'sent-head-same']]);
-  });
   it('resolves every unique active-folder member for each selected thread row', async () => {
     assert.equal(typeof threadedArchive.archiveTargetGroupsForRows, 'function');
 

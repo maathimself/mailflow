@@ -383,8 +383,6 @@
   },
   "sidebar": {
     "allInboxes": "Toutes les boîtes",
-    "allMail": "Tous les messages",
-    "allMailSyncing": "Tous les messages (synchronisation en cours)",
     "compose": "Composer",
     "toggleSidebar": "Basculer la barre latérale",
     "newFolder": "Nouveau dossier",

@@ -79,8 +79,7 @@ export async function archiveTargetGroupsForRows(
       const resolved = await resolveMessages(row);
       return {
         row,
-        targets: archiveTargetsForFolder(row, resolved,
-          typeof folder === 'function' ? folder(row) : folder, isThreadRow(row), accountId),
+        targets: archiveTargetsForFolder(row, resolved, folder, isThreadRow(row), accountId),
       };
     }));
     groups.push(...batch);

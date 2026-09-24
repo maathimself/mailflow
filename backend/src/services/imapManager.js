@@ -870,7 +870,7 @@ const PROVIDERS = {
     pushesFlags: false,
     snippetIndex: false,
     speculativeFetch: false,
-    skipFolderPatterns: ['[gmail]/starred', '[gmail]/important'],
+    skipFolderPatterns: ['all mail', '[gmail]/starred', '[gmail]/important'],
     // [Gmail] is a namespace container — not a selectable mailbox. It must be
     // matched exactly so that real subfolders like [Gmail]/Drafts are not skipped.
     skipFolderNames: ['[gmail]'],
@@ -4635,7 +4635,8 @@ export class ImapManager {
   }
 
   // Runs backfillMessages for every folder: INBOX first, then all others sequentially.
-  // Gmail's All Mail must be indexed so archived messages remain visible.
+  // Skips provider-specific duplicate-view folders (e.g. Gmail's All Mail, Starred, Important)
+  // to avoid storing tens of thousands of duplicate message rows.
   async backfillAllFolders(account) {
     if (this.backfillAllRunning.has(account.id)) return;
     this.backfillAllRunning.add(account.id);

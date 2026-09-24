@@ -383,8 +383,6 @@
   },
   "sidebar": {
     "allInboxes": "Все входящие",
-    "allMail": "Вся почта",
-    "allMailSyncing": "Вся почта (синхронизация)",
     "compose": "Написать",
     "toggleSidebar": "Переключить боковую панель",
     "newFolder": "Новая папка",

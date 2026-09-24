@@ -66,11 +66,10 @@ globalThis.__VITE_ENV__ = { MODE: 'test', DEV: false, PROD: true };
 // so the fetch stub has to serve the row rather than the store. Only the messages endpoint
 // needs a real shape; everything else can be an empty object.
 let SERVED = [];
-let SERVED_COMPLETE = false;
 globalThis.fetch = async (url) => {
   const path = String(url);
   const body = path.includes('/mail/messages?')
-    ? { messages: SERVED, total: SERVED.length, complete: SERVED_COMPLETE }
+    ? { messages: SERVED, total: SERVED.length }
     : {};
   return { ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => body, text: async () => JSON.stringify(body) };
 };
@@ -96,14 +95,13 @@ let container, root;
 
 // Mount fresh for each scenario. MessageList refetches on mount and overwrites anything seeded
 // in the store, so the fixture is served through fetch rather than set as state.
-async function mount({ rows, threadedView, accountId = 'acct-1', folder = 'INBOX', complete = false }) {
+async function mount({ rows, threadedView }) {
   SERVED = rows;
-  SERVED_COMPLETE = complete;
   if (root) await React.act(async () => root.unmount());
   container = dom.window.document.getElementById('root');
   useStore.setState({
     accounts: [ACCOUNT], accountsReady: true,
-    selectedAccountId: accountId, selectedFolder: folder,
+    selectedAccountId: 'acct-1', selectedFolder: 'INBOX',
     messages: rows, messagesTotal: rows.length, hasMoreMessages: false, loadingMessages: false,
     searchQuery: '', threadedView,
     folders: { 'acct-1': [{ path: 'INBOX', name: 'INBOX' }, { path: 'Archive', name: 'Archive' }] },
@@ -138,20 +136,6 @@ describe('MessageList — drag source (#130)', () => {
     assert.ok(el, 'expected a conversation row to be draggable');
     assert.equal(el.getAttribute('draggable'), 'true');
   });
-});
-
-test('All Mail renders its title and syncing state on desktop and mobile', async () => {
-  await mount({ rows: [], threadedView: false, accountId: null, folder: 'ALL_MAIL' });
-  assert.equal(container.querySelector('h2')?.textContent, 'All Mail (syncing)');
-  await mount({ rows: [], threadedView: false, accountId: null, folder: 'ALL_MAIL', complete: true });
-  assert.equal(container.querySelector('h2')?.textContent, 'All Mail');
-  dom.window.innerWidth = 390;
-  try {
-    await mount({ rows: [], threadedView: false, accountId: null, folder: 'ALL_MAIL' });
-    assert.equal(container.querySelector('h2')?.textContent, 'All Mail (syncing)');
-  } finally {
-    dom.window.innerWidth = 1024;
-  }
 });
 
 describe('MessageList — selected-row shortcuts', () => {

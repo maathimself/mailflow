@@ -383,8 +383,6 @@
   },
   "sidebar": {
     "allInboxes": "Todas as caixas de entrada",
-    "allMail": "Todos os e-mails",
-    "allMailSyncing": "Todos os e-mails (sincronizando)",
     "compose": "Escrever",
     "toggleSidebar": "Alternar barra lateral",
     "newFolder": "Nova pasta",

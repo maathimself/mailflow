@@ -397,8 +397,6 @@
   },
   "sidebar": {
     "allInboxes": "Wszystkie skrzynki odbiorcze",
-    "allMail": "Cała poczta",
-    "allMailSyncing": "Cała poczta (synchronizowanie)",
     "compose": "Napisz",
     "toggleSidebar": "Przełącz pasek boczny",
     "newFolder": "Nowy folder",

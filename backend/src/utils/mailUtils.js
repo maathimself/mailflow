@@ -69,7 +69,8 @@ export async function resolveAllDraftsPaths(accountId, folderMappings) {
 // name heuristic. Falls back to special_use = '\All' (Gmail's "All Mail") last, since
 // stock Gmail over IMAP exposes no '\Archive' folder — archiving there means moving
 // the message to All Mail, which strips the INBOX label.
-// Gmail All Mail is indexed; archive callers retain its destination row.
+// IMPORTANT: callers that persist the destination back to the messages table must
+// special-case an '\All' result — see isAllMailFolder below.
 export async function resolveArchiveFolder(accountId, folderMappings) {
   const mapped = await mappedFolderUsable(accountId, folderMappings?.archive);
   if (mapped) return mapped;
@@ -88,7 +89,11 @@ export async function resolveArchiveFolder(accountId, folderMappings) {
 }
 
 // True when `path` is this account's Gmail-style "All Mail" folder (special_use = '\All').
-// All Mail is indexed, so archive callers retain its destination row.
+// All Mail is excluded from sync/backfill (imapManager.js skipFolderPatterns) and from
+// the relocate guard, so no sync loop ever maintains a messages row filed under it.
+// Callers that move a message there (see resolveArchiveFolder) must delete the source
+// row instead of re-homing it into folder = <All Mail path> — the message should
+// simply vanish from our view, matching how the app treats All Mail everywhere else.
 export async function isAllMailFolder(accountId, path) {
   if (!path) return false;
   const result = await query(

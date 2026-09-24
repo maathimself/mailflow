@@ -31,7 +31,6 @@ export const ACTION_DEFS = {
   openMessage:   { groupKey: 'shortcuts.groups.navigation',     labelKey: 'shortcuts.actions.openMessage.label',   descriptionKey: 'shortcuts.actions.openMessage.description',   defaultKey: 'o'  },
   goInbox:       { groupKey: 'shortcuts.groups.navigation',     labelKey: 'shortcuts.actions.goInbox.label',       descriptionKey: 'shortcuts.actions.goInbox.description',       defaultKey: 'gi' },
   toggleLeftSidebar: { groupKey: 'shortcuts.groups.navigation', labelKey: 'shortcuts.actions.toggleLeftSidebar.label', descriptionKey: 'shortcuts.actions.toggleLeftSidebar.description', defaultKey: 'ctrl+\\' },
-  goAllMail: { groupKey: 'shortcuts.groups.navigation', labelKey: 'shortcuts.actions.goAllMail.label', descriptionKey: 'shortcuts.actions.goAllMail.description', defaultKey: 'ctrl+0' },
   ...Object.fromEntries(Array.from({ length: 9 }, (_, i) => {
     const n = i + 1;
     const action = `goVisibleMailbox${n}`;
@@ -156,7 +155,6 @@ export function resolveShortcutAction(event, userOverrides = {}) {
 
 const GENERAL_ACTION_TEXT = {
   toggleLeftSidebar: ['Toggle left sidebar', 'Hide or show the left sidebar'],
-  goAllMail: ['Go to All Mail', 'Open All Mail across accounts'],
   openLabelPicker: ['Open label picker', 'Copy the selected message to a folder'],
   replyAllFromSelection: ['Reply all from selection', 'Reply all to the selected message'],
   markUnread: ['Mark unread', 'Mark the selected message unread'],

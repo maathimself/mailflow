@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { visibleMailboxRows, navigateVisibleMailbox, runMailboxShortcut, canRunMailboxShortcut, browserShortcutFallback } from './visibleMailboxes.js';
 
-test('browser fallback uses g0–g9 and gl without intercepting other sequences', () => {
-  assert.equal(browserShortcutFallback('g0'), 'goAllMail');
+test('browser fallback uses g1–g9 and gl without intercepting other sequences', () => {
+  assert.equal(browserShortcutFallback('g0'), null);
   assert.equal(browserShortcutFallback('g1'), 'goVisibleMailbox1');
   assert.equal(browserShortcutFallback('g9'), 'goVisibleMailbox9');
   assert.equal(browserShortcutFallback('gl'), 'openLabelPicker');
@@ -37,17 +37,13 @@ test('collapsed or hidden rows are absent from navigation because they are absen
   assert.deepEqual(clicked, ['account']);
 });
 
-test('left sidebar toggles in both directions and All Mail opens independently of row index', () => {
+test('left sidebar toggles in both directions', () => {
   let collapsed = false;
-  const navigated = [];
   const actions = {
     toggleSidebar: () => { collapsed = !collapsed; },
-    setSelectedAccount: (...args) => navigated.push(args),
   };
   assert.equal(runMailboxShortcut('toggleLeftSidebar', actions, null), true);
   assert.equal(collapsed, true);
   assert.equal(runMailboxShortcut('toggleLeftSidebar', actions, null), true);
   assert.equal(collapsed, false);
-  assert.equal(runMailboxShortcut('goAllMail', actions, null), true);
-  assert.deepEqual(navigated, [[null, 'ALL_MAIL']]);
 });

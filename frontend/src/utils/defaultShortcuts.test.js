@@ -11,7 +11,7 @@ describe('general shortcut resolution', () => {
     const plain = buildKeyMap();
     const modified = buildModKeyMap();
     for (const [key, action] of Object.entries({ u: 'markUnread', i: 'loadRemoteImages', f: 'forward', '?': 'showHelp', '#': 'delete' })) assert.equal(plain[key], action);
-    for (const [key, action] of Object.entries({ 'shift+u': 'unsubscribe', enter: 'replyAllFromSelection', '\\': 'toggleLeftSidebar', '0': 'goAllMail', l: 'openLabelPicker' })) assert.equal(modified[key], action);
+    for (const [key, action] of Object.entries({ 'shift+u': 'unsubscribe', enter: 'replyAllFromSelection', '\\': 'toggleLeftSidebar', l: 'openLabelPicker' })) assert.equal(modified[key], action);
     for (let n = 1; n <= 9; n++) assert.equal(modified[String(n)], `goVisibleMailbox${n}`);
     assert.equal(warn.mock.callCount(), 0);
   });

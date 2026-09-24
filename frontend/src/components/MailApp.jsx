@@ -574,7 +574,7 @@ export default function MailApp() {
     const canRun = (action) => {
       if (!canRunGlobalAction(action, { rightSidebarApplicable })) return false;
       if (!canRunSelectedAction(action, useStore.getState())) return false;
-      if (action === 'toggleLeftSidebar' || action === 'goAllMail' || /^goVisibleMailbox[1-9]$/.test(action)) {
+      if (action === 'toggleLeftSidebar' || /^goVisibleMailbox[1-9]$/.test(action)) {
         return canRunMailboxShortcut(action, document.querySelector('[data-mailbox-sidebar]'));
       }
       return true;
@@ -681,7 +681,7 @@ export default function MailApp() {
   }, []);
 
   useEffect(() => {
-    const actions = ['toggleLeftSidebar', 'goAllMail', ...Array.from({ length: 9 }, (_, i) => `goVisibleMailbox${i + 1}`)];
+    const actions = ['toggleLeftSidebar', ...Array.from({ length: 9 }, (_, i) => `goVisibleMailbox${i + 1}`)];
     const handlers = actions.map(action => {
       const handler = () => runMailboxShortcut(action, useStore.getState(), document.querySelector('[data-mailbox-sidebar]'));
       shortcutBus.on(action, handler);
@@ -1025,7 +1025,7 @@ function ShortcutHelpOverlay({ shortcuts, onClose }) {
         </div>
 
         <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-tertiary)', textAlign: 'center' }}>
-          {t('shortcuts.browserMailboxFallback', { defaultValue: 'In a browser: g then 0 opens All Mail; g then 1–9 opens a visible mailbox; g then l opens the label picker.' })}
+          {t('shortcuts.browserMailboxFallback', { defaultValue: 'In a browser: g then 1–9 opens a visible mailbox; g then l opens the label picker.' })}
         </div>
         <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-tertiary)', textAlign: 'center' }}>
           {t('shortcuts.customizeHint')} &nbsp;·&nbsp; {t('shortcuts.closeHint')}

@@ -383,8 +383,6 @@
   },
   "sidebar": {
     "allInboxes": "Alle Posteingänge",
-    "allMail": "Alle E-Mails",
-    "allMailSyncing": "Alle E-Mails (werden synchronisiert)",
     "compose": "Verfassen",
     "toggleSidebar": "Seitenleiste umschalten",
     "newFolder": "Neuer Ordner",

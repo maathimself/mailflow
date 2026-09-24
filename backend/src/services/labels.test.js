@@ -166,13 +166,12 @@ describe('markThreadRead', () => {
   const imapMR = () => ({ setFlag: vi.fn() });
 
   it('fans out read state and sets \\Seen on an unread INBOX copy; returns the copy', async () => {
-    query.mockResolvedValueOnce({ rows: [{ id: 'i1', uid: 5, is_read: false, message_id: '<m>' }] });
+    query.mockResolvedValueOnce({ rows: [{ id: 'i1', uid: 5, is_read: false }] });
     const imap = imapMR();
     const r = await markThreadRead(imap, { id: 'acct-1' }, msg);
     expect(fanOutReadToSiblings).toHaveBeenCalledWith('acct-1', '<m>', true);
     expect(imap.setFlag).toHaveBeenCalledWith({ id: 'acct-1' }, 5, 'INBOX', '\\Seen', true);
-    expect(query.mock.calls[0][0]).toContain('SELECT id, uid, is_read, message_id');
-    expect(r.inboxCopy).toEqual({ id: 'i1', uid: 5, is_read: false, message_id: '<m>' });
+    expect(r.inboxCopy).toEqual({ id: 'i1', uid: 5, is_read: false });
     expect(r.error).toBeUndefined();
   });
 
@@ -193,11 +192,11 @@ describe('markThreadRead', () => {
   });
 
   it('degrades gracefully: a fan-out failure returns the copy + error, never throws', async () => {
-    query.mockResolvedValueOnce({ rows: [{ id: 'i1', uid: 5, is_read: false, message_id: '<m>' }] });
+    query.mockResolvedValueOnce({ rows: [{ id: 'i1', uid: 5, is_read: false }] });
     fanOutReadToSiblings.mockRejectedValueOnce(new Error('db down'));
     const imap = imapMR();
     const r = await markThreadRead(imap, { id: 'acct-1' }, msg);
-    expect(r.inboxCopy).toEqual({ id: 'i1', uid: 5, is_read: false, message_id: '<m>' }); // still available for archive
+    expect(r.inboxCopy).toEqual({ id: 'i1', uid: 5, is_read: false }); // still available for archive
     expect(r.error).toBeInstanceOf(Error);
   });
 });

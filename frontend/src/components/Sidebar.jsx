@@ -931,22 +931,13 @@ export default function Sidebar() {
             mailboxRow
             icon={ICONS.inbox}
             label={t('sidebar.allInboxes')}
-            active={isUnified && selectedFolder === 'INBOX' && !showContacts}
+            active={isUnified && !showContacts}
             collapsed={sidebarCollapsed}
             badge={unreadCounts.total}
             badgeStale={!unreadCounts.complete}
             onClick={() => setSelectedAccount(null, 'INBOX')}
           />
         )}
-
-        <NavItem
-          mailboxRow
-          icon={ICONS.folder}
-          label={t('sidebar.allMail', { defaultValue: 'All Mail' })}
-          active={isUnified && selectedFolder === 'ALL_MAIL' && !showContacts}
-          collapsed={sidebarCollapsed}
-          onClick={() => setSelectedAccount(null, 'ALL_MAIL')}
-        />
 
         {/* Favorites section */}
         {!sidebarCollapsed && favoriteFolders.length > 0 && (() => {

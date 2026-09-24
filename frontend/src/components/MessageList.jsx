@@ -1,7 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore, selectSelectedMessageMid, selectSelectedMessageAccountId } from '../store/index.js';
-import { mailboxQueryScope, mailboxTitle } from '../utils/mailboxQuery.js';
 import { api } from '../utils/api.js';
 import { LAYOUTS } from '../layouts.js';
 import { senderColor } from '../themes.js';
@@ -186,8 +185,6 @@ export default function MessageList() {
   const archiveViewKeyRef = useRef(null);
   const [syncing, setSyncing] = useState(false);
   const [folderSyncing, setFolderSyncing] = useState(false);
-  const [allMailComplete, setAllMailComplete] = useState(false);
-  useEffect(() => { setAllMailComplete(false); }, [selectedAccountId, selectedFolder]);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [listScrolled, setListScrolled] = useState(false);
   const [fabVisible, setFabVisible] = useState(true);
@@ -405,7 +402,10 @@ export default function MessageList() {
       setCurrentPage(1);
       try {
         const params = { limit: pageSize, offset: 0 };
-        Object.assign(params, mailboxQueryScope(selectedAccountId, selectedFolder));
+        if (selectedAccountId) {
+          params.accountId = selectedAccountId;
+          params.folder = selectedFolder;
+        }
         if (unreadOnly) params.unreadOnly = 'true';
         if (threadedView) params.threaded = 'true';
         if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
@@ -414,7 +414,6 @@ export default function MessageList() {
           (data) => {
             if (cancelled) return;
             setMessagesTotal(data.total);
-            if (selectedFolder === 'ALL_MAIL') setAllMailComplete(data.complete === true);
             setMessages(applyReadGuard(data.messages));
             setMessagesOffset(data.messages.length);
             setHasMoreMessages(data.messages.length < data.total);
@@ -462,7 +461,10 @@ export default function MessageList() {
       // Read current offset directly from store to avoid stale closure
       const currentOffset = useStore.getState().messagesOffset;
       const params = { limit: pageSize, offset: currentOffset };
-      Object.assign(params, mailboxQueryScope(selectedAccountId, selectedFolder));
+      if (selectedAccountId) {
+        params.accountId = selectedAccountId;
+        params.folder = selectedFolder;
+      }
       if (unreadOnly) params.unreadOnly = 'true';
       if (useStore.getState().threadedView) params.threaded = 'true';
       if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
@@ -494,7 +496,7 @@ export default function MessageList() {
           // Backend caps limit at 500 — don't request more or the list silently shrinks
           params = { limit: Math.min(currentOffset || ps, 500), offset: 0 };
         }
-        Object.assign(params, mailboxQueryScope(selectedAccountId, selectedFolder));
+        if (selectedAccountId) { params.accountId = selectedAccountId; params.folder = selectedFolder; }
         if (unreadOnly) params.unreadOnly = 'true';
         if (state.threadedView) params.threaded = 'true';
         if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
@@ -661,7 +663,7 @@ export default function MessageList() {
     setCurrentPage(pageNum);
     try {
       const params = { limit: pageSize, offset: (pageNum - 1) * pageSize };
-      Object.assign(params, mailboxQueryScope(selectedAccountId, selectedFolder));
+      if (selectedAccountId) { params.accountId = selectedAccountId; params.folder = selectedFolder; }
       if (unreadOnly) params.unreadOnly = 'true';
       if (threadedView) params.threaded = 'true';
       if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
@@ -796,7 +798,7 @@ export default function MessageList() {
   // on the delete and move paths, silently untouched. See utils/threadActions.js.
   const resolveMessagesForThreadAction = useCallback(async (message, { allowCache = false } = {}) => {
     const tid = message.thread_id || message.id;
-    const effectiveFolder = selectedAccountId || selectedFolder === 'ALL_MAIL' ? selectedFolder : 'INBOX';
+    const effectiveFolder = selectedAccountId ? selectedFolder : 'INBOX';
     return resolveThreadMessages({
       message,
       isThreadRow: isThreadListRow(message),
@@ -1236,7 +1238,7 @@ export default function MessageList() {
     if (!archiveMessage) return;
     const threadRow = isThreadListRow(message);
     const threadId = message.thread_id || message.id;
-    const activeFolder = selectedAccountId ? selectedFolder : selectedFolder === 'ALL_MAIL' ? message.folder : 'INBOX';
+    const activeFolder = selectedAccountId ? selectedFolder : 'INBOX';
     const threadGuard = threadRow
       ? threadDeleteGuardKey(threadId, activeFolder, selectedAccountId)
       : null;
@@ -1425,7 +1427,7 @@ export default function MessageList() {
   // registered once ([] deps), so it reads the thread predicate and the fetch context from
   // here rather than closing over values that would be stale the moment the folder changes.
   scRef.current.isThreadListRow = isThreadListRow;
-  scRef.current.threadFetchFolder = selectedAccountId || selectedFolder === 'ALL_MAIL' ? selectedFolder : 'INBOX';
+  scRef.current.threadFetchFolder = selectedAccountId ? selectedFolder : 'INBOX';
   scRef.current.threadFetchUnified = isUnified;
 
   // Arrow-key navigation: intercepts ArrowDown/ArrowUp when the list container has focus.
@@ -1626,13 +1628,13 @@ export default function MessageList() {
   }, []);
 
   const handleBulkArchive = useCallback((ids, msgs) => {
-    const activeFolder = selectedAccountId ? selectedFolder : selectedFolder === 'ALL_MAIL' ? null : 'INBOX';
+    const activeFolder = selectedAccountId ? selectedFolder : 'INBOX';
     const threadGuardsByRow = new Map(
       msgs
         .filter(message => isThreadListRow(message))
         .map(message => [
           message.id,
-          threadDeleteGuardKey(message.thread_id || message.id, activeFolder || message.folder, selectedAccountId),
+          threadDeleteGuardKey(message.thread_id || message.id, activeFolder, selectedAccountId),
         ])
         .filter(([, guard]) => Boolean(guard)),
     );
@@ -1664,7 +1666,7 @@ export default function MessageList() {
           groups = await archiveTargetGroupsForRows(
             msgs,
             message => resolveMessagesForThreadAction(message),
-            activeFolder || (row => row.folder),
+            activeFolder,
             isThreadListRow,
             selectedAccountId,
           );
@@ -1750,7 +1752,7 @@ export default function MessageList() {
   } = {}) => {
     const threadRow = isThreadListRow(message);
     const threadId = message.thread_id || message.id;
-    const activeFolder = selectedAccountId ? selectedFolder : selectedFolder === 'ALL_MAIL' ? message.folder : 'INBOX';
+    const activeFolder = selectedAccountId ? selectedFolder : 'INBOX';
     const threadGuard = threadRow
       ? threadDeleteGuardKey(threadId, activeFolder, selectedAccountId)
       : null;
@@ -2167,7 +2169,7 @@ export default function MessageList() {
         if (!archiveMessage) break;
         const threadRow = isThreadListRow(archived);
         const threadId = archived.thread_id || archived.id;
-        const activeFolder = selectedAccountId ? selectedFolder : selectedFolder === 'ALL_MAIL' ? message.folder : 'INBOX';
+        const activeFolder = selectedAccountId ? selectedFolder : 'INBOX';
         const threadGuard = threadRow
           ? threadDeleteGuardKey(threadId, activeFolder, selectedAccountId)
           : null;
@@ -2495,7 +2497,7 @@ export default function MessageList() {
       const loadVersion = currentThreadLoadVersion(threadLoadVersionsRef.current, tid);
       setLoadingThread(tid);
       try {
-        const effectiveFolder = selectedAccountId || selectedFolder === 'ALL_MAIL' ? selectedFolder : 'INBOX';
+        const effectiveFolder = selectedAccountId ? selectedFolder : 'INBOX';
         const data = await api.getThread(tid, effectiveFolder, isUnified);
         const msgs = data.messages || [];
         if (isCurrentThreadLoad(threadLoadVersionsRef.current, tid, loadVersion)) {
@@ -2516,10 +2518,10 @@ export default function MessageList() {
 
   const label = searchQuery.trim()
     ? `Search: "${searchQuery}"`
-    : mailboxTitle(selectedAccountId, selectedFolder, allMailComplete, t('sidebar.allInboxes'), t);
+    : isUnified ? t('sidebar.allInboxes') : selectedFolder;
 
   const selectedFolderCounts = folders[selectedAccountId]?.find(f => f.path === selectedFolder);
-  const headerUnread = isUnified && selectedFolder === 'ALL_MAIL' ? 0 : isUnified ? unreadCounts.total
+  const headerUnread = isUnified ? unreadCounts.total
     : selectedFolder === 'INBOX' ? unreadCounts.byAccount[selectedAccountId] ?? 0
       : selectedFolderCounts?.unread_count ?? 0;
   // Paging totals count cached results (threads/categories can be subsets). The
@@ -2528,7 +2530,7 @@ export default function MessageList() {
     ? accounts.filter(isAccountInUnifiedInbox).map(a => unreadCounts.snapshots?.[a.id])
     : selectedFolder === 'INBOX' ? [unreadCounts.snapshots?.[selectedAccountId]]
       : [{ totalCount: selectedFolderCounts?.total_count, known: selectedFolderCounts?.counts_known, stale: selectedFolderCounts?.counts_stale }];
-  const headerCountKnown = selectedFolder === 'ALL_MAIL' ? allMailComplete : headerSamples.length > 0 && headerSamples.every(s => s?.known && s.totalCount != null);
+  const headerCountKnown = headerSamples.length > 0 && headerSamples.every(s => s?.known && s.totalCount != null);
   const headerCountStale = headerSamples.some(s => !s?.known || s?.stale);
   const headerServerTotal = headerSamples.reduce((sum, s) => sum + (s?.totalCount || 0), 0);
   const filteredCount = unreadOnly || (activeCategory && categorizationEnabled);
@@ -2590,7 +2592,7 @@ export default function MessageList() {
               textOverflow: 'ellipsis', whiteSpace: 'nowrap',
               minWidth: 0, display: 'flex', alignItems: 'center',
             }}>
-              {isUnified && selectedFolder === 'ALL_MAIL' && !searchQuery.trim() ? label : isUnified && !searchQuery.trim() ? (
+              {isUnified && !searchQuery.trim() ? (
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/>
                   <path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/>
@@ -2722,7 +2724,7 @@ export default function MessageList() {
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             display: 'flex', alignItems: 'center',
           }}>
-            {isUnified && selectedFolder === 'ALL_MAIL' && !searchQuery.trim() ? label : isUnified && !searchQuery ? (
+            {isUnified && !searchQuery ? (
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/>
                 <path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/>
@@ -2737,7 +2739,7 @@ export default function MessageList() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginLeft: 6 }}>
             {!searchQuery && (
               <span title={filteredCount ? 'Cached results matching this filter' : !headerCountKnown ? 'Mailbox count not yet available' : headerCountStale ? 'Last observed mailbox count; awaiting server refresh' : 'Messages reported by the mail server'} style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
-                {selectedFolder === 'ALL_MAIL' ? `${allMailComplete ? '' : '~'}${messagesTotal}` : filteredCount ? messagesTotal : !headerCountKnown ? '—' : `${headerCountStale ? '~' : ''}${headerServerTotal}`}
+                {filteredCount ? messagesTotal : !headerCountKnown ? '—' : `${headerCountStale ? '~' : ''}${headerServerTotal}`}
               </span>
             )}
             {/* Sync button */}

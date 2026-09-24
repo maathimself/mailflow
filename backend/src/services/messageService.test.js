@@ -9,47 +9,6 @@ beforeEach(() => {
   query.mockClear();
 });
 
-describe('All Mail', () => {
-  it('uses every enabled account, excludes system folders, and deduplicates before limit and count', async () => {
-    query.mockResolvedValueOnce({ rows: [
-      { id: 'included', include_in_unified_inbox: true },
-      { id: 'opted-out', include_in_unified_inbox: false },
-    ] });
-    query.mockResolvedValueOnce({ rows: [{ total: 2, complete: true }] });
-    query.mockResolvedValueOnce({ rows: [{ id: 'm1' }] });
-    const result = await listMessages({ userId: 'owner', folder: 'ALL_MAIL', limit: 1, offset: 1 });
-    expect(result.total).toBe(2);
-    expect(result.messages).toEqual([{ id: 'm1' }]);
-    expect(result.complete).toBe(true);
-    const sql = query.mock.calls.slice(1).map(call => call[0]).join('\n');
-    expect(sql).toContain('ROW_NUMBER() OVER');
-    expect(sql).toContain('PARTITION BY m.account_id');
-    expect(sql).toContain('m.message_id');
-    expect(sql).toContain('m.snippet');
-    expect(sql).toMatch(/Drafts|drafts/);
-    expect(sql).toMatch(/Trash|trash/);
-    expect(sql).toMatch(/Spam|spam/);
-    expect(sql).toContain('status_synced_at');
-    expect(query.mock.calls[2][1]).toEqual([['included', 'opted-out'], 1, 1]);
-  });
-
-  it('does not permit an unowned account to narrow All Mail scope', async () => {
-    query.mockResolvedValueOnce({ rows: [{ id: 'owned' }] });
-    query.mockResolvedValueOnce({ rows: [{ total: 0 }] });
-    query.mockResolvedValueOnce({ rows: [] });
-    await listMessages({ userId: 'owner', accountId: 'unowned', folder: 'ALL_MAIL' });
-    expect(query.mock.calls[1][1]).toEqual([['owned']]);
-  });
-
-  it('reports an incomplete index while a folder is unsynced', async () => {
-    query.mockResolvedValueOnce({ rows: [{ id: 'owned' }] });
-    query.mockResolvedValueOnce({ rows: [{ total: 0, complete: false }] });
-    query.mockResolvedValueOnce({ rows: [] });
-    const result = await listMessages({ userId: 'owner', folder: 'ALL_MAIL' });
-    expect(result.complete).toBe(false);
-  });
-});
-
 describe('listMessages — account scope', () => {
   it('returns empty result immediately when user has no enabled accounts', async () => {
     query.mockResolvedValueOnce({ rows: [] });
