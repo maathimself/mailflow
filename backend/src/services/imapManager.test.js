@@ -3422,6 +3422,37 @@ describe('setFlag routing (#474 round 4)', () => {
   };
   afterEach(() => { vi.restoreAllMocks(); });
 
+  it('serializes two opposite flag calls so a stale STORE cannot land last', async () => {
+    // The review's inversion: call A (\\Seen=true) slow on the persistent session, call B
+    // (\\Seen=false) issued right after. Unserialized, A's late STORE could land after B
+    // and silently re-read the message. The per-account chain makes B wait for A entirely.
+    const order = [];
+    let releaseA;
+    const persistent = fakePersistent({
+      messageFlagsAdd: vi.fn(() => new Promise(res => { releaseA = () => { order.push('A-store'); res(true); }; })),
+      messageFlagsRemove: vi.fn(async () => { order.push('B-store'); return true; }),
+    });
+    const { mgr, account } = arrange({ persistent });
+
+    const a = mgr.setFlag(account, 42, 'INBOX', '\\Seen', true);
+    const bDone = vi.fn();
+    const bPromise = mgr.setFlag(account, 42, 'INBOX', '\\Seen', false).then(bDone);
+    await new Promise(r => setTimeout(r, 80));
+    expect(persistent.messageFlagsRemove).not.toHaveBeenCalled(); // B waits for A
+    expect(bDone).not.toHaveBeenCalled();
+    releaseA();
+    await a; await bPromise;
+    expect(order).toEqual(['A-store', 'B-store']);                // newest value lands last
+  });
+
+  it("passes acquireTimeout so a timed-out waiter leaves the ImapFlow lock queue", async () => {
+    const persistent = fakePersistent();
+    const { mgr, account } = arrange({ persistent });
+    await mgr.setFlag(account, 42, 'INBOX', '\\Seen', true);
+    const opts = persistent.getMailboxLock.mock.calls[0]?.[1];
+    expect(Number(opts?.acquireTimeout)).toBeGreaterThan(0);
+  });
+
   it('stores an INBOX flag on the persistent session and opens NO other connection', async () => {
     const persistent = fakePersistent();
     const { mgr, account } = arrange({ persistent });
@@ -3572,7 +3603,11 @@ describe('connectAccount success leaves the refusal count standing (#474 round 4
     mgr._startPluginSyncTimers = vi.fn(() => Promise.resolve());
 
     const acct = { id: 'acct-cl-1', user_id: 1, imap_host: 'imap.mail.yahoo.com', imap_port: 993, imap_tls: true, auth_user: 'u', auth_pass: 'enc' };
-    // Expired window (does not block the connect), standing count (must survive it).
+    // LOGIN succeeds but the initial SYNC fails: the count must survive, because a login
+    // is a handshake and only a sync is health (#474). Review sharpened this contract:
+    // a SUCCESSFUL initial sync clears immediately, covered by the companion test below.
+    mgr.syncMessages = vi.fn(() => Promise.reject(new Error('mailbox busy')));
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
     mgr._connectCooldown.set(acct.id, { until: Date.now() - 1, failures: 2 });
 
     const ok = await mgr.connectAccount(acct);
@@ -3580,6 +3615,57 @@ describe('connectAccount success leaves the refusal count standing (#474 round 4
     expect(ok).toBe(true);
     expect(mgr._connectCooldown.get(acct.id)?.failures).toBe(2);
     vi.restoreAllMocks();
+  });
+
+  it('a successful initial SYNC clears the ladder immediately', async () => {
+    ImapFlow.mockImplementation(function () {
+      const client = new EventEmitter();
+      client.usable = true;
+      client.connect = vi.fn(() => Promise.resolve());
+      client.logout = vi.fn(() => Promise.resolve());
+      client.close = vi.fn();
+      client.noop = vi.fn(() => Promise.resolve());
+      return client;
+    });
+    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: true, allowInsecureTls: true });
+    resolveForConnection.mockResolvedValue({ host: '127.0.0.1', addresses: ['127.0.0.1'], servername: null });
+    query.mockReset();
+    query.mockResolvedValue({ rows: [] });
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const mgr = new ImapManager(null);
+    clearInterval(mgr._healthCheckTimer);
+    clearInterval(mgr._snippetSchedulerTimer);
+    mgr.disconnectAccount = vi.fn(() => Promise.resolve());
+    mgr._attachIdleListeners = vi.fn();
+    mgr.syncFolders = vi.fn(() => Promise.resolve());
+    mgr.syncMessages = vi.fn(() => Promise.resolve());
+    mgr._shouldAutoBackfillOnConnect = vi.fn(() => Promise.resolve(false));
+    mgr.backfillAllFolders = vi.fn(() => Promise.resolve());
+    mgr._startSyncInterval = vi.fn();
+    mgr.broadcast = vi.fn();
+    mgr._startPluginSyncTimers = vi.fn(() => Promise.resolve());
+
+    const acct = { id: 'acct-cl-2', user_id: 1, imap_host: 'imap.mail.yahoo.com', imap_port: 993, imap_tls: true, auth_user: 'u', auth_pass: 'enc' };
+    mgr._connectCooldown.set(acct.id, { until: Date.now() - 1, failures: 4 });
+
+    expect(await mgr.connectAccount(acct)).toBe(true);
+    expect(mgr._connectCooldown.has(acct.id)).toBe(false);
+    vi.restoreAllMocks();
+  });
+
+  it('a reconnect success clears the account error but never the ladder', async () => {
+    // Pins the second delete site the review found unpinned: restoring the old
+    // _connectCooldown.delete on the reconnect-success path must fail THIS test.
+    const mgr = new ImapManager({ clients: new Set() });
+    const account = { id: 'acct-cl-3', user_id: 'u1', email_address: 'y@example.test' };
+    mgr._clearAccountError = vi.fn(() => Promise.resolve());
+    mgr._connectCooldown.set(account.id, { until: Date.now() - 1, failures: 3 });
+
+    await mgr._onReconnectSuccess(account);
+
+    expect(mgr._clearAccountError).toHaveBeenCalledWith(account);
+    expect(mgr._connectCooldown.get(account.id)?.failures).toBe(3);
   });
 });
 

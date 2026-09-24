@@ -1746,6 +1746,7 @@ export class ImapManager {
     // AUTO_MOVE_MAX_CONCURRENT_PER_ACCOUNT. Classification stays concurrent.
     this._autoMoveSem = createKeyedSemaphore(AUTO_MOVE_MAX_CONCURRENT_PER_ACCOUNT);
     this._connectCooldown = new Map(); // accountId -> { until: ms, failures: number } after connection refusals
+    this._flagOpChains = new Map(); // accountId -> tail promise; serializes setFlag per account (#474 round 4 review)
     // Refusals seen on SECONDARY connections (the folder-status counter, background body
     // prefetch) are tracked apart from _connectCooldown, which live sync owns.
     //
@@ -2233,8 +2234,10 @@ export class ImapManager {
   async connectAccount(account) {
     // Back off if this account is in a connection-refusal cooldown. Retrying a provider that
     // is rejecting connections (per-IP/per-account limit, temporary lock) every health-check
-    // tick is exactly what escalates to IP bans / account locks. The cooldown is cleared the
-    // moment a connect succeeds (below), so a transient refusal recovers on its own.
+    // tick is exactly what escalates to IP bans / account locks. The cooldown's window is
+    // honored here; the failure COUNT survives a successful login and is cleared by the
+    // first successful SYNC (initial, tick, or poll-only), so a transient refusal recovers
+    // on its own without a login-time reset the #474 provider exploited.
     const cd = this._connectCooldown.get(account.id);
     if (cd && Date.now() < cd.until) {
       logger.debug(`connectAccount: ${logAccount(account)} cooling down ${Math.round((cd.until - Date.now()) / 1000)}s after ${cd.failures} refusal(s)`);
@@ -2325,6 +2328,12 @@ export class ImapManager {
             'Initial message sync',
           );
         }
+        // The initial sync SUCCEEDED: that is the health proof the refusal ladder waits
+        // for, so clear it now rather than leaving recovery to the next interval tick.
+        // Review of this branch caught the gap: without this line the standing count
+        // outlived a genuinely healthy connect by up to one tick interval, and the
+        // comment promising "the first successful sync clears it" was not yet true.
+        this._connectCooldown.delete(account.id);
       } catch (syncErr) {
         console.warn(`Initial sync skipped for ${logAccount(account)}: ${extractImapError(syncErr)}`);
       }
@@ -2595,6 +2604,15 @@ export class ImapManager {
     return null;
   }
 
+  // Everything a successful RECONNECT is allowed to clean up. Deliberately the account
+  // error only: the refusal ladder is NOT cleared by a login, because #474's provider
+  // accepts every login and starves the session after, which kept the ladder at
+  // "refusal #1" forever. A successful sync clears it. Extracted so a test can pin the
+  // absence: review found that restoring the old delete here survived the whole suite.
+  async _onReconnectSuccess(account) {
+    await this._clearAccountError(account);
+  }
+
   _noteConnectionRefusal(account) {
     const failures = (this._connectCooldown.get(account.id)?.failures || 0) + 1;
     const ms = connectCooldownMs(failures);
@@ -2750,10 +2768,7 @@ export class ImapManager {
           // (#360) — activeClient is that same pendingClient, so it's already covered here.
           this._attachIdleListeners(activeClient, syncAccount);
           this.connections.set(account.id, activeClient);
-          // Mirror connectAccount's success cleanup for the account ERROR only. The refusal
-          // ladder is no longer cleared by a successful login; the first successful sync
-          // clears it (see connectAccount for the #474 log that forced this).
-          await this._clearAccountError(account);
+          await this._onReconnectSuccess(account);
           console.log(`Reconnected ${logAccount(syncAccount)}`);
         } catch (reconnErr) {
           const detail = extractImapError(reconnErr);
@@ -5621,6 +5636,23 @@ export class ImapManager {
   }
 
   async setFlag(account, uid, folder, flag, value) {
+    // Serialized per account. Review found a cross-call inversion: call A's persistent
+    // STORE could be granted its lock just before the 5s deadline, linger on the wire
+    // while the fallback also stored, and land AFTER a newer call B stored the opposite
+    // value, silently restoring the old state (a toggle, or _reconcileFlagPushes replaying
+    // an older op). Two flag operations for one account never overlap now, so a stale
+    // STORE cannot outlive a newer one. Waiters are short: the inner attempt is bounded.
+    const prev = this._flagOpChains.get(account.id) || Promise.resolve();
+    const run = prev.catch(() => {}).then(() => this._setFlagInner(account, uid, folder, flag, value));
+    this._flagOpChains.set(account.id, run);
+    try {
+      return await run;
+    } finally {
+      if (this._flagOpChains.get(account.id) === run) this._flagOpChains.delete(account.id);
+    }
+  }
+
+  async _setFlagInner(account, uid, folder, flag, value) {
     console.log(`setFlag: uid=${uid} folder=${folder} flag=${flag} value=${value}`);
 
     // Attempt 0: the persistent IDLE connection, the way Thunderbird stores flags: DONE,
@@ -5643,7 +5675,12 @@ export class ImapManager {
       if (client && client.usable !== false) {
         let expired = false;
         const attempt = (async () => {
-          const lock = await client.getMailboxLock('INBOX');
+          // acquireTimeout: ImapFlow splices a timed-out waiter OUT of its lock queue and
+          // rejects. Without it, every attempt that hit the 5s race left a waiter queued
+          // forever on a client whose lock never settles (half-open socket): review's
+          // finding 1. The expired flag below still covers a lock granted late by a fake
+          // or a race inside the same tick.
+          const lock = await client.getMailboxLock('INBOX', { acquireTimeout: 4500 });
           if (expired) { lock.release(); throw new Error('persistent flag store timed out'); }
           try {
             const applied = value
