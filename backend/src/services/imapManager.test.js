@@ -3510,3 +3510,98 @@ describe('setFlag routing (#474 round 4)', () => {
     expect(ImapFlow).not.toHaveBeenCalled();
   });
 });
+
+// ── Primary ladder: cleared by a successful SYNC, not a successful LOGIN (#474 round 4) ──
+//
+// Yahoo accepts every reconnect and then starves the session. Clearing the refusal counter
+// on login success meant the ladder read "refusal #1, 30s" forever, never long enough for
+// the provider to recover: the same oscillation fixed for the secondary ladder in v3.5.4,
+// now on the primary. The reporter's round-4 log shows it verbatim.
+describe('primary refusal ladder vs login success (#474 round 4)', () => {
+  it('escalates across login-success cycles and resets only via the human clear', () => {
+    const mgr = new ImapManager({ clients: new Set() });
+    const account = { id: 'acct-pl-1', imap_host: 'imap.mail.yahoo.com', email_address: 'y@example.test' };
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const delays = [];
+    for (let cycle = 0; cycle < 3; cycle++) {
+      delays.push(mgr._noteConnectionRefusal(account));
+      // The reported loop's beat: a reconnect LOGIN succeeds between refusals. Nothing may
+      // reset the count here any more; only a successful sync or the human clear does.
+    }
+    expect(delays[2]).toBeGreaterThan(delays[0]);
+    expect(mgr._connectCooldown.get(account.id).failures).toBe(3);
+
+    mgr.clearConnectCooldown(account.id);               // explicit human action still resets
+    expect(mgr._connectCooldown.has(account.id)).toBe(false);
+    vi.restoreAllMocks();
+  });
+});
+
+describe('connectAccount success leaves the refusal count standing (#474 round 4)', () => {
+  it('a successful LOGIN no longer wipes the primary ladder', async () => {
+    // Drives the REAL connectAccount to success (same scaffolding as the #360 test): an
+    // earlier mutation pass showed the accumulation-only test passed with the old
+    // clear-on-login restored, which is the helper-only trap again.
+    ImapFlow.mockImplementation(function () {
+      const client = new EventEmitter();
+      client.usable = true;
+      client.connect = vi.fn(() => Promise.resolve());
+      client.logout = vi.fn(() => Promise.resolve());
+      client.close = vi.fn();
+      client.noop = vi.fn(() => Promise.resolve());
+      return client;
+    });
+    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: true, allowInsecureTls: true });
+    resolveForConnection.mockResolvedValue({ host: '127.0.0.1', addresses: ['127.0.0.1'], servername: null });
+    query.mockReset();
+    query.mockResolvedValue({ rows: [] });
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const mgr = new ImapManager(null);
+    clearInterval(mgr._healthCheckTimer);
+    clearInterval(mgr._snippetSchedulerTimer);
+    mgr.disconnectAccount = vi.fn(() => Promise.resolve());
+    mgr._attachIdleListeners = vi.fn();
+    mgr.syncFolders = vi.fn(() => Promise.resolve());
+    mgr.syncMessages = vi.fn(() => Promise.resolve());
+    mgr._shouldAutoBackfillOnConnect = vi.fn(() => Promise.resolve(false));
+    mgr.backfillAllFolders = vi.fn(() => Promise.resolve());
+    mgr._startSyncInterval = vi.fn();
+    mgr.broadcast = vi.fn();
+    mgr._startPluginSyncTimers = vi.fn(() => Promise.resolve());
+
+    const acct = { id: 'acct-cl-1', user_id: 1, imap_host: 'imap.mail.yahoo.com', imap_port: 993, imap_tls: true, auth_user: 'u', auth_pass: 'enc' };
+    // Expired window (does not block the connect), standing count (must survive it).
+    mgr._connectCooldown.set(acct.id, { until: Date.now() - 1, failures: 2 });
+
+    const ok = await mgr.connectAccount(acct);
+
+    expect(ok).toBe(true);
+    expect(mgr._connectCooldown.get(acct.id)?.failures).toBe(2);
+    vi.restoreAllMocks();
+  });
+});
+
+// Prefetch treats the fetchMessageBody gate error as an immediate quiet stop.
+describe('prefetch on the gate error (#474 round 4)', () => {
+  it('stops at the FIRST gate error without burning the consecutive count or re-arming', async () => {
+    const account = { id: 'acct-pg-1', user_id: 'u1', imap_host: 'imap.mail.yahoo.com', email_address: 'y@example.test' };
+    const mgr = new ImapManager({ clients: new Set() });
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    query.mockReset();
+    query.mockImplementation(async (sql) => {
+      if (sql.includes('FROM email_accounts')) return { rows: [account] };
+      if (sql.includes('id = ANY($1::uuid[])')) return { rows: [101, 102, 103, 104].map(uid => ({ id: `m-${uid}`, uid, folder: 'INBOX' })) };
+      return { rows: [] };
+    });
+    mgr.fetchMessageBody = vi.fn(async () => { throw Object.assign(new Error('Mail server is limiting connections for this account'), { providerRefusing: true }); });
+    const armed = vi.spyOn(mgr, '_noteSecondaryRefusal');
+
+    await mgr.prefetchFolderBodies(account.id, ['m-101', 'm-102', 'm-103', 'm-104']);
+
+    expect(mgr.fetchMessageBody).toHaveBeenCalledTimes(1);  // one gate error, immediate stop
+    expect(armed).not.toHaveBeenCalled();                   // our own gate never re-arms
+    vi.restoreAllMocks();
+  });
+});

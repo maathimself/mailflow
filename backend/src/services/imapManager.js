@@ -2364,7 +2364,13 @@ export class ImapManager {
       // (Enabling such a feature on a live account takes effect on its next reconnect.)
       this._startPluginSyncTimers(account).catch(err => console.warn(`Plugin sync timer arm failed for ${logAccount(account)}:`, err.message));
 
-      this._connectCooldown.delete(account.id); // healthy again — clear any refusal cooldown
+      // Deliberately NOT clearing _connectCooldown here any more. A successful LOGIN is not
+      // evidence the provider will sustain the session: #474's fourth round of logs shows
+      // Yahoo accepting every reconnect, starving the session ('Connection not available'),
+      // and the ladder restarting at refusal #1 forever because this line wiped the count on
+      // each success. The first successful SYNC clears it (the sync tick and poll-only paths
+      // below), which is the same lesson the secondary ladder taught: clear on the thing
+      // that actually proves health, not on the handshake.
       this.folderStatusMonitor?.refresh(account).catch(() => {});
       console.log(`Connected account: ${logAccount(account)}`);
       this.broadcast({ type: 'account_connected', accountId: account.id }, account.user_id);
@@ -2744,9 +2750,9 @@ export class ImapManager {
           // (#360) — activeClient is that same pendingClient, so it's already covered here.
           this._attachIdleListeners(activeClient, syncAccount);
           this.connections.set(account.id, activeClient);
-          // Mirror connectAccount's success cleanup: clear the refusal backoff so the next
-          // failure starts fresh, and clear the stale sync_error the UI is still showing.
-          this._connectCooldown.delete(account.id);
+          // Mirror connectAccount's success cleanup for the account ERROR only. The refusal
+          // ladder is no longer cleared by a successful login; the first successful sync
+          // clears it (see connectAccount for the #474 log that forced this).
           await this._clearAccountError(account);
           console.log(`Reconnected ${logAccount(syncAccount)}`);
         } catch (reconnErr) {
@@ -5201,6 +5207,11 @@ export class ImapManager {
           );
         }
       } catch (err) {
+        // Our own fetchMessageBody gate, not a provider event: the backoff it reports is
+        // already armed, so stop the run at once. Burning it through the consecutive-error
+        // count instead printed three 'Mail server is limiting connections' lines per folder
+        // view, which is the noisy block the #474 reporter pasted back at us.
+        if (err?.providerRefusing) return;
         const detail = extractImapError(err);
         console.warn(`Folder body prefetch failed for uid ${msg.uid}:`, detail);
 
@@ -5612,7 +5623,7 @@ export class ImapManager {
   async setFlag(account, uid, folder, flag, value) {
     console.log(`setFlag: uid=${uid} folder=${folder} flag=${flag} value=${value}`);
 
-    // Attempt 0: the persistent IDLE connection, the way Thunderbird stores flags — DONE,
+    // Attempt 0: the persistent IDLE connection, the way Thunderbird stores flags: DONE,
     // STORE on the same session, re-IDLE (ImapFlow breaks and resumes IDLE around any
     // command on its own). A flag change then costs ZERO extra logins, which is what a
     // session-limited provider needs: #474's logs show an open tab retrying one mark-read
