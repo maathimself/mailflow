@@ -8,7 +8,7 @@ import { getEffectiveShortcuts, parseModKey, modCompactLabel } from '../utils/de
 import { useMobile } from '../hooks/useMobile.js';
 import { clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
-import { applyMarkRead, scheduleMarkRead, cancelScheduledMarkReadFor } from '../utils/markRead.js';
+import { applyMarkRead, scheduleMarkRead, cancelScheduledMarkRead, cancelScheduledMarkReadFor } from '../utils/markRead.js';
 import { markMessageUnread } from '../utils/messageHotkeys.js';
 import DOMPurify from 'dompurify';
 import { BUILTIN_SUMMARIZE, summarizePromptForLocale } from '../aiActions.js';
@@ -135,7 +135,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     window.dispatchEvent(new CustomEvent(MESSAGE_OPENING_EVENT));
     api.getMessageBody(msg.id).catch(() => {});
     setSelectedMessage(msg.id);
-    clearTimeout(autoMarkReadTimerRef.current);
+    cancelScheduledMarkRead(autoMarkReadTimerRef.current);
     autoMarkReadTimerRef.current = scheduleMarkRead(msg);
   }, [setSelectedMessage]);
 
@@ -146,7 +146,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   useEffect(() => () => {
     mountedRef.current = false;
     if (swipeBackTimerRef.current) clearTimeout(swipeBackTimerRef.current);
-    clearTimeout(autoMarkReadTimerRef.current);
+    cancelScheduledMarkRead(autoMarkReadTimerRef.current);
   }, []);
 
   const resetPaneSwipeStyles = useCallback(() => {
@@ -715,7 +715,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
           window.dispatchEvent(new CustomEvent(MESSAGE_OPENING_EVENT));
           api.getMessageBody(target.id).catch(() => {});
           setSel(target.id);
-          clearTimeout(autoMarkReadTimerRef.current);
+          cancelScheduledMarkRead(autoMarkReadTimerRef.current);
           autoMarkReadTimerRef.current = null;
           if (!target.is_read) {
             const { markReadBehavior, markReadDelay } = useStore.getState();
@@ -949,7 +949,7 @@ ${bodyContent}
     const onUnsubscribe = () => paneActionsRef.current.unsubscribe?.();
     const onLoadRemoteImages = () => paneActionsRef.current.loadRemoteImages?.();
     const onExplicitUnread = () => {
-      clearTimeout(autoMarkReadTimerRef.current);
+      cancelScheduledMarkRead(autoMarkReadTimerRef.current);
       autoMarkReadTimerRef.current = null;
     };
 
@@ -1026,7 +1026,7 @@ ${bodyContent}
   const handleMarkUnread = useCallback(() => {
     if (markMessageUnread(message, {
       cancel: () => {
-        clearTimeout(autoMarkReadTimerRef.current);
+        cancelScheduledMarkRead(autoMarkReadTimerRef.current);
         autoMarkReadTimerRef.current = null;
         cancelScheduledMarkReadFor(message.id);
         pendingMarkReadMap.delete(message.id);

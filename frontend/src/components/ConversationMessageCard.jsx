@@ -3,7 +3,7 @@ import { api } from '../utils/api.js';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { fetchMessageBodyWithRetry } from '../utils/messageBody.js';
-import { scheduleMarkRead } from '../utils/markRead.js';
+import { scheduleMarkRead, cancelScheduledMarkRead } from '../utils/markRead.js';
 import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import MessageBodyView from './MessageBodyView.jsx';
@@ -66,7 +66,7 @@ export default function ConversationMessageCard({ message, expanded, onToggle, s
     // reopening starts the delay again instead of never marking it at all.
     if (!timer) return;
     return () => {
-      clearTimeout(timer);
+      cancelScheduledMarkRead(timer);
       markScheduledRef.current = null;
     };
   }, [expanded, message.id]);

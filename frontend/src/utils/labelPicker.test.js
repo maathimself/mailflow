@@ -69,3 +69,13 @@ test('thread copy keeps account scope, skips existing target copies, and copies 
     { path: 'Projects' }, api);
   assert.deepEqual(copied, [['m1', 'Projects'], ['m2', 'Projects']]);
 });
+
+test('thread copy falls back to the captured message when fetched rows have no copyable target', async () => {
+  const copied = [];
+  await executeLabelChoice({ id: 'captured', account_id: 'a1', folder: 'INBOX', thread_id: 'thread', message_count: 2 },
+    { path: 'Projects' }, {
+      getThread: async () => ({ messages: [{ id: 'other', account_id: 'a2', folder: 'INBOX' }] }),
+      copyMessage: async (...args) => copied.push(args),
+    });
+  assert.deepEqual(copied, [['captured', 'Projects']]);
+});

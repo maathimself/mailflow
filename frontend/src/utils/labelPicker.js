@@ -47,6 +47,9 @@ export async function executeLabelChoice(message, choice, api) {
     seen.add(key);
     return true;
   });
-  if (!targets.length && !messages.length && message.folder !== choice.path) targets.push(message);
+  if (!targets.length) {
+    if (message.folder === choice.path) throw new Error('Message is already in this folder');
+    targets.push(message);
+  }
   for (const row of targets) await apply(row);
 }

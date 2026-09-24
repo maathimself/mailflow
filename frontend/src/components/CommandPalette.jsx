@@ -78,7 +78,7 @@ export default function CommandPalette({ open, onClose, labelPickerMessage = nul
     ? labelPickerOptions(folders[labelPickerMessage.account_id], pickerAccount, labelPickerMessage.folder)
       .map(choice => ({
         id: `label:${choice.path}`,
-        label: `Copy to ${choice.label}`,
+        label: t('commandPalette.labelPicker.copyTo', { folder: choice.label, defaultValue: 'Copy to {{folder}}' }),
         icon: <span style={{ width: 15, textAlign: 'center' }}>◇</span>,
         run: () => executeLabelChoice(labelPickerMessage, choice,
           { getThread: api.getThread, copyMessage: api.copyMessage }),
@@ -106,11 +106,11 @@ export default function CommandPalette({ open, onClose, labelPickerMessage = nul
       await action.run();
       onClose();
     } catch (error) {
-      addNotification({ title: 'Could not label message', body: error.message });
+      addNotification({ title: t('commandPalette.labelPicker.error', { defaultValue: 'Could not label message' }), body: error.message });
     } finally {
       busyRef.current = false;
     }
-  }, [onClose, addNotification]);
+  }, [onClose, addNotification, t]);
 
   const handleKeyDown = (e) => {
     const direction = labelPickerMessage ? pickerNavigationDirection(e) :
@@ -175,7 +175,7 @@ export default function CommandPalette({ open, onClose, labelPickerMessage = nul
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={labelPickerMessage ? 'Copy or label selected message…' : t('commandPalette.placeholder')}
+            placeholder={labelPickerMessage ? t('commandPalette.labelPicker.placeholder', { defaultValue: 'Copy or label selected message…' }) : t('commandPalette.placeholder')}
             style={{
               flex: 1, background: 'none', border: 'none', outline: 'none',
               color: 'var(--text-primary)', fontSize: 15,

@@ -1705,13 +1705,14 @@ router.post('/messages/bulk-archive', async (req, res) => {
 
     // Update DB from confirmed IMAP UID mappings, including Gmail All Mail.
     const byFolder = {};
+    const insertedDestinations = new Set();
     for (const { id, folder, newUid } of archivedIds) {
       (byFolder[folder] = byFolder[folder] || []).push({ id, newUid });
     }
     for (const [archiveFolder, entries] of Object.entries(byFolder)) {
       const allIds  = entries.map(e => e.id);
       const withUid = entries.filter(e => e.newUid != null);
-      await query(`
+      const relocated = await query(`
         WITH deleted AS (
           DELETE FROM messages WHERE id = ANY($1::uuid[]) RETURNING *
         ),
@@ -1723,7 +1724,11 @@ router.post('/messages/bulk-archive', async (req, res) => {
         FROM deleted d
         JOIN uid_map u ON d.id = u.src_id
         ON CONFLICT (account_id, uid, folder) DO NOTHING
+        RETURNING account_id, uid
       `, [allIds, withUid.map(e => e.id), withUid.map(e => e.newUid), archiveFolder]);
+      for (const row of relocated.rows) {
+        insertedDestinations.add(JSON.stringify([archiveFolder, row.account_id, String(row.uid)]));
+      }
     }
 
     // Non-UIDPLUS archive moves were deleted with no reinsert; pull each affected
@@ -1745,11 +1750,12 @@ router.post('/messages/bulk-archive', async (req, res) => {
 
     // Adjust cached folder counts: use signed deltas so source and dest share one pass.
     if (archivedIds.length > 0) {
-      const idToArchiveDest = new Map(archivedIds.map(({ id, folder: dest }) => [id, dest]));
+      const archivedById = new Map(archivedIds.map(entry => [entry.id, entry]));
       const folderDeltas = {}; // key: `${accountId}:${path}` -> { accountId, path, totalDelta, unreadDelta }
       for (const msg of owned) {
-        const dest = idToArchiveDest.get(msg.id);
-        if (!dest) continue;
+        const archived = archivedById.get(msg.id);
+        if (!archived) continue;
+        const dest = archived.folder;
         const wasUnread = !msg.is_read ? 1 : 0;
         const srcKey = `${msg.account_id}:${msg.folder}`;
         if (!folderDeltas[srcKey]) folderDeltas[srcKey] = { accountId: msg.account_id, path: msg.folder, totalDelta: 0, unreadDelta: 0 };
@@ -1757,8 +1763,12 @@ router.post('/messages/bulk-archive', async (req, res) => {
         folderDeltas[srcKey].unreadDelta -= wasUnread;
         const dstKey = `${msg.account_id}:${dest}`;
         if (!folderDeltas[dstKey]) folderDeltas[dstKey] = { accountId: msg.account_id, path: dest, totalDelta: 0, unreadDelta: 0 };
-        folderDeltas[dstKey].totalDelta++;
-        folderDeltas[dstKey].unreadDelta += wasUnread;
+        const destinationAdded = archived.newUid == null || insertedDestinations.has(
+          JSON.stringify([dest, msg.account_id, String(archived.newUid)]));
+        if (destinationAdded) {
+          folderDeltas[dstKey].totalDelta++;
+          folderDeltas[dstKey].unreadDelta += wasUnread;
+        }
       }
       for (const { accountId, path, totalDelta, unreadDelta } of Object.values(folderDeltas)) {
         adjustFolderCounts(accountId, path, totalDelta, unreadDelta);
