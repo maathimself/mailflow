@@ -65,6 +65,22 @@ describe('TypeSafe client', () => {
     expect(options.signal).toBeDefined();
   });
 
+  it('reports oversized serialized state without making a provider request', async () => {
+    const onUnavailable = vi.fn();
+    const oversizedMessage = {
+      fromEmail: '"'.repeat(512),
+      to: Array.from({ length: 20 }, () => ({ email: '"'.repeat(320) })),
+      subject: '"'.repeat(1000),
+      body: 'hello',
+    };
+
+    expect(await evaluateJev('secret', '"'.repeat(500), oversizedMessage, { onUnavailable })).toEqual({
+      probability: null, available: false,
+    });
+    expect(onUnavailable).toHaveBeenCalledWith('request too large', { providerFailure: false });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it.each([null, -0.1, 1.1, '0.8', Infinity])('rejects invalid noul probability %s', async probability => {
     fetch.mockResolvedValue({ ok: true, json: async () => ({ answers: { match: { type: 'noul', noul: probability } } }) });
     expect(await evaluateJev('secret', 'Question?', { body: 'hello' })).toEqual({ probability: null, available: false });

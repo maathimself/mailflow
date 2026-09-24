@@ -13,11 +13,19 @@ let activeJevCalls = 0;
 
 export function clearJevBackoff() { jevBackoff.clear(); jevWarningAt.clear(); }
 
-function warnJevUnavailable(userId, reason) {
+function warnJevIssue(userId, message) {
   const now = Date.now();
   if ((jevWarningAt.get(userId) || 0) > now) return;
   jevWarningAt.set(userId, now + JEV_BACKOFF_MS);
-  console.warn(`inboxRules: Jev unavailable for user ${userId}: ${reason}`);
+  console.warn(message);
+}
+
+function warnJevUnavailable(userId, reason) {
+  warnJevIssue(userId, `inboxRules: Jev unavailable for user ${userId}: ${reason}`);
+}
+
+function warnJevRequestSkipped(userId, reason) {
+  warnJevIssue(userId, `inboxRules: Jev request skipped for user ${userId}: ${reason}`);
 }
 
 export function createJevContext(account, imapManager, budgetMs = JEV_BATCH_BUDGET_MS, { skipBackoff = false } = {}) {
@@ -85,10 +93,14 @@ export async function evaluateJevCondition(cond, msg, context) {
   activeJevCalls++;
   let result;
   let failureReason = 'provider unavailable';
+  let providerFailure = true;
   try {
     result = await evaluateJev(key, cond.question, { ...msg, body }, {
       timeoutMs: Math.min(3_000, context.deadline - Date.now()),
-      onUnavailable: reason => { failureReason = reason; },
+      onUnavailable: (reason, details) => {
+        failureReason = reason;
+        providerFailure = details?.providerFailure !== false;
+      },
     });
   } catch {
     result = unavailable;
@@ -96,8 +108,12 @@ export async function evaluateJevCondition(cond, msg, context) {
     activeJevCalls--;
   }
   if (!result.available) {
-    if (!context.skipBackoff) jevBackoff.set(context.account.user_id, Date.now() + JEV_BACKOFF_MS);
-    warnJevUnavailable(context.account.user_id, failureReason);
+    if (providerFailure) {
+      if (!context.skipBackoff) jevBackoff.set(context.account.user_id, Date.now() + JEV_BACKOFF_MS);
+      warnJevUnavailable(context.account.user_id, failureReason);
+    } else {
+      warnJevRequestSkipped(context.account.user_id, failureReason);
+    }
   }
   return { ...result, match: !!result.available && result.probability >= (cond.threshold ?? 0.8) };
 }

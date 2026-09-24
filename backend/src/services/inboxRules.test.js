@@ -160,6 +160,28 @@ describe('Jev rule evaluation', () => {
     } finally { warning.mockRestore(); }
   });
 
+  it('skips oversized requests without provider backoff and reports the skip accurately', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      evaluateJev.mockImplementationOnce(async (_key, _question, _message, options) => {
+        options.onUnavailable('request too large', { providerFailure: false });
+        return { available: false, probability: null };
+      }).mockResolvedValueOnce({ available: true, probability: 0.91 });
+      query.mockResolvedValue(bodyRow);
+
+      const first = await evaluateJevCondition(jev, mkMsg(), createJevContext(account, mockImap));
+      const second = await evaluateJevCondition(jev, mkMsg({ id: 'msg-2' }), createJevContext(account, mockImap));
+
+      expect(first).toMatchObject({ available: false, match: false });
+      expect(second).toMatchObject({ available: true, probability: 0.91, match: true });
+      expect(evaluateJev).toHaveBeenCalledTimes(2);
+      expect(warning).toHaveBeenCalledOnce();
+      expect(warning.mock.calls[0][0]).toContain('Jev request skipped');
+      expect(warning.mock.calls[0][0]).toContain('request too large');
+      expect(warning.mock.calls[0][0]).not.toContain('Jev unavailable');
+    } finally { warning.mockRestore(); }
+  });
+
   it('keeps interactive condition tests independent from sweep backoff', async () => {
     const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {

@@ -51,7 +51,10 @@ export async function evaluateJev(apiKey, question, message, { timeoutMs = CALL_
   const unavailable = { probability: null, available: false };
   if (!apiKey || typeof question !== 'string' || !question.trim() || !message?.body?.trim()) return unavailable;
   const body = boundedState(message, question);
-  if (!body) return unavailable;
+  if (!body) {
+    onUnavailable?.('request too large', { providerFailure: false });
+    return unavailable;
+  }
   try {
     const response = await fetch(ENDPOINT, {
       method: 'POST',
