@@ -671,7 +671,7 @@
       "plugins": "插件"
     },
     "rules": {
-      "jev": {"field": "Jev（自然语言）", "questionPlaceholder": "针对这封邮件提出问题", "questionLabel": "Jev 问题", "thresholdLabel": "匹配概率阈值（0–1）", "testDisclosure": "测试会将选中的邮件发送给 TypeSafe，可能产生费用。不会执行规则操作。", "missingKey": "请在“集成”中添加 Jev API 密钥以获取结果。", "loadSamples": "选择近期邮件", "test": "测试条件", "match": "匹配", "noMatch": "不匹配", "unavailable": "不可用——已跳过条件", "errorSamples": "无法加载近期邮件。", "errorTest": "无法测试此条件。", "invalidCondition": "请输入问题和 0 到 1 之间的阈值。"},
+      "jev": {"field": "Jev（自然语言）", "questionPlaceholder": "针对这封邮件提出问题", "questionLabel": "Jev 问题", "thresholdLabel": "匹配概率阈值（0–1）", "testDisclosure": "测试会将选中的邮件发送给 TypeSafe，可能产生费用。不会执行规则操作。", "missingKey": "请在“集成”中添加 Jev API 密钥以获取结果。", "loadSamples": "选择近期邮件", "test": "测试条件", "match": "匹配", "noMatch": "不匹配", "unavailable": "不可用——已跳过条件", "busyRetry": "繁忙，请稍后重试", "errorSamples": "无法加载近期邮件。", "errorTest": "无法测试此条件。", "invalidCondition": "请输入问题和 0 到 1 之间的阈值。"},
       "title": "收件箱规则",
       "newButton": "新建规则",
       "empty": "暂无规则。规则可自动过滤收件箱中的邮件。",

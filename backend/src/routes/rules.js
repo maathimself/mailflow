@@ -152,7 +152,8 @@ router.post('/test-jev', async (req, res) => {
       };
       const decision = await evaluateJevCondition(condition, msg, context);
       results.push({ id: id, subject: row.subject, probability: decision.probability,
-        match: decision.match, available: decision.available });
+        match: decision.match, available: decision.available,
+        ...(decision.reason ? { reason: decision.reason } : {}) });
     }
     res.json({ results });
   } catch {

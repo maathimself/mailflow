@@ -671,7 +671,7 @@
       "plugins": "Plugins"
     },
     "rules": {
-      "jev": {"field": "Jev (natural language)", "questionPlaceholder": "Ask a plain-English question about this email", "questionLabel": "Jev question", "thresholdLabel": "Match probability threshold (0–1)", "testDisclosure": "Testing sends selected email content to TypeSafe and may incur provider costs. No rule actions run.", "missingKey": "Add your Jev API key in Integrations to get a result.", "loadSamples": "Choose recent messages", "test": "Test condition", "match": "Match", "noMatch": "No match", "unavailable": "Unavailable — condition skipped", "errorSamples": "Could not load recent messages.", "errorTest": "Could not test this condition.", "invalidCondition": "Enter a question and a threshold from 0 to 1."},
+      "jev": {"field": "Jev (natural language)", "questionPlaceholder": "Ask a plain-English question about this email", "questionLabel": "Jev question", "thresholdLabel": "Match probability threshold (0–1)", "testDisclosure": "Testing sends selected email content to TypeSafe and may incur provider costs. No rule actions run.", "missingKey": "Add your Jev API key in Integrations to get a result.", "loadSamples": "Choose recent messages", "test": "Test condition", "match": "Match", "noMatch": "No match", "unavailable": "Unavailable — condition skipped", "busyRetry": "Busy — try again shortly", "errorSamples": "Could not load recent messages.", "errorTest": "Could not test this condition.", "invalidCondition": "Enter a question and a threshold from 0 to 1."},
       "title": "Inbox rules",
       "newButton": "New rule",
       "empty": "No rules yet. Rules automatically filter incoming mail.",

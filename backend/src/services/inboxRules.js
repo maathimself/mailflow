@@ -89,7 +89,11 @@ export async function evaluateJevCondition(cond, msg, context) {
     warnJevUnavailable(context.account.user_id, 'missing or unreadable key');
     return unavailable;
   }
-  if (jevContextExpired(context) || activeJevCalls >= JEV_MAX_CONCURRENT) return unavailable;
+  if (jevContextExpired(context)) return unavailable;
+  if (activeJevCalls >= JEV_MAX_CONCURRENT) {
+    warnJevRequestSkipped(context.account.user_id, 'provider concurrency limit reached');
+    return { ...unavailable, reason: 'busy' };
+  }
   activeJevCalls++;
   let result;
   let failureReason = 'provider unavailable';

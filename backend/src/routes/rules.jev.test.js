@@ -71,4 +71,17 @@ describe('no-action Jev test mode', () => {
     expect(await response.json()).toEqual({ results: [{ id: '11111111-1111-4111-8111-111111111111', subject: 'Question', probability: null, match: false, available: false }] });
     expect(applyInboxRules).not.toHaveBeenCalled();
   });
+
+  it('returns a distinct retryable result when Jev is busy', async () => {
+    query.mockResolvedValue({ rows: [message] });
+    evaluateJevCondition.mockResolvedValueOnce({ available: false, probability: null, match: false, reason: 'busy' });
+
+    const response = await post({ condition, messageIds: ['11111111-1111-4111-8111-111111111111'] });
+
+    expect(await response.json()).toEqual({ results: [{
+      id: '11111111-1111-4111-8111-111111111111', subject: 'Question', probability: null,
+      match: false, available: false, reason: 'busy',
+    }] });
+    expect(applyInboxRules).not.toHaveBeenCalled();
+  });
 });

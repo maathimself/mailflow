@@ -83,6 +83,19 @@ test('rule tester selects recent messages, shows probabilities and never sends a
   assert.doesNotMatch(container.textContent, /0\.91/);
 });
 
+test('rule tester tells the user when a busy result can be retried', async () => {
+  globalThis.fetch = async url => ({ ok: true, json: async () => url.includes('jev-samples')
+    ? { messages: [{ id: 'm1', subject: 'Question', fromEmail: 'a@example.org' }] }
+    : { results: [{ id: 'm1', subject: 'Question', probability: null, match: false, available: false, reason: 'busy' }] } });
+  await act(async () => root.render(React.createElement(JevRuleTester,
+    { condition: { field: 'jev', question: 'Needs reply?', threshold: 0.8 }, accountId: 'busy-account' })));
+  await act(async () => click('admin.rules.jev.loadSamples'));
+  await act(async () => container.querySelector('input[type=checkbox]').click());
+  await act(async () => click('admin.rules.jev.test'));
+  assert.match(container.textContent, /admin\.rules\.jev\.busyRetry/);
+  assert.doesNotMatch(container.textContent, /admin\.rules\.jev\.unavailable/);
+});
+
 test('rule tester ignores a pending result after the condition changes', async () => {
   let finishTest;
   globalThis.fetch = async url => {

@@ -68,7 +68,7 @@ export default function JevRuleTester({ condition, accountId }) {
       {results.map(result => <p key={result.id} style={{ fontSize: 12 }}>
         {result.subject || t('common.noSubject')}: {result.available
           ? `${result.probability.toFixed(2)} — ${result.match ? t('admin.rules.jev.match') : t('admin.rules.jev.noMatch')}`
-          : t('admin.rules.jev.unavailable')}
+          : result.reason === 'busy' ? t('admin.rules.jev.busyRetry') : t('admin.rules.jev.unavailable')}
       </p>)}
       {error && <p role="alert" style={{ color: 'var(--red)' }}>{error}</p>}
     </div>

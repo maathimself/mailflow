@@ -687,7 +687,7 @@
       "plugins": "Wtyczki"
     },
     "rules": {
-      "jev": {"field": "Jev (język naturalny)", "questionPlaceholder": "Zadaj pytanie o tę wiadomość", "questionLabel": "Pytanie Jev", "thresholdLabel": "Próg prawdopodobieństwa (0–1)", "testDisclosure": "Test wysyła wybrane wiadomości do TypeSafe i może powodować opłaty. Nie wykonuje działań reguły.", "missingKey": "Dodaj klucz API Jev w Integracjach, aby uzyskać wynik.", "loadSamples": "Wybierz ostatnie wiadomości", "test": "Przetestuj warunek", "match": "Dopasowanie", "noMatch": "Brak dopasowania", "unavailable": "Niedostępne — warunek pominięty", "errorSamples": "Nie udało się wczytać ostatnich wiadomości.", "errorTest": "Nie udało się przetestować warunku.", "invalidCondition": "Wpisz pytanie i próg od 0 do 1."},
+      "jev": {"field": "Jev (język naturalny)", "questionPlaceholder": "Zadaj pytanie o tę wiadomość", "questionLabel": "Pytanie Jev", "thresholdLabel": "Próg prawdopodobieństwa (0–1)", "testDisclosure": "Test wysyła wybrane wiadomości do TypeSafe i może powodować opłaty. Nie wykonuje działań reguły.", "missingKey": "Dodaj klucz API Jev w Integracjach, aby uzyskać wynik.", "loadSamples": "Wybierz ostatnie wiadomości", "test": "Przetestuj warunek", "match": "Dopasowanie", "noMatch": "Brak dopasowania", "unavailable": "Niedostępne — warunek pominięty", "busyRetry": "Zajęte — spróbuj ponownie za chwilę", "errorSamples": "Nie udało się wczytać ostatnich wiadomości.", "errorTest": "Nie udało się przetestować warunku.", "invalidCondition": "Wpisz pytanie i próg od 0 do 1."},
       "title": "Reguły skrzynki odbiorczej",
       "newButton": "Nowa reguła",
       "empty": "Brak reguł. Reguły automatycznie filtrują przychodzącą pocztę.",

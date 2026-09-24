@@ -182,6 +182,31 @@ describe('Jev rule evaluation', () => {
     } finally { warning.mockRestore(); }
   });
 
+  it('warns when the Jev concurrency limit skips a provider request', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const releases = [];
+    evaluateJev.mockImplementation(() => new Promise(resolve => releases.push(resolve)));
+    query.mockResolvedValue(bodyRow);
+    const pending = Array.from({ length: 3 }, (_, index) =>
+      evaluateJevCondition(jev, mkMsg({ id: `msg-${index}` }), createJevContext(account, mockImap)));
+
+    try {
+      await vi.waitFor(() => expect(evaluateJev).toHaveBeenCalledTimes(2), { timeout: 50, interval: 1 });
+      releases.forEach(resolve => resolve({ available: true, probability: 0.91 }));
+      const results = await Promise.all(pending);
+
+      expect(results.map(result => result.available)).toEqual([true, true, false]);
+      expect(results[2]).toMatchObject({ reason: 'busy' });
+      expect(warning).toHaveBeenCalledOnce();
+      expect(warning.mock.calls[0][0]).toContain('Jev request skipped');
+      expect(warning.mock.calls[0][0]).toContain('concurrency limit');
+      expect(warning.mock.calls[0][0]).not.toContain('Jev unavailable');
+    } finally {
+      releases.forEach(resolve => resolve({ available: true, probability: 0.91 }));
+      warning.mockRestore();
+    }
+  });
+
   it('keeps interactive condition tests independent from sweep backoff', async () => {
     const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
