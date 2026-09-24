@@ -3376,3 +3376,137 @@ describe('reconcileDeletes — SEARCH result vs mailbox.exists (#472)', () => {
     expect(del[0][1][2]).toEqual([7, 8, 9]);
   });
 });
+
+// ── setFlag over the persistent IDLE connection (#474 round 4) ───────────────────────────
+//
+// The reporter's open tab retried one mark-read into a fresh refused LOGIN every few
+// seconds, keeping Yahoo's refusal alive. Thunderbird stores flags on the session already
+// selected on the folder, costing zero logins; setFlag now does the same for INBOX via the
+// persistent client, falling back to the pool only when that cannot serve it.
+describe('setFlag routing (#474 round 4)', () => {
+  let seq = 900;
+  function arrange({ persistent } = {}) {
+    const account = { id: `acct-sf-${++seq}`, user_id: 'u1', imap_host: 'imap.mail.yahoo.com', email_address: 'y@example.test', auth_user: 'y', auth_pass: 'enc' };
+    const mgr = new ImapManager({ clients: new Set() });
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: true, allowInsecureTls: true });
+    resolveForConnection.mockResolvedValue({ host: '127.0.0.1', addresses: ['127.0.0.1'], servername: null });
+    query.mockReset();
+    query.mockResolvedValue({ rows: [account] });
+    ImapFlow.mockImplementation(function () {
+      const c = new EventEmitter();
+      c.usable = true;
+      c.connect = vi.fn(() => Promise.resolve());
+      c.logout = vi.fn(() => Promise.resolve());
+      c.close = vi.fn();
+      c.noop = vi.fn(() => Promise.resolve());
+      c.getMailboxLock = vi.fn(async () => ({ release: vi.fn() }));
+      c.messageFlagsAdd = vi.fn(async () => true);
+      c.messageFlagsRemove = vi.fn(async () => true);
+      return c;
+    });
+    ImapFlow.mockClear();
+    if (persistent) mgr.connections.set(account.id, persistent);
+    return { mgr, account };
+  }
+  const fakePersistent = (over = {}) => {
+    const release = vi.fn();
+    return Object.assign({
+      usable: true,
+      release,
+      getMailboxLock: vi.fn(async () => ({ release })),
+      messageFlagsAdd: vi.fn(async () => true),
+      messageFlagsRemove: vi.fn(async () => true),
+    }, over);
+  };
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('stores an INBOX flag on the persistent session and opens NO other connection', async () => {
+    const persistent = fakePersistent();
+    const { mgr, account } = arrange({ persistent });
+
+    await mgr.setFlag(account, 42, 'INBOX', '\\Seen', true);
+
+    expect(persistent.messageFlagsAdd).toHaveBeenCalledWith('42', ['\\Seen'], { uid: true });
+    expect(persistent.release).toHaveBeenCalled();       // the lock never leaks
+    expect(ImapFlow).not.toHaveBeenCalled();             // zero logins, the whole point
+  });
+
+  it('falls through to the pool when the persistent store reports not-applied', async () => {
+    const persistent = fakePersistent({ messageFlagsAdd: vi.fn(async () => false) });
+    const { mgr, account } = arrange({ persistent });
+
+    await mgr.setFlag(account, 42, 'INBOX', '\\Seen', true);
+
+    expect(ImapFlow).toHaveBeenCalled();                 // pool path took over
+    expect(persistent.release).toHaveBeenCalled();
+  });
+
+  it('skips a persistent session whose transport is already dead (usable === false)', async () => {
+    // Queueing a command on a dead ImapFlow transport hangs or throws late; the pool path
+    // with its eviction/retry is the right place for that. The health check owns teardown.
+    const persistent = fakePersistent({ usable: false });
+    const { mgr, account } = arrange({ persistent });
+
+    await mgr.setFlag(account, 42, 'INBOX', '\\Seen', true);
+
+    expect(persistent.getMailboxLock).not.toHaveBeenCalled();
+    expect(ImapFlow).toHaveBeenCalled();
+  });
+
+  it('does not touch the persistent session for a non-INBOX folder', async () => {
+    const persistent = fakePersistent();
+    const { mgr, account } = arrange({ persistent });
+
+    await mgr.setFlag(account, 42, 'Snoozed', '\\Seen', false);
+
+    expect(persistent.messageFlagsRemove).not.toHaveBeenCalled();
+    expect(ImapFlow).toHaveBeenCalled();
+  });
+
+  it('gives up on a hung lock, uses the pool, and still releases the late lock', async () => {
+    vi.useFakeTimers();
+    let grantLock;
+    const release = vi.fn();
+    const persistent = fakePersistent({
+      release,
+      getMailboxLock: vi.fn(() => new Promise(res => { grantLock = () => res({ release }); })),
+    });
+    const { mgr, account } = arrange({ persistent });
+
+    const call = mgr.setFlag(account, 42, 'INBOX', '\\Seen', true);
+    await vi.advanceTimersByTimeAsync(5100);             // persistent attempt deadline
+    await call;                                          // pool path finished the job
+    expect(ImapFlow).toHaveBeenCalled();
+
+    grantLock();                                         // the sync finally releases the mailbox
+    await vi.advanceTimersByTimeAsync(1);
+    expect(release).toHaveBeenCalled();                  // late lock released, nothing stored
+    expect(persistent.messageFlagsAdd).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it('fails fast and typed when blocked with no persistent session and no idle pool client', async () => {
+    const { mgr, account } = arrange();
+    mgr._secondaryCooldown.set(account.id, { until: Date.now() + 30000, failures: 1 });
+
+    const t0 = Date.now();
+    const err = await mgr.setFlag(account, 42, 'INBOX', '\\Seen', true).catch(e => e);
+
+    expect(err.providerRefusing).toBe(true);
+    expect(ImapFlow).not.toHaveBeenCalled();             // no doomed LOGIN, no fresh retry
+    expect(Date.now() - t0).toBeLessThan(300);           // no 400ms retry sleep either
+  });
+
+  it('while blocked, a usable persistent session still serves the flag', async () => {
+    const persistent = fakePersistent();
+    const { mgr, account } = arrange({ persistent });
+    mgr._secondaryCooldown.set(account.id, { until: Date.now() + 30000, failures: 1 });
+
+    await mgr.setFlag(account, 42, 'INBOX', '\\Seen', true);
+
+    expect(persistent.messageFlagsAdd).toHaveBeenCalled();
+    expect(ImapFlow).not.toHaveBeenCalled();
+  });
+});

@@ -5611,6 +5611,59 @@ export class ImapManager {
 
   async setFlag(account, uid, folder, flag, value) {
     console.log(`setFlag: uid=${uid} folder=${folder} flag=${flag} value=${value}`);
+
+    // Attempt 0: the persistent IDLE connection, the way Thunderbird stores flags — DONE,
+    // STORE on the same session, re-IDLE (ImapFlow breaks and resumes IDLE around any
+    // command on its own). A flag change then costs ZERO extra logins, which is what a
+    // session-limited provider needs: #474's logs show an open tab retrying one mark-read
+    // into a fresh refused LOGIN every few seconds, keeping Yahoo's refusal alive forever.
+    //
+    // Deliberately narrow:
+    //  - INBOX only. The push connection's selected mailbox is INBOX; selecting another
+    //    folder here would silence its EXISTS events for that window.
+    //  - Bounded, and a timeout falls through to the pool path rather than hanging the
+    //    user's click behind a long-running sync that holds the mailbox lock. The attempt
+    //    keeps running detached; if its lock arrives after we gave up, it releases
+    //    immediately and stores nothing, so the lock cannot leak.
+    //  - Failure here never tears the persistent client down. A failed STORE is not
+    //    evidence the session is dead, and the health check owns that decision.
+    if (folder === 'INBOX') {
+      const client = this.connections.get(account.id);
+      if (client && client.usable !== false) {
+        let expired = false;
+        const attempt = (async () => {
+          const lock = await client.getMailboxLock('INBOX');
+          if (expired) { lock.release(); throw new Error('persistent flag store timed out'); }
+          try {
+            const applied = value
+              ? await client.messageFlagsAdd(String(uid), [flag], { uid: true })
+              : await client.messageFlagsRemove(String(uid), [flag], { uid: true });
+            if (applied === false) throw new Error('server did not apply flag on persistent session');
+          } finally { lock.release(); }
+        })();
+        attempt.catch(() => {}); // detached after a timeout; never an unhandled rejection
+        try {
+          await raceTimeout(attempt, 5000, 'Persistent flag store');
+          logger.debug(`setFlag success (persistent): uid=${uid} ${flag}=${value}`);
+          return;
+        } catch (err) {
+          // Mark the detached attempt dead BEFORE falling through: its late-arriving lock
+          // must release-and-exit, not store a flag the pool path is about to store again.
+          expired = true;
+          logger.debug(`setFlag persistent attempt failed, using pool: ${extractImapError(err)}`);
+        }
+      }
+    }
+
+    // While the provider is refusing secondary logins and no session can serve this without
+    // opening one, fail fast and typed instead of paying two doomed LOGINs (the pool attempt
+    // plus its fresh retry). Same contract as fetchMessageBody's gate.
+    if (this._secondaryConnectBlocked(account.id) && !hasIdlePooledClient(connectionPools, account.id)) {
+      const gateErr = new Error('Mail server is limiting connections for this account');
+      gateErr.providerRefusing = true;
+      throw gateErr;
+    }
+
     // Up to 2 attempts. ImapFlow returns false when the server did NOT apply the flag —
     // typically a stale/half-open pooled connection whose SELECT view is missing the UID.
     // Throwing on false makes withFreshClient evict that client from the pool, so the
