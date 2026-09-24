@@ -383,6 +383,8 @@
   },
   "sidebar": {
     "allInboxes": "Todas as caixas de entrada",
+    "allMail": "Todos os e-mails",
+    "allMailSyncing": "Todos os e-mails (sincronizando)",
     "compose": "Escrever",
     "toggleSidebar": "Alternar barra lateral",
     "newFolder": "Nova pasta",
@@ -478,6 +480,11 @@
     }
   },
   "commandPalette": {
+    "labelPicker": {
+      "copyTo": "Copiar para {{folder}}",
+      "error": "Não foi possível rotular a mensagem",
+      "placeholder": "Copiar ou rotular a mensagem selecionada…"
+    },
     "placeholder": "Pesquisar ações…",
     "noResults": "Nenhuma ação encontrada",
     "hint": {

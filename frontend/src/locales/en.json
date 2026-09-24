@@ -383,6 +383,8 @@
   },
   "sidebar": {
     "allInboxes": "All Inboxes",
+    "allMail": "All Mail",
+    "allMailSyncing": "All Mail (syncing)",
     "compose": "Compose",
     "toggleSidebar": "Toggle sidebar",
     "newFolder": "New folder",
@@ -478,6 +480,11 @@
     }
   },
   "commandPalette": {
+    "labelPicker": {
+      "copyTo": "Copy to {{folder}}",
+      "error": "Could not label message",
+      "placeholder": "Copy or label selected message…"
+    },
     "placeholder": "Search actions…",
     "noResults": "No actions found",
     "hint": {

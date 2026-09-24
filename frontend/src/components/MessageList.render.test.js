@@ -20,7 +20,7 @@ registerHooks({
   load(url, context, nextLoad) {
     if (url.endsWith('react-i18next/dist/es/index.js') || url.endsWith('/react-i18next')) {
       return { format: 'module', shortCircuit: true, source: [
-        'export const useTranslation = () => ({ t: (k, d) => (typeof d === "string" ? d : k), i18n: { language: "en", changeLanguage: () => {} } });',
+        'export const useTranslation = () => ({ t: (k, d) => (typeof d === "string" ? d : d?.defaultValue ?? k), i18n: { language: "en", changeLanguage: () => {} } });',
         'export const initReactI18next = { type: "3rdParty", init: () => {} };',
         'export const Trans = ({ children }) => children ?? null;',
         'export const I18nextProvider = ({ children }) => children ?? null;',

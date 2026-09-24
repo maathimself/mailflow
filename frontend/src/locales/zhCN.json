@@ -383,6 +383,8 @@
   },
   "sidebar": {
     "allInboxes": "所有收件箱",
+    "allMail": "所有邮件",
+    "allMailSyncing": "所有邮件（正在同步）",
     "compose": "撰写",
     "toggleSidebar": "切换侧边栏",
     "newFolder": "新建文件夹",
@@ -478,6 +480,11 @@
     }
   },
   "commandPalette": {
+    "labelPicker": {
+      "copyTo": "复制到{{folder}}",
+      "error": "无法为邮件添加标签",
+      "placeholder": "复制或标记所选邮件…"
+    },
     "placeholder": "搜索操作…",
     "noResults": "未找到任何操作",
     "hint": {

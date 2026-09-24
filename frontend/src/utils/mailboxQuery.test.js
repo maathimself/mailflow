@@ -11,4 +11,7 @@ test('All Mail sends its scope while unified Inbox keeps the legacy request', ()
 test('All Mail title reports indexing until the server marks it complete', () => {
   assert.equal(mailboxTitle(null, 'ALL_MAIL', false, 'All Inboxes'), 'All Mail (syncing)');
   assert.equal(mailboxTitle(null, 'ALL_MAIL', true, 'All Inboxes'), 'All Mail');
+  const t = (key) => ({ 'sidebar.allMail': 'Correo total', 'sidebar.allMailSyncing': 'Correo total (sincronizando)' })[key];
+  assert.equal(mailboxTitle(null, 'ALL_MAIL', false, 'Todas', t), 'Correo total (sincronizando)');
+  assert.equal(mailboxTitle(null, 'ALL_MAIL', true, 'Todas', t), 'Correo total');
 });

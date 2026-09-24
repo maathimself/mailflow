@@ -397,6 +397,8 @@
   },
   "sidebar": {
     "allInboxes": "Wszystkie skrzynki odbiorcze",
+    "allMail": "Cała poczta",
+    "allMailSyncing": "Cała poczta (synchronizowanie)",
     "compose": "Napisz",
     "toggleSidebar": "Przełącz pasek boczny",
     "newFolder": "Nowy folder",
@@ -494,6 +496,11 @@
     "copyLink": "Kopiuj link"
   },
   "commandPalette": {
+    "labelPicker": {
+      "copyTo": "Kopiuj do {{folder}}",
+      "error": "Nie udało się oznaczyć wiadomości etykietą",
+      "placeholder": "Kopiuj lub oznacz wybraną wiadomość etykietą…"
+    },
     "placeholder": "Wyszukaj działanie…",
     "noResults": "Nie znaleziono działań",
     "hint": {

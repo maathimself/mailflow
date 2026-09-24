@@ -383,6 +383,8 @@
   },
   "sidebar": {
     "allInboxes": "Все входящие",
+    "allMail": "Вся почта",
+    "allMailSyncing": "Вся почта (синхронизация)",
     "compose": "Написать",
     "toggleSidebar": "Переключить боковую панель",
     "newFolder": "Новая папка",
@@ -478,6 +480,11 @@
     }
   },
   "commandPalette": {
+    "labelPicker": {
+      "copyTo": "Скопировать в {{folder}}",
+      "error": "Не удалось пометить письмо",
+      "placeholder": "Скопировать или пометить выбранное письмо…"
+    },
     "placeholder": "Поиск действий…",
     "noResults": "Действия не найдены",
     "hint": {

@@ -383,6 +383,8 @@
   },
   "sidebar": {
     "allInboxes": "Todas las bandejas",
+    "allMail": "Todo el correo",
+    "allMailSyncing": "Todo el correo (sincronizando)",
     "compose": "Redactar",
     "toggleSidebar": "Alternar barra lateral",
     "newFolder": "Nueva carpeta",
@@ -478,6 +480,11 @@
     }
   },
   "commandPalette": {
+    "labelPicker": {
+      "copyTo": "Copiar a {{folder}}",
+      "error": "No se pudo etiquetar el mensaje",
+      "placeholder": "Copiar o etiquetar el mensaje seleccionado…"
+    },
     "placeholder": "Buscar acciones…",
     "noResults": "No se encontraron acciones",
     "hint": {

@@ -942,7 +942,7 @@ export default function Sidebar() {
         <NavItem
           mailboxRow
           icon={ICONS.folder}
-          label="All Mail"
+          label={t('sidebar.allMail', { defaultValue: 'All Mail' })}
           active={isUnified && selectedFolder === 'ALL_MAIL' && !showContacts}
           collapsed={sidebarCollapsed}
           onClick={() => setSelectedAccount(null, 'ALL_MAIL')}

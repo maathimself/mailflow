@@ -383,6 +383,8 @@
   },
   "sidebar": {
     "allInboxes": "Alle Posteingänge",
+    "allMail": "Alle E-Mails",
+    "allMailSyncing": "Alle E-Mails (werden synchronisiert)",
     "compose": "Verfassen",
     "toggleSidebar": "Seitenleiste umschalten",
     "newFolder": "Neuer Ordner",
@@ -478,6 +480,11 @@
     "markAsHam": "Als kein Spam markieren"
   },
   "commandPalette": {
+    "labelPicker": {
+      "copyTo": "Nach {{folder}} kopieren",
+      "error": "Nachricht konnte nicht etikettiert werden",
+      "placeholder": "Ausgewählte Nachricht kopieren oder mit Label versehen…"
+    },
     "placeholder": "Aktionen suchen…",
     "noResults": "Keine Aktionen gefunden",
     "hint": {

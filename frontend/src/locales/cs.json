@@ -112,6 +112,8 @@
   },
   "sidebar": {
     "allInboxes": "Všechny doručené",
+    "allMail": "Veškerá pošta",
+    "allMailSyncing": "Veškerá pošta (synchronizace)",
     "compose": "Napsat",
     "toggleSidebar": "Zobrazit nebo skrýt postranní panel",
     "newFolder": "Nová složka",
@@ -795,6 +797,11 @@
     "errorAdd": "Odesílatele se nepodařilo zablokovat"
   },
   "commandPalette": {
+    "labelPicker": {
+      "copyTo": "Kopírovat do {{folder}}",
+      "error": "Zprávu se nepodařilo označit štítkem",
+      "placeholder": "Zkopírovat nebo označit vybranou zprávu štítkem…"
+    },
     "placeholder": "Hledat akce…",
     "noResults": "Nebyly nalezeny žádné akce",
     "hint": {

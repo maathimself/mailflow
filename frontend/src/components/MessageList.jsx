@@ -2516,7 +2516,7 @@ export default function MessageList() {
 
   const label = searchQuery.trim()
     ? `Search: "${searchQuery}"`
-    : mailboxTitle(selectedAccountId, selectedFolder, allMailComplete, t('sidebar.allInboxes'));
+    : mailboxTitle(selectedAccountId, selectedFolder, allMailComplete, t('sidebar.allInboxes'), t);
 
   const selectedFolderCounts = folders[selectedAccountId]?.find(f => f.path === selectedFolder);
   const headerUnread = isUnified && selectedFolder === 'ALL_MAIL' ? 0 : isUnified ? unreadCounts.total

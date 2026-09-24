@@ -437,24 +437,76 @@ describe('applyInboxRules — destination action no-ops do not remove message', 
 });
 
 describe('applyInboxRules — archive to Gmail All Mail', () => {
-  it('deletes the message row instead of re-homing it into the All Mail folder', async () => {
+  it('keeps a visible destination row when All Mail has not been indexed yet', async () => {
     const rule = mkRule([{ type: 'archive', value: '' }]);
     query
       .mockResolvedValueOnce({ rows: [rule] })                  // getRulesForAccount
-      .mockResolvedValueOnce({ rows: [] });                      // DELETE FROM messages
+      .mockResolvedValueOnce({ rows: [] })                      // no indexed All Mail copy
+      .mockResolvedValueOnce({ rowCount: 1 });                  // repoint source row
     resolveArchiveFolder.mockResolvedValue('[Gmail]/All Mail');
     isAllMailFolder.mockResolvedValue(true);
     mockImap.bulkMoveMessages.mockResolvedValue({ failed: [], uidMap: new Map([[100, 200]]) });
 
-    const result = await applyInboxRules([mkMsg({ is_read: false })], account, mockImap);
+    const result = await applyInboxRules([mkMsg({ is_read: false, messageId: '<m1>' })], account, mockImap);
 
     expect(result.remaining).toHaveLength(0); // message removed from inbox
-    const deleteCall = query.mock.calls[1];
-    expect(deleteCall[0]).toMatch(/DELETE FROM messages/);
-    expect(deleteCall[1]).toEqual(['msg-1']);
-    // Source folder count decrements; All Mail destination count is never touched.
+    expect(query.mock.calls[1][0]).toMatch(/SELECT id FROM messages/);
+    expect(query.mock.calls[1][1]).toEqual(['acc-1', '[Gmail]/All Mail', 'msg-1', 200, '<m1>']);
+    expect(query.mock.calls[2][0]).toMatch(/UPDATE messages SET folder = \$1, uid = \$2/);
+    expect(adjustFolderCounts).toHaveBeenCalledWith('acc-1', 'INBOX', -1, -1);
+    expect(adjustFolderCounts).toHaveBeenCalledWith('acc-1', '[Gmail]/All Mail', 1, 1);
+  });
+
+  it('deletes only the source when an indexed All Mail copy already exists', async () => {
+    query.mockResolvedValueOnce({ rows: [mkRule([{ type: 'archive', value: '' }])] })
+      .mockResolvedValueOnce({ rows: [{ id: 'existing' }] })
+      .mockResolvedValueOnce({ rowCount: 1 });
+    resolveArchiveFolder.mockResolvedValue('[Gmail]/All Mail');
+    isAllMailFolder.mockResolvedValue(true);
+    mockImap.bulkMoveMessages.mockResolvedValue({ failed: [], uidMap: new Map([[100, 200]]) });
+
+    await applyInboxRules([mkMsg({ is_read: false, messageId: '<m1>' })], account, mockImap);
+
+    expect(query.mock.calls[2][0]).toMatch(/DELETE FROM messages/);
     expect(adjustFolderCounts).toHaveBeenCalledWith('acc-1', 'INBOX', -1, -1);
     expect(adjustFolderCounts).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the synced destination copy after a concurrent insert races the repoint', async () => {
+    const duplicate = Object.assign(new Error('duplicate'), { code: '23505' });
+    query.mockResolvedValueOnce({ rows: [mkRule([{ type: 'archive', value: '' }])] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockRejectedValueOnce(duplicate)
+      .mockResolvedValueOnce({ rowCount: 1 });
+    resolveArchiveFolder.mockResolvedValue('[Gmail]/All Mail');
+    isAllMailFolder.mockResolvedValue(true);
+    mockImap.bulkMoveMessages.mockResolvedValue({ failed: [], uidMap: new Map([[100, 200]]) });
+
+    await applyInboxRules([mkMsg({ is_read: false, messageId: '<m1>' })], account, mockImap);
+
+    expect(query.mock.calls[3][0]).toMatch(/DELETE FROM messages/);
+    expect(adjustFolderCounts).toHaveBeenCalledWith('acc-1', 'INBOX', -1, -1);
+    expect(adjustFolderCounts).toHaveBeenCalledTimes(1);
+  });
+
+  it('guards and repoints the source when All Mail has no indexed copy and UIDPLUS is unavailable', async () => {
+    query.mockResolvedValueOnce({ rows: [mkRule([{ type: 'archive', value: '' }])] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rowCount: 1 });
+    resolveArchiveFolder.mockResolvedValue('[Gmail]/All Mail');
+    isAllMailFolder.mockResolvedValue(true);
+    mockImap.bulkMoveMessages.mockResolvedValue({ failed: [], uidMap: new Map() });
+    const originalSetTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = vi.fn();
+    try {
+      await applyInboxRules([mkMsg({ is_read: false, messageId: '<m1>' })], account, mockImap);
+    } finally {
+      globalThis.setTimeout = originalSetTimeout;
+    }
+
+    expect(query.mock.calls[2][0]).toMatch(/UPDATE messages SET folder = \$1 WHERE id = \$2/);
+    expect(mockImap._guardMoveUid).toHaveBeenCalledWith('acc-1', '[Gmail]/All Mail', 100);
+    expect(adjustFolderCounts).toHaveBeenCalledWith('acc-1', '[Gmail]/All Mail', 1, 1);
   });
 });
 

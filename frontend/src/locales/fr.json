@@ -383,6 +383,8 @@
   },
   "sidebar": {
     "allInboxes": "Toutes les boîtes",
+    "allMail": "Tous les messages",
+    "allMailSyncing": "Tous les messages (synchronisation en cours)",
     "compose": "Composer",
     "toggleSidebar": "Basculer la barre latérale",
     "newFolder": "Nouveau dossier",
@@ -478,6 +480,11 @@
     }
   },
   "commandPalette": {
+    "labelPicker": {
+      "copyTo": "Copier vers {{folder}}",
+      "error": "Impossible d’étiqueter le message",
+      "placeholder": "Copier ou étiqueter le message sélectionné…"
+    },
     "placeholder": "Rechercher des actions…",
     "noResults": "Aucune action trouvée",
     "hint": {
