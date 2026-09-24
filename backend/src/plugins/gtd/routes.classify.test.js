@@ -52,12 +52,14 @@ const account = { id: ACCT_ID, user_id: 'u1', folder_mappings: {} };
 // Route every query classify issues: the ownership-scoped message load, the account fetch
 // (POST copy path), and resolveCopyUid's sibling lookup (DELETE). Each is individually swappable
 // so a test can drive the not-owned (msg:null) / no-sibling (sibling:null) branches.
-function stubQueries({ msg = inboxMsg, acct = account, sibling = null, exact = { uid: 77 } } = {}) {
-  query.mockImplementation(async (sql) => {
+function stubQueries({ msg = inboxMsg, acct = account, sibling = null, siblings = {}, folders = [], threadCopies = [], exact = { uid: 77 } } = {}) {
+  query.mockImplementation(async (sql, params) => {
     if (sql.includes('FROM messages m') && sql.includes('JOIN email_accounts')) return { rows: msg ? [msg] : [] };
     if (sql.startsWith('SELECT * FROM email_accounts')) return { rows: acct ? [acct] : [] };
+    if (sql.includes('thread_key = ANY($2::text[])')) return { rows: threadCopies };
+    if (sql.startsWith('SELECT DISTINCT folder FROM messages')) return { rows: folders.map(folder => ({ folder })) };
     if (sql.includes('thread_key = $4') || sql.includes('message_id = $4')) return { rows: exact ? [exact] : [] };
-    if (sql.startsWith('SELECT uid FROM messages')) return { rows: sibling ? [sibling] : [] };
+    if (sql.startsWith('SELECT uid FROM messages')) return { rows: siblings[params?.[1]] ? [{ uid: siblings[params[1]] }] : sibling ? [sibling] : [] };
     return { rows: [] };
   });
 }
@@ -165,6 +167,66 @@ describe('POST /api/gtd/classify — apply a GTD label (COPY)', () => {
       ok: true, folder: 'Todo', applied: false, undoToken: null,
     });
     expect(imapManager.copyMessage).not.toHaveBeenCalled();
+  });
+
+  it('switches Todo to Watch while preserving ordinary labels', async () => {
+    stubQueries({ folders: ['INBOX', 'Todo', 'Receipts'], siblings: { Todo: 42 } });
+    const res = await classify({ messageId: MSG_ID, state: 'watch' });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, folder: 'Watch', applied: true, undoToken: null });
+    expect(imapManager.copyMessage).toHaveBeenCalledWith(ACCT_ID, 10, 'INBOX', 'Watch');
+    expect(imapManager.removeMessageCopy).toHaveBeenCalledExactlyOnceWith(ACCT_ID, 42, 'Todo');
+    expect(imapManager.copyMessage.mock.invocationCallOrder[0]).toBeLessThan(imapManager.removeMessageCopy.mock.invocationCallOrder[0]);
+  });
+
+  it('removes a prior GTD state carried by another message in the same thread', async () => {
+    stubQueries({ threadCopies: [
+      { account_id: ACCT_ID, uid: 10, folder: 'INBOX' },
+      { account_id: ACCT_ID, uid: 98, folder: 'Reference' },
+      { account_id: ACCT_ID, uid: 99, folder: 'Receipts' },
+    ] });
+    const res = await classify({ messageId: MSG_ID, state: 'someday' });
+
+    expect(res.status).toBe(200);
+    expect(imapManager.removeMessageCopy).toHaveBeenCalledExactlyOnceWith(ACCT_ID, 98, 'Reference');
+  });
+
+  it('cleans up an older GTD state even when the requested state is already present', async () => {
+    stubQueries({ folders: ['Watch', 'Todo'], siblings: { Watch: 41, Todo: 42 } });
+    const res = await classify({ messageId: MSG_ID, state: 'watch' });
+
+    expect(res.status).toBe(200);
+    expect(imapManager.copyMessage).not.toHaveBeenCalled();
+    expect(imapManager.removeMessageCopy).toHaveBeenCalledExactlyOnceWith(ACCT_ID, 42, 'Todo');
+  });
+
+  it('keeps the old state when applying the new state fails', async () => {
+    stubQueries({ folders: ['Todo'], siblings: { Todo: 42 } });
+    imapManager.copyMessage.mockRejectedValue(new Error('IMAP COPY failed'));
+    const res = await classify({ messageId: MSG_ID, state: 'watch' });
+
+    expect(res.status).toBe(500);
+    expect(imapManager.removeMessageCopy).not.toHaveBeenCalled();
+  });
+
+  it('switches from a selected GTD folder copy even without a Message-ID', async () => {
+    stubQueries({ msg: { ...inboxMsg, folder: 'Todo', message_id: null } });
+    const res = await classify({ messageId: MSG_ID, state: 'watch' });
+
+    expect(res.status).toBe(200);
+    expect(imapManager.copyMessage).toHaveBeenCalledWith(ACCT_ID, 10, 'Todo', 'Watch');
+    expect(imapManager.removeMessageCopy).toHaveBeenCalledExactlyOnceWith(ACCT_ID, 10, 'Todo');
+  });
+
+  it('rolls back the new copy if an older GTD label cannot be removed', async () => {
+    stubQueries({ folders: ['Todo'], siblings: { Todo: 42 } });
+    imapManager.removeMessageCopy.mockRejectedValueOnce(new Error('cannot remove old copy'));
+    const res = await classify({ messageId: MSG_ID, state: 'watch' });
+
+    expect(res.status).toBe(500);
+    expect(imapManager.removeMessageCopy).toHaveBeenNthCalledWith(1, ACCT_ID, 42, 'Todo');
+    expect(imapManager.removeMessageCopy).toHaveBeenNthCalledWith(2, ACCT_ID, 77, 'Watch');
   });
 
   it("404s a message the caller doesn't own (the email_accounts join returns nothing)", async () => {

@@ -79,7 +79,9 @@ itself:
 Label the selected thread from the keyboard — **t** for Todo, **w** for Watch,
 **d** for Delegated (all remappable in the keyboard-shortcut settings) — or from the
 context menu, which also covers Someday and Reference. Each state's folder name is
-configurable per account, and accounts with GTD off behave exactly as before.
+configurable per account. Applying a GTD state removes the thread's other GTD
+state labels while leaving ordinary labels and Inbox copies alone. Accounts
+with GTD off behave exactly as before.
 
 ---
 
