@@ -1,6 +1,7 @@
 import { query } from './db.js';
 import { resolveArchiveFolder, isAllMailFolder, resolveTrashFolder, resolveAllTrashPaths, getDeleteStrategy, adjustFolderCounts } from '../utils/mailUtils.js';
 import { cleanText } from './spamTokenizer.js';
+import { sanitizeEmail } from './emailSanitizer.js';
 import { getJevKey, evaluateJev } from './jev.js';
 
 const JEV_BATCH_BUDGET_MS = 10_000;
@@ -34,8 +35,8 @@ async function resolveJevBody(msg, context) {
         context.imapManager.fetchMessageBody(context.account, msg.uid, msg.folder),
         new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('body timeout')), left); }),
       ]);
-      text = fetched?.text || '';
-      html = fetched?.html || '';
+      text = typeof fetched?.text === 'string' ? fetched.text.replace(/\0/g, '') : '';
+      html = typeof fetched?.html === 'string' ? sanitizeEmail(fetched.html).replace(/\0/g, '') : '';
       if (text || html) {
         await query('UPDATE messages SET body_text = COALESCE(body_text, $1), body_html = COALESCE(body_html, $2) WHERE id = $3 AND account_id = $4',
           [text || null, html || null, msg.id, context.account.id]);

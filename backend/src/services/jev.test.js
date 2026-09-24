@@ -46,13 +46,15 @@ describe('per-user Jev credential', () => {
 describe('TypeSafe client', () => {
   it('uses fixed endpoint, bearer key, pinned model and bounded message content', async () => {
     fetch.mockResolvedValue({ ok: true, json: async () => ({ answers: { match: { type: 'noul', noul: 0.82 } } }) });
-    expect(await evaluateJev('secret', 'Is this an invoice?', { fromEmail: 'a@example.org', subject: 'Receipt', body: 'x'.repeat(100_000) })).toEqual({ probability: 0.82, available: true });
+    expect(await evaluateJev('secret', 'Is this an invoice?', { fromEmail: 'a@example.org', subject: 'Receipt', body: 'x'.repeat(100_000), attachments: ['attachment-secret'], apiKey: 'credential-secret' })).toEqual({ probability: 0.82, available: true });
     const [url, options] = fetch.mock.calls[0];
     expect(url).toBe('https://api.typesafe.ai/v1/systemone');
     expect(options.headers.Authorization).toBe('Bearer secret');
     expect(JSON.parse(options.body).model).toBe('jev-1.13.0');
     expect(JSON.parse(options.body).questions.match).toEqual({ type: 'noul', instructions: 'Is this an invoice?' });
     expect(Buffer.byteLength(options.body)).toBeLessThanOrEqual(16_384);
+    expect(options.body).not.toContain('attachment-secret');
+    expect(options.body).not.toContain('credential-secret');
     expect(options.signal).toBeDefined();
   });
 

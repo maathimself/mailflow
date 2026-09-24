@@ -102,6 +102,20 @@ describe('Jev rule evaluation', () => {
     expect(evaluateJev).toHaveBeenCalledWith('test-key', jev.question, expect.objectContaining({ body: 'Invoice & receipt' }), expect.anything());
   });
 
+  it('sanitizes fetched HTML before caching it for later display', async () => {
+    query.mockResolvedValueOnce({ rows: [testRule([jev])] })
+      .mockResolvedValueOnce({ rows: [{ body_text: null, body_html: null }] })
+      .mockResolvedValue({ rows: [] });
+    mockImap.fetchMessageBody = vi.fn().mockResolvedValue({
+      html: '<p onclick="steal()">Invoice</p><script>steal()</script><img src="x" onerror="steal()">', text: null,
+    });
+    mockImap.setFlag.mockResolvedValue();
+    await applyInboxRules([mkMsg()], account, mockImap);
+    const cachedHtml = query.mock.calls.find(([sql]) => sql.startsWith('UPDATE messages SET body_text'))?.[1][1];
+    expect(cachedHtml).toContain('Invoice');
+    expect(cachedHtml).not.toMatch(/<script|onclick|onerror/i);
+  });
+
   it('does not classify missing body or call provider without a user key', async () => {
     query.mockResolvedValueOnce({ rows: [testRule([jev])] }).mockResolvedValueOnce({ rows: [{ body_text: null, body_html: null }] });
     mockImap.fetchMessageBody = vi.fn().mockResolvedValue({ html: null, text: null });
