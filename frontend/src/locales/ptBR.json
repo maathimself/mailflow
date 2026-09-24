@@ -504,6 +504,11 @@
     "customizeHint": "Personalize os atalhos em Configurações → Atalhos",
     "closeHint": "Pressione ? ou Esc para fechar",
     "then": "depois",
+    "browserMailboxFallback": "No navegador: g e depois 1–9 abre uma caixa visível; g e depois l abre o seletor de pastas.",
+    "visibleMailbox": {
+      "label": "Caixa visível {{number}}",
+      "description": "Abrir a caixa visível {{number}}"
+    },
     "groups": {
       "composeSearch": "Escrever e pesquisar",
       "navigation": "Navegação",
@@ -511,6 +516,30 @@
       "gtd": "GTD"
     },
     "actions": {
+      "toggleLeftSidebar": {
+        "label": "Alternar barra lateral esquerda",
+        "description": "Mostrar ou ocultar a barra lateral esquerda"
+      },
+      "openLabelPicker": {
+        "label": "Abrir seletor de pastas",
+        "description": "Copiar a mensagem selecionada para uma pasta"
+      },
+      "replyAllFromSelection": {
+        "label": "Responder a todos da seleção",
+        "description": "Responder a todos os destinatários da mensagem selecionada"
+      },
+      "markUnread": {
+        "label": "Marcar como não lida",
+        "description": "Marcar a mensagem selecionada como não lida"
+      },
+      "unsubscribe": {
+        "label": "Cancelar inscrição",
+        "description": "Cancelar a inscrição na lista da mensagem selecionada"
+      },
+      "loadRemoteImages": {
+        "label": "Carregar imagens remotas",
+        "description": "Carregar imagens da mensagem selecionada"
+      },
       "compose": {
         "label": "Escrever",
         "description": "Abrir nova janela de composição"

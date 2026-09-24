@@ -520,6 +520,11 @@
     "customizeHint": "Dostosuj skróty w Ustawieniach → Skróty",
     "closeHint": "Naciśnij ? lub Esc, aby zamknąć",
     "then": "wtedy",
+    "browserMailboxFallback": "W przeglądarce: g, potem 1–9 otwiera widoczną skrzynkę; g, potem l otwiera wybór folderu.",
+    "visibleMailbox": {
+      "label": "Widoczna skrzynka {{number}}",
+      "description": "Otwórz widoczną skrzynkę {{number}}"
+    },
     "groups": {
       "composeSearch": "Napisz i wyszukaj",
       "navigation": "Nawigacja",
@@ -527,6 +532,30 @@
       "gtd": "GTD"
     },
     "actions": {
+      "toggleLeftSidebar": {
+        "label": "Przełącz lewy pasek boczny",
+        "description": "Pokaż lub ukryj lewy pasek boczny"
+      },
+      "openLabelPicker": {
+        "label": "Otwórz wybór folderu",
+        "description": "Skopiuj wybraną wiadomość do folderu"
+      },
+      "replyAllFromSelection": {
+        "label": "Odpowiedz wszystkim z wyboru",
+        "description": "Odpowiedz wszystkim odbiorcom wybranej wiadomości"
+      },
+      "markUnread": {
+        "label": "Oznacz jako nieprzeczytane",
+        "description": "Oznacz wybraną wiadomość jako nieprzeczytaną"
+      },
+      "unsubscribe": {
+        "label": "Wypisz się",
+        "description": "Wypisz się z listy mailingowej wybranej wiadomości"
+      },
+      "loadRemoteImages": {
+        "label": "Wczytaj zdalne obrazy",
+        "description": "Wczytaj obrazy w wybranej wiadomości"
+      },
       "compose": {
         "label": "Napisz",
         "description": "Otwórz nowe okno tworzenia wiadomości"

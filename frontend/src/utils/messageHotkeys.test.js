@@ -16,6 +16,20 @@ describe('selected message hotkeys', () => {
     assert.equal(selectedMessage({ selectedMessageId: null, messages: [inbox] }), null);
   });
 
+  it('uses the frontmost open message window when the main list has no selection', () => {
+    const behind = { id: 'behind', account_id: 'acct' };
+    const front = { id: 'front', account_id: 'acct' };
+    const state = {
+      selectedMessageId: null, messages: [behind, front],
+      messageWindows: [
+        { messageId: 'behind', z: 3, minimized: false },
+        { messageId: 'front', z: 5, minimized: false },
+      ],
+    };
+    assert.equal(selectedMessage(state), front);
+    assert.equal(selectedMessage({ ...state, messageWindows: state.messageWindows.map(w => ({ ...w, minimized: true })) }), null);
+  });
+
   it('explicit unread cancels a pending auto-read, even if row is still unread', async () => {
     const calls = [];
     const cancel = () => calls.push('cancel');

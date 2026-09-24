@@ -166,10 +166,14 @@ export function shortcutActionText(t, action, kind = 'description') {
   const definition = ACTION_DEFS[action];
   if (!definition) return '';
   const mailboxNumber = /^goVisibleMailbox([1-9])$/.exec(action)?.[1];
-  const fallback = mailboxNumber
-    ? [`Visible mailbox ${mailboxNumber}`, `Open visible mailbox ${mailboxNumber}`]
-    : GENERAL_ACTION_TEXT[action];
   const label = kind === 'label';
+  if (mailboxNumber) {
+    return t(`shortcuts.visibleMailbox.${kind}`, {
+      number: Number(mailboxNumber),
+      defaultValue: label ? 'Visible mailbox {{number}}' : 'Open visible mailbox {{number}}',
+    });
+  }
+  const fallback = GENERAL_ACTION_TEXT[action];
   return t(label ? definition.labelKey : definition.descriptionKey,
     fallback ? { defaultValue: fallback[label ? 0 : 1] } : undefined);
 }

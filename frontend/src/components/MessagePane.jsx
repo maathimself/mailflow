@@ -4,6 +4,7 @@ import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { format } from 'date-fns';
 import { shortcutBus } from '../utils/shortcutBus.js';
+import { canHandlePaneShortcut } from '../utils/shortcutApplicability.js';
 import { getEffectiveShortcuts, parseModKey, modCompactLabel } from '../utils/defaultShortcuts.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.js';
@@ -942,13 +943,15 @@ ${bodyContent}
   // Subscribe to keyboard shortcut actions that belong to the message pane.
   // Registered once ([] deps); live state is accessed through paneActionsRef.
   useEffect(() => {
-    const onReply        = () => paneActionsRef.current.reply();
-    const onReplyAll     = () => paneActionsRef.current.replyAll();
-    const onToggleStar   = () => paneActionsRef.current.toggleStar();
-    const onPrintMessage = () => paneActionsRef.current.print?.();
-    const onUnsubscribe = () => paneActionsRef.current.unsubscribe?.();
-    const onLoadRemoteImages = () => paneActionsRef.current.loadRemoteImages?.();
+    const active = () => canHandlePaneShortcut(windowMessageId, useStore.getState());
+    const onReply        = () => { if (active()) paneActionsRef.current.reply(); };
+    const onReplyAll     = () => { if (active()) paneActionsRef.current.replyAll(); };
+    const onToggleStar   = () => { if (active()) paneActionsRef.current.toggleStar(); };
+    const onPrintMessage = () => { if (active()) paneActionsRef.current.print?.(); };
+    const onUnsubscribe = () => { if (active()) paneActionsRef.current.unsubscribe?.(); };
+    const onLoadRemoteImages = () => { if (active()) paneActionsRef.current.loadRemoteImages?.(); };
     const onExplicitUnread = () => {
+      if (!active()) return;
       cancelScheduledMarkRead(autoMarkReadTimerRef.current);
       autoMarkReadTimerRef.current = null;
     };
@@ -970,7 +973,7 @@ ${bodyContent}
       shortcutBus.off('loadRemoteImages', onLoadRemoteImages);
       shortcutBus.off('markUnread', onExplicitUnread);
     };
-  }, []);
+  }, [windowMessageId]);
 
   useEffect(() => {
     api.ai.status().then(setAiStatus).catch(() => {});

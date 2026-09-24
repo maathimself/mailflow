@@ -22,6 +22,22 @@ test('picker captures selected message identity from a sidebar section', () => {
   assert.deepEqual(captured, { id: 'rail', account_id: 'a1', folder: 'Action', thread_id: undefined, message_count: undefined });
 });
 
+test('picker captures the frontmost open message window when the list has no selection', () => {
+  const captured = selectedPickerMessage({
+    selectedMessageId: null,
+    messages: [
+      { id: 'behind', account_id: 'a1', folder: 'INBOX' },
+      { id: 'front', account_id: 'a1', folder: 'Projects' },
+    ],
+    messageWindows: [
+      { messageId: 'behind', z: 2, minimized: false },
+      { messageId: 'front', z: 4, minimized: false },
+    ],
+  });
+  assert.equal(captured.id, 'front');
+  assert.equal(captured.folder, 'Projects');
+});
+
 test('picker uses the active search row when its id also exists in the mailbox list', () => {
   const captured = selectedPickerMessage({
     selectedMessageId: 'same', searchQuery: 'project',

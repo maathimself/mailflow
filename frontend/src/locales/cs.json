@@ -583,6 +583,11 @@
     "customizeHint": "Zkratky můžete upravit v Nastavení → Zkratky",
     "closeHint": "Zavřete stisknutím ? nebo Esc",
     "then": "potom",
+    "browserMailboxFallback": "V prohlížeči: g a potom 1–9 otevře viditelnou schránku; g a potom l otevře výběr složky.",
+    "visibleMailbox": {
+      "label": "Viditelná schránka {{number}}",
+      "description": "Otevřít viditelnou schránku {{number}}"
+    },
     "groups": {
       "composeSearch": "Psaní a hledání",
       "navigation": "Navigace",
@@ -590,6 +595,30 @@
       "gtd": "GTD"
     },
     "actions": {
+      "toggleLeftSidebar": {
+        "label": "Přepnout levý postranní panel",
+        "description": "Zobrazit nebo skrýt levý postranní panel"
+      },
+      "openLabelPicker": {
+        "label": "Otevřít výběr složky",
+        "description": "Zkopírovat vybranou zprávu do složky"
+      },
+      "replyAllFromSelection": {
+        "label": "Odpovědět všem z výběru",
+        "description": "Odpovědět všem příjemcům vybrané zprávy"
+      },
+      "markUnread": {
+        "label": "Označit jako nepřečtené",
+        "description": "Označit vybranou zprávu jako nepřečtenou"
+      },
+      "unsubscribe": {
+        "label": "Odhlásit odběr",
+        "description": "Odhlásit odběr seznamu z vybrané zprávy"
+      },
+      "loadRemoteImages": {
+        "label": "Načíst vzdálené obrázky",
+        "description": "Načíst obrázky ve vybrané zprávě"
+      },
       "compose": {
         "label": "Napsat",
         "description": "Otevřít okno nové zprávy"

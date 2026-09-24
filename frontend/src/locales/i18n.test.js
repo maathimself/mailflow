@@ -560,6 +560,9 @@ const LOCALE_SPECIFIC_KEYS = new Set(
 // found by a plain text search of the source. Add here to suppress false
 // "unused key" failures.
 const DYNAMIC_KEYS = new Set([
+  // t(`shortcuts.visibleMailbox.${kind}`) — numbered mailbox text shares a template.
+  'shortcuts.visibleMailbox.label',
+  'shortcuts.visibleMailbox.description',
   // t(tab.labelKey) — labelKey is a string property set in the TABS array
   'admin.tabs.accounts',
   'admin.tabs.rules',

@@ -504,6 +504,11 @@
     "customizeHint": "Personalizza le scorciatoie in Impostazioni → Scorciatoie",
     "closeHint": "Premi ? o Esc per chiudere",
     "then": "poi",
+    "browserMailboxFallback": "Nel browser: g poi 1–9 apre una casella visibile; g poi l apre il selettore cartelle.",
+    "visibleMailbox": {
+      "label": "Casella visibile {{number}}",
+      "description": "Apri la casella visibile {{number}}"
+    },
     "groups": {
       "composeSearch": "Composizione e ricerca",
       "navigation": "Navigazione",
@@ -511,6 +516,30 @@
       "gtd": "GTD"
     },
     "actions": {
+      "toggleLeftSidebar": {
+        "label": "Mostra o nascondi barra laterale sinistra",
+        "description": "Mostra o nascondi la barra laterale sinistra"
+      },
+      "openLabelPicker": {
+        "label": "Apri selettore cartelle",
+        "description": "Copia il messaggio selezionato in una cartella"
+      },
+      "replyAllFromSelection": {
+        "label": "Rispondi a tutti dalla selezione",
+        "description": "Rispondi a tutti i destinatari del messaggio selezionato"
+      },
+      "markUnread": {
+        "label": "Segna come da leggere",
+        "description": "Segna il messaggio selezionato come da leggere"
+      },
+      "unsubscribe": {
+        "label": "Annulla iscrizione",
+        "description": "Annulla l’iscrizione alla lista del messaggio selezionato"
+      },
+      "loadRemoteImages": {
+        "label": "Carica immagini remote",
+        "description": "Carica le immagini nel messaggio selezionato"
+      },
       "compose": {
         "label": "Scrivi",
         "description": "Apri una nuova finestra di composizione"

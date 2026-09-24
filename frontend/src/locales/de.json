@@ -504,6 +504,11 @@
     "customizeHint": "Kürzel anpassen unter Einstellungen → Tastaturkürzel",
     "closeHint": "? oder Esc zum Schließen drücken",
     "then": "dann",
+    "browserMailboxFallback": "Im Browser: g und dann 1–9 öffnet ein sichtbares Postfach; g und dann l öffnet die Ordnerauswahl.",
+    "visibleMailbox": {
+      "label": "Sichtbares Postfach {{number}}",
+      "description": "Sichtbares Postfach {{number}} öffnen"
+    },
     "groups": {
       "composeSearch": "Verfassen & Suche",
       "navigation": "Navigation",
@@ -511,6 +516,30 @@
       "gtd": "GTD"
     },
     "actions": {
+      "toggleLeftSidebar": {
+        "label": "Linke Seitenleiste umschalten",
+        "description": "Linke Seitenleiste ein- oder ausblenden"
+      },
+      "openLabelPicker": {
+        "label": "Ordnerauswahl öffnen",
+        "description": "Ausgewählte Nachricht in einen Ordner kopieren"
+      },
+      "replyAllFromSelection": {
+        "label": "Allen antworten",
+        "description": "Allen Empfängern der ausgewählten Nachricht antworten"
+      },
+      "markUnread": {
+        "label": "Als ungelesen markieren",
+        "description": "Ausgewählte Nachricht als ungelesen markieren"
+      },
+      "unsubscribe": {
+        "label": "Abmelden",
+        "description": "Von der ausgewählten Mailingliste abmelden"
+      },
+      "loadRemoteImages": {
+        "label": "Externe Bilder laden",
+        "description": "Bilder in der ausgewählten Nachricht laden"
+      },
       "compose": {
         "label": "Verfassen",
         "description": "Neues Fenster zum Verfassen öffnen"

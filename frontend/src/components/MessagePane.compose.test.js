@@ -119,7 +119,10 @@ before(async () => {
   useStore.getState().setLocked(false);
   useStore.getState().setAccounts([ACCOUNT]);
   useStore.getState().setMessages([MSG]);
-  useStore.setState({ openCompose: (draft) => drafts.push(draft) });
+  useStore.setState({
+    openCompose: (draft) => drafts.push(draft),
+    messageWindows: [{ winId: 'test-window', messageId: 'm1', z: 1, minimized: false }],
+  });
   useStore.getState().setSelectedMessage('m1');
   root = createRoot(document.getElementById('root'));
   // Detached windows have no MessageList; the pane owns its toolbar actions.

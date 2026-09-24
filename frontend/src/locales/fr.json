@@ -504,6 +504,11 @@
     "customizeHint": "Personnaliser les raccourcis dans Paramètres → Raccourcis",
     "closeHint": "Appuyez sur ? ou Échap pour fermer",
     "then": "puis",
+    "browserMailboxFallback": "Dans le navigateur : g puis 1–9 ouvre une boîte visible ; g puis l ouvre le sélecteur de dossiers.",
+    "visibleMailbox": {
+      "label": "Boîte visible {{number}}",
+      "description": "Ouvrir la boîte visible {{number}}"
+    },
     "groups": {
       "composeSearch": "Rédaction et recherche",
       "navigation": "Navigation",
@@ -511,6 +516,30 @@
       "gtd": "GTD"
     },
     "actions": {
+      "toggleLeftSidebar": {
+        "label": "Afficher ou masquer la barre latérale gauche",
+        "description": "Afficher ou masquer la barre latérale gauche"
+      },
+      "openLabelPicker": {
+        "label": "Ouvrir le sélecteur de dossiers",
+        "description": "Copier le message sélectionné dans un dossier"
+      },
+      "replyAllFromSelection": {
+        "label": "Répondre à tous depuis la sélection",
+        "description": "Répondre à tous les destinataires du message sélectionné"
+      },
+      "markUnread": {
+        "label": "Marquer comme non lu",
+        "description": "Marquer le message sélectionné comme non lu"
+      },
+      "unsubscribe": {
+        "label": "Se désabonner",
+        "description": "Se désabonner de la liste du message sélectionné"
+      },
+      "loadRemoteImages": {
+        "label": "Charger les images distantes",
+        "description": "Charger les images du message sélectionné"
+      },
       "compose": {
         "label": "Composer",
         "description": "Ouvrir une nouvelle fenêtre de rédaction"
