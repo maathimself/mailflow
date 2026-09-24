@@ -99,3 +99,11 @@ describe('buildModKeyMap', () => {
     assert.equal(warn.mock.callCount(), 0);
   });
 });
+
+describe('modifier shortcuts', () => {
+  it('runs GTD Done only for its full Ctrl+Shift+E binding', () => {
+    assert.equal(resolveShortcutAction({ key: 'E', ctrlKey: true, shiftKey: true }), 'gtdDone');
+    assert.equal(resolveShortcutAction({ key: 'e', ctrlKey: true, shiftKey: false }), null);
+    assert.equal(resolveShortcutAction({ key: 'E', ctrlKey: false, shiftKey: true }), null);
+  });
+});
