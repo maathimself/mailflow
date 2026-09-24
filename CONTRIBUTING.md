@@ -13,6 +13,10 @@ MailFlow is a vision-led project. I hold the direction, because a single coheren
 
 If you want to build something bigger, MailFlow's plugin system and its AGPL licence give you room to do that in a plugin or your own fork, without needing it merged here.
 
+## One open pull request per author
+
+I review everything myself, and a queue of parallel PRs from one author does not get reviewed faster — it gets reviewed worse. So MailFlow works on one open PR per author at a time: pick the change you most want in, and we work through it together. Further PRs opened while you have one active will be closed with thanks, unprejudiced, and can be reopened when your active one merges or closes. Splitting a large PR into several small ones is still the right instinct — open them one at a time, not all at once.
+
 ## Before You Start
 
 - Search the [issue tracker](https://github.com/maathimself/mailflow/issues) — the problem or feature may already be discussed.
