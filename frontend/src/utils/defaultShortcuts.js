@@ -45,7 +45,7 @@ export const ACTION_DEFS = {
 
   // ── GTD ──────────────────────────────────────────────────────────────────────
   // Classify the selected message into a GTD state (COPY into its label folder).
-  // Someday/Reference are intentionally keyless (context menu + user-bindable).
+  // Reference and Someday default to v/b; Done uses Ctrl+Shift+E.
   gtdTodo:       { groupKey: 'shortcuts.groups.gtd',            labelKey: 'shortcuts.actions.gtdTodo.label',       descriptionKey: 'shortcuts.actions.gtdTodo.description',       defaultKey: 't' },
   gtdWatch:      { groupKey: 'shortcuts.groups.gtd',            labelKey: 'shortcuts.actions.gtdWatch.label',      descriptionKey: 'shortcuts.actions.gtdWatch.description',      defaultKey: 'w' },
   gtdDelegated:  { groupKey: 'shortcuts.groups.gtd',            labelKey: 'shortcuts.actions.gtdDelegated.label',  descriptionKey: 'shortcuts.actions.gtdDelegated.description',  defaultKey: 'd' },
