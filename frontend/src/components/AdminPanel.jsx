@@ -30,7 +30,7 @@ import { NOTIFICATION_SOUNDS, playNotificationSound, playCustomSound, warmUpAudi
 import { usePushNotifications } from '../hooks/usePushNotifications.js';
 import SignatureEditor from './SignatureEditor.jsx';
 import DiagnosticsReportModal from './DiagnosticsReportModal.jsx';
-import { getEffectiveShortcuts, getGroupedActions, ACTION_DEFS, SPECIAL_KEY_LABELS, parseModKey, modLabel } from '../utils/defaultShortcuts.js';
+import { getEffectiveShortcuts, getGroupedActions, shortcutActionText, SPECIAL_KEY_LABELS, parseModKey, modLabel } from '../utils/defaultShortcuts.js';
 import { isValidForwardAddress } from '../utils/ruleActions.js';
 import { folderParentLabel } from '../utils/folderDisplay.js';
 import SpamSettings from './SpamSettings.jsx';
@@ -7301,7 +7301,7 @@ function ShortcutsTab() {
           background: 'rgba(234, 179, 8, 0.1)', border: '1px solid rgba(234, 179, 8, 0.4)',
           borderRadius: 7, fontSize: 12, color: 'var(--text-secondary)',
         }}>
-          {t('admin.shortcuts.conflict', { key: pendingConflict.key, action: t(ACTION_DEFS[pendingConflict.action]?.labelKey) })}
+          {t('admin.shortcuts.conflict', { key: pendingConflict.key, action: shortcutActionText(t, pendingConflict.action, 'label') })}
         </div>
       )}
 
@@ -7314,7 +7314,7 @@ function ShortcutsTab() {
             {t(groupName)}
           </div>
           <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
-            {actions.map(({ action, descriptionKey }, i) => {
+            {actions.map(({ action }, i) => {
               const key = effective[action];
               const isDefault = !(action in shortcuts);
               const isRec = recording === action;
@@ -7330,7 +7330,7 @@ function ShortcutsTab() {
                   }}
                 >
                   <span style={{ flex: 1, fontSize: 13, color: 'var(--text-secondary)' }}>
-                    {t(descriptionKey)}
+                    {shortcutActionText(t, action)}
                   </span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
                     <button

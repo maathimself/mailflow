@@ -8,7 +8,8 @@ import { getEffectiveShortcuts, parseModKey, modCompactLabel } from '../utils/de
 import { useMobile } from '../hooks/useMobile.js';
 import { clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
-import { applyMarkRead, scheduleMarkRead } from '../utils/markRead.js';
+import { applyMarkRead, scheduleMarkRead, cancelScheduledMarkReadFor } from '../utils/markRead.js';
+import { markMessageUnread } from '../utils/messageHotkeys.js';
 import DOMPurify from 'dompurify';
 import { BUILTIN_SUMMARIZE, summarizePromptForLocale } from '../aiActions.js';
 import { getResults, saveResult, removeResult } from '../aiResults.js';
@@ -925,9 +926,17 @@ ${bodyContent}
   paneActionsRef.current = {
     reply:      () => handleReply(defaultReplyAll),
     replyAll:   () => handleReply(true),
-    forward:    handleForward,
     toggleStar: handleStarToggle,
     print:      handlePrint,
+    unsubscribe: () => {
+      if (!windowMode && message?.list_unsubscribe && !message.unsubscribed_at && unsubscribeStatus !== 'loading' && unsubscribeStatus !== 'done') handleUnsubscribe();
+    },
+    loadRemoteImages: async () => {
+      if (windowMode || !message) return;
+      const id = message.id;
+      const currentBody = body ?? await api.getMessageBody(id).catch(() => null);
+      if (useStore.getState().selectedMessageId === id && currentBody?.hasBlockedRemoteImages) handleLoadImages();
+    },
   };
 
   // Subscribe to keyboard shortcut actions that belong to the message pane.
@@ -935,22 +944,31 @@ ${bodyContent}
   useEffect(() => {
     const onReply        = () => paneActionsRef.current.reply();
     const onReplyAll     = () => paneActionsRef.current.replyAll();
-    const onForward      = () => paneActionsRef.current.forward();
     const onToggleStar   = () => paneActionsRef.current.toggleStar();
     const onPrintMessage = () => paneActionsRef.current.print?.();
+    const onUnsubscribe = () => paneActionsRef.current.unsubscribe?.();
+    const onLoadRemoteImages = () => paneActionsRef.current.loadRemoteImages?.();
+    const onExplicitUnread = () => {
+      clearTimeout(autoMarkReadTimerRef.current);
+      autoMarkReadTimerRef.current = null;
+    };
 
     shortcutBus.on('reply',         onReply);
     shortcutBus.on('replyAll',      onReplyAll);
-    shortcutBus.on('forward',       onForward);
     shortcutBus.on('toggleStar',    onToggleStar);
     shortcutBus.on('printMessage',  onPrintMessage);
+    shortcutBus.on('unsubscribe', onUnsubscribe);
+    shortcutBus.on('loadRemoteImages', onLoadRemoteImages);
+    shortcutBus.on('markUnread', onExplicitUnread);
 
     return () => {
       shortcutBus.off('reply',         onReply);
       shortcutBus.off('replyAll',      onReplyAll);
-      shortcutBus.off('forward',       onForward);
       shortcutBus.off('toggleStar',    onToggleStar);
       shortcutBus.off('printMessage',  onPrintMessage);
+      shortcutBus.off('unsubscribe', onUnsubscribe);
+      shortcutBus.off('loadRemoteImages', onLoadRemoteImages);
+      shortcutBus.off('markUnread', onExplicitUnread);
     };
   }, []);
 
@@ -1006,19 +1024,17 @@ ${bodyContent}
   }, [showMovePicker, message?.account_id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleMarkUnread = useCallback(() => {
-    if (!message || !message.is_read) return;
-    updateMessage(message.id, { is_read: false });
-    incrementUnread(message.account_id);
-    adjustCategoryCount(message.category, 1);
-    completedMarkReadMap.delete(message.id);
-    pendingMarkReadMap.delete(message.id);
-    api.bulkRead([message.id], false).catch(e => {
-      console.error('markUnread failed:', e.message);
-      updateMessage(message.id, { is_read: true });
-      decrementUnread(message.account_id);
-      adjustCategoryCount(message.category, -1);
-    });
-    if (isMobile) setSelectedMessage(null);
+    if (markMessageUnread(message, {
+      cancel: () => {
+        clearTimeout(autoMarkReadTimerRef.current);
+        autoMarkReadTimerRef.current = null;
+        cancelScheduledMarkReadFor(message.id);
+        pendingMarkReadMap.delete(message.id);
+        completedMarkReadMap.delete(message.id);
+      },
+      update: updateMessage, incrementUnread, decrementUnread, adjustCategoryCount,
+      patch: api.bulkRead,
+    }) && isMobile) setSelectedMessage(null);
   }, [message, updateMessage, incrementUnread, decrementUnread, adjustCategoryCount, isMobile, setSelectedMessage]);
 
   const handleEmailClick = useCallback((ev) => {

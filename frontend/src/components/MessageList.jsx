@@ -22,6 +22,8 @@ import {
 import { formatDate } from '../utils/formatDate.js';
 import { advanceSelectionAfterRemoval } from '../utils/listSelection.js';
 import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
+import { selectedMessage, markMessageUnread } from '../utils/messageHotkeys.js';
+import { cancelScheduledMarkReadFor } from '../utils/markRead.js';
 import SenderAvatarImage from './SenderAvatarImage.jsx';
 import FolderPathLabel from './FolderPathLabel.jsx';
 import { folderMatchesQuery } from '../utils/folderDisplay.js';
@@ -1876,7 +1878,6 @@ export default function MessageList() {
   const bulkDeleteRef    = useRef(handleBulkDelete);
   const bulkArchiveRef   = useRef(handleBulkArchive);
   const scheduleDeleteRef = useRef(scheduleDelete);
-  const handleContextActionRef = useRef(null); // assigned below, once handleContextAction is defined
   useEffect(() => { bulkDeleteRef.current    = handleBulkDelete;  }, [handleBulkDelete]);
   useEffect(() => { bulkArchiveRef.current   = handleBulkArchive; }, [handleBulkArchive]);
   useEffect(() => { archiveVisibleMessageRef.current = archiveVisibleMessage; }, [archiveVisibleMessage]);
@@ -2014,6 +2015,44 @@ export default function MessageList() {
       }
     };
 
+    const onMarkUnread = () => {
+      const state = getState();
+      const message = selectedMessage(state);
+      markMessageUnread(message, {
+        cancel: () => {
+          if (message) {
+            cancelScheduledMarkReadFor(message.id);
+            pendingMarkReadMap.delete(message.id);
+            completedMarkReadMap.delete(message.id);
+          }
+          clearTimeout(autoMarkReadTimerRef.current);
+          autoMarkReadTimerRef.current = null;
+        },
+        update: state.updateMessage,
+        incrementUnread: state.incrementUnread,
+        decrementUnread: state.decrementUnread,
+        adjustCategoryCount: state.adjustCategoryCount,
+        patch: api.bulkRead,
+      });
+    };
+
+    const onForward = () => {
+      const state = getState();
+      const message = selectedMessage(state);
+      if (message) void openForwardFromMessage(message, {
+        openCompose: state.openCompose, getMessageBody: api.getMessageBody,
+      });
+    };
+
+    const onReplyAllFromSelection = () => {
+      const state = getState();
+      const message = selectedMessage(state);
+      if (message) void openReplyFromMessage(message, {
+        accounts: state.accounts, openCompose: state.openCompose,
+        getMessageBody: api.getMessageBody, replyAll: true,
+      });
+    };
+
     const onFocusSearch = () => {
       searchInputRef.current?.focus();
       searchInputRef.current?.select();
@@ -2027,6 +2066,9 @@ export default function MessageList() {
     shortcutBus.on('archive',       onArchive);
     shortcutBus.on('delete',        onDelete);
     shortcutBus.on('toggleRead',    onToggleRead);
+    shortcutBus.on('markUnread',    onMarkUnread);
+    shortcutBus.on('forward',       onForward);
+    shortcutBus.on('replyAllFromSelection', onReplyAllFromSelection);
     shortcutBus.on('focusSearch',   onFocusSearch);
 
     return () => {
@@ -2037,6 +2079,9 @@ export default function MessageList() {
       shortcutBus.off('archive',       onArchive);
       shortcutBus.off('delete',        onDelete);
       shortcutBus.off('toggleRead',    onToggleRead);
+      shortcutBus.off('markUnread',    onMarkUnread);
+      shortcutBus.off('forward',       onForward);
+      shortcutBus.off('replyAllFromSelection', onReplyAllFromSelection);
       shortcutBus.off('focusSearch',   onFocusSearch);
     };
   }, []);
@@ -2321,12 +2366,6 @@ export default function MessageList() {
         break;
     }
   };
-  // Expose the latest handleContextAction to the once-registered shortcut effect via
-  // a post-commit effect (the sibling handler refs' pattern), rather than mutating the
-  // ref during render. No dep array: handleContextAction isn't memoized, so it syncs
-  // on every commit.
-  useEffect(() => { handleContextActionRef.current = handleContextAction; });
-
   const handleThreadMarkRead = (e, message) => {
     e.stopPropagation();
     const uc = parseInt(message.unread_count);

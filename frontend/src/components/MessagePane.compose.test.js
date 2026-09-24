@@ -6,9 +6,8 @@
 // file is the evidence that the refactor was behavior-preserving, not a description of what
 // the draft ought to look like.
 //
-// Triggered through shortcutBus rather than by clicking, because the toolbar button titles
-// are built from translated strings plus shortcut labels and would make this a test of the
-// markup instead of a test of the draft.
+// Reply actions use shortcutBus. Forward uses the pane's own toolbar button: the selected-row
+// shortcut belongs to MessageList, which is not mounted in this isolated pane test.
 
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -123,7 +122,8 @@ before(async () => {
   useStore.setState({ openCompose: (draft) => drafts.push(draft) });
   useStore.getState().setSelectedMessage('m1');
   root = createRoot(document.getElementById('root'));
-  await React.act(async () => { root.render(React.createElement(MessagePane)); });
+  // Detached windows have no MessageList; the pane owns its toolbar actions.
+  await React.act(async () => { root.render(React.createElement(MessagePane, { windowMessageId: 'm1' })); });
   // Let the body load, since the quoted text is built from it.
   await React.act(async () => { await new Promise(r => setTimeout(r, 60)); });
 });
@@ -131,7 +131,15 @@ after(async () => { await React.act(async () => root.unmount()); });
 
 const emit = async (action) => {
   drafts = [];
-  await React.act(async () => { shortcutBus.emit(action); });
+  await React.act(async () => {
+    if (action === 'forward') {
+      const button = document.querySelector('button[title^="message.forward"]');
+      assert.ok(button, 'pane forward button is available');
+      button.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    } else {
+      shortcutBus.emit(action);
+    }
+  });
   await React.act(async () => { await new Promise(r => setTimeout(r, 20)); });
   assert.equal(drafts.length, 1, `${action} opened exactly one composer`);
   return drafts[0];

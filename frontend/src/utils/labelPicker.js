@@ -1,4 +1,3 @@
-import { GTD_STATES, resolveAccountGtdFolders } from './gtd.js';
 import { CSRF_HEADER, CSRF_VALUE } from './api.js';
 
 export function selectedPickerMessage(state) {
@@ -18,17 +17,12 @@ export function selectedPickerMessage(state) {
 const SYSTEM_NAMES = new Set(['inbox', 'sent', 'drafts', 'trash', 'spam', 'junk', 'archive', 'all mail', 'starred', 'important']);
 const SYSTEM_USES = new Set(['inbox', 'sent', 'drafts', 'trash', 'junk', 'archive', 'all', 'flagged']);
 
-export function labelPickerOptions(folders, account, enabledPlugins = [], sourceFolder) {
+export function labelPickerOptions(folders, account, sourceFolder) {
   if (!account?.enabled) return [];
-  const gtdActive = account.gtd_enabled && enabledPlugins.includes('gtd');
-  const gtdPaths = resolveAccountGtdFolders(account);
-  const stateByPath = new Map(GTD_STATES.map(state => [gtdPaths[state], state]));
   const mappedSystemPaths = new Set(Object.values(account.folder_mappings || {}).filter(Boolean));
   return (folders || []).flatMap(folder => {
     const path = folder.path;
     if (!path || folder.no_select || path === sourceFolder) return [];
-    const state = stateByPath.get(path);
-    if (state) return gtdActive ? [{ path, label: folder.name || path, state }] : [];
     const use = String(folder.special_use || '').replaceAll('\\', '').toLowerCase();
     if (SYSTEM_USES.has(use) || SYSTEM_NAMES.has(String(folder.name || '').toLowerCase()) || mappedSystemPaths.has(path)) return [];
     return [{ path, label: folder.name || path }];
@@ -47,9 +41,7 @@ export function pickerNavigationDirection(event) {
 
 export async function executeLabelChoice(message, choice, api) {
   if (!message || !choice) return;
-  const apply = row => choice.state
-    ? api.gtdClassify(row.id, choice.state)
-    : api.copyMessage(row.id, choice.path);
+  const apply = row => api.copyMessage(row.id, choice.path);
   if (!message.thread_id || Number(message.message_count) <= 1 || !api.getThread) {
     return apply(message);
   }

@@ -43,7 +43,7 @@ globalThis.fetch = async (url, opts = {}) => {
 };
 
 const { useStore } = await import('../store/index.js');
-const { applyMarkRead, scheduleMarkRead } = await import('./markRead.js');
+const { applyMarkRead, scheduleMarkRead, cancelScheduledMarkReadFor } = await import('./markRead.js');
 const { pendingMarkReadMap, completedMarkReadMap } = await import('./pendingReads.js');
 
 const MSG = { id: 'm1', account_id: 'acct', category: 'primary', is_read: false };
@@ -90,6 +90,15 @@ describe('applyMarkRead', () => {
 });
 
 describe('scheduleMarkRead', () => {
+  test('explicit unread cancels every pending reader timer for that message', async () => {
+    useStore.setState({ markReadBehavior: 'delay', markReadDelay: 0.03 });
+    scheduleMarkRead({ ...MSG });
+    scheduleMarkRead({ ...MSG });
+    cancelScheduledMarkReadFor(MSG.id);
+    await tick(70);
+    assert.deepEqual(bulkReads, []);
+    assert.equal(readFlag(), false);
+  });
   test('marks immediately by default', async () => {
     const timer = scheduleMarkRead({ ...MSG });
     assert.equal(timer, null, 'nothing to cancel when the mark already happened');

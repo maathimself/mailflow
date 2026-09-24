@@ -11,10 +11,5 @@ export function canRunGlobalAction(action, { rightSidebarApplicable }) {
 }
 
 export function canRunSelectedAction(action, state) {
-  if (!SELECTED_ACTIONS.has(action) && !action.startsWith('gtd')) return true;
-  const message = selectedPickerMessage(state);
-  if (!message) return false;
-  if (!action.startsWith('gtd')) return true;
-  const account = (state.accounts || []).find(row => row.id === message.account_id);
-  return Boolean(state.enabledPlugins?.includes('gtd') && account?.enabled && account.gtd_enabled);
+  return !SELECTED_ACTIONS.has(action) || Boolean(selectedPickerMessage(state));
 }

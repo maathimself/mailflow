@@ -12,7 +12,7 @@ import { runMailboxShortcut, canRunMailboxShortcut, browserShortcutFallback } fr
 import { canRunSelectedAction, canRunGlobalAction } from '../utils/shortcutApplicability.js';
 import { selectedPickerMessage } from '../utils/labelPicker.js';
 import { applyMarkRead } from '../utils/markRead.js';
-import { buildKeyMap, resolveShortcutAction, getEffectiveShortcuts, getGroupedActions, parseModKey, modLabel, SPECIAL_KEYS, SPECIAL_KEY_LABELS } from '../utils/defaultShortcuts.js';
+import { buildKeyMap, resolveShortcutAction, shortcutActionText, getEffectiveShortcuts, getGroupedActions, parseModKey, modLabel, SPECIAL_KEYS, SPECIAL_KEY_LABELS } from '../utils/defaultShortcuts.js';
 import Sidebar from './Sidebar.jsx';
 import MessageList from './MessageList.jsx';
 import ReadingPane from './ReadingPane.jsx';
@@ -1011,12 +1011,12 @@ function ShortcutHelpOverlay({ shortcuts, onClose }) {
               <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
                 {t(groupName)}
               </div>
-              {actions.map(({ action, descriptionKey }) => (
+              {actions.map(({ action }) => (
                 <div key={action} style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                   padding: '5px 0', borderBottom: '1px solid var(--border-subtle)',
                 }}>
-                  <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{t(descriptionKey)}</span>
+                  <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{shortcutActionText(t, action)}</span>
                   {keyBadge(effective[action])}
                 </div>
               ))}

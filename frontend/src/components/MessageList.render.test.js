@@ -60,6 +60,7 @@ Object.assign(globalThis, {
 dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} });
 dom.window.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
 globalThis.matchMedia = dom.window.matchMedia;
+dom.window.Element.prototype.scrollIntoView = () => {};
 globalThis.__VITE_ENV__ = { MODE: 'test', DEV: false, PROD: true };
 // MessageList loads its own messages on mount and overwrites anything seeded in the store,
 // so the fetch stub has to serve the row rather than the store. Only the messages endpoint
@@ -77,6 +78,7 @@ globalThis.fetch = async (url) => {
 const React = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { useStore } = await import('../store/index.js');
+const { shortcutBus } = await import('../utils/shortcutBus.js');
 const MessageList = (await import('./MessageList.jsx')).default;
 
 const ACCOUNT = { id: 'acct-1', email_address: 'a@example.com', name: 'A', color: '#6366f1', include_in_unified_inbox: true };
@@ -150,4 +152,23 @@ test('All Mail renders its title and syncing state on desktop and mobile', async
   } finally {
     dom.window.innerWidth = 1024;
   }
+});
+
+describe('MessageList — selected-row shortcuts', () => {
+  test('forward and Reply All act on the selected row; no selection does nothing', async () => {
+    await mount({ rows: [MESSAGE], threadedView: false });
+    const drafts = [];
+    useStore.setState({ openCompose: draft => drafts.push(draft) });
+    await React.act(async () => { useStore.getState().setSelectedMessage('msg-1'); });
+    await React.act(async () => { shortcutBus.emit('forward'); await new Promise(r => setTimeout(r, 10)); });
+    assert.equal(drafts.length, 1);
+    assert.equal(drafts[0].isForward, true);
+    assert.equal(useStore.getState().selectedMessageId, 'msg-1');
+    await React.act(async () => { shortcutBus.emit('replyAllFromSelection'); await new Promise(r => setTimeout(r, 10)); });
+    assert.equal(drafts.length, 2);
+    assert.equal(drafts[1].isReplyAll, true);
+    useStore.getState().setSelectedMessage(null);
+    await React.act(async () => { shortcutBus.emit('forward'); shortcutBus.emit('replyAllFromSelection'); await new Promise(r => setTimeout(r, 10)); });
+    assert.equal(drafts.length, 2);
+  });
 });

@@ -65,7 +65,7 @@ export default function CommandPalette({ open, onClose, labelPickerMessage = nul
   const { t } = useTranslation();
   const isMobile = useMobile();
   const { openCompose, setSelectedAccount, setShowAdmin, setAdminTab, theme, setTheme,
-    accounts, selectedAccountId, folders, enabledPlugins, addNotification } = useStore();
+    accounts, selectedAccountId, folders, addNotification } = useStore();
   const [query, setQuery] = useState('');
   const [activeIdx, setActiveIdx] = useState(0);
   const [listScrolled, setListScrolled] = useState(false);
@@ -74,13 +74,13 @@ export default function CommandPalette({ open, onClose, labelPickerMessage = nul
 
   const pickerAccount = accounts.find(account => account.id === labelPickerMessage?.account_id);
   const actions = labelPickerMessage
-    ? labelPickerOptions(folders[labelPickerMessage.account_id], pickerAccount, enabledPlugins, labelPickerMessage.folder)
+    ? labelPickerOptions(folders[labelPickerMessage.account_id], pickerAccount, labelPickerMessage.folder)
       .map(choice => ({
         id: `label:${choice.path}`,
-        label: choice.state ? `Label as ${choice.label}` : `Copy to ${choice.label}`,
+        label: `Copy to ${choice.label}`,
         icon: <span style={{ width: 15, textAlign: 'center' }}>◇</span>,
         run: () => executeLabelChoice(labelPickerMessage, choice,
-          { gtdClassify: api.gtdClassify, getThread: api.getThread, copyMessage: copyMessageToFolder }),
+          { getThread: api.getThread, copyMessage: copyMessageToFolder }),
       }))
     : buildActions({ t, openCompose, setSelectedAccount, setShowAdmin, setAdminTab, theme, setTheme, accounts, selectedAccountId });
 

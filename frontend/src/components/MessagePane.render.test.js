@@ -67,6 +67,8 @@ const React = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { useStore } = await import('../store/index.js');
 const { aiRuns } = await import('../utils/aiRunRegistry.js');
+const { api } = await import('../utils/api.js');
+const { shortcutBus } = await import('../utils/shortcutBus.js');
 const MessagePane = (await import('./MessagePane.jsx')).default;
 
 const MSG_A = { id: 'a1', account_id: 'acct', folder: 'INBOX', uid: 1, subject: 'First', from_email: 'x@y.z', from_name: 'X', date: new Date().toISOString(), is_read: true, to_addresses: [], cc_addresses: [] };
@@ -81,6 +83,7 @@ before(() => {
   useStore.getState().setMessages?.([MSG_A, MSG_B]);
   root = createRoot(document.getElementById('root'));
 });
+
 after(async () => { await React.act(async () => root.unmount()); aiRuns.abortAll(); });
 
 describe('MessagePane renders', () => {
@@ -337,5 +340,36 @@ describe('message body rendering', () => {
     await open('t1');
     const after = document.querySelector('iframe');
     if (after) assert.notEqual(after.style.height, '2400px', 'height must not carry across messages');
+  });
+});
+
+describe('selected-message body shortcuts', () => {
+  test('i loads remote images only while the selected body is blocked', async (t) => {
+    const msg = { ...MSG_A, id: 'hotkey-image', uid: 41 };
+    const getBody = t.mock.method(api, 'getMessageBody', async (_id, remote) => ({ text: 'hello', hasBlockedRemoteImages: !remote }));
+    await React.act(async () => {
+      useStore.getState().setMessages([msg]);
+      useStore.getState().setSelectedMessage(msg.id);
+      root.render(React.createElement(MessagePane));
+      await new Promise(r => setTimeout(r, 30));
+    });
+    await React.act(async () => { shortcutBus.emit('loadRemoteImages'); await new Promise(r => setTimeout(r, 30)); });
+    assert.equal(getBody.mock.calls.filter(call => call.arguments[1] === true).length, 1);
+    await React.act(async () => { shortcutBus.emit('loadRemoteImages'); await new Promise(r => setTimeout(r, 20)); });
+    assert.equal(getBody.mock.calls.filter(call => call.arguments[1] === true).length, 1);
+  });
+
+  test('unsubscribe uses selected message existing flow once and ignores missing selection', async (t) => {
+    const msg = { ...MSG_A, id: 'hotkey-unsub', uid: 42, list_unsubscribe: '<https://example.invalid/unsub>' };
+    const unsubscribe = t.mock.method(api, 'unsubscribeMessage', async () => ({ type: 'one-click' }));
+    await React.act(async () => {
+      useStore.getState().setMessages([msg]);
+      useStore.getState().setSelectedMessage(msg.id);
+      root.render(React.createElement(MessagePane));
+    });
+    await React.act(async () => { shortcutBus.emit('unsubscribe'); await new Promise(r => setTimeout(r, 10)); });
+    assert.deepEqual(unsubscribe.mock.calls.map(call => call.arguments[0]), [msg.id]);
+    await React.act(async () => { shortcutBus.emit('unsubscribe'); useStore.getState().setSelectedMessage(null); shortcutBus.emit('unsubscribe'); });
+    assert.equal(unsubscribe.mock.callCount(), 1);
   });
 });

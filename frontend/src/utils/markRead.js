@@ -2,6 +2,15 @@ import { useStore } from '../store/index.js';
 import { api } from './api.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from './pendingReads.js';
 
+const scheduledByMessage = new Map();
+
+export function cancelScheduledMarkReadFor(id) {
+  const timers = scheduledByMessage.get(id);
+  if (!timers) return;
+  for (const timer of timers) clearTimeout(timer);
+  scheduledByMessage.delete(id);
+}
+
 // The mark-read protocol, in one place.
 //
 // Three callers need it: MessagePane (opening a message in the reading pane),
@@ -47,7 +56,15 @@ export function scheduleMarkRead(msg) {
   const { markReadBehavior, markReadDelay } = useStore.getState();
   if (markReadBehavior === 'manual') return null;
   if (markReadBehavior === 'delay') {
-    return setTimeout(() => applyMarkRead(msg), (markReadDelay || 1) * 1000);
+    const timer = setTimeout(() => {
+      const timers = scheduledByMessage.get(msg.id);
+      timers?.delete(timer);
+      if (timers?.size === 0) scheduledByMessage.delete(msg.id);
+      applyMarkRead(msg);
+    }, (markReadDelay || 1) * 1000);
+    if (!scheduledByMessage.has(msg.id)) scheduledByMessage.set(msg.id, new Set());
+    scheduledByMessage.get(msg.id).add(timer);
+    return timer;
   }
   applyMarkRead(msg);
   return null;
