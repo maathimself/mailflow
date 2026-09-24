@@ -255,7 +255,9 @@ export function useGtdTriage() {
   };
 
   // Bundle passed down to each row for its hover cluster + right-click menu.
-  const rowActions = { setRead, toggleStar, deleteRow, done: doneRow, openMenu: setContextMenu };
+  const rowActions = {
+    setRead, toggleStar, deleteRow, done: doneRow, classifyRow, openMenu: setContextMenu,
+  };
 
   return { contextMenu, setContextMenu, handleGtdAction, openRow, rowActions };
 }

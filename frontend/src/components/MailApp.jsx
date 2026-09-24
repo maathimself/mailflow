@@ -8,6 +8,7 @@ import { LAYOUTS } from '../layouts.js';
 import { updateFaviconBadge } from '../themes.js';
 import { installResumeRefresh } from '../utils/resumeRefresh.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
+import { dispatchHoveredGtdShortcut } from '../utils/gtdHoveredRow.js';
 import { applyMarkRead } from '../utils/markRead.js';
 import { buildKeyMap, buildModKeyMap, getEffectiveShortcuts, getGroupedActions, parseModKey, modLabel, SPECIAL_KEYS, SPECIAL_KEY_LABELS } from '../utils/defaultShortcuts.js';
 import Sidebar from './Sidebar.jsx';
@@ -571,10 +572,14 @@ export default function MailApp() {
       if (composingRef.current || showAdminRef.current) return;
       const tag = e.target.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
+      const dispatchAction = (action) => {
+        e.preventDefault();
+        if (!dispatchHoveredGtdShortcut(action)) shortcutBus.emit(action);
+      };
       // Modifier combos: emit registered actions, pass everything else through
       if (e.ctrlKey || e.metaKey) {
         const action = modKeyMap[e.key.toLowerCase()];
-        if (action) { e.preventDefault(); shortcutBus.emit(action); }
+        if (action) dispatchAction(action);
         return;
       }
       if (e.altKey) return;
@@ -598,8 +603,7 @@ export default function MailApp() {
       // keys like Delete that would otherwise be skipped below.
       const action = keyMap[resolved];
       if (action) {
-        e.preventDefault();
-        shortcutBus.emit(action);
+        dispatchAction(action);
         return;
       }
 

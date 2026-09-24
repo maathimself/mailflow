@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   GTD_COLORS, GTD_CHIP_BG, agingLabel, resolveRowDisplay,
 } from '../utils/gtd.js';
+import { clearHoveredGtdRow } from '../utils/gtdHoveredRow.js';
 import { formatDate } from '../utils/formatDate.js';
 
 // One GTD entry row, shared by both display surfaces: the GTD browse list that
@@ -48,10 +49,11 @@ const ROW_VARIANTS = {
 
 export default function GtdEntryRow({
   thread, sectionKey, variant, selected, t,
-  onClick, onContextMenu, renderHoverActions,
+  onClick, onContextMenu, onHoverTargetEnter, renderHoverActions,
 }) {
   const v = ROW_VARIANTS[variant];
   const isWaiting = sectionKey === 'waiting';
+  const hoverBackground = variant === 'sidebar' ? 'var(--bg-tertiary)' : 'var(--bg-hover)';
   const { rowState, unread, days, stale, sender } = resolveRowDisplay(thread, sectionKey);
 
   // The hover cluster renders only when the caller passes renderHoverActions — both
@@ -60,7 +62,12 @@ export default function GtdEntryRow({
   // cluster keeps mutating its background imperatively without a re-render on every
   // mouse enter/leave.
   const [hovered, setHovered] = useState(false);
+  const hoverTargetToken = useRef(null);
   const trackHover = !!renderHoverActions;
+
+  useEffect(() => () => {
+    if (hoverTargetToken.current) clearHoveredGtdRow(hoverTargetToken.current);
+  }, []);
 
   return (
     <div
@@ -74,8 +81,17 @@ export default function GtdEntryRow({
         cursor: 'pointer', borderLeft: `2px solid ${GTD_COLORS[rowState] || 'transparent'}`,
         background: selected ? 'var(--bg-tertiary)' : 'transparent',
       }}
-      onMouseEnter={e => { if (trackHover) setHovered(true); if (!selected) e.currentTarget.style.background = 'var(--bg-hover)'; }}
-      onMouseLeave={e => { if (trackHover) setHovered(false); if (!selected) e.currentTarget.style.background = 'transparent'; }}
+      onMouseEnter={e => {
+        if (trackHover) setHovered(true);
+        if (onHoverTargetEnter) hoverTargetToken.current = onHoverTargetEnter();
+        if (!selected) e.currentTarget.style.background = hoverBackground;
+      }}
+      onMouseLeave={e => {
+        if (trackHover) setHovered(false);
+        if (hoverTargetToken.current) clearHoveredGtdRow(hoverTargetToken.current);
+        hoverTargetToken.current = null;
+        if (!selected) e.currentTarget.style.background = 'transparent';
+      }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: v.headerGap }}>
         {v.showUnreadDot && unread && (
