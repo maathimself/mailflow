@@ -4,7 +4,7 @@ import { useStore } from '../store/index.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { THEMES } from '../themes.js';
 import { api } from '../utils/api.js';
-import { labelPickerOptions, pickerNavigationDirection, executeLabelChoice, copyMessageToFolder } from '../utils/labelPicker.js';
+import { labelPickerOptions, pickerNavigationDirection, executeLabelChoice } from '../utils/labelPicker.js';
 
 const THEME_NAMES = Object.keys(THEMES);
 
@@ -71,6 +71,7 @@ export default function CommandPalette({ open, onClose, labelPickerMessage = nul
   const [listScrolled, setListScrolled] = useState(false);
   const inputRef = useRef(null);
   const listRef = useRef(null);
+  const busyRef = useRef(false);
 
   const pickerAccount = accounts.find(account => account.id === labelPickerMessage?.account_id);
   const actions = labelPickerMessage
@@ -80,7 +81,7 @@ export default function CommandPalette({ open, onClose, labelPickerMessage = nul
         label: `Copy to ${choice.label}`,
         icon: <span style={{ width: 15, textAlign: 'center' }}>◇</span>,
         run: () => executeLabelChoice(labelPickerMessage, choice,
-          { getThread: api.getThread, copyMessage: copyMessageToFolder }),
+          { getThread: api.getThread, copyMessage: api.copyMessage }),
       }))
     : buildActions({ t, openCompose, setSelectedAccount, setShowAdmin, setAdminTab, theme, setTheme, accounts, selectedAccountId });
 
@@ -99,11 +100,15 @@ export default function CommandPalette({ open, onClose, labelPickerMessage = nul
   useEffect(() => { setActiveIdx(0); }, [query]);
 
   const runAction = useCallback(async (action) => {
+    if (busyRef.current) return;
+    busyRef.current = true;
     try {
       await action.run();
       onClose();
     } catch (error) {
       addNotification({ title: 'Could not label message', body: error.message });
+    } finally {
+      busyRef.current = false;
     }
   }, [onClose, addNotification]);
 

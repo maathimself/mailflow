@@ -21,7 +21,7 @@ const { useStore } = await import('../store/index.js');
 const { api } = await import('../utils/api.js');
 const { useWebSocket } = await import('./useWebSocket.js');
 function App() { useWebSocket(); return null; }
-test('already-seen arrivals do not inflate badges; count events update without refreshing the message list', async () => {
+test('count events avoid list refreshes; All Mail refreshes for arrivals from enabled accounts outside unified inbox', async () => {
   const root = createRoot(document.getElementById('root'));
   const counts = { byAccount: { a: 3 }, snapshots: { a: { revision: '1', observedAt: new Date().toISOString(), known: true, stale: false } } };
   useStore.getState().setAccounts([{ id: 'a', enabled: true }]);
@@ -37,6 +37,18 @@ test('already-seen arrivals do not inflate badges; count events update without r
     await React.act(async () => { socket.onmessage({ data: JSON.stringify({ type: 'folder_counts', accountId: 'a' }) }); });
     assert.equal(useStore.getState().unreadCounts.byAccount.a,2);
     assert.equal(listRefreshes,0);
+    await React.act(async () => { useStore.setState({
+      accounts: [{ id: 'a', enabled: true, include_in_unified_inbox: false }, { id: 'b', enabled: false }],
+      selectedAccountId: null, selectedFolder: 'ALL_MAIL',
+    }); });
+    await React.act(async () => { socket.onmessage({ data: JSON.stringify({
+      type: 'new_messages', accountId: 'a', folder: 'Archive', messages: [{ id: 'm' }], count: 1,
+    }) }); });
+    assert.equal(listRefreshes, 1);
+    await React.act(async () => { socket.onmessage({ data: JSON.stringify({
+      type: 'new_messages', accountId: 'b', folder: 'Archive', messages: [{ id: 'n' }], count: 1,
+    }) }); });
+    assert.equal(listRefreshes, 1);
   } finally {
     await React.act(async () => root.unmount());
     api.getUnreadCounts = original;

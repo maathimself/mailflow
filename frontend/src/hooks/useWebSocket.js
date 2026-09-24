@@ -161,10 +161,12 @@ export function useWebSocket() {
 
           // Refresh the message list when the affected folder is visible
           const store = useStore.getState();
+          const allMailVisible = store.selectedAccountId === null && store.selectedFolder === 'ALL_MAIL';
           const isRelevant =
+            (allMailVisible && store.accounts.some(account => account.id === accountId && account.enabled)) ||
             (store.selectedAccountId === null && accountAffectsUnifiedInbox(store.accounts, accountId)) ||
             store.selectedAccountId === accountId;
-          const folderVisible = store.selectedFolder === (folder || 'INBOX');
+          const folderVisible = allMailVisible || store.selectedFolder === (folder || 'INBOX');
 
           if (isRelevant && folderVisible) {
             window.dispatchEvent(new CustomEvent('mailflow:refresh'));

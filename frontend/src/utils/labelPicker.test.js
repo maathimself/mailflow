@@ -22,6 +22,16 @@ test('picker captures selected message identity from a sidebar section', () => {
   assert.deepEqual(captured, { id: 'rail', account_id: 'a1', folder: 'Action', thread_id: undefined, message_count: undefined });
 });
 
+test('picker uses the active search row when its id also exists in the mailbox list', () => {
+  const captured = selectedPickerMessage({
+    selectedMessageId: 'same', searchQuery: 'project',
+    messages: [{ id: 'same', account_id: 'a1', folder: 'INBOX' }],
+    searchResults: [{ id: 'same', account_id: 'a2', folder: 'Projects' }],
+  });
+  assert.equal(captured.account_id, 'a2');
+  assert.equal(captured.folder, 'Projects');
+});
+
 test('options stay in one account and exclude system folders', () => {
   const options = labelPickerOptions(folders, account, 'Action');
   assert.deepEqual(options.map(o => o.path), ['Projects', 'Reference']);

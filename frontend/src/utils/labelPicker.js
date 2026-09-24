@@ -1,14 +1,7 @@
-import { CSRF_HEADER, CSRF_VALUE } from './api.js';
+import { selectedMessage } from './messageHotkeys.js';
 
 export function selectedPickerMessage(state) {
-  const id = state.selectedMessageId;
-  if (!id) return null;
-  const rows = [
-    ...(state.messages || []), ...(state.searchResults || []),
-    ...Object.values(state.threadMessages || {}).flat(),
-    ...Object.values(state.gtdSections || {}).flatMap(section => section?.threads || []),
-  ];
-  const row = rows.find(message => message.id === id);
+  const row = selectedMessage(state);
   if (!row?.account_id) return null;
   return { id: row.id, account_id: row.account_id, folder: row.folder,
     thread_id: row.thread_id, message_count: row.message_count };
@@ -56,15 +49,4 @@ export async function executeLabelChoice(message, choice, api) {
   });
   if (!targets.length && !messages.length && message.folder !== choice.path) targets.push(message);
   for (const row of targets) await apply(row);
-}
-
-export async function copyMessageToFolder(id, folder) {
-  const response = await fetch(`/api/mail/messages/${encodeURIComponent(id)}/copy`, {
-    method: 'POST', credentials: 'include',
-    headers: { 'Content-Type': 'application/json', [CSRF_HEADER]: CSRF_VALUE },
-    body: JSON.stringify({ folder }),
-  });
-  const body = await response.json();
-  if (!response.ok) throw new Error(body.error || 'Could not copy message');
-  return body;
 }
