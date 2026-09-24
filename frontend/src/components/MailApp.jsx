@@ -9,7 +9,7 @@ import { updateFaviconBadge } from '../themes.js';
 import { installResumeRefresh } from '../utils/resumeRefresh.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { applyMarkRead } from '../utils/markRead.js';
-import { buildKeyMap, buildModKeyMap, getEffectiveShortcuts, getGroupedActions, parseModKey, modLabel, SPECIAL_KEYS, SPECIAL_KEY_LABELS } from '../utils/defaultShortcuts.js';
+import { buildKeyMap, resolveShortcutAction, getEffectiveShortcuts, getGroupedActions, parseModKey, modLabel, SPECIAL_KEYS, SPECIAL_KEY_LABELS } from '../utils/defaultShortcuts.js';
 import Sidebar from './Sidebar.jsx';
 import MessageList from './MessageList.jsx';
 import ReadingPane from './ReadingPane.jsx';
@@ -551,7 +551,6 @@ export default function MailApp() {
   useEffect(() => {
     if (isMobile) return;
     const keyMap    = buildKeyMap(shortcuts);
-    const modKeyMap = buildModKeyMap(shortcuts);
     // Keys that are prefixes of two-key sequences (e.g. 'g' for 'gi').
     // Special keys like 'Delete' have length > 1 but are single keypresses — exclude them.
     const prefixKeys = new Set(
@@ -573,7 +572,7 @@ export default function MailApp() {
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
       // Modifier combos: emit registered actions, pass everything else through
       if (e.ctrlKey || e.metaKey) {
-        const action = modKeyMap[e.key.toLowerCase()];
+        const action = resolveShortcutAction(e, shortcuts);
         if (action) { e.preventDefault(); shortcutBus.emit(action); }
         return;
       }

@@ -120,6 +120,28 @@ export function buildModKeyMap(userOverrides = {}) {
   return map;
 }
 
+// Match the complete modifier set. A bare-key lookup loses Shift, which would
+// make Ctrl+E accidentally invoke the GTD Done binding Ctrl+Shift+E.
+export function resolveShortcutAction(event, userOverrides = {}) {
+  if (!event?.key || !(event.ctrlKey || event.metaKey)) return null;
+  const command = isMac
+    ? !!event.metaKey && !event.ctrlKey
+    : !!event.ctrlKey && !event.metaKey;
+  if (!command) return null;
+  let found = null;
+  for (const [action, binding] of Object.entries(getEffectiveShortcuts(userOverrides))) {
+    if (!binding) continue;
+    const parts = binding.toLowerCase().split('+');
+    const key = parts.pop();
+    const modifiers = new Set(parts);
+    if (!modifiers.has('ctrl') || [...modifiers].some(part => !['ctrl', 'shift', 'alt'].includes(part))) continue;
+    if (key !== event.key.toLowerCase()) continue;
+    if (modifiers.has('shift') !== !!event.shiftKey || modifiers.has('alt') !== !!event.altKey) continue;
+    found = action;
+  }
+  return found;
+}
+
 // Returns actions grouped for display in the help overlay / settings tab.
 export function getGroupedActions() {
   const groups = {};
