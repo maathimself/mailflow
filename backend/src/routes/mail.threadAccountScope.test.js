@@ -49,7 +49,7 @@ describe('GET /api/mail/thread/:threadId account scoping (#476)', () => {
 
   it('deduplicates per account, so a second account copy is not dropped', async () => {
     const sql = await fetchThread();
-    expect(sql).toContain('DISTINCT ON (m.account_id, m.message_id)');
+    expect(sql).toContain('DISTINCT ON (m.account_id, COALESCE(NULLIF(m.message_id');
     expect(sql).not.toContain('DISTINCT ON (m.message_id)');
   });
 
@@ -58,7 +58,7 @@ describe('GET /api/mail/thread/:threadId account scoping (#476)', () => {
     // would fail against a real database even though the mock happily returns rows.
     const sql = await fetchThread();
     const orderBy = sql.slice(sql.indexOf('ORDER BY'));
-    expect(orderBy.indexOf('m.account_id')).toBeLessThan(orderBy.indexOf('m.message_id'));
+    expect(orderBy.indexOf('m.account_id')).toBeLessThan(orderBy.indexOf("COALESCE(NULLIF(m.message_id"));
   });
 
   it('still prefers the INBOX copy within an account, collapsing the Sent twin', async () => {

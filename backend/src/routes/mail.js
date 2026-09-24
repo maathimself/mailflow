@@ -12,7 +12,6 @@ import { sanitizeEmail, stripEmailHead, hasRemoteImages, blockRemoteImages, rewr
 import { snippetFromBody, decodeMimeWords, parseRawHeaders, buildHeadersFromMessage } from '../services/messageParser.js';
 import { resolveTrashFolder, resolveAllTrashPaths, resolveAllDraftsPaths, resolveArchiveFolder, resolveSpamFolder, resolveAllSpamPaths, getDeleteStrategy, adjustFolderCounts, fanOutReadToSiblings, fanOutStarToSiblings, fanOutBulkReadToSiblings } from '../utils/mailUtils.js';
 import { pluginRegistry } from '../plugins/registry.js';
-import { getGtdConfig } from '../plugins/gtd/gtdConfig.js';
 import { listMessages } from '../services/messageService.js';
 import { recordSyncSignal } from '../services/diagnosticsRing.js';
 import { resolveAccountScope } from '../services/unifiedInbox.js';
@@ -1601,8 +1600,7 @@ router.post('/messages/bulk-move', async (req, res) => {
   }
 });
 
-// Copy into an ordinary account-owned folder. GTD state folders go through the
-// classification route so its per-thread bookkeeping and undo data stay intact.
+// Copy into a selectable account-owned folder.
 router.post('/messages/:id/copy', async (req, res) => {
   const { id } = req.params;
   const { folder } = req.body || {};
@@ -1628,10 +1626,6 @@ router.post('/messages/:id/copy', async (req, res) => {
   const mapped = Object.values(message.folder_mappings || {}).includes(folder);
   if (system.has(special) || names.has(String(target.name || '').toLowerCase()) || mapped) {
     return res.status(400).json({ error: 'System folder is not a label target' });
-  }
-  const gtd = await getGtdConfig(message.account_id);
-  if (gtd.enabled && Object.values(gtd.folders).includes(folder)) {
-    return res.status(400).json({ error: 'Use GTD classification for this folder' });
   }
   try {
     const uid = await imapManager.copyMessage(message.account_id, message.uid, message.folder, folder);

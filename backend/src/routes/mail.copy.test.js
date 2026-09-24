@@ -3,17 +3,14 @@ import { beforeAll, afterAll, beforeEach, describe, expect, it, vi } from 'vites
 vi.mock('../services/db.js', () => ({ query: vi.fn() }));
 vi.mock('../middleware/auth.js', () => ({ requireAuth: (req, _res, next) => { req.session = { userId: 'owner' }; next(); } }));
 vi.mock('../index.js', () => ({ imapManager: { copyMessage: vi.fn() } }));
-vi.mock('../plugins/gtd/gtdConfig.js', () => ({ getGtdConfig: vi.fn(async () => ({ enabled: false, folders: {} })) }));
 
 import express from 'express';
 import routes from './mail.js';
 import { query } from '../services/db.js';
 import { imapManager } from '../index.js';
-import { getGtdConfig } from '../plugins/gtd/gtdConfig.js';
 
 const ID = '11111111-1111-4111-8111-111111111111';
-const source = { id: ID, account_id: 'account-1', uid: 7, folder: 'INBOX',
-  gtd_enabled: false, gtd_folders: {}, enabled: true };
+const source = { id: ID, account_id: 'account-1', uid: 7, folder: 'INBOX', enabled: true };
 
 describe('POST /mail/messages/:id/copy', () => {
   let server;
@@ -26,8 +23,7 @@ describe('POST /mail/messages/:id/copy', () => {
     base = `http://127.0.0.1:${server.address().port}`;
   });
   afterAll(async () => { await new Promise(resolve => server.close(resolve)); });
-  beforeEach(() => { query.mockReset(); imapManager.copyMessage.mockReset();
-    getGtdConfig.mockResolvedValue({ enabled: false, folders: {} }); });
+  beforeEach(() => { query.mockReset(); imapManager.copyMessage.mockReset(); });
 
   it('copies an owned source to a selectable folder in its account without deleting source', async () => {
     query.mockResolvedValueOnce({ rows: [source] })
@@ -59,14 +55,4 @@ describe('POST /mail/messages/:id/copy', () => {
     expect(imapManager.copyMessage).not.toHaveBeenCalled();
   });
 
-  it('routes an active GTD state folder through classification instead of generic copy', async () => {
-    query.mockResolvedValueOnce({ rows: [source] })
-      .mockResolvedValueOnce({ rows: [{ path: 'Action', name: 'Action', special_use: null }] });
-    getGtdConfig.mockResolvedValueOnce({ enabled: true, folders: { todo: 'Action' } });
-    const response = await fetch(`${base}/mail/messages/${ID}/copy`, {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ folder: 'Action' }),
-    });
-    expect(response.status).toBe(400);
-    expect(imapManager.copyMessage).not.toHaveBeenCalled();
-  });
 });
