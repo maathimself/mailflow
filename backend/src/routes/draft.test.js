@@ -131,6 +131,48 @@ describe('POST /api/mail/draft — local row persistence', () => {
     expect(res.status).toBe(200);
     expect(imapManager.upsertDraftMessageRecord).not.toHaveBeenCalled();
   });
+
+  it('keeps reply headers in MIME and the local row when replacing an external draft', async () => {
+    const res = await fetch(`${base}/api/mail/draft`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        accountId: ACCOUNT_ID, to: ['recipient@example.test'], subject: 'Re: hello', body: 'reply',
+        inReplyTo: '<parent@example.test>',
+        references: '<root@example.test> <parent@example.test>',
+      }),
+    });
+    expect(res.status).toBe(200);
+    const raw = imapManager.appendToFolder.mock.calls[0][2].toString();
+    expect(raw).toContain('In-Reply-To: <parent@example.test>');
+    expect(raw).toContain('References: <root@example.test> <parent@example.test>');
+    const meta = imapManager.upsertDraftMessageRecord.mock.calls[0][3];
+    expect(meta.inReplyTo).toBe('<parent@example.test>');
+    expect(meta.references).toBe('<root@example.test> <parent@example.test>');
+    expect(meta.threadId).toBe('<root@example.test>');
+  });
+
+  it('keeps Bcc recipients in the stored MIME draft', async () => {
+    const res = await fetch(`${base}/api/mail/draft`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ accountId: ACCOUNT_ID, to: ['to@example.test'],
+        bcc: ['hidden@example.test'], subject: 'Draft', body: 'hello' }),
+    });
+    expect(res.status).toBe(200);
+    const raw = imapManager.appendToFolder.mock.calls[0][2].toString();
+    expect(raw).toContain('Bcc: hidden@example.test');
+  });
+
+  it('rejects a reply header containing a newline before IMAP append', async () => {
+    const res = await fetch(`${base}/api/mail/draft`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        accountId: ACCOUNT_ID, to: ['recipient@example.test'], subject: 'Re: hello', body: 'reply',
+        inReplyTo: '<parent@example.test>\r\nBcc: hidden@example.test',
+      }),
+    });
+    expect(res.status).toBe(400);
+    expect(imapManager.appendToFolder).not.toHaveBeenCalled();
+  });
 });
 
 describe('POST /api/mail/draft — replacing the previous copy', () => {

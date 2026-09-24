@@ -461,8 +461,15 @@ export const useStore = create((set, get) => ({
   },
   composing: false,
   composeData: null,
-  openCompose: (data = null) => set({ composing: true, composeData: data }),
-  closeCompose: () => set({ composing: false, composeData: null }),
+  prepareComposeSwitch: null,
+  setPrepareComposeSwitch: (prepare) => set({ prepareComposeSwitch: prepare }),
+  updateComposePersistedKey: (sessionKey, persistedKey) => set(state =>
+    state.composeData?.sessionKey === sessionKey
+      ? { composeData: { ...state.composeData, persistedKey } } : {}),
+  openCompose: (data = null) => set(state =>
+    state.composing && data?.sessionKey && data.sessionKey === state.composeData?.sessionKey
+      ? state : { composing: true, composeData: data, prepareComposeSwitch: null }),
+  closeCompose: () => set({ composing: false, composeData: null, prepareComposeSwitch: null }),
 
   // Detached message windows (#219): floating, draggable/resizable in-app windows
   // that each show one message via a MessagePane instance. Desktop-only; mounted by

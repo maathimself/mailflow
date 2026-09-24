@@ -240,6 +240,7 @@ export const api = {
     return request('GET', `/mail/resolve-message?${qs}`);
   },
   getMessageBody,
+  getReplyDraft: (id) => request('GET', `/mail/messages/${encodeURIComponent(id)}/reply-draft`),
   getThread: (threadId, folder, unified = false) => {
     const qs = new URLSearchParams();
     if (folder) qs.set('folder', folder);

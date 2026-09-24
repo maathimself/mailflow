@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('imapflow', () => ({ ImapFlow: vi.fn() }));
 vi.mock('./db.js', () => ({ query: vi.fn() }));
-vi.mock('./messageParser.js', () => ({ parseMessage: vi.fn(), buildSnippetFromHtml: vi.fn(), snippetFromBody: vi.fn(), decodeMimeWords: vi.fn(), detectBulkFromParsedHeaders: vi.fn(), parseRawHeaders: vi.fn(), enrichParsedMetadata: vi.fn((parsed) => parsed) }));
+vi.mock('./messageParser.js', () => ({ parseMessage: vi.fn(), parseMailboxList: vi.fn(() => [{ name: 'Hidden', email: 'hidden@example.test' }]), buildSnippetFromHtml: vi.fn(), snippetFromBody: vi.fn(), decodeMimeWords: vi.fn(), detectBulkFromParsedHeaders: vi.fn(), parseRawHeaders: vi.fn(), enrichParsedMetadata: vi.fn((parsed) => parsed) }));
 vi.mock('../routes/oauth.js', () => ({ refreshMicrosoftToken: vi.fn(), refreshGoogleToken: vi.fn() }));
 vi.mock('./emailSanitizer.js', () => ({ sanitizeEmail: vi.fn() }));
 vi.mock('./encryption.js', () => ({ decrypt: vi.fn() }));
@@ -19,6 +19,7 @@ import { pluginRegistry } from '../plugins/registry.js';
 import { EventEmitter } from 'node:events';
 import { ImapFlow } from 'imapflow';
 import { query } from './db.js';
+
 import { resolveForConnection } from './hostValidation.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { invalidateGtdConfigCache } from '../plugins/gtd/gtdConfig.js';
@@ -30,6 +31,72 @@ const account = (imap_host, oauth_provider = null) => ({ imap_host, oauth_provid
 
 const resolved = { host: '127.0.0.1', servername: null };
 const baseAccount = { imap_host: '127.0.0.1', imap_port: 1143, imap_tls: true, imap_skip_tls_verify: false, auth_user: 'user', auth_pass: 'enc' };
+
+describe('upsertDraftMessageRecord reply metadata', () => {
+  it('persists reply headers, thread identity, and attachment presence for an external draft', async () => {
+    query.mockReset().mockResolvedValue({ rows: [] });
+    const manager = Object.create(ImapManager.prototype);
+    await manager.upsertDraftMessageRecord({ id: 'account-a' }, 'Drafts', 42, {
+      messageId: '<draft@example.test>', subject: 'Re: hello', fromEmail: 'me@example.test',
+      inReplyTo: '<parent@example.test>', references: '<root@example.test> <parent@example.test>',
+      threadId: '<root@example.test>', hasAttachments: true,
+    });
+    const [sql, values] = query.mock.calls.at(-1);
+    expect(sql).toContain('thread_references');
+    expect(values).toContain('<root@example.test> <parent@example.test>');
+    expect(values).toContain('<root@example.test>');
+    expect(values).toContain(true);
+  });
+
+  it('fetches an exact old UID and ingests its current reply metadata', async () => {
+    const row = { id: 'draft-row', folder: 'Drafts', uid: '1', from_email: 'alias@example.test' };
+    query.mockReset()
+      .mockResolvedValueOnce({ rows: [{ message_id: '<parent@example.test>', thread_id: '<root@example.test>' }] })
+      .mockResolvedValueOnce({ rows: [row] });
+    parseMessage.mockResolvedValueOnce({
+      uid: 1, messageId: '<draft@example.test>', subject: 'Re: hello',
+      fromName: 'Me', fromEmail: 'me@example.test', to: [{ email: 'you@example.test' }], cc: [],
+      inReplyTo: '<parent@example.test>', references: '<root@example.test> <parent@example.test>',
+      hasAttachments: true, date: new Date('2026-09-24T10:00:00Z'),
+      parsedHeaders: { bcc: 'Hidden <hidden@example.test>' },
+    });
+    const lock = { release: vi.fn() };
+    const client = { getMailboxLock: vi.fn().mockResolvedValue(lock), fetch: vi.fn(async function* () { yield { uid: 1 }; }) };
+    const manager = { upsertDraftMessageRecord: vi.fn() };
+    const result = await ImapManager.prototype._ingestDraftUidWithClient.call(manager, { id: 'account-a', email_address: 'me@example.test' }, 'Drafts', 1, client);
+    expect(result).toEqual({ ...row, bcc_addresses: [{ name: 'Hidden', email: 'hidden@example.test' }] });
+    expect(query.mock.calls.at(-1)[0]).toContain('from_email');
+    expect(client.fetch).toHaveBeenCalledWith('1', expect.objectContaining({ envelope: true, headers: true, bodyStructure: true }), { uid: true });
+    expect(manager.upsertDraftMessageRecord).toHaveBeenCalledWith(expect.anything(), 'Drafts', 1, expect.objectContaining({
+      inReplyTo: '<parent@example.test>', references: '<root@example.test> <parent@example.test>',
+      threadId: '<root@example.test>', hasAttachments: true,
+    }));
+    expect(lock.release).toHaveBeenCalledOnce();
+  });
+
+  it('searches and ingests on the same IMAP session', async () => {
+    const client = {
+      getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
+      search: vi.fn().mockResolvedValue([1]),
+    };
+    const manager = { _ingestDraftUidWithClient: vi.fn().mockResolvedValue({ id: 'draft-row' }) };
+    const account = { id: 'account-a' };
+    const result = await ImapManager.prototype._findReplyDraftsWithClient.call(manager, account, ['Drafts'], ['<parent@example.test>'], client);
+    expect(result).toEqual([{ id: 'draft-row' }]);
+    expect(manager._ingestDraftUidWithClient).toHaveBeenCalledWith(account, 'Drafts', 1, client);
+  });
+
+  it('does not open a fresh reply lookup login during a secondary connection cooldown', async () => {
+    const manager = Object.create(ImapManager.prototype);
+    manager._replyDraftSem = createKeyedSemaphore(1);
+    manager._replyDraftQueries = new Map();
+    manager._connectCooldown = new Map();
+    manager._secondaryCooldown = new Map([['account-a', { until: Date.now() + 30000, failures: 1 }]]);
+    await expect(manager.findReplyDrafts({ id: 'account-a' }, ['Drafts'], ['<parent@example.test>']))
+      .rejects.toMatchObject({ providerRefusing: true });
+    expect(manager._replyDraftSem.activeCount('account-a')).toBe(0);
+  });
+});
 
 // ── providerProfile — host detection ─────────────────────────────────────────
 

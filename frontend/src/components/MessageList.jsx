@@ -9,7 +9,7 @@ import { isAccountInUnifiedInbox } from '../utils/unifiedInbox.js';
 import { shouldSyncFolder, folderSyncKey } from '../utils/folderSync.js';
 import { resolveThreadMessages } from '../utils/threadActions.js';
 import { unreadDeltaByAccount } from '../utils/countSnapshots.js';
-import { splitDraftSignature } from '../utils/draftSignature.js';
+import { savedDraftToComposeData } from '../utils/openSavedDraft.js';
 import { useSwipeRow } from '../hooks/useSwipeRow.js';
 import ContextMenu from './ContextMenu.jsx';
 import RowHoverActions from './RowHoverActions.jsx';
@@ -2346,38 +2346,14 @@ export default function MessageList() {
     return folderInfo?.special_use === '\\Drafts';
   })();
 
-  const formatAddressArray = (arr) => {
-    if (!Array.isArray(arr)) return [];
-    return arr.map(a => {
-      if (typeof a === 'string') return a;
-      const addr = a.address || a.email || '';
-      return (a.name && addr) ? `${a.name} <${addr}>` : (addr || a.name || '');
-    }).filter(Boolean);
-  };
-
   const handleSelect = async (message) => {
     if (isDraftsFolder) {
       try {
         const bodyData = await api.getMessageBody(message.id);
-        // A saved draft is one document: body, signature, then any quoted text. Handing all of
-        // it over as the body left the signature inline AND had compose render a fresh one, so
-        // every save/reopen cycle added another copy (#432). Lift the signature back out, or
-        // suppress compose's own when it is present but cannot be lifted safely.
-        const raw = bodyData.html || bodyData.text || '';
-        const { body, signature, inline } = bodyData.html
-          ? splitDraftSignature(raw)
-          : { body: raw, signature: null, inline: false };
-        openCompose({
-          accountId: message.account_id,
-          draftUid: message.uid,
-          draftFolder: message.folder,
-          to: formatAddressArray(message.to_addresses),
-          cc: formatAddressArray(message.cc_addresses),
-          subject: message.subject || '',
-          body,
-          bodyIsHtml: !!bodyData.html,
-          ...(signature !== null ? { signature } : inline ? { signature: '' } : {}),
-        });
+        const currentCompose = useStore.getState();
+        if (currentCompose.composing && currentCompose.prepareComposeSwitch
+          && !(await currentCompose.prepareComposeSwitch())) return;
+        openCompose(savedDraftToComposeData(message, bodyData, accounts));
       } catch (err) {
         console.error('Failed to open draft:', err.message);
         setSelectedMessage(message.id);

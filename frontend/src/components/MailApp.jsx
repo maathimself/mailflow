@@ -12,6 +12,7 @@ import { applyMarkRead } from '../utils/markRead.js';
 import { buildKeyMap, buildModKeyMap, getEffectiveShortcuts, getGroupedActions, parseModKey, modLabel, SPECIAL_KEYS, SPECIAL_KEY_LABELS } from '../utils/defaultShortcuts.js';
 import Sidebar from './Sidebar.jsx';
 import MessageList from './MessageList.jsx';
+import InboxReplyDraftObserver from './InboxReplyDraftObserver.js';
 import ReadingPane from './ReadingPane.jsx';
 import NotificationToasts from './NotificationToasts.jsx';
 import CommandPalette from './CommandPalette.jsx';
@@ -62,7 +63,7 @@ export default function MailApp() {
   const { t } = useTranslation();
   const {
     setAccounts, setUnreadCounts, showAdmin,
-    setShowAdmin, setAdminTab, composing, sidebarCollapsed, layout,
+    setShowAdmin, setAdminTab, composing, composeData, sidebarCollapsed, layout,
     unreadCounts, selectedAccountId, openCompose, setSelectedAccount,
     shortcuts, selectedMessageId, setSelectedMessage,
     mobileSidebarOpen, setMobileSidebarOpen, addNotification,
@@ -567,8 +568,11 @@ export default function MailApp() {
     };
 
     const handler = (e) => {
-      // Never intercept when the compose modal or admin panel is open, or an input is focused
-      if (composingRef.current || showAdminRef.current) return;
+      // Keep list navigation available while an inbox reply draft is docked. Keys typed
+      // inside the composer still belong to the editor.
+      if (showAdminRef.current) return;
+      if (composingRef.current && (useStore.getState().composeData?.source !== 'inboxReplyDraft'
+        || e.target.closest?.('.compose-window'))) return;
       const tag = e.target.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
       // Modifier combos: emit registered actions, pass everything else through
@@ -873,7 +877,8 @@ export default function MailApp() {
         </>
       )}
 
-      <Suspense fallback={lazyFallback}>{composing && <ComposeModal />}</Suspense>
+      <InboxReplyDraftObserver />
+      <Suspense fallback={lazyFallback}>{composing && <ComposeModal key={composeData?.sessionKey || composeData?.persistedKey || 'new'} />}</Suspense>
       <Suspense fallback={lazyFallback}>{showAdmin && <AdminPanel />}</Suspense>
       {/* Detached message windows (#219) — desktop only. */}
       {!isMobile && <Suspense fallback={null}><WindowLayer /></Suspense>}

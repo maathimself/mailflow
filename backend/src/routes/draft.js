@@ -8,13 +8,58 @@ import { sanitizeSignature, sanitizeComposeBody } from '../services/emailSanitiz
 import { embedInlineDataImages } from '../utils/inlineImages.js';
 import { imapManager } from '../index.js';
 import { resolveAllDraftsPaths } from '../utils/mailUtils.js';
+import { replyChainIds, draftFolderPaths, chooseReplyDraft } from '../services/replyDraftLookup.js';
 
 const router = Router();
 router.use(requireAuth);
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+router.get('/messages/:id/reply-draft', async (req, res) => {
+  if (!UUID_RE.test(req.params.id)) return res.status(400).json({ error: 'Invalid message ID' });
+  try {
+    const { rows } = await query(
+      `SELECT m.*, row_to_json(a) AS account FROM messages m
+       JOIN email_accounts a ON a.id = m.account_id
+       WHERE m.id = $1 AND a.user_id = $2 AND m.is_deleted = false`,
+      [req.params.id, req.session.userId]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Message not found' });
+    const selected = rows[0];
+    if (!selected.message_id) return res.json({ draft: null });
+    const account = selected.account;
+    const paths = await draftFolderPaths(account.id, account.folder_mappings, query);
+    if (!paths.length) return res.json({ draft: null });
+    const conversationRows = (await query(
+      `SELECT id, account_id, message_id, in_reply_to, thread_references
+       FROM messages WHERE account_id = $1 AND thread_id = $2
+         AND message_id IS NOT NULL AND is_deleted = false`,
+      [account.id, selected.thread_id]
+    )).rows;
+    const ids = [...replyChainIds(selected, conversationRows)];
+    const candidates = await imapManager.findReplyDrafts(account, paths, ids);
+    res.json({ draft: chooseReplyDraft(selected, conversationRows, candidates, paths) });
+  } catch (err) {
+    console.error('Reply draft lookup failed:', err.message);
+    res.status(503).json({ error: 'Could not check reply drafts' });
+  }
+});
 
 function sanitizeHeaderValue(value) {
   if (typeof value !== 'string') return '';
   return value.replace(/[\r\n\0]/g, '').trim();
+}
+
+function replyHeader(value, { single = false } = {}) {
+  if (value == null || value === '') return null;
+  if (typeof value !== 'string' || value.length > 8192) {
+    throw Object.assign(new Error('Invalid reply header'), { status: 400 });
+  }
+  const unfolded = value.replace(/\r\n[ \t]+/g, ' ').trim();
+  const valid = single ? /^<[^<>\s]+>$/ : /^<[^<>\s]+>(?:[ \t]+<[^<>\s]+>)*$/;
+  if (/[\r\n\0]/.test(unfolded) || !valid.test(unfolded)) {
+    throw Object.assign(new Error('Invalid reply header'), { status: 400 });
+  }
+  return unfolded;
 }
 
 // Extract { name, email } from an RFC 5322 address string ("Name <email>",
@@ -37,7 +82,9 @@ function textToHtml(text) {
     .join('');
 }
 
-async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature }) {
+async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, inReplyTo, references }) {
+  const replyToId = replyHeader(inReplyTo, { single: true });
+  const referenceIds = replyHeader(references) || replyToId;
   const acctResult = await query(
     'SELECT * FROM email_accounts WHERE id = $1',
     [accountId]
@@ -99,6 +146,8 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
     subject: sanitizeHeaderValue(subject || ''),
     text: textBody,
     html: draftHtml,
+    ...(replyToId ? { inReplyTo: replyToId } : {}),
+    ...(referenceIds ? { references: referenceIds } : {}),
     ...(inlineImageAttachments.length ? { attachments: inlineImageAttachments } : {}),
   };
 
@@ -116,7 +165,8 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
   return {
     rawMessage: Buffer.concat(chunks),
     account,
-    meta: { messageId, fromName, fromEmail, bodyHtml: rawHtml, bodyText: textBody, snippet },
+    meta: { messageId, fromName, fromEmail, bodyHtml: rawHtml, bodyText: textBody, snippet,
+      inReplyTo: replyToId, references: referenceIds },
   };
 }
 
@@ -146,7 +196,7 @@ async function isDraftsPath(account, folder, draftsFolder) {
 }
 
 router.post('/draft', async (req, res) => {
-  const { accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, editedSignature, existingUid, existingFolder } = req.body;
+  const { accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, editedSignature, inReplyTo, references, existingUid, existingFolder } = req.body;
   if (!accountId) return res.status(400).json({ error: 'accountId required' });
 
   const ownerCheck = await query(
@@ -156,7 +206,7 @@ router.post('/draft', async (req, res) => {
   if (!ownerCheck.rows.length) return res.status(404).json({ error: 'Account not found' });
 
   try {
-    const { rawMessage, account, meta } = await buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature });
+    const { rawMessage, account, meta } = await buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, inReplyTo, references });
 
     const draftsFolder = await resolveDraftsFolder(account);
     if (!draftsFolder) return res.status(422).json({ error: 'No Drafts folder found for this account' });
@@ -179,6 +229,9 @@ router.post('/draft', async (req, res) => {
           snippet: meta.snippet,
           bodyHtml: meta.bodyHtml,
           bodyText: meta.bodyText,
+          inReplyTo: meta.inReplyTo,
+          references: meta.references,
+          threadId: meta.references?.match(/<[^<>\s]+>/)?.[0] || meta.inReplyTo || meta.messageId,
         });
       } catch (rowErr) {
         console.error(`Draft: failed to persist local row uid=${uid}: ${rowErr.message}`);
