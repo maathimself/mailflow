@@ -251,6 +251,22 @@ describe('POST /api/gtd/classify — apply a GTD label (COPY)', () => {
     expect(imapManager.removeMessageCopy).toHaveBeenNthCalledWith(2, ACCT_ID, 88, 'Watch');
   });
 
+  it('reports a non-UIDPLUS rollback miss when the new copy is not indexed yet', async () => {
+    stubQueries({ folders: ['Todo'], siblings: { Todo: 42 } });
+    imapManager.copyMessage.mockResolvedValueOnce(null);
+    imapManager.removeMessageCopy.mockRejectedValueOnce(new Error('cannot remove Todo'));
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const res = await classify({ messageId: MSG_ID, state: 'watch' });
+
+      expect(res.status).toBe(500);
+      expect(imapManager.removeMessageCopy).toHaveBeenCalledTimes(1);
+      expect(error.mock.calls.some(([message]) => String(message).includes('GTD classify rollback failed'))).toBe(true);
+    } finally {
+      error.mockRestore();
+    }
+  });
+
   it('removes the selected old-state row last so a failed switch remains retryable', async () => {
     stubQueries({ msg: { ...inboxMsg, folder: 'Todo' }, threadCopies: [
       { uid: 10, folder: 'Todo' },

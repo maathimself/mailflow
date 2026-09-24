@@ -1,7 +1,7 @@
 // Run with: node --test src/utils/defaultShortcuts.test.js
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildKeyMap, buildModKeyMap, resolveShortcutAction } from './defaultShortcuts.js';
+import { buildKeyMap, buildModKeyMap, getShortcutConflicts, resolveShortcutAction, shortcutBindingFromEvent } from './defaultShortcuts.js';
 
 const keyEvent = (key, modifiers = {}) => ({ key, ctrlKey: false, metaKey: false, shiftKey: false, altKey: false, ...modifiers });
 
@@ -82,7 +82,7 @@ describe('buildModKeyMap', () => {
     const map = buildModKeyMap({ toggleStar: 'ctrl+p' });
     assert.equal(warn.mock.callCount(), 1);
     const [message] = warn.mock.calls[0].arguments;
-    assert.match(message, /"p"/);
+    assert.match(message, /"ctrl\+p"/);
     assert.match(message, /"toggleStar"/);
     assert.match(message, /"printMessage"/);
     assert.equal(map.p, 'printMessage', 'later action (printMessage) should win');
@@ -107,14 +107,32 @@ describe('modifier shortcuts', () => {
     assert.equal(resolveShortcutAction({ key: 'E', ctrlKey: false, shiftKey: true }), null);
   });
 
-  it('warns when two actions use the same full modifier binding', (t) => {
+  it('reports the final winner of a full modifier collision before dispatch', (t) => {
     const warn = t.mock.method(console, 'warn', () => {});
-    const action = resolveShortcutAction(
-      { key: 'p', ctrlKey: true, shiftKey: false, altKey: false },
-      { toggleStar: 'ctrl+p' },
-    );
+    const overrides = { toggleStar: 'ctrl+p' };
+    assert.deepEqual(getShortcutConflicts(overrides), [{ key: 'ctrl+p', loser: 'toggleStar', winner: 'printMessage' }]);
+    buildKeyMap(overrides);
+    assert.equal(warn.mock.callCount(), 1);
+    const action = resolveShortcutAction(keyEvent('p', { ctrlKey: true }), overrides);
     assert.equal(action, 'printMessage');
     assert.equal(warn.mock.callCount(), 1);
     assert.match(warn.mock.calls[0].arguments[0], /toggleStar.*printMessage/);
+  });
+
+  it('keeps Ctrl+P and Ctrl+Shift+P separate and records the full modifier set', (t) => {
+    const warn = t.mock.method(console, 'warn', () => {});
+    const overrides = { toggleStar: 'ctrl+shift+p' };
+    assert.deepEqual(getShortcutConflicts(overrides), []);
+    buildModKeyMap(overrides);
+    assert.equal(warn.mock.callCount(), 0);
+    assert.equal(resolveShortcutAction(keyEvent('p', { ctrlKey: true }), overrides), 'printMessage');
+    assert.equal(resolveShortcutAction(keyEvent('P', { ctrlKey: true, shiftKey: true }), overrides), 'toggleStar');
+    assert.equal(shortcutBindingFromEvent(keyEvent('E', { ctrlKey: true, shiftKey: true })), 'ctrl+shift+e');
+  });
+
+  it('treats modifier order and case as the same binding', () => {
+    assert.deepEqual(getShortcutConflicts({ toggleStar: 'shift+ctrl+U' }), [
+      { key: 'ctrl+shift+u', loser: 'unsubscribe', winner: 'toggleStar' },
+    ]);
   });
 });

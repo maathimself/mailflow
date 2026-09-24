@@ -1135,7 +1135,7 @@
       "description": "Fai clic su un tasto per riassegnarlo. Premi Esc per annullare la registrazione.",
       "resetAll": "Ripristina tutto ai valori predefiniti",
       "recording": "Premi un tasto…",
-      "conflict": "Il tasto {{key}} era già assegnato a {{action}} — è stato riassegnato.",
+      "conflict": "Il tasto {{key}} è assegnato a più azioni. {{action}} ha la precedenza.",
       "resetDefault": "Ripristina predefinito",
       "remove": "Rimuovi scorciatoia",
       "footer": "Premi ? ovunque nell'app per vedere le scorciatoie attuali."

@@ -98,25 +98,59 @@ export function parseModKey(key) {
   return { mod: key.slice(0, plus), bare: key.slice(plus + 1) };
 }
 
+function canonicalShortcutBinding(binding) {
+  if (typeof binding !== 'string' || !binding) return null;
+  const parts = binding.toLowerCase().split('+');
+  const bare = parts.pop();
+  if (!bare || parts.some(part => !['ctrl', 'shift', 'alt'].includes(part))) return null;
+  return [...['ctrl', 'shift', 'alt'].filter(part => parts.includes(part)), bare].join('+');
+}
+
+// The last action in ACTION_DEFS wins at dispatch. Return every displaced action
+// so settings can show conflicts before the binding is pressed.
+export function getShortcutConflicts(userOverrides = {}) {
+  const groups = new Map();
+  for (const [action, binding] of Object.entries(getEffectiveShortcuts(userOverrides))) {
+    const key = canonicalShortcutBinding(binding);
+    if (!key) continue;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(action);
+  }
+  return [...groups].flatMap(([key, actions]) => actions.length > 1
+    ? actions.slice(0, -1).map(loser => ({ key, loser, winner: actions.at(-1) }))
+    : []);
+}
+
+export function shortcutBindingFromEvent(event) {
+  if (!event?.key) return null;
+  const key = event.key.toLowerCase();
+  const modifiers = [
+    (event.ctrlKey || event.metaKey) && 'ctrl',
+    event.shiftKey && key !== '?' && key !== '#' && 'shift',
+    event.altKey && 'alt',
+  ].filter(Boolean);
+  return modifiers.length ? `${modifiers.join('+')}+${key}` : event.key;
+}
+
 // Returns the reverse lookup map: key → action, for fast dispatch (plain keys only).
-// Collisions (two actions resolving to the same key, e.g. via user overrides)
-// keep last-writer-wins behavior but are logged so they're not silently lost.
+// Collisions keep last-writer-wins behavior but are logged at registration.
 export function buildKeyMap(userOverrides = {}) {
   const effective = getEffectiveShortcuts(userOverrides);
   const map = {};
   for (const [action, key] of Object.entries(effective)) {
     if (!key || parseModKey(key)) continue;
-    if (map[key]) {
-      console.warn(`[shortcuts] key "${key}" is bound to both "${map[key]}" and "${action}"; "${action}" wins`);
-    }
     map[key] = action;
+  }
+  for (const { key, loser, winner } of getShortcutConflicts(userOverrides)) {
+    console.warn(`[shortcuts] key "${key}" is bound to both "${loser}" and "${winner}"; "${winner}" wins`);
   }
   return map;
 }
 
 // Returns a reverse lookup for modifier+key shortcuts: bare key → action.
 // e.g. { p: 'printMessage' } when printMessage is bound to 'ctrl+p'.
-// Collisions are logged the same way as buildKeyMap (see above).
+// Collisions are checked against the full binding, so Ctrl+P and Ctrl+Shift+P
+// do not trigger a false warning.
 export function buildModKeyMap(userOverrides = {}) {
   const effective = getEffectiveShortcuts(userOverrides);
   const map = {};
@@ -124,10 +158,10 @@ export function buildModKeyMap(userOverrides = {}) {
     const parsed = parseModKey(key);
     if (!parsed) continue;
     const bare = parsed.bare.toLowerCase();
-    if (map[bare]) {
-      console.warn(`[shortcuts] key "${bare}" is bound to both "${map[bare]}" and "${action}"; "${action}" wins`);
-    }
     map[bare] = action;
+  }
+  for (const { key, loser, winner } of getShortcutConflicts(userOverrides)) {
+    if (parseModKey(key)) console.warn(`[shortcuts] key "${key}" is bound to both "${loser}" and "${winner}"; "${winner}" wins`);
   }
   return map;
 }
@@ -151,9 +185,7 @@ export function resolveShortcutAction(event, userOverrides = {}) {
     if (command !== isCommand || alt !== !!event.altKey || bare !== key) continue;
     if (shift !== !!event.shiftKey && key !== '?' && key !== '#') continue;
     if (shift && !event.shiftKey) continue;
-    if (found) {
-      console.warn(`[shortcuts] key "${binding}" is bound to both "${found}" and "${action}"; "${action}" wins`);
-    }
+    // Keep the last registered action, matching getShortcutConflicts().
     found = action;
   }
   return found;

@@ -1196,7 +1196,7 @@
       "description": "Kliknutím na klávesovou zkratku ji změníte. Nahrávání zrušíte stisknutím Esc.",
       "resetAll": "Obnovit vše na výchozí hodnoty",
       "recording": "Stiskněte klávesu…",
-      "conflict": "Klávesa {{key}} už byla přiřazena akci {{action}} — přiřazení bylo změněno.",
+      "conflict": "Klávesa {{key}} je přiřazena více akcím. Přednost má {{action}}.",
       "resetDefault": "Obnovit výchozí",
       "remove": "Odebrat zkratku",
       "footer": "Aktuální přehled zkratek zobrazíte stisknutím ? kdekoliv v aplikaci."

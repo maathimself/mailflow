@@ -30,7 +30,7 @@ import { NOTIFICATION_SOUNDS, playNotificationSound, playCustomSound, warmUpAudi
 import { usePushNotifications } from '../hooks/usePushNotifications.js';
 import SignatureEditor from './SignatureEditor.jsx';
 import DiagnosticsReportModal from './DiagnosticsReportModal.jsx';
-import { getEffectiveShortcuts, getGroupedActions, shortcutActionText, SPECIAL_KEY_LABELS, parseModKey, modLabel } from '../utils/defaultShortcuts.js';
+import { getEffectiveShortcuts, getGroupedActions, getShortcutConflicts, shortcutActionText, shortcutBindingFromEvent, SPECIAL_KEY_LABELS, parseModKey, modLabel } from '../utils/defaultShortcuts.js';
 import { isValidForwardAddress } from '../utils/ruleActions.js';
 import { folderParentLabel } from '../utils/folderDisplay.js';
 import SpamSettings from './SpamSettings.jsx';
@@ -7159,9 +7159,9 @@ function ShortcutsTab() {
   const { t } = useTranslation();
   const { shortcuts, setShortcuts } = useStore();
   const [recording, setRecording] = useState(null); // action name currently being recorded
-  const [pendingConflict, setPendingConflict] = useState(null); // { action: conflictingAction, key }
 
   const effective = getEffectiveShortcuts(shortcuts);
+  const conflicts = getShortcutConflicts(shortcuts);
   const groups = getGroupedActions();
 
   // Listen for key presses while recording
@@ -7174,19 +7174,10 @@ function ShortcutsTab() {
 
       if (e.key === 'Escape') {
         setRecording(null);
-        setPendingConflict(null);
         return;
       }
 
-      const key = (e.ctrlKey || e.metaKey) ? `ctrl+${e.key.toLowerCase()}` : e.key;
-
-      // Detect conflicts with other actions (excluding the one being edited)
-      const conflictEntry = Object.entries(effective).find(([a, k]) => k === key && a !== recording);
-      if (conflictEntry) {
-        setPendingConflict({ action: conflictEntry[0], key });
-      } else {
-        setPendingConflict(null);
-      }
+      const key = shortcutBindingFromEvent(e);
 
       const updated = { ...shortcuts, [recording]: key };
       setShortcuts(updated);
@@ -7194,25 +7185,22 @@ function ShortcutsTab() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [recording, effective, shortcuts]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [recording, shortcuts, setShortcuts]);
 
   const clearShortcut = (action) => {
     const updated = { ...shortcuts, [action]: null };
     setShortcuts(updated);
-    setPendingConflict(null);
   };
 
   const resetAction = (action) => {
     const updated = { ...shortcuts };
     delete updated[action];
     setShortcuts(updated);
-    setPendingConflict(null);
   };
 
   const resetAll = () => {
     setShortcuts({});
     setRecording(null);
-    setPendingConflict(null);
   };
 
   const kbdStyle = {
@@ -7295,15 +7283,15 @@ function ShortcutsTab() {
         </button>
       </div>
 
-      {pendingConflict && (
-        <div style={{
+      {conflicts.map(({ key, loser, winner }) => (
+        <div key={`${key}:${loser}`} style={{
           marginBottom: 16, padding: '10px 14px',
           background: 'rgba(234, 179, 8, 0.1)', border: '1px solid rgba(234, 179, 8, 0.4)',
           borderRadius: 7, fontSize: 12, color: 'var(--text-secondary)',
         }}>
-          {t('admin.shortcuts.conflict', { key: pendingConflict.key, action: shortcutActionText(t, pendingConflict.action, 'label') })}
+          {t('admin.shortcuts.conflict', { key, action: shortcutActionText(t, winner, 'label') })}
         </div>
-      )}
+      ))}
 
       {Object.entries(groups).map(([groupName, actions]) => (
         <div key={groupName} style={{ marginBottom: 24 }}>

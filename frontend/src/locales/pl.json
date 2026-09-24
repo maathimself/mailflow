@@ -1154,7 +1154,7 @@
       "description": "Kliknij skrót klawiszowy, aby go przypisać ponownie. Naciśnij Esc, aby anulować nagrywanie.",
       "resetAll": "Przywróć wszystkie ustawienia domyślne",
       "recording": "Naciśnij klawisz…",
-      "conflict": "Klawisz {{key}} był już przypisany do {{action}} — przypisanie zostało zmienione.",
+      "conflict": "Klawisz {{key}} jest przypisany do wielu działań. Pierwszeństwo ma {{action}}.",
       "resetDefault": "Przywróć ustawienie domyślne",
       "remove": "Usuń skrót",
       "footer": "Naciśnij ? w dowolnym miejscu aplikacji, aby wyświetlić listę skrótów."

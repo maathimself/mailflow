@@ -199,13 +199,17 @@ router.post('/classify', async (req, res) => {
         removedPrior ||= removed;
       }
     } catch (err) {
-      // If stripping a prior state fails, undo a newly created target copy so
-      // the request does not leave two GTD states behind.
-      if (result.applied && (result.uid != null || msg.message_id)) {
+      // If stripping a prior state fails, try to undo the new target copy.
+      // A non-UIDPLUS copy may not be indexed yet, so report a missed rollback.
+      if (result.applied) {
         try {
-          if (msg.message_id && result.uid != null) await removeExactLabelCopy(msg, toFolder, result.uid);
-          else if (msg.message_id) await removeLabel(msg, toFolder);
-          else await removeLabel({ account_id: msg.account_id, uid: result.uid, folder: toFolder }, toFolder);
+          let rollback;
+          if (msg.message_id && result.uid != null) rollback = await removeExactLabelCopy(msg, toFolder, result.uid);
+          else if (msg.message_id) rollback = await removeLabel(msg, toFolder);
+          else if (result.uid != null) rollback = await removeLabel({ account_id: msg.account_id, uid: result.uid, folder: toFolder }, toFolder);
+          if (!rollback?.removed) {
+            console.error(`GTD classify rollback failed for message ${messageId}: new copy in ${toFolder} could not be resolved`);
+          }
         } catch (rollbackErr) {
           console.error(`GTD classify rollback failed for message ${messageId}:`, rollbackErr.message);
         }
