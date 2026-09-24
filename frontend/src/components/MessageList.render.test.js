@@ -155,6 +155,18 @@ test('All Mail renders its title and syncing state on desktop and mobile', async
 });
 
 describe('MessageList — selected-row shortcuts', () => {
+  test('mark unread updates a selected GTD rail copy and its section row', async () => {
+    await mount({ rows: [MESSAGE], threadedView: false });
+    const rail = { ...MESSAGE, id: 'rail-copy', message_id: '<rail@example.com>', is_read: true };
+    await React.act(async () => {
+      useStore.setState({ gtdSections: { reference: { threads: [rail] } } });
+      useStore.getState().setSelectedMessage(rail.id);
+    });
+    await React.act(async () => { shortcutBus.emit('markUnread'); });
+    assert.equal(useStore.getState().gtdSections.reference.threads[0].is_read, false);
+    await React.act(async () => { useStore.setState({ gtdSections: null, selectedMessageId: null }); });
+  });
+
   test('forward and Reply All act on the selected row; no selection does nothing', async () => {
     await mount({ rows: [MESSAGE], threadedView: false });
     const drafts = [];

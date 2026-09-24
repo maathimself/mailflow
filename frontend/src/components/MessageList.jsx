@@ -2028,7 +2028,10 @@ export default function MessageList() {
           clearTimeout(autoMarkReadTimerRef.current);
           autoMarkReadTimerRef.current = null;
         },
-        update: state.updateMessage,
+        update: (id, fields) => {
+          state.updateMessage(id, fields);
+          state.markGtdThreadRead(message.message_id || message.id, fields.is_read);
+        },
         incrementUnread: state.incrementUnread,
         decrementUnread: state.decrementUnread,
         adjustCategoryCount: state.adjustCategoryCount,
