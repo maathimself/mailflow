@@ -23,7 +23,7 @@ const {
 } = await import('../utils/mailUtils.js');
 const { forwardRuleMessage } = await import('./ruleForwarder.js');
 const { getJevKey, evaluateJev } = await import('./jev.js');
-import { applyInboxRules, clearJevBackoff } from './inboxRules.js';
+import { applyInboxRules, clearJevBackoff, createJevContext, evaluateJevCondition } from './inboxRules.js';
 
 const account = { id: 'acc-1', user_id: 'user-1', folder_mappings: {} };
 
@@ -157,6 +157,35 @@ describe('Jev rule evaluation', () => {
       expect(warning).toHaveBeenCalledTimes(1);
       expect(warning.mock.calls[0][0]).toContain('HTTP 401');
       expect(warning.mock.calls[0][0]).not.toContain('test-key');
+    } finally { warning.mockRestore(); }
+  });
+
+  it('keeps interactive condition tests independent from sweep backoff', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      evaluateJev.mockResolvedValueOnce({ available: false, probability: null })
+        .mockResolvedValueOnce({ available: true, probability: 0.91 });
+      query.mockResolvedValue(bodyRow);
+      const msg = mkMsg();
+      await evaluateJevCondition(jev, msg, createJevContext(account, mockImap));
+
+      const testContext = createJevContext(account, mockImap, 6_000, { skipBackoff: true });
+      await expect(evaluateJevCondition(jev, msg, testContext)).resolves.toMatchObject({
+        available: true, probability: 0.91, match: true,
+      });
+      expect(evaluateJev).toHaveBeenCalledTimes(2);
+    } finally { warning.mockRestore(); }
+  });
+
+  it('logs once when a Jev context exhausts its time budget', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const context = createJevContext(account, mockImap, -1);
+      await evaluateJevCondition(jev, mkMsg(), context);
+      await evaluateJevCondition(jev, mkMsg({ id: 'msg-2' }), context);
+      expect(warning).toHaveBeenCalledOnce();
+      expect(warning.mock.calls[0][0]).toContain('Jev batch budget exhausted');
+      expect(evaluateJev).not.toHaveBeenCalled();
     } finally { warning.mockRestore(); }
   });
 });

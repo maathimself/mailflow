@@ -20,8 +20,18 @@ function warnJevUnavailable(userId, reason) {
   console.warn(`inboxRules: Jev unavailable for user ${userId}: ${reason}`);
 }
 
-export function createJevContext(account, imapManager, budgetMs = JEV_BATCH_BUDGET_MS) {
-  return { account, imapManager, deadline: Date.now() + budgetMs, keyPromise: null };
+export function createJevContext(account, imapManager, budgetMs = JEV_BATCH_BUDGET_MS, { skipBackoff = false } = {}) {
+  return { account, imapManager, deadline: Date.now() + budgetMs, keyPromise: null, skipBackoff, budgetWarningEmitted: false };
+}
+
+function jevContextExpired(context) {
+  if (Date.now() < context.deadline) return false;
+  if (!context.budgetWarningEmitted) {
+    context.budgetWarningEmitted = true;
+    const scope = context.skipBackoff ? 'test' : 'batch';
+    console.warn(`inboxRules: Jev ${scope} budget exhausted for user ${context.account.user_id}`);
+  }
+  return true;
 }
 
 async function resolveJevBody(msg, context) {
@@ -58,9 +68,10 @@ async function resolveJevBody(msg, context) {
 
 export async function evaluateJevCondition(cond, msg, context) {
   const unavailable = { available: false, probability: null, match: false };
-  if (!context || Date.now() >= context.deadline || jevBackoff.get(context.account.user_id) > Date.now()) return unavailable;
+  if (!context || jevContextExpired(context)) return unavailable;
+  if (!context.skipBackoff && jevBackoff.get(context.account.user_id) > Date.now()) return unavailable;
   const body = await resolveJevBody(msg, context);
-  if (!body || Date.now() >= context.deadline) return unavailable;
+  if (jevContextExpired(context) || !body) return unavailable;
   if (!context.keyPromise) context.keyPromise = getJevKey(context.account.user_id).catch(() => {
     warnJevUnavailable(context.account.user_id, 'credential lookup failed');
     return null;
@@ -70,7 +81,7 @@ export async function evaluateJevCondition(cond, msg, context) {
     warnJevUnavailable(context.account.user_id, 'missing or unreadable key');
     return unavailable;
   }
-  if (Date.now() >= context.deadline || activeJevCalls >= JEV_MAX_CONCURRENT) return unavailable;
+  if (jevContextExpired(context) || activeJevCalls >= JEV_MAX_CONCURRENT) return unavailable;
   activeJevCalls++;
   let result;
   let failureReason = 'provider unavailable';
@@ -85,7 +96,7 @@ export async function evaluateJevCondition(cond, msg, context) {
     activeJevCalls--;
   }
   if (!result.available) {
-    jevBackoff.set(context.account.user_id, Date.now() + JEV_BACKOFF_MS);
+    if (!context.skipBackoff) jevBackoff.set(context.account.user_id, Date.now() + JEV_BACKOFF_MS);
     warnJevUnavailable(context.account.user_id, failureReason);
   }
   return { ...result, match: !!result.available && result.probability >= (cond.threshold ?? 0.8) };

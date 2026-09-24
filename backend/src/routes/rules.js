@@ -142,7 +142,7 @@ router.post('/test-jev', async (req, res) => {
       if (!row) return res.status(404).json({ error: 'Message not found' });
       let context = contexts.get(row.account_id);
       if (!context) {
-        context = createJevContext(row.account, req.app.get('imapManager'), 6_000);
+        context = createJevContext(row.account, req.app.get('imapManager'), 6_000, { skipBackoff: true });
         contexts.set(row.account_id, context);
       }
       const msg = {
@@ -237,7 +237,7 @@ async function runRulesSweep(userId, accountIds, imapMgr) {
       let lastId = null;
       while (true) {
         const msgResult = await query(
-          `SELECT id, uid, folder, message_id, from_email, from_name, to_addresses, subject, has_attachments, is_read
+          `SELECT id, uid, folder, from_email, from_name, to_addresses, subject, has_attachments, is_read
            FROM messages
            WHERE account_id = $1 AND lower(folder) = 'inbox'
              ${lastId ? 'AND id > $3' : ''}
@@ -263,7 +263,6 @@ async function runRulesSweep(userId, accountIds, imapMgr) {
             id: row.id,
             uid: row.uid,
             folder: row.folder,
-            messageId: row.message_id,
             fromEmail: row.from_email || '',
             fromName: row.from_name || '',
             to: toArr,

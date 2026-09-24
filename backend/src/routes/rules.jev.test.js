@@ -5,13 +5,13 @@ vi.mock('../services/db.js', () => ({ query: vi.fn() }));
 vi.mock('../middleware/auth.js', () => ({ requireAuth: (req, _res, next) => { req.session = { userId: 'owner' }; next(); } }));
 vi.mock('../services/inboxRules.js', () => ({
   applyInboxRules: vi.fn(), isDangerousRegex: () => false,
-  createJevContext: vi.fn(account => ({ account })),
+  createJevContext: vi.fn((...args) => ({ account: args[0], ...args[3] })),
   evaluateJevCondition: vi.fn(async () => ({ available: true, probability: 0.91, match: true })),
 }));
 
 import router from './rules.js';
 import { query } from '../services/db.js';
-import { applyInboxRules, evaluateJevCondition } from '../services/inboxRules.js';
+import { applyInboxRules, createJevContext, evaluateJevCondition } from '../services/inboxRules.js';
 
 let server;
 let base;
@@ -45,6 +45,7 @@ describe('no-action Jev test mode', () => {
     expect(evaluateJevCondition).toHaveBeenCalledOnce();
     expect(applyInboxRules).not.toHaveBeenCalled();
     expect(query.mock.calls[0][0]).toContain('a.user_id = $2');
+    expect(createJevContext).toHaveBeenCalledWith(message.account, undefined, 6_000, { skipBackoff: true });
   });
 
   it('rejects oversized samples and foreign message IDs', async () => {
