@@ -229,6 +229,28 @@ describe('POST /api/gtd/classify — apply a GTD label (COPY)', () => {
     expect(imapManager.removeMessageCopy).toHaveBeenNthCalledWith(2, ACCT_ID, 77, 'Watch');
   });
 
+  it('resolves and rolls back a non-UIDPLUS target copy after old-state removal fails', async () => {
+    stubQueries({ folders: ['Todo'], siblings: { Todo: 42 } });
+    const originalQuery = query.getMockImplementation();
+    let watchLookups = 0;
+    query.mockImplementation((sql, params) => {
+      if (sql.startsWith('SELECT uid FROM messages') && params?.[1] === 'Watch') {
+        watchLookups += 1;
+        return { rows: watchLookups === 1 ? [] : [{ uid: 88 }] };
+      }
+      return originalQuery(sql, params);
+    });
+    imapManager.copyMessage.mockResolvedValueOnce(null);
+    imapManager.removeMessageCopy.mockRejectedValueOnce(new Error('cannot remove Todo'));
+
+    const res = await classify({ messageId: MSG_ID, state: 'watch' });
+
+    expect(res.status).toBe(500);
+    expect(watchLookups).toBe(2);
+    expect(imapManager.removeMessageCopy).toHaveBeenNthCalledWith(1, ACCT_ID, 42, 'Todo');
+    expect(imapManager.removeMessageCopy).toHaveBeenNthCalledWith(2, ACCT_ID, 88, 'Watch');
+  });
+
   it('removes the selected old-state row last so a failed switch remains retryable', async () => {
     stubQueries({ msg: { ...inboxMsg, folder: 'Todo' }, threadCopies: [
       { uid: 10, folder: 'Todo' },

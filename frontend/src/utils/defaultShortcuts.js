@@ -137,6 +137,9 @@ export function resolveShortcutAction(event, userOverrides = {}) {
     if (!modifiers.has('ctrl') || [...modifiers].some(part => !['ctrl', 'shift', 'alt'].includes(part))) continue;
     if (key !== event.key.toLowerCase()) continue;
     if (modifiers.has('shift') !== !!event.shiftKey || modifiers.has('alt') !== !!event.altKey) continue;
+    if (found) {
+      console.warn(`[shortcuts] key "${binding}" is bound to both "${found}" and "${action}"; "${action}" wins`);
+    }
     found = action;
   }
   return found;

@@ -72,4 +72,15 @@ describe('modifier shortcuts', () => {
     assert.equal(resolveShortcutAction({ key: 'e', ctrlKey: true, shiftKey: false }), null);
     assert.equal(resolveShortcutAction({ key: 'E', ctrlKey: false, shiftKey: true }), null);
   });
+
+  it('warns when two actions use the same full modifier binding', (t) => {
+    const warn = t.mock.method(console, 'warn', () => {});
+    const action = resolveShortcutAction(
+      { key: 'p', ctrlKey: true, shiftKey: false, altKey: false },
+      { toggleStar: 'ctrl+p' },
+    );
+    assert.equal(action, 'printMessage');
+    assert.equal(warn.mock.callCount(), 1);
+    assert.match(warn.mock.calls[0].arguments[0], /toggleStar.*printMessage/);
+  });
 });
