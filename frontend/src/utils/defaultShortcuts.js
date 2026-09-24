@@ -151,6 +151,9 @@ export function resolveShortcutAction(event, userOverrides = {}) {
     if (command !== isCommand || alt !== !!event.altKey || bare !== key) continue;
     if (shift !== !!event.shiftKey && key !== '?' && key !== '#') continue;
     if (shift && !event.shiftKey) continue;
+    if (found) {
+      console.warn(`[shortcuts] key "${binding}" is bound to both "${found}" and "${action}"; "${action}" wins`);
+    }
     found = action;
   }
   return found;
