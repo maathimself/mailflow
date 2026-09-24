@@ -286,6 +286,7 @@
     "noSubject": "(bez předmětu)",
     "to": "Komu:",
     "via": "prostřednictvím",
+    "forwardedFrom": "Původní odesílatel (podle {{service}}):",
     "attachment_one": "{{count}} příloha",
     "attachment_few": "{{count}} přílohy",
     "attachment_many": "{{count}} přílohy",

@@ -2146,6 +2146,12 @@ ${bodyContent}
                       <span style={{ color: 'var(--text-secondary)' }}>{body.senderName ? `${body.senderName} <${body.senderEmail}>` : body.senderEmail}</span>
                     </div>
                   )}
+                  {body?.forwardedFromEmail && (
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <span>{t('message.forwardedFrom', { service: body.forwardedVia })} </span>
+                      <span style={{ color: 'var(--text-secondary)' }}>{body.forwardedFromName ? `${body.forwardedFromName} <${body.forwardedFromEmail}>` : body.forwardedFromEmail}</span>
+                    </div>
+                  )}
                   <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     <span>{t('message.to')} </span>
                     <span style={{ color: 'var(--text-secondary)' }}>
@@ -2183,6 +2189,12 @@ ${bodyContent}
                     <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3 }}>
                       <span>{t('message.via')} </span>
                       <span style={{ color: 'var(--text-secondary)' }}>{body.senderName ? `${body.senderName} <${body.senderEmail}>` : body.senderEmail}</span>
+                    </div>
+                  )}
+                  {body?.forwardedFromEmail && (
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3 }}>
+                      <span>{t('message.forwardedFrom', { service: body.forwardedVia })} </span>
+                      <span style={{ color: 'var(--text-secondary)' }}>{body.forwardedFromName ? `${body.forwardedFromName} <${body.forwardedFromEmail}>` : body.forwardedFromEmail}</span>
                     </div>
                   )}
                   <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3 }}>

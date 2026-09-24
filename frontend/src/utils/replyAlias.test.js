@@ -150,4 +150,31 @@ describe('pickReplyAlias', () => {
     });
     assert.equal(result, 'alias-2');
   });
+
+  // #475: the receiving alias of an alias-forwarded message now lands in delivery_addresses,
+  // so a reply prefers that alias when it is configured on the account.
+  it('prefers the receiving alias of an alias-forwarded message (#475)', () => {
+    const result = pickReplyAlias({
+      aliases: [
+        { id: 'alias-work', email: 'work@example.com' },
+        { id: 'alias-33', email: 'shop@myname.33mail.com' },
+      ],
+      deliveryAddresses: ['me@gmail.example', 'shop@myname.33mail.com'],
+      toAddresses: [{ email: 'me@gmail.example' }],
+      ccAddresses: [],
+      fromEmail: 'sender@mailer1.33mail.com',
+    });
+    assert.equal(result, 'alias-33');
+  });
+
+  it('falls back to To/Cc when the receiving alias is not configured (#475)', () => {
+    const result = pickReplyAlias({
+      aliases,
+      deliveryAddresses: ['me@gmail.example', 'shop@myname.33mail.com'],
+      toAddresses: [{ email: 'support@example.com' }],
+      ccAddresses: [],
+      fromEmail: 'sender@mailer1.33mail.com',
+    });
+    assert.equal(result, 'alias-2');
+  });
 });

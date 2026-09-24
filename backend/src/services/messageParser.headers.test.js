@@ -184,6 +184,30 @@ describe('parseDeliveryAddresses', () => {
     const flood = Array.from({ length: 80 }, (_, i) => `user${i}@example.com`).join(', ');
     expect(parseDeliveryAddresses({ 'delivered-to': flood })).toHaveLength(50);
   });
+
+  // #475: alias-forwarding services record the receiving alias in their own header.
+  it('adds the receiving alias of a genuine 33Mail wrapper', () => {
+    expect(parseDeliveryAddresses({
+      from: `"Stripe 'billing@stripe.example' via 33Mail" <sender@mailer1.33mail.com>`,
+      'delivered-to': 'me@gmail.example',
+      'x-33mail-original-to': 'Shop@MyName.33mail.com',
+    })).toEqual(['me@gmail.example', 'shop@myname.33mail.com']);
+  });
+
+  it('takes the alias header on a wrapper even without the display-name pattern', () => {
+    expect(parseDeliveryAddresses({
+      from: 'sender@mailer1.33mail.com',
+      'x-33mail-original-to': 'shop@myname.33mail.com',
+    })).toEqual(['shop@myname.33mail.com']);
+  });
+
+  it('ignores a forged alias header when From is not the forwarder', () => {
+    expect(parseDeliveryAddresses({
+      from: 'attacker@evil.example',
+      'delivered-to': 'me@gmail.example',
+      'x-33mail-original-to': 'shop@myname.33mail.com',
+    })).toEqual(['me@gmail.example']);
+  });
 });
 
 describe('buildHeadersFromMessage', () => {

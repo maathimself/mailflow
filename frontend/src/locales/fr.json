@@ -196,6 +196,7 @@
     "noSubject": "(sans objet)",
     "to": "À :",
     "via": "via",
+    "forwardedFrom": "Expéditeur d'origine (selon {{service}}) :",
     "attachment_one": "{{count}} pièce jointe",
     "attachment_other": "{{count}} pièces jointes",
     "loadingError": "Impossible de charger le corps du message",

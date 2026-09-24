@@ -196,6 +196,7 @@
     "noSubject": "(sem assunto)",
     "to": "Para:",
     "via": "via",
+    "forwardedFrom": "Remetente original (segundo {{service}}):",
     "attachment_one": "{{count}} anexo",
     "attachment_other": "{{count}} anexos",
     "loadingError": "Não foi possível carregar o corpo da mensagem",
