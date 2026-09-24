@@ -196,6 +196,7 @@
     "noSubject": "(no subject)",
     "to": "To:",
     "via": "via",
+    "forwardedFrom": "Original sender (per {{service}}):",
     "attachment_one": "{{count}} attachment",
     "attachment_other": "{{count}} attachments",
     "loadingError": "Unable to load message body",
@@ -501,6 +502,11 @@
     }
   },
   "commandPalette": {
+    "labelPicker": {
+      "copyTo": "Copy to {{folder}}",
+      "error": "Could not label message",
+      "placeholder": "Copy or label selected message…"
+    },
     "placeholder": "Search actions…",
     "noResults": "No actions found",
     "hint": {
@@ -522,6 +528,11 @@
     "customizeHint": "Customise shortcuts in Settings → Shortcuts",
     "closeHint": "Press ? or Esc to close",
     "then": "then",
+    "browserMailboxFallback": "In a browser: g then 1–9 opens a visible mailbox; g then l opens the label picker.",
+    "visibleMailbox": {
+      "label": "Visible mailbox {{number}}",
+      "description": "Open visible mailbox {{number}}"
+    },
     "groups": {
       "composeSearch": "Compose & Search",
       "navigation": "Navigation",
@@ -529,6 +540,30 @@
       "gtd": "GTD"
     },
     "actions": {
+      "toggleLeftSidebar": {
+        "label": "Toggle left sidebar",
+        "description": "Hide or show the left sidebar"
+      },
+      "openLabelPicker": {
+        "label": "Open label picker",
+        "description": "Copy the selected message to a folder"
+      },
+      "replyAllFromSelection": {
+        "label": "Reply all from selection",
+        "description": "Reply all to the selected message"
+      },
+      "markUnread": {
+        "label": "Mark unread",
+        "description": "Mark the selected message unread"
+      },
+      "unsubscribe": {
+        "label": "Unsubscribe",
+        "description": "Unsubscribe from the selected mailing list"
+      },
+      "loadRemoteImages": {
+        "label": "Load remote images",
+        "description": "Load images in the selected message"
+      },
       "compose": {
         "label": "Compose",
         "description": "Open new compose window"

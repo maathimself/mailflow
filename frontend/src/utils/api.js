@@ -253,6 +253,7 @@ export const api = {
   deleteMessage: (id) => request('DELETE', `/mail/messages/${id}`),
   bulkDelete: (ids) => request('POST', '/mail/messages/bulk-delete', { ids }),
   bulkMove: (ids, folder) => request('POST', '/mail/messages/bulk-move', { ids, folder }),
+  copyMessage: (id, folder) => request('POST', `/mail/messages/${encodeURIComponent(id)}/copy`, { folder }),
   bulkArchive: (ids) => request('POST', '/mail/messages/bulk-archive', { ids }),
   getUnreadCounts: () => request('GET', '/mail/unread-counts'),
 

@@ -43,7 +43,7 @@ globalThis.fetch = async (url, opts = {}) => {
 };
 
 const { useStore } = await import('../store/index.js');
-const { applyMarkRead, scheduleMarkRead } = await import('./markRead.js');
+const { applyMarkRead, scheduleMarkRead, cancelScheduledMarkRead, cancelScheduledMarkReadFor } = await import('./markRead.js');
 const { pendingMarkReadMap, completedMarkReadMap } = await import('./pendingReads.js');
 
 const MSG = { id: 'm1', account_id: 'acct', category: 'primary', is_read: false };
@@ -90,6 +90,15 @@ describe('applyMarkRead', () => {
 });
 
 describe('scheduleMarkRead', () => {
+  test('explicit unread cancels every pending reader timer for that message', async () => {
+    useStore.setState({ markReadBehavior: 'delay', markReadDelay: 0.03 });
+    scheduleMarkRead({ ...MSG });
+    scheduleMarkRead({ ...MSG });
+    cancelScheduledMarkReadFor(MSG.id);
+    await tick(70);
+    assert.deepEqual(bulkReads, []);
+    assert.equal(readFlag(), false);
+  });
   test('marks immediately by default', async () => {
     const timer = scheduleMarkRead({ ...MSG });
     assert.equal(timer, null, 'nothing to cancel when the mark already happened');
@@ -111,7 +120,7 @@ describe('scheduleMarkRead', () => {
 
     const cancelled = scheduleMarkRead({ ...MSG });
     assert.notEqual(cancelled, null, 'a deferred mark hands back a handle to cancel');
-    clearTimeout(cancelled);
+    cancelScheduledMarkRead(cancelled);
     await tick(80);
     assert.deepEqual(bulkReads, [], 'a reader who moves on before the delay does not mark it read');
 
@@ -120,5 +129,21 @@ describe('scheduleMarkRead', () => {
     assert.deepEqual(bulkReads, [], 'still nothing while the delay is running');
     await tick(80);
     assert.equal(bulkReads.length, 1, 'and it marks once the delay elapses');
+  });
+
+  test('caller cancellation removes its handle from the scheduled registry', () => {
+    useStore.setState({ markReadBehavior: 'delay', markReadDelay: 10 });
+    const timer = scheduleMarkRead({ ...MSG });
+    const originalClearTimeout = globalThis.clearTimeout;
+    let clears = 0;
+    globalThis.clearTimeout = (...args) => { clears++; return originalClearTimeout(...args); };
+    try {
+      cancelScheduledMarkRead(timer);
+      cancelScheduledMarkReadFor(MSG.id);
+      assert.equal(clears, 1, 'cancel-by-message must not see an already cancelled handle');
+    } finally {
+      globalThis.clearTimeout = originalClearTimeout;
+      originalClearTimeout(timer);
+    }
   });
 });

@@ -3,7 +3,7 @@ import { extractImapError } from './imapError.js';
 import { recordUnfetchable, suppressedUids, clearUnfetchable, hasRealGap } from './unfetchableUids.js';
 import { ImapFlow } from 'imapflow';
 import { query } from './db.js';
-import { parseMessage, snippetFromBody, detectBulkFromParsedHeaders, parseHeadersInput, headersToRawString, decodeMimeWords, enrichParsedMetadata, renderCalendarInvite } from './messageParser.js';
+import { parseMessage, snippetFromBody, detectBulkFromParsedHeaders, ALIAS_FORWARDER_HEADERS, parseHeadersInput, headersToRawString, decodeMimeWords, enrichParsedMetadata, renderCalendarInvite } from './messageParser.js';
 import { classifyMessage, loadSocialDomains, getGlobalCategorizationEnabled } from './categorizer.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { createPluginMailFacade } from '../plugins/mailEngineFacade.js';
@@ -883,6 +883,15 @@ const PROVIDERS = {
     speculativeFetch: false,
     skipFolderPatterns: [],
     skipFolderNames: [],
+    // Yahoo enforces a small per-account session ceiling rather than a rate limit: a fresh
+    // account with a fresh app password had its FIRST secondary login refused with
+    // [UNAVAILABLE] while the primary session worked fine (#474, reporter's isolated
+    // instance). Thunderbird hit the same wall (Mozilla bug 1727971, "didn't like more
+    // than 3 connections" while TB opened 5) and fixed it by opening fewer. So: one body
+    // connection instead of four, and no startup pre-warm, whose only job is to open a
+    // connection early, which is exactly what this provider punishes.
+    poolSize: 1,
+    poolPrewarm: false,
   },
   apple: {
     // iCloud is permissive — large batches, short delay.
@@ -1002,7 +1011,8 @@ export async function insertCopiedSibling(accountId, uid, fromFolder, toFolder, 
       thread_references, thread_id, is_bulk,
       read_changed_at, star_changed_at, spam_score_sa, spam_score_ml,
       spam_verdict, spam_analyzed_at, spam_details, spam_user_override,
-      category, list_unsubscribe, list_unsubscribe_post, unsubscribed_at, delivery_addresses, sender_name, sender_email
+      category, list_unsubscribe, list_unsubscribe_post, unsubscribed_at, delivery_addresses, sender_name, sender_email,
+      forwarded_from_name, forwarded_from_email, forwarded_via
     )
     SELECT
       account_id, $4, $5, message_id, subject,
@@ -1012,7 +1022,8 @@ export async function insertCopiedSibling(accountId, uid, fromFolder, toFolder, 
       thread_references, thread_id, is_bulk,
       read_changed_at, star_changed_at, spam_score_sa, spam_score_ml,
       spam_verdict, spam_analyzed_at, spam_details, spam_user_override,
-      category, list_unsubscribe, list_unsubscribe_post, unsubscribed_at, delivery_addresses, sender_name, sender_email
+      category, list_unsubscribe, list_unsubscribe_post, unsubscribed_at, delivery_addresses, sender_name, sender_email,
+      forwarded_from_name, forwarded_from_email, forwarded_via
     FROM messages
     WHERE account_id = $1 AND folder = $2 AND uid = $3
     ON CONFLICT (account_id, uid, folder) DO NOTHING
@@ -1120,6 +1131,22 @@ export function connectStaggerFor(profile, accountCount) {
   const base = profile?.connectStaggerMs ?? 200;
   const factor = Math.min(1 + Math.max(accountCount, 0) / 25, 2);
   return Math.round(base * factor);
+}
+
+// Whether an account's pool holds a connected client that nothing is using: work that must
+// not open a NEW login (a body click during a provider refusal window, #474) may still run
+// over one of these. Takes the pools map as an argument so it is unit-testable. Pure.
+// Whether connectAccount should open a pool connection ahead of the first click. Skipped for
+// providers whose body fetches bypass the pool (preferFreshBodyFetch) and for providers that
+// punish early extra logins (poolPrewarm: false, e.g. Yahoo's session ceiling, #474). Pure.
+export function shouldPrewarmPool(profile) {
+  return !profile?.preferFreshBodyFetch && profile?.poolPrewarm !== false;
+}
+
+export function hasIdlePooledClient(pools, accountId) {
+  const pool = pools.get(accountId);
+  if (!pool) return false;
+  return pool.clients.some(c => c && c.usable !== false && !pool.inUse.has(c));
 }
 
 // Per-account connection pool for body fetches — avoids TLS handshake on every click
@@ -1450,7 +1477,11 @@ export async function acquirePooledClient(account) {
   // refresh, a host resolve and a connect, so callers arriving together all pass the check
   // before any of them has pushed. Measured at 12 sockets against a POOL_SIZE of 4. The
   // ceiling is the safety property #474 introduced, so it has to hold under concurrency.
-  if (pool.clients.length + pool.pending < POOL_SIZE) {
+  // Per-provider clamp. Yahoo refuses logins past a small per-account session ceiling
+  // (#474), so a provider profile may cap its pool below the global size; anything the
+  // clamp turns away waits in the queue below exactly like a full pool.
+  const poolCap = Math.min(POOL_SIZE, providerProfile(account).poolSize ?? POOL_SIZE);
+  if (pool.clients.length + pool.pending < poolCap) {
     pool.pending += 1;
     try {
       const freshAccount = await ensureFreshToken(account);
@@ -1717,6 +1748,7 @@ export class ImapManager {
     // AUTO_MOVE_MAX_CONCURRENT_PER_ACCOUNT. Classification stays concurrent.
     this._autoMoveSem = createKeyedSemaphore(AUTO_MOVE_MAX_CONCURRENT_PER_ACCOUNT);
     this._connectCooldown = new Map(); // accountId -> { until: ms, failures: number } after connection refusals
+    this._flagOpChains = new Map(); // accountId -> tail promise; serializes setFlag per account (#474 round 4 review)
     // Refusals seen on SECONDARY connections (the folder-status counter, background body
     // prefetch) are tracked apart from _connectCooldown, which live sync owns.
     //
@@ -2204,8 +2236,10 @@ export class ImapManager {
   async connectAccount(account) {
     // Back off if this account is in a connection-refusal cooldown. Retrying a provider that
     // is rejecting connections (per-IP/per-account limit, temporary lock) every health-check
-    // tick is exactly what escalates to IP bans / account locks. The cooldown is cleared the
-    // moment a connect succeeds (below), so a transient refusal recovers on its own.
+    // tick is exactly what escalates to IP bans / account locks. The cooldown's window is
+    // honored here; the failure COUNT survives a successful login and is cleared by the
+    // first successful SYNC (initial, tick, or poll-only), so a transient refusal recovers
+    // on its own without a login-time reset the #474 provider exploited.
     const cd = this._connectCooldown.get(account.id);
     if (cd && Date.now() < cd.until) {
       logger.debug(`connectAccount: ${logAccount(account)} cooling down ${Math.round((cd.until - Date.now()) / 1000)}s after ${cd.failures} refusal(s)`);
@@ -2296,6 +2330,12 @@ export class ImapManager {
             'Initial message sync',
           );
         }
+        // The initial sync SUCCEEDED: that is the health proof the refusal ladder waits
+        // for, so clear it now rather than leaving recovery to the next interval tick.
+        // Review of this branch caught the gap: without this line the standing count
+        // outlived a genuinely healthy connect by up to one tick interval, and the
+        // comment promising "the first successful sync clears it" was not yet true.
+        this._connectCooldown.delete(account.id);
       } catch (syncErr) {
         console.warn(`Initial sync skipped for ${logAccount(account)}: ${extractImapError(syncErr)}`);
       }
@@ -2306,7 +2346,7 @@ export class ImapManager {
       // PurelyMail): there it only opens an unused connection on a connection-sensitive
       // server during the startup backfill window, which is exactly the pressure we're
       // trying to reduce.
-      if (!providerProfile(account).preferFreshBodyFetch) {
+      if (shouldPrewarmPool(providerProfile(account))) {
         setImmediate(() => {
           acquirePooledClient(account)
             .then(c => releasePooledClient(account, c))
@@ -2335,7 +2375,13 @@ export class ImapManager {
       // (Enabling such a feature on a live account takes effect on its next reconnect.)
       this._startPluginSyncTimers(account).catch(err => console.warn(`Plugin sync timer arm failed for ${logAccount(account)}:`, err.message));
 
-      this._connectCooldown.delete(account.id); // healthy again — clear any refusal cooldown
+      // Deliberately NOT clearing _connectCooldown here any more. A successful LOGIN is not
+      // evidence the provider will sustain the session: #474's fourth round of logs shows
+      // Yahoo accepting every reconnect, starving the session ('Connection not available'),
+      // and the ladder restarting at refusal #1 forever because this line wiped the count on
+      // each success. The first successful SYNC clears it (the sync tick and poll-only paths
+      // below), which is the same lesson the secondary ladder taught: clear on the thing
+      // that actually proves health, not on the handshake.
       this.folderStatusMonitor?.refresh(account).catch(() => {});
       console.log(`Connected account: ${logAccount(account)}`);
       this.broadcast({ type: 'account_connected', accountId: account.id }, account.user_id);
@@ -2560,6 +2606,15 @@ export class ImapManager {
     return null;
   }
 
+  // Everything a successful RECONNECT is allowed to clean up. Deliberately the account
+  // error only: the refusal ladder is NOT cleared by a login, because #474's provider
+  // accepts every login and starves the session after, which kept the ladder at
+  // "refusal #1" forever. A successful sync clears it. Extracted so a test can pin the
+  // absence: review found that restoring the old delete here survived the whole suite.
+  async _onReconnectSuccess(account) {
+    await this._clearAccountError(account);
+  }
+
   _noteConnectionRefusal(account) {
     const failures = (this._connectCooldown.get(account.id)?.failures || 0) + 1;
     const ms = connectCooldownMs(failures);
@@ -2715,10 +2770,7 @@ export class ImapManager {
           // (#360) — activeClient is that same pendingClient, so it's already covered here.
           this._attachIdleListeners(activeClient, syncAccount);
           this.connections.set(account.id, activeClient);
-          // Mirror connectAccount's success cleanup: clear the refusal backoff so the next
-          // failure starts fresh, and clear the stale sync_error the UI is still showing.
-          this._connectCooldown.delete(account.id);
-          await this._clearAccountError(account);
+          await this._onReconnectSuccess(account);
           console.log(`Reconnected ${logAccount(syncAccount)}`);
         } catch (reconnErr) {
           const detail = extractImapError(reconnErr);
@@ -3645,8 +3697,9 @@ export class ImapManager {
                 body_html, body_text, attachments,
                 thread_references, thread_id, is_bulk, category,
                 list_unsubscribe, list_unsubscribe_post, delivery_addresses,
-                sender_name, sender_email
-              ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
+                sender_name, sender_email,
+                forwarded_from_name, forwarded_from_email, forwarded_via
+              ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32)
               ON CONFLICT (account_id, uid, folder) DO UPDATE
               SET subject = CASE
                     WHEN EXCLUDED.subject IS NOT NULL
@@ -3704,7 +3757,10 @@ export class ImapManager {
                   list_unsubscribe_post = COALESCE(messages.list_unsubscribe_post, EXCLUDED.list_unsubscribe_post),
                   delivery_addresses = COALESCE(messages.delivery_addresses, EXCLUDED.delivery_addresses),
                   sender_name = COALESCE(EXCLUDED.sender_name, messages.sender_name),
-                  sender_email = COALESCE(EXCLUDED.sender_email, messages.sender_email)
+                  sender_email = COALESCE(EXCLUDED.sender_email, messages.sender_email),
+                  forwarded_from_name = COALESCE(EXCLUDED.forwarded_from_name, messages.forwarded_from_name),
+                  forwarded_from_email = COALESCE(EXCLUDED.forwarded_from_email, messages.forwarded_from_email),
+                  forwarded_via = COALESCE(EXCLUDED.forwarded_via, messages.forwarded_via)
               RETURNING id, (xmax = 0) as is_new
             `, [
               account.id, parsed.uid, folder,
@@ -3721,6 +3777,7 @@ export class ImapManager {
               sanitizeStr(decodeMimeWords(parsed.parsedHeaders?.['list-unsubscribe-post'] ?? null)),
               JSON.stringify(parsed.deliveryAddresses || []),
               sanitizeStr(parsed.senderName), sanitizeStr(parsed.senderEmail),
+              sanitizeStr(parsed.forwardedFromName), sanitizeStr(parsed.forwardedFromEmail), sanitizeStr(parsed.forwardedVia),
             ]);
             if (result.rows[0]?.is_new) {
               insertedCount++;
@@ -4049,6 +4106,16 @@ export class ImapManager {
   async backfillMessages(account, folder = 'INBOX') {
     const backfillKey = `${account.id}:${folder}`;
     if (this.backfillRunning.has(backfillKey)) return;
+    // Backfill opens its own login per run, so it honors the secondary backoff like the
+    // other background consumers. Without this, backfillAllFolders walked every folder
+    // while the provider was refusing, one doomed LOGIN each (#474: eight folders, eight
+    // refusals inside a minute on a provider whose ceiling was already the problem). The
+    // skipped folder is picked up by the next scheduled backfill once the backoff clears.
+    const blocked = this._secondaryConnectBlocked(account.id);
+    if (blocked) {
+      logger.debug(`Backfill skipped for ${logAccount(account)}/${folder}: secondary backoff ${Math.round((blocked.until - Date.now()) / 1000)}s`);
+      return;
+    }
     this.backfillRunning.add(backfillKey);
 
     // Spread into a local copy so per-run mutations (e.g. batchSize reduction on rate-limit)
@@ -4297,8 +4364,9 @@ export class ImapManager {
                     body_html, body_text, attachments,
                     thread_references, thread_id, is_bulk, category,
                     list_unsubscribe, list_unsubscribe_post, delivery_addresses,
-                    sender_name, sender_email
-                  ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
+                    sender_name, sender_email,
+                    forwarded_from_name, forwarded_from_email, forwarded_via
+                  ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32)
                   ON CONFLICT (account_id, uid, folder) DO UPDATE
                   SET subject = CASE
                         WHEN EXCLUDED.subject IS NOT NULL
@@ -4354,7 +4422,10 @@ export class ImapManager {
                       list_unsubscribe_post = COALESCE(messages.list_unsubscribe_post, EXCLUDED.list_unsubscribe_post),
                       delivery_addresses = COALESCE(messages.delivery_addresses, EXCLUDED.delivery_addresses),
                       sender_name = COALESCE(EXCLUDED.sender_name, messages.sender_name),
-                      sender_email = COALESCE(EXCLUDED.sender_email, messages.sender_email)
+                      sender_email = COALESCE(EXCLUDED.sender_email, messages.sender_email),
+                      forwarded_from_name = COALESCE(EXCLUDED.forwarded_from_name, messages.forwarded_from_name),
+                      forwarded_from_email = COALESCE(EXCLUDED.forwarded_from_email, messages.forwarded_from_email),
+                      forwarded_via = COALESCE(EXCLUDED.forwarded_via, messages.forwarded_via)
                   RETURNING id, (xmax = 0) as is_new
                 `, [
                   account.id, parsed.uid, folder,
@@ -4371,6 +4442,7 @@ export class ImapManager {
                   sanitizeStr(decodeMimeWords(parsed.parsedHeaders?.['list-unsubscribe-post'] ?? null)),
                   JSON.stringify(parsed.deliveryAddresses || []),
                   sanitizeStr(parsed.senderName), sanitizeStr(parsed.senderEmail),
+                  sanitizeStr(parsed.forwardedFromName), sanitizeStr(parsed.forwardedFromEmail), sanitizeStr(parsed.forwardedVia),
                 ]);
                 backfilledRows++;
                 // v0.2 antispam: classify genuinely-new rows — the same hook the
@@ -4471,7 +4543,12 @@ export class ImapManager {
       // Error('Command failed'). #474 reported screens of exactly that from this line, with
       // the server's own explanation discarded. Reported again after v3.5.3, because this
       // site was missed when the other log sites were converted.
-      console.error(`Backfill failed for ${logAccount(account)}/${folder}:`, extractImapError(err));
+      const detail = extractImapError(err);
+      console.error(`Backfill failed for ${logAccount(account)}/${folder}:`, detail);
+      // A refusal (or Yahoo's throttle-shaped AUTHENTICATE rejection) arms the shared
+      // secondary backoff, and the entry guard above then stops the REST of the folder walk
+      // for this run instead of paying one refused login per remaining folder.
+      if (isConnectionRefusal(detail) || isAuthFailure(detail)) this._noteSecondaryRefusal(account);
     } finally {
       if (bfClient) { try { bfClient.close(); } catch { /* already disconnected */ } }
       this.backfillRunning.delete(backfillKey);
@@ -4562,7 +4639,9 @@ export class ImapManager {
           const uidSet = msgs.map(m => m.uid).join(',');
           for await (const msg of client.fetch(uidSet, {
             uid: true,
-            headers: ['list-unsubscribe', 'list-id', 'list-post', 'precedence'],
+            // From + the forwarders' recipient headers so an alias-forwarder's own List-Unsubscribe
+            // is recognised and not taken as a bulk signal (#475).
+            headers: ['list-unsubscribe', 'list-id', 'list-post', 'precedence', ...ALIAS_FORWARDER_HEADERS],
           }, { uid: true })) {
             const dbId = uidToId.get(msg.uid);
             if (dbId == null) continue;
@@ -4787,7 +4866,7 @@ export class ImapManager {
             consecutiveErrors = 0;
           } catch (err) {
             consecutiveErrors++;
-            console.error(`Snippet indexer batch error ${logAccount(account)}/${folder}:`, err.message);
+            console.error(`Snippet indexer batch error ${logAccount(account)}/${folder}:`, extractImapError(err));
             // Connection refusal = the provider is at its per-host/per-IP connection limit
             // (iCloud especially, or many accounts on one server, right after a startup backfill
             // burst). Reopening a fresh connection to retry would only pile on more pressure and
@@ -4822,7 +4901,7 @@ export class ImapManager {
       console.log(`Snippet indexer complete for ${logAccount(account)} (${batchCount} batches)`);
     } catch (err) {
       failed = true;
-      console.error(`Snippet indexer error ${logAccount(account)}:`, err.message);
+      console.error(`Snippet indexer error ${logAccount(account)}:`, extractImapError(err));
     } finally {
       // close(), not logout(): the per-host slot below is released only after this, so a
       // hung logout would stop background work for every account on the host.
@@ -5157,6 +5236,11 @@ export class ImapManager {
           );
         }
       } catch (err) {
+        // Our own fetchMessageBody gate, not a provider event: the backoff it reports is
+        // already armed, so stop the run at once. Burning it through the consecutive-error
+        // count instead printed three 'Mail server is limiting connections' lines per folder
+        // view, which is the noisy block the #474 reporter pasted back at us.
+        if (err?.providerRefusing) return;
         const detail = extractImapError(err);
         console.warn(`Folder body prefetch failed for uid ${msg.uid}:`, detail);
 
@@ -5209,6 +5293,19 @@ export class ImapManager {
   // Auto-retries once on transient connection errors (stale pool connection, NAT
   // timeout, half-open TCP, etc.) so a single click is enough in all common cases.
   async fetchMessageBody(account, uid, folder) {
+    // While the provider is refusing secondary logins, a body click can only succeed over a
+    // session that already exists. If the pool holds an idle client, use it (no new LOGIN);
+    // otherwise fail fast with a typed error the route turns into a clear 503, instead of
+    // paying one refused login now and one more on the fresh-login retry (#474: this is the
+    // red raw-error box the reporter screenshotted). The wording deliberately does not
+    // match isConnectionRefusal, so surfacing it can never re-arm the backoff it reports.
+    const blocked = this._secondaryConnectBlocked(account.id);
+    if (blocked && !hasIdlePooledClient(connectionPools, account.id)) {
+      const gateErr = new Error('Mail server is limiting connections for this account');
+      gateErr.providerRefusing = true;
+      gateErr.retryAfterMs = Math.max(0, blocked.until - Date.now());
+      throw gateErr;
+    }
     // Inner fetch — called up to twice. `acquire` selects how the connection is obtained:
     // the first attempt uses the pool (withFreshClient); the retry uses a genuinely fresh
     // login (withFreshLogin) so a frozen/half-open pooled connection can't hang or return
@@ -5415,6 +5512,17 @@ export class ImapManager {
         /EPIPE/.test(detail)
       );
       if (isTransient) {
+        // No fresh-login retry while the secondary backoff is armed. The entry gate lets a
+        // call through during a refusal window only so it can REUSE an idle pooled session;
+        // retrying over a brand-new LOGIN is exactly the doomed request the gate exists to
+        // prevent, and it bypassed the gate entirely (review of d3597f5 rated this above
+        // the acquire race). Rethrow instead; the route maps refusals to the friendly 503.
+        if (this._secondaryConnectBlocked(account.id)) {
+          const wrapped = new Error(detail);
+          wrapped.imapError = true;
+          if (firstErr.poolExhausted) wrapped.poolExhausted = true;
+          throw wrapped;
+        }
         try {
           return await doFetch(withFreshLogin);
         } catch (retryErr) {
@@ -5428,11 +5536,16 @@ export class ImapManager {
           }
           const wrapped = new Error(retryDetail);
           wrapped.imapError = true;
+          if (retryErr.poolExhausted) wrapped.poolExhausted = true;
           throw wrapped;
         }
       }
       const wrapped = new Error(detail);
       wrapped.imapError = true;
+      // Wrapping in a fresh Error dropped this flag, so the route's "account is busy" 503
+      // never fired for body fetches and a pool timeout surfaced as a generic 500. Found in
+      // review; pre-existing, but poolSize 1 providers make it the common case.
+      if (firstErr.poolExhausted) wrapped.poolExhausted = true;
       throw wrapped;
     }
   }
@@ -5537,7 +5650,82 @@ export class ImapManager {
   }
 
   async setFlag(account, uid, folder, flag, value) {
+    // Serialized per account. Review found a cross-call inversion: call A's persistent
+    // STORE could be granted its lock just before the 5s deadline, linger on the wire
+    // while the fallback also stored, and land AFTER a newer call B stored the opposite
+    // value, silently restoring the old state (a toggle, or _reconcileFlagPushes replaying
+    // an older op). Two flag operations for one account never overlap now, so a stale
+    // STORE cannot outlive a newer one. Waiters are short: the inner attempt is bounded.
+    const prev = this._flagOpChains.get(account.id) || Promise.resolve();
+    const run = prev.catch(() => {}).then(() => this._setFlagInner(account, uid, folder, flag, value));
+    this._flagOpChains.set(account.id, run);
+    try {
+      return await run;
+    } finally {
+      if (this._flagOpChains.get(account.id) === run) this._flagOpChains.delete(account.id);
+    }
+  }
+
+  async _setFlagInner(account, uid, folder, flag, value) {
     console.log(`setFlag: uid=${uid} folder=${folder} flag=${flag} value=${value}`);
+
+    // Attempt 0: the persistent IDLE connection, the way Thunderbird stores flags: DONE,
+    // STORE on the same session, re-IDLE (ImapFlow breaks and resumes IDLE around any
+    // command on its own). A flag change then costs ZERO extra logins, which is what a
+    // session-limited provider needs: #474's logs show an open tab retrying one mark-read
+    // into a fresh refused LOGIN every few seconds, keeping Yahoo's refusal alive forever.
+    //
+    // Deliberately narrow:
+    //  - INBOX only. The push connection's selected mailbox is INBOX; selecting another
+    //    folder here would silence its EXISTS events for that window.
+    //  - Bounded, and a timeout falls through to the pool path rather than hanging the
+    //    user's click behind a long-running sync that holds the mailbox lock. The attempt
+    //    keeps running detached; if its lock arrives after we gave up, it releases
+    //    immediately and stores nothing, so the lock cannot leak.
+    //  - Failure here never tears the persistent client down. A failed STORE is not
+    //    evidence the session is dead, and the health check owns that decision.
+    if (folder === 'INBOX') {
+      const client = this.connections.get(account.id);
+      if (client && client.usable !== false) {
+        let expired = false;
+        const attempt = (async () => {
+          // acquireTimeout: ImapFlow splices a timed-out waiter OUT of its lock queue and
+          // rejects. Without it, every attempt that hit the 5s race left a waiter queued
+          // forever on a client whose lock never settles (half-open socket): review's
+          // finding 1. The expired flag below still covers a lock granted late by a fake
+          // or a race inside the same tick.
+          const lock = await client.getMailboxLock('INBOX', { acquireTimeout: 4500 });
+          if (expired) { lock.release(); throw new Error('persistent flag store timed out'); }
+          try {
+            const applied = value
+              ? await client.messageFlagsAdd(String(uid), [flag], { uid: true })
+              : await client.messageFlagsRemove(String(uid), [flag], { uid: true });
+            if (applied === false) throw new Error('server did not apply flag on persistent session');
+          } finally { lock.release(); }
+        })();
+        attempt.catch(() => {}); // detached after a timeout; never an unhandled rejection
+        try {
+          await raceTimeout(attempt, 5000, 'Persistent flag store');
+          logger.debug(`setFlag success (persistent): uid=${uid} ${flag}=${value}`);
+          return;
+        } catch (err) {
+          // Mark the detached attempt dead BEFORE falling through: its late-arriving lock
+          // must release-and-exit, not store a flag the pool path is about to store again.
+          expired = true;
+          logger.debug(`setFlag persistent attempt failed, using pool: ${extractImapError(err)}`);
+        }
+      }
+    }
+
+    // While the provider is refusing secondary logins and no session can serve this without
+    // opening one, fail fast and typed instead of paying two doomed LOGINs (the pool attempt
+    // plus its fresh retry). Same contract as fetchMessageBody's gate.
+    if (this._secondaryConnectBlocked(account.id) && !hasIdlePooledClient(connectionPools, account.id)) {
+      const gateErr = new Error('Mail server is limiting connections for this account');
+      gateErr.providerRefusing = true;
+      throw gateErr;
+    }
+
     // Up to 2 attempts. ImapFlow returns false when the server did NOT apply the flag —
     // typically a stale/half-open pooled connection whose SELECT view is missing the UID.
     // Throwing on false makes withFreshClient evict that client from the pool, so the
@@ -5785,7 +5973,14 @@ export class ImapManager {
     // forget, so this never blocks or breaks the copy.
     await pluginRegistry.runHook('afterLabelCopy', { mgr: this.pluginFacade, account, toFolder, fromFolder, srcUid: uid, newUid });
 
-    if (newUid == null) return null;
+    if (newUid == null) {
+      // Servers without UIDPLUS confirm COPY but cannot name its destination UID.
+      // Pull the target so ordinary folders (which have no label plugin hook)
+      // gain their local sibling row without waiting for the next backfill.
+      this.syncFolderOnDemand(account, toFolder)
+        .catch(err => console.warn(`Post-copy folder sync failed: ${err.message}`));
+      return null;
+    }
 
     await insertCopiedSibling(accountId, uid, fromFolder, toFolder, newUid);
     return newUid;
@@ -6334,6 +6529,21 @@ export class ImapManager {
           // set would mark every local row an orphan and delete the folder's contents.
           if (!Array.isArray(serverUids)) {
             console.warn(`Reconcile: no UID list for ${logAccount(account)}/${folder} (search returned ${serverUids}) — skipping folder`);
+            continue;
+          }
+          // An ARRAY is iterable, so the guard above never caught the case that matters: a
+          // SEARCH that comes back empty, or short, for a folder the server just reported as
+          // non-empty at SELECT. Trusted, that marks every cached row an orphan and empties
+          // the folder locally. #472 (Strato/Dovecot): deleting one message in a 15-message
+          // INBOX logged "removing 15 server-deleted message(s)"; backfill restored the rows
+          // and the periodic reconcile purged them again, a ten-minute loop the user saw as
+          // the mailbox flashing empty. Whether the SEARCH response was misparsed or the
+          // server answered wrongly is not established, and does not need to be: two server
+          // statements about the same folder disagree, so neither is trusted for deletion.
+          // The integrity pass has made exactly this check since it was written.
+          const exists = client.mailbox?.exists;
+          if (Number.isFinite(exists) && serverUids.length !== exists) {
+            console.warn(`Reconcile: UID list for ${logAccount(account)}/${folder} has ${serverUids.length} entries but the server reports ${exists} messages: not trusted, skipping folder`);
             continue;
           }
           serverUidsByFolder.set(folder, new Set(serverUids));

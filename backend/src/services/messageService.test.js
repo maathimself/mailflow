@@ -143,6 +143,36 @@ describe('listMessages — threaded mode', () => {
     expect(result.messages).toHaveLength(1);
   });
 
+  it('counts a thread message per account, not per Message-ID (#476)', async () => {
+    // One email delivered to two connected accounts is two messages in the conversation, so
+    // the thread badge must count both. Counting DISTINCT message_id alone reported 1 beside
+    // a conversation holding 2. Verified against a live database: the same thread goes from
+    // message_count 1 to 2 while the same-account Sent twin still collapses.
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
+      .mockResolvedValueOnce({ rows: [{ total_count: 10, unread_count: 0 }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ total: 0 }] });
+
+    await listMessages({ userId: 'user-1', accountId: 'acc-1', folder: 'INBOX', threaded: 'true' });
+
+    const cteSql = query.mock.calls[2][0];
+    expect(cteSql).toContain('COUNT(DISTINCT (m.account_id, m.message_id))');
+    expect(cteSql).not.toContain('COUNT(DISTINCT m.message_id)');
+  });
+
+  it('keeps the per-thread message rows scoped per account so both copies survive (#476)', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
+      .mockResolvedValueOnce({ rows: [{ total_count: 10, unread_count: 0 }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ total: 0 }] });
+
+    await listMessages({ userId: 'user-1', accountId: 'acc-1', folder: 'INBOX', threaded: 'true' });
+
+    expect(query.mock.calls[2][0]).toContain('DISTINCT ON (m.account_id, m.thread_key, m.message_id)');
+  });
+
   it('scopes thread_totals to INBOX when viewing a specific account INBOX', async () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })

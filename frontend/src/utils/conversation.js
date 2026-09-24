@@ -1,10 +1,21 @@
+// Order a conversation chronologically and drop copies that represent the same message twice.
+//
+// The dedup key is scoped to the account, matching the thread query that feeds this. One email
+// delivered to two connected accounts is two mailbox items that share a Message-ID, and a bare
+// Message-ID key dropped one of them: in conversation mode the grouped list already shows a
+// single row for both, so the discarded copy had no representation left anywhere in the UI
+// (#476). Copies WITHIN an account (Gmail's All Mail, the Sent twin) are already collapsed
+// server-side and stay collapsed here. A message with no account_id keys the same way it did
+// before, so nothing changes where provenance is unknown.
 export function normalizeConversation(messages = []) {
   const seen = new Set();
   return [...messages]
     .sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0))
     .filter(message => {
-      const key = message.message_id || message.id;
-      if (!key || seen.has(key)) return false;
+      const identity = message.message_id || message.id;
+      if (!identity) return false;
+      const key = `${identity}\u0000${message.account_id ?? ''}`;
+      if (seen.has(key)) return false;
       seen.add(key);
       return true;
     });

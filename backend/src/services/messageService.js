@@ -129,7 +129,10 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
       ),
       thread_totals AS (
         SELECT m.thread_key AS thread_id,
-               COUNT(DISTINCT m.message_id)::int AS message_count
+               -- Per account, not per Message-ID: one email delivered to two connected
+               -- accounts is two messages in the thread (see the thread route), so the badge
+               -- has to count both or it reads 1 beside a conversation holding 2 (#476).
+               COUNT(DISTINCT (m.account_id, m.message_id))::int AS message_count
         FROM messages m
         WHERE m.account_id = ANY($${p})
           AND m.is_deleted = false

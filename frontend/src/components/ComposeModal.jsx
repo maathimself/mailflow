@@ -20,6 +20,7 @@ import { TableCell } from '@tiptap/extension-table-cell';
 import { ComposerLink } from '../utils/editorLink.js';
 import { copyToClipboard } from '../utils/clipboard.js';
 import { resolveInitialFrom } from '../utils/defaultSender.js';
+import { initialComposeFocus, isComposeSendShortcut } from '../utils/composeFromMessage.js';
 
 // Resize an image blob/file to max maxW pixels wide, preserving aspect ratio.
 // Returns a Promise<string> of a base64 data URL.
@@ -278,6 +279,7 @@ export default function ComposeModal() {
   }, []);
 
   const [replyAll, setReplyAll] = useState(() => !!composeData?.isReplyAll);
+  const initialFocus = initialComposeFocus({ isReply, isForward });
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const [priority, setPriority] = useState('normal');
@@ -356,7 +358,7 @@ export default function ComposeModal() {
     // Records edit time in a ref only. Deliberately does not touch state: this fires on every
     // transaction, and re-rendering the composer per keystroke would be a real regression.
     onUpdate: () => { lastEditAtRef.current = Date.now(); },
-    autofocus: (isReply || isForward) && !plaintextEmail ? 'start' : false,
+    autofocus: initialFocus === 'editor' && !plaintextEmail ? 'start' : false,
     immediatelyRender: false,
     editorProps: {
       attributes: { spellcheck: 'true' },
@@ -463,7 +465,7 @@ export default function ComposeModal() {
 
   // Position cursor at top for replies/forwards
   useEffect(() => {
-    if ((isReply || isForward) && textareaRef.current) {
+    if (initialFocus === 'editor' && textareaRef.current) {
       textareaRef.current.setSelectionRange(0, 0);
       textareaRef.current.focus();
     }
@@ -670,8 +672,9 @@ export default function ComposeModal() {
   };
 
   const handleKeyDown = (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    if (isComposeSendShortcut(e)) {
       e.preventDefault();
+      e.stopPropagation();
       handleSend();
     }
   };
@@ -1270,7 +1273,7 @@ export default function ComposeModal() {
               chips={toChips} onChipsChange={setToChips}
               value={toInput} onChange={setToInput}
               placeholder={t('compose.toPh')}
-              autoFocus={!isReply && !isForward}
+              autoFocus={initialFocus === 'to'}
               inputStyle={mobileInputStyle}
               getSuggestions={getSuggestions}
               containerStyle={{ padding: 0 }}
@@ -1344,7 +1347,7 @@ export default function ComposeModal() {
               value={body}
               onChange={e => setBody(e.target.value)}
               placeholder={t('compose.bodyPh')}
-              autoFocus={isReply || isForward}
+              autoFocus={initialFocus === 'editor'}
               style={{
                 flex: 1, minHeight: 200,
                 padding: '14px 16px',
@@ -1919,7 +1922,7 @@ export default function ComposeModal() {
             chips={toChips} onChipsChange={setToChips}
             value={toInput} onChange={setToInput}
             placeholder={t('compose.toPh')}
-            autoFocus={!isReply && !isForward}
+            autoFocus={initialFocus === 'to'}
             inputStyle={{ ...inputStyle, borderBottom: 'none', padding: '6px 4px' }}
             getSuggestions={getSuggestions}
           />
@@ -2038,7 +2041,7 @@ export default function ComposeModal() {
             value={body}
             onChange={e => setBody(e.target.value)}
             placeholder={t('compose.bodyPh')}
-            autoFocus={isReply || isForward}
+            autoFocus={initialFocus === 'editor'}
             style={{
               width: '100%', minHeight: isReply || isForward ? 120 : 200,
               padding: '12px 14px',
@@ -3382,4 +3385,3 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
     </div>
   );
 }
-

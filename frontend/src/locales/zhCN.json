@@ -196,6 +196,7 @@
     "noSubject": "（无主题）",
     "to": "收件人：",
     "via": "经由",
+    "forwardedFrom": "原始发件人（据 {{service}}）：",
     "attachment_one": "{{count}} 个附件",
     "attachment_other": "{{count}} 个附件",
     "loadingError": "无法加载邮件正文",
@@ -501,6 +502,11 @@
     }
   },
   "commandPalette": {
+    "labelPicker": {
+      "copyTo": "复制到{{folder}}",
+      "error": "无法为邮件添加标签",
+      "placeholder": "复制或标记所选邮件…"
+    },
     "placeholder": "搜索操作…",
     "noResults": "未找到任何操作",
     "hint": {
@@ -522,6 +528,11 @@
     "customizeHint": "可在「设置 → 快捷键」中自定义快捷键",
     "closeHint": "按 ? 或 Esc 关闭",
     "then": "然后",
+    "browserMailboxFallback": "在浏览器中：按 g 后按 1–9 打开可见邮箱；按 g 后按 l 打开文件夹选择器。",
+    "visibleMailbox": {
+      "label": "可见邮箱 {{number}}",
+      "description": "打开可见邮箱 {{number}}"
+    },
     "groups": {
       "composeSearch": "撰写与搜索",
       "navigation": "导航",
@@ -529,6 +540,30 @@
       "gtd": "GTD"
     },
     "actions": {
+      "toggleLeftSidebar": {
+        "label": "切换左侧边栏",
+        "description": "显示或隐藏左侧边栏"
+      },
+      "openLabelPicker": {
+        "label": "打开文件夹选择器",
+        "description": "将选中的邮件复制到文件夹"
+      },
+      "replyAllFromSelection": {
+        "label": "回复选中邮件的所有人",
+        "description": "回复选中邮件的所有收件人"
+      },
+      "markUnread": {
+        "label": "标记为未读",
+        "description": "将选中的邮件标记为未读"
+      },
+      "unsubscribe": {
+        "label": "取消订阅",
+        "description": "取消订阅选中邮件的邮件列表"
+      },
+      "loadRemoteImages": {
+        "label": "加载远程图片",
+        "description": "加载选中邮件中的图片"
+      },
       "compose": {
         "label": "撰写",
         "description": "打开新的撰写窗口"

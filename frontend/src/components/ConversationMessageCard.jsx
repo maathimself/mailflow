@@ -3,8 +3,9 @@ import { api } from '../utils/api.js';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { fetchMessageBodyWithRetry } from '../utils/messageBody.js';
-import { scheduleMarkRead } from '../utils/markRead.js';
+import { scheduleMarkRead, cancelScheduledMarkRead } from '../utils/markRead.js';
 import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
+import { shortcutBus } from '../utils/shortcutBus.js';
 import MessageBodyView from './MessageBodyView.jsx';
 
 // One message inside a conversation.
@@ -34,11 +35,14 @@ export default function ConversationMessageCard({ message, expanded, onToggle, s
   const { t } = useTranslation();
   const accounts = useStore(s => s.accounts);
   const openCompose = useStore(s => s.openCompose);
+  const addNotification = useStore(s => s.addNotification);
   const [body, setBody] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const iframeRef = useRef(null);
   const emailScaleRef = useRef(1);
+  const remoteRequestedRef = useRef(null);
+  const unsubscribingRef = useRef(false);
 
   // Latest message, so the mark-read effect does not have to depend on an object
   // identity that changes on every list poll.
@@ -62,7 +66,7 @@ export default function ConversationMessageCard({ message, expanded, onToggle, s
     // reopening starts the delay again instead of never marking it at all.
     if (!timer) return;
     return () => {
-      clearTimeout(timer);
+      cancelScheduledMarkRead(timer);
       markScheduledRef.current = null;
     };
   }, [expanded, message.id]);
@@ -99,6 +103,48 @@ export default function ConversationMessageCard({ message, expanded, onToggle, s
   }, [expanded, message.id]);
 
   const loadedBody = async () => body;
+  useEffect(() => {
+    if (!selected) return;
+    const onLoadImages = () => {
+      if (!expanded || !body?.hasBlockedRemoteImages || remoteRequestedRef.current === message.id) return;
+      remoteRequestedRef.current = message.id;
+      api.getMessageBody(message.id, true)
+        .then(data => { if (messageRef.current.id === message.id) setBody(data); })
+        .catch(() => { remoteRequestedRef.current = null; });
+    };
+    const onUnsubscribe = async () => {
+      if (!message.list_unsubscribe || message.unsubscribed_at || unsubscribingRef.current) return;
+      unsubscribingRef.current = true;
+      try {
+        const result = await api.unsubscribeMessage(message.id);
+        if (!['one-click', 'url', 'mailto'].includes(result.type)) return;
+        const url = result.type === 'url' ? result.url : result.type === 'mailto' ? result.mailto : null;
+        if (url) window.open(url, '_blank', 'noopener,noreferrer');
+        addNotification({
+          title: t('message.unsubscribe.done'),
+          actionLabel: t('message.unsubscribe.moveToTrash'),
+          onAction: () => {
+            const { removeMessage, decrementUnread, restoreMessages, incrementUnread } = useStore.getState();
+            removeMessage(message.id);
+            if (!message.is_read) decrementUnread(message.account_id);
+            api.deleteMessage(message.id).catch(() => {
+              restoreMessages([message]);
+              if (!message.is_read) incrementUnread(message.account_id);
+            });
+          },
+        });
+      } catch {
+        addNotification({ type: 'error', title: t('message.unsubscribe.error') });
+        unsubscribingRef.current = false;
+      }
+    };
+    shortcutBus.on('loadRemoteImages', onLoadImages);
+    shortcutBus.on('unsubscribe', onUnsubscribe);
+    return () => {
+      shortcutBus.off('loadRemoteImages', onLoadImages);
+      shortcutBus.off('unsubscribe', onUnsubscribe);
+    };
+  }, [selected, expanded, body, message, addNotification, t]);
   const when = message.date ? new Date(message.date).toLocaleString() : '';
   const who = message.from_name || message.from_email || '';
 

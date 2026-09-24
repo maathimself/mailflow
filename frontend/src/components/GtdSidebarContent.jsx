@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { useStore, selectSelectedMessageMid } from '../store/index.js';
+import { useStore, selectSelectedMessageMid, selectSelectedMessageAccountId } from '../store/index.js';
 import {
   GTD_COLORS, GTD_CHIP_BG,
   buildGtdDisplaySections, isSelectedRow,
@@ -24,6 +24,7 @@ export default function GtdSidebarContent({ onCollapse, toggleHint }) {
   const toggleGtdSection = useStore(s => s.toggleGtdSection);
   const selectedMessageId = useStore(s => s.selectedMessageId);
   const selectedMid = useStore(selectSelectedMessageMid);
+  const selectedAcct = useStore(selectSelectedMessageAccountId);
 
   // Every triage primitive (hover cluster + right-click menu), the auto-read timer, and the
   // context-menu state now live in the shared hook — the GTD tab browse list mounts its own
@@ -73,6 +74,7 @@ export default function GtdSidebarContent({ onCollapse, toggleHint }) {
             rowActions={rowActions}
             selectedMessageId={selectedMessageId}
             selectedMid={selectedMid}
+            selectedAcct={selectedAcct}
             t={t}
           />
         ))
@@ -96,7 +98,7 @@ export default function GtdSidebarContent({ onCollapse, toggleHint }) {
   );
 }
 
-function GtdSection({ section, collapsed, onToggle, onOpenRow, rowActions, selectedMessageId, selectedMid, t }) {
+function GtdSection({ section, collapsed, onToggle, onOpenRow, rowActions, selectedMessageId, selectedMid, selectedAcct, t }) {
   const state = SECTION_STATE[section.key];
   const color = GTD_COLORS[state];
   const label = section.key === 'waiting' ? t('gtd.waiting') : t(`gtd.state.${section.key}`);
@@ -150,7 +152,7 @@ function GtdSection({ section, collapsed, onToggle, onOpenRow, rowActions, selec
               variant="sidebar"
               onOpen={() => onOpenRow(thread)}
               rowActions={rowActions}
-              selected={isSelectedRow(thread, selectedMessageId, selectedMid)}
+              selected={isSelectedRow(thread, selectedMessageId, selectedMid, selectedAcct)}
               t={t}
             />
           ))}

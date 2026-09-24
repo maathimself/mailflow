@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useStore, selectSelectedMessageMid } from '../store/index.js';
+import { useStore, selectSelectedMessageMid, selectSelectedMessageAccountId } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { LAYOUTS } from '../layouts.js';
 import { senderColor } from '../themes.js';
@@ -8,6 +8,7 @@ import { useMobile } from '../hooks/useMobile.js';
 import { isAccountInUnifiedInbox } from '../utils/unifiedInbox.js';
 import { shouldSyncFolder, folderSyncKey } from '../utils/folderSync.js';
 import { resolveThreadMessages } from '../utils/threadActions.js';
+import { unreadDeltaByAccount } from '../utils/countSnapshots.js';
 import { splitDraftSignature } from '../utils/draftSignature.js';
 import { useSwipeRow } from '../hooks/useSwipeRow.js';
 import ContextMenu from './ContextMenu.jsx';
@@ -20,6 +21,8 @@ import {
 import { formatDate } from '../utils/formatDate.js';
 import { advanceSelectionAfterRemoval } from '../utils/listSelection.js';
 import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
+import { selectedMessage, markMessageUnread } from '../utils/messageHotkeys.js';
+import { cancelScheduledMarkReadFor } from '../utils/markRead.js';
 import SenderAvatarImage from './SenderAvatarImage.jsx';
 import FolderPathLabel from './FolderPathLabel.jsx';
 import { folderDisplayName, folderMatchesQuery } from '../utils/folderDisplay.js';
@@ -137,6 +140,7 @@ export default function MessageList() {
   // RFC message_id of the open message, so a row highlights when it is a different DB copy
   // of the selected message (multi-folder model) — e.g. the inbox copy of a GTD sidebar click.
   const selectedMid = useStore(selectSelectedMessageMid);
+  const selectedAcct = useStore(selectSelectedMessageAccountId);
 
   const isMobile = useMobile();
   // Auto-spam explain modal target (opened from the badge on a row).
@@ -878,6 +882,10 @@ export default function MessageList() {
     const actualDelta = read
       ? actionMessages.filter(msg => !msg.is_read).length
       : actionMessages.filter(msg => msg.is_read).length;
+    // And its split by account. With conversations on, a thread row can hold another
+    // account's copy of the same email (#476); that copy's unread belongs to THAT account's
+    // badge, while the estimate above had to charge the whole row to the row's own account.
+    const actualByAccount = unreadDeltaByAccount(actionMessages, read, message.account_id);
 
     // Now update the thread cache and correct the parent row if our estimate was off.
     if (isThreadRow) {
@@ -887,16 +895,22 @@ export default function MessageList() {
       }
     }
 
-    // Correct the sidebar badge if the estimate differed from the actual count.
+    // Correct the sidebar badges per account: each account's actual change, minus what the
+    // estimate already charged to it (all of it went to the row's own account, none elsewhere).
+    for (const accountId of new Set([message.account_id, ...actualByAccount.keys()])) {
+      const diff = (actualByAccount.get(accountId) || 0) - (accountId === message.account_id ? estimatedDelta : 0);
+      if (diff === 0) continue;
+      if (read) {
+        if (diff > 0) decrementUnread(accountId, diff);
+        else incrementUnread(accountId, -diff);
+      } else {
+        if (diff > 0) incrementUnread(accountId, diff);
+        else decrementUnread(accountId, -diff);
+      }
+    }
+    // Category counts are not per account, so the total delta still applies.
     if (actualDelta !== estimatedDelta) {
       const diff = actualDelta - estimatedDelta;
-      if (read) {
-        if (diff > 0) decrementUnread(message.account_id, diff);
-        else incrementUnread(message.account_id, -diff);
-      } else {
-        if (diff > 0) incrementUnread(message.account_id, diff);
-        else decrementUnread(message.account_id, -diff);
-      }
       adjustCategoryCount(message.category, read ? -diff : diff);
     }
 
@@ -926,13 +940,12 @@ export default function MessageList() {
       } else {
         updateMessage(message.id, { is_read: !read, unread_count: read ? 1 : 0 });
       }
-      if (read) {
-        if (actualDelta > 0) { incrementUnread(message.account_id, actualDelta); adjustCategoryCount(message.category, actualDelta); }
-        actionMessages.forEach(msg => pendingMarkReadMap.delete(msg.id));
-      } else if (actualDelta > 0) {
-        decrementUnread(message.account_id, actualDelta);
-        adjustCategoryCount(message.category, -actualDelta);
+      // Give each account back exactly what it was charged.
+      for (const [accountId, n] of actualByAccount) {
+        if (read) incrementUnread(accountId, n); else decrementUnread(accountId, n);
       }
+      if (actualDelta > 0) adjustCategoryCount(message.category, read ? actualDelta : -actualDelta);
+      if (read) actionMessages.forEach(msg => pendingMarkReadMap.delete(msg.id));
     }
   }, [
     resolveMessagesForThreadAction, isThreadListRow, updateMessage, setCachedThreadRead,
@@ -1867,7 +1880,6 @@ export default function MessageList() {
   const bulkDeleteRef    = useRef(handleBulkDelete);
   const bulkArchiveRef   = useRef(handleBulkArchive);
   const scheduleDeleteRef = useRef(scheduleDelete);
-  const handleContextActionRef = useRef(null); // assigned below, once handleContextAction is defined
   useEffect(() => { bulkDeleteRef.current    = handleBulkDelete;  }, [handleBulkDelete]);
   useEffect(() => { bulkArchiveRef.current   = handleBulkArchive; }, [handleBulkArchive]);
   useEffect(() => { archiveVisibleMessageRef.current = archiveVisibleMessage; }, [archiveVisibleMessage]);
@@ -2005,6 +2017,47 @@ export default function MessageList() {
       }
     };
 
+    const onMarkUnread = () => {
+      const state = getState();
+      const message = selectedMessage(state);
+      markMessageUnread(message, {
+        cancel: () => {
+          if (message) {
+            cancelScheduledMarkReadFor(message.id);
+            pendingMarkReadMap.delete(message.id);
+            completedMarkReadMap.delete(message.id);
+          }
+          clearTimeout(autoMarkReadTimerRef.current);
+          autoMarkReadTimerRef.current = null;
+        },
+        update: (id, fields) => {
+          state.updateMessage(id, fields);
+          state.markGtdThreadRead(message.message_id || message.id, fields.is_read);
+        },
+        incrementUnread: state.incrementUnread,
+        decrementUnread: state.decrementUnread,
+        adjustCategoryCount: state.adjustCategoryCount,
+        patch: api.bulkRead,
+      });
+    };
+
+    const onForward = () => {
+      const state = getState();
+      const message = selectedMessage(state);
+      if (message) void openForwardFromMessage(message, {
+        openCompose: state.openCompose, getMessageBody: api.getMessageBody,
+      });
+    };
+
+    const onReplyAllFromSelection = () => {
+      const state = getState();
+      const message = selectedMessage(state);
+      if (message) void openReplyFromMessage(message, {
+        accounts: state.accounts, openCompose: state.openCompose,
+        getMessageBody: api.getMessageBody, replyAll: true,
+      });
+    };
+
     const onFocusSearch = () => {
       searchInputRef.current?.focus();
       searchInputRef.current?.select();
@@ -2018,6 +2071,9 @@ export default function MessageList() {
     shortcutBus.on('archive',       onArchive);
     shortcutBus.on('delete',        onDelete);
     shortcutBus.on('toggleRead',    onToggleRead);
+    shortcutBus.on('markUnread',    onMarkUnread);
+    shortcutBus.on('forward',       onForward);
+    shortcutBus.on('replyAllFromSelection', onReplyAllFromSelection);
     shortcutBus.on('focusSearch',   onFocusSearch);
 
     return () => {
@@ -2028,6 +2084,9 @@ export default function MessageList() {
       shortcutBus.off('archive',       onArchive);
       shortcutBus.off('delete',        onDelete);
       shortcutBus.off('toggleRead',    onToggleRead);
+      shortcutBus.off('markUnread',    onMarkUnread);
+      shortcutBus.off('forward',       onForward);
+      shortcutBus.off('replyAllFromSelection', onReplyAllFromSelection);
       shortcutBus.off('focusSearch',   onFocusSearch);
     };
   }, []);
@@ -2312,12 +2371,6 @@ export default function MessageList() {
         break;
     }
   };
-  // Expose the latest handleContextAction to the once-registered shortcut effect via
-  // a post-commit effect (the sibling handler refs' pattern), rather than mutating the
-  // ref during render. No dep array: handleContextAction isn't memoized, so it syncs
-  // on every commit.
-  useEffect(() => { handleContextActionRef.current = handleContextAction; });
-
   const handleThreadMarkRead = (e, message) => {
     e.stopPropagation();
     const uc = parseInt(message.unread_count);
@@ -3669,6 +3722,7 @@ export default function MessageList() {
                 isLoadingThread={loadingThread === tid}
                 selectedMessageId={selectedMessageId}
                 selectedMid={selectedMid}
+                selectedAcct={selectedAcct}
                 lastViewedMessageId={lastViewedMessageId}
                 showAccount={false} /* No per-account dot on unified rows: it added noise beside the unread indicator; the account is visible in the message pane header. */
                 isNarrow={isNarrow}
@@ -3710,7 +3764,7 @@ export default function MessageList() {
               <MessageRow
                 key={message.id}
                 message={message}
-                selected={isSelectedRow(message, selectedMessageId, selectedMid)}
+                selected={isSelectedRow(message, selectedMessageId, selectedMid, selectedAcct)}
                 lastViewed={lastViewedMessageId === message.id && selectedMessageId !== message.id}
                 isChecked={selectedIds.has(message.id)}
                 selectionMode={selectionMode}
@@ -4171,7 +4225,7 @@ function EmptyState({ folderSyncing, searchQuery, searchError, unreadOnly, selec
   );
 }
 
-function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, lastViewedMessageId, showAccount, isNarrow, onThreadClick, onThreadToggle, showMobileAvatars, showMessagePreviews, onSelect, onOpenWindow, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress, onExplainSpam }) {
+function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, selectedAcct, lastViewedMessageId, showAccount, isNarrow, onThreadClick, onThreadToggle, showMobileAvatars, showMessagePreviews, onSelect, onOpenWindow, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress, onExplainSpam }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const messageCount = message.message_count || 1;
@@ -4191,8 +4245,8 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
   // Identity-matched selection (parity with the flat MessageRow's isSelectedRow): a GTD sidebar
   // deep-link opens a different DB copy of the same mail, so match the head or any cached
   // sub-message on message_id, not just the raw id, or the inbox thread row won't light up.
-  const selectedHere = isSelectedRow(message, selectedMessageId, selectedMid)
-    || !!threadMsgs?.some(m => isSelectedRow(m, selectedMessageId, selectedMid));
+  const selectedHere = isSelectedRow(message, selectedMessageId, selectedMid, selectedAcct)
+    || !!threadMsgs?.some(m => isSelectedRow(m, selectedMessageId, selectedMid, selectedAcct));
   // The lingering "last viewed" glow is desktop-only (parity with the flat MessageRow, which
   // gates it with `lastViewed && !isMobile`). On mobile there is no persistent reading pane, so
   // a row staying highlighted after you swipe back from a message reads as a stuck selection.

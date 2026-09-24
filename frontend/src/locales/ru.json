@@ -196,6 +196,7 @@
     "noSubject": "(без темы)",
     "to": "Кому:",
     "via": "через",
+    "forwardedFrom": "Исходный отправитель (по данным {{service}}):",
     "attachment_one": "{{count}} вложение",
     "attachment_other": "{{count}} вложений",
     "loadingError": "Не удалось загрузить тело сообщения",
@@ -501,6 +502,11 @@
     }
   },
   "commandPalette": {
+    "labelPicker": {
+      "copyTo": "Скопировать в {{folder}}",
+      "error": "Не удалось пометить письмо",
+      "placeholder": "Скопировать или пометить выбранное письмо…"
+    },
     "placeholder": "Поиск действий…",
     "noResults": "Действия не найдены",
     "hint": {
@@ -522,6 +528,11 @@
     "customizeHint": "Настроить горячие клавиши можно в Настройки → Горячие клавиши",
     "closeHint": "Нажмите ? или Esc, чтобы закрыть",
     "then": "затем",
+    "browserMailboxFallback": "В браузере: g, затем 1–9 открывает видимый ящик; g, затем l открывает выбор папки.",
+    "visibleMailbox": {
+      "label": "Видимый ящик {{number}}",
+      "description": "Открыть видимый ящик {{number}}"
+    },
     "groups": {
       "composeSearch": "Написание и поиск",
       "navigation": "Навигация",
@@ -529,6 +540,30 @@
       "gtd": "GTD"
     },
     "actions": {
+      "toggleLeftSidebar": {
+        "label": "Переключить левую панель",
+        "description": "Показать или скрыть левую боковую панель"
+      },
+      "openLabelPicker": {
+        "label": "Открыть выбор папки",
+        "description": "Скопировать выбранное письмо в папку"
+      },
+      "replyAllFromSelection": {
+        "label": "Ответить всем на выбранное письмо",
+        "description": "Ответить всем получателям выбранного письма"
+      },
+      "markUnread": {
+        "label": "Пометить непрочитанным",
+        "description": "Пометить выбранное письмо как непрочитанное"
+      },
+      "unsubscribe": {
+        "label": "Отписаться",
+        "description": "Отписаться от рассылки выбранного письма"
+      },
+      "loadRemoteImages": {
+        "label": "Загрузить внешние изображения",
+        "description": "Загрузить изображения в выбранном письме"
+      },
       "compose": {
         "label": "Написать",
         "description": "Открыть окно нового сообщения"

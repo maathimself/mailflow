@@ -91,3 +91,25 @@ export function mergeFolderSnapshots(previous = [], incoming = []) {
     return { ...f, ...Object.fromEntries(fields.map(k => [k, p[k]])) };
   });
 }
+
+// How many of `messages` change unread state when the conversation is marked `read`, grouped
+// by the account whose badge each change belongs to. A message with no account_id is charged
+// to `fallbackAccountId`, the acted-on row's account.
+//
+// With conversations on, one thread row can hold another account's copy of the same email
+// (#476). Charging the row's whole unread_count to the row's own account, which is what the
+// pre-resolution estimate has to do, moves that copy's unread off the wrong badge: the row's
+// account drops by two, the other account drops by nothing, and the sidebar is wrong until
+// the next server snapshot (PENDING_COUNT_MS). The unified total is a sum, so it stays right;
+// only the per-account split is off. Pure.
+export function unreadDeltaByAccount(messages, read, fallbackAccountId) {
+  const out = new Map();
+  for (const m of messages || []) {
+    if (!m) continue;
+    const changes = read ? !m.is_read : !!m.is_read;
+    if (!changes) continue;
+    const account = m.account_id ?? fallbackAccountId;
+    out.set(account, (out.get(account) || 0) + 1);
+  }
+  return out;
+}

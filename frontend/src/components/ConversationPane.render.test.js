@@ -64,6 +64,8 @@ const THREAD = [
 ];
 const bodyRequests = [];
 const bulkReads = [];
+let blockImages = false;
+const remoteBodyRequests = [];
 globalThis.fetch = async (url, opts = {}) => {
   const u = String(url);
   if (u.includes('/mail/thread/')) return { ok: true, status: 200, json: async () => ({ messages: THREAD }) };
@@ -72,13 +74,20 @@ globalThis.fetch = async (url, opts = {}) => {
     return { ok: true, status: 200, json: async () => ({}) };
   }
   const id = /\/messages\/([^/]+)\/body/.exec(u)?.[1];
-  if (id) { bodyRequests.push(id); return { ok: true, status: 200, json: async () => ({ html: `<p>body of ${id}</p>`, text: '', attachments: [] }) }; }
+  if (id) {
+    bodyRequests.push(id);
+    const remote = u.includes('remoteImages=1');
+    if (remote) remoteBodyRequests.push(id);
+    return { ok: true, status: 200, json: async () => ({ html: `<p>body of ${id}</p>`, text: '', attachments: [], hasBlockedRemoteImages: blockImages && !remote }) };
+  }
   return { ok: true, status: 200, json: async () => ({}) };
 };
 
 const React = await import('react');
 const { createRoot } = await import('react-dom/client');
 const ConversationPane = (await import('./ConversationPane.jsx')).default;
+const { shortcutBus } = await import('../utils/shortcutBus.js');
+const { api } = await import('../utils/api.js');
 
 let root;
 before(() => { root = createRoot(document.getElementById('root')); });
@@ -171,5 +180,21 @@ describe('conversation pane', () => {
     await React.act(async () => { open.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
     await React.act(async () => { await new Promise(r => setTimeout(r, 50)); });
     assert.equal(bodyRequests.length, before, 'a body already loaded is kept');
+  });
+
+  test('selected conversation card handles image and unsubscribe shortcuts', async (t) => {
+    blockImages = true;
+    THREAD[2].list_unsubscribe = '<https://example.invalid/unsubscribe>';
+    const unsubscribed = [];
+    const oldUnsubscribe = api.unsubscribeMessage;
+    api.unsubscribeMessage = async id => { unsubscribed.push(id); return { type: 'one-click' }; };
+    t.after(() => { api.unsubscribeMessage = oldUnsubscribe; blockImages = false; delete THREAD[2].list_unsubscribe; });
+    await React.act(async () => {
+      root.render(React.createElement(ConversationPane, { key: 'hotkey-card', threadId: '<1@x>', folder: 'INBOX', selectedMessageId: 'm3' }));
+    });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await React.act(async () => { shortcutBus.emit('loadRemoteImages'); shortcutBus.emit('unsubscribe'); await new Promise(r => setTimeout(r, 50)); });
+    assert.deepEqual(remoteBodyRequests, ['m3']);
+    assert.deepEqual(unsubscribed, ['m3']);
   });
 });

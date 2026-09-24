@@ -2,6 +2,30 @@ import { useStore } from '../store/index.js';
 import { api } from './api.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from './pendingReads.js';
 
+const scheduledByMessage = new Map();
+const scheduledMessageByTimer = new Map();
+
+export function cancelScheduledMarkRead(timer) {
+  if (!timer) return;
+  clearTimeout(timer);
+  const id = scheduledMessageByTimer.get(timer);
+  if (id == null) return;
+  scheduledMessageByTimer.delete(timer);
+  const timers = scheduledByMessage.get(id);
+  timers?.delete(timer);
+  if (timers?.size === 0) scheduledByMessage.delete(id);
+}
+
+export function cancelScheduledMarkReadFor(id) {
+  const timers = scheduledByMessage.get(id);
+  if (!timers) return;
+  for (const timer of timers) {
+    clearTimeout(timer);
+    scheduledMessageByTimer.delete(timer);
+  }
+  scheduledByMessage.delete(id);
+}
+
 // The mark-read protocol, in one place.
 //
 // Three callers need it: MessagePane (opening a message in the reading pane),
@@ -40,14 +64,24 @@ export function applyMarkRead(msg) {
 }
 
 // Honors the user's markReadBehavior preference. Returns a timer handle when the
-// mark was deferred, so the caller can clearTimeout it if the reader moves on
-// first, and null when there is nothing to cancel.
+// mark was deferred, so the caller can cancelScheduledMarkRead it if the reader
+// moves on first, and null when there is nothing to cancel.
 export function scheduleMarkRead(msg) {
   if (!msg || msg.is_read) return null;
   const { markReadBehavior, markReadDelay } = useStore.getState();
   if (markReadBehavior === 'manual') return null;
   if (markReadBehavior === 'delay') {
-    return setTimeout(() => applyMarkRead(msg), (markReadDelay || 1) * 1000);
+    const timer = setTimeout(() => {
+      const timers = scheduledByMessage.get(msg.id);
+      timers?.delete(timer);
+      scheduledMessageByTimer.delete(timer);
+      if (timers?.size === 0) scheduledByMessage.delete(msg.id);
+      applyMarkRead(msg);
+    }, (markReadDelay || 1) * 1000);
+    if (!scheduledByMessage.has(msg.id)) scheduledByMessage.set(msg.id, new Set());
+    scheduledByMessage.get(msg.id).add(timer);
+    scheduledMessageByTimer.set(timer, msg.id);
+    return timer;
   }
   applyMarkRead(msg);
   return null;

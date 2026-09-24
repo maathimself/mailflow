@@ -196,6 +196,7 @@
     "noSubject": "(sin asunto)",
     "to": "Para:",
     "via": "vía",
+    "forwardedFrom": "Remitente original (según {{service}}):",
     "attachment_one": "{{count}} adjunto",
     "attachment_other": "{{count}} adjuntos",
     "loadingError": "No se puede cargar el cuerpo del mensaje",
@@ -501,6 +502,11 @@
     }
   },
   "commandPalette": {
+    "labelPicker": {
+      "copyTo": "Copiar a {{folder}}",
+      "error": "No se pudo etiquetar el mensaje",
+      "placeholder": "Copiar o etiquetar el mensaje seleccionado…"
+    },
     "placeholder": "Buscar acciones…",
     "noResults": "No se encontraron acciones",
     "hint": {
@@ -522,6 +528,11 @@
     "customizeHint": "Personaliza los atajos en Ajustes → Atajos",
     "closeHint": "Pulsa ? o Esc para cerrar",
     "then": "luego",
+    "browserMailboxFallback": "En el navegador: g y luego 1–9 abre un buzón visible; g y luego l abre el selector de carpetas.",
+    "visibleMailbox": {
+      "label": "Buzón visible {{number}}",
+      "description": "Abrir el buzón visible {{number}}"
+    },
     "groups": {
       "composeSearch": "Redacción y búsqueda",
       "navigation": "Navegación",
@@ -529,6 +540,30 @@
       "gtd": "GTD"
     },
     "actions": {
+      "toggleLeftSidebar": {
+        "label": "Mostrar u ocultar barra lateral izquierda",
+        "description": "Mostrar u ocultar la barra lateral izquierda"
+      },
+      "openLabelPicker": {
+        "label": "Abrir selector de carpetas",
+        "description": "Copiar el mensaje seleccionado a una carpeta"
+      },
+      "replyAllFromSelection": {
+        "label": "Responder a todos desde la selección",
+        "description": "Responder a todos los destinatarios del mensaje seleccionado"
+      },
+      "markUnread": {
+        "label": "Marcar como no leído",
+        "description": "Marcar el mensaje seleccionado como no leído"
+      },
+      "unsubscribe": {
+        "label": "Cancelar suscripción",
+        "description": "Cancelar la suscripción a la lista del mensaje seleccionado"
+      },
+      "loadRemoteImages": {
+        "label": "Cargar imágenes remotas",
+        "description": "Cargar las imágenes del mensaje seleccionado"
+      },
       "compose": {
         "label": "Redactar",
         "description": "Abrir una nueva ventana de redacción"

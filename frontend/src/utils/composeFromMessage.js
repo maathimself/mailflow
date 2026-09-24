@@ -1,5 +1,14 @@
 import { pickReplyAlias } from './replyAlias.js';
 
+export function initialComposeFocus({ isReply = false, isForward = false } = {}) {
+  return isReply && !isForward ? 'editor' : 'to';
+}
+
+export function isComposeSendShortcut(event) {
+  return event?.key === 'Enter' && !event.repeat && !event.shiftKey && !event.altKey
+    && (!!event.ctrlKey !== !!event.metaKey);
+}
+
 function parseAddressField(raw) {
   try {
     const arr = Array.isArray(raw) ? raw : JSON.parse(raw || '[]');

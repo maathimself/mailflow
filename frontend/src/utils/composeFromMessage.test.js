@@ -1,6 +1,23 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { openReplyFromMessage, openForwardFromMessage } from './composeFromMessage.js';
+import * as compose from './composeFromMessage.js';
+const { openReplyFromMessage, openForwardFromMessage } = compose;
+
+describe('compose initial focus', () => {
+  it('focuses To for forward and the editor for Reply All', () => {
+    assert.equal(compose.initialComposeFocus?.({ isForward: true }), 'to');
+    assert.equal(compose.initialComposeFocus?.({ isReply: true, isReplyAll: true }), 'editor');
+  });
+});
+
+describe('compose send shortcut', () => {
+  it('sends once for a non-repeating Command/Control+Enter inside compose', () => {
+    assert.equal(compose.isComposeSendShortcut?.({ key: 'Enter', ctrlKey: true, repeat: false }), true);
+    assert.equal(compose.isComposeSendShortcut?.({ key: 'Enter', metaKey: true, repeat: false }), true);
+    assert.equal(compose.isComposeSendShortcut?.({ key: 'Enter', ctrlKey: true, repeat: true }), false);
+    assert.equal(compose.isComposeSendShortcut?.({ key: 'Enter', ctrlKey: true, shiftKey: true }), false);
+  });
+});
 
 function harness(body = null) {
   let payload = null;

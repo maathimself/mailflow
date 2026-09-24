@@ -536,6 +536,11 @@ export function parseDeliveryAddresses(parsedHeaders) {
       }
     }
   }
+  // Alias-forwarding services record the alias the message was sent to in their own header
+  // (e.g. X-33Mail-Original-To); Delivered-To only shows the user's real mailbox. Taken only
+  // when the message is a genuine wrapper of that service -- see detectAliasForwarder (#475).
+  const forwarded = detectAliasForwarderFromHeaders(parsedHeaders);
+  if (forwarded?.alias && emails.size < MAX_DELIVERY_ADDRESSES) emails.add(forwarded.alias);
   return [...emails];
 }
 
@@ -571,8 +576,146 @@ export function enrichParsedMetadata(parsed, {
   return parsed;
 }
 
+// ─── Alias-forwarding services (#475) ────────────────────────────────────────────────
+// Alias services re-wrap every message they forward: From becomes the service's own address,
+// the real sender survives only as text inside the display name, and the service replaces the
+// original List-Unsubscribe with its own (on every message, transactional mail included). Read
+// naively, the whole mailbox classifies as newsletter/bulk and the receiving alias is lost.
+//
+// The display name is sender-controlled text, so it is only ever interpreted when BOTH hold:
+//   1. the envelope From address is on the service's own domain, and
+//   2. the message carries the service's marks: its recipient header or its display-name pattern.
+// A normal message whose display name imitates the pattern is never unwrapped, and the derived
+// sender is stored in separate fields -- From itself is never replaced.
+//
+// 33Mail sets no header with the original sender; its only carrier is the display name
+// ("Stripe 'billing@stripe.com' via 33Mail"). It does set X-33Mail-Original-To (the alias) and a
+// Sender header equal to From, so #366's distinct-Sender "via" path does not fire for it.
+const ALIAS_FORWARDERS = [
+  {
+    id: '33mail',
+    label: '33Mail',
+    domain: '33mail.com',                     // From: sender@mailer<N>.33mail.com
+    recipientHeader: 'x-33mail-original-to',  // the alias the message was sent to
+  },
+];
+
+// Headers a partial IMAP header fetch must include for forwarder detection to work.
+export const ALIAS_FORWARDER_HEADERS = ['from', ...ALIAS_FORWARDERS.map(f => f.recipientHeader)];
+
+const MAX_FORWARDER_NAME = 998; // RFC 5322 line limit; longer names are not a forwarder wrapper
+const FORWARDER_QUOTES = new Set(["'", '"', '\u2018', '\u2019']);
+
+function emailDomain(email) {
+  const at = typeof email === 'string' ? email.lastIndexOf('@') : -1;
+  return at >= 0 ? email.slice(at + 1).trim().toLowerCase() : '';
+}
+
+function onDomain(host, domain) {
+  return host === domain || host.endsWith(`.${domain}`);
+}
+
+function isPlainEmail(value) {
+  if (!value || /\s/.test(value)) return false;
+  const parts = value.split('@');
+  return parts.length === 2 && parts[0].length > 0 && parts[1].includes('.')
+    && !parts[1].startsWith('.') && !parts[1].endsWith('.');
+}
+
+// "Stripe 'billing@stripe.com' via 33Mail" -> { name: 'Stripe', email: 'billing@stripe.com' }
+// Linear string scan, no regex backtracking over sender-controlled input.
+function parseForwarderDisplayName(name, service) {
+  if (typeof name !== 'string' || !name || name.length > MAX_FORWARDER_NAME) return null;
+  let text = name.replace(/\s+/g, ' ').trim();
+  if (text.length >= 2 && text.startsWith('"') && text.endsWith('"')) text = text.slice(1, -1).trim();
+  const suffix = ` via ${service.label}`.toLowerCase();
+  if (!text.toLowerCase().endsWith(suffix)) return null;
+  text = text.slice(0, -suffix.length).trimEnd();
+  if (!text || !FORWARDER_QUOTES.has(text[text.length - 1])) return null;
+  let open = -1;
+  for (let i = text.length - 2; i >= 0; i--) {
+    if (FORWARDER_QUOTES.has(text[i])) { open = i; break; }
+  }
+  if (open < 0) return null;
+  const email = text.slice(open + 1, -1).trim().toLowerCase();
+  if (!isPlainEmail(email)) return null;
+  return { name: text.slice(0, open).trim(), email };
+}
+
+// Returns { service, label, originalName, originalEmail, alias } for a genuine wrapper of a known
+// alias-forwarding service, otherwise null. originalEmail is null when the service's recipient
+// header is present but the display name does not carry the original sender.
+export function detectAliasForwarder({ fromEmail, fromName, headers } = {}) {
+  const host = emailDomain(fromEmail);
+  if (!host) return null;
+  const service = ALIAS_FORWARDERS.find(f => onDomain(host, f.domain));
+  if (!service) return null;
+
+  const original = parseForwarderDisplayName(fromName, service);
+  const recipientValue = headers?.[service.recipientHeader];
+  const alias = recipientValue ? (parseMailboxList(String(recipientValue).split(/\r?\n/)[0])[0]?.email || null) : null;
+  // Mail FROM the service itself (account notices, its own newsletter) carries neither mark
+  // and is left alone.
+  if (!original && !alias) return null;
+
+  return {
+    service: service.id,
+    label: service.label,
+    originalName: original ? original.name : null,
+    originalEmail: original ? original.email : null,
+    alias,
+  };
+}
+
+// Same, from a parsed header map (From header instead of the IMAP envelope).
+export function detectAliasForwarderFromHeaders(h) {
+  const from = h?.from;
+  if (!from) return null;
+  const mailbox = parseMailboxList(String(from).split(/\r?\n/)[0])[0];
+  if (!mailbox) return null;
+  return detectAliasForwarder({ fromEmail: mailbox.email, fromName: mailbox.name, headers: h });
+}
+
+// True when every URI in a List-Unsubscribe value points at the given domain.
+function listUnsubscribeOnlyOn(value, domain) {
+  if (!value) return false;
+  const uris = [...String(value).matchAll(/<([^<>]*)>/g)].map(m => m[1].trim()).filter(Boolean);
+  if (!uris.length) return false;
+  return uris.every((uri) => {
+    if (/^mailto:/i.test(uri)) return onDomain(emailDomain(uri.slice(7).split('?')[0]), domain);
+    try {
+      return onDomain(new URL(uri).hostname.toLowerCase(), domain);
+    } catch {
+      return false;
+    }
+  });
+}
+
+// Removes a forwarder's own artifacts before header-based classification: its List-Unsubscribe
+// (only when it points solely at the service, so an original header is never dropped) and the
+// wrapper From, replaced by the original sender for the From-based checks (noreply). Headers of
+// the original sender that survive forwarding (List-Id, Auto-Submitted, platform headers) stay
+// and decide the category. Returns the input unchanged for anything that is not a wrapper.
+export function unwrapForwarderHeaders(h) {
+  const forwarded = detectAliasForwarderFromHeaders(h);
+  if (!forwarded) return h;
+  const service = ALIAS_FORWARDERS.find(f => f.id === forwarded.service);
+  const out = { ...h };
+  if (listUnsubscribeOnlyOn(out['list-unsubscribe'], service.domain)) {
+    delete out['list-unsubscribe'];
+    delete out['list-unsubscribe-post'];
+  }
+  if (forwarded.originalEmail) {
+    out.from = forwarded.originalName
+      ? `${forwarded.originalName} <${forwarded.originalEmail}>`
+      : forwarded.originalEmail;
+  }
+  return out;
+}
+
 export function detectBulkFromParsedHeaders(h) {
   if (!h) return false;
+  h = unwrapForwarderHeaders(h);
   if (h['list-unsubscribe'] || h['list-id'] || h['list-post']) return true;
   const prec = (h['precedence'] || '').toLowerCase();
   return prec === 'bulk' || prec === 'list';
@@ -583,6 +726,11 @@ export function detectBulkFromParsedHeaders(h) {
 // Does NOT check social domains (caller supplies those).
 export function detectCategoryFromHeaders(h) {
   if (!h) return null;
+
+  // Alias-forwarding services (#475) — like the developer-platform block below, this has to
+  // run before the generic newsletter check: the service adds its own List-Unsubscribe to every
+  // message it forwards, so it is stripped here and the original sender's headers decide.
+  h = unwrapForwarderHeaders(h);
 
   // Developer platform / issue tracker notifications — must run before the generic
   // newsletter check because services like GitHub set List-ID and Precedence: list
@@ -709,6 +857,10 @@ export async function parseMessage(msg) {
   }
 
   const parsedHeaders = parseHeadersInput(msg.headers);
+  // Alias-forwarding services (#475): the original sender is derived, sender-controlled text, so
+  // it is kept apart from From and shown as a separate, labelled line -- never in place of From.
+  const forwarded = detectAliasForwarder({ fromEmail, fromName: fromAddr.name, headers: parsedHeaders });
+  const hasForwardedFrom = !!forwarded?.originalEmail;
   const references = (() => {
     if (msg.headers && typeof msg.headers.get === 'function') return msg.headers.get('references') || null;
     return parsedHeaders.references || null;
@@ -722,6 +874,9 @@ export async function parseMessage(msg) {
     fromEmail,
     senderName: hasDistinctSender ? (senderAddr.name || '') : null,
     senderEmail: hasDistinctSender ? senderEmail : null,
+    forwardedFromName: hasForwardedFrom ? (forwarded.originalName || '') : null,
+    forwardedFromEmail: hasForwardedFrom ? forwarded.originalEmail : null,
+    forwardedVia: hasForwardedFrom ? forwarded.label : null,
     to: mapAddrs(envelope.to),
     cc: mapAddrs(envelope.cc),
     replyTo: mapAddrs(envelope.replyTo),

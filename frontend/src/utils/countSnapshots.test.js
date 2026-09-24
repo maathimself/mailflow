@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { test, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { mergeCountSnapshots, adjustCountPending, expireCountPending, settleCountPending, displayCountSnapshot, mergeFolderSnapshots, PENDING_COUNT_MS, PENDING_SETTLE_MS } from './countSnapshots.js';
 const accounts = [{ id: 'a', enabled: true }, { id: 'b', enabled: true }, { id: 'x', enabled: true, include_in_unified_inbox: false }];
@@ -128,4 +128,35 @@ test('a window missing its watermark falls back to the backstop rather than sett
   const newer = mergeCountSnapshots(initial, sample(9, 20, '2'));
   assert.deepEqual(settleCountPending(legacy, newer, PENDING_SETTLE_MS + 1000), legacy);
   assert.deepEqual(settleCountPending(legacy, newer, PENDING_COUNT_MS), {});
+});
+import { unreadDeltaByAccount } from './countSnapshots.js';
+
+describe('unreadDeltaByAccount (#476 badge attribution)', () => {
+  it('splits a cross-account conversation unread delta per account', () => {
+    const msgs = [
+      { id: 'w', account_id: 'work', is_read: false },
+      { id: 'h', account_id: 'home', is_read: false },
+    ];
+    const d = unreadDeltaByAccount(msgs, true, 'work');
+    assert.deepEqual([...d.entries()].sort(), [['home', 1], ['work', 1]]);
+  });
+
+  it('counts only messages whose state actually changes', () => {
+    const msgs = [
+      { id: 'a', account_id: 'work', is_read: true },   // already read: no change when marking read
+      { id: 'b', account_id: 'work', is_read: false },
+    ];
+    assert.deepEqual([...unreadDeltaByAccount(msgs, true, 'work')], [['work', 1]]);
+    assert.deepEqual([...unreadDeltaByAccount(msgs, false, 'work')], [['work', 1]]);
+  });
+
+  it('charges a message with no account to the acted-on row account', () => {
+    const msgs = [{ id: 'x', is_read: false }];
+    assert.deepEqual([...unreadDeltaByAccount(msgs, true, 'work')], [['work', 1]]);
+  });
+
+  it('is empty when nothing changes', () => {
+    assert.equal(unreadDeltaByAccount([{ id: 'a', account_id: 'work', is_read: true }], true, 'work').size, 0);
+    assert.equal(unreadDeltaByAccount(null, true, 'work').size, 0);
+  });
 });

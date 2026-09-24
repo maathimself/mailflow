@@ -925,10 +925,11 @@ export default function Sidebar() {
       </div>
 
       {/* Nav */}
-      <nav style={{ flex: 1, overflow: 'hidden auto', padding: '4px 8px' }}>
+      <nav data-mailbox-sidebar="" style={{ flex: 1, overflow: 'hidden auto', padding: '4px 8px' }}>
         {/* Unified Inbox — only shown with 2+ enabled accounts */}
         {accounts.filter(a => a.enabled).length >= 2 && (
           <NavItem
+            mailboxRow
             icon={ICONS.inbox}
             label={t('sidebar.allInboxes')}
             active={isUnified && !showContacts}
@@ -941,7 +942,7 @@ export default function Sidebar() {
 
         {/* Favorites section */}
         {!sidebarCollapsed && favoriteFolders.length > 0 && (() => {
-          const visibleFaves = favoriteFolders.filter(({ accountId }) => accounts.some(a => a.id === accountId));
+          const visibleFaves = favoriteFolders.filter(({ accountId }) => accounts.some(a => a.id === accountId && a.enabled));
           if (!visibleFaves.length) return null;
           return (
             <>
@@ -964,6 +965,7 @@ export default function Sidebar() {
                 return (
                   <div
                     key={`${accountId}:${path}`}
+                    data-mailbox-row=""
                     className="no-callout"
                     onDragOver={e => {
                       e.preventDefault();
@@ -1149,7 +1151,7 @@ export default function Sidebar() {
         })()}
 
         {/* Per-account */}
-        {accounts.map(account => {
+        {accounts.filter(account => account.enabled).map(account => {
           const countSnapshot = unreadCounts.snapshots?.[account.id];
           const accountBadge = unreadBadge({ count: unreadCounts.byAccount[account.id],
             known: Number.isFinite(unreadCounts.byAccount[account.id]) && countSnapshot?.known !== false,
@@ -1175,6 +1177,7 @@ export default function Sidebar() {
               {/* Only the collapsed row may carry a button role: expanded, it holds
                   the expand toggle, and a button cannot nest inside a button. */}
               <div
+                data-mailbox-row=""
                 style={{
                   display: 'flex', alignItems: 'center', gap: 8,
                   padding: sidebarCollapsed ? '8px' : '7px 10px',
@@ -1395,6 +1398,8 @@ export default function Sidebar() {
                     // descendants opt back in.
                     <div key={folder.path} style={{ pointerEvents: 'none', ...(isHidden ? { opacity: 0.45 } : null) }}>
                       <div
+                        data-mailbox-row={folder.no_select || isHidden ? undefined : ''}
+                        data-mailbox-available={folder.no_select || isHidden ? 'false' : 'true'}
                         style={{
                           pointerEvents: 'auto',
                           display: 'flex', alignItems: 'center', gap: 6,
@@ -2066,10 +2071,11 @@ export default function Sidebar() {
   );
 }
 
-function NavItem({ icon, label, active, collapsed, badge, badgeStale = false, onClick }) {
+function NavItem({ icon, label, active, collapsed, badge, badgeStale = false, onClick, mailboxRow = false }) {
   const navBadge = unreadBadge({ count: badge, stale: badgeStale, max: 999 });
   return (
     <div
+      data-mailbox-row={mailboxRow ? '' : undefined}
       className={active ? 'nav-item nav-item-active' : 'nav-item'}
       onClick={onClick}
       onKeyDown={activateOnKey(onClick)}

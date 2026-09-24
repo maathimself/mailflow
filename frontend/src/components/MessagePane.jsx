@@ -4,11 +4,13 @@ import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { format } from 'date-fns';
 import { shortcutBus } from '../utils/shortcutBus.js';
+import { canHandlePaneShortcut } from '../utils/shortcutApplicability.js';
 import { getEffectiveShortcuts, parseModKey, modCompactLabel } from '../utils/defaultShortcuts.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
-import { applyMarkRead, scheduleMarkRead } from '../utils/markRead.js';
+import { applyMarkRead, scheduleMarkRead, cancelScheduledMarkRead, cancelScheduledMarkReadFor } from '../utils/markRead.js';
+import { markMessageUnread } from '../utils/messageHotkeys.js';
 import DOMPurify from 'dompurify';
 import { BUILTIN_SUMMARIZE, summarizePromptForLocale } from '../aiActions.js';
 import { getResults, saveResult, removeResult } from '../aiResults.js';
@@ -134,7 +136,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     window.dispatchEvent(new CustomEvent(MESSAGE_OPENING_EVENT));
     api.getMessageBody(msg.id).catch(() => {});
     setSelectedMessage(msg.id);
-    clearTimeout(autoMarkReadTimerRef.current);
+    cancelScheduledMarkRead(autoMarkReadTimerRef.current);
     autoMarkReadTimerRef.current = scheduleMarkRead(msg);
   }, [setSelectedMessage]);
 
@@ -145,7 +147,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   useEffect(() => () => {
     mountedRef.current = false;
     if (swipeBackTimerRef.current) clearTimeout(swipeBackTimerRef.current);
-    clearTimeout(autoMarkReadTimerRef.current);
+    cancelScheduledMarkRead(autoMarkReadTimerRef.current);
   }, []);
 
   const resetPaneSwipeStyles = useCallback(() => {
@@ -714,7 +716,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
           window.dispatchEvent(new CustomEvent(MESSAGE_OPENING_EVENT));
           api.getMessageBody(target.id).catch(() => {});
           setSel(target.id);
-          clearTimeout(autoMarkReadTimerRef.current);
+          cancelScheduledMarkRead(autoMarkReadTimerRef.current);
           autoMarkReadTimerRef.current = null;
           if (!target.is_read) {
             const { markReadBehavior, markReadDelay } = useStore.getState();
@@ -925,34 +927,53 @@ ${bodyContent}
   paneActionsRef.current = {
     reply:      () => handleReply(defaultReplyAll),
     replyAll:   () => handleReply(true),
-    forward:    handleForward,
     toggleStar: handleStarToggle,
     print:      handlePrint,
+    unsubscribe: () => {
+      if (!windowMode && message?.list_unsubscribe && !message.unsubscribed_at && unsubscribeStatus !== 'loading' && unsubscribeStatus !== 'done') handleUnsubscribe();
+    },
+    loadRemoteImages: async () => {
+      if (windowMode || !message) return;
+      const id = message.id;
+      const currentBody = body ?? await api.getMessageBody(id).catch(() => null);
+      if (useStore.getState().selectedMessageId === id && currentBody?.hasBlockedRemoteImages) handleLoadImages();
+    },
   };
 
   // Subscribe to keyboard shortcut actions that belong to the message pane.
   // Registered once ([] deps); live state is accessed through paneActionsRef.
   useEffect(() => {
-    const onReply        = () => paneActionsRef.current.reply();
-    const onReplyAll     = () => paneActionsRef.current.replyAll();
-    const onForward      = () => paneActionsRef.current.forward();
-    const onToggleStar   = () => paneActionsRef.current.toggleStar();
-    const onPrintMessage = () => paneActionsRef.current.print?.();
+    const active = () => canHandlePaneShortcut(windowMessageId, useStore.getState());
+    const onReply        = () => { if (active()) paneActionsRef.current.reply(); };
+    const onReplyAll     = () => { if (active()) paneActionsRef.current.replyAll(); };
+    const onToggleStar   = () => { if (active()) paneActionsRef.current.toggleStar(); };
+    const onPrintMessage = () => { if (active()) paneActionsRef.current.print?.(); };
+    const onUnsubscribe = () => { if (active()) paneActionsRef.current.unsubscribe?.(); };
+    const onLoadRemoteImages = () => { if (active()) paneActionsRef.current.loadRemoteImages?.(); };
+    const onExplicitUnread = () => {
+      if (!active()) return;
+      cancelScheduledMarkRead(autoMarkReadTimerRef.current);
+      autoMarkReadTimerRef.current = null;
+    };
 
     shortcutBus.on('reply',         onReply);
     shortcutBus.on('replyAll',      onReplyAll);
-    shortcutBus.on('forward',       onForward);
     shortcutBus.on('toggleStar',    onToggleStar);
     shortcutBus.on('printMessage',  onPrintMessage);
+    shortcutBus.on('unsubscribe', onUnsubscribe);
+    shortcutBus.on('loadRemoteImages', onLoadRemoteImages);
+    shortcutBus.on('markUnread', onExplicitUnread);
 
     return () => {
       shortcutBus.off('reply',         onReply);
       shortcutBus.off('replyAll',      onReplyAll);
-      shortcutBus.off('forward',       onForward);
       shortcutBus.off('toggleStar',    onToggleStar);
       shortcutBus.off('printMessage',  onPrintMessage);
+      shortcutBus.off('unsubscribe', onUnsubscribe);
+      shortcutBus.off('loadRemoteImages', onLoadRemoteImages);
+      shortcutBus.off('markUnread', onExplicitUnread);
     };
-  }, []);
+  }, [windowMessageId]);
 
   useEffect(() => {
     api.ai.status().then(setAiStatus).catch(() => {});
@@ -1006,19 +1027,17 @@ ${bodyContent}
   }, [showMovePicker, message?.account_id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleMarkUnread = useCallback(() => {
-    if (!message || !message.is_read) return;
-    updateMessage(message.id, { is_read: false });
-    incrementUnread(message.account_id);
-    adjustCategoryCount(message.category, 1);
-    completedMarkReadMap.delete(message.id);
-    pendingMarkReadMap.delete(message.id);
-    api.bulkRead([message.id], false).catch(e => {
-      console.error('markUnread failed:', e.message);
-      updateMessage(message.id, { is_read: true });
-      decrementUnread(message.account_id);
-      adjustCategoryCount(message.category, -1);
-    });
-    if (isMobile) setSelectedMessage(null);
+    if (markMessageUnread(message, {
+      cancel: () => {
+        cancelScheduledMarkRead(autoMarkReadTimerRef.current);
+        autoMarkReadTimerRef.current = null;
+        cancelScheduledMarkReadFor(message.id);
+        pendingMarkReadMap.delete(message.id);
+        completedMarkReadMap.delete(message.id);
+      },
+      update: updateMessage, incrementUnread, decrementUnread, adjustCategoryCount,
+      patch: api.bulkRead,
+    }) && isMobile) setSelectedMessage(null);
   }, [message, updateMessage, incrementUnread, decrementUnread, adjustCategoryCount, isMobile, setSelectedMessage]);
 
   const handleEmailClick = useCallback((ev) => {
@@ -2146,6 +2165,12 @@ ${bodyContent}
                       <span style={{ color: 'var(--text-secondary)' }}>{body.senderName ? `${body.senderName} <${body.senderEmail}>` : body.senderEmail}</span>
                     </div>
                   )}
+                  {body?.forwardedFromEmail && (
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <span>{t('message.forwardedFrom', { service: body.forwardedVia })} </span>
+                      <span style={{ color: 'var(--text-secondary)' }}>{body.forwardedFromName ? `${body.forwardedFromName} <${body.forwardedFromEmail}>` : body.forwardedFromEmail}</span>
+                    </div>
+                  )}
                   <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     <span>{t('message.to')} </span>
                     <span style={{ color: 'var(--text-secondary)' }}>
@@ -2183,6 +2208,12 @@ ${bodyContent}
                     <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3 }}>
                       <span>{t('message.via')} </span>
                       <span style={{ color: 'var(--text-secondary)' }}>{body.senderName ? `${body.senderName} <${body.senderEmail}>` : body.senderEmail}</span>
+                    </div>
+                  )}
+                  {body?.forwardedFromEmail && (
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3 }}>
+                      <span>{t('message.forwardedFrom', { service: body.forwardedVia })} </span>
+                      <span style={{ color: 'var(--text-secondary)' }}>{body.forwardedFromName ? `${body.forwardedFromName} <${body.forwardedFromEmail}>` : body.forwardedFromEmail}</span>
                     </div>
                   )}
                   <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3 }}>

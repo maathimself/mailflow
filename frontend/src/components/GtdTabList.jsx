@@ -1,6 +1,6 @@
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { useStore, selectSelectedMessageMid } from '../store/index.js';
+import { useStore, selectSelectedMessageMid, selectSelectedMessageAccountId } from '../store/index.js';
 import { buildGtdDisplaySections, isSelectedRow } from '../utils/gtd.js';
 import { useGtdTriage } from '../hooks/useGtdTriage.js';
 import GtdTriageRow from './GtdTriageRow.jsx';
@@ -18,6 +18,7 @@ export default function GtdTabList() {
   const gtdSections = useStore(s => s.gtdSections);
   const selectedMessageId = useStore(s => s.selectedMessageId);
   const selectedMid = useStore(selectSelectedMessageMid);
+  const selectedAcct = useStore(selectSelectedMessageAccountId);
   const hoverQuickActions = useStore(s => s.hoverQuickActions);
 
   const { contextMenu, setContextMenu, handleGtdAction, openRow, rowActions } = useGtdTriage();
@@ -43,7 +44,7 @@ export default function GtdTabList() {
           thread={thread}
           sectionKey={activeGtdTab}
           variant="list"
-          selected={isSelectedRow(thread, selectedMessageId, selectedMid)}
+          selected={isSelectedRow(thread, selectedMessageId, selectedMid, selectedAcct)}
           onOpen={() => openRow(thread)}
           rowActions={rowActions}
           hoverQuickActions={hoverQuickActions}

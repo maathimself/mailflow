@@ -30,12 +30,23 @@ export const ACTION_DEFS = {
   prevMessage:   { groupKey: 'shortcuts.groups.navigation',     labelKey: 'shortcuts.actions.prevMessage.label',   descriptionKey: 'shortcuts.actions.prevMessage.description',   defaultKey: 'k'  },
   openMessage:   { groupKey: 'shortcuts.groups.navigation',     labelKey: 'shortcuts.actions.openMessage.label',   descriptionKey: 'shortcuts.actions.openMessage.description',   defaultKey: 'o'  },
   goInbox:       { groupKey: 'shortcuts.groups.navigation',     labelKey: 'shortcuts.actions.goInbox.label',       descriptionKey: 'shortcuts.actions.goInbox.description',       defaultKey: 'gi' },
+  toggleLeftSidebar: { groupKey: 'shortcuts.groups.navigation', labelKey: 'shortcuts.actions.toggleLeftSidebar.label', descriptionKey: 'shortcuts.actions.toggleLeftSidebar.description', defaultKey: 'ctrl+\\' },
+  ...Object.fromEntries(Array.from({ length: 9 }, (_, i) => {
+    const n = i + 1;
+    const action = `goVisibleMailbox${n}`;
+    return [action, { groupKey: 'shortcuts.groups.navigation', labelKey: `shortcuts.actions.${action}.label`, descriptionKey: `shortcuts.actions.${action}.description`, defaultKey: `ctrl+${n}` }];
+  })),
+  openLabelPicker: { groupKey: 'shortcuts.groups.navigation', labelKey: 'shortcuts.actions.openLabelPicker.label', descriptionKey: 'shortcuts.actions.openLabelPicker.description', defaultKey: 'ctrl+l' },
   toggleRightSidebar: { groupKey: 'shortcuts.groups.navigation', labelKey: 'shortcuts.actions.toggleRightSidebar.label', descriptionKey: 'shortcuts.actions.toggleRightSidebar.description', defaultKey: 'ctrl+/' },
 
   // ── Message actions ────────────────────────────────────────────────────────
   reply:         { groupKey: 'shortcuts.groups.messageActions', labelKey: 'shortcuts.actions.reply.label',         descriptionKey: 'shortcuts.actions.reply.description',         defaultKey: 'r'  },
   replyAll:      { groupKey: 'shortcuts.groups.messageActions', labelKey: 'shortcuts.actions.replyAll.label',      descriptionKey: 'shortcuts.actions.replyAll.description',      defaultKey: 'a'  },
   forward:       { groupKey: 'shortcuts.groups.messageActions', labelKey: 'shortcuts.actions.forward.label',       descriptionKey: 'shortcuts.actions.forward.description',       defaultKey: 'f'  },
+  replyAllFromSelection: { groupKey: 'shortcuts.groups.messageActions', labelKey: 'shortcuts.actions.replyAllFromSelection.label', descriptionKey: 'shortcuts.actions.replyAllFromSelection.description', defaultKey: 'ctrl+Enter' },
+  markUnread: { groupKey: 'shortcuts.groups.messageActions', labelKey: 'shortcuts.actions.markUnread.label', descriptionKey: 'shortcuts.actions.markUnread.description', defaultKey: 'u' },
+  unsubscribe: { groupKey: 'shortcuts.groups.messageActions', labelKey: 'shortcuts.actions.unsubscribe.label', descriptionKey: 'shortcuts.actions.unsubscribe.description', defaultKey: 'ctrl+shift+u' },
+  loadRemoteImages: { groupKey: 'shortcuts.groups.messageActions', labelKey: 'shortcuts.actions.loadRemoteImages.label', descriptionKey: 'shortcuts.actions.loadRemoteImages.description', defaultKey: 'i' },
   archive:       { groupKey: 'shortcuts.groups.messageActions', labelKey: 'shortcuts.actions.archive.label',       descriptionKey: 'shortcuts.actions.archive.description',       defaultKey: 'e'  },
   delete:        { groupKey: 'shortcuts.groups.messageActions', labelKey: 'shortcuts.actions.delete.label',        descriptionKey: 'shortcuts.actions.delete.description',        defaultKey: '#'  },
   toggleStar:    { groupKey: 'shortcuts.groups.messageActions', labelKey: 'shortcuts.actions.toggleStar.label',    descriptionKey: 'shortcuts.actions.toggleStar.description',    defaultKey: 's'  },
@@ -109,12 +120,62 @@ export function buildModKeyMap(userOverrides = {}) {
   for (const [action, key] of Object.entries(effective)) {
     const parsed = parseModKey(key);
     if (!parsed) continue;
-    if (map[parsed.bare]) {
-      console.warn(`[shortcuts] key "${parsed.bare}" is bound to both "${map[parsed.bare]}" and "${action}"; "${action}" wins`);
+    const bare = parsed.bare.toLowerCase();
+    if (map[bare]) {
+      console.warn(`[shortcuts] key "${bare}" is bound to both "${map[bare]}" and "${action}"; "${action}" wins`);
     }
-    map[parsed.bare] = action;
+    map[bare] = action;
   }
   return map;
+}
+
+// Match the full modifier set. A shifted punctuation character already carries
+// Shift in event.key on common keyboard layouts.
+export function resolveShortcutAction(event, userOverrides = {}) {
+  if (!event?.key) return null;
+  const key = event.key.toLowerCase();
+  const isCommand = isMac ? !!event.metaKey && !event.ctrlKey : !!event.ctrlKey && !event.metaKey;
+  if ((event.ctrlKey || event.metaKey) && !isCommand) return null;
+  let found = null;
+  for (const [action, binding] of Object.entries(getEffectiveShortcuts(userOverrides))) {
+    if (!binding) continue;
+    const pieces = binding.toLowerCase().split('+');
+    const bare = pieces.pop();
+    const command = pieces.includes('ctrl');
+    const shift = pieces.includes('shift');
+    const alt = pieces.includes('alt');
+    if (pieces.some(piece => piece !== 'ctrl' && piece !== 'shift' && piece !== 'alt')) continue;
+    if (command !== isCommand || alt !== !!event.altKey || bare !== key) continue;
+    if (shift !== !!event.shiftKey && key !== '?' && key !== '#') continue;
+    if (shift && !event.shiftKey) continue;
+    found = action;
+  }
+  return found;
+}
+
+const GENERAL_ACTION_TEXT = {
+  toggleLeftSidebar: ['Toggle left sidebar', 'Hide or show the left sidebar'],
+  openLabelPicker: ['Open label picker', 'Copy the selected message to a folder'],
+  replyAllFromSelection: ['Reply all from selection', 'Reply all to the selected message'],
+  markUnread: ['Mark unread', 'Mark the selected message unread'],
+  unsubscribe: ['Unsubscribe', 'Unsubscribe from the selected mailing list'],
+  loadRemoteImages: ['Load remote images', 'Load images in the selected message'],
+};
+
+export function shortcutActionText(t, action, kind = 'description') {
+  const definition = ACTION_DEFS[action];
+  if (!definition) return '';
+  const mailboxNumber = /^goVisibleMailbox([1-9])$/.exec(action)?.[1];
+  const label = kind === 'label';
+  if (mailboxNumber) {
+    return t(`shortcuts.visibleMailbox.${kind}`, {
+      number: Number(mailboxNumber),
+      defaultValue: label ? 'Visible mailbox {{number}}' : 'Open visible mailbox {{number}}',
+    });
+  }
+  const fallback = GENERAL_ACTION_TEXT[action];
+  return t(label ? definition.labelKey : definition.descriptionKey,
+    fallback ? { defaultValue: fallback[label ? 0 : 1] } : undefined);
 }
 
 // Returns actions grouped for display in the help overlay / settings tab.

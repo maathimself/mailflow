@@ -33,6 +33,25 @@ describe('normalizeConversation', () => {
     assert.deepEqual(normalizeConversation(messages).map(item => item.id), ['old', 'inbox-copy']);
   });
 
+  it('keeps one copy per account when an email reached two accounts (#476)', () => {
+    // The grouped list shows a single thread row for these, so dropping one here removed it
+    // from the UI entirely. The backend thread query returns one row per (account, Message-ID);
+    // this mirrors that key so the pane shows what the thread badge counts.
+    const messages = [
+      message('work', '2026-07-26T12:00:00Z', { message_id: '<same@example.test>', folder: 'INBOX', account_id: 'work' }),
+      message('home', '2026-07-26T12:00:00Z', { message_id: '<same@example.test>', folder: 'INBOX', account_id: 'home' }),
+    ];
+    assert.deepEqual(normalizeConversation(messages).map(item => item.id), ['work', 'home']);
+  });
+
+  it('still collapses two copies of one message inside a single account', () => {
+    const messages = [
+      message('sent', '2026-07-26T12:00:00Z', { message_id: '<same@example.test>', folder: 'Sent', account_id: 'work' }),
+      message('inbox', '2026-07-26T11:00:00Z', { message_id: '<same@example.test>', folder: 'INBOX', account_id: 'work' }),
+    ];
+    assert.deepEqual(normalizeConversation(messages).map(item => item.id), ['inbox']);
+  });
+
   it('uses row IDs to retain messages without an RFC Message-ID', () => {
     const messages = [
       message('row-2', '2026-07-26T12:00:00Z', { message_id: null }),
