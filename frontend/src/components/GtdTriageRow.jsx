@@ -41,7 +41,8 @@ export default function GtdTriageRow({ thread, sectionKey, variant, selected, on
       onHoverTargetEnter={variant === 'sidebar' ? () => registerHoveredGtdRow({
         classify: state => rowActions.classifyRow(thread, state),
         // In GTD, archive is the existing Done transition: archive the inbox copy and
-        // remove the label(s) represented by this sidebar row.
+        // remove this row's labels. The gtdDone endpoint has no undo operation, matching
+        // the existing non-undoable Done checkmark on GTD rows.
         archive: () => rowActions.done(thread, doneStates),
       }) : undefined}
       renderHoverActions={hoverQuickActions ? () => (

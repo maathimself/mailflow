@@ -4,11 +4,12 @@ import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import {
   openDeepLinkMessage, collectThreadReadIds, openGtdThreadWithAutoRead,
-  classifyThread, unclassifyThread,
+  unclassifyThread,
 } from '../utils/gtd.js';
 import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
 import { resolveContextMenuMessage } from '../utils/contextMenuPolicy.js';
 import { doneGtdRow } from '../utils/gtdDone.js';
+import { classifyGtdRowWithUndo } from '../plugins/gtd/classification.js';
 
 // One pending delayed auto-read across ALL GTD surfaces (module scope, not per hook
 // instance): the sidebar and the tab browse list are mounted together in desktop row
@@ -188,10 +189,12 @@ export function useGtdTriage() {
       });
   };
 
-  // Classify (add a state label) / remove (strip one). The message stays put, so just
-  // poke the sidebar store to reconverge — mirrors MessageList's context-menu handlers.
-  const classifyRow = (thread, state) => classifyThread(thread.id, state, {
-    gtdClassify: api.gtdClassify, addNotification, scheduleGtdSectionsFetch, t,
+  // The server returns an undo token for newly-added labels. Share this path between
+  // context-menu and hovered-row classification so both expose the same Undo affordance.
+  const classifyRow = (thread, state) => classifyGtdRowWithUndo(thread, state, {
+    api,
+    store: { addNotification, scheduleGtdSectionsFetch },
+    t,
   });
 
   const removeStateRow = (thread, state) => unclassifyThread(thread.id, state, {
@@ -256,7 +259,8 @@ export function useGtdTriage() {
 
   // Bundle passed down to each row for its hover cluster + right-click menu.
   const rowActions = {
-    setRead, toggleStar, deleteRow, done: doneRow, classifyRow, openMenu: setContextMenu,
+    setRead, toggleStar, deleteRow, done: doneRow, classifyRow,
+    openMenu: setContextMenu,
   };
 
   return { contextMenu, setContextMenu, handleGtdAction, openRow, rowActions };

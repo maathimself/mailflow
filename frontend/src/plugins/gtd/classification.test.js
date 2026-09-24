@@ -1,6 +1,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyWithUndo, undoLatestGtdNotification } from './classification.js';
+import {
+  classifyGtdRowWithUndo,
+  classifyWithUndo,
+  undoLatestGtdNotification,
+} from './classification.js';
 
 function createHarness(classifyResult = {}) {
   const notifications = [];
@@ -86,6 +90,26 @@ describe('classifyWithUndo', () => {
     assert.equal(harness.calls.refresh, 0);
     assert.equal(harness.notifications[0].type, 'error');
     assert.equal(harness.notifications[0].title, 'gtd.classifyFailed');
+  });
+});
+
+describe('classifyGtdRowWithUndo', () => {
+  it('classifies the row id and exposes the server undo token', async () => {
+    const undoToken = {
+      messageId: '2e8749a4-f5e5-4ee1-a49c-f93e4a27d39b',
+      state: 'watch',
+      folder: 'GTD/Watch',
+      uid: 904,
+    };
+    const harness = createHarness({ ok: true, applied: true, undoToken });
+    const row = { id: 'message-1', subject: 'A GTD row' };
+
+    await classifyGtdRowWithUndo(row, 'watch', harness);
+
+    assert.deepEqual(harness.calls.classify, [['message-1', 'watch']]);
+    assert.equal(typeof harness.notifications[0].onUndo, 'function');
+    await harness.notifications[0].onUndo();
+    assert.deepEqual(harness.calls.undo, [undoToken]);
   });
 });
 
