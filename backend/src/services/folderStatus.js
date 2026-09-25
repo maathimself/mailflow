@@ -109,7 +109,9 @@ export class FolderStatusMonitor {
         ORDER BY (f.path='INBOX') DESC, f.status_attempted_at ASC NULLS FIRST, f.path LIMIT $2`, [account.id, STATUS_FOLDER_BATCH]);
       if (!rows.length) return;
       const changed = [];
-      // This connection stays AUTHENTICATED: no selected mailbox, no interference with IDLE.
+      // On the fresh-login path this connection stays AUTHENTICATED (no selected mailbox, no
+      // interference with IDLE). A secondaryOverPool provider hands us a POOLED client
+      // instead, which may have a mailbox selected — STATUS tolerates that (#474 round 5).
       await this.withClient(account, async client => {
         for (const row of rows) {
           try {
