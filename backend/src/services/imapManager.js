@@ -3828,11 +3828,21 @@ export class ImapManager {
         });
 
         // ── New-mail phase — UID-watermark safety net for a populated local cache. Fetches only
-        // UIDs above the highest we already have — usually just the newest message, then a no-op
-        // upsert. When no local UID exists, the full plan above owns metadata ingestion instead.
+        // UIDs above the highest we already have. When no local UID exists, the full plan above
+        // owns metadata ingestion instead.
+        //
+        // The filter guards the RFC 3501 `n:*` quirk, same as the staleness probe: when n
+        // exceeds the highest UID, the server returns that highest message anyway, so without
+        // it the newest message of every folder came back on every tick and its upsert wrote a
+        // real new row version each time (#495 follow-up: the reporter measured it as the
+        // entire 0.10 updates/s residue left after the beta, one rewrite per folder per tick,
+        // Gmail and Outlook alike). A skipped uid at or below the watermark that is somehow
+        // NOT cached is a hole below the watermark, which is backfill's and the integrity
+        // pass's job by this phase's own contract, never this fetch's.
         if (maxKnownUid > 0) {
           try {
             for await (const msg of client.fetch(`${maxKnownUid + 1}:*`, fetchQuery, { uid: true })) {
+              if (msg.uid <= maxKnownUid) continue;
               await processMsg(msg);
             }
           } catch (err) {

@@ -3320,7 +3320,9 @@ describe('CONDSTORE-less full sync (#495)', () => {
   const account = { id: 'acct-495', user_id: 'u1', imap_host: 'imap.example.com', email_address: 'a@example.com', name: 'A' };
 
   // serverMsgs: [{uid, seen}] visible in the mailbox. cachedUids: what the DB already has.
-  function arrange({ serverMsgs, cachedUids, maxKnownUid, storedValidity = '7' }) {
+  // uidPhaseYields: what the `${maxKnownUid + 1}:*` fetch returns — per RFC 3501 a server
+  // echoes its highest message even when n exceeds it.
+  function arrange({ serverMsgs, cachedUids, maxKnownUid, storedValidity = '7', uidPhaseYields = [] }) {
     const calls = { upserts: [], fullFetches: [], cheapFetches: [], uidPhase: [], cachedSelects: [] };
     query.mockReset();
     query.mockImplementation(async (sql, params) => {
@@ -3353,7 +3355,8 @@ describe('CONDSTORE-less full sync (#495)', () => {
         return (async function* () {
           if (opts?.uid && typeof range === 'string' && range.endsWith(':*')) {
             calls.uidPhase.push(range);
-            return; // UID watermark phase: nothing above the watermark in these scenarios
+            for (const m of uidPhaseYields) yield { uid: m.uid, flags: flagsFor(m.seen) };
+            return;
           }
           if (q?.envelope) {
             calls.fullFetches.push({ range, uid: !!opts?.uid });
@@ -3424,6 +3427,35 @@ describe('CONDSTORE-less full sync (#495)', () => {
     await mgr.syncMessages(account, client, 'Work', 20, false);
 
     expect(mgr.broadcast).toHaveBeenCalledWith({ type: 'flags_synced', accountId: account.id }, account.user_id);
+  });
+
+  it('the n:* quirk echo of the newest message is skipped, not re-upserted every tick', async () => {
+    // RFC 3501: `${maxKnownUid + 1}:*` still returns the highest message when nothing is
+    // above the watermark. The #495 reporter measured this echo as the entire residue left
+    // after the beta — one row rewrite per folder per tick, Gmail and Outlook alike. The
+    // staleness probe has guarded this quirk since it was written; the UID phase now does too.
+    const serverMsgs = [{ uid: 30, seen: true }];
+    const { mgr, client, calls } = arrange({
+      serverMsgs, cachedUids: [30], maxKnownUid: 30, uidPhaseYields: [{ uid: 30, seen: true }],
+    });
+
+    await mgr.syncMessages(account, client, 'Work', 20, false);
+
+    expect(calls.uidPhase).toEqual(['31:*']); // the phase ran and the server echoed uid 30
+    expect(calls.upserts).toEqual([]);        // and the echo was filtered, not rewritten
+  });
+
+  it('genuinely new mail above the watermark still comes through the UID phase', async () => {
+    // The companion boundary: an over-eager filter that also swallowed uid > maxKnownUid
+    // would silently break new-mail delivery for every account.
+    const serverMsgs = [{ uid: 30, seen: true }, { uid: 31, seen: true }];
+    const { mgr, client, calls } = arrange({
+      serverMsgs, cachedUids: [30, 31], maxKnownUid: 30, uidPhaseYields: [{ uid: 31, seen: true }],
+    });
+
+    await mgr.syncMessages(account, client, 'Work', 20, false);
+
+    expect(calls.upserts).toEqual([31]);
   });
 });
 
