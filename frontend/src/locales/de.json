@@ -643,6 +643,15 @@
       "gtdUndo": {
         "description": "Letzte GTD-Einordnung rückgängig machen"
       },
+      "gtdReference": {
+        "description": "Ausgewählte Nachricht als Referenz einordnen"
+      },
+      "gtdSomeday": {
+        "description": "Ausgewählte Nachricht als Irgendwann einordnen"
+      },
+      "gtdDone": {
+        "description": "Ausgewählte GTD-Nachricht abschließen"
+      },
       "toggleRightSidebar": {
         "label": "Rechte Seitenleiste umschalten",
         "description": "Rechte Seitenleiste aus- oder einblenden"
@@ -1078,7 +1087,7 @@
       "description": "Auf eine Tastenkombination klicken, um sie neu zuzuweisen. Esc drücken, um die Aufnahme abzubrechen.",
       "resetAll": "Alle auf Standard zurücksetzen",
       "recording": "Taste drücken…",
-      "conflict": "Taste {{key}} war bereits {{action}} zugewiesen — neu zugewiesen.",
+      "conflict": "Taste {{key}} ist mehreren Aktionen zugewiesen. {{action}} hat Vorrang.",
       "resetDefault": "Auf Standard zurücksetzen",
       "remove": "Kürzel entfernen",
       "footer": "Überall in der App ? drücken, um die aktuelle Kürzelbeschreibung zu sehen."

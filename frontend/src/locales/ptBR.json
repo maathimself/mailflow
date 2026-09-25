@@ -643,6 +643,15 @@
       "gtdUndo": {
         "description": "Desfazer a última classificação GTD"
       },
+      "gtdReference": {
+        "description": "Classificar a mensagem selecionada como Referência"
+      },
+      "gtdSomeday": {
+        "description": "Classificar a mensagem selecionada como Algum dia"
+      },
+      "gtdDone": {
+        "description": "Concluir a mensagem GTD selecionada"
+      },
       "toggleRightSidebar": {
         "label": "Alternar barra lateral direita",
         "description": "Ocultar ou mostrar a barra lateral direita"
@@ -1149,7 +1158,7 @@
       "description": "Clique em um atalho para reatribuí-lo. Pressione Esc para cancelar a gravação.",
       "resetAll": "Restaurar todos os padrões",
       "recording": "Pressione uma tecla…",
-      "conflict": "A tecla {{key}} já estava atribuída a {{action}} — ela foi reatribuída.",
+      "conflict": "A tecla {{key}} está atribuída a várias ações. {{action}} tem prioridade.",
       "resetDefault": "Restaurar padrão",
       "remove": "Remover atalho",
       "footer": "Pressione ? em qualquer lugar do app para ver a referência atual de atalhos."

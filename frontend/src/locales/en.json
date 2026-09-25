@@ -643,6 +643,15 @@
       "gtdUndo": {
         "description": "Undo the latest GTD classification"
       },
+      "gtdReference": {
+        "description": "Classify the selected message as Reference"
+      },
+      "gtdSomeday": {
+        "description": "Classify the selected message as Someday"
+      },
+      "gtdDone": {
+        "description": "Mark the selected GTD message done"
+      },
       "toggleRightSidebar": {
         "label": "Toggle right sidebar",
         "description": "Hide or show the right sidebar"
@@ -1149,7 +1158,7 @@
       "description": "Click a key binding to reassign it. Press Esc to cancel recording.",
       "resetAll": "Reset all to defaults",
       "recording": "Press a key…",
-      "conflict": "Key {{key}} was already assigned to {{action}} — it has been reassigned.",
+      "conflict": "Key {{key}} is assigned to multiple actions. {{action}} takes priority.",
       "resetDefault": "Reset to default",
       "remove": "Remove shortcut",
       "footer": "Press ? anywhere in the app to see the current shortcut reference."

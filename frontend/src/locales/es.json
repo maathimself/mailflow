@@ -643,6 +643,15 @@
       "gtdUndo": {
         "description": "Deshacer la última clasificación GTD"
       },
+      "gtdReference": {
+        "description": "Clasificar el mensaje seleccionado como Referencia"
+      },
+      "gtdSomeday": {
+        "description": "Clasificar el mensaje seleccionado como Algún día"
+      },
+      "gtdDone": {
+        "description": "Completar el mensaje GTD seleccionado"
+      },
       "toggleRightSidebar": {
         "label": "Alternar la barra lateral derecha",
         "description": "Ocultar o mostrar la barra lateral derecha"
@@ -1149,7 +1158,7 @@
       "description": "Haz clic en un atajo para reasignarlo. Pulsa Esc para cancelar la grabación.",
       "resetAll": "Restablecer todos los valores predeterminados",
       "recording": "Pulsa una tecla…",
-      "conflict": "La tecla {{key}} ya estaba asignada a {{action}} — ha sido reasignada.",
+      "conflict": "La tecla {{key}} está asignada a varias acciones. Tiene prioridad {{action}}.",
       "resetDefault": "Restablecer predeterminado",
       "remove": "Eliminar atajo",
       "footer": "Pulsa ? en cualquier lugar de la aplicación para ver la referencia de atajos."

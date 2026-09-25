@@ -643,6 +643,15 @@
       "gtdUndo": {
         "description": "撤销最近的 GTD 分类"
       },
+      "gtdReference": {
+        "description": "将所选邮件归类为参考资料"
+      },
+      "gtdSomeday": {
+        "description": "将所选邮件归类为将来再办"
+      },
+      "gtdDone": {
+        "description": "将所选 GTD 邮件标记为完成"
+      },
       "toggleRightSidebar": {
         "label": "切换右侧边栏",
         "description": "隐藏或显示右侧边栏"
@@ -1149,7 +1158,7 @@
       "description": "点击某个按键绑定即可重新分配。按 Esc 取消录制。",
       "resetAll": "全部恢复默认",
       "recording": "请按下一个按键…",
-      "conflict": "按键 {{key}} 原已分配给「{{action}}」，现已重新分配。",
+      "conflict": "按键 {{key}} 分配给了多个操作。{{action}} 优先执行。",
       "resetDefault": "恢复默认",
       "remove": "移除快捷键",
       "footer": "在应用任意位置按 ? 即可查看当前快捷键参考。"

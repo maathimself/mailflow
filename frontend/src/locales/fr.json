@@ -643,6 +643,15 @@
       "gtdUndo": {
         "description": "Annuler le dernier classement GTD"
       },
+      "gtdReference": {
+        "description": "Classer le message sélectionné en Référence"
+      },
+      "gtdSomeday": {
+        "description": "Classer le message sélectionné en Un jour"
+      },
+      "gtdDone": {
+        "description": "Terminer le message GTD sélectionné"
+      },
       "toggleRightSidebar": {
         "label": "Afficher ou masquer la barre latérale droite",
         "description": "Masquer ou afficher la barre latérale droite"
@@ -1149,7 +1158,7 @@
       "description": "Cliquez sur un raccourci pour le réassigner. Appuyez sur Échap pour annuler l'enregistrement.",
       "resetAll": "Réinitialiser tous les raccourcis",
       "recording": "Appuyez sur une touche…",
-      "conflict": "La touche {{key}} était déjà assignée à {{action}} — elle a été réassignée.",
+      "conflict": "La touche {{key}} est attribuée à plusieurs actions. {{action}} est prioritaire.",
       "resetDefault": "Réinitialiser par défaut",
       "remove": "Supprimer le raccourci",
       "footer": "Appuyez sur ? n'importe où dans l'application pour voir la référence des raccourcis."
