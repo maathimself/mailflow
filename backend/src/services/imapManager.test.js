@@ -2160,7 +2160,9 @@ describe('Gmail label memberships (#418)', () => {
       search: vi.fn(async () => serverUids),
       fetch: vi.fn(async function* (range) {
         const uids = range.includes(':') ? serverUids : range.split(',').map(Number);
-        for (const uid of uids) yield { uid, folder };
+        // flags ride along like a real server's FETCH response: the #495 split reads
+        // msg.flags directly on its cheap uid+flags pass over cached rows.
+        for (const uid of uids) yield { uid, folder, flags: new Set(['\\Seen']) };
       }),
     });
   }
@@ -2199,7 +2201,10 @@ describe('Gmail label memberships (#418)', () => {
     });
   });
   afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.restoreAllMocks(); });
-  const manager = () => ({ backfillRunning: new Set(), broadcast: vi.fn(), pluginFacade: {}, _secondaryConnectBlocked: () => null, _noteSecondaryRefusal: vi.fn() });
+  const manager = () => ({ backfillRunning: new Set(), broadcast: vi.fn(), pluginFacade: {}, _secondaryConnectBlocked: () => null, _noteSecondaryRefusal: vi.fn(),
+    // A re-sync of cached rows now routes flags through the bulk path (#495) instead of
+    // re-upserting each row, so the bare-object manager needs the real method.
+    _applyFlagUpdates: ImapManager.prototype._applyFlagUpdates });
   async function sync(mgr, folder) {
     await ImapManager.prototype.syncMessages.call(mgr, acct, clientFor(folder), folder, 20, false, true);
   }
@@ -3296,6 +3301,132 @@ describe('fetchMessageBody under an armed backoff (#474)', () => {
     expect(err.poolExhausted).toBe(true);
   });
 });
+// ── CONDSTORE-less full sync splits cached UIDs from new ones (#495) ───────────────────
+//
+// A server without CONDSTORE never seeds a modseq baseline, so planModseqSync returns
+// 'full' on EVERY tick, permanently — the "seed once, go delta" comment never comes true
+// for Outlook / Exmail. The full branch used to run the full-metadata fetch and the
+// unconditional upsert for the newest `limit` messages each time: measured by the #495
+// reporter at ~3 row rewrites and 5.4 WAL fsyncs per second on an idle 12-account
+// instance (~7 GiB/day of disk writes for a 68 MB database), plus one full-table
+// thread-propagation scan per reply, and the same metadata re-downloaded from the IMAP
+// server every 60s. Now a cheap uid+flags pass partitions the range: cached rows go
+// through _applyFlagUpdates (writes only actual flag changes, same as the delta branch),
+// and only unknown UIDs pay the full fetch and upsert.
+//
+// These drive the REAL syncMessages against a scripted client and a SQL-shape query
+// dispatcher, so what is under test is the branch's wiring, not a helper.
+describe('CONDSTORE-less full sync (#495)', () => {
+  const account = { id: 'acct-495', user_id: 'u1', imap_host: 'imap.example.com', email_address: 'a@example.com', name: 'A' };
+
+  // serverMsgs: [{uid, seen}] visible in the mailbox. cachedUids: what the DB already has.
+  function arrange({ serverMsgs, cachedUids, maxKnownUid, storedValidity = '7' }) {
+    const calls = { upserts: [], fullFetches: [], cheapFetches: [], uidPhase: [], cachedSelects: [] };
+    query.mockReset();
+    query.mockImplementation(async (sql, params) => {
+      if (sql.includes('SELECT uid_validity, highest_modseq')) {
+        return { rows: [{ uid_validity: storedValidity, highest_modseq: null }] };
+      }
+      if (sql.includes('COALESCE(MAX(uid), 0)')) return { rows: [{ max_uid: maxKnownUid }] };
+      if (sql.includes('COUNT(*) FILTER')) return { rows: [{ n: 0 }] };
+      if (sql.includes('AND uid = ANY')) {
+        calls.cachedSelects.push(params[2]);
+        return { rows: cachedUids.filter(u => params[2].includes(u)).map(u => ({ uid: u })) };
+      }
+      if (sql.includes('unnest($1::bigint[])')) return { rows: [], rowCount: 0 };
+      if (sql.includes('ON CONFLICT (account_id, uid, folder)')) {
+        calls.upserts.push(params[1]); // $2 = uid
+        return { rows: [{ id: `row-${params[1]}`, is_new: true }] };
+      }
+      return { rows: [], rowCount: 0 };
+    });
+    parseMessage.mockImplementation(async msg => ({
+      uid: msg.uid, messageId: `<m${msg.uid}@x>`, subject: 's', fromEmail: 'f@x', fromName: 'F',
+      to: [], cc: [], replyTo: [], date: new Date('2026-09-01'), isRead: true, isStarred: false,
+      flags: [], parsedHeaders: {},
+    }));
+    const flagsFor = seen => new Set(seen ? ['\\Seen'] : []);
+    const client = {
+      getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
+      mailbox: { exists: serverMsgs.length, uidValidity: 7n, highestModseq: null },
+      fetch: vi.fn(function (range, q, opts) {
+        return (async function* () {
+          if (opts?.uid && typeof range === 'string' && range.endsWith(':*')) {
+            calls.uidPhase.push(range);
+            return; // UID watermark phase: nothing above the watermark in these scenarios
+          }
+          if (q?.envelope) {
+            calls.fullFetches.push({ range, uid: !!opts?.uid });
+            const wanted = opts?.uid
+              ? String(range).split(',').map(Number)
+              : serverMsgs.map(m => m.uid); // sequence range: the whole scripted window
+            for (const m of serverMsgs.filter(m => wanted.includes(m.uid))) {
+              yield { uid: m.uid, flags: flagsFor(m.seen) };
+            }
+            return;
+          }
+          calls.cheapFetches.push(range);
+          for (const m of serverMsgs) yield { uid: m.uid, flags: flagsFor(m.seen) };
+        })();
+      }),
+    };
+    const mgr = new ImapManager({ clients: new Set() });
+    mgr.backfillMessages = vi.fn().mockResolvedValue(); // post-UIDVALIDITY reindex is not under test
+    vi.spyOn(mgr, 'broadcast').mockImplementation(() => {});
+    const applied = vi.spyOn(mgr, '_applyFlagUpdates');
+    return { mgr, client, calls, applied };
+  }
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('steady state: all UIDs cached — no metadata fetch, no upsert, flags via the bulk path', async () => {
+    const serverMsgs = [{ uid: 10, seen: true }, { uid: 20, seen: true }, { uid: 30, seen: false }];
+    const { mgr, client, calls, applied } = arrange({ serverMsgs, cachedUids: [10, 20, 30], maxKnownUid: 30 });
+
+    await mgr.syncMessages(account, client, 'Work', 20, false);
+
+    expect(calls.cheapFetches).toEqual(['1:*']);          // one uid+flags pass over the window
+    expect(calls.fullFetches).toEqual([]);                // NOT one full-metadata download per tick
+    expect(calls.upserts).toEqual([]);                    // and no row rewrites
+    expect(applied).toHaveBeenCalledTimes(1);             // flags rode the delta branch's bulk path,
+    expect(applied.mock.calls[0][2].map(f => f.uid)).toEqual([10, 20, 30]); // which writes only changes
+  });
+
+  it('a hole in the window: only the unknown UID pays the full fetch and upsert', async () => {
+    const serverMsgs = [{ uid: 10, seen: true }, { uid: 20, seen: true }, { uid: 30, seen: true }];
+    const { mgr, client, calls, applied } = arrange({ serverMsgs, cachedUids: [10, 30], maxKnownUid: 30 });
+
+    await mgr.syncMessages(account, client, 'Work', 20, false);
+
+    expect(calls.fullFetches).toEqual([{ range: '20', uid: true }]); // fetched BY UID, alone
+    expect(calls.upserts).toEqual([20]);
+    expect(applied.mock.calls[0][2].map(f => f.uid)).toEqual([10, 30]); // cached rows stayed on flags
+  });
+
+  it('UIDVALIDITY change: every cached identity is void, so everything reprocesses in full', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const serverMsgs = [{ uid: 10, seen: true }, { uid: 20, seen: true }];
+    const { mgr, client, calls } = arrange({
+      serverMsgs, cachedUids: [10, 20], maxKnownUid: 20, storedValidity: '5', // server says 7
+    });
+
+    await mgr.syncMessages(account, client, 'Work', 20, false);
+
+    expect(calls.cachedSelects).toEqual([]);            // the split trusts (folder, uid) identity — unusable here
+    expect(calls.fullFetches).toEqual([{ range: '1:*', uid: false }]);
+    expect(calls.upserts).toEqual([10, 20]);
+  });
+
+  it('a cached flag change nudges readers, since the row rewrite that used to signal it is gone', async () => {
+    const serverMsgs = [{ uid: 10, seen: false }];
+    const { mgr, client, applied } = arrange({ serverMsgs, cachedUids: [10], maxKnownUid: 10 });
+    applied.mockResolvedValue(1); // one row's flags genuinely changed
+
+    await mgr.syncMessages(account, client, 'Work', 20, false);
+
+    expect(mgr.broadcast).toHaveBeenCalledWith({ type: 'flags_synced', accountId: account.id }, account.user_id);
+  });
+});
+
 // ── reconcileDeletes must not trust a SEARCH result the server contradicts (#472) ──────
 //
 // Reported on a Strato (Dovecot) account: deleting ONE message in a 15-message INBOX logged

@@ -3795,6 +3795,14 @@ export class ImapManager {
             }
             // Propagate resolved thread_id to any earlier messages that used this
             // message as a provisional thread root (out-of-order delivery / sync).
+            //
+            // Deliberately NO is_deleted filter: soft-deleted rows are still threading
+            // inputs — computeThreadId's header-chain lookup reads thread_id from ANY
+            // row, so a deleted row left holding a stale provisional root would hand
+            // that stale id to the next reply referencing it and split the thread.
+            // Served by idx_messages_account_thread, which is NON-partial for exactly
+            // this reason; with only the old partial index this was a full table scan
+            // per processed reply (#495).
             if (threadId && threadId !== msgId) {
               await query(
                 `UPDATE messages SET thread_id = $1
@@ -3893,19 +3901,67 @@ export class ImapManager {
           }
         } else if (plan === 'full') {
           // A missing/invalid modseq baseline or an incomplete local cache requires a recent
-          // sequence scan with full metadata. Re-read exists from the live connection — ImapFlow
-          // may have decremented it if an EXPUNGE arrived during the UID phase, making a range
-          // captured at SELECT time stale. The watermark is seeded below so subsequent syncs can
-          // go delta once the local cache has a UID. Bounded to the most recent `limit` messages —
-          // older un-cached messages in a large folder are backfill's job, not this scan's; backfill
-          // runs on connect/reconnect/reindex and its dbCount-vs-serverTotal check re-detects the gap.
+          // sequence scan. Re-read exists from the live connection — ImapFlow may have
+          // decremented it if an EXPUNGE arrived during the UID phase, making a range captured
+          // at SELECT time stale. On a CONDSTORE server the watermark is seeded below so
+          // subsequent syncs go delta; a server WITHOUT CONDSTORE lands here on EVERY tick,
+          // permanently, which is why the scan is split (#495). Bounded to the most recent
+          // `limit` messages — older un-cached messages in a large folder are backfill's job,
+          // not this scan's; backfill runs on connect/reconnect/reindex and its
+          // dbCount-vs-serverTotal check re-detects the gap.
           const liveExists = client.mailbox?.exists ?? 0;
           const phase2Range = liveExists > limit
             ? `${liveExists - limit + 1}:${liveExists}` : '1:*';
           try {
             const scan = (async () => {
-              for await (const msg of client.fetch(phase2Range, fetchQuery)) {
-                await processMsg(msg);
+              // On a UIDVALIDITY change every cached (account, folder, uid) identity is
+              // void, and with an EMPTY cache (maxKnownUid 0: first sync, or the purge that
+              // change just ran) there is nothing to partition — in both cases the split
+              // below would only add a round trip, so everything takes the full-metadata
+              // path directly.
+              if (uidValidityChanged || maxKnownUid === 0) {
+                for await (const msg of client.fetch(phase2Range, fetchQuery)) {
+                  await processMsg(msg);
+                }
+                return;
+              }
+              // Split the range by whether the UID is already cached (#495). This branch used
+              // to run the full-metadata fetch and the unconditional upsert for all `limit`
+              // messages every time — which for a CONDSTORE-less server (Outlook, Exmail)
+              // meant re-downloading and rewriting the newest 20-100 rows every tick forever:
+              // measured by the reporter at ~3 row rewrites and 5.4 WAL fsyncs per second on
+              // an idle instance, plus one full-table thread-propagation scan per reply. A
+              // cheap uid+flags pass answers both questions at once: cached rows get their
+              // flags bulk-applied through the same path the delta branch uses (writes only
+              // rows whose flags actually changed, honors the 30s local-wins window), and
+              // only genuinely unknown UIDs pay the full fetch and upsert. Metadata repairs
+              // for cached rows (subject healing, #378 thread re-rooting) no longer re-run
+              // each tick — which is parity with what delta-path providers already get; a
+              // manual reindex still re-upserts everything.
+              const seen = [];
+              for await (const msg of client.fetch(phase2Range, { uid: true, flags: true })) {
+                seen.push({ uid: msg.uid, isRead: msg.flags.has('\\Seen'), isStarred: msg.flags.has('\\Flagged') });
+              }
+              if (seen.length === 0) return;
+              const { rows: cachedRows } = await query(
+                'SELECT uid FROM messages WHERE account_id = $1 AND folder = $2 AND uid = ANY($3::bigint[])',
+                [account.id, folder, seen.map(s => s.uid)]
+              );
+              const cachedUids = new Set(cachedRows.map(r => Number(r.uid)));
+              const missing = seen.filter(s => !cachedUids.has(s.uid)).map(s => s.uid);
+              if (missing.length > 0) {
+                for await (const msg of client.fetch(missing.join(','), fetchQuery, { uid: true })) {
+                  await processMsg(msg);
+                }
+              }
+              const flagsToUpdate = seen.filter(s => cachedUids.has(s.uid));
+              const changed = await this._applyFlagUpdates(account, folder, flagsToUpdate);
+              if (changed > 0) {
+                // The old per-message upserts surfaced external flag flips via the row
+                // rewrite; now that unchanged rows are left alone, nudge readers the way
+                // the delta branch does.
+                this.broadcast({ type: 'flags_synced', accountId: account.id }, account.user_id);
+                await emitSectionsChanged(this.pluginFacade, account, changed);
               }
             })();
             scan.catch(() => {}); // see the delta branch — swallow a post-timeout late rejection
@@ -4455,6 +4511,9 @@ export class ImapManager {
                 if (bfInsert?.rows[0]?.is_new) {
                   this.maybeClassifyNewMessage(account, bfInsert.rows[0].id, parsed, { deferAutoMove: true });
                 }
+                // Same statement as the sync path's propagation, same constraints: no
+                // is_deleted filter (deleted rows still feed computeThreadId), served by
+                // the non-partial idx_messages_account_thread (#495).
                 if (bfThreadId && bfThreadId !== bfMsgId) {
                   await query(
                     `UPDATE messages SET thread_id = $1
