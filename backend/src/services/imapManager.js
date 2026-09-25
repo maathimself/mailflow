@@ -956,6 +956,26 @@ const PROVIDERS = {
     skipFolderPatterns: [],
     skipFolderNames: [],
   },
+  strato: {
+    // Identical to `generic` except for the ENABLE opt-out. Strato's server ENABLEs
+    // IMAP4rev2 despite not advertising it in CAPABILITY, then half-implements it:
+    // `UID SEARCH ALL` answers with an EMPTY ESEARCH response while EXISTS is nonzero
+    // (#472, verified by the reporter's raw traces with and without the ENABLE line —
+    // without it, classic SEARCH returns every UID). An always-empty SEARCH poisons
+    // everything membership-based: reconcile skips every folder ("has 0 entries but the
+    // server reports N"), the integrity pass fails once a minute, and backfill sees
+    // "0 on server". imapflow's disableIMAP4rev2 exists precisely for servers with
+    // broken IMAP4rev2 implementations; see makeClientCfg.
+    batchSize: 100, batchDelay: 1500, errorDelay: 15000, batchesPerConn: 15,
+    connectStaggerMs: 500,
+    fetchBody: false,
+    pushesFlags: true,
+    snippetIndex: true,
+    speculativeFetch: true,
+    skipFolderPatterns: [],
+    skipFolderNames: [],
+    disableIMAP4rev2: true,
+  },
   generic: {
     batchSize: 100, batchDelay: 1500, errorDelay: 15000, batchesPerConn: 15,
     connectStaggerMs: 500, // unknown provider — moderate connect spacing (#218)
@@ -1078,6 +1098,7 @@ export function providerProfile(account) {
   if (host.includes('.icloud.com') || host.includes('.apple.com') || host.includes('.me.com')) return PROVIDERS.apple;
   if (host.includes('.outlook.com') || host.includes('office365.com') || host.includes('.hotmail.com') || host.includes('.live.com') || (account.oauth_provider === 'microsoft')) return PROVIDERS.microsoft;
   if (host.includes('purelymail.com')) return PROVIDERS.purelymail;
+  if (host.includes('.strato.')) return PROVIDERS.strato;
   return PROVIDERS.generic;
 }
 
@@ -1419,6 +1440,10 @@ export function makeClientCfg(account, resolved, { enableIdle = false, policy = 
     // indefinitely — the refresh button spins forever and auto-poll stops working.
     commandTimeout: 30000,
   };
+  // Targeted ENABLE opt-out for servers whose IMAP4rev2 is broken (#472: Strato answers
+  // UID SEARCH ALL with an empty ESEARCH once IMAP4rev2 is enabled). Profile-driven so
+  // every connection kind — persistent, pool, backfill, probe — behaves identically.
+  if (providerProfile(account).disableIMAP4rev2) cfg.disableIMAP4rev2 = true;
   // Auto-IDLE: ImapFlow re-enters IDLE automatically between commands so the
   // server can push EXISTS notifications immediately when new mail arrives.
   // Only enable on sync connections (not pool/backfill/snippet clients) to

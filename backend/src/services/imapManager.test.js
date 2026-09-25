@@ -200,6 +200,26 @@ describe('relocateExemptGuard — label folder relocate exemption', () => {
 // the arming timer ~100ms before it fired, so every provider silently degraded to polling.
 // The first test is the one that matters: it fails if those two values are ever equal again.
 
+describe('makeClientCfg — broken-IMAP4rev2 opt-out (#472)', () => {
+  // Strato ENABLEs IMAP4rev2 despite not advertising it, then answers UID SEARCH ALL
+  // with an empty ESEARCH — poisoning reconcile, the integrity pass, and backfill's
+  // server view. Verified by the reporter's raw traces: without the ENABLE, classic
+  // SEARCH returns every UID.
+  it('disables the IMAP4rev2 ENABLE for Strato on every connection kind', () => {
+    const strato = { ...baseAccount, imap_host: 'imap.strato.de' };
+    expect(providerProfile(strato).disableIMAP4rev2).toBe(true);
+    expect(makeClientCfg(strato, resolved, { enableIdle: true }).disableIMAP4rev2).toBe(true);
+    expect(makeClientCfg(strato, resolved, { enableIdle: false }).disableIMAP4rev2).toBe(true);
+  });
+
+  it('leaves every other provider on full IMAP4rev2', () => {
+    for (const host of ['imap.example.com', 'imap.gmail.com', 'imap.purelymail.com']) {
+      const acct = { ...baseAccount, imap_host: host };
+      expect(makeClientCfg(acct, resolved, { enableIdle: false }).disableIMAP4rev2).toBeUndefined();
+    }
+  });
+});
+
 describe('makeClientCfg — auto-IDLE arming', () => {
   it('arms IDLE strictly faster than the fastest possible sync tick', () => {
     // The invariant. If this fails, IDLE cannot start before the next tick interrupts it.
