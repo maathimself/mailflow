@@ -1459,6 +1459,31 @@ export default function MessageList() {
     });
   }, [displayMessages]);
 
+  // #220: Ctrl/Cmd- or Shift-click on a row OUTSIDE selection mode enters it in one action,
+  // the way desktop file managers do. The message already open in the pane is the anchor
+  // when there is one: Ctrl/Cmd seeds {anchor, clicked}; Shift seeds the whole range between
+  // them. Without an anchor, the clicked row alone starts the selection.
+  const handleModifierSelect = useCallback((id, isRange) => {
+    const msgs = displayMessages;
+    const clickedIdx = msgs.findIndex(m => m.id === id);
+    if (clickedIdx === -1) return;
+    const anchorIdx = msgs.findIndex(m => m.id === selectedMessageId);
+    setSelectionModeActive(true);
+    setSelectedIds(() => {
+      const next = new Set();
+      if (isRange && anchorIdx >= 0) {
+        for (let i = Math.min(anchorIdx, clickedIdx); i <= Math.max(anchorIdx, clickedIdx); i++) {
+          next.add(msgs[i].id);
+        }
+      } else {
+        if (anchorIdx >= 0) next.add(msgs[anchorIdx].id);
+        next.add(id);
+      }
+      return next;
+    });
+    lastSelectIdxRef.current = clickedIdx;
+  }, [displayMessages, selectedMessageId]);
+
   // Called on shift-click: selects all rows between anchor and current index
   const handleRangeSelect = useCallback((id) => {
     const msgs = displayMessages;
@@ -3778,6 +3803,7 @@ export default function MessageList() {
                 selectionMode={selectionMode}
                 onToggleSelect={handleRowToggleSelect}
                 onRangeSelect={handleRangeSelect}
+                onModifierSelect={handleModifierSelect}
                 onLongPress={isMobile ? (id) => { setSelectionModeActive(true); toggleSelect(id); } : undefined}
                 onExplainSpam={(msg) => setSpamExplainMessageId(msg.id)}
               />
@@ -3801,6 +3827,7 @@ export default function MessageList() {
                 onOpenWindow={!isMobile ? handleOpenInWindow : undefined}
                 onToggleSelect={handleRowToggleSelect}
                 onRangeSelect={handleRangeSelect}
+                onModifierSelect={handleModifierSelect}
                 onAvatarClick={!isMobile ? handleAvatarClick : undefined}
                 showMobileAvatars={showMobileAvatars}
                 showMessagePreviews={showMessagePreviews}
@@ -4557,7 +4584,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
   );
 }
 
-function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, showAccount, isNarrow, onSelect, onOpenWindow, onToggleSelect, onRangeSelect, onAvatarClick, showMobileAvatars, showMessagePreviews, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, onLongPress, onExplainSpam }) {
+function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, showAccount, isNarrow, onSelect, onOpenWindow, onToggleSelect, onRangeSelect, onModifierSelect, onAvatarClick, showMobileAvatars, showMessagePreviews, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, onLongPress, onExplainSpam }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const [avatarHovered, setAvatarHovered] = useState(false);
@@ -4594,6 +4621,11 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
       } else {
         onToggleSelect(message.id);
       }
+    } else if (!isMobile && (e.ctrlKey || e.metaKey || e.shiftKey) && onModifierSelect) {
+      // #220: a modifier-click outside selection mode enters it in one action instead of
+      // opening the message. preventDefault stops shift-click's native text selection.
+      e.preventDefault();
+      onModifierSelect(message.id, e.shiftKey);
     } else {
       // onTap already fired this from touchend — skip the redundant synthesized click.
       if (tappedRef.current) { tappedRef.current = false; return; }

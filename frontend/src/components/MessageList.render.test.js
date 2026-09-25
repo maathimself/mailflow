@@ -168,3 +168,53 @@ describe('MessageList — selected-row shortcuts', () => {
     assert.equal(drafts.length, 2);
   });
 });
+
+describe('MessageList — modifier-click enters multi-select (#220)', () => {
+  // Before this, modifiers only worked once ALREADY in selection mode; entering it took the
+  // avatar or the toolbar button. A Ctrl/Cmd- or Shift-click on a row must now enter it in
+  // one action, seeded with the open message as anchor, instead of opening the clicked mail.
+  const M2 = { ...MESSAGE, id: 'msg-b', uid: 2, message_id: '<m2@example.com>', subject: 'Second' };
+  const M3 = { ...MESSAGE, id: 'msg-c', uid: 3, message_id: '<m3@example.com>', subject: 'Third' };
+  // Checked and unchecked checkboxes draw the same polyline; stroke-width 3 vs 2.5 is what
+  // distinguishes a CHECKED row's checkmark.
+  const CHECK = 'svg[stroke-width="3"] polyline[points="20 6 9 17 4 12"]';
+
+  const clickRow = async (msgid, init = {}) => {
+    // The click handler sits on the inner draggable element, and DOM events bubble upward,
+    // so the dispatch has to start there, not on the [data-msgid] wrapper.
+    const row = container.querySelector(`[data-msgid="${msgid}"]`);
+    assert.ok(row, `expected a row for ${msgid}`);
+    const target = row.querySelector('[draggable]') || row;
+    await React.act(async () => {
+      target.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true, ...init }));
+    });
+  };
+  const checkedRows = () => [...container.querySelectorAll('[data-msgid]')]
+    .filter(r => r.querySelector(CHECK)).map(r => r.getAttribute('data-msgid'));
+
+  test('ctrl-click seeds {open message, clicked row} and does not open the clicked mail', async () => {
+    await mount({ rows: [MESSAGE, M2, M3], threadedView: false });
+    await React.act(async () => { useStore.getState().setSelectedMessage('msg-1'); });
+
+    await clickRow('msg-c', { ctrlKey: true });
+
+    assert.equal(useStore.getState().selectedMessageId, 'msg-1'); // clicked mail did NOT open
+    assert.deepEqual(checkedRows().sort(), ['msg-1', 'msg-c']);   // anchor + clicked selected
+  });
+
+  test('shift-click seeds the whole range from the open message', async () => {
+    await mount({ rows: [MESSAGE, M2, M3], threadedView: false });
+    await React.act(async () => { useStore.getState().setSelectedMessage('msg-1'); });
+
+    await clickRow('msg-c', { shiftKey: true });
+
+    assert.deepEqual(checkedRows().sort(), ['msg-1', 'msg-b', 'msg-c']);
+  });
+
+  test('a plain click still just opens the message', async () => {
+    await mount({ rows: [MESSAGE, M2], threadedView: false });
+    await clickRow('msg-b');
+    assert.equal(useStore.getState().selectedMessageId, 'msg-b');
+    assert.deepEqual(checkedRows(), []); // no selection mode entered
+  });
+});
