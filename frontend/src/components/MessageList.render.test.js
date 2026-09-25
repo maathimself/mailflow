@@ -211,6 +211,20 @@ describe('MessageList — modifier-click enters multi-select (#220)', () => {
     assert.deepEqual(checkedRows().sort(), ['msg-1', 'msg-b', 'msg-c']);
   });
 
+  test('threaded view: ctrl-click on a ThreadRow enters selection too', async () => {
+    // The browser smoke caught ThreadRow missing the modifier branch — dev defaults to
+    // conversations on, so every earlier assertion here (threadedView: false) passed while
+    // the shipped default was broken. Conversations render through ThreadRow, not MessageRow.
+    const T1 = { ...MESSAGE, id: 'thr-a', thread_id: 't-a', message_count: 2, unread_count: 1 };
+    const T2 = { ...MESSAGE, id: 'thr-b', uid: 9, message_id: '<t2@example.com>', thread_id: 't-b', message_count: 3, unread_count: 0 };
+    await mount({ rows: [T1, T2], threadedView: true });
+    await React.act(async () => { useStore.getState().setSelectedMessage('thr-a'); });
+
+    await clickRow('thr-b', { ctrlKey: true });
+
+    assert.deepEqual(checkedRows().sort(), ['thr-a', 'thr-b']);
+  });
+
   test('a plain click still just opens the message', async () => {
     await mount({ rows: [MESSAGE, M2], threadedView: false });
     await clickRow('msg-b');

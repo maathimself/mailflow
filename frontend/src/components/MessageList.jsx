@@ -1918,6 +1918,9 @@ export default function MessageList() {
   useEffect(() => () => clearTimeout(autoMarkReadTimerRef.current), []);
 
   // Keep refs to bulk handlers so the shortcut effect (registered once) is never stale
+  const contextActionRef = useRef(null);
+  // handleContextAction is not memoized, so refresh the ref every render.
+  useEffect(() => { contextActionRef.current = handleContextAction; });
   const bulkDeleteRef    = useRef(handleBulkDelete);
   const bulkArchiveRef   = useRef(handleBulkArchive);
   const scheduleDeleteRef = useRef(scheduleDelete);
@@ -2010,7 +2013,12 @@ export default function MessageList() {
       } else if (selectedMessageId) {
         const msg = findVisibleArchiveMessage(pool, selectedMessageId, threadMessages);
         if (!msg) return;
-        archiveVisibleMessageRef.current(msg);
+        // #449: through the context-action path, whose undoable wrapper delays the real
+        // archive and shows the undo toast — calling archiveVisibleMessage directly
+        // committed instantly, which made the keyboard's own archive the one action
+        // Ctrl+Z could never take back (found by the browser smoke; every pointer
+        // surface already had the toast).
+        contextActionRef.current('archive', msg);
       }
     };
 
@@ -4314,7 +4322,7 @@ function EmptyState({ folderSyncing, searchQuery, searchError, unreadOnly, selec
   );
 }
 
-function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, selectedAcct, lastViewedMessageId, showAccount, isNarrow, onThreadClick, onThreadToggle, showMobileAvatars, showMessagePreviews, onSelect, onOpenWindow, onMarkRead, onStar, onDelete, hoverQuickActions, hoverActionSet, onArchive, onSnooze, onContextMenu, onMove, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress, onExplainSpam }) {
+function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, selectedAcct, lastViewedMessageId, showAccount, isNarrow, onThreadClick, onThreadToggle, showMobileAvatars, showMessagePreviews, onSelect, onOpenWindow, onMarkRead, onStar, onDelete, hoverQuickActions, hoverActionSet, onArchive, onSnooze, onContextMenu, onMove, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onModifierSelect, onLongPress, onExplainSpam }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const messageCount = message.message_count || 1;
@@ -4373,7 +4381,18 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
         onClick={selectionMode ? (e) => {
           if (e.shiftKey && onRangeSelect) { onRangeSelect(message.id); }
           else { onToggleSelect(message.id); }
-        } : () => { if (tappedRef.current) { tappedRef.current = false; return; } onThreadClick(); }}
+        } : (e) => {
+          // #220: same modifier-click entry as the flat MessageRow. The browser smoke
+          // caught this row type missing it — dev defaults to threaded view, so the
+          // jsdom tests (threadedView: false) never exercised ThreadRow.
+          if (!isMobile && (e.ctrlKey || e.metaKey || e.shiftKey) && onModifierSelect) {
+            e.preventDefault();
+            onModifierSelect(message.id, e.shiftKey);
+            return;
+          }
+          if (tappedRef.current) { tappedRef.current = false; return; }
+          onThreadClick();
+        }}
         onContextMenu={!isMobile ? (e => onContextMenu(e, message)) : undefined}
         style={{
           display: 'flex', alignItems: 'flex-start', gap: 10,
