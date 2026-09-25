@@ -3608,6 +3608,45 @@ describe('secondary work over the pool (#474 round 5)', () => {
     expect(mgr._secondaryCooldown.has(account.id)).toBe(false);
   });
 
+  it('a deferred integrity flag scan closes the pooled session instead of returning it busy', async () => {
+    // Review of round 5 (blocker): the deferred branch abandons its FETCH by resolving a
+    // sentinel, not by cancelling, and then returns normally. On the fresh path the
+    // caller's finally destroyed the transport; on the pool path the callback used to
+    // hand the account's ONLY session back as "idle" with the FETCH still in flight, so
+    // a body click or the staleness probe could acquire it and issue commands against a
+    // busy connection. The pass must close the client when it defers.
+    vi.useFakeTimers();
+    try {
+      const { mgr, account } = arrange();
+      ImapFlow.mockImplementation(function () {
+        const client = new EventEmitter();
+        client.usable = true;
+        client.connect = vi.fn(() => Promise.resolve());
+        client.logout = vi.fn(() => Promise.resolve());
+        client.close = vi.fn(() => { client.usable = false; client.emit('close'); });
+        client.mailbox = { exists: 5, uidValidity: 1, uidNext: 6 };
+        client.capabilities = new Map(); // no CONDSTORE → the 'full' plan, whose FETCH hangs
+        client.getMailboxLock = vi.fn().mockResolvedValue({ release: vi.fn() });
+        client.fetch = vi.fn(() => (async function* () { await new Promise(() => {}); })());
+        return client;
+      });
+      ImapFlow.mockClear();
+      mgr.syncMessages = vi.fn().mockResolvedValue({});
+
+      const run = mgr._refreshObservedFolder(account, 'INBOX', { uidValidity: 1 });
+      await vi.advanceTimersByTimeAsync(20000); // FLAG_SCAN_TIMEOUT_MS: the scan defers
+      const complete = await run;
+
+      expect(complete).toBe(false);                 // nothing was claimed verified
+      const pooled = ImapFlow.mock.results[0].value;
+      expect(pooled.close).toHaveBeenCalled();      // and the busy session did not go back idle
+      // The pool self-healed: the next acquire grows a NEW session.
+      const next = await acquirePooledClient(account);
+      expect(next).not.toBe(pooled);
+      expect(ImapFlow).toHaveBeenCalledTimes(2);
+    } finally { vi.useRealTimers(); }
+  });
+
   it('reconcile skips the cycle while blocked with no pooled session, without touching the DB', async () => {
     const { mgr, account } = arrange();
     mgr._secondaryCooldown.set(account.id, { until: Date.now() + 30000, failures: 1 });
@@ -3646,8 +3685,10 @@ describe('staleness probe discipline (#474 round 5)', () => {
     return { mgr, cycle };
   }
 
-  it('skips the cycle while the secondary backoff is armed, instead of a doomed login', async () => {
-    const acct = { id: 'probe-gated', user_id: 'u1', imap_host: 'imap.example.com', imap_tls: true };
+  it('skips a secondaryOverPool cycle while blocked with no pooled session to reuse', async () => {
+    // A probe here could only trigger a grow the gate will refuse. Scoped to
+    // secondaryOverPool: the skip must not exist anywhere else (next test).
+    const acct = { id: 'probe-gated', user_id: 'u1', imap_host: 'imap.mail.yahoo.com', imap_tls: true, auth_user: 'y', auth_pass: 'enc' };
     const { mgr, cycle } = arrangeCycle(acct);
     mgr._secondaryCooldown.set(acct.id, { until: Date.now() + 60000, failures: 2 });
     ImapFlow.mockClear();
@@ -3655,21 +3696,61 @@ describe('staleness probe discipline (#474 round 5)', () => {
     expect(ImapFlow).not.toHaveBeenCalled();
   });
 
-  it('a refused probe login arms the secondary ladder instead of only logging a warning', async () => {
-    const acct = { id: 'probe-armed', user_id: 'u1', imap_host: 'imap.example.com', imap_tls: true };
+  it('keeps probing other providers while blocked — the deaf-IDLE check is never suppressed there', async () => {
+    // Review of round 5: an earlier draft skipped the cycle for EVERY provider while the
+    // secondary ladder was armed, which let an unrelated grow or folder-status refusal
+    // suppress staleness recovery for up to the ladder cap on providers with no session
+    // problem at all (PurelyMail is the one this check was built for). Non-overPool
+    // providers keep the round-4 behavior exactly: fresh login every cycle, ladder
+    // untouched by the probe.
+    const acct = { id: 'probe-ungated', user_id: 'u1', imap_host: 'imap.example.com', imap_tls: true };
     const { mgr, cycle } = arrangeCycle(acct);
+    mgr._secondaryCooldown.set(acct.id, { until: Date.now() + 60000, failures: 2 });
     ImapFlow.mockImplementation(function () {
       const client = new EventEmitter();
-      client.connect = vi.fn(() => Promise.reject(Object.assign(new Error('Command failed'), {
-        responseText: 'AUTHENTICATE Rate limit hit.', serverResponseCode: 'LIMIT',
-      })));
+      client.connect = vi.fn(() => Promise.resolve());
       client.close = vi.fn();
+      client.getMailboxLock = vi.fn().mockResolvedValue({ release: vi.fn() });
+      client.search = vi.fn().mockResolvedValue([]);
       return client;
     });
     ImapFlow.mockClear();
     await cycle();
-    expect(mgr._secondaryCooldown.get(acct.id)?.failures).toBe(1);
-    expect(mgr._connectCooldown.has(acct.id)).toBe(false); // never the live-sync ladder
+    expect(ImapFlow).toHaveBeenCalledTimes(1);                        // the probe ran
+    expect(mgr._secondaryCooldown.get(acct.id)?.failures).toBe(2);    // and touched no ladder
+  });
+
+  it('a timed-out pooled probe closes the shared session instead of returning it idle', async () => {
+    // Review of round 5 (should-fix): raceTimeout does not cancel. A hung SEARCH on the
+    // one Yahoo session used to go back to the pool as "idle" with the command still in
+    // flight, so a body click queued behind it could hit poolExhausted on a healthy
+    // account. The probe must enforce the same invariant the fresh path's finally does:
+    // a session with an abandoned command in flight gets closed, and the pool self-heals.
+    const acct = { id: 'probe-hung', user_id: 'u1', imap_host: 'imap.mail.yahoo.com', imap_tls: true, auth_user: 'y', auth_pass: 'enc' };
+    const { cycle } = arrangeCycle(acct);
+    ImapFlow.mockImplementation(function () {
+      const client = new EventEmitter();
+      client.usable = true;
+      client.connect = vi.fn(() => Promise.resolve());
+      client.logout = vi.fn(() => Promise.resolve());
+      client.close = vi.fn(() => { client.usable = false; client.emit('close'); });
+      client.getMailboxLock = vi.fn(() => new Promise(() => {})); // hangs forever
+      client.search = vi.fn().mockResolvedValue([]);
+      return client;
+    });
+    ImapFlow.mockClear();
+    releasePooledClient(acct, await acquirePooledClient(acct)); // seed the one pooled session
+    const pooled = ImapFlow.mock.results[0].value;
+
+    const run = cycle();
+    await vi.advanceTimersByTimeAsync(25000); // the probe's command deadline
+    await run;
+
+    expect(pooled.close).toHaveBeenCalled();     // not returned idle with a command in flight
+    // The pool self-healed: the next acquire grows a NEW session rather than reusing it.
+    const next = await acquirePooledClient(acct);
+    expect(next).not.toBe(pooled);
+    expect(ImapFlow).toHaveBeenCalledTimes(2);
   });
 
   it('probes a secondaryOverPool provider over the pooled session: no fresh login', async () => {
