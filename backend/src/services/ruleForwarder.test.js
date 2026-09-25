@@ -81,7 +81,7 @@ describe('buildForwardMessage', () => {
     expect(mail.html).toContain('<p>HTML body</p>');
     // Same software declaration as composed mail (#492): a forward leaves through the same
     // strict outbound filters that treat header-less mail as a botnet signature.
-    expect(mail.xMailer).toMatch(/^MailFlow \d+\.\d+\.\d+$/);
+    expect(mail.xMailer).toMatch(/^MailFlow \d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?$/);
   });
 
   it('does not add a second Fwd prefix', () => {

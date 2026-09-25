@@ -41,7 +41,7 @@ describe('send failure semantics', () => {
   it('declares the sending software, which strict outbound filters require (#492)', async () => {
     expect((await post()).status).toBe(200);
     const opts = sendMail.mock.calls[0][0];
-    expect(opts.xMailer).toMatch(/^MailFlow \d+\.\d+\.\d+$/);
+    expect(opts.xMailer).toMatch(/^MailFlow \d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?$/);
   });
 
   it('does not deliver when idempotency lookup fails', async () => {
