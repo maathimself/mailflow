@@ -40,7 +40,10 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
+            # Prerelease tags (v3.5.9-beta.1) must never repoint `latest`: everyone on the
+            # stock compose file pulls latest, and a beta exists precisely because it is
+            # not for them yet. The semver patterns already skip prereleases on their own.
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
 
       - name: Build and push backend
         uses: docker/build-push-action@v6
@@ -68,7 +71,10 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
+            # Prerelease tags (v3.5.9-beta.1) must never repoint `latest`: everyone on the
+            # stock compose file pulls latest, and a beta exists precisely because it is
+            # not for them yet. The semver patterns already skip prereleases on their own.
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
 
       - name: Build and push frontend
         uses: docker/build-push-action@v6
