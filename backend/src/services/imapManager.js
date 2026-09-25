@@ -5550,6 +5550,23 @@ export class ImapManager {
     }
   }
 
+  // Full RFC 822 source, for the .eml download (#381). Pool client like fetchHeaders;
+  // imapflow buffers the source the same way attachment fetches buffer their part.
+  // Returns a Buffer, or null when the server has nothing for the UID.
+  async fetchRawMessage(account, uid, folder) {
+    return withFreshClient(account, async (client) => {
+      const lock = await client.getMailboxLock(folder);
+      try {
+        for await (const msg of client.fetch(String(uid), { uid: true, source: true }, { uid: true })) {
+          if (msg.source) return Buffer.isBuffer(msg.source) ? msg.source : Buffer.from(msg.source);
+        }
+        return null;
+      } finally {
+        lock.release();
+      }
+    });
+  }
+
   async fetchHeaders(account, uid, folder) {
     return withFreshClient(account, async (client) => {
       const lock = await client.getMailboxLock(folder);

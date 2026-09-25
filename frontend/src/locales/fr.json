@@ -221,6 +221,7 @@
     "archive": "Archiver",
     "star": "Étoile",
     "delete": "Supprimer",
+    "downloadEml": "Télécharger en .eml",
     "print": "Imprimer",
     "more": "Plus",
     "summarize": "Résumer",

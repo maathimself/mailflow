@@ -221,6 +221,7 @@
     "archive": "Archive",
     "star": "Star",
     "delete": "Delete",
+    "downloadEml": "Download .eml",
     "print": "Print",
     "more": "More",
     "summarize": "Summarize",
