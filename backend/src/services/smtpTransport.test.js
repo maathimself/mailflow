@@ -14,6 +14,7 @@ const {
   createAccountSmtpTransport,
   createSmtpTransport,
   isPreDeliveryConnectionError,
+  smtpClientName,
 } = await import('./smtpTransport.js');
 
 const resolved = {
@@ -51,6 +52,25 @@ describe('createSmtpTransport', () => {
     expect(createTransport.mock.calls[0][0].connectionTimeout)
       .toBeLessThanOrEqual(10_000);
     expect(close).toHaveBeenCalledTimes(2);
+  });
+
+  it('identifies itself to the server with the instance hostname, not [127.0.0.1] (#492)', async () => {
+    // nodemailer's EHLO default is os.hostname(), which in a container is a bare label,
+    // and nodemailer then substitutes `[127.0.0.1]` — which Bluehost's spam router logged
+    // as "Sender Host: 127.0.0.1" and treated as forgery, discarding the mail.
+    const prev = process.env.APP_URL;
+    process.env.APP_URL = 'https://mail.example.com';
+    try {
+      const createTransport = vi.fn(() => ({
+        sendMail: vi.fn().mockResolvedValue({ accepted: ['a@b.c'] }),
+        close: vi.fn(),
+      }));
+      const transport = createSmtpTransport(resolved, { port: 465, secure: true }, createTransport);
+      await transport.sendMail({ to: 'a@b.c' });
+      expect(createTransport.mock.calls[0][0].name).toBe('mail.example.com');
+    } finally {
+      if (prev === undefined) delete process.env.APP_URL; else process.env.APP_URL = prev;
+    }
   });
 
   it.each([
@@ -263,5 +283,22 @@ describe('createAccountSmtpTransport', () => {
       error: 'Plain-text SMTP is not allowed: admin must enable "Allow insecure TLS"',
     });
     expect(nodemailer.createTransport).not.toHaveBeenCalled();
+  });
+});
+
+describe('smtpClientName (#492)', () => {
+  it('prefers an explicit SMTP_EHLO_NAME', () => {
+    expect(smtpClientName({ SMTP_EHLO_NAME: 'mx.corp.example', APP_URL: 'https://other.example.com' })).toBe('mx.corp.example');
+  });
+  it('falls back to the APP_URL hostname when it is a real FQDN', () => {
+    expect(smtpClientName({ APP_URL: 'https://mail.example.com/base' })).toBe('mail.example.com');
+  });
+  it.each([
+    [{ APP_URL: 'https://192.168.1.5' }],          // an IP EHLO is the same spam signal
+    [{ APP_URL: 'https://mailflow' }],             // bare label: no better than the default
+    [{ APP_URL: 'not a url' }],
+    [{}],
+  ])('leaves nodemailer\'s default alone for %j', (env) => {
+    expect(smtpClientName(env)).toBeUndefined();
   });
 });
