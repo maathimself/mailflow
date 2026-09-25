@@ -42,6 +42,8 @@ describe('providerProfile — host detection', () => {
     expect(providerProfile(account(host)).pushesFlags).toBe(false);
     expect(providerProfile(account(host)).speculativeFetch).toBe(false);
     expect(providerProfile(account(host)).snippetIndex).toBe(false);
+    // secondaryOverPool is a session-limited-provider knob, not a global flip.
+    expect(providerProfile(account(host)).secondaryOverPool).toBeUndefined();
   });
 
   it.each([
@@ -52,6 +54,8 @@ describe('providerProfile — host detection', () => {
     expect(providerProfile(account(host)).speculativeFetch).toBe(false);
     expect(providerProfile(account(host)).pushesFlags).toBe(true);
     expect(providerProfile(account(host)).snippetIndex).toBe(true);
+    // Round 5 (#474): periodic secondary work rides the pool instead of fresh logins.
+    expect(providerProfile(account(host)).secondaryOverPool).toBe(true);
   });
 
   it.each([
@@ -1672,7 +1676,9 @@ describe('reconcileDeletes folder source', () => {
     // resurrect a deleted mailbox as something to open.
     query.mockReset();
     query.mockResolvedValue({ rows: [] });
-    await ImapManager.prototype.reconcileDeletes.call({}, { id: 'acct-1', email_address: 'a@example.com' });
+    // The bare context grew one member: reconcile now consults the secondary gate first
+    // (#474 round 5), and an unblocked account is this test's precondition, not its subject.
+    await ImapManager.prototype.reconcileDeletes.call({ _secondaryConnectBlocked: () => null }, { id: 'acct-1', email_address: 'a@example.com' });
     const [sql, params] = query.mock.calls[0];
     expect(sql).toContain('FROM folders f');
     expect(sql).toContain('f.path = m.folder');
@@ -2853,6 +2859,22 @@ describe('prefetchFolderBodies — stops instead of hammering a refusing provide
     expect(mgr.fetchMessageBody).toHaveBeenCalledTimes(1);
   });
 
+  it('does not re-arm a ladder the pool grow already armed (double-count guard, round 5)', async () => {
+    // A refusal during a pool GROW arms the ladder inside acquirePooledClient and marks
+    // the error before it propagates here. Counting it again would climb two rungs per
+    // event, doubling every backoff the reporter's steady-state numbers were tuned on.
+    const mgr = arrange(() => Object.assign(new Error('Command failed'), {
+      responseText: 'AUTHENTICATE Rate limit hit.',
+      serverResponseCode: 'LIMIT',
+      secondaryBackoffArmed: true,
+    }));
+
+    await mgr.prefetchFolderBodies('acc-1', UIDS.map(u => `m-${u}`));
+
+    expect(mgr.fetchMessageBody).toHaveBeenCalledTimes(1);      // still stops at the first
+    expect(mgr._secondaryCooldown.has('acc-1')).toBe(false);    // but counts nothing itself
+  });
+
   it('does NOT back off live sync when a best-effort prefetch is refused', async () => {
     // _connectCooldown gates connectAccount, the health-check reconnect and the poll-only
     // tick. Arming it from here would delay recovery of the user's actual mail flow because
@@ -2976,6 +2998,10 @@ describe('secondary connection backoff (#474)', () => {
   // is under test. Calling _clearSecondaryCooldown directly passed even with the call site
   // deleted, which proved nothing.
   describe('_withCountClient wiring', () => {
+    // These pin the FRESH-LOGIN path, which every provider without secondaryOverPool still
+    // takes. Yahoo itself now rides the pool (round 5) — see 'secondary work over the
+    // pool' below — so this shadows the describe's Yahoo account with a neutral host.
+    const account = { id: 'acc-count', user_id: 'u1', imap_host: 'imap.example.com' };
     function arrangeConnect(connectImpl) {
       ImapFlow.mockImplementation(function () {
         const client = new EventEmitter();
@@ -3476,6 +3502,200 @@ describe('CONDSTORE-less full sync (#495)', () => {
     await mgr.syncMessages(account, client, 'Work', 20, false);
 
     expect(calls.upserts).toEqual([31]);
+  });
+});
+
+// ── Secondary work rides the pool for session-limited providers (#474 round 5) ─────────
+//
+// v3.5.7's steady state, measured by a reporter with the browser tab closed: refusals
+// never converge to zero — 15/hr staleness probe (fresh login, no gate at all), 6/hr
+// folder status (gated, but retrying at the ladder cap forever), 5/hr reconcile (pool
+// grow, ungated) — every one "[LIMIT] AUTHENTICATE Rate limit hit.", i.e. Yahoo limits
+// the LOGIN ATTEMPT itself, so pacing fresh logins better cannot converge; not opening
+// them can. Folder status and the staleness probe now reuse the session the pool already
+// holds (the way flag writes ride IDLE), and the grow — the one remaining fresh
+// AUTHENTICATE — honors and arms the same ladder every other secondary login does.
+// Each test uses its own account id because the pool is module-level.
+describe('secondary work over the pool (#474 round 5)', () => {
+  let seq = 900;
+  function arrange({ connect } = {}) {
+    const account = { id: `acct-r5-${++seq}`, user_id: 'u1', imap_host: 'imap.mail.yahoo.com', email_address: 'y@example.test', auth_user: 'y', auth_pass: 'enc' };
+    ImapFlow.mockImplementation(function () {
+      const client = new EventEmitter();
+      client.usable = true;
+      client.connect = vi.fn(connect || (() => Promise.resolve()));
+      client.logout = vi.fn(() => Promise.resolve());
+      client.close = vi.fn();
+      client.status = vi.fn(() => Promise.resolve({}));
+      client.getMailboxLock = vi.fn().mockResolvedValue({ release: vi.fn() });
+      client.search = vi.fn().mockResolvedValue([]);
+      return client;
+    });
+    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: true, allowInsecureTls: true });
+    resolveForConnection.mockResolvedValue({ host: '127.0.0.1', addresses: ['127.0.0.1'], servername: null });
+    query.mockReset();
+    query.mockResolvedValue({ rows: [account] });
+    ImapFlow.mockClear();
+    const mgr = new ImapManager({ clients: new Set() });
+    return { mgr, account };
+  }
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('folder status reuses ONE pooled session across cycles instead of a login per cycle', async () => {
+    const { mgr, account } = arrange();
+    const seen = [];
+    await mgr._withCountClient(account, async c => { seen.push(c); });
+    await mgr._withCountClient(account, async c => { seen.push(c); });
+    expect(ImapFlow).toHaveBeenCalledTimes(1);    // the second cycle reused the session
+    expect(seen[1]).toBe(seen[0]);
+    expect(seen[0].close).not.toHaveBeenCalled(); // still pooled, not torn down per cycle
+  });
+
+  it('a reused pooled session does not clear the secondary ladder', async () => {
+    // Only an ACCEPTED LOGIN says logins are welcome; reusing a session that already
+    // existed says nothing. The clear lives on the pool GROW alone for this provider.
+    const { mgr, account } = arrange();
+    await mgr._withCountClient(account, async () => {});  // grow: one login, pool seeded
+    mgr._secondaryCooldown.set(account.id, { until: Date.now() - 1, failures: 3 });
+    await mgr._withCountClient(account, async () => {});  // reuse: no login
+    expect(ImapFlow).toHaveBeenCalledTimes(1);
+    expect(mgr._secondaryCooldown.get(account.id)?.failures).toBe(3);
+  });
+
+  it('while blocked with NO pooled session, folder status fails fast without a login', async () => {
+    const { mgr, account } = arrange();
+    mgr._secondaryCooldown.set(account.id, { until: Date.now() + 30000, failures: 1 });
+    await expect(mgr._withCountClient(account, async () => 'ok')).rejects.toThrow(/cooldown active/i);
+    expect(ImapFlow).not.toHaveBeenCalled();
+  });
+
+  it('while blocked WITH an idle pooled session, folder status still runs over it', async () => {
+    // Same bypass as the flag path: an established session is the one thing a refusing
+    // provider keeps serving, and using it is how counts stay fresh through a backoff.
+    const { mgr, account } = arrange();
+    await mgr._withCountClient(account, async () => {});  // seed the pool
+    mgr._secondaryCooldown.set(account.id, { until: Date.now() + 30000, failures: 1 });
+    const result = await mgr._withCountClient(account, async () => 'counted');
+    expect(result).toBe('counted');
+    expect(ImapFlow).toHaveBeenCalledTimes(1);                 // no new login while blocked
+    expect(mgr._secondaryCooldown.has(account.id)).toBe(true); // and reuse cleared nothing
+  });
+
+  it('a pool grow while the backoff is armed fails fast, typed, with no AUTHENTICATE', async () => {
+    const { mgr, account } = arrange();
+    mgr._secondaryCooldown.set(account.id, { until: Date.now() + 30000, failures: 1 });
+    const err = await acquirePooledClient(account).catch(e => e);
+    expect(err.providerRefusing).toBe(true);
+    expect(ImapFlow).not.toHaveBeenCalled();
+  });
+
+  it('a refused grow arms the secondary ladder and marks the error against double counting', async () => {
+    const { mgr, account } = arrange({
+      connect: () => Promise.reject(Object.assign(new Error('Command failed'), {
+        responseText: 'AUTHENTICATE Rate limit hit.', serverResponseCode: 'LIMIT',
+      })),
+    });
+    const err = await acquirePooledClient(account).catch(e => e);
+    expect(mgr._secondaryCooldown.get(account.id)?.failures).toBe(1);
+    expect(mgr._connectCooldown.has(account.id)).toBe(false); // never the live-sync ladder
+    expect(err.secondaryBackoffArmed).toBe(true);             // prefetch must not re-arm it
+  });
+
+  it('an ACCEPTED grow login clears a standing failure count', async () => {
+    const { mgr, account } = arrange();
+    mgr._secondaryCooldown.set(account.id, { until: Date.now() - 1, failures: 4 });
+    releasePooledClient(account, await acquirePooledClient(account));
+    expect(mgr._secondaryCooldown.has(account.id)).toBe(false);
+  });
+
+  it('reconcile skips the cycle while blocked with no pooled session, without touching the DB', async () => {
+    const { mgr, account } = arrange();
+    mgr._secondaryCooldown.set(account.id, { until: Date.now() + 30000, failures: 1 });
+    query.mockClear();
+    await mgr.reconcileDeletes(account);
+    expect(query).not.toHaveBeenCalled();
+    expect(ImapFlow).not.toHaveBeenCalled();
+  });
+});
+
+// ── Staleness probe discipline (#474 round 5) ──────────────────────────────────────────
+//
+// Drives the REAL probe cycle the way 'staleness probe connection recovery' does. The
+// probe was the one secondary consumer with no gate and no ladder: against a
+// login-rate-limited provider it paid a refused AUTHENTICATE every 3 minutes (15/hr in
+// the reporter's count) and recorded only a warning.
+describe('staleness probe discipline (#474 round 5)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: true, allowInsecureTls: true });
+    resolveForConnection.mockResolvedValue({ host: '127.0.0.1', addresses: ['127.0.0.1'], servername: null });
+  });
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+  function arrangeCycle(acct) {
+    const interval = vi.spyOn(globalThis, 'setInterval');
+    const mgr = new ImapManager(null);
+    const cycle = interval.mock.calls.find(([, ms]) => ms === 180000)[0];
+    vi.clearAllTimers();
+    mgr.connections.set(acct.id, { close: vi.fn() });
+    query.mockImplementation(async sql => ({ rows: sql.includes('MAX(uid)') ? [{ maxuid: 100 }] : [acct] }));
+    return { mgr, cycle };
+  }
+
+  it('skips the cycle while the secondary backoff is armed, instead of a doomed login', async () => {
+    const acct = { id: 'probe-gated', user_id: 'u1', imap_host: 'imap.example.com', imap_tls: true };
+    const { mgr, cycle } = arrangeCycle(acct);
+    mgr._secondaryCooldown.set(acct.id, { until: Date.now() + 60000, failures: 2 });
+    ImapFlow.mockClear();
+    await cycle();
+    expect(ImapFlow).not.toHaveBeenCalled();
+  });
+
+  it('a refused probe login arms the secondary ladder instead of only logging a warning', async () => {
+    const acct = { id: 'probe-armed', user_id: 'u1', imap_host: 'imap.example.com', imap_tls: true };
+    const { mgr, cycle } = arrangeCycle(acct);
+    ImapFlow.mockImplementation(function () {
+      const client = new EventEmitter();
+      client.connect = vi.fn(() => Promise.reject(Object.assign(new Error('Command failed'), {
+        responseText: 'AUTHENTICATE Rate limit hit.', serverResponseCode: 'LIMIT',
+      })));
+      client.close = vi.fn();
+      return client;
+    });
+    ImapFlow.mockClear();
+    await cycle();
+    expect(mgr._secondaryCooldown.get(acct.id)?.failures).toBe(1);
+    expect(mgr._connectCooldown.has(acct.id)).toBe(false); // never the live-sync ladder
+  });
+
+  it('probes a secondaryOverPool provider over the pooled session: no fresh login', async () => {
+    const acct = { id: 'probe-pooled', user_id: 'u1', imap_host: 'imap.mail.yahoo.com', imap_tls: true, auth_user: 'y', auth_pass: 'enc' };
+    const { cycle } = arrangeCycle(acct);
+    ImapFlow.mockImplementation(function () {
+      const client = new EventEmitter();
+      client.usable = true;
+      client.connect = vi.fn(() => Promise.resolve());
+      client.logout = vi.fn(() => Promise.resolve());
+      client.close = vi.fn();
+      client.getMailboxLock = vi.fn().mockResolvedValue({ release: vi.fn() });
+      client.search = vi.fn().mockResolvedValue([]);
+      return client;
+    });
+    ImapFlow.mockClear();
+    // Seed the pool with the one Yahoo session, as a body fetch would have.
+    releasePooledClient(acct, await acquirePooledClient(acct));
+    expect(ImapFlow).toHaveBeenCalledTimes(1);
+    const pooled = ImapFlow.mock.results[0].value;
+
+    await cycle();
+
+    expect(ImapFlow).toHaveBeenCalledTimes(1); // the probe opened NO new login
+    expect(pooled.search).toHaveBeenCalledWith({ uid: '101:*' }, { uid: true });
+    expect(pooled.close).not.toHaveBeenCalled(); // and left the session pooled
   });
 });
 
