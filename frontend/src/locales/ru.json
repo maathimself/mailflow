@@ -286,6 +286,8 @@
     "messagesPerPage": "Сообщений на странице",
     "selectAll": "Выбрать все",
     "deselectAll": "Снять выделение",
+    "starSelected": "Отметить звездой",
+    "unstarSelected": "Убрать звезду",
     "markReadSelected": "Отметить как прочитанное",
     "markUnreadSelected": "Отметить как непрочитанное",
     "archiveSelected": "Архивировать выбранные",

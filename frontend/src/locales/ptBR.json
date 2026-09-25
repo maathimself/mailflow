@@ -286,6 +286,8 @@
     "messagesPerPage": "Mensagens por página",
     "selectAll": "Selecionar tudo",
     "deselectAll": "Desmarcar tudo",
+    "starSelected": "Marcar com estrela",
+    "unstarSelected": "Tirar estrela",
     "markReadSelected": "Marcar como lida",
     "markUnreadSelected": "Marcar como não lida",
     "archiveSelected": "Arquivar selecionadas",

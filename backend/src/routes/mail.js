@@ -1190,6 +1190,88 @@ router.post('/messages/bulk-read', async (req, res) => {
   }
 });
 
+// Bulk star/unstar (#434). Shaped like bulk-read: skip rows already at the target state,
+// optimistic DB write with the 30s local-wins stamp, then per-account IMAP \Flagged writes
+// with the durable retry queue. Stars never touch unread counts.
+router.post('/messages/bulk-star', async (req, res) => {
+  const { ids, starred } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: 'ids array required' });
+  }
+  if (ids.length > 500) {
+    return res.status(400).json({ error: 'Too many ids — maximum 500 per request' });
+  }
+  if (!areValidUUIDs(ids)) {
+    return res.status(400).json({ error: 'Invalid message IDs' });
+  }
+  if (typeof starred !== 'boolean') {
+    return res.status(400).json({ error: 'starred must be a boolean' });
+  }
+
+  try {
+    const result = await query(
+      `SELECT m.id, m.uid, m.folder, m.is_starred, m.account_id, m.message_id FROM messages m
+       JOIN email_accounts a ON m.account_id = a.id
+       WHERE m.id = ANY($2::uuid[]) AND a.user_id = $1`,
+      [req.session.userId, ids]
+    );
+
+    const owned = result.rows;
+    if (!owned.length) return res.json({ ok: true, updated: [] });
+
+    const toUpdate = owned.filter(m => !!m.is_starred !== !!starred);
+    if (!toUpdate.length) return res.json({ ok: true, updated: [] });
+
+    await query(
+      'UPDATE messages SET is_starred = $1, star_changed_at = NOW() WHERE id = ANY($2::uuid[])',
+      [starred, toUpdate.map(m => m.id)]
+    );
+
+    // GTD sibling fan-out, gated exactly like the single-message star handler. Per message
+    // because the star fan-out is keyed by Message-ID; bounded by the 500-id cap above.
+    const acctIds = [...new Set(toUpdate.map(m => m.account_id))];
+    const gtdAccts = new Set();
+    await Promise.all(acctIds.map(async (aid) => {
+      if (await accountMaintainsLabelSiblings(aid)) gtdAccts.add(aid);
+    }));
+    for (const msg of toUpdate) {
+      if (msg.message_id && gtdAccts.has(msg.account_id)) {
+        await fanOutStarToSiblings(msg.account_id, msg.message_id, starred);
+      }
+    }
+
+    imapManager.broadcast({ type: 'message_flags', changes: toUpdate.map(m => ({ id: m.id, is_starred: starred })) }, req.session.userId);
+
+    const byAccount = {};
+    for (const msg of toUpdate) {
+      (byAccount[msg.account_id] = byAccount[msg.account_id] || []).push(msg);
+    }
+    for (const [accountId, msgs] of Object.entries(byAccount)) {
+      const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
+      const account = accountResult.rows[0];
+      const results = await runInBatches(
+        msgs, 3,
+        msg => imapManager.setFlag(account, msg.uid, msg.folder, '\\Flagged', starred)
+      );
+      results.forEach((r, i) => {
+        if (r.status === 'rejected') {
+          console.error(`bulk-star IMAP ${msgs[i].id}:`, extractImapError(r.reason));
+          imapManager._enqueueFlagPush(accountId, msgs[i].id, '\\Flagged', starred);
+        } else {
+          imapManager._resolveFlagPush(accountId, msgs[i].id, '\\Flagged');
+        }
+      });
+    }
+
+    notifyMailMutation(toUpdate, req.session.userId);
+
+    res.json({ ok: true, updated: toUpdate.map(m => m.id) });
+  } catch (err) {
+    console.error('bulk-star error:', err);
+    res.status(500).json({ error: 'Failed to update messages' });
+  }
+});
+
 // Bulk delete (move to trash)
 router.post('/messages/bulk-delete', async (req, res) => {
   const { ids } = req.body;

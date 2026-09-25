@@ -286,6 +286,8 @@
     "messagesPerPage": "Nachrichten pro Seite",
     "selectAll": "Alle auswählen",
     "deselectAll": "Alle abwählen",
+    "starSelected": "Mit Stern versehen",
+    "unstarSelected": "Stern entfernen",
     "markReadSelected": "Als gelesen markieren",
     "markUnreadSelected": "Als ungelesen markieren",
     "archiveSelected": "Auswahl archivieren",

@@ -248,6 +248,7 @@ export const api = {
     return request('GET', `/mail/thread/${encodeURIComponent(threadId)}${query}`);
   },
   bulkRead: (ids, read) => request('POST', '/mail/messages/bulk-read', { ids, read }),
+  bulkStar: (ids, starred) => request('POST', '/mail/messages/bulk-star', { ids, starred }),
   markStarred: (id, starred) => request('PATCH', `/mail/messages/${id}/star`, { starred }),
   markAllRead: (accountId, folder) => request('POST', '/mail/mark-all-read', { accountId, folder }),
   deleteMessage: (id) => request('DELETE', `/mail/messages/${id}`),

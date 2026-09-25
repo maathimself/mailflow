@@ -1873,6 +1873,22 @@ export default function MessageList() {
     }
   }, [updateMessage, decrementUnread, incrementUnread, adjustCategoryCount]);
 
+  // Bulk star (#434). Same optimistic shape as bulk mark-read, minus the unread-count
+  // bookkeeping: stars never touch counts. Direction mirrors the single-message star and
+  // bulk read convention — any unstarred message in the selection means "star them all".
+  const handleBulkStar = useCallback(async (ids, msgs) => {
+    const markAsStarred = msgs.some(m => !m.is_starred);
+    msgs.forEach(msg => updateMessage(msg.id, { is_starred: markAsStarred }));
+    setSelectedIds(new Set());
+    setSelectionModeActive(false);
+    try {
+      await api.bulkStar(ids, markAsStarred);
+    } catch (err) {
+      console.error('Bulk star failed:', err);
+      msgs.forEach(msg => updateMessage(msg.id, { is_starred: msg.is_starred }));
+    }
+  }, [updateMessage]);
+
   const autoMarkReadTimerRef = useRef(null);
   useEffect(() => () => clearTimeout(autoMarkReadTimerRef.current), []);
 
@@ -2543,6 +2559,7 @@ export default function MessageList() {
   const selectedAccountIds = [...new Set(selectedMsgs.map(m => m.account_id))];
   const canMove = selectedAccountIds.length === 1;
   const bulkMarkAsRead = selectedMsgs.some(m => !m.is_read);
+  const bulkMarkAsStarred = selectedMsgs.some(m => !m.is_starred);
 
   return (
     <div style={{
@@ -3481,6 +3498,16 @@ export default function MessageList() {
                   <circle cx="19.96" cy="6" r="3" fill="var(--accent)" stroke="var(--accent)"/>
                 </svg>
               )}
+            </BulkBtn>
+
+            {/* Star / unstar button (#434) */}
+            <BulkBtn
+              title={bulkMarkAsStarred ? t('messageList.starSelected') : t('messageList.unstarSelected')}
+              onClick={() => handleBulkStar([...selectedIds], selectedMsgs)}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill={bulkMarkAsStarred ? 'none' : 'currentColor'} stroke="currentColor" strokeWidth="2">
+                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+              </svg>
             </BulkBtn>
 
             {/* Archive button */}
