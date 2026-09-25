@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
@@ -85,7 +86,15 @@ export default function ProfileModal({ onClose }) {
 
   const initials = ((user?.displayName || user?.username || '?')[0]).toUpperCase();
 
-  return (
+  // Rendered through a portal to document.body. This modal is mounted from inside the
+  // sidebar, and on mobile the sidebar is a drawer hidden with transform: translateX(-100%).
+  // A transformed ancestor is the containing block for position: fixed descendants, so
+  // without the portal the "fullscreen" overlay is trapped inside the drawer and slides
+  // off-screen with it the moment the menu closes: the user taps Edit Profile and sees
+  // nothing happen, and reopening the drawer shows the modal already open inside it (#455).
+  // Settings never had this bug because it renders at the MailApp level; the portal gives
+  // this modal the same escape without moving its state.
+  return createPortal(
     <div
       onClick={e => e.target === e.currentTarget && onClose()}
       style={{
@@ -227,6 +236,7 @@ export default function ProfileModal({ onClose }) {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

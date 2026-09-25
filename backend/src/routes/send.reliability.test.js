@@ -38,6 +38,12 @@ const post = () => fetch(`${base}/api/mail/send`, {
   body: JSON.stringify({ accountId: 'a1', to: ['you@example.com'], subject: 'Test', body: 'Hello' }),
 });
 describe('send failure semantics', () => {
+  it('declares the sending software, which strict outbound filters require (#492)', async () => {
+    expect((await post()).status).toBe(200);
+    const opts = sendMail.mock.calls[0][0];
+    expect(opts.xMailer).toMatch(/^MailFlow \d+\.\d+\.\d+$/);
+  });
+
   it('does not deliver when idempotency lookup fails', async () => {
     redisClient.get.mockRejectedValueOnce(new Error('Redis unavailable'));
     expect((await post()).status).toBe(503);

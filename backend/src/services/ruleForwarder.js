@@ -2,6 +2,7 @@ import { embedInlineDataImages } from '../utils/inlineImages.js';
 import { query } from './db.js';
 import { sanitizeEmail } from './emailSanitizer.js';
 import { createAccountSmtpTransport } from './smtpTransport.js';
+import { MAILER_ID } from './mailerIdentity.js';
 
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
@@ -130,6 +131,10 @@ export function buildForwardMessage({
   return {
     from: `${account.sender_name || account.name} <${account.email_address}>`,
     to: recipient,
+    // Same software declaration as composed mail (#492): a rule forward leaves through the
+    // same strict outbound filters, and it is the mail most shaped like the relaying a
+    // botnet heuristic looks for.
+    xMailer: MAILER_ID,
     subject: forwardSubject(row.subject),
     text: `${forwardHeaderText}\n\n${plainBody}`,
     ...(safeHtml ? { html: `${forwardHeaderHtml}${safeHtml}` } : {}),
