@@ -643,6 +643,10 @@
         "label": "Zaznacz wiadomość",
         "description": "Zaznacz lub odznacz bieżącą wiadomość"
       },
+      "undoAction": {
+        "label": "Cofnij ostatnią akcję",
+        "description": "Cofa ostatnią archiwizację, usunięcie, przeniesienie lub oznaczenie jako spam, dopóki widoczne jest powiadomienie"
+      },
       "printMessage": {
         "label": "Drukuj",
         "description": "Drukuj bieżącą wiadomość"
@@ -662,9 +666,6 @@
       "toggleRightSidebar": {
         "label": "Przełącz prawy panel",
         "description": "Ukryj lub pokaż prawy panel boczny"
-      },
-      "gtdUndo": {
-        "description": "Cofnij ostatnią klasyfikację GTD"
       }
     }
   },

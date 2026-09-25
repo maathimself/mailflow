@@ -627,6 +627,10 @@
         "label": "Select message",
         "description": "Check or uncheck the current message"
       },
+      "undoAction": {
+        "label": "Undo last action",
+        "description": "Undo the most recent archive, delete, move, or spam action while its toast is showing"
+      },
       "printMessage": {
         "label": "Print",
         "description": "Print the current message"
@@ -642,9 +646,6 @@
       "gtdDelegated": {
         "label": "Mark Delegated",
         "description": "Classify the selected message as Delegated"
-      },
-      "gtdUndo": {
-        "description": "Undo the latest GTD classification"
       },
       "toggleRightSidebar": {
         "label": "Toggle right sidebar",

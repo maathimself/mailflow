@@ -627,6 +627,10 @@
         "label": "Selecionar mensagem",
         "description": "Marcar ou desmarcar a mensagem atual"
       },
+      "undoAction": {
+        "label": "Desfazer a última ação",
+        "description": "Desfaz o último arquivamento, exclusão, movimentação ou marcação de spam enquanto o aviso está visível"
+      },
       "printMessage": {
         "label": "Imprimir",
         "description": "Imprimir a mensagem atual"
@@ -642,9 +646,6 @@
       "gtdDelegated": {
         "label": "Marcar como Delegada",
         "description": "Classificar a mensagem selecionada como Delegada"
-      },
-      "gtdUndo": {
-        "description": "Desfazer a última classificação GTD"
       },
       "toggleRightSidebar": {
         "label": "Alternar barra lateral direita",

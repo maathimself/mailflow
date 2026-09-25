@@ -627,6 +627,10 @@
         "label": "Nachricht auswählen",
         "description": "Aktuelle Nachricht an- oder abwählen"
       },
+      "undoAction": {
+        "label": "Letzte Aktion rückgängig machen",
+        "description": "Macht das letzte Archivieren, Löschen, Verschieben oder Spam-Markieren rückgängig, solange der Hinweis angezeigt wird"
+      },
       "printMessage": {
         "label": "Drucken",
         "description": "Die aktuelle Nachricht drucken"
@@ -642,9 +646,6 @@
       "gtdDelegated": {
         "label": "Als Delegiert markieren",
         "description": "Die ausgewählte Nachricht als Delegiert einordnen"
-      },
-      "gtdUndo": {
-        "description": "Letzte GTD-Einordnung rückgängig machen"
       },
       "toggleRightSidebar": {
         "label": "Rechte Seitenleiste umschalten",

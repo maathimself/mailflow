@@ -627,6 +627,10 @@
         "label": "选择邮件",
         "description": "勾选或取消勾选当前邮件"
       },
+      "undoAction": {
+        "label": "撤销上一个操作",
+        "description": "在提示显示期间撤销最近的归档、删除、移动或垃圾邮件标记"
+      },
       "printMessage": {
         "label": "打印",
         "description": "打印当前邮件"
@@ -642,9 +646,6 @@
       "gtdDelegated": {
         "label": "标记为已委派",
         "description": "将所选邮件归类为已委派"
-      },
-      "gtdUndo": {
-        "description": "撤销最近的 GTD 分类"
       },
       "toggleRightSidebar": {
         "label": "切换右侧边栏",

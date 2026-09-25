@@ -2104,6 +2104,22 @@ export default function MessageList() {
       searchInputRef.current?.select();
     };
 
+    // #449: Ctrl/Cmd+Z fires the newest still-pending undo — the same onUndo the visible
+    // UndoBar button runs, so the keyboard can never undo more than the toasts offer, and
+    // an expired window (toast gone, commit fired) is simply not undoable any more.
+    // Notifications are stored newest-first. This supersedes GTD's own ctrl+z: a GTD
+    // classification's undo is an onUndo notification like any other, so newest-wins
+    // ordering now spans both systems instead of two handlers fighting over one key.
+    // Removal precedes onUndo, matching the GTD handler it replaces, so a re-entrant
+    // emit can never run the same undo twice.
+    const onUndoAction = () => {
+      const state = getState();
+      const last = state.notifications.find(n => typeof n.onUndo === 'function');
+      if (!last) return;
+      state.removeNotification(last.id);
+      void last.onUndo();
+    };
+
     // (GTD classify keys t/w/d are handled by the GTD plugin's runtime, not here.)
     shortcutBus.on('nextMessage',   onNext);
     shortcutBus.on('prevMessage',   onPrev);
@@ -2116,6 +2132,7 @@ export default function MessageList() {
     shortcutBus.on('forward',       onForward);
     shortcutBus.on('replyAllFromSelection', onReplyAllFromSelection);
     shortcutBus.on('focusSearch',   onFocusSearch);
+    shortcutBus.on('undoAction',    onUndoAction);
 
     return () => {
       shortcutBus.off('nextMessage',   onNext);
@@ -2129,6 +2146,7 @@ export default function MessageList() {
       shortcutBus.off('forward',       onForward);
       shortcutBus.off('replyAllFromSelection', onReplyAllFromSelection);
       shortcutBus.off('focusSearch',   onFocusSearch);
+      shortcutBus.off('undoAction',    onUndoAction);
     };
   }, []);
 

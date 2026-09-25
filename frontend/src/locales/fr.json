@@ -627,6 +627,10 @@
         "label": "Sélectionner le message",
         "description": "Cocher ou décocher le message actuel"
       },
+      "undoAction": {
+        "label": "Annuler la dernière action",
+        "description": "Annule le dernier archivage, suppression, déplacement ou marquage spam tant que la notification est affichée"
+      },
       "printMessage": {
         "label": "Imprimer",
         "description": "Imprimer le message actuel"
@@ -642,9 +646,6 @@
       "gtdDelegated": {
         "label": "Marquer Délégué",
         "description": "Classer le message sélectionné comme Délégué"
-      },
-      "gtdUndo": {
-        "description": "Annuler le dernier classement GTD"
       },
       "toggleRightSidebar": {
         "label": "Afficher ou masquer la barre latérale droite",

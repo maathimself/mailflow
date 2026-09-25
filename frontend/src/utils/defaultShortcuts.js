@@ -52,6 +52,10 @@ export const ACTION_DEFS = {
   toggleStar:    { groupKey: 'shortcuts.groups.messageActions', labelKey: 'shortcuts.actions.toggleStar.label',    descriptionKey: 'shortcuts.actions.toggleStar.description',    defaultKey: 's'  },
   toggleRead:    { groupKey: 'shortcuts.groups.messageActions', labelKey: 'shortcuts.actions.toggleRead.label',    descriptionKey: 'shortcuts.actions.toggleRead.description',    defaultKey: 'm'  },
   selectMessage: { groupKey: 'shortcuts.groups.messageActions', labelKey: 'shortcuts.actions.selectMessage.label', descriptionKey: 'shortcuts.actions.selectMessage.description', defaultKey: 'x'      },
+  // #449: undoes the newest still-pending undo toast — archive/delete/move/spam AND GTD
+  // classifications, whose undos are the same kind of notification. Supersedes the old
+  // GTD-only gtdUndo on this key; a stored gtdUndo override is simply ignored.
+  undoAction:    { groupKey: 'shortcuts.groups.messageActions', labelKey: 'shortcuts.actions.undoAction.label',    descriptionKey: 'shortcuts.actions.undoAction.description',    defaultKey: 'ctrl+z' },
   printMessage:  { groupKey: 'shortcuts.groups.messageActions', labelKey: 'shortcuts.actions.printMessage.label',  descriptionKey: 'shortcuts.actions.printMessage.description',  defaultKey: 'ctrl+p' },
 
   // ── GTD ──────────────────────────────────────────────────────────────────────
@@ -60,7 +64,8 @@ export const ACTION_DEFS = {
   gtdTodo:       { groupKey: 'shortcuts.groups.gtd',            labelKey: 'shortcuts.actions.gtdTodo.label',       descriptionKey: 'shortcuts.actions.gtdTodo.description',       defaultKey: 't' },
   gtdWatch:      { groupKey: 'shortcuts.groups.gtd',            labelKey: 'shortcuts.actions.gtdWatch.label',      descriptionKey: 'shortcuts.actions.gtdWatch.description',      defaultKey: 'w' },
   gtdDelegated:  { groupKey: 'shortcuts.groups.gtd',            labelKey: 'shortcuts.actions.gtdDelegated.label',  descriptionKey: 'shortcuts.actions.gtdDelegated.description',  defaultKey: 'd' },
-  gtdUndo:       { groupKey: 'shortcuts.groups.gtd',            labelKey: 'common.undo',                            descriptionKey: 'shortcuts.actions.gtdUndo.description',       defaultKey: 'ctrl+z' },
+  // gtdUndo was retired by the general undoAction above (#449): GTD classification undos
+  // are onUndo notifications, so one handler covers both, newest first.
 };
 
 // Returns the effective shortcut map: action → key, with user overrides applied.

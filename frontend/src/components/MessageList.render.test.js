@@ -218,3 +218,24 @@ describe('MessageList — modifier-click enters multi-select (#220)', () => {
     assert.deepEqual(checkedRows(), []); // no selection mode entered
   });
 });
+
+describe('MessageList — Ctrl+Z undo shortcut (#449)', () => {
+  // The shortcut runs the same onUndo the visible toast button runs, newest first, and is
+  // a no-op once nothing is pending — the keyboard can never undo more than the toasts offer.
+  test('undoAction fires the newest pending undo, then the next, then nothing', async () => {
+    await mount({ rows: [MESSAGE], threadedView: false });
+    const undone = [];
+    await React.act(async () => {
+      useStore.getState().addNotification({ title: 'older', onUndo: () => undone.push('older') });
+      useStore.getState().addNotification({ title: 'newer', onUndo: () => undone.push('newer') });
+    });
+
+    await React.act(async () => { shortcutBus.emit('undoAction'); });
+    assert.deepEqual(undone, ['newer']);
+    assert.deepEqual(useStore.getState().notifications.filter(n => n.onUndo).map(n => n.title), ['older']);
+
+    await React.act(async () => { shortcutBus.emit('undoAction'); });
+    await React.act(async () => { shortcutBus.emit('undoAction'); }); // nothing left — no throw, no change
+    assert.deepEqual(undone, ['newer', 'older']);
+  });
+});

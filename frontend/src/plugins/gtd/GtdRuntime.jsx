@@ -4,7 +4,7 @@ import { useStore } from '../../store/index.js';
 import { gtdActiveForContext } from '../../utils/gtd.js';
 import { api } from '../../utils/api.js';
 import { shortcutBus } from '../../utils/shortcutBus.js';
-import { classifyWithUndo, undoLatestGtdNotification } from './classification.js';
+import { classifyWithUndo } from './classification.js';
 
 // GTD's headless runtime: the single owner of the GTD sections fetch. Reloads whenever the context
 // (unified vs a single account) changes and GTD is active there; both the rail and the tab list read
@@ -44,19 +44,15 @@ export default function GtdRuntime() {
     const onTodo = classifySelected('todo');
     const onWatch = classifySelected('watch');
     const onDelegated = classifySelected('delegated');
-    const onUndo = () => {
-      const { notifications, removeNotification } = useStore.getState();
-      undoLatestGtdNotification(notifications, removeNotification);
-    };
+    // ctrl+z is handled by the general undoAction (#449): a GTD classification's undo is
+    // an onUndo notification like any other, and newest-wins ordering spans both systems.
     shortcutBus.on('gtdTodo', onTodo);
     shortcutBus.on('gtdWatch', onWatch);
     shortcutBus.on('gtdDelegated', onDelegated);
-    shortcutBus.on('gtdUndo', onUndo);
     return () => {
       shortcutBus.off('gtdTodo', onTodo);
       shortcutBus.off('gtdWatch', onWatch);
       shortcutBus.off('gtdDelegated', onDelegated);
-      shortcutBus.off('gtdUndo', onUndo);
     };
   }, [t]);
 
