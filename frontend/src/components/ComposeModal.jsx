@@ -355,6 +355,12 @@ export default function ComposeModal() {
       Placeholder.configure({ placeholder: t('compose.bodyPh') }),
     ],
     content: composeData?.body || '',
+    // TipTap rewrites the HTML it loads, so a draft saved by another client never equals its
+    // own source. Baseline on what the editor holds, or merely opening a draft counts as an
+    // edit and autosave replaces it, expunging the original along with its attachments.
+    onCreate: ({ editor: created }) => {
+      if (!plaintextEmail) initialBodyRef.current = created.isEmpty ? '' : created.getHTML();
+    },
     // Records edit time in a ref only. Deliberately does not touch state: this fires on every
     // transaction, and re-rendering the composer per keystroke would be a real regression.
     onUpdate: () => { lastEditAtRef.current = Date.now(); },
