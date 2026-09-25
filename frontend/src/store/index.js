@@ -18,6 +18,7 @@ import {
   missingByIdentity,
 } from '../utils/gtd.js';
 import { applyGtdRemovalGuard } from '../utils/pendingGtdRemovals.js';
+import { DEFAULT_HOVER_ACTIONS, sanitizeHoverActionSet } from '../utils/hoverActions.js';
 import { clampRightSidebarWidth } from '../utils/rightSidebar.js';
 import {
   cacheFolderOrderFromPreferences,
@@ -624,6 +625,24 @@ export const useStore = create((set, get) => ({
     schedulePrefSave({ hoverQuickActions: val });
   },
 
+  // #440: WHICH quick actions the hover cluster shows. Stored as a subset of
+  // HOVER_ACTION_KEYS (RowHoverActions.jsx); order is always canonical, so the setter
+  // normalizes by filtering the canonical list — customization is membership, not order.
+  // Unknown keys from an older or edited pref are dropped on read.
+  hoverActionSet: (() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('mailflow_hover_action_set') || 'null');
+      if (Array.isArray(saved)) return sanitizeHoverActionSet(saved);
+    } catch { /* corrupted pref — fall back to the default cluster */ }
+    return [...DEFAULT_HOVER_ACTIONS];
+  })(),
+  setHoverActionSet: (keys) => {
+    const val = sanitizeHoverActionSet(keys);
+    localStorage.setItem('mailflow_hover_action_set', JSON.stringify(val));
+    set({ hoverActionSet: val });
+    schedulePrefSave({ hoverActionSet: val });
+  },
+
   // Show sender avatars in the mobile message list (off by default — they cost row width
   // on a narrow screen; opt-in for users who prefer the scannability). Desktop always shows them.
   showMobileAvatars: localStorage.getItem('mailflow_show_mobile_avatars') === 'true',
@@ -1185,6 +1204,11 @@ export const useStore = create((set, get) => ({
       if (typeof prefs.hoverQuickActions === 'boolean') {
         localStorage.setItem('mailflow_hover_quick_actions', String(prefs.hoverQuickActions));
         set({ hoverQuickActions: prefs.hoverQuickActions });
+      }
+      if (Array.isArray(prefs.hoverActionSet)) {
+        const hoverSet = sanitizeHoverActionSet(prefs.hoverActionSet);
+        localStorage.setItem('mailflow_hover_action_set', JSON.stringify(hoverSet));
+        set({ hoverActionSet: hoverSet });
       }
       if (typeof prefs.showMobileAvatars === 'boolean') {
         localStorage.setItem('mailflow_show_mobile_avatars', String(prefs.showMobileAvatars));

@@ -125,7 +125,7 @@ export default function MessageList() {
     setMobileSidebarOpen, unreadCounts, showContacts, setShowContacts,
     threadedView, expandedThreadId, setExpandedThreadId,
     threadMessages, setThreadMessages, clearThreadMessages, loadingThread, setLoadingThread,
-    hoverQuickActions, showMobileAvatars, showMessagePreviews,
+    hoverQuickActions, hoverActionSet, showMobileAvatars, showMessagePreviews,
     swipeActions,
     folders, favoriteFolders, addFavoriteFolder, removeFavoriteFolder, setSelectedAccount,
     categorizationEnabled, categoryCounts, setCategoryCounts, adjustCategoryCount,
@@ -197,7 +197,7 @@ export default function MessageList() {
   const pullDirectionRef = useRef(null);
   const pullDistRef = useRef(0);
   const handleSyncRef = useRef(null);
-  const [contextMenu, setContextMenu] = useState(null); // { x, y, message, defaultMoveView? }
+  const [contextMenu, setContextMenu] = useState(null); // { x, y, message, defaultMoveView?, defaultSnoozeView? }
   const [searchFocused, setSearchFocused] = useState(false);
   const [searchHasMore, setSearchHasMore] = useState(false);
   const [searchLoadingMore, setSearchLoadingMore] = useState(false);
@@ -2158,6 +2158,16 @@ export default function MessageList() {
     row?.scrollIntoView({ block: 'nearest' });
   }, [selectedMessageId]);
 
+  // #440 hover-cluster extras. Archive rides the context-action path, which already
+  // carries the undo toast; snooze opens the existing context menu directly in its
+  // snooze picker, anchored at the cursor — the same pattern hover-move set with
+  // defaultMoveView.
+  const handleHoverArchive = (e, msg) => { e.stopPropagation(); handleContextAction('archive', msg); };
+  const handleHoverSnooze = (e, msg) => {
+    e.stopPropagation();
+    setContextMenu({ x: e.clientX, y: e.clientY, message: msg, defaultSnoozeView: true });
+  };
+
   const handleOpenFolderPicker = useCallback(async (selectedMsgs) => {
     if (showFolderPicker) { setShowFolderPicker(false); return; }
     const accountIds = [...new Set(selectedMsgs.map(m => m.account_id))];
@@ -3806,6 +3816,9 @@ export default function MessageList() {
                 onStar={handleStar}
                 onDelete={handleDelete}
                 hoverQuickActions={hoverQuickActions}
+                hoverActionSet={hoverActionSet}
+                onArchive={handleHoverArchive}
+                onSnooze={handleHoverSnooze}
                 onContextMenu={(e, msg) => {
                   e.preventDefault();
                   setContextMenu({ x: e.clientX, y: e.clientY, message: msg });
@@ -3853,6 +3866,9 @@ export default function MessageList() {
                 onStar={handleStar}
                 onDelete={handleDelete}
                 hoverQuickActions={hoverQuickActions}
+                hoverActionSet={hoverActionSet}
+                onArchive={handleHoverArchive}
+                onSnooze={handleHoverSnooze}
                 onContextMenu={(e, msg) => {
                   e.preventDefault();
                   setContextMenu({ x: e.clientX, y: e.clientY, message: msg });
@@ -3877,6 +3893,7 @@ export default function MessageList() {
             y={contextMenu.y}
             message={contextMenu.message}
             defaultMoveView={contextMenu.defaultMoveView}
+            defaultSnoozeView={contextMenu.defaultSnoozeView}
             onClose={() => setContextMenu(null)}
             onAction={(action, data) => handleContextAction(action, contextMenu.message, data)}
           />
@@ -4297,7 +4314,7 @@ function EmptyState({ folderSyncing, searchQuery, searchError, unreadOnly, selec
   );
 }
 
-function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, selectedAcct, lastViewedMessageId, showAccount, isNarrow, onThreadClick, onThreadToggle, showMobileAvatars, showMessagePreviews, onSelect, onOpenWindow, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress, onExplainSpam }) {
+function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, selectedAcct, lastViewedMessageId, showAccount, isNarrow, onThreadClick, onThreadToggle, showMobileAvatars, showMessagePreviews, onSelect, onOpenWindow, onMarkRead, onStar, onDelete, hoverQuickActions, hoverActionSet, onArchive, onSnooze, onContextMenu, onMove, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress, onExplainSpam }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const messageCount = message.message_count || 1;
@@ -4533,6 +4550,9 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
             onStar={onStar}
             onDelete={onDelete}
             onMove={onMove}
+            onArchive={onArchive}
+            onSnooze={onSnooze}
+            actions={hoverActionSet}
             rowActionCtx={{ message }}
           />
         )}
@@ -4602,7 +4622,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
   );
 }
 
-function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, showAccount, isNarrow, onSelect, onOpenWindow, onToggleSelect, onRangeSelect, onModifierSelect, onAvatarClick, showMobileAvatars, showMessagePreviews, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, onLongPress, onExplainSpam }) {
+function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, showAccount, isNarrow, onSelect, onOpenWindow, onToggleSelect, onRangeSelect, onModifierSelect, onAvatarClick, showMobileAvatars, showMessagePreviews, onMarkRead, onStar, onDelete, hoverQuickActions, hoverActionSet, onArchive, onSnooze, onContextMenu, onMove, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, onLongPress, onExplainSpam }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const [avatarHovered, setAvatarHovered] = useState(false);
@@ -4868,6 +4888,9 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
           onStar={onStar}
           onDelete={onDelete}
           onMove={onMove}
+          onArchive={onArchive}
+          onSnooze={onSnooze}
+          actions={hoverActionSet}
           rowActionCtx={{ message }}
         />
       )}

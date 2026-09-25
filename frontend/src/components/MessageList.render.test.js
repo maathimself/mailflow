@@ -239,3 +239,34 @@ describe('MessageList — Ctrl+Z undo shortcut (#449)', () => {
     assert.deepEqual(undone, ['newer', 'older']);
   });
 });
+
+describe('MessageList — configurable hover quick actions (#440)', () => {
+  // The stubbed t() returns key paths, so button titles ARE their i18n keys here.
+  const TITLES = {
+    markRead: 'contextMenu.markRead', star: 'contextMenu.star',
+    archive: 'shortcuts.actions.archive.label', snooze: 'contextMenu.snooze.label',
+    delete: 'common.delete', move: 'contextMenu.moveToFolder',
+  };
+  const hoverTitles = async (msgid) => {
+    const row = container.querySelector(`[data-msgid="${msgid}"]`);
+    assert.ok(row, `expected a row for ${msgid}`);
+    await React.act(async () => {
+      row.dispatchEvent(new dom.window.MouseEvent('mouseover', { bubbles: true }));
+    });
+    return [...row.querySelectorAll('button[title]')].map(b => b.getAttribute('title'));
+  };
+
+  test('the configured set picks which buttons render, in canonical order', async () => {
+    await mount({ rows: [MESSAGE], threadedView: false });
+    await React.act(async () => { useStore.setState({ hoverActionSet: ['archive', 'snooze', 'delete'] }); });
+    const titles = await hoverTitles('msg-1');
+    assert.deepEqual(titles, [TITLES.archive, TITLES.snooze, TITLES.delete]);
+  });
+
+  test('the default set is the pre-#440 cluster exactly', async () => {
+    await mount({ rows: [MESSAGE], threadedView: false });
+    await React.act(async () => { useStore.setState({ hoverActionSet: ['markRead', 'star', 'delete', 'move'] }); });
+    const titles = await hoverTitles('msg-1');
+    assert.deepEqual(titles, [TITLES.markRead, TITLES.star, TITLES.delete, TITLES.move]);
+  });
+});
