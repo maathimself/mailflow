@@ -1972,18 +1972,19 @@ export class ImapManager {
     // UID-watermark test (not a message-count comparison) so old never-synced messages
     // (a backfill gap) don't cause endless reconnect-churn.
     //
-    // Two provider-shaped exceptions to "fresh login every cycle" (#474 round 5):
-    //  - while the secondary backoff is armed the probe SKIPS the cycle instead of paying a
-    //    doomed login. This was the one secondary consumer with no gate at all: against a
-    //    login-rate-limited provider it burned a refused AUTHENTICATE every 3 minutes,
-    //    measured at 15 refusals/hr, and never armed any ladder;
-    //  - a secondaryOverPool provider (Yahoo) probes over the shared body pool instead of a
-    //    fresh login. The frozen-view caveat above is PurelyMail's, and PurelyMail keeps the
-    //    fresh path; the pooled session is still independent of the persistent connection,
-    //    so the question the probe asks — does the server hold mail the sync missed — keeps
-    //    its meaning. The accepted trade: a provider whose POOLED session also froze would
-    //    go undetected, which Yahoo has never shown, against 20 doomed logins/hr, which it
-    //    has.
+    // One provider-shaped exception to "fresh login every cycle" (#474 round 5): a
+    // secondaryOverPool provider (Yahoo) probes over the shared body pool instead of a
+    // fresh login, and skips the cycle while the secondary backoff is armed with no
+    // pooled session to reuse. Against a provider that rate-limits AUTHENTICATE itself,
+    // the fresh probe was the biggest leak: a refused login every 3 minutes, 15/hr in the
+    // reporter's count, and it never armed any ladder. The frozen-view caveat above is
+    // PurelyMail's, and PurelyMail keeps the fresh path; the pooled session is still
+    // independent of the persistent connection, so the question the probe asks — does the
+    // server hold mail the sync missed — keeps its meaning. The accepted trade: a
+    // provider whose POOLED session also froze would go undetected, which Yahoo has never
+    // shown, against 20 doomed logins/hr, which it has. Every other provider keeps the
+    // round-4 behavior exactly (fresh login every cycle, ladder untouched), so no
+    // unrelated background refusal can ever suppress deaf-IDLE recovery there.
     this._stalenessCheckTimer = setInterval(async () => {
       // Re-entrancy guard: the per-account probes below do blocking network I/O
       // sequentially, so a slow cycle (many accounts, or one on a degraded provider)
@@ -2046,25 +2047,44 @@ export class ImapManager {
             };
 
             const overPool = providerProfile(account).secondaryOverPool === true;
-            // Skip the cycle while the secondary backoff is armed, exactly like every other
-            // gated secondary consumer — with the flag-path exception: a pool-riding
-            // provider may still probe over a session that ALREADY exists, which costs no
-            // login and is the one thing a refusing provider keeps serving.
-            if (this._secondaryConnectBlocked(accountId)
-              && !(overPool && hasIdlePooledClient(connectionPools, accountId))) continue;
 
             let missed = 0;
             if (overPool) {
+              // Skip the cycle while the secondary backoff is armed and no pooled session
+              // exists to reuse: a probe could only trigger a grow the gate will refuse.
+              // With an idle pooled client the probe still runs — reuse costs no login and
+              // is the one thing a refusing provider keeps serving. Deliberately scoped to
+              // secondaryOverPool providers (review of round 5): everywhere else the probe
+              // keeps its round-4 behavior — a fresh login every cycle, ladder untouched —
+              // because letting a ladder that unrelated background refusals can arm
+              // suppress the deaf-IDLE check would trade recovery latency on EVERY
+              // provider for a leak only session-limited providers have.
+              if (this._secondaryConnectBlocked(accountId)
+                && !hasIdlePooledClient(connectionPools, accountId)) continue;
               // Session-limited provider: probe over the shared body pool (one session on
               // Yahoo, serialized by the pool itself). A grow, if the pool is empty, goes
               // through acquirePooledClient's gate, which owns the ladder arming/clearing —
-              // so this path deliberately never touches the ladder. On a probe timeout the
-              // raceTimeout abandons the pooled operation, but withFreshClient releases the
-              // client in its own finally, so nothing leaks past the pool's accounting.
-              missed = await raceTimeout(withFreshClient(account, probeInbox), 25000, 'Staleness probe');
+              // so this path deliberately never touches the ladder. Acquired OUTSIDE the
+              // command deadline: acquire has its own bounded timeout, and racing it would
+              // strand an abandoned waiter in the pool queue for the full acquire window.
+              const pooledProbe = await acquirePooledClient(account);
+              try {
+                missed = await raceTimeout(probeInbox(pooledProbe), 25000, 'Staleness probe');
+              } catch (err) {
+                // A rejected or TIMED-OUT probe may leave a command in flight, and this is
+                // the account's only shared session, so it must not go back to the pool
+                // idle (review of round 5: a hung SEARCH held the one Yahoo session until
+                // imapflow's command timeout, and a click queued behind it could hit
+                // poolExhausted on a healthy account). close() is the same invariant the
+                // fresh path's finally enforces; the pool's close handler evicts it, and
+                // release() below then just closes a client that is no longer pooled.
+                try { pooledProbe.close(); } catch { /* already closed */ }
+                throw err;
+              } finally {
+                releasePooledClient(account, pooledProbe);
+              }
             } else {
               let probe = null;
-              let loggedIn = false;
               try {
                 // Genuinely fresh login — NOT withFreshClient/pool, which can share the
                 // frozen mailbox view. Token refresh and host/DNS resolution are bounded
@@ -2078,21 +2098,7 @@ export class ImapManager {
                 // Keep connection establishment outside the command deadline: otherwise
                 // that deadline cancels the fallback before it can recover.
                 probe = await connectImapClient(fresh, resolved, { policy }, 25000, 'Staleness connect');
-                loggedIn = true;
-                // The provider ACCEPTED this login — the whole signal the secondary ladder
-                // tracks (same reasoning as _withCountClient's clear-on-login).
-                this._clearSecondaryCooldown(accountId);
                 missed = await raceTimeout(probeInbox(probe), 25000, 'Staleness probe');
-              } catch (err) {
-                // A refused or throttle-shaped LOGIN arms the shared secondary ladder like
-                // every other secondary consumer (#474 round 5: the probe recorded only a
-                // warning, so it retried at full cadence forever). Post-login command noise
-                // is about the mailbox, not the provider's welcome, and arms nothing.
-                const probeDetail = extractImapError(err);
-                if (!loggedIn && (isConnectionRefusal(probeDetail) || isAuthFailure(probeDetail))) {
-                  this._noteSecondaryRefusal(account);
-                }
-                throw err;
               } finally {
                 // close() (not logout()) — destroys the socket AND aborts a still-pending
                 // connect() left running by the race timeout, so a slow login can't leak an
@@ -3450,7 +3456,19 @@ export class ImapManager {
           // the pass instead and retry next tick. Nothing is checkpointed, so nothing is
           // claimed to be verified. Folders large enough to skip the scan entirely never
           // reach here, which is the case this whole change is for.
-          if (fullScanDeferred) return;
+          //
+          // And the transport must end WITH the pass (review of round 5): on the fresh
+          // path the caller's finally destroyed it anyway, but on the secondaryOverPool
+          // path this client is the account's ONLY pooled session, and returning normally
+          // here would put it back idle with the abandoned FETCH still in flight — the
+          // next acquirer (a body click, the staleness probe) queues behind a command
+          // nobody is waiting on and times out. Closing it lets the pool's close handler
+          // evict it; the next task grows a fresh session through the gate. release() in
+          // the finally below is pure state cleanup and is safe on a closed client.
+          if (fullScanDeferred) {
+            try { client.close(); } catch { /* already closed */ }
+            return;
+          }
           // Advance the flag watermark unless a full scan was cut short. 'skip' seeds it on
           // purpose: without a baseline a large folder can never reach the cheap CHANGEDSINCE
           // path, so it would stay on the expensive plan forever. Seeding means flag changes
