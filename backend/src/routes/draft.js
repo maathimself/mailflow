@@ -145,8 +145,41 @@ async function isDraftsPath(account, folder, draftsFolder) {
   return specialUse.rows.length > 0;
 }
 
+// The previous copy a save replaces, or null (logged) when it cannot be pinned down. It lives in
+// the account it was last saved to, which is not the saving account once From has been switched.
+// The uid goes to IMAP as a UID set, so it must be a single uid ("1:*" would expunge the folder),
+// in a Drafts folder, with a local row whose Message-ID the delete checks the server copy against.
+async function findReplacedDraft(userId, account, draftsFolder, { existingUid, existingFolder, existingAccountId }) {
+  const refuse = (why) => {
+    console.error(`Draft: refusing to delete old uid=${JSON.stringify(existingUid)} in folder ${JSON.stringify(existingFolder)}: ${why}`);
+    return null;
+  };
+  const uid = (typeof existingUid === 'number' || typeof existingUid === 'string')
+    && /^[1-9]\d*$/.test(String(existingUid)) ? Number(existingUid) : null;
+  if (!uid) return refuse('not a single uid');
+
+  // A composer from before existingAccountId was sent means the saving account.
+  let holder = account;
+  if (existingAccountId != null && existingAccountId !== account.id) {
+    if (typeof existingAccountId !== 'string') return refuse('invalid account');
+    const { rows } = await query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [existingAccountId, userId]);
+    if (!rows.length) return refuse(`account ${JSON.stringify(existingAccountId)} not found`);
+    holder = rows[0];
+  }
+  if (!(await isDraftsPath(holder, existingFolder, holder === account ? draftsFolder : undefined))) {
+    return refuse('not a Drafts folder');
+  }
+
+  const { rows: [row] } = await query(
+    'SELECT message_id FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3',
+    [holder.id, uid, existingFolder]
+  );
+  if (!row?.message_id) return refuse('no local row with a Message-ID to check the server copy against');
+  return { account: holder, uid, folder: existingFolder, messageId: row.message_id };
+}
+
 router.post('/draft', async (req, res) => {
-  const { accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, editedSignature, existingUid, existingFolder } = req.body;
+  const { accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, editedSignature, existingUid, existingFolder, existingAccountId } = req.body;
   if (!accountId) return res.status(400).json({ error: 'accountId required' });
 
   const ownerCheck = await query(
@@ -160,6 +193,17 @@ router.post('/draft', async (req, res) => {
 
     const draftsFolder = await resolveDraftsFolder(account);
     if (!draftsFolder) return res.status(422).json({ error: 'No Drafts folder found for this account' });
+
+    // Read the old copy's row before the new draft writes its own: after a UIDVALIDITY reset the
+    // new one can land on the same uid, and its row would then vouch for itself.
+    let replaced = null;
+    if (existingUid && existingFolder) {
+      try {
+        replaced = await findReplacedDraft(req.session.userId, account, draftsFolder, { existingUid, existingFolder, existingAccountId });
+      } catch (err) {
+        console.error(`Draft: not deleting old uid=${JSON.stringify(existingUid)}: ${err.message}`);
+      }
+    }
 
     // APPEND the new draft first so we never lose the message
     const { uid } = await imapManager.appendToFolder(account, draftsFolder, rawMessage, ['\\Draft', '\\Seen']);
@@ -185,23 +229,20 @@ router.post('/draft', async (req, res) => {
       }
     }
 
-    // Delete the old draft only after the new one is safely stored, and only a single numeric uid
-    // in a Drafts folder: the uid goes to IMAP as a UID set, so "1:*" would expunge the folder.
-    if (existingUid && existingFolder) {
+    // Delete the old draft only after the new one is safely stored.
+    if (replaced) {
       try {
-        const oldUid = (typeof existingUid === 'number' || typeof existingUid === 'string')
-          && /^[1-9]\d*$/.test(String(existingUid)) ? Number(existingUid) : null;
-        if (!oldUid || !(await isDraftsPath(account, existingFolder, draftsFolder))) {
-          console.error(`Draft: refusing to delete old uid=${JSON.stringify(existingUid)} in folder ${JSON.stringify(existingFolder)}: not a single uid in a Drafts folder`);
+        const deleted = await imapManager.permanentDeleteMessage(replaced.account, replaced.uid, replaced.folder, { expectMessageId: replaced.messageId });
+        if (!deleted) {
+          console.error(`Draft: refusing to delete old uid=${replaced.uid} in folder ${JSON.stringify(replaced.folder)}: the server copy's Message-ID does not match its local row`);
         } else {
-          await imapManager.permanentDeleteMessage(account, oldUid, existingFolder);
           await query(
             'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3',
-            [account.id, oldUid, existingFolder]
+            [replaced.account.id, replaced.uid, replaced.folder]
           );
         }
       } catch (delErr) {
-        console.error(`Draft: failed to delete old uid=${existingUid}: ${delErr.message}`);
+        console.error(`Draft: failed to delete old uid=${replaced.uid}: ${delErr.message}`);
       }
     }
 
