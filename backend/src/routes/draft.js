@@ -18,7 +18,7 @@ function sanitizeHeaderValue(value) {
 }
 
 // Extract { name, email } from an RFC 5322 address string ("Name <email>",
-// "<email>", or bare "email") for persisting to_addresses/cc_addresses.
+// "<email>", or bare "email") for persisting to_addresses/cc_addresses/bcc_addresses.
 function parseAddress(str) {
   if (typeof str !== 'string') return { name: '', email: '' };
   const m = str.match(/^(.+?)\s*<([^>]+)>\s*$/);
@@ -176,6 +176,7 @@ router.post('/draft', async (req, res) => {
           fromEmail: meta.fromEmail,
           to: mapRecipientList(to),
           cc: mapRecipientList(cc),
+          bcc: mapRecipientList(bcc),
           snippet: meta.snippet,
           bodyHtml: meta.bodyHtml,
           bodyText: meta.bodyText,

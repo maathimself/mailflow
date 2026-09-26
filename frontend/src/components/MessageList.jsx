@@ -2477,7 +2477,21 @@ export default function MessageList() {
   const handleSelect = async (message) => {
     if (isDraftsFolder) {
       try {
-        const bodyData = await api.getMessageBody(message.id);
+        const [bodyData, bcc] = await Promise.all([
+          api.getMessageBody(message.id),
+          api.getMessageBcc(message.id).then(r => r.bcc, err => {
+            console.error('Failed to read draft Bcc:', err.message);
+            return null;
+          }),
+        ]);
+        // The Bcc exists only in the draft itself, and saving the reopened draft replaces that
+        // copy. Opening it for editing with an empty Bcc is what used to erase it, so when the Bcc
+        // cannot be read the draft opens read-only instead.
+        if (!Array.isArray(bcc)) {
+          addNotification({ type: 'error', title: t('messageList.draftBcc.failTitle'), body: t('messageList.draftBcc.failBody') });
+          setSelectedMessage(message.id);
+          return;
+        }
         // A saved draft is one document: body, signature, then any quoted text. Handing all of
         // it over as the body left the signature inline AND had compose render a fresh one, so
         // every save/reopen cycle added another copy (#432). Lift the signature back out, or
@@ -2492,6 +2506,9 @@ export default function MessageList() {
           draftFolder: message.folder,
           to: formatAddressArray(message.to_addresses),
           cc: formatAddressArray(message.cc_addresses),
+          // { name, email } objects rather than formatted strings, so compose quotes a display
+          // name that contains a comma instead of splitting it into two recipients (#224).
+          bcc,
           subject: message.subject || '',
           body,
           bodyIsHtml: !!bodyData.html,

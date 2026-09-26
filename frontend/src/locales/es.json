@@ -311,6 +311,10 @@
       "failBody": "No se pudo eliminar el mensaje.",
       "conversationTitle": "Conversación eliminada"
     },
+    "draftBcc": {
+      "failTitle": "Borrador abierto en solo lectura",
+      "failBody": "No se pudieron leer sus destinatarios en Cco desde el servidor de correo, y guardarlo sin ellos los borraría. Inténtalo de nuevo en un momento."
+    },
     "bulkDeleted": {
       "title_one": "{{count}} mensaje eliminado",
       "title_other": "{{count}} mensajes eliminados",

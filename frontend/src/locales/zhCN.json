@@ -311,6 +311,10 @@
       "failBody": "无法删除此邮件。",
       "conversationTitle": "会话已删除"
     },
+    "draftBcc": {
+      "failTitle": "草稿已以只读方式打开",
+      "failBody": "无法从邮件服务器读取其密送收件人，不带密送保存会将其清除。请稍后重试。"
+    },
     "bulkDeleted": {
       "title_one": "已删除 {{count}} 封邮件",
       "title_other": "已删除 {{count}} 封邮件",

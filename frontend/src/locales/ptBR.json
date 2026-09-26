@@ -311,6 +311,10 @@
       "failBody": "Não foi possível excluir a mensagem.",
       "conversationTitle": "Conversa excluída"
     },
+    "draftBcc": {
+      "failTitle": "Rascunho aberto somente para leitura",
+      "failBody": "Não foi possível ler os destinatários em Cco no servidor de e-mail, e salvá-lo sem eles os apagaria. Tente novamente em instantes."
+    },
     "bulkDeleted": {
       "title_one": "{{count}} mensagem excluída",
       "title_other": "{{count}} mensagens excluídas",

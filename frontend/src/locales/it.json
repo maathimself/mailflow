@@ -311,6 +311,10 @@
       "failBody": "Impossibile eliminare il messaggio.",
       "conversationTitle": "Conversazione eliminata"
     },
+    "draftBcc": {
+      "failTitle": "Bozza aperta in sola lettura",
+      "failBody": "Impossibile leggere i destinatari in Bcc dal server di posta, e salvarla senza di loro li cancellerebbe. Riprova tra poco."
+    },
     "bulkDeleted": {
       "title_one": "{{count}} messaggio eliminato",
       "title_other": "{{count}} messaggi eliminati",

@@ -77,6 +77,39 @@ describe('POST /api/mail/draft — local row persistence', () => {
     expect(meta.messageId).toMatch(/^<[0-9a-f]+@mailflow\.sh>$/);
   });
 
+  it('records the Bcc on the local row, the same recipients the server copy carries', async () => {
+    // The composer reopens a draft from this row. Without the Bcc here a reopened draft started
+    // with none, and its next save replaced the only copy that still had it.
+    const res = await fetch(`${base}/api/mail/draft`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        accountId: ACCOUNT_ID, to: ['alice@example.com'], cc: [],
+        bcc: ['Hidden Person <hidden@example.com>', 'plain@example.org'],
+        subject: 's', body: 'hello', bodyIsHtml: false,
+      }),
+    });
+    expect(res.status).toBe(200);
+    const [, , , meta] = imapManager.upsertDraftMessageRecord.mock.calls[0];
+    expect(meta.bcc).toEqual([
+      { name: 'Hidden Person', email: 'hidden@example.com' },
+      { name: '', email: 'plain@example.org' },
+    ]);
+    const raw = imapManager.appendToFolder.mock.calls[0][2].toString();
+    expect(raw).toMatch(/^Bcc: Hidden Person <hidden@example\.com>, plain@example\.org$/m);
+  });
+
+  it('records a draft saved without Bcc as an empty list, not as unknown', async () => {
+    const res = await fetch(`${base}/api/mail/draft`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ accountId: ACCOUNT_ID, to: ['alice@example.com'], subject: 's', body: 'hello' }),
+    });
+    expect(res.status).toBe(200);
+    const [, , , meta] = imapManager.upsertDraftMessageRecord.mock.calls[0];
+    expect(meta.bcc).toEqual([]);
+  });
+
   it('marks the signature block so reopening can lift it back out (#432)', async () => {
     // Without the marker the signature stays in the body on reopen and compose renders a second
     // one, so every save/reopen cycle added another copy.

@@ -313,6 +313,10 @@
       "failBody": "Nie udało się usunąć wiadomości.",
       "conversationTitle": "Konwersacja usunięta"
     },
+    "draftBcc": {
+      "failTitle": "Wersja robocza otwarta tylko do odczytu",
+      "failBody": "Nie udało się odczytać odbiorców UDW z serwera poczty, a zapisanie wersji roboczej bez nich by ich usunęło. Spróbuj ponownie za chwilę."
+    },
     "bulkDeleted": {
       "title_one": "Usunięto {{count}} wiadomość",
       "title_few": "Usunięto {{count}} wiadomości",

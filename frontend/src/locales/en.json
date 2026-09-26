@@ -311,6 +311,10 @@
       "failBody": "Could not delete message.",
       "conversationTitle": "Conversation deleted"
     },
+    "draftBcc": {
+      "failTitle": "Draft opened read-only",
+      "failBody": "Its Bcc recipients couldn't be read from the mail server, and saving it without them would erase them. Please try again in a moment."
+    },
     "bulkDeleted": {
       "title_one": "{{count}} message deleted",
       "title_other": "{{count}} messages deleted",

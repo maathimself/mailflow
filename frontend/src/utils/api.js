@@ -271,6 +271,7 @@ export const api = {
   markHam:  (id) => request('POST', `/mail/messages/${id}/ham`),
 
   getMessageHeaders: (id) => request('GET', `/mail/messages/${id}/headers`),
+  getMessageBcc: (id) => request('GET', `/mail/messages/${id}/bcc`),
   snoozeMessage: (id, until) => request('POST', `/mail/messages/${id}/snooze`, { until }),
 
   // Sanitized diagnostics report (server-owned sections; scoped to the user).

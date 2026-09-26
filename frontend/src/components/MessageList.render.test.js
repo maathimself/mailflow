@@ -64,14 +64,15 @@ dom.window.Element.prototype.scrollIntoView = () => {};
 globalThis.__VITE_ENV__ = { MODE: 'test', DEV: false, PROD: true };
 // MessageList loads its own messages on mount and overwrites anything seeded in the store,
 // so the fetch stub has to serve the row rather than the store. Only the messages endpoint
-// needs a real shape; everything else can be an empty object.
+// needs a real shape; everything else can be an empty object, unless a test serves a path
+// through ROUTES as [status, body].
 let SERVED = [];
+let ROUTES = {};
 globalThis.fetch = async (url) => {
   const path = String(url);
-  const body = path.includes('/mail/messages?')
-    ? { messages: SERVED, total: SERVED.length }
-    : {};
-  return { ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => body, text: async () => JSON.stringify(body) };
+  const [status, body] = Object.entries(ROUTES).find(([p]) => path.endsWith(p))?.[1]
+    ?? [200, path.includes('/mail/messages?') ? { messages: SERVED, total: SERVED.length } : {}];
+  return { ok: status < 400, status, headers: { get: () => 'application/json' }, json: async () => body, text: async () => JSON.stringify(body) };
 };
 
 const React = await import('react');
@@ -95,16 +96,16 @@ let container, root;
 
 // Mount fresh for each scenario. MessageList refetches on mount and overwrites anything seeded
 // in the store, so the fixture is served through fetch rather than set as state.
-async function mount({ rows, threadedView }) {
+async function mount({ rows, threadedView, folder = 'INBOX' }) {
   SERVED = rows;
   if (root) await React.act(async () => root.unmount());
   container = dom.window.document.getElementById('root');
   useStore.setState({
     accounts: [ACCOUNT], accountsReady: true,
-    selectedAccountId: 'acct-1', selectedFolder: 'INBOX',
+    selectedAccountId: 'acct-1', selectedFolder: folder,
     messages: rows, messagesTotal: rows.length, hasMoreMessages: false, loadingMessages: false,
     searchQuery: '', threadedView,
-    folders: { 'acct-1': [{ path: 'INBOX', name: 'INBOX' }, { path: 'Archive', name: 'Archive' }] },
+    folders: { 'acct-1': [{ path: 'INBOX', name: 'INBOX' }, { path: 'Archive', name: 'Archive' }, { path: 'Drafts', name: 'Drafts', special_use: '\\Drafts' }] },
   });
   await React.act(async () => {
     root = createRoot(container);
@@ -282,5 +283,43 @@ describe('MessageList — configurable hover quick actions (#440)', () => {
     await React.act(async () => { useStore.setState({ hoverActionSet: ['markRead', 'star', 'delete', 'move'] }); });
     const titles = await hoverTitles('msg-1');
     assert.deepEqual(titles, [TITLES.markRead, TITLES.star, TITLES.delete, TITLES.move]);
+  });
+});
+
+describe('MessageList — reopening a saved draft keeps its Bcc', () => {
+  // The Bcc lives only in the draft on the server, and saving a reopened draft replaces that copy.
+  // Compose used to open with an empty Bcc, so the next save erased the recipients for good.
+  const DRAFT = { ...MESSAGE, id: 'draft-1', folder: 'Drafts', uid: 7, is_read: true, subject: 'Draft subject',
+    to_addresses: [{ name: '', email: 'alice@example.com' }], cc_addresses: [] };
+
+  const openDraft = async ({ bcc }) => {
+    ROUTES = { '/mail/messages/draft-1/body': [200, { html: '<p>hello</p>', text: 'hello' }], '/mail/messages/draft-1/bcc': bcc };
+    const opened = [];
+    await React.act(async () => { useStore.setState({ openCompose: d => opened.push(d), notifications: [], selectedMessageId: null }); });
+    await mount({ rows: [DRAFT], threadedView: false, folder: 'Drafts' });
+    const row = container.querySelector('[data-msgid="draft-1"]');
+    assert.ok(row, 'expected a row for the draft');
+    await React.act(async () => {
+      (row.querySelector('[draggable]') || row).dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true }));
+      await new Promise(r => setTimeout(r, 10));
+    });
+    ROUTES = {};
+    return opened;
+  };
+
+  test('compose opens with the Bcc, as recipients rather than text to re-split', async () => {
+    const bcc = [{ name: 'Doe, Jane', email: 'jane@example.com' }];
+    const opened = await openDraft({ bcc: [200, { bcc }] });
+    assert.equal(opened.length, 1);
+    assert.equal(opened[0].draftUid, 7);
+    assert.deepEqual(opened[0].bcc, bcc);
+  });
+
+  test('a draft whose Bcc cannot be read opens read-only, with an error, never in compose', async () => {
+    const opened = await openDraft({ bcc: [502, { error: "Could not read this draft's Bcc recipients from the mail server." }] });
+    assert.equal(opened.length, 0);
+    assert.equal(useStore.getState().selectedMessageId, 'draft-1');
+    assert.ok(useStore.getState().notifications.some(n => n.type === 'error' && n.title === 'messageList.draftBcc.failTitle'));
+    await React.act(async () => { useStore.setState({ selectedMessageId: null, notifications: [] }); });
   });
 });

@@ -26,6 +26,11 @@ describe('relocate reinsert column lists', () => {
     }
   });
 
+  it('carries a draft\'s Bcc (0061), which exists nowhere else in the database', () => {
+    expect(insertCols).toContain('bcc_addresses');
+    expect(selectCols).toContain('d.bcc_addresses');
+  });
+
   it('never inserts id, synced_at, or GENERATED columns (would regress id / error)', () => {
     for (const col of ['id', 'synced_at', 'normalized_subject', 'search_vector', 'thread_key']) {
       expect(insertCols).not.toContain(col);
