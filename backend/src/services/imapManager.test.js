@@ -1293,7 +1293,7 @@ describe('_syncSpamFolder — periodic spam poll guards', () => {
   it('no-ops when the account has no resolvable spam folder', async () => {
     query.mockReset();
     query.mockResolvedValue({ rows: [] }); // resolveSpamFolder finds nothing
-    const ctx = { onDemandSyncing: new Set(), broadcast: vi.fn(), syncMessages: vi.fn() };
+    const ctx = { _secondaryConnectBlocked: () => null, onDemandSyncing: new Set(), broadcast: vi.fn(), syncMessages: vi.fn() };
     await ImapManager.prototype._syncSpamFolder.call(ctx, account);
     expect(ctx.syncMessages).not.toHaveBeenCalled();
     expect(ctx.broadcast).not.toHaveBeenCalled();
@@ -1304,7 +1304,7 @@ describe('_syncSpamFolder — periodic spam poll guards', () => {
     // resolveSpamFolder's special-use lookup (identified by its name-regex clause) yields "Junk".
     query.mockImplementation((sql) =>
       sql.includes('lower(name) ~') ? Promise.resolve({ rows: [{ path: 'Junk' }] }) : Promise.resolve({ rows: [] }));
-    const ctx = { onDemandSyncing: new Set(['a1:Junk']), broadcast: vi.fn(), syncMessages: vi.fn() };
+    const ctx = { _secondaryConnectBlocked: () => null, onDemandSyncing: new Set(['a1:Junk']), broadcast: vi.fn(), syncMessages: vi.fn() };
     await ImapManager.prototype._syncSpamFolder.call(ctx, account);
     expect(ctx.syncMessages).not.toHaveBeenCalled();
     expect(ctx.broadcast).not.toHaveBeenCalled();
@@ -3645,6 +3645,18 @@ describe('secondary work over the pool (#474 round 5)', () => {
       expect(next).not.toBe(pooled);
       expect(ImapFlow).toHaveBeenCalledTimes(2);
     } finally { vi.useRealTimers(); }
+  });
+
+  it('spam sync skips the cycle while blocked with no pooled session, without a gate error', async () => {
+    // The beta reporter's 7-hour table flagged exactly one line: spam sync hitting the
+    // grow gate mid-cooldown. That fail-fast costs zero logins, but its wording reads
+    // like a Yahoo refusal in the log — so it now skips quietly, like reconcile.
+    const { mgr, account } = arrange();
+    mgr._secondaryCooldown.set(account.id, { until: Date.now() + 30000, failures: 1 });
+    query.mockClear();
+    await mgr._syncSpamFolder(account);
+    expect(query).not.toHaveBeenCalled();
+    expect(ImapFlow).not.toHaveBeenCalled();
   });
 
   it('reconcile skips the cycle while blocked with no pooled session, without touching the DB', async () => {

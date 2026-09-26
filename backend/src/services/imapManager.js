@@ -5361,6 +5361,12 @@ export class ImapManager {
   // the frontend gates alerts/sounds and the list refresh to INBOX / the visible folder. Best-effort;
   // all failures are non-fatal.
   async _syncSpamFolder(account) {
+    // Spam sync rides the pool. While the secondary backoff is armed and no pooled session
+    // exists, a run could only hit the grow gate — whose typed fail-fast the beta reporter's
+    // log then counted as a Yahoo refusal, though it costs zero logins (#474 round 5
+    // follow-up: the one line their 7-hour table flagged). Skip quietly like reconcile
+    // does; the next slow-cadence tick retries.
+    if (this._secondaryConnectBlocked(account.id) && !hasIdlePooledClient(connectionPools, account.id)) return;
     let spamPath;
     try {
       spamPath = await resolveSpamFolder(account.id, account.folder_mappings);
