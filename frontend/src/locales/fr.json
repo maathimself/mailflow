@@ -311,6 +311,10 @@
       "failBody": "Impossible de supprimer le message.",
       "conversationTitle": "Conversation supprimée"
     },
+    "draftBcc": {
+      "failTitle": "Brouillon ouvert en lecture seule",
+      "failBody": "Impossible de lire ses destinataires en Cci depuis le serveur de messagerie, et l'enregistrer sans eux les effacerait. Veuillez réessayer dans un instant."
+    },
     "bulkDeleted": {
       "title_one": "{{count}} message supprimé",
       "title_other": "{{count}} messages supprimés",

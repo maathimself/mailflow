@@ -373,6 +373,8 @@ describe('insertCopiedSibling', () => {
     expect(ins[1]).toEqual(['acct-1', 'INBOX', 100, 5001, 'Todo']);
     // delivery_addresses is copied verbatim from the source row, same as list_unsubscribe.
     expect(ins[0]).toContain('delivery_addresses');
+    // So is a draft's Bcc (0061), in both the INSERT list and the SELECT.
+    expect(ins[0].match(/\bbcc_addresses\b/g)).toHaveLength(2);
   });
 
   it('increments destination unread only when the copied message is unread', async () => {
@@ -394,6 +396,45 @@ describe('insertCopiedSibling', () => {
     query.mockResolvedValueOnce({ rows: [] }); // DO NOTHING → no RETURNING row
     await insertCopiedSibling('acct-1', 100, 'INBOX', 'Todo', 5001);
     expect(countAdjusts()).toHaveLength(0);
+  });
+});
+
+// ── upsertDraftMessageRecord — the row a reopened draft is built from ───────
+
+describe('upsertDraftMessageRecord', () => {
+  beforeEach(() => {
+    query.mockReset();
+    query.mockResolvedValue({ rows: [] });
+  });
+
+  const save = (meta) => ImapManager.prototype.upsertDraftMessageRecord.call({}, { id: 'acct-1' }, 'Drafts', 5, {
+    messageId: '<d1@example.com>', subject: 's', fromName: 'A', fromEmail: 'a@example.com',
+    to: [{ name: '', email: 'to@example.com' }], ...meta,
+  });
+  // The value bound to a column, found through the VALUES slot in the same position.
+  const insertedValue = (col) => {
+    const [sql, params] = findCall('INSERT INTO messages');
+    const cols = sql.match(/INSERT INTO messages \(([^)]*)\)/)[1].split(',').map(s => s.trim());
+    const vals = sql.match(/VALUES \(([^)]*)\)/)[1].split(',').map(s => s.trim());
+    expect(cols).toContain(col);
+    return params[Number(vals[cols.indexOf(col)].match(/^\$(\d+)/)[1]) - 1];
+  };
+
+  it('stores the Bcc, whose only other copy is the draft on the server', async () => {
+    const bcc = [{ name: 'Hidden Person', email: 'hidden@example.com' }];
+    await save({ bcc });
+    expect(insertedValue('bcc_addresses')).toBe(JSON.stringify(bcc));
+  });
+
+  it('stores a draft without Bcc as an empty list, since NULL means unknown', async () => {
+    await save({});
+    expect(insertedValue('bcc_addresses')).toBe('[]');
+  });
+
+  it('takes the saved Bcc over whatever a racing sync wrote for the same uid', async () => {
+    await save({ bcc: [] });
+    const [sql] = findCall('INSERT INTO messages');
+    expect(sql).toMatch(/bcc_addresses = EXCLUDED\.bcc_addresses/);
   });
 });
 

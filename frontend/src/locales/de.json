@@ -311,6 +311,10 @@
       "failBody": "Nachricht konnte nicht gelöscht werden.",
       "conversationTitle": "Konversation gelöscht"
     },
+    "draftBcc": {
+      "failTitle": "Entwurf schreibgeschützt geöffnet",
+      "failBody": "Die Bcc-Empfänger konnten nicht vom Mailserver gelesen werden, und ein Speichern ohne sie würde sie löschen. Bitte gleich erneut versuchen."
+    },
     "bulkDeleted": {
       "title_one": "{{count}} Nachricht gelöscht",
       "title_other": "{{count}} Nachrichten gelöscht",

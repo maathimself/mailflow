@@ -87,6 +87,11 @@ describe('relocate reinsert column lists', () => {
     expect(insertCols.filter(c => RELOCATE_EXCLUDED.has(c))).toEqual([]);
   });
 
+  it('carries a draft\'s Bcc (0061), which exists nowhere else in the database', () => {
+    expect(insertCols).toContain('bcc_addresses');
+    expect(selectCols).toContain('d.bcc_addresses');
+  });
+
   it('binds destination uid/folder and copies every other column verbatim from the deleted row', () => {
     expect(insertCols.slice(0, 3)).toEqual(['account_id', 'uid', 'folder']);
     expect(selectCols.slice(0, 3)).toEqual(['d.account_id', 'u.new_uid', '$4']);

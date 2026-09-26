@@ -197,6 +197,10 @@
       "failBody": "Zprávu se nepodařilo smazat.",
       "conversationTitle": "Konverzace smazána"
     },
+    "draftBcc": {
+      "failTitle": "Koncept otevřen jen pro čtení",
+      "failBody": "Příjemce skryté kopie se nepodařilo načíst z poštovního serveru a uložení konceptu bez nich by je smazalo. Zkuste to znovu za chvíli."
+    },
     "bulkDeleted": {
       "title_one": "Smazána {{count}} zpráva",
       "title_few": "Smazány {{count}} zprávy",
