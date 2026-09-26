@@ -2102,10 +2102,7 @@ router.post('/messages/:id/snooze', async (req, res) => {
 });
 
 // Delete (move to trash; drafts are permanently deleted)
-router.delete('/messages/:id', async (req, res) => {
-  const { id } = req.params;
-  if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
-
+async function deleteMessage(req, res, id) {
   const result = await query(`
     SELECT m.*, a.user_id FROM messages m
     JOIN email_accounts a ON m.account_id = a.id
@@ -2154,17 +2151,20 @@ router.delete('/messages/:id', async (req, res) => {
         console.error('IMAP move to trash failed:', err.message);
         return res.status(500).json({ error: 'Failed to delete message' });
       }
+      // The trashed row takes a new id, as the bulk relocate does, so a replayed or stale DELETE
+      // of the old id 404s instead of finding the row in Trash and expunging it. A delete from the
+      // Trash view names the new id and stays permanent.
       if (newUid != null) {
         // Delete any stale row the sync may have already inserted at the destination,
         // then update the source row in place to avoid a unique-constraint violation.
         await query('DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 AND id != $4',
           [message.account_id, newUid, trashPath, id]);
-        await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3', [trashPath, newUid, id]);
+        await query('UPDATE messages SET folder = $1, uid = $2, id = gen_random_uuid() WHERE id = $3', [trashPath, newUid, id]);
       } else {
         // Non-UIDPLUS: DB holds the stale source UID at the destination. Guard it so
         // reconcileDeletes does not treat it as an orphan before the next sync corrects it.
         imapManager._guardMoveUid(message.account_id, trashPath, message.uid);
-        await query('UPDATE messages SET folder = $1 WHERE id = $2', [trashPath, id]);
+        await query('UPDATE messages SET folder = $1, id = gen_random_uuid() WHERE id = $2', [trashPath, id]);
         setTimeout(() => imapManager._unguardMoveUid(message.account_id, trashPath, message.uid), 10_000);
       }
     } finally {
@@ -2188,6 +2188,25 @@ router.delete('/messages/:id', async (req, res) => {
   // bulk-delete route addresses, reached via the single-message delete button).
   notifyMailMutation([message], req.session.userId);
   res.json({ ok: true });
+}
+
+// One DELETE per message at a time. An overlapping duplicate's MOVE finds nothing and reads as a
+// non-UIDPLUS success, so it would adjust counts again, and if its UPDATE lands first it re-files
+// the row under the stale source uid and the first request's UPDATE misses the rotated id.
+const deleteInFlight = new Set();
+
+router.delete('/messages/:id', async (req, res) => {
+  const { id } = req.params;
+  if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
+
+  const inflightKey = `${req.session.userId}:${id.toLowerCase()}`;
+  if (deleteInFlight.has(inflightKey)) return res.status(409).json({ error: 'This message is already being deleted' });
+  deleteInFlight.add(inflightKey);
+  try {
+    await deleteMessage(req, res, id);
+  } finally {
+    deleteInFlight.delete(inflightKey);
+  }
 });
 
 // ── Antispam (v0.1) ─────────────────────────────────────────────────────────
