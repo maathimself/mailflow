@@ -3627,7 +3627,7 @@ describe('secondary work over the pool (#474 round 5)', () => {
         client.mailbox = { exists: 5, uidValidity: 1, uidNext: 6 };
         client.capabilities = new Map(); // no CONDSTORE → the 'full' plan, whose FETCH hangs
         client.getMailboxLock = vi.fn().mockResolvedValue({ release: vi.fn() });
-        client.fetch = vi.fn(() => (async function* () { await new Promise(() => {}); })());
+        client.fetch = vi.fn(() => (async function* () { yield await new Promise(() => {}); })()); // hangs at the await; the yield satisfies require-yield and is unreachable
         return client;
       });
       ImapFlow.mockClear();
