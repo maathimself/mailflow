@@ -6185,12 +6185,25 @@ export class ImapManager {
     return newUid;
   }
 
-  async permanentDeleteMessage(account, uid, folder) {
-    await withFreshClient(account, async (client) => {
+  // With expectMessageId, the uid is deleted only if the server copy still carries that
+  // Message-ID, checked under the same mailbox lock. A uid names a place in the folder, so one
+  // read from a stale row, or looked up in the wrong account, would otherwise expunge whatever
+  // sits there. Resolves false, having deleted nothing, when it does not match.
+  async permanentDeleteMessage(account, uid, folder, { expectMessageId } = {}) {
+    return withFreshClient(account, async (client) => {
       const lock = await client.getMailboxLock(folder);
       try {
+        if (expectMessageId !== undefined) {
+          const bare = id => String(id ?? '').replace(/[<>]/g, '').trim();
+          let found = '';
+          for await (const msg of client.fetch(String(uid), { uid: true, envelope: true }, { uid: true })) {
+            if (msg.uid === Number(uid)) found = bare(msg.envelope?.messageId);
+          }
+          if (!found || found !== bare(expectMessageId)) return false;
+        }
         const result = await client.messageDelete(String(uid), { uid: true });
         if (result === false) throw new Error('messageDelete returned false — server did not confirm deletion');
+        return true;
       } finally {
         lock.release();
       }
