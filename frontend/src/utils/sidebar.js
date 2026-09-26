@@ -38,6 +38,19 @@ function delimiterFor(folders) {
   )));
 }
 
+const ROOT_SPECIAL_USES = new Set([
+  '\\archive',
+  '\\drafts',
+  '\\inbox',
+  '\\junk',
+  '\\sent',
+  '\\trash',
+]);
+
+function isRootSpecialUse(folder) {
+  return ROOT_SPECIAL_USES.has(String(folder?.special_use || '').toLowerCase());
+}
+
 function folderPathsWithAncestors(folders) {
   const delimiter = delimiterFor(folders);
   const paths = new Set();
@@ -117,7 +130,7 @@ export function buildFolderTree(folders, savedOrder = []) {
   const nodes = Object.values(map).sort((a, b) => a.path.localeCompare(b.path));
   for (const node of nodes) {
     const parentPath = folderParent(node.path, delimiter);
-    if (parentPath && map[parentPath] && parentPath !== node.path) {
+    if (!isRootSpecialUse(node) && parentPath && map[parentPath] && parentPath !== node.path) {
       map[parentPath].children.push(node);
     } else {
       roots.push(node);
