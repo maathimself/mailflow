@@ -1799,6 +1799,30 @@ export function classifyMoveBySearch(uids, remainingUids, destArrived) {
   return { succeeded: gone, failed: stillPresent, staleCount: 0, mappable: destArrived === gone.length };
 }
 
+// client.messageMove without its data loss. On a server without MOVE (RFC 6851) imapflow
+// emulates it as COPY, then \Deleted + EXPUNGE, and expunges even when the COPY failed: its
+// COPY resolves false on a NO rather than throwing, so a full quota or a missing destination
+// destroyed the message (postalsys/imapflow#406). Emulate it here and delete only once the
+// server has confirmed the copy.
+async function moveUids(client, range, toFolder) {
+  // imapflow's own test for MOVE (hasCapability in lib/tools.js), where IMAP4rev2 includes
+  // it. This must never say yes where imapflow says no, or its unchecked fallback runs.
+  const caps = client.capabilities;
+  const hasMove = caps?.has('MOVE') || client.enabled?.has('IMAP4REV2')
+    || (caps?.has('IMAP4rev2') && !caps?.has('IMAP4rev1'));
+  if (hasMove) return client.messageMove(range, toFolder, { uid: true });
+
+  const copied = await client.messageCopy(range, toFolder, { uid: true });
+  if (!copied) return false;
+  // The copy has landed, so a failed delete leaves the message in both folders rather than
+  // losing it. imapflow's fallback reports that as moved too; callers that retry a failed
+  // move (snooze wake-up) would otherwise add another copy on every attempt.
+  if (!(await client.messageDelete(range, { uid: true, silent: true }))) {
+    console.warn(`Emulated move ${client.mailbox?.path} → ${toFolder} of UID(s) ${range}: copied, but the source could not be deleted — the message is now in both folders`);
+  }
+  return copied;
+}
+
 export class ImapManager {
   constructor(wss) {
     this.wss = wss;
@@ -6047,7 +6071,7 @@ export class ImapManager {
       await withFreshClient(account, async (client) => {
         const lock = await client.getMailboxLock(fromFolder);
         try {
-          const result = await client.messageMove(String(uid), toFolder, { uid: true });
+          const result = await moveUids(client, String(uid), toFolder);
           if (result === false) throw new Error('messageMove returned false — server did not confirm move');
           if (result?.uidMap) {
             newUid = result.uidMap.get(Number(uid)) || null;
@@ -6176,7 +6200,7 @@ export class ImapManager {
       await withFreshClient(account, async (client) => {
         const lock = await client.getMailboxLock(fromFolder);
         try {
-          const result = await client.messageMove(String(uid), toFolder, { uid: true });
+          const result = await moveUids(client, String(uid), toFolder);
           if (result === false) throw new Error('messageMove returned false — server did not confirm move');
           if (result?.uidMap) newUid = result.uidMap.get(Number(uid)) || null;
         } finally {
@@ -6190,12 +6214,25 @@ export class ImapManager {
     return newUid;
   }
 
-  async permanentDeleteMessage(account, uid, folder) {
-    await withFreshClient(account, async (client) => {
+  // With expectMessageId, the uid is deleted only if the server copy still carries that
+  // Message-ID, checked under the same mailbox lock. A uid names a place in the folder, so one
+  // read from a stale row, or looked up in the wrong account, would otherwise expunge whatever
+  // sits there. Resolves false, having deleted nothing, when it does not match.
+  async permanentDeleteMessage(account, uid, folder, { expectMessageId } = {}) {
+    return withFreshClient(account, async (client) => {
       const lock = await client.getMailboxLock(folder);
       try {
+        if (expectMessageId !== undefined) {
+          const bare = id => String(id ?? '').replace(/[<>]/g, '').trim();
+          let found = '';
+          for await (const msg of client.fetch(String(uid), { uid: true, envelope: true }, { uid: true })) {
+            if (msg.uid === Number(uid)) found = bare(msg.envelope?.messageId);
+          }
+          if (!found || found !== bare(expectMessageId)) return false;
+        }
         const result = await client.messageDelete(String(uid), { uid: true });
         if (result === false) throw new Error('messageDelete returned false — server did not confirm deletion');
+        return true;
       } finally {
         lock.release();
       }
@@ -6304,7 +6341,7 @@ export class ImapManager {
       const serverUidMap = await withFreshClient(account, async (client) => {
         const lock = await client.getMailboxLock(fromFolder);
         try {
-          const result = await client.messageMove(uids.map(String), toFolder, { uid: true });
+          const result = await moveUids(client, uids.map(String), toFolder);
           if (result === false) throw new Error('bulk messageMove returned false — server did not confirm move');
           return result?.uidMap?.size ? result.uidMap : null;
         } finally {
