@@ -3,13 +3,15 @@ import { useTranslation } from 'react-i18next';
 
 // A password field with an eye button that shows what has been typed, so a long password can
 // be checked before it is submitted. Takes every prop an <input> does; `type` is its own.
-export default function PasswordInput({ style, ...props }) {
+export default function PasswordInput({ style, className, ...props }) {
   const { t } = useTranslation();
   const [visible, setVisible] = useState(false);
   const label = visible ? t('login.hidePassword') : t('login.showPassword');
   return (
     <div style={{ position: 'relative' }}>
-      <input {...props} type={visible ? 'text' : 'password'} style={{ ...style, paddingRight: 42 }} />
+      {/* mf-password-input hides Edge's own reveal button (index.css), which would sit next to this one. */}
+      <input {...props} className={['mf-password-input', className].filter(Boolean).join(' ')}
+        type={visible ? 'text' : 'password'} style={{ ...style, paddingRight: 42 }} />
       <button
         type="button"
         onClick={() => setVisible(v => !v)}

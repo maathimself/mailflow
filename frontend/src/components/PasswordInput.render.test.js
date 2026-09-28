@@ -89,6 +89,15 @@ describe('password field eye button', () => {
     await act(async () => root.unmount());
   });
 
+  test("hides Edge's own reveal button so there is one eye, not two", async () => {
+    const root = await mount({ className: 'extra' });
+    assert.ok(input().classList.contains('mf-password-input'));
+    assert.ok(input().classList.contains('extra'), 'a className from the caller is kept');
+    const css = readFileSync(new URL('../index.css', import.meta.url), 'utf8');
+    assert.match(css, /\.mf-password-input::-ms-reveal[^{]*\{\s*display:\s*none/);
+    await act(async () => root.unmount());
+  });
+
   test('passes other props through to the input', async () => {
     const root = await mount({ autoComplete: 'current-password', placeholder: 'Senha' });
     assert.equal(input().getAttribute('autocomplete'), 'current-password');
