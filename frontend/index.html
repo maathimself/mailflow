@@ -29,8 +29,9 @@
 <!--
   translate="no": the app ships its own translations (Settings → Appearance → Language). A
   browser translator rewrites the text nodes React owns, and React's next update then fails with
-  "Failed to execute 'removeChild' on 'Node'" and takes the whole app down. Message bodies render
-  in their own frame, a separate document this attribute does not reach.
+  "Failed to execute 'removeChild' on 'Node'" and takes the whole app down. Message bodies stay
+  translatable: HTML mail renders in its own frame, a separate document this attribute does not
+  reach, and the containers React writes plain-text mail into set translate="yes" again.
 -->
 <body translate="no" class="notranslate">
   <div id="root"></div>

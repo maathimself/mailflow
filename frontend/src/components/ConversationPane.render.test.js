@@ -65,6 +65,7 @@ const THREAD = [
 const bodyRequests = [];
 const bulkReads = [];
 let blockImages = false;
+let textOnly = false;
 const remoteBodyRequests = [];
 globalThis.fetch = async (url, opts = {}) => {
   const u = String(url);
@@ -78,6 +79,7 @@ globalThis.fetch = async (url, opts = {}) => {
     bodyRequests.push(id);
     const remote = u.includes('remoteImages=1');
     if (remote) remoteBodyRequests.push(id);
+    if (textOnly) return { ok: true, status: 200, json: async () => ({ html: '', text: `plain body of ${id}`, attachments: [] }) };
     return { ok: true, status: 200, json: async () => ({ html: `<p>body of ${id}</p>`, text: '', attachments: [], hasBlockedRemoteImages: blockImages && !remote }) };
   }
   return { ok: true, status: 200, json: async () => ({}) };
@@ -180,6 +182,20 @@ describe('conversation pane', () => {
     await React.act(async () => { open.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
     await React.act(async () => { await new Promise(r => setTimeout(r, 50)); });
     assert.equal(bodyRequests.length, before, 'a body already loaded is kept');
+  });
+
+  test('a plain-text message stays translatable under the translate="no" UI', async (t) => {
+    // See index.html: <body> is translate="no", and a plain-text body renders in the main
+    // document, so it has to opt back in or the browser cannot translate it.
+    textOnly = true;
+    t.after(() => { textOnly = false; });
+    await React.act(async () => {
+      root.render(React.createElement(ConversationPane, { key: 'text-only', threadId: '<1@x>', folder: 'INBOX', selectedMessageId: 'm1' }));
+    });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    const body = [...document.querySelectorAll('div')].find(el => el.textContent === 'plain body of m1');
+    assert.ok(body, 'the plain-text body is rendered');
+    assert.equal(body.getAttribute('translate'), 'yes');
   });
 
   test('selected conversation card handles image and unsubscribe shortcuts', async (t) => {

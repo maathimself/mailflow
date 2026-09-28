@@ -2606,6 +2606,7 @@ ${bodyContent}
                     ref={innerRef}
                     data-mailflow-email={prepared?.prefix}
                     className={prepared?.prefix ?? ''}
+                    translate="yes"
                     dangerouslySetInnerHTML={prepared ? { __html: prepared.html } : undefined}
                   />
                 </div>
@@ -2680,6 +2681,11 @@ ${bodyContent}
             border: isMobile ? 'none' : '1px solid var(--border-subtle)',
             overflow: 'hidden',
           }}
+            // <body> is translate="no" so a browser translator cannot break React's DOM (see
+            // index.html). A message someone sent in another language should still translate,
+            // and React writes this body in one piece, so the translator has nothing of React's
+            // to break in here.
+            translate="yes"
             dangerouslySetInnerHTML={{ __html: linkifyText(body.text) }}
           />
         </div>
