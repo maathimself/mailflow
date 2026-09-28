@@ -26,7 +26,13 @@
   -->
   <link rel="stylesheet" href="/fonts/fonts.css">
 </head>
-<body>
+<!--
+  translate="no": the app ships its own translations (Settings → Appearance → Language). A
+  browser translator rewrites the text nodes React owns, and React's next update then fails with
+  "Failed to execute 'removeChild' on 'Node'" and takes the whole app down. Message bodies render
+  in their own frame, a separate document this attribute does not reach.
+-->
+<body translate="no" class="notranslate">
   <div id="root"></div>
   <script type="module" src="/src/main.jsx"></script>
 </body>
