@@ -89,7 +89,9 @@
       "tooShort": "La password deve contenere almeno 8 caratteri",
       "doneDesc": "La tua password è stata aggiornata. Ora puoi accedere.",
       "backToLogin": "← Torna al login"
-    }
+    },
+    "showPassword": "Mostra password",
+    "hidePassword": "Nascondi password"
   },
   "compose": {
     "newMessage": "Nuovo messaggio",

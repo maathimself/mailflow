@@ -89,7 +89,9 @@
       "tooShort": "Heslo musí mít alespoň 8 znaků",
       "doneDesc": "Heslo bylo změněno. Nyní se můžete přihlásit.",
       "backToLogin": "← Zpět k přihlášení"
-    }
+    },
+    "showPassword": "Zobrazit heslo",
+    "hidePassword": "Skrýt heslo"
   },
   "lockScreen": {
     "subtitle": "Odemkněte zadáním PINu",

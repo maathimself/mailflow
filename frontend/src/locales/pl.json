@@ -89,7 +89,9 @@
       "tooShort": "Hasło musi mieć co najmniej 8 znaków",
       "doneDesc": "Twoje hasło zostało zmienione. Możesz się teraz zalogować.",
       "backToLogin": "← Powrót do logowania"
-    }
+    },
+    "showPassword": "Pokaż hasło",
+    "hidePassword": "Ukryj hasło"
   },
   "compose": {
     "newMessage": "Nowa wiadomość",

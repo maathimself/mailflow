@@ -89,7 +89,9 @@
       "tooShort": "密码至少需要8个字符",
       "doneDesc": "您的密码已更新，现在可以登录。",
       "backToLogin": "← 返回登录"
-    }
+    },
+    "showPassword": "显示密码",
+    "hidePassword": "隐藏密码"
   },
   "compose": {
     "newMessage": "新邮件",

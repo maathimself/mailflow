@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import LogoMark from './LogoMark.jsx';
+import PasswordInput from './PasswordInput.jsx';
 
 export default function LoginPage() {
   const { t } = useTranslation();
@@ -623,8 +624,7 @@ export default function LoginPage() {
                       <label style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>
                         {t('login.resetPassword.newPassword')}
                       </label>
-                      <input
-                        type="password"
+                      <PasswordInput
                         value={newPassword}
                         onChange={e => setNewPassword(e.target.value)}
                         autoFocus
@@ -642,8 +642,7 @@ export default function LoginPage() {
                       <label style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>
                         {t('login.resetPassword.confirm')}
                       </label>
-                      <input
-                        type="password"
+                      <PasswordInput
                         value={newPasswordConfirm}
                         onChange={e => setNewPasswordConfirm(e.target.value)}
                         style={{
@@ -890,8 +889,7 @@ export default function LoginPage() {
               <label style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>
                 {t('login.password')}
               </label>
-              <input
-                type="password"
+              <PasswordInput
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 style={{

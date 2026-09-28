@@ -89,7 +89,9 @@
       "tooShort": "Password must be at least 8 characters",
       "doneDesc": "Your password has been updated. You can now sign in.",
       "backToLogin": "← Back to login"
-    }
+    },
+    "showPassword": "Show password",
+    "hidePassword": "Hide password"
   },
   "compose": {
     "newMessage": "New Message",
