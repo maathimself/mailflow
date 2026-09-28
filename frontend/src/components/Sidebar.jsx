@@ -906,7 +906,7 @@ export default function Sidebar() {
       {/* Compose button */}
       <div style={{ padding: '12px 10px' }}>
         <button
-          onClick={() => openCompose({ accountId: selectedAccountId || undefined })}
+          onClick={() => openCompose({})}
           className="btn-press"
           style={{
             width: '100%', padding: sidebarCollapsed ? '10px' : '10px 14px',

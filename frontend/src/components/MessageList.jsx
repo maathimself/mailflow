@@ -3532,7 +3532,7 @@ export default function MessageList() {
             onClearSearch={() => { setSearchQuery(''); }}
             onRetrySearch={() => setSearchReloadToken(token => token + 1)}
             onShowAll={() => setUnreadOnly(false)}
-            onCompose={() => openCompose({ accountId: selectedAccountId || undefined })}
+            onCompose={() => openCompose({})}
           />
         )}
 
@@ -4111,7 +4111,7 @@ export default function MessageList() {
             </button>
           )}
           <button
-            onClick={() => openCompose({ accountId: selectedAccountId || undefined })}
+            onClick={() => openCompose({})}
             aria-label={t('messageList.composeAriaLabel')}
             style={{
               pointerEvents: fabVisible ? 'auto' : 'none',

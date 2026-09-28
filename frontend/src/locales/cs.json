@@ -1283,7 +1283,7 @@
       "defaultReplyAll": "Odpovědět všem",
       "defaultReplyAllDesc": "Tlačítko Odpovědět odešle odpověď všem příjemcům",
       "defaultSender": "Výchozí odesílatel",
-      "defaultSenderDesc": "Ze které adresy se odesílají nové zprávy, když píšete mimo konkrétní účet, například ze sjednocené schránky. Odpovědi vždy použijí účet, který zprávu přijal.",
+      "defaultSenderDesc": "Ze které adresy se odesílají nové zprávy bez ohledu na to, který účet právě prohlížíte. Odpovědi a přeposlané zprávy vždy použijí účet, který zprávu přijal.",
       "defaultSenderLastUsed": "Naposledy použitý účet",
       "markReadBehavior": "Označení jako přečtené",
       "markReadImmediate": "Okamžitě",

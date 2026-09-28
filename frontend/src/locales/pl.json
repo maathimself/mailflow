@@ -1004,7 +1004,7 @@
       "defaultReplyAll": "Odpowiedz wszystkim",
       "defaultReplyAllDesc": "Przycisk „Odpowiedz wszystkim” wysyła wiadomość do wszystkich odbiorców",
       "defaultSender": "Domyślny nadawca",
-      "defaultSenderDesc": "Adres, z którego wysyłane są nowe wiadomości tworzone poza konkretnym kontem, na przykład ze wspólnej skrzynki. Odpowiedzi zawsze korzystają z konta, które otrzymało wiadomość.",
+      "defaultSenderDesc": "Adres, z którego wysyłane są nowe wiadomości, niezależnie od tego, które konto przeglądasz. Odpowiedzi i przekazywane wiadomości zawsze korzystają z konta, które otrzymało wiadomość.",
       "defaultSenderLastUsed": "Ostatnio używane konto",
       "markReadBehavior": "Oznacz jako przeczytane",
       "markReadImmediate": "Natychmiast",
