@@ -11,6 +11,15 @@
 import { printScale } from './attachmentPreview.js';
 
 let enginePromise = null;
+// pdf.js refuses to start a document on the shared worker while an earlier one is still being torn
+// down, and moving from one PDF attachment to the next (or retrying a password) does exactly that.
+// Every teardown is chained here and every open waits for it.
+let teardown = Promise.resolve();
+
+function destroyTask(task) {
+  teardown = teardown.then(() => task.destroy()).catch(() => {});
+  return teardown;
+}
 
 function loadEngine() {
   enginePromise ??= import('pdfjs-dist').then(pdfjs => {
@@ -28,9 +37,11 @@ function loadEngine() {
   return enginePromise;
 }
 
-// Opens a PDF from its bytes. Resolves { doc, pdfjs, destroy }.
-export async function openPdf(bytes) {
+// Opens a PDF from its bytes. Resolves { doc, pdfjs, destroy }. An encrypted PDF rejects with
+// pdf.js's PasswordException until it is given the right password.
+export async function openPdf(bytes, { password } = {}) {
   const pdfjs = await loadEngine();
+  await teardown;
   const base = `${window.location.origin}/pdfjs/`;
   const task = pdfjs.getDocument({
     // pdf.js moves the buffer it is given into its worker, which empties it on this side. The
@@ -40,17 +51,16 @@ export async function openPdf(bytes) {
     wasmUrl: `${base}wasm/`,
     standardFontDataUrl: `${base}standard_fonts/`,
     enableXfa: false,
+    ...(password ? { password } : {}),
   });
   try {
     const doc = await task.promise;
-    return { doc, pdfjs, destroy: () => task.destroy() };
+    return { doc, pdfjs, destroy: () => destroyTask(task) };
   } catch (err) {
-    task.destroy();
+    await destroyTask(task);
     throw err;
   }
 }
-
-export const isPasswordError = err => err?.name === 'PasswordException';
 
 // Draws one page into `canvas`, then its text into `textContainer` as transparent, selectable
 // spans laid over the drawing: that is what lets a boleto's digitable line be copied, and the

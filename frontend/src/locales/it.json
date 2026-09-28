@@ -294,7 +294,10 @@
       "next": "Allegato successivo",
       "failed": "Impossibile visualizzare questo file.",
       "unsupported": "Questo file non sembra un PDF o un’immagine validi, quindi non viene mostrato qui.",
-      "password": "Questo PDF è protetto da password. Scaricalo per aprirlo."
+      "password": "Questo PDF è protetto da password. Inserisci la password per aprirlo.",
+      "passwordLabel": "Password del PDF",
+      "passwordSubmit": "Apri",
+      "passwordIncorrect": "Password errata. Riprova."
     }
   },
   "messageList": {

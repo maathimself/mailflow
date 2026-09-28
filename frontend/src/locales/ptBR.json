@@ -294,7 +294,10 @@
       "next": "Próximo anexo",
       "failed": "Não foi possível exibir este arquivo.",
       "unsupported": "Este arquivo não parece ser um PDF ou uma imagem válida, por isso não é exibido aqui.",
-      "password": "Este PDF é protegido por senha. Baixe-o para abrir."
+      "password": "Este PDF é protegido por senha. Digite a senha para abri-lo.",
+      "passwordLabel": "Senha do PDF",
+      "passwordSubmit": "Abrir",
+      "passwordIncorrect": "Senha incorreta. Tente novamente."
     }
   },
   "messageList": {

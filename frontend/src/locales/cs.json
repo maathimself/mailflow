@@ -414,7 +414,10 @@
       "next": "Další příloha",
       "failed": "Tento soubor nelze zobrazit.",
       "unsupported": "Tento soubor nevypadá jako platné PDF nebo obrázek, proto se zde nezobrazuje.",
-      "password": "Toto PDF je chráněno heslem. Stáhněte si ho, abyste ho otevřeli."
+      "password": "Toto PDF je chráněno heslem. Zadejte heslo, abyste ho otevřeli.",
+      "passwordLabel": "Heslo k PDF",
+      "passwordSubmit": "Otevřít",
+      "passwordIncorrect": "Nesprávné heslo. Zkuste to znovu."
     }
   },
   "compose": {

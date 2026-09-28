@@ -296,7 +296,10 @@
       "next": "Następny załącznik",
       "failed": "Nie udało się wyświetlić tego pliku.",
       "unsupported": "Ten plik nie wygląda na prawidłowy PDF ani obraz, więc nie jest tu wyświetlany.",
-      "password": "Ten PDF jest chroniony hasłem. Pobierz go, aby go otworzyć."
+      "password": "Ten PDF jest chroniony hasłem. Wpisz hasło, aby go otworzyć.",
+      "passwordLabel": "Hasło do PDF",
+      "passwordSubmit": "Otwórz",
+      "passwordIncorrect": "Nieprawidłowe hasło. Spróbuj ponownie."
     }
   },
   "messageList": {

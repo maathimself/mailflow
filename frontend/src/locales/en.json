@@ -294,7 +294,10 @@
       "next": "Next attachment",
       "failed": "This file could not be displayed.",
       "unsupported": "This file does not look like a valid PDF or image, so it is not shown here.",
-      "password": "This PDF is password-protected. Download it to open it."
+      "password": "This PDF is password-protected. Enter its password to open it.",
+      "passwordLabel": "PDF password",
+      "passwordSubmit": "Open",
+      "passwordIncorrect": "Incorrect password. Try again."
     }
   },
   "messageList": {

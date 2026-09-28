@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  sniffPreview, nextZoom, fitScale, canvasPixelRatio, printDocumentHtml,
+  sniffPreview, nextZoom, fitScale, canvasPixelRatio, printDocumentHtml, passwordReason,
 } from '../utils/attachmentPreview.js';
 
 // Full-screen preview of a message's PDF and image attachments, with Download and Print, so a
@@ -34,6 +34,9 @@ export default function AttachmentViewer({ messageId, attachments, startIndex = 
   const [printing, setPrinting] = useState(null);
   const [area, setArea] = useState({ width: 0, height: 0 });
   const [pdf, setPdf] = useState(null);
+  // An encrypted PDF's password lives only here, for as long as this attachment is on screen.
+  // prompt is null, 'required' or 'incorrect'; attempt remounts the PDF for each try.
+  const [unlock, setUnlock] = useState({ password: null, prompt: null, attempt: 0 });
   const contentRef = useRef(null);
 
   useEffect(() => {
@@ -41,6 +44,7 @@ export default function AttachmentViewer({ messageId, attachments, startIndex = 
     const controller = new AbortController();
     let url = null;
     setPdf(null);
+    setUnlock({ password: null, prompt: null, attempt: 0 });
     setFile({ status: 'loading' });
     setZoom(1);
     (async () => {
@@ -121,13 +125,15 @@ export default function AttachmentViewer({ messageId, attachments, startIndex = 
   useEffect(() => {
     const onKey = e => {
       const plain = !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey;
+      // In the password field the arrows move the caret, not to another attachment.
+      const typing = e.target?.tagName === 'INPUT' || e.target?.tagName === 'TEXTAREA';
       if (e.key === 'Escape') {
         e.preventDefault();
         actions.current.onClose();
       } else if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'p') {
         e.preventDefault();
         actions.current.print();
-      } else if (plain && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+      } else if (plain && !typing && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
         if (actions.current.go(e.key === 'ArrowLeft' ? -1 : 1)) e.preventDefault();
       }
       e.stopPropagation();
@@ -138,9 +144,7 @@ export default function AttachmentViewer({ messageId, attachments, startIndex = 
 
   const narrow = area.width > 0 && area.width < 640;
   const ready = file.status === 'ready';
-  const errorText = file.reason === 'unsupported' ? t('message.preview.unsupported')
-    : file.reason === 'password' ? t('message.preview.password')
-      : t('message.preview.failed');
+  const errorText = file.reason === 'unsupported' ? t('message.preview.unsupported') : t('message.preview.failed');
 
   return createPortal(
     <div
@@ -237,17 +241,30 @@ export default function AttachmentViewer({ messageId, attachments, startIndex = 
               onToggleZoom={() => setZoom(z => (z === 1 ? 2 : 1))}
             />
           )}
-          {ready && file.preview.kind === 'pdf' && (
+          {ready && file.preview.kind === 'pdf' && unlock.prompt && (
+            <PasswordPrompt
+              key={unlock.attempt}
+              incorrect={unlock.prompt === 'incorrect'}
+              onSubmit={password => setUnlock(u => ({ password, prompt: null, attempt: u.attempt + 1 }))}
+              onDownload={download}
+            />
+          )}
+          {ready && file.preview.kind === 'pdf' && !unlock.prompt && (
             <PdfView
-              key={part}
+              key={`${part}:${unlock.attempt}`}
               bytes={file.bytes}
+              password={unlock.password}
               zoom={zoom}
               area={area}
               padding={narrow ? 8 : 24}
               scrollRoot={contentRef}
               loadingLabel={t('common.loading')}
               onOpen={setPdf}
-              onError={err => setFile(f => ({ ...f, status: 'error', reason: err?.name === 'PasswordException' ? 'password' : 'failed' }))}
+              onError={err => {
+                const reason = passwordReason(err);
+                if (reason) setUnlock(u => ({ ...u, prompt: reason }));
+                else setFile(f => ({ ...f, status: 'error', reason: 'failed' }));
+              }}
             />
           )}
         </div>
@@ -349,7 +366,7 @@ function ImageView({ url, alt, zoom, area, padding, onToggleZoom }) {
   );
 }
 
-function PdfView({ bytes, zoom, area, padding, scrollRoot, loadingLabel, onOpen, onError }) {
+function PdfView({ bytes, password, zoom, area, padding, scrollRoot, loadingLabel, onOpen, onError }) {
   const [pdf, setPdf] = useState(null);
   const [sizes, setSizes] = useState(null);
   const callbacks = useRef({});
@@ -361,7 +378,7 @@ function PdfView({ bytes, zoom, area, padding, scrollRoot, loadingLabel, onOpen,
     (async () => {
       try {
         const { openPdf } = await loadPdfModule();
-        const opened = await openPdf(bytes);
+        const opened = await openPdf(bytes, { password });
         if (cancelled) { opened.destroy(); return; }
         handle = opened;
         const list = [];
@@ -382,7 +399,7 @@ function PdfView({ bytes, zoom, area, padding, scrollRoot, loadingLabel, onOpen,
       cancelled = true;
       handle?.destroy();
     };
-  }, [bytes]);
+  }, [bytes, password]);
 
   // Waits for the first measurement too, or every page would be drawn once at the wrong size.
   if (!pdf || !sizes || !(area.width > 0)) return <Centered>{loadingLabel}</Centered>;
@@ -397,6 +414,62 @@ function PdfView({ bytes, zoom, area, padding, scrollRoot, loadingLabel, onOpen,
         <PdfPage key={i} pdf={pdf} number={i + 1} size={size} scale={scale} scrollRoot={scrollRoot} />
       ))}
     </div>
+  );
+}
+
+function PasswordPrompt({ incorrect, onSubmit, onDownload }) {
+  const { t } = useTranslation();
+  const [value, setValue] = useState('');
+  const inputRef = useRef(null);
+  useEffect(() => { inputRef.current?.focus(); }, []);
+  const secondary = {
+    padding: '8px 14px', borderRadius: 8, cursor: 'pointer', fontSize: 13,
+    background: 'transparent', color: 'var(--text-primary)', border: '1px solid var(--border)',
+  };
+  return (
+    <Centered>
+      {/* autoComplete off: this is the document's password, not one the browser should offer to
+          save for MailFlow. */}
+      <form
+        autoComplete="off"
+        onSubmit={e => { e.preventDefault(); if (value) onSubmit(value); }}
+        style={{
+          width: '100%', maxWidth: 360, padding: '20px 22px', borderRadius: 12, boxSizing: 'border-box',
+          background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border)',
+        }}
+      >
+        <div style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 12 }}>{t('message.preview.password')}</div>
+        <input
+          ref={inputRef}
+          type="password"
+          autoComplete="off"
+          value={value}
+          onChange={e => setValue(e.target.value)}
+          aria-label={t('message.preview.passwordLabel')}
+          placeholder={t('message.preview.passwordLabel')}
+          aria-invalid={incorrect || undefined}
+          style={{
+            width: '100%', boxSizing: 'border-box', padding: '9px 11px', borderRadius: 8, fontSize: 14,
+            background: 'var(--bg-primary)', color: 'var(--text-primary)',
+            border: `1px solid ${incorrect ? 'var(--red)' : 'var(--border)'}`, outline: 'none',
+          }}
+        />
+        {incorrect && (
+          <div role="alert" style={{ fontSize: 12, color: 'var(--red)', marginTop: 8 }}>
+            {t('message.preview.passwordIncorrect')}
+          </div>
+        )}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+          <button type="button" onClick={onDownload} style={secondary}>{t('message.preview.download')}</button>
+          <button type="submit" disabled={!value} style={{
+            padding: '8px 16px', borderRadius: 8, border: 'none', fontSize: 13, fontWeight: 500,
+            background: 'var(--accent)', color: '#fff', cursor: value ? 'pointer' : 'default', opacity: value ? 1 : 0.5,
+          }}>
+            {t('message.preview.passwordSubmit')}
+          </button>
+        </div>
+      </form>
+    </Centered>
   );
 }
 

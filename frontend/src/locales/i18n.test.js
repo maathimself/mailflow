@@ -533,11 +533,12 @@ const SAME_VALUE_ALLOWED = {
   'messageList.layouts.wide.label':    [['it', 'ptBR']],
 
   // ── Attachment viewer ─────────────────────────────────────────────────────
-  // "Imprimir" / "Preparando…" / "{{current}} de {{total}}" are spelled the same in
+  // "Imprimir" / "Preparando…" / "Abrir" / "{{current}} de {{total}}" are spelled the same in
   // Spanish and Portuguese; Czech and Polish share "{{current}} z {{total}}".
   'message.preview.print':          [['es', 'ptBR']],
   'message.preview.preparingPrint': [['es', 'ptBR']],
   'message.preview.position':       [['es', 'ptBR'], ['cs', 'pl']],
+  'message.preview.passwordSubmit': [['es', 'ptBR']],
 };
 
 // Locale-specific plural forms are allowed per locale. A locale may add forms

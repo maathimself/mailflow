@@ -44,6 +44,14 @@ export function sniffPreview(input) {
   return null;
 }
 
+// Why pdf.js refused to open a PDF for want of its password: 'required' when none was given,
+// 'incorrect' when the one given was wrong (pdf.js PasswordResponses 1 and 2). null for any other
+// failure.
+export function passwordReason(err) {
+  if (err?.name !== 'PasswordException') return null;
+  return err.code === 2 ? 'incorrect' : 'required';
+}
+
 // Zoom steps, as multiples of the fitted size.
 export const ZOOM_STEPS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
 

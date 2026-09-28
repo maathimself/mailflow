@@ -294,7 +294,10 @@
       "next": "Pièce jointe suivante",
       "failed": "Impossible d’afficher ce fichier.",
       "unsupported": "Ce fichier ne semble pas être un PDF ou une image valide, il n’est donc pas affiché ici.",
-      "password": "Ce PDF est protégé par un mot de passe. Téléchargez-le pour l’ouvrir."
+      "password": "Ce PDF est protégé par un mot de passe. Saisissez-le pour l’ouvrir.",
+      "passwordLabel": "Mot de passe du PDF",
+      "passwordSubmit": "Ouvrir",
+      "passwordIncorrect": "Mot de passe incorrect. Réessayez."
     }
   },
   "messageList": {

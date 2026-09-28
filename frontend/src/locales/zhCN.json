@@ -294,7 +294,10 @@
       "next": "下一个附件",
       "failed": "无法显示此文件。",
       "unsupported": "此文件似乎不是有效的 PDF 或图片，因此不在此处显示。",
-      "password": "此 PDF 受密码保护。请下载后打开。"
+      "password": "此 PDF 受密码保护。请输入密码以打开。",
+      "passwordLabel": "PDF 密码",
+      "passwordSubmit": "打开",
+      "passwordIncorrect": "密码错误，请重试。"
     }
   },
   "messageList": {

@@ -9,6 +9,7 @@ import {
   printScale,
   canvasPixelRatio,
   printDocumentHtml,
+  passwordReason,
 } from './attachmentPreview.js';
 
 const bytes = (...values) => new Uint8Array(values.flat());
@@ -108,6 +109,21 @@ describe('zoom and scale', () => {
     const capped = canvasPixelRatio(3000, 4200, 3);
     assert.ok(3000 * capped * 4200 * capped <= 16_000_000 + 1);
     assert.equal(canvasPixelRatio(800, 1100, 0), 1);
+  });
+});
+
+describe('passwordReason', () => {
+  const passwordError = code => Object.assign(new Error('pw'), { name: 'PasswordException', code });
+
+  it('tells a missing password from a wrong one', () => {
+    assert.equal(passwordReason(passwordError(1)), 'required');
+    assert.equal(passwordReason(passwordError(2)), 'incorrect');
+  });
+
+  it('ignores every other failure', () => {
+    assert.equal(passwordReason(new Error('Invalid PDF structure')), null);
+    assert.equal(passwordReason(Object.assign(new Error('x'), { name: 'InvalidPDFException', code: 2 })), null);
+    assert.equal(passwordReason(undefined), null);
   });
 });
 

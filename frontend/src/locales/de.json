@@ -294,7 +294,10 @@
       "next": "Nächster Anhang",
       "failed": "Diese Datei konnte nicht angezeigt werden.",
       "unsupported": "Diese Datei scheint kein gültiges PDF oder Bild zu sein und wird daher hier nicht angezeigt.",
-      "password": "Dieses PDF ist passwortgeschützt. Laden Sie es herunter, um es zu öffnen."
+      "password": "Dieses PDF ist passwortgeschützt. Geben Sie das Passwort ein, um es zu öffnen.",
+      "passwordLabel": "PDF-Passwort",
+      "passwordSubmit": "Öffnen",
+      "passwordIncorrect": "Falsches Passwort. Versuchen Sie es erneut."
     }
   },
   "messageList": {

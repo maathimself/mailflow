@@ -28,6 +28,14 @@ registerHooks({
         'export default { useTranslation, initReactI18next };',
       ].join("\n") };
     }
+    // pdf.js needs a real browser; the viewer tests drive this stand-in through globalThis.__pdfStub.
+    if (url.endsWith('/src/utils/pdfDocument.js')) {
+      return { format: 'module', shortCircuit: true, source: [
+        'export const openPdf = (bytes, options) => globalThis.__pdfStub.openPdf(bytes, options);',
+        'export const renderPage = () => ({ done: Promise.resolve(), cancel() {} });',
+        'export const renderPagesForPrint = async () => [];',
+      ].join("\n") };
+    }
     if (url.endsWith('.json')) {
       return { format: 'module', shortCircuit: true, source: `export default ${readFileSync(new URL(url), 'utf8')}` };
     }
@@ -274,6 +282,7 @@ describe('Download all asks first when an attachment is risky', () => {
 describe('attachment viewer', () => {
   const MSG_VIEW = { ...MSG_A, id: 'g7', uid: 7, subject: 'Boleto' };
   const MSG_OTHER = { ...MSG_A, id: 'h8', uid: 8, subject: 'Other' };
+  const MSG_LOCKED = { ...MSG_A, id: 'i9', uid: 9, subject: 'Extrato' };
   const FILES = {
     g7: [
       { filename: 'boleto.pdf', type: 'application/pdf', part: '2', size: 10 },
@@ -282,10 +291,30 @@ describe('attachment viewer', () => {
       { filename: 'planilha.xlsx', type: 'application/vnd.ms-excel', part: '5', size: 10 },
       { filename: 'setup.exe', type: 'application/octet-stream', part: '6', size: 10 },
     ],
+    i9: [
+      { filename: 'extrato.pdf', type: 'application/pdf', part: '7', size: 10 },
+      { filename: 'recibo.jpg', type: 'image/jpeg', part: '8', size: 10 },
+    ],
   };
   const BYTES = {
     '3': new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0x10]),
     '4': new TextEncoder().encode('<!DOCTYPE html><script>alert(1)</script>'),
+    '7': new TextEncoder().encode('%PDF-1.7\n% encrypted'),
+    '8': new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0x10]),
+  };
+  // Stands in for pdf.js: the document opens only with the password "segredo".
+  const passwordsTried = [];
+  const lockedPdf = {
+    async openPdf(bytes, { password } = {}) {
+      passwordsTried.push(password ?? null);
+      if (password !== 'segredo') {
+        throw Object.assign(new Error('Password required'), { name: 'PasswordException', code: password ? 2 : 1 });
+      }
+      return {
+        doc: { numPages: 1, getPage: async () => ({ getViewport: () => ({ width: 595, height: 842 }) }) },
+        destroy() {},
+      };
+    },
   };
   const NEVER_ARRIVES = new Set(['2']);
   const requests = [];
@@ -315,7 +344,8 @@ describe('attachment viewer', () => {
     dom.window.HTMLAnchorElement.prototype.click = function () {
       saved.push({ href: this.getAttribute('href'), download: this.getAttribute('download') });
     };
-    useStore.getState().setMessages?.([MSG_A, MSG_VIEW, MSG_OTHER]);
+    globalThis.__pdfStub = lockedPdf;
+    useStore.getState().setMessages?.([MSG_A, MSG_VIEW, MSG_OTHER, MSG_LOCKED]);
   });
   after(() => {
     globalThis.fetch = originalFetch;
@@ -428,6 +458,54 @@ describe('attachment viewer', () => {
     assert.equal(title(), 'disguised.png', 'the spreadsheet and the installer are not in the viewer');
     await press('ArrowLeft');
     assert.equal(title(), 'foto.jpg');
+  });
+
+  const passwordField = () => dialog()?.querySelector('input[type="password"]') ?? null;
+  async function submitPassword(text) {
+    const input = passwordField();
+    const setValue = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set;
+    await React.act(async () => {
+      setValue.call(input, text);
+      input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+    });
+    await React.act(async () => { dialog().querySelector('button[type="submit"]').click(); });
+    await settle();
+  }
+
+  test('a password-protected PDF asks for its password and opens with the right one', async () => {
+    await open('i9');
+    passwordsTried.length = 0;
+    await clickChip('extrato.pdf');
+    assert.ok(passwordField(), 'the viewer asks for the password instead of failing');
+    assert.match(dialog().textContent, /message\.preview\.password/);
+    assert.equal(document.activeElement, passwordField(), 'the field is focused, ready to type');
+
+    await submitPassword('errada');
+    assert.match(dialog().textContent, /message\.preview\.passwordIncorrect/);
+    assert.equal(passwordField().value, '', 'a wrong password is cleared for the next try');
+
+    await submitPassword('segredo');
+    assert.equal(passwordField(), null, 'the right password opens the document');
+    assert.deepEqual(passwordsTried, [null, 'errada', 'segredo']);
+    const print = dialog().querySelector('button[aria-label="message.preview.print"]');
+    assert.equal(print.disabled, false, 'an unlocked PDF can be printed');
+  });
+
+  test('arrows move the caret in the password field, and the password is forgotten on leaving', async () => {
+    await open('i9');
+    await clickChip('extrato.pdf');
+    const title = () => dialog().querySelector('[title]').getAttribute('title');
+    await press('ArrowRight', passwordField());
+    assert.equal(title(), 'extrato.pdf', 'typing in the field does not switch attachments');
+
+    await submitPassword('segredo');
+    await press('ArrowRight');
+    assert.equal(title(), 'recibo.jpg');
+    passwordsTried.length = 0;
+    await press('ArrowLeft');
+    assert.equal(title(), 'extrato.pdf');
+    assert.ok(passwordField(), 'coming back asks again');
+    assert.deepEqual(passwordsTried, [null], 'the earlier password was not kept');
   });
 
   test('selecting another message closes the viewer', async () => {
