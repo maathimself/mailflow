@@ -10,27 +10,41 @@ import zhCN from './locales/zhCN.json';
 import pl from './locales/pl.json';
 import cs from './locales/cs.json';
 import ptBR from './locales/ptBR.json';
+import { detectLanguage, htmlLang } from './utils/browserLanguage.js';
 
-const savedLng = localStorage.getItem('mailflow_language') || 'en';
+const resources = {
+  en: { translation: en },
+  de: { translation: de },
+  fr: { translation: fr },
+  es: { translation: es },
+  it: { translation: it },
+  ru: { translation: ru },
+  zhCN: {translation: zhCN},
+  pl: { translation: pl },
+  cs: { translation: cs },
+  ptBR: { translation: ptBR },
+};
+
+const browserLanguages = typeof navigator === 'undefined' ? []
+  : (navigator.languages?.length ? navigator.languages : [navigator.language]);
+export const initialLanguage = localStorage.getItem('mailflow_language')
+  || detectLanguage(browserLanguages, Object.keys(resources));
 
 i18n
   .use(initReactI18next)
   .init({
-    resources: {
-      en: { translation: en },
-      de: { translation: de },
-      fr: { translation: fr },
-      es: { translation: es },
-      it: { translation: it },
-      ru: { translation: ru },
-      zhCN: {translation: zhCN},
-      pl: { translation: pl },
-      cs: { translation: cs },
-      ptBR: { translation: ptBR },
-    },
-    lng: savedLng,
+    resources,
+    lng: initialLanguage,
     fallbackLng: 'en',
     interpolation: { escapeValue: false },
   });
+
+// <html lang> follows the UI. A page that always claimed to be English made browsers offer to
+// translate a UI already in the user's language, and a translated UI crashes React (see index.html).
+const syncHtmlLang = lng => {
+  if (typeof document !== 'undefined') document.documentElement.lang = htmlLang(lng);
+};
+syncHtmlLang(initialLanguage);
+i18n.on('languageChanged', syncHtmlLang);
 
 export default i18n;
