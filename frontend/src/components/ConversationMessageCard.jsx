@@ -196,7 +196,9 @@ export default function ConversationMessageCard({ message, expanded, onToggle, s
             />
           )}
           {!body?.html && body?.text && (
-            <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{body.text}</div>
+            // translate="yes" undoes <body>'s translate="no" for the message itself; React writes
+            // it as the element's whole text, so a translator has no React text node to break.
+            <div translate="yes" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{body.text}</div>
           )}
 
           {/* Reply and forward are per message, not per thread: replying to a conversation

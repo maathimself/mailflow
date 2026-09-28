@@ -7,6 +7,26 @@ import { resolveForConnection } from './hostValidation.js';
 const SMTP_ATTEMPT_TIMEOUT_MS = 10_000;
 const SMTP_FAILOVER_BUDGET_MS = 45_000;
 
+// EHLO/HELO client identity (#492). nodemailer's default is os.hostname(), and when that
+// is not an FQDN — every Docker container with a default hostname — it sends
+// `EHLO [127.0.0.1]` instead. cPanel/Exim logs that literally ("Sender Host: 127.0.0.1",
+// verified in the reporter's Track Delivery screenshot next to their real Sender IP), and
+// spam routers like Bluehost's treat a loopback HELO from a remote address as a forgery
+// signal and discard the mail. Identify as the instance's public hostname instead:
+// SMTP_EHLO_NAME wins when set, otherwise APP_URL's hostname when it is a real FQDN,
+// otherwise nodemailer's default stands. Pure; exported for tests.
+export function smtpClientName(env = process.env) {
+  const explicit = (env.SMTP_EHLO_NAME || '').trim();
+  if (explicit) return explicit;
+  try {
+    const host = new URL(env.APP_URL).hostname;
+    // A bare IP as EHLO carries the same spam signal the fallback does; only a dotted
+    // name that is not an IPv4 literal improves on nodemailer's default.
+    if (host && host.includes('.') && !/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return host;
+  } catch { /* APP_URL unset or unparseable — keep nodemailer's default */ }
+  return undefined;
+}
+
 export function isPreDeliveryConnectionError(err) {
   return err?.command === 'CONN';
 }
@@ -29,6 +49,8 @@ async function runWithAddressFallback({
     if (remaining < 2000 && lastError) throw lastError;
     const attemptTimeout = Math.max(1000, Math.min(SMTP_ATTEMPT_TIMEOUT_MS, Math.floor(remaining / 2)));
     const transport = createTransport({
+      // Before the spread so an explicit transportOptions.name would still win.
+      name: smtpClientName(),
       ...transportOptions,
       host: candidates[i],
       connectionTimeout: attemptTimeout,

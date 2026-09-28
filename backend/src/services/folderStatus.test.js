@@ -97,6 +97,25 @@ describe('bounded background monitor', () => {
     expect(enqueueSync.mock.calls[0][1]).toBe('INBOX');
   });
 
+  it('stops the folder walk when the client dies mid-cycle, bounding it to one close', async () => {
+    // A timed-out STATUS destroys the transport (observeFolder's fuse). On a
+    // secondaryOverPool provider that transport is the account's ONE pooled session, so
+    // the walk must not go on to fail the remaining folders against a dead client: the
+    // break is what bounds the cost to one close (and one later gated grow) per cycle
+    // (#474 round 5 review).
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    query.mockImplementation(async sql => sql.includes('SELECT f.*')
+      ? { rows: [{ path: 'INBOX' }, { path: 'Sent' }, { path: 'Trash' }] }
+      : sql.includes('nextval') ? { rows: [{ revision: '1', started_at: new Date(0) }] } : { rows: [] });
+    const client = {
+      usable: true,
+      status: vi.fn(() => { client.usable = false; return Promise.reject(new Error('Folder STATUS timed out')); }),
+    };
+    const monitor = new FolderStatusMonitor({ withClient: async (_a, fn) => fn(client), enqueueSync: vi.fn(), broadcast: vi.fn() });
+    await monitor.refresh({ id: 'a' });
+    expect(client.status).toHaveBeenCalledTimes(1); // Sent and Trash waited for the next cycle
+  });
+
   it('backs off login failures and does not enqueue work', async () => {
     vi.useFakeTimers();
     vi.spyOn(console, 'warn').mockImplementation(() => {});

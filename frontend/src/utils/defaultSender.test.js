@@ -84,6 +84,52 @@ describe('resolveInitialFrom: the unified inbox case (#417)', () => {
   });
 });
 
+describe('resolveInitialFrom: the default applies while viewing an account (#417)', () => {
+  test('a plain Compose while reading another account starts from the default', () => {
+    // New-message entry points carry no accountId, so the open account only reaches the
+    // resolver as selectedAccountId.
+    const from = resolveInitialFrom({
+      composeData: {},
+      selectedAccountId: 'acc-personal',
+      defaultSender: 'account:acc-side',
+      accounts,
+    });
+    assert.equal(from, 'account:acc-side');
+  });
+
+  test('an alias default applies on a single-account setup, which has no unified inbox', () => {
+    const single = [accounts[0]];
+    const from = resolveInitialFrom({
+      composeData: {},
+      selectedAccountId: 'acc-work',
+      defaultSender: 'alias:al-support:acc-work',
+      accounts: single,
+    });
+    assert.equal(from, 'alias:al-support:acc-work');
+  });
+
+  test('a stale default falls back to the open account, not to last-used', () => {
+    const from = resolveInitialFrom({
+      composeData: {},
+      selectedAccountId: 'acc-personal',
+      defaultSender: 'account:acc-deleted',
+      lastUsedAccountId: 'acc-work',
+      accounts,
+    });
+    assert.equal(from, 'account:acc-personal');
+  });
+
+  test('a forward still sends from the account the message arrived in', () => {
+    const from = resolveInitialFrom({
+      composeData: { accountId: 'acc-work' },
+      selectedAccountId: 'acc-personal',
+      defaultSender: 'account:acc-side',
+      accounts,
+    });
+    assert.equal(from, 'account:acc-work');
+  });
+});
+
 describe('resolveInitialFrom: existing behaviour must not regress', () => {
   test('a reply carrying an alias wins over everything', () => {
     const from = resolveInitialFrom({
@@ -104,12 +150,10 @@ describe('resolveInitialFrom: existing behaviour must not regress', () => {
     assert.equal(from, 'account:acc-work', 'replies must answer from the account that received the mail');
   });
 
-  test('viewing one account outranks the default', () => {
-    // #417 is about the unified inbox. Composing while reading an account's folder should
-    // still send from that account.
+  test('with no default configured, the open account decides', () => {
     const from = resolveInitialFrom({
       selectedAccountId: 'acc-personal',
-      defaultSender: 'account:acc-side',
+      lastUsedAccountId: 'acc-work',
       accounts,
     });
     assert.equal(from, 'account:acc-personal');

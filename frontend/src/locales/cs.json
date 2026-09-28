@@ -173,6 +173,8 @@
     "messagesPerPage": "Zpráv na stránku",
     "selectAll": "Vybrat vše",
     "deselectAll": "Zrušit výběr",
+    "starSelected": "Označit hvězdičkou",
+    "unstarSelected": "Odebrat hvězdičku",
     "markReadSelected": "Označit jako přečtené",
     "markUnreadSelected": "Označit jako nepřečtené",
     "archiveSelected": "Archivovat vybrané",
@@ -194,6 +196,10 @@
       "failTitle": "Smazání se nezdařilo",
       "failBody": "Zprávu se nepodařilo smazat.",
       "conversationTitle": "Konverzace smazána"
+    },
+    "draftBcc": {
+      "failTitle": "Koncept otevřen jen pro čtení",
+      "failBody": "Příjemce skryté kopie se nepodařilo načíst z poštovního serveru a uložení konceptu bez nich by je smazalo. Zkuste to znovu za chvíli."
     },
     "bulkDeleted": {
       "title_one": "Smazána {{count}} zpráva",
@@ -336,6 +342,7 @@
     "archive": "Archivovat",
     "star": "Označit hvězdičkou",
     "delete": "Smazat",
+    "downloadEml": "Stáhnout jako .eml",
     "print": "Vytisknout",
     "more": "Další",
     "summarize": "Shrnout",
@@ -703,6 +710,10 @@
         "label": "Vybrat zprávu",
         "description": "Vybrat nebo zrušit výběr aktuální zprávy"
       },
+      "undoAction": {
+        "label": "Vrátit poslední akci",
+        "description": "Vrátí poslední archivaci, smazání, přesun nebo označení spamu, dokud je oznámení zobrazeno"
+      },
       "printMessage": {
         "label": "Vytisknout",
         "description": "Vytisknout aktuální zprávu"
@@ -722,9 +733,6 @@
       "toggleRightSidebar": {
         "label": "Pravý postranní panel",
         "description": "Skrýt nebo zobrazit pravý postranní panel"
-      },
-      "gtdUndo": {
-        "description": "Vrátit zpět poslední klasifikaci GTD"
       }
     }
   },
@@ -1275,7 +1283,7 @@
       "defaultReplyAll": "Odpovědět všem",
       "defaultReplyAllDesc": "Tlačítko Odpovědět odešle odpověď všem příjemcům",
       "defaultSender": "Výchozí odesílatel",
-      "defaultSenderDesc": "Ze které adresy se odesílají nové zprávy, když píšete mimo konkrétní účet, například ze sjednocené schránky. Odpovědi vždy použijí účet, který zprávu přijal.",
+      "defaultSenderDesc": "Ze které adresy se odesílají nové zprávy bez ohledu na to, který účet právě prohlížíte. Odpovědi a přeposlané zprávy vždy použijí účet, který zprávu přijal.",
       "defaultSenderLastUsed": "Naposledy použitý účet",
       "markReadBehavior": "Označení jako přečtené",
       "markReadImmediate": "Okamžitě",

@@ -221,6 +221,7 @@
     "archive": "归档",
     "star": "加星标",
     "delete": "删除",
+    "downloadEml": "下载为 .eml",
     "print": "打印",
     "more": "更多",
     "summarize": "摘要",
@@ -286,6 +287,8 @@
     "messagesPerPage": "每页邮件数",
     "selectAll": "全选",
     "deselectAll": "取消全选",
+    "starSelected": "加星标",
+    "unstarSelected": "取消星标",
     "markReadSelected": "标为已读",
     "markUnreadSelected": "标为未读",
     "archiveSelected": "归档所选",
@@ -307,6 +310,10 @@
       "failTitle": "删除失败",
       "failBody": "无法删除此邮件。",
       "conversationTitle": "会话已删除"
+    },
+    "draftBcc": {
+      "failTitle": "草稿已以只读方式打开",
+      "failBody": "无法从邮件服务器读取其密送收件人，不带密送保存会将其清除。请稍后重试。"
     },
     "bulkDeleted": {
       "title_one": "已删除 {{count}} 封邮件",
@@ -624,6 +631,10 @@
         "label": "选择邮件",
         "description": "勾选或取消勾选当前邮件"
       },
+      "undoAction": {
+        "label": "撤销上一个操作",
+        "description": "在提示显示期间撤销最近的归档、删除、移动或垃圾邮件标记"
+      },
       "printMessage": {
         "label": "打印",
         "description": "打印当前邮件"
@@ -639,9 +650,6 @@
       "gtdDelegated": {
         "label": "标记为已委派",
         "description": "将所选邮件归类为已委派"
-      },
-      "gtdUndo": {
-        "description": "撤销最近的 GTD 分类"
       },
       "toggleRightSidebar": {
         "label": "切换右侧边栏",
@@ -980,7 +988,7 @@
       "defaultReplyAll": "回复全部",
       "defaultReplyAllDesc": "回复按钮将发送给所有收件人",
       "defaultSender": "默认发件人",
-      "defaultSenderDesc": "在非特定账户下撰写新邮件时使用的发件地址，例如在统一收件箱中。回复始终使用收到该邮件的账户。",
+      "defaultSenderDesc": "新邮件使用的发件地址，无论你当前查看的是哪个账户。回复和转发始终使用收到该邮件的账户。",
       "defaultSenderLastUsed": "上次使用的账户",
       "markReadBehavior": "标为已读",
       "markReadImmediate": "立即",

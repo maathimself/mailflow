@@ -1,7 +1,7 @@
 // Run with: node --test src/themes.test.js
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { THEMES } from './themes.js';
+import { THEMES, getInitialTheme, resolveEffectiveTheme } from './themes.js';
 
 const names = Object.keys(THEMES);
 
@@ -41,6 +41,46 @@ describe('THEMES CSS-var contract', () => {
     for (const name of names) {
       assert.ok(Array.isArray(THEMES[name].preview), `${name} preview must be an array`);
       assert.equal(THEMES[name].preview.length, arity, `${name} preview arity differs from ${reference}`);
+    }
+  });
+});
+
+describe('system theme & dynamic OS resolution', () => {
+  it('THEMES includes system as an option', () => {
+    assert.ok(THEMES.system, 'THEMES.system must exist');
+    assert.equal(THEMES.system.label, 'System');
+  });
+
+  it('getInitialTheme defaults to system', () => {
+    assert.equal(getInitialTheme(), 'system');
+  });
+
+  it('resolveEffectiveTheme returns the explicit theme name for non-system themes', () => {
+    assert.equal(resolveEffectiveTheme('dracula'), 'dracula');
+    assert.equal(resolveEffectiveTheme('light'), 'light');
+    assert.equal(resolveEffectiveTheme('dark'), 'dark');
+  });
+
+  it('resolveEffectiveTheme resolves system based on prefers-color-scheme media query', () => {
+    const originalWindow = globalThis.window;
+    try {
+      // Mock window.matchMedia for light
+      globalThis.window = {
+        matchMedia: (query) => ({
+          matches: query.includes('prefers-color-scheme: light'),
+        }),
+      };
+      assert.equal(resolveEffectiveTheme('system'), 'light');
+
+      // Mock window.matchMedia for dark
+      globalThis.window = {
+        matchMedia: () => ({
+          matches: false,
+        }),
+      };
+      assert.equal(resolveEffectiveTheme('system'), 'dark');
+    } finally {
+      globalThis.window = originalWindow;
     }
   });
 });

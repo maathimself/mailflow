@@ -73,7 +73,7 @@ describe('buildModKeyMap', () => {
     const warn = t.mock.method(console, 'warn', () => {});
     const map = buildModKeyMap();
     assert.equal(warn.mock.callCount(), 0);
-    assert.equal(map.z, 'gtdUndo');
+    assert.equal(map.z, 'undoAction');
   });
 
   it('warns and keeps last-writer-wins when an override collides on a modifier+key', (t) => {

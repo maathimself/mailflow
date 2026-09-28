@@ -221,6 +221,7 @@
     "archive": "Archivieren",
     "star": "Markieren",
     "delete": "Löschen",
+    "downloadEml": "Als .eml herunterladen",
     "print": "Drucken",
     "more": "Mehr",
     "summarize": "Zusammenfassen",
@@ -286,6 +287,8 @@
     "messagesPerPage": "Nachrichten pro Seite",
     "selectAll": "Alle auswählen",
     "deselectAll": "Alle abwählen",
+    "starSelected": "Mit Stern versehen",
+    "unstarSelected": "Stern entfernen",
     "markReadSelected": "Als gelesen markieren",
     "markUnreadSelected": "Als ungelesen markieren",
     "archiveSelected": "Auswahl archivieren",
@@ -307,6 +310,10 @@
       "failTitle": "Löschen fehlgeschlagen",
       "failBody": "Nachricht konnte nicht gelöscht werden.",
       "conversationTitle": "Konversation gelöscht"
+    },
+    "draftBcc": {
+      "failTitle": "Entwurf schreibgeschützt geöffnet",
+      "failBody": "Die Bcc-Empfänger konnten nicht vom Mailserver gelesen werden, und ein Speichern ohne sie würde sie löschen. Bitte gleich erneut versuchen."
     },
     "bulkDeleted": {
       "title_one": "{{count}} Nachricht gelöscht",
@@ -624,6 +631,10 @@
         "label": "Nachricht auswählen",
         "description": "Aktuelle Nachricht an- oder abwählen"
       },
+      "undoAction": {
+        "label": "Letzte Aktion rückgängig machen",
+        "description": "Macht das letzte Archivieren, Löschen, Verschieben oder Spam-Markieren rückgängig, solange der Hinweis angezeigt wird"
+      },
       "printMessage": {
         "label": "Drucken",
         "description": "Die aktuelle Nachricht drucken"
@@ -639,9 +650,6 @@
       "gtdDelegated": {
         "label": "Als Delegiert markieren",
         "description": "Die ausgewählte Nachricht als Delegiert einordnen"
-      },
-      "gtdUndo": {
-        "description": "Letzte GTD-Einordnung rückgängig machen"
       },
       "toggleRightSidebar": {
         "label": "Rechte Seitenleiste umschalten",
@@ -909,7 +917,7 @@
       "defaultReplyAll": "Allen antworten",
       "defaultReplyAllDesc": "Die Schaltfläche Antworten sendet an alle Empfänger",
       "defaultSender": "Standardabsender",
-      "defaultSenderDesc": "Von welcher Adresse neue Nachrichten gesendet werden, wenn Sie außerhalb eines bestimmten Kontos verfassen, etwa im gemeinsamen Posteingang. Antworten verwenden immer das Konto, das die Nachricht empfangen hat.",
+      "defaultSenderDesc": "Von welcher Adresse neue Nachrichten gesendet werden, unabhängig davon, welches Konto Sie gerade ansehen. Antworten und Weiterleitungen verwenden immer das Konto, das die Nachricht empfangen hat.",
       "defaultSenderLastUsed": "Zuletzt verwendetes Konto",
       "markReadBehavior": "Als gelesen markieren",
       "markReadImmediate": "Sofort",

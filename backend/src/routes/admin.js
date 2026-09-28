@@ -529,7 +529,12 @@ router.post('/oidc', async (req, res) => {
       return res.status(400).json({ error: 'Issuer URL must use HTTPS' });
     }
     if (!allow_insecure) {
-      const hostErr = await validateHost(parsed.hostname);
+      // Honor the admin's "Allow private / local hosts" policy like every other
+      // validateHost call in this file (#494: a LAN issuer with a valid public cert was
+      // rejected even with the policy on, and the only escape hatch also disabled TLS
+      // verification — the opposite of what a security-conscious self-hoster wants).
+      const policy = await getConnectionPolicy();
+      const hostErr = await validateHost(parsed.hostname, { allowPrivate: policy.allowPrivateHosts });
       if (hostErr) return res.status(400).json({ error: `Issuer URL: ${hostErr}` });
     }
   } catch {
@@ -610,7 +615,9 @@ router.patch('/oidc/:id', async (req, res) => {
         return res.status(400).json({ error: 'Issuer URL must use HTTPS' });
       }
       if (!effectiveAllowInsecure) {
-        const hostErr = await validateHost(parsed.hostname);
+        // Same policy pass-through as the create route (#494).
+        const policy = await getConnectionPolicy();
+        const hostErr = await validateHost(parsed.hostname, { allowPrivate: policy.allowPrivateHosts });
         if (hostErr) return res.status(400).json({ error: `Issuer URL: ${hostErr}` });
       }
     } catch {

@@ -47,10 +47,10 @@ router.use(requireAuth);
 router.param('id', uuidParam('id'));
 router.param('aliasId', uuidParam('aliasId'));
 
-// Fields safe to return to the client — matches the GET list, excludes credentials and tokens
-const SAFE_FIELDS = [
+// Fields safe to return to the client, and the GET list's columns. Excludes credentials and tokens.
+export const SAFE_FIELDS = [
   'id', 'name', 'sender_name', 'email_address', 'color', 'protocol',
-  'imap_host', 'imap_port', 'imap_skip_tls_verify',
+  'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify',
   'smtp_host', 'smtp_port', 'smtp_tls',
   'auth_user', 'smtp_auth_user', 'oauth_provider', 'enabled',
   'include_in_unified_inbox',
@@ -58,6 +58,9 @@ const SAFE_FIELDS = [
   'signature', 'created_at', 'categorization_enabled', 'antispam_enabled',
   'trusted_authserv_id',
 ];
+// Columns PUT /:id may write. The settings form sends back what GET returned, so every
+// non-secret one must be in SAFE_FIELDS or saving an unrelated edit would write it as empty.
+export const ACCOUNT_UPDATE_FIELDS = ['name', 'sender_name', 'color', 'enabled', 'include_in_unified_inbox', 'auth_user', 'auth_pass', 'sort_order', 'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify', 'smtp_host', 'smtp_port', 'smtp_tls', 'smtp_auth_user', 'smtp_auth_pass', 'folder_mappings', 'signature', 'categorization_enabled', 'antispam_enabled', 'trusted_authserv_id'];
 function safeAccount(row) {
   const obj = Object.fromEntries(SAFE_FIELDS.map(k => [k, row[k]]));
   // Sanitize on read so legacy values stored before the write-time sanitizer are safe
@@ -67,11 +70,7 @@ function safeAccount(row) {
 
 router.get('/', async (req, res) => {
   const result = await query(
-    `SELECT id, name, sender_name, email_address, color, protocol, imap_host, imap_port, imap_tls, imap_skip_tls_verify,
-            smtp_host, smtp_port, smtp_tls, auth_user, smtp_auth_user, oauth_provider, enabled,
-            include_in_unified_inbox,
-            last_sync, sync_error, sort_order, folder_mappings, signature, created_at,
-            categorization_enabled, antispam_enabled
+    `SELECT ${SAFE_FIELDS.join(', ')}
      FROM email_accounts WHERE user_id = $1 ORDER BY sort_order, created_at`,
     [req.session.userId]
   );
@@ -244,11 +243,10 @@ router.put('/:id', async (req, res) => {
     if (r.requiresReconnect) pluginRequiresReconnect = true;
   }
 
-  const allowed = ['name', 'sender_name', 'color', 'enabled', 'include_in_unified_inbox', 'auth_user', 'auth_pass', 'sort_order', 'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify', 'smtp_host', 'smtp_port', 'smtp_tls', 'smtp_auth_user', 'smtp_auth_pass', 'folder_mappings', 'signature', 'categorization_enabled', 'antispam_enabled', 'trusted_authserv_id'];
   const sets = [];
   const values = [];
   let i = 1;
-  for (const key of allowed) {
+  for (const key of ACCOUNT_UPDATE_FIELDS) {
     if (key in updates) {
       sets.push(`${key} = $${i++}`);
       const value = ((key === 'auth_pass' || key === 'smtp_auth_pass') && updates[key]) ? encrypt(updates[key])

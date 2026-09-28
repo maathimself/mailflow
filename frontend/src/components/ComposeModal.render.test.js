@@ -146,3 +146,47 @@ describe('reopening a draft in plain-text mode', () => {
     assert.equal(saved.length, 0, 'an untouched draft must not be rewritten');
   });
 });
+
+describe('switching From on a reopened draft', () => {
+  // The old copy stays in the account it was saved to. The backend used to delete its uid in
+  // whichever account From named, which expunged an unrelated message there when both
+  // accounts have a Drafts folder.
+  let close;
+  before(async () => {
+    useStore.setState({
+      accounts: [
+        { id: 'acct', enabled: true, email_address: 'me@example.invalid', name: 'Me', color: '#fff' },
+        { id: 'other', enabled: true, email_address: 'other@example.invalid', name: 'Other', color: '#000' },
+      ],
+    });
+    close = await openDraft({ plaintextEmail: false, body: GMAIL_DRAFT });
+  });
+  after(() => close());
+
+  test('names the account that holds the copy being replaced', async () => {
+    const from = [...document.querySelectorAll('select')]
+      .find(s => [...s.options].some(o => o.value === 'account:other'));
+    await React.act(async () => {
+      from.value = 'account:other';
+      from.dispatchEvent(new window.Event('change', { bubbles: true }));
+    });
+    const editor = document.querySelector('.ProseMirror').editor;
+    await React.act(async () => { editor.commands.insertContent(' Thanks.'); });
+    await hideTab();
+    assert.equal(saved.length, 1, 'the edit is saved');
+    assert.equal(saved[0].accountId, 'other', 'the new copy goes to the account From names');
+    assert.equal(saved[0].existingUid, 7);
+    assert.equal(saved[0].existingFolder, 'Drafts');
+    assert.equal(saved[0].existingAccountId, 'acct', 'the old copy is deleted from its own account');
+  });
+
+  test('the next save replaces the new copy in the account it was saved to', async () => {
+    saved.length = 0;
+    const editor = document.querySelector('.ProseMirror').editor;
+    await React.act(async () => { editor.commands.insertContent(' Bye.'); });
+    await hideTab();
+    assert.equal(saved.length, 1);
+    assert.equal(saved[0].existingUid, 8);
+    assert.equal(saved[0].existingAccountId, 'other');
+  });
+});

@@ -221,6 +221,7 @@
     "archive": "Archiver",
     "star": "Étoile",
     "delete": "Supprimer",
+    "downloadEml": "Télécharger en .eml",
     "print": "Imprimer",
     "more": "Plus",
     "summarize": "Résumer",
@@ -286,6 +287,8 @@
     "messagesPerPage": "Messages par page",
     "selectAll": "Tout sélectionner",
     "deselectAll": "Tout désélectionner",
+    "starSelected": "Étoiler",
+    "unstarSelected": "Retirer l'étoile",
     "markReadSelected": "Marquer comme lu",
     "markUnreadSelected": "Marquer comme non lu",
     "archiveSelected": "Archiver la sélection",
@@ -307,6 +310,10 @@
       "failTitle": "Échec de la suppression",
       "failBody": "Impossible de supprimer le message.",
       "conversationTitle": "Conversation supprimée"
+    },
+    "draftBcc": {
+      "failTitle": "Brouillon ouvert en lecture seule",
+      "failBody": "Impossible de lire ses destinataires en Cci depuis le serveur de messagerie, et l'enregistrer sans eux les effacerait. Veuillez réessayer dans un instant."
     },
     "bulkDeleted": {
       "title_one": "{{count}} message supprimé",
@@ -624,6 +631,10 @@
         "label": "Sélectionner le message",
         "description": "Cocher ou décocher le message actuel"
       },
+      "undoAction": {
+        "label": "Annuler la dernière action",
+        "description": "Annule le dernier archivage, suppression, déplacement ou marquage spam tant que la notification est affichée"
+      },
       "printMessage": {
         "label": "Imprimer",
         "description": "Imprimer le message actuel"
@@ -639,9 +650,6 @@
       "gtdDelegated": {
         "label": "Marquer Délégué",
         "description": "Classer le message sélectionné comme Délégué"
-      },
-      "gtdUndo": {
-        "description": "Annuler le dernier classement GTD"
       },
       "toggleRightSidebar": {
         "label": "Afficher ou masquer la barre latérale droite",
@@ -980,7 +988,7 @@
       "defaultReplyAll": "Répondre à tous",
       "defaultReplyAllDesc": "Le bouton Répondre envoie à tous les destinataires",
       "defaultSender": "Expéditeur par défaut",
-      "defaultSenderDesc": "Adresse utilisée pour les nouveaux messages rédigés en dehors d'un compte précis, par exemple depuis la boîte unifiée. Les réponses utilisent toujours le compte qui a reçu le message.",
+      "defaultSenderDesc": "Adresse utilisée pour les nouveaux messages, quel que soit le compte affiché. Les réponses et les transferts utilisent toujours le compte qui a reçu le message.",
       "defaultSenderLastUsed": "Dernier compte utilisé",
       "markReadBehavior": "Marquer comme lu",
       "markReadImmediate": "Immédiatement",

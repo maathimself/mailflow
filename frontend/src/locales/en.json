@@ -221,6 +221,7 @@
     "archive": "Archive",
     "star": "Star",
     "delete": "Delete",
+    "downloadEml": "Download .eml",
     "print": "Print",
     "more": "More",
     "summarize": "Summarize",
@@ -286,6 +287,8 @@
     "messagesPerPage": "Messages per page",
     "selectAll": "Select all",
     "deselectAll": "Deselect all",
+    "starSelected": "Star",
+    "unstarSelected": "Remove star",
     "markReadSelected": "Mark as read",
     "markUnreadSelected": "Mark as unread",
     "archiveSelected": "Archive selected",
@@ -307,6 +310,10 @@
       "failTitle": "Delete failed",
       "failBody": "Could not delete message.",
       "conversationTitle": "Conversation deleted"
+    },
+    "draftBcc": {
+      "failTitle": "Draft opened read-only",
+      "failBody": "Its Bcc recipients couldn't be read from the mail server, and saving it without them would erase them. Please try again in a moment."
     },
     "bulkDeleted": {
       "title_one": "{{count}} message deleted",
@@ -624,6 +631,10 @@
         "label": "Select message",
         "description": "Check or uncheck the current message"
       },
+      "undoAction": {
+        "label": "Undo last action",
+        "description": "Undo the most recent archive, delete, move, or spam action while its toast is showing"
+      },
       "printMessage": {
         "label": "Print",
         "description": "Print the current message"
@@ -639,9 +650,6 @@
       "gtdDelegated": {
         "label": "Mark Delegated",
         "description": "Classify the selected message as Delegated"
-      },
-      "gtdUndo": {
-        "description": "Undo the latest GTD classification"
       },
       "toggleRightSidebar": {
         "label": "Toggle right sidebar",
@@ -980,7 +988,7 @@
       "defaultReplyAll": "Reply All",
       "defaultReplyAllDesc": "The Reply button sends to all recipients",
       "defaultSender": "Default sender",
-      "defaultSenderDesc": "Which address new messages are sent from when you compose outside a specific account, such as from the unified inbox. Replies always use the account that received the message.",
+      "defaultSenderDesc": "Which address new messages are sent from, whichever account you are viewing. Replies and forwards always use the account that received the message.",
       "defaultSenderLastUsed": "Last used account",
       "markReadBehavior": "Mark as read",
       "markReadImmediate": "Immediately",

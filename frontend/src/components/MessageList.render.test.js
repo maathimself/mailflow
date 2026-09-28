@@ -64,14 +64,15 @@ dom.window.Element.prototype.scrollIntoView = () => {};
 globalThis.__VITE_ENV__ = { MODE: 'test', DEV: false, PROD: true };
 // MessageList loads its own messages on mount and overwrites anything seeded in the store,
 // so the fetch stub has to serve the row rather than the store. Only the messages endpoint
-// needs a real shape; everything else can be an empty object.
+// needs a real shape; everything else can be an empty object, unless a test serves a path
+// through ROUTES as [status, body].
 let SERVED = [];
+let ROUTES = {};
 globalThis.fetch = async (url) => {
   const path = String(url);
-  const body = path.includes('/mail/messages?')
-    ? { messages: SERVED, total: SERVED.length }
-    : {};
-  return { ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => body, text: async () => JSON.stringify(body) };
+  const [status, body] = Object.entries(ROUTES).find(([p]) => path.endsWith(p))?.[1]
+    ?? [200, path.includes('/mail/messages?') ? { messages: SERVED, total: SERVED.length } : {}];
+  return { ok: status < 400, status, headers: { get: () => 'application/json' }, json: async () => body, text: async () => JSON.stringify(body) };
 };
 
 const React = await import('react');
@@ -95,16 +96,16 @@ let container, root;
 
 // Mount fresh for each scenario. MessageList refetches on mount and overwrites anything seeded
 // in the store, so the fixture is served through fetch rather than set as state.
-async function mount({ rows, threadedView }) {
+async function mount({ rows, threadedView, folder = 'INBOX' }) {
   SERVED = rows;
   if (root) await React.act(async () => root.unmount());
   container = dom.window.document.getElementById('root');
   useStore.setState({
     accounts: [ACCOUNT], accountsReady: true,
-    selectedAccountId: 'acct-1', selectedFolder: 'INBOX',
+    selectedAccountId: 'acct-1', selectedFolder: folder,
     messages: rows, messagesTotal: rows.length, hasMoreMessages: false, loadingMessages: false,
     searchQuery: '', threadedView,
-    folders: { 'acct-1': [{ path: 'INBOX', name: 'INBOX' }, { path: 'Archive', name: 'Archive' }] },
+    folders: { 'acct-1': [{ path: 'INBOX', name: 'INBOX' }, { path: 'Archive', name: 'Archive' }, { path: 'Drafts', name: 'Drafts', special_use: '\\Drafts' }] },
   });
   await React.act(async () => {
     root = createRoot(container);
@@ -166,5 +167,159 @@ describe('MessageList — selected-row shortcuts', () => {
     useStore.getState().setSelectedMessage(null);
     await React.act(async () => { shortcutBus.emit('forward'); shortcutBus.emit('replyAllFromSelection'); await new Promise(r => setTimeout(r, 10)); });
     assert.equal(drafts.length, 2);
+  });
+});
+
+describe('MessageList — modifier-click enters multi-select (#220)', () => {
+  // Before this, modifiers only worked once ALREADY in selection mode; entering it took the
+  // avatar or the toolbar button. A Ctrl/Cmd- or Shift-click on a row must now enter it in
+  // one action, seeded with the open message as anchor, instead of opening the clicked mail.
+  const M2 = { ...MESSAGE, id: 'msg-b', uid: 2, message_id: '<m2@example.com>', subject: 'Second' };
+  const M3 = { ...MESSAGE, id: 'msg-c', uid: 3, message_id: '<m3@example.com>', subject: 'Third' };
+  // Checked and unchecked checkboxes draw the same polyline; stroke-width 3 vs 2.5 is what
+  // distinguishes a CHECKED row's checkmark.
+  const CHECK = 'svg[stroke-width="3"] polyline[points="20 6 9 17 4 12"]';
+
+  const clickRow = async (msgid, init = {}) => {
+    // The click handler sits on the inner draggable element, and DOM events bubble upward,
+    // so the dispatch has to start there, not on the [data-msgid] wrapper.
+    const row = container.querySelector(`[data-msgid="${msgid}"]`);
+    assert.ok(row, `expected a row for ${msgid}`);
+    const target = row.querySelector('[draggable]') || row;
+    await React.act(async () => {
+      target.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true, ...init }));
+    });
+  };
+  const checkedRows = () => [...container.querySelectorAll('[data-msgid]')]
+    .filter(r => r.querySelector(CHECK)).map(r => r.getAttribute('data-msgid'));
+
+  test('ctrl-click seeds {open message, clicked row} and does not open the clicked mail', async () => {
+    await mount({ rows: [MESSAGE, M2, M3], threadedView: false });
+    await React.act(async () => { useStore.getState().setSelectedMessage('msg-1'); });
+
+    await clickRow('msg-c', { ctrlKey: true });
+
+    assert.equal(useStore.getState().selectedMessageId, 'msg-1'); // clicked mail did NOT open
+    assert.deepEqual(checkedRows().sort(), ['msg-1', 'msg-c']);   // anchor + clicked selected
+  });
+
+  test('shift-click seeds the whole range from the open message', async () => {
+    await mount({ rows: [MESSAGE, M2, M3], threadedView: false });
+    await React.act(async () => { useStore.getState().setSelectedMessage('msg-1'); });
+
+    await clickRow('msg-c', { shiftKey: true });
+
+    assert.deepEqual(checkedRows().sort(), ['msg-1', 'msg-b', 'msg-c']);
+  });
+
+  test('threaded view: ctrl-click on a ThreadRow enters selection too', async () => {
+    // The browser smoke caught ThreadRow missing the modifier branch — dev defaults to
+    // conversations on, so every earlier assertion here (threadedView: false) passed while
+    // the shipped default was broken. Conversations render through ThreadRow, not MessageRow.
+    const T1 = { ...MESSAGE, id: 'thr-a', thread_id: 't-a', message_count: 2, unread_count: 1 };
+    const T2 = { ...MESSAGE, id: 'thr-b', uid: 9, message_id: '<t2@example.com>', thread_id: 't-b', message_count: 3, unread_count: 0 };
+    await mount({ rows: [T1, T2], threadedView: true });
+    await React.act(async () => { useStore.getState().setSelectedMessage('thr-a'); });
+
+    await clickRow('thr-b', { ctrlKey: true });
+
+    assert.deepEqual(checkedRows().sort(), ['thr-a', 'thr-b']);
+  });
+
+  test('a plain click still just opens the message', async () => {
+    await mount({ rows: [MESSAGE, M2], threadedView: false });
+    await clickRow('msg-b');
+    assert.equal(useStore.getState().selectedMessageId, 'msg-b');
+    assert.deepEqual(checkedRows(), []); // no selection mode entered
+  });
+});
+
+describe('MessageList — Ctrl+Z undo shortcut (#449)', () => {
+  // The shortcut runs the same onUndo the visible toast button runs, newest first, and is
+  // a no-op once nothing is pending — the keyboard can never undo more than the toasts offer.
+  test('undoAction fires the newest pending undo, then the next, then nothing', async () => {
+    await mount({ rows: [MESSAGE], threadedView: false });
+    const undone = [];
+    await React.act(async () => {
+      useStore.getState().addNotification({ title: 'older', onUndo: () => undone.push('older') });
+      useStore.getState().addNotification({ title: 'newer', onUndo: () => undone.push('newer') });
+    });
+
+    await React.act(async () => { shortcutBus.emit('undoAction'); });
+    assert.deepEqual(undone, ['newer']);
+    assert.deepEqual(useStore.getState().notifications.filter(n => n.onUndo).map(n => n.title), ['older']);
+
+    await React.act(async () => { shortcutBus.emit('undoAction'); });
+    await React.act(async () => { shortcutBus.emit('undoAction'); }); // nothing left — no throw, no change
+    assert.deepEqual(undone, ['newer', 'older']);
+  });
+});
+
+describe('MessageList — configurable hover quick actions (#440)', () => {
+  // The stubbed t() returns key paths, so button titles ARE their i18n keys here.
+  const TITLES = {
+    markRead: 'contextMenu.markRead', star: 'contextMenu.star',
+    archive: 'shortcuts.actions.archive.label', snooze: 'contextMenu.snooze.label',
+    delete: 'common.delete', move: 'contextMenu.moveToFolder',
+  };
+  const hoverTitles = async (msgid) => {
+    const row = container.querySelector(`[data-msgid="${msgid}"]`);
+    assert.ok(row, `expected a row for ${msgid}`);
+    await React.act(async () => {
+      row.dispatchEvent(new dom.window.MouseEvent('mouseover', { bubbles: true }));
+    });
+    return [...row.querySelectorAll('button[title]')].map(b => b.getAttribute('title'));
+  };
+
+  test('the configured set picks which buttons render, in canonical order', async () => {
+    await mount({ rows: [MESSAGE], threadedView: false });
+    await React.act(async () => { useStore.setState({ hoverActionSet: ['archive', 'snooze', 'delete'] }); });
+    const titles = await hoverTitles('msg-1');
+    assert.deepEqual(titles, [TITLES.archive, TITLES.snooze, TITLES.delete]);
+  });
+
+  test('the default set is the pre-#440 cluster exactly', async () => {
+    await mount({ rows: [MESSAGE], threadedView: false });
+    await React.act(async () => { useStore.setState({ hoverActionSet: ['markRead', 'star', 'delete', 'move'] }); });
+    const titles = await hoverTitles('msg-1');
+    assert.deepEqual(titles, [TITLES.markRead, TITLES.star, TITLES.delete, TITLES.move]);
+  });
+});
+
+describe('MessageList — reopening a saved draft keeps its Bcc', () => {
+  // The Bcc lives only in the draft on the server, and saving a reopened draft replaces that copy.
+  // Compose used to open with an empty Bcc, so the next save erased the recipients for good.
+  const DRAFT = { ...MESSAGE, id: 'draft-1', folder: 'Drafts', uid: 7, is_read: true, subject: 'Draft subject',
+    to_addresses: [{ name: '', email: 'alice@example.com' }], cc_addresses: [] };
+
+  const openDraft = async ({ bcc }) => {
+    ROUTES = { '/mail/messages/draft-1/body': [200, { html: '<p>hello</p>', text: 'hello' }], '/mail/messages/draft-1/bcc': bcc };
+    const opened = [];
+    await React.act(async () => { useStore.setState({ openCompose: d => opened.push(d), notifications: [], selectedMessageId: null }); });
+    await mount({ rows: [DRAFT], threadedView: false, folder: 'Drafts' });
+    const row = container.querySelector('[data-msgid="draft-1"]');
+    assert.ok(row, 'expected a row for the draft');
+    await React.act(async () => {
+      (row.querySelector('[draggable]') || row).dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true }));
+      await new Promise(r => setTimeout(r, 10));
+    });
+    ROUTES = {};
+    return opened;
+  };
+
+  test('compose opens with the Bcc, as recipients rather than text to re-split', async () => {
+    const bcc = [{ name: 'Doe, Jane', email: 'jane@example.com' }];
+    const opened = await openDraft({ bcc: [200, { bcc }] });
+    assert.equal(opened.length, 1);
+    assert.equal(opened[0].draftUid, 7);
+    assert.deepEqual(opened[0].bcc, bcc);
+  });
+
+  test('a draft whose Bcc cannot be read opens read-only, with an error, never in compose', async () => {
+    const opened = await openDraft({ bcc: [502, { error: "Could not read this draft's Bcc recipients from the mail server." }] });
+    assert.equal(opened.length, 0);
+    assert.equal(useStore.getState().selectedMessageId, 'draft-1');
+    assert.ok(useStore.getState().notifications.some(n => n.type === 'error' && n.title === 'messageList.draftBcc.failTitle'));
+    await React.act(async () => { useStore.setState({ selectedMessageId: null, notifications: [] }); });
   });
 });

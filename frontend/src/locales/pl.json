@@ -223,6 +223,7 @@
     "archive": "Archiwizuj",
     "star": "Oznacz gwiazdką",
     "delete": "Usuń",
+    "downloadEml": "Pobierz jako .eml",
     "print": "Drukuj",
     "more": "Więcej",
     "summarize": "Podsumuj",
@@ -288,6 +289,8 @@
     "messagesPerPage": "Wiadomości na stronę",
     "selectAll": "Zaznacz wszystkie",
     "deselectAll": "Odznacz wszystkie",
+    "starSelected": "Oznacz gwiazdką",
+    "unstarSelected": "Usuń gwiazdkę",
     "markReadSelected": "Oznacz jako przeczytane",
     "markUnreadSelected": "Oznacz jako nieprzeczytane",
     "archiveSelected": "Zarchiwizuj zaznaczone",
@@ -309,6 +312,10 @@
       "failTitle": "Usuwanie nie powiodło się",
       "failBody": "Nie udało się usunąć wiadomości.",
       "conversationTitle": "Konwersacja usunięta"
+    },
+    "draftBcc": {
+      "failTitle": "Wersja robocza otwarta tylko do odczytu",
+      "failBody": "Nie udało się odczytać odbiorców UDW z serwera poczty, a zapisanie wersji roboczej bez nich by ich usunęło. Spróbuj ponownie za chwilę."
     },
     "bulkDeleted": {
       "title_one": "Usunięto {{count}} wiadomość",
@@ -640,6 +647,10 @@
         "label": "Zaznacz wiadomość",
         "description": "Zaznacz lub odznacz bieżącą wiadomość"
       },
+      "undoAction": {
+        "label": "Cofnij ostatnią akcję",
+        "description": "Cofa ostatnią archiwizację, usunięcie, przeniesienie lub oznaczenie jako spam, dopóki widoczne jest powiadomienie"
+      },
       "printMessage": {
         "label": "Drukuj",
         "description": "Drukuj bieżącą wiadomość"
@@ -659,9 +670,6 @@
       "toggleRightSidebar": {
         "label": "Przełącz prawy panel",
         "description": "Ukryj lub pokaż prawy panel boczny"
-      },
-      "gtdUndo": {
-        "description": "Cofnij ostatnią klasyfikację GTD"
       }
     }
   },
@@ -996,7 +1004,7 @@
       "defaultReplyAll": "Odpowiedz wszystkim",
       "defaultReplyAllDesc": "Przycisk „Odpowiedz wszystkim” wysyła wiadomość do wszystkich odbiorców",
       "defaultSender": "Domyślny nadawca",
-      "defaultSenderDesc": "Adres, z którego wysyłane są nowe wiadomości tworzone poza konkretnym kontem, na przykład ze wspólnej skrzynki. Odpowiedzi zawsze korzystają z konta, które otrzymało wiadomość.",
+      "defaultSenderDesc": "Adres, z którego wysyłane są nowe wiadomości, niezależnie od tego, które konto przeglądasz. Odpowiedzi i przekazywane wiadomości zawsze korzystają z konta, które otrzymało wiadomość.",
       "defaultSenderLastUsed": "Ostatnio używane konto",
       "markReadBehavior": "Oznacz jako przeczytane",
       "markReadImmediate": "Natychmiast",

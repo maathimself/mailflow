@@ -221,6 +221,7 @@
     "archive": "Archivia",
     "star": "Segna con stella",
     "delete": "Elimina",
+    "downloadEml": "Scarica come .eml",
     "print": "Stampa",
     "more": "Altro",
     "summarize": "Riassumi",
@@ -286,6 +287,8 @@
     "messagesPerPage": "Messaggi per pagina",
     "selectAll": "Seleziona tutto",
     "deselectAll": "Deseleziona tutto",
+    "starSelected": "Aggiungi stella",
+    "unstarSelected": "Rimuovi stella",
     "markReadSelected": "Segna come letto",
     "markUnreadSelected": "Segna come non letto",
     "archiveSelected": "Archivia selezionati",
@@ -307,6 +310,10 @@
       "failTitle": "Eliminazione fallita",
       "failBody": "Impossibile eliminare il messaggio.",
       "conversationTitle": "Conversazione eliminata"
+    },
+    "draftBcc": {
+      "failTitle": "Bozza aperta in sola lettura",
+      "failBody": "Impossibile leggere i destinatari in Bcc dal server di posta, e salvarla senza di loro li cancellerebbe. Riprova tra poco."
     },
     "bulkDeleted": {
       "title_one": "{{count}} messaggio eliminato",
@@ -624,6 +631,10 @@
         "label": "Seleziona messaggio",
         "description": "Seleziona o deseleziona il messaggio corrente"
       },
+      "undoAction": {
+        "label": "Annulla l'ultima azione",
+        "description": "Annulla l'ultima archiviazione, eliminazione, spostamento o segnalazione spam finché l'avviso è visibile"
+      },
       "printMessage": {
         "label": "Stampa",
         "description": "Stampa il messaggio corrente"
@@ -639,9 +650,6 @@
       "gtdDelegated": {
         "label": "Segna Delegato",
         "description": "Classifica il messaggio selezionato come Delegato"
-      },
-      "gtdUndo": {
-        "description": "Annulla l'ultima classificazione GTD"
       },
       "toggleRightSidebar": {
         "label": "Mostra o nascondi la barra laterale destra",
@@ -980,7 +988,7 @@
       "defaultReplyAll": "Rispondi a tutti",
       "defaultReplyAllDesc": "Il pulsante Rispondi invia a tutti i destinatari",
       "defaultSender": "Mittente predefinito",
-      "defaultSenderDesc": "Da quale indirizzo vengono inviati i nuovi messaggi quando scrivi al di fuori di un account specifico, ad esempio dalla posta unificata. Le risposte usano sempre l'account che ha ricevuto il messaggio.",
+      "defaultSenderDesc": "Da quale indirizzo vengono inviati i nuovi messaggi, qualunque sia l'account che stai visualizzando. Le risposte e gli inoltri usano sempre l'account che ha ricevuto il messaggio.",
       "defaultSenderLastUsed": "Ultimo account usato",
       "markReadBehavior": "Segna come letto",
       "markReadImmediate": "Immediatamente",

@@ -616,8 +616,8 @@ MailFlow is free and open source. If it's useful to you, consider supporting dev
 ### GitHub Sponsors
 
 <!-- SPONSORS-START -->
-<a href="https://github.com/lindstrm" title="lindstrm"><img src="https://avatars.githubusercontent.com/u/321951?s=64&u=76e44fd34335455397911bf1e14e0d35a1053ec2&v=4" width="48" height="48" alt="lindstrm" style="border-radius:50%;margin:4px"></a>
 <a href="https://github.com/shamoon" title="shamoon"><img src="https://avatars.githubusercontent.com/u/4887959?s=64&v=4" width="48" height="48" alt="shamoon" style="border-radius:50%;margin:4px"></a>
+<a href="https://github.com/chip-well" title="chip-well"><img src="https://avatars.githubusercontent.com/u/80933507?s=64&u=a1ab1fc07b1cf5a6822453c007abfe24a581a420&v=4" width="48" height="48" alt="chip-well" style="border-radius:50%;margin:4px"></a>
 <!-- SPONSORS-END -->
 
 ---

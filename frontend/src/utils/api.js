@@ -248,6 +248,7 @@ export const api = {
     return request('GET', `/mail/thread/${encodeURIComponent(threadId)}${query}`);
   },
   bulkRead: (ids, read) => request('POST', '/mail/messages/bulk-read', { ids, read }),
+  bulkStar: (ids, starred) => request('POST', '/mail/messages/bulk-star', { ids, starred }),
   markStarred: (id, starred) => request('PATCH', `/mail/messages/${id}/star`, { starred }),
   markAllRead: (accountId, folder) => request('POST', '/mail/mark-all-read', { accountId, folder }),
   deleteMessage: (id) => request('DELETE', `/mail/messages/${id}`),
@@ -270,6 +271,7 @@ export const api = {
   markHam:  (id) => request('POST', `/mail/messages/${id}/ham`),
 
   getMessageHeaders: (id) => request('GET', `/mail/messages/${id}/headers`),
+  getMessageBcc: (id) => request('GET', `/mail/messages/${id}/bcc`),
   snoozeMessage: (id, until) => request('POST', `/mail/messages/${id}/snooze`, { until }),
 
   // Sanitized diagnostics report (server-owned sections; scoped to the user).

@@ -125,7 +125,7 @@ export default function MessageList() {
     setMobileSidebarOpen, unreadCounts, showContacts, setShowContacts,
     threadedView, expandedThreadId, setExpandedThreadId,
     threadMessages, setThreadMessages, clearThreadMessages, loadingThread, setLoadingThread,
-    hoverQuickActions, showMobileAvatars, showMessagePreviews,
+    hoverQuickActions, hoverActionSet, showMobileAvatars, showMessagePreviews,
     swipeActions,
     folders, favoriteFolders, addFavoriteFolder, removeFavoriteFolder, setSelectedAccount,
     categorizationEnabled, categoryCounts, setCategoryCounts, adjustCategoryCount,
@@ -197,7 +197,7 @@ export default function MessageList() {
   const pullDirectionRef = useRef(null);
   const pullDistRef = useRef(0);
   const handleSyncRef = useRef(null);
-  const [contextMenu, setContextMenu] = useState(null); // { x, y, message, defaultMoveView? }
+  const [contextMenu, setContextMenu] = useState(null); // { x, y, message, defaultMoveView?, defaultSnoozeView? }
   const [searchFocused, setSearchFocused] = useState(false);
   const [searchHasMore, setSearchHasMore] = useState(false);
   const [searchLoadingMore, setSearchLoadingMore] = useState(false);
@@ -1459,6 +1459,31 @@ export default function MessageList() {
     });
   }, [displayMessages]);
 
+  // #220: Ctrl/Cmd- or Shift-click on a row OUTSIDE selection mode enters it in one action,
+  // the way desktop file managers do. The message already open in the pane is the anchor
+  // when there is one: Ctrl/Cmd seeds {anchor, clicked}; Shift seeds the whole range between
+  // them. Without an anchor, the clicked row alone starts the selection.
+  const handleModifierSelect = useCallback((id, isRange) => {
+    const msgs = displayMessages;
+    const clickedIdx = msgs.findIndex(m => m.id === id);
+    if (clickedIdx === -1) return;
+    const anchorIdx = msgs.findIndex(m => m.id === selectedMessageId);
+    setSelectionModeActive(true);
+    setSelectedIds(() => {
+      const next = new Set();
+      if (isRange && anchorIdx >= 0) {
+        for (let i = Math.min(anchorIdx, clickedIdx); i <= Math.max(anchorIdx, clickedIdx); i++) {
+          next.add(msgs[i].id);
+        }
+      } else {
+        if (anchorIdx >= 0) next.add(msgs[anchorIdx].id);
+        next.add(id);
+      }
+      return next;
+    });
+    lastSelectIdxRef.current = clickedIdx;
+  }, [displayMessages, selectedMessageId]);
+
   // Called on shift-click: selects all rows between anchor and current index
   const handleRangeSelect = useCallback((id) => {
     const msgs = displayMessages;
@@ -1873,10 +1898,29 @@ export default function MessageList() {
     }
   }, [updateMessage, decrementUnread, incrementUnread, adjustCategoryCount]);
 
+  // Bulk star (#434). Same optimistic shape as bulk mark-read, minus the unread-count
+  // bookkeeping: stars never touch counts. Direction mirrors the single-message star and
+  // bulk read convention — any unstarred message in the selection means "star them all".
+  const handleBulkStar = useCallback(async (ids, msgs) => {
+    const markAsStarred = msgs.some(m => !m.is_starred);
+    msgs.forEach(msg => updateMessage(msg.id, { is_starred: markAsStarred }));
+    setSelectedIds(new Set());
+    setSelectionModeActive(false);
+    try {
+      await api.bulkStar(ids, markAsStarred);
+    } catch (err) {
+      console.error('Bulk star failed:', err);
+      msgs.forEach(msg => updateMessage(msg.id, { is_starred: msg.is_starred }));
+    }
+  }, [updateMessage]);
+
   const autoMarkReadTimerRef = useRef(null);
   useEffect(() => () => clearTimeout(autoMarkReadTimerRef.current), []);
 
   // Keep refs to bulk handlers so the shortcut effect (registered once) is never stale
+  const contextActionRef = useRef(null);
+  // handleContextAction is not memoized, so refresh the ref every render.
+  useEffect(() => { contextActionRef.current = handleContextAction; });
   const bulkDeleteRef    = useRef(handleBulkDelete);
   const bulkArchiveRef   = useRef(handleBulkArchive);
   const scheduleDeleteRef = useRef(scheduleDelete);
@@ -1969,7 +2013,12 @@ export default function MessageList() {
       } else if (selectedMessageId) {
         const msg = findVisibleArchiveMessage(pool, selectedMessageId, threadMessages);
         if (!msg) return;
-        archiveVisibleMessageRef.current(msg);
+        // #449: through the context-action path, whose undoable wrapper delays the real
+        // archive and shows the undo toast — calling archiveVisibleMessage directly
+        // committed instantly, which made the keyboard's own archive the one action
+        // Ctrl+Z could never take back (found by the browser smoke; every pointer
+        // surface already had the toast).
+        contextActionRef.current('archive', msg);
       }
     };
 
@@ -2063,6 +2112,22 @@ export default function MessageList() {
       searchInputRef.current?.select();
     };
 
+    // #449: Ctrl/Cmd+Z fires the newest still-pending undo — the same onUndo the visible
+    // UndoBar button runs, so the keyboard can never undo more than the toasts offer, and
+    // an expired window (toast gone, commit fired) is simply not undoable any more.
+    // Notifications are stored newest-first. This supersedes GTD's own ctrl+z: a GTD
+    // classification's undo is an onUndo notification like any other, so newest-wins
+    // ordering now spans both systems instead of two handlers fighting over one key.
+    // Removal precedes onUndo, matching the GTD handler it replaces, so a re-entrant
+    // emit can never run the same undo twice.
+    const onUndoAction = () => {
+      const state = getState();
+      const last = state.notifications.find(n => typeof n.onUndo === 'function');
+      if (!last) return;
+      state.removeNotification(last.id);
+      void last.onUndo();
+    };
+
     // (GTD classify keys t/w/d are handled by the GTD plugin's runtime, not here.)
     shortcutBus.on('nextMessage',   onNext);
     shortcutBus.on('prevMessage',   onPrev);
@@ -2075,6 +2140,7 @@ export default function MessageList() {
     shortcutBus.on('forward',       onForward);
     shortcutBus.on('replyAllFromSelection', onReplyAllFromSelection);
     shortcutBus.on('focusSearch',   onFocusSearch);
+    shortcutBus.on('undoAction',    onUndoAction);
 
     return () => {
       shortcutBus.off('nextMessage',   onNext);
@@ -2088,6 +2154,7 @@ export default function MessageList() {
       shortcutBus.off('forward',       onForward);
       shortcutBus.off('replyAllFromSelection', onReplyAllFromSelection);
       shortcutBus.off('focusSearch',   onFocusSearch);
+      shortcutBus.off('undoAction',    onUndoAction);
     };
   }, []);
 
@@ -2098,6 +2165,16 @@ export default function MessageList() {
     const row = listRef.current.querySelector(`[data-msgid="${selectedMessageId}"]`);
     row?.scrollIntoView({ block: 'nearest' });
   }, [selectedMessageId]);
+
+  // #440 hover-cluster extras. Archive rides the context-action path, which already
+  // carries the undo toast; snooze opens the existing context menu directly in its
+  // snooze picker, anchored at the cursor — the same pattern hover-move set with
+  // defaultMoveView.
+  const handleHoverArchive = (e, msg) => { e.stopPropagation(); handleContextAction('archive', msg); };
+  const handleHoverSnooze = (e, msg) => {
+    e.stopPropagation();
+    setContextMenu({ x: e.clientX, y: e.clientY, message: msg, defaultSnoozeView: true });
+  };
 
   const handleOpenFolderPicker = useCallback(async (selectedMsgs) => {
     if (showFolderPicker) { setShowFolderPicker(false); return; }
@@ -2400,7 +2477,21 @@ export default function MessageList() {
   const handleSelect = async (message) => {
     if (isDraftsFolder) {
       try {
-        const bodyData = await api.getMessageBody(message.id);
+        const [bodyData, bcc] = await Promise.all([
+          api.getMessageBody(message.id),
+          api.getMessageBcc(message.id).then(r => r.bcc, err => {
+            console.error('Failed to read draft Bcc:', err.message);
+            return null;
+          }),
+        ]);
+        // The Bcc exists only in the draft itself, and saving the reopened draft replaces that
+        // copy. Opening it for editing with an empty Bcc is what used to erase it, so when the Bcc
+        // cannot be read the draft opens read-only instead.
+        if (!Array.isArray(bcc)) {
+          addNotification({ type: 'error', title: t('messageList.draftBcc.failTitle'), body: t('messageList.draftBcc.failBody') });
+          setSelectedMessage(message.id);
+          return;
+        }
         // A saved draft is one document: body, signature, then any quoted text. Handing all of
         // it over as the body left the signature inline AND had compose render a fresh one, so
         // every save/reopen cycle added another copy (#432). Lift the signature back out, or
@@ -2415,6 +2506,9 @@ export default function MessageList() {
           draftFolder: message.folder,
           to: formatAddressArray(message.to_addresses),
           cc: formatAddressArray(message.cc_addresses),
+          // { name, email } objects rather than formatted strings, so compose quotes a display
+          // name that contains a comma instead of splitting it into two recipients (#224).
+          bcc,
           subject: message.subject || '',
           body,
           bodyIsHtml: !!bodyData.html,
@@ -2543,6 +2637,7 @@ export default function MessageList() {
   const selectedAccountIds = [...new Set(selectedMsgs.map(m => m.account_id))];
   const canMove = selectedAccountIds.length === 1;
   const bulkMarkAsRead = selectedMsgs.some(m => !m.is_read);
+  const bulkMarkAsStarred = selectedMsgs.some(m => !m.is_starred);
 
   return (
     <div style={{
@@ -3437,7 +3532,7 @@ export default function MessageList() {
             onClearSearch={() => { setSearchQuery(''); }}
             onRetrySearch={() => setSearchReloadToken(token => token + 1)}
             onShowAll={() => setUnreadOnly(false)}
-            onCompose={() => openCompose({ accountId: selectedAccountId || undefined })}
+            onCompose={() => openCompose({})}
           />
         )}
 
@@ -3481,6 +3576,16 @@ export default function MessageList() {
                   <circle cx="19.96" cy="6" r="3" fill="var(--accent)" stroke="var(--accent)"/>
                 </svg>
               )}
+            </BulkBtn>
+
+            {/* Star / unstar button (#434) */}
+            <BulkBtn
+              title={bulkMarkAsStarred ? t('messageList.starSelected') : t('messageList.unstarSelected')}
+              onClick={() => handleBulkStar([...selectedIds], selectedMsgs)}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill={bulkMarkAsStarred ? 'none' : 'currentColor'} stroke="currentColor" strokeWidth="2">
+                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+              </svg>
             </BulkBtn>
 
             {/* Archive button */}
@@ -3736,6 +3841,9 @@ export default function MessageList() {
                 onStar={handleStar}
                 onDelete={handleDelete}
                 hoverQuickActions={hoverQuickActions}
+                hoverActionSet={hoverActionSet}
+                onArchive={handleHoverArchive}
+                onSnooze={handleHoverSnooze}
                 onContextMenu={(e, msg) => {
                   e.preventDefault();
                   setContextMenu({ x: e.clientX, y: e.clientY, message: msg });
@@ -3751,6 +3859,7 @@ export default function MessageList() {
                 selectionMode={selectionMode}
                 onToggleSelect={handleRowToggleSelect}
                 onRangeSelect={handleRangeSelect}
+                onModifierSelect={handleModifierSelect}
                 onLongPress={isMobile ? (id) => { setSelectionModeActive(true); toggleSelect(id); } : undefined}
                 onExplainSpam={(msg) => setSpamExplainMessageId(msg.id)}
               />
@@ -3774,6 +3883,7 @@ export default function MessageList() {
                 onOpenWindow={!isMobile ? handleOpenInWindow : undefined}
                 onToggleSelect={handleRowToggleSelect}
                 onRangeSelect={handleRangeSelect}
+                onModifierSelect={handleModifierSelect}
                 onAvatarClick={!isMobile ? handleAvatarClick : undefined}
                 showMobileAvatars={showMobileAvatars}
                 showMessagePreviews={showMessagePreviews}
@@ -3781,6 +3891,9 @@ export default function MessageList() {
                 onStar={handleStar}
                 onDelete={handleDelete}
                 hoverQuickActions={hoverQuickActions}
+                hoverActionSet={hoverActionSet}
+                onArchive={handleHoverArchive}
+                onSnooze={handleHoverSnooze}
                 onContextMenu={(e, msg) => {
                   e.preventDefault();
                   setContextMenu({ x: e.clientX, y: e.clientY, message: msg });
@@ -3805,6 +3918,7 @@ export default function MessageList() {
             y={contextMenu.y}
             message={contextMenu.message}
             defaultMoveView={contextMenu.defaultMoveView}
+            defaultSnoozeView={contextMenu.defaultSnoozeView}
             onClose={() => setContextMenu(null)}
             onAction={(action, data) => handleContextAction(action, contextMenu.message, data)}
           />
@@ -3997,7 +4111,7 @@ export default function MessageList() {
             </button>
           )}
           <button
-            onClick={() => openCompose({ accountId: selectedAccountId || undefined })}
+            onClick={() => openCompose({})}
             aria-label={t('messageList.composeAriaLabel')}
             style={{
               pointerEvents: fabVisible ? 'auto' : 'none',
@@ -4225,7 +4339,7 @@ function EmptyState({ folderSyncing, searchQuery, searchError, unreadOnly, selec
   );
 }
 
-function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, selectedAcct, lastViewedMessageId, showAccount, isNarrow, onThreadClick, onThreadToggle, showMobileAvatars, showMessagePreviews, onSelect, onOpenWindow, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onLongPress, onExplainSpam }) {
+function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, selectedAcct, lastViewedMessageId, showAccount, isNarrow, onThreadClick, onThreadToggle, showMobileAvatars, showMessagePreviews, onSelect, onOpenWindow, onMarkRead, onStar, onDelete, hoverQuickActions, hoverActionSet, onArchive, onSnooze, onContextMenu, onMove, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onModifierSelect, onLongPress, onExplainSpam }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const messageCount = message.message_count || 1;
@@ -4284,7 +4398,18 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
         onClick={selectionMode ? (e) => {
           if (e.shiftKey && onRangeSelect) { onRangeSelect(message.id); }
           else { onToggleSelect(message.id); }
-        } : () => { if (tappedRef.current) { tappedRef.current = false; return; } onThreadClick(); }}
+        } : (e) => {
+          // #220: same modifier-click entry as the flat MessageRow. The browser smoke
+          // caught this row type missing it — dev defaults to threaded view, so the
+          // jsdom tests (threadedView: false) never exercised ThreadRow.
+          if (!isMobile && (e.ctrlKey || e.metaKey || e.shiftKey) && onModifierSelect) {
+            e.preventDefault();
+            onModifierSelect(message.id, e.shiftKey);
+            return;
+          }
+          if (tappedRef.current) { tappedRef.current = false; return; }
+          onThreadClick();
+        }}
         onContextMenu={!isMobile ? (e => onContextMenu(e, message)) : undefined}
         style={{
           display: 'flex', alignItems: 'flex-start', gap: 10,
@@ -4461,6 +4586,9 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
             onStar={onStar}
             onDelete={onDelete}
             onMove={onMove}
+            onArchive={onArchive}
+            onSnooze={onSnooze}
+            actions={hoverActionSet}
             rowActionCtx={{ message }}
           />
         )}
@@ -4530,7 +4658,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
   );
 }
 
-function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, showAccount, isNarrow, onSelect, onOpenWindow, onToggleSelect, onRangeSelect, onAvatarClick, showMobileAvatars, showMessagePreviews, onMarkRead, onStar, onDelete, hoverQuickActions, onContextMenu, onMove, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, onLongPress, onExplainSpam }) {
+function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, showAccount, isNarrow, onSelect, onOpenWindow, onToggleSelect, onRangeSelect, onModifierSelect, onAvatarClick, showMobileAvatars, showMessagePreviews, onMarkRead, onStar, onDelete, hoverQuickActions, hoverActionSet, onArchive, onSnooze, onContextMenu, onMove, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, onLongPress, onExplainSpam }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const [avatarHovered, setAvatarHovered] = useState(false);
@@ -4567,6 +4695,11 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
       } else {
         onToggleSelect(message.id);
       }
+    } else if (!isMobile && (e.ctrlKey || e.metaKey || e.shiftKey) && onModifierSelect) {
+      // #220: a modifier-click outside selection mode enters it in one action instead of
+      // opening the message. preventDefault stops shift-click's native text selection.
+      e.preventDefault();
+      onModifierSelect(message.id, e.shiftKey);
     } else {
       // onTap already fired this from touchend — skip the redundant synthesized click.
       if (tappedRef.current) { tappedRef.current = false; return; }
@@ -4791,6 +4924,9 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
           onStar={onStar}
           onDelete={onDelete}
           onMove={onMove}
+          onArchive={onArchive}
+          onSnooze={onSnooze}
+          actions={hoverActionSet}
           rowActionCtx={{ message }}
         />
       )}

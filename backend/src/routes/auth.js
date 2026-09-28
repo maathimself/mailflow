@@ -770,7 +770,7 @@ export async function patchPreferences(req, res) {
           categorizationEnabled, markReadBehavior, markReadDelay, aiActions,
           autoLockMinutes, showMobileAvatars, gravatarAvatars, folderSyncInterval,
           folderOrder, senderFavicons, showMessagePreviews, defaultSender,
-          conversationMode } = req.body;
+          conversationMode, hoverActionSet } = req.body;
   // GTD content and generic right-sidebar layout preferences are independent flat
   // top-level keys with separate allow-lists. gtdEnabled is intentionally NOT a user
   // preference — it lives per-account in email_accounts.gtd_enabled.
@@ -829,6 +829,12 @@ export async function patchPreferences(req, res) {
   const senderFaviconsVal = hasSenderFavicons ? senderFavicons : null;
   // Only the three known modes are stored; anything else is ignored rather than persisted.
   const conversationModeVal = ['off', 'list', 'pane'].includes(conversationMode) ? conversationMode : null;
+  // #440: which hover quick actions the message list shows. Same vocabulary and canonical
+  // order as frontend/src/utils/hoverActions.js; unknown keys are dropped rather than stored.
+  const HOVER_ACTION_KEYS = ['markRead', 'star', 'archive', 'snooze', 'delete', 'move'];
+  const hoverActionSetJson = Array.isArray(hoverActionSet)
+    ? JSON.stringify(HOVER_ACTION_KEYS.filter(k => hoverActionSet.includes(k)))
+    : null;
 
   await query(`
     UPDATE users
@@ -875,6 +881,7 @@ export async function patchPreferences(req, res) {
       || CASE WHEN $41::boolean IS NOT NULL THEN jsonb_build_object('showMessagePreviews', $41::boolean) ELSE '{}'::jsonb END
       || CASE WHEN $42::text IS NOT NULL THEN jsonb_build_object('defaultSender', $42::text) ELSE '{}'::jsonb END
       || CASE WHEN $43::text IS NOT NULL THEN jsonb_build_object('conversationMode', $43::text) ELSE '{}'::jsonb END
+      || CASE WHEN $44::jsonb IS NOT NULL THEN jsonb_build_object('hoverActionSet', $44::jsonb) ELSE '{}'::jsonb END
     WHERE id = $1
   `, [req.session.userId, theme ?? null, font ?? null, layout ?? null, notificationSound ?? null,
       pageSize ?? null, scrollMode ?? null, syncInterval ?? null,
@@ -885,7 +892,7 @@ export async function patchPreferences(req, res) {
       categorizationEnabled ?? null, markReadBehaviorVal, markReadDelayVal, aiActionsJson,
       rightSidebarWidth, rightSidebarHidden, gtdCollapsedSectionsJson, gtdPetSlug, autoLockMinutesVal,
       showMobileAvatars ?? null, gravatarAvatars ?? null, folderSyncIntervalVal, folderOrderJson, senderFaviconsVal,
-      showMessagePreviews ?? null, defaultSenderVal, conversationModeVal]);
+      showMessagePreviews ?? null, defaultSenderVal, conversationModeVal, hoverActionSetJson]);
 
   if (syncInterval != null) {
     const ms = parseInt(syncInterval) * 1000;

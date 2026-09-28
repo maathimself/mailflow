@@ -9,7 +9,7 @@ import { imapManager } from '../index.js';
 import { extractImapError } from '../services/imapError.js';
 import { isConnectionRefusal } from '../services/imapManager.js';
 import { sanitizeEmail, stripEmailHead, hasRemoteImages, blockRemoteImages, rewriteEbayImageserUrls, rewriteAnchorHrefs } from '../services/emailSanitizer.js';
-import { snippetFromBody, decodeMimeWords, parseRawHeaders, buildHeadersFromMessage } from '../services/messageParser.js';
+import { snippetFromBody, decodeMimeWords, parseRawHeaders, parseMailboxList, buildHeadersFromMessage } from '../services/messageParser.js';
 import { resolveTrashFolder, resolveAllTrashPaths, resolveAllDraftsPaths, resolveArchiveFolder, isAllMailFolder, resolveSpamFolder, resolveAllSpamPaths, getDeleteStrategy, adjustFolderCounts, fanOutReadToSiblings, fanOutStarToSiblings, fanOutBulkReadToSiblings } from '../utils/mailUtils.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { listMessages } from '../services/messageService.js';
@@ -75,11 +75,15 @@ async function runInBatches(items, concurrency, fn) {
 //     search_vector,
 //     thread_key           -> GENERATED ALWAYS columns; Postgres computes them, and inserting
 //                             an explicit value (even NULL) errors.
+//   - is_deleted,
+//     snippet_attempted_at -> never carried; left at their defaults. The reasons are with the
+//                             exclusion list in mail.relocate.test.js.
 //
 // IMPORTANT: when a migration adds a data column to `messages`, add it to RELOCATE_COPY_COLS
-// or a relocate will silently reset it to its default. This list previously went stale and
-// dropped delivery_addresses (0037), plugin_annotations (0044) and sender_name/sender_email
-// (0050). A unit test (mail.relocate.test.js) guards the four that regression touched.
+// or a relocate will silently reset it to its default. This list has gone stale twice, dropping
+// delivery_addresses (0037), plugin_annotations (0044) and sender_name/sender_email (0050), and
+// then forwarded_from_name/forwarded_from_email/forwarded_via (0059). mail.relocate.test.js now
+// reads every migration and fails on any messages column that is neither here nor excluded.
 const RELOCATE_COPY_COLS = [
   'message_id', 'subject', 'from_name', 'from_email', 'to_addresses', 'cc_addresses',
   'reply_to', 'in_reply_to', 'date', 'snippet', 'is_read', 'is_starred', 'has_attachments',
@@ -87,7 +91,8 @@ const RELOCATE_COPY_COLS = [
   'read_changed_at', 'star_changed_at', 'spam_score_sa', 'spam_score_ml', 'spam_verdict',
   'spam_analyzed_at', 'spam_details', 'spam_user_override', 'category', 'list_unsubscribe',
   'list_unsubscribe_post', 'unsubscribed_at', 'delivery_addresses', 'plugin_annotations',
-  'sender_name', 'sender_email',
+  'sender_name', 'sender_email', 'forwarded_from_name', 'forwarded_from_email', 'forwarded_via',
+  'bcc_addresses',
 ];
 // INSERT target list and the matching SELECT projection. account_id + the carried columns come
 // from the deleted row; uid is the UIDPLUS-mapped new uid; folder is the destination ($4).
@@ -590,6 +595,49 @@ router.get('/messages/:id/headers', async (req, res) => {
   }
 });
 
+// Bcc recipients of a draft, for reopening it in the composer. A draft's Bcc exists only in its own
+// headers and saving the reopened draft expunges that copy, so failing to read it has to be an
+// error, never an empty list: an empty list is what erased it. Drafts MailFlow saved carry it in
+// bcc_addresses; anything else (NULL) is read from the copy on the server.
+router.get('/messages/:id/bcc', async (req, res) => {
+  const { id } = req.params;
+  if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
+
+  const unreadable = "Could not read this draft's Bcc recipients from the mail server.";
+  try {
+    const result = await query(`
+      SELECT m.account_id, m.uid, m.folder, m.message_id, m.bcc_addresses FROM messages m
+      JOIN email_accounts a ON m.account_id = a.id
+      WHERE m.id = $1 AND a.user_id = $2
+    `, [id, req.session.userId]);
+    if (!result.rows.length) return res.status(404).json({ error: 'Message not found' });
+    const message = result.rows[0];
+    if (Array.isArray(message.bcc_addresses)) return res.json({ bcc: message.bcc_addresses });
+
+    const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]);
+    const account = accountResult.rows[0];
+    imapManager.noteUserActivity(account.id);
+    const headers = parseRawHeaders(await fetchWithTimeout(
+      imapManager.fetchHeaders(account, message.uid, message.folder),
+      BODY_FETCH_TIMEOUT_MS
+    ));
+    if (!Object.keys(headers).length) {
+      console.warn(`Draft Bcc: no headers for uid ${message.uid} in ${message.folder}`);
+      return res.status(502).json({ error: unreadable });
+    }
+    // Stops a uid that now holds some other message from handing back that message's Bcc.
+    const norm = v => String(v || '').replace(/[<>\s]/g, '').toLowerCase();
+    if (message.message_id && norm(message.message_id) !== norm(headers['message-id'])) {
+      console.warn(`Draft Bcc: uid ${message.uid} in ${message.folder} holds ${headers['message-id'] || 'no Message-ID'}, not ${message.message_id}`);
+      return res.status(409).json({ error: 'This draft changed on the mail server. Refresh the folder and try again.' });
+    }
+    res.json({ bcc: (headers.bcc || '').split('\n').flatMap(line => parseMailboxList(line)) });
+  } catch (err) {
+    console.warn('Draft Bcc fetch failed:', err.message);
+    res.status(502).json({ error: unreadable });
+  }
+});
+
 const ZIP_MAX_FILES = 100;
 const ZIP_MAX_TOTAL_BYTES = 150 * 1024 * 1024; // 150 MB
 const ZIP_MAX_FILE_BYTES  =  50 * 1024 * 1024; //  50 MB per file
@@ -721,6 +769,38 @@ router.get('/messages/:id/attachments/:part', async (req, res) => {
   } catch (err) {
     console.error('Attachment fetch error:', err);
     res.status(500).json({ error: 'Failed to fetch attachment' });
+  }
+});
+
+// Download the full message as an .eml file (#381). The raw RFC 822 source, exactly as the
+// server stores it, so attachments and original headers survive the round trip into any
+// other mail client.
+router.get('/messages/:id/raw.eml', async (req, res) => {
+  const { id } = req.params;
+  if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
+
+  const result = await query(`
+    SELECT m.id, m.uid, m.folder, m.subject, m.account_id, a.user_id FROM messages m
+    JOIN email_accounts a ON m.account_id = a.id
+    WHERE m.id = $1 AND a.user_id = $2
+  `, [id, req.session.userId]);
+  if (!result.rows.length) return res.status(404).json({ error: 'Message not found' });
+  const message = result.rows[0];
+
+  try {
+    const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]);
+    if (!accountResult.rows.length) return res.status(404).json({ error: 'Account not found' });
+    const buffer = await imapManager.fetchRawMessage(accountResult.rows[0], message.uid, message.folder);
+    if (!buffer) return res.status(404).json({ error: 'Could not fetch message source' });
+
+    const name = `${(message.subject || 'message').slice(0, 80)}.eml`;
+    res.setHeader('Content-Type', 'message/rfc822');
+    res.setHeader('Content-Disposition', attachmentDisposition(name));
+    res.setHeader('Content-Length', buffer.length);
+    res.send(buffer);
+  } catch (err) {
+    console.error('Raw message fetch error:', err);
+    res.status(500).json({ error: 'Failed to fetch message source' });
   }
 });
 
@@ -1186,6 +1266,88 @@ router.post('/messages/bulk-read', async (req, res) => {
     res.json({ ok: true, updated: toUpdate.map(m => m.id) });
   } catch (err) {
     console.error('bulk-read error:', err);
+    res.status(500).json({ error: 'Failed to update messages' });
+  }
+});
+
+// Bulk star/unstar (#434). Shaped like bulk-read: skip rows already at the target state,
+// optimistic DB write with the 30s local-wins stamp, then per-account IMAP \Flagged writes
+// with the durable retry queue. Stars never touch unread counts.
+router.post('/messages/bulk-star', async (req, res) => {
+  const { ids, starred } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: 'ids array required' });
+  }
+  if (ids.length > 500) {
+    return res.status(400).json({ error: 'Too many ids — maximum 500 per request' });
+  }
+  if (!areValidUUIDs(ids)) {
+    return res.status(400).json({ error: 'Invalid message IDs' });
+  }
+  if (typeof starred !== 'boolean') {
+    return res.status(400).json({ error: 'starred must be a boolean' });
+  }
+
+  try {
+    const result = await query(
+      `SELECT m.id, m.uid, m.folder, m.is_starred, m.account_id, m.message_id FROM messages m
+       JOIN email_accounts a ON m.account_id = a.id
+       WHERE m.id = ANY($2::uuid[]) AND a.user_id = $1`,
+      [req.session.userId, ids]
+    );
+
+    const owned = result.rows;
+    if (!owned.length) return res.json({ ok: true, updated: [] });
+
+    const toUpdate = owned.filter(m => !!m.is_starred !== !!starred);
+    if (!toUpdate.length) return res.json({ ok: true, updated: [] });
+
+    await query(
+      'UPDATE messages SET is_starred = $1, star_changed_at = NOW() WHERE id = ANY($2::uuid[])',
+      [starred, toUpdate.map(m => m.id)]
+    );
+
+    // GTD sibling fan-out, gated exactly like the single-message star handler. Per message
+    // because the star fan-out is keyed by Message-ID; bounded by the 500-id cap above.
+    const acctIds = [...new Set(toUpdate.map(m => m.account_id))];
+    const gtdAccts = new Set();
+    await Promise.all(acctIds.map(async (aid) => {
+      if (await accountMaintainsLabelSiblings(aid)) gtdAccts.add(aid);
+    }));
+    for (const msg of toUpdate) {
+      if (msg.message_id && gtdAccts.has(msg.account_id)) {
+        await fanOutStarToSiblings(msg.account_id, msg.message_id, starred);
+      }
+    }
+
+    imapManager.broadcast({ type: 'message_flags', changes: toUpdate.map(m => ({ id: m.id, is_starred: starred })) }, req.session.userId);
+
+    const byAccount = {};
+    for (const msg of toUpdate) {
+      (byAccount[msg.account_id] = byAccount[msg.account_id] || []).push(msg);
+    }
+    for (const [accountId, msgs] of Object.entries(byAccount)) {
+      const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
+      const account = accountResult.rows[0];
+      const results = await runInBatches(
+        msgs, 3,
+        msg => imapManager.setFlag(account, msg.uid, msg.folder, '\\Flagged', starred)
+      );
+      results.forEach((r, i) => {
+        if (r.status === 'rejected') {
+          console.error(`bulk-star IMAP ${msgs[i].id}:`, extractImapError(r.reason));
+          imapManager._enqueueFlagPush(accountId, msgs[i].id, '\\Flagged', starred);
+        } else {
+          imapManager._resolveFlagPush(accountId, msgs[i].id, '\\Flagged');
+        }
+      });
+    }
+
+    notifyMailMutation(toUpdate, req.session.userId);
+
+    res.json({ ok: true, updated: toUpdate.map(m => m.id) });
+  } catch (err) {
+    console.error('bulk-star error:', err);
     res.status(500).json({ error: 'Failed to update messages' });
   }
 });
@@ -1984,10 +2146,7 @@ router.post('/messages/:id/snooze', async (req, res) => {
 });
 
 // Delete (move to trash; drafts are permanently deleted)
-router.delete('/messages/:id', async (req, res) => {
-  const { id } = req.params;
-  if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
-
+async function deleteMessage(req, res, id) {
   const result = await query(`
     SELECT m.*, a.user_id FROM messages m
     JOIN email_accounts a ON m.account_id = a.id
@@ -2036,17 +2195,20 @@ router.delete('/messages/:id', async (req, res) => {
         console.error('IMAP move to trash failed:', err.message);
         return res.status(500).json({ error: 'Failed to delete message' });
       }
+      // The trashed row takes a new id, as the bulk relocate does, so a replayed or stale DELETE
+      // of the old id 404s instead of finding the row in Trash and expunging it. A delete from the
+      // Trash view names the new id and stays permanent.
       if (newUid != null) {
         // Delete any stale row the sync may have already inserted at the destination,
         // then update the source row in place to avoid a unique-constraint violation.
         await query('DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 AND id != $4',
           [message.account_id, newUid, trashPath, id]);
-        await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3', [trashPath, newUid, id]);
+        await query('UPDATE messages SET folder = $1, uid = $2, id = gen_random_uuid() WHERE id = $3', [trashPath, newUid, id]);
       } else {
         // Non-UIDPLUS: DB holds the stale source UID at the destination. Guard it so
         // reconcileDeletes does not treat it as an orphan before the next sync corrects it.
         imapManager._guardMoveUid(message.account_id, trashPath, message.uid);
-        await query('UPDATE messages SET folder = $1 WHERE id = $2', [trashPath, id]);
+        await query('UPDATE messages SET folder = $1, id = gen_random_uuid() WHERE id = $2', [trashPath, id]);
         setTimeout(() => imapManager._unguardMoveUid(message.account_id, trashPath, message.uid), 10_000);
       }
     } finally {
@@ -2070,6 +2232,25 @@ router.delete('/messages/:id', async (req, res) => {
   // bulk-delete route addresses, reached via the single-message delete button).
   notifyMailMutation([message], req.session.userId);
   res.json({ ok: true });
+}
+
+// One DELETE per message at a time. An overlapping duplicate's MOVE finds nothing and reads as a
+// non-UIDPLUS success, so it would adjust counts again, and if its UPDATE lands first it re-files
+// the row under the stale source uid and the first request's UPDATE misses the rotated id.
+const deleteInFlight = new Set();
+
+router.delete('/messages/:id', async (req, res) => {
+  const { id } = req.params;
+  if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
+
+  const inflightKey = `${req.session.userId}:${id.toLowerCase()}`;
+  if (deleteInFlight.has(inflightKey)) return res.status(409).json({ error: 'This message is already being deleted' });
+  deleteInFlight.add(inflightKey);
+  try {
+    await deleteMessage(req, res, id);
+  } finally {
+    deleteInFlight.delete(inflightKey);
+  }
 });
 
 // ── Antispam (v0.1) ─────────────────────────────────────────────────────────

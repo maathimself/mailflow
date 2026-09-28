@@ -221,6 +221,7 @@
     "archive": "Arquivar",
     "star": "Marcar com estrela",
     "delete": "Excluir",
+    "downloadEml": "Baixar como .eml",
     "print": "Imprimir",
     "more": "Mais",
     "summarize": "Resumir",
@@ -286,6 +287,8 @@
     "messagesPerPage": "Mensagens por página",
     "selectAll": "Selecionar tudo",
     "deselectAll": "Desmarcar tudo",
+    "starSelected": "Marcar com estrela",
+    "unstarSelected": "Tirar estrela",
     "markReadSelected": "Marcar como lida",
     "markUnreadSelected": "Marcar como não lida",
     "archiveSelected": "Arquivar selecionadas",
@@ -307,6 +310,10 @@
       "failTitle": "Falha ao excluir",
       "failBody": "Não foi possível excluir a mensagem.",
       "conversationTitle": "Conversa excluída"
+    },
+    "draftBcc": {
+      "failTitle": "Rascunho aberto somente para leitura",
+      "failBody": "Não foi possível ler os destinatários em Cco no servidor de e-mail, e salvá-lo sem eles os apagaria. Tente novamente em instantes."
     },
     "bulkDeleted": {
       "title_one": "{{count}} mensagem excluída",
@@ -624,6 +631,10 @@
         "label": "Selecionar mensagem",
         "description": "Marcar ou desmarcar a mensagem atual"
       },
+      "undoAction": {
+        "label": "Desfazer a última ação",
+        "description": "Desfaz o último arquivamento, exclusão, movimentação ou marcação de spam enquanto o aviso está visível"
+      },
       "printMessage": {
         "label": "Imprimir",
         "description": "Imprimir a mensagem atual"
@@ -639,9 +650,6 @@
       "gtdDelegated": {
         "label": "Marcar como Delegada",
         "description": "Classificar a mensagem selecionada como Delegada"
-      },
-      "gtdUndo": {
-        "description": "Desfazer a última classificação GTD"
       },
       "toggleRightSidebar": {
         "label": "Alternar barra lateral direita",
@@ -980,7 +988,7 @@
       "defaultReplyAll": "Responder a todos",
       "defaultReplyAllDesc": "O botão Responder envia a todos os destinatários",
       "defaultSender": "Remetente padrão",
-      "defaultSenderDesc": "De qual endereço as novas mensagens são enviadas quando você escreve fora de uma conta específica, como a partir da caixa de entrada unificada. As respostas sempre usam a conta que recebeu a mensagem.",
+      "defaultSenderDesc": "De qual endereço as novas mensagens são enviadas, qualquer que seja a conta que você está vendo. Respostas e encaminhamentos sempre usam a conta que recebeu a mensagem.",
       "defaultSenderLastUsed": "Última conta usada",
       "markReadBehavior": "Marcar como lida",
       "markReadImmediate": "Imediatamente",

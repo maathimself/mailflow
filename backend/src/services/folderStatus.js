@@ -48,6 +48,13 @@ export async function observeFolder(client, accountId, path) {
     const status = await Promise.race([
       client.status(path, STATUS_QUERY),
       new Promise((_, reject) => { timer = setTimeout(() => {
+        // The close() stays even now that a secondaryOverPool provider hands us its ONE
+        // pooled session (#474 round 5): a session with an abandoned STATUS in flight
+        // must never be reused, and the pool's close handler evicts it, so accounting
+        // self-heals. The cost is bounded to one close per cycle — the caller breaks its
+        // folder loop on an unusable client — and the monitor's failure backoff spaces
+        // the cycles, so a slow server costs one gated grow per backoff window, not six
+        // fresh logins per minute.
         try { client.close(); } catch { /* already closed */ }
         reject(new Error('Folder STATUS timed out'));
       }, 10000); }),
@@ -109,7 +116,9 @@ export class FolderStatusMonitor {
         ORDER BY (f.path='INBOX') DESC, f.status_attempted_at ASC NULLS FIRST, f.path LIMIT $2`, [account.id, STATUS_FOLDER_BATCH]);
       if (!rows.length) return;
       const changed = [];
-      // This connection stays AUTHENTICATED: no selected mailbox, no interference with IDLE.
+      // On the fresh-login path this connection stays AUTHENTICATED (no selected mailbox, no
+      // interference with IDLE). A secondaryOverPool provider hands us a POOLED client
+      // instead, which may have a mailbox selected — STATUS tolerates that (#474 round 5).
       await this.withClient(account, async client => {
         for (const row of rows) {
           try {

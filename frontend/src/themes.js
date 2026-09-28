@@ -1,4 +1,29 @@
 export const THEMES = {
+  system: {
+    label: 'System',
+    description: 'Match OS light/dark setting',
+    preview: ['#0f0f11', '#f0f0f5', '#7c6af7', '#6366f1'],
+    vars: {
+      '--bg-primary': '#0f0f11',
+      '--bg-secondary': '#161619',
+      '--bg-tertiary': '#1e1e23',
+      '--bg-elevated': '#242429',
+      '--bg-hover': '#2a2a30',
+      '--border': '#2e2e35',
+      '--border-subtle': '#232328',
+      '--text-primary': '#e8e8ed',
+      '--text-secondary': '#9898a8',
+      '--text-tertiary': '#5a5a6a',
+      '--accent': '#7c6af7',
+      '--accent-text': '#ffffff',
+      '--accent-dim': '#3d3569',
+      '--accent-glow': 'rgba(124,106,247,0.15)',
+      '--green': '#4ade80',
+      '--red': '#f87171',
+      '--amber': '#fbbf24',
+    }
+  },
+
   dark: {
     label: 'Dark',
     description: 'Default dark theme',
@@ -695,14 +720,33 @@ export function applyCustomCss(css) {
 
 // ── Theme application ─────────────────────────────────────────────────────────
 
+let _activeTheme = 'system';
+let _mediaQueryListenerAttached = false;
+
+function _onSystemThemeChange() {
+  if (_activeTheme === 'system') {
+    applyTheme('system');
+  }
+}
+
+// Returns the concrete theme name ('light', 'dark', etc.) for a theme key.
+// When given 'system', inspects the OS light/dark preference.
+export function resolveEffectiveTheme(themeName) {
+  if (themeName === 'system') {
+    try {
+      if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: light)').matches) {
+        return 'light';
+      }
+    } catch { /* matchMedia unavailable — fall through to dark */ }
+    return 'dark';
+  }
+  return THEMES[themeName] ? themeName : 'dark';
+}
+
 // The theme to use before any stored/server preference is known — i.e. on the
-// login screen and the very first visit. Honors the OS light/dark setting and
-// falls back to dark. matchMedia is guarded so a missing API never throws.
+// login screen and the very first visit. Honors the OS light/dark setting via 'system'.
 export function getInitialTheme() {
-  try {
-    if (window.matchMedia?.('(prefers-color-scheme: light)').matches) return 'light';
-  } catch { /* matchMedia unavailable — fall through to dark */ }
-  return 'dark';
+  return 'system';
 }
 
 // ── Effective accent (theme value, or a custom-CSS override of --accent) ───────
@@ -746,12 +790,23 @@ function refreshAccentDerived() {
 }
 
 export function applyTheme(themeName) {
-  const theme = THEMES[themeName] || THEMES.dark;
+  _activeTheme = themeName || 'system';
+
+  if (!_mediaQueryListenerAttached && typeof window !== 'undefined' && window.matchMedia) {
+    try {
+      const mq = window.matchMedia('(prefers-color-scheme: light)');
+      mq.addEventListener?.('change', _onSystemThemeChange);
+      _mediaQueryListenerAttached = true;
+    } catch { /* matchMedia listener unavailable */ }
+  }
+
+  const effectiveKey = resolveEffectiveTheme(themeName);
+  const theme = THEMES[effectiveKey] || THEMES.dark;
 
   // Expose the active theme as an attribute so a theme can layer scoped skeuomorphic
   // chrome (beveled scrollbars, selection tint) via CSS in index.css without adding
   // structural tokens to every palette. Retro themes (winxp/win9x) use this.
-  document.documentElement.setAttribute('data-mailflow-theme', THEMES[themeName] ? themeName : 'dark');
+  document.documentElement.setAttribute('data-mailflow-theme', themeName === 'system' ? effectiveKey : (THEMES[themeName] ? themeName : 'dark'));
 
   // Inject vars via a <style> element rather than root.style.setProperty so
   // that <style id="mailflow-custom-css"> (appended afterward) can override
@@ -762,9 +817,18 @@ export function applyTheme(themeName) {
     themeEl.id = 'mailflow-theme';
     document.head.appendChild(themeEl);
   }
-  themeEl.textContent = `:root {\n${
-    Object.entries(theme.vars).map(([k, v]) => `  ${k}: ${v};`).join('\n')
-  }\n}`;
+
+  if (themeName === 'system') {
+    themeEl.textContent = `:root {\n${
+      Object.entries(THEMES.dark.vars).map(([k, v]) => `  ${k}: ${v};`).join('\n')
+    }\n  color-scheme: dark;\n}\n@media (prefers-color-scheme: light) {\n  :root {\n${
+      Object.entries(THEMES.light.vars).map(([k, v]) => `    ${k}: ${v};`).join('\n')
+    }\n    color-scheme: light;\n  }\n}`;
+  } else {
+    themeEl.textContent = `:root {\n${
+      Object.entries(theme.vars).map(([k, v]) => `  ${k}: ${v};`).join('\n')
+    }\n  color-scheme: ${effectiveKey === 'light' ? 'light' : 'dark'};\n}`;
+  }
 
   // Recompute favicon + PWA theme-color + logo from the *effective* accent. If a
   // custom-CSS override of --accent is present, getComputedStyle picks it up here;

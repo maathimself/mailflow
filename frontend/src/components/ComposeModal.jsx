@@ -884,7 +884,10 @@ export default function ComposeModal() {
         ...(signatureContentRef.current || fromSignature != null
           ? { editedSignature: plaintextEmail ? plainSig : signatureContentRef.current }
           : {}),
-        ...(draftUid != null && draftFolder != null ? { existingUid: draftUid, existingFolder: draftFolder } : {}),
+        // The old copy stays in the account it was saved to, which From may no longer name.
+        ...(draftUid != null && draftFolder != null && draftAccountId
+          ? { existingUid: draftUid, existingFolder: draftFolder, existingAccountId: draftAccountId }
+          : {}),
       });
       if (result.uid != null) {
         setDraftUid(result.uid);
