@@ -18,6 +18,8 @@ import { invalidateGlobalCategorizationCache } from '../services/categorizer.js'
 import { sanitizeGtdPrefs } from '../utils/gtdPrefs.js';
 import { sanitizeRightSidebarPrefs } from '../utils/rightSidebarPrefs.js';
 import { redisClient } from '../services/redis.js';
+import { destroyUserSessions } from '../services/userSessions.js';
+import { touchLastSeen } from '../services/lastSeen.js';
 import { consume as rlConsume, reset as rlReset } from '../services/rateLimiter.js';
 
 const router = Router();
@@ -42,26 +44,6 @@ function getTrustDurationMs(setting) {
     case '30d': return 30 * 24 * 60 * 60 * 1000;
     case 'permanent': return 365 * 24 * 60 * 60 * 1000;
     default: return 0; // 'never'
-  }
-}
-
-// Delete every server-side session belonging to a user (Redis-backed store, keys
-// prefixed "sess:"). Used after a password reset so a pre-existing session can't
-// outlive a credential change. Best-effort — never throws to the caller.
-async function destroyUserSessions(userId) {
-  try {
-    let cursor = 0;
-    do {
-      const res = await redisClient.scan(cursor, { MATCH: 'sess:*', COUNT: 200 });
-      cursor = res.cursor;
-      for (const key of res.keys) {
-        const raw = await redisClient.get(key);
-        if (!raw) continue;
-        try { if (JSON.parse(raw).userId === userId) await redisClient.del(key); } catch { /* not this user / unparsable */ }
-      }
-    } while (cursor !== 0);
-  } catch (err) {
-    console.error('destroyUserSessions failed:', err.message);
   }
 }
 
@@ -614,14 +596,17 @@ router.post('/logout', async (req, res) => {
   if (userId) imapManager.disconnectUser(userId);
 });
 
-router.get('/me', async (req, res) => {
+export async function getMe(req, res) {
   if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
   const result = await query('SELECT id, username, display_name, avatar, is_admin, totp_enabled, password_hash, lock_pin_hash FROM users WHERE id = $1', [req.session.userId]);
   const user = result.rows[0];
   if (!user) return res.status(401).json({ error: 'Not authenticated' });
+  // /me is what every app start calls, and it sits outside requireAuth, which records the rest.
+  touchLastSeen(user.id);
   req.session.isAdmin = user.is_admin;
   res.json({ user: { id: user.id, username: user.username, displayName: user.display_name, avatar: user.avatar, isAdmin: user.is_admin, totpEnabled: user.totp_enabled, hasPassword: !!user.password_hash, hasLockPin: !!user.lock_pin_hash, locked: !!req.session.locked } });
-});
+}
+router.get('/me', getMe);
 
 // ── Screen-lock PIN (#235) ──────────────────────────────────────────────────
 // A dedicated PIN (not the account password / SSO) gates a server-enforced privacy
