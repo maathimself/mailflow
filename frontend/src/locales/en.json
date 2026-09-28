@@ -278,6 +278,23 @@
       "button": "Classify with AI",
       "done": "Classified as {{category}}",
       "error": "AI classification failed."
+    },
+    "preview": {
+      "open": "Preview",
+      "label": "Preview of {{name}}",
+      "position": "{{current}} of {{total}}",
+      "download": "Download",
+      "print": "Print",
+      "preparingPrint": "Preparing… {{done}}/{{total}}",
+      "close": "Close",
+      "zoomIn": "Zoom in",
+      "zoomOut": "Zoom out",
+      "fit": "Fit to screen",
+      "previous": "Previous attachment",
+      "next": "Next attachment",
+      "failed": "This file could not be displayed.",
+      "unsupported": "This file does not look like a valid PDF or image, so it is not shown here.",
+      "password": "This PDF is password-protected. Download it to open it."
     }
   },
   "messageList": {

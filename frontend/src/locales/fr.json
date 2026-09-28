@@ -278,6 +278,23 @@
       "button": "Classer avec l'IA",
       "done": "Classé comme {{category}}",
       "error": "La classification par IA a échoué."
+    },
+    "preview": {
+      "open": "Aperçu",
+      "label": "Aperçu de {{name}}",
+      "position": "{{current}} sur {{total}}",
+      "download": "Télécharger",
+      "print": "Imprimer",
+      "preparingPrint": "Préparation… {{done}}/{{total}}",
+      "close": "Fermer",
+      "zoomIn": "Zoom avant",
+      "zoomOut": "Zoom arrière",
+      "fit": "Ajuster à l’écran",
+      "previous": "Pièce jointe précédente",
+      "next": "Pièce jointe suivante",
+      "failed": "Impossible d’afficher ce fichier.",
+      "unsupported": "Ce fichier ne semble pas être un PDF ou une image valide, il n’est donc pas affiché ici.",
+      "password": "Ce PDF est protégé par un mot de passe. Téléchargez-le pour l’ouvrir."
     }
   },
   "messageList": {

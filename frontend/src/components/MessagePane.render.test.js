@@ -268,6 +268,178 @@ describe('Download all asks first when an attachment is risky', () => {
   });
 });
 
+// The attachment viewer. PDF bytes are never served here: pdf.js needs a real browser, so the PDF
+// tests only go as far as the viewer opening, and the byte check and rendering are exercised with
+// images, which jsdom can hold.
+describe('attachment viewer', () => {
+  const MSG_VIEW = { ...MSG_A, id: 'g7', uid: 7, subject: 'Boleto' };
+  const MSG_OTHER = { ...MSG_A, id: 'h8', uid: 8, subject: 'Other' };
+  const FILES = {
+    g7: [
+      { filename: 'boleto.pdf', type: 'application/pdf', part: '2', size: 10 },
+      { filename: 'foto.jpg', type: 'image/jpeg', part: '3', size: 10 },
+      { filename: 'disguised.png', type: 'image/png', part: '4', size: 10 },
+      { filename: 'planilha.xlsx', type: 'application/vnd.ms-excel', part: '5', size: 10 },
+      { filename: 'setup.exe', type: 'application/octet-stream', part: '6', size: 10 },
+    ],
+  };
+  const BYTES = {
+    '3': new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0x10]),
+    '4': new TextEncoder().encode('<!DOCTYPE html><script>alert(1)</script>'),
+  };
+  const NEVER_ARRIVES = new Set(['2']);
+  const requests = [];
+  const saved = [];
+  let originalFetch, originalClick;
+
+  before(() => {
+    originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      const u = String(url);
+      requests.push(u);
+      const part = /\/attachments\/([^/?]+)$/.exec(u)?.[1];
+      if (part !== undefined) {
+        if (NEVER_ARRIVES.has(decodeURIComponent(part))) return new Promise(() => {});
+        const body = BYTES[decodeURIComponent(part)] ?? new Uint8Array();
+        return {
+          ok: true, status: 200,
+          arrayBuffer: async () => body.slice().buffer,
+          blob: async () => new Blob([body]),
+        };
+      }
+      const id = /\/messages\/([^/]+)\/body/.exec(u)?.[1];
+      const json = FILES[id] ? { html: '<p>hi</p>', text: 'hi', attachments: FILES[id] } : {};
+      return { ok: true, status: 200, json: async () => json, text: async () => '' };
+    };
+    originalClick = dom.window.HTMLAnchorElement.prototype.click;
+    dom.window.HTMLAnchorElement.prototype.click = function () {
+      saved.push({ href: this.getAttribute('href'), download: this.getAttribute('download') });
+    };
+    useStore.getState().setMessages?.([MSG_A, MSG_VIEW, MSG_OTHER]);
+  });
+  after(() => {
+    globalThis.fetch = originalFetch;
+    dom.window.HTMLAnchorElement.prototype.click = originalClick;
+  });
+
+  const settle = () => React.act(async () => {
+    for (let i = 0; i < 5; i++) await new Promise(r => setTimeout(r, 0));
+  });
+  async function open(id) {
+    // Through another message first, so a viewer left open by the previous test is closed.
+    await React.act(async () => {
+      useStore.getState().setSelectedMessage('h8');
+      root.render(React.createElement(MessagePane));
+    });
+    await React.act(async () => { useStore.getState().setSelectedMessage(id); });
+    await settle();
+    requests.length = 0;
+    saved.length = 0;
+  }
+  const chip = filename => [...document.querySelectorAll('button')].find(b => b.textContent.includes(filename));
+  async function clickChip(filename) {
+    await React.act(async () => {
+      chip(filename).dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+    });
+    await settle();
+  }
+  const dialog = () => document.querySelector('[role="dialog"]');
+  const attachmentRequests = () => requests.filter(u => u.includes('/attachments/'));
+  async function press(key, target = dialog() ?? document.body) {
+    await React.act(async () => {
+      target.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+    });
+    await settle();
+  }
+
+  test('clicking a PDF opens the viewer instead of downloading it', async () => {
+    await open('g7');
+    assert.equal(dialog(), null);
+    await clickChip('boleto.pdf');
+    assert.ok(dialog(), 'the viewer is open');
+    assert.match(dialog().textContent, /boleto\.pdf/);
+    assert.deepEqual(attachmentRequests(), ['/api/mail/messages/g7/attachments/2'], 'the file is fetched once, for the viewer');
+    assert.deepEqual(saved, [], 'nothing is saved to disk');
+  });
+
+  test('an image is shown from its bytes, and Download saves those same bytes', async () => {
+    await open('g7');
+    await clickChip('foto.jpg');
+    const img = dialog().querySelector('img');
+    assert.ok(img, 'the image is rendered');
+    assert.match(img.getAttribute('src'), /^blob:/);
+    const download = dialog().querySelector('button[aria-label="message.preview.download"]');
+    await React.act(async () => { download.click(); });
+    assert.equal(saved.length, 1);
+    assert.match(saved[0].href, /^blob:/);
+    assert.equal(saved[0].download, 'foto.jpg');
+    assert.equal(attachmentRequests().length, 1, 'Download reuses the bytes instead of fetching again');
+  });
+
+  test('bytes that are not what the name claims are refused, with Download still offered', async () => {
+    await open('g7');
+    await clickChip('disguised.png');
+    assert.equal(dialog().querySelector('img'), null, 'an HTML file named .png is never rendered');
+    assert.match(dialog().textContent, /message\.preview\.unsupported/);
+    assert.ok([...dialog().querySelectorAll('button')].some(b => b.textContent === 'message.preview.download'));
+  });
+
+  test('other documents still download, and risky files still ask first', async () => {
+    await open('g7');
+    await clickChip('planilha.xlsx');
+    assert.equal(dialog(), null, 'a spreadsheet does not open the viewer');
+    assert.deepEqual(attachmentRequests(), ['/api/mail/messages/g7/attachments/5']);
+    await clickChip('setup.exe');
+    assert.equal(dialog(), null);
+    assert.match(chip('setup.exe').textContent, /message\.attachmentRisk\.armed\[/);
+  });
+
+  test('while open, keystrokes stay in the viewer and Escape closes only the viewer', async () => {
+    await open('g7');
+    const reached = [];
+    const listener = e => reached.push(e.key);
+    document.addEventListener('keydown', listener);
+    try {
+      await clickChip('boleto.pdf');
+      await press('e');
+      await press('#');
+      assert.deepEqual(reached, [], 'mail shortcuts must not act on the message behind the viewer');
+      await press('Escape');
+      assert.equal(dialog(), null, 'Escape closes the viewer');
+      assert.deepEqual(reached, [], 'and does not reach the pane either');
+      assert.equal(useStore.getState().selectedMessageId, 'g7', 'the message stays open');
+      await press('e', document.body);
+      assert.deepEqual(reached, ['e'], 'once closed, keys flow again');
+    } finally {
+      document.removeEventListener('keydown', listener);
+    }
+  });
+
+  test('arrow keys move between the previewable attachments only', async () => {
+    await open('g7');
+    await clickChip('boleto.pdf');
+    const title = () => dialog().querySelector('[title]').getAttribute('title');
+    assert.equal(title(), 'boleto.pdf');
+    await press('ArrowRight');
+    assert.equal(title(), 'foto.jpg');
+    await press('ArrowRight');
+    assert.equal(title(), 'disguised.png');
+    await press('ArrowRight');
+    assert.equal(title(), 'disguised.png', 'the spreadsheet and the installer are not in the viewer');
+    await press('ArrowLeft');
+    assert.equal(title(), 'foto.jpg');
+  });
+
+  test('selecting another message closes the viewer', async () => {
+    await open('g7');
+    await clickChip('foto.jpg');
+    assert.ok(dialog());
+    await React.act(async () => { useStore.getState().setSelectedMessage('h8'); });
+    await settle();
+    assert.equal(dialog(), null);
+  });
+});
+
 // Characterization tests for the body renderer, written before extracting it into its own
 // component. The iframe lifecycle effect had no coverage at all, and two of the fixes living
 // in it (a document that never finishes loading, #1287ada; resetting the frame between

@@ -24,6 +24,8 @@ import { downloadEml } from '../utils/downloadEml.js';
 import { buildPrintDocument, openPrintWindow, printInWindow } from '../utils/printMessage.js';
 import AiResultBox from './AiResultBox.jsx';
 import { useAiActions } from '../hooks/useAiActions.js';
+import { previewKind } from '../utils/attachmentPreview.js';
+import AttachmentViewer from './AttachmentViewer.jsx';
 const USE_DIV_RENDER = import.meta.env.VITE_EMAIL_DIV_RENDER === 'true';
 const MESSAGE_OPENING_EVENT = 'mailflow:message-opening';
 // riskArmed value for the "Download all" link. A Symbol, so no attachment part can ever equal it.
@@ -871,7 +873,9 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   // riskArmed: a risky attachment needs a second click to download; the first
   // arms the button and shows why. Holds the attachment's part, or DOWNLOAD_ALL.
   const [riskArmed, setRiskArmed] = useState(null);
-  useEffect(() => { setRiskArmed(null); }, [selectedMessageId]);
+  // viewerStart: index into the previewable attachments the viewer opened on, or null.
+  const [viewerStart, setViewerStart] = useState(null);
+  useEffect(() => { setRiskArmed(null); setViewerStart(null); }, [selectedMessageId]);
 
   const handleDownload = async (messageId, part, filename) => {
     setDownloadingPart(part);
@@ -1441,6 +1445,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   })();
 
   const attachments = body?.attachments || [];
+  const previewable = attachments.filter(att => previewKind(att));
   // "Download all" hands over every file at once, so it asks first whenever one of them would. While
   // it does, the link has no href, so a right-click "Save link as", a middle click or a long press has
   // nothing to fetch; the confirming click starts the download itself.
@@ -2212,15 +2217,18 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
                 const risky = risk.level === 'block' || risk.level === 'warn';
                 const riskColor = risk.level === 'block' ? 'var(--red)' : risk.level === 'warn' ? 'var(--amber)' : 'var(--text-tertiary)';
                 const armed = riskArmed === att.part;
+                const canPreview = previewable.includes(att);
                 const riskText = risk.level === 'ok' ? '' : risk.doubleExt
                   ? t('message.attachmentRisk.doubleExt', { ext: risk.doubleExt })
                   : t(`message.attachmentRisk.${risk.level}`, { ext: risk.ext });
                 return (
                 <button
                   key={i}
+                  title={canPreview ? t('message.preview.open') : undefined}
                   onClick={() => {
                     if (risky && !armed) { setRiskArmed(att.part); return; }
                     setRiskArmed(null);
+                    if (canPreview) { setViewerStart(previewable.indexOf(att)); return; }
                     handleDownload(message.id, att.part, att.filename);
                   }}
                   disabled={downloadingPart === att.part}
@@ -2256,15 +2264,35 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
                   </div>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
                     stroke="var(--text-tertiary)" strokeWidth="2" style={{ flexShrink: 0 }}>
-                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-                    <polyline points="7 10 12 15 17 10"/>
-                    <line x1="12" y1="15" x2="12" y2="3"/>
+                    {canPreview ? (
+                      <>
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                        <circle cx="12" cy="12" r="3"/>
+                      </>
+                    ) : (
+                      <>
+                        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                        <polyline points="7 10 12 15 17 10"/>
+                        <line x1="12" y1="15" x2="12" y2="3"/>
+                      </>
+                    )}
                   </svg>
                 </button>
                 );
               })}
             </div>
           </div>
+        )}
+
+        {viewerStart !== null && message && previewable.length > 0 && (
+          <AttachmentViewer
+            key={`${message.id}:${viewerStart}`}
+            messageId={message.id}
+            attachments={previewable}
+            startIndex={viewerStart}
+            onClose={() => setViewerStart(null)}
+            onDownloadFallback={att => handleDownload(message.id, att.part, att.filename)}
+          />
         )}
 
         {/* AI action results — pinned boxes above the message (#204) */}

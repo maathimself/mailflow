@@ -278,6 +278,23 @@
       "button": "Mit KI klassifizieren",
       "done": "Klassifiziert als {{category}}",
       "error": "KI-Klassifizierung fehlgeschlagen."
+    },
+    "preview": {
+      "open": "Vorschau",
+      "label": "Vorschau von {{name}}",
+      "position": "{{current}} von {{total}}",
+      "download": "Herunterladen",
+      "print": "Drucken",
+      "preparingPrint": "Wird vorbereitet… {{done}}/{{total}}",
+      "close": "Schließen",
+      "zoomIn": "Vergrößern",
+      "zoomOut": "Verkleinern",
+      "fit": "An Bildschirm anpassen",
+      "previous": "Vorheriger Anhang",
+      "next": "Nächster Anhang",
+      "failed": "Diese Datei konnte nicht angezeigt werden.",
+      "unsupported": "Diese Datei scheint kein gültiges PDF oder Bild zu sein und wird daher hier nicht angezeigt.",
+      "password": "Dieses PDF ist passwortgeschützt. Laden Sie es herunter, um es zu öffnen."
     }
   },
   "messageList": {

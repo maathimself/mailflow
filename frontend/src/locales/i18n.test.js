@@ -531,6 +531,13 @@ const SAME_VALUE_ALLOWED = {
   // is the natural word for the wide preset in both Italian and Portuguese.
   'messageList.layouts.compact.label': [['en', 'fr'], ['es', 'ptBR']],
   'messageList.layouts.wide.label':    [['it', 'ptBR']],
+
+  // ── Attachment viewer ─────────────────────────────────────────────────────
+  // "Imprimir" / "Preparando…" / "{{current}} de {{total}}" are spelled the same in
+  // Spanish and Portuguese; Czech and Polish share "{{current}} z {{total}}".
+  'message.preview.print':          [['es', 'ptBR']],
+  'message.preview.preparingPrint': [['es', 'ptBR']],
+  'message.preview.position':       [['es', 'ptBR'], ['cs', 'pl']],
 };
 
 // Locale-specific plural forms are allowed per locale. A locale may add forms

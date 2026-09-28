@@ -686,3 +686,39 @@ body, #root {
 /* PasswordInput draws its own eye button; Edge adds a native reveal button to every password
    field, which showed two eyes side by side. */
 .mf-password-input::-ms-reveal { display: none; }
+
+/* Attachment viewer: pdf.js text layer. Transparent text laid over each rendered PDF page so it
+   can be selected, copied and found with the browser's Find. Mirrors .textLayer from pdf.js's
+   pdf_viewer.css; --total-scale-factor is set per page by utils/pdfDocument.js. */
+.mf-pdf-page { --scale-round-x: 1px; --scale-round-y: 1px; }
+.mf-pdf-page .textLayer {
+  position: absolute; inset: 0; overflow: clip; opacity: 1; z-index: 0;
+  text-align: initial; line-height: 1; letter-spacing: normal; word-spacing: normal;
+  -webkit-text-size-adjust: none; text-size-adjust: none; forced-color-adjust: none;
+  transform-origin: 0 0; caret-color: CanvasText;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+.mf-pdf-page .textLayer :is(span, br) {
+  color: transparent; position: absolute; white-space: pre; cursor: text;
+  transform-origin: 0% 0%; -webkit-user-select: text; user-select: text;
+}
+.mf-pdf-page .textLayer > :not(.markedContent),
+.mf-pdf-page .textLayer .markedContent span:not(.markedContent) {
+  z-index: 1;
+  --font-height: 0;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  --scale-x: 1;
+  --rotate: 0deg;
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+.mf-pdf-page .textLayer .markedContent { display: contents; }
+.mf-pdf-page .textLayer span[role="img"] { -webkit-user-select: none; user-select: none; cursor: default; }
+.mf-pdf-page .textLayer ::selection { background: rgb(0 0 255 / 0.25); color: transparent; }
+.mf-pdf-page .textLayer br::selection { background: transparent; }
+.mf-pdf-page .textLayer .endOfContent {
+  display: block; position: absolute; inset: 100% 0 0; z-index: 0; cursor: default;
+  -webkit-user-select: none; user-select: none;
+}
+.mf-pdf-page .textLayer.selecting .endOfContent { top: 0; }

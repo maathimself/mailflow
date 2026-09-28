@@ -398,6 +398,23 @@
       "button": "Zařadit pomocí AI",
       "done": "Zařazeno do kategorie {{category}}",
       "error": "Zařazení pomocí AI se nezdařilo."
+    },
+    "preview": {
+      "open": "Náhled",
+      "label": "Náhled: {{name}}",
+      "position": "{{current}} z {{total}}",
+      "download": "Stáhnout",
+      "print": "Tisk",
+      "preparingPrint": "Příprava… {{done}}/{{total}}",
+      "close": "Zavřít",
+      "zoomIn": "Přiblížit",
+      "zoomOut": "Oddálit",
+      "fit": "Přizpůsobit obrazovce",
+      "previous": "Předchozí příloha",
+      "next": "Další příloha",
+      "failed": "Tento soubor nelze zobrazit.",
+      "unsupported": "Tento soubor nevypadá jako platné PDF nebo obrázek, proto se zde nezobrazuje.",
+      "password": "Toto PDF je chráněno heslem. Stáhněte si ho, abyste ho otevřeli."
     }
   },
   "compose": {

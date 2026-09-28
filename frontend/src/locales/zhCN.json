@@ -278,6 +278,23 @@
       "button": "AI 分类",
       "done": "已分类为 {{category}}",
       "error": "AI 分类失败。"
+    },
+    "preview": {
+      "open": "预览",
+      "label": "预览：{{name}}",
+      "position": "{{current}} / {{total}}",
+      "download": "下载",
+      "print": "打印",
+      "preparingPrint": "正在准备… {{done}}/{{total}}",
+      "close": "关闭",
+      "zoomIn": "放大",
+      "zoomOut": "缩小",
+      "fit": "适应屏幕",
+      "previous": "上一个附件",
+      "next": "下一个附件",
+      "failed": "无法显示此文件。",
+      "unsupported": "此文件似乎不是有效的 PDF 或图片，因此不在此处显示。",
+      "password": "此 PDF 受密码保护。请下载后打开。"
     }
   },
   "messageList": {
