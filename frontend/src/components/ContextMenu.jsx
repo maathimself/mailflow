@@ -4,6 +4,7 @@ import { copyToClipboard } from '../utils/clipboard.js';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { getContextMenuPolicy, resolveContextMenuMessage } from '../utils/contextMenuPolicy.js';
+import { downloadEml } from '../utils/downloadEml.js';
 import { usePluginCollected } from '../plugins/PluginSlot.jsx';
 import MessageHeaderModal from './MessageHeaderModal.jsx';
 import FolderPathLabel from './FolderPathLabel.jsx';
@@ -320,6 +321,20 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
             }
           },
           keepOpen: true,
+        },
+        {
+          // Raw RFC 822 source as an .eml file (#381). Resolved like View headers, so GTD rows
+          // download the current copy of the message rather than a stale row.
+          label: t('message.downloadEml'),
+          icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>,
+          action: async () => {
+            try {
+              const resolved = await resolveContextMenuMessage(message, variant, api.resolveMessage);
+              downloadEml(resolved?.id);
+            } catch (err) {
+              console.error('Message resolution for .eml download failed:', err.message);
+            }
+          },
         },
       ]
     }]),

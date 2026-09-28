@@ -178,6 +178,24 @@ describe('folder ordering', () => {
     ]);
   });
 
+  it('shows nested special-use mailboxes at the root without changing their paths', () => {
+    const tree = buildFolderTree([
+      { path: 'INBOX', name: 'INBOX', delimiter: '.' },
+      { path: 'INBOX.INBOX', name: 'INBOX', delimiter: '.', special_use: '\\Inbox' },
+      { path: 'INBOX.INBOX.Sent', name: 'Sent', delimiter: '.', special_use: '\\Sent' },
+      { path: 'INBOX.INBOX.Drafts', name: 'Drafts', delimiter: '.', special_use: '\\Drafts' },
+      { path: 'INBOX.Projects', name: 'Projects', delimiter: '.' },
+    ]);
+
+    assert.deepEqual(tree.map(node => node.path), [
+      'INBOX',
+      'INBOX.INBOX',
+      'INBOX.INBOX.Drafts',
+      'INBOX.INBOX.Sent',
+    ]);
+    assert.deepEqual(tree[0].children.map(node => node.path), ['INBOX.Projects']);
+  });
+
   it('puts new folders after ranked folders and ignores stale paths', () => {
     assert.deepEqual(
       normalizeFolderOrder(folders, ['Gone', 'INBOX', 'Archive', 'INBOX']),

@@ -26,7 +26,7 @@ import {
   readFolderOrder,
 } from './folderOrder.js';
 import { removeThreadCacheEntry } from '../utils/threadedArchive.js';
-import i18n from '../i18n.js';
+import i18n, { initialLanguage } from '../i18n.js';
 import { createPrefSaveQueue } from '../utils/prefSaveQueue.js';
 
 // Accumulate rapid preference changes and flush at most once per second. The queue itself
@@ -560,7 +560,7 @@ export const useStore = create((set, get) => ({
   setMobileSidebarOpen: (v) => set({ mobileSidebarOpen: v }),
 
   // Language
-  language: localStorage.getItem('mailflow_language') || 'en',
+  language: initialLanguage,
   setLanguage: (lng) => {
     localStorage.setItem('mailflow_language', lng);
     set({ language: lng });

@@ -24,6 +24,7 @@ import FolderPathLabel from './FolderPathLabel.jsx';
 import SpamBadge from './SpamBadge.jsx';
 import SpamExplainModal from './SpamExplainModal.jsx';
 import { classifyAttachmentRisk } from '../utils/attachmentRisk.js';
+import { downloadEml } from '../utils/downloadEml.js';
 const USE_DIV_RENDER = import.meta.env.VITE_EMAIL_DIV_RENDER === 'true';
 const MESSAGE_OPENING_EVENT = 'mailflow:message-opening';
 // riskArmed value for the "Download all" link. A Symbol, so no attachment part can ever equal it.
@@ -1965,18 +1966,11 @@ ${bodyContent}
                   </svg>
                   {t('message.print')}
                 </div>
-                {/* Download the raw RFC 822 source as an .eml file (#381). A same-origin
-                    anchor click carries the session cookie; the route sets the
-                    Content-Disposition filename. */}
+                {/* Download the raw RFC 822 source as an .eml file (#381). */}
                 <div
                   onClick={() => {
                     setShowMoreMenu(false);
-                    const a = document.createElement('a');
-                    a.href = `/api/mail/messages/${message.id}/raw.eml`;
-                    a.download = '';
-                    document.body.appendChild(a);
-                    a.click();
-                    a.remove();
+                    downloadEml(message.id);
                   }}
                   style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)', borderBottom: aiStatus?.enabled && aiStatus?.features?.summarize && body ? '1px solid var(--border-subtle)' : 'none' }}
                   onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
@@ -2059,6 +2053,14 @@ ${bodyContent}
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
                 <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
                 <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+              </svg>
+            </PaneBtn>
+            {/* Desktop has no More menu, so the .eml download (#381) gets its own button. */}
+            <PaneBtn onClick={() => downloadEml(message.id)} title={t('message.downloadEml')}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" y1="15" x2="12" y2="3"/>
               </svg>
             </PaneBtn>
             <PaneBtn onClick={handlePrint} title={`${t('message.print')}${shortcutLabel('printMessage') ? ` (${shortcutLabel('printMessage')})` : ''}`}>
@@ -2606,6 +2608,7 @@ ${bodyContent}
                     ref={innerRef}
                     data-mailflow-email={prepared?.prefix}
                     className={prepared?.prefix ?? ''}
+                    translate="yes"
                     dangerouslySetInnerHTML={prepared ? { __html: prepared.html } : undefined}
                   />
                 </div>
@@ -2680,6 +2683,11 @@ ${bodyContent}
             border: isMobile ? 'none' : '1px solid var(--border-subtle)',
             overflow: 'hidden',
           }}
+            // <body> is translate="no" so a browser translator cannot break React's DOM (see
+            // index.html). A message someone sent in another language should still translate,
+            // and React writes this body in one piece, so the translator has nothing of React's
+            // to break in here.
+            translate="yes"
             dangerouslySetInnerHTML={{ __html: linkifyText(body.text) }}
           />
         </div>
