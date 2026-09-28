@@ -988,7 +988,7 @@
       "defaultReplyAll": "Répondre à tous",
       "defaultReplyAllDesc": "Le bouton Répondre envoie à tous les destinataires",
       "defaultSender": "Expéditeur par défaut",
-      "defaultSenderDesc": "Adresse utilisée pour les nouveaux messages rédigés en dehors d'un compte précis, par exemple depuis la boîte unifiée. Les réponses utilisent toujours le compte qui a reçu le message.",
+      "defaultSenderDesc": "Adresse utilisée pour les nouveaux messages, quel que soit le compte affiché. Les réponses et les transferts utilisent toujours le compte qui a reçu le message.",
       "defaultSenderLastUsed": "Dernier compte utilisé",
       "markReadBehavior": "Marquer comme lu",
       "markReadImmediate": "Immédiatement",

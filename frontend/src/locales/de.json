@@ -917,7 +917,7 @@
       "defaultReplyAll": "Allen antworten",
       "defaultReplyAllDesc": "Die Schaltfläche Antworten sendet an alle Empfänger",
       "defaultSender": "Standardabsender",
-      "defaultSenderDesc": "Von welcher Adresse neue Nachrichten gesendet werden, wenn Sie außerhalb eines bestimmten Kontos verfassen, etwa im gemeinsamen Posteingang. Antworten verwenden immer das Konto, das die Nachricht empfangen hat.",
+      "defaultSenderDesc": "Von welcher Adresse neue Nachrichten gesendet werden, unabhängig davon, welches Konto Sie gerade ansehen. Antworten und Weiterleitungen verwenden immer das Konto, das die Nachricht empfangen hat.",
       "defaultSenderLastUsed": "Zuletzt verwendetes Konto",
       "markReadBehavior": "Als gelesen markieren",
       "markReadImmediate": "Sofort",

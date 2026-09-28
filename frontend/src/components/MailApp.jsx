@@ -394,7 +394,6 @@ export default function MailApp() {
       // the HTML editor and can't inject markup.
       const bodyText = mt.searchParams.get('body') || '';
       openCompose({
-        accountId: useStore.getState().selectedAccountId || undefined,
         to: [...splitAddrs(mt.pathname, true), ...splitAddrs(mt.searchParams.get('to'), false)],
         cc: splitAddrs(mt.searchParams.get('cc'), false),
         bcc: splitAddrs(mt.searchParams.get('bcc'), false),
@@ -647,7 +646,7 @@ export default function MailApp() {
 
   // Subscribe to global actions that MailApp owns
   useEffect(() => {
-    const onCompose   = () => openCompose({ accountId: useStore.getState().selectedAccountId || undefined });
+    const onCompose   = () => openCompose({});
     const onGoInbox   = () => setSelectedAccount(null, 'INBOX');
     const onShowHelp  = () => { if (!isMobile) setShowShortcutHelp(v => !v); };
 

@@ -1480,6 +1480,46 @@ export function makeClientCfg(account, resolved, { enableIdle = false, policy = 
   return cfg;
 }
 
+// How long a reused pooled session gets to answer the NOOP that brings its view current.
+export const POOL_REFRESH_TIMEOUT_MS = 10000;
+
+// Bring a long-lived session's view of its selected mailbox up to date.
+//
+// A server only has to report changes to the selected mailbox in response to a command, and
+// Yahoo reports none otherwise. Measured on a live account: a session with INBOX selected kept
+// its SELECT-time message count and unread count through new mail and through read-state
+// changes made from other sessions, and STATUS of that same mailbox returned the frozen numbers
+// too. It also answered UID STORE on a message delivered since the SELECT with OK while
+// changing nothing, because that session had never been told the UID exists. One NOOP
+// delivered the pending EXISTS and FETCH responses, and everything after it was correct.
+//
+// Throws when the session cannot answer, so nothing acts on a view that may be stale.
+export async function refreshSelectedMailbox(client) {
+  let ok;
+  try { ok = await client.noop(); } catch { ok = false; }
+  if (ok === false) throw new Error('IMAP session refresh (NOOP) failed');
+}
+
+// A reused session keeps whatever view it had when the last caller released it, so it is
+// refreshed before a new caller gets it. Without this a folder STATUS returned the frozen
+// counts, and a flag STORE or a MOVE silently missed mail delivered since. A session with no
+// mailbox selected needs nothing: its next SELECT reads current state.
+async function handOutPooledClient(pool, client) {
+  if (!client.mailbox) return client;
+  try {
+    await raceTimeout(refreshSelectedMailbox(client), POOL_REFRESH_TIMEOUT_MS, 'Pooled session refresh');
+    return client;
+  } catch (err) {
+    // A failed or timed-out NOOP may still be in flight, so the session must not go back to
+    // the pool idle. Take it out, close it, and let a waiter have any other free session.
+    pool.inUse.delete(client);
+    pool.clients = pool.clients.filter(c => c !== client);
+    try { client.close(); } catch { /* already closed */ }
+    drainWaiters(pool);
+    throw err;
+  }
+}
+
 function drainWaiters(pool) {
   while (pool.waiters.length > 0) {
     const free = pool.clients.find(c => !pool.inUse.has(c));
@@ -1517,7 +1557,7 @@ export async function acquirePooledClient(account) {
   const idle = pool.clients.find(c => !pool.inUse.has(c));
   if (idle) {
     pool.inUse.add(idle);
-    return idle;
+    return handOutPooledClient(pool, idle);
   }
 
   // Grow pool if under limit — refresh token before creating a new connection
@@ -1607,7 +1647,7 @@ export async function acquirePooledClient(account) {
   // Every mature client queues or blocks here instead: Thunderbird queues the URL,
   // Evolution waits on a condition variable, offlineimap blocks on a bounded semaphore.
   // RFC 2683 3.1.1 asks clients not to open extra connections to the same mailbox.
-  return new Promise((resolve, reject) => {
+  const handedOver = new Promise((resolve, reject) => {
     const entry = { resolve, reject, timer: null };
     entry.timer = setTimeout(() => {
       pool.waiters = pool.waiters.filter(w => w !== entry);
@@ -1620,6 +1660,7 @@ export async function acquirePooledClient(account) {
     }, ACQUIRE_TIMEOUT_MS);
     pool.waiters.push(entry);
   });
+  return handedOver.then(client => handOutPooledClient(pool, client));
 }
 
 export function releasePooledClient(account, client) {
@@ -3307,8 +3348,8 @@ export class ImapManager {
     // body pool (one session on Yahoo) instead of a fresh login per cycle — the fresh path
     // below was refused, re-armed its ladder, and retried at the ~16-minute cap forever
     // (measured at 6 refusals/hr, around the clock, with the tab closed). The pooled
-    // client may have a mailbox selected, which STATUS tolerates (imapflow even refreshes
-    // the live mailbox state from it). The ladder is owned by acquirePooledClient's gate:
+    // client may have a mailbox selected, and Yahoo answers STATUS of that mailbox from the
+    // session's frozen view, so acquirePooledClient refreshes it first. The ladder is owned by acquirePooledClient's gate:
     // a reused session proves nothing about whether LOGINS are welcome, so this path
     // neither clears nor arms it, and gate errors propagate to the monitor's own backoff.
     if (providerProfile(account).secondaryOverPool === true) {
@@ -3719,8 +3760,13 @@ export class ImapManager {
     const provider = providerProfile(account);
 
     try {
+      const selectedBefore = client.mailbox;
       const lock = await client.getMailboxLock(folder);
       try {
+        // The same mailbox object means no SELECT ran, so on a long-lived session the view
+        // may be frozen and the UID phase below would see no new mail (see
+        // refreshSelectedMailbox).
+        if (selectedBefore && client.mailbox === selectedBefore) await refreshSelectedMailbox(client);
         const mailbox = client.mailbox;
         // A missing mailbox is unknown, never proof of an empty mailbox.
         if (!mailbox) return { insertedCount: 0, broadcastedNewMessages: false };
@@ -5992,6 +6038,13 @@ export class ImapManager {
           const lock = await client.getMailboxLock('INBOX', { acquireTimeout: 4500 });
           if (expired) { lock.release(); throw new Error('persistent flag store timed out'); }
           try {
+            // This session has been open since connect, and on Yahoo its view of INBOX stays
+            // frozen until a command lets the server catch it up: a STORE naming mail that
+            // arrived since then answers OK and changes nothing. A failed refresh falls
+            // through to the pool path. Re-checked after it, because a late STORE landing
+            // after the pool path's is the inversion described at setFlag.
+            await refreshSelectedMailbox(client);
+            if (expired) throw new Error('persistent flag store timed out');
             const applied = value
               ? await client.messageFlagsAdd(String(uid), [flag], { uid: true })
               : await client.messageFlagsRemove(String(uid), [flag], { uid: true });

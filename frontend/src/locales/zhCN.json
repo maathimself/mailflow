@@ -988,7 +988,7 @@
       "defaultReplyAll": "回复全部",
       "defaultReplyAllDesc": "回复按钮将发送给所有收件人",
       "defaultSender": "默认发件人",
-      "defaultSenderDesc": "在非特定账户下撰写新邮件时使用的发件地址，例如在统一收件箱中。回复始终使用收到该邮件的账户。",
+      "defaultSenderDesc": "新邮件使用的发件地址，无论你当前查看的是哪个账户。回复和转发始终使用收到该邮件的账户。",
       "defaultSenderLastUsed": "上次使用的账户",
       "markReadBehavior": "标为已读",
       "markReadImmediate": "立即",

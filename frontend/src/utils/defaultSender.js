@@ -49,17 +49,21 @@ export function isValidFromValue(value, accounts) {
  *
  * In precedence order:
  *   1. an alias carried by the compose request  (a reply answering on the alias it arrived at)
- *   2. an account carried by the compose request (a reply or forward)
- *   3. the account whose folder is currently open (composing "from" that account)
- *   4. the user's configured default sender      (#417, the new rung)
+ *   2. an account carried by the compose request (a reply, forward or reopened draft)
+ *   3. the user's configured default sender      (#417)
+ *   4. the account whose folder is currently open
  *   5. the account last sent from
  *   6. the first account, by the user's own sidebar ordering
  *
- * The configured default deliberately outranks last-used. Below it, the drift described
- * above would simply continue and setting a default would look like it did nothing. It sits
- * below the selected account because opening the composer while reading one account's mail
- * should still answer from that account; #417 is about the unified inbox, where there is no
- * such context.
+ * The configured default outranks the open account as well as last-used. It is opt-in, and
+ * someone who picked an address wants every new message to start from it, wherever they
+ * happen to be reading; with only one account there is no unified inbox at all, so a
+ * default that yielded to the open account would never apply. With no default configured
+ * the open account still decides, as it always has.
+ *
+ * This only holds if a plain Compose does not carry the open account in its request, since
+ * rung 2 would then outrank the default. New-message entry points pass no accountId and let
+ * rung 4 supply it.
  *
  * Replies and forwards are untouched: they carry their own account, and which identity a
  * reply answers on is decided earlier by pickReplyAlias.
@@ -79,8 +83,8 @@ export function resolveInitialFrom({
 
   const candidates = [
     composeData?.accountId ? `${ACCOUNT_PREFIX}${composeData.accountId}` : null,
-    selectedAccountId ? `${ACCOUNT_PREFIX}${selectedAccountId}` : null,
     defaultSender,
+    selectedAccountId ? `${ACCOUNT_PREFIX}${selectedAccountId}` : null,
     lastUsedAccountId ? `${ACCOUNT_PREFIX}${lastUsedAccountId}` : null,
     list[0]?.id ? `${ACCOUNT_PREFIX}${list[0].id}` : null,
   ];

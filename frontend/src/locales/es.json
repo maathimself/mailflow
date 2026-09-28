@@ -988,7 +988,7 @@
       "defaultReplyAll": "Responder a todos",
       "defaultReplyAllDesc": "El botón Responder envía a todos los destinatarios",
       "defaultSender": "Remitente predeterminado",
-      "defaultSenderDesc": "Desde qué dirección se envían los mensajes nuevos cuando redactas fuera de una cuenta concreta, como en la bandeja unificada. Las respuestas siempre usan la cuenta que recibió el mensaje.",
+      "defaultSenderDesc": "Desde qué dirección se envían los mensajes nuevos, sea cual sea la cuenta que estés viendo. Las respuestas y los reenvíos siempre usan la cuenta que recibió el mensaje.",
       "defaultSenderLastUsed": "Última cuenta utilizada",
       "markReadBehavior": "Marcar como leído",
       "markReadImmediate": "Inmediatamente",

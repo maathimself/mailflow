@@ -988,7 +988,7 @@
       "defaultReplyAll": "Responder a todos",
       "defaultReplyAllDesc": "O botão Responder envia a todos os destinatários",
       "defaultSender": "Remetente padrão",
-      "defaultSenderDesc": "De qual endereço as novas mensagens são enviadas quando você escreve fora de uma conta específica, como a partir da caixa de entrada unificada. As respostas sempre usam a conta que recebeu a mensagem.",
+      "defaultSenderDesc": "De qual endereço as novas mensagens são enviadas, qualquer que seja a conta que você está vendo. Respostas e encaminhamentos sempre usam a conta que recebeu a mensagem.",
       "defaultSenderLastUsed": "Última conta usada",
       "markReadBehavior": "Marcar como lida",
       "markReadImmediate": "Imediatamente",

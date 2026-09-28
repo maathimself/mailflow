@@ -1091,6 +1091,7 @@ describe('syncMessages — empty local cache vs nonempty server (wiring)', () =>
       imap_host: 'imap.example.com',
     };
     const client = {
+      noop: vi.fn(async () => true),
       getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
       mailbox: { exists: 1, uidValidity: 100, highestModseq: 500n },
       fetch: vi.fn(async function* () { yield { uid: 501 }; }),
@@ -1160,6 +1161,7 @@ describe('syncMessages — empty local cache vs nonempty server (wiring)', () =>
       imap_host: 'imap.example.com',
     };
     const client = {
+      noop: vi.fn(async () => true),
       getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
       mailbox: { exists: 50, uidValidity: 100, highestModseq: 500n },
       fetch: vi.fn(async function* () {}),
@@ -1201,6 +1203,7 @@ describe('syncMessages — empty local cache vs nonempty server (wiring)', () =>
         gtd_enabled: true, categorization_enabled: false, imap_host: 'imap.example.com',
       };
       const client = {
+        noop: vi.fn(async () => true),
         getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
         mailbox: { exists: 1, uidValidity: 100, highestModseq: 500n },
         fetch: vi.fn(async function* () { yield { uid: 501 }; }),
@@ -1251,6 +1254,7 @@ describe('syncMessages — empty local cache vs nonempty server (wiring)', () =>
         gtd_enabled: false, categorization_enabled: false, imap_host: 'imap.example.com',
       };
       const client = {
+        noop: vi.fn(async () => true),
         getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
         mailbox: { exists: 1, uidValidity: 100, highestModseq: 500n },
         fetch: vi.fn(async function* () { yield { uid: 501 }; }),
@@ -1290,6 +1294,7 @@ describe('syncMessages — unread_count recompute ordering (folder badge fix)', 
         gtd_enabled: false, categorization_enabled: false, imap_host: 'imap.example.com',
       };
       const client = {
+        noop: vi.fn(async () => true),
         getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
         mailbox: { exists: 1, uidValidity: 100, highestModseq: 500n },
         fetch: vi.fn(async function* () { yield { uid: 501 }; }),
@@ -2076,6 +2081,7 @@ describe('syncMessages — empty mailbox still stamps last_sync', () => {
 
   it('stamps last_sync when the server reports an empty mailbox', async () => {
     const client = {
+      noop: vi.fn(async () => true),
       getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
       mailbox: { exists: 0 },
     };
@@ -2089,7 +2095,7 @@ describe('syncMessages — empty mailbox still stamps last_sync', () => {
   it('invalidates a previous UID epoch even when the rebuilt mailbox is empty', async () => {
     query.mockImplementation(async sql => ({ rows: sql.includes('SELECT uid_validity') ? [{ uid_validity: '7' }] : [], rowCount: 0 }));
     const mgr = { _bgConnSem: createKeyedSemaphore(2), backfillMessages: vi.fn().mockResolvedValue() };
-    const client = { getMailboxLock: async () => ({ release() {} }), mailbox: { exists: 0, uidValidity: 8n } };
+    const client = { noop: async () => true, getMailboxLock: async () => ({ release() {} }), mailbox: { exists: 0, uidValidity: 8n } };
     await ImapManager.prototype.syncMessages.call(mgr, account, client, 'INBOX', 50, false, true);
     await new Promise(resolve => setImmediate(resolve));
     const purge = query.mock.calls.findIndex(([sql]) => sql.startsWith('DELETE FROM messages'));
@@ -2101,17 +2107,82 @@ describe('syncMessages — empty mailbox still stamps last_sync', () => {
 
   it('still releases the mailbox lock on the empty path', async () => {
     const release = vi.fn();
-    const client = { getMailboxLock: vi.fn().mockResolvedValue({ release }), mailbox: { exists: 0 } };
+    const client = { noop: async () => true, getMailboxLock: vi.fn().mockResolvedValue({ release }), mailbox: { exists: 0 } };
     await ImapManager.prototype.syncMessages.call({}, account, client, 'INBOX', 50, false, true);
     expect(release).toHaveBeenCalledTimes(1);
   });
 
   it('does NOT stamp when the mailbox object is missing — unknown state, not a confirmed sync', async () => {
-    const client = { getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }), mailbox: null };
+    const client = { noop: async () => true, getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }), mailbox: null };
     await expect(
       ImapManager.prototype.syncMessages.call({}, account, client, 'INBOX', 50, false, true)
     ).resolves.toEqual({ insertedCount: 0, broadcastedNewMessages: false });
     expect(query.mock.calls.filter(c => /UPDATE email_accounts SET last_sync/.test(c[0]))).toHaveLength(0);
+  });
+});
+
+// ── Frozen mailbox view on a long-lived session ──────────────────────────────────────────
+//
+// Yahoo only catches a session's view of its selected mailbox up when the client sends a
+// command that lets it: a session holding INBOX kept its SELECT-time counts through new mail,
+// and a UID STORE naming a message delivered since answered OK and changed nothing. The
+// persistent connection is such a session, so a sync that re-uses its selected mailbox
+// must NOOP before trusting the view.
+describe('syncMessages refreshes a selected mailbox it did not re-select', () => {
+  const account = { id: 'acct-frozen', user_id: 'u1', imap_host: 'imap.mail.yahoo.com' };
+  beforeEach(() => {
+    query.mockReset();
+    query.mockResolvedValue({ rows: [], rowCount: 0 });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('acts on the view the NOOP delivered, not the frozen one', async () => {
+    // Frozen view: 3 messages. The NOOP reports the mailbox is now empty, so the sync must
+    // take the empty path. Skipping the NOOP would sync against the stale count.
+    const mailbox = { exists: 3, uidValidity: 8n };
+    const client = {
+      mailbox,
+      noop: vi.fn(async () => { mailbox.exists = 0; return true; }),
+      getMailboxLock: vi.fn(async () => ({ release() {} })),
+    };
+    await ImapManager.prototype.syncMessages.call({}, account, client, 'INBOX', 50, false, true);
+    expect(client.noop).toHaveBeenCalledTimes(1);
+    expect(query.mock.calls.some(([sql]) => sql.includes('total_count=0'))).toBe(true);
+  });
+
+  it('sends no NOOP when the lock ran a fresh SELECT', async () => {
+    const client = {
+      mailbox: { exists: 5 },
+      noop: vi.fn(async () => true),
+      getMailboxLock: vi.fn(async () => { client.mailbox = { exists: 0 }; return { release() {} }; }),
+    };
+    await ImapManager.prototype.syncMessages.call({}, account, client, 'INBOX', 50, false, true);
+    expect(client.noop).not.toHaveBeenCalled();
+  });
+
+  it('sends no NOOP when nothing was selected before the lock', async () => {
+    const client = {
+      mailbox: false,
+      noop: vi.fn(async () => true),
+      getMailboxLock: vi.fn(async () => { client.mailbox = { exists: 0 }; return { release() {} }; }),
+    };
+    await ImapManager.prototype.syncMessages.call({}, account, client, 'INBOX', 50, false, true);
+    expect(client.noop).not.toHaveBeenCalled();
+  });
+
+  it('a failed refresh aborts the sync, releases the lock, and writes nothing', async () => {
+    const release = vi.fn();
+    const client = {
+      mailbox: { exists: 0 },
+      noop: vi.fn(async () => false),   // imapflow reports a failed NOOP as false, not a throw
+      getMailboxLock: vi.fn(async () => ({ release })),
+    };
+    await expect(
+      ImapManager.prototype.syncMessages.call({}, account, client, 'INBOX', 50, false, true)
+    ).rejects.toThrow(/NOOP/);
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(query).not.toHaveBeenCalled();
   });
 });
 
@@ -2193,6 +2264,7 @@ describe('staleness probe connection recovery', () => {
       const client = Object.assign(new EventEmitter(), {
         connect: vi.fn(() => clients.length === 1 ? new Promise(() => {}) : Promise.resolve()),
         close: vi.fn(),
+        noop: vi.fn(async () => true),
         getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
         search: vi.fn().mockResolvedValue([]),
       });
@@ -2223,6 +2295,7 @@ describe('Gmail label memberships (#418)', () => {
     return Object.assign(new EventEmitter(), {
       mailbox: { exists: serverUids.length, uidValidity: 1 },
       connect: vi.fn().mockResolvedValue(), close: vi.fn(), logout: vi.fn().mockResolvedValue(),
+      noop: vi.fn(async () => true),
       getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
       search: vi.fn(async () => serverUids),
       fetch: vi.fn(async function* (range) {
@@ -2360,7 +2433,7 @@ describe('folder integrity reconciliation safety', () => {
   afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
   function setup(uids, exists = uids.length) {
     const lock = { release: vi.fn() };
-    const client = { mailbox: { exists, uidValidity: 8n }, getMailboxLock: async () => lock, search: async () => uids,
+    const client = { mailbox: { exists, uidValidity: 8n }, noop: async () => true, getMailboxLock: async () => lock, search: async () => uids,
       fetch: async function* () { for (const uid of uids) yield { uid, flags: new Set() }; } };
     const mgr = Object.assign(Object.create(ImapManager.prototype), {
       _withCountClient: async (_a, fn) => fn(client), syncMessages: vi.fn().mockResolvedValue({}),
@@ -3436,6 +3509,7 @@ describe('CONDSTORE-less full sync (#495)', () => {
     }));
     const flagsFor = seen => new Set(seen ? ['\\Seen'] : []);
     const client = {
+      noop: vi.fn(async () => true),
       getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
       mailbox: { exists: serverMsgs.length, uidValidity: 7n, highestModseq: null },
       fetch: vi.fn(function (range, q, opts) {
@@ -3952,6 +4026,7 @@ describe('setFlag routing (#474 round 4)', () => {
     return Object.assign({
       usable: true,
       release,
+      noop: vi.fn(async () => true),
       getMailboxLock: vi.fn(async () => ({ release })),
       messageFlagsAdd: vi.fn(async () => true),
       messageFlagsRemove: vi.fn(async () => true),
@@ -4001,6 +4076,51 @@ describe('setFlag routing (#474 round 4)', () => {
     expect(ImapFlow).not.toHaveBeenCalled();             // zero logins, the whole point
   });
 
+  it('refreshes the persistent session before the STORE, so mail it was never told about is found', async () => {
+    const order = [];
+    const persistent = fakePersistent({
+      noop: vi.fn(async () => { order.push('noop'); return true; }),
+      messageFlagsAdd: vi.fn(async () => { order.push('store'); return true; }),
+    });
+    const { mgr, account } = arrange({ persistent });
+
+    await mgr.setFlag(account, 17, 'INBOX', '\\Seen', true);
+
+    expect(order).toEqual(['noop', 'store']);
+    expect(ImapFlow).not.toHaveBeenCalled();
+  });
+
+  it('a refresh that outlives the deadline does not STORE after the pool path already did', async () => {
+    vi.useFakeTimers();
+    let finishNoop;
+    const persistent = fakePersistent({
+      noop: vi.fn(() => new Promise(res => { finishNoop = () => res(true); })),
+    });
+    const { mgr, account } = arrange({ persistent });
+
+    const call = mgr.setFlag(account, 17, 'INBOX', '\\Seen', true);
+    await vi.advanceTimersByTimeAsync(5100);   // persistent attempt deadline
+    await call;                                // pool path stored the flag
+    expect(ImapFlow).toHaveBeenCalled();
+
+    finishNoop();                              // the slow NOOP finally answers
+    await vi.advanceTimersByTimeAsync(1);
+    expect(persistent.messageFlagsAdd).not.toHaveBeenCalled();
+    expect(persistent.release).toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it('falls through to the pool when the persistent session cannot be refreshed', async () => {
+    const persistent = fakePersistent({ noop: vi.fn(async () => false) });
+    const { mgr, account } = arrange({ persistent });
+
+    await mgr.setFlag(account, 17, 'INBOX', '\\Seen', true);
+
+    expect(persistent.messageFlagsAdd).not.toHaveBeenCalled(); // never STOREs on a stale view
+    expect(persistent.release).toHaveBeenCalled();
+    expect(ImapFlow).toHaveBeenCalled();                        // pool path took over
+  });
+
   it('falls through to the pool when the persistent store reports not-applied', async () => {
     const persistent = fakePersistent({ messageFlagsAdd: vi.fn(async () => false) });
     const { mgr, account } = arrange({ persistent });
@@ -4039,6 +4159,7 @@ describe('setFlag routing (#474 round 4)', () => {
     const release = vi.fn();
     const persistent = fakePersistent({
       release,
+      noop: vi.fn(async () => true),
       getMailboxLock: vi.fn(() => new Promise(res => { grantLock = () => res({ release }); })),
     });
     const { mgr, account } = arrange({ persistent });
@@ -4242,6 +4363,7 @@ describe('permanentDeleteMessage with expectMessageId', () => {
       connect: vi.fn(() => Promise.resolve()),
       logout: vi.fn(() => Promise.resolve()),
       close: vi.fn(),
+      noop: vi.fn(async () => true),
       getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
       fetch: vi.fn(async function* (range) {
         for (const uid of String(range).split(',').map(Number)) {

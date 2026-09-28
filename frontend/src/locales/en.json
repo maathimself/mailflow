@@ -988,7 +988,7 @@
       "defaultReplyAll": "Reply All",
       "defaultReplyAllDesc": "The Reply button sends to all recipients",
       "defaultSender": "Default sender",
-      "defaultSenderDesc": "Which address new messages are sent from when you compose outside a specific account, such as from the unified inbox. Replies always use the account that received the message.",
+      "defaultSenderDesc": "Which address new messages are sent from, whichever account you are viewing. Replies and forwards always use the account that received the message.",
       "defaultSenderLastUsed": "Last used account",
       "markReadBehavior": "Mark as read",
       "markReadImmediate": "Immediately",

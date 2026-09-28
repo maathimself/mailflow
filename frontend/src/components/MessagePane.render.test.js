@@ -331,6 +331,16 @@ describe('message body rendering', () => {
     assert.match(document.getElementById('root').innerHTML, /Plain text with/);
   });
 
+  test('a text-only body stays translatable under the translate="no" UI', async () => {
+    // index.html marks <body> translate="no" so browser translators cannot break React's DOM.
+    // Plain-text mail renders in the main document, so without this the browser could no
+    // longer translate a message written in another language.
+    await open('t1');
+    const card = [...document.querySelectorAll('.msg-card')].find(el => /Plain text with/.test(el.textContent));
+    assert.ok(card, 'the plain-text body is rendered');
+    assert.equal(card.closest('[translate]')?.getAttribute('translate'), 'yes');
+  });
+
   test('switching messages resets the frame height', async () => {
     // The pane sets the frame back to 300px before paint, so a tall email does not leave the
     // next, shorter one padded out with its height.
