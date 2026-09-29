@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next';
 import { GTD_STATES, GTD_COLORS, resolveAccountGtdFolders, gtdStatesInFolders, unclassifyThread } from '../../utils/gtd.js';
 import { useStore } from '../../store/index.js';
 import { api } from '../../utils/api.js';
-import { classifyWithUndo } from './classification.js';
+import { classifyWithUndo } from '../../utils/gtdClassification.js';
 
 // GTD's context-menu contributions, injected into core's 'context-menu-actions' collector so the
 // menu itself carries no GTD-specific code. Placement is preserved: core splices these items into
@@ -24,7 +24,7 @@ function GtdContextSubmenu({ message, account, onClose, onBack }) {
   const classify = (state) => {
     void classifyWithUndo(message.id, state, {
       api,
-      store: { addNotification, scheduleGtdSectionsFetch },
+      store: useStore,
       t,
     });
     onClose();

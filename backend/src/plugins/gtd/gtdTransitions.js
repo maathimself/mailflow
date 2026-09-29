@@ -106,6 +106,7 @@ export async function runGtdTransitions(imapManager, account, threadKeys) {
   }
 
   const draftPaths = await resolveAllDraftsPaths(account.id, account.folder_mappings);
+  const gtdFolders = new Set(Object.values(folders));
   const owner = await getOwnerAddresses(account.id);
 
   const rows = await getMessagesByThreadKeys(account.id, keys);
@@ -137,6 +138,33 @@ export async function runGtdTransitions(imapManager, account, threadKeys) {
       if (!shouldStrip) continue;
 
       for (const copy of threadRows.filter((r) => r.folder === folder)) {
+        // Users can move mail into GTD folders. Only strip a duplicate backed
+        // by the same email outside every folder this engine can remove.
+        if (!copy.message_id) continue;
+        const siblings = threadRows.filter(row =>
+          row.message_id === copy.message_id && !gtdFolders.has(row.folder) && !draftPaths.has(row.folder)
+        );
+        if (!siblings.length) continue;
+        // The source cache can also be stale. A live sibling only authorizes
+        // deletion when the physical GTD source still has the same identity.
+        try {
+          if (!await imapManager.hasMessageCopy(account, copy.uid, copy.folder, copy.message_id)) continue;
+        } catch (err) {
+          logger.debug(`gtdTransitions: could not verify source ${copy.folder}: ${err.message}`);
+          continue;
+        }
+        let survives = false;
+        for (const sibling of siblings) {
+          try {
+            if (await imapManager.hasMessageCopy(account, sibling.uid, sibling.folder, copy.message_id)) {
+              survives = true;
+              break;
+            }
+          } catch (err) {
+            logger.debug(`gtdTransitions: could not verify surviving copy ${sibling.folder}: ${err.message}`);
+          }
+        }
+        if (!survives) continue;
         anyStripped = true;
         try {
           await imapManager.removeMessageCopy(account.id, copy.uid, copy.folder);

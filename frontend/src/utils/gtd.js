@@ -679,22 +679,6 @@ export function pickThreadMessage(messages, messageId) {
     (new Date(m.date || 0) >= new Date(newest.date || 0) ? m : newest), list[0]);
 }
 
-// Classify (add a state label) / unclassify (strip one) a message. Classify COPIES into
-// the state's label folder; the message stays put (no optimistic removal/undo — it does
-// not leave INBOX), so both just fire the API call and poke the GTD sections store to reconverge
-// instead of waiting on the WS event. Deps injected (like openDeepLinkMessage) so the call
-// is unit-testable; mirrors the GTD display callers' classify/remove handlers.
-export async function classifyThread(id, state, { gtdClassify, addNotification, scheduleGtdSectionsFetch, t }) {
-  try {
-    await gtdClassify(id, state);
-    scheduleGtdSectionsFetch();
-    addNotification({ title: t('gtd.classified'), body: t(`gtd.state.${state}`) });
-  } catch (err) {
-    console.error('GTD classify failed:', err.message);
-    addNotification({ title: t('gtd.classifyFailed'), body: t(`gtd.state.${state}`) });
-  }
-}
-
 export async function unclassifyThread(id, state, { gtdUnclassify, addNotification, scheduleGtdSectionsFetch, t }) {
   try {
     await gtdUnclassify(id, state);

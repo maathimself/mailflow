@@ -4383,6 +4383,28 @@ describe('permanentDeleteMessage with expectMessageId', () => {
     return { mgr: new ImapManager({ clients: new Set() }), account, client };
   }
 
+  it.each([
+    ['<invoice@example.test>', true],
+    ['<other-invoice@example.test>', false],
+    [null, false],
+  ])('checks the exact live copy identity %j before allowing an automatic strip', async (serverId, expected) => {
+    const { mgr, account, client } = arrange(new Map([[7, serverId]]));
+    expect(await mgr.hasMessageCopy(account, 7, 'INBOX', '<invoice@example.test>')).toBe(expected);
+    expect(client.getMailboxLock).toHaveBeenCalledWith('INBOX');
+    expect(client.messageDelete).not.toHaveBeenCalled();
+  });
+
+  it('accepts the string UID returned by PostgreSQL BIGINT columns', async () => {
+    const { mgr, account, client } = arrange(new Map([[7, '<invoice@example.test>']]));
+    expect(await mgr.hasMessageCopy(account, '7', 'INBOX', '<invoice@example.test>')).toBe(true);
+    expect(client.messageDelete).not.toHaveBeenCalled();
+  });
+
+  it('does not count a missing server UID as a surviving copy', async () => {
+    const { mgr, account } = arrange(new Map());
+    expect(await mgr.hasMessageCopy(account, 7, 'INBOX', '<invoice@example.test>')).toBe(false);
+  });
+
   it('deletes the uid when the server copy carries the expected Message-ID', async () => {
     const { mgr, account, client } = arrange(new Map([[7, '<old@example.test>']]));
     expect(await mgr.permanentDeleteMessage(account, 7, 'Drafts', { expectMessageId: '<old@example.test>' })).toBe(true);

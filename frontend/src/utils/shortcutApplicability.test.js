@@ -39,3 +39,14 @@ test('frontmost open message window enables its pane actions without a main sele
   assert.equal(canHandlePaneShortcut('behind', popout), false);
   assert.equal(canHandlePaneShortcut(null, popout), false);
 });
+
+test('GTD shortcuts only capture keys for an active plugin and eligible live selected account', () => {
+  const active = { ...selected, enabledPlugins: ['gtd'], accounts: [{ id: 'a1', gtd_enabled: true }] };
+  for (const action of ['gtdTodo', 'gtdWatch', 'gtdDelegated', 'gtdReference', 'gtdSomeday', 'gtdDone']) {
+    assert.equal(canRunSelectedAction(action, active), true, action);
+    assert.equal(canRunSelectedAction(action, { ...active, enabledPlugins: [] }), false, action);
+    assert.equal(canRunSelectedAction(action, { ...active, accounts: [{ id: 'a1', gtd_enabled: false }] }), false, action);
+    assert.equal(canRunSelectedAction(action, { ...active, selectedMessageId: null }), false, action);
+    assert.equal(canRunSelectedAction(action, { ...active, selectedMessageId: 'removed-rail' }), false, action);
+  }
+});

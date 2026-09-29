@@ -93,7 +93,7 @@ export async function getThreadKeysForMessageIdHeaders(accountId, messageIdHeade
 export async function getMessagesByThreadKeys(accountId, threadKeys) {
   if (!threadKeys || threadKeys.length === 0) return [];
   const { rows } = await query(
-    `SELECT thread_key, uid, folder, from_email, date, id
+    `SELECT thread_key, uid, folder, message_id, from_email, date, id
        FROM messages
       WHERE account_id = $1 AND thread_key = ANY($2::text[]) AND is_deleted = false`,
     [accountId, threadKeys]

@@ -4,7 +4,7 @@ import { getGtdSections } from './gtdSections.js';
 import { queueGistGeneration } from './gtdGist.js';
 import { importPet, decodeUploadedSheet, getPetMeta, getPetSheet, parsePetSlug, customPetSlug } from './gtdPet.js';
 import { getGtdConfig, resolveGtdStateFolder, sanitizeGtdFolders, sanitizeGtdFoldersDetailed, DEFAULT_GTD_FOLDERS, planGtdFolderPersist, invalidateGtdConfigCache } from './gtdConfig.js';
-import { applyLabel, removeExactLabelCopy, removeLabel, markThreadRead, ensureLabelFolders, archiveInboxCopy, broadcast, loadOwnedMessage, getOwnedAccount, getMessageCopyFolders, getAccountConfig, setAccountConfig } from '../api.js';
+import { applyLabel, hasMessageCopy, resolveLabelCopyUid, removeExactLabelCopy, removeLabel, markThreadRead, ensureLabelFolders, archiveInboxCopy, broadcast, loadOwnedMessage, getOwnedAccount, getMessageCopyFolders, getMessagesByThreadKeys, getAccountConfig, setAccountConfig } from '../api.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -138,11 +138,9 @@ router.get('/pet/:slug/sheet', async (req, res) => {
 // Load a message the caller owns, or send a 404. The email_accounts join is the
 // ownership filter (a.user_id = $2); the message row itself carries everything the
 // callers need (account_id, uid, folder, message_id), so no account column is selected.
-// POST /api/gtd/classify { messageId, state } — apply a GTD label by COPYing the
-// message into the state's designated folder (the message stays in its current
-// folder; classify never removes it from the inbox). Thin: resolve the folder,
-// ensure it exists (callers own folder existence), then delegate to
-// imapManager.copyMessage, which also emits gtd_sections_updated.
+// POST /api/gtd/classify { messageId, state } — keep one GTD state per thread.
+// Copy first so a selected label-folder row remains a valid source, then remove
+// other GTD copies. Ordinary labels and the Inbox copy are never removed.
 router.post('/classify', async (req, res) => {
   const { messageId, state } = req.body || {};
   if (!messageId || !state) return res.status(400).json({ error: 'messageId and state are required' });
@@ -159,17 +157,94 @@ router.post('/classify', async (req, res) => {
   const account = await getOwnedAccount(req.session.userId, msg.account_id);
 
   let result;
+  let oldCopies = [];
+  let sourceRemoved = false;
   try {
-    result = await applyLabel(account, msg, toFolder);
+    const oldStateFolders = new Set(Object.entries(folders)
+      .filter(([otherState, folder]) => otherState !== state && folder !== toFolder)
+      .map(([, folder]) => folder));
+    const threadCopies = msg.thread_key
+      ? await getMessagesByThreadKeys(msg.account_id, [msg.thread_key])
+      : [];
+    if (threadCopies.length) {
+      oldCopies = threadCopies
+        .filter(copy => oldStateFolders.has(copy.folder))
+        .map(copy => ({ message: { ...copy, account_id: msg.account_id }, folder: copy.folder }));
+      if (oldStateFolders.has(msg.folder) && !oldCopies.some(copy => copy.message.uid === msg.uid && copy.folder === msg.folder)) {
+        oldCopies.push({ message: msg, folder: msg.folder });
+      }
+    } else {
+      // A missing thread key or unindexed thread still gets the same-message
+      // labels. The selected row's folder remains known without Message-ID.
+      const present = new Set(msg.message_id
+        ? await getMessageCopyFolders(msg.account_id, msg.message_id)
+        : []);
+      present.add(msg.folder);
+      for (const folder of oldStateFolders) {
+        if (!present.has(folder)) continue;
+        const uid = await resolveLabelCopyUid(msg, folder);
+        if (uid != null) oldCopies.push({ message: { ...msg, uid, folder }, folder });
+      }
+    }
+
+    // A failed later removal must leave the selected message id available for
+    // retry. The selected old-state row is the last copy we strip.
+    const isSelectedCopy = copy => copy.folder === msg.folder && copy.message.uid === msg.uid;
+    oldCopies = [
+      ...oldCopies.filter(copy => !isSelectedCopy(copy)),
+      ...oldCopies.filter(isSelectedCopy),
+    ];
+
+    result = await applyLabel(account, msg, toFolder, { forceCopy: oldCopies.length > 0 });
+    // A cache-only destination can already be gone on IMAP. Confirm a fresh
+    // COPY for each email before expunging any old state, accepting duplicates.
+    // An arbitrary stored Message-ID must not collide with a headerless source.
+    const identity = message => message.message_id
+      ? `rfc:${message.message_id}`
+      : `physical:${message.folder}:${message.uid}`;
+    const confirmsIdentity = async (message, uid, folder) => {
+      if (!message.message_id) return true;
+      try {
+        return await hasMessageCopy(account, uid, folder, message.message_id);
+      } catch (err) {
+        console.warn(`GTD classify could not verify copy ${folder}: ${err.message}`);
+        return false;
+      }
+    };
+    const preserved = new Set();
+    // COPYUID confirms a physical copy, but cached Message-ID metadata may be
+    // stale. Reusing that copy for another source requires live identity proof
+    // on both sides; unavailable proof falls back to copying each source.
+    if (oldCopies.length && result.applied && result.uid != null && await confirmsIdentity(msg, result.uid, toFolder)) {
+      preserved.add(identity(msg));
+    }
+    for (const copy of oldCopies) {
+      const key = identity(copy.message);
+      if (preserved.has(key) && await confirmsIdentity(copy.message, copy.message.uid, copy.folder)) continue;
+      const copied = await applyLabel(account, copy.message, toFolder, { forceCopy: true });
+      // Without COPYUID, an OK response may have copied no stale source UID.
+      // Copy each physical sibling unless this request confirmed a destination.
+      if (copied.uid != null && await confirmsIdentity(copy.message, copied.uid, toFolder)) preserved.add(key);
+    }
+    // Removal can throw after EXPUNGE. Keep every confirmed target copy;
+    // compensation by deletion could erase the last surviving email.
+    for (const copy of oldCopies) {
+      const { removed } = await removeLabel(copy.message, copy.folder);
+      if (removed && isSelectedCopy(copy)) sourceRemoved = true;
+    }
   } catch (err) {
     console.error(`GTD classify failed for message ${messageId} -> ${toFolder}:`, err.message);
     return res.status(500).json({ error: 'Failed to apply GTD label' });
   }
 
-  const undoToken = result.applied && result.uid != null && msg.message_id
+  // The existing undo token can only remove the new copy. A state switch also
+  // removed the old state, so offering that token would silently lose it.
+  const undoToken = !oldCopies.length && result.applied && result.uid != null && msg.message_id
     ? { messageId, state, folder: toFolder, uid: result.uid }
     : null;
-  res.json({ ok: true, folder: toFolder, applied: result.applied, undoToken });
+  res.json({ ok: true, folder: toFolder, applied: result.applied, undoToken,
+    ...(oldCopies.length ? { switched: true, sourceRemoved } : {}),
+  });
 });
 
 // POST /api/gtd/classify/undo — remove only the exact UID created by the classify request.

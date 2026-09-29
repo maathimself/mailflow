@@ -5421,6 +5421,27 @@ export class ImapManager {
     ]);
   }
 
+  // A cached sibling is not evidence that mail survives an automatic label strip.
+  // Check the exact physical UID and RFC identity on the server, without SEARCH's
+  // substring matching. Errors propagate so the caller conservatively keeps mail.
+  async hasMessageCopy(account, uid, folder, messageId) {
+    const bare = value => String(value || '').replace(/[<>]/g, '').trim();
+    const expected = bare(messageId);
+    const physicalUid = Number(uid); // PostgreSQL BIGINT rows use strings.
+    if (!expected || !folder || !Number.isSafeInteger(physicalUid) || physicalUid <= 0) return false;
+    return withFreshClient(account, async client => {
+      const lock = await client.getMailboxLock(folder);
+      try {
+        for await (const message of client.fetch(String(physicalUid), { uid: true, envelope: true }, { uid: true })) {
+          if (message.uid === physicalUid) return bare(message.envelope?.messageId) === expected;
+        }
+        return false;
+      } finally {
+        lock.release();
+      }
+    });
+  }
+
   async findUidByMessageId(account, folder, messageId) {
     if (!messageId || !folder) return null;
     const mid = String(messageId).replace(/[<>]/g, '').trim();
