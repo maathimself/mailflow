@@ -145,6 +145,17 @@
       "someRejected": "Il server di posta ha rifiutato la consegna a {{addresses}}.",
       "action": "Visualizza"
     },
+    "undoSend": {
+      "undone": "Invio annullato",
+      "reopenLater": "Si riaprirà quando chiuderai il messaggio che stai scrivendo",
+      "notSent": "Il tuo messaggio non è stato inviato",
+      "lost": "Il server si è riavviato prima dell'invio, quindi il messaggio non è stato recapitato.",
+      "unknown": "Impossibile confermare l'invio del messaggio",
+      "unknownBody": "Controlla la cartella Inviati prima di inviarlo di nuovo.",
+      "reopen": "Riapri",
+      "tooLate": "Troppo tardi per annullare: il messaggio è già stato inviato",
+      "undoFailed": "Impossibile annullare: il server non ha risposto"
+    },
     "toolbar": {
       "removeTable": "Rimuovi tabella",
       "typography": "Tipografia",

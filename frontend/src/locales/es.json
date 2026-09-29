@@ -145,6 +145,17 @@
       "someRejected": "El servidor de correo rechazó la entrega a {{addresses}}.",
       "action": "Ver"
     },
+    "undoSend": {
+      "undone": "Envío deshecho",
+      "reopenLater": "Se volverá a abrir cuando cierres el mensaje que estás escribiendo",
+      "notSent": "Tu mensaje no se envió",
+      "lost": "El servidor se reinició antes de enviarlo, así que no se entregó.",
+      "unknown": "No se pudo confirmar que tu mensaje se enviara",
+      "unknownBody": "Revisa la carpeta Enviados antes de volver a enviarlo.",
+      "reopen": "Volver a abrir",
+      "tooLate": "Demasiado tarde para deshacer: el mensaje ya se envió",
+      "undoFailed": "No se pudo deshacer: el servidor no respondió"
+    },
     "toolbar": {
       "removeTable": "Eliminar tabla",
       "typography": "Tipografía",

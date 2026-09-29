@@ -145,6 +145,17 @@
       "someRejected": "Serwer pocztowy odmówił dostarczenia do {{addresses}}.",
       "action": "Wyświetl"
     },
+    "undoSend": {
+      "undone": "Wysyłanie cofnięte",
+      "reopenLater": "Otworzy się ponownie, gdy zamkniesz wiadomość, którą piszesz",
+      "notSent": "Twoja wiadomość nie została wysłana",
+      "lost": "Serwer uruchomił się ponownie przed wysłaniem, więc wiadomość nie została dostarczona.",
+      "unknown": "Nie udało się potwierdzić wysłania wiadomości",
+      "unknownBody": "Sprawdź folder Wysłane, zanim wyślesz ją ponownie.",
+      "reopen": "Otwórz ponownie",
+      "tooLate": "Za późno na cofnięcie: wiadomość została już wysłana",
+      "undoFailed": "Nie udało się cofnąć: serwer nie odpowiedział"
+    },
     "toolbar": {
       "removeTable": "Usuń tabelę",
       "typography": "Typografia",

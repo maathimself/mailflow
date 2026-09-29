@@ -255,6 +255,24 @@ describe('MessageList — Ctrl+Z undo shortcut (#449)', () => {
   });
 });
 
+describe('MessageList — undo bar length', () => {
+  // Undo send holds a message for 10 s, longer than the standard window, and its bar must stay
+  // up (and its progress run) for exactly that long, or Undo vanishes while it would still work.
+  test('a bar lasts as long as its notification asks, the rest the standard window', async () => {
+    await mount({ rows: [MESSAGE], threadedView: false });
+    await React.act(async () => {
+      useStore.setState({ notifications: [] });
+      useStore.getState().addNotification({ title: 'standard', onUndo: () => {} });
+      useStore.getState().addNotification({ title: 'held send', onUndo: () => {}, undoMs: 9876 });
+    });
+    const progress = [...container.querySelectorAll('div')]
+      .map(el => el.style.animation)
+      .filter(a => a.startsWith('action-bar-progress'));
+    assert.deepEqual(progress.sort(), ['action-bar-progress 4500ms linear forwards', 'action-bar-progress 9876ms linear forwards']);
+    await React.act(async () => { useStore.setState({ notifications: [] }); });
+  });
+});
+
 describe('MessageList — configurable hover quick actions (#440)', () => {
   // The stubbed t() returns key paths, so button titles ARE their i18n keys here.
   const TITLES = {

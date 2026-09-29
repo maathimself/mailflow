@@ -472,6 +472,17 @@
       "someRejected": "Poštovní server odmítl doručení na {{addresses}}.",
       "action": "Zobrazit"
     },
+    "undoSend": {
+      "undone": "Odeslání vráceno zpět",
+      "reopenLater": "Znovu se otevře, až zavřete zprávu, kterou právě píšete",
+      "notSent": "Vaše zpráva nebyla odeslána",
+      "lost": "Server se před odesláním restartoval, takže zpráva nebyla doručena.",
+      "unknown": "Nepodařilo se ověřit, zda byla zpráva odeslána",
+      "unknownBody": "Než ji odešlete znovu, zkontrolujte složku Odeslané.",
+      "reopen": "Znovu otevřít",
+      "tooLate": "Na vrácení je pozdě: zpráva už byla odeslána",
+      "undoFailed": "Nepodařilo se vrátit zpět: server neodpověděl"
+    },
     "toolbar": {
       "removeTable": "Odebrat tabulku",
       "typography": "Formátování písma",

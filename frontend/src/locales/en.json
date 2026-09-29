@@ -145,6 +145,17 @@
       "someRejected": "The mail server refused delivery to {{addresses}}.",
       "action": "View"
     },
+    "undoSend": {
+      "undone": "Sending undone",
+      "reopenLater": "It will reopen when you close the message you're writing",
+      "notSent": "Your message was not sent",
+      "lost": "The server restarted before sending it, so it was not delivered.",
+      "unknown": "Could not confirm that your message was sent",
+      "unknownBody": "Check your Sent folder before sending it again.",
+      "reopen": "Reopen",
+      "tooLate": "Too late to undo: the message was already sent",
+      "undoFailed": "Could not undo: no response from the server"
+    },
     "toolbar": {
       "removeTable": "Remove table",
       "typography": "Typography",

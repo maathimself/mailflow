@@ -4153,8 +4153,10 @@ function UndoBar({ notification, onDismiss, showTopBorder }) {
     dismiss();
   };
 
+  // Undo send brings its own window; everything else uses the standard one.
+  const windowMs = notification.undoMs ?? UNDO_WINDOW_MS;
   useEffect(() => {
-    const timer = setTimeout(dismiss, UNDO_WINDOW_MS);
+    const timer = setTimeout(dismiss, windowMs);
     return () => clearTimeout(timer);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -4174,7 +4176,7 @@ function UndoBar({ notification, onDismiss, showTopBorder }) {
       <div style={{
         position: 'absolute', bottom: 0, left: 0,
         height: 2, background: 'var(--accent)',
-        animation: `action-bar-progress ${UNDO_WINDOW_MS}ms linear forwards`,
+        animation: `action-bar-progress ${windowMs}ms linear forwards`,
       }} />
       <span style={{
         flex: 1, minWidth: 0,

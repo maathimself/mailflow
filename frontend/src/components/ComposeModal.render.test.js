@@ -617,5 +617,129 @@ describe('automatic Cc and Bcc (#491)', () => {
       await hideTab();
       assert.equal(saved.length, 0);
     } finally { await close(); }
+
+describe('undo send', () => {
+  // Mounted the way MailApp mounts it, so closing the composer unmounts it and reopening it
+  // mounts a fresh one from the store's composeData.
+  const Host = () => (useStore(s => s.composing) ? React.createElement(ComposeModal) : null);
+  const posted = [];
+  const deleted = [];
+  const cancels = [];
+  let unmount;
+  before(async () => {
+    useStore.setState({
+      plaintextEmail: false,
+      notifications: [],
+      accounts: [{ id: 'acct', enabled: true, email_address: 'me@example.invalid', name: 'Me', color: '#fff' }],
+    });
+    api.post = async (path, payload) => {
+      posted.push({ path, payload });
+      return { ok: true, pending: true, pendingId: 'p1', sendAt: new Date(Date.now() + 10_000).toISOString() };
+    };
+    api.deleteDraft = async (...args) => { deleted.push(args); return { ok: true }; };
+    api.cancelSend = async (id) => { cancels.push(id); return { cancelled: true }; };
+    api.getSendStatus = async () => ({ status: 'pending' });
+    useStore.getState().openCompose({
+      accountId: 'acct',
+      draftUid: 7,
+      draftFolder: 'Drafts',
+      to: ['Bob <bob@example.invalid>'],
+      cc: [],
+      subject: 'Contract',
+      body: '<p>Here it is.</p>',
+      attachments: [{ name: 'contract.pdf', size: 3, type: 'application/pdf', data: 'QUJD' }],
+      priority: 'high',
+    });
+    const root = createRoot(document.getElementById('root'));
+    await React.act(async () => { root.render(React.createElement(Host)); });
+    await React.act(async () => {});
+    unmount = () => React.act(async () => root.unmount());
+  });
+  after(() => unmount());
+
+  test('Send hands the message to the server with an undo window and closes the composer', async () => {
+    const send = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'compose.send');
+    await React.act(async () => { send.click(); });
+    await React.act(async () => {});
+    assert.equal(posted.length, 1);
+    const { payload } = posted[0];
+    assert.equal(payload.undoSeconds, 10);
+    assert.deepEqual(payload.draft, { uid: 7, folder: 'Drafts', accountId: 'acct' });
+    assert.equal(payload.attachments[0].filename, 'contract.pdf');
+    assert.equal(payload.priority, 'high');
+    assert.equal(useStore.getState().composing, false);
+    assert.deepEqual(deleted, [], 'the draft stays until the server has delivered the message');
+    const bar = useStore.getState().notifications.find(n => n.onUndo);
+    assert.equal(bar.title, 'compose.sending');
+    assert.ok(bar.undoMs > 9000 && bar.undoMs <= 10_000, `undo window ${bar.undoMs} ms`);
+  });
+
+  test('Undo gives the message back as it was sent, attachments included', async () => {
+    const bar = useStore.getState().notifications.find(n => n.onUndo);
+    await React.act(async () => { await bar.onUndo(); });
+    await React.act(async () => {});
+    assert.deepEqual(cancels, ['p1']);
+    assert.equal(useStore.getState().composing, true);
+    const data = useStore.getState().composeData;
+    assert.equal(data.subject, 'Contract');
+    assert.deepEqual(data.to, ['Bob <bob@example.invalid>']);
+    assert.equal(data.priority, 'high');
+    assert.equal(data.draftUid, 7);
+    assert.match(document.body.textContent, /contract\.pdf/, 'the attachment is back in the composer');
+    assert.match(document.querySelector('.ProseMirror').editor.getHTML(), /Here it is\./);
+  });
+
+  test('the reopened message counts as unsaved, so its draft is brought up to date', async () => {
+    saved.length = 0;
+    await hideTab();
+    assert.equal(saved.length, 1, 'saved although nothing was typed since it reopened');
+    assert.equal(saved[0].existingUid, 7);
+    assert.equal(saved[0].subject, 'Contract');
+  });
+
+  test('a server without undo send delivers at once, and the draft is deleted from here', async () => {
+    posted.length = 0;
+    api.post = async (path, payload) => { posted.push({ path, payload }); return { ok: true }; };
+    const send = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'compose.send');
+    await React.act(async () => { send.click(); });
+    await React.act(async () => {});
+    assert.equal(useStore.getState().composing, false);
+    assert.deepEqual(deleted, [['acct', 8, 'Drafts']], 'the copy saved after the undo');
+    assert.equal(useStore.getState().notifications[0].title, 'compose.sent.title');
+  });
+});
+
+describe('undo send, message without attachments', () => {
+  // With nothing to set it apart from its draft, only being a reopened message keeps it from
+  // looking saved: closing it would then drop whatever was typed after the last autosave.
+  const Host = () => (useStore(s => s.composing) ? React.createElement(ComposeModal) : null);
+  let unmount;
+  before(async () => {
+    useStore.setState({ plaintextEmail: false, notifications: [] });
+    api.post = async () => ({ ok: true, pending: true, pendingId: 'p2', sendAt: new Date(Date.now() + 10_000).toISOString() });
+    api.cancelSend = async () => ({ cancelled: true });
+    useStore.getState().openCompose({
+      accountId: 'acct', draftUid: 9, draftFolder: 'Drafts',
+      to: ['Bob <bob@example.invalid>'], cc: [], subject: 'Plan', body: '<p>Typed after the last autosave.</p>',
+    });
+    const root = createRoot(document.getElementById('root'));
+    await React.act(async () => { root.render(React.createElement(Host)); });
+    await React.act(async () => {});
+    unmount = () => React.act(async () => root.unmount());
+  });
+  after(() => unmount());
+
+  test('the reopened message still counts as unsaved', async () => {
+    const send = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'compose.send');
+    await React.act(async () => { send.click(); });
+    await React.act(async () => {});
+    const bar = useStore.getState().notifications.find(n => n.onUndo);
+    await React.act(async () => { await bar.onUndo(); });
+    await React.act(async () => {});
+    saved.length = 0;
+    await hideTab();
+    assert.equal(saved.length, 1, 'saved although nothing was typed since it reopened');
+    assert.equal(saved[0].existingUid, 9);
+    assert.match(saved[0].body, /Typed after the last autosave\./);
   });
 });
