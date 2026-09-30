@@ -1,5 +1,5 @@
 import { getGtdConfig } from './gtdConfig.js';
-import { resolveAllDraftsPaths, logger, getAccountAddresses, getThreadKeysForMessageIds as _threadKeysForIds, getThreadKeysInFolders as _threadKeysInFolders, getThreadKeysForMessageIdHeaders, getMessagesByThreadKeys } from '../api.js';
+import { resolveAllDraftsPaths, resolveAllTrashPaths, resolveAllSpamPaths, logger, getAccountAddresses, getThreadKeysForMessageIds as _threadKeysForIds, getThreadKeysInFolders as _threadKeysInFolders, getThreadKeysForMessageIdHeaders, getMessagesByThreadKeys } from '../api.js';
 
 // Transition rules for auto-stripping a GTD label once a thread's state has moved on,
 // evaluated per thread against its LAST non-draft message:
@@ -105,8 +105,12 @@ export async function runGtdTransitions(imapManager, account, threadKeys) {
     if (folders[state]) stateFolder[state] = folders[state];
   }
 
-  const draftPaths = await resolveAllDraftsPaths(account.id, account.folder_mappings);
-  const gtdFolders = new Set(Object.values(folders));
+  const [draftPaths, trashPaths, spamPaths] = await Promise.all([
+    resolveAllDraftsPaths(account.id, account.folder_mappings),
+    resolveAllTrashPaths(account.id, account.folder_mappings),
+    resolveAllSpamPaths(account.id, account.folder_mappings),
+  ]);
+  const excludedFolders = new Set([...Object.values(folders), ...draftPaths, ...trashPaths, ...spamPaths]);
   const owner = await getOwnerAddresses(account.id);
 
   const rows = await getMessagesByThreadKeys(account.id, keys);
@@ -139,10 +143,10 @@ export async function runGtdTransitions(imapManager, account, threadKeys) {
 
       for (const copy of threadRows.filter((r) => r.folder === folder)) {
         // Users can move mail into GTD folders. Only strip a duplicate backed
-        // by the same email outside every folder this engine can remove.
+        // by the same email outside GTD, Drafts and disposable folders.
         if (!copy.message_id) continue;
         const siblings = threadRows.filter(row =>
-          row.message_id === copy.message_id && !gtdFolders.has(row.folder) && !draftPaths.has(row.folder)
+          row.message_id === copy.message_id && !excludedFolders.has(row.folder)
         );
         if (!siblings.length) continue;
         // The source cache can also be stale. A live sibling only authorizes

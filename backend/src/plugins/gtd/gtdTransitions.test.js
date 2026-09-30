@@ -2,7 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../services/db.js', () => ({ query: vi.fn() }));
 vi.mock('./gtdConfig.js', () => ({ getGtdConfig: vi.fn() }));
-vi.mock('../../utils/mailUtils.js', () => ({ resolveAllDraftsPaths: vi.fn() }));
+vi.mock('../../utils/mailUtils.js', async (importOriginal) => ({
+  ...await importOriginal(), resolveAllDraftsPaths: vi.fn(),
+}));
 vi.mock('../../services/logger.js', () => ({ logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 import {
@@ -165,6 +167,43 @@ describe('runGtdTransitions', () => {
     const mgr = fakeManager();
     await runGtdTransitions(mgr, account, ['t1']);
     expect(mgr.removeMessageCopy).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['Todo', 'trash', 'Trash', false],
+    ['Someday', 'trash', 'Trash', false],
+    ['Todo', 'spam', 'Junk', false],
+    ['Someday', 'spam', 'Junk', false],
+    ['Todo', 'trash', 'Retention/Discard', true],
+    ['Someday', 'trash', 'Retention/Discard', true],
+    ['Todo', 'spam', 'Filtered/Unwanted', true],
+    ['Someday', 'spam', 'Filtered/Unwanted', true],
+  ])('retains %s when the other copy is in %s folder %s (mapped=%s)', async (stateFolder, role, folder, mapped) => {
+    const rows = [
+      { thread_key: 't1', uid: 98, folder: stateFolder, message_id: '<invoice@example.test>', from_email: 'vendor@example.test', date: '2026-07-01', id: 'actionable' },
+      { thread_key: 't1', uid: 10, folder, message_id: '<invoice@example.test>', from_email: 'vendor@example.test', date: '2026-07-01', id: 'disposable' },
+      { thread_key: 't1', uid: 90, folder: 'Sent', message_id: '<reply@example.test>', from_email: 'me@example.com', date: '2026-07-02', id: 'reply' },
+    ];
+    const live = new Map(rows.map(row => [`${row.folder}:${row.uid}`, row.message_id]));
+    mockQuery({ rows });
+    const mailQuery = query.getMockImplementation();
+    query.mockImplementation((sql, params) => {
+      if (sql.startsWith('SELECT 1 FROM folders')) {
+        return Promise.resolve({ rows: mapped && params[1] === folder ? [{ '?column?': 1 }] : [] });
+      }
+      if (sql.startsWith('SELECT path FROM folders')) {
+        const matches = role === 'trash' ? sql.includes('\\Trash') : sql.includes('\\Junk');
+        return Promise.resolve({ rows: !mapped && matches ? [{ path: folder }] : [] });
+      }
+      return mailQuery(sql, params);
+    });
+    const mgr = fakeManager();
+    mgr.hasMessageCopy.mockImplementation(async (_account, uid, path, messageId) => live.get(`${path}:${uid}`) === messageId);
+    mgr.removeMessageCopy.mockImplementation(async (_accountId, uid, path) => live.delete(`${path}:${uid}`));
+    await runGtdTransitions(mgr, { ...account, folder_mappings: mapped ? { [role]: folder } : {} }, ['t1']);
+    live.delete(`${folder}:10`); // the disposable folder is subsequently emptied
+    expect(live.get(`${stateFolder}:98`)).toBe('<invoice@example.test>');
+    expect(mgr.broadcast).not.toHaveBeenCalled();
   });
 
   it('keeps an unidentified GTD member even when another thread member is in Inbox', async () => {

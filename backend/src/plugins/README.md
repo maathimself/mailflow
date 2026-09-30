@@ -62,7 +62,7 @@ Everything a plugin may do, grouped:
 - **Per-account plugin config:** `getAccountConfig`, `setAccountConfig` (the `plugin_account_config` table)
 - **Per-message annotations:** `getMessageAnnotations`, `setMessageAnnotation` (namespaced `messages.plugin_annotations`)
 - **Activation:** `isPluginActivated`, `isPluginActivatedForAccount`
-- **Logging:** `logger` · **Auth middleware:** `requireAuth` · **Folder resolution:** `resolveAllDraftsPaths`
+- **Logging:** `logger` · **Auth middleware:** `requireAuth` · **Folder resolution:** `resolveAllDraftsPaths`, `resolveAllTrashPaths`, `resolveAllSpamPaths`
 - **Ownership-scoped mail/account reads:** `loadOwnedMessage`, `getOwnedAccount`, `listUserAccounts`, `getAccountAddresses`, `getMessagesByThreadKeys`, `getMessageCopyFolders`, `getMessageFields`, the thread-key resolvers, …
 
 If you need something not here, **don't reach around the boundary** — ask, and we add a reviewed

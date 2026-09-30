@@ -78,9 +78,9 @@ export { isPluginActivated, isPluginActivatedForAccount } from './activation.js'
 export { getAccountConfig, setAccountConfig } from './accountConfig.js';
 
 // ── Folder resolution ─────────────────────────────────────────────────────────
-// Resolve an account's Drafts folder paths (across provider naming). A safe read over the
+// Resolve an account's Drafts, Trash and Junk paths (across provider naming). A safe read over the
 // account's folder mapping — no mail engine, no raw DB.
-export { resolveAllDraftsPaths } from '../utils/mailUtils.js';
+export { resolveAllDraftsPaths, resolveAllTrashPaths, resolveAllSpamPaths } from '../utils/mailUtils.js';
 
 // ── Mail/account reads ────────────────────────────────────────────────────────
 // A fixed, reviewed set of ownership-scoped read queries (see services/mailAccess.js). A plugin
