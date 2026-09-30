@@ -18,8 +18,8 @@ function createHarness(classifyResult = {}) {
   const store = {
     addNotification: notification => notifications.unshift({ id: `n-${notifications.length + 1}`, ...notification }),
     scheduleGtdSectionsFetch: () => { calls.refresh += 1; },
-    dismissUndoNotifications: () => {
-      const regular = notifications.filter(n => typeof n.onUndo !== 'function');
+    dismissUndoNotifications: (matches = () => true) => {
+      const regular = notifications.filter(n => typeof n.onUndo !== 'function' || !matches(n));
       notifications.splice(0, notifications.length, ...regular);
     },
     messages: [{ id: 'message-1' }, { id: 'message-2' }],
@@ -105,23 +105,23 @@ describe('classifyWithUndo', () => {
 
 
 describe('GTD state switch safety', () => {
-  it('ends older GTD and unrelated Undo windows but keeps regular notifications', async () => {
+  it('ends this source GTD Undo but keeps unrelated Undo and regular notifications', async () => {
     const harness = createHarness({ applied: true, switched: true, sourceRemoved: false });
     const invoked = [];
     harness.notifications.push(
-      { id: 'todo', pluginId: 'gtd', onUndo: () => invoked.push('todo') },
+      { id: 'todo', pluginId: 'gtd', gtdUndoScope: { messageId: 'message-1' }, onUndo: () => invoked.push('todo') },
       { id: 'archive-b', onUndo: () => invoked.push('archive-b') },
       { id: 'regular', title: 'background update' },
     );
     await classifyWithUndo('message-1', 'watch', harness);
-    assert.equal(harness.notifications.some(n => typeof n.onUndo === 'function'), false);
+    assert.deepEqual(harness.notifications.filter(n => n.onUndo).map(n => n.id), ['archive-b']);
     assert.equal(harness.notifications.some(n => n.id === 'regular'), true);
     harness.notifications.shift(); // switch toast dismissed or expired
     harness.notifications.find(n => n.onUndo)?.onUndo();
-    assert.deepEqual(invoked, []);
+    assert.deepEqual(invoked, ['archive-b']);
   });
 
-  it('keeps a scheduled archive committing after its Undo window is ended', async () => {
+  it('keeps an unrelated archive Undo window and lets its scheduled commit run', async () => {
     const harness = createHarness({ applied: true, switched: true });
     const { createUndoableCommit } = await import('./undoableAction.js');
     const calls = [];
@@ -135,12 +135,12 @@ describe('GTD state switch safety', () => {
     await classifyWithUndo('message-1', 'watch', harness);
     await commit();
     assert.deepEqual(calls, ['archive-b']);
-    assert.equal(harness.notifications.some(n => n.id === 'archive-b'), false);
+    assert.equal(harness.notifications.some(n => n.id === 'archive-b'), true);
   });
 
   it('ends stale undo and refreshes sections on an uncertain mutation failure', async () => {
     const harness = createHarness();
-    harness.notifications.push({ id: 'stale', onUndo: () => assert.fail('stale undo') });
+    harness.notifications.push({ id: 'stale', pluginId: 'gtd', gtdUndoScope: { messageId: 'message-1' }, onUndo: () => assert.fail('stale undo') });
     harness.api.gtdClassify = async () => { throw new Error('disconnected after EXPUNGE'); };
     await classifyWithUndo('message-1', 'watch', harness);
     assert.equal(harness.notifications.some(n => n.onUndo), false);

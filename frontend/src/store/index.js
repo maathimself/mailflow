@@ -534,8 +534,8 @@ export const useStore = create((set, get) => ({
   addNotification: (n) => set(state => ({
     notifications: [{ ...n, id: crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}` }, ...state.notifications].slice(0, 5)
   })),
-  dismissUndoNotifications: () => set(state => ({
-    notifications: state.notifications.filter(n => typeof n.onUndo !== 'function'),
+  dismissUndoNotifications: (matches = () => true) => set(state => ({
+    notifications: state.notifications.filter(n => typeof n.onUndo !== 'function' || !matches(n)),
   })),
   removeNotification: (id) => set(state => ({
     notifications: state.notifications.filter(n => n.id !== id)

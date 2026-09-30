@@ -192,7 +192,7 @@ export function useGtdTriage() {
   // Classify (add a state label) / remove (strip one). The message stays put, so just
   // poke the sidebar store to reconverge — mirrors MessageList's context-menu handlers.
   const classifyRow = (thread, state) => classifyWithUndo(thread.id, state, {
-    api, store: useStore, t,
+    api, store: useStore, t, message: thread,
   });
 
   const removeStateRow = (thread, state) => unclassifyThread(thread.id, state, {

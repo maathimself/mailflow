@@ -5,8 +5,8 @@ import * as hotkeys from './gtdHotkeys.js';
 const resolveGtdHotkeyTarget = hotkeys.resolveGtdHotkeyTarget ?? (() => null);
 const runGtdHotkey = hotkeys.runGtdHotkey ?? (() => false);
 
-const inbox = { id: 'inbox', account_id: 'gtd', is_read: false };
-const rail = { id: 'rail', account_id: 'gtd', message_id: '<one>', gtdKinds: ['watch', 'delegated'] };
+const inbox = { id: 'inbox', account_id: 'gtd', thread_id: 'inbox-thread', is_read: false };
+const rail = { id: 'rail', account_id: 'gtd', thread_key: 'rail-thread', message_id: '<one>', gtdKinds: ['watch', 'delegated'] };
 const sections = { watch: { threads: [rail] }, delegated: { threads: [{ ...rail, id: 'other-copy' }] } };
 const base = { enabledPlugins: ['gtd'], accounts: [{ id: 'gtd', gtd_enabled: true }, { id: 'ordinary', gtd_enabled: false }], messages: [inbox], searchResults: [], searchQuery: '', threadMessages: {}, gtdSections: sections };
 
@@ -55,10 +55,15 @@ describe('GTD shortcut execution', () => {
   it('classifies Reference and Someday from a selected GTD rail copy', async () => {
     const calls = [];
     const state = { ...base, selectedMessageId: 'rail', activeGtdTab: 'waiting' };
-    const deps = { classify: (id, kind) => calls.push([id, kind]) };
+    const deps = { classify: (id, kind, message) => calls.push([id, kind, message?.id, message?.account_id, message?.thread_key, message?.thread_id]) };
     await runGtdHotkey('gtdReference', state, deps);
     await runGtdHotkey('gtdSomeday', state, deps);
-    assert.deepEqual(calls, [['rail', 'reference'], ['rail', 'someday']]);
+    await runGtdHotkey('gtdTodo', { ...base, selectedMessageId: 'inbox' }, deps);
+    assert.deepEqual(calls, [
+      ['rail', 'reference', 'rail', 'gtd', 'rail-thread', undefined],
+      ['rail', 'someday', 'rail', 'gtd', 'rail-thread', undefined],
+      ['inbox', 'todo', 'inbox', 'gtd', undefined, 'inbox-thread'],
+    ]);
   });
 
   it('routes Done to main or rail checkmark semantics and gates non-GTD account', async () => {

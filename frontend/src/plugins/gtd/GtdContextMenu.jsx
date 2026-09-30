@@ -26,6 +26,7 @@ function GtdContextSubmenu({ message, account, onClose, onBack }) {
       api,
       store: useStore,
       t,
+      message,
     });
     onClose();
   };

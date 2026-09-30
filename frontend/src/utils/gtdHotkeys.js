@@ -65,6 +65,6 @@ export async function runGtdHotkey(action, state, { classify, doneMain, doneRail
   }
   const kind = CLASSIFICATION_ACTIONS[action];
   if (!kind) return false;
-  await classify(target.message.id, kind);
+  await classify(target.message.id, kind, target.message);
   return true;
 }

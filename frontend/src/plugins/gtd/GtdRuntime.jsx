@@ -36,8 +36,8 @@ export default function GtdRuntime() {
     const handleAction = action => () => {
       const st = useStore.getState();
       void runGtdHotkey(action, st, {
-        classify: (id, state) => classifyWithUndo(id, state, {
-          api, store: useStore, t,
+        classify: (id, state, message) => classifyWithUndo(id, state, {
+          api, store: useStore, t, message,
         }),
         doneMain: message => doneInboxGtdMessage(message, {
           advance: advanceSelectionAfterRemoval, remove: st.removeMessage,
