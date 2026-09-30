@@ -18,6 +18,16 @@
  */
 export function extractImapError(err) {
   if (!err) return 'Unknown error';
+
+  // A connect that fails on every address the host resolves to (IPv6 and IPv4 under
+  // autoSelectFamily) rejects with an AggregateError whose message is empty; the reasons are
+  // on .errors, one per address. Unwrapped, it read only "AggregateError" in the log and the
+  // UI, with nothing to diagnose from (#510).
+  if (Array.isArray(err.errors) && err.errors.length && err.name === 'AggregateError') {
+    const reasons = [...new Set(err.errors.map(e => e?.message || e?.code).filter(Boolean))];
+    if (reasons.length) return reasons.join('; ');
+    if (err.code) return String(err.code);
+  }
   const code = err.serverResponseCode ? `[${err.serverResponseCode}] ` : '';
 
   // The parsed response carries the server's TEXT attributes; imapflow joins them into

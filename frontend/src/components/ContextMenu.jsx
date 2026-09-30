@@ -8,7 +8,7 @@ import { downloadEml } from '../utils/downloadEml.js';
 import { usePluginCollected } from '../plugins/PluginSlot.jsx';
 import MessageHeaderModal from './MessageHeaderModal.jsx';
 import FolderPathLabel from './FolderPathLabel.jsx';
-import { folderMatchesQuery } from '../utils/folderDisplay.js';
+import { folderMatchesQuery, favoriteMoveTargets } from '../utils/folderDisplay.js';
 import { useUiScale, descale } from '../hooks/useUiScale.js';
 import { useMobile } from '../hooks/useMobile.js';
 
@@ -668,11 +668,9 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
                   .filter(r => r.accountId === message.account_id && r.path !== message.folder)
                   .map(r => (moveFolders || []).find(f => f.path === r.path))
                   .filter(Boolean);
-                const favoritesForAccount = favoriteFolders
-                  .filter(fav => fav.accountId === message.account_id && fav.path !== message.folder)
-                  .map(fav => (moveFolders || []).find(f => f.path === fav.path))
-                  .filter(Boolean)
-                  .filter(f => !recentForAccount.some(r => r.path === f.path));
+                const favoritesForAccount = favoriteMoveTargets(favoriteFolders, moveFolders, {
+                  accountId: message.account_id, currentFolder: message.folder, exclude: recentForAccount,
+                });
                 return (
                   <>
                     {recentForAccount.length > 0 && (
@@ -817,7 +815,7 @@ function FolderMenuItem({ folder, onClick }) {
       }}
     >
       <span style={{ flexShrink: 0, color: 'var(--text-tertiary)', display: 'flex' }}>{icon}</span>
-      <FolderPathLabel folder={folder} />
+      <FolderPathLabel folder={folder} label={folder.favoriteLabel} />
     </div>
   );
 }

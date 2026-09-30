@@ -142,6 +142,7 @@
     "sent": {
       "title": "Message sent",
       "noCopy": "Sent, but not saved to your Sent folder",
+      "someRejected": "The mail server refused delivery to {{addresses}}.",
       "action": "View"
     },
     "toolbar": {

@@ -142,6 +142,7 @@
     "sent": {
       "title": "Messaggio inviato",
       "noCopy": "Inviato, ma non salvato in Inviati",
+      "someRejected": "Il server di posta ha rifiutato la consegna a {{addresses}}.",
       "action": "Visualizza"
     },
     "toolbar": {

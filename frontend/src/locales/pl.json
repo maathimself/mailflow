@@ -142,6 +142,7 @@
     "sent": {
       "title": "Wiadomość wysłana",
       "noCopy": "Wysłano, ale nie zapisano w folderze Wysłane",
+      "someRejected": "Serwer pocztowy odmówił dostarczenia do {{addresses}}.",
       "action": "Wyświetl"
     },
     "toolbar": {

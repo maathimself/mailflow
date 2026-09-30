@@ -19,7 +19,7 @@ import { renderMarkdown } from '../utils/renderMarkdown.js';
 import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
 import MessageBodyView from './MessageBodyView.jsx';
 import { copyToClipboard } from '../utils/clipboard.js';
-import { folderMatchesQuery } from '../utils/folderDisplay.js';
+import { folderMatchesQuery, favoriteMoveTargets } from '../utils/folderDisplay.js';
 import FolderPathLabel from './FolderPathLabel.jsx';
 import SpamBadge from './SpamBadge.jsx';
 import SpamExplainModal from './SpamExplainModal.jsx';
@@ -1201,11 +1201,9 @@ ${bodyContent}
         .filter(Boolean)
     : [];
   const favoritesForMove = message
-    ? favoriteFolders
-        .filter(fav => fav.accountId === message.account_id && fav.path !== message.folder)
-        .map(fav => movePickerFolders.find(f => f.path === fav.path))
-        .filter(Boolean)
-        .filter(f => !recentForMove.some(r => r.path === f.path))
+    ? favoriteMoveTargets(favoriteFolders, movePickerFolders, {
+        accountId: message.account_id, currentFolder: message.folder, exclude: recentForMove,
+      })
     : [];
 
   if (!message) {
@@ -1837,7 +1835,7 @@ ${bodyContent}
                                 onMouseLeave={e => e.currentTarget.style.background = 'none'}
                               >
                                 <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} /></span>
-                                <FolderPathLabel folder={f} />
+                                <FolderPathLabel folder={f} label={f.favoriteLabel} />
                               </button>
                             ))}
                             <div style={{ height: 1, background: 'var(--border-subtle)', margin: '3px 0' }} />
@@ -2795,7 +2793,7 @@ ${bodyContent}
                             style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', minHeight: 48, padding: '0 20px', background: 'none', border: 'none', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: 15, cursor: 'pointer', textAlign: 'left' }}
                           >
                             <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} size={18} /></span>
-                            <FolderPathLabel folder={f} />
+                            <FolderPathLabel folder={f} label={f.favoriteLabel} />
                           </button>
                         ))}
                         <div style={{ height: 1, background: 'var(--border-subtle)', margin: '3px 0' }} />

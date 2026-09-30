@@ -2,6 +2,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  favoriteMoveTargets,
   folderDelimiter,
   folderMatchesQuery,
   folderParentLabel,
@@ -148,5 +149,34 @@ describe('folderDisplayName', () => {
     assert.equal(folderRole({ path: 'Drafts', special_use: '\\Drafts' }), 'drafts');
     assert.equal(folderRole({ path: 'Projects' }), null);
     assert.equal(folderRole({}), null);
+  });
+});
+
+describe('favoriteMoveTargets (#505)', () => {
+  const folders = [
+    { path: 'INBOX', name: 'INBOX' },
+    { path: 'Work/Receipts', name: 'Receipts' },
+    { path: 'Archive', name: 'Archive' },
+  ];
+  const favorites = [
+    { accountId: 'a', path: 'Work/Receipts', label: 'Tax 2026' },
+    { accountId: 'a', path: 'Archive' },
+    { accountId: 'b', path: 'Archive', label: 'Other account' },
+    { accountId: 'a', path: 'Gone' },
+  ];
+
+  it('carries the custom name of a renamed favorite', () => {
+    const out = favoriteMoveTargets(favorites, folders, { accountId: 'a', currentFolder: 'INBOX' });
+    assert.deepEqual(out.map(f => [f.path, f.favoriteLabel]), [['Work/Receipts', 'Tax 2026'], ['Archive', undefined]]);
+  });
+
+  it('keeps the existing filters: account, current folder, missing folders, entries listed elsewhere', () => {
+    const out = favoriteMoveTargets(favorites, folders, { accountId: 'a', currentFolder: 'Archive', exclude: [{ path: 'Work/Receipts' }] });
+    assert.deepEqual(out, []);
+  });
+
+  it('does not mutate the picker\'s folder objects', () => {
+    favoriteMoveTargets(favorites, folders, { accountId: 'a' });
+    assert.equal(folders[1].favoriteLabel, undefined);
   });
 });

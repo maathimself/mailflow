@@ -831,6 +831,18 @@ export default function ComposeModal() {
           actionLabel: t('compose.sent.action'),
         }),
       });
+      // The server refused some recipients at RCPT but took the rest, so the send succeeded
+      // for everyone else. Keep this up until dismissed; a toast that times out is too easy
+      // to miss for mail that never reached someone.
+      if (sendResult?.rejected?.length) {
+        addNotification({
+          type: 'error',
+          title: subject || t('common.noSubject'),
+          body: t('compose.sent.someRejected', { addresses: sendResult.rejected.join(', ') }),
+          allowWrap: true,
+          persistent: true,
+        });
+      }
       if (replyThreadId) {
         const refreshThread = async () => {
           try {

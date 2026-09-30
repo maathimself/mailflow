@@ -142,6 +142,7 @@
     "sent": {
       "title": "Message envoyé",
       "noCopy": "Envoyé, mais non enregistré dans Envoyés",
+      "someRejected": "Le serveur de messagerie a refusé la remise à {{addresses}}.",
       "action": "Voir"
     },
     "toolbar": {

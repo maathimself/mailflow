@@ -142,6 +142,7 @@
     "sent": {
       "title": "Nachricht gesendet",
       "noCopy": "Gesendet, aber nicht im Ordner Gesendet gespeichert",
+      "someRejected": "Der Mailserver hat die Zustellung an {{addresses}} abgelehnt.",
       "action": "Anzeigen"
     },
     "toolbar": {

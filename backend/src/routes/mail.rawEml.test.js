@@ -29,12 +29,16 @@ describe('GET /api/mail/messages/:id/raw.eml (#381)', () => {
   let server, base;
   beforeAll(async () => { await new Promise(r => { server = buildApp().listen(0, r); }); base = `http://127.0.0.1:${server.address().port}`; });
   afterAll(async () => { await new Promise(r => server.close(r)); });
+  let row;
   beforeEach(() => {
     query.mockReset();
     imapManager.fetchRawMessage.mockReset().mockResolvedValue(Buffer.from(RAW));
-    query.mockImplementation((sql) => {
+    row = { id: MSG_ID, uid: '42', folder: 'INBOX', subject: 'Quarterly report', account_id: ACCOUNT_ID, user_id: 'user-1' };
+    query.mockImplementation((sql, params) => {
       if (sql.includes('FROM messages m')) {
-        return Promise.resolve({ rows: [{ id: MSG_ID, uid: '42', folder: 'INBOX', subject: 'Quarterly report', account_id: ACCOUNT_ID, user_id: 'user-1' }] });
+        // Like Postgres: the row comes back unless the query filters on a.user_id and it doesn't match.
+        const scope = sql.match(/a\.user_id = \$(\d+)/);
+        return Promise.resolve({ rows: !scope || params[scope[1] - 1] === row.user_id ? [row] : [] });
       }
       if (sql.includes('SELECT * FROM email_accounts')) {
         return Promise.resolve({ rows: [{ id: ACCOUNT_ID, imap_host: 'imap.example.com' }] });
@@ -54,7 +58,7 @@ describe('GET /api/mail/messages/:id/raw.eml (#381)', () => {
   });
 
   it('404s a message the user does not own, without touching IMAP', async () => {
-    query.mockImplementation(() => Promise.resolve({ rows: [] })); // ownership join finds nothing
+    row.user_id = 'user-2';
     const res = await fetch(`${base}/api/mail/messages/${MSG_ID}/raw.eml`);
     expect(res.status).toBe(404);
     expect(imapManager.fetchRawMessage).not.toHaveBeenCalled();
@@ -70,5 +74,13 @@ describe('GET /api/mail/messages/:id/raw.eml (#381)', () => {
     imapManager.fetchRawMessage.mockResolvedValue(null);
     const res = await fetch(`${base}/api/mail/messages/${MSG_ID}/raw.eml`);
     expect(res.status).toBe(404);
+  });
+
+  it('drops an emoji split by the 80-char filename cut instead of failing', async () => {
+    row.subject = 'x'.repeat(79) + String.fromCodePoint(0x1f600) + ' tail';
+    const res = await fetch(`${base}/api/mail/messages/${MSG_ID}/raw.eml`);
+    expect(res.status).toBe(200);
+    const ext = res.headers.get('content-disposition').match(/filename\*=UTF-8''(.+)$/)[1];
+    expect(decodeURIComponent(ext)).toBe('x'.repeat(79) + '.eml');
   });
 });

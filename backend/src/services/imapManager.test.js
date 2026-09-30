@@ -4370,6 +4370,9 @@ describe('permanentDeleteMessage with expectMessageId', () => {
           if (serverCopies.has(uid)) yield { uid, envelope: { messageId: serverCopies.get(uid) } };
         }
       }),
+      // A UIDPLUS server, so the delete is a UID EXPUNGE of exactly this uid (see expungeUids).
+      capabilities: new Map([['UIDPLUS', true]]),
+      messageFlagsAdd: vi.fn().mockResolvedValue(true),
       messageDelete: vi.fn().mockResolvedValue(true),
     });
     ImapFlow.mockImplementation(function () { return client; });

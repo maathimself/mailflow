@@ -447,6 +447,7 @@
     "sent": {
       "title": "Zpráva odeslána",
       "noCopy": "Zpráva byla odeslána, ale neuložila se do složky Odeslané",
+      "someRejected": "Poštovní server odmítl doručení na {{addresses}}.",
       "action": "Zobrazit"
     },
     "toolbar": {

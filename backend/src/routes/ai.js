@@ -29,6 +29,8 @@ const AI_LANGUAGE_NAMES = {
   it: 'Italian',
   zhCN: 'Simplified Chinese',
   pl: 'Polish',
+  cs: 'Czech',
+  ptBR: 'Brazilian Portuguese',
 };
 
 export function aiLanguageInstruction(language) {
