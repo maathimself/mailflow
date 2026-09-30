@@ -101,3 +101,20 @@ describe('relocate reinsert column lists', () => {
     expect(new Set(insertCols).size).toBe(insertCols.length); // no duplicate columns
   });
 });
+
+// A label copy (insertCopiedSibling) makes the same kind of full-row copy, from its own column
+// list, and that list fell behind: it lacked plugin_annotations (the GTD gist cache), so every
+// labelled copy regenerated it. Hold it to the relocate list so neither can drift alone.
+describe('label copy column list', () => {
+  it('copies exactly the columns a relocate carries', async () => {
+    const { query } = await import('../services/db.js');
+    const { insertCopiedSibling } = await import('../services/imapManager.js');
+    query.mockReset();
+    query.mockResolvedValue({ rows: [] });
+    await insertCopiedSibling('acct', 1, 'INBOX', 'Todo', 2);
+    const sql = query.mock.calls[0][0];
+    const labelCols = sql.slice(sql.indexOf('(') + 1, sql.indexOf(')')).split(',').map(s => s.trim());
+    const relocateCols = RELOCATE_INSERT_COLS.split(',').map(s => s.trim());
+    expect([...labelCols].sort()).toEqual([...relocateCols].sort());
+  });
+});

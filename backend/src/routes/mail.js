@@ -285,10 +285,12 @@ function shouldBlockImages(prefs, message) {
   return true;
 }
 
-// Get all messages belonging to a thread (for threaded view expansion)
-router.get('/thread/:threadId', async (req, res) => {
-  const { threadId } = req.params;
-  if (!threadId) return res.status(400).json({ error: 'threadId required' });
+// Get all messages belonging to a thread (for threaded view expansion). The id goes in the query
+// string: a thread id is a Message-ID, and GitHub's contain slashes, which some reverse proxies
+// reject or decode when they appear encoded in a path (#509). The path form stays for clients
+// that still use it.
+async function getThread(req, res, threadId) {
+  if (typeof threadId !== 'string' || !threadId) return res.status(400).json({ error: 'threadId required' });
 
   try {
     const accountsResult = await query(
@@ -342,7 +344,9 @@ router.get('/thread/:threadId', async (req, res) => {
     console.error('Thread fetch error:', err);
     res.status(500).json({ error: 'Failed to load thread' });
   }
-});
+}
+router.get('/thread', (req, res) => getThread(req, res, req.query.id));
+router.get('/thread/:threadId', (req, res) => getThread(req, res, req.params.threadId));
 
 // Counts are snapshots independently measured on the IMAP server, never cache tallies.
 router.get('/unread-counts', async (req, res) => {

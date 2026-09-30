@@ -2,7 +2,8 @@
 // Nextcloud) and pulls vCards. One-way/read-only: we never write back.
 //
 // Flow: current-user-principal -> addressbook-home-set -> enumerate collections
-// -> addressbook-query REPORT for each book's vCards. Uses native fetch with the
+// -> addressbook-query REPORT for each book's vCards, or, where the server refuses that
+// report (Google, #503), a PROPFIND listing plus addressbook-multiget. Uses native fetch with the
 // WebDAV verbs PROPFIND/REPORT and HTTP Basic auth. Host is SSRF-validated up
 // front (reusing the same policy IMAP/SMTP hosts use).
 
@@ -53,7 +54,9 @@ async function dav(method, url, { username, password, depth, body, allowPrivate 
   }
   if (res.status === 401) throw new Error('Authentication failed — check the username and app password');
   if (!res.ok && res.status !== 207) {
-    throw new Error(`CardDAV request failed (${res.status} ${res.statusText})`);
+    const err = new Error(`CardDAV request failed (${res.status} ${res.statusText})`);
+    err.status = res.status;
+    throw err;
   }
   return res.text();
 }
@@ -182,15 +185,66 @@ export function parseAddressBooks(xmlText, baseUrl) {
   return books;
 }
 
-// Fetch every vCard in an address book via a filter-less addressbook-query REPORT.
-// Returns [{ href, etag, vcard }].
+// Statuses meaning "this server does not do that report" rather than a failure the fallback
+// could not fix (auth is 401 and throws its own error; 404 means the book itself is gone).
+const QUERY_UNSUPPORTED = new Set([400, 403, 405, 415, 422, 501]);
+// Cards per addressbook-multiget, so a large book is fetched in bounded responses.
+export const MULTIGET_BATCH = 100;
+
+// Fetch every vCard in an address book. Returns [{ href, etag, vcard }].
+//
+// A filter-less addressbook-query REPORT fetches the whole book in one request and is what
+// Nextcloud/SabreDAV and most servers answer, so it stays the first attempt. Google rejects it
+// with 400; it implements only the listing-plus-multiget flow its CardDAV documentation
+// describes (#503), so a refused query falls back to that.
 export async function fetchAddressBookCards({ url, username, password, allowPrivate = false }) {
   await assertHostAllowed(url, allowPrivate);
+  const creds = { username, password, allowPrivate };
   const body = `<?xml version="1.0" encoding="utf-8"?>
 <C:addressbook-query xmlns="DAV:" xmlns:C="urn:ietf:params:xml:ns:carddav"><prop>
   <getetag/><C:address-data/></prop></C:addressbook-query>`;
-  const xmlText = await dav('REPORT', url, { username, password, depth: 1, body, allowPrivate });
+  let xmlText;
+  try {
+    xmlText = await dav('REPORT', url, { ...creds, depth: 1, body });
+  } catch (err) {
+    if (!QUERY_UNSUPPORTED.has(err.status)) throw err;
+    return fetchCardsByMultiget(url, creds);
+  }
   return parseCards(xmlText, url);
+}
+
+const escapeXml = str => str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+async function fetchCardsByMultiget(url, creds) {
+  const listing = await dav('PROPFIND', url, { ...creds, depth: 1, body: `<?xml version="1.0" encoding="utf-8"?>
+<propfind xmlns="DAV:"><prop><getetag/><resourcetype/></prop></propfind>` });
+  const hrefs = parseCardHrefs(listing, url);
+  const cards = [];
+  for (let i = 0; i < hrefs.length; i += MULTIGET_BATCH) {
+    // No Depth header: RFC 6352 has servers ignore it on addressbook-multiget.
+    const body = `<?xml version="1.0" encoding="utf-8"?>
+<C:addressbook-multiget xmlns="DAV:" xmlns:C="urn:ietf:params:xml:ns:carddav"><prop>
+  <getetag/><C:address-data/></prop>${hrefs.slice(i, i + MULTIGET_BATCH).map(h => `<href>${escapeXml(h)}</href>`).join('')}</C:addressbook-multiget>`;
+    cards.push(...parseCards(await dav('REPORT', url, { ...creds, body }), url));
+  }
+  return cards;
+}
+
+// Pure: the hrefs of the cards in a Depth 1 PROPFIND of an address book, as the server wrote
+// them (a multiget names cards by those hrefs). Skips the book's own entry and any
+// sub-collection. Exported for testing.
+export function parseCardHrefs(xmlText, bookUrl) {
+  const xml = parser.parse(xmlText);
+  const self = absolute(bookUrl, bookUrl).replace(/\/$/, '');
+  const hrefs = [];
+  for (const response of toArray(xml?.multistatus?.response)) {
+    const href = (textOf(response.href) || '').trim();
+    if (!href || absolute(href, bookUrl).replace(/\/$/, '') === self) continue;
+    const type = propsOf(response).resourcetype;
+    if (type && typeof type === 'object' && 'collection' in type) continue;
+    hrefs.push(href);
+  }
+  return hrefs;
 }
 
 // Pure: extract vCards from an addressbook-query/REPORT multistatus. Exported for

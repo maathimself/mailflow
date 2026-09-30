@@ -383,3 +383,55 @@ describe('selected-message body shortcuts', () => {
     assert.equal(unsubscribe.mock.callCount(), 1);
   });
 });
+
+// The move picker lists favorites under the name the user gave them in the sidebar, not the raw
+// folder name (#505).
+describe('move picker favorites', () => {
+  const FOLDERS = [
+    { path: 'INBOX', name: 'INBOX', delimiter: '/', special_use: '\\Inbox' },
+    { path: 'Projects/Receipts', name: 'Receipts', delimiter: '/' },
+    { path: 'Archive', name: 'Archive', delimiter: '/', special_use: '\\Archive' },
+  ];
+  let originalFetch;
+  before(() => {
+    originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => ({
+      ok: true, status: 200, text: async () => '',
+      json: async () => (String(url).includes('/accounts/acct/folders') ? FOLDERS : {}),
+    });
+    useStore.getState().setMessages?.([MSG_A]);
+  });
+  after(() => {
+    globalThis.fetch = originalFetch;
+    useStore.setState({ favoriteFolders: [] });
+  });
+
+  async function openPicker() {
+    // Start from a fresh mount: the picker is a toggle, and a picker left open by the previous
+    // test would be closed by this click.
+    await React.act(async () => { root.render(null); });
+    await React.act(async () => {
+      useStore.getState().setSelectedMessage('a1');
+      root.render(React.createElement(MessagePane));
+    });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 0)); });
+    const moveBtn = document.querySelector('[title="contextMenu.moveToFolder"]');
+    assert.ok(moveBtn, 'the Move button is rendered');
+    await React.act(async () => { moveBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 0)); });
+    return [...document.querySelectorAll('button')].map(b => b.textContent);
+  }
+
+  test('a renamed favorite shows its custom name', async () => {
+    useStore.setState({ favoriteFolders: [{ accountId: 'acct', path: 'Projects/Receipts', label: 'Tax 2026' }] });
+    const entries = await openPicker();
+    assert.ok(entries.includes('Tax 2026'), `favorites should show the custom name, got ${JSON.stringify(entries)}`);
+    assert.ok(entries.includes('Projects / Receipts'), 'the full folder list still shows the real folder');
+  });
+
+  test('a favorite without a custom name shows the folder as before', async () => {
+    useStore.setState({ favoriteFolders: [{ accountId: 'acct', path: 'Projects/Receipts' }] });
+    const entries = await openPicker();
+    assert.equal(entries.filter(e => e === 'Projects / Receipts').length, 2, 'once as a favorite, once in the full list');
+  });
+});

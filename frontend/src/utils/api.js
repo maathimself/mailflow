@@ -240,12 +240,13 @@ export const api = {
     return request('GET', `/mail/resolve-message?${qs}`);
   },
   getMessageBody,
+  // The id rides in the query string, not the path: GitHub's Message-IDs contain slashes, which
+  // some reverse proxies reject when encoded in a path (#509).
   getThread: (threadId, folder, unified = false) => {
-    const qs = new URLSearchParams();
+    const qs = new URLSearchParams({ id: threadId });
     if (folder) qs.set('folder', folder);
     if (unified) qs.set('unified', 'true');
-    const query = qs.size ? `?${qs}` : '';
-    return request('GET', `/mail/thread/${encodeURIComponent(threadId)}${query}`);
+    return request('GET', `/mail/thread?${qs}`);
   },
   bulkRead: (ids, read) => request('POST', '/mail/messages/bulk-read', { ids, read }),
   bulkStar: (ids, starred) => request('POST', '/mail/messages/bulk-star', { ids, starred }),

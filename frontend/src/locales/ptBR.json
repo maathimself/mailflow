@@ -89,7 +89,9 @@
       "tooShort": "A senha deve ter pelo menos 8 caracteres",
       "doneDesc": "Sua senha foi atualizada. Agora você já pode entrar.",
       "backToLogin": "← Voltar ao login"
-    }
+    },
+    "showPassword": "Mostrar senha",
+    "hidePassword": "Ocultar senha"
   },
   "compose": {
     "newMessage": "Nova mensagem",
@@ -140,6 +142,7 @@
     "sent": {
       "title": "Mensagem enviada",
       "noCopy": "Enviada, mas não salva na pasta Enviados",
+      "someRejected": "O servidor de e-mail recusou a entrega para {{addresses}}.",
       "action": "Ver"
     },
     "toolbar": {

@@ -287,6 +287,7 @@ router.post('/send', async (req, res) => {
 
   let reservationAcquired = false;
   let delivered = false; // true once transport.sendMail has actually handed off the message
+  let rejected = [];
   try {
     const smtp = await createAccountSmtpTransport(account);
     if (smtp.error) return res.status(smtp.status).json({ error: smtp.error });
@@ -378,8 +379,16 @@ router.post('/send', async (req, res) => {
       reservationAcquired = true;
     }
 
-    await transport.sendMail(mailOptions);
+    const info = await transport.sendMail(mailOptions);
     delivered = true;
+    // A server that accepts some recipients and refuses others at RCPT still resolves, so
+    // the refused ones must be reported or they are dropped without anyone knowing.
+    if (Array.isArray(info?.rejected) && info.rejected.length) {
+      rejected = info.rejected.map(String);
+      // Codes only: the server's response text usually echoes the unredacted address.
+      const codes = (info.rejectedErrors || []).map(e => e?.responseCode).filter(Boolean);
+      console.warn(`SMTP refused ${rejected.length} recipient(s) for ${redactEmail(account.email_address)}: ${rejected.map(redactEmail).join(', ')}${codes.length ? ` (${codes.join(', ')})` : ''}`);
+    }
 
     // Auto-learn sent recipients so they rank above inbound-only senders in autocomplete.
     // Fire-and-forget — a DB error here must never affect the send response.
@@ -534,6 +543,7 @@ router.post('/send', async (req, res) => {
     // Surface only the problem case so existing success handling is unchanged; the UI warns
     // when a delivered message could not be saved to the account's Sent folder.
     if (sentCopySaved === false) sendResult.sentCopySaved = false;
+    if (rejected.length) sendResult.rejected = rejected;
     // Tell the client which Sent folder we actually resolved to, so its post-send "View"
     // navigates to the real folder rather than recomputing from a possibly-stale mapping (#386).
     if (sentFolder) sendResult.sentFolder = sentFolder;
@@ -547,6 +557,7 @@ router.post('/send', async (req, res) => {
       // must not invite the user to send it again.
       console.error('Post-send processing failed:', err.message);
       const sendResult = { ok: true, sentCopySaved: false };
+      if (rejected.length) sendResult.rejected = rejected;
       if (idemKeyRedis) redisClient.set(idemKeyRedis, JSON.stringify(sendResult), { EX: 86400 }).catch(() => {});
       return res.json(sendResult);
     }

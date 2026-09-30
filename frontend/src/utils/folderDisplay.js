@@ -90,3 +90,19 @@ export function folderDisplayName(folder, t, folderMappings) {
   }
   return folder?.name || folder?.path || '';
 }
+
+// The favorites a move picker offers for one message: that account's favorited folders, as the
+// picker's own folder objects, minus the message's folder and any listed elsewhere in the picker.
+// A favorite the user renamed carries that name as favoriteLabel, so the picker shows what the
+// sidebar shows (#505).
+export function favoriteMoveTargets(favorites, folders, { accountId, currentFolder, exclude = [] } = {}) {
+  const skip = new Set((exclude || []).map(f => f.path));
+  return (favorites || [])
+    .filter(fav => fav.accountId === accountId && fav.path !== currentFolder)
+    .map(fav => {
+      const folder = (folders || []).find(f => f.path === fav.path);
+      return folder && (fav.label ? { ...folder, favoriteLabel: fav.label } : folder);
+    })
+    .filter(Boolean)
+    .filter(f => !skip.has(f.path));
+}

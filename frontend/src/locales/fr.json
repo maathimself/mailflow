@@ -89,7 +89,9 @@
       "tooShort": "Le mot de passe doit comporter au moins 8 caractères",
       "doneDesc": "Votre mot de passe a été mis à jour. Vous pouvez maintenant vous connecter.",
       "backToLogin": "← Retour à la connexion"
-    }
+    },
+    "showPassword": "Afficher le mot de passe",
+    "hidePassword": "Masquer le mot de passe"
   },
   "compose": {
     "newMessage": "Nouveau message",
@@ -140,6 +142,7 @@
     "sent": {
       "title": "Message envoyé",
       "noCopy": "Envoyé, mais non enregistré dans Envoyés",
+      "someRejected": "Le serveur de messagerie a refusé la remise à {{addresses}}.",
       "action": "Voir"
     },
     "toolbar": {

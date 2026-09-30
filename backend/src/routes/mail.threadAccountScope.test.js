@@ -73,3 +73,41 @@ describe('GET /api/mail/thread/:threadId account scoping (#476)', () => {
     expect(sql).toContain('ORDER BY date ASC, account_id, id');
   });
 });
+
+// GitHub's Message-IDs contain slashes, and some reverse proxies reject or decode an encoded
+// slash in a path, so the client sends the thread id as a query parameter (#509).
+describe('GET /api/mail/thread?id=', () => {
+  let server;
+  let base;
+  beforeAll(async () => {
+    await new Promise(resolve => { server = buildApp().listen(0, resolve); });
+    base = `http://127.0.0.1:${server.address().port}`;
+  });
+  afterAll(async () => { await new Promise(resolve => server.close(resolve)); });
+  beforeEach(() => { query.mockReset(); });
+
+  const GITHUB_ID = '<owner/repo/issues/454@github.com>';
+  const threadParam = () => query.mock.calls[1][1][1];
+
+  it('reads the id from the query string, slashes intact', async () => {
+    query.mockResolvedValueOnce({ rows: [{ id: 'acct-1', include_in_unified_inbox: true }] });
+    query.mockResolvedValueOnce({ rows: [] });
+    const response = await fetch(`${base}/api/mail/thread?${new URLSearchParams({ id: GITHUB_ID, folder: 'INBOX' })}`);
+    expect(response.status).toBe(200);
+    expect(threadParam()).toBe(GITHUB_ID);
+  });
+
+  it('still serves the path form, for clients that use it', async () => {
+    query.mockResolvedValueOnce({ rows: [{ id: 'acct-1', include_in_unified_inbox: true }] });
+    query.mockResolvedValueOnce({ rows: [] });
+    const response = await fetch(`${base}/api/mail/thread/${encodeURIComponent(GITHUB_ID)}`);
+    expect(response.status).toBe(200);
+    expect(threadParam()).toBe(GITHUB_ID);
+  });
+
+  it('rejects a missing or repeated id without querying', async () => {
+    expect((await fetch(`${base}/api/mail/thread`)).status).toBe(400);
+    expect((await fetch(`${base}/api/mail/thread?id=a&id=b`)).status).toBe(400);
+    expect(query).not.toHaveBeenCalled();
+  });
+});

@@ -44,10 +44,16 @@ const acct = {
 // An IMAP server. `capabilities` and `enabled` decide whether it has MOVE and UIDPLUS;
 // `refuseCopy` makes it answer COPY with NO, as it would for a missing destination or a full
 // quota, and `refuseExpunge` and `refuseStatus` do the same for EXPUNGE and STATUS.
-function makeServer({ capabilities = ['IMAP4rev1', 'UIDPLUS'], enabled = [], refuseCopy = false, refuseExpunge = false, refuseStatus = false } = {}) {
+// `flagged` pre-marks UIDs \Deleted, as another client leaves them; `refuseStore` and
+// `refuseUnflag` make the server answer a +\Deleted or -\Deleted STORE with NO.
+function makeServer({ capabilities = ['IMAP4rev1', 'UIDPLUS'], enabled = [], refuseCopy = false, refuseExpunge = false, refuseStatus = false, flagged = [], refuseStore = false, refuseUnflag = false } = {}) {
   return {
-    capabilities, enabled, refuseCopy, refuseExpunge, refuseStatus,
-    folders: { INBOX: { uids: [4, 5, 6], uidNext: 7 }, Archive: { uids: [], uidNext: 1 } },
+    capabilities, enabled, refuseCopy, refuseExpunge, refuseStatus, refuseStore, refuseUnflag,
+    folders: {
+      INBOX: { uids: [4, 5, 6], uidNext: 7, deleted: new Set(flagged) },
+      Archive: { uids: [], uidNext: 1, deleted: new Set() },
+      Trash: { uids: [7, 8], uidNext: 9, deleted: new Set() },
+    },
     commands: [],
   };
 }
@@ -85,7 +91,24 @@ function connectionTo(server) {
       return { path, uidNext: server.folders[path].uidNext };
     },
     async search(q) {
-      return uidSet(q.uid, server.folders[this.mailbox.path].uids);
+      const f = server.folders[this.mailbox.path];
+      if (q.deleted) return f.uids.filter(u => f.deleted.has(u));
+      return uidSet(q.uid, f.uids);
+    },
+    // imapflow's store.js: a NO resolves false rather than throwing.
+    async messageFlagsAdd(range, flags, options) {
+      if (!options?.uid) throw new Error('STORE by sequence number');
+      const f = server.folders[this.mailbox.path];
+      if (flags.includes('\\Deleted') && server.refuseStore) return false;
+      uidSet(range, f.uids).forEach(u => f.deleted.add(u));
+      return true;
+    },
+    async messageFlagsRemove(range, flags, options) {
+      if (!options?.uid) throw new Error('STORE by sequence number');
+      const f = server.folders[this.mailbox.path];
+      if (server.refuseUnflag) return false;
+      uidSet(range, f.uids).forEach(u => f.deleted.delete(u));
+      return true;
     },
     // Without `uid` imapflow sends the range as sequence numbers and would act on whichever
     // message sits at that position, so refuse anything but a UID command.
@@ -102,13 +125,18 @@ function connectionTo(server) {
       if (this.capabilities.has('UIDPLUS')) Object.assign(res, { uidValidity: 1n, uidMap });
       return res;
     },
+    // As imapflow's expunge.js ships: flag the range \Deleted without checking the STORE, then
+    // UID EXPUNGE the range with UIDPLUS, or a plain EXPUNGE of everything flagged without it.
     async messageDelete(range, options) {
       if (!options?.uid) throw new Error('EXPUNGE by sequence number');
       const src = server.folders[this.mailbox.path];
-      const uids = uidSet(range, src.uids);
+      await this.messageFlagsAdd(range, ['\\Deleted'], options);
+      const scope = this.capabilities.has('UIDPLUS') ? uidSet(range, src.uids) : src.uids;
+      const uids = scope.filter(u => src.deleted.has(u));
       server.commands.push(['EXPUNGE', uids]);
       if (server.refuseExpunge) return false; // imapflow expunge.js: a NO resolves false
       src.uids = src.uids.filter(u => !uids.includes(u));
+      uids.forEach(u => src.deleted.delete(u));
       return true;
     },
     // The native branch of imapflow's move command talks to the connection directly.
@@ -246,5 +274,57 @@ describe('move on a server with MOVE', () => {
     await mgr.moveMessage(acct, 5, 'INBOX', 'Archive');
     expect(server.commands.map(([c]) => c)).toEqual(['MOVE']);
     expect(server.folders.INBOX.uids).toEqual([4, 6]);
+  });
+});
+
+// Without UIDPLUS, EXPUNGE is mailbox-wide: it takes every message flagged \Deleted, including
+// ones another client flagged and left for the user to undelete. Moves and deletes must remove
+// only their own UIDs, and must not report a delete the server refused.
+describe('expunging on a server without UIDPLUS, when another message is already flagged \\Deleted', () => {
+  beforeEach(() => { server = makeServer({ capabilities: ['IMAP4rev1'], flagged: [4] }); });
+
+  it('moveMessage moves its message and leaves the flagged one in place, still flagged', async () => {
+    await mgr.moveMessage(acct, 5, 'INBOX', 'Archive');
+    expect(server.folders.INBOX.uids).toEqual([4, 6]);
+    expect(server.folders.INBOX.deleted.has(4)).toBe(true);
+  });
+
+  it('bulkMoveMessages moves its batch and leaves the flagged one in place', async () => {
+    await mgr.bulkMoveMessages(acct, [5, 6], 'INBOX', 'Archive');
+    expect(server.folders.INBOX.uids).toEqual([4]);
+    expect(server.folders.INBOX.deleted.has(4)).toBe(true);
+  });
+
+  it('permanentDeleteMessage deletes only its message', async () => {
+    await expect(mgr.permanentDeleteMessage(acct, 6, 'INBOX')).resolves.toBe(true);
+    expect(server.folders.INBOX.uids).toEqual([4, 5]);
+    expect(server.folders.INBOX.deleted.has(4)).toBe(true);
+  });
+
+  it('expunges nothing when the other message cannot be unflagged', async () => {
+    server.refuseUnflag = true;
+    await expect(mgr.permanentDeleteMessage(acct, 6, 'INBOX')).rejects.toThrow();
+    const r = await mgr.bulkPermanentDelete(acct, [5, 6], 'INBOX');
+    expect(r.succeeded).toEqual([]);
+    expect(server.folders.INBOX.uids).toEqual([4, 5, 6]);
+    expect(server.commands.filter(([c]) => c === 'EXPUNGE')).toEqual([]);
+  });
+});
+
+describe('expunging when the server refuses the \\Deleted STORE', () => {
+  it.each([['with UIDPLUS', ['IMAP4rev1', 'UIDPLUS']], ['without UIDPLUS', ['IMAP4rev1']]])(
+    '%s: a delete reports failure instead of success, and nothing is expunged', async (_l, capabilities) => {
+      server = makeServer({ capabilities, refuseStore: true });
+      await expect(mgr.permanentDeleteMessage(acct, 6, 'INBOX')).rejects.toThrow();
+      expect(server.folders.INBOX.uids).toEqual([4, 5, 6]);
+      expect(server.commands.filter(([c]) => c === 'EXPUNGE')).toEqual([]);
+    });
+
+  it('an emulated move warns that the message is in both folders', async () => {
+    server = makeServer({ capabilities: ['IMAP4rev1', 'UIDPLUS'], refuseStore: true });
+    await mgr.moveMessage(acct, 5, 'INBOX', 'Archive');
+    expect(server.folders.INBOX.uids).toEqual([4, 5, 6]);
+    expect(server.folders.Archive.uids).toEqual([1]);
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('in both folders'));
   });
 });
