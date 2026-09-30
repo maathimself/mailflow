@@ -15,8 +15,11 @@ registerHooks({
     if (url.endsWith('/pdfjs-dist/build/pdf.mjs')) {
       return { format: 'module', shortCircuit: true, source: `
         let tearingDown = 0;
+        export const version = '9.9.9';
         export const GlobalWorkerOptions = { workerPort: null };
-        export function getDocument({ password }) {
+        export function getDocument(params) {
+          globalThis.__lastParams = params;
+          const { password } = params;
           if (tearingDown) throw new Error('PDFWorker.create - the worker is being destroyed.');
           const promise = password === 'segredo'
             ? Promise.resolve({ numPages: 1 })
@@ -57,4 +60,14 @@ test('closing a PDF and opening the next without waiting still works', async () 
   const second = await openPdf(bytes, { password: 'segredo' });
   assert.equal(second.doc.numPages, 1);
   await second.destroy();
+});
+
+test('fonts, decoders and CJK character maps are read from the path of this pdf.js version', async () => {
+  const opened = await openPdf(bytes, { password: 'segredo' });
+  const params = globalThis.__lastParams;
+  assert.equal(params.standardFontDataUrl, 'https://mail.test/pdfjs/9.9.9/standard_fonts/');
+  assert.equal(params.wasmUrl, 'https://mail.test/pdfjs/9.9.9/wasm/');
+  assert.equal(params.cMapUrl, 'https://mail.test/pdfjs/9.9.9/cmaps/', 'without it a PDF with a non-embedded CJK font shows no text');
+  assert.equal(params.cMapPacked, true);
+  await opened.destroy();
 });

@@ -7,6 +7,8 @@ import {
   nextZoom,
   fitScale,
   printScale,
+  printDpi,
+  PREVIEW_MAX_BYTES,
   canvasPixelRatio,
   printDocumentHtml,
   passwordReason,
@@ -138,4 +140,19 @@ describe('printDocumentHtml', () => {
   it('carries no script of its own', () => {
     assert.doesNotMatch(printDocumentHtml('x', ['blob:a']), /<script|on\w+=/i);
   });
+});
+
+it('printing lowers the resolution for long documents, which are drawn whole before printing', () => {
+  assert.equal(printDpi(1), 300, 'a boleto keeps a barcode that scans');
+  assert.equal(printDpi(20), 300);
+  assert.equal(printDpi(21), 150);
+  assert.equal(printDpi(100), 150);
+  assert.equal(printDpi(500), 100);
+  assert.equal(printScale(595, 842, 150), 150 / 72);
+});
+
+it('a file over the preview limit is not offered to the viewer', () => {
+  assert.equal(previewKind({ filename: 'a.pdf', type: 'application/pdf', size: PREVIEW_MAX_BYTES }), 'pdf');
+  assert.equal(previewKind({ filename: 'a.pdf', type: 'application/pdf', size: PREVIEW_MAX_BYTES + 1 }), null);
+  assert.equal(previewKind({ filename: 'a.jpg', type: 'image/jpeg' }), 'image', 'no size reported: still offered');
 });

@@ -38,6 +38,10 @@ export default function AttachmentViewer({ messageId, attachments, startIndex = 
   // prompt is null, 'required' or 'incorrect'; attempt remounts the PDF for each try.
   const [unlock, setUnlock] = useState({ password: null, prompt: null, attempt: 0 });
   const contentRef = useRef(null);
+  const dialogRef = useRef(null);
+  // Synchronous, unlike the printing state: a second Ctrl+P can arrive before a render.
+  const printBusy = useRef(false);
+  const cancelPrint = useRef(null);
 
   useEffect(() => {
     if (part === undefined) return undefined;
@@ -79,10 +83,28 @@ export default function AttachmentViewer({ messageId, attachments, startIndex = 
     return () => observer.disconnect();
   }, []);
 
+  // aria-modal only tells assistive technology. The rest of the page is made inert while the viewer
+  // is open, so Tab cannot reach the app behind it, where Enter on a focused Delete would still act.
+  // Nodes added to <body> meanwhile (menus, toasts) are made inert as they arrive.
   useEffect(() => {
+    const dialog = dialogRef.current;
+    const quieted = [];
+    const quiet = node => {
+      if (node.nodeType !== 1 || node === dialog || node.contains(dialog) || node.hasAttribute('inert')) return;
+      node.setAttribute('inert', '');
+      quieted.push(node);
+    };
+    [...document.body.children].forEach(quiet);
+    const observer = new MutationObserver(records => records.forEach(r => r.addedNodes.forEach(quiet)));
+    observer.observe(document.body, { childList: true });
     const returnTo = document.activeElement;
     contentRef.current?.focus({ preventScroll: true });
-    return () => returnTo?.focus?.({ preventScroll: true });
+    return () => {
+      observer.disconnect();
+      quieted.forEach(node => node.removeAttribute('inert'));
+      cancelPrint.current?.();
+      returnTo?.focus?.({ preventScroll: true });
+    };
   }, []);
 
   const go = useCallback(step => {
@@ -99,25 +121,33 @@ export default function AttachmentViewer({ messageId, attachments, startIndex = 
   }, [att, file, onDownloadFallback]);
 
   const print = useCallback(async () => {
-    if (file.status !== 'ready' || printing || !att) return;
-    if (file.preview.kind === 'image') {
-      await printImages([file.url], att.filename);
-      return;
-    }
-    if (!pdf) return;
+    if (file.status !== 'ready' || printBusy.current || !att) return;
+    if (file.preview.kind === 'pdf' && !pdf) return;
+    printBusy.current = true;
+    const toPaper = urls => {
+      const job = printImages(urls, att.filename, dialogRef.current);
+      cancelPrint.current = job.cancel;
+      return job.done;
+    };
     let urls = [];
-    setPrinting({ done: 0, total: pdf.doc.numPages });
     try {
+      if (file.preview.kind === 'image') {
+        await toPaper([file.url]);
+        return;
+      }
+      setPrinting({ done: 0, total: pdf.doc.numPages });
       const { renderPagesForPrint } = await loadPdfModule();
       urls = await renderPagesForPrint(pdf, { onProgress: (done, total) => setPrinting({ done, total }) });
-      await printImages(urls, att.filename);
+      await toPaper(urls);
     } catch (err) {
       console.error('Print failed:', err);
     } finally {
       urls.forEach(url => URL.revokeObjectURL(url));
+      cancelPrint.current = null;
+      printBusy.current = false;
       setPrinting(null);
     }
-  }, [att, file, pdf, printing]);
+  }, [att, file, pdf]);
 
   // Refs keep the capture-phase listener installed once for the viewer's lifetime.
   const actions = useRef({});
@@ -148,6 +178,7 @@ export default function AttachmentViewer({ messageId, attachments, startIndex = 
 
   return createPortal(
     <div
+      ref={dialogRef}
       role="dialog"
       aria-modal="true"
       aria-label={t('message.preview.label', { name: att?.filename ?? '' })}
@@ -239,6 +270,7 @@ export default function AttachmentViewer({ messageId, attachments, startIndex = 
               area={area}
               padding={narrow ? 12 : 28}
               onToggleZoom={() => setZoom(z => (z === 1 ? 2 : 1))}
+              onError={() => setFile(f => ({ ...f, status: 'error', reason: 'unsupported' }))}
             />
           )}
           {ready && file.preview.kind === 'pdf' && unlock.prompt && (
@@ -338,7 +370,9 @@ function Centered({ children }) {
   );
 }
 
-function ImageView({ url, alt, zoom, area, padding, onToggleZoom }) {
+// The bytes passed the check but the browser may still fail to decode them (a truncated JPEG):
+// onError swaps in the same message as bytes that are not an image, instead of a broken icon.
+function ImageView({ url, alt, zoom, area, padding, onToggleZoom, onError }) {
   const [natural, setNatural] = useState(null);
   const fit = natural
     ? Math.min((area.width - 2 * padding) / natural.width, (area.height - 2 * padding) / natural.height, 1)
@@ -351,6 +385,7 @@ function ImageView({ url, alt, zoom, area, padding, onToggleZoom }) {
         alt={alt}
         draggable={false}
         onLoad={e => setNatural({ width: e.currentTarget.naturalWidth, height: e.currentTarget.naturalHeight })}
+        onError={onError}
         onDoubleClick={onToggleZoom}
         style={{
           margin: 'auto', display: 'block', flexShrink: 0,
@@ -479,19 +514,24 @@ function PdfPage({ pdf, number, size, scale, scrollRoot }) {
   const textRef = useRef(null);
   const [near, setNear] = useState(number <= 2);
 
-  // Pages are drawn as they come near the viewport, so a long PDF opens as fast as a short one.
+  // Only the pages in a window around the viewport hold a drawing. They are drawn as they come
+  // into it, so a long PDF opens as fast as a short one, and released as they leave it: at the
+  // fitted size on a 2x display an A4 page is about 20 MB of canvas, so keeping every page scrolled
+  // past would reach gigabytes, and a zoom would redraw all of them.
   useEffect(() => {
-    if (near) return undefined;
     if (typeof IntersectionObserver === 'undefined') { setNear(true); return undefined; }
     const observer = new IntersectionObserver(entries => {
-      if (entries.some(e => e.isIntersecting)) setNear(true);
-    }, { root: scrollRoot.current, rootMargin: '800px 0px' });
+      setNear(entries[entries.length - 1].isIntersecting);
+    }, { root: scrollRoot.current, rootMargin: PAGE_WINDOW_MARGIN });
     observer.observe(pageRef.current);
     return () => observer.disconnect();
-  }, [near, scrollRoot]);
+  }, [scrollRoot]);
 
   useEffect(() => {
-    if (!near) return undefined;
+    if (!near) {
+      releasePage(canvasHostRef.current, textRef.current);
+      return undefined;
+    }
     let cancelled = false;
     const cssWidth = size.width * scale;
     const cssHeight = size.height * scale;
@@ -529,6 +569,20 @@ function PdfPage({ pdf, number, size, scale, scrollRoot }) {
   );
 }
 
+// How far above and below the viewport pages keep their drawing: a page or two either way at the
+// fitted size, so scrolling rarely meets a blank one.
+const PAGE_WINDOW_MARGIN = '1000px 0px';
+
+function releasePage(canvasHost, textLayer) {
+  for (const canvas of canvasHost?.querySelectorAll('canvas') ?? []) {
+    // Zero size frees the bitmap now rather than whenever the collector gets to it.
+    canvas.width = 0;
+    canvas.height = 0;
+  }
+  canvasHost?.replaceChildren();
+  textLayer?.replaceChildren();
+}
+
 function saveBytes(bytes, filename, type) {
   const url = URL.createObjectURL(new Blob([bytes], { type: type || 'application/octet-stream' }));
   const a = document.createElement('a');
@@ -541,21 +595,26 @@ function saveBytes(bytes, filename, type) {
 }
 
 // Prints the given images, one per sheet, from a hidden same-origin frame: no pop-up to be
-// blocked, and nothing of the app around them on paper.
-function printImages(urls, title) {
-  return new Promise(resolve => {
+// blocked, and nothing of the app around them on paper. The frame goes inside the viewer, which is
+// the one part of the page that is not inert. Returns { done, cancel }.
+function printImages(urls, title, container) {
+  let cancel = () => {};
+  const done = new Promise(resolve => {
     const frame = document.createElement('iframe');
     frame.setAttribute('aria-hidden', 'true');
     frame.tabIndex = -1;
     // Moved off-screen rather than display:none, which some browsers decline to print.
     frame.style.cssText = 'position:fixed;left:-10000px;top:0;width:1px;height:1px;border:0;opacity:0';
     let finished = false;
+    let fallback = null;
     const finish = () => {
       if (finished) return;
       finished = true;
+      clearTimeout(fallback);
       frame.remove();
       resolve();
     };
+    cancel = finish;
     frame.addEventListener('load', () => {
       const win = frame.contentWindow;
       if (!win) { finish(); return; }
@@ -564,9 +623,10 @@ function printImages(urls, title) {
       win.print();
       // Chrome blocks inside print() until the dialog closes; a browser that never fires
       // afterprint still gets its frame removed.
-      setTimeout(finish, 60_000);
+      fallback = setTimeout(finish, 60_000);
     }, { once: true });
     frame.srcdoc = printDocumentHtml(title, urls);
-    document.body.appendChild(frame);
+    (container ?? document.body).appendChild(frame);
   });
+  return { done, cancel };
 }

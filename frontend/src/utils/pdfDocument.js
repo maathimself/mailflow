@@ -8,7 +8,7 @@
 // - No scripting. Nothing here creates pdf.js's scripting sandbox, so JavaScript inside a PDF never
 //   runs, and forms and links are drawn as part of the page rather than made live.
 
-import { printScale } from './attachmentPreview.js';
+import { printDpi, printScale } from './attachmentPreview.js';
 
 let enginePromise = null;
 // pdf.js refuses to start a document on the shared worker while an earlier one is still being torn
@@ -42,7 +42,8 @@ function loadEngine() {
 export async function openPdf(bytes, { password } = {}) {
   const pdfjs = await loadEngine();
   await teardown;
-  const base = `${window.location.origin}/pdfjs/`;
+  // Versioned like the files themselves (vite.config.js), so an upgrade never reads stale ones.
+  const base = `${window.location.origin}/pdfjs/${pdfjs.version}/`;
   const task = pdfjs.getDocument({
     // pdf.js moves the buffer it is given into its worker, which empties it on this side. The
     // viewer still needs the bytes for Download, so pdf.js gets a copy.
@@ -50,6 +51,8 @@ export async function openPdf(bytes, { password } = {}) {
     useWasm: false,
     wasmUrl: `${base}wasm/`,
     standardFontDataUrl: `${base}standard_fonts/`,
+    cMapUrl: `${base}cmaps/`,
+    cMapPacked: true,
     enableXfa: false,
     ...(password ? { password } : {}),
   });
@@ -105,12 +108,13 @@ export function renderPage({ doc, pdfjs }, pageNumber, { canvas, textContainer, 
 // revokes the URLs once printing is over.
 export async function renderPagesForPrint({ doc }, { onProgress, isCancelled } = {}) {
   const urls = [];
+  const dpi = printDpi(doc.numPages);
   try {
     for (let n = 1; n <= doc.numPages; n++) {
       if (isCancelled?.()) break;
       const page = await doc.getPage(n);
       const natural = page.getViewport({ scale: 1 });
-      const viewport = page.getViewport({ scale: printScale(natural.width, natural.height) });
+      const viewport = page.getViewport({ scale: printScale(natural.width, natural.height, dpi) });
       const canvas = document.createElement('canvas');
       canvas.width = Math.max(1, Math.floor(viewport.width));
       canvas.height = Math.max(1, Math.floor(viewport.height));

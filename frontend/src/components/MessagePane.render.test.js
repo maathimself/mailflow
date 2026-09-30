@@ -63,6 +63,7 @@ Object.assign(globalThis, {
   Node: dom.window.Node, Element: dom.window.Element, HTMLElement: dom.window.HTMLElement,
   getComputedStyle: dom.window.getComputedStyle, matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
   ResizeObserver: class { observe() {} unobserve() {} disconnect() {} },
+  MutationObserver: dom.window.MutationObserver,
   IS_REACT_ACT_ENVIRONMENT: true,
 });
 // jsdom implements neither of these, and the component asks the window for both.
@@ -283,6 +284,7 @@ describe('attachment viewer', () => {
   const MSG_VIEW = { ...MSG_A, id: 'g7', uid: 7, subject: 'Boleto' };
   const MSG_OTHER = { ...MSG_A, id: 'h8', uid: 8, subject: 'Other' };
   const MSG_LOCKED = { ...MSG_A, id: 'i9', uid: 9, subject: 'Extrato' };
+  const MSG_LONG = { ...MSG_A, id: 'j10', uid: 10, subject: 'Catálogo' };
   const FILES = {
     g7: [
       { filename: 'boleto.pdf', type: 'application/pdf', part: '2', size: 10 },
@@ -295,12 +297,17 @@ describe('attachment viewer', () => {
       { filename: 'extrato.pdf', type: 'application/pdf', part: '7', size: 10 },
       { filename: 'recibo.jpg', type: 'image/jpeg', part: '8', size: 10 },
     ],
+    j10: [
+      { filename: 'catalogo.pdf', type: 'application/pdf', part: '9', size: 10 },
+      { filename: 'enorme.pdf', type: 'application/pdf', part: '10', size: 80 * 1024 * 1024 },
+    ],
   };
   const BYTES = {
     '3': new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0x10]),
     '4': new TextEncoder().encode('<!DOCTYPE html><script>alert(1)</script>'),
     '7': new TextEncoder().encode('%PDF-1.7\n% encrypted'),
     '8': new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0x10]),
+    '9': new TextEncoder().encode('%PDF-1.7\n% six pages'),
   };
   // Stands in for pdf.js: the document opens only with the password "segredo".
   const passwordsTried = [];
@@ -345,7 +352,7 @@ describe('attachment viewer', () => {
       saved.push({ href: this.getAttribute('href'), download: this.getAttribute('download') });
     };
     globalThis.__pdfStub = lockedPdf;
-    useStore.getState().setMessages?.([MSG_A, MSG_VIEW, MSG_OTHER, MSG_LOCKED]);
+    useStore.getState().setMessages?.([MSG_A, MSG_VIEW, MSG_OTHER, MSG_LOCKED, MSG_LONG]);
   });
   after(() => {
     globalThis.fetch = originalFetch;
@@ -506,6 +513,94 @@ describe('attachment viewer', () => {
     assert.equal(title(), 'extrato.pdf');
     assert.ok(passwordField(), 'coming back asks again');
     assert.deepEqual(passwordsTried, [null], 'the earlier password was not kept');
+  });
+
+  test('while open, the app behind is inert, so Tab cannot reach it; closing gives it back', async () => {
+    await open('g7');
+    await clickChip('foto.jpg');
+    const app = document.getElementById('root');
+    assert.equal(app.hasAttribute('inert'), true, 'the app behind the viewer cannot take focus or clicks');
+    assert.equal(dialog().closest('[inert]'), null, 'the viewer itself stays usable');
+    const late = document.createElement('div');
+    await React.act(async () => { document.body.appendChild(late); });
+    await settle();
+    assert.equal(late.hasAttribute('inert'), true, 'something added to the page meanwhile is inert too');
+    await press('Escape');
+    assert.equal(app.hasAttribute('inert'), false);
+    assert.equal(late.hasAttribute('inert'), false);
+    late.remove();
+  });
+
+  test('an image the browser cannot decode shows the message, not a broken icon', async () => {
+    await open('g7');
+    await clickChip('foto.jpg');
+    await React.act(async () => { dialog().querySelector('img').dispatchEvent(new dom.window.Event('error')); });
+    assert.equal(dialog().querySelector('img'), null);
+    assert.match(dialog().textContent, /message\.preview\.unsupported/);
+    assert.ok([...dialog().querySelectorAll('button')].some(b => b.textContent === 'message.preview.download'));
+  });
+
+  test('Ctrl+P pressed again while printing does not stack a second print', async () => {
+    await open('g7');
+    await clickChip('foto.jpg');
+    const ctrlP = () => React.act(async () => {
+      dialog().dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'p', ctrlKey: true, bubbles: true, cancelable: true }));
+    });
+    await ctrlP();
+    await ctrlP();
+    await ctrlP();
+    const frames = [...dialog().querySelectorAll('iframe')];
+    assert.equal(frames.length, 1, 'one print frame');
+    await press('Escape');
+    assert.equal(frames[0].isConnected, false, 'closing the viewer removes it');
+  });
+
+  test('a file over the size limit downloads instead of opening the viewer', async () => {
+    await open('j10');
+    await clickChip('enorme.pdf');
+    assert.equal(dialog(), null);
+    assert.deepEqual(attachmentRequests(), ['/api/mail/messages/j10/attachments/10']);
+  });
+
+  test('a long PDF keeps drawings only for the pages near the viewport', async () => {
+    // A controllable IntersectionObserver: the test says which pages are in the window.
+    const observed = new Map();
+    globalThis.IntersectionObserver = class {
+      constructor(callback) { this.callback = callback; }
+      observe(el) { observed.set(el, this.callback); }
+      disconnect() {}
+    };
+    // jsdom lays nothing out; the viewer waits for a measured width before drawing pages.
+    Object.defineProperty(dom.window.HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 800 });
+    globalThis.__pdfStub = {
+      async openPdf() {
+        return {
+          doc: { numPages: 6, getPage: async () => ({ getViewport: () => ({ width: 595, height: 842 }) }) },
+          destroy() {},
+        };
+      },
+    };
+    try {
+      await open('j10');
+      await clickChip('catalogo.pdf');
+      const pages = [...dialog().querySelectorAll('.mf-pdf-page')];
+      assert.equal(pages.length, 6);
+      const drawn = () => pages.map(p => p.querySelectorAll('canvas').length);
+      const scrollTo = async (visible) => {
+        await React.act(async () => {
+          pages.forEach((page, i) => observed.get(page)([{ isIntersecting: visible.includes(i + 1) }]));
+        });
+        await settle();
+      };
+      await scrollTo([1, 2]);
+      assert.deepEqual(drawn(), [1, 1, 0, 0, 0, 0], 'the first pages are drawn, the rest wait');
+      await scrollTo([4, 5, 6]);
+      assert.deepEqual(drawn(), [0, 0, 0, 1, 1, 1], 'pages scrolled past give their drawing back');
+    } finally {
+      delete globalThis.IntersectionObserver;
+      delete dom.window.HTMLElement.prototype.clientWidth;
+      globalThis.__pdfStub = lockedPdf;
+    }
   });
 
   test('selecting another message closes the viewer', async () => {

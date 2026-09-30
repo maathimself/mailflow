@@ -12,8 +12,14 @@ import { classifyAttachmentRisk } from './attachmentRisk.js';
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'jpe', 'jfif', 'gif', 'webp', 'bmp']);
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/pjpeg', 'image/gif', 'image/webp', 'image/bmp']);
 
+// Above this the chip downloads instead: the viewer holds the whole file in memory, and pdf.js a
+// second copy. The size is the one the server reports, which for some servers is the encoded one,
+// about a third over the file's own.
+export const PREVIEW_MAX_BYTES = 30 * 1024 * 1024;
+
 // 'pdf', 'image' or null. A name without an extension falls back to the declared MIME type.
 export function previewKind(att) {
+  if (Number(att?.size) > PREVIEW_MAX_BYTES) return null;
   const risk = classifyAttachmentRisk(att?.filename, att?.type);
   if (risk.level !== 'ok') return null;
   const type = String(att?.type || '').toLowerCase().split(';')[0].trim();
@@ -71,12 +77,19 @@ export function fitScale(availableWidth, widestPagePoints) {
 }
 
 // Printing draws each page at 300 dpi, enough for a boleto's barcode to scan off paper, but never
-// past what a browser will allocate for one canvas (iOS stops at 16.7 megapixels).
-const PRINT_DPI = 300;
+// past what a browser will allocate for one canvas (iOS stops at 16.7 megapixels). Every page is
+// drawn before the print dialog opens, so a long document gets less: text reads fine at 150 dpi,
+// and a few hundred pages at 300 would hold gigabytes of images.
 const MAX_CANVAS_PIXELS = 16_000_000;
 
-export function printScale(widthPoints, heightPoints) {
-  const dpiScale = PRINT_DPI / 72;
+export function printDpi(pageCount) {
+  if (pageCount <= 20) return 300;
+  if (pageCount <= 100) return 150;
+  return 100;
+}
+
+export function printScale(widthPoints, heightPoints, dpi = 300) {
+  const dpiScale = dpi / 72;
   if (!(widthPoints > 0) || !(heightPoints > 0)) return dpiScale;
   return Math.min(dpiScale, Math.sqrt(MAX_CANVAS_PIXELS / (widthPoints * heightPoints)));
 }
