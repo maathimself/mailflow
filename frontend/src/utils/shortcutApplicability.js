@@ -1,3 +1,4 @@
+import { resolveGtdHotkeyTarget } from './gtdHotkeys.js';
 import { selectedPickerMessage } from './labelPicker.js';
 import { topOpenMessageWindow } from './messageHotkeys.js';
 
@@ -17,6 +18,9 @@ export function canRunGlobalAction(action, { rightSidebarApplicable }) {
 }
 
 export function canRunSelectedAction(action, state) {
+  if (['gtdTodo', 'gtdWatch', 'gtdDelegated', 'gtdReference', 'gtdSomeday', 'gtdDone'].includes(action)) {
+    return Boolean(resolveGtdHotkeyTarget(state));
+  }
   if (!SELECTED_ACTIONS.has(action)) return true;
   if (!state?.selectedMessageId && !WINDOW_ACTIONS.has(action)) return false;
   return Boolean(selectedPickerMessage(state));

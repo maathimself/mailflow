@@ -41,5 +41,7 @@ export function createPluginMailFacade(engine) {
 
     // Remove a message's copy from a label folder (GTD transition strips).
     removeMessageCopy: (accountId, uid, folder) => engine.removeMessageCopy(accountId, uid, folder),
+    // Prove an exact physical sibling still exists before a transition expunges mail.
+    hasMessageCopy: (account, uid, folder, messageId) => engine.hasMessageCopy(account, uid, folder, messageId),
   });
 }

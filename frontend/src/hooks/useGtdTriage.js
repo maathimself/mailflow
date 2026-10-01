@@ -4,10 +4,11 @@ import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import {
   openDeepLinkMessage, collectThreadReadIds, openGtdThreadWithAutoRead,
-  classifyThread, unclassifyThread,
+  unclassifyThread,
 } from '../utils/gtd.js';
 import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
 import { resolveContextMenuMessage } from '../utils/contextMenuPolicy.js';
+import { classifyWithUndo } from '../utils/gtdClassification.js';
 import { doneGtdRow } from '../utils/gtdDone.js';
 
 // One pending delayed auto-read across ALL GTD surfaces (module scope, not per hook
@@ -32,7 +33,7 @@ const cancelAutoMarkRead = () => {
 // (is_read=false) readThread later revert it or fire a spurious bulkRead — but the same
 // action on a DIFFERENT visible row (rapid triage) must leave that other row's
 // still-legitimate pending read running.
-const cancelAutoMarkReadFor = (thread) => {
+export const cancelAutoMarkReadFor = (thread) => {
   const identity = thread.message_id || thread.id;
   if (autoMarkRead.identity != null && autoMarkRead.identity === identity) {
     cancelAutoMarkRead();
@@ -190,8 +191,8 @@ export function useGtdTriage() {
 
   // Classify (add a state label) / remove (strip one). The message stays put, so just
   // poke the sidebar store to reconverge — mirrors MessageList's context-menu handlers.
-  const classifyRow = (thread, state) => classifyThread(thread.id, state, {
-    gtdClassify: api.gtdClassify, addNotification, scheduleGtdSectionsFetch, t,
+  const classifyRow = (thread, state) => classifyWithUndo(thread.id, state, {
+    api, store: useStore, t, message: thread,
   });
 
   const removeStateRow = (thread, state) => unclassifyThread(thread.id, state, {

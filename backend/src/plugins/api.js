@@ -27,11 +27,14 @@ export { listThreadHeadsByLabels } from '../services/labelsRead.js';
 // "Did an ordinary mail mutation touch one of my labelled threads?" → scoped user broadcast.
 export { notifyOnLabelTouch } from '../services/labelsRead.js';
 
+// Verify a physical copy's live RFC Message-ID before it authorizes another deletion.
+export const hasMessageCopy = (account, uid, folder, messageId) => getMailEngine().hasMessageCopy(account, uid, folder, messageId);
+
 // ── Labels (write) ────────────────────────────────────────────────────────────
 // Apply/remove a label (a message copy in a label folder) and mark a thread read. The mail
 // engine is bound in by the platform (getMailEngine) so a plugin performs these mail actions
 // without ever holding the engine itself. resolveLabelCopyUid is pure (no engine).
-export const applyLabel = (account, message, labelFolder) => labelsWrite.applyLabel(getMailEngine(), account, message, labelFolder);
+export const applyLabel = (account, message, labelFolder, options) => labelsWrite.applyLabel(getMailEngine(), account, message, labelFolder, options);
 export const removeLabel = (message, labelFolder) => labelsWrite.removeLabel(getMailEngine(), message, labelFolder);
 export const removeExactLabelCopy = (message, labelFolder, uid) => labelsWrite.removeExactLabelCopy(getMailEngine(), message, labelFolder, uid);
 export const markThreadRead = (account, message) => labelsWrite.markThreadRead(getMailEngine(), account, message);
@@ -75,9 +78,9 @@ export { isPluginActivated, isPluginActivatedForAccount } from './activation.js'
 export { getAccountConfig, setAccountConfig } from './accountConfig.js';
 
 // ── Folder resolution ─────────────────────────────────────────────────────────
-// Resolve an account's Drafts folder paths (across provider naming). A safe read over the
+// Resolve an account's Drafts, Trash and Junk paths (across provider naming). A safe read over the
 // account's folder mapping — no mail engine, no raw DB.
-export { resolveAllDraftsPaths } from '../utils/mailUtils.js';
+export { resolveAllDraftsPaths, resolveAllTrashPaths, resolveAllSpamPaths } from '../utils/mailUtils.js';
 
 // ── Mail/account reads ────────────────────────────────────────────────────────
 // A fixed, reviewed set of ownership-scoped read queries (see services/mailAccess.js). A plugin
