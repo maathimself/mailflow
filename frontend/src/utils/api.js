@@ -358,6 +358,11 @@ export const api = {
   runRules:    (accountId) => request('POST',  '/rules/run', accountId ? { accountId } : {}),
 
   // Drafts
+  getReplyDraftIndicators: (ids, scope = {}) => request('POST', '/mail/reply-drafts/indicators', { ids, ...scope }),
+  getReplyDraft: (id, options = {}) => {
+    const params = new URLSearchParams(Object.entries(options).filter(([, value]) => value !== undefined));
+    return request('GET', `/mail/messages/${encodeURIComponent(id)}/reply-draft?${params}`);
+  },
   saveDraft:   (data)              => request('POST',   '/mail/draft', data),
   deleteDraft: (accountId, uid, folder) =>
     request('DELETE', `/mail/draft/${uid}?accountId=${encodeURIComponent(accountId)}&folder=${encodeURIComponent(folder)}`),

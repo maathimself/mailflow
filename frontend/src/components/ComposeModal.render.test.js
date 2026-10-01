@@ -377,7 +377,7 @@ describe('automatic Cc and Bcc (#491)', () => {
       await chooseFrom('account:other');
       assert.equal(chips('compose.bcc'), null, 'nor from the account From switches to');
       await hideTab();
-      assert.equal(saved.length, 0);
+      assert.equal(saved.length, 1, 'a saved sender change is persisted');
     } finally { await close(); }
   });
 

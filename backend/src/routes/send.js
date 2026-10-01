@@ -327,6 +327,8 @@ router.post('/send', async (req, res) => {
       mailOptions.inReplyTo = sanitizeHeaderValue(inReplyTo);
       // Use the full prior references chain if available; fall back to just inReplyTo.
       mailOptions.references = sanitizeHeaderValue(references || inReplyTo);
+    } else if (references) {
+      mailOptions.references = sanitizeHeaderValue(references);
     }
     const allAttachments = [
       ...inlineImageAttachments,

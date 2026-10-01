@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import InboxReplyDraftObserver from './InboxReplyDraftObserver.js';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { useWebSocket } from '../hooks/useWebSocket.js';
@@ -910,7 +911,8 @@ export default function MailApp() {
         </>
       )}
 
-      <Suspense fallback={lazyFallback}>{composing && <ComposeModal />}</Suspense>
+      <InboxReplyDraftObserver />
+      <Suspense fallback={lazyFallback}>{composing && <ComposeModal key={useStore.getState().composeData?.sessionKey || 'compose'} />}</Suspense>
       <Suspense fallback={lazyFallback}>{showAdmin && <AdminPanel />}</Suspense>
       {/* Detached message windows (#219) — desktop only. */}
       {!isMobile && <Suspense fallback={null}><WindowLayer /></Suspense>}

@@ -1642,7 +1642,7 @@ function SwipeActionIcon({ action, size = 17 }) {
 function LayoutsTab() {
   const { t } = useTranslation();
   const isMobile = useMobile();
-  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, conversationMode, setConversationMode, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, hoverActionSet, setHoverActionSet, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, senderFavicons, senderFaviconsSaving, setSenderFavicons, showMessagePreviews, setShowMessagePreviews, accounts, defaultSender, setDefaultSender } = useStore();
+  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, conversationMode, setConversationMode, autoOpenReplyDrafts, setAutoOpenReplyDrafts, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, hoverActionSet, setHoverActionSet, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, senderFavicons, senderFaviconsSaving, setSenderFavicons, showMessagePreviews, setShowMessagePreviews, accounts, defaultSender, setDefaultSender } = useStore();
   const [senderFaviconsError, setSenderFaviconsError] = useState('');
 
   // "Set MailFlow as your default email app": registerProtocolHandler is the
@@ -2156,6 +2156,11 @@ function LayoutsTab() {
           })}
         </div>
       </div>
+
+      <label style={{ display: 'flex', gap: 10, marginTop: 22, alignItems: 'center', fontSize: 13 }}>
+        <input type="checkbox" checked={autoOpenReplyDrafts} onChange={event => setAutoOpenReplyDrafts(event.target.checked)} />
+        <span>{t('admin.messageList.autoOpenReplyDrafts', 'Automatically open saved replies when selecting inbox messages')}</span>
+      </label>
 
       {/* Compose format */}
       <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>

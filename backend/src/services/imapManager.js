@@ -3,7 +3,8 @@ import { extractImapError } from './imapError.js';
 import { recordUnfetchable, suppressedUids, clearUnfetchable, hasRealGap } from './unfetchableUids.js';
 import { ImapFlow } from 'imapflow';
 import { query } from './db.js';
-import { parseMessage, snippetFromBody, detectBulkFromParsedHeaders, ALIAS_FORWARDER_HEADERS, parseHeadersInput, headersToRawString, decodeMimeWords, enrichParsedMetadata, renderCalendarInvite } from './messageParser.js';
+import { parseMessage, parseMailboxList, snippetFromBody, detectBulkFromParsedHeaders, ALIAS_FORWARDER_HEADERS, parseHeadersInput, headersToRawString, decodeMimeWords, enrichParsedMetadata, renderCalendarInvite } from './messageParser.js';
+import { headerIds, searchReplyDraftUids } from './replyDraftLookup.js';
 import { classifyMessage, loadSocialDomains, getGlobalCategorizationEnabled } from './categorizer.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { createPluginMailFacade } from '../plugins/mailEngineFacade.js';
@@ -1927,6 +1928,8 @@ export class ImapManager {
     // Serializes antispam auto-moves per account (keyed by account id) — see
     // AUTO_MOVE_MAX_CONCURRENT_PER_ACCOUNT. Classification stays concurrent.
     this._autoMoveSem = createKeyedSemaphore(AUTO_MOVE_MAX_CONCURRENT_PER_ACCOUNT);
+    this._replyDraftSem = createKeyedSemaphore(1);
+    this._replyDraftQueries = new Map();
     this._connectCooldown = new Map(); // accountId -> { until: ms, failures: number } after connection refusals
     this._flagOpChains = new Map(); // accountId -> tail promise; serializes setFlag per account (#474 round 4 review)
     // Refusals seen on SECONDARY connections (the folder-status counter, background body
@@ -5372,6 +5375,9 @@ export class ImapManager {
     cc = [],
     bcc = [],
     inReplyTo = null,
+    references = null,
+    threadId = null,
+    hasAttachments = false,
     snippet = '',
     bodyHtml = null,
     bodyText = null,
@@ -5384,8 +5390,8 @@ export class ImapManager {
         account_id, uid, folder, message_id, subject,
         from_name, from_email, to_addresses, cc_addresses,
         in_reply_to, date, snippet, is_read, is_starred, has_attachments,
-        flags, body_html, body_text, thread_id, bcc_addresses
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,$12,true,false,false,$13::jsonb,$14,$15,$16,$17::jsonb)
+        flags, body_html, body_text, thread_id, bcc_addresses, thread_references
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,$12,true,false,$19,$13::jsonb,$14,$15,$16,$17::jsonb,$18)
       ON CONFLICT (account_id, uid, folder) DO UPDATE SET
         message_id = COALESCE(EXCLUDED.message_id, messages.message_id),
         subject = CASE
@@ -5400,6 +5406,9 @@ export class ImapManager {
           WHEN EXCLUDED.cc_addresses::text IS NOT NULL AND EXCLUDED.cc_addresses::text <> '[]'
           THEN EXCLUDED.cc_addresses ELSE messages.cc_addresses END,
         in_reply_to = COALESCE(EXCLUDED.in_reply_to, messages.in_reply_to),
+        thread_references = EXCLUDED.thread_references,
+        thread_id = EXCLUDED.thread_id,
+        has_attachments = EXCLUDED.has_attachments,
         date = EXCLUDED.date,
         snippet = CASE WHEN EXCLUDED.snippet <> '' THEN EXCLUDED.snippet ELSE messages.snippet END,
         flags = EXCLUDED.flags,
@@ -5416,9 +5425,121 @@ export class ImapManager {
       JSON.stringify(['\\Draft', '\\Seen']),
       bodyHtml != null ? sanitizeStr(bodyHtml) : null,
       bodyText != null ? sanitizeStr(bodyText) : null,
-      msgId || null,
+      threadId || headerIds(references)[0] || inReplyTo || msgId || null,
       JSON.stringify(Array.isArray(bcc) ? bcc : []),
+      references,
+      Boolean(hasAttachments),
     ]);
+  }
+
+  async findReplyDrafts(account, paths, messageIds) {
+    if (!paths.length || !messageIds.length) return [];
+    const key = `${account.id}:${JSON.stringify(paths)}:${JSON.stringify(messageIds)}`;
+    if (this._replyDraftQueries.has(key)) return this._replyDraftQueries.get(key);
+    if (this._replyDraftQueries.size >= 100) throw new Error('Reply draft lookup is busy; try again');
+    const task = (async () => {
+      await this._replyDraftSem.acquire(account.id, { timeoutMs: 30000 });
+      const host = (account.imap_host || '').toLowerCase();
+      let hostHeld = false;
+      try {
+        const blocked = this._secondaryConnectBlocked(account.id);
+        if (blocked) {
+          throw Object.assign(new Error('Mail server is limiting connections for this account'), {
+            providerRefusing: true, retryAfterMs: Math.max(0, blocked.until - Date.now()),
+          });
+        }
+        await this._bgConnSem.acquire(host, { timeoutMs: 30000 });
+        hostHeld = true;
+        try {
+          const result = await withFreshLogin(account, client =>
+            this._findReplyDraftsWithClient(account, paths, messageIds, client));
+          this._clearSecondaryCooldown(account.id);
+          return result;
+        } catch (err) {
+          const detail = extractImapError(err);
+          if (isConnectionRefusal(detail) || isAuthFailure(detail)) this._noteSecondaryRefusal(account);
+          throw err;
+        }
+      } finally {
+        if (hostHeld) this._bgConnSem.release(host);
+        this._replyDraftSem.release(account.id);
+      }
+    })().finally(() => this._replyDraftQueries.delete(key));
+    this._replyDraftQueries.set(key, task);
+    return task;
+  }
+
+  async _findReplyDraftsWithClient(account, paths, messageIds, client) {
+    const found = await searchReplyDraftUids(client, paths, messageIds);
+    const rows = [];
+    for (const folder of paths) {
+      const uids = found.filter(item => item.folder === folder).map(item => item.uid);
+      if (!uids.length) continue;
+      const lock = await client.getMailboxLock(folder);
+      try {
+        for (let i = 0; i < uids.length; i += 50) {
+          for await (const msg of client.fetch(uids.slice(i, i + 50).join(','), {
+            uid: true, flags: true, envelope: true, bodyStructure: true, internalDate: true, headers: true,
+          }, { uid: true })) {
+            if (!uids.includes(Number(msg.uid))) continue;
+            const row = await this._ingestDraftUidWithClient(account, folder, msg.uid, client, msg);
+            if (row) rows.push(row);
+          }
+        }
+      } finally {
+        lock.release();
+      }
+    }
+    return rows;
+  }
+
+  async _ingestDraftUidWithClient(account, folder, uid, client, fetched = null) {
+    let msg = fetched;
+    if (!msg) {
+      const lock = await client.getMailboxLock(folder);
+      try {
+        for await (const item of client.fetch(String(uid), {
+          uid: true, flags: true, envelope: true, bodyStructure: true, internalDate: true, headers: true,
+        }, { uid: true })) if (Number(item.uid) === Number(uid)) msg = item;
+      } finally {
+        lock.release();
+      }
+    }
+    if (!msg) return null;
+    if (!msg.bodyStructure || !msg.headers?.length) throw new Error('Incomplete reply draft headers or structure');
+    const parsed = await parseMessage(msg);
+    if (parsed.flags?.includes('\\Deleted')) return null;
+    const bcc = parseMailboxList(parsed.parsedHeaders?.bcc || '');
+    const structure = { textParts: [], attachments: [], inlineImages: [], calendarParts: [] };
+    walkStructure(msg.bodyStructure, structure);
+    const threadId = headerIds(parsed.references)[0] || parsed.inReplyTo || parsed.messageId;
+    // All fields come from this live FETCH. Reusing a UID after UIDVALIDITY changes must
+    // never pair the new headers with an old body's cache or an old recipient list.
+    const { rows } = await query(`
+      INSERT INTO messages (account_id, uid, folder, message_id, subject, from_name, from_email,
+        to_addresses, cc_addresses, bcc_addresses, in_reply_to, thread_references, thread_id,
+        date, flags, has_attachments, attachments, is_read)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb,$11,$12,$13,$14,$15::jsonb,$16,$17::jsonb,true)
+      ON CONFLICT (account_id, uid, folder) DO UPDATE SET
+        message_id = EXCLUDED.message_id, subject = EXCLUDED.subject,
+        from_name = EXCLUDED.from_name, from_email = EXCLUDED.from_email,
+        to_addresses = EXCLUDED.to_addresses, cc_addresses = EXCLUDED.cc_addresses,
+        bcc_addresses = EXCLUDED.bcc_addresses, in_reply_to = EXCLUDED.in_reply_to,
+        thread_references = EXCLUDED.thread_references, thread_id = EXCLUDED.thread_id,
+        date = EXCLUDED.date, flags = EXCLUDED.flags, has_attachments = EXCLUDED.has_attachments,
+        attachments = EXCLUDED.attachments, body_html = NULL, body_text = NULL, is_deleted = false
+      RETURNING id`, [account.id, uid, folder, parsed.messageId, parsed.subject || '(no subject)',
+      parsed.fromName || '', parsed.fromEmail || '', JSON.stringify(parsed.to || []),
+      JSON.stringify(parsed.cc || []), JSON.stringify(bcc), parsed.inReplyTo || null,
+      parsed.references || null, threadId || null, safeDate(parsed.date),
+      JSON.stringify(parsed.flags || []), parsed.hasAttachments, JSON.stringify(structure.attachments)]);
+    if (!rows.length) throw new Error('Draft ingestion did not persist a row');
+    return { id: rows[0].id, account_id: account.id, uid, folder, message_id: parsed.messageId,
+      subject: parsed.subject || '', from_email: parsed.fromEmail, from_name: parsed.fromName,
+      to_addresses: parsed.to || [], cc_addresses: parsed.cc || [], bcc_addresses: bcc,
+      in_reply_to: parsed.inReplyTo, thread_references: parsed.references, thread_id: threadId,
+      date: parsed.date, has_attachments: parsed.hasAttachments, attachments: structure.attachments,
+      attachments_complete: true, uid_validity: String(client.mailbox?.uidValidity || '') };
   }
 
   // Whether the account's folders are label memberships (Gmail): removing a message from one

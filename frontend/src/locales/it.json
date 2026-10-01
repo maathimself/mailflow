@@ -94,6 +94,7 @@
     "hidePassword": "Nascondi password"
   },
   "compose": {
+    "unsupportedDraftFrom": "Scegli un mittente configurato prima di salvare o inviare questa bozza.",
     "newMessage": "Nuovo messaggio",
     "reply": "Rispondi",
     "replyAll": "Rispondi a tutti",
@@ -301,6 +302,12 @@
     }
   },
   "messageList": {
+    "replyDraftChanged": "La bozza di risposta è cambiata. Prova ad aprirla di nuovo.",
+    "replyDraftKeepCurrent": "Salva il messaggio attuale e gestisci i suoi allegati prima di aprire questa bozza.",
+    "replyDraftUnavailable": "Questa bozza di risposta non è più disponibile.",
+    "replyDraftRetry": "Cerca di nuovo la bozza di risposta",
+    "openReplyDraft": "Apri la bozza di risposta",
+    "replyDraft": "Bozza di risposta",
     "search": "Cerca…",
     "unread": "Non letti",
     "showAll": "Mostra tutto",
@@ -974,6 +981,7 @@
       "customCssSaved": "Salvato"
     },
     "messageList": {
+      "autoOpenReplyDrafts": "Apri automaticamente le risposte salvate quando selezioni i messaggi in arrivo",
       "title": "Elenco messaggi",
       "senderFavicons": "Favicon dei mittenti",
       "senderFaviconsDesc": "Mostra le icone dei siti web per i mittenti senza foto del contatto. A Twenty Icons viene inviato solo il dominio del mittente, mai l'indirizzo email completo.",

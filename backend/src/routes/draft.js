@@ -8,13 +8,145 @@ import { sanitizeSignature, sanitizeComposeBody } from '../services/emailSanitiz
 import { embedInlineDataImages } from '../utils/inlineImages.js';
 import { imapManager } from '../index.js';
 import { resolveAllDraftsPaths } from '../utils/mailUtils.js';
+import { draftFolderPaths, replyChainIds, chooseReplyDraft } from '../services/replyDraftLookup.js';
 
 const router = Router();
 router.use(requireAuth);
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+async function replyContexts(userId, ids, { accountId, threaded }) {
+  const seeds = (await query(`
+    SELECT m.id, m.account_id, m.folder, m.message_id, m.in_reply_to,
+      m.thread_references, m.thread_id, m.thread_key, m.date, m.uid,
+      row_to_json(a) AS account FROM messages m
+    JOIN email_accounts a ON a.id = m.account_id
+    WHERE m.id = ANY($1::uuid[]) AND a.user_id = $2 AND a.enabled = true
+      AND m.is_deleted = false AND m.folder = 'INBOX'`, [ids, userId])).rows
+    .filter(row => ids.includes(row.id) && (!accountId || row.account_id === accountId));
+  if (!seeds.length) return { seeds, members: [], conversation: [], paths: new Map(), accounts: new Map() };
+  const keys = [...new Set(seeds.map(row => row.thread_key || row.thread_id).filter(Boolean))];
+  const members = threaded ? (await query(`
+    /* row_members */ SELECT m.id, m.account_id, m.folder, m.message_id, m.in_reply_to,
+      m.thread_references, m.thread_id, m.thread_key, m.date, m.uid,
+      row_to_json(a) AS account FROM messages m
+    JOIN email_accounts a ON a.id = m.account_id
+    WHERE a.user_id = $1 AND a.enabled = true AND m.is_deleted = false AND m.folder = 'INBOX'
+      AND m.thread_key = ANY($2::text[])
+      AND (($3::uuid IS NOT NULL AND m.account_id = $3)
+        OR ($3::uuid IS NULL AND COALESCE(a.include_in_unified_inbox, true)))
+    LIMIT 10001`, [userId, keys, accountId || null])).rows.filter(row =>
+    accountId ? row.account_id === accountId : row.account?.include_in_unified_inbox !== false) : seeds;
+  if (members.length > 10000) throw new Error('Reply conversation is too large to check');
+  const accounts = new Map(members.map(row => [row.account_id, row.account]));
+  const accountIds = [...accounts.keys()];
+  if (!accountIds.length) return { seeds, members, conversation: [], paths: new Map(), accounts };
+  const threadIds = [...new Set(members.map(row => row.thread_id).filter(Boolean))];
+  const conversation = (await query(`
+    SELECT id, account_id, message_id, in_reply_to, thread_references, thread_id, thread_key
+    FROM messages WHERE account_id = ANY($1::uuid[]) AND is_deleted = false
+      AND (thread_key = ANY($2::text[]) OR thread_id = ANY($3::text[]))
+    LIMIT 10001`, [accountIds, keys, threadIds])).rows;
+  if (conversation.length > 10000) throw new Error('Reply conversation is too large to check');
+  const folders = (await query(`
+    SELECT account_id, path, special_use FROM folders WHERE account_id = ANY($1::uuid[])
+      AND COALESCE(no_select, false) = false`, [accountIds])).rows;
+  const paths = new Map(accountIds.map(id => [id,
+    draftFolderPaths(id, accounts.get(id)?.folder_mappings, folders)]));
+  return { seeds, members, conversation, paths, accounts };
+}
+
+function rowMembers(seed, context, threaded) {
+  return threaded ? context.members.filter(row => (row.thread_key || row.thread_id) === (seed.thread_key || seed.thread_id)) : [seed];
+}
+
+function rowDraft(seed, context, candidates, threaded) {
+  const matches = rowMembers(seed, context, threaded).map(member =>
+    chooseReplyDraft(member, context.conversation, candidates, context.paths.get(member.account_id) || [])).filter(Boolean);
+  return matches.sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0)
+    || String(a.id).localeCompare(String(b.id)))[0] || null;
+}
+
+function replyScope(input) {
+  const accountId = input.accountId || null;
+  if (accountId && !UUID_RE.test(accountId)) throw Object.assign(new Error('Invalid account ID'), { status: 400 });
+  return { accountId, threaded: input.threaded === true || input.threaded === 'true' };
+}
+
+router.post('/reply-drafts/indicators', async (req, res) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids) || ids.length > 100 || ids.some(id => typeof id !== 'string' || !UUID_RE.test(id))) {
+    return res.status(400).json({ error: 'At most 100 message IDs required' });
+  }
+  try {
+    const scope = replyScope(req.body);
+    const context = await replyContexts(req.session.userId, [...new Set(ids)], scope);
+    if (!context.seeds.length) return res.json({ indicators: {} });
+    const accountIds = [...context.accounts.keys()];
+    const paths = [...new Set([...context.paths.values()].flat())];
+    const candidates = paths.length ? (await query(`
+      /* draft_candidates */ SELECT id, account_id, folder, uid, message_id,
+        in_reply_to, thread_references, thread_id, thread_key, date FROM messages
+      WHERE account_id = ANY($1::uuid[]) AND folder = ANY($2::text[]) AND is_deleted = false
+        AND (in_reply_to IS NOT NULL OR thread_references IS NOT NULL)
+      LIMIT 5001`, [accountIds, paths])).rows : [];
+    if (candidates.length > 5000) throw new Error('Too many reply drafts to check');
+    res.json({ indicators: Object.fromEntries(context.seeds.map(seed => {
+      const draft = rowDraft(seed, context, candidates, scope.threaded);
+      return [seed.id, { exists: Boolean(draft), ...(draft ? { accountId: draft.account_id } : {}) }];
+    })) });
+  } catch (err) {
+    console.error('Reply draft indicators failed:', err.message);
+    res.status(err.status || 503).json({ error: 'Could not check reply drafts' });
+  }
+});
+
+router.get('/messages/:id/reply-draft', async (req, res) => {
+  if (!UUID_RE.test(req.params.id)) return res.status(400).json({ error: 'Invalid message ID' });
+  try {
+    const scope = replyScope(req.query);
+    const context = await replyContexts(req.session.userId, [req.params.id], scope);
+    const selected = context.seeds[0];
+    if (!selected) return res.status(404).json({ error: 'Message not found' });
+    const candidates = [];
+    const searches = new Map();
+    for (const [accountId, account] of context.accounts) {
+      const ids = [...new Set(rowMembers(selected, context, scope.threaded)
+        .filter(row => row.account_id === accountId)
+        .flatMap(row => [...replyChainIds(row, context.conversation)]))];
+      const paths = context.paths.get(accountId) || [];
+      if (!ids.length || !paths.length) continue;
+      searches.set(accountId, { account, paths, ids });
+      candidates.push(...await imapManager.findReplyDrafts(account, paths, ids));
+    }
+    const draft = rowDraft(selected, context, candidates, scope.threaded);
+    if (!draft || req.query.open !== 'true') return res.json({ draft });
+    if (!draft.message_id) throw new Error('This draft has no verifiable Message-ID');
+    const search = searches.get(draft.account_id);
+    const body = await imapManager.fetchMessageBody(search.account, draft.uid, draft.folder);
+    if (body?.html == null && body?.text == null) throw new Error('Could not read the reply draft body');
+    const confirmed = (await imapManager.findReplyDrafts(search.account, search.paths, search.ids))
+      .find(row => row.folder === draft.folder && Number(row.uid) === Number(draft.uid)
+        && row.message_id === draft.message_id && row.uid_validity === draft.uid_validity);
+    if (!confirmed) return res.status(409).json({ error: 'This reply draft changed on the mail server. Try again.' });
+    res.json({ draft: confirmed, body });
+  } catch (err) {
+    console.error('Reply draft lookup failed:', err.message);
+    res.status(err.status || 503).json({ error: 'Could not check reply drafts' });
+  }
+});
 
 function sanitizeHeaderValue(value) {
   if (typeof value !== 'string') return '';
   return value.replace(/[\r\n\0]/g, '').trim();
+}
+
+function replyHeader(value, single = false) {
+  if (value == null || value === '') return null;
+  if (typeof value !== 'string' || value.length > 8192) throw Object.assign(new Error('Invalid reply header'), { status: 400 });
+  const unfolded = value.replace(/\r\n[ \t]+/g, ' ').trim();
+  const valid = single ? /^<[^<>\s]+>$/ : /^<[^<>\s]+>(?:[ \t]+<[^<>\s]+>)*$/;
+  if (/[\r\n\0]/.test(unfolded) || !valid.test(unfolded)) throw Object.assign(new Error('Invalid reply header'), { status: 400 });
+  return unfolded;
 }
 
 // Extract { name, email } from an RFC 5322 address string ("Name <email>",
@@ -37,7 +169,9 @@ function textToHtml(text) {
     .join('');
 }
 
-async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature }) {
+async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, inReplyTo, references }) {
+  const replyToId = replyHeader(inReplyTo, true);
+  const referenceIds = replyHeader(references) || replyToId;
   const acctResult = await query(
     'SELECT * FROM email_accounts WHERE id = $1',
     [accountId]
@@ -97,6 +231,8 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
     cc: (Array.isArray(cc) ? cc : []).filter(Boolean).join(', ') || undefined,
     bcc: (Array.isArray(bcc) ? bcc : []).filter(Boolean).join(', ') || undefined,
     subject: sanitizeHeaderValue(subject || ''),
+    ...(replyToId ? { inReplyTo: replyToId } : {}),
+    ...(referenceIds ? { references: referenceIds } : {}),
     text: textBody,
     html: draftHtml,
     ...(inlineImageAttachments.length ? { attachments: inlineImageAttachments } : {}),
@@ -116,7 +252,7 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
   return {
     rawMessage: Buffer.concat(chunks),
     account,
-    meta: { messageId, fromName, fromEmail, bodyHtml: rawHtml, bodyText: textBody, snippet },
+    meta: { messageId, fromName, fromEmail, bodyHtml: rawHtml, bodyText: textBody, snippet, inReplyTo: replyToId, references: referenceIds },
   };
 }
 
@@ -179,7 +315,7 @@ async function findReplacedDraft(userId, account, draftsFolder, { existingUid, e
 }
 
 router.post('/draft', async (req, res) => {
-  const { accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, editedSignature, existingUid, existingFolder, existingAccountId } = req.body;
+  const { accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, editedSignature, existingUid, existingFolder, existingAccountId, inReplyTo, references } = req.body;
   if (!accountId) return res.status(400).json({ error: 'accountId required' });
 
   const ownerCheck = await query(
@@ -189,7 +325,7 @@ router.post('/draft', async (req, res) => {
   if (!ownerCheck.rows.length) return res.status(404).json({ error: 'Account not found' });
 
   try {
-    const { rawMessage, account, meta } = await buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature });
+    const { rawMessage, account, meta } = await buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, inReplyTo, references });
 
     const draftsFolder = await resolveDraftsFolder(account);
     if (!draftsFolder) return res.status(422).json({ error: 'No Drafts folder found for this account' });
@@ -224,6 +360,8 @@ router.post('/draft', async (req, res) => {
           snippet: meta.snippet,
           bodyHtml: meta.bodyHtml,
           bodyText: meta.bodyText,
+          inReplyTo: meta.inReplyTo,
+          references: meta.references,
         });
       } catch (rowErr) {
         console.error(`Draft: failed to persist local row uid=${uid}: ${rowErr.message}`);
@@ -247,7 +385,7 @@ router.post('/draft', async (req, res) => {
       }
     }
 
-    res.json({ uid, folder: draftsFolder });
+    res.json({ uid, folder: draftsFolder, ...(req.body.includeIdentity === true ? { messageId: meta.messageId } : {}) });
   } catch (err) {
     console.error('Save draft failed:', err.message);
     res.status(err.status || 500).json({ error: err.message || 'Failed to save draft' });
