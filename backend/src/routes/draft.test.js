@@ -77,6 +77,37 @@ describe('POST /api/mail/draft — local row persistence', () => {
     expect(meta.messageId).toMatch(/^<[0-9a-f]+@mailflow\.sh>$/);
   });
 
+  it('returns the newly appended RFC identity when requested', async () => {
+    const res = await fetch(`${base}/api/mail/draft`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ accountId: ACCOUNT_ID, to: ['recipient@example.test'], body: 'Reply', includeIdentity: true }),
+    });
+    const result = await res.json();
+    expect(result.messageId).toBe(imapManager.upsertDraftMessageRecord.mock.calls[0][3].messageId);
+  });
+
+  it('keeps reply headers in MIME and the local draft row, including References-only drafts', async () => {
+    const res = await fetch(`${base}/api/mail/draft`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ accountId: ACCOUNT_ID, to: ['recipient@example.test'],
+        subject: 'Reply', body: 'Reply text', references: '<root@example.test> <parent@example.test>' }),
+    });
+    expect(res.status).toBe(200);
+    const raw = imapManager.appendToFolder.mock.calls[0][2].toString();
+    expect(raw).toMatch(/^References: <root@example.test> <parent@example.test>$/m);
+    expect(imapManager.upsertDraftMessageRecord.mock.calls[0][3].references)
+      .toBe('<root@example.test> <parent@example.test>');
+  });
+
+  it('rejects reply-header injection before appending a draft', async () => {
+    const res = await fetch(`${base}/api/mail/draft`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ accountId: ACCOUNT_ID, body: 'Reply', inReplyTo: '<parent@example.test>\r\nBcc: attacker@example.test' }),
+    });
+    expect(res.status).toBe(400);
+    expect(imapManager.appendToFolder).not.toHaveBeenCalled();
+  });
+
   it('records the Bcc on the local row, the same recipients the server copy carries', async () => {
     // The composer reopens a draft from this row. Without the Bcc here a reopened draft started
     // with none, and its next save replaced the only copy that still had it.

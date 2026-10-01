@@ -94,6 +94,7 @@
     "hidePassword": "Ocultar contraseña"
   },
   "compose": {
+    "unsupportedDraftFrom": "Elige un remitente configurado antes de guardar o enviar este borrador.",
     "newMessage": "Nuevo mensaje",
     "reply": "Responder",
     "replyAll": "Responder a todos",
@@ -301,6 +302,12 @@
     }
   },
   "messageList": {
+    "replyDraftChanged": "El borrador de respuesta ha cambiado. Intenta abrirlo de nuevo.",
+    "replyDraftKeepCurrent": "Guarda el mensaje actual y resuelve sus adjuntos antes de abrir este borrador.",
+    "replyDraftUnavailable": "Este borrador de respuesta ya no está disponible.",
+    "replyDraftRetry": "Volver a buscar el borrador de respuesta",
+    "openReplyDraft": "Abrir borrador de respuesta",
+    "replyDraft": "Borrador de respuesta",
     "search": "Buscar…",
     "unread": "No leídos",
     "showAll": "Mostrar todos",
@@ -974,6 +981,7 @@
       "customCssSaved": "Guardado"
     },
     "messageList": {
+      "autoOpenReplyDrafts": "Abrir automáticamente las respuestas guardadas al seleccionar mensajes de la bandeja de entrada",
       "title": "Lista de mensajes",
       "senderFavicons": "Favicons de remitentes",
       "senderFaviconsDesc": "Mostrar iconos de sitios web para los remitentes sin foto de contacto. Solo se envía a Twenty Icons el dominio del remitente, nunca su dirección de correo completa.",

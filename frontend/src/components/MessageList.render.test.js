@@ -323,3 +323,19 @@ describe('MessageList — reopening a saved draft keeps its Bcc', () => {
     await React.act(async () => { useStore.setState({ selectedMessageId: null, notifications: [] }); });
   });
 });
+
+
+describe('MessageList reply draft indicators', () => {
+  test('renders the action in both message and collapsed conversation rows', async () => {
+    for (const [row, threadedView] of [[MESSAGE, false], [THREAD, true]]) {
+      useStore.setState({ replyDrafts: { [row.id]: { exists: true } } });
+      await mount({ rows: [row], threadedView });
+      assert.ok(container.querySelector(`[data-msgid="${row.id}"] [aria-label="Open reply draft"]`));
+    }
+  });
+  test('hides indicators outside the inbox', async () => {
+    useStore.setState({ replyDrafts: { [MESSAGE.id]: { exists: true } } });
+    await mount({ rows: [{ ...MESSAGE, folder: 'Archive' }], threadedView: false, folder: 'Archive' });
+    assert.equal(container.querySelector('[aria-label="Open reply draft"]'), null);
+  });
+});

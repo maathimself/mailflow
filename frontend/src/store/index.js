@@ -31,6 +31,7 @@ import { createPrefSaveQueue } from '../utils/prefSaveQueue.js';
 
 // Accumulate rapid preference changes and flush at most once per second. The queue itself
 // lives in prefSaveQueue.js so its behaviour is testable without a network or a DOM.
+let composeSessionSequence = 0;
 const _prefQueue = createPrefSaveQueue({
   save: (prefs) => api.savePreferences(prefs),
   saveOnExit: (prefs) => api.savePreferencesOnExit(prefs),
@@ -249,6 +250,7 @@ export const useStore = create((set, get) => ({
         messagesOffset: 0,
         hasMoreMessages: true,
         messagesRefreshToken: state.messagesRefreshToken + 1,
+        replyDrafts: {}, replyDraftRevision: state.replyDraftRevision + 1,
         expandedThreadId: null,
         threadMessages: {},
         showContacts: false,
@@ -460,10 +462,31 @@ export const useStore = create((set, get) => ({
     }
     set({ customSoundDataUrl: dataUrl });
   },
+  replyDrafts: {},
+  replyDraftRevision: 0,
+  invalidateReplyDrafts: () => set(state => ({ replyDrafts: {}, replyDraftRevision: state.replyDraftRevision + 1 })),
+  setReplyDraftStatus: (id, status, source, revision) => set(state => {
+    if (revision !== undefined && revision !== state.replyDraftRevision) return {};
+    if (source === 'cached' && state.replyDrafts[id]?.source === 'live') return {};
+    return { replyDrafts: { ...state.replyDrafts, [id]: { ...status, source } } };
+  }),
+  autoOpenReplyDrafts: localStorage.getItem('mailflow_auto_open_reply_drafts') === 'true',
+  setAutoOpenReplyDrafts: value => {
+    localStorage.setItem('mailflow_auto_open_reply_drafts', String(Boolean(value)));
+    set({ autoOpenReplyDrafts: Boolean(value) });
+    schedulePrefSave({ autoOpenReplyDrafts: Boolean(value) });
+  },
   composing: false,
   composeData: null,
-  openCompose: (data = null) => set({ composing: true, composeData: data }),
-  closeCompose: () => set({ composing: false, composeData: null }),
+  prepareComposeSwitch: null,
+  setPrepareComposeSwitch: prepare => set({ prepareComposeSwitch: prepare }),
+  updateComposePersistedKey: (sessionKey, persistedKey) => set(state =>
+    state.composeData?.sessionKey === sessionKey
+      ? { composeData: { ...state.composeData, persistedKey } } : {}),
+  openCompose: (data = null) => set(state =>
+    state.composing && data?.sessionKey && data.sessionKey === state.composeData?.sessionKey
+      ? state : { composing: true, composeData: { ...data, sessionKey: data?.sessionKey || `compose:${++composeSessionSequence}` }, prepareComposeSwitch: null }),
+  closeCompose: () => set({ composing: false, composeData: null, prepareComposeSwitch: null }),
 
   // Detached message windows (#219): floating, draggable/resizable in-app windows
   // that each show one message via a MessagePane instance. Desktop-only; mounted by
@@ -519,7 +542,8 @@ export const useStore = create((set, get) => ({
   })),
   closeAllMessageWindows: () => set({ messageWindows: [] }),
   searchQuery: '',
-  setSearchQuery: (q) => set({ searchQuery: q }),
+  setSearchQuery: (q) => set(state => q === state.searchQuery ? {} : { searchQuery: q,
+    replyDrafts: {}, replyDraftRevision: state.replyDraftRevision + 1 }),
   isSearching: false,
   setIsSearching: (v) => set({ isSearching: v }),
   searchResults: [],
@@ -592,7 +616,8 @@ export const useStore = create((set, get) => ({
     if (!next) return;
     localStorage.setItem('mailflow_conversation_mode', next.conversationMode);
     localStorage.setItem('mailflow_threaded_view', String(groupsMessageList(next.conversationMode)));
-    set({ ...next, threadedView: groupsMessageList(next.conversationMode) });
+    set(state => ({ ...next, threadedView: groupsMessageList(next.conversationMode),
+      replyDrafts: {}, replyDraftRevision: state.replyDraftRevision + 1 }));
     schedulePrefSave({ conversationMode: next.conversationMode, threadedView: groupsMessageList(next.conversationMode) });
   },
   setThreadedView: (val) => {
@@ -1109,6 +1134,10 @@ export const useStore = create((set, get) => ({
           ? undefined
           : (Number(localStorage.getItem('mailflow_list_width')) || undefined);
         applyLayout(clean, savedListWidth);
+      }
+      if (typeof prefs.autoOpenReplyDrafts === 'boolean') {
+        localStorage.setItem('mailflow_auto_open_reply_drafts', String(prefs.autoOpenReplyDrafts));
+        set({ autoOpenReplyDrafts: prefs.autoOpenReplyDrafts });
       }
       if (prefs.notificationSound) {
         localStorage.setItem('mailflow_notification_sound', prefs.notificationSound);
