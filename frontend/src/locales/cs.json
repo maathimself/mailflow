@@ -301,7 +301,9 @@
         "label": "Svislé rozdělení",
         "description": "Seznam zpráv nad čtecím podoknem"
       }
-    }
+    },
+    "senderGroupCounts": "{{unread}} nepřečtených · {{count}} zpráv",
+    "senderGroupLoadError": "E-maily tohoto odesílatele se nepodařilo načíst. Zkuste to znovu."
   },
   "message": {
     "find": {
@@ -579,7 +581,9 @@
       "recent": "Nedávné",
       "favorites": "Oblíbené",
       "search": "Hledat složky…"
-    }
+    },
+    "groupSender": "Seskupit e-maily od tohoto odesílatele",
+    "ungroupSender": "Zrušit seskupení e-mailů od tohoto odesílatele"
   },
   "gtd": {
     "title": "GTD",

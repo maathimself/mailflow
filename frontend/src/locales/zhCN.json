@@ -406,7 +406,9 @@
         "label": "上下分栏",
         "description": "邮件列表位于阅读窗格上方"
       }
-    }
+    },
+    "senderGroupCounts": "{{unread}} 封未读 · {{count}} 封邮件",
+    "senderGroupLoadError": "无法加载聚合邮件，请重试。"
   },
   "lockScreen": {
     "subtitle": "输入 PIN 码以解锁",
@@ -511,7 +513,9 @@
       "recent": "最近",
       "favorites": "收藏夹",
       "search": "搜索文件夹…"
-    }
+    },
+    "groupSender": "聚合此发件人的邮件",
+    "ungroupSender": "取消此发件人的聚合"
   },
   "commandPalette": {
     "labelPicker": {

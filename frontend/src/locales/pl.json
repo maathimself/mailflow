@@ -420,7 +420,9 @@
         "label": "Podział pionowy",
         "description": "Lista wiadomości nad panelem czytania"
       }
-    }
+    },
+    "senderGroupCounts": "{{unread}} nieprzeczytanych · {{count}} wiadomości",
+    "senderGroupLoadError": "Nie udało się wczytać wiadomości od tego nadawcy. Spróbuj ponownie."
   },
   "lockScreen": {
     "subtitle": "Wpisz swój PIN aby odblokować",
@@ -527,7 +529,9 @@
       "favorites": "Ulubione",
       "search": "Szukaj folderów…"
     },
-    "copyLink": "Kopiuj link"
+    "copyLink": "Kopiuj link",
+    "groupSender": "Grupuj wiadomości od tego nadawcy",
+    "ungroupSender": "Rozgrupuj wiadomości od tego nadawcy"
   },
   "commandPalette": {
     "labelPicker": {

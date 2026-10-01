@@ -124,6 +124,7 @@ export const useStore = create((set, get) => ({
       ...(state.user?.id !== user?.id ? {
         serverUnreadCounts: { total: 0, byAccount: {}, snapshots: {} }, pendingCounts: {},
         unreadCounts: { total: 0, byAccount: {}, snapshots: {}, complete: false },
+        groupedSenders: [], senderGroupingSaving: false, threadMessages: {},
         senderFaviconsLoaded: false,
         senderFavicons: false,
         senderFaviconsSaving: false,
@@ -286,6 +287,13 @@ export const useStore = create((set, get) => ({
     const inMainList = state.messages.some(m => m.id === id);
     const messages = state.messages.map(m => {
       const updated = apply(m);
+      if (m.sender_group) {
+        const member = Object.entries(state.threadMessages).filter(([key]) => key.startsWith('sender:') && key.endsWith(':' + m.sender_group))
+          .flatMap(([, rows]) => rows).find(row => row.id === id);
+        if (!member) return updated;
+        const unread = row => Number.isFinite(Number(row.unread_count)) ? Number(row.unread_count) : (row.is_read ? 0 : 1);
+        return { ...updated, sender_unread_count: Math.max(0, m.sender_unread_count + unread(apply(member)) - unread(member)) };
+      }
       if (inMainList) return updated;
       const tid = m.thread_id || m.id;
       const subs = threadMessages[tid];
@@ -296,7 +304,8 @@ export const useStore = create((set, get) => ({
     return { messages, searchResults: state.searchResults.map(apply), threadMessages };
   }),
   removeMessage: (id) => set(state => ({
-    messages: state.messages.filter(m => m.id !== id),
+    threadMessages: Object.fromEntries(Object.entries(state.threadMessages).map(([key, rows]) => [key, key.startsWith('sender:') ? rows.filter(m => m.id !== id) : rows])),
+    messages: state.messages.filter(m => m.sender_group || m.id !== id),
     searchResults: state.searchResults.filter(m => m.id !== id),
     selectedMessageId: state.selectedMessageId === id ? null : state.selectedMessageId,
   })),
@@ -308,22 +317,31 @@ export const useStore = create((set, get) => ({
     const idSet = ids instanceof Set ? ids : new Set(ids);
     if (idSet.size === 0) return {};
     return {
-      messages: state.messages.filter(m => !idSet.has(m.id)),
+      threadMessages: Object.fromEntries(Object.entries(state.threadMessages).map(([key, rows]) => [key, key.startsWith('sender:') ? rows.filter(m => !idSet.has(m.id)) : rows])),
+      messages: state.messages.filter(m => m.sender_group || !idSet.has(m.id)),
       searchResults: state.searchResults.filter(m => !idSet.has(m.id)),
       selectedMessageId: idSet.has(state.selectedMessageId) ? null : state.selectedMessageId,
     };
   }),
   restoreMessages: (msgs) => set(state => {
-    const list = Array.isArray(msgs) ? msgs : [msgs];
+    const restored = Array.isArray(msgs) ? msgs : [msgs];
+    const senderGroups = new Set(state.searchQuery.trim() ? [] : state.messages.filter(m => m.sender_group).map(m => m.sender_group));
+    const list = restored.filter(m => !senderGroups.has((m.from_email || '').trim().toLowerCase()));
+    const threadMessages = Object.fromEntries(Object.entries(state.threadMessages).map(([key, rows]) => {
+      if (!key.startsWith('sender:')) return [key, rows];
+      const additions = restored.filter(m => key.endsWith(':' + (m.from_email || '').trim().toLowerCase()) && !rows.some(row => row.id === m.id));
+      return [key, [...rows, ...additions].sort((a, b) => new Date(b.date) - new Date(a.date))];
+    }));
     const sort = arr => [...arr].sort((a, b) => new Date(b.date) - new Date(a.date));
     // Deduplicate against both the main list and searchResults by stable identity (Message-ID when
     // present, else id): if the message is already present — including re-added by a network
     // refresh under a regenerated id (matched via Message-ID) — skip it. The local copy carries the
     // freshest optimistic state, so we prefer it over the server view. See missingByIdentity.
     const missing = missingByIdentity(state.messages, list);
-    if (missing.length === 0 && !state.searchQuery.trim()) return {};
+    if (missing.length === 0 && !state.searchQuery.trim()) return { threadMessages };
     const missingFromSearch = missingByIdentity(state.searchResults, list);
     return {
+      threadMessages,
       messages: missing.length ? sort([...state.messages, ...missing]) : state.messages,
       searchResults: state.searchQuery.trim() && missingFromSearch.length
         ? sort([...state.searchResults, ...missingFromSearch])
@@ -595,6 +613,24 @@ export const useStore = create((set, get) => ({
   setThreadedView: (val) => {
     // Retained for callers that still speak the old boolean.
     get().setConversationMode(val ? 'list' : 'off');
+  },
+
+  groupedSenders: [],
+  senderGroupingSaving: false,
+  senderGroupingEpoch: 0,
+  toggleSenderGrouping: async (email) => {
+    const sender = String(email || '').trim().toLowerCase();
+    if (!sender || get().senderGroupingSaving) return;
+    const userId = get().user?.id;
+    set({ senderGroupingSaving: true, senderGroupingEpoch: get().senderGroupingEpoch + 1 });
+    const previous = get().groupedSenders;
+    const groupedSenders = previous.includes(sender) ? previous.filter(v => v !== sender) : [...previous, sender];
+    try {
+      await api.savePreferences({ groupedSenders });
+      if (get().user?.id === userId) set({ groupedSenders, messagesRefreshToken: get().messagesRefreshToken + 1 });
+    } finally {
+      if (get().user?.id === userId) set({ senderGroupingSaving: false });
+    }
   },
 
   // Compose format
@@ -1072,6 +1108,7 @@ export const useStore = create((set, get) => ({
   loadPreferences: async () => {
     const userId = get().user?.id;
     const faviconEpoch = get().senderFaviconsEpoch;
+    const senderGroupingEpoch = get().senderGroupingEpoch;
     try {
       const prefs = await api.getPreferences();
       if (get().user?.id !== userId) return;
@@ -1193,6 +1230,7 @@ export const useStore = create((set, get) => ({
         localStorage.setItem('mailflow_threaded_view', String(groupsMessageList(mode)));
         set({ conversationMode: mode, threadedView: groupsMessageList(mode) });
       }
+      if (get().senderGroupingEpoch === senderGroupingEpoch) set({ groupedSenders: Array.isArray(prefs.groupedSenders) ? prefs.groupedSenders : [] });
       if (typeof prefs.plaintextEmail === 'boolean') {
         localStorage.setItem('mailflow_plaintext_email', String(prefs.plaintextEmail));
         set({ plaintextEmail: prefs.plaintextEmail });

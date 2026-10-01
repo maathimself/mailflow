@@ -1,3 +1,4 @@
+import { normalizeGroupedSenders } from '../services/messageService.js';
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
@@ -770,7 +771,7 @@ export async function patchPreferences(req, res) {
           categorizationEnabled, markReadBehavior, markReadDelay, aiActions,
           autoLockMinutes, showMobileAvatars, gravatarAvatars, folderSyncInterval,
           folderOrder, senderFavicons, showMessagePreviews, defaultSender,
-          conversationMode, hoverActionSet } = req.body;
+          conversationMode, hoverActionSet, groupedSenders } = req.body;
   // GTD content and generic right-sidebar layout preferences are independent flat
   // top-level keys with separate allow-lists. gtdEnabled is intentionally NOT a user
   // preference — it lives per-account in email_accounts.gtd_enabled.
@@ -832,6 +833,8 @@ export async function patchPreferences(req, res) {
   // #440: which hover quick actions the message list shows. Same vocabulary and canonical
   // order as frontend/src/utils/hoverActions.js; unknown keys are dropped rather than stored.
   const HOVER_ACTION_KEYS = ['markRead', 'star', 'archive', 'snooze', 'delete', 'move'];
+  if (groupedSenders !== undefined && (!Array.isArray(groupedSenders) || groupedSenders.length > 500 || normalizeGroupedSenders(groupedSenders).length !== new Set(groupedSenders.map(v => typeof v === 'string' ? v.trim().toLowerCase() : v)).size)) return res.status(400).json({ error: 'Invalid grouped senders' });
+  const groupedSendersJson = groupedSenders === undefined ? null : JSON.stringify(normalizeGroupedSenders(groupedSenders));
   const hoverActionSetJson = Array.isArray(hoverActionSet)
     ? JSON.stringify(HOVER_ACTION_KEYS.filter(k => hoverActionSet.includes(k)))
     : null;
@@ -882,6 +885,7 @@ export async function patchPreferences(req, res) {
       || CASE WHEN $42::text IS NOT NULL THEN jsonb_build_object('defaultSender', $42::text) ELSE '{}'::jsonb END
       || CASE WHEN $43::text IS NOT NULL THEN jsonb_build_object('conversationMode', $43::text) ELSE '{}'::jsonb END
       || CASE WHEN $44::jsonb IS NOT NULL THEN jsonb_build_object('hoverActionSet', $44::jsonb) ELSE '{}'::jsonb END
+      || CASE WHEN $45::jsonb IS NOT NULL THEN jsonb_build_object('groupedSenders', $45::jsonb) ELSE '{}'::jsonb END
     WHERE id = $1
   `, [req.session.userId, theme ?? null, font ?? null, layout ?? null, notificationSound ?? null,
       pageSize ?? null, scrollMode ?? null, syncInterval ?? null,
@@ -892,7 +896,7 @@ export async function patchPreferences(req, res) {
       categorizationEnabled ?? null, markReadBehaviorVal, markReadDelayVal, aiActionsJson,
       rightSidebarWidth, rightSidebarHidden, gtdCollapsedSectionsJson, gtdPetSlug, autoLockMinutesVal,
       showMobileAvatars ?? null, gravatarAvatars ?? null, folderSyncIntervalVal, folderOrderJson, senderFaviconsVal,
-      showMessagePreviews ?? null, defaultSenderVal, conversationModeVal, hoverActionSetJson]);
+      showMessagePreviews ?? null, defaultSenderVal, conversationModeVal, hoverActionSetJson, groupedSendersJson]);
 
   if (syncInterval != null) {
     const ms = parseInt(syncInterval) * 1000;

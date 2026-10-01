@@ -147,7 +147,9 @@ function notifyMailMutation(rows, userId) {
 
 // Get messages (unified or per-account/folder)
 router.get('/messages', async (req, res) => {
-  const { accountId, folder = 'INBOX', limit = 50, offset = 0, unreadOnly, threaded, category } = req.query;
+  const { accountId, folder = 'INBOX', limit = 50, offset = 0, unreadOnly, threaded, category, groupSenders, sender } = req.query;
+
+  if (sender !== undefined && (typeof sender !== 'string' || sender.length > 320 || !/^[^\s@]+@[^\s@]+$/.test(sender.trim()))) return res.status(400).json({ error: 'Invalid sender' });
 
   if (!isValidFolderName(folder)) return res.status(400).json({ error: 'Invalid folder name' });
 
@@ -165,6 +167,8 @@ router.get('/messages', async (req, res) => {
     unreadOnly,
     threaded,
     category: safeCategory,
+    groupSenders,
+    sender,
   });
 
   if (resolvedAccountId && messages.length) {

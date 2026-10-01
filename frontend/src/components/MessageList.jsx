@@ -1,3 +1,4 @@
+import SenderGroup from './SenderGroup.jsx';
 import { useEffect, useLayoutEffect, useRef, useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore, selectSelectedMessageMid, selectSelectedMessageAccountId } from '../store/index.js';
@@ -123,7 +124,7 @@ export default function MessageList() {
     searchResults, setSearchResults, openCompose, accountsReady, accounts,
     messagesRefreshToken, layout, setLayout, pageSize, setPageSize, scrollMode,
     setMobileSidebarOpen, unreadCounts, showContacts, setShowContacts,
-    threadedView, expandedThreadId, setExpandedThreadId,
+    groupedSenders, threadedView, expandedThreadId, setExpandedThreadId,
     threadMessages, setThreadMessages, clearThreadMessages, loadingThread, setLoadingThread,
     hoverQuickActions, hoverActionSet, showMobileAvatars, showMessagePreviews,
     swipeActions,
@@ -178,6 +179,7 @@ export default function MessageList() {
     });
   }, []);
 
+  const [expandedSenders, setExpandedSenders] = useState(new Set());
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [activeCategory, setActiveCategory] = useState('primary');
   const [currentPage, setCurrentPage] = useState(1);
@@ -410,7 +412,7 @@ export default function MessageList() {
         if (threadedView) params.threaded = 'true';
         if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
         await refreshRequestRef.current.run(
-          () => api.getMessages(params),
+          () => api.getMessages({ ...params, ...(selectedFolder === 'INBOX' && useStore.getState().groupedSenders.length ? { groupSenders: 'true' } : {}) }),
           (data) => {
             if (cancelled) return;
             setMessagesTotal(data.total);
@@ -468,6 +470,7 @@ export default function MessageList() {
       if (unreadOnly) params.unreadOnly = 'true';
       if (useStore.getState().threadedView) params.threaded = 'true';
       if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
+      if (selectedFolder === 'INBOX' && useStore.getState().groupedSenders.length) params.groupSenders = 'true';
       const data = await api.getMessages(params);
       appendMessages(applyReadGuard(data.messages));
       setMessagesOffset(currentOffset + data.messages.length);
@@ -501,7 +504,7 @@ export default function MessageList() {
         if (state.threadedView) params.threaded = 'true';
         if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
         await refreshRequestRef.current.run(
-          () => api.getMessages(params),
+          () => api.getMessages({ ...params, ...(selectedFolder === 'INBOX' && useStore.getState().groupedSenders.length ? { groupSenders: 'true' } : {}) }),
           (data) => {
             setMessagesTotal(data.total);
             // If the unread filter is on and the currently open message was just marked
@@ -668,7 +671,7 @@ export default function MessageList() {
       if (threadedView) params.threaded = 'true';
       if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
       await refreshRequestRef.current.run(
-        () => api.getMessages(params),
+        () => api.getMessages({ ...params, ...(selectedFolder === 'INBOX' && useStore.getState().groupedSenders.length ? { groupSenders: 'true' } : {}) }),
         (data) => {
           setMessagesTotal(data.total);
           setMessages(applyReadGuard(data.messages));
@@ -1399,7 +1402,19 @@ export default function MessageList() {
   }, []);
 
   // Derived from store — must be declared before callbacks that use it in dependency arrays
-  const displayMessages = searchQuery.trim() ? searchResults : messages;
+  const listRows = searchQuery.trim() ? searchResults : messages;
+  const senderParams = {
+    ...(selectedAccountId ? { accountId: selectedAccountId, folder: selectedFolder } : {}),
+    ...(unreadOnly ? { unreadOnly: 'true' } : {}),
+    ...(threadedView ? { threaded: 'true' } : {}),
+    ...(selectedFolder === 'INBOX' && categorizationActive ? { category: activeCategory } : {}),
+  };
+  const senderContext = JSON.stringify(senderParams);
+  useEffect(() => { setExpandedSenders(new Set()); }, [selectedAccountId, selectedFolder, groupedSenders]);
+  const senderKey = (sender) => `sender:${senderContext}:${sender}`;
+  const displayMessages = listRows.flatMap(row => row.sender_group
+    ? (expandedSenders.has(senderKey(row.sender_group)) ? threadMessages[senderKey(row.sender_group)] || [] : [])
+    : [row]);
 
   // Folder search results — shown at the top when searching with a plain query
   // (no special operator prefixes like from:, to:, subject:, has:, is:)
@@ -2639,6 +2654,102 @@ export default function MessageList() {
   const bulkMarkAsRead = selectedMsgs.some(m => !m.is_read);
   const bulkMarkAsStarred = selectedMsgs.some(m => !m.is_starred);
 
+  const renderListRow = (message) => {
+    if (threadedView && !searchQuery.trim()) {
+      const tid = message.thread_id || message.id;
+      const swipeLeftAction = swipeActions?.left || 'archive';
+      const swipeRightAction = swipeActions?.right || 'markRead';
+      return (
+        <ThreadRow
+          key={tid}
+          message={message}
+          isExpanded={expandedThreadId === tid}
+          threadMsgs={threadMessages[tid] || null}
+          isLoadingThread={loadingThread === tid}
+          selectedMessageId={selectedMessageId}
+          selectedMid={selectedMid}
+          selectedAcct={selectedAcct}
+          lastViewedMessageId={lastViewedMessageId}
+          showAccount={false} /* No per-account dot on unified rows: it added noise beside the unread indicator; the account is visible in the message pane header. */
+          isNarrow={isNarrow}
+          onThreadClick={() => handleThreadClick(message)}
+          onThreadToggle={() => handleThreadToggle(message)}
+          showMobileAvatars={showMobileAvatars}
+          showMessagePreviews={showMessagePreviews}
+          onSelect={handleSelect}
+          onOpenWindow={!isMobile ? handleOpenInWindow : undefined}
+          onMarkRead={handleThreadMarkRead}
+          onStar={handleStar}
+          onDelete={handleDelete}
+          hoverQuickActions={hoverQuickActions}
+          hoverActionSet={hoverActionSet}
+          onArchive={handleHoverArchive}
+          onSnooze={handleHoverSnooze}
+          onContextMenu={(e, msg) => {
+            e.preventDefault();
+            setContextMenu({ x: e.clientX, y: e.clientY, message: msg });
+          }}
+          onMove={handleRowMove}
+          onDragStart={handleRowDragStart}
+          isMobile={isMobile}
+          swipeLeftAction={swipeLeftAction}
+          swipeRightAction={swipeRightAction}
+          onSwipeLeft={selectionMode || swipeLeftAction === 'disabled' ? undefined : (msg) => runSwipeAction(swipeLeftAction, msg)}
+          onSwipeRight={selectionMode || swipeRightAction === 'disabled' ? undefined : (msg) => runSwipeAction(swipeRightAction, msg)}
+          isChecked={selectedIds.has(message.id)}
+          selectionMode={selectionMode}
+          onToggleSelect={handleRowToggleSelect}
+          onRangeSelect={handleRangeSelect}
+          onModifierSelect={handleModifierSelect}
+          onLongPress={isMobile ? (id) => { setSelectionModeActive(true); toggleSelect(id); } : undefined}
+          onExplainSpam={(msg) => setSpamExplainMessageId(msg.id)}
+        />
+      );
+    }
+      const swipeLeftAction = swipeActions?.left || 'archive';
+      const swipeRightAction = swipeActions?.right || 'markRead';
+      return (
+        <MessageRow
+          key={message.id}
+          message={message}
+          selected={isSelectedRow(message, selectedMessageId, selectedMid, selectedAcct)}
+          lastViewed={lastViewedMessageId === message.id && selectedMessageId !== message.id}
+          isChecked={selectedIds.has(message.id)}
+          selectionMode={selectionMode}
+          showAccount={false} /* No per-account dot on unified rows: it added noise beside the unread indicator; the account is visible in the message pane header. */
+          isNarrow={isNarrow}
+          onSelect={handleSelect}
+          onOpenWindow={!isMobile ? handleOpenInWindow : undefined}
+          onToggleSelect={handleRowToggleSelect}
+          onRangeSelect={handleRangeSelect}
+          onModifierSelect={handleModifierSelect}
+          onAvatarClick={!isMobile ? handleAvatarClick : undefined}
+          showMobileAvatars={showMobileAvatars}
+          showMessagePreviews={showMessagePreviews}
+          onMarkRead={handleMarkRead}
+          onStar={handleStar}
+          onDelete={handleDelete}
+          hoverQuickActions={hoverQuickActions}
+          hoverActionSet={hoverActionSet}
+          onArchive={handleHoverArchive}
+          onSnooze={handleHoverSnooze}
+          onContextMenu={(e, msg) => {
+            e.preventDefault();
+            setContextMenu({ x: e.clientX, y: e.clientY, message: msg });
+          }}
+          onMove={handleRowMove}
+          onDragStart={handleRowDragStart}
+          isMobile={isMobile}
+          swipeLeftAction={swipeLeftAction}
+          swipeRightAction={swipeRightAction}
+          onSwipeLeft={selectionMode || swipeLeftAction === 'disabled' ? undefined : (msg) => runSwipeAction(swipeLeftAction, msg)}
+          onSwipeRight={selectionMode || swipeRightAction === 'disabled' ? undefined : (msg) => runSwipeAction(swipeRightAction, msg)}
+          onLongPress={isMobile ? (id) => { setSelectionModeActive(true); toggleSelect(id); } : undefined}
+          onExplainSpam={(msg) => setSpamExplainMessageId(msg.id)}
+        />
+      );
+  };
+
   return (
     <div style={{
       width: isMobile ? '100%' : (isColumn ? '100%' : 'var(--list-width)'),
@@ -3502,7 +3613,7 @@ export default function MessageList() {
           </div>
         )}
 
-        {loadingMessages && displayMessages.length === 0 && (
+        {loadingMessages && listRows.length === 0 && (
           <div>
             {Array.from({ length: 7 }).map((_, i) => (
               <div key={i} style={{
@@ -3521,7 +3632,7 @@ export default function MessageList() {
           </div>
         )}
 
-        {!loadingMessages && displayMessages.length === 0 && (
+        {!loadingMessages && listRows.length === 0 && (
           <EmptyState
             folderSyncing={folderSyncing}
             searchQuery={searchQuery}
@@ -3813,104 +3924,24 @@ export default function MessageList() {
           </div>
         )}
 
-        {threadedView && !searchQuery.trim() ? (
-          displayMessages.map(message => {
-            const tid = message.thread_id || message.id;
-            const swipeLeftAction = swipeActions?.left || 'archive';
-            const swipeRightAction = swipeActions?.right || 'markRead';
-            return (
-              <ThreadRow
-                key={tid}
-                message={message}
-                isExpanded={expandedThreadId === tid}
-                threadMsgs={threadMessages[tid] || null}
-                isLoadingThread={loadingThread === tid}
-                selectedMessageId={selectedMessageId}
-                selectedMid={selectedMid}
-                selectedAcct={selectedAcct}
-                lastViewedMessageId={lastViewedMessageId}
-                showAccount={false} /* No per-account dot on unified rows: it added noise beside the unread indicator; the account is visible in the message pane header. */
-                isNarrow={isNarrow}
-                onThreadClick={() => handleThreadClick(message)}
-                onThreadToggle={() => handleThreadToggle(message)}
-                showMobileAvatars={showMobileAvatars}
-                showMessagePreviews={showMessagePreviews}
-                onSelect={handleSelect}
-                onOpenWindow={!isMobile ? handleOpenInWindow : undefined}
-                onMarkRead={handleThreadMarkRead}
-                onStar={handleStar}
-                onDelete={handleDelete}
-                hoverQuickActions={hoverQuickActions}
-                hoverActionSet={hoverActionSet}
-                onArchive={handleHoverArchive}
-                onSnooze={handleHoverSnooze}
-                onContextMenu={(e, msg) => {
-                  e.preventDefault();
-                  setContextMenu({ x: e.clientX, y: e.clientY, message: msg });
-                }}
-                onMove={handleRowMove}
-                onDragStart={handleRowDragStart}
-                isMobile={isMobile}
-                swipeLeftAction={swipeLeftAction}
-                swipeRightAction={swipeRightAction}
-                onSwipeLeft={selectionMode || swipeLeftAction === 'disabled' ? undefined : (msg) => runSwipeAction(swipeLeftAction, msg)}
-                onSwipeRight={selectionMode || swipeRightAction === 'disabled' ? undefined : (msg) => runSwipeAction(swipeRightAction, msg)}
-                isChecked={selectedIds.has(message.id)}
-                selectionMode={selectionMode}
-                onToggleSelect={handleRowToggleSelect}
-                onRangeSelect={handleRangeSelect}
-                onModifierSelect={handleModifierSelect}
-                onLongPress={isMobile ? (id) => { setSelectionModeActive(true); toggleSelect(id); } : undefined}
-                onExplainSpam={(msg) => setSpamExplainMessageId(msg.id)}
-              />
-            );
-          })
-        ) : (
-          displayMessages.map(message => {
-            const swipeLeftAction = swipeActions?.left || 'archive';
-            const swipeRightAction = swipeActions?.right || 'markRead';
-            return (
-              <MessageRow
-                key={message.id}
-                message={message}
-                selected={isSelectedRow(message, selectedMessageId, selectedMid, selectedAcct)}
-                lastViewed={lastViewedMessageId === message.id && selectedMessageId !== message.id}
-                isChecked={selectedIds.has(message.id)}
-                selectionMode={selectionMode}
-                showAccount={false} /* No per-account dot on unified rows: it added noise beside the unread indicator; the account is visible in the message pane header. */
-                isNarrow={isNarrow}
-                onSelect={handleSelect}
-                onOpenWindow={!isMobile ? handleOpenInWindow : undefined}
-                onToggleSelect={handleRowToggleSelect}
-                onRangeSelect={handleRangeSelect}
-                onModifierSelect={handleModifierSelect}
-                onAvatarClick={!isMobile ? handleAvatarClick : undefined}
-                showMobileAvatars={showMobileAvatars}
-                showMessagePreviews={showMessagePreviews}
-                onMarkRead={handleMarkRead}
-                onStar={handleStar}
-                onDelete={handleDelete}
-                hoverQuickActions={hoverQuickActions}
-                hoverActionSet={hoverActionSet}
-                onArchive={handleHoverArchive}
-                onSnooze={handleHoverSnooze}
-                onContextMenu={(e, msg) => {
-                  e.preventDefault();
-                  setContextMenu({ x: e.clientX, y: e.clientY, message: msg });
-                }}
-                onMove={handleRowMove}
-                onDragStart={handleRowDragStart}
-                isMobile={isMobile}
-                swipeLeftAction={swipeLeftAction}
-                swipeRightAction={swipeRightAction}
-                onSwipeLeft={selectionMode || swipeLeftAction === 'disabled' ? undefined : (msg) => runSwipeAction(swipeLeftAction, msg)}
-                onSwipeRight={selectionMode || swipeRightAction === 'disabled' ? undefined : (msg) => runSwipeAction(swipeRightAction, msg)}
-                onLongPress={isMobile ? (id) => { setSelectionModeActive(true); toggleSelect(id); } : undefined}
-                onExplainSpam={(msg) => setSpamExplainMessageId(msg.id)}
-              />
-            );
-          })
-        )}
+        {listRows.map(message => message.sender_group ? (
+          <SenderGroup
+            key={senderKey(message.sender_group)}
+            message={message}
+            cacheKey={senderKey(message.sender_group)}
+            params={senderParams}
+            expanded={expandedSenders.has(senderKey(message.sender_group))}
+            onToggle={() => setExpandedSenders(prev => {
+              const next = new Set(prev);
+              const key = senderKey(message.sender_group);
+              next.has(key) ? next.delete(key) : next.add(key);
+              return next;
+            })}
+            renderRow={renderListRow}
+            applyReadGuard={applyReadGuard}
+          />
+        ) : renderListRow(message))}
+
 
         {contextMenu && (
           <ContextMenu
@@ -3945,7 +3976,7 @@ export default function MessageList() {
                 <div>{t('common.loading')}</div>
               </div>
             )}
-            {!searchLoadingMore && searchHasMore && displayMessages.length > 0 && (
+            {!searchLoadingMore && searchHasMore && listRows.length > 0 && (
               <div style={{ padding: '12px 16px', textAlign: 'center' }}>
                 <button
                   onClick={loadMoreSearch}
@@ -3962,14 +3993,14 @@ export default function MessageList() {
                 </button>
               </div>
             )}
-            {!searchLoadingMore && !searchHasMore && displayMessages.length > 0 && (
+            {!searchLoadingMore && !searchHasMore && listRows.length > 0 && (
               <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 11 }}>
                 {t('messageList.noMoreMessages')}
               </div>
             )}
           </>) : (<>
             {/* Regular message list: load more normal messages */}
-            {loadingMessages && displayMessages.length > 0 && (
+            {loadingMessages && listRows.length > 0 && (
               <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12 }}>
                 <div style={{
                   width: 16, height: 16, margin: '0 auto 6px',
@@ -3979,7 +4010,7 @@ export default function MessageList() {
                 <div>{t('common.loading')}</div>
               </div>
             )}
-            {!loadingMessages && hasMoreMessages && displayMessages.length > 0 && (
+            {!loadingMessages && hasMoreMessages && listRows.length > 0 && (
               <div style={{ padding: '12px 16px', textAlign: 'center' }}>
                 <button
                   onClick={loadMore}
@@ -3996,7 +4027,7 @@ export default function MessageList() {
                 </button>
               </div>
             )}
-            {!loadingMessages && !hasMoreMessages && displayMessages.length > 0 && (
+            {!loadingMessages && !hasMoreMessages && listRows.length > 0 && (
               <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 11 }}>
                 {t('messageList.noMoreMessages')}
               </div>

@@ -170,3 +170,27 @@ describe('PATCH /auth/preferences hoverActionSet (#440)', () => {
     expect(query.mock.calls[0][1][43]).toBeNull();
   });
 });
+
+describe('PATCH /auth/preferences groupedSenders', () => {
+  const run = async groupedSenders => {
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+    await patchPreferences({ session: { userId: 'user-1' }, body: { groupedSenders } }, res);
+    return res;
+  };
+  it('persists normalized per-user senders and an explicit empty array', async () => {
+    await run([' Alerts@Example.com ', 'alerts@example.com']);
+    expect(query.mock.calls[0][1][0]).toBe('user-1');
+    expect(query.mock.calls[0][1][44]).toBe('["alerts@example.com"]');
+    query.mockClear();
+    await run([]);
+    expect(query.mock.calls[0][1][44]).toBe('[]');
+  });
+  it('rejects invalid and unbounded input without a database write', async () => {
+    for (const bad of ['alerts@example.com', [null], ['invalid'], ['a b@example.com'], Array(501).fill('a@example.com')]) {
+      query.mockClear();
+      const res = await run(bad);
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(query).not.toHaveBeenCalled();
+    }
+  });
+});

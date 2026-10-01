@@ -406,7 +406,9 @@
         "label": "Divisione verticale",
         "description": "Elenco messaggi sopra il riquadro di lettura"
       }
-    }
+    },
+    "senderGroupCounts": "{{unread}} non letti · {{count}} messaggi",
+    "senderGroupLoadError": "Impossibile caricare le email di questo mittente. Riprova."
   },
   "lockScreen": {
     "subtitle": "Inserisci il PIN per sbloccare",
@@ -511,7 +513,9 @@
       "recent": "Recenti",
       "favorites": "Preferiti",
       "search": "Cerca cartelle…"
-    }
+    },
+    "groupSender": "Raggruppa le email di questo mittente",
+    "ungroupSender": "Separa le email di questo mittente"
   },
   "commandPalette": {
     "labelPicker": {

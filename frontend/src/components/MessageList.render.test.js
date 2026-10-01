@@ -67,8 +67,12 @@ globalThis.__VITE_ENV__ = { MODE: 'test', DEV: false, PROD: true };
 // needs a real shape; everything else can be an empty object, unless a test serves a path
 // through ROUTES as [status, body].
 let SERVED = [];
+let SENDER_ROWS = [];
+let REQUESTS = [];
 let ROUTES = {};
-globalThis.fetch = async (url) => {
+globalThis.fetch = async (url, options = {}) => {
+  REQUESTS.push({ url: String(url), method: options.method || 'GET' });
+  if (String(url).includes('sender=')) return { ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => ({ messages: SENDER_ROWS, total: SENDER_ROWS.length }) };
   const path = String(url);
   const [status, body] = Object.entries(ROUTES).find(([p]) => path.endsWith(p))?.[1]
     ?? [200, path.includes('/mail/messages?') ? { messages: SERVED, total: SERVED.length } : {}];
@@ -104,7 +108,7 @@ async function mount({ rows, threadedView, folder = 'INBOX' }) {
     accounts: [ACCOUNT], accountsReady: true,
     selectedAccountId: 'acct-1', selectedFolder: folder,
     messages: rows, messagesTotal: rows.length, hasMoreMessages: false, loadingMessages: false,
-    searchQuery: '', threadedView,
+    searchQuery: '', threadedView, groupedSenders: [], threadMessages: {}, selectedMessageId: null,
     folders: { 'acct-1': [{ path: 'INBOX', name: 'INBOX' }, { path: 'Archive', name: 'Archive' }, { path: 'Drafts', name: 'Drafts', special_use: '\\Drafts' }] },
   });
   await React.act(async () => {
@@ -321,5 +325,40 @@ describe('MessageList — reopening a saved draft keeps its Bcc', () => {
     assert.equal(useStore.getState().selectedMessageId, 'draft-1');
     assert.ok(useStore.getState().notifications.some(n => n.type === 'error' && n.title === 'messageList.draftBcc.failTitle'));
     await React.act(async () => { useStore.setState({ selectedMessageId: null, notifications: [] }); });
+  });
+});
+
+
+describe('MessageList — sender grouping', () => {
+  test('expansion is read-only and exposes messages across different subjects', async () => {
+    const latest = { ...MESSAGE, from_email: 'alerts@example.com', sender_group: 'alerts@example.com', sender_message_count: 2, sender_unread_count: 2 };
+    SENDER_ROWS = [
+      { ...MESSAGE, id: 'alert-1', from_email: 'alerts@example.com', subject: 'Build failed' },
+      { ...MESSAGE, id: 'alert-2', from_email: 'alerts@example.com', subject: 'New release' },
+    ];
+    await mount({ rows: [latest], threadedView: false });
+    const group = container.querySelector('[data-sender-group="alerts@example.com"]');
+    assert.ok(group);
+    assert.equal(group.querySelector('button').getAttribute('aria-expanded'), 'false');
+    assert.equal(container.querySelector('[data-msgid="alert-1"]'), null);
+    REQUESTS = [];
+    await React.act(async () => group.querySelector('button').click());
+    assert.ok(container.querySelector('[data-msgid="alert-1"]'));
+    assert.ok(container.querySelector('[data-msgid="alert-2"]'));
+    assert.equal(useStore.getState().selectedMessageId, null);
+    assert.ok(REQUESTS.some(r => r.url.includes('sender=alerts%40example.com')));
+    assert.ok(REQUESTS.every(r => r.method === 'GET'), 'expansion must not mutate mail flags or folders');
+    await React.act(async () => group.querySelector('button').click());
+    assert.equal(container.querySelector('[data-msgid="alert-1"]'), null);
+  });
+
+  test('conversations inside a sender group retain their thread controls', async () => {
+    const head = { ...MESSAGE, from_email: 'alerts@example.com', sender_group: 'alerts@example.com', sender_message_count: 3, sender_unread_count: 2 };
+    SENDER_ROWS = [{ ...THREAD, from_email: 'alerts@example.com' }];
+    await mount({ rows: [head], threadedView: true });
+    const button = container.querySelector('[data-sender-group] button');
+    await React.act(async () => button.click());
+    assert.ok(draggableIn(THREAD.id));
+    assert.equal(button.getAttribute('aria-expanded'), 'true');
   });
 });

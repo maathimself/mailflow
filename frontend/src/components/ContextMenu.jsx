@@ -135,7 +135,18 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
     t,
   });
 
+  const senderGroupingSaving = useStore(s => s.senderGroupingSaving);
+  const groupedSenders = useStore(s => s.groupedSenders);
+  const sender = String(message.from_email || '').trim().toLowerCase();
   const items = [
+    ...(sender ? [{ group: 'Sender', actions: [{
+      disabled: senderGroupingSaving,
+      label: groupedSenders.includes(sender) ? t('contextMenu.ungroupSender') : t('contextMenu.groupSender'),
+      action: () => {
+        useStore.getState().toggleSenderGrouping(sender)
+          .catch(err => useStore.getState().addNotification({ type: 'error', title: t('common.error'), body: err.message }));
+      },
+    }] }] : []),
     ...(isMessagePane ? [
       {
         group: 'Reading',

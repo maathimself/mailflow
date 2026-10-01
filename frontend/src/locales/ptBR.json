@@ -406,7 +406,9 @@
         "label": "Divisão vertical",
         "description": "Lista de mensagens acima do painel de leitura"
       }
-    }
+    },
+    "senderGroupCounts": "{{unread}} não lidas · {{count}} mensagens",
+    "senderGroupLoadError": "Não foi possível carregar os e-mails deste remetente. Tente novamente."
   },
   "lockScreen": {
     "subtitle": "Digite seu PIN para desbloquear",
@@ -511,7 +513,9 @@
       "recent": "Recentes",
       "favorites": "Favoritas",
       "search": "Pesquisar pastas…"
-    }
+    },
+    "groupSender": "Agrupar e-mails deste remetente",
+    "ungroupSender": "Desagrupar e-mails deste remetente"
   },
   "commandPalette": {
     "labelPicker": {

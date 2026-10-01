@@ -406,7 +406,9 @@
         "label": "Division verticale",
         "description": "Liste des messages au-dessus du volet de lecture"
       }
-    }
+    },
+    "senderGroupCounts": "{{unread}} non lus · {{count}} messages",
+    "senderGroupLoadError": "Impossible de charger les e-mails de cet expéditeur. Réessayez."
   },
   "lockScreen": {
     "subtitle": "Saisissez votre PIN pour déverrouiller",
@@ -511,7 +513,9 @@
       "recent": "Récents",
       "favorites": "Favoris",
       "search": "Rechercher des dossiers…"
-    }
+    },
+    "groupSender": "Regrouper les e-mails de cet expéditeur",
+    "ungroupSender": "Dissocier les e-mails de cet expéditeur"
   },
   "commandPalette": {
     "labelPicker": {

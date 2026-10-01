@@ -406,7 +406,9 @@
         "label": "Vertical Split",
         "description": "Message list stacked above the reading pane"
       }
-    }
+    },
+    "senderGroupCounts": "{{unread}} unread · {{count}} messages",
+    "senderGroupLoadError": "Could not load this sender’s emails. Please retry."
   },
   "lockScreen": {
     "subtitle": "Enter your PIN to unlock",
@@ -511,7 +513,9 @@
       "recent": "Recent",
       "favorites": "Favorites",
       "search": "Search folders…"
-    }
+    },
+    "groupSender": "Group emails from this sender",
+    "ungroupSender": "Ungroup emails from this sender"
   },
   "commandPalette": {
     "labelPicker": {

@@ -406,7 +406,9 @@
         "label": "Vertikale Teilung",
         "description": "Nachrichtenliste über dem Lesebereich"
       }
-    }
+    },
+    "senderGroupCounts": "{{unread}} ungelesen · {{count}} Nachrichten",
+    "senderGroupLoadError": "Die E-Mails dieses Absenders konnten nicht geladen werden. Bitte erneut versuchen."
   },
   "lockScreen": {
     "subtitle": "Gib deine PIN zum Entsperren ein",
@@ -511,7 +513,9 @@
     "createRule": "Regel aus Nachricht erstellen",
     "addToBlockList": "Zur Blockliste hinzufügen",
     "markAsSpam": "Als Spam markieren",
-    "markAsHam": "Als kein Spam markieren"
+    "markAsHam": "Als kein Spam markieren",
+    "groupSender": "E-Mails dieses Absenders gruppieren",
+    "ungroupSender": "Gruppierung der E-Mails dieses Absenders aufheben"
   },
   "commandPalette": {
     "labelPicker": {
