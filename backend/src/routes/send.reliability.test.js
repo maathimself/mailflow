@@ -69,6 +69,18 @@ describe('send failure semantics', () => {
     expect(redisClient.set).toHaveBeenLastCalledWith('send_idem:u1:send1', JSON.stringify({ ok: true, sentCopySaved: false }), { EX: 86400 });
     expect(redisClient.del).not.toHaveBeenCalled();
   });
+  it('reports recipients the server refused while accepting the others', async () => {
+    sendMail.mockResolvedValueOnce({ accepted: ['a@b.invalid'], rejected: ['x@y.invalid'] });
+    const res = await post();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, rejected: ['x@y.invalid'] });
+    expect(redisClient.set).toHaveBeenLastCalledWith('send_idem:u1:send1', JSON.stringify({ ok: true, rejected: ['x@y.invalid'] }), { EX: 86400 });
+  });
+  it('omits rejected when the server refused nobody', async () => {
+    const res = await post();
+    expect(res.status).toBe(200);
+    expect(await res.json()).not.toHaveProperty('rejected');
+  });
   it('releases its own reservation after an SMTP rejection', async () => {
     sendMail.mockRejectedValueOnce(new Error('550 rejected'));
     expect((await post()).status).toBe(500);

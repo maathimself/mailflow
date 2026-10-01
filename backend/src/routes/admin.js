@@ -19,21 +19,30 @@ router.param('id', uuidParam('id'));
 
 // ── Users ──────────────────────────────────────────────────────────────────────
 
-router.get('/users', async (req, res) => {
+// The profile photo is stored as a data: URL. Only raster image URLs are passed on: the list
+// renders them in an <img>, and anything else a user managed to store (the column takes any text)
+// is dropped rather than handed to an admin's browser.
+const AVATAR_RE = /^data:image\/(?:jpeg|png|webp|gif);base64,[A-Za-z0-9+/=]+$/;
+function safeAvatar(avatar) {
+  return typeof avatar === 'string' && AVATAR_RE.test(avatar) ? avatar : null;
+}
+
+export async function listUsers(req, res) {
   const limit  = Math.min(parseInt(req.query.limit)  || 100, 200);
   const offset = Math.max(parseInt(req.query.offset) || 0,   0);
   const [result, countResult] = await Promise.all([
     query(
-      'SELECT id, username, is_admin, totp_enabled, created_at FROM users ORDER BY created_at ASC LIMIT $1 OFFSET $2',
+      'SELECT id, username, is_admin, totp_enabled, created_at, avatar FROM users ORDER BY created_at ASC LIMIT $1 OFFSET $2',
       [limit, offset],
     ),
     query('SELECT COUNT(*) AS total FROM users'),
   ]);
   res.json({
-    users: result.rows.map(u => ({ ...u, isAdmin: u.is_admin, totpEnabled: u.totp_enabled })),
+    users: result.rows.map(u => ({ ...u, avatar: safeAvatar(u.avatar), isAdmin: u.is_admin, totpEnabled: u.totp_enabled })),
     total: parseInt(countResult.rows[0].total),
   });
-});
+}
+router.get('/users', listUsers);
 
 router.post('/users/:id/totp/disable', async (req, res) => {
   const { id } = req.params;

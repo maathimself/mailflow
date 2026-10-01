@@ -3,10 +3,17 @@ import { api } from '../utils/api.js';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { fetchMessageBodyWithRetry } from '../utils/messageBody.js';
-import { scheduleMarkRead, cancelScheduledMarkRead } from '../utils/markRead.js';
+import { scheduleMarkRead, cancelScheduledMarkRead, cancelScheduledMarkReadFor } from '../utils/markRead.js';
+import { pendingMarkReadMap, completedMarkReadMap } from '../utils/pendingReads.js';
+import { markMessageUnread } from '../utils/messageHotkeys.js';
+import { downloadEml } from '../utils/downloadEml.js';
+import { buildPrintDocument, openPrintWindow, printInWindow } from '../utils/printMessage.js';
 import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import MessageBodyView from './MessageBodyView.jsx';
+import AiResultBox from './AiResultBox.jsx';
+import { useAiActions } from '../hooks/useAiActions.js';
+import { BUILTIN_SUMMARIZE } from '../aiActions.js';
 
 // One message inside a conversation.
 //
@@ -31,11 +38,16 @@ function CardBtn({ onClick, children }) {
 }
 
 // Design from #317 by YunQue0912.
-export default function ConversationMessageCard({ message, expanded, onToggle, selected = false }) {
+// `onUpdate(id, patch)` applies a flag change to the conversation's own copy of the message and to
+// the list's, since the pane holds the thread apart from the list.
+export default function ConversationMessageCard({ message, expanded, onToggle, onUpdate, aiEnabled = false, selected = false }) {
   const { t } = useTranslation();
   const accounts = useStore(s => s.accounts);
   const openCompose = useStore(s => s.openCompose);
   const addNotification = useStore(s => s.addNotification);
+  const incrementUnread = useStore(s => s.incrementUnread);
+  const decrementUnread = useStore(s => s.decrementUnread);
+  const adjustCategoryCount = useStore(s => s.adjustCategoryCount);
   const [body, setBody] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -103,6 +115,41 @@ export default function ConversationMessageCard({ message, expanded, onToggle, s
   }, [expanded, message.id]);
 
   const loadedBody = async () => body;
+  const ai = useAiActions(message.id, body);
+  const [showAiMenu, setShowAiMenu] = useState(false);
+  const runAi = (action) => { setShowAiMenu(false); ai.run(action); };
+
+  const handleStar = async () => {
+    const starred = !message.is_starred;
+    try {
+      await api.markStarred(message.id, starred);
+      onUpdate?.(message.id, { is_starred: starred });
+    } catch (err) {
+      addNotification({ type: 'error', title: t('common.error', { message: err.message }) });
+    }
+  };
+
+  // Explicit unread wins over the automatic read this card scheduled when it opened. Clearing
+  // markScheduledRef lets the next open mark it read again, as reopening a message does.
+  const handleMarkUnread = () => {
+    markMessageUnread(message, {
+      cancel: () => {
+        cancelScheduledMarkReadFor(message.id);
+        pendingMarkReadMap.delete(message.id);
+        completedMarkReadMap.delete(message.id);
+        markScheduledRef.current = null;
+      },
+      update: onUpdate, incrementUnread, decrementUnread, adjustCategoryCount,
+      patch: api.bulkRead,
+    });
+  };
+
+  const handlePrint = () => {
+    if (!body) return;
+    printInWindow(openPrintWindow(), buildPrintDocument([{ message, body }]));
+  };
+  const printRef = useRef(handlePrint);
+  printRef.current = handlePrint;
   useEffect(() => {
     if (!selected) return;
     const onLoadImages = () => {
@@ -138,11 +185,15 @@ export default function ConversationMessageCard({ message, expanded, onToggle, s
         unsubscribingRef.current = false;
       }
     };
+    // Print the selected message, as the print shortcut does in the single-message pane.
+    const onPrint = () => { if (expanded) printRef.current(); };
     shortcutBus.on('loadRemoteImages', onLoadImages);
     shortcutBus.on('unsubscribe', onUnsubscribe);
+    shortcutBus.on('printMessage', onPrint);
     return () => {
       shortcutBus.off('loadRemoteImages', onLoadImages);
       shortcutBus.off('unsubscribe', onUnsubscribe);
+      shortcutBus.off('printMessage', onPrint);
     };
   }, [selected, expanded, body, message, addNotification, t]);
   const when = message.date ? new Date(message.date).toLocaleString() : '';
@@ -185,6 +236,23 @@ export default function ConversationMessageCard({ message, expanded, onToggle, s
             </div>
           )}
           {error && <div style={{ color: 'var(--red, #e03131)', fontSize: 13 }}>{error}</div>}
+          {/* AI results pinned above the message, as in the reading pane (#204). */}
+          {Object.keys(ai.results).length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, margin: '4px 0 12px' }}>
+              {Object.entries(ai.results).map(([key, result]) => {
+                const action = ai.actionFor(key);
+                return (
+                  <AiResultBox
+                    key={key}
+                    result={result}
+                    canRegen={!!action}
+                    onRegen={() => action && ai.run(action, { force: true })}
+                    onDismiss={() => ai.dismiss(key)}
+                  />
+                );
+              })}
+            </div>
+          )}
           {body?.html && (
             <MessageBodyView
               iframeRef={iframeRef}
@@ -205,7 +273,7 @@ export default function ConversationMessageCard({ message, expanded, onToggle, s
               means replying to one message in it, and which one decides the recipients and
               the References chain. Gmail puts these under the open message for the same
               reason. The body is already loaded here, so it is handed over, not refetched. */}
-          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+          <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
             <CardBtn onClick={() => openReplyFromMessage(message, { accounts, openCompose, getMessageBody: loadedBody, replyAll: false })}>
               {t('message.reply')}
             </CardBtn>
@@ -215,6 +283,41 @@ export default function ConversationMessageCard({ message, expanded, onToggle, s
             <CardBtn onClick={() => openForwardFromMessage(message, { openCompose, getMessageBody: loadedBody })}>
               {t('message.forward')}
             </CardBtn>
+            <CardBtn onClick={handleStar}>
+              {message.is_starred ? t('contextMenu.unstar') : t('contextMenu.star')}
+            </CardBtn>
+            {message.is_read && (
+              <CardBtn onClick={handleMarkUnread}>{t('contextMenu.markUnread')}</CardBtn>
+            )}
+            <CardBtn onClick={handlePrint}>{t('message.print')}</CardBtn>
+            <CardBtn onClick={() => downloadEml(message.id)}>{t('message.downloadEml')}</CardBtn>
+            {aiEnabled && body && (
+              <div style={{ position: 'relative' }}>
+                <CardBtn onClick={() => setShowAiMenu(v => !v)}>{t('message.aiActions')}</CardBtn>
+                {showAiMenu && (
+                  <div role="menu" style={{
+                    position: 'absolute', bottom: 'calc(100% + 4px)', left: 0, zIndex: 20, minWidth: 180,
+                    background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 8,
+                    boxShadow: '0 8px 24px rgba(0,0,0,0.25)', padding: 4,
+                  }}>
+                    {[{ ...BUILTIN_SUMMARIZE, label: t('message.summarize') }, ...(ai.aiActions || [])].map(action => (
+                      <button
+                        key={action.id}
+                        role="menuitem"
+                        onClick={() => runAi(action)}
+                        style={{
+                          display: 'block', width: '100%', textAlign: 'left', padding: '8px 10px',
+                          background: 'none', border: 'none', borderRadius: 6, cursor: 'pointer',
+                          color: 'var(--text-primary)', font: 'inherit', fontSize: 13,
+                        }}
+                      >
+                        {action.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

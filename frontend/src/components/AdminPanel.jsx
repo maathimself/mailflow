@@ -5184,13 +5184,15 @@ function UsersAndInvitesPanel() {
             background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)',
           }}>
             <div style={{
-              width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
+              width: 32, height: 32, borderRadius: '50%', flexShrink: 0, overflow: 'hidden',
               background: u.isAdmin ? 'var(--accent)' : 'var(--bg-elevated)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               fontSize: 13, fontWeight: 600, color: u.isAdmin ? 'white' : 'var(--text-secondary)',
-              border: '1px solid var(--border)',
+              border: u.isAdmin ? '2px solid var(--accent)' : '1px solid var(--border)',
             }}>
-              {u.username[0].toUpperCase()}
+              {u.avatar
+                ? <img src={u.avatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                : u.username[0].toUpperCase()}
             </div>
 
             <div style={{ flex: 1, minWidth: 0 }}>

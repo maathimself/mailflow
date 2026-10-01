@@ -89,7 +89,9 @@
       "tooShort": "Hasło musi mieć co najmniej 8 znaków",
       "doneDesc": "Twoje hasło zostało zmienione. Możesz się teraz zalogować.",
       "backToLogin": "← Powrót do logowania"
-    }
+    },
+    "showPassword": "Pokaż hasło",
+    "hidePassword": "Ukryj hasło"
   },
   "compose": {
     "newMessage": "Nowa wiadomość",
@@ -140,6 +142,7 @@
     "sent": {
       "title": "Wiadomość wysłana",
       "noCopy": "Wysłano, ale nie zapisano w folderze Wysłane",
+      "someRejected": "Serwer pocztowy odmówił dostarczenia do {{addresses}}.",
       "action": "Wyświetl"
     },
     "toolbar": {
@@ -225,6 +228,8 @@
     "delete": "Usuń",
     "downloadEml": "Pobierz jako .eml",
     "print": "Drukuj",
+    "printConversation": "Drukuj konwersację",
+    "preparingPrint": "Przygotowywanie wydruku…",
     "more": "Więcej",
     "summarize": "Podsumuj",
     "summary": "Podsumowanie",

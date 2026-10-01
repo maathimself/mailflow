@@ -11,11 +11,7 @@ import { clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDel
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
 import { applyMarkRead, scheduleMarkRead, cancelScheduledMarkRead, cancelScheduledMarkReadFor } from '../utils/markRead.js';
 import { markMessageUnread } from '../utils/messageHotkeys.js';
-import DOMPurify from 'dompurify';
-import { BUILTIN_SUMMARIZE, summarizePromptForLocale } from '../aiActions.js';
-import { getResults, saveResult, removeResult } from '../aiResults.js';
-import { aiRuns } from '../utils/aiRunRegistry.js';
-import { renderMarkdown } from '../utils/renderMarkdown.js';
+import { BUILTIN_SUMMARIZE } from '../aiActions.js';
 import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
 import MessageBodyView from './MessageBodyView.jsx';
 import { copyToClipboard } from '../utils/clipboard.js';
@@ -25,6 +21,9 @@ import SpamBadge from './SpamBadge.jsx';
 import SpamExplainModal from './SpamExplainModal.jsx';
 import { classifyAttachmentRisk } from '../utils/attachmentRisk.js';
 import { downloadEml } from '../utils/downloadEml.js';
+import { buildPrintDocument, openPrintWindow, printInWindow } from '../utils/printMessage.js';
+import AiResultBox from './AiResultBox.jsx';
+import { useAiActions } from '../hooks/useAiActions.js';
 const USE_DIV_RENDER = import.meta.env.VITE_EMAIL_DIV_RENDER === 'true';
 const MESSAGE_OPENING_EVENT = 'mailflow:message-opening';
 // riskArmed value for the "Download all" link. A Symbol, so no attachment part can ever equal it.
@@ -98,7 +97,7 @@ function fileIcon(type) {
 }
 
 export default function MessagePane({ windowMessageId = null, onWindowClose = null } = {}) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const {
     messages, searchResults, searchQuery, selectedMessageId: globalSelectedId, setSelectedMessage,
     updateMessage, removeMessage, decrementUnread, incrementUnread, openCompose, accounts, addNotification,
@@ -185,15 +184,8 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     // message they were started from, so leaving a message lets the work finish instead of
     // discarding it (#428). Only dismissal, re-running the same action, and an identity change
     // (logout, account switch, lock) cancel a run. Unmount deliberately does not.
-    viewingMsgIdRef.current = selectedMessageId;
+    // Pinned results are restored per message by useAiActions (#204).
     setShowAiMenu(false);
-    // Restore persisted results (#204) so they reappear instead of vanishing.
-    const saved = getResults(selectedMessageId);
-    const restored = {};
-    for (const [key, r] of Object.entries(saved)) {
-      restored[key] = { status: 'done', text: r.text, label: r.label };
-    }
-    setAiResults(restored);
   }, [selectedMessageId]);
 
   const allMessages = searchQuery.trim() ? searchResults : messages;
@@ -296,7 +288,8 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const [aiStatus, setAiStatus] = useState(null);
   // Per-action results for the current message: { [actionKey]: { status, text, label } }.
   // status: 'loading' | 'done' | 'error'. Restored from localStorage on message change.
-  const [aiResults, setAiResults] = useState({});
+  const ai = useAiActions(selectedMessageId, body);
+  const aiResults = ai.results;
   const [showAiMenu, setShowAiMenu] = useState(false);
   const [aiClassifying, setAiClassifying] = useState(false);
   const [unsubscribeStatus, setUnsubscribeStatus] = useState(null); // null | 'loading' | 'done' | 'error'
@@ -308,7 +301,6 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   // leave them running: the result is saved against the message it was started from, so letting
   // the request finish is what puts it there when you return (#428). utils/aiRunRegistry.js.
   // The message currently on screen, read inside async callbacks that outlive a navigation.
-  const viewingMsgIdRef = useRef(selectedMessageId);
   const scrollContainerRef = useRef(null);
   const iframeRef = useRef(null);
   // useMemo so prepared is available in the same render as body.html — no extra frame,
@@ -788,122 +780,15 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
 
   const handlePrint = () => {
     if (!message) return;
-    const esc = (s) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const date = message.date ? new Date(message.date).toLocaleString() : '';
-    const fromStr = message.from_name
-      ? `${esc(message.from_name)} &lt;${esc(message.from_email)}&gt;`
-      : esc(message.from_email);
-
-    const parseList = (raw) => {
-      try { return Array.isArray(raw) ? raw : JSON.parse(raw || '[]'); } catch { return []; }
-    };
-    const fmtAddr = (r) => r.name ? `${esc(r.name)} &lt;${esc(r.email)}&gt;` : esc(r.email);
-    const toStr = parseList(message.to_addresses).map(fmtAddr).join(', ');
-    const ccStr = parseList(message.cc_addresses).map(fmtAddr).join(', ');
-
-    const bodyContent = body?.html
-      ? DOMPurify.sanitize(body.html, { ADD_ATTR: ['target'] })
-      : body?.text
-        ? `<pre style="white-space:pre-wrap;font-family:sans-serif;font-size:14px">${esc(body.text)}</pre>`
-        : '';
-
-    const win = window.open('', '_blank');
-    if (!win) return;
-    // CSP blocks any script execution in this same-origin print window (it has no
-    // sandbox); combined with the DOMPurify pass above this neutralizes email HTML.
-    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="script-src 'none'; object-src 'none'; base-uri 'none'"><title>${esc(message.subject)}</title>
-<style>
-  body { font-family: Arial, sans-serif; font-size: 14px; color: #111; margin: 32px; }
-  .header { border-bottom: 1px solid #ccc; padding-bottom: 16px; margin-bottom: 24px; }
-  .header h1 { font-size: 18px; margin: 0 0 12px; }
-  .meta { font-size: 13px; color: #444; line-height: 1.8; }
-  .meta span { font-weight: 600; color: #111; }
-  @media print { body { margin: 16px; } }
-</style></head><body>
-<div class="header">
-  <h1>${esc(message.subject) || '(no subject)'}</h1>
-  <div class="meta">
-    <div><span>From:</span> ${fromStr}</div>
-    <div><span>To:</span> ${toStr}</div>
-    ${ccStr ? `<div><span>Cc:</span> ${ccStr}</div>` : ''}
-    <div><span>Date:</span> ${date}</div>
-  </div>
-</div>
-${bodyContent}
-</body></html>`);
-    win.document.close();
-    win.focus();
-    win.print();
+    printInWindow(openPrintWindow(), buildPrintDocument([{ message, body }]));
   };
 
-  // Label shown on a result box for a given action key. The built-in summarize
-  // key maps to the translated "Summary"; custom actions use their label. Falls
-  // back to a stored label (so a result survives its action being deleted).
-  const aiActionLabel = useCallback((key, fallback) => {
-    if (key === BUILTIN_SUMMARIZE.id) return t('message.summary');
-    const found = (aiActions || []).find(a => a.id === key);
-    return found?.label || fallback || key;
-  }, [aiActions, t]);
-
-  // Run an AI action against the current message and stream the result into a
-  // pinned box. Cached results are shown instantly unless force=true (Regenerate).
-  const runAiAction = async (action, { force = false } = {}) => {
-    if (!action?.id) return;
-    const key = action.id;
+  // Running an action from the menu also closes it.
+  const runAiAction = (action, opts) => {
     setShowAiMenu(false);
-
-    // Show a cached result without re-calling the model (#204, cost-saving).
-    if (!force) {
-      if (aiResults[key]?.status === 'done') return;
-      const cached = getResults(selectedMessageId)[key];
-      if (cached) {
-        setAiResults(r => ({ ...r, [key]: { status: 'done', text: cached.text, label: cached.label } }));
-        return;
-      }
-    }
-
-    const textContent = body?.text
-      || body?.html?.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
-      || '';
-    if (!textContent) return;
-
-    const label = aiActionLabel(key, action.label);
-    const msgId = selectedMessageId;
-    const ctrl = aiRuns.start(msgId, key, new AbortController());
-    // Only paint into the pane while the message this run belongs to is the one on screen.
-    // A run that outlives a navigation still saves; the restore on return shows it.
-    const applyIfViewing = (updater) => { if (viewingMsgIdRef.current === msgId) setAiResults(updater); };
-    applyIfViewing(r => ({ ...r, [key]: { status: 'loading', text: '', label } }));
-    // The built-in Summarize prompt is uneditable, so steer its output to the
-    // user's UI language (#255). Custom actions keep their author's prompt as-is.
-    const promptText = action.builtin ? summarizePromptForLocale(i18n.language) : action.prompt;
-    try {
-      const fullText = await api.ai.chat([{
-        role: 'user',
-        content: `${promptText}\n\n${textContent.slice(0, 6000)}`,
-      }], {
-        signal: ctrl.signal,
-        onDelta: (text) => {
-          applyIfViewing(r => ({ ...r, [key]: { status: 'loading', text, label } }));
-        },
-      });
-      applyIfViewing(r => ({ ...r, [key]: { status: 'done', text: fullText, label } }));
-      // Persist unconditionally: this is the whole point when the user has navigated away.
-      if (fullText) saveResult(msgId, key, fullText, label);
-    } catch (err) {
-      if (err.name === 'AbortError') return;
-      applyIfViewing(r => ({ ...r, [key]: { status: 'error', text: err.message, label } }));
-    } finally {
-      aiRuns.finish(msgId, key);
-    }
+    return ai.run(action, opts);
   };
-
-  // Dismiss a pinned result box and drop its cached copy.
-  const dismissAiResult = (key) => {
-    aiRuns.abort(selectedMessageId, key);
-    removeResult(selectedMessageId, key);
-    setAiResults(r => { const next = { ...r }; delete next[key]; return next; });
-  };
+  const dismissAiResult = ai.dismiss;
 
   // A single row in the AI actions dropdown. Shows an accent dot when a result
   // for that action already exists on the current message.
@@ -2993,116 +2878,3 @@ function PaneBtn({ children, onClick, title, danger, style: extraStyle }) {
   );
 }
 
-// A pinned AI result box shown above the message (#204). Collapsible to keep
-// multiple results from crowding the view; offers regenerate and dismiss.
-function AiResultBox({ result, canRegen, onRegen, onDismiss }) {
-  const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(false);
-  const loading = result.status === 'loading';
-  const error = result.status === 'error';
-  // Render the (markdown) AI output to sanitized HTML. Memoized on the text so toggling
-  // expand/collapse doesn't re-parse; re-runs as text streams in during generation (#215).
-  const html = useMemo(() => renderMarkdown(result.text || ''), [result.text]);
-  const [copied, setCopied] = useState(false);
-  const copyTimerRef = useRef(null);
-  useEffect(() => () => clearTimeout(copyTimerRef.current), []);
-  // Copy the output to the clipboard as BOTH rich text (the rendered HTML) and source
-  // (the raw markdown), so pasting into a rich editor gives formatting and pasting into a
-  // plain field gives the markdown source (#215). Falls back to plain text where the async
-  // clipboard / ClipboardItem isn't available (e.g. non-secure context).
-  const handleCopy = async () => {
-    const source = result.text || '';
-    const flash = () => {
-      setCopied(true);
-      clearTimeout(copyTimerRef.current);
-      copyTimerRef.current = setTimeout(() => setCopied(false), 1500);
-    };
-    try {
-      if (navigator.clipboard?.write && window.ClipboardItem) {
-        await navigator.clipboard.write([new window.ClipboardItem({
-          'text/html': new Blob([html], { type: 'text/html' }),
-          'text/plain': new Blob([source], { type: 'text/plain' }),
-        })]);
-      } else {
-        const { ok } = await copyToClipboard(source);
-        if (!ok) return;
-      }
-      flash();
-    } catch {
-      // The rich path can fail on its own (no ClipboardItem, a rejected write). Fall back
-      // to plain text through the shared helper, which also covers non-secure contexts
-      // where navigator.clipboard does not exist at all.
-      const { ok } = await copyToClipboard(source);
-      if (ok) flash();
-    }
-  };
-  const iconBtn = {
-    background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)',
-    padding: '2px 4px', display: 'flex', alignItems: 'center', lineHeight: 1,
-  };
-  return (
-    <div style={{
-      padding: '12px 16px', background: 'var(--bg-secondary)',
-      border: '1px solid var(--border)', borderLeft: '3px solid var(--accent)',
-      borderRadius: 8, fontSize: 13, lineHeight: 1.55, color: 'var(--text-primary)',
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
-        <span style={{
-          fontSize: 11, fontWeight: 600, color: 'var(--accent)', textTransform: 'uppercase',
-          letterSpacing: '0.04em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-        }}>
-          {result.label}
-        </span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
-          {loading && (
-            <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontStyle: 'italic', marginRight: 4 }}>
-              {t('compose.toolbar.aiGenerating')}
-            </span>
-          )}
-          {canRegen && !loading && (
-            <button onClick={onRegen} title={t('message.aiRegenerate')} aria-label={t('message.aiRegenerate')} style={iconBtn}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
-                <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
-              </svg>
-            </button>
-          )}
-          {!error && !loading && result.text && (
-            <button onClick={handleCopy} title={copied ? t('message.aiCopied') : t('message.aiCopy')} aria-label={copied ? t('message.aiCopied') : t('message.aiCopy')} style={iconBtn}>
-              {copied ? (
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="20 6 9 17 4 12"/>
-                </svg>
-              ) : (
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                </svg>
-              )}
-            </button>
-          )}
-          {!error && !loading && (
-            <button onClick={() => setExpanded(v => !v)} title={expanded ? t('message.aiCollapse') : t('message.aiExpand')} aria-label={expanded ? t('message.aiCollapse') : t('message.aiExpand')} style={iconBtn}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                style={{ transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>
-                <polyline points="6 9 12 15 18 9"/>
-              </svg>
-            </button>
-          )}
-          <button onClick={onDismiss} aria-label={t('message.summaryDismiss')} style={{ ...iconBtn, fontSize: 14 }}>×</button>
-        </div>
-      </div>
-      {loading && !result.text ? (
-        <span style={{ color: 'var(--text-tertiary)', fontStyle: 'italic' }}>{t('compose.toolbar.aiGenerating')}</span>
-      ) : error ? (
-        <span style={{ color: 'var(--red)' }}>{t('compose.toolbar.aiError', { message: result.text })}</span>
-      ) : (
-        <div
-          className="ai-markdown"
-          style={{ maxHeight: expanded ? 'none' : 220, overflowY: expanded ? 'visible' : 'auto' }}
-          dangerouslySetInnerHTML={{ __html: html }}
-        />
-      )}
-    </div>
-  );
-}

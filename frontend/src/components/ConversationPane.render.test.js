@@ -214,3 +214,99 @@ describe('conversation pane', () => {
     assert.deepEqual(unsubscribed, ['m3']);
   });
 });
+
+// Per-message actions and printing in the conversation view (#521).
+describe('conversation actions', () => {
+  const requests = [];
+  let realFetch;
+  let printWin;
+  before(() => {
+    realFetch = globalThis.fetch;
+    globalThis.fetch = async (url, opts = {}) => {
+      requests.push({ url: String(url), method: opts.method || 'GET', body: opts.body });
+      if (String(url).includes('/ai/status')) return { ok: true, status: 200, json: async () => ({ enabled: true, features: { summarize: true } }) };
+      if (String(url).includes('/ai/chat')) {
+        const sse = 'data: {"choices":[{"delta":{"content":"Short "}}]}\n\ndata: {"choices":[{"delta":{"content":"summary."}}]}\n\ndata: [DONE]\n\n';
+        return new Response(sse, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+      }
+      return realFetch(url, opts);
+    };
+    dom.window.open = () => {
+      printWin = {
+        writes: [], closed: false, printed: 0,
+        document: { open() { printWin.writes.length = 0; }, write(h) { printWin.writes.push(h); }, close() {} },
+        focus() {}, print() { printWin.printed++; },
+      };
+      return printWin;
+    };
+    globalThis.window.open = dom.window.open;
+  });
+  after(() => { globalThis.fetch = realFetch; });
+
+  const card = id => document.querySelector(`[data-message-id="${id}"]`);
+  const button = (id, label) => [...card(id).querySelectorAll('button')].find(b => b.textContent === label);
+  const click = async el => {
+    await React.act(async () => { el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 50)); });
+  };
+
+  test('an open message offers star, mark unread, print and .eml', async () => {
+    await React.act(async () => {
+      root.render(React.createElement(ConversationPane, { key: 'actions', threadId: '<1@x>', folder: 'INBOX', selectedMessageId: 'm1' }));
+    });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    for (const label of ['contextMenu.star', 'contextMenu.markUnread', 'message.print', 'message.downloadEml']) {
+      assert.ok(button('m1', label), `${label} is offered`);
+    }
+  });
+
+  test('star goes through the server and the button flips to unstar', async () => {
+    await click(button('m1', 'contextMenu.star'));
+    const star = requests.find(r => r.url.includes('/mail/messages/m1/star'));
+    assert.ok(star, 'the star was sent to the server');
+    assert.equal(star.method, 'PATCH');
+    assert.deepEqual(JSON.parse(star.body), { starred: true });
+    assert.ok(button('m1', 'contextMenu.unstar'), 'the card now offers unstar');
+  });
+
+  test('mark unread sends the unread change and hides the button', async () => {
+    await click(button('m1', 'contextMenu.markUnread'));
+    assert.deepEqual(bulkReads.at(-1), { ids: ['m1'], read: false });
+    assert.equal(button('m1', 'contextMenu.markUnread'), undefined, 'an unread message offers no mark unread');
+  });
+
+  test('print conversation loads every body in order and prints once', async () => {
+    const printAll = [...document.querySelectorAll('button')].find(b => b.textContent === 'message.printConversation');
+    await click(printAll);
+    await React.act(async () => { await new Promise(r => setTimeout(r, 100)); });
+    assert.equal(printWin.printed, 1);
+    const doc = printWin.writes.join('');
+    const at = ['m1', 'm2', 'm3'].map(id => doc.indexOf(`body of ${id}`));
+    assert.ok(at.every(i => i > 0), 'every message, including collapsed ones, is in the printout');
+    assert.deepEqual([...at].sort((a, b) => a - b), at, 'in reading order');
+  });
+
+  test('AI actions run on the message and pin the result above it', async () => {
+    const aiButton = button('m1', 'message.aiActions');
+    assert.ok(aiButton, 'an open message offers AI actions when AI is enabled');
+    await click(aiButton);
+    const summarize = [...card('m1').querySelectorAll('[role="menuitem"]')].find(b => b.textContent === 'message.summarize');
+    assert.ok(summarize, 'the menu lists Summarize');
+    await click(summarize);
+    await React.act(async () => { await new Promise(r => setTimeout(r, 100)); });
+    const chat = requests.find(r => r.url.includes('/ai/chat'));
+    assert.ok(chat, 'the action went to the AI endpoint');
+    assert.match(JSON.parse(chat.body).messages[0].content, /body of m1/, 'with this message\'s text');
+    assert.match(card('m1').textContent, /Short summary\./, 'the result is pinned on this message');
+    assert.doesNotMatch(card('m3').textContent, /Short summary/, 'and only on this message');
+  });
+
+  test('the print shortcut prints the selected message', async () => {
+    printWin = null;
+    await React.act(async () => { shortcutBus.emit('printMessage'); });
+    assert.ok(printWin, 'a print window opened');
+    assert.equal(printWin.printed, 1);
+    assert.match(printWin.writes.join(''), /body of m1/);
+    assert.doesNotMatch(printWin.writes.join(''), /body of m3/);
+  });
+});

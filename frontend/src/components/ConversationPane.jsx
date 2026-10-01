@@ -9,6 +9,7 @@ import {
   newestConversationMessage,
 } from '../utils/conversation.js';
 import { archiveThread, deleteThread, spamThread, moveThread, snoozeThread } from '../utils/threadActions.js';
+import { buildPrintDocument, openPrintWindow, printInWindow } from '../utils/printMessage.js';
 import ConversationMessageCard from './ConversationMessageCard.jsx';
 import ContextMenu from './ContextMenu.jsx';
 
@@ -41,6 +42,7 @@ export default function ConversationPane({ threadId, folder, unified = false, se
   const addNotification = useStore(s => s.addNotification);
   const accounts = useStore(s => s.accounts);
   const setSelectedMessage = useStore(s => s.setSelectedMessage);
+  const updateMessage = useStore(s => s.updateMessage);
   const [messages, setMessages] = useState([]);
   const [expanded, setExpanded] = useState(() => new Set());
   const [error, setError] = useState(null);
@@ -48,6 +50,12 @@ export default function ConversationPane({ threadId, folder, unified = false, se
   // { x, y, view } — the move and snooze pickers are ContextMenu's, opened straight
   // into the relevant sub-view rather than reimplemented here.
   const [picker, setPicker] = useState(null);
+  const [aiStatus, setAiStatus] = useState(null);
+
+  useEffect(() => {
+    api.ai.status().then(setAiStatus).catch(() => {});
+  }, []);
+  const aiEnabled = Boolean(aiStatus?.enabled && aiStatus?.features?.summarize);
 
   useEffect(() => {
     if (!threadId) { setMessages([]); return; }
@@ -100,6 +108,27 @@ export default function ConversationPane({ threadId, folder, unified = false, se
       fetchThread: () => api.getThread(threadId, folder, unified),
     });
     setSelectedMessage(null);
+  };
+
+  // A flag change on one card: the pane's copy of the thread and the list's copy both change.
+  const updateConversationMessage = (id, patch) => {
+    setMessages(prev => prev.map(message => (message.id === id ? { ...message, ...patch } : message)));
+    updateMessage(id, patch);
+  };
+
+  // The window opens on the click, before any await, or the browser blocks it. Bodies are loaded
+  // one at a time: collapsed messages have none yet, and a session-limited provider serves the
+  // account over a single connection.
+  const printConversation = async () => {
+    const win = openPrintWindow(t('message.preparingPrint'));
+    if (!win) return;
+    const entries = [];
+    for (const message of messages) {
+      const body = await api.getMessageBody(message.id).catch(() => null);
+      if (win.closed) return;
+      entries.push({ message, body });
+    }
+    printInWindow(win, buildPrintDocument(entries));
   };
 
   const openPicker = (event, view) => {
@@ -164,6 +193,9 @@ export default function ConversationPane({ threadId, folder, unified = false, se
         >
           {t('contextMenu.snooze.label')}
         </ThreadBtn>
+        <ThreadBtn onClick={printConversation} title={t('message.printConversation')}>
+          {t('message.printConversation')}
+        </ThreadBtn>
       </div>
 
       {picker && (
@@ -190,6 +222,8 @@ export default function ConversationPane({ threadId, folder, unified = false, se
           expanded={expanded.has(message.id)}
           selected={message.id === selectedMessageId}
           onToggle={toggle}
+          onUpdate={updateConversationMessage}
+          aiEnabled={aiEnabled}
         />
       ))}
     </div>

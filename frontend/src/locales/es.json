@@ -89,7 +89,9 @@
       "tooShort": "La contraseña debe tener al menos 8 caracteres",
       "doneDesc": "Tu contraseña ha sido actualizada. Ya puedes iniciar sesión.",
       "backToLogin": "← Volver al inicio de sesión"
-    }
+    },
+    "showPassword": "Mostrar contraseña",
+    "hidePassword": "Ocultar contraseña"
   },
   "compose": {
     "newMessage": "Nuevo mensaje",
@@ -140,6 +142,7 @@
     "sent": {
       "title": "Mensaje enviado",
       "noCopy": "Enviado, pero no guardado en Enviados",
+      "someRejected": "El servidor de correo rechazó la entrega a {{addresses}}.",
       "action": "Ver"
     },
     "toolbar": {
@@ -223,6 +226,8 @@
     "delete": "Eliminar",
     "downloadEml": "Descargar como .eml",
     "print": "Imprimir",
+    "printConversation": "Imprimir conversación",
+    "preparingPrint": "Preparando la impresión…",
     "more": "Más",
     "summarize": "Resumir",
     "summary": "Resumen",
