@@ -2,6 +2,7 @@ import { resolveRowDisplay } from '../utils/gtd.js';
 import GtdEntryRow from './GtdEntryRow.jsx';
 import RowHoverActions from './RowHoverActions.jsx';
 import { rememberGtdRailSelection } from '../utils/gtdHotkeys.js';
+import { registerHoveredGtdRow } from '../utils/gtdHoveredRow.js';
 
 // A GTD entry row with triage wired on: the presentational GtdEntryRow plus this
 // surface's affordances — a right-click context menu and the bottom-right hover action
@@ -38,6 +39,13 @@ export default function GtdTriageRow({ thread, sectionKey, variant, selected, on
       t={t}
       onClick={() => { rememberGtdRailSelection(thread, sectionKey); onOpen(); }}
       onContextMenu={e => { e.preventDefault(); openMenuAt(e.clientX, e.clientY); }}
+      onHoverTargetEnter={variant === 'sidebar' ? () => registerHoveredGtdRow({
+        message: thread, sectionKey,
+        classify: (message, state) => rowActions.classifyRow(message, state),
+        // In GTD, archive is the existing Done transition: archive the inbox copy and
+        // remove the label(s) represented by this sidebar row.
+        archive: (message, states) => rowActions.done(message, states),
+      }) : undefined}
       renderHoverActions={hoverQuickActions ? () => (
         <RowHoverActions
           message={thread}
