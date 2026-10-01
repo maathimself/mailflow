@@ -546,7 +546,11 @@ router.post('/send', async (req, res) => {
     if (rejected.length) sendResult.rejected = rejected;
     // Tell the client which Sent folder we actually resolved to, so its post-send "View"
     // navigates to the real folder rather than recomputing from a possibly-stale mapping (#386).
-    if (sentFolder) sendResult.sentFolder = sentFolder;
+    if (sentFolder) {
+      sendResult.sentFolder = sentFolder;
+      // So "View" can open this message once its Sent copy is listed, not just the folder.
+      sendResult.messageId = mailOptions.messageId;
+    }
     // Overwrite the in-flight reservation with the final result so a retry after a lost
     // response returns this instead of re-sending.
     if (idemKeyRedis) redisClient.set(idemKeyRedis, JSON.stringify(sendResult), { EX: 86400 }).catch(() => {});

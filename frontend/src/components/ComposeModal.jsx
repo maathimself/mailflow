@@ -21,6 +21,7 @@ import { ComposerLink } from '../utils/editorLink.js';
 import { copyToClipboard } from '../utils/clipboard.js';
 import { resolveInitialFrom } from '../utils/defaultSender.js';
 import { initialComposeFocus, isComposeSendShortcut } from '../utils/composeFromMessage.js';
+import { openSentMessage } from '../utils/openSentMessage.js';
 
 // Resize an image blob/file to max maxW pixels wide, preserving aspect ratio.
 // Returns a Promise<string> of a base64 data URL.
@@ -181,7 +182,7 @@ function parseChips(val) {
 
 export default function ComposeModal() {
   const { t } = useTranslation();
-  const { closeCompose, composeData, accounts, addNotification, setSelectedAccount, plaintextEmail, setThreadMessages } = useStore();
+  const { closeCompose, composeData, accounts, addNotification, plaintextEmail, setThreadMessages } = useStore();
   const isMobile = useMobile();
   const uiScale = useUiScale();
 
@@ -827,7 +828,7 @@ export default function ComposeModal() {
         // When the Sent copy wasn't saved, omit the "View" action — it would navigate to a
         // Sent folder that doesn't contain the message.
         ...(sentCopyFailed ? {} : {
-          onAction: () => setSelectedAccount(accountId, sentFolder),
+          onAction: () => openSentMessage(useStore, { accountId, folder: sentFolder, messageId: sendResult?.messageId }),
           actionLabel: t('compose.sent.action'),
         }),
       });
