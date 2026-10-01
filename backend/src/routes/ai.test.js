@@ -376,6 +376,7 @@ describe('aiLanguageInstruction', () => {
     ['pl', 'Polish'],
     ['cs', 'Czech'],
     ['ptBR', 'Brazilian Portuguese'],
+    ['ko', 'Korean'],
   ])('maps %s to %s', (language, name) => {
     expect(aiLanguageInstruction(language)).toBe(
       `Always respond in ${name}, unless the user explicitly asks for another language. For email drafting and rewriting, preserve the original email language when it differs from ${name}.`,

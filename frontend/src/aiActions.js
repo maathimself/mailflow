@@ -17,6 +17,7 @@ const SUMMARIZE_LANGUAGE_NAMES = {
   es: 'Spanish', fr: 'French', de: 'German', it: 'Italian',
   pl: 'Polish', ru: 'Russian', zhCN: 'Simplified Chinese', cs: 'Czech',
   ptBR: 'Brazilian Portuguese',
+  ko: 'Korean',
 };
 
 export function summarizePromptForLocale(locale) {

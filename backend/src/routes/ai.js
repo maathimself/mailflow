@@ -31,6 +31,7 @@ const AI_LANGUAGE_NAMES = {
   pl: 'Polish',
   cs: 'Czech',
   ptBR: 'Brazilian Portuguese',
+  ko: 'Korean',
 };
 
 export function aiLanguageInstruction(language) {

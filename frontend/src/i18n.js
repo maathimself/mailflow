@@ -10,6 +10,7 @@ import zhCN from './locales/zhCN.json';
 import pl from './locales/pl.json';
 import cs from './locales/cs.json';
 import ptBR from './locales/ptBR.json';
+import ko from './locales/ko.json';
 import { detectLanguage, htmlLang } from './utils/browserLanguage.js';
 
 const resources = {
@@ -23,6 +24,7 @@ const resources = {
   pl: { translation: pl },
   cs: { translation: cs },
   ptBR: { translation: ptBR },
+  ko: { translation: ko },
 };
 
 const browserLanguages = typeof navigator === 'undefined' ? []
