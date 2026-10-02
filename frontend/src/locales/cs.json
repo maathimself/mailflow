@@ -473,6 +473,7 @@
       "action": "Zobrazit"
     },
     "undoSend": {
+      "sending": "Odesílání „{{subject}}“…",
       "undone": "Odeslání vráceno zpět",
       "reopenLater": "Znovu se otevře, až zavřete zprávu, kterou právě píšete",
       "notSent": "Vaše zpráva nebyla odeslána",
@@ -480,7 +481,7 @@
       "unknown": "Nepodařilo se ověřit, zda byla zpráva odeslána",
       "unknownBody": "Než ji odešlete znovu, zkontrolujte složku Odeslané.",
       "reopen": "Znovu otevřít",
-      "tooLate": "Na vrácení je pozdě: zpráva už byla odeslána",
+      "tooLate": "Na vrácení je pozdě: zpráva se už odesílá",
       "undoFailed": "Nepodařilo se vrátit zpět: server neodpověděl"
     },
     "toolbar": {

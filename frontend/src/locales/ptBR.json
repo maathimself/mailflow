@@ -146,6 +146,7 @@
       "action": "Ver"
     },
     "undoSend": {
+      "sending": "Enviando \"{{subject}}\"…",
       "undone": "Envio desfeito",
       "reopenLater": "Ela reabre quando você fechar a mensagem que está escrevendo",
       "notSent": "Sua mensagem não foi enviada",
@@ -153,7 +154,7 @@
       "unknown": "Não foi possível confirmar se sua mensagem foi enviada",
       "unknownBody": "Confira a pasta Enviados antes de enviá-la de novo.",
       "reopen": "Reabrir",
-      "tooLate": "Tarde demais para desfazer: a mensagem já foi enviada",
+      "tooLate": "Tarde demais para desfazer: a mensagem já está sendo enviada",
       "undoFailed": "Não foi possível desfazer: o servidor não respondeu"
     },
     "toolbar": {

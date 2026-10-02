@@ -13,22 +13,26 @@ export const GIVE_UP_AFTER_MS = 5 * 60_000;
 // What the server can say once a held send is over, one way or another.
 const OUTCOMES = new Set(['sent', 'cancelled', 'failed', 'lost', 'unknown']);
 
-// How long Undo stays on screen. Counted from when the request left, not from the server's
-// sendAt, so a client clock that is off cannot keep the button up after the real window closed.
-export function undoWindowMs(requestedAt, now = Date.now()) {
+// How long Undo stays on screen: what the server said was left of the window when it answered.
+// Counting from the response rather than from the request keeps a slow upload from eating into the
+// window, and taking the server's figure rather than its sendAt keeps a wrong client clock out.
+export function undoWindowMs(remainingMs) {
   const full = UNDO_SEND_SECONDS * 1000;
-  return Math.max(0, Math.min(full, full - (now - requestedAt)));
+  return Number.isFinite(remainingMs) ? Math.max(0, Math.min(full, remainingMs)) : full;
 }
 
 // Opens the composer with `data`. With another message already open it waits for that one to
 // close instead, because the store holds a single composer and replacing its data would mix the
-// two messages. Returns whether it opened now.
+// two messages. A wait is dropped if the user signs out meanwhile: the message is theirs, not
+// the next user's. Returns whether it opened now.
 export function reopenCompose(store, data) {
   if (!store.getState().composing) {
     store.getState().openCompose(data);
     return true;
   }
+  const owner = store.getState().user?.id;
   const unsubscribe = store.subscribe(state => {
+    if (state.user?.id !== owner) { unsubscribe(); return; }
     if (state.composing) return;
     unsubscribe();
     state.openCompose(data);
@@ -37,13 +41,25 @@ export function reopenCompose(store, data) {
 }
 
 // Follows one held send. `restore(error)` reopens the message (returning whether it opened now),
-// `onSent(result)` reports a delivered one. Returns the undo action for the Undo button.
+// `onSent(result)` reports a delivered one. `onOwnerChange(stop)` calls stop when the signed-in
+// user changes and returns an unsubscribe: a sign-out in the same tab does not reload the page, and
+// the next user must not be asked about, or handed back, the previous user's message. Returns the
+// undo action for the Undo button.
 export function trackHeldSend({ pendingId, undoMs, subject }, { restore, onSent }, deps) {
-  const { getStatus, cancel, notify, dismissUndo, t, schedule = setTimeout, unschedule = clearTimeout, now = Date.now } = deps;
+  const { getStatus, cancel, notify, dismissUndo, t, onOwnerChange, schedule = setTimeout, unschedule = clearTimeout, now = Date.now } = deps;
   const deadline = now() + undoMs + GIVE_UP_AFTER_MS;
   let settled = false;
   let undoing = false;
   let nextPoll = null;
+  let unwatch = () => {};
+  const abandon = () => {
+    if (settled) return;
+    settled = true;
+    unschedule(nextPoll);
+    unwatch();
+    dismissUndo();
+  };
+  unwatch = onOwnerChange?.(abandon) ?? (() => {});
 
   const reopen = (error) => (restore(error) ? subject : t('compose.undoSend.reopenLater'));
 
@@ -54,6 +70,7 @@ export function trackHeldSend({ pendingId, undoMs, subject }, { restore, onSent 
     if (!OUTCOMES.has(status?.status)) return false;
     settled = true;
     unschedule(nextPoll);
+    unwatch();
     dismissUndo();
     switch (status.status) {
       case 'sent':

@@ -826,7 +826,6 @@ export default function ComposeModal() {
       ? (quotedHtmlRef.current ? quotedHtmlRef.current.innerHTML : quotedBodyHtml)
       : null;
     const hasDraft = draftUid != null && draftFolder != null && draftAccountId;
-    const requestedAt = Date.now();
     try {
       const sendResult = await api.post('/mail/send', {
         accountId,
@@ -939,10 +938,11 @@ export default function ComposeModal() {
           sendError: undefined,
         };
         const pendingId = sendResult.pendingId;
-        const undoMs = undoWindowMs(requestedAt);
+        const undoMs = undoWindowMs(sendResult.remainingMs);
+        const shownSubject = subject || t('common.noSubject');
         const { addNotification: notify, removeNotification } = useStore.getState();
         const undo = trackHeldSend(
-          { pendingId, undoMs, subject: subject || t('common.noSubject') },
+          { pendingId, undoMs, subject: shownSubject },
           {
             restore: (sendError) => reopenCompose(useStore, { ...restoreData, ...(sendError ? { sendError } : {}) }),
             onSent: reportSent,
@@ -956,10 +956,15 @@ export default function ComposeModal() {
                 if (n.heldSendId === pendingId) removeNotification(n.id);
               }
             },
+            onOwnerChange: (stop) => {
+              const owner = useStore.getState().user?.id;
+              return useStore.subscribe(state => { if (state.user?.id !== owner) stop(); });
+            },
             t,
           },
         );
-        notify({ title: t('compose.sending'), heldSendId: pendingId, undoMs, onUndo: undo });
+        // The subject tells several held sends apart.
+        notify({ title: t('compose.undoSend.sending', { subject: shownSubject }), heldSendId: pendingId, undoMs, onUndo: undo });
         return;
       }
 

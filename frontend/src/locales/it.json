@@ -146,6 +146,7 @@
       "action": "Visualizza"
     },
     "undoSend": {
+      "sending": "Invio di \"{{subject}}\"…",
       "undone": "Invio annullato",
       "reopenLater": "Si riaprirà quando chiuderai il messaggio che stai scrivendo",
       "notSent": "Il tuo messaggio non è stato inviato",
@@ -153,7 +154,7 @@
       "unknown": "Impossibile confermare l'invio del messaggio",
       "unknownBody": "Controlla la cartella Inviati prima di inviarlo di nuovo.",
       "reopen": "Riapri",
-      "tooLate": "Troppo tardi per annullare: il messaggio è già stato inviato",
+      "tooLate": "Troppo tardi per annullare: il messaggio è già in fase di invio",
       "undoFailed": "Impossibile annullare: il server non ha risposto"
     },
     "toolbar": {

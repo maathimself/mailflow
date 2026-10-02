@@ -146,6 +146,7 @@
       "action": "Ver"
     },
     "undoSend": {
+      "sending": "Enviando «{{subject}}»…",
       "undone": "Envío deshecho",
       "reopenLater": "Se volverá a abrir cuando cierres el mensaje que estás escribiendo",
       "notSent": "Tu mensaje no se envió",
@@ -153,7 +154,7 @@
       "unknown": "No se pudo confirmar que tu mensaje se enviara",
       "unknownBody": "Revisa la carpeta Enviados antes de volver a enviarlo.",
       "reopen": "Volver a abrir",
-      "tooLate": "Demasiado tarde para deshacer: el mensaje ya se envió",
+      "tooLate": "Demasiado tarde para deshacer: el mensaje ya se está enviando",
       "undoFailed": "No se pudo deshacer: el servidor no respondió"
     },
     "toolbar": {

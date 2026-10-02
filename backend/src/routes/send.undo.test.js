@@ -65,6 +65,9 @@ describe('send with an undo window', () => {
     const body = await res.json();
     expect(body).toMatchObject({ ok: true, pending: true });
     expect(Date.parse(body.sendAt) - Date.now()).toBeGreaterThan(9000);
+    // What the client counts Undo down from, so an upload's time does not shorten it.
+    expect(body.remainingMs).toBeGreaterThan(9000);
+    expect(body.remainingMs).toBeLessThanOrEqual(10_000);
     expect(sendMail).not.toHaveBeenCalled();
     expect(await status(body.pendingId)).toEqual({ status: 'pending' });
 
@@ -94,8 +97,9 @@ describe('send with an undo window', () => {
 
   it('a lost response retried with the same key returns the same held send', async () => {
     const first = await (await send({ undoSeconds: 10 })).json();
-    const retry = await send({ undoSeconds: 10 });
-    expect(await retry.json()).toEqual(first);
+    const retry = await (await send({ undoSeconds: 10 })).json();
+    expect(retry).toMatchObject({ pending: true, pendingId: first.pendingId, sendAt: first.sendAt });
+    expect(retry.remainingMs).toBeLessThanOrEqual(first.remainingMs);
     await flushHeldSends();
     expect(sendMail).toHaveBeenCalledOnce();
   });
@@ -121,6 +125,50 @@ describe('send with an undo window', () => {
     const { pendingId } = await (await send({ undoSeconds: 10 })).json();
     await flushHeldSends();
     expect(await status(pendingId)).toEqual({ status: 'sent', result: { ok: true, rejected: ['nobody@example.com'] } });
+  });
+
+  describe('a held send the server lost in a crash', () => {
+    const LOST = '11111111-2222-4333-8444-555555555555';
+    const seed = (status) => {
+      store.set('send_idem:u1:send1', JSON.stringify({ ok: true, pending: true, pendingId: LOST, sendAt: new Date().toISOString() }));
+      store.set(`send_hold:u1:${LOST}`, JSON.stringify({ status }));
+    };
+
+    it('frees its key, so a resend with the same key goes out', async () => {
+      seed('pending'); // recorded as held, but no process holds it any more: lost
+      const res = await send({ undoSeconds: 10 });
+      expect(res.status).toBe(202);
+      expect((await res.json()).pendingId).not.toBe(LOST);
+      await flushHeldSends();
+      expect(sendMail).toHaveBeenCalledOnce();
+    });
+
+    it('keeps the key of one that had started, which may have gone out', async () => {
+      seed('sending'); // unknown
+      const res = await send({ undoSeconds: 10 });
+      expect((await res.json()).pendingId).toBe(LOST);
+      await flushHeldSends();
+      expect(sendMail).not.toHaveBeenCalled();
+    });
+  });
+
+  it('a shutdown during the window finishes the work after delivery before it returns', async () => {
+    let draftDeleted = false;
+    let contactLearned = false;
+    deleteSentDraft.mockImplementationOnce(() => new Promise(resolve => setTimeout(() => { draftDeleted = true; resolve(true); }, 30)));
+    const base = query.getMockImplementation();
+    query.mockImplementation(async (sql, params) => {
+      if (sql.includes('INSERT INTO contacts')) {
+        await new Promise(resolve => setTimeout(resolve, 30));
+        contactLearned = true;
+      }
+      return base(sql, params);
+    });
+    await send({ undoSeconds: 10, draft: { uid: 7, folder: 'Drafts', accountId: 'a1' } });
+    await flushHeldSends(); // what SIGTERM waits for
+    expect(sendMail).toHaveBeenCalledOnce();
+    expect(draftDeleted).toBe(true);
+    expect(contactLearned).toBe(true);
   });
 
   it('a delivery that fails is reported with the safe message, and the key is freed', async () => {

@@ -130,6 +130,10 @@ const router = Router();
 router.use(requireAuth);
 
 
+// What is left of a held send's undo window. The client counts down from this, not from its own
+// clock against sendAt, and not from when it sent the request (an upload would eat into it).
+const remainingUntil = sendAt => Math.max(0, Date.parse(sendAt) - Date.now());
+
 // The longest an undo window can be. The client asks for its own (10 s by default).
 const MAX_UNDO_SECONDS = 30;
 
@@ -162,7 +166,17 @@ router.post('/send', async (req, res) => {
     try { cached = await redisClient.get(idemKeyRedis); }
     catch { return res.status(503).json({ error: 'Sending is temporarily unavailable. Please try again shortly.' }); }
     if (cached === '__inflight__') return res.status(409).json({ error: 'This message is already being sent.' });
-    if (cached) return res.json(JSON.parse(cached));
+    if (cached) {
+      const previous = JSON.parse(cached);
+      if (!previous.pending) return res.json(previous);
+      // A held send: the answer the first request got, with the time left now. One the server lost
+      // in a crash before it started was never delivered, so its key is freed and this request
+      // sends anew. One that had started stays answered: it may have gone out.
+      const { status } = await getSendStatus(userId, previous.pendingId);
+      if (status !== 'lost') return res.json({ ...previous, remainingMs: remainingUntil(previous.sendAt) });
+      try { await redisClient.del(idemKeyRedis); }
+      catch { return res.status(503).json({ error: 'Sending is temporarily unavailable. Please try again shortly.' }); }
+    }
   }
 
   if (attachments !== undefined) {
@@ -395,6 +409,7 @@ router.post('/send', async (req, res) => {
     const deliverAndRecord = async (onDelivered) => {
       let delivered = false; // true once transport.sendMail has actually handed off the message
       let rejected = [];
+      let learning = Promise.resolve(); // never rejects: its errors are logged inside
       try {
         const info = await transport.sendMail(mailOptions);
         delivered = true;
@@ -407,14 +422,17 @@ router.post('/send', async (req, res) => {
           console.warn(`SMTP refused ${rejected.length} recipient(s) for ${redactEmail(account.email_address)}: ${rejected.map(redactEmail).join(', ')}${codes.length ? ` (${codes.join(', ')})` : ''}`);
         }
         await onDelivered?.({ ok: true, ...(rejected.length ? { rejected } : {}) });
-        if (sentDraft) setImmediate(() => { deleteSentDraft(userId, account, sentDraft); });
+        // Awaited, like the contact learning of a held send below: a shutdown delivers held sends
+        // and waits for them to finish, and work left in a setImmediate would be cut off.
+        if (sentDraft) await deleteSentDraft(userId, account, sentDraft);
 
         // Auto-learn sent recipients so they rank above inbound-only senders in autocomplete.
-        // Fire-and-forget — a DB error here must never affect the send response.
+        // A DB error here must never affect the send response. An immediate send does not wait
+        // for it; a held send does, because nobody is waiting on that response.
         const allRecipients = [...normalizedTo, ...normalizedCc, ...normalizedBcc];
         if (allRecipients.length) {
           const now = new Date();
-          setImmediate(async () => {
+          learning = (async () => {
             try {
               // Ensure the user's default address book exists
               const abResult = await query(
@@ -472,7 +490,7 @@ router.post('/send', async (req, res) => {
             } catch (err) {
               console.warn('Contact upsert setup error:', err.message);
             }
-          });
+          })();
         }
 
         // Get the Sent folder path (manual mapping takes priority over special_use auto-detect,
@@ -572,6 +590,7 @@ router.post('/send', async (req, res) => {
         // Overwrite the in-flight reservation with the final result so a retry after a lost
         // response returns this instead of re-sending.
         if (idemKeyRedis) redisClient.set(idemKeyRedis, JSON.stringify(sendResult), { EX: 86400 }).catch(() => {});
+        if (onDelivered) await learning;
         return sendResult;
       } catch (err) {
         if (delivered) {
@@ -581,6 +600,7 @@ router.post('/send', async (req, res) => {
           const sendResult = { ok: true, sentCopySaved: false };
           if (rejected.length) sendResult.rejected = rejected;
           if (idemKeyRedis) redisClient.set(idemKeyRedis, JSON.stringify(sendResult), { EX: 86400 }).catch(() => {});
+          if (onDelivered) await learning;
           return sendResult;
         }
         console.error('Send failed:', err.message);
@@ -598,7 +618,7 @@ router.post('/send', async (req, res) => {
         // An undone send frees its idempotency key, so the reopened message can be sent again.
         onCancel: async () => { if (idemKeyRedis) await redisClient.del(idemKeyRedis); },
       });
-      const pendingResult = { ok: true, pending: true, pendingId: id, sendAt };
+      const pendingResult = { ok: true, pending: true, pendingId: id, sendAt, remainingMs: remainingUntil(sendAt) };
       // A retry of this same request (lost response) gets the held send back, not a second one.
       if (idemKeyRedis) redisClient.set(idemKeyRedis, JSON.stringify(pendingResult), { EX: 86400 }).catch(() => {});
       return res.status(202).json(pendingResult);

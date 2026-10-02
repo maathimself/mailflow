@@ -146,6 +146,7 @@
       "action": "查看"
     },
     "undoSend": {
+      "sending": "正在发送“{{subject}}”…",
       "undone": "已撤销发送",
       "reopenLater": "关闭正在编写的邮件后，它会重新打开",
       "notSent": "您的邮件未发送",
@@ -153,7 +154,7 @@
       "unknown": "无法确认邮件是否已发送",
       "unknownBody": "再次发送前，请先检查“已发送”文件夹。",
       "reopen": "重新打开",
-      "tooLate": "来不及撤销：邮件已发送",
+      "tooLate": "来不及撤销：邮件已在发送中",
       "undoFailed": "无法撤销：服务器没有响应"
     },
     "toolbar": {

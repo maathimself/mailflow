@@ -146,6 +146,7 @@
       "action": "View"
     },
     "undoSend": {
+      "sending": "Sending \"{{subject}}\"…",
       "undone": "Sending undone",
       "reopenLater": "It will reopen when you close the message you're writing",
       "notSent": "Your message was not sent",
@@ -153,7 +154,7 @@
       "unknown": "Could not confirm that your message was sent",
       "unknownBody": "Check your Sent folder before sending it again.",
       "reopen": "Reopen",
-      "tooLate": "Too late to undo: the message was already sent",
+      "tooLate": "Too late to undo: the message is already being sent",
       "undoFailed": "Could not undo: no response from the server"
     },
     "toolbar": {

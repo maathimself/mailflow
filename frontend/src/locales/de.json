@@ -146,6 +146,7 @@
       "action": "Anzeigen"
     },
     "undoSend": {
+      "sending": "„{{subject}}“ wird gesendet…",
       "undone": "Senden rückgängig gemacht",
       "reopenLater": "Sie wird wieder geöffnet, sobald Sie die Nachricht schließen, an der Sie gerade schreiben",
       "notSent": "Ihre Nachricht wurde nicht gesendet",
@@ -153,7 +154,7 @@
       "unknown": "Es konnte nicht bestätigt werden, ob Ihre Nachricht gesendet wurde",
       "unknownBody": "Prüfen Sie den Ordner Gesendet, bevor Sie sie erneut senden.",
       "reopen": "Wieder öffnen",
-      "tooLate": "Zu spät zum Rückgängigmachen: Die Nachricht wurde bereits gesendet",
+      "tooLate": "Zu spät zum Rückgängigmachen: Die Nachricht wird bereits gesendet",
       "undoFailed": "Rückgängigmachen nicht möglich: keine Antwort vom Server"
     },
     "toolbar": {

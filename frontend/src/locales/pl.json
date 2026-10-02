@@ -146,6 +146,7 @@
       "action": "Wyświetl"
     },
     "undoSend": {
+      "sending": "Wysyłanie „{{subject}}”…",
       "undone": "Wysyłanie cofnięte",
       "reopenLater": "Otworzy się ponownie, gdy zamkniesz wiadomość, którą piszesz",
       "notSent": "Twoja wiadomość nie została wysłana",
@@ -153,7 +154,7 @@
       "unknown": "Nie udało się potwierdzić wysłania wiadomości",
       "unknownBody": "Sprawdź folder Wysłane, zanim wyślesz ją ponownie.",
       "reopen": "Otwórz ponownie",
-      "tooLate": "Za późno na cofnięcie: wiadomość została już wysłana",
+      "tooLate": "Za późno na cofnięcie: wiadomość jest już wysyłana",
       "undoFailed": "Nie udało się cofnąć: serwer nie odpowiedział"
     },
     "toolbar": {

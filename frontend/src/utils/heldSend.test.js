@@ -8,13 +8,14 @@ import {
 } from './heldSend.js';
 
 describe('undoWindowMs', () => {
-  test('is the full window less the time the request took', () => {
-    assert.equal(undoWindowMs(1000, 1000), UNDO_SEND_SECONDS * 1000);
-    assert.equal(undoWindowMs(1000, 1400), UNDO_SEND_SECONDS * 1000 - 400);
+  test('is what the server said was left, so a slow upload does not shorten it', () => {
+    assert.equal(undoWindowMs(9_400), 9_400);
+    assert.equal(undoWindowMs(UNDO_SEND_SECONDS * 1000), UNDO_SEND_SECONDS * 1000);
   });
-  test('never goes negative, and a clock that jumped back cannot lengthen it', () => {
-    assert.equal(undoWindowMs(0, 60_000), 0);
-    assert.equal(undoWindowMs(5000, 1000), UNDO_SEND_SECONDS * 1000);
+  test('stays within the window', () => {
+    assert.equal(undoWindowMs(-50), 0);
+    assert.equal(undoWindowMs(60_000), UNDO_SEND_SECONDS * 1000);
+    assert.equal(undoWindowMs(undefined), UNDO_SEND_SECONDS * 1000);
   });
 });
 
@@ -22,8 +23,8 @@ function fakeStore(composing) {
   const listeners = new Set();
   const opened = [];
   let state;
-  const setState = (patch) => { state = { ...state, ...patch }; listeners.forEach(l => l(state)); };
-  state = { composing, openCompose: (data) => { opened.push(data); setState({ composing: true }); } };
+  const setState = (patch) => { state = { ...state, ...patch }; [...listeners].forEach(l => l(state)); };
+  state = { composing, user: { id: 'u1' }, openCompose: (data) => { opened.push(data); setState({ composing: true }); } };
   return {
     opened, setState,
     getState: () => state,
@@ -46,10 +47,19 @@ describe('reopenCompose', () => {
     store.setState({ composing: false });
     assert.equal(store.opened.length, 1, 'opens it once');
   });
+  test("a message waiting to reopen is never handed to the next user", () => {
+    const store = fakeStore(true);
+    reopenCompose(store, { subject: 'A' });
+    store.setState({ user: null, composing: false }); // signed out in this tab
+    store.setState({ user: { id: 'u2' } });
+    store.setState({ composing: true });
+    store.setState({ composing: false });
+    assert.deepEqual(store.opened, []);
+  });
 });
 
 // A clock and a timer queue under the test's control.
-function harness({ statuses = [], cancelResult, restoreOpens = true } = {}) {
+function harness({ statuses = [], cancelResult, restoreOpens = true, ownerChange } = {}) {
   let clock = 0;
   const timers = [];
   const calls = { getStatus: 0, cancel: 0, restored: [], sent: [], notes: [], dismissed: 0 };
@@ -70,6 +80,7 @@ function harness({ statuses = [], cancelResult, restoreOpens = true } = {}) {
     },
     notify: (n) => { calls.notes.push(n); },
     dismissUndo: () => { calls.dismissed++; },
+    onOwnerChange: ownerChange ? (stop) => { ownerChange.stop = stop; return () => { ownerChange.unwatched = true; }; } : undefined,
     t: (k) => k,
   };
   const undo = trackHeldSend(
@@ -192,6 +203,21 @@ describe('trackHeldSend', () => {
     const polls = h.calls.getStatus;
     await h.advance(60_000);
     assert.equal(h.calls.getStatus, polls, 'stops asking');
+  });
+
+  test('a sign-out stops following the send: nothing more is asked, reopened or reported', async () => {
+    const ownerChange = {};
+    const h = harness({ statuses: [{ status: 'failed', error: 'x' }], cancelResult: { cancelled: true }, ownerChange });
+    ownerChange.stop();
+    assert.equal(h.calls.dismissed, 1, 'the Undo bar goes');
+    assert.equal(h.pendingTimers(), 0);
+    assert.equal(ownerChange.unwatched, true);
+    await h.undo();
+    await h.advance(60_000);
+    assert.equal(h.calls.getStatus, 0);
+    assert.equal(h.calls.cancel, 0);
+    assert.deepEqual(h.calls.restored, []);
+    assert.deepEqual(h.calls.notes, []);
   });
 
   test('an undo that cannot reach the server says so, and the send is still followed', async () => {
