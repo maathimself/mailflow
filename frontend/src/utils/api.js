@@ -411,6 +411,10 @@ export const api = {
   reorderRules:(ids)      => request('PATCH',  '/rules/reorder', { ids }),
   runRules:    (accountId) => request('POST',  '/rules/run', accountId ? { accountId } : {}),
 
+  // Undo send: a send held on the server for the undo window (backend/src/services/sendHold.js)
+  getSendStatus: (id) => request('GET',  `/mail/send/${encodeURIComponent(id)}`),
+  cancelSend:    (id) => request('POST', `/mail/send/${encodeURIComponent(id)}/cancel`),
+
   // Drafts
   saveDraft:   (data)              => request('POST',   '/mail/draft', data),
   deleteDraft: (accountId, uid, folder) =>

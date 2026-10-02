@@ -145,6 +145,18 @@
       "someRejected": "Le serveur de messagerie a refusé la remise à {{addresses}}.",
       "action": "Voir"
     },
+    "undoSend": {
+      "sending": "Envoi de « {{subject}} »…",
+      "undone": "Envoi annulé",
+      "reopenLater": "Il se rouvrira quand vous fermerez le message en cours de rédaction",
+      "notSent": "Votre message n'a pas été envoyé",
+      "lost": "Le serveur a redémarré avant l'envoi : le message n'a pas été remis.",
+      "unknown": "Impossible de confirmer l'envoi de votre message",
+      "unknownBody": "Vérifiez le dossier Envoyés avant de le renvoyer.",
+      "reopen": "Rouvrir",
+      "tooLate": "Trop tard pour annuler : le message est déjà en cours d'envoi",
+      "undoFailed": "Impossible d'annuler : le serveur n'a pas répondu"
+    },
     "toolbar": {
       "removeTable": "Supprimer le tableau",
       "typography": "Typographie",
