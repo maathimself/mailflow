@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
 import { query } from '../services/db.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { decrypt, encrypt } from '../services/encryption.js';
@@ -11,6 +12,7 @@ import { imapManager } from '../index.js';
 import { stopCardavUser } from '../services/carddavSync.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { uuidParam } from '../utils/uuid.js';
+import { destroyUserSessions } from '../services/userSessions.js';
 
 const router = Router();
 router.use(requireAdmin);
@@ -32,13 +34,25 @@ export async function listUsers(req, res) {
   const offset = Math.max(parseInt(req.query.offset) || 0,   0);
   const [result, countResult] = await Promise.all([
     query(
-      'SELECT id, username, is_admin, totp_enabled, created_at, avatar FROM users ORDER BY created_at ASC LIMIT $1 OFFSET $2',
+      `SELECT id, username, is_admin, totp_enabled, created_at, avatar, last_seen_at, recovery_email,
+              password_hash IS NOT NULL AS has_password
+         FROM users ORDER BY created_at ASC LIMIT $1 OFFSET $2`,
       [limit, offset],
     ),
     query('SELECT COUNT(*) AS total FROM users'),
   ]);
   res.json({
-    users: result.rows.map(u => ({ ...u, avatar: safeAvatar(u.avatar), isAdmin: u.is_admin, totpEnabled: u.totp_enabled })),
+    users: result.rows.map(u => ({
+      id: u.id,
+      username: u.username,
+      created_at: u.created_at,
+      avatar: safeAvatar(u.avatar),
+      isAdmin: u.is_admin,
+      totpEnabled: u.totp_enabled,
+      lastSeenAt: u.last_seen_at,
+      recoveryEmail: u.recovery_email,
+      hasPassword: u.has_password,
+    })),
     total: parseInt(countResult.rows[0].total),
   });
 }
@@ -56,24 +70,96 @@ router.post('/users/:id/totp/disable', async (req, res) => {
   res.json({ ok: true });
 });
 
-router.patch('/users/:id', async (req, res) => {
+// The same rules registration applies: stored lower-case, 1-120 characters, no control
+// characters. Returns the normalized name or an error message.
+function normalizeUsername(raw) {
+  if (typeof raw !== 'string') return { error: 'Username required' };
+  const username = raw.toLowerCase().trim();
+  if (username.length < 1 || username.length > 120) {
+    return { error: 'Username must be between 1 and 120 characters' };
+  }
+  // eslint-disable-next-line no-control-regex -- intentionally rejecting control characters
+  if (/[\x00-\x1f\x7f]/.test(username)) return { error: 'Username contains invalid characters' };
+  return { username };
+}
+
+// Changes any of isAdmin, username and recoveryEmail; fields left out are not touched.
+export async function updateUser(req, res) {
   const { id } = req.params;
-  const { isAdmin } = req.body;
+  const { isAdmin, username, recoveryEmail } = req.body ?? {};
 
   // Prevent removing your own admin status
   if (id === req.session.userId && isAdmin === false) {
     return res.status(400).json({ error: 'Cannot remove your own admin status' });
   }
 
+  const sets = [];
+  const values = [];
+  const changes = [];
+  if (isAdmin !== undefined) {
+    if (typeof isAdmin !== 'boolean') return res.status(400).json({ error: 'isAdmin must be true or false' });
+    values.push(isAdmin);
+    sets.push(`is_admin = $${values.length}`);
+    changes.push(`is_admin=${isAdmin}`);
+  }
+  if (username !== undefined) {
+    const normalized = normalizeUsername(username);
+    if (normalized.error) return res.status(400).json({ error: normalized.error });
+    values.push(normalized.username);
+    sets.push(`username = $${values.length}`);
+    changes.push(`username=${normalized.username}`);
+  }
+  if (recoveryEmail !== undefined) {
+    const email = recoveryEmail ? String(recoveryEmail).trim().toLowerCase() : null;
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: 'Invalid email address' });
+    }
+    values.push(email);
+    sets.push(`recovery_email = $${values.length}`);
+    changes.push('recovery_email');
+  }
+  if (!sets.length) return res.status(400).json({ error: 'Nothing to change' });
+
   const target = await query('SELECT username FROM users WHERE id = $1', [id]);
   if (!target.rows.length) return res.status(404).json({ error: 'User not found' });
 
-  await query('UPDATE users SET is_admin = $1 WHERE id = $2', [isAdmin, id]);
-  console.log(`[admin] ${req.session.username} set is_admin=${isAdmin} for user ${target.rows[0].username} (${id})`);
+  values.push(id);
+  try {
+    await query(`UPDATE users SET ${sets.join(', ')} WHERE id = $${values.length}`, values);
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'Username already taken' });
+    throw err;
+  }
+  console.log(`[admin] ${req.session.username} changed ${changes.join(', ')} for user ${target.rows[0].username} (${id})`);
 
   // If user is currently logged in, their session isAdmin will be refreshed on next /me call
   res.json({ ok: true });
-});
+}
+router.patch('/users/:id', updateUser);
+
+// Sets a user's password, for someone who has lost theirs and has no recovery email. Every
+// session the user has open is signed out, as after a self-service reset; an admin setting
+// their own keeps the session they are using.
+export async function setUserPassword(req, res) {
+  const { id } = req.params;
+  const { password } = req.body ?? {};
+  if (typeof password !== 'string' || password.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  }
+  if (Buffer.byteLength(password, 'utf8') > 72) {
+    // bcrypt ignores everything past 72 bytes, so a longer password would not mean what it says.
+    return res.status(400).json({ error: 'Password must be at most 72 bytes' });
+  }
+  const target = await query('SELECT username FROM users WHERE id = $1', [id]);
+  if (!target.rows.length) return res.status(404).json({ error: 'User not found' });
+
+  const hash = await bcrypt.hash(password, 12);
+  await query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, id]);
+  await destroyUserSessions(id, { exceptSessionId: id === req.session.userId ? req.sessionID : undefined });
+  console.log(`[admin] ${req.session.username} set a new password for user ${target.rows[0].username} (${id})`);
+  res.json({ ok: true });
+}
+router.post('/users/:id/password', setUserPassword);
 
 router.delete('/users/:id', async (req, res) => {
   const { id } = req.params;

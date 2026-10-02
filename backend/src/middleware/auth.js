@@ -1,4 +1,5 @@
 import { query } from '../services/db.js';
+import { touchLastSeen } from '../services/lastSeen.js';
 
 export async function requireAuth(req, res, next) {
   if (!req.session?.userId) {
@@ -10,6 +11,7 @@ export async function requireAuth(req, res, next) {
       req.session.destroy(() => {});
       return res.status(401).json({ error: 'Not authenticated' });
     }
+    touchLastSeen(req.session.userId);
     next();
   } catch (err) {
     next(err);

@@ -544,6 +544,11 @@ const SAME_VALUE_ALLOWED = {
   'message.preview.preparingPrint': [['es', 'ptBR']],
   'message.preview.position':       [['es', 'ptBR'], ['cs', 'pl']],
   'message.preview.passwordSubmit': [['es', 'ptBR']],
+
+  // ── Admin user editor ─────────────────────────────────────────────────────
+  // "Editar" is the same word in Spanish and Portuguese.
+  'admin.users.edit':      [['es', 'ptBR']],
+  'admin.users.editTitle': [['es', 'ptBR']],
 };
 
 // Locale-specific plural forms are allowed per locale. A locale may add forms
