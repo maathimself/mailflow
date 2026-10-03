@@ -190,6 +190,8 @@ export const api = {
     deleteUser: (id) => request('DELETE', `/admin/users/${id}`),
     disableUserTotp: (id) => request('POST', `/admin/users/${id}/totp/disable`),
     getSettings: () => request('GET', '/admin/settings'),
+    getMailProxy: () => request('GET', '/admin/mail-proxy'),
+    saveMailProxy: data => request('PUT', '/admin/mail-proxy', data),
     updateSettings: (data) => request('PATCH', '/admin/settings', data),
     getInvites: (params) => request('GET', '/admin/invites' + (params ? '?' + new URLSearchParams(params) : '')),
     createInvite: (email) => request('POST', '/admin/invites', { email }),
@@ -270,6 +272,8 @@ export const api = {
 
   // Accounts
   getAccounts: () => request('GET', '/accounts'),
+  getMailProxyStatus: () => request('GET', '/accounts/proxy-status'),
+  testAccountConnection: (id, protocol) => request('POST', `/accounts/${id}/test-connection`, { protocol }),
   addAccount: (data) => request('POST', '/accounts', data),
   updateAccount: (id, data) => request('PUT', `/accounts/${id}`, data),
   deleteAccount: (id) => request('DELETE', `/accounts/${id}`),

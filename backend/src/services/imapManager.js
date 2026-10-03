@@ -18,6 +18,7 @@ import { adjustFolderCounts, resolveSpamFolder } from '../utils/mailUtils.js';
 import { getAccountAddresses } from './mailAccess.js';
 import { resolveForConnection, createPinnedLookup } from './hostValidation.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
+import { getAccountProxyUrl, assertProxyDestination, mailConnectionError } from './mailProxy.js';
 import { applyInboxRules, applyBlockList } from './inboxRules.js';
 import { classifyAndTagMessage } from './spamPipeline.js';
 import { generateVCard } from '../utils/vcard.js';
@@ -32,7 +33,9 @@ const logAccount = (account) => redactEmail(account?.email_address || '');
 const resolveAccountHost = async (account) => {
   const policy = await getConnectionPolicy();
   const resolved = await resolveForConnection(account.imap_host, { allowPrivate: policy.allowPrivateHosts });
-  return { resolved, policy };
+  const mailProxyUrl = await getAccountProxyUrl(account, 'imap');
+  if (mailProxyUrl) assertProxyDestination(resolved);
+  return { resolved, policy: { ...policy, mailProxyUrl } };
 };
 
 // Race a promise against a timeout. On timeout the underlying promise keeps running (JS
@@ -93,7 +96,7 @@ async function connectImapClient(account, resolved, cfgOpts, timeoutMs, label) {
       if (isConnectionRefusal(extractImapError(err))) sawRefusal = true;
       if (abandoned) return;
       recordWarning('imap_error', account?.id);
-      console.error(`IMAP error for ${logAccount(account)}:`, extractImapError(err));
+      console.error(`IMAP error for ${logAccount(account)}:`, cfgOpts.policy?.mailProxyUrl ? mailConnectionError(err, cfgOpts.policy.mailProxyUrl).error : extractImapError(err));
     });
     // Admission control (#384): cap concurrent connection establishment per host so a startup /
     // backfill burst can't stampede the provider into refusals. Held only for the handshake and
@@ -107,6 +110,11 @@ async function connectImapClient(account, resolved, cfgOpts, timeoutMs, label) {
       // wedged/half-open connection (the exact failure we're recovering from).
       abandoned = true;
       try { client.close(); } catch { /* already closed */ }
+      if (cfgOpts.policy?.mailProxyUrl) {
+        const safe = mailConnectionError(err, cfgOpts.policy.mailProxyUrl);
+        const message = isConnectionRefusal(extractImapError(err)) ? 'Mail server refused connection: too many connections' : safe.error;
+        throw Object.assign(new Error(message), { stage: safe.stage, code: err.code });
+      }
       throw err;
     } finally {
       hostConnectSem.release(host);
@@ -1439,7 +1447,8 @@ export function makeClientCfg(account, resolved, { enableIdle = false, policy = 
     tlsOpts.autoSelectFamilyAttemptTimeout = 1000;
   }
   const cfg = {
-    host: resolved.lookup && resolved.servername ? resolved.servername : resolved.host,
+    host: policy.mailProxyUrl ? resolved.host : (resolved.lookup && resolved.servername ? resolved.servername : resolved.host),
+    ...(policy.mailProxyUrl ? { proxy: policy.mailProxyUrl } : {}),
     port: account.imap_port,
     secure: account.imap_tls,
     auth: { user: account.auth_user, pass: decrypt(account.auth_pass) },
@@ -1478,6 +1487,13 @@ export function makeClientCfg(account, resolved, { enableIdle = false, policy = 
     };
   }
   return cfg;
+}
+
+export async function testAccountImapConnection(account) {
+  const fresh = await ensureFreshToken(account);
+  const { resolved, policy } = await resolveAccountHost(fresh);
+  const client = await connectImapClient(fresh, resolved, { policy }, 30000, 'IMAP test');
+  client.close();
 }
 
 // How long a reused pooled session gets to answer the NOOP that brings its view current.
@@ -2520,10 +2536,10 @@ export class ImapManager {
     }
 
     // Refresh OAuth token if needed before connecting
-    account = await ensureFreshToken(account);
-    const { resolved, policy } = await resolveAccountHost(account);
     let client;
     try {
+      account = await ensureFreshToken(account);
+      const { resolved, policy } = await resolveAccountHost(account);
       // Connect via the shared helper: it attaches the #360 handshake-error listener, races the
       // connect against a 30s timeout (client.connect() has none — a slow/unresponsive server like
       // purelymail on a cold start would otherwise hang forever, wedging retries while
@@ -2641,6 +2657,21 @@ export class ImapManager {
     } finally {
       // Always release the in-progress lock so future attempts (e.g. manual reconnect) can proceed
       this.connectingAccounts.delete(account.id);
+    }
+  }
+
+  async reconnectAccount(accountId) {
+    const deadline = Date.now() + 120000;
+    while (this.connectingAccounts.has(accountId)) {
+      if (Date.now() > deadline) throw new Error('Account connection is still busy; reconnect again after it finishes');
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    await this.disconnectAccount(accountId);
+    const result = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
+    const account = result.rows[0];
+    if (account?.enabled && account.protocol === 'imap') {
+      this.clearConnectCooldown(accountId);
+      return this.connectAccount(account);
     }
   }
 

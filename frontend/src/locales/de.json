@@ -1631,6 +1631,32 @@
       "empty": "In dieser Version sind keine Plugins verfügbar.",
       "error": "Das Plugin konnte nicht aktualisiert werden. Bitte versuchen Sie es erneut.",
       "configureIn": "Optionen in {{location}} konfigurieren"
+    },
+    "mailProxy": {
+      "title": "Ausgehender E-Mail-Proxy",
+      "description": "Einen Backend-Proxy konfigurieren und IMAP und SMTP je Konto getrennt auswählen.",
+      "enabled": "Proxy aktivieren",
+      "type": "Proxytyp",
+      "host": "Proxyhost",
+      "port": "Proxyport",
+      "username": "Proxybenutzername (optional)",
+      "password": "Proxypasswort (optional)",
+      "keepSecret": "Gespeichert; unverändert lassen",
+      "secretHelp": "Gespeicherte Zugangsdaten werden nicht zurückgegeben. Unverändert lassen oder das bearbeitete Feld leeren, um sie zu entfernen.",
+      "allowPrivate": "Privaten Netzwerkzugriff für diesen Proxy erlauben",
+      "scope": "Der Proxy muss vom Backend/Container erreichbar sein. Nur HTTP CONNECT; OAuth und anderer HTTP-Verkehr bleiben unverändert. Gewählte Proxyverbindungen scheitern, wenn der Proxy deaktiviert oder nicht erreichbar ist.",
+      "saving": "Wird gespeichert…",
+      "save": "Proxy speichern",
+      "saved": "Gespeichert. Betroffene IMAP-Verbindungen werden neu aufgebaut.",
+      "unavailable": "Der Administrator hat keinen Proxy aktiviert. Gewählte Proxyverbindungen werden scheitern.",
+      "useFor": "Proxy für {{protocol}} verwenden",
+      "mode": "Verbindungsmodus",
+      "direct": "Direktverbindung",
+      "proxy": "HTTP-CONNECT-Proxy",
+      "blocked": "Blockiert: Proxy nicht verfügbar",
+      "test": "{{protocol}}-Verbindung testen",
+      "testPassed": "{{protocol}}-Verbindung erfolgreich ({{mode}}).",
+      "testSaved": "Tests verwenden gespeicherte Einstellungen. Änderungen zuerst speichern. SMTP authentifiziert ohne E-Mail-Versand."
     }
   },
   "blockList": {

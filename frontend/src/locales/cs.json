@@ -1824,6 +1824,32 @@
       "remove": "Odebrat",
       "add": "Přidat akci",
       "count": "Počet akcí: {{n}} z {{max}}"
+    },
+    "mailProxy": {
+      "title": "Proxy odchozích poštovních spojení",
+      "description": "Nastavte proxy serveru a vyberte IMAP a SMTP samostatně pro každý účet.",
+      "enabled": "Zapnout proxy",
+      "type": "Typ proxy serveru",
+      "host": "Hostitel proxy serveru",
+      "port": "Port proxy serveru",
+      "username": "Uživatel proxy (volitelné)",
+      "password": "Heslo proxy (volitelné)",
+      "keepSecret": "Uloženo; ponechte beze změn",
+      "secretHelp": "Uložené přihlašovací údaje se nevracejí. Ponechte pole beze změn nebo upravené pole vymažte pro odstranění.",
+      "allowPrivate": "Povolit tento proxy v soukromé síti",
+      "scope": "Proxy musí být dostupné ze serveru/kontejneru. Pouze HTTP CONNECT; OAuth a ostatní požadavky HTTP používají dosavadní cesty. Vybraná spojení selžou, pokud je proxy vypnuté nebo nedostupné.",
+      "saving": "Ukládání…",
+      "save": "Uložit proxy",
+      "saved": "Uloženo. Obnovují se dotčená spojení IMAP.",
+      "unavailable": "Správce nezapnul proxy. Vybraná spojení selžou.",
+      "useFor": "Použít proxy pro {{protocol}}",
+      "mode": "Režim připojení",
+      "direct": "Přímé připojení",
+      "proxy": "Proxy pomocí HTTP CONNECT",
+      "blocked": "Blokováno: proxy není dostupné",
+      "test": "Otestovat připojení {{protocol}}",
+      "testPassed": "Připojení {{protocol}} funguje ({{mode}}).",
+      "testSaved": "Testy používají uložená nastavení. Nejprve uložte změny. SMTP ověřuje přihlášení bez odesílání zpráv."
     }
   },
   "diagnostics": {

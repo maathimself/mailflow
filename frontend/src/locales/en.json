@@ -1631,6 +1631,32 @@
       "empty": "No plugins are available in this build.",
       "error": "Couldn't update the plugin. Please try again.",
       "configureIn": "Configure options in {{location}}"
+    },
+    "mailProxy": {
+      "title": "Outbound mail proxy",
+      "description": "Configure one backend proxy, then choose IMAP and SMTP separately in each account.",
+      "enabled": "Enable proxy",
+      "type": "Proxy type",
+      "host": "Proxy host",
+      "port": "Proxy port",
+      "username": "Proxy username (optional)",
+      "password": "Proxy password (optional)",
+      "keepSecret": "Stored; leave untouched to keep",
+      "secretHelp": "Stored credentials are never returned. Leave untouched to keep them, or clear an edited field to remove it.",
+      "allowPrivate": "Allow this proxy endpoint on a private network",
+      "scope": "The proxy must be reachable from the backend/container. HTTP CONNECT only; OAuth refresh and other HTTP traffic use their existing routes. Selected accounts fail if the proxy is disabled or unavailable.",
+      "saving": "Saving…",
+      "save": "Save proxy",
+      "saved": "Saved. Affected IMAP connections are reconnecting.",
+      "unavailable": "The administrator has not enabled a proxy. Selected proxy connections will fail.",
+      "useFor": "Use proxy for {{protocol}}",
+      "mode": "Connection mode",
+      "direct": "Direct",
+      "proxy": "HTTP CONNECT proxy",
+      "blocked": "Blocked: proxy unavailable",
+      "test": "Test {{protocol}} connection",
+      "testPassed": "{{protocol}} connection successful ({{mode}}).",
+      "testSaved": "Tests use saved account and proxy settings. Save changes first. SMTP testing authenticates without sending email."
     }
   },
   "blockList": {

@@ -18,6 +18,7 @@
  *   to t()), add it to DYNAMIC_KEYS so the test does not flag it:
  *
  *     const DYNAMIC_KEYS = new Set([
+  ...['host', 'port', 'username', 'password', 'direct', 'proxy', 'blocked'].map(k => `admin.mailProxy.${k}`),
  *       'admin.tabs.accounts',   // t(tab.labelKey) where labelKey is set at runtime
  *     ]);
  *
@@ -115,6 +116,8 @@ const dir = dirname(fileURLToPath(import.meta.url));
 // Two locales sharing a value is only allowed if both appear in the same group.
 // Any unlisted pair will still fail.
 const SAME_VALUE_ALLOWED = {
+  'admin.mailProxy.useFor': [['es', 'ptBR']],
+
   // ── Universal placeholders / brand names (all locales share) ───────────────
   'admin.about.kofi':                       'any', // Ko-fi — brand name, same everywhere
   'admin.about.githubSponsors':             'any', // GitHub Sponsors — product name, same everywhere
@@ -585,6 +588,7 @@ const LOCALE_SPECIFIC_KEYS = new Set(
 // found by a plain text search of the source. Add here to suppress false
 // "unused key" failures.
 const DYNAMIC_KEYS = new Set([
+  ...['host', 'port', 'username', 'password', 'direct', 'proxy', 'blocked'].map(k => `admin.mailProxy.${k}`),
   // t(`shortcuts.visibleMailbox.${kind}`) — numbered mailbox text shares a template.
   'shortcuts.visibleMailbox.label',
   'shortcuts.visibleMailbox.description',
@@ -651,6 +655,8 @@ const I18N_ATTRS = ['title', 'placeholder', 'aria-label', 'alt'];
 // Plain strings that are intentionally NOT translated (technical terms,
 // brand names, format placeholders). Add with a comment explaining why.
 const HARDCODED_OK = new Set([
+  'HTTP CONNECT', // Standard proxy protocol name.
+
   // CSS/DOM placeholder for a variable-name input field — not a sentence
   'value',
   // Tooltip label for a rich-text editor colour input — purely visual affordance,

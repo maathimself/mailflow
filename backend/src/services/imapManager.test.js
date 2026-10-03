@@ -4443,3 +4443,47 @@ describe('permanentDeleteMessage with expectMessageId', () => {
     expect(client.messageDelete).toHaveBeenCalledWith('7', { uid: true });
   });
 });
+
+
+describe('IMAP proxy destination pinning (#539)', () => {
+  it('uses a validated address for CONNECT while retaining original TLS identity', () => {
+    const resolved = { host: '203.0.113.5', servername: 'imap.example.com', lookup: () => {} };
+    const cfg = makeClientCfg(baseAccount, resolved, { policy: { mailProxyUrl: 'http://127.0.0.1:8080' } });
+    expect(cfg.host).toBe('203.0.113.5');
+    expect(cfg.proxy).toBe('http://127.0.0.1:8080');
+    expect(cfg.tls.servername).toBe('imap.example.com');
+    expect(cfg.tls.rejectUnauthorized).toBe(true);
+    expect(makeClientCfg(baseAccount, resolved).proxy).toBeUndefined();
+  });
+});
+
+describe('proxy settings reconnect lifecycle', () => {
+  afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
+  it('waits for an in-progress connect, tears down sessions and pools, then reloads the latest account', async () => {
+    vi.useFakeTimers();
+    const mgr = new ImapManager(null);
+    const fresh = { id: 'proxy-account', protocol: 'imap', enabled: true, imap_use_proxy: false };
+    mgr.connectingAccounts.add(fresh.id);
+    vi.spyOn(mgr, 'disconnectAccount').mockResolvedValue();
+    vi.spyOn(mgr, 'clearConnectCooldown').mockImplementation(() => {});
+    vi.spyOn(mgr, 'connectAccount').mockResolvedValue(true);
+    query.mockResolvedValueOnce({ rows: [fresh] });
+    const reconnect = mgr.reconnectAccount(fresh.id);
+    expect(mgr.disconnectAccount).not.toHaveBeenCalled();
+    mgr.connectingAccounts.delete(fresh.id);
+    await vi.advanceTimersByTimeAsync(100);
+    await reconnect;
+    expect(mgr.disconnectAccount).toHaveBeenCalledWith(fresh.id);
+    expect(mgr.connectAccount).toHaveBeenCalledWith(fresh);
+    expect(mgr.clearConnectCooldown).toHaveBeenCalledWith(fresh.id);
+  });
+  it('does not reconnect an account disabled while a settings change is queued', async () => {
+    const mgr = new ImapManager(null);
+    vi.spyOn(mgr, 'disconnectAccount').mockResolvedValue();
+    vi.spyOn(mgr, 'connectAccount').mockResolvedValue();
+    query.mockResolvedValueOnce({ rows: [{ id: 'proxy-account', protocol: 'imap', enabled: false }] });
+    await mgr.reconnectAccount('proxy-account');
+    expect(mgr.disconnectAccount).toHaveBeenCalled();
+    expect(mgr.connectAccount).not.toHaveBeenCalled();
+  });
+});

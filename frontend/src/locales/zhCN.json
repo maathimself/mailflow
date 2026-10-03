@@ -1631,6 +1631,32 @@
       "empty": "此版本中没有可用的插件。",
       "error": "无法更新插件，请重试。",
       "configureIn": "在「{{location}}」中配置选项"
+    },
+    "mailProxy": {
+      "title": "出站邮件代理",
+      "description": "配置一个后台代理，然后在每个邮箱中分别选择 IMAP 和 SMTP 是否使用代理。",
+      "enabled": "启用代理",
+      "type": "代理类型",
+      "host": "代理主机",
+      "port": "代理端口",
+      "username": "代理用户名（可选）",
+      "password": "代理密码（可选）",
+      "keepSecret": "已保存；不修改则保留",
+      "secretHelp": "已保存的凭据不会返回。不修改则保留；修改后清空字段可移除。",
+      "allowPrivate": "允许此代理端点位于私有网络",
+      "scope": "代理必须能从后台／容器访问。仅支持 HTTP CONNECT；OAuth 刷新及其他 HTTP 请求仍使用原有路径。选择代理的邮箱在代理关闭或不可用时会报错。",
+      "saving": "正在保存…",
+      "save": "保存代理",
+      "saved": "已保存，受影响的 IMAP 连接正在重新连接。",
+      "unavailable": "管理员尚未启用代理。选择代理的连接将失败。",
+      "useFor": "{{protocol}} 使用代理",
+      "mode": "连接方式",
+      "direct": "直连",
+      "proxy": "HTTP CONNECT 代理",
+      "blocked": "无法连接：代理不可用",
+      "test": "测试 {{protocol}} 连接",
+      "testPassed": "{{protocol}} 连接成功（{{mode}}）。",
+      "testSaved": "测试使用已保存的邮箱及代理配置，请先保存修改。SMTP 测试仅验证登录，不发送邮件。"
     }
   },
   "blockList": {

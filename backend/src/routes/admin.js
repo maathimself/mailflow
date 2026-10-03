@@ -11,6 +11,8 @@ import { imapManager } from '../index.js';
 import { stopCardavUser } from '../services/carddavSync.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { uuidParam } from '../utils/uuid.js';
+import { getMailProxySettings, publicMailProxySettings, prepareMailProxySettings, MAIL_PROXY_KEY, getAccountProxyUrl, assertProxyDestination } from '../services/mailProxy.js';
+import { reconnectQueue } from '../utils/accountReconnectQueue.js';
 
 const router = Router();
 router.use(requireAdmin);
@@ -101,8 +103,36 @@ router.delete('/users/:id', async (req, res) => {
 router.get('/settings', async (req, res) => {
   const result = await query('SELECT key, value FROM system_settings');
   const settings = {};
-  for (const row of result.rows) settings[row.key] = row.value;
+  for (const row of result.rows) {
+    if (row.key !== MAIL_PROXY_KEY) settings[row.key] = row.value;
+  }
   res.json({ settings });
+});
+
+router.get('/mail-proxy', async (_req, res) => {
+  res.json(publicMailProxySettings(await getMailProxySettings()));
+});
+
+router.put('/mail-proxy', async (req, res) => {
+  const previous = await getMailProxySettings();
+  let settings;
+  try {
+    settings = await prepareMailProxySettings(req.body, previous);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+  if (JSON.stringify(settings) === JSON.stringify(previous)) return res.json(publicMailProxySettings(settings));
+  await query(
+    `INSERT INTO system_settings (key, value, updated_at) VALUES ($1, $2, NOW())
+     ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()`,
+    [MAIL_PROXY_KEY, JSON.stringify(settings)]
+  );
+  const affected = await query('SELECT id FROM email_accounts WHERE imap_use_proxy = true');
+  for (const { id } of affected.rows) {
+    reconnectQueue(id, () => imapManager.reconnectAccount(id))
+      .catch(() => console.error(`Failed to reconnect account ${id} after proxy change`));
+  }
+  res.json(publicMailProxySettings(settings));
 });
 
 router.get('/auth-events', async (req, res) => {
@@ -334,9 +364,12 @@ router.post('/invites', async (req, res) => {
         }
         const policy = await getConnectionPolicy();
         const acctResolved = await resolveForConnection(account.smtp_host, { allowPrivate: policy.allowPrivateHosts });
+        const proxy = await getAccountProxyUrl(account, 'smtp');
+        if (proxy) assertProxyDestination(acctResolved);
         const acctTls = { rejectUnauthorized: policy.allowInsecureTls ? !account.imap_skip_tls_verify : true };
         if (acctResolved.servername) acctTls.servername = acctResolved.servername;
         transport = createSmtpTransport(acctResolved, {
+          ...(proxy ? { proxy } : {}),
           port: account.smtp_port,
           secure: account.smtp_port === 465,
           auth: smtpAuth,

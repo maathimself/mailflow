@@ -1,3 +1,4 @@
+import MailProxySettings, { AccountProxySettings } from './MailProxySettings.jsx';
 import { useCallback, useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
@@ -367,6 +368,7 @@ function AccountForm({ initial, onSave, onCancel }) {
       <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 10, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
         {t('admin.accounts.signatureSection')}
       </div>
+      <AccountProxySettings form={form} set={set} accountId={initial?.id} savedAccount={initial} />
       <SignatureEditor
         value={form.signature || ''}
         onChange={val => set('signature', val)}
@@ -602,6 +604,8 @@ function AccountsTab() {
 
   const handleEdit = async (form) => {
     const updates = { name: form.name, sender_name: form.sender_name || null, color: form.color, imap_host: form.imap_host, imap_port: form.imap_port, imap_skip_tls_verify: !!form.imap_skip_tls_verify, smtp_host: form.smtp_host, smtp_port: form.smtp_port, smtp_tls: form.smtp_tls, signature: form.signature || null, categorization_enabled: !!form.categorization_enabled, antispam_enabled: !!form.antispam_enabled, trusted_authserv_id: (form.trusted_authserv_id || '').trim() || null, include_in_unified_inbox: form.include_in_unified_inbox !== false };
+    updates.imap_use_proxy = !!form.imap_use_proxy;
+    updates.smtp_use_proxy = !!form.smtp_use_proxy;
     Object.assign(updates, autoRecipientFields(form));
     if (form.auth_pass) updates.auth_pass = form.auth_pass;
     if (form.auth_user) updates.auth_user = form.auth_user;
@@ -8070,6 +8074,8 @@ function SecurityTab() {
           ))}
         </div>
       )}
+
+      {user?.isAdmin && <MailProxySettings />}
 
       {/* Status card */}
       <div style={{

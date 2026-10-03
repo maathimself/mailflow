@@ -1650,6 +1650,32 @@
       "empty": "Brak wtyczek w tej wersji.",
       "error": "Nie udało się zaktualizować wtyczki. Spróbuj ponownie.",
       "configureIn": "Skonfiguruj opcje w {{location}}"
+    },
+    "mailProxy": {
+      "title": "Serwer proxy połączeń pocztowych",
+      "description": "Skonfiguruj proxy zaplecza, a następnie wybierz IMAP i SMTP osobno dla każdego konta.",
+      "enabled": "Włącz proxy",
+      "type": "Typ serwera proxy",
+      "host": "Host serwera proxy",
+      "port": "Port serwera proxy",
+      "username": "Użytkownik proxy (opcjonalnie)",
+      "password": "Hasło proxy (opcjonalnie)",
+      "keepSecret": "Zapisano; pozostaw bez zmian",
+      "secretHelp": "Zapisane dane logowania nie są zwracane. Pozostaw pole bez zmian lub wyczyść edytowane pole, aby je usunąć.",
+      "allowPrivate": "Zezwalaj temu proxy na sieć prywatną",
+      "scope": "Proxy musi być dostępne z zaplecza/kontenera. Tylko HTTP CONNECT; OAuth i inne żądania HTTP zachowują dotychczasowe trasy. Wybrane połączenia nie działają, jeśli proxy jest wyłączone lub niedostępne.",
+      "saving": "Zapisywanie…",
+      "save": "Zapisz proxy",
+      "saved": "Zapisano. Ponowne łączenie sesji IMAP.",
+      "unavailable": "Administrator nie włączył proxy. Wybrane połączenia zakończą się błędem.",
+      "useFor": "Używaj proxy dla {{protocol}}",
+      "mode": "Tryb połączenia",
+      "direct": "Połączenie bezpośrednie",
+      "proxy": "Proxy przez HTTP CONNECT",
+      "blocked": "Zablokowano: proxy niedostępne",
+      "test": "Sprawdź połączenie {{protocol}}",
+      "testPassed": "Połączenie {{protocol}} działa ({{mode}}).",
+      "testSaved": "Testy używają zapisanych ustawień. Najpierw zapisz zmiany. SMTP sprawdza logowanie bez wysyłania wiadomości."
     }
   },
   "blockList": {

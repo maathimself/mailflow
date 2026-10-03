@@ -9,15 +9,12 @@ import { validateHost } from '../services/hostValidation.js';
 import { getConnectionPolicy } from '../services/connectionPolicy.js';
 import { normalizeAuthservId } from '../services/spamParser.js';
 import { pluginRegistry } from '../plugins/registry.js';
-import { createKeyedSerializer } from '../utils/keyedSerializer.js';
+import { reconnectQueue } from '../utils/accountReconnectQueue.js';
+import { getMailProxySettings, mailConnectionError } from '../services/mailProxy.js';
+import { testAccountImapConnection } from '../services/imapManager.js';
+import { createAccountSmtpTransport } from '../services/smtpTransport.js';
 import { uuidParam } from '../utils/uuid.js';
 import { normalizeAddressList } from '../utils/addressList.js';
-
-// Serialize an account's reconnect triggers so a rapid settings change (e.g. a
-// gtd_enabled double-toggle) can't fire two overlapping disconnect→connect chains —
-// connectAccount's in-progress guard would drop the second and leave the GTD sync
-// tick armed inconsistently with the final DB value. Queued per account id.
-const reconnectQueue = createKeyedSerializer();
 
 const ALLOWED_IMAP_PORTS = new Set([143, 993]);
 const ALLOWED_SMTP_PORTS = new Set([465, 587]);
@@ -52,7 +49,7 @@ router.param('aliasId', uuidParam('aliasId'));
 export const SAFE_FIELDS = [
   'id', 'name', 'sender_name', 'email_address', 'color', 'protocol',
   'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify',
-  'smtp_host', 'smtp_port', 'smtp_tls',
+  'smtp_host', 'smtp_port', 'smtp_tls', 'imap_use_proxy', 'smtp_use_proxy',
   'auth_user', 'smtp_auth_user', 'oauth_provider', 'enabled',
   'include_in_unified_inbox',
   'last_sync', 'sync_error', 'sort_order', 'folder_mappings',
@@ -61,7 +58,7 @@ export const SAFE_FIELDS = [
 ];
 // Columns PUT /:id may write. The settings form sends back what GET returned, so every
 // non-secret one must be in SAFE_FIELDS or saving an unrelated edit would write it as empty.
-export const ACCOUNT_UPDATE_FIELDS = ['name', 'sender_name', 'color', 'enabled', 'include_in_unified_inbox', 'auth_user', 'auth_pass', 'sort_order', 'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify', 'smtp_host', 'smtp_port', 'smtp_tls', 'smtp_auth_user', 'smtp_auth_pass', 'folder_mappings', 'signature', 'categorization_enabled', 'antispam_enabled', 'trusted_authserv_id', 'auto_cc_addresses', 'auto_bcc_addresses'];
+export const ACCOUNT_UPDATE_FIELDS = ['name', 'sender_name', 'color', 'enabled', 'include_in_unified_inbox', 'auth_user', 'auth_pass', 'sort_order', 'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify', 'smtp_host', 'smtp_port', 'smtp_tls', 'smtp_auth_user', 'smtp_auth_pass', 'folder_mappings', 'signature', 'categorization_enabled', 'antispam_enabled', 'trusted_authserv_id', 'auto_cc_addresses', 'auto_bcc_addresses', 'imap_use_proxy', 'smtp_use_proxy'];
 function safeAccount(row) {
   const obj = Object.fromEntries(SAFE_FIELDS.map(k => [k, row[k]]));
   // Sanitize on read so legacy values stored before the write-time sanitizer are safe
@@ -108,16 +105,44 @@ router.get('/', async (req, res) => {
   res.json(enriched);
 });
 
+router.get('/proxy-status', async (_req, res) => {
+  const settings = await getMailProxySettings();
+  res.json({ enabled: settings.enabled });
+});
+
+router.post('/:id/test-connection', async (req, res) => {
+  const { protocol } = req.body;
+  if (!['imap', 'smtp'].includes(protocol)) return res.status(400).json({ error: 'Choose IMAP or SMTP' });
+  const result = await query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [req.params.id, req.session.userId]);
+  if (!result.rows.length) return res.status(404).json({ error: 'Account not found' });
+  const account = result.rows[0];
+  try {
+    if (protocol === 'imap') await testAccountImapConnection(account);
+    else {
+      const smtp = await createAccountSmtpTransport(account);
+      if (smtp.error) return res.status(smtp.status).json({ error: smtp.error, stage: 'provider' });
+      await smtp.transport.verify();
+    }
+    res.json({ ok: true, mode: account[`${protocol}_use_proxy`] ? 'proxy' : 'direct' });
+  } catch (err) {
+    res.status(502).json(mailConnectionError(err));
+  }
+});
+
 router.post('/', async (req, res) => {
   const {
     name, sender_name = null, email_address, color = '#6366f1', protocol = 'imap',
     imap_host, imap_port = 993, imap_skip_tls_verify = false,
+    imap_use_proxy = false, smtp_use_proxy = false,
     smtp_host, smtp_port = 587, smtp_tls = 'STARTTLS',
     auth_user, auth_pass, smtp_auth_user = null, smtp_auth_pass = null,
     oauth_provider, oauth_access_token, oauth_refresh_token,
     signature = null
   } = req.body;
 
+  if (typeof imap_use_proxy !== 'boolean' || typeof smtp_use_proxy !== 'boolean') {
+    return res.status(400).json({ error: 'Proxy selections must be boolean' });
+  }
   if (!name || !email_address) return res.status(400).json({ error: 'Name and email required' });
   if (hasHeaderInjectionChars(name) || hasHeaderInjectionChars(email_address)) {
     return res.status(400).json({ error: 'Name and email address cannot contain control characters' });
@@ -145,15 +170,15 @@ router.post('/', async (req, res) => {
         user_id, name, sender_name, email_address, color, protocol,
         imap_host, imap_port, imap_tls, imap_skip_tls_verify, smtp_host, smtp_port, smtp_tls,
         auth_user, auth_pass, smtp_auth_user, smtp_auth_pass, oauth_provider, oauth_access_token, oauth_refresh_token,
-        signature
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+        signature, imap_use_proxy, smtp_use_proxy
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
       RETURNING *
     `, [
       req.session.userId, name, sender_name || null, email_address, color, protocol,
       imap_host, imap_port, Number(imap_port) % 1000 === 993, !!imap_skip_tls_verify, smtp_host, smtp_port, smtp_tls,
       auth_user, encrypt(auth_pass), smtp_auth_user || null, encrypt(smtp_auth_pass) || null,
       oauth_provider, encrypt(oauth_access_token), encrypt(oauth_refresh_token),
-      sanitizeSignature(signature) || null
+      sanitizeSignature(signature) || null, imap_use_proxy, smtp_use_proxy
     ]);
 
     const account = result.rows[0];
@@ -204,6 +229,12 @@ router.put('/:id', async (req, res) => {
     if (!policy.allowNonstandardPorts) {
       const err = validatePort(updates.smtp_port, ALLOWED_SMTP_PORTS);
       if (err) return res.status(400).json({ error: `SMTP: ${err}` });
+    }
+  }
+
+  for (const key of ['imap_use_proxy', 'smtp_use_proxy']) {
+    if (key in updates && typeof updates[key] !== 'boolean') {
+      return res.status(400).json({ error: 'Proxy selections must be boolean' });
     }
   }
 
@@ -321,6 +352,7 @@ router.put('/:id', async (req, res) => {
     'imap_port' in updates ||
     'imap_tls' in updates ||
     'imap_skip_tls_verify' in updates ||
+    'imap_use_proxy' in updates ||
     pluginRequiresReconnect
   );
 
@@ -336,9 +368,7 @@ router.put('/:id', async (req, res) => {
     // would sit unused until that expired.
     imapManager.clearConnectCooldown(id);
     reconnectQueue(id, () =>
-      imapManager.disconnectAccount(id)
-        .then(() => query('SELECT * FROM email_accounts WHERE id = $1', [id]))
-        .then(r => { if (r.rows.length) return imapManager.connectAccount(r.rows[0]); })
+      imapManager.reconnectAccount(id)
     ).catch(err => console.error(`Failed to reconnect account ${id} after update:`, err.message));
   }
 });

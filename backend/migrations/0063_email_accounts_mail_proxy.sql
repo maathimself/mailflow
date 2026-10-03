@@ -1,0 +1,2 @@
+ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS imap_use_proxy BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS smtp_use_proxy BOOLEAN NOT NULL DEFAULT false;

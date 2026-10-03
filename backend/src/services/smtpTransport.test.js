@@ -3,9 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('nodemailer', () => ({ default: { createTransport: vi.fn() } }));
 vi.mock('../routes/oauth.js', () => ({ refreshMicrosoftToken: vi.fn(), refreshGoogleToken: vi.fn() }));
 vi.mock('./encryption.js', () => ({ decrypt: vi.fn(v => v) }));
+vi.mock('./mailProxy.js', () => ({ getAccountProxyUrl: vi.fn(), assertProxyDestination: vi.fn(), mailConnectionError: () => ({ stage: 'proxy', error: 'Proxy connection failed' }) }));
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
 vi.mock('./hostValidation.js', () => ({ resolveForConnection: vi.fn() }));
 
+const { getAccountProxyUrl } = await import('./mailProxy.js');
 const nodemailer = (await import('nodemailer')).default;
 const { refreshMicrosoftToken, refreshGoogleToken } = await import('../routes/oauth.js');
 const { getConnectionPolicy } = await import('./connectionPolicy.js');
@@ -300,5 +302,28 @@ describe('smtpClientName (#492)', () => {
     [{}],
   ])('leaves nodemailer\'s default alone for %j', (env) => {
     expect(smtpClientName(env)).toBeUndefined();
+  });
+});
+
+
+describe('SMTP proxy routing (#539)', () => {
+  it('proxies verify and send to validated addresses, preserves SNI, and does not retry a send', async () => {
+    const failure = Object.assign(new Error('proxy http://secret@host'), { code: 'EPROXY', command: 'CONN' });
+    const verify = vi.fn().mockResolvedValue(true);
+    const sendMail = vi.fn().mockRejectedValue(failure);
+    const createTransport = vi.fn(() => ({ verify, sendMail, close: vi.fn() }));
+    const transport = createSmtpTransport(resolved, { proxy: 'http://127.0.0.1:8080', tls: { servername: resolved.servername, rejectUnauthorized: true } }, createTransport);
+    await transport.verify();
+    await expect(transport.sendMail({})).rejects.toMatchObject({ stage: 'proxy', message: 'Proxy connection failed' });
+    expect(sendMail).toHaveBeenCalledTimes(1);
+    expect(createTransport).toHaveBeenCalledTimes(2);
+    expect(createTransport.mock.calls[0][0]).toMatchObject({ host: resolved.host, proxy: 'http://127.0.0.1:8080', tls: { servername: resolved.servername, rejectUnauthorized: true } });
+  });
+  it('loads the SMTP selection before returning an account transport', async () => {
+    getAccountProxyUrl.mockResolvedValueOnce('http://127.0.0.1:8080');
+    const result = await createAccountSmtpTransport({ smtp_host: 'smtp.example.com', smtp_port: 465, smtp_tls: 'SSL', auth_user: 'a', auth_pass: 'b', smtp_use_proxy: true });
+    await result.transport.sendMail({});
+    expect(getAccountProxyUrl).toHaveBeenLastCalledWith(expect.objectContaining({ smtp_use_proxy: true }), 'smtp');
+    expect(nodemailer.createTransport).toHaveBeenLastCalledWith(expect.objectContaining({ proxy: 'http://127.0.0.1:8080' }));
   });
 });

@@ -1,3 +1,4 @@
+import { getAccountProxyUrl, assertProxyDestination } from '../services/mailProxy.js';
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
@@ -1080,9 +1081,12 @@ router.post('/forgot-password', authLimiter, async (req, res) => {
           }
           const policy = await getConnectionPolicy();
           const acctResolved = await resolveForConnection(acct.smtp_host, { allowPrivate: policy.allowPrivateHosts });
+          const proxy = await getAccountProxyUrl(acct, 'smtp');
+          if (proxy) assertProxyDestination(acctResolved);
           const acctTls = { rejectUnauthorized: policy.allowInsecureTls ? !acct.imap_skip_tls_verify : true };
           if (acctResolved.servername) acctTls.servername = acctResolved.servername;
           transport = createSmtpTransport(acctResolved, {
+            ...(proxy ? { proxy } : {}),
             port: acct.smtp_port,
             secure: acct.smtp_port === 465,
             auth: smtpAuth, tls: acctTls,

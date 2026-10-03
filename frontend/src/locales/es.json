@@ -1631,6 +1631,32 @@
       "empty": "No hay complementos disponibles en esta versión.",
       "error": "No se pudo actualizar el complemento. Inténtalo de nuevo.",
       "configureIn": "Configura las opciones en {{location}}"
+    },
+    "mailProxy": {
+      "title": "Proxy de correo saliente",
+      "description": "Configura un proxy del servidor y elige IMAP y SMTP por separado en cada cuenta.",
+      "enabled": "Activar proxy",
+      "type": "Tipo de proxy",
+      "host": "Servidor del proxy",
+      "port": "Puerto del proxy",
+      "username": "Usuario del proxy (opcional)",
+      "password": "Contraseña del proxy (opcional)",
+      "keepSecret": "Guardado; dejar sin cambios",
+      "secretHelp": "Las credenciales guardadas nunca se devuelven. Déjalas sin cambios para conservarlas o vacía un campo editado para eliminarlas.",
+      "allowPrivate": "Permitir este proxy en una red privada",
+      "scope": "El proxy debe ser accesible desde el servidor/contenedor. Solo HTTP CONNECT; OAuth y otras peticiones HTTP mantienen sus rutas. Las conexiones elegidas fallan si el proxy está desactivado o no disponible.",
+      "saving": "Guardando…",
+      "save": "Guardar proxy",
+      "saved": "Guardado. Reconectando las sesiones IMAP afectadas.",
+      "unavailable": "El administrador no ha activado un proxy. Las conexiones seleccionadas fallarán.",
+      "useFor": "Usar proxy para {{protocol}}",
+      "mode": "Modo de conexión",
+      "direct": "Conexión directa",
+      "proxy": "Proxy mediante HTTP CONNECT",
+      "blocked": "Bloqueado: proxy no disponible",
+      "test": "Probar conexión {{protocol}}",
+      "testPassed": "Conexión {{protocol}} correcta ({{mode}}).",
+      "testSaved": "Las pruebas usan la configuración guardada. Guarda primero los cambios. SMTP autentica sin enviar correo."
     }
   },
   "blockList": {

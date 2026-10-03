@@ -1631,6 +1631,32 @@
       "empty": "Aucune extension n'est disponible dans cette version.",
       "error": "Impossible de mettre à jour l'extension. Veuillez réessayer.",
       "configureIn": "Configurer les options dans {{location}}"
+    },
+    "mailProxy": {
+      "title": "Proxy de courrier sortant",
+      "description": "Configurez un proxy côté serveur, puis choisissez IMAP et SMTP séparément pour chaque compte.",
+      "enabled": "Activer le proxy",
+      "type": "Type de proxy",
+      "host": "Hôte du proxy",
+      "port": "Port du proxy",
+      "username": "Identifiant du proxy (facultatif)",
+      "password": "Mot de passe du proxy (facultatif)",
+      "keepSecret": "Enregistré ; laisser inchangé",
+      "secretHelp": "Les identifiants enregistrés ne sont jamais renvoyés. Laissez les champs inchangés pour les conserver ou videz un champ modifié pour les supprimer.",
+      "allowPrivate": "Autoriser ce proxy sur un réseau privé",
+      "scope": "Le proxy doit être accessible depuis le serveur/conteneur. HTTP CONNECT uniquement ; OAuth et les autres requêtes HTTP conservent leurs chemins. Les connexions choisies échouent si le proxy est désactivé ou indisponible.",
+      "saving": "Enregistrement…",
+      "save": "Enregistrer le proxy",
+      "saved": "Enregistré. Reconnexion des sessions IMAP concernées.",
+      "unavailable": "Aucun proxy activé par l’administrateur. Les connexions via proxy échoueront.",
+      "useFor": "Utiliser le proxy pour {{protocol}}",
+      "mode": "Mode de connexion",
+      "direct": "Connexion directe",
+      "proxy": "Proxy HTTP CONNECT",
+      "blocked": "Bloqué : proxy indisponible",
+      "test": "Tester la connexion {{protocol}}",
+      "testPassed": "Connexion {{protocol}} réussie ({{mode}}).",
+      "testSaved": "Les tests utilisent les paramètres enregistrés. Enregistrez vos modifications. Le test SMTP authentifie sans envoyer de message."
     }
   },
   "blockList": {

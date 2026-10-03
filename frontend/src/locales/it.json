@@ -1631,6 +1631,32 @@
       "empty": "Nessun plugin disponibile in questa versione.",
       "error": "Impossibile aggiornare il plugin. Riprova.",
       "configureIn": "Configura le opzioni in {{location}}"
+    },
+    "mailProxy": {
+      "title": "Proxy per la posta in uscita",
+      "description": "Configura un proxy del server, poi scegli IMAP e SMTP separatamente per ogni account.",
+      "enabled": "Abilita proxy",
+      "type": "Tipo del proxy",
+      "host": "Host del proxy",
+      "port": "Porta del proxy",
+      "username": "Nome utente del proxy (facoltativo)",
+      "password": "Password del proxy (facoltativa)",
+      "keepSecret": "Salvato; lasciare invariato",
+      "secretHelp": "Le credenziali salvate non vengono restituite. Lasciale invariate per conservarle o svuota un campo modificato per rimuoverle.",
+      "allowPrivate": "Consenti questo proxy su una rete privata",
+      "scope": "Il proxy deve essere raggiungibile dal server/container. Solo HTTP CONNECT; OAuth e le altre richieste HTTP mantengono i percorsi esistenti. Le connessioni selezionate falliscono se il proxy è disabilitato o non disponibile.",
+      "saving": "Salvataggio…",
+      "save": "Salva proxy",
+      "saved": "Salvato. Riconnessione delle sessioni IMAP interessate.",
+      "unavailable": "L’amministratore non ha abilitato un proxy. Le connessioni selezionate falliranno.",
+      "useFor": "Usa proxy per {{protocol}}",
+      "mode": "Modalità di connessione",
+      "direct": "Connessione diretta",
+      "proxy": "Proxy tramite HTTP CONNECT",
+      "blocked": "Bloccato: proxy non disponibile",
+      "test": "Verifica connessione {{protocol}}",
+      "testPassed": "Connessione {{protocol}} riuscita ({{mode}}).",
+      "testSaved": "I test usano le impostazioni salvate. Salva prima le modifiche. SMTP autentica senza inviare messaggi."
     }
   },
   "blockList": {

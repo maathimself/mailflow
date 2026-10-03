@@ -497,6 +497,33 @@ Then follow the steps for your account type:
 3. In Integrations → Microsoft 365, enter the Client ID, Tenant ID, Client Secret,
    and Redirect URI, then save and click **Connect Microsoft account**.
 
+### Outbound mail proxy
+
+Administrators can configure one **HTTP CONNECT** proxy under **Settings → Security →
+Outbound mail proxy**. Enter the proxy host and port, optionally set its username and
+password, and enable it. The proxy must be reachable from the **backend/container**;
+`localhost` refers to that container. Private proxy endpoints require the explicit
+private-network checkbox. This does not relax the separate mail-server connection policy.
+
+Under **Settings → Accounts**, choose proxy use independently for IMAP and SMTP on each
+account. Existing accounts remain direct by default. Save changes, then use **Test IMAP
+connection** or **Test SMTP connection** to check the saved configuration; SMTP verification
+connects and authenticates without sending a message. The displayed connection mode refers
+to saved account settings. If a selected proxy is disabled or unavailable, that protocol
+fails rather than falling back to direct access.
+
+Proxy credentials are encrypted with `ENCRYPTION_KEY` and are not returned to the WebUI.
+Untouched credential fields retain their saved values; editing and clearing a field removes
+it. Saving proxy or IMAP routing changes reconnects affected sessions and evicts their
+connection pools. SMTP creates a fresh transport per operation, so the next send or test
+uses current settings; an already-started delivery is not retried after a proxy failure.
+
+The backend resolves and validates mail-server addresses before CONNECT, preserving private
+host restrictions and the original TLS server identity. DNS must therefore work on the
+backend even if only the proxy can reach the provider. SOCKS and HTTPS proxy endpoints are
+not supported in this first version. OAuth token refresh, other HTTP requests, and the
+separate System Email relay retain their existing routing.
+
 ### Custom IMAP
 
 Any standard IMAP/SMTP server works. Use port 993 for IMAP (TLS) and
