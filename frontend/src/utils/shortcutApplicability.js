@@ -1,3 +1,4 @@
+import { canDispatchHoveredGtdShortcut } from './gtdHoveredRow.js';
 import { resolveGtdHotkeyTarget } from './gtdHotkeys.js';
 import { selectedPickerMessage } from './labelPicker.js';
 import { topOpenMessageWindow } from './messageHotkeys.js';
@@ -18,6 +19,7 @@ export function canRunGlobalAction(action, { rightSidebarApplicable }) {
 }
 
 export function canRunSelectedAction(action, state) {
+  if (canDispatchHoveredGtdShortcut(action, state)) return true;
   if (['gtdTodo', 'gtdWatch', 'gtdDelegated', 'gtdReference', 'gtdSomeday', 'gtdDone'].includes(action)) {
     return Boolean(resolveGtdHotkeyTarget(state));
   }
