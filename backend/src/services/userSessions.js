@@ -1,10 +1,11 @@
 import { redisClient } from './redis.js';
+import { imapManager } from '../index.js';
 
 // Delete every server-side session belonging to a user (Redis-backed store, keys
-// prefixed "sess:"), so a pre-existing session can't outlive a credential change.
-// `exceptSessionId` keeps one session alive: an admin who resets their own password
-// from the Users list stays signed in on the page they did it from. Best-effort —
-// never throws to the caller.
+// prefixed "sess:"), then close the WebSockets those sessions opened, so a pre-existing
+// session can't outlive a credential change. `exceptSessionId` keeps one session alive,
+// its sockets included: an admin who resets their own password from the Users list stays
+// signed in on the page they did it from. Best-effort — never throws to the caller.
 export async function destroyUserSessions(userId, { exceptSessionId } = {}) {
   const keep = exceptSessionId ? `sess:${exceptSessionId}` : null;
   try {
@@ -22,4 +23,6 @@ export async function destroyUserSessions(userId, { exceptSessionId } = {}) {
   } catch (err) {
     console.error('destroyUserSessions failed:', err.message);
   }
+  if (exceptSessionId) imapManager.closeSockets(userId, { exceptSessionId });
+  else imapManager.closeSockets(userId);
 }

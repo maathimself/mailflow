@@ -63,6 +63,7 @@ services:
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-}
       IMAP_MAX_PERSISTENT_PER_HOST: ${IMAP_MAX_PERSISTENT_PER_HOST:-}
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-}
     depends_on:
       postgres:
         condition: service_healthy

@@ -1,4 +1,5 @@
 import React from 'react';
+import { claimAutoReload, isStaleBuildError } from '../utils/staleBuild.js';
 
 // Catches render-time exceptions so a single thrown error cannot blank the whole app.
 //
@@ -7,26 +8,51 @@ import React from 'react';
 // the failure users report as "the app stopped responding and I see a blank page" (#441),
 // and it is unactionable: the person seeing it cannot say what broke, and neither can we.
 //
-// Deliberately dependency-free. It imports nothing but React, uses inline styles with literal
+// Deliberately dependency-free. It imports nothing but React and the dependency-free
+// utils/staleBuild.js, uses inline styles with literal
 // fallbacks behind every CSS variable, and never touches the store, i18n or the API — because
 // any of those may be exactly what failed. A fallback that can itself throw is not a fallback.
 //
 // Not a substitute for fixing the underlying error. It converts an undiagnosable blank page
 // into a readable message the user can send us.
+//
+// One error is not a bug: a tab opened before a server update fails to load the screens it
+// fetches on demand (utils/staleBuild.js). That reloads into the new version by itself, once the
+// server answers, so a dropped connection never trades this page for the browser's offline page.
+const serverAnswers = () => fetch('/', { method: 'HEAD', cache: 'no-store' }).then(r => r.ok, () => false);
+const sessionStore = () => { try { return window.sessionStorage; } catch { return null; } };
+
 export default class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
-    this.state = { error: null, copied: false };
+    // staleBuild: null, or 'reloading' while it checks the server and reloads, or 'manual'.
+    this.state = { error: null, copied: false, staleBuild: null };
   }
 
   static getDerivedStateFromError(error) {
-    return { error };
+    return { error, staleBuild: isStaleBuildError(error) ? 'reloading' : null };
   }
 
   componentDidCatch(error, info) {
     // Keep the full component stack in the console for anyone with devtools open; the UI
     // below shows only the message, which is what a user can reasonably be asked to relay.
     console.error('Unhandled render error:', error, info?.componentStack);
+    if (isStaleBuildError(error)) this.reloadIntoNewBuild();
+  }
+
+  async reloadIntoNewBuild() {
+    const {
+      probeServer = serverAnswers,
+      storage = sessionStore(),
+      reloadPage = () => window.location.reload(),
+    } = this.props;
+    // The guard is claimed only once the server has answered, so time spent offline does not
+    // use up the one automatic reload.
+    if (await probeServer().catch(() => false) && claimAutoReload(storage)) {
+      reloadPage();
+      return;
+    }
+    this.setState({ staleBuild: 'manual' });
   }
 
   handleCopy = () => {
@@ -53,7 +79,7 @@ export default class ErrorBoundary extends React.Component {
   };
 
   render() {
-    const { error, copied } = this.state;
+    const { error, copied, staleBuild } = this.state;
     if (!error) return this.props.children;
 
     const button = {
@@ -73,11 +99,12 @@ export default class ErrorBoundary extends React.Component {
       }}>
         <div style={{ maxWidth: 520, width: '100%' }}>
           <h1 style={{ fontSize: 20, fontWeight: 600, margin: '0 0 8px' }}>
-            MailFlow hit an error and stopped
+            {staleBuild ? 'MailFlow has been updated' : 'MailFlow hit an error and stopped'}
           </h1>
           <p style={{ margin: '0 0 16px', fontSize: 14, lineHeight: 1.6, color: 'var(--text-secondary, #555)' }}>
-            Reloading usually clears it. If it happens again right after a server update, the
-            app and the server may be out of step — a hard reload picks up the newer version.
+            {staleBuild === 'reloading' && 'Loading the new version…'}
+            {staleBuild === 'manual' && 'This page is still running the previous version. Reload to continue. If the page does not load, check your connection.'}
+            {!staleBuild && 'Reloading usually clears it. If it happens again right after a server update, the app and the server may be out of step — a hard reload picks up the newer version.'}
           </p>
 
           <pre style={{

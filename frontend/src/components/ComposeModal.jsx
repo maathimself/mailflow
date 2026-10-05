@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, forwardRef } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, forwardRef } from 'react';
 import { shouldAutosave, isAutosaveDue } from '../utils/draftAutosave.js';
 import { useTranslation } from 'react-i18next';
 import DOMPurify from 'dompurify';
@@ -21,6 +21,7 @@ import { ComposerLink } from '../utils/editorLink.js';
 import { copyToClipboard } from '../utils/clipboard.js';
 import { resolveInitialFrom } from '../utils/defaultSender.js';
 import { initialComposeFocus, isComposeSendShortcut } from '../utils/composeFromMessage.js';
+import { autoListsOf, openAutoRecipients, replyTypeFields, swapAccountFields } from '../utils/autoRecipients.js';
 
 // Resize an image blob/file to max maxW pixels wide, preserving aspect ratio.
 // Returns a Promise<string> of a base64 data URL.
@@ -179,6 +180,15 @@ function parseChips(val) {
   return parts;
 }
 
+function resolveFrom(val) {
+  if (!val) return { accountId: '', aliasId: null };
+  if (val.startsWith('alias:')) {
+    const parts = val.split(':');
+    return { aliasId: parts[1], accountId: parts[2] };
+  }
+  return { accountId: val.replace('account:', ''), aliasId: null };
+}
+
 export default function ComposeModal() {
   const { t } = useTranslation();
   const { closeCompose, composeData, accounts, addNotification, setSelectedAccount, plaintextEmail, setThreadMessages } = useStore();
@@ -188,11 +198,37 @@ export default function ComposeModal() {
   const isReply = !!(composeData?.isReply || composeData?.isReplyAll);
   const isForward = !!composeData?.isForward;
 
+  // Precedence lives in resolveInitialFrom, which is unit tested. The rung that matters
+  // here is the configured default sender: in the unified inbox there is no selected
+  // account, so without it the composer falls through to whichever account was last sent
+  // from and drifts silently (#417).
+  const initialFromValue = () => resolveInitialFrom({
+    composeData,
+    selectedAccountId: useStore.getState().selectedAccountId,
+    defaultSender: useStore.getState().defaultSender,
+    lastUsedAccountId: localStorage.getItem('mailflow_last_from_account'),
+    accounts,
+  });
+  const [fromValue, setFromValue] = useState(initialFromValue);
+
+  // The From account's automatic Cc and Bcc (#491). The chips and their dirty baselines are both
+  // seeded from this, so an untouched composer is not an edit: no autosave, no close prompt. A
+  // reopened draft gets nothing, because its saved Cc and Bcc are what the user left.
+  const [autoInit] = useState(() => {
+    const account = accounts.find(a => a.id === resolveFrom(fromValue).accountId);
+    const opened = openAutoRecipients(
+      { to: parseChips(composeData?.to), cc: parseChips(composeData?.cc), bcc: parseChips(composeData?.bcc) },
+      autoListsOf(composeData?.draftUid != null ? null : account),
+    );
+    return { ...opened, auto: { ...opened.auto, accountId: account?.id ?? null } };
+  });
+  const autoRef = useRef(autoInit.auto);
+
   const [toChips, setToChips] = useState(() => parseChips(composeData?.to));
   const [toInput, setToInput] = useState('');
-  const [ccChips, setCcChips] = useState(() => parseChips(composeData?.cc));
+  const [ccChips, setCcChips] = useState(autoInit.cc);
   const [ccInput, setCcInput] = useState('');
-  const [bccChips, setBccChips] = useState(() => parseChips(composeData?.bcc));
+  const [bccChips, setBccChips] = useState(autoInit.bcc);
   const [bccInput, setBccInput] = useState('');
   const [subject, setSubject] = useState(() => composeData?.subject || '');
   const [body, setBody] = useState(() => composeData?.body || '');
@@ -220,47 +256,25 @@ export default function ComposeModal() {
   const initialBodyRef = useRef(composeData?.body || '');
   const initialSubjectRef = useRef(composeData?.subject || '');
   const initialToRef = useRef(normalizeTo(composeData?.to || []));
-  const initialCcRef = useRef(normalizeTo(composeData?.cc || []));
-  const initialBccRef = useRef(normalizeTo(composeData?.bcc || []));
+  const initialCcRef = useRef(normalizeTo(autoInit.cc));
+  const initialBccRef = useRef(normalizeTo(autoInit.bcc));
   // Start at fwdAttachments.length so pre-loaded forwarded attachments aren't dirty.
   const savedAttachmentCountRef = useRef((composeData?.forwardedAttachments || []).length);
   // True when the compose was opened by clicking an existing draft from the list.
   // Used by handleClose to decide whether to prompt about an unmodified draft.
   const draftWasPreExisting = useRef(composeData?.draftUid != null);
-  const [showCc, setShowCc] = useState(() => !!(composeData?.cc?.length));
-  const [showBcc, setShowBcc] = useState(() => !!(composeData?.bcc?.length));
+  const [showCc, setShowCc] = useState(autoInit.cc.length > 0);
+  const [showBcc, setShowBcc] = useState(autoInit.bcc.length > 0);
 
   // Re-apply on mount — guards against Zustand state not being ready during first render
   useEffect(() => {
     if (composeData?.to?.length) setToChips(parseChips(composeData.to));
-    if (composeData?.cc?.length) { setCcChips(parseChips(composeData.cc)); setShowCc(true); }
-    if (composeData?.bcc?.length) { setBccChips(parseChips(composeData.bcc)); setShowBcc(true); }
+    if (autoInit.cc.length) { setCcChips(autoInit.cc); setShowCc(true); }
+    if (autoInit.bcc.length) { setBccChips(autoInit.bcc); setShowBcc(true); }
     if (composeData?.subject) setSubject(composeData.subject);
     if (composeData?.body !== undefined) setBody(composeData.body);
     if (composeData?.quotedBody !== undefined) setQuotedBody(composeData.quotedBody);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps -- form initialisation runs once on mount; re-running on composeData changes would reset user edits
-
-  // Precedence lives in resolveInitialFrom, which is unit tested. The rung that matters
-  // here is the configured default sender: in the unified inbox there is no selected
-  // account, so without it the composer falls through to whichever account was last sent
-  // from and drifts silently (#417).
-  const initialFromValue = () => resolveInitialFrom({
-    composeData,
-    selectedAccountId: useStore.getState().selectedAccountId,
-    defaultSender: useStore.getState().defaultSender,
-    lastUsedAccountId: localStorage.getItem('mailflow_last_from_account'),
-    accounts,
-  });
-  const [fromValue, setFromValue] = useState(initialFromValue);
-
-  const resolveFrom = (val) => {
-    if (!val) return { accountId: '', aliasId: null };
-    if (val.startsWith('alias:')) {
-      const parts = val.split(':');
-      return { aliasId: parts[1], accountId: parts[2] };
-    }
-    return { accountId: val.replace('account:', ''), aliasId: null };
-  };
 
   const fromResolved = resolveFrom(fromValue);
   const fromAccount = accounts.find(a => a.id === fromResolved.accountId);
@@ -640,6 +654,32 @@ export default function ComposeModal() {
       setPlainSig('');
     }
   }, [fromValue, fromSignature, composeData?.signature]);
+
+  // Swap the automatic Cc and Bcc when From moves to another account, or when the account loads
+  // after the composer opened (#491). An alias keeps its account's id, so it changes nothing. The
+  // baselines follow the swap only while nothing has been saved: after an autosave they describe
+  // the saved draft, and the switch must stay an edit so the next save writes the new From and
+  // lists together. A layout effect, so the chips change in the same commit as the baselines: a
+  // passive one renders them a task later, and an autosave in between would see old chips
+  // against new baselines.
+  useLayoutEffect(() => {
+    const auto = autoRef.current;
+    if (draftWasPreExisting.current || !fromAccount || fromAccount.id === auto.accountId) return;
+    const next = swapAccountFields({
+      fields: { to: toChips, cc: ccChips, bcc: bccChips },
+      auto,
+      lists: autoListsOf(fromAccount),
+    });
+    autoRef.current = { ...next.auto, accountId: fromAccount.id };
+    if (draftUid == null) {
+      if (normalizeTo(ccChips) === initialCcRef.current) initialCcRef.current = normalizeTo(next.cc);
+      if (normalizeTo(bccChips) === initialBccRef.current) initialBccRef.current = normalizeTo(next.bcc);
+    }
+    setCcChips(next.cc);
+    setBccChips(next.bcc);
+    if (next.cc.length) setShowCc(true);
+    if (next.bcc.length) setShowBcc(true);
+  }, [fromAccount?.id]); // eslint-disable-line react-hooks/exhaustive-deps -- reacts to the From account only; the chips and baselines are read as they stand at that moment
 
   // Initialise quoted HTML contentEditable once on mount (ref-based to avoid React cursor conflicts)
   useEffect(() => {
@@ -1089,6 +1129,20 @@ export default function ComposeModal() {
     ? (replyAll ? t('compose.replyAll') : t('compose.reply'))
     : isForward ? t('compose.forward') : t('compose.newMessage');
 
+  // Reply and Reply All rebuild Cc and Bcc, so the automatic addresses are worked out again for
+  // the new mode instead of filtered, which keeps the result independent of click order (#491).
+  const replyTypeRecipients = (all) => {
+    const next = replyTypeFields({
+      all,
+      originalTo: parseChips(composeData?.originalFrom || composeData?.to),
+      allRecipients: parseChips(composeData?.allRecipients || []),
+      fields: { to: toChips, cc: ccChips, bcc: bccChips },
+      auto: autoRef.current,
+    });
+    autoRef.current = { ...next.auto, accountId: autoRef.current.accountId };
+    return next;
+  };
+
   const sendSpinner = (
     <div style={{
       width: 14, height: 14, borderRadius: '50%',
@@ -1106,17 +1160,20 @@ export default function ComposeModal() {
   // ── Mobile full-screen compose ──────────────────────────────────────────────
   if (isMobile) {
     const switchToReply = () => {
-      setToChips(parseChips(composeData?.originalFrom || composeData?.to));
-      setToInput(''); setCcChips([]); setCcInput(''); setShowCc(false);
-      setBccChips([]); setBccInput(''); setShowBcc(false);
+      const next = replyTypeRecipients(false);
+      setToChips(next.to);
+      setToInput(''); setCcChips(next.cc); setCcInput(''); setShowCc(next.cc.length > 0);
+      setBccChips(next.bcc); setBccInput(''); setShowBcc(next.bcc.length > 0);
       setReplyAll(false);
       setShowReplyType(false);
     };
     const switchToReplyAll = () => {
-      setToChips(parseChips(composeData?.originalFrom || composeData?.to));
+      const next = replyTypeRecipients(true);
+      setToChips(next.to);
       setToInput('');
-      const allRecipients = parseChips(composeData?.allRecipients || []);
-      if (allRecipients.length) { setCcChips(allRecipients); setCcInput(''); setShowCc(true); }
+      if (parseChips(composeData?.allRecipients || []).length) setCcInput('');
+      setCcChips(next.cc); if (next.cc.length) setShowCc(true);
+      setBccChips(next.bcc); if (next.bcc.length) setShowBcc(true);
       setReplyAll(true);
       setShowReplyType(false);
     };
@@ -1844,9 +1901,10 @@ export default function ComposeModal() {
                   label={t('compose.reply')}
                   active={!replyAll}
                   onClick={() => {
-                    setToChips(parseChips(composeData?.originalFrom || composeData?.to));
-                    setToInput(''); setCcChips([]); setCcInput(''); setShowCc(false);
-                    setBccChips([]); setBccInput(''); setShowBcc(false);
+                    const next = replyTypeRecipients(false);
+                    setToChips(next.to);
+                    setToInput(''); setCcChips(next.cc); setCcInput(''); setShowCc(next.cc.length > 0);
+                    setBccChips(next.bcc); setBccInput(''); setShowBcc(next.bcc.length > 0);
                     setReplyAll(false);
                     setShowReplyType(false);
                   }}
@@ -1856,10 +1914,12 @@ export default function ComposeModal() {
                   label={t('compose.replyAll')}
                   active={replyAll}
                   onClick={() => {
-                    setToChips(parseChips(composeData?.originalFrom || composeData?.to));
+                    const next = replyTypeRecipients(true);
+                    setToChips(next.to);
                     setToInput('');
-                    const allRecipients = parseChips(composeData?.allRecipients || []);
-                    if (allRecipients.length) { setCcChips(allRecipients); setCcInput(''); setShowCc(true); }
+                    if (parseChips(composeData?.allRecipients || []).length) setCcInput('');
+                    setCcChips(next.cc); if (next.cc.length) setShowCc(true);
+                    setBccChips(next.bcc); if (next.bcc.length) setShowBcc(true);
                     setReplyAll(true);
                     setShowReplyType(false);
                   }}

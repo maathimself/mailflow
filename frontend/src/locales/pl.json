@@ -784,7 +784,8 @@
       "groupDisplay": "Wyświetlanie",
       "groupSecurityIntegrations": "Bezpieczeństwo i integracje",
       "groupAdmin": "Administracja",
-      "plugins": "Wtyczki"
+      "plugins": "Wtyczki",
+      "backup": "Kopia zapasowa"
     },
     "rules": {
       "title": "Reguły skrzynki odbiorczej",
@@ -894,6 +895,8 @@
       "smtpAuthUserPh": "Taka sama jak nazwa użytkownika powyżej",
       "smtpAuthPass": "Hasło SMTP",
       "signatureSection": "Podpis",
+      "autoRecipientsSection": "Automatyczne DW i UDW",
+      "autoRecipientsDesc": "Te adresy są dodawane jako zwykli odbiorcy, których możesz usunąć, do każdej nowej wiadomości, odpowiedzi i wiadomości przekazywanej dalej z tego konta lub jego aliasów. Oddziel adresy przecinkami.",
       "saveChanges": "Zapisz zmiany",
       "addAccount": "Dodaj konto",
       "saving": "Zapisywanie…",
@@ -1632,6 +1635,29 @@
       "autoLockNeedsPin": "Ustaw PIN, aby włączyć automatyczną blokadę",
       "autoLockOff": "Wyłączone",
       "autoLockMin": "{{n}} min"
+    },
+    "backup": {
+      "title": "Kopia zapasowa i przywracanie",
+      "intro": "Kopia zapasowa zawiera dane tego MailFlow: użytkowników, konta e-mail, reguły, kontakty, ustawienia, dane wtyczek i uczenie antyspamowe. Poczta z pamięci podręcznej jest po przywróceniu pobierana ponownie z Twoich serwerów pocztowych, chyba że ją dołączysz. Plik nie zawiera tego, co ustawiono w .env: nowy serwer potrzebuje tego samego ENCRYPTION_KEY oraz, jeśli je tam ustawiono, tych samych kluczy VAPID i ustawień klienta OAuth.",
+      "sensitive": "Plik zawiera skróty haseł, oczekujące linki z zaproszeniami i dane logowania do Twoich kont. Dane logowania są zaszyfrowane kluczem ENCRYPTION_KEY tego serwera; reszta jest czytelna, podobnie jak każda wiadomość, jeśli dołączono pocztę z pamięci podręcznej. Przechowuj plik w bezpiecznym miejscu. Można go przywrócić tylko na serwerze używającym tego samego klucza.",
+      "includeMail": "Dołącz pocztę z pamięci podręcznej",
+      "includeMailDesc": "Zapisuje także lokalną kopię każdej zsynchronizowanej wiadomości, przez co plik jest znacznie większy. Bez niej przywracanie ponownie pobiera pocztę, a najnowsze nieprzeczytane wiadomości w każdej skrzynce odbiorczej przychodzą jako nowa poczta: reguły skrzynki odbiorczej działają na nich ponownie, także przekazywanie dalej. Wybór obowiązuje dla każdej kopii, dopóki go nie zmienisz.",
+      "includeMailSaveError": "Nie udało się zapisać ustawienia.",
+      "create": "Pobierz kopię zapasową",
+      "restoreTitle": "Przywróć kopię zapasową",
+      "restoreIntro": "Przywracanie zastępuje wszystkich użytkowników, konta, ustawienia i wiadomości z pamięci podręcznej na tym serwerze zawartością pliku. Następnie MailFlow uruchamia się ponownie. Osoby, których kont nie ma w kopii, zostają wylogowane, a obowiązują hasła z kopii.",
+      "versionNote": "Kopię zapasową można przywrócić tylko w wersji MailFlow o tym samym schemacie bazy danych co wersja, która ją utworzyła. Jeśli ta wersja ma nowszy schemat, przywróć kopię w wersji, która ją utworzyła, a potem zaktualizuj.",
+      "chooseFile": "Wybierz plik kopii zapasowej",
+      "restore": "Przywróć…",
+      "confirmWarn": "Wszystko na tym serwerze zostanie zastąpione przez {{name}}. Tej operacji nie można cofnąć.",
+      "confirmYes": "Przywróć i uruchom ponownie",
+      "restoring": "Przywracanie… zapisane wiersze: {{rows}}",
+      "done": "Przywracanie zakończone. MailFlow uruchamia się ponownie; ta strona odświeży się, gdy będzie z powrotem dostępny.",
+      "restartTimeout": "MailFlow nie wrócił po dwóch minutach. Uruchom go ponownie, a potem odśwież tę stronę.",
+      "failed": "Przywracanie nie powiodło się: {{message}}",
+      "downloadFailed": "Nie udało się rozpocząć tworzenia kopii zapasowej.",
+      "connectionLost": "Połączenie zostało przerwane podczas przywracania, więc jego wynik jest nieznany. Ta strona odświeży się, gdy MailFlow znów zacznie odpowiadać; sprawdź wtedy, czy dane zostały przywrócone.",
+      "tooLarge": "Plik jest większy, niż pozwala serwer proxy przed MailFlow."
     },
     "plugins": {
       "title": "Wtyczki",

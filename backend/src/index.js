@@ -8,6 +8,7 @@ import { WebSocketServer } from 'ws';
 import RedisStore from 'connect-redis';
 import 'dotenv/config';
 import { redisClient } from './services/redis.js';
+import { parseTrustProxyHops } from './utils/trustProxy.js';
 import { buildSessionOptions } from './utils/sessionConfig.js';
 
 import sendRoutes from './routes/send.js';
@@ -33,6 +34,7 @@ import { setMailEngine } from './plugins/mailEngine.js';
 import pluginsRoutes from './routes/plugins.js';
 import senderFaviconsRoutes from './routes/senderFavicons.js';
 import diagnosticsRoutes from './routes/diagnostics.js';
+import backupRoutes from './routes/backup.js';
 import spamRoutes, { accountSpamRouter } from './routes/spam.js';
 import carddavRouter from './routes/carddav.js';
 import carddavAccountRouter from './routes/carddavAccount.js';
@@ -54,13 +56,19 @@ try {
 } catch {
   // Local dev runs may not have build metadata yet.
 }
-const APP_VERSION = (process.env.APP_VERSION || buildMeta.version || packageMeta.version).replace(/^v[.]?/, '');
+export const APP_VERSION = (process.env.APP_VERSION || buildMeta.version || packageMeta.version).replace(/^v[.]?/, '');
 
 const app = express();
 // Trust the nginx reverse proxy so req.secure reflects HTTPS correctly.
 // Without this, express-session sees HTTP (from nginx) and refuses to set
 // the Secure cookie, meaning the session cookie is never sent to the browser.
-app.set('trust proxy', 1);
+// The hop count also decides req.ip, which keys the login rate limit.
+const trustProxyHops = parseTrustProxyHops(process.env.TRUST_PROXY_HOPS);
+if (trustProxyHops === null) {
+  console.error(`FATAL: TRUST_PROXY_HOPS must be a whole number of at least 1 (the reverse proxies in front of the backend, counting nginx), got "${process.env.TRUST_PROXY_HOPS}". Exiting.`);
+  process.exit(1);
+}
+app.set('trust proxy', trustProxyHops);
 const httpServer = createServer(app);
 const wss = new WebSocketServer({ server: httpServer });
 
@@ -185,6 +193,7 @@ app.use('/api/mail', mailRoutes);
 app.use('/api/mail', sendRoutes);
 app.use('/api/mail', draftRoutes);
 app.use('/api/search', searchRoutes);
+app.use('/api/admin/backup', backupRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/totp', totpRoutes);
 app.use('/api/rules', rulesRoutes);
@@ -302,15 +311,29 @@ httpServer.listen(PORT, () => {
   console.log(`MailFlow backend running on port ${PORT}`);
 });
 
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received — shutting down gracefully');
+function exitAfterClose(code) {
   httpServer.close(async () => {
     try { await redisClient.quit(); } catch { /* ignore */ }
-    process.exit(0);
+    process.exit(code);
   });
   // Force exit if graceful shutdown takes more than 10 s
-  setTimeout(() => process.exit(1), 10_000).unref();
+  setTimeout(() => process.exit(code || 1), 10_000).unref();
+}
+
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received — shutting down gracefully');
+  exitAfterClose(0);
 });
+
+// A restore has replaced the rows every IMAP connection, scheduler and cache was built from,
+// so the process starts over. The exit code is non-zero because systemd's Restart=on-failure
+// (contrib/mailflow.service) leaves a clean exit down; Docker's unless-stopped and pm2 restart
+// either way.
+export function restartAfterRestore() {
+  console.log('Restore complete — restarting so every connection and cache starts from the restored data');
+  wss.clients.forEach(ws => ws.close(1012, 'Restarting'));
+  exitAfterClose(3);
+}
 
 process.on('unhandledRejection', (reason) => {
   console.error('Unhandled promise rejection:', reason);

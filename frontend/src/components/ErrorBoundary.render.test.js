@@ -53,11 +53,11 @@ function Boom() {
   throw new Error('kaboom from a child');
 }
 
-async function mount(child) {
+async function mount(child, props = null) {
   const host = dom.window.document.createElement('div');
   dom.window.document.body.appendChild(host);
   await React.act(async () => {
-    createRoot(host).render(React.createElement(ErrorBoundary, null, child));
+    createRoot(host).render(React.createElement(ErrorBoundary, props, child));
   });
   return host;
 }
@@ -148,5 +148,70 @@ describe('ErrorBoundary (#441)', () => {
     } finally {
       console.error = realError;
     }
+  });
+
+  // A tab opened before a server update asks for a screen the new build no longer has. That is
+  // not a bug to report: the boundary reloads into the new version, once the server answers.
+  describe('after a server update', () => {
+    const STALE = 'error loading dynamically imported module: https://mail.example.invalid/assets/AdminPanel-old.js';
+    function StaleChunk() {
+      throw new TypeError(STALE);
+    }
+    function memoryStorage(initial = {}) {
+      const data = new Map(Object.entries(initial));
+      return { getItem: k => (data.has(k) ? data.get(k) : null), setItem: (k, v) => data.set(k, String(v)) };
+    }
+    async function mountStale({ serverAnswers = true, storage = memoryStorage() } = {}) {
+      const realError = console.error;
+      console.error = () => {};
+      const reloads = [];
+      try {
+        const host = await mount(React.createElement(StaleChunk), {
+          probeServer: async () => serverAnswers,
+          storage,
+          reloadPage: () => reloads.push('reload'),
+        });
+        await React.act(async () => { await new Promise(r => setTimeout(r, 0)); });
+        return { host, reloads };
+      } finally {
+        console.error = realError;
+      }
+    }
+
+    test('reloads into the new version once the server answers', async () => {
+      const { host, reloads } = await mountStale();
+      assert.deepEqual(reloads, ['reload']);
+      assert.match(host.textContent, /MailFlow has been updated/);
+      assert.doesNotMatch(host.textContent, /hit an error and stopped/);
+    });
+
+    test('does not reload while the server cannot be reached, and says how to continue', async () => {
+      const { host, reloads } = await mountStale({ serverAnswers: false });
+      assert.deepEqual(reloads, []);
+      assert.match(host.textContent, /still running the previous version/);
+      const labels = [...host.querySelectorAll('button')].map(b => b.textContent);
+      assert.ok(labels.includes('Reload'), `expected a Reload button, got ${JSON.stringify(labels)}`);
+    });
+
+    test('reloads at most once a minute, so a file that is really missing cannot loop', async () => {
+      const storage = memoryStorage({ mailflow_stale_build_reload_at: String(Date.now()) });
+      const { host, reloads } = await mountStale({ storage });
+      assert.deepEqual(reloads, []);
+      assert.match(host.textContent, /still running the previous version/);
+    });
+
+    test('an ordinary error still gets the usual page and no reload', async () => {
+      const realError = console.error;
+      console.error = () => {};
+      const reloads = [];
+      try {
+        const host = await mount(React.createElement(Boom), { probeServer: async () => true, storage: memoryStorage(), reloadPage: () => reloads.push('reload') });
+        await React.act(async () => { await new Promise(r => setTimeout(r, 0)); });
+        assert.deepEqual(reloads, []);
+        assert.match(host.textContent, /MailFlow hit an error and stopped/);
+      } finally {
+        console.error = realError;
+      }
+    });
   });
 });

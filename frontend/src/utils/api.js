@@ -200,6 +200,60 @@ export const api = {
     testSystemEmail: () => request('POST', '/admin/system-email/test'),
     deleteSystemEmail: () => request('DELETE', '/admin/system-email'),
     getAuthEvents: (params) => request('GET', '/admin/auth-events?' + new URLSearchParams(params)),
+    checkBackup: (scope) => request('GET', `/admin/backup/check?scope=${encodeURIComponent(scope)}`),
+    backupUrl: (scope) => `${BASE}/admin/backup?scope=${encodeURIComponent(scope)}`,
+    // The file streams up and the server streams progress lines back, one JSON object per
+    // line, ending with the result. Resolves with that result. An error with `lost` set means
+    // the connection ended before the server said how the restore went.
+    restoreBackup: async (file, onProgress) => {
+      const lost = cause => { const e = new Error(cause?.message || 'Connection lost'); e.lost = true; return e; };
+      let res;
+      try {
+        res = await fetch(`${BASE}/admin/backup/restore`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { [CSRF_HEADER]: CSRF_VALUE, 'Content-Type': 'application/gzip' },
+          body: file,
+        });
+      } catch (err) {
+        throw lost(err);
+      }
+      if (!res.ok) {
+        if (res.status === 423) window.dispatchEvent(new CustomEvent('mailflow:locked'));
+        if (res.status === 401) window.dispatchEvent(new CustomEvent('mailflow:session_expired'));
+        const err = await res.json().catch(() => ({ error: 'Request failed' }));
+        const e = new Error(err.error || 'Request failed'); e.status = res.status; throw e;
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      for (let done = false; !done;) {
+        let chunk;
+        try {
+          chunk = await reader.read();
+        } catch (err) {
+          throw lost(err);
+        }
+        done = chunk.done;
+        buffer += done ? decoder.decode() : decoder.decode(chunk.value, { stream: true });
+        let at;
+        while ((at = buffer.indexOf('\n')) >= 0) {
+          const line = buffer.slice(0, at).trim();
+          buffer = buffer.slice(at + 1);
+          if (!line) continue;
+          let entry;
+          try {
+            entry = JSON.parse(line);
+          } catch (err) {
+            throw lost(err);
+          }
+          if (entry.error) throw new Error(entry.error);
+          if (entry.ok) return entry;
+          if (onProgress) onProgress(entry);
+        }
+      }
+      throw lost();
+    },
     oidc: {
       getProviders: () => request('GET', '/admin/oidc'),
       createProvider: (data) => request('POST', '/admin/oidc', data),

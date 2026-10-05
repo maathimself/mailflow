@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
+const closeSockets = vi.hoisted(() => vi.fn());
+vi.mock('../index.js', () => ({ imapManager: { closeSockets } }));
+
 const store = new Map();
 vi.mock('./redis.js', () => ({
   redisClient: {
@@ -22,5 +25,14 @@ describe('destroyUserSessions', () => {
     expect([...store.keys()].sort()).toEqual(['sess:b', 'sess:c', 'sess:d']);
     await destroyUserSessions('u1');
     expect([...store.keys()].sort()).toEqual(['sess:c', 'sess:d']);
+  });
+
+  it("closes the user's sockets too, sparing an excepted session's", async () => {
+    closeSockets.mockClear();
+    store.clear();
+    await destroyUserSessions('u1', { exceptSessionId: 'b' });
+    await destroyUserSessions('u1');
+    // A socket outlives the session it was opened with, and would keep receiving new mail.
+    expect(closeSockets.mock.calls).toEqual([['u1', { exceptSessionId: 'b' }], ['u1']]);
   });
 });

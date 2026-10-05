@@ -11,6 +11,7 @@ import { normalizeAuthservId } from '../services/spamParser.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { createKeyedSerializer } from '../utils/keyedSerializer.js';
 import { uuidParam } from '../utils/uuid.js';
+import { normalizeAddressList } from '../utils/addressList.js';
 
 // Serialize an account's reconnect triggers so a rapid settings change (e.g. a
 // gtd_enabled double-toggle) can't fire two overlapping disconnect→connect chains —
@@ -56,11 +57,11 @@ export const SAFE_FIELDS = [
   'include_in_unified_inbox',
   'last_sync', 'sync_error', 'sort_order', 'folder_mappings',
   'signature', 'created_at', 'categorization_enabled', 'antispam_enabled',
-  'trusted_authserv_id',
+  'trusted_authserv_id', 'auto_cc_addresses', 'auto_bcc_addresses',
 ];
 // Columns PUT /:id may write. The settings form sends back what GET returned, so every
 // non-secret one must be in SAFE_FIELDS or saving an unrelated edit would write it as empty.
-export const ACCOUNT_UPDATE_FIELDS = ['name', 'sender_name', 'color', 'enabled', 'include_in_unified_inbox', 'auth_user', 'auth_pass', 'sort_order', 'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify', 'smtp_host', 'smtp_port', 'smtp_tls', 'smtp_auth_user', 'smtp_auth_pass', 'folder_mappings', 'signature', 'categorization_enabled', 'antispam_enabled', 'trusted_authserv_id'];
+export const ACCOUNT_UPDATE_FIELDS = ['name', 'sender_name', 'color', 'enabled', 'include_in_unified_inbox', 'auth_user', 'auth_pass', 'sort_order', 'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify', 'smtp_host', 'smtp_port', 'smtp_tls', 'smtp_auth_user', 'smtp_auth_pass', 'folder_mappings', 'signature', 'categorization_enabled', 'antispam_enabled', 'trusted_authserv_id', 'auto_cc_addresses', 'auto_bcc_addresses'];
 function safeAccount(row) {
   const obj = Object.fromEntries(SAFE_FIELDS.map(k => [k, row[k]]));
   // Sanitize on read so legacy values stored before the write-time sanitizer are safe
@@ -224,6 +225,19 @@ router.put('/:id', async (req, res) => {
     } else {
       updates.trusted_authserv_id = normalizeAuthservId(rawId);
     }
+  }
+
+  try {
+    if ('auto_cc_addresses' in updates) updates.auto_cc_addresses = normalizeAddressList(updates.auto_cc_addresses, 'Automatic Cc');
+    if ('auto_bcc_addresses' in updates) updates.auto_bcc_addresses = normalizeAddressList(updates.auto_bcc_addresses, 'Automatic Bcc');
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+  // An address in both lists is refused, not guessed at: it was meant either to be seen (Cc) or hidden (Bcc).
+  if ('auto_cc_addresses' in updates && 'auto_bcc_addresses' in updates) {
+    const bcc = new Set(updates.auto_bcc_addresses.map(a => a.toLowerCase()));
+    const shared = updates.auto_cc_addresses.find(a => bcc.has(a.toLowerCase()));
+    if (shared) return res.status(400).json({ error: `${JSON.stringify(shared)} cannot be in both Automatic Cc and Automatic Bcc` });
   }
 
   // Let plugins validate the settings fields they own (GTD owns gtd_enabled/gtd_folders) before we

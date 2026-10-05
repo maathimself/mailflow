@@ -230,6 +230,57 @@ describe('sanitizeEmail — CSS upgrades', () => {
     expect(out).not.toContain('url(https://');
     expect(out).toContain('url()');
   });
+
+  it('strips quoted and spaced external url() in <style> blocks and keeps data: and cid:', () => {
+    const out = sanitizeEmail(`<style>.a{background:URL( "https://t.example/a.gif" )}.b{background:url('http://t.example/b.gif')}.c{background:url(data:image/gif;base64,R0lGOD)}.d{background:url(cid:logo)}</style>`);
+    expect(out).toBe('<style>.a{background:url()}.b{background:url()}.c{background:url(data:image/gif;base64,R0lGOD)}.d{background:url(cid:logo)}</style>');
+  });
+});
+
+describe('sanitizeEmail — dark-mode CSS', () => {
+  it('removes prefers-color-scheme: dark media blocks and keeps other media queries', () => {
+    const out = sanitizeEmail('<style>@media screen and (max-width:600px){.col{width:100%}}.a{b:c}@media (prefers-color-scheme: dark){.a{b:d}.x{y:z}}.e{f:g}</style><p>x</p>');
+    expect(out).toBe('<style>@media screen and (max-width:600px){.col{width:100%}}.a{b:c}.e{f:g}</style><p>x</p>');
+  });
+
+  it('removes rules scoped to Outlook [data-og*] dark-mode selectors', () => {
+    const out = sanitizeEmail('<style>a[href]{color:red}[data-ogsc] .h{color:#fff !important}[data-ogsb] .h{background:#000}.k{l:m}</style>');
+    expect(out).toBe('<style>a[href]{color:red}.k{l:m}</style>');
+  });
+
+  it('removes color-scheme declarations and filter: invert()', () => {
+    const out = sanitizeEmail('<style>:root{color-scheme:light dark}.r{filter:invert(1) hue-rotate(180deg);s:t}.q{filter:blur(2px)}</style>');
+    expect(out).toBe('<style>:root{}.r{s:t}.q{filter:blur(2px)}</style>');
+  });
+});
+
+describe('sanitizeEmail — crafted <style> CSS', () => {
+  // Fastest of two runs so a GC pause or cold JIT cannot flake CI. Each input took
+  // 5 to 9 seconds per run when these passes were backtracking regexes.
+  function fastestRunMs(fn, runs) {
+    let fastest = Infinity;
+    for (let i = 0; i < runs; i++) {
+      const start = performance.now();
+      fn();
+      fastest = Math.min(fastest, performance.now() - start);
+    }
+    return fastest;
+  }
+
+  it('stays linear on input crafted against each pass', () => {
+    // Each input holds the `)`, `{` or `]` its old regex needed, where the regex could not
+    // use it, so skipping a pass only when that character is absent still fails here.
+    const crafted = {
+      url: 'url("https://'.repeat(20000) + ')',
+      media: '@media (prefers-color-scheme: dark) '.repeat(1500) + '{',
+      outlook: '[data-og '.repeat(2500) + ']{',
+      invert: ')' + 'filter:invert('.repeat(60000),
+    };
+    for (const [name, css] of Object.entries(crafted)) {
+      const html = `<style>${css}</style>`;
+      expect(fastestRunMs(() => sanitizeEmail(html), 2), name).toBeLessThan(1000);
+    }
+  });
 });
 
 // ── hasRemoteImages ────────────────────────────────────────────────────────

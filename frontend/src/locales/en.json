@@ -768,7 +768,8 @@
       "groupDisplay": "Display",
       "groupSecurityIntegrations": "Security & Integrations",
       "groupAdmin": "Administration",
-      "plugins": "Plugins"
+      "plugins": "Plugins",
+      "backup": "Backup"
     },
     "rules": {
       "title": "Inbox rules",
@@ -878,6 +879,8 @@
       "smtpAuthUserPh": "Same as username above",
       "smtpAuthPass": "SMTP password",
       "signatureSection": "Signature",
+      "autoRecipientsSection": "Automatic Cc and Bcc",
+      "autoRecipientsDesc": "Added as normal recipients, which you can remove, to every new message, reply and forward you write from this account or its aliases. Separate addresses with commas.",
       "saveChanges": "Save changes",
       "addAccount": "Add account",
       "saving": "Saving…",
@@ -1613,6 +1616,29 @@
       "autoLockNeedsPin": "Set a PIN to enable auto-lock",
       "autoLockOff": "Off",
       "autoLockMin": "{{n}} min"
+    },
+    "backup": {
+      "title": "Backup and restore",
+      "intro": "A backup holds this MailFlow's data: users, email accounts, rules, contacts, settings, plugin data and antispam training. Cached mail is downloaded again from your mail servers after a restore, unless you include it. The file does not hold what is set in .env: a new server needs the same ENCRYPTION_KEY, and the same VAPID keys and OAuth client settings if you set them there.",
+      "sensitive": "The file holds password hashes, pending invite links and your accounts' credentials. The credentials are encrypted with this server's ENCRYPTION_KEY; the rest is readable, and so is every message when cached mail is included. Keep the file somewhere safe. It can only be restored on a server that uses the same key.",
+      "includeMail": "Include cached mail",
+      "includeMailDesc": "Also saves the local copy of every synced message, which makes the file much larger. Without it, a restore downloads the mail again, and the newest unread messages in each inbox arrive as new mail: inbox rules run on them again, forwarding included. The choice is kept for every backup until you change it.",
+      "includeMailSaveError": "The setting could not be saved.",
+      "create": "Download backup",
+      "restoreTitle": "Restore a backup",
+      "restoreIntro": "Restoring replaces every user, account, setting and cached message on this server with the contents of the file. MailFlow then restarts. Anyone whose account is not in the backup is signed out, and the passwords are the ones in the backup.",
+      "versionNote": "A backup restores only on a MailFlow version with the same database schema as the one that made it. If this version's schema is newer, restore the backup on the version that made it, then update.",
+      "chooseFile": "Choose a backup file",
+      "restore": "Restore…",
+      "confirmWarn": "Everything on this server is replaced by {{name}}. This cannot be undone.",
+      "confirmYes": "Restore and restart",
+      "restoring": "Restoring… rows written: {{rows}}",
+      "done": "Restore complete. MailFlow is restarting; this page reloads when it is back.",
+      "restartTimeout": "MailFlow has not come back after two minutes. Start it again, then reload this page.",
+      "failed": "Restore failed: {{message}}",
+      "downloadFailed": "The backup could not be started.",
+      "connectionLost": "The connection was lost during the restore, so its outcome is unknown. This page reloads once MailFlow answers again; then check that your data is the restored one.",
+      "tooLarge": "The file is larger than the proxy in front of MailFlow allows."
     },
     "plugins": {
       "title": "Plugins",

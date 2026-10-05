@@ -768,7 +768,8 @@
       "groupDisplay": "Schermo",
       "groupSecurityIntegrations": "Sicurezza e integrazioni",
       "groupAdmin": "Amministrazione",
-      "plugins": "Plugin"
+      "plugins": "Plugin",
+      "backup": "Backup"
     },
     "rules": {
       "title": "Regole posta in arrivo",
@@ -876,6 +877,8 @@
       "smtpAuthUserPh": "Uguale al nome utente sopra",
       "smtpAuthPass": "Password SMTP",
       "signatureSection": "Firma",
+      "autoRecipientsSection": "Cc e Bcc automatici",
+      "autoRecipientsDesc": "Questi indirizzi vengono aggiunti come destinatari normali, che puoi rimuovere, a ogni nuovo messaggio, risposta e inoltro che scrivi da questo account o dai suoi alias. Separa gli indirizzi con una virgola.",
       "saveChanges": "Salva modifiche",
       "addAccount": "Aggiungi account",
       "saving": "Salvataggio…",
@@ -1613,6 +1616,29 @@
       "autoLockNeedsPin": "Imposta un PIN per abilitare il blocco automatico",
       "autoLockOff": "Disattivato",
       "autoLockMin": "{{n}} min"
+    },
+    "backup": {
+      "title": "Backup e ripristino",
+      "intro": "Un backup contiene i dati di questo MailFlow: utenti, account email, regole, contatti, impostazioni, dati dei plugin e addestramento antispam. La posta in cache viene scaricata di nuovo dai tuoi server di posta dopo un ripristino, a meno che non venga inclusa. Il file non contiene ciò che è impostato in .env: un nuovo server ha bisogno della stessa ENCRYPTION_KEY e, se le hai impostate lì, delle stesse chiavi VAPID e impostazioni del client OAuth.",
+      "sensitive": "Il file contiene gli hash delle password, i link di invito in sospeso e le credenziali dei tuoi account. Le credenziali sono cifrate con la ENCRYPTION_KEY di questo server; il resto è leggibile, così come ogni messaggio se la posta in cache è inclusa. Conserva il file in un luogo sicuro. Può essere ripristinato solo su un server che usa la stessa chiave.",
+      "includeMail": "Includi la posta in cache",
+      "includeMailDesc": "Salva anche la copia locale di ogni messaggio sincronizzato, il che rende il file molto più grande. Senza di essa, un ripristino scarica di nuovo la posta e i messaggi non letti più recenti di ogni posta in arrivo arrivano come posta nuova: le regole della posta in arrivo vengono applicate di nuovo, inoltri compresi. La scelta vale per ogni backup finché non la cambi.",
+      "includeMailSaveError": "Impossibile salvare l'impostazione.",
+      "create": "Scarica il backup",
+      "restoreTitle": "Ripristina un backup",
+      "restoreIntro": "Il ripristino sostituisce tutti gli utenti, gli account, le impostazioni e i messaggi in cache di questo server con il contenuto del file. Poi MailFlow si riavvia. Chi non ha un account nel backup viene disconnesso, e le password diventano quelle del backup.",
+      "versionNote": "Un backup si ripristina solo su una versione di MailFlow con lo stesso schema del database di quella che l'ha creato. Se lo schema di questa versione è più recente, ripristina il backup sulla versione che l'ha creato, poi aggiorna.",
+      "chooseFile": "Scegli un file di backup",
+      "restore": "Ripristina…",
+      "confirmWarn": "Tutto ciò che si trova su questo server verrà sostituito da {{name}}. L'operazione non può essere annullata.",
+      "confirmYes": "Ripristina e riavvia",
+      "restoring": "Ripristino in corso… righe scritte: {{rows}}",
+      "done": "Ripristino completato. MailFlow si sta riavviando; questa pagina si ricaricherà quando sarà di nuovo raggiungibile.",
+      "restartTimeout": "Dopo due minuti MailFlow non è ancora disponibile. Riavvialo, poi ricarica questa pagina.",
+      "failed": "Ripristino non riuscito: {{message}}",
+      "downloadFailed": "Impossibile avviare il backup.",
+      "connectionLost": "La connessione si è interrotta durante il ripristino, quindi l'esito è sconosciuto. Questa pagina si ricaricherà quando MailFlow risponderà di nuovo; verifica poi che i dati siano quelli ripristinati.",
+      "tooLarge": "Il file è più grande di quanto consenta il proxy davanti a MailFlow."
     },
     "plugins": {
       "title": "Plugin",

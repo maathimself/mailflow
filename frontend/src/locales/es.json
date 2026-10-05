@@ -768,7 +768,8 @@
       "groupDisplay": "Visualización",
       "groupSecurityIntegrations": "Seguridad e integraciones",
       "groupAdmin": "Administración",
-      "plugins": "Complementos"
+      "plugins": "Complementos",
+      "backup": "Copia de seguridad"
     },
     "rules": {
       "title": "Reglas de bandeja de entrada",
@@ -876,6 +877,8 @@
       "smtpAuthUserPh": "Igual que el usuario de arriba",
       "smtpAuthPass": "Contraseña SMTP",
       "signatureSection": "Firma",
+      "autoRecipientsSection": "Cc y Cco automáticos",
+      "autoRecipientsDesc": "Estas direcciones se añaden como destinatarios normales, que puedes quitar, a cada mensaje nuevo, respuesta y reenvío que escribas desde esta cuenta o sus alias. Separa las direcciones con comas.",
       "saveChanges": "Guardar cambios",
       "addAccount": "Añadir cuenta",
       "saving": "Guardando…",
@@ -1613,6 +1616,29 @@
       "autoLockNeedsPin": "Configura un PIN para activar el bloqueo automático",
       "autoLockOff": "Desactivado",
       "autoLockMin": "{{n}} min"
+    },
+    "backup": {
+      "title": "Copia de seguridad y restauración",
+      "intro": "Una copia de seguridad contiene los datos de este MailFlow: usuarios, cuentas de correo, reglas, contactos, ajustes, datos de complementos y entrenamiento antispam. El correo en caché se descarga de nuevo desde tus servidores de correo tras una restauración, salvo que lo incluyas. El archivo no contiene lo que está definido en .env: un servidor nuevo necesita la misma ENCRYPTION_KEY y, si las definiste ahí, las mismas claves VAPID y los mismos ajustes de cliente OAuth.",
+      "sensitive": "El archivo contiene hashes de contraseñas, enlaces de invitación pendientes y las credenciales de tus cuentas. Las credenciales están cifradas con la ENCRYPTION_KEY de este servidor; el resto se puede leer, igual que todos los mensajes si se incluye el correo en caché. Guarda el archivo en un lugar seguro. Solo puede restaurarse en un servidor que use la misma clave.",
+      "includeMail": "Incluir el correo en caché",
+      "includeMailDesc": "Guarda también la copia local de cada mensaje sincronizado, lo que hace el archivo mucho más grande. Sin ella, una restauración vuelve a descargar el correo, y los mensajes no leídos más recientes de cada bandeja de entrada llegan como correo nuevo: las reglas de la bandeja de entrada se aplican otra vez, también los reenvíos. La elección se mantiene para todas las copias hasta que la cambies.",
+      "includeMailSaveError": "No se pudo guardar el ajuste.",
+      "create": "Descargar copia de seguridad",
+      "restoreTitle": "Restaurar una copia de seguridad",
+      "restoreIntro": "Restaurar sustituye todos los usuarios, cuentas, ajustes y mensajes en caché de este servidor por el contenido del archivo. Después MailFlow se reinicia. Se cierra la sesión de quien no tenga cuenta en la copia de seguridad, y las contraseñas pasan a ser las de la copia.",
+      "versionNote": "Una copia de seguridad solo se restaura en una versión de MailFlow con el mismo esquema de base de datos que la versión que la creó. Si el esquema de esta versión es más reciente, restaura la copia en la versión que la creó y luego actualiza.",
+      "chooseFile": "Elegir un archivo de copia de seguridad",
+      "restore": "Restaurar…",
+      "confirmWarn": "Todo lo que hay en este servidor será sustituido por {{name}}. Esto no se puede deshacer.",
+      "confirmYes": "Restaurar y reiniciar",
+      "restoring": "Restaurando… filas escritas: {{rows}}",
+      "done": "Restauración completada. MailFlow se está reiniciando; esta página se recargará cuando vuelva a estar disponible.",
+      "restartTimeout": "MailFlow no ha vuelto tras dos minutos. Inícialo de nuevo y luego recarga esta página.",
+      "failed": "La restauración ha fallado: {{message}}",
+      "downloadFailed": "No se pudo iniciar la copia de seguridad.",
+      "connectionLost": "La conexión se perdió durante la restauración, así que se desconoce el resultado. Esta página se recargará cuando MailFlow vuelva a responder; comprueba entonces que tus datos son los restaurados.",
+      "tooLarge": "El archivo es más grande de lo que permite el proxy situado delante de MailFlow."
     },
     "plugins": {
       "title": "Complementos",

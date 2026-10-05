@@ -125,6 +125,12 @@ describe('snippetFromBody', () => {
     expect(snippetFromBody(text)).toBe('Read the highlights below.');
   });
 
+  it('strips complete image placeholders and Markdown links but keeps partial ones', () => {
+    const text = '[image: Spring sale banner]\n[Shop now](https://shop.example/s) and save [up to 40%](see terms';
+    expect(snippetFromBody(text)).toBe('Shop now and save [up to 40%](see terms');
+    expect(snippetFromBody('[draft\n[Shop now](https://shop.example/s) today')).toBe('[draft Shop now today');
+  });
+
   // Timing assertions use the fastest of a few runs so GC pauses and cold-JIT
   // noise cannot flake CI; an accidental return to quadratic scanning is
   // orders of magnitude over these thresholds (minutes, not milliseconds).
@@ -154,6 +160,21 @@ describe('snippetFromBody', () => {
     expect(fastestRunMs(() => {
       snippetFromBody(loneBrace);
       snippetFromBody(separatorRuns);
+    }, 2)).toBeLessThan(500);
+  });
+
+  it('stays linear on crafted bracket-heavy bodies', () => {
+    // With the old patterns every unclosed "[" scanned to the end of the body,
+    // so each of these took seconds. The link openers break off inside the
+    // URL, which covers the "](url)" half of the link pattern.
+    const imageOpeners = '[image:'.repeat(40000);
+    const bareBrackets = '['.repeat(100000);
+    const linkOpeners = '[]('.repeat(50000);
+    expect(snippetFromBody(imageOpeners)).toBe(imageOpeners.slice(0, 200));
+    expect(fastestRunMs(() => {
+      snippetFromBody(imageOpeners);
+      snippetFromBody(bareBrackets);
+      snippetFromBody(linkOpeners);
     }, 2)).toBeLessThan(500);
   });
 });
