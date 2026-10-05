@@ -121,6 +121,7 @@ describe('conversation pane', () => {
     // flexGrow rather than the flex shorthand, which is stored expanded ("1 1 0%").
     assert.equal(pane.style.flexGrow, '1', 'the pane grows to fill the reading area');
     assert.equal(pane.style.minWidth, '0px', 'and a wide email cannot stretch it');
+    assert.equal(pane.style.overflow, 'hidden', 'and it shrinks to its share of a column');
   });
 
   test('the opened message actually renders its body, not a permanent skeleton', async () => {
@@ -132,6 +133,20 @@ describe('conversation pane', () => {
     const html = document.getElementById('root').innerHTML;
     assert.ok(/<iframe/.test(html), 'the opened message rendered a body frame');
     assert.ok(!/skeleton-line/.test(html), 'and is no longer showing the loading skeleton');
+  });
+
+  test('the body frame sits in the same white padded card the reading pane uses', async () => {
+    // The frame's stylesheet zeroes body margin and padding, so an email's only gutter is
+    // whatever the surrounding card provides. The reading pane wraps its frame in a white
+    // .msg-card with a 16px gutter; the conversation card put the frame straight on the
+    // dark card, and hand-typed mail (no margins of its own) rendered flush against the
+    // frame edge. Asserting the wrapper — not just the frame — is what makes this fail if
+    // the card or its padding is removed again.
+    const frame = document.querySelector('iframe');
+    const card = frame?.closest('.msg-card');
+    assert.ok(card, 'the body frame is wrapped in a message card');
+    assert.equal(card.style.padding, '14px 16px 12px', 'with the reading pane gutter');
+    assert.equal(card.style.background, 'white', 'on the same white card');
   });
 
   test('only the opened message fetches a body', async () => {
@@ -308,5 +323,43 @@ describe('conversation actions', () => {
     assert.equal(printWin.printed, 1);
     assert.match(printWin.writes.join(''), /body of m1/);
     assert.doesNotMatch(printWin.writes.join(''), /body of m3/);
+  });
+});
+
+describe('conversation pane on a phone', () => {
+  test('the thread actions sit below a back bar with safe-area padding', async () => {
+    // jsdom does no layout, so "a phone" is stated the way useMobile reads it:
+    // innerWidth. A root of its own, because the shared one never remounts, so its
+    // isMobile would never be recomputed. The bar this asserts is the whole fix: on a
+    // phone this pane is the entire screen with no header of its own, so the thread
+    // actions sat under the status bar a standalone PWA draws its content behind, and
+    // there was no way back to the list at all.
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    dom.window.innerWidth = 375;
+    const mobileRoot = createRoot(container);
+    try {
+      await React.act(async () => {
+        mobileRoot.render(React.createElement(ConversationPane, { threadId: '<1@x>', folder: 'INBOX' }));
+      });
+      await React.act(async () => { await new Promise(r => setTimeout(r, 50)); });
+
+      const back = [...container.querySelectorAll('button')]
+        .find(b => b.textContent.includes('common.back'));
+      assert.ok(back, 'the conversation can be left on a phone');
+      assert.equal(
+        back.parentElement.style.paddingTop, 'calc(var(--sat) + 10px)',
+        'the bar clears the status bar drawn over a standalone PWA');
+      const actionsRow = [...container.querySelectorAll('button')]
+        .find(b => b.textContent === 'message.archive');
+      assert.ok(actionsRow, 'the thread actions still render');
+      assert.ok(
+        back.parentElement.compareDocumentPosition(actionsRow) & Node.DOCUMENT_POSITION_FOLLOWING,
+        'and they sit below the bar, not under the status bar');
+    } finally {
+      await React.act(async () => mobileRoot.unmount());
+      container.remove();
+      dom.window.innerWidth = 1024;
+    }
   });
 });

@@ -9,7 +9,7 @@ function setup(sessionMiddleware, manager = { connectAllForUser: vi.fn().mockRes
     readyState: 1, close: vi.fn(), terminate: vi.fn(), send: vi.fn(),
   });
   setupWebSocket(wss, sessionMiddleware, manager);
-  wss.emit('connection', ws, { headers: {}, session: { userId: 'u1' } });
+  wss.emit('connection', ws, { headers: {}, session: { userId: 'u1' }, sessionID: 'sess-1' });
   return { ws, manager };
 }
 afterEach(() => vi.restoreAllMocks());
@@ -41,5 +41,11 @@ describe('WebSocket failure recovery', () => {
     await Promise.resolve();
     expect(error).toHaveBeenCalledWith('WebSocket account reconnect failed:', 'database unavailable');
     expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'connected' }));
+  });
+});
+describe('WebSocket session binding', () => {
+  it('remembers the session that opened the socket, so ending that session can close it', () => {
+    const { ws } = setup((_req, _res, next) => next());
+    expect(ws).toMatchObject({ userId: 'u1', sessionId: 'sess-1' });
   });
 });

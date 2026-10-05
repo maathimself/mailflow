@@ -46,8 +46,9 @@ function getTrustDurationMs(setting) {
 }
 
 // Delete every server-side session belonging to a user (Redis-backed store, keys
-// prefixed "sess:"). Used after a password reset so a pre-existing session can't
-// outlive a credential change. Best-effort — never throws to the caller.
+// prefixed "sess:"), then close the WebSockets those sessions opened. Used after a
+// password reset so a pre-existing session can't outlive a credential change.
+// Best-effort — never throws to the caller.
 async function destroyUserSessions(userId) {
   try {
     let cursor = 0;
@@ -63,6 +64,7 @@ async function destroyUserSessions(userId) {
   } catch (err) {
     console.error('destroyUserSessions failed:', err.message);
   }
+  imapManager.closeSockets(userId);
 }
 
 async function createTrustedDevice(userId, req, res) {
@@ -586,6 +588,7 @@ router.post('/2fa/enrollment/enable', authLimiter, async (req, res) => {
 
 router.post('/logout', async (req, res) => {
   const userId = req.session.userId;
+  const sessionId = req.sessionID;
   const oidcProviderId = req.session.oidcProviderId;
   const oidcIdToken = req.session.oidcIdToken;
   const rawCookies = req.headers.cookie || '';
@@ -606,6 +609,7 @@ router.post('/logout', async (req, res) => {
 
   req.session.destroy((err) => {
     if (err) console.error('Session destroy error:', err.message);
+    if (userId) imapManager.closeSockets(userId, { sessionId });
     const cookieOpts = { path: '/', sameSite: 'lax', secure: req.secure };
     res.clearCookie('connect.sid', cookieOpts);
     res.clearCookie('mf_td', { ...cookieOpts, httpOnly: true });
@@ -631,9 +635,12 @@ const LOCK_PIN_RE = /^\d{4,6}$/;
 const MAX_UNLOCK_FAILS = 5;
 const LOCK_FAIL_WINDOW_MS = 15 * 60 * 1000;
 
-router.post('/lock', (req, res) => {
+router.post('/lock', async (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
   req.session.locked = true;
+  // Saved before the sockets close, so one that reconnects straight away is refused as locked.
+  await new Promise((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
+  imapManager.closeSockets(req.session.userId, { sessionId: req.sessionID, reason: 'Locked' });
   res.json({ ok: true });
 });
 

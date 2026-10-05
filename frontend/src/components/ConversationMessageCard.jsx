@@ -254,14 +254,30 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
             </div>
           )}
           {body?.html && (
-            <MessageBodyView
-              iframeRef={iframeRef}
-              body={body}
-              messageId={message.id}
-              emailScaleRef={emailScaleRef}
-              hasNativeContextTarget={false}
-              onContextMenu={null}
-            />
+            // The same white padded card the reading pane wraps its body in. The frame's
+            // stylesheet zeroes body margin and padding, so the only gutter an email has
+            // is what the surrounding card provides: the reading pane gives every body
+            // 16px, while this card put the frame straight on the dark background and
+            // hand-typed mail (which brings no margins of its own) rendered flush against
+            // the frame edge. Now both views agree, and newsletters and fixed layouts are
+            // untouched — they keep whatever padding their own HTML carries, inside the
+            // same card the reading pane already gives them.
+            <div className="msg-card" style={{
+              padding: '14px 16px 12px',
+              background: 'white',
+              borderRadius: 4,
+              border: '1px solid var(--border-subtle)',
+              overflow: 'hidden',
+            }}>
+              <MessageBodyView
+                iframeRef={iframeRef}
+                body={body}
+                messageId={message.id}
+                emailScaleRef={emailScaleRef}
+                hasNativeContextTarget={false}
+                onContextMenu={null}
+              />
+            </div>
           )}
           {!body?.html && body?.text && (
             // translate="yes" undoes <body>'s translate="no" for the message itself; React writes
