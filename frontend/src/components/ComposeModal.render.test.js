@@ -527,6 +527,46 @@ describe('automatic Cc and Bcc (#491)', () => {
     } finally { await close(); }
   });
 
+  test('after undo send, an automatic address removed before sending stays out across From switches', async () => {
+    const accounts = [account('A', { cc: ['crm@example.invalid'] }), account('B', { cc: ['crm@example.invalid'] })];
+    // Keyed the way MailApp keys it, so the undone message mounts a composer of its own.
+    const Host = () => {
+      const composing = useStore(s => s.composing);
+      const session = useStore(s => s.composeSession);
+      return composing ? React.createElement(ComposeModal, { key: session }) : null;
+    };
+    const plainPost = api.post;
+    api.post = async (path, body) => {
+      posted.push({ path, body });
+      return { ok: true, pending: true, pendingId: 'p-auto', sendAt: new Date(Date.now() + 10_000).toISOString(), remainingMs: 10_000 };
+    };
+    api.cancelSend = async () => ({ cancelled: true });
+    saved.length = 0;
+    posted.length = 0;
+    useStore.setState({ plaintextEmail: false, accounts, selectedAccountId: 'A', defaultSender: '', notifications: [], composing: false, composeData: null });
+    useStore.getState().openCompose({ to: ['x@example.invalid'], subject: 'Plan' });
+    const root = createRoot(document.getElementById('root'));
+    await React.act(async () => { root.render(React.createElement(Host)); });
+    await React.act(async () => {});
+    const cc = () => chips('compose.cc') ?? [];
+    try {
+      assert.deepEqual(cc(), ['crm@example.invalid']);
+      await removeChip('compose.cc', 'crm@example.invalid');
+      await send();
+      const bar = useStore.getState().notifications.find(n => n.onUndo);
+      await React.act(async () => { await bar.onUndo(); });
+      await React.act(async () => {});
+      assert.deepEqual(cc(), [], 'reopened as it was sent');
+      await chooseFrom('account:B');
+      assert.deepEqual(cc(), [], 'a From switch does not bring it back');
+      await chooseFrom('account:A');
+      assert.deepEqual(cc(), [], 'nor does switching back');
+    } finally {
+      api.post = plainPost;
+      await React.act(async () => root.unmount());
+    }
+  });
+
   test('a From switch keeps a recipient the user added for an automatic address', async () => {
     const accounts = [account('A', { cc: ['boss@example.invalid'] }), account('B')];
     const close = await mountCompose({ to: ['x@example.invalid'], subject: 'Plan' }, { accounts });

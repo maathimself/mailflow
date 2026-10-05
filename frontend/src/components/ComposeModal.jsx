@@ -218,6 +218,12 @@ export default function ComposeModal() {
   // reopened draft gets nothing, because its saved Cc and Bcc are what the user left, and neither
   // does a message reopened by undo send, whose Cc and Bcc are what it was sent with.
   const [autoInit] = useState(() => {
+    // A message reopened by undo send carries on with what its composer knew when it was sent,
+    // so an automatic address the user removed then stays out across From switches, as it would
+    // have with that composer still open.
+    if (composeData?.restored && composeData.autoRecipients) {
+      return { cc: parseChips(composeData.cc), bcc: parseChips(composeData.bcc), auto: composeData.autoRecipients };
+    }
     const account = accounts.find(a => a.id === resolveFrom(fromValue).accountId);
     const opened = openAutoRecipients(
       { to: parseChips(composeData?.to), cc: parseChips(composeData?.cc), bcc: parseChips(composeData?.bcc) },
@@ -940,6 +946,7 @@ export default function ComposeModal() {
           forwardedAttachments: fwdAttachments,
           priority,
           restored: true,
+          autoRecipients: autoRef.current,
           sendError: undefined,
         };
         const pendingId = sendResult.pendingId;
