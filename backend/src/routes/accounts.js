@@ -56,12 +56,12 @@ export const SAFE_FIELDS = [
   'auth_user', 'smtp_auth_user', 'oauth_provider', 'enabled',
   'include_in_unified_inbox',
   'last_sync', 'sync_error', 'sort_order', 'folder_mappings',
-  'signature', 'created_at', 'categorization_enabled', 'antispam_enabled',
+  'signature', 'signature_enabled', 'created_at', 'categorization_enabled', 'antispam_enabled',
   'trusted_authserv_id', 'auto_cc_addresses', 'auto_bcc_addresses',
 ];
 // Columns PUT /:id may write. The settings form sends back what GET returned, so every
 // non-secret one must be in SAFE_FIELDS or saving an unrelated edit would write it as empty.
-export const ACCOUNT_UPDATE_FIELDS = ['name', 'sender_name', 'color', 'enabled', 'include_in_unified_inbox', 'auth_user', 'auth_pass', 'sort_order', 'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify', 'smtp_host', 'smtp_port', 'smtp_tls', 'smtp_auth_user', 'smtp_auth_pass', 'folder_mappings', 'signature', 'categorization_enabled', 'antispam_enabled', 'trusted_authserv_id', 'auto_cc_addresses', 'auto_bcc_addresses'];
+export const ACCOUNT_UPDATE_FIELDS = ['name', 'sender_name', 'color', 'enabled', 'include_in_unified_inbox', 'auth_user', 'auth_pass', 'sort_order', 'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify', 'smtp_host', 'smtp_port', 'smtp_tls', 'smtp_auth_user', 'smtp_auth_pass', 'folder_mappings', 'signature', 'signature_enabled', 'categorization_enabled', 'antispam_enabled', 'trusted_authserv_id', 'auto_cc_addresses', 'auto_bcc_addresses'];
 function safeAccount(row) {
   const obj = Object.fromEntries(SAFE_FIELDS.map(k => [k, row[k]]));
   // Sanitize on read so legacy values stored before the write-time sanitizer are safe
@@ -115,10 +115,11 @@ router.post('/', async (req, res) => {
     smtp_host, smtp_port = 587, smtp_tls = 'STARTTLS',
     auth_user, auth_pass, smtp_auth_user = null, smtp_auth_pass = null,
     oauth_provider, oauth_access_token, oauth_refresh_token,
-    signature = null
+    signature = null, signature_enabled = true
   } = req.body;
 
   if (!name || !email_address) return res.status(400).json({ error: 'Name and email required' });
+  if (typeof signature_enabled !== 'boolean') return res.status(400).json({ error: 'signature_enabled must be a boolean' });
   if (hasHeaderInjectionChars(name) || hasHeaderInjectionChars(email_address)) {
     return res.status(400).json({ error: 'Name and email address cannot contain control characters' });
   }
@@ -145,15 +146,15 @@ router.post('/', async (req, res) => {
         user_id, name, sender_name, email_address, color, protocol,
         imap_host, imap_port, imap_tls, imap_skip_tls_verify, smtp_host, smtp_port, smtp_tls,
         auth_user, auth_pass, smtp_auth_user, smtp_auth_pass, oauth_provider, oauth_access_token, oauth_refresh_token,
-        signature
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+        signature, signature_enabled
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
       RETURNING *
     `, [
       req.session.userId, name, sender_name || null, email_address, color, protocol,
       imap_host, imap_port, Number(imap_port) % 1000 === 993, !!imap_skip_tls_verify, smtp_host, smtp_port, smtp_tls,
       auth_user, encrypt(auth_pass), smtp_auth_user || null, encrypt(smtp_auth_pass) || null,
       oauth_provider, encrypt(oauth_access_token), encrypt(oauth_refresh_token),
-      sanitizeSignature(signature) || null
+      sanitizeSignature(signature) || null, signature_enabled !== false
     ]);
 
     const account = result.rows[0];
@@ -183,6 +184,9 @@ router.put('/:id', async (req, res) => {
   }
   if ('sender_name' in updates && updates.sender_name && hasHeaderInjectionChars(updates.sender_name)) {
     return res.status(400).json({ error: 'Sender name cannot contain control characters' });
+  }
+  if ('signature_enabled' in updates && typeof updates.signature_enabled !== 'boolean') {
+    return res.status(400).json({ error: 'signature_enabled must be a boolean' });
   }
   const policy = await getConnectionPolicy();
 

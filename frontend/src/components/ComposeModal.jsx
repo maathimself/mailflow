@@ -22,6 +22,7 @@ import { copyToClipboard } from '../utils/clipboard.js';
 import { resolveInitialFrom } from '../utils/defaultSender.js';
 import { initialComposeFocus, isComposeSendShortcut } from '../utils/composeFromMessage.js';
 import { autoListsOf, openAutoRecipients, replyTypeFields, swapAccountFields } from '../utils/autoRecipients.js';
+import { resolveSignatureEnabled } from '../utils/composeSignature.js';
 
 // Resize an image blob/file to max maxW pixels wide, preserving aspect ratio.
 // Returns a Promise<string> of a base64 data URL.
@@ -335,11 +336,34 @@ export default function ComposeModal() {
   customSizeRef.current = customSize;
 
   const [plainSig, setPlainSig] = useState(() => fromSignature ? stripHtml(fromSignature) : '');
+  const [signatureEnabled, setSignatureEnabled] = useState(() => resolveSignatureEnabled(fromAccount, composeData?.signature));
+  const initialSignatureEnabledRef = useRef(signatureEnabled);
+  const signatureDefaultFromRef = useRef(fromValue);
+  const signatureDefaultInitializedRef = useRef(!!fromAccount);
+  const signatureToggledRef = useRef(false);
   // Tracks the user's current (possibly edited) rich-text signature; kept current by onInput.
   const signatureContentRef = useRef('');
+  const attachSignatureEditor = useCallback(node => {
+    signatureRef.current = node;
+    if (node) node.innerHTML = signatureContentRef.current;
+  }, []);
   // Prevents the signature from being reset by a store refresh (same fromValue, accounts updated).
   const signatureInitializedRef = useRef(false);
   const prevFromValueRef = useRef(fromValue);
+
+  useLayoutEffect(() => {
+    if (!fromAccount) return;
+    const changed = signatureDefaultFromRef.current !== fromValue;
+    if (!changed && signatureDefaultInitializedRef.current) return;
+    signatureDefaultFromRef.current = fromValue;
+    signatureDefaultInitializedRef.current = true;
+    if (!changed && signatureToggledRef.current) return;
+    const next = resolveSignatureEnabled(fromAccount, changed ? undefined : composeData?.signature);
+    if (draftUid == null && signatureEnabled === initialSignatureEnabledRef.current) {
+      initialSignatureEnabledRef.current = next;
+    }
+    setSignatureEnabled(next);
+  }, [fromValue, fromAccount, composeData?.signature, draftUid, signatureEnabled]);
 
   // Edit/save timestamps driving the autosave rule. Refs, not state: they are written from the
   // editor's onUpdate on every keystroke and must never cause a render. Both are seeded at mount
@@ -637,10 +661,10 @@ export default function ComposeModal() {
     // identity afterwards still swaps in that account's signature. See utils/draftSignature.js.
     if (!signatureInitializedRef.current && !fromValueChanged && composeData?.signature !== undefined) {
       signatureInitializedRef.current = true;
-      const draftSig = DOMPurify.sanitize(composeData.signature);
+      const draftSig = DOMPurify.sanitize(composeData.signature || fromSignature || '');
       if (signatureRef.current) signatureRef.current.innerHTML = draftSig;
       signatureContentRef.current = draftSig;
-      setPlainSig(stripHtml(composeData.signature));
+      setPlainSig(stripHtml(draftSig));
       return;
     }
     if (!signatureInitializedRef.current && fromSignature != null) {
@@ -827,8 +851,8 @@ export default function ComposeModal() {
         ...(!plaintextEmail && (quotedBodyHtml != null || quotedHtmlRef.current)
           ? { quotedBodyHtml: quotedHtmlRef.current ? quotedHtmlRef.current.innerHTML : quotedBodyHtml }
           : {}),
-        ...(signatureContentRef.current || fromSignature != null
-          ? { editedSignature: plaintextEmail ? plainSig : signatureContentRef.current }
+        ...(!signatureEnabled || signatureContentRef.current || fromSignature != null
+          ? { editedSignature: signatureEnabled ? (plaintextEmail ? plainSig : signatureContentRef.current) : '' }
           : {}),
         inReplyTo: composeData?.inReplyTo,
         references: composeData?.references || undefined,
@@ -910,6 +934,7 @@ export default function ComposeModal() {
       ccInput.trim() !== '' ||
       normalizeTo(bccChips) !== initialBccRef.current ||
       bccInput.trim() !== '' ||
+      signatureEnabled !== initialSignatureEnabledRef.current ||
       attachments.length + fwdAttachments.length !== savedAttachmentCountRef.current
     );
   };
@@ -933,8 +958,8 @@ export default function ComposeModal() {
         ...(!plaintextEmail && (quotedBodyHtml != null || quotedHtmlRef.current)
           ? { quotedBodyHtml: quotedHtmlRef.current ? quotedHtmlRef.current.innerHTML : quotedBodyHtml }
           : {}),
-        ...(signatureContentRef.current || fromSignature != null
-          ? { editedSignature: plaintextEmail ? plainSig : signatureContentRef.current }
+        ...(!signatureEnabled || signatureContentRef.current || fromSignature != null
+          ? { editedSignature: signatureEnabled ? (plaintextEmail ? plainSig : signatureContentRef.current) : '' }
           : {}),
         // The old copy stays in the account it was saved to, which From may no longer name.
         ...(draftUid != null && draftFolder != null && draftAccountId
@@ -971,6 +996,7 @@ export default function ComposeModal() {
         initialCcRef.current = normalizeTo([...ccChips, ...(pendingCc ? [pendingCc] : [])]);
         initialBccRef.current = normalizeTo([...bccChips, ...(pendingBcc ? [pendingBcc] : [])]);
         savedAttachmentCountRef.current = attachments.length + fwdAttachments.length;
+        initialSignatureEnabledRef.current = signatureEnabled;
         // Autosave passes silent: a toast every interval would be noise, not information.
         if (!silent) addNotification({ title: t('compose.draftSaved'), body: subject || t('common.noSubject') });
       }
@@ -1010,7 +1036,7 @@ export default function ComposeModal() {
     if (!mountedRef.current) { mountedRef.current = true; return; }
     lastEditAtRef.current = Date.now();
   }, [subject, toChips, ccChips, bccChips, toInput, ccInput, bccInput, body, htmlSource,
-      attachments, fwdAttachments, plaintextEmail, htmlMode]);
+      attachments, fwdAttachments, plaintextEmail, htmlMode, signatureEnabled]);
 
   // Single save path shared by the timer and the tab-hidden handler, so the guards can never
   // drift apart between the two triggers.
@@ -1116,13 +1142,50 @@ export default function ComposeModal() {
     />
   ) : (
     <div
-      ref={signatureRef}
+      ref={attachSignatureEditor}
       contentEditable
       suppressContentEditableWarning
       spellCheck={false}
       onInput={() => { signatureContentRef.current = signatureRef.current?.innerHTML || ''; }}
       style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, outline: 'none' }}
     />
+  );
+
+  const renderSignatureToggle = () => fromSignature || signatureContentRef.current ? (
+    <button type="button"
+      title={t('compose.insertSignature')}
+      aria-label={t('compose.insertSignature')}
+      aria-pressed={signatureEnabled}
+      disabled={sending}
+      onClick={() => { signatureToggledRef.current = true; setSignatureEnabled(value => !value); }}
+      style={{
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        padding: isMobile ? '6px 4px' : '3px 6px', border: 'none', borderRadius: 4,
+        background: signatureEnabled ? 'var(--bg-hover)' : 'none',
+        color: signatureEnabled ? 'var(--accent)' : 'var(--text-secondary)',
+        cursor: sending ? 'default' : 'pointer', flex: isMobile ? 1 : undefined,
+        WebkitTapHighlightColor: 'transparent',
+      }}>
+      <svg width={isMobile ? 16 : 13} height={isMobile ? 16 : 13} viewBox="0 0 24 24"
+        fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+        <path d="M6 16c2-6 3-8 4-8s-2 8 0 8c1 0 2-4 3-4s0 3 2 3l3-1" />
+      </svg>
+    </button>
+  ) : null;
+
+  const renderPlainControls = () => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '4px 10px', borderBottom: '1px solid var(--border-subtle)' }}>
+      <button type="button" title={t('compose.toolbar.attachFile')}
+        onClick={() => fileInputRef.current?.click()}
+        style={{ background: 'none', border: 'none', borderRadius: 4, padding: isMobile ? '6px 4px' : '3px 6px',
+          color: 'var(--text-secondary)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', flex: isMobile ? 1 : undefined }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+          <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
+        </svg>
+      </button>
+      {renderSignatureToggle()}
+    </div>
   );
 
   const modeLabel = isReply
@@ -1419,6 +1482,7 @@ export default function ComposeModal() {
           </div>
 
           {/* Body */}
+          {plaintextEmail && renderPlainControls()}
           {plaintextEmail ? (
             <textarea
               ref={textareaRef}
@@ -1439,6 +1503,7 @@ export default function ComposeModal() {
           ) : (
             <div className="tiptap-compose" style={{ flex: '1 0 auto', minHeight: 200, display: 'flex', flexDirection: 'column' }}>
               <RichToolbar editor={editor} onAttach={() => fileInputRef.current?.click()}
+                signatureControl={renderSignatureToggle()}
                 htmlMode={htmlMode}
                 onToggleHtml={() => {
                   if (!htmlMode) { setHtmlSource(editor?.getHTML() ?? ''); setHtmlMode(true); }
@@ -1502,8 +1567,8 @@ export default function ComposeModal() {
           )}
 
           {/* Signature */}
-          {fromSignature && (
-            <div style={{ padding: '0 16px 12px' }}>
+          {(fromSignature || signatureContentRef.current) && (
+            <div style={{ padding: '0 16px 12px', display: signatureEnabled ? undefined : 'none' }}>
               <div style={{ fontSize: 11, color: 'var(--text-tertiary)', margin: '8px 0 6px', userSelect: 'none' }}>
                 -- signature
               </div>
@@ -2063,7 +2128,9 @@ export default function ComposeModal() {
       </div>
 
       {/* Toolbar — sits outside overflow container so dropdowns are never clipped */}
+      {plaintextEmail && renderPlainControls()}
       {!plaintextEmail && <RichToolbar editor={editor} onAttach={() => fileInputRef.current?.click()} onInsertImage={() => imageInputRef.current?.click()}
+        signatureControl={renderSignatureToggle()}
         htmlMode={htmlMode}
         onToggleHtml={() => {
           if (!htmlMode) { setHtmlSource(editor?.getHTML() ?? ''); setHtmlMode(true); }
@@ -2153,8 +2220,8 @@ export default function ComposeModal() {
           </div>
         )}
 
-        {fromSignature ? (
-          <div style={{ padding: '0 14px 10px' }}>
+        {fromSignature || signatureContentRef.current ? (
+          <div style={{ padding: '0 14px 10px', display: signatureEnabled ? undefined : 'none' }}>
             <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 6, userSelect: 'none' }}>
               -- signature
             </div>
@@ -2201,7 +2268,7 @@ export default function ComposeModal() {
       {/* Footer */}
       <div style={{
         padding: '10px 14px', borderTop: '1px solid var(--border-subtle)',
-        display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0,
+        display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, flexWrap: 'wrap',
       }}>
         <button
           onClick={handleSend}
@@ -2220,22 +2287,6 @@ export default function ComposeModal() {
           {sending ? sendSpinner : sendIcon}
           {sending ? t('compose.sending') : t('compose.send')}
         </button>
-
-        {plaintextEmail && (
-          <button
-            type="button"
-            title={t('compose.toolbar.attachFile')}
-            onClick={() => fileInputRef.current?.click()}
-            style={{
-              background: 'none', border: 'none', borderRadius: 5, padding: '4px 8px',
-              color: 'var(--text-tertiary)', cursor: 'pointer', display: 'flex', alignItems: 'center',
-            }}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
-            </svg>
-          </button>
-        )}
 
         {error && <span style={{ fontSize: 12, color: 'var(--red)', flex: 1 }}>{error}</span>}
 
@@ -2604,7 +2655,7 @@ function ColorMenuSection({ title, colors, activeColor, onColor, onClear, clearL
   );
 }
 
-function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, isMobile, aiEnabled, onAiAction, aiPanelOpen }) {
+function RichToolbar({ editor, onAttach, onInsertImage, signatureControl, htmlMode, onToggleHtml, isMobile, aiEnabled, onAiAction, aiPanelOpen }) {
   const { t } = useTranslation();
   const uiScale = useUiScale();
   const savedSelectionRef = useRef(null);
@@ -2824,6 +2875,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
               style={{ background: es.link ? 'var(--bg-hover)' : 'none', border: 'none', borderRadius: 4, padding: '6px 4px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 1, color: es.link ? 'var(--accent)' : 'var(--text-secondary)', WebkitTapHighlightColor: 'transparent' }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
             </button>
+            {signatureControl}
             {aiEnabled && (
               <button ref={aiBtnRef} title={t('compose.toolbar.aiAssist')} onMouseDown={e => {
                 e.preventDefault();
@@ -2948,6 +3000,8 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
             <rect x="3" y="3" width="18" height="18" rx="1"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/>
           </svg>
         </button>
+
+        {signatureControl}
 
         {aiEnabled && (
           <>

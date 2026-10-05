@@ -81,7 +81,8 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
     // data-mailflow-signature marks the block so reopening this draft can lift the signature
     // back out instead of leaving it in the body and appending a second one. Without it every
     // save/reopen cycle added another copy (#432). Other clients ignore the attribute.
-    (effectiveSignature ? `<div data-mailflow-signature="1" style="margin-top:16px;color:#555;font-size:13px">${effectiveSignature}</div>` : '') +
+    (effectiveSignature ? `<div data-mailflow-signature="1" style="margin-top:16px;color:#555;font-size:13px">${effectiveSignature}</div>`
+      : editedSignature !== undefined ? '<div data-mailflow-signature="1"></div>' : '') +
     (quotedBodyHtml || (quotedBody ? textToHtml(quotedBody) : ''));
   const { html: draftHtml, attachments: inlineImageAttachments } = embedInlineDataImages(rawHtml);
 
