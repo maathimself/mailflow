@@ -75,6 +75,7 @@ function harness({ statuses = [], cancelResult, restoreOpens = true, ownerChange
     },
     cancel: async () => {
       calls.cancel++;
+      if (typeof cancelResult === 'function') return cancelResult();
       if (cancelResult instanceof Error) throw cancelResult;
       return cancelResult;
     },
@@ -218,6 +219,27 @@ describe('trackHeldSend', () => {
     assert.equal(h.calls.cancel, 0);
     assert.deepEqual(h.calls.restored, []);
     assert.deepEqual(h.calls.notes, []);
+  });
+
+  test('a sign-out while the cancel is on its way leaves the next user nothing to see', async () => {
+    const answers = [{ cancelled: false, status: 'sending' }, { cancelled: false, status: 'sent' }, new Error('offline')];
+    for (const answer of answers) {
+      const ownerChange = {};
+      let reply;
+      const h = harness({
+        ownerChange,
+        cancelResult: () => new Promise((resolve, reject) => {
+          reply = () => (answer instanceof Error ? reject(answer) : resolve(answer));
+        }),
+      });
+      const undoing = h.undo();
+      ownerChange.stop(); // signed out before the server answered
+      reply();
+      await undoing;
+      assert.deepEqual(h.calls.notes, [], `no toast with the previous user's subject (${answer.message ?? answer.status})`);
+      assert.deepEqual(h.calls.restored, []);
+      assert.deepEqual(h.calls.sent, []);
+    }
   });
 
   test('an undo that cannot reach the server says so, and the send is still followed', async () => {

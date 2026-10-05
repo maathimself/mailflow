@@ -115,12 +115,16 @@ export function trackHeldSend({ pendingId, undoMs, subject }, { restore, onSent 
     undoing = true;
     try {
       const result = await cancel(pendingId);
+      // Settled while the cancel was on its way: by a sign-out, whose next user must not see
+      // this message's subject, or by the poll, which has already said what happened.
+      if (settled) return;
       if (result?.cancelled) { settle({ status: 'cancelled' }); return; }
       if (result?.status === 'sending' || result?.status === 'sent') {
         notify({ title: t('compose.undoSend.tooLate'), body: subject });
       }
       settle(result);
     } catch {
+      if (settled) return;
       notify({ type: 'error', title: t('compose.undoSend.undoFailed'), body: subject });
     } finally {
       undoing = false;
