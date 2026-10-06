@@ -10,6 +10,7 @@ import 'dotenv/config';
 import { redisClient } from './services/redis.js';
 import { parseTrustProxyHops } from './utils/trustProxy.js';
 import { buildSessionOptions } from './utils/sessionConfig.js';
+import { mountBodyParsers } from './middleware/bodyParsers.js';
 
 import sendRoutes from './routes/send.js';
 import draftRoutes from './routes/draft.js';
@@ -130,20 +131,9 @@ app.use((req, res, next) => {
   res.setHeader('Referrer-Policy', 'same-origin');
   next();
 });
-// 25 MB attachment limit → ~34 MB base64 on the wire; add headroom for the rest of the payload.
-app.use('/api/mail/send', express.json({ limit: '35mb' }));
-app.use('/api/mail/draft', express.json({ limit: '35mb' }));
-// A pet-import body carries a base64 spritesheet (~33% larger than the 5 MB sheet cap
-// enforced after decode in gtdPet.importPet), so it needs more than the global 1 MB.
-app.use('/api/gtd/pet/import', express.json({ limit: '8mb' }));
-app.use(express.json({ limit: '1mb' }));
-// Return a clean JSON error when the body parser rejects an oversized payload.
-app.use((err, req, res, next) => {
-  if (err.type === 'entity.too.large') {
-    return res.status(413).json({ error: 'Request too large. Total attachment size must not exceed 25 MB.' });
-  }
-  next(err);
-});
+// Body parsers live in middleware/bodyParsers.js so they can be exercised by tests. The larger
+// limits are for signed-in requests only, so those paths load the session there first.
+mountBodyParsers(app, sessionMiddleware);
 app.use(sessionMiddleware);
 
 // CSRF defense-in-depth for the cookie-authenticated /api surface. A mutating

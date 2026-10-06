@@ -112,6 +112,21 @@ function getMessageBody(id, remoteImages = false) {
   return promise;
 }
 
+// Sign-out must not hang here: getRegistration(), not serviceWorker.ready, because ready
+// never settles when the worker failed to register; and unsubscribe() is not awaited,
+// because it can wait on the push service.
+async function endPushSubscription() {
+  let sub;
+  try {
+    const reg = await navigator.serviceWorker?.getRegistration();
+    sub = await reg?.pushManager?.getSubscription();
+  } catch {
+    return null;
+  }
+  sub?.unsubscribe().catch(() => {});
+  return sub?.endpoint ?? null;
+}
+
 export const api = {
   get: (path) => request('GET', path),
   post: (path, body, extraHeaders) => request('POST', path, body, extraHeaders),
@@ -122,7 +137,12 @@ export const api = {
   // Auth
   login: (username, password) => request('POST', '/auth/login', { username, password }),
   register: (username, password, inviteToken) => request('POST', '/auth/register', { username, password, inviteToken }),
-  logout: () => request('POST', '/auth/logout'),
+  // A push subscription outlives the session, so sign-out ends this browser's and names
+  // its endpoint for the server to delete.
+  logout: async () => {
+    const pushEndpoint = await endPushSubscription();
+    return request('POST', '/auth/logout', pushEndpoint ? { pushEndpoint } : undefined);
+  },
   lock: () => request('POST', '/auth/lock'),
   unlock: async (pin) => {
     // Custom (not request()) so we can read the lockout flag on failure: after too many
@@ -136,6 +156,10 @@ export const api = {
     const data = await res.json().catch(() => ({}));
     if (res.ok) return data;
     if (data.signedOut) {
+      // A lockout signs out without api.logout(), and the session is already gone, so only
+      // the browser's subscription can be ended here. Once it is, the push service answers
+      // the next send with 404/410, which prunes the row.
+      await endPushSubscription();
       window.dispatchEvent(new CustomEvent('mailflow:session_expired'));
       const e = new Error('signed_out'); e.signedOut = true; throw e;
     }
