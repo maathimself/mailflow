@@ -164,7 +164,7 @@ test('sidebar hover routes Todo, Watch, and archive shortcuts to that row withou
   }
 });
 
-test('selected sidebar row keeps its selected fill while hovered', async () => {
+test('selected sidebar row keeps its inbox selected fill while hovered', async () => {
   const container = document.getElementById('root');
   const root = createRoot(container);
   await React.act(async () => {
@@ -181,14 +181,15 @@ test('selected sidebar row keeps its selected fill while hovered', async () => {
 
   const row = container.firstElementChild;
   try {
+    assert.equal(row.style.background, 'var(--accent-glow)');
     await React.act(async () => {
       row.dispatchEvent(new dom.window.MouseEvent('mouseover', { bubbles: true, relatedTarget: document.body }));
     });
-    assert.equal(row.style.background, 'var(--bg-tertiary)');
+    assert.equal(row.style.background, 'var(--accent-glow)');
     await React.act(async () => {
       row.dispatchEvent(new dom.window.MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body }));
     });
-    assert.equal(row.style.background, 'var(--bg-tertiary)');
+    assert.equal(row.style.background, 'var(--accent-glow)');
   } finally {
     await React.act(async () => root.unmount());
   }

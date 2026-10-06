@@ -54,6 +54,7 @@ export default function GtdEntryRow({
   const v = ROW_VARIANTS[variant];
   const isWaiting = sectionKey === 'waiting';
   const hoverBackground = variant === 'sidebar' ? 'var(--bg-tertiary)' : 'var(--bg-hover)';
+  const selectedBackground = variant === 'sidebar' ? 'var(--accent-glow)' : 'var(--bg-tertiary)';
   const { rowState, unread, days, stale, sender } = resolveRowDisplay(thread, sectionKey);
 
   // The hover cluster renders only when the caller passes renderHoverActions — both
@@ -80,7 +81,7 @@ export default function GtdEntryRow({
         ...(trackHover ? { position: 'relative' } : {}),
         padding: v.padding, borderBottom: v.borderBottom,
         cursor: 'pointer', borderLeft: `2px solid ${GTD_COLORS[rowState] || 'transparent'}`,
-        background: selected ? 'var(--bg-tertiary)' : 'transparent',
+        background: selected ? selectedBackground : 'transparent',
       }}
       onMouseEnter={e => {
         if (trackHover) setHovered(true);
