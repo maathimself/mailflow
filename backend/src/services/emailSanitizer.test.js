@@ -12,6 +12,25 @@ import {
 
 // ── stripEmailHead ─────────────────────────────────────────────────────────
 
+describe('draft signature sanitization', () => {
+  it('keeps only the safe div signature marker when requested for draft composition', () => {
+    const html = '<p>Reply</p><div data-mailflow-signature="1" onclick="alert(1)"><strong>Thanks</strong><img src="javascript:alert(2)" onerror="alert(3)"><script>alert(4)</script></div><span data-mailflow-signature="1">Quoted</span>';
+    const sanitized = sanitizeEmail(html, { preserveDraftSignature: true });
+    expect(sanitized).toContain('<div data-mailflow-signature="1">');
+    expect(sanitized).toContain('<strong>Thanks</strong>');
+    expect(sanitized.match(/data-mailflow-signature/g)).toHaveLength(1);
+    expect(sanitized).not.toMatch(/onclick|onerror|javascript:|<script|alert\(4\)/i);
+    expect(sanitizeEmail(html)).not.toContain('data-mailflow-signature');
+  });
+
+  it('strips global CSS from composer-bound signatures while retaining ordinary email styles', () => {
+    const html = '<div data-mailflow-signature="1"><p>Thanks</p><style>body button{display:none!important}</style></div>';
+    const sanitized = sanitizeEmail(html, { preserveDraftSignature: true });
+    expect(sanitized).toBe('<div data-mailflow-signature="1"><p>Thanks</p></div>');
+    expect(sanitizeEmail(html)).toContain('<style>body button{display:none!important}</style>');
+  });
+});
+
 describe('stripEmailHead', () => {
   it('removes <head> and its text content', () => {
     const html = '<html><head><title>Newsletter</title></head><body>Hello</body></html>';

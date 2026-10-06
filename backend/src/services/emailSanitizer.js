@@ -326,7 +326,7 @@ function stripDarkModeStyleBlocks(html) {
 }
 
 // Sanitize HTML email body — permissive but safe.
-export function sanitizeEmail(html) {
+export function sanitizeEmail(html, { preserveDraftSignature = false } = {}) {
   const sanitized = sanitizeHtml(stripEmailHead(html), {
     allowVulnerableTags: true,
     allowedTags: [
@@ -338,9 +338,12 @@ export function sanitizeEmail(html) {
       'strong','b','em','i','u','s','del','ins','sub','sup','small','big',
       'blockquote','pre','code','tt','kbd','samp',
       'center','font','strike',
-      'style',
+      // A lifted draft signature is inserted into the app DOM, where a stylesheet
+      // can affect the whole application rather than an isolated email iframe.
+      ...(preserveDraftSignature ? [] : ['style']),
     ],
     allowedAttributes: {
+      ...(preserveDraftSignature ? { div: ['data-mailflow-signature'] } : {}),
       '*': ['style', 'class', 'id', 'align', 'valign', 'width', 'height',
              'bgcolor', 'color', 'border', 'cellpadding', 'cellspacing',
              'colspan', 'rowspan', 'nowrap', 'dir', 'lang',

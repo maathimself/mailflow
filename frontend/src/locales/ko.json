@@ -94,6 +94,7 @@
     }
   },
   "compose": {
+    "unsupportedDraftFrom": "이 초안을 저장하거나 보내기 전에 설정된 발신자를 선택하세요.",
     "newMessage": "새 메일",
     "reply": "답장",
     "replyAll": "전체 답장",
@@ -313,6 +314,12 @@
     }
   },
   "messageList": {
+    "replyDraftChanged": "답장 초안이 변경되었습니다. 다시 열어 보세요.",
+    "replyDraftKeepCurrent": "이 초안을 열기 전에 현재 메시지를 저장하고 첨부 파일을 확인하세요.",
+    "replyDraftUnavailable": "이 답장 초안은 더 이상 사용할 수 없습니다.",
+    "replyDraftRetry": "답장 초안 다시 찾기",
+    "openReplyDraft": "답장 초안 열기",
+    "replyDraft": "답장 초안",
     "search": "검색…",
     "unread": "읽지 않음",
     "showAll": "모두 표시",
@@ -998,6 +1005,7 @@
       "typographyDescription": "인터페이스에 대한 글꼴 페어링 선택"
     },
     "messageList": {
+      "autoOpenReplyDrafts": "받은편지함 메시지를 선택할 때 저장된 답장 자동으로 열기",
       "senderFaviconsDesc": "연락처 사진이 없는 발신자의 웹사이트 아이콘을 표시합니다. 전체 이메일 주소가 아닌 발신자의 도메인만 Twenty Icons로 전송됩니다.",
       "title": "메시지 목록",
       "senderFavicons": "발신자 파비콘",

@@ -249,6 +249,7 @@ export const useStore = create((set, get) => ({
         messagesOffset: 0,
         hasMoreMessages: true,
         messagesRefreshToken: state.messagesRefreshToken + 1,
+        replyDrafts: {}, replyDraftRevision: state.replyDraftRevision + 1,
         expandedThreadId: null,
         threadMessages: {},
         showContacts: false,
@@ -460,18 +461,55 @@ export const useStore = create((set, get) => ({
     }
     set({ customSoundDataUrl: dataUrl });
   },
+  replyDrafts: {},
+  replyDraftRevision: 0,
+  invalidateReplyDrafts: () => set(state => ({ replyDrafts: {}, replyDraftRevision: state.replyDraftRevision + 1 })),
+  setReplyDraftStatus: (id, status, source, revision) => set(state => {
+    if (revision !== undefined && revision !== state.replyDraftRevision) return {};
+    if (source === 'cached' && state.replyDrafts[id]?.source === 'live') return {};
+    return { replyDrafts: { ...state.replyDrafts, [id]: { ...status, source } } };
+  }),
+  autoOpenReplyDrafts: localStorage.getItem('mailflow_auto_open_reply_drafts') === 'true',
+  setAutoOpenReplyDrafts: value => {
+    localStorage.setItem('mailflow_auto_open_reply_drafts', String(Boolean(value)));
+    set({ autoOpenReplyDrafts: Boolean(value) });
+    schedulePrefSave({ autoOpenReplyDrafts: Boolean(value) });
+  },
   composing: false,
   composeData: null,
-  // Counts the times a composer was opened from closed. MailApp keys the composer on it, so one
-  // closed and another opened in the same render (undo send reopening a message as the one being
-  // written is sent) mounts fresh instead of keeping the closed one's state.
   composeSession: 0,
-  openCompose: (data = null) => set(state => ({
-    composing: true,
-    composeData: data,
-    composeSession: state.composing ? state.composeSession : state.composeSession + 1,
-  })),
-  closeCompose: () => set({ composing: false, composeData: null }),
+  prepareComposeSwitch: null,
+  setPrepareComposeSwitch: prepare => set({ prepareComposeSwitch: prepare }),
+  updateComposePersistedKey: (session, persistedKey) => set(state =>
+    state.composing && state.composeSession === session
+      ? { composeData: { ...state.composeData, persistedKey } } : {}),
+  openCompose: (data = null, { preparedSession } = {}) => {
+    const initial = get();
+    if (initial.composing && data?.persistedKey && data.persistedKey === initial.composeData?.persistedKey) return true;
+    const replace = () => {
+      set(state => ({ composing: true, composeSession: state.composeSession + 1, composeData: data, prepareComposeSwitch: null }));
+      return true;
+    };
+    if (preparedSession !== undefined && preparedSession !== initial.composeSession) return false;
+    // Reply-draft opening already saved this exact editor and revalidated its target.
+    if (!initial.composing || preparedSession === initial.composeSession) return replace();
+    // Every ordinary Compose/Reply/draft-list entry point shares this guard. A
+    // composer still mounting cannot yet prove that its content is safe to replace.
+    if (!initial.prepareComposeSwitch) return false;
+    let ownerChanged = false;
+    const unsubscribe = useStore.subscribe(state => { if (state.user?.id !== initial.user?.id) ownerChanged = true; });
+    return (async () => {
+      try {
+        if (!(await initial.prepareComposeSwitch())) return false;
+        const state = get();
+        if (ownerChanged || state.user?.id !== initial.user?.id || !state.composing
+          || state.composeSession !== initial.composeSession || state.prepareComposeSwitch !== initial.prepareComposeSwitch) return false;
+        return replace();
+      } catch { return false; }
+      finally { unsubscribe(); }
+    })();
+  },
+  closeCompose: () => set({ composing: false, composeData: null, prepareComposeSwitch: null }),
 
   // Detached message windows (#219): floating, draggable/resizable in-app windows
   // that each show one message via a MessagePane instance. Desktop-only; mounted by
@@ -527,7 +565,8 @@ export const useStore = create((set, get) => ({
   })),
   closeAllMessageWindows: () => set({ messageWindows: [] }),
   searchQuery: '',
-  setSearchQuery: (q) => set({ searchQuery: q }),
+  setSearchQuery: (q) => set(state => q === state.searchQuery ? {} : { searchQuery: q,
+    replyDrafts: {}, replyDraftRevision: state.replyDraftRevision + 1 }),
   isSearching: false,
   setIsSearching: (v) => set({ isSearching: v }),
   searchResults: [],
@@ -600,7 +639,8 @@ export const useStore = create((set, get) => ({
     if (!next) return;
     localStorage.setItem('mailflow_conversation_mode', next.conversationMode);
     localStorage.setItem('mailflow_threaded_view', String(groupsMessageList(next.conversationMode)));
-    set({ ...next, threadedView: groupsMessageList(next.conversationMode) });
+    set(state => ({ ...next, threadedView: groupsMessageList(next.conversationMode),
+      replyDrafts: {}, replyDraftRevision: state.replyDraftRevision + 1 }));
     schedulePrefSave({ conversationMode: next.conversationMode, threadedView: groupsMessageList(next.conversationMode) });
   },
   setThreadedView: (val) => {
@@ -1117,6 +1157,10 @@ export const useStore = create((set, get) => ({
           ? undefined
           : (Number(localStorage.getItem('mailflow_list_width')) || undefined);
         applyLayout(clean, savedListWidth);
+      }
+      if (typeof prefs.autoOpenReplyDrafts === 'boolean') {
+        localStorage.setItem('mailflow_auto_open_reply_drafts', String(prefs.autoOpenReplyDrafts));
+        set({ autoOpenReplyDrafts: prefs.autoOpenReplyDrafts });
       }
       if (prefs.notificationSound) {
         localStorage.setItem('mailflow_notification_sound', prefs.notificationSound);
